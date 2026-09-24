@@ -328,6 +328,7 @@ impl Dispatcher {
                     &mut lhs,
                     &mut rhs,
                     *option::LINK_BUFFER_SIZE * 1024,
+                    (*option::LINK_BUFFER_MAX_SIZE).max(*option::LINK_BUFFER_SIZE) * 1024,
                     Duration::from_secs(*option::TCP_UPLINK_TIMEOUT),
                     Duration::from_secs(*option::TCP_DOWNLINK_TIMEOUT),
                 )

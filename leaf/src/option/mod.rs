@@ -215,9 +215,17 @@ lazy_static! {
         get_env_bool("WS_HALF_CLOSE", false)
     };
 
-    /// Buffer size for uplink and downlink connections, in KB.
+    /// Initial buffer size for uplink and downlink connections, in KB. Buffers
+    /// are pooled and only held while data is in flight, so idle connections
+    /// don't pay for it.
     pub static ref LINK_BUFFER_SIZE: usize = {
-        get_env_var_or("LINK_BUFFER_SIZE", 2)
+        get_env_var_or("LINK_BUFFER_SIZE", 16)
+    };
+
+    /// Largest buffer a bulk transfer grows to, in KB. Set it equal to
+    /// LINK_BUFFER_SIZE to disable growing.
+    pub static ref LINK_BUFFER_MAX_SIZE: usize = {
+        get_env_var_or("LINK_BUFFER_MAX_SIZE", 128)
     };
 
     pub static ref NETSTACK_OUTPUT_CHANNEL_SIZE: usize = {
