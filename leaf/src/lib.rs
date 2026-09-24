@@ -391,12 +391,14 @@ pub fn check_config(config: &config::Config) -> anyhow::Result<()> {
     let _g = rt.enter();
     let dns_client = Arc::new(RwLock::new(DnsClient::new(&config.dns)?));
     OutboundManager::new(&config.outbounds, dns_client.clone())?;
+    let mut inbounds = HashMap::new();
     adapter::registry::build_inbounds(
         &include::INBOUNDS,
         &config.inbounds,
         include::LISTENER_INBOUNDS,
-        &mut HashMap::new(),
+        &mut inbounds,
     )?;
+    app::inbound::manager::plan_listeners(&config.inbounds, &inbounds)?;
     #[cfg(feature = "inbound-tun")]
     for inbound in config.inbounds.iter().filter(|i| i.protocol == "tun") {
         protocol::tun::inbound::options(inbound)?;

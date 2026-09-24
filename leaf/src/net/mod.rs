@@ -118,8 +118,22 @@ pub struct TcpListener {
 
 impl TcpListener {
     pub async fn bind(addr: &SocketAddr) -> io::Result<Self> {
+        Self::bind_now(addr)
+    }
+
+    /// Binds right away, so that a failure is known before anything starts.
+    /// Must be called from within a Tokio runtime.
+    pub fn bind_now(addr: &SocketAddr) -> io::Result<Self> {
+        let socket = Socket::new(Domain::for_address(*addr), Type::STREAM, None)?;
+        // As tokio's own bind does: lets a restarted process listen again
+        // while connections of the last one are still in TIME_WAIT.
+        #[cfg(not(windows))]
+        socket.set_reuse_address(true)?;
+        socket.bind(&(*addr).into())?;
+        socket.listen(1024)?;
+        socket.set_nonblocking(true)?;
         Ok(Self {
-            inner: tokio::net::TcpListener::bind(addr).await?,
+            inner: tokio::net::TcpListener::from_std(socket.into())?,
         })
     }
 

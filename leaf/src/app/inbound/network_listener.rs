@@ -3,7 +3,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 
 use futures::stream::StreamExt;
 use tokio::net::{TcpStream, UdpSocket};
@@ -213,12 +213,11 @@ async fn handle_inbound_tcp_stream(
 
 // Handle inbounds which listen on TCP.
 async fn handle_tcp_listen(
-    listen_addr: SocketAddr,
+    listener: crate::net::TcpListener,
     handler: AnyInboundHandler,
     dispatcher: Arc<Dispatcher>,
     nat_manager: Arc<NatManager>,
 ) -> io::Result<()> {
-    let listener = crate::net::TcpListener::bind(&listen_addr).await?;
     let listen_addr = listener.io().local_addr()?;
     info!("listening tcp {}", &listen_addr);
 
@@ -253,12 +252,11 @@ async fn handle_tcp_listen(
 
 // Handle inbounds which bind on UDP.
 async fn handle_udp_listen(
-    listen_addr: SocketAddr,
+    socket: UdpSocket,
     handler: AnyInboundHandler,
     dispatcher: Arc<Dispatcher>,
     nat_manager: Arc<NatManager>,
 ) -> io::Result<()> {
-    let socket = UdpSocket::bind(&listen_addr).await?;
     let listen_addr = socket.local_addr()?;
     info!("listening udp {}", &listen_addr);
 
@@ -280,51 +278,54 @@ async fn handle_udp_listen(
 }
 
 pub struct NetworkInboundListener {
-    pub address: String,
-    pub port: u16,
+    pub address: SocketAddr,
     pub handler: AnyInboundHandler,
     pub dispatcher: Arc<Dispatcher>,
     pub nat_manager: Arc<NatManager>,
 }
 
 impl NetworkInboundListener {
+    /// Binds every socket the inbound listens on, failing if any cannot be
+    /// bound, and returns the tasks that serve them. Must be called from
+    /// within a Tokio runtime.
     pub fn listen(&self) -> Result<Vec<Runner>> {
+        let tag = self.handler.tag();
+        let listen_addr = self.address;
+        let bind_failed = |network: &str, e: io::Error| {
+            anyhow!(
+                "[{}] inbound: listen {} {}: {}",
+                tag,
+                network,
+                listen_addr,
+                e
+            )
+        };
         let mut runners: Vec<Runner> = Vec::new();
-        let listen_addr = SocketAddr::new(self.address.parse()?, self.port);
-        // Check whether this inbound listens on TCP.
         if self.handler.stream().is_ok() {
-            let listen_addr_cloned = listen_addr;
-            let handler_cloned = self.handler.clone();
-            let dispatcher_cloned = self.dispatcher.clone();
-            let nat_manager_cloned = self.nat_manager.clone();
+            let listener = crate::net::TcpListener::bind_now(&listen_addr)
+                .map_err(|e| bind_failed("tcp", e))?;
+            let handler = self.handler.clone();
+            let dispatcher = self.dispatcher.clone();
+            let nat_manager = self.nat_manager.clone();
             runners.push(Box::pin(async move {
-                if let Err(e) = handle_tcp_listen(
-                    listen_addr_cloned,
-                    handler_cloned,
-                    dispatcher_cloned,
-                    nat_manager_cloned,
-                )
-                .await
+                if let Err(e) = handle_tcp_listen(listener, handler, dispatcher, nat_manager).await
                 {
                     warn!("handler tcp listen failed: {}", e);
                 }
             }));
         }
-        // Check whether this inbound binds on UDP.
         if self.handler.datagram().is_ok() {
-            let listen_addr_cloned = listen_addr;
-            let handler_cloned = self.handler.clone();
-            let dispatcher_cloned = self.dispatcher.clone();
-            let nat_manager_cloned = self.nat_manager.clone();
+            let socket = std::net::UdpSocket::bind(listen_addr)
+                .and_then(|socket| {
+                    socket.set_nonblocking(true)?;
+                    UdpSocket::from_std(socket)
+                })
+                .map_err(|e| bind_failed("udp", e))?;
+            let handler = self.handler.clone();
+            let dispatcher = self.dispatcher.clone();
+            let nat_manager = self.nat_manager.clone();
             runners.push(Box::pin(async move {
-                if let Err(e) = handle_udp_listen(
-                    listen_addr_cloned,
-                    handler_cloned,
-                    dispatcher_cloned,
-                    nat_manager_cloned,
-                )
-                .await
-                {
+                if let Err(e) = handle_udp_listen(socket, handler, dispatcher, nat_manager).await {
                     warn!("handler udp listen failed: {}", e);
                 }
             }));
