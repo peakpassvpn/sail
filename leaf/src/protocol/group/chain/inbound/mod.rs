@@ -1,5 +1,6 @@
-use std::{io, pin::Pin, time::Duration};
+use std::{io, pin::Pin, sync::Arc, time::Duration};
 
+use anyhow::Result;
 use futures::stream::{FuturesUnordered, Stream};
 use futures::{
     future::BoxFuture,
@@ -7,7 +8,10 @@ use futures::{
 };
 use tracing::debug;
 
+use crate::adapter::inbound::Handler;
+use crate::adapter::registry::{parse_settings, InboundContext, InboundFactory, InboundRegistry};
 use crate::adapter::*;
+use crate::config;
 
 mod datagram;
 mod fold;
@@ -105,6 +109,42 @@ impl Stream for Incoming {
             }
         }
     }
+}
+
+pub(crate) fn register(registry: &mut InboundRegistry) {
+    registry.register("chain", InboundFactory::composite(dependencies, build));
+}
+
+fn dependencies(tag: &str, settings: &[u8]) -> Result<Vec<String>> {
+    let settings: config::ChainInboundSettings = parse_settings("inbound", tag, settings)?;
+    Ok(settings.actors.to_vec())
+}
+
+fn build(ctx: &InboundContext<'_>) -> Result<Option<AnyInboundHandler>> {
+    let settings: config::ChainInboundSettings = ctx.settings()?;
+    let actors = ctx.existing_actors(&settings.actors);
+    if actors.is_empty() {
+        return Ok(None);
+    }
+    let stream = if actors[0].stream().is_ok() {
+        let h = Arc::new(StreamHandler {
+            actors: actors.clone(),
+        });
+        Some(h as AnyInboundStreamHandler)
+    } else {
+        None
+    };
+    let datagram = if actors[0].datagram().is_ok() {
+        let h = Arc::new(DatagramHandler { actors });
+        Some(h as AnyInboundDatagramHandler)
+    } else {
+        None
+    };
+    Ok(Some(Arc::new(Handler::new(
+        ctx.tag.to_owned(),
+        stream,
+        datagram,
+    ))))
 }
 
 #[cfg(test)]

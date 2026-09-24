@@ -28,7 +28,11 @@ use tracing::{debug, trace, warn};
 
 use packed::{SOCKADDR, SOCKADDR_IN, SOCKADDR_IN6};
 
-use crate::app::fake_dns::FakeDns;
+use crate::adapter::inbound::Handler as InboundHandler;
+use crate::adapter::registry::{InboundContext, InboundFactory, InboundRegistry};
+use crate::adapter::AnyInboundHandler;
+use crate::app::fake_dns::{FakeDns, FakeDnsMode};
+use crate::config;
 
 const MAX_PATH: usize = 260;
 const IPPROTO_TCP: i32 = 6;
@@ -969,4 +973,34 @@ impl Drop for NfManager {
     fn drop(&mut self) {
         uninit();
     }
+}
+
+pub(crate) fn register(registry: &mut InboundRegistry) {
+    registry.register("nf", InboundFactory::standalone(build));
+}
+
+fn build(ctx: &InboundContext<'_>) -> Result<Option<AnyInboundHandler>> {
+    let settings: config::NfInboundSettings = ctx.settings()?;
+    let fake_dns_exclude = settings.fake_dns_exclude.clone();
+    let fake_dns_include = settings.fake_dns_include.clone();
+    let (mode, filters) = if !fake_dns_include.is_empty() {
+        (FakeDnsMode::Include, fake_dns_include)
+    } else {
+        (FakeDnsMode::Exclude, fake_dns_exclude)
+    };
+    let fake_dns = Arc::new(FakeDns::new(mode, filters));
+    let manager = Arc::new(NfManager::new(
+        settings.driver_name.clone(),
+        settings.nfapi.clone(),
+        fake_dns,
+    )?);
+    let stream = Arc::new(StreamHandler {
+        manager: manager.clone(),
+    });
+    let datagram = Arc::new(DatagramHandler { manager });
+    Ok(Some(Arc::new(InboundHandler::new(
+        ctx.tag.to_owned(),
+        Some(stream),
+        Some(datagram),
+    ))))
 }

@@ -3,6 +3,7 @@ use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::{sync::Arc, time::Duration};
 
+use anyhow::Result;
 use bytes::BytesMut;
 use hickory_proto::{
     op::{header::MessageType, op_code::OpCode, query::Query, Message},
@@ -14,6 +15,11 @@ use tokio::sync::{Mutex, Notify};
 use tokio::time::{timeout, Instant};
 use tracing::{debug, trace, warn};
 
+use crate::adapter::outbound::HandlerBuilder;
+use crate::adapter::registry::{
+    parse_settings, OutboundContext, OutboundFactory, OutboundRegistry,
+};
+use crate::config;
 use crate::{adapter::*, app::SyncDnsClient, session::*};
 
 pub mod datagram;
@@ -387,4 +393,75 @@ async fn health_check_task(
 
         tokio::time::sleep(Duration::from_secs(check_interval as u64)).await;
     }
+}
+
+pub(crate) fn register(registry: &mut OutboundRegistry) {
+    registry.register("failover", OutboundFactory::composite(dependencies, build));
+}
+
+fn dependencies(tag: &str, settings: &[u8]) -> Result<Vec<String>> {
+    let settings: config::FailOverOutboundSettings = parse_settings("outbound", tag, settings)?;
+    let mut tags = settings.actors.to_vec();
+    tags.extend(settings.last_resort);
+    Ok(tags)
+}
+
+fn build(ctx: &mut OutboundContext<'_>) -> Result<Option<AnyOutboundHandler>> {
+    let settings: config::FailOverOutboundSettings = ctx.settings()?;
+    let Some(actors) = ctx.actors(&settings.actors) else {
+        return Ok(None);
+    };
+    if actors.is_empty() {
+        return Ok(None);
+    }
+    let last_resort = settings
+        .last_resort
+        .as_ref()
+        .and_then(|last_resort| ctx.handler(last_resort));
+    let (stream, mut stream_abort_handles) = StreamHandler::new(
+        actors.clone(),
+        settings.fail_timeout,
+        settings.health_check,
+        settings.check_interval,
+        settings.failover,
+        settings.fallback_cache,
+        settings.cache_size as usize,
+        settings.cache_timeout as u64,
+        last_resort.clone(),
+        settings.health_check_timeout,
+        settings.health_check_delay,
+        settings.health_check_active,
+        settings.health_check_prefers.clone(),
+        settings.health_check_on_start,
+        settings.health_check_wait,
+        settings.health_check_attempts,
+        settings.health_check_success_percentage,
+        ctx.dns_client.clone(),
+    );
+    let (datagram, mut datagram_abort_handles) = DatagramHandler::new(
+        actors,
+        settings.fail_timeout,
+        settings.health_check,
+        settings.check_interval,
+        settings.failover,
+        last_resort,
+        settings.health_check_timeout,
+        settings.health_check_delay,
+        settings.health_check_active,
+        settings.health_check_prefers,
+        settings.health_check_on_start,
+        settings.health_check_wait,
+        settings.health_check_attempts,
+        settings.health_check_success_percentage,
+        ctx.dns_client.clone(),
+    );
+    ctx.abort_handles.append(&mut stream_abort_handles);
+    ctx.abort_handles.append(&mut datagram_abort_handles);
+    Ok(Some(
+        HandlerBuilder::default()
+            .tag(ctx.tag.to_owned())
+            .stream_handler(Arc::new(stream))
+            .datagram_handler(Arc::new(datagram))
+            .build(),
+    ))
 }

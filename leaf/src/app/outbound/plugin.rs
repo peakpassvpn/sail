@@ -7,7 +7,13 @@ use async_ffi::BorrowingFfiFuture;
 use async_trait::async_trait;
 use libloading::Library;
 
-use crate::{adapter::*, session::Session};
+use anyhow::{anyhow, Result};
+
+use crate::adapter::outbound::HandlerBuilder;
+use crate::adapter::registry::{
+    no_dependencies, OutboundContext, OutboundFactory, OutboundRegistry,
+};
+use crate::{adapter::*, config, session::Session};
 
 pub struct PluginSpec {
     pub add_handler_fn: unsafe fn(&mut dyn PluginRegistrar, &str, args: &str),
@@ -217,4 +223,48 @@ impl OutboundDatagramHandler for ExternalOutboundDatagramHandlerProxy {
         tracing::trace!("handling outbound datagram");
         self.0.handle(sess, transport).await
     }
+}
+
+pub(crate) fn register(registry: &mut OutboundRegistry) {
+    // Each plugin outbound loads its own handler, so two with the same
+    // settings are still two handlers.
+    registry.register(
+        "plugin",
+        OutboundFactory {
+            dependencies: no_dependencies,
+            build,
+            shareable: false,
+        },
+    );
+}
+
+fn build(ctx: &mut OutboundContext<'_>) -> Result<Option<AnyOutboundHandler>> {
+    let settings: config::PluginOutboundSettings = ctx.settings()?;
+    unsafe {
+        ctx.external_handlers
+            .new_handler(settings.path, ctx.tag, &settings.args)?
+    };
+    let missing = || {
+        anyhow!(
+            "plugin for [{}] registered no handler under its tag",
+            ctx.tag
+        )
+    };
+    let stream = Arc::new(ExternalOutboundStreamHandlerProxy(
+        ctx.external_handlers
+            .get_stream_handler(ctx.tag)
+            .ok_or_else(missing)?,
+    ));
+    let datagram = Arc::new(ExternalOutboundDatagramHandlerProxy(
+        ctx.external_handlers
+            .get_datagram_handler(ctx.tag)
+            .ok_or_else(missing)?,
+    ));
+    Ok(Some(
+        HandlerBuilder::default()
+            .tag(ctx.tag.to_owned())
+            .stream_handler(stream)
+            .datagram_handler(datagram)
+            .build(),
+    ))
 }
