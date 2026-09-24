@@ -1,0 +1,9 @@
+{
+  "log": { "level": "error" },
+  "inbounds": [ { "protocol": "socks", "address": "127.0.0.1", "port": 1081 } ],
+  "outbounds": [
+    { "protocol": "chain", "settings": { "actors": [ "tls", "vless" ] } },
+    { "protocol": "tls", "tag": "tls", "settings": { "serverName": "localhost", "insecure": true } },
+    { "protocol": "vless", "tag": "vless", "settings": { "address": "127.0.0.1", "port": 8444, "uuid": "b831381d-6324-4d53-ad4f-8cda48b30811" } }
+  ]
+}

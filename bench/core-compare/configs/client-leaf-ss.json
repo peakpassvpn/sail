@@ -1,0 +1,8 @@
+{
+  "log": { "level": "error" },
+  "inbounds": [ { "protocol": "socks", "address": "127.0.0.1", "port": 1081 } ],
+  "outbounds": [
+    { "protocol": "shadowsocks",
+      "settings": { "address": "127.0.0.1", "port": 8388, "method": "aes-128-gcm", "password": "bench-password" } }
+  ]
+}

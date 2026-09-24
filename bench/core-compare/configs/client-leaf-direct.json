@@ -1,0 +1,5 @@
+{
+  "log": { "level": "error" },
+  "inbounds": [ { "protocol": "socks", "address": "127.0.0.1", "port": 1081 } ],
+  "outbounds": [ { "protocol": "direct" } ]
+}

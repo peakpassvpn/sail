@@ -1,0 +1,8 @@
+{
+  "log": { "level": "error" },
+  "inbounds": [ { "type": "socks", "listen": "127.0.0.1", "listen_port": 1081 } ],
+  "outbounds": [
+    { "type": "trojan", "server": "127.0.0.1", "server_port": 8443, "password": "bench-password",
+      "tls": { "enabled": true, "server_name": "localhost", "insecure": true } }
+  ]
+}
