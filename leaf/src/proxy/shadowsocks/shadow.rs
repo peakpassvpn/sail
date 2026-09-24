@@ -1,7 +1,6 @@
-use std::mem::MaybeUninit;
 use std::{cmp::min, io, pin::Pin};
 
-use bytes::{BufMut, Bytes, BytesMut};
+use bytes::{Buf, BufMut, Bytes, BytesMut};
 use futures::{
     ready,
     task::{Context, Poll},
@@ -17,17 +16,26 @@ use crate::common::crypto::{
 
 use super::crypto::{hkdf_sha1, kdf, ShadowsocksNonceSequence};
 
+/// Ciphertext requested from the inner stream per read, so one syscall can
+/// carry several chunks.
+const READ_AHEAD: usize = 64 * 1024;
+/// Plaintext sealed per write call; it is split into spec-sized chunks and
+/// written out together.
+const MAX_WRITE: usize = 64 * 1024;
+/// 0x3fff is the mandatory maximum payload size in ss spec.
+const MAX_CHUNK: usize = 0x3fff;
+
+// What the next ciphertext read is waiting for.
 enum ReadState {
-    WaitingSalt,
-    WaitingLength,
-    WaitingData(usize),
-    PendingData(usize),
+    Salt,
+    Length,
+    Data(usize),
 }
 
 enum WriteState {
     WaitingSalt,
-    WaitingChunk(usize),
-    PendingChunk(usize, (usize, usize)),
+    WaitingChunk,
+    PendingChunk(usize),
 }
 
 pub struct ShadowedStream<T> {
@@ -36,11 +44,13 @@ pub struct ShadowedStream<T> {
     psk: Vec<u8>,
     enc: Option<AeadEncryptor<ShadowsocksNonceSequence>>,
     dec: Option<AeadDecryptor<ShadowsocksNonceSequence>>,
+    // Ciphertext read from the inner stream but not yet decrypted.
     read_buf: BytesMut,
+    // Decrypted payload not yet handed to the caller.
+    plain: BytesMut,
     write_buf: BytesMut,
     read_state: ReadState,
     write_state: WriteState,
-    read_pos: usize,
     prefix: Option<Box<[u8]>>,
 }
 
@@ -67,52 +77,53 @@ impl<T> ShadowedStream<T> {
             dec: None,
 
             read_buf: BytesMut::new(),
+            plain: BytesMut::new(),
             write_buf: BytesMut::new(),
 
-            read_state: ReadState::WaitingSalt,
+            read_state: ReadState::Salt,
             write_state: WriteState::WaitingSalt,
-            read_pos: 0,
             prefix,
         })
     }
-}
-
-trait ReadExt {
-    fn poll_read_exact(&mut self, cx: &mut Context, size: usize) -> Poll<io::Result<()>>;
 }
 
 fn early_eof() -> io::Error {
     io::Error::new(io::ErrorKind::UnexpectedEof, "early eof")
 }
 
-impl<T> ReadExt for ShadowedStream<T>
+impl<T> ShadowedStream<T>
 where
     T: AsyncRead + Unpin,
 {
-    // Read exactly `size` bytes into `read_buf`, starting from position 0.
-    fn poll_read_exact(&mut self, cx: &mut Context, size: usize) -> Poll<io::Result<()>> {
-        self.read_buf.reserve(size);
-        unsafe { self.read_buf.set_len(size) }
-        loop {
-            if self.read_pos < size {
-                let dst = unsafe {
-                    &mut *((&mut self.read_buf[self.read_pos..size]) as *mut _
-                        as *mut [MaybeUninit<u8>])
-                };
-                let mut buf = ReadBuf::uninit(dst);
-                let ptr = buf.filled().as_ptr();
-                ready!(Pin::new(&mut self.inner).poll_read(cx, &mut buf))?;
-                assert_eq!(ptr, buf.filled().as_ptr());
-                if buf.filled().is_empty() {
-                    return Poll::Ready(Err(early_eof()));
+    // Read until `read_buf` holds at least `need` bytes, taking whatever else
+    // the inner stream has ready in the same reads.
+    fn poll_fill(&mut self, cx: &mut Context, need: usize) -> Poll<io::Result<()>> {
+        while self.read_buf.len() < need {
+            self.read_buf
+                .reserve((need - self.read_buf.len()).max(READ_AHEAD));
+            let mut buf = ReadBuf::uninit(self.read_buf.spare_capacity_mut());
+            let ptr = buf.filled().as_ptr();
+            match Pin::new(&mut self.inner).poll_read(cx, &mut buf) {
+                Poll::Ready(Ok(())) => (),
+                Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
+                Poll::Pending => {
+                    // Don't keep read-ahead memory around while the
+                    // connection is idle.
+                    if self.read_buf.is_empty() {
+                        self.read_buf = BytesMut::new();
+                    }
+                    return Poll::Pending;
                 }
-                self.read_pos += buf.filled().len();
-            } else {
-                assert!(self.read_pos == size);
-                self.read_pos = 0;
-                return Poll::Ready(Ok(()));
             }
+            assert_eq!(ptr, buf.filled().as_ptr());
+            let n = buf.filled().len();
+            if n == 0 {
+                return Poll::Ready(Err(early_eof()));
+            }
+            // SAFETY: the inner reader initialized `n` bytes of spare capacity.
+            unsafe { self.read_buf.set_len(self.read_buf.len() + n) };
         }
+        Poll::Ready(Ok(()))
     }
 }
 
@@ -129,77 +140,96 @@ where
         cx: &mut Context,
         buf: &mut ReadBuf,
     ) -> Poll<io::Result<()>> {
+        let me = &mut *self;
+        let start = buf.filled().len();
         loop {
-            match self.read_state {
-                ReadState::WaitingSalt => {
+            // Hand out decrypted payload first.
+            if !me.plain.is_empty() {
+                let n = min(buf.remaining(), me.plain.len());
+                buf.put_slice(&me.plain[..n]);
+                me.plain.advance(n);
+                if me.plain.is_empty() {
+                    // Release the chunk's share of the read buffer.
+                    me.plain = BytesMut::new();
+                }
+                if buf.remaining() == 0 {
+                    return Poll::Ready(Ok(()));
+                }
+            }
+
+            let need = match me.read_state {
+                ReadState::Salt => me.cipher.key_len(),
+                ReadState::Length => 2 + me.cipher.tag_len(),
+                ReadState::Data(n) => n + me.cipher.tag_len(),
+            };
+            if me.read_buf.len() < need {
+                // Return what we already have rather than wait for more.
+                if buf.filled().len() > start {
+                    return Poll::Ready(Ok(()));
+                }
+                if let Err(e) = ready!(me.poll_fill(cx, need)) {
+                    if e.kind() == io::ErrorKind::UnexpectedEof
+                        && matches!(me.read_state, ReadState::Length)
+                    {
+                        return Poll::Ready(Ok(()));
+                    }
+                    return Poll::Ready(Err(e));
+                }
+            }
+
+            match me.read_state {
+                ReadState::Salt => {
                     // read salt and create decryptor
-                    let salt_size = self.cipher.key_len();
-                    ready!(self.poll_read_exact(cx, salt_size))?;
+                    let salt = me.read_buf.split_to(need);
                     let key = hkdf_sha1(
-                        &self.psk,
-                        &self.read_buf[..salt_size],
+                        &me.psk,
+                        &salt,
                         String::from("ss-subkey").as_bytes().to_vec(),
-                        self.cipher.key_len(),
+                        me.cipher.key_len(),
                     )
                     .map_err(|_| crypto_err())?;
-                    let nonce =
-                        super::crypto::ShadowsocksNonceSequence::new(self.cipher.nonce_len());
-                    let dec = self
-                        .cipher
-                        .decryptor(&key, nonce)
-                        .map_err(|_| crypto_err())?;
-                    self.dec.replace(dec);
-                    self.read_buf.clear();
-
-                    // ready to read payload length
-                    self.read_state = ReadState::WaitingLength;
+                    let nonce = super::crypto::ShadowsocksNonceSequence::new(me.cipher.nonce_len());
+                    let dec = me.cipher.decryptor(&key, nonce).map_err(|_| crypto_err())?;
+                    me.dec.replace(dec);
+                    me.read_state = ReadState::Length;
                 }
-                ReadState::WaitingLength => {
-                    // read and decipher payload length
-                    let me = &mut *self;
-                    let read_size = 2 + me.cipher.tag_len();
-                    if let Err(e) = ready!(me.poll_read_exact(cx, read_size)) {
-                        if e.kind() == io::ErrorKind::UnexpectedEof {
-                            return Poll::Ready(Ok(()));
-                        } else {
-                            return Poll::Ready(Err(e));
-                        }
-                    }
+                ReadState::Length => {
+                    // decipher payload length
+                    let mut length = me.read_buf.split_to(need);
                     let dec = me.dec.as_mut().expect("uninitialized cipher");
-                    dec.decrypt(&mut me.read_buf).map_err(|_| crypto_err())?;
-                    let payload_len =
-                        u16::from_be_bytes(me.read_buf[..2].try_into().unwrap()) as usize;
-
-                    // ready to read payload
-                    me.read_state = ReadState::WaitingData(payload_len);
+                    dec.decrypt(&mut length).map_err(|_| crypto_err())?;
+                    let payload_len = u16::from_be_bytes([length[0], length[1]]) as usize;
+                    me.read_state = ReadState::Data(payload_len);
                 }
-                ReadState::WaitingData(n) => {
-                    // read and decipher payload
-                    let me = &mut *self;
-                    let read_size = n + me.cipher.tag_len();
-                    ready!(me.poll_read_exact(cx, read_size))?;
+                ReadState::Data(n) => {
+                    // decipher payload
+                    let mut payload = me.read_buf.split_to(need);
                     let dec = me.dec.as_mut().expect("uninitialized cipher");
-                    dec.decrypt(&mut me.read_buf).map_err(|_| crypto_err())?;
-
-                    // ready to read plaintext payload into buf
-                    me.read_state = ReadState::PendingData(n);
-                }
-                ReadState::PendingData(n) => {
-                    let to_read = min(buf.remaining(), n);
-                    let payload = self.read_buf.split_to(to_read);
-                    buf.put_slice(&payload);
-                    if to_read < n {
-                        // there're unread data, continues in next poll
-                        self.read_state = ReadState::PendingData(n - to_read);
-                    } else {
-                        // all data consumed, ready to read next chunk
-                        self.read_state = ReadState::WaitingLength;
-                    }
-                    return Poll::Ready(Ok(()));
+                    dec.decrypt(&mut payload).map_err(|_| crypto_err())?;
+                    payload.truncate(n);
+                    me.plain = payload;
+                    me.read_state = ReadState::Length;
                 }
             }
         }
     }
+}
+
+// Append one sealed chunk (encrypted length, then encrypted payload) to `out`.
+fn seal_chunk(
+    out: &mut BytesMut,
+    enc: &mut AeadEncryptor<ShadowsocksNonceSequence>,
+    data: &[u8],
+) -> io::Result<()> {
+    let mut sealed = out.split_off(out.len());
+    sealed.put_slice(&(data.len() as u16).to_be_bytes());
+    enc.encrypt(&mut sealed).map_err(|_| crypto_err())?;
+    let mut payload = sealed.split_off(sealed.len());
+    payload.put_slice(data);
+    enc.encrypt(&mut payload).map_err(|_| crypto_err())?;
+    sealed.unsplit(payload);
+    out.unsplit(sealed);
+    Ok(())
 }
 
 impl<T> AsyncWrite for ShadowedStream<T>
@@ -212,6 +242,9 @@ where
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
         use tokio_util::io::poll_write_buf;
+        if buf.is_empty() {
+            return Poll::Ready(Ok(0));
+        }
         loop {
             match self.write_state {
                 WriteState::WaitingSalt => {
@@ -242,71 +275,53 @@ where
 
                     self.enc.replace(enc);
 
-                    self.write_state = WriteState::WaitingChunk(salt_size);
+                    self.write_state = WriteState::WaitingChunk;
                 }
-                WriteState::WaitingChunk(salt_size) => {
+                WriteState::WaitingChunk => {
+                    // Seal up to MAX_WRITE bytes as a run of chunks so they go
+                    // out in a single write.
                     let me = &mut *self;
-
-                    let mut length_and_payload = me.write_buf.split_off(salt_size);
-
-                    // 0x3fff is the mandatory maximum size in ss spec
-                    let consume_len = min(buf.len(), 0x3fff);
+                    let total = min(buf.len(), MAX_WRITE);
+                    let chunks = total.div_ceil(MAX_CHUNK);
+                    let overhead = 2 + 2 * me.cipher.tag_len();
+                    me.write_buf.reserve(total + chunks * overhead);
                     let enc = me.enc.as_mut().expect("uninitialized cipher");
-
-                    // seal payload length
-                    let length_size = 2 + me.cipher.tag_len();
-                    length_and_payload.reserve(length_size);
-                    unsafe { length_and_payload.set_len(2) };
-                    length_and_payload[..2].copy_from_slice(&(consume_len as u16).to_be_bytes());
-                    enc.encrypt(&mut length_and_payload)
-                        .map_err(|_| crypto_err())?;
-                    let mut payload = length_and_payload.split_off(length_size);
-
-                    // seal payload
-                    let payload_size = consume_len + me.cipher.tag_len();
-                    payload.reserve(payload_size);
-                    payload.put_slice(&buf[..consume_len]);
-                    enc.encrypt(&mut payload).map_err(|_| crypto_err())?;
-
-                    // merge salt, length and payload
-                    length_and_payload.unsplit(payload);
-                    me.write_buf.unsplit(length_and_payload);
-
-                    // ready to write data
-                    self.write_state =
-                        WriteState::PendingChunk(consume_len, (me.write_buf.len(), 0));
+                    for data in buf[..total].chunks(MAX_CHUNK) {
+                        seal_chunk(&mut me.write_buf, enc, data)?;
+                    }
+                    me.write_state = WriteState::PendingChunk(total);
                 }
 
-                // consumed is the consumed plaintext length we're going to return to caller.
-                // total is total length of the ciphertext data chunk we're going to write to remote.
-                // written is the number of ciphertext bytes were written.
-                WriteState::PendingChunk(consumed, (total, written)) => {
+                // consumed is the plaintext length we return to the caller once
+                // all of its ciphertext is written.
+                WriteState::PendingChunk(consumed) => {
                     let me = &mut *self;
 
                     // There would be trouble if the caller change the buf upon pending, but I
                     // believe that's not a usual use case.
-                    let nw = ready!(poll_write_buf(
-                        Pin::new(&mut me.inner),
-                        cx,
-                        &mut me.write_buf
-                    ))?;
-                    if nw == 0 {
-                        return Err(early_eof()).into();
+                    while !me.write_buf.is_empty() {
+                        let nw = ready!(poll_write_buf(
+                            Pin::new(&mut me.inner),
+                            cx,
+                            &mut me.write_buf
+                        ))?;
+                        if nw == 0 {
+                            return Err(early_eof()).into();
+                        }
                     }
-
-                    if written + nw >= total {
-                        // data chunk written, go to next chunk
-                        me.write_state = WriteState::WaitingChunk(0);
-                        return Poll::Ready(Ok(consumed));
-                    }
-
-                    me.write_state = WriteState::PendingChunk(consumed, (total, written + nw));
+                    me.write_state = WriteState::WaitingChunk;
+                    return Poll::Ready(Ok(consumed));
                 }
             }
         }
     }
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<io::Result<()>> {
+        // The relay flushes when its reader goes idle; drop the write buffer
+        // then so idle connections don't keep it.
+        if self.write_buf.is_empty() && matches!(self.write_state, WriteState::WaitingChunk) {
+            self.write_buf = BytesMut::new();
+        }
         Pin::new(&mut self.inner).poll_flush(cx)
     }
 
