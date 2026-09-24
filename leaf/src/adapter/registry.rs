@@ -9,6 +9,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::app::SyncDnsClient;
+use crate::transport::layers::{self, Blocks, InboundBlocks, OutboundBlocks, OutboundLayering};
 use anyhow::{anyhow, Result};
 use futures::future::AbortHandle;
 
@@ -81,6 +82,10 @@ pub struct OutboundFactory {
     /// Whether outbounds with this protocol and identical options may
     /// share one handler instead of each building their own.
     pub shareable: bool,
+    /// The shared blocks it can be configured with. They are taken out of
+    /// its options before `dependencies` and `build` see them, and applied
+    /// around what `build` returns.
+    pub blocks: Blocks,
 }
 
 impl OutboundFactory {
@@ -90,6 +95,7 @@ impl OutboundFactory {
             dependencies: no_dependencies,
             build,
             shareable: true,
+            blocks: Blocks::NONE,
         }
     }
 
@@ -102,7 +108,13 @@ impl OutboundFactory {
             dependencies,
             build,
             shareable: false,
+            blocks: Blocks::NONE,
         }
+    }
+
+    pub fn with_blocks(mut self, blocks: Blocks) -> Self {
+        self.blocks = blocks;
+        self
     }
 }
 
@@ -165,11 +177,14 @@ pub fn build_outbounds(
         .iter()
         .map(|o| {
             let factory = registry.require(&o.tag, &o.protocol)?;
-            let dependencies = (factory.dependencies)(&o.tag, &o.options)?;
+            let (options, blocks) = factory.blocks.split(&o.options);
+            let blocks = OutboundBlocks::parse(&o.tag, &blocks)?;
+            let mut dependencies = (factory.dependencies)(&o.tag, &options)?;
+            dependencies.extend(blocks.detour.clone());
             Ok(Node {
                 tag: &o.tag,
                 dependencies,
-                item: (o, factory),
+                item: (o, factory, options, blocks),
             })
         })
         .collect::<Result<Vec<_>>>()?;
@@ -178,7 +193,7 @@ pub fn build_outbounds(
     // `OutboundFactory::shareable`.
     let mut shared: Vec<(&str, &str, &Options)> = Vec::new();
 
-    in_dependency_order("outbound", nodes, |(outbound, factory)| {
+    in_dependency_order("outbound", nodes, |(outbound, factory, options, blocks)| {
         if factory.shareable {
             if let Some((tag, _, _)) = shared.iter().find(|(_, protocol, options)| {
                 *protocol == outbound.protocol && *options == &outbound.options
@@ -190,7 +205,7 @@ pub fn build_outbounds(
         }
         let mut ctx = OutboundContext {
             tag: &outbound.tag,
-            options: &outbound.options,
+            options: &options,
             dns_client: state.dns_client,
             abort_handles: state.abort_handles,
             #[cfg(feature = "outbound-select")]
@@ -199,7 +214,27 @@ pub fn build_outbounds(
             external_handlers: state.external_handlers,
             handlers: state.handlers,
         };
-        let handler = (factory.build)(&mut ctx)?;
+        let core = (factory.build)(&mut ctx)?;
+        let detour = match &blocks.detour {
+            Some(detour) => Some(dependency(
+                state.handlers,
+                "outbound",
+                &outbound.tag,
+                detour,
+            )?),
+            None => None,
+        };
+        let handler = layers::outbound(
+            core,
+            &blocks,
+            OutboundLayering {
+                tag: &outbound.tag,
+                options: &options,
+                dns_client: state.dns_client,
+                abort_handles: state.abort_handles,
+                detour,
+            },
+        )?;
         state.handlers.insert(outbound.tag.clone(), handler);
         if factory.shareable {
             shared.push((&outbound.tag, &outbound.protocol, &outbound.options));
@@ -220,6 +255,9 @@ pub struct InboundFactory {
     /// built first.
     pub dependencies: fn(&str, &Options) -> Result<Vec<String>>,
     pub build: fn(&InboundContext<'_>) -> Result<AnyInboundHandler>,
+    /// The shared blocks it can be configured with; see
+    /// `OutboundFactory::blocks`. `detour` means nothing to an inbound.
+    pub blocks: Blocks,
 }
 
 impl InboundFactory {
@@ -228,6 +266,7 @@ impl InboundFactory {
         Self {
             dependencies: no_dependencies,
             build,
+            blocks: Blocks::NONE,
         }
     }
 
@@ -239,7 +278,14 @@ impl InboundFactory {
         Self {
             dependencies,
             build,
+            blocks: Blocks::NONE,
         }
+    }
+
+    pub fn with_blocks(mut self, blocks: Blocks) -> Self {
+        debug_assert!(!blocks.detour, "an inbound cannot detour");
+        self.blocks = blocks;
+        self
     }
 }
 
@@ -287,22 +333,25 @@ pub fn build_inbounds(
         .filter(|i| !listeners.contains(&i.protocol.as_str()))
         .map(|i| {
             let factory = registry.require(&i.tag, &i.protocol)?;
-            let dependencies = (factory.dependencies)(&i.tag, &i.options)?;
+            let (options, blocks) = factory.blocks.split(&i.options);
+            let blocks = InboundBlocks::parse(&i.tag, &blocks)?;
+            let dependencies = (factory.dependencies)(&i.tag, &options)?;
             Ok(Node {
                 tag: &i.tag,
                 dependencies,
-                item: (i, factory),
+                item: (i, factory, options, blocks),
             })
         })
         .collect::<Result<Vec<_>>>()?;
 
-    in_dependency_order("inbound", nodes, |(inbound, factory)| {
+    in_dependency_order("inbound", nodes, |(inbound, factory, options, blocks)| {
         let ctx = InboundContext {
             tag: &inbound.tag,
-            options: &inbound.options,
+            options: &options,
             handlers,
         };
-        let handler = (factory.build)(&ctx)?;
+        let core = (factory.build)(&ctx)?;
+        let handler = layers::inbound(&inbound.tag, core, &blocks)?;
         handlers.insert(inbound.tag.clone(), handler);
         Ok(())
     })

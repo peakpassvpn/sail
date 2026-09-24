@@ -5,6 +5,7 @@ use anyhow::Result;
 use crate::adapter::outbound::HandlerBuilder;
 use crate::adapter::registry::{OutboundContext, OutboundFactory, OutboundRegistry};
 use crate::adapter::AnyOutboundHandler;
+use crate::transport::layers::Blocks;
 use serde_derive::Deserialize;
 
 pub mod datagram;
@@ -14,17 +15,16 @@ pub use datagram::Handler as DatagramHandler;
 pub use stream::Handler as StreamHandler;
 
 pub(crate) fn register(registry: &mut OutboundRegistry) {
-    registry.register("vless", OutboundFactory::standalone(build));
+    registry.register(
+        "vless",
+        OutboundFactory::standalone(build).with_blocks(Blocks::ALL),
+    );
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct VlessOutboundOptions {
-    // Only the server of the first actor in a chain is dialled; the others
-    // may leave it out until chains are built from shared blocks.
-    #[serde(default)]
     server: String,
-    #[serde(default)]
     server_port: u16,
     uuid: String,
 }

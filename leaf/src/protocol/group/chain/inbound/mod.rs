@@ -1,6 +1,5 @@
-use std::{io, pin::Pin, sync::Arc, time::Duration};
+use std::{io, pin::Pin, time::Duration};
 
-use anyhow::Result;
 use futures::stream::{FuturesUnordered, Stream};
 use futures::{
     future::BoxFuture,
@@ -8,12 +7,7 @@ use futures::{
 };
 use tracing::debug;
 
-use crate::adapter::inbound::Handler;
-use crate::adapter::registry::{
-    parse_options, InboundContext, InboundFactory, InboundRegistry, Options,
-};
 use crate::adapter::*;
-use serde_derive::Deserialize;
 
 mod datagram;
 mod fold;
@@ -111,41 +105,6 @@ impl Stream for Incoming {
             }
         }
     }
-}
-
-pub(crate) fn register(registry: &mut InboundRegistry) {
-    registry.register("chain", InboundFactory::composite(dependencies, build));
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ChainInboundOptions {
-    inbounds: Vec<String>,
-}
-
-fn dependencies(tag: &str, options: &Options) -> Result<Vec<String>> {
-    let options: ChainInboundOptions = parse_options("inbound", tag, options)?;
-    Ok(options.inbounds)
-}
-
-fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
-    let options: ChainInboundOptions = ctx.options()?;
-    let actors = ctx.members(&options.inbounds)?;
-    let stream = if actors[0].stream().is_ok() {
-        let h = Arc::new(StreamHandler {
-            actors: actors.clone(),
-        });
-        Some(h as AnyInboundStreamHandler)
-    } else {
-        None
-    };
-    let datagram = if actors[0].datagram().is_ok() {
-        let h = Arc::new(DatagramHandler { actors });
-        Some(h as AnyInboundDatagramHandler)
-    } else {
-        None
-    };
-    Ok(Arc::new(Handler::new(ctx.tag.to_owned(), stream, datagram)))
 }
 
 #[cfg(test)]

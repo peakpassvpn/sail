@@ -28,23 +28,15 @@ fn test_ws_trojan() -> anyhow::Result<()> {
         ],
         "outbounds": [
             {
-                "type": "chain",
-                "outbounds": [
-                    "ws",
-                    "trojan"
-                ]
-            },
-            {
-                "type": "ws",
-                "tag": "ws",
-                "path": "/leaf"
-            },
-            {
                 "type": "trojan",
-                "tag": "trojan",
+                "tag": "proxy",
                 "server": "127.0.0.1",
                 "server_port": 3001,
-                "password": "password"
+                "password": "password",
+                "transport": {
+                    "type": "ws",
+                    "path": "/leaf"
+                }
             }
         ]
     }
@@ -57,27 +49,18 @@ fn test_ws_trojan() -> anyhow::Result<()> {
         },
         "inbounds": [
             {
-                "type": "chain",
+                "type": "trojan",
                 "listen": "127.0.0.1",
                 "listen_port": 3001,
-                "inbounds": [
-                    "ws",
-                    "trojan"
-                ]
-            },
-            {
-                "type": "ws",
-                "tag": "ws",
-                "path": "/leaf"
-            },
-            {
-                "type": "trojan",
-                "tag": "trojan",
                 "users": [
                     {
                         "password": "password"
                     }
-                ]
+                ],
+                "transport": {
+                    "type": "ws",
+                    "path": "/leaf"
+                }
             }
         ],
         "outbounds": [

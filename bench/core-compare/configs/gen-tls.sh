@@ -51,9 +51,9 @@ cat > client-leaf-reality.json <<EOF
   "log": { "level": "error" },
   "inbounds": [ { "type": "socks", "listen": "127.0.0.1", "listen_port": 1081 } ],
   "outbounds": [
-    { "type": "chain", "outbounds": [ "reality", "vless" ] },
-    { "type": "reality", "tag": "reality", "server_name": "localhost", "public_key": "$PUB", "short_id": "0123456789abcdef" },
-    { "type": "vless", "tag": "vless", "server": "127.0.0.1", "server_port": 8445, "uuid": "$UUID" }
+    { "type": "vless", "tag": "proxy", "server": "127.0.0.1", "server_port": 8445, "uuid": "$UUID",
+      "tls": { "enabled": true, "server_name": "localhost",
+               "reality": { "enabled": true, "public_key": "$PUB", "short_id": "0123456789abcdef" } } }
   ]
 }
 EOF

@@ -236,6 +236,7 @@ pub(crate) fn register(registry: &mut OutboundRegistry) {
             dependencies: no_dependencies,
             build,
             shareable: false,
+            blocks: crate::transport::layers::Blocks::NONE,
         },
     );
 }

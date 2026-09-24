@@ -2,6 +2,10 @@
 //!
 //! This is the one list of them. A protocol registers itself from its own
 //! directory; adding one means adding its line here, under its feature.
+//!
+//! Transports (tls, reality, ws, quic, amux, obfs) and chains are not
+//! protocols of their own: they are blocks of the protocols they carry, see
+//! `transport::layers`.
 
 use std::sync::LazyLock;
 
@@ -39,21 +43,6 @@ pub(crate) static OUTBOUNDS: LazyLock<OutboundRegistry> = LazyLock::new(|| {
     #[cfg(feature = "outbound-mptp")]
     crate::protocol::mptp::outbound::register(&mut registry);
 
-    #[cfg(feature = "outbound-tls")]
-    crate::transport::tls::outbound::register(&mut registry);
-    #[cfg(feature = "outbound-reality")]
-    crate::transport::reality::outbound::register(&mut registry);
-    #[cfg(feature = "outbound-ws")]
-    crate::transport::ws::outbound::register(&mut registry);
-    #[cfg(feature = "outbound-quic")]
-    crate::transport::quic::outbound::register(&mut registry);
-    #[cfg(feature = "outbound-amux")]
-    crate::transport::amux::outbound::register(&mut registry);
-    #[cfg(feature = "outbound-obfs")]
-    crate::transport::obfs::register(&mut registry);
-
-    #[cfg(feature = "outbound-chain")]
-    crate::protocol::group::chain::outbound::register(&mut registry);
     #[cfg(feature = "outbound-failover")]
     crate::protocol::group::failover::register(&mut registry);
     #[cfg(feature = "outbound-select")]
@@ -87,18 +76,6 @@ pub(crate) static INBOUNDS: LazyLock<InboundRegistry> = LazyLock::new(|| {
     crate::protocol::hc::inbound::register(&mut registry);
     #[cfg(all(feature = "inbound-nf", windows))]
     crate::protocol::nf::inbound::register(&mut registry);
-
-    #[cfg(feature = "inbound-tls")]
-    crate::transport::tls::inbound::register(&mut registry);
-    #[cfg(feature = "inbound-ws")]
-    crate::transport::ws::inbound::register(&mut registry);
-    #[cfg(feature = "inbound-quic")]
-    crate::transport::quic::inbound::register(&mut registry);
-    #[cfg(feature = "inbound-amux")]
-    crate::transport::amux::inbound::register(&mut registry);
-
-    #[cfg(feature = "inbound-chain")]
-    crate::protocol::group::chain::inbound::register(&mut registry);
 
     registry
 });

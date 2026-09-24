@@ -22,26 +22,20 @@ fn test_out_chain_2() -> anyhow::Result<()> {
         ],
         "outbounds": [
             {
-                "type": "chain",
-                "outbounds": [
-                    "server1",
-                    "server2"
-                ]
-            },
-            {
                 "type": "shadowsocks",
-                "tag": "server1",
-                "server": "127.0.0.1",
-                "server_port": 3001,
-                "method": "chacha20-ietf-poly1305",
-                "password": "password"
-            },
-            {
-                "type": "shadowsocks",
-                "tag": "server2",
+                "tag": "proxy",
                 "server": "127.0.0.1",
                 "server_port": 3002,
                 "method": "aes-128-gcm",
+                "password": "password",
+                "detour": "proxy/1"
+            },
+            {
+                "type": "shadowsocks",
+                "tag": "proxy/1",
+                "server": "127.0.0.1",
+                "server_port": 3001,
+                "method": "chacha20-ietf-poly1305",
                 "password": "password"
             }
         ]

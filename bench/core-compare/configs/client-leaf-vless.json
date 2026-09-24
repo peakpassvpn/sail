@@ -11,24 +11,16 @@
   ],
   "outbounds": [
     {
-      "type": "chain",
-      "outbounds": [
-        "tls",
-        "vless"
-      ]
-    },
-    {
-      "type": "tls",
-      "tag": "tls",
-      "server_name": "localhost",
-      "insecure": true
-    },
-    {
       "type": "vless",
-      "tag": "vless",
+      "tag": "proxy",
       "server": "127.0.0.1",
       "server_port": 8444,
-      "uuid": "b831381d-6324-4d53-ad4f-8cda48b30811"
+      "uuid": "b831381d-6324-4d53-ad4f-8cda48b30811",
+      "tls": {
+        "enabled": true,
+        "server_name": "localhost",
+        "insecure": true
+      }
     }
   ]
 }

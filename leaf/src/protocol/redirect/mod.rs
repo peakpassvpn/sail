@@ -5,6 +5,7 @@ use anyhow::Result;
 use crate::adapter::outbound::HandlerBuilder;
 use crate::adapter::registry::{OutboundContext, OutboundFactory, OutboundRegistry};
 use crate::adapter::AnyOutboundHandler;
+use crate::transport::layers::Blocks;
 use serde_derive::Deserialize;
 
 pub mod datagram;
@@ -14,7 +15,10 @@ pub use datagram::Handler as DatagramHandler;
 pub use stream::Handler as StreamHandler;
 
 pub(crate) fn register(registry: &mut OutboundRegistry) {
-    registry.register("redirect", OutboundFactory::standalone(build));
+    registry.register(
+        "redirect",
+        OutboundFactory::standalone(build).with_blocks(Blocks::DETOUR),
+    );
 }
 
 /// Sends every connection to one fixed address.

@@ -27,33 +27,24 @@ fn test_out_chain_6() -> anyhow::Result<()> {
         ],
         "outbounds": [
             {
-                "type": "chain",
-                "tag": "chain",
-                "outbounds": [
-                    "server1-ws",
-                    "server1-trojan",
-                    "server2"
-                ]
-            },
-            {
-                "type": "ws",
-                "tag": "server1-ws",
-                "path": "/leaf"
-            },
-            {
-                "type": "trojan",
-                "tag": "server1-trojan",
-                "server": "127.0.0.1",
-                "server_port": 3001,
-                "password": "password"
-            },
-            {
                 "type": "shadowsocks",
-                "tag": "server2",
+                "tag": "proxy",
                 "server": "127.0.0.1",
                 "server_port": 3002,
                 "method": "aes-128-gcm",
-                "password": "password"
+                "password": "password",
+                "detour": "proxy/1"
+            },
+            {
+                "type": "trojan",
+                "tag": "proxy/1",
+                "server": "127.0.0.1",
+                "server_port": 3001,
+                "password": "password",
+                "transport": {
+                    "type": "ws",
+                    "path": "/leaf"
+                }
             }
         ]
     }
@@ -63,28 +54,19 @@ fn test_out_chain_6() -> anyhow::Result<()> {
     {
         "inbounds": [
             {
-                "type": "chain",
+                "type": "trojan",
                 "tag": "server1",
                 "listen": "127.0.0.1",
                 "listen_port": 3001,
-                "inbounds": [
-                    "ws",
-                    "trojan"
-                ]
-            },
-            {
-                "type": "ws",
-                "tag": "ws",
-                "path": "/leaf"
-            },
-            {
-                "type": "trojan",
-                "tag": "trojan",
                 "users": [
                     {
                         "password": "password"
                     }
-                ]
+                ],
+                "transport": {
+                    "type": "ws",
+                    "path": "/leaf"
+                }
             }
         ],
         "outbounds": [

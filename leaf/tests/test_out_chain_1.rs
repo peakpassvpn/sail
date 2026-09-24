@@ -25,52 +25,27 @@ fn test_out_chain_1() -> anyhow::Result<()> {
         ],
         "outbounds": [
             {
-                "type": "chain",
+                "type": "trojan",
                 "tag": "chain-server1-server2",
-                "outbounds": [
-                    "server1",
-                    "server2"
-                ]
-            },
-            {
-                "type": "chain",
-                "tag": "server1",
-                "outbounds": [
-                    "server1-ws",
-                    "server1-trojan"
-                ]
-            },
-            {
-                "type": "ws",
-                "tag": "server1-ws",
-                "path": "/leaf"
-            },
-            {
-                "type": "trojan",
-                "tag": "server1-trojan",
-                "server": "127.0.0.1",
-                "server_port": 3001,
-                "password": "password"
-            },
-            {
-                "type": "chain",
-                "tag": "server2",
-                "outbounds": [
-                    "server2-ws",
-                    "server2-trojan"
-                ]
-            },
-            {
-                "type": "ws",
-                "tag": "server2-ws",
-                "path": "/leaf2"
-            },
-            {
-                "type": "trojan",
-                "tag": "server2-trojan",
                 "server": "127.0.0.1",
                 "server_port": 3002,
-                "password": "password"
+                "password": "password",
+                "transport": {
+                    "type": "ws",
+                    "path": "/leaf2"
+                },
+                "detour": "chain-server1-server2/1"
+            },
+            {
+                "type": "trojan",
+                "tag": "chain-server1-server2/1",
+                "server": "127.0.0.1",
+                "server_port": 3001,
+                "password": "password",
+                "transport": {
+                    "type": "ws",
+                    "path": "/leaf"
+                }
             }
         ]
     }
@@ -80,28 +55,19 @@ fn test_out_chain_1() -> anyhow::Result<()> {
     {
         "inbounds": [
             {
-                "type": "chain",
+                "type": "trojan",
                 "tag": "server1",
                 "listen": "127.0.0.1",
                 "listen_port": 3001,
-                "inbounds": [
-                    "ws",
-                    "trojan"
-                ]
-            },
-            {
-                "type": "ws",
-                "tag": "ws",
-                "path": "/leaf"
-            },
-            {
-                "type": "trojan",
-                "tag": "trojan",
                 "users": [
                     {
                         "password": "password"
                     }
-                ]
+                ],
+                "transport": {
+                    "type": "ws",
+                    "path": "/leaf"
+                }
             }
         ],
         "outbounds": [
@@ -116,28 +82,19 @@ fn test_out_chain_1() -> anyhow::Result<()> {
     {
         "inbounds": [
             {
-                "type": "chain",
+                "type": "trojan",
                 "tag": "server2",
                 "listen": "127.0.0.1",
                 "listen_port": 3002,
-                "inbounds": [
-                    "ws",
-                    "trojan"
-                ]
-            },
-            {
-                "type": "ws",
-                "tag": "ws",
-                "path": "/leaf2"
-            },
-            {
-                "type": "trojan",
-                "tag": "trojan",
                 "users": [
                     {
                         "password": "password"
                     }
-                ]
+                ],
+                "transport": {
+                    "type": "ws",
+                    "path": "/leaf2"
+                }
             }
         ],
         "outbounds": [

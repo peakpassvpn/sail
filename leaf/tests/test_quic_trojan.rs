@@ -25,28 +25,23 @@ fn test_quic_trojan() -> anyhow::Result<()> {
         ],
         "outbounds": [
             {
-                "type": "chain",
-                "outbounds": [
-                    "quic",
-                    "trojan"
-                ]
-            },
-            {
-                "type": "quic",
-                "tag": "quic",
+                "type": "trojan",
+                "tag": "proxy",
                 "server": "127.0.0.1",
                 "server_port": 3001,
-                "server_name": "localhost",
-                "certificate": "cert.der",
-                "alpn": [
-                    "http/1.1",
-                    "trojan"
-                ]
-            },
-            {
-                "type": "trojan",
-                "tag": "trojan",
-                "password": "password"
+                "password": "password",
+                "transport": {
+                    "type": "quic"
+                },
+                "tls": {
+                    "enabled": true,
+                    "server_name": "localhost",
+                    "alpn": [
+                        "http/1.1",
+                        "trojan"
+                    ],
+                    "certificate_path": "cert.der"
+                }
             }
         ]
     }
@@ -56,33 +51,27 @@ fn test_quic_trojan() -> anyhow::Result<()> {
     {
         "inbounds": [
             {
-                "type": "chain",
+                "type": "trojan",
                 "tag": "quic-in",
                 "listen": "127.0.0.1",
                 "listen_port": 3001,
-                "inbounds": [
-                    "quic",
-                    "trojan"
-                ]
-            },
-            {
-                "type": "quic",
-                "tag": "quic",
-                "certificate": "cert.der",
-                "certificate_key": "key.der",
-                "alpn": [
-                    "http/1.1",
-                    "trojan"
-                ]
-            },
-            {
-                "type": "trojan",
-                "tag": "trojan",
                 "users": [
                     {
                         "password": "password"
                     }
-                ]
+                ],
+                "transport": {
+                    "type": "quic"
+                },
+                "tls": {
+                    "enabled": true,
+                    "certificate_path": "cert.der",
+                    "key_path": "key.der",
+                    "alpn": [
+                        "http/1.1",
+                        "trojan"
+                    ]
+                }
             }
         ],
         "outbounds": [
@@ -104,24 +93,19 @@ fn test_quic_trojan() -> anyhow::Result<()> {
         ],
         "outbounds": [
             {
-                "type": "chain",
-                "outbounds": [
-                    "quic",
-                    "trojan"
-                ]
-            },
-            {
-                "type": "quic",
-                "tag": "quic",
+                "type": "trojan",
+                "tag": "proxy",
                 "server": "127.0.0.1",
                 "server_port": 3002,
-                "server_name": "localhost",
-                "certificate": "cert.pem"
-            },
-            {
-                "type": "trojan",
-                "tag": "trojan",
-                "password": "password"
+                "password": "password",
+                "transport": {
+                    "type": "quic"
+                },
+                "tls": {
+                    "enabled": true,
+                    "server_name": "localhost",
+                    "certificate_path": "cert.pem"
+                }
             }
         ]
     }
@@ -131,29 +115,23 @@ fn test_quic_trojan() -> anyhow::Result<()> {
     {
         "inbounds": [
             {
-                "type": "chain",
+                "type": "trojan",
                 "tag": "quic-in",
                 "listen": "127.0.0.1",
                 "listen_port": 3002,
-                "inbounds": [
-                    "quic",
-                    "trojan"
-                ]
-            },
-            {
-                "type": "quic",
-                "tag": "quic",
-                "certificate": "cert.pem",
-                "certificate_key": "key.pem"
-            },
-            {
-                "type": "trojan",
-                "tag": "trojan",
                 "users": [
                     {
                         "password": "password"
                     }
-                ]
+                ],
+                "transport": {
+                    "type": "quic"
+                },
+                "tls": {
+                    "enabled": true,
+                    "certificate_path": "cert.pem",
+                    "key_path": "key.pem"
+                }
             }
         ],
         "outbounds": [
@@ -209,32 +187,26 @@ FINAL,Proxy
     {
         "inbounds": [
             {
-                "type": "chain",
+                "type": "trojan",
                 "tag": "quic-in",
                 "listen": "127.0.0.1",
                 "listen_port": 3004,
-                "inbounds": [
-                    "quic",
-                    "trojan"
-                ]
-            },
-            {
-                "type": "quic",
-                "tag": "quic",
-                "certificate": "cert.pem",
-                "certificate_key": "key.pem",
-                "alpn": [
-                    "http/1.1"
-                ]
-            },
-            {
-                "type": "trojan",
-                "tag": "trojan",
                 "users": [
                     {
                         "password": "password"
                     }
-                ]
+                ],
+                "transport": {
+                    "type": "quic"
+                },
+                "tls": {
+                    "enabled": true,
+                    "certificate_path": "cert.pem",
+                    "key_path": "key.pem",
+                    "alpn": [
+                        "http/1.1"
+                    ]
+                }
             }
         ],
         "outbounds": [

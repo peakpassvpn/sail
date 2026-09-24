@@ -1100,7 +1100,7 @@ pub fn to_config(conf: &Config) -> Result<model::Config> {
                 }),
             )),
             "ss" | "shadowsocks" => {
-                let ss = json!({
+                let mut ss = json!({
                     "server": ext_proxy.address,
                     "server_port": ext_proxy.port,
                     "method": ext_proxy.encrypt_method,
@@ -1108,140 +1108,49 @@ pub fn to_config(conf: &Config) -> Result<model::Config> {
                     "prefix": ext_proxy.prefix,
                 });
                 if let Some(obfs) = &ext_proxy.obfs_type {
-                    let ss_tag = format!("{}_ss_xxx", tag);
-                    let obfs_tag = format!("{}_obfs_xxx", tag);
-                    outbounds.push(chain(tag, &[&obfs_tag, &ss_tag]));
-                    outbounds.push(outbound(
-                        &obfs_tag,
-                        "obfs",
-                        json!({
-                            "method": obfs,
-                            "host": ext_proxy.obfs_host,
-                            "path": ext_proxy.obfs_path.as_deref().unwrap_or("/"),
-                        }),
-                    ));
-                    outbounds.push(outbound(&ss_tag, "shadowsocks", ss));
-                } else {
-                    outbounds.push(outbound(tag, "shadowsocks", ss));
+                    let mut opts = format!("obfs={}", obfs);
+                    if let Some(host) = &ext_proxy.obfs_host {
+                        opts.push_str(&format!(";obfs-host={}", host));
+                    }
+                    if let Some(path) = &ext_proxy.obfs_path {
+                        opts.push_str(&format!(";obfs-uri={}", path));
+                    }
+                    ss["plugin"] = json!("obfs-local");
+                    ss["plugin_opts"] = json!(opts);
                 }
+                outbounds.push(outbound(tag, "shadowsocks", ss));
             }
             "vless" => {
-                let vless = json!({
+                let mut vless = json!({
                     "server": ext_proxy.address,
                     "server_port": ext_proxy.port,
                     // prioritize uuid, then password
                     "uuid": ext_proxy.uuid.as_ref().or(ext_proxy.password.as_ref()),
                 });
                 if ext_proxy.reality.unwrap_or(false) {
-                    let reality_tag = format!("{}_reality_xxx", tag);
-                    let vless_tag = format!("{}_vless_xxx", tag);
-                    outbounds.push(chain(tag, &[&reality_tag, &vless_tag]));
-                    outbounds.push(outbound(
-                        &reality_tag,
-                        "reality",
-                        json!({
-                            "server_name": ext_proxy.sni,
+                    vless["tls"] = json!({
+                        "enabled": true,
+                        "server_name": ext_proxy.sni,
+                        "reality": {
+                            "enabled": true,
                             "public_key": ext_proxy.reality_public_key,
                             "short_id": ext_proxy.reality_short_id,
-                        }),
-                    ));
-                    outbounds.push(outbound(&vless_tag, "vless", vless));
-                } else {
-                    outbounds.push(outbound(tag, "vless", vless));
+                        },
+                    });
                 }
+                outbounds.push(outbound(tag, "vless", vless));
             }
             protocol @ ("trojan" | "vmess") => {
-                let mut actors = Vec::new();
-                let mut components = Vec::new();
-                let amux = ext_proxy.amux.unwrap_or(false);
-
-                let tls_tag = format!("{}_tls_xxx", tag);
-                components.push(outbound(
-                    &tls_tag,
-                    "tls",
+                let mut proxy = if protocol == "trojan" {
                     json!({
-                        "server_name": ext_proxy.sni,
-                        "alpn": if protocol == "trojan" { None } else { Some(["http/1.1"]) },
-                        "certificate": resolve_cert(&ext_proxy.tls_cert),
-                        "insecure": ext_proxy.tls_insecure,
-                        "ech": ext_proxy.tls_ech,
-                        "ech_disable_dns_lookup": ext_proxy.tls_ech_disable_dns_lookup,
-                        "ech_config_list": resolve_ech(&ext_proxy.tls_ech_config_list),
-                    }),
-                ));
-
-                let ws_tag = format!("{}_ws_xxx", tag);
-                let ws_headers = ext_proxy
-                    .ws_host
-                    .as_ref()
-                    .map(|host| json!({ "Host": host }));
-                components.push(outbound(
-                    &ws_tag,
-                    "ws",
-                    json!({
-                        "path": ext_proxy.ws_path.as_deref().unwrap_or("/"),
-                        "headers": ws_headers,
-                    }),
-                ));
-
-                if amux {
-                    let amux_tag = format!("{}_amux_xxx", tag);
-                    let mut amux_actors = vec![tls_tag.clone()];
-                    if ext_proxy.ws.unwrap_or(false) {
-                        amux_actors.push(ws_tag.clone());
-                    }
-                    components.push(outbound(
-                        &amux_tag,
-                        "amux",
-                        json!({
-                            "server": ext_proxy.address,
-                            "server_port": ext_proxy.port,
-                            "outbounds": amux_actors,
-                            "max_accepts": ext_proxy.amux_max,
-                            "concurrency": ext_proxy.amux_con,
-                            "max_recv_bytes": ext_proxy.amux_max_recv,
-                            "max_lifetime": ext_proxy.amux_max_lifetime,
-                        }),
-                    ));
-                    actors.push(amux_tag);
-                } else if ext_proxy.quic.unwrap_or(false) {
-                    let quic_tag = format!("{}_quic_xxx", tag);
-                    components.push(outbound(
-                        &quic_tag,
-                        "quic",
-                        json!({
-                            "server": ext_proxy.address,
-                            "server_port": ext_proxy.port,
-                            "server_name": ext_proxy.sni,
-                            "certificate": resolve_cert(&ext_proxy.tls_cert),
-                            "alpn": ["http/1.1"],
-                        }),
-                    ));
-                    actors.push(quic_tag);
-                } else {
-                    actors.push(tls_tag);
-                    if ext_proxy.ws.unwrap_or(false) {
-                        actors.push(ws_tag);
-                    }
-                }
-
-                // Behind amux the server is amux's to dial.
-                let (server, server_port) = if amux {
-                    (None, None)
-                } else {
-                    (ext_proxy.address.as_ref(), ext_proxy.port)
-                };
-                let core_tag = format!("{}_{}_xxx", tag, protocol);
-                let core = if protocol == "trojan" {
-                    json!({
-                        "server": server,
-                        "server_port": server_port,
+                        "server": ext_proxy.address,
+                        "server_port": ext_proxy.port,
                         "password": ext_proxy.password,
                     })
                 } else {
                     json!({
-                        "server": server,
-                        "server_port": server_port,
+                        "server": ext_proxy.address,
+                        "server_port": ext_proxy.port,
                         "uuid": ext_proxy.uuid.as_ref().or(ext_proxy.username.as_ref()),
                         "security": ext_proxy
                             .encrypt_method
@@ -1249,12 +1158,53 @@ pub fn to_config(conf: &Config) -> Result<model::Config> {
                             .unwrap_or("chacha20-ietf-poly1305"),
                     })
                 };
-                components.push(outbound(&core_tag, protocol, core));
-                actors.push(core_tag);
-
-                let actors: Vec<&str> = actors.iter().map(String::as_str).collect();
-                outbounds.push(chain(tag, &actors));
-                outbounds.append(&mut components);
+                let quic = ext_proxy.quic.unwrap_or(false);
+                let certificate = resolve_cert(&ext_proxy.tls_cert);
+                // A certificate from a [Certificate] section is inline.
+                let (certificate, certificate_path) = match certificate {
+                    Some(c) if c.contains("-----BEGIN") => (Some(c), None),
+                    other => (None, other),
+                };
+                let ech = ext_proxy.tls_ech.unwrap_or(false).then(|| {
+                    json!({
+                        "enabled": true,
+                        "config": resolve_ech(&ext_proxy.tls_ech_config_list),
+                        "disable_dns_lookup": ext_proxy.tls_ech_disable_dns_lookup,
+                    })
+                });
+                proxy["tls"] = json!({
+                    "enabled": true,
+                    "server_name": ext_proxy.sni,
+                    "insecure": ext_proxy.tls_insecure,
+                    "alpn": if protocol == "trojan" && !quic { None } else { Some(["http/1.1"]) },
+                    "certificate": certificate,
+                    "certificate_path": certificate_path,
+                    "ech": ech,
+                });
+                if quic {
+                    proxy["transport"] = json!({ "type": "quic" });
+                } else if ext_proxy.ws.unwrap_or(false) {
+                    let headers = ext_proxy
+                        .ws_host
+                        .as_ref()
+                        .map(|host| json!({ "Host": host }));
+                    proxy["transport"] = json!({
+                        "type": "ws",
+                        "path": ext_proxy.ws_path.as_deref().unwrap_or("/"),
+                        "headers": headers,
+                    });
+                }
+                if ext_proxy.amux.unwrap_or(false) && !quic {
+                    proxy["multiplex"] = json!({
+                        "enabled": true,
+                        "protocol": "amux",
+                        "max_accepts": ext_proxy.amux_max,
+                        "concurrency": ext_proxy.amux_con,
+                        "max_recv_bytes": ext_proxy.amux_max_recv,
+                        "max_lifetime": ext_proxy.amux_max_lifetime,
+                    });
+                }
+                outbounds.push(outbound(tag, protocol, proxy));
             }
             other => {
                 return Err(anyhow!(
@@ -1270,7 +1220,49 @@ pub fn to_config(conf: &Config) -> Result<model::Config> {
         let tag = ext_proxy_group.tag.as_str();
         let members = &ext_proxy_group.actors;
         let group = match ext_proxy_group.protocol.as_str() {
-            "chain" => outbound(tag, "chain", json!({ "outbounds": members })),
+            "chain" => {
+                // Each hop after the first is a copy of its proxy that dials
+                // through the hop before; the last copy is the group.
+                let hops = members.as_deref().unwrap_or_default();
+                if hops.len() < 2 {
+                    return Err(anyhow!(
+                        "[Proxy Group] {}: a chain needs at least two proxies",
+                        tag
+                    ));
+                }
+                let mut previous = hops[0].clone();
+                for (i, hop) in hops.iter().enumerate().skip(1) {
+                    let proxy = config
+                        .outbounds
+                        .iter()
+                        .find(|o| &o.tag == hop)
+                        .filter(|o| o.options.contains_key("server"))
+                        .ok_or_else(|| {
+                            anyhow!(
+                                "[Proxy Group] {}: [{}] is not a proxy defined in [Proxy]",
+                                tag,
+                                hop
+                            )
+                        })?;
+                    let mut copy = proxy.clone();
+                    if copy.options.contains_key("detour") {
+                        return Err(anyhow!(
+                            "[Proxy Group] {}: [{}] already dials through another proxy",
+                            tag,
+                            hop
+                        ));
+                    }
+                    copy.tag = if i + 1 == hops.len() {
+                        tag.to_string()
+                    } else {
+                        format!("{}/{}", tag, hop)
+                    };
+                    copy.options.insert("detour".into(), json!(previous));
+                    previous = copy.tag.clone();
+                    config.outbounds.push(copy);
+                }
+                continue;
+            }
             "tryall" => outbound(
                 tag,
                 "tryall",
@@ -1395,14 +1387,23 @@ fn to_log(general: &General) -> Result<model::Log> {
     })
 }
 
-/// The options in `value`, less the ones the `.conf` left out.
+/// The options in `value`, less the ones the `.conf` left out, at any depth.
 fn options(value: serde_json::Value) -> model::Options {
-    match value {
-        serde_json::Value::Object(mut map) => {
-            map.retain(|_, v| !v.is_null());
-            map
-        }
+    match options_value(value) {
+        serde_json::Value::Object(map) => map,
         _ => unreachable!("options are always an object"),
+    }
+}
+
+fn options_value(value: serde_json::Value) -> serde_json::Value {
+    match value {
+        serde_json::Value::Object(map) => serde_json::Value::Object(
+            map.into_iter()
+                .filter(|(_, v)| !v.is_null())
+                .map(|(k, v)| (k, options_value(v)))
+                .collect(),
+        ),
+        other => other,
     }
 }
 
@@ -1427,10 +1428,6 @@ fn outbound(tag: &str, protocol: &str, value: serde_json::Value) -> model::Outbo
         tag: tag.to_string(),
         options: options(value),
     }
-}
-
-fn chain(tag: &str, actors: &[&str]) -> model::Outbound {
-    outbound(tag, "chain", json!({ "outbounds": actors }))
 }
 
 pub fn from_string(s: &str) -> Result<model::Config> {
@@ -1461,14 +1458,15 @@ Direct = direct
 Trojan = trojan, 1.2.3.4, 443, password, sni=www.google.com
 "#,
         );
-        let outbounds = &config.outbounds;
-        // The first outbound should be "Direct"
-        assert_eq!(outbounds[0].tag, "Direct");
-        // The second outbound should be the main "Trojan" outbound (which is a Chain)
-        assert_eq!(outbounds[1].tag, "Trojan");
-        assert_eq!(outbounds[1].protocol, "chain");
-        // The third outbound should be the TLS component
-        assert_eq!(outbounds[2].tag, "Trojan_tls_xxx");
+        assert_eq!(config.outbounds.len(), 2);
+        assert_eq!(config.outbounds[0].tag, "Direct");
+        let trojan = &config.outbounds[1];
+        assert_eq!(trojan.tag, "Trojan");
+        assert_eq!(trojan.protocol, "trojan");
+        assert_eq!(
+            trojan.options["tls"],
+            json!({ "enabled": true, "server_name": "www.google.com", "insecure": false })
+        );
     }
 
     #[test]
@@ -1479,17 +1477,13 @@ Trojan = trojan, 1.2.3.4, 443, password, sni=www.google.com
 Vmess = vmess, 1.2.3.4, 443, username, amux=true, sni=www.google.com
 "#,
         );
-        // The first outbound should be the main "Vmess" outbound (Chain)
-        assert_eq!(config.outbounds[0].tag, "Vmess");
-        // The following should be components
-        let tags: Vec<_> = config.outbounds.iter().map(|o| o.tag.as_str()).collect();
-        assert!(tags.contains(&"Vmess_tls_xxx"));
-        assert!(tags.contains(&"Vmess_amux_xxx"));
-        assert!(tags.contains(&"Vmess_vmess_xxx"));
-        let vmess = outbound(&config, "Vmess_vmess_xxx");
+        assert_eq!(config.outbounds.len(), 1);
+        let vmess = outbound(&config, "Vmess");
+        assert_eq!(vmess.protocol, "vmess");
         assert_eq!(vmess.options["uuid"], "username");
-        // Behind amux, the server is amux's to dial.
-        assert!(!vmess.options.contains_key("server"));
+        assert_eq!(vmess.options["server"], "1.2.3.4");
+        assert_eq!(vmess.options["multiplex"]["protocol"], "amux");
+        assert_eq!(vmess.options["tls"]["alpn"], json!(["http/1.1"]));
     }
 
     #[test]
@@ -1500,8 +1494,9 @@ Vmess = vmess, 1.2.3.4, 443, username, amux=true, sni=www.google.com
 Trojan = trojan, 1.2.3.4, 443, password, sni=www.google.com, tls-ech=true, tls-ech-config-list=AQID
 "#,
         );
-        let tls = outbound(&config, "Trojan_tls_xxx");
-        assert_eq!(tls.options["ech_config_list"], "AQID");
+        let ech = &outbound(&config, "Trojan").options["tls"]["ech"];
+        assert_eq!(ech["enabled"], true);
+        assert_eq!(ech["config"], "AQID");
     }
 
     #[test]
@@ -1515,11 +1510,8 @@ Trojan = trojan, 1.2.3.4, 443, password, sni=www.google.com, tls-ech=true, tls-e
 AQI=
 "#,
         );
-        let tls = outbound(&config, "Trojan_tls_xxx");
-        assert_eq!(
-            tls.options["ech_config_list"].as_str().map(str::trim),
-            Some("AQI=")
-        );
+        let ech = &outbound(&config, "Trojan").options["tls"]["ech"];
+        assert_eq!(ech["config"].as_str().map(str::trim), Some("AQI="));
     }
 
     #[test]
@@ -1548,10 +1540,10 @@ dns-server = 1.1.1.1
 Trojan = trojan, 1.2.3.4, 443, password, sni=www.google.com, tls-ech=true, tls-ech-disable-dns-lookup=true, tls-ech-config-list=AQID
 "#,
         );
-        let tls = outbound(&config, "Trojan_tls_xxx");
-        assert_eq!(tls.options["ech"], true);
-        assert_eq!(tls.options["ech_disable_dns_lookup"], true);
-        assert_eq!(tls.options["ech_config_list"], "AQID");
+        let ech = &outbound(&config, "Trojan").options["tls"]["ech"];
+        assert_eq!(ech["enabled"], true);
+        assert_eq!(ech["disable_dns_lookup"], true);
+        assert_eq!(ech["config"], "AQID");
     }
 
     #[test]
@@ -1567,14 +1559,8 @@ Vless2 = vless, 1.2.3.4, 443, password
         );
         // An explicit uuid wins; otherwise vmess falls back to the username
         // and vless to the password.
-        assert_eq!(
-            outbound(&config, "Vmess1_vmess_xxx").options["uuid"],
-            "uuid1"
-        );
-        assert_eq!(
-            outbound(&config, "Vmess2_vmess_xxx").options["uuid"],
-            "username"
-        );
+        assert_eq!(outbound(&config, "Vmess1").options["uuid"], "uuid1");
+        assert_eq!(outbound(&config, "Vmess2").options["uuid"], "username");
         assert_eq!(outbound(&config, "Vless1").options["uuid"], "uuid2");
         assert_eq!(outbound(&config, "Vless2").options["uuid"], "password");
     }
@@ -1616,6 +1602,56 @@ FINAL, Proxy
         assert_eq!(config.route.rules.len(), 1);
         assert_eq!(config.route.rules[0].domain_suffix, ["example.com"]);
         assert_eq!(config.route.rules[0].outbound, "Direct");
+    }
+
+    #[test]
+    fn shadowsocks_obfs_becomes_a_plugin() {
+        let config = load(
+            r#"
+[Proxy]
+SS = ss, 1.2.3.4, 8388, encrypt-method=aes-128-gcm, password=pw, obfs=http, obfs-host=example.com
+"#,
+        );
+        let ss = outbound(&config, "SS");
+        assert_eq!(ss.options["plugin"], "obfs-local");
+        assert_eq!(ss.options["plugin_opts"], "obfs=http;obfs-host=example.com");
+    }
+
+    #[test]
+    fn vless_reality_becomes_a_tls_block() {
+        let config = load(
+            r#"
+[Proxy]
+V = vless, 1.2.3.4, 443, uuid=id, sni=example.com, reality=true, reality-public-key=pk, reality-short-id=ab
+"#,
+        );
+        let tls = &outbound(&config, "V").options["tls"];
+        assert_eq!(tls["server_name"], "example.com");
+        assert_eq!(
+            tls["reality"],
+            json!({ "enabled": true, "public_key": "pk", "short_id": "ab" })
+        );
+    }
+
+    #[test]
+    fn a_chain_group_becomes_detours() {
+        let config = load(
+            r#"
+[Proxy]
+A = ss, 1.1.1.1, 1, encrypt-method=aes-128-gcm, password=a
+B = ss, 2.2.2.2, 2, encrypt-method=aes-128-gcm, password=b
+C = ss, 3.3.3.3, 3, encrypt-method=aes-128-gcm, password=c
+
+[Proxy Group]
+ABC = chain, A, B, C
+"#,
+        );
+        let b = outbound(&config, "ABC/B");
+        assert_eq!(b.options["server"], "2.2.2.2");
+        assert_eq!(b.options["detour"], "A");
+        let c = outbound(&config, "ABC");
+        assert_eq!(c.options["server"], "3.3.3.3");
+        assert_eq!(c.options["detour"], "ABC/B");
     }
 
     #[test]

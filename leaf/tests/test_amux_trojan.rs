@@ -25,22 +25,15 @@ fn test_amux_trojan() -> anyhow::Result<()> {
         ],
         "outbounds": [
             {
-                "type": "chain",
-                "outbounds": [
-                    "amux",
-                    "trojan"
-                ]
-            },
-            {
-                "type": "amux",
-                "tag": "amux",
-                "server": "127.0.0.1",
-                "server_port": 3001
-            },
-            {
                 "type": "trojan",
-                "tag": "trojan",
-                "password": "password"
+                "tag": "proxy",
+                "server": "127.0.0.1",
+                "server_port": 3001,
+                "password": "password",
+                "multiplex": {
+                    "enabled": true,
+                    "protocol": "amux"
+                }
             }
         ]
     }
@@ -50,26 +43,18 @@ fn test_amux_trojan() -> anyhow::Result<()> {
     {
         "inbounds": [
             {
-                "type": "chain",
+                "type": "trojan",
                 "listen": "127.0.0.1",
                 "listen_port": 3001,
-                "inbounds": [
-                    "amux",
-                    "trojan"
-                ]
-            },
-            {
-                "type": "amux",
-                "tag": "amux"
-            },
-            {
-                "type": "trojan",
-                "tag": "trojan",
                 "users": [
                     {
                         "password": "password"
                     }
-                ]
+                ],
+                "multiplex": {
+                    "enabled": true,
+                    "protocol": "amux"
+                }
             }
         ],
         "outbounds": [

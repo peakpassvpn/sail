@@ -29,49 +29,30 @@ fn test_out_chain_10() -> anyhow::Result<()> {
         ],
         "outbounds": [
             {
-                "type": "chain",
-                "tag": "out",
-                "outbounds": [
-                    "chain-amux-ws-trojan",
-                    "shadowsocks"
-                ]
-            },
-            {
-                "type": "chain",
-                "tag": "chain-amux-ws-trojan",
-                "outbounds": [
-                    "amux",
-                    "trojan"
-                ]
-            },
-            {
-                "type": "amux",
-                "tag": "amux",
-                "outbounds": [
-                    "ws"
-                ],
-                "server": "127.0.0.1",
-                "server_port": 3001,
-                "max_accepts": 16,
-                "concurrency": 1
-            },
-            {
-                "type": "ws",
-                "tag": "ws",
-                "path": "/leaf"
-            },
-            {
-                "type": "trojan",
-                "tag": "trojan",
-                "password": "password"
-            },
-            {
                 "type": "shadowsocks",
-                "tag": "shadowsocks",
+                "tag": "out",
                 "server": "127.0.0.1",
                 "server_port": 3002,
                 "method": "chacha20-ietf-poly1305",
-                "password": "password"
+                "password": "password",
+                "detour": "out/1"
+            },
+            {
+                "type": "trojan",
+                "tag": "out/1",
+                "server": "127.0.0.1",
+                "server_port": 3001,
+                "password": "password",
+                "transport": {
+                    "type": "ws",
+                    "path": "/leaf"
+                },
+                "multiplex": {
+                    "enabled": true,
+                    "protocol": "amux",
+                    "max_accepts": 16,
+                    "concurrency": 1
+                }
             }
         ]
     }
@@ -81,35 +62,23 @@ fn test_out_chain_10() -> anyhow::Result<()> {
     {
         "inbounds": [
             {
-                "type": "chain",
+                "type": "trojan",
                 "tag": "in",
                 "listen": "127.0.0.1",
                 "listen_port": 3001,
-                "inbounds": [
-                    "amux",
-                    "trojan"
-                ]
-            },
-            {
-                "type": "ws",
-                "tag": "ws",
-                "path": "/leaf"
-            },
-            {
-                "type": "amux",
-                "tag": "amux",
-                "inbounds": [
-                    "ws"
-                ]
-            },
-            {
-                "type": "trojan",
-                "tag": "trojan",
                 "users": [
                     {
                         "password": "password"
                     }
-                ]
+                ],
+                "transport": {
+                    "type": "ws",
+                    "path": "/leaf"
+                },
+                "multiplex": {
+                    "enabled": true,
+                    "protocol": "amux"
+                }
             }
         ],
         "outbounds": [

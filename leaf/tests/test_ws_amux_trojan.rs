@@ -27,32 +27,21 @@ fn test_ws_amux_trojan() -> anyhow::Result<()> {
         ],
         "outbounds": [
             {
-                "type": "chain",
-                "outbounds": [
-                    "amux",
-                    "trojan"
-                ]
-            },
-            {
-                "type": "amux",
-                "tag": "amux",
-                "outbounds": [
-                    "ws"
-                ],
+                "type": "trojan",
+                "tag": "proxy",
                 "server": "127.0.0.1",
                 "server_port": 3001,
-                "max_accepts": 16,
-                "concurrency": 1
-            },
-            {
-                "type": "ws",
-                "tag": "ws",
-                "path": "/leaf"
-            },
-            {
-                "type": "trojan",
-                "tag": "trojan",
-                "password": "password"
+                "password": "password",
+                "transport": {
+                    "type": "ws",
+                    "path": "/leaf"
+                },
+                "multiplex": {
+                    "enabled": true,
+                    "protocol": "amux",
+                    "max_accepts": 16,
+                    "concurrency": 1
+                }
             }
         ]
     }
@@ -62,34 +51,22 @@ fn test_ws_amux_trojan() -> anyhow::Result<()> {
     {
         "inbounds": [
             {
-                "type": "chain",
+                "type": "trojan",
                 "listen": "127.0.0.1",
                 "listen_port": 3001,
-                "inbounds": [
-                    "amux",
-                    "trojan"
-                ]
-            },
-            {
-                "type": "amux",
-                "tag": "amux",
-                "inbounds": [
-                    "ws"
-                ]
-            },
-            {
-                "type": "ws",
-                "tag": "ws",
-                "path": "/leaf"
-            },
-            {
-                "type": "trojan",
-                "tag": "trojan",
                 "users": [
                     {
                         "password": "password"
                     }
-                ]
+                ],
+                "transport": {
+                    "type": "ws",
+                    "path": "/leaf"
+                },
+                "multiplex": {
+                    "enabled": true,
+                    "protocol": "amux"
+                }
             }
         ],
         "outbounds": [
