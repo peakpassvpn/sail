@@ -17,16 +17,14 @@ pub(crate) fn register(registry: &mut OutboundRegistry) {
     registry.register("ws", OutboundFactory::standalone(build));
 }
 
-fn build(ctx: &mut OutboundContext<'_>) -> Result<Option<AnyOutboundHandler>> {
+fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
     let settings: config::WebSocketOutboundSettings = ctx.settings()?;
     let stream = Arc::new(StreamHandler {
         path: settings.path.clone(),
         headers: settings.headers.clone(),
     });
-    Ok(Some(
-        HandlerBuilder::default()
-            .tag(ctx.tag.to_owned())
-            .stream_handler(stream)
-            .build(),
-    ))
+    Ok(HandlerBuilder::default()
+        .tag(ctx.tag.to_owned())
+        .stream_handler(stream)
+        .build())
 }

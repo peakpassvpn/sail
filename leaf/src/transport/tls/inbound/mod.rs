@@ -15,7 +15,7 @@ pub(crate) fn register(registry: &mut InboundRegistry) {
     registry.register("tls", InboundFactory::standalone(build));
 }
 
-fn build(ctx: &InboundContext<'_>) -> Result<Option<AnyInboundHandler>> {
+fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
     let settings: config::TlsInboundSettings = ctx.settings()?;
     let ech_config = if settings.ech_config.is_empty() {
         None
@@ -36,9 +36,9 @@ fn build(ctx: &InboundContext<'_>) -> Result<Option<AnyInboundHandler>> {
         )
         .map_err(|e| anyhow!("invalid [{}] inbound tls capability: {}", ctx.tag, e))?,
     );
-    Ok(Some(Arc::new(Handler::new(
+    Ok(Arc::new(Handler::new(
         ctx.tag.to_owned(),
         Some(stream),
         None,
-    ))))
+    )))
 }

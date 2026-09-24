@@ -15,7 +15,7 @@ pub(crate) fn register(registry: &mut OutboundRegistry) {
     registry.register("tls", OutboundFactory::standalone(build));
 }
 
-fn build(ctx: &mut OutboundContext<'_>) -> Result<Option<AnyOutboundHandler>> {
+fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
     let settings: config::TlsOutboundSettings = ctx.settings()?;
     let certificate = if settings.certificate.is_empty() {
         None
@@ -43,10 +43,8 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<Option<AnyOutboundHandler>> {
         ech_config_list,
         ctx.dns_client.clone(),
     )?);
-    Ok(Some(
-        HandlerBuilder::default()
-            .tag(ctx.tag.to_owned())
-            .stream_handler(stream)
-            .build(),
-    ))
+    Ok(HandlerBuilder::default()
+        .tag(ctx.tag.to_owned())
+        .stream_handler(stream)
+        .build())
 }

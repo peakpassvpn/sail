@@ -8,11 +8,9 @@
 
 use std::collections::{HashMap, HashSet};
 
+use crate::app::SyncDnsClient;
 use anyhow::{anyhow, Result};
 use futures::future::AbortHandle;
-use tracing::warn;
-
-use crate::app::SyncDnsClient;
 
 use super::{AnyInboundHandler, AnyOutboundHandler};
 
@@ -80,12 +78,10 @@ pub type OutboundRegistry = Registry<OutboundFactory>;
 
 /// Builds one outbound protocol.
 pub struct OutboundFactory {
-    /// Tags of the outbounds this one is built on. They are built first;
-    /// what to do when one of them is missing is up to `build`.
+    /// Tags of the outbounds this one is built on. Each must exist, and is
+    /// built first.
     pub dependencies: fn(&str, &[u8]) -> Result<Vec<String>>,
-    /// Builds the handler, or returns `None` when there is nothing to build
-    /// (a group none of whose members exist, for example).
-    pub build: fn(&mut OutboundContext<'_>) -> Result<Option<AnyOutboundHandler>>,
+    pub build: fn(&mut OutboundContext<'_>) -> Result<AnyOutboundHandler>,
     /// Whether outbounds with this protocol and byte-identical settings may
     /// share one handler instead of each building their own.
     pub shareable: bool,
@@ -93,9 +89,7 @@ pub struct OutboundFactory {
 
 impl OutboundFactory {
     /// A protocol that stands on its own.
-    pub fn standalone(
-        build: fn(&mut OutboundContext<'_>) -> Result<Option<AnyOutboundHandler>>,
-    ) -> Self {
+    pub fn standalone(build: fn(&mut OutboundContext<'_>) -> Result<AnyOutboundHandler>) -> Self {
         Self {
             dependencies: no_dependencies,
             build,
@@ -106,7 +100,7 @@ impl OutboundFactory {
     /// A protocol built out of other outbounds.
     pub fn composite(
         dependencies: fn(&str, &[u8]) -> Result<Vec<String>>,
-        build: fn(&mut OutboundContext<'_>) -> Result<Option<AnyOutboundHandler>>,
+        build: fn(&mut OutboundContext<'_>) -> Result<AnyOutboundHandler>,
     ) -> Self {
         Self {
             dependencies,
@@ -135,25 +129,21 @@ impl OutboundContext<'_> {
         parse_settings("outbound", self.tag, self.settings)
     }
 
-    /// The already built outbound `tag`, if there is one.
-    pub fn handler(&self, tag: &str) -> Option<AnyOutboundHandler> {
-        self.handlers.get(tag).cloned()
+    /// The outbound `tag`, which must be one of this outbound's
+    /// dependencies.
+    pub fn handler(&self, tag: &str) -> Result<AnyOutboundHandler> {
+        dependency(&self.handlers, "outbound", self.tag, tag)
     }
 
-    /// The outbounds `tags`, or `None` if any of them does not exist.
-    pub fn actors(&self, tags: &[String]) -> Option<Vec<AnyOutboundHandler>> {
-        let actors = tags
-            .iter()
-            .map(|tag| self.handler(tag))
-            .collect::<Option<Vec<_>>>();
-        if actors.is_none() {
-            warn!(
-                "outbound [{}] skipped: not all of its actors [{}] exist",
-                self.tag,
-                tags.join(",")
-            );
-        }
-        actors
+    /// The outbounds `tags`, which must be among this outbound's
+    /// dependencies. There may be none.
+    pub fn actors(&self, tags: &[String]) -> Result<Vec<AnyOutboundHandler>> {
+        tags.iter().map(|tag| self.handler(tag)).collect()
+    }
+
+    /// Like `actors`, for a group that needs at least one member.
+    pub fn members(&self, tags: &[String]) -> Result<Vec<AnyOutboundHandler>> {
+        non_empty("outbound", self.tag, self.actors(tags)?)
     }
 }
 
@@ -198,7 +188,7 @@ pub fn build_outbounds(
             }) {
                 let handler = state.handlers[*tag].clone();
                 state.handlers.insert(outbound.tag.clone(), handler);
-                return Ok(true);
+                return Ok(());
             }
         }
         let mut ctx = OutboundContext {
@@ -212,14 +202,12 @@ pub fn build_outbounds(
             external_handlers: state.external_handlers,
             handlers: state.handlers,
         };
-        let Some(handler) = (factory.build)(&mut ctx)? else {
-            return Ok(false);
-        };
+        let handler = (factory.build)(&mut ctx)?;
         state.handlers.insert(outbound.tag.clone(), handler);
         if factory.shareable {
             shared.push((&outbound.tag, &outbound.protocol, &outbound.settings));
         }
-        Ok(true)
+        Ok(())
     })
 }
 
@@ -231,16 +219,15 @@ pub type InboundRegistry = Registry<InboundFactory>;
 
 /// Builds one inbound protocol.
 pub struct InboundFactory {
-    /// Tags of the inbounds this one is built on. They are built first;
-    /// what to do when one of them is missing is up to `build`.
+    /// Tags of the inbounds this one is built on. Each must exist, and is
+    /// built first.
     pub dependencies: fn(&str, &[u8]) -> Result<Vec<String>>,
-    /// Builds the handler, or returns `None` when there is nothing to build.
-    pub build: fn(&InboundContext<'_>) -> Result<Option<AnyInboundHandler>>,
+    pub build: fn(&InboundContext<'_>) -> Result<AnyInboundHandler>,
 }
 
 impl InboundFactory {
     /// A protocol that stands on its own.
-    pub fn standalone(build: fn(&InboundContext<'_>) -> Result<Option<AnyInboundHandler>>) -> Self {
+    pub fn standalone(build: fn(&InboundContext<'_>) -> Result<AnyInboundHandler>) -> Self {
         Self {
             dependencies: no_dependencies,
             build,
@@ -250,7 +237,7 @@ impl InboundFactory {
     /// A protocol built out of other inbounds.
     pub fn composite(
         dependencies: fn(&str, &[u8]) -> Result<Vec<String>>,
-        build: fn(&InboundContext<'_>) -> Result<Option<AnyInboundHandler>>,
+        build: fn(&InboundContext<'_>) -> Result<AnyInboundHandler>,
     ) -> Self {
         Self {
             dependencies,
@@ -271,22 +258,20 @@ impl InboundContext<'_> {
         parse_settings("inbound", self.tag, self.settings)
     }
 
-    /// The already built inbound `tag`, if there is one.
-    pub fn handler(&self, tag: &str) -> Option<AnyInboundHandler> {
-        self.handlers.get(tag).cloned()
+    /// The inbound `tag`, which must be one of this inbound's dependencies.
+    pub fn handler(&self, tag: &str) -> Result<AnyInboundHandler> {
+        dependency(self.handlers, "inbound", self.tag, tag)
     }
 
-    /// Those of the inbounds `tags` that exist, in order.
-    pub fn existing_actors(&self, tags: &[String]) -> Vec<AnyInboundHandler> {
-        tags.iter()
-            .filter_map(|tag| {
-                let actor = self.handler(tag);
-                if actor.is_none() {
-                    warn!("inbound [{}]: actor [{}] does not exist", self.tag, tag);
-                }
-                actor
-            })
-            .collect()
+    /// The inbounds `tags`, which must be among this inbound's
+    /// dependencies. There may be none.
+    pub fn actors(&self, tags: &[String]) -> Result<Vec<AnyInboundHandler>> {
+        tags.iter().map(|tag| self.handler(tag)).collect()
+    }
+
+    /// Like `actors`, for a composite that needs at least one member.
+    pub fn members(&self, tags: &[String]) -> Result<Vec<AnyInboundHandler>> {
+        non_empty("inbound", self.tag, self.actors(tags)?)
     }
 }
 
@@ -319,17 +304,33 @@ pub fn build_inbounds(
             settings: &inbound.settings,
             handlers,
         };
-        let Some(handler) = (factory.build)(&ctx)? else {
-            return Ok(false);
-        };
+        let handler = (factory.build)(&ctx)?;
         handlers.insert(inbound.tag.clone(), handler);
-        Ok(true)
+        Ok(())
     })
 }
 
 // ---------------------------------------------------------------------------
 // Ordering
 // ---------------------------------------------------------------------------
+
+fn dependency<H: Clone>(handlers: &Handlers<H>, kind: &str, tag: &str, dep: &str) -> Result<H> {
+    handlers.get(dep).cloned().ok_or_else(|| {
+        anyhow!(
+            "[{}] {}: [{}] is used but not declared as a dependency",
+            tag,
+            kind,
+            dep
+        )
+    })
+}
+
+fn non_empty<H>(kind: &str, tag: &str, members: Vec<H>) -> Result<Vec<H>> {
+    if members.is_empty() {
+        return Err(anyhow!("[{}] {}: needs at least one actor", tag, kind));
+    }
+    Ok(members)
+}
 
 struct Node<'a, T> {
     tag: &'a str,
@@ -340,52 +341,111 @@ struct Node<'a, T> {
 /// Runs `build` over `nodes` so that every node comes after the nodes it
 /// depends on, keeping configuration order otherwise.
 ///
-/// A dependency on a tag that no node has does not hold anything back; the
-/// builder sees it missing and decides. Nodes caught in a cycle are never
-/// built, and are reported. `build` returns whether it produced something,
-/// which is only used for logging: a node that produced nothing still counts
-/// as settled, so that its dependents get their turn to see it missing.
+/// The graph is checked first: two nodes sharing a tag, a dependency on a
+/// tag no node has, and a cycle are each an error, and nothing is built.
 fn in_dependency_order<T>(
     kind: &str,
     nodes: Vec<Node<'_, T>>,
-    mut build: impl FnMut(T) -> Result<bool>,
+    mut build: impl FnMut(T) -> Result<()>,
 ) -> Result<()> {
-    let known: HashSet<&str> = nodes.iter().map(|n| n.tag).collect();
-    let mut settled: HashSet<String> = HashSet::new();
-    let mut pending = nodes;
-
-    loop {
-        let before = pending.len();
-        let mut waiting = Vec::new();
-        for node in pending {
-            let ready = node
-                .dependencies
-                .iter()
-                .all(|d| !known.contains(d.as_str()) || settled.contains(d));
-            if !ready {
-                waiting.push(node);
-                continue;
-            }
-            let tag = node.tag.to_owned();
-            if !build(node.item)? {
-                tracing::debug!("{} [{}] built nothing", kind, tag);
-            }
-            settled.insert(tag);
-        }
-        pending = waiting;
-        if pending.is_empty() {
-            return Ok(());
-        }
-        if pending.len() == before {
-            let tags: Vec<&str> = pending.iter().map(|n| n.tag).collect();
-            warn!(
-                "{}s skipped: [{}] depend on each other in a cycle, or on one that does",
-                kind,
-                tags.join(",")
-            );
-            return Ok(());
+    let mut known: HashSet<&str> = HashSet::new();
+    for node in &nodes {
+        if !known.insert(node.tag) {
+            return Err(anyhow!("[{}] {}: tag used more than once", node.tag, kind));
         }
     }
+    for node in &nodes {
+        if let Some(missing) = node
+            .dependencies
+            .iter()
+            .find(|d| !known.contains(d.as_str()))
+        {
+            return Err(anyhow!(
+                "[{}] {}: depends on [{}], which does not exist",
+                node.tag,
+                kind,
+                missing
+            ));
+        }
+    }
+    if let Some(cycle) = find_cycle(&nodes) {
+        return Err(anyhow!(
+            "{}s depend on each other in a cycle: {}",
+            kind,
+            cycle.join(" -> ")
+        ));
+    }
+
+    // Acyclic with every dependency present, so each pass settles at least
+    // one node.
+    let mut settled: HashSet<String> = HashSet::new();
+    let mut pending = nodes;
+    while !pending.is_empty() {
+        let mut waiting = Vec::new();
+        for node in pending {
+            if node.dependencies.iter().all(|d| settled.contains(d)) {
+                let tag = node.tag.to_owned();
+                build(node.item)?;
+                settled.insert(tag);
+            } else {
+                waiting.push(node);
+            }
+        }
+        pending = waiting;
+    }
+    Ok(())
+}
+
+/// A cycle among `nodes`, as the tags along it with the first repeated at
+/// the end, if there is one.
+fn find_cycle<T>(nodes: &[Node<'_, T>]) -> Option<Vec<String>> {
+    let deps: HashMap<&str, &[String]> = nodes
+        .iter()
+        .map(|n| (n.tag, n.dependencies.as_slice()))
+        .collect();
+
+    #[derive(Clone, Copy, PartialEq)]
+    enum Mark {
+        Visiting,
+        Done,
+    }
+    let mut marks: HashMap<&str, Mark> = HashMap::new();
+
+    fn visit<'a>(
+        tag: &'a str,
+        deps: &HashMap<&'a str, &'a [String]>,
+        marks: &mut HashMap<&'a str, Mark>,
+        path: &mut Vec<&'a str>,
+    ) -> Option<Vec<String>> {
+        match marks.get(tag) {
+            Some(Mark::Done) => return None,
+            Some(Mark::Visiting) => {
+                let start = path.iter().position(|t| *t == tag).unwrap();
+                let mut cycle: Vec<String> = path[start..].iter().map(|t| t.to_string()).collect();
+                cycle.push(tag.to_owned());
+                return Some(cycle);
+            }
+            None => {}
+        }
+        marks.insert(tag, Mark::Visiting);
+        path.push(tag);
+        for dep in deps.get(tag).copied().unwrap_or_default() {
+            if let Some(cycle) = visit(dep.as_str(), deps, marks, path) {
+                return Some(cycle);
+            }
+        }
+        path.pop();
+        marks.insert(tag, Mark::Done);
+        None
+    }
+
+    for node in nodes {
+        let mut path = Vec::new();
+        if let Some(cycle) = visit(node.tag, &deps, &mut marks, &mut path) {
+            return Some(cycle);
+        }
+    }
+    None
 }
 
 #[cfg(test)]
@@ -400,14 +460,13 @@ mod tests {
         }
     }
 
-    fn order(nodes: Vec<Node<'_, &str>>) -> Vec<String> {
+    fn order(nodes: Vec<Node<'_, &str>>) -> Result<Vec<String>> {
         let mut built = Vec::new();
         in_dependency_order("test", nodes, |tag| {
             built.push(tag.to_owned());
-            Ok(true)
-        })
-        .unwrap();
-        built
+            Ok(())
+        })?;
+        Ok(built)
     }
 
     #[test]
@@ -417,25 +476,49 @@ mod tests {
             node("a", &[]),
             node("outer", &["group"]),
             node("b", &[]),
-        ]);
+        ])
+        .unwrap();
         assert_eq!(built, ["a", "b", "group", "outer"]);
     }
 
     #[test]
-    fn a_missing_dependency_does_not_hold_a_node_back() {
-        let built = order(vec![node("group", &["nowhere"]), node("a", &[])]);
-        assert_eq!(built, ["group", "a"]);
+    fn a_missing_dependency_is_an_error() {
+        let err = order(vec![node("a", &[]), node("group", &["a", "nowhere"])]).unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "[group] test: depends on [nowhere], which does not exist"
+        );
     }
 
     #[test]
-    fn a_cycle_is_left_unbuilt_and_the_rest_is_built() {
-        let built = order(vec![
-            node("x", &["y"]),
-            node("y", &["x"]),
+    fn a_cycle_is_an_error_that_spells_out_the_cycle() {
+        let err = order(vec![
             node("a", &[]),
-            node("after_x", &["x"]),
-        ]);
-        assert_eq!(built, ["a"]);
+            node("entry", &["x"]),
+            node("x", &["y"]),
+            node("y", &["z"]),
+            node("z", &["x"]),
+        ])
+        .unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "tests depend on each other in a cycle: x -> y -> z -> x"
+        );
+    }
+
+    #[test]
+    fn depending_on_itself_is_a_cycle() {
+        let err = order(vec![node("a", &["a"])]).unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "tests depend on each other in a cycle: a -> a"
+        );
+    }
+
+    #[test]
+    fn a_tag_used_twice_is_an_error() {
+        let err = order(vec![node("a", &[]), node("a", &[])]).unwrap_err();
+        assert_eq!(err.to_string(), "[a] test: tag used more than once");
     }
 
     #[test]
@@ -468,8 +551,11 @@ mod tests {
     #[test]
     #[should_panic(expected = "registered twice")]
     fn a_protocol_cannot_be_registered_twice() {
+        fn build(_: &InboundContext<'_>) -> Result<AnyInboundHandler> {
+            unreachable!()
+        }
         let mut registry: InboundRegistry = Registry::new("inbound");
-        registry.register("x", InboundFactory::standalone(|_| Ok(None)));
-        registry.register("x", InboundFactory::standalone(|_| Ok(None)));
+        registry.register("x", InboundFactory::standalone(build));
+        registry.register("x", InboundFactory::standalone(build));
     }
 }

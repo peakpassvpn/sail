@@ -23,13 +23,13 @@ fn dependencies(tag: &str, settings: &[u8]) -> Result<Vec<String>> {
     Ok(settings.actors.to_vec())
 }
 
-fn build(ctx: &InboundContext<'_>) -> Result<Option<AnyInboundHandler>> {
+fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
     let settings: config::AMuxInboundSettings = ctx.settings()?;
-    let actors = ctx.existing_actors(&settings.actors);
+    let actors = ctx.actors(&settings.actors)?;
     let stream = Arc::new(StreamHandler { actors });
-    Ok(Some(Arc::new(Handler::new(
+    Ok(Arc::new(Handler::new(
         ctx.tag.to_owned(),
         Some(stream),
         None,
-    ))))
+    )))
 }

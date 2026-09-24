@@ -120,12 +120,9 @@ fn dependencies(tag: &str, settings: &[u8]) -> Result<Vec<String>> {
     Ok(settings.actors.to_vec())
 }
 
-fn build(ctx: &InboundContext<'_>) -> Result<Option<AnyInboundHandler>> {
+fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
     let settings: config::ChainInboundSettings = ctx.settings()?;
-    let actors = ctx.existing_actors(&settings.actors);
-    if actors.is_empty() {
-        return Ok(None);
-    }
+    let actors = ctx.members(&settings.actors)?;
     let stream = if actors[0].stream().is_ok() {
         let h = Arc::new(StreamHandler {
             actors: actors.clone(),
@@ -140,11 +137,7 @@ fn build(ctx: &InboundContext<'_>) -> Result<Option<AnyInboundHandler>> {
     } else {
         None
     };
-    Ok(Some(Arc::new(Handler::new(
-        ctx.tag.to_owned(),
-        stream,
-        datagram,
-    ))))
+    Ok(Arc::new(Handler::new(ctx.tag.to_owned(), stream, datagram)))
 }
 
 #[cfg(test)]

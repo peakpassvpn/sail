@@ -19,7 +19,7 @@ pub(crate) fn register(registry: &mut InboundRegistry) {
     registry.register("shadowsocks", InboundFactory::standalone(build));
 }
 
-fn build(ctx: &InboundContext<'_>) -> Result<Option<AnyInboundHandler>> {
+fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
     let settings: config::ShadowsocksInboundSettings = ctx.settings()?;
     let stream = Arc::new(StreamHandler {
         cipher: settings.method.clone(),
@@ -29,9 +29,9 @@ fn build(ctx: &InboundContext<'_>) -> Result<Option<AnyInboundHandler>> {
         cipher: settings.method.clone(),
         password: settings.password.clone(),
     });
-    Ok(Some(Arc::new(Handler::new(
+    Ok(Arc::new(Handler::new(
         ctx.tag.to_owned(),
         Some(stream),
         Some(datagram),
-    ))))
+    )))
 }

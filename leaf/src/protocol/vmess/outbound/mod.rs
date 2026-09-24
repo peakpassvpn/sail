@@ -21,7 +21,7 @@ pub(crate) fn register(registry: &mut OutboundRegistry) {
     registry.register("vmess", OutboundFactory::standalone(build));
 }
 
-fn build(ctx: &mut OutboundContext<'_>) -> Result<Option<AnyOutboundHandler>> {
+fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
     let settings: config::VMessOutboundSettings = ctx.settings()?;
     let stream = Arc::new(StreamHandler {
         address: settings.address.clone(),
@@ -35,11 +35,9 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<Option<AnyOutboundHandler>> {
         uuid: settings.uuid.clone(),
         security: settings.security.clone(),
     });
-    Ok(Some(
-        HandlerBuilder::default()
-            .tag(ctx.tag.to_owned())
-            .stream_handler(stream)
-            .datagram_handler(datagram)
-            .build(),
-    ))
+    Ok(HandlerBuilder::default()
+        .tag(ctx.tag.to_owned())
+        .stream_handler(stream)
+        .datagram_handler(datagram)
+        .build())
 }

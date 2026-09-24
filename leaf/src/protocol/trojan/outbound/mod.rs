@@ -17,7 +17,7 @@ pub(crate) fn register(registry: &mut OutboundRegistry) {
     registry.register("trojan", OutboundFactory::standalone(build));
 }
 
-fn build(ctx: &mut OutboundContext<'_>) -> Result<Option<AnyOutboundHandler>> {
+fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
     let settings: config::TrojanOutboundSettings = ctx.settings()?;
     let stream = Arc::new(StreamHandler {
         address: settings.address.clone(),
@@ -29,11 +29,9 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<Option<AnyOutboundHandler>> {
         port: settings.port as u16,
         password: settings.password,
     });
-    Ok(Some(
-        HandlerBuilder::default()
-            .tag(ctx.tag.to_owned())
-            .stream_handler(stream)
-            .datagram_handler(datagram)
-            .build(),
-    ))
+    Ok(HandlerBuilder::default()
+        .tag(ctx.tag.to_owned())
+        .stream_handler(stream)
+        .datagram_handler(datagram)
+        .build())
 }

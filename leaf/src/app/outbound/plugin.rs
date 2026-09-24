@@ -238,7 +238,7 @@ pub(crate) fn register(registry: &mut OutboundRegistry) {
     );
 }
 
-fn build(ctx: &mut OutboundContext<'_>) -> Result<Option<AnyOutboundHandler>> {
+fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
     let settings: config::PluginOutboundSettings = ctx.settings()?;
     unsafe {
         ctx.external_handlers
@@ -260,11 +260,9 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<Option<AnyOutboundHandler>> {
             .get_datagram_handler(ctx.tag)
             .ok_or_else(missing)?,
     ));
-    Ok(Some(
-        HandlerBuilder::default()
-            .tag(ctx.tag.to_owned())
-            .stream_handler(stream)
-            .datagram_handler(datagram)
-            .build(),
-    ))
+    Ok(HandlerBuilder::default()
+        .tag(ctx.tag.to_owned())
+        .stream_handler(stream)
+        .datagram_handler(datagram)
+        .build())
 }

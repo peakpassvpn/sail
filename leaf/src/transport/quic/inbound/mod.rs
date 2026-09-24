@@ -17,16 +17,16 @@ pub(crate) fn register(registry: &mut InboundRegistry) {
     registry.register("quic", InboundFactory::standalone(build));
 }
 
-fn build(ctx: &InboundContext<'_>) -> Result<Option<AnyInboundHandler>> {
+fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
     let settings: config::QuicInboundSettings = ctx.settings()?;
     let datagram = Arc::new(DatagramHandler::new(
         settings.certificate.clone(),
         settings.certificate_key.clone(),
         settings.alpn.clone(),
     )?);
-    Ok(Some(Arc::new(Handler::new(
+    Ok(Arc::new(Handler::new(
         ctx.tag.to_owned(),
         None,
         Some(datagram),
-    ))))
+    )))
 }

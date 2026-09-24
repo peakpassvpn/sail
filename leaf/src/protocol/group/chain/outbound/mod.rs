@@ -25,23 +25,16 @@ fn dependencies(tag: &str, settings: &[u8]) -> Result<Vec<String>> {
     Ok(settings.actors.to_vec())
 }
 
-fn build(ctx: &mut OutboundContext<'_>) -> Result<Option<AnyOutboundHandler>> {
+fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
     let settings: config::ChainOutboundSettings = ctx.settings()?;
-    let Some(actors) = ctx.actors(&settings.actors) else {
-        return Ok(None);
-    };
-    if actors.is_empty() {
-        return Ok(None);
-    }
+    let actors = ctx.members(&settings.actors)?;
     let stream = Arc::new(StreamHandler {
         actors: actors.clone(),
     });
     let datagram = Arc::new(DatagramHandler { actors });
-    Ok(Some(
-        HandlerBuilder::default()
-            .tag(ctx.tag.to_owned())
-            .stream_handler(stream)
-            .datagram_handler(datagram)
-            .build(),
-    ))
+    Ok(HandlerBuilder::default()
+        .tag(ctx.tag.to_owned())
+        .stream_handler(stream)
+        .datagram_handler(datagram)
+        .build())
 }

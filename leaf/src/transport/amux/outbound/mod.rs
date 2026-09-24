@@ -26,11 +26,9 @@ fn dependencies(tag: &str, settings: &[u8]) -> Result<Vec<String>> {
     Ok(settings.actors.to_vec())
 }
 
-fn build(ctx: &mut OutboundContext<'_>) -> Result<Option<AnyOutboundHandler>> {
+fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
     let settings: config::AMuxOutboundSettings = ctx.settings()?;
-    let Some(actors) = ctx.actors(&settings.actors) else {
-        return Ok(None);
-    };
+    let actors = ctx.actors(&settings.actors)?;
     let (stream, mut abort_handles) = StreamHandler::new(
         settings.address.clone(),
         settings.port as u16,
@@ -42,10 +40,8 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<Option<AnyOutboundHandler>> {
         ctx.dns_client.clone(),
     );
     ctx.abort_handles.append(&mut abort_handles);
-    Ok(Some(
-        HandlerBuilder::default()
-            .tag(ctx.tag.to_owned())
-            .stream_handler(Arc::new(stream))
-            .build(),
-    ))
+    Ok(HandlerBuilder::default()
+        .tag(ctx.tag.to_owned())
+        .stream_handler(Arc::new(stream))
+        .build())
 }

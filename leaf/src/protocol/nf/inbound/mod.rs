@@ -979,7 +979,7 @@ pub(crate) fn register(registry: &mut InboundRegistry) {
     registry.register("nf", InboundFactory::standalone(build));
 }
 
-fn build(ctx: &InboundContext<'_>) -> Result<Option<AnyInboundHandler>> {
+fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
     let settings: config::NfInboundSettings = ctx.settings()?;
     let fake_dns_exclude = settings.fake_dns_exclude.clone();
     let fake_dns_include = settings.fake_dns_include.clone();
@@ -998,9 +998,9 @@ fn build(ctx: &InboundContext<'_>) -> Result<Option<AnyInboundHandler>> {
         manager: manager.clone(),
     });
     let datagram = Arc::new(DatagramHandler { manager });
-    Ok(Some(Arc::new(InboundHandler::new(
+    Ok(Arc::new(InboundHandler::new(
         ctx.tag.to_owned(),
         Some(stream),
         Some(datagram),
-    ))))
+    )))
 }

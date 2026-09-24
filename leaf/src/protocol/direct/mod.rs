@@ -16,13 +16,11 @@ pub(crate) fn register(registry: &mut OutboundRegistry) {
     registry.register("direct", OutboundFactory::standalone(build));
 }
 
-fn build(ctx: &mut OutboundContext<'_>) -> Result<Option<AnyOutboundHandler>> {
-    Ok(Some(
-        HandlerBuilder::default()
-            .tag(ctx.tag.to_owned())
-            .stream_handler(Arc::new(StreamHandler))
-            .datagram_handler(Arc::new(DatagramHandler))
-            .is_direct(true)
-            .build(),
-    ))
+fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
+    Ok(HandlerBuilder::default()
+        .tag(ctx.tag.to_owned())
+        .stream_handler(Arc::new(StreamHandler))
+        .datagram_handler(Arc::new(DatagramHandler))
+        .is_direct(true)
+        .build())
 }

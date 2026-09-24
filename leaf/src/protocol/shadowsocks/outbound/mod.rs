@@ -19,7 +19,7 @@ pub(crate) fn register(registry: &mut OutboundRegistry) {
     registry.register("shadowsocks", OutboundFactory::standalone(build));
 }
 
-fn build(ctx: &mut OutboundContext<'_>) -> Result<Option<AnyOutboundHandler>> {
+fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
     let settings: config::ShadowsocksOutboundSettings = ctx.settings()?;
     let stream = Arc::new(StreamHandler::new(
         settings.address.clone(),
@@ -34,11 +34,9 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<Option<AnyOutboundHandler>> {
         cipher: settings.method,
         password: settings.password,
     });
-    Ok(Some(
-        HandlerBuilder::default()
-            .tag(ctx.tag.to_owned())
-            .stream_handler(stream)
-            .datagram_handler(datagram)
-            .build(),
-    ))
+    Ok(HandlerBuilder::default()
+        .tag(ctx.tag.to_owned())
+        .stream_handler(stream)
+        .datagram_handler(datagram)
+        .build())
 }

@@ -20,25 +20,18 @@ fn dependencies(tag: &str, settings: &[u8]) -> Result<Vec<String>> {
     Ok(settings.actors.to_vec())
 }
 
-fn build(ctx: &mut OutboundContext<'_>) -> Result<Option<AnyOutboundHandler>> {
+fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
     let settings: config::MptpOutboundSettings = ctx.settings()?;
-    let Some(actors) = ctx.actors(&settings.actors) else {
-        return Ok(None);
-    };
-    if actors.is_empty() {
-        return Ok(None);
-    }
+    let actors = ctx.members(&settings.actors)?;
     let stream = Arc::new(stream::Handler {
         actors,
         address: settings.address.clone(),
         port: settings.port as u16,
         dns_client: ctx.dns_client.clone(),
     });
-    Ok(Some(
-        HandlerBuilder::default()
-            .tag(ctx.tag.to_owned())
-            .stream_handler(stream.clone())
-            .datagram_handler(stream)
-            .build(),
-    ))
+    Ok(HandlerBuilder::default()
+        .tag(ctx.tag.to_owned())
+        .stream_handler(stream.clone())
+        .datagram_handler(stream)
+        .build())
 }

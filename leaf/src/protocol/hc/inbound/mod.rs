@@ -15,16 +15,16 @@ pub(crate) fn register(registry: &mut InboundRegistry) {
     registry.register("hc", InboundFactory::standalone(build));
 }
 
-fn build(ctx: &InboundContext<'_>) -> Result<Option<AnyInboundHandler>> {
+fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
     let settings: config::HcInboundSettings = ctx.settings()?;
     let stream = Arc::new(Handler::new(
         settings.path,
         settings.request,
         settings.response,
     ));
-    Ok(Some(Arc::new(InboundHandler::new(
+    Ok(Arc::new(InboundHandler::new(
         ctx.tag.to_owned(),
         Some(stream),
         None,
-    ))))
+    )))
 }

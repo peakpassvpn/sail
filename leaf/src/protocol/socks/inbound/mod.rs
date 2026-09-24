@@ -17,7 +17,7 @@ pub(crate) fn register(registry: &mut InboundRegistry) {
     registry.register("socks", InboundFactory::standalone(build));
 }
 
-fn build(ctx: &InboundContext<'_>) -> Result<Option<AnyInboundHandler>> {
+fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
     let mut username = None;
     let mut password = None;
     if !ctx.settings.is_empty() {
@@ -35,9 +35,9 @@ fn build(ctx: &InboundContext<'_>) -> Result<Option<AnyInboundHandler>> {
     }
     let stream = Arc::new(StreamHandler { username, password });
     let datagram = Arc::new(DatagramHandler);
-    Ok(Some(Arc::new(Handler::new(
+    Ok(Arc::new(Handler::new(
         ctx.tag.to_owned(),
         Some(stream),
         Some(datagram),
-    ))))
+    )))
 }

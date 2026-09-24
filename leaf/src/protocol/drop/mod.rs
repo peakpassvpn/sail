@@ -16,12 +16,10 @@ pub(crate) fn register(registry: &mut OutboundRegistry) {
     registry.register("drop", OutboundFactory::standalone(build));
 }
 
-fn build(ctx: &mut OutboundContext<'_>) -> Result<Option<AnyOutboundHandler>> {
-    Ok(Some(
-        HandlerBuilder::default()
-            .tag(ctx.tag.to_owned())
-            .stream_handler(Arc::new(StreamHandler))
-            .datagram_handler(Arc::new(DatagramHandler))
-            .build(),
-    ))
+fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
+    Ok(HandlerBuilder::default()
+        .tag(ctx.tag.to_owned())
+        .stream_handler(Arc::new(StreamHandler))
+        .datagram_handler(Arc::new(DatagramHandler))
+        .build())
 }

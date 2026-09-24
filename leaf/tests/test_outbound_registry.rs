@@ -63,26 +63,52 @@ fn a_group_is_built_whatever_its_place_in_the_configuration() {
 }
 
 #[test]
-fn a_cycle_leaves_only_its_members_unbuilt() {
-    let m = manager(&[
+fn a_cycle_is_an_error() {
+    let err = manager(&[
         outbound("direct", "direct", Vec::new()),
         chain("a", &["b"]),
         chain("b", &["a"]),
-        chain("ok", &["direct"]),
     ])
-    .unwrap();
-    assert!(m.get("a").is_none());
-    assert!(m.get("b").is_none());
-    assert!(m.get("ok").is_some());
+    .err()
+    .expect("a cycle must fail the whole configuration");
+    assert_eq!(
+        err.to_string(),
+        "outbounds depend on each other in a cycle: a -> b -> a"
+    );
 }
 
 #[test]
-fn a_group_with_a_missing_member_is_skipped() {
-    let m = manager(&[
+fn a_group_with_a_missing_member_is_an_error() {
+    let err = manager(&[
         outbound("direct", "direct", Vec::new()),
         chain("broken", &["direct", "nowhere"]),
     ])
-    .unwrap();
-    assert!(m.get("broken").is_none());
-    assert!(m.get("direct").is_some());
+    .err()
+    .expect("a missing member must fail the whole configuration");
+    assert_eq!(
+        err.to_string(),
+        "[broken] outbound: depends on [nowhere], which does not exist"
+    );
+}
+
+#[test]
+fn a_group_without_members_is_an_error() {
+    let err = manager(&[chain("empty", &[])])
+        .err()
+        .expect("an empty group must fail the whole configuration");
+    assert_eq!(
+        err.to_string(),
+        "[empty] outbound: needs at least one actor"
+    );
+}
+
+#[test]
+fn a_tag_used_twice_is_an_error() {
+    let err = manager(&[
+        outbound("proxy", "direct", Vec::new()),
+        outbound("proxy", "drop", Vec::new()),
+    ])
+    .err()
+    .expect("a duplicate tag must fail the whole configuration");
+    assert_eq!(err.to_string(), "[proxy] outbound: tag used more than once");
 }

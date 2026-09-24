@@ -406,18 +406,14 @@ fn dependencies(tag: &str, settings: &[u8]) -> Result<Vec<String>> {
     Ok(tags)
 }
 
-fn build(ctx: &mut OutboundContext<'_>) -> Result<Option<AnyOutboundHandler>> {
+fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
     let settings: config::FailOverOutboundSettings = ctx.settings()?;
-    let Some(actors) = ctx.actors(&settings.actors) else {
-        return Ok(None);
-    };
-    if actors.is_empty() {
-        return Ok(None);
-    }
+    let actors = ctx.members(&settings.actors)?;
     let last_resort = settings
         .last_resort
         .as_ref()
-        .and_then(|last_resort| ctx.handler(last_resort));
+        .map(|last_resort| ctx.handler(last_resort))
+        .transpose()?;
     let (stream, mut stream_abort_handles) = StreamHandler::new(
         actors.clone(),
         settings.fail_timeout,
@@ -457,11 +453,9 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<Option<AnyOutboundHandler>> {
     );
     ctx.abort_handles.append(&mut stream_abort_handles);
     ctx.abort_handles.append(&mut datagram_abort_handles);
-    Ok(Some(
-        HandlerBuilder::default()
-            .tag(ctx.tag.to_owned())
-            .stream_handler(Arc::new(stream))
-            .datagram_handler(Arc::new(datagram))
-            .build(),
-    ))
+    Ok(HandlerBuilder::default()
+        .tag(ctx.tag.to_owned())
+        .stream_handler(Arc::new(stream))
+        .datagram_handler(Arc::new(datagram))
+        .build())
 }
