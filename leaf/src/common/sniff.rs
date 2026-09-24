@@ -261,6 +261,18 @@ impl<T: AsyncWrite + Unpin> AsyncWrite for SniffingStream<T> {
         AsyncWrite::poll_write(Pin::new(&mut self.inner), cx, buf)
     }
 
+    fn poll_write_vectored(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context,
+        bufs: &[io::IoSlice<'_>],
+    ) -> Poll<io::Result<usize>> {
+        AsyncWrite::poll_write_vectored(Pin::new(&mut self.inner), cx, bufs)
+    }
+
+    fn is_write_vectored(&self) -> bool {
+        self.inner.is_write_vectored()
+    }
+
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<io::Result<()>> {
         AsyncWrite::poll_flush(Pin::new(&mut self.inner), cx)
     }

@@ -69,6 +69,21 @@ impl AsyncWrite for Stream {
         Poll::Ready(Ok(n))
     }
 
+    // Forwarded so TLS can hand several records to one writev.
+    fn poll_write_vectored(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context,
+        bufs: &[io::IoSlice<'_>],
+    ) -> Poll<io::Result<usize>> {
+        let n = ready!(Pin::new(&mut self.inner).poll_write_vectored(cx, bufs))?;
+        self.bytes_sent.fetch_add(n as u64, Ordering::Relaxed);
+        Poll::Ready(Ok(n))
+    }
+
+    fn is_write_vectored(&self) -> bool {
+        self.inner.is_write_vectored()
+    }
+
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<io::Result<()>> {
         Pin::new(&mut self.inner).poll_flush(cx)
     }
