@@ -2,7 +2,7 @@ use std::io;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use reality_rustls::pki_types::ServerName;
+use reality_rustls::{pki_types::ServerName, ClientConnection};
 
 use super::super::stream::{build_rustls_config, create_reality_provider, RealityStream};
 use crate::proxy::*;
@@ -71,15 +71,10 @@ impl OutboundStreamHandler for Handler {
         let config = build_rustls_config(provider, verifier, public_key_bytes, short_id_bytes)
             .map_err(|e| io::Error::other(format!("failed to build rustls config: {}", e)))?;
 
-        let mut reality_stream = RealityStream::new(
-            config,
-            server_name,
-            stream,
-            Some(sess.vision_read_raw.clone()),
-        )
-        .map_err(|e| io::Error::other(format!("failed to create reality stream: {}", e)))?;
-
-        reality_stream.perform_handshake().await?;
+        let conn = ClientConnection::new(config, server_name)
+            .map_err(|e| io::Error::other(format!("failed to create reality stream: {}", e)))?;
+        let mut reality_stream = RealityStream::new(conn, stream, Some(sess.vision.clone()));
+        reality_stream.handshake().await?;
 
         Ok(Box::new(reality_stream))
     }

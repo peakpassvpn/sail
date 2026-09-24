@@ -4,6 +4,11 @@ pub mod io;
 pub mod net;
 pub mod resolver;
 pub mod sniff;
+#[cfg(any(
+    feature = "outbound-reality",
+    all(feature = "outbound-tls", feature = "rustls-tls")
+))]
+pub mod tls_stream;
 
 #[cfg(target_os = "macos")]
 pub mod cmd_macos;

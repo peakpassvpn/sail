@@ -7,12 +7,10 @@ use tracing::trace;
 
 #[cfg(feature = "rustls-tls")]
 use {
+    crate::common::tls_stream::ClientTlsStream,
     std::sync::Arc,
     std::{fs::File, io::BufReader, io::Cursor},
-    tokio_rustls::{
-        rustls::{pki_types::ServerName, ClientConfig, RootCertStore},
-        TlsConnector,
-    },
+    tokio_rustls::rustls::{pki_types::ServerName, ClientConfig, RootCertStore},
 };
 
 #[cfg(all(feature = "rustls-tls", feature = "rustls-tls-aws-lc"))]
@@ -578,15 +576,24 @@ impl OutboundStreamHandler for Handler {
                     ech_config_selected,
                     ech_dns_lookup_skipped
                 );
-                let connector = TlsConnector::from(tls_config);
                 let domain = ServerName::try_from(name.as_str()).map_err(|e| {
                     io::Error::new(
                         io::ErrorKind::InvalidInput,
                         format!("invalid tls server name {}: {}", &name, e),
                     )
                 })?;
-                let tls_stream = connector
-                    .connect(domain.to_owned(), stream)
+                let conn = tokio_rustls::rustls::ClientConnection::new(tls_config, domain.to_owned())
+                    .map_err(|e| {
+                        io::Error::new(
+                            io::ErrorKind::InvalidInput,
+                            format!("connect tls failed: {}", e),
+                        )
+                    })?;
+                // Our own stream rather than tokio-rustls, so VLESS Vision can
+                // switch the transport to direct copy.
+                let mut tls_stream = ClientTlsStream::new(conn, stream, Some(sess.vision.clone()));
+                tls_stream
+                    .handshake()
                     .map_err(|e| {
                         io::Error::new(
                             io::ErrorKind::InvalidInput,

@@ -188,9 +188,8 @@ impl VisionParser {
     }
 }
 
+use crate::session::VisionState;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
 use std::task::{Context, Poll};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
@@ -198,18 +197,21 @@ pub struct VlessStream<S> {
     stream: S,
     vision_parser: VisionParser,
     plaintext_buffer: Vec<u8>,
+    // Bytes of plaintext_buffer already handed to the caller.
+    plaintext_pos: usize,
     is_direct_copy: bool,
-    shared_read_raw: Option<Arc<AtomicBool>>,
+    vision_state: Option<VisionState>,
 }
 
 impl<S: AsyncRead + AsyncWrite + Unpin> VlessStream<S> {
-    pub fn new(stream: S, uuid_bytes: [u8; 16], shared_read_raw: Option<Arc<AtomicBool>>) -> Self {
+    pub fn new(stream: S, uuid_bytes: [u8; 16], vision_state: Option<VisionState>) -> Self {
         Self {
             stream,
             vision_parser: VisionParser::new(uuid_bytes),
             plaintext_buffer: Vec::new(),
+            plaintext_pos: 0,
             is_direct_copy: false,
-            shared_read_raw,
+            vision_state,
         }
     }
 
@@ -231,11 +233,24 @@ impl<S: AsyncRead + AsyncWrite + Unpin> AsyncRead for VlessStream<S> {
         let this = self.get_mut();
 
         loop {
-            if !this.plaintext_buffer.is_empty() {
-                let len = std::cmp::min(buf.remaining(), this.plaintext_buffer.len());
-                buf.put_slice(&this.plaintext_buffer[..len]);
-                this.plaintext_buffer.drain(..len);
+            if this.plaintext_pos < this.plaintext_buffer.len() {
+                let pending = &this.plaintext_buffer[this.plaintext_pos..];
+                let len = std::cmp::min(buf.remaining(), pending.len());
+                buf.put_slice(&pending[..len]);
+                this.plaintext_pos += len;
+                if this.plaintext_pos == this.plaintext_buffer.len() {
+                    this.plaintext_buffer = Vec::new();
+                    this.plaintext_pos = 0;
+                }
                 return Poll::Ready(Ok(()));
+            }
+
+            // Once Vision has finished (or switched to direct copy) the parser
+            // passes everything through and holds nothing back, so read
+            // straight into the caller's buffer.
+            if this.vision_parser.v_vision_done || this.vision_parser.v_direct_copy_rx {
+                debug_assert!(this.vision_parser.v_buffer.is_empty());
+                return Pin::new(&mut this.stream).poll_read(cx, buf);
             }
 
             let mut temp_buf = [0u8; 8192];
@@ -250,9 +265,15 @@ impl<S: AsyncRead + AsyncWrite + Unpin> AsyncRead for VlessStream<S> {
                     let decrypted = this.vision_parser.parse(&temp_buf[..bytes_read]);
 
                     if this.vision_parser.v_direct_copy_rx && !this.is_direct_copy {
+                        tracing::debug!("vision switched to direct copy");
                         this.is_direct_copy = true;
-                        if let Some(shared) = &this.shared_read_raw {
-                            shared.store(true, Ordering::Relaxed);
+                        if let Some(state) = &this.vision_state {
+                            state.set_direct_copy();
+                        }
+                    } else if this.vision_parser.v_vision_done {
+                        // Tell the TLS layer it may read freely again.
+                        if let Some(state) = &this.vision_state {
+                            state.set_done();
                         }
                     }
 

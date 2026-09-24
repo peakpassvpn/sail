@@ -46,12 +46,15 @@ impl OutboundStreamHandler for Handler {
         let header = build_vless_tcp_header(&uuid_bytes, &host, port, addr_type);
 
         let mut stream = stream.ok_or_else(|| io::Error::other("invalid input"))?;
+        // From the request on, the TLS layer must stop reads at record
+        // boundaries until Vision settles.
+        sess.vision.start();
         stream.write_all(&header).await?;
 
         Ok(Box::new(VlessStream::new(
             stream,
             uuid_bytes,
-            Some(sess.vision_read_raw.clone()),
+            Some(sess.vision.clone()),
         )))
     }
 }
