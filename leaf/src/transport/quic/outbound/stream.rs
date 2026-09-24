@@ -22,6 +22,7 @@ struct Manager {
     port: u16,
     server_name: Option<String>,
     dns_client: SyncDnsClient,
+    dial: Arc<crate::net::DialOptions>,
     client_config: quinn::ClientConfig,
     connections: RwLock<Vec<quinn::Connection>>,
 }
@@ -35,6 +36,7 @@ impl Manager {
         certificate: Option<String>,
         certificate_key: Option<String>,
         dns_client: SyncDnsClient,
+        dial: Arc<crate::net::DialOptions>,
     ) -> Self {
         let mut roots = rustls::RootCertStore::empty();
         if let Some(cert_path) = certificate.as_ref() {
@@ -113,6 +115,7 @@ impl Manager {
             port,
             server_name,
             dns_client,
+            dial,
             client_config,
             connections: RwLock::new(Vec::new()),
         }
@@ -123,7 +126,7 @@ impl Manager {
     pub async fn new_stream(
         &self,
     ) -> Result<QuicProxyStream<quinn::RecvStream, quinn::SendStream>> {
-        let dial_timeout = Duration::from_secs(*crate::option::OUTBOUND_DIAL_TIMEOUT);
+        let dial_timeout = self.dial.connect_timeout;
         let start = std::time::Instant::now();
         loop {
             let conn = {
@@ -162,7 +165,7 @@ impl Manager {
 
         // FIXME A better indicator.
         let socket = self
-            .new_udp_socket(&crate::option::UNSPECIFIED_BIND_ADDR)
+            .new_udp_socket(&crate::option::UNSPECIFIED_BIND_ADDR, &self.dial)
             .instrument(tracing::Span::current())
             .await?;
         let mut endpoint = quinn::Endpoint::new(
@@ -248,6 +251,7 @@ impl Handler {
         certificate: Option<String>,
         certificate_key: Option<String>,
         dns_client: SyncDnsClient,
+        dial: Arc<crate::net::DialOptions>,
     ) -> Self {
         Self {
             manager: Manager::new(
@@ -258,6 +262,7 @@ impl Handler {
                 certificate,
                 certificate_key,
                 dns_client,
+                dial,
             ),
         }
     }

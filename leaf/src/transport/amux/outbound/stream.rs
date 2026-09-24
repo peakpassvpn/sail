@@ -33,6 +33,7 @@ pub struct MuxManager {
     pub max_recv_bytes: usize,
     pub max_lifetime: u64,
     pub dns_client: SyncDnsClient,
+    pub dial: Arc<crate::net::DialOptions>,
     // TODO Verify whether the run loops in connectors are aborted after
     // a config reload.
     pub connectors: Arc<Mutex<Vec<MuxConnector>>>,
@@ -50,6 +51,7 @@ impl MuxManager {
         max_recv_bytes: usize,
         max_lifetime: u64,
         dns_client: SyncDnsClient,
+        dial: Arc<crate::net::DialOptions>,
     ) -> (Self, Vec<AbortHandle>) {
         let mut abort_handles = Vec::new();
         let connectors: Arc<Mutex<Vec<MuxConnector>>> = Arc::new(Mutex::new(Vec::new()));
@@ -75,6 +77,7 @@ impl MuxManager {
                 max_recv_bytes,
                 max_lifetime,
                 dns_client,
+                dial,
                 connectors,
                 monitor_task: Mutex::new(Some(monitor_task)),
             },
@@ -105,7 +108,12 @@ impl MuxManager {
 
         // Create the underlying TCP stream.
         let mut conn = self
-            .new_tcp_stream(self.dns_client.clone(), &self.address, &self.port)
+            .new_tcp_stream(
+                self.dns_client.clone(),
+                &self.address,
+                &self.port,
+                &self.dial,
+            )
             .instrument(tracing::Span::current())
             .await?;
 
@@ -169,6 +177,7 @@ impl Handler {
         max_recv_bytes: usize,
         max_lifetime: u64,
         dns_client: SyncDnsClient,
+        dial: Arc<crate::net::DialOptions>,
     ) -> (Self, Vec<AbortHandle>) {
         let (manager, abort_handles) = MuxManager::new(
             address,
@@ -179,6 +188,7 @@ impl Handler {
             max_recv_bytes,
             max_lifetime,
             dns_client,
+            dial,
         );
         (Handler { manager }, abort_handles)
     }

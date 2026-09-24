@@ -19,7 +19,7 @@ use super::shadow;
 pub(crate) fn register(registry: &mut OutboundRegistry) {
     registry.register(
         "shadowsocks",
-        OutboundFactory::standalone(build).with_blocks(Blocks::DETOUR),
+        OutboundFactory::standalone(build).with_blocks(Blocks::DIALER),
     );
 }
 

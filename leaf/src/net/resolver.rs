@@ -2,12 +2,8 @@ use std::net::SocketAddr;
 
 use anyhow::{anyhow, Result};
 use futures::TryFutureExt;
-use rand::prelude::SliceRandom;
-use rand::rngs::StdRng;
-use rand::SeedableRng;
 
 use crate::app::SyncDnsClient;
-use crate::net::DialOrder;
 
 pub struct Resolver {
     addrs: Vec<SocketAddr>,
@@ -27,15 +23,8 @@ impl Resolver {
                 .map_err(|e| anyhow!("lookup {} failed: {}", address, e))
                 .await?
         };
-        match *crate::option::OUTBOUND_DIAL_ORDER {
-            DialOrder::Ordered => ips.reverse(),
-            DialOrder::Random => ips.shuffle(&mut StdRng::from_entropy()),
-            DialOrder::PartialRandom => {
-                let head = ips.remove(0);
-                ips.shuffle(&mut StdRng::from_entropy());
-                ips.push(head);
-            }
-        }
+        // Tried in the order the DNS client gives them; `next` pops.
+        ips.reverse();
         Ok(Resolver {
             addrs: ips.into_iter().map(|x| SocketAddr::new(x, *port)).collect(),
         })

@@ -205,7 +205,7 @@ fn connect_addr(actor: &AnyOutboundHandler, kind: Kind) -> OutboundConnect {
 /// Only a proxy endpoint replaces an actor's destination. `Direct` means the
 /// actor goes to the session's own destination, which is already there.
 fn proxy_address(connect: &OutboundConnect) -> Option<SocksAddr> {
-    match connect {
+    match connect.target() {
         OutboundConnect::Proxy(_, address, port) => {
             SocksAddr::try_from((address.clone(), *port)).ok()
         }

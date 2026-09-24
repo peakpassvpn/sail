@@ -133,6 +133,17 @@ pub struct Route {
     /// address.
     #[serde(default)]
     pub domain_resolve: bool,
+    /// The interface outbounds that name none of their own send through.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_interface: Option<String>,
+    /// The routing mark (`SO_MARK`, Linux) of outbounds that set none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_mark: Option<u32>,
+    /// Sends outbounds that name no interface of their own through the
+    /// system's default interface, found at start. Needed when a TUN inbound
+    /// routes everything, or outbound traffic would loop back into it.
+    #[serde(default)]
+    pub auto_detect_interface: bool,
 }
 
 /// A routing rule. It matches when every condition it sets matches, and a
@@ -188,6 +199,26 @@ impl Config {
             }
         }
 
+        if self.route.auto_detect_interface && self.route.default_interface.is_some() {
+            return Err(anyhow!(
+                "route: set default_interface or auto_detect_interface, not both"
+            ));
+        }
+        // A TUN that takes the default route catches outbound traffic too,
+        // unless that is sent through the interface it would have used.
+        if let Some(tun) = self.inbounds.iter().find(|i| {
+            i.protocol == "tun" && i.options.get("auto") == Some(&serde_json::Value::Bool(true))
+        }) {
+            if !self.route.auto_detect_interface && self.route.default_interface.is_none() {
+                return Err(anyhow!(
+                    "[{}] inbound: auto routes all traffic into the TUN; set \
+                     route.auto_detect_interface (or route.default_interface) so that \
+                     outbound traffic does not loop back into it",
+                    tun.tag
+                ));
+            }
+        }
+
         let outbounds: HashSet<&str> = self.outbounds.iter().map(|o| o.tag.as_str()).collect();
         if let Some(tag) = &self.route.final_outbound {
             if !outbounds.contains(tag.as_str()) {
@@ -213,6 +244,53 @@ impl Config {
             .map_err(|e| anyhow!("{}: {}", path(&e), e.inner()))?;
         config.validate()?;
         Ok(config)
+    }
+}
+
+/// Parses a duration as sing-box writes them: a sequence of numbers with
+/// units, `500ms`, `5s`, `1m30s`, `2h`.
+pub fn parse_duration(s: &str) -> Result<std::time::Duration> {
+    let invalid = || anyhow!("invalid duration \"{}\", expected e.g. 500ms, 5s, 1m30s", s);
+    let mut total = std::time::Duration::ZERO;
+    let mut rest = s.trim();
+    if rest.is_empty() {
+        return Err(invalid());
+    }
+    while !rest.is_empty() {
+        let digits = rest
+            .find(|c: char| !(c.is_ascii_digit() || c == '.'))
+            .ok_or_else(invalid)?;
+        let value: f64 = rest[..digits].parse().map_err(|_| invalid())?;
+        rest = &rest[digits..];
+        let unit_len = rest
+            .find(|c: char| c.is_ascii_digit() || c == '.')
+            .unwrap_or(rest.len());
+        let seconds = match &rest[..unit_len] {
+            "ns" => 1e-9,
+            "us" | "µs" => 1e-6,
+            "ms" => 1e-3,
+            "s" => 1.0,
+            "m" => 60.0,
+            "h" => 3600.0,
+            _ => return Err(invalid()),
+        };
+        total += std::time::Duration::from_secs_f64(value * seconds);
+        rest = &rest[unit_len..];
+    }
+    Ok(total)
+}
+
+/// Serde support for optional durations in the sing-box notation.
+pub mod duration {
+    use serde::{Deserialize, Deserializer};
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        de: D,
+    ) -> Result<Option<std::time::Duration>, D::Error> {
+        let s = String::deserialize(de)?;
+        super::parse_duration(&s)
+            .map(Some)
+            .map_err(serde::de::Error::custom)
     }
 }
 
@@ -349,6 +427,47 @@ mod tests {
             err.to_string(),
             "route.rules[0]: outbound [proxy] does not exist"
         );
+    }
+
+    #[test]
+    fn a_tun_taking_the_default_route_needs_an_outbound_interface() {
+        let tun =
+            r#""inbounds": [{ "type": "tun", "auto": true }], "outbounds": [{ "type": "direct" }]"#;
+        let err = Config::from_json(&format!("{{ {} }}", tun)).unwrap_err();
+        assert!(
+            err.to_string().contains("route.auto_detect_interface"),
+            "{}",
+            err
+        );
+        Config::from_json(&format!(
+            r#"{{ {}, "route": {{ "auto_detect_interface": true }} }}"#,
+            tun
+        ))
+        .unwrap();
+    }
+
+    #[test]
+    fn a_default_interface_and_auto_detection_exclude_each_other() {
+        let err = Config::from_json(
+            r#"{ "route": { "default_interface": "en0", "auto_detect_interface": true } }"#,
+        )
+        .unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "route: set default_interface or auto_detect_interface, not both"
+        );
+    }
+
+    #[test]
+    fn durations_are_read_as_sing_box_writes_them() {
+        use std::time::Duration;
+        assert_eq!(parse_duration("500ms").unwrap(), Duration::from_millis(500));
+        assert_eq!(parse_duration("5s").unwrap(), Duration::from_secs(5));
+        assert_eq!(parse_duration("1m30s").unwrap(), Duration::from_secs(90));
+        assert_eq!(parse_duration("1.5h").unwrap(), Duration::from_secs(5400));
+        for bad in ["", "5", "s", "5 s", "5x", "-1s"] {
+            assert!(parse_duration(bad).is_err(), "{:?}", bad);
+        }
     }
 
     #[test]

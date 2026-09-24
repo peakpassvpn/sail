@@ -291,23 +291,6 @@ lazy_static! {
         get_env_var_or("INBOUND_ACCEPT_TIMEOUT", 60)
     };
 
-    pub static ref OUTBOUND_DIAL_TIMEOUT: u64 = {
-        get_env_var_or("OUTBOUND_DIAL_TIMEOUT", 8)
-    };
-
-    pub static ref OUTBOUND_DIAL_ORDER: crate::net::DialOrder = {
-        match get_env_var_or("OUTBOUND_DIAL_ORDER", "ordered".to_string()).as_str() {
-            "random" => crate::net::DialOrder::Random,
-            "partial-random" => crate::net::DialOrder::PartialRandom,
-            _ => crate::net::DialOrder::Ordered,
-        }
-    };
-
-    /// Maximum outbound dial concurrency.
-    pub static ref OUTBOUND_DIAL_CONCURRENCY: usize = {
-        get_env_var_or("OUTBOUND_DIAL_CONCURRENCY", 1)
-    };
-
     pub static ref ASSET_LOCATION: String = {
         get_env_var_or_else("ASSET_LOCATION", || {
             let mut file = std::env::current_exe().unwrap();
@@ -340,22 +323,6 @@ lazy_static! {
                 "0.0.0.0:0".to_string().parse().unwrap()
             }
         })
-    };
-
-    pub static ref OUTBOUND_BINDS: Vec<crate::net::OutboundBind> = {
-        let binds = get_env_var_or("OUTBOUND_INTERFACE", "".to_string());
-        if binds.is_empty() {
-            return Vec::new();
-        }
-        let mut outbound_binds = Vec::new();
-        for item in binds.split(',').map(str::trim) {
-            if let Ok(addr) = crate::net::addr::parse_bind_addr(item) {
-                outbound_binds.push(crate::net::OutboundBind::Ip(addr));
-            } else {
-                outbound_binds.push(crate::net::OutboundBind::Interface(item.to_owned()));
-            }
-        }
-        outbound_binds
     };
 
     /// Sets the RPC service endpoint for protecting outbound sockets on Android to

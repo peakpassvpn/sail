@@ -54,7 +54,8 @@ pub struct General {
 pub struct Proxy {
     pub tag: String,
     pub protocol: String,
-    pub interface: String,
+    /// Surge's `interface=`: the interface, or local address, to send through.
+    pub interface: Option<String>,
 
     // common
     pub address: Option<String>,
@@ -108,7 +109,7 @@ impl Default for Proxy {
         Proxy {
             tag: "".to_string(),
             protocol: "".to_string(),
-            interface: crate::option::UNSPECIFIED_BIND_ADDR.ip().to_string(),
+            interface: None,
             address: None,
             port: None,
             encrypt_method: Some("chacha20-ietf-poly1305".to_string()),
@@ -687,7 +688,7 @@ pub fn from_lines(lines: Vec<io::Result<String>>) -> Result<Config> {
                     proxy.reality_short_id = Some(v.to_string());
                 }
                 "interface" => {
-                    proxy.interface = v.to_string();
+                    proxy.interface = Some(v.to_string());
                 }
                 _ => {}
             }
@@ -1046,6 +1047,7 @@ pub fn to_config(conf: &Config) -> Result<model::Config> {
                 tun["fd"] = json!(fd);
             } else if ext_general.tun_auto == Some(true) {
                 tun["auto"] = json!(true);
+                config.route.auto_detect_interface = true;
             } else if let Some(ext_tun) = &ext_general.tun {
                 tun["name"] = json!(ext_tun.name);
                 tun["address"] = json!(ext_tun.address);
@@ -1081,6 +1083,7 @@ pub fn to_config(conf: &Config) -> Result<model::Config> {
     let outbounds = &mut config.outbounds;
     for ext_proxy in conf.proxy.iter().flatten() {
         let tag = ext_proxy.tag.as_str();
+        let first_new = outbounds.len();
         match ext_proxy.protocol.as_str() {
             "direct" => outbounds.push(outbound(tag, "direct", json!({}))),
             "drop" => outbounds.push(outbound(tag, "block", json!({}))),
@@ -1212,6 +1215,22 @@ pub fn to_config(conf: &Config) -> Result<model::Config> {
                     tag,
                     other
                 ))
+            }
+        }
+        if let Some(interface) = &ext_proxy.interface {
+            if ext_proxy.protocol == "drop" {
+                return Err(anyhow!(
+                    "[Proxy] {}: interface: a drop proxy sends nothing",
+                    tag
+                ));
+            }
+            let (field, value) = match interface.parse::<std::net::IpAddr>() {
+                Ok(std::net::IpAddr::V4(_)) => ("inet4_bind_address", interface),
+                Ok(std::net::IpAddr::V6(_)) => ("inet6_bind_address", interface),
+                Err(_) => ("bind_interface", interface),
+            };
+            for outbound in &mut outbounds[first_new..] {
+                outbound.options.insert(field.into(), json!(value));
             }
         }
     }
@@ -1652,6 +1671,25 @@ ABC = chain, A, B, C
         let c = outbound(&config, "ABC");
         assert_eq!(c.options["server"], "3.3.3.3");
         assert_eq!(c.options["detour"], "ABC/B");
+    }
+
+    #[test]
+    fn a_proxy_interface_becomes_its_dial_fields() {
+        let config = load(
+            r#"
+[Proxy]
+ByName = direct, interface=en1
+ByAddress = trojan, 1.2.3.4, 443, password=p, interface=192.168.1.20
+"#,
+        );
+        assert_eq!(outbound(&config, "ByName").options["bind_interface"], "en1");
+        assert_eq!(
+            outbound(&config, "ByAddress").options["inet4_bind_address"],
+            "192.168.1.20"
+        );
+        assert!(!outbound(&config, "ByName")
+            .options
+            .contains_key("inet4_bind_address"));
     }
 
     #[test]

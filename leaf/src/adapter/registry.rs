@@ -7,6 +7,7 @@
 //! nothing else.
 
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use crate::app::SyncDnsClient;
 use crate::transport::layers::{self, Blocks, InboundBlocks, OutboundBlocks, OutboundLayering};
@@ -123,6 +124,9 @@ pub struct OutboundContext<'a> {
     pub tag: &'a str,
     pub options: &'a Options,
     pub dns_client: &'a SyncDnsClient,
+    /// How this outbound opens its sockets, for a handler that dials by
+    /// itself rather than asking through `connect_addr`.
+    pub dial: Arc<crate::net::DialOptions>,
     /// Tasks the handler spawned, aborted when the outbounds are replaced.
     pub abort_handles: &'a mut Vec<AbortHandle>,
     #[cfg(feature = "outbound-select")]
@@ -159,6 +163,8 @@ impl OutboundContext<'_> {
 /// The state outbound factories build into, kept by the outbound manager.
 pub struct OutboundBuildState<'a> {
     pub dns_client: &'a SyncDnsClient,
+    /// What outbounds dial with where their dial fields leave off.
+    pub dial_defaults: &'a crate::net::DialOptions,
     pub handlers: &'a mut Handlers<AnyOutboundHandler>,
     pub abort_handles: &'a mut Vec<AbortHandle>,
     #[cfg(feature = "outbound-select")]
@@ -203,10 +209,12 @@ pub fn build_outbounds(
                 return Ok(());
             }
         }
+        let dial = Arc::new(blocks.dial(&outbound.tag)?.or(state.dial_defaults));
         let mut ctx = OutboundContext {
             tag: &outbound.tag,
             options: &options,
             dns_client: state.dns_client,
+            dial: dial.clone(),
             abort_handles: state.abort_handles,
             #[cfg(feature = "outbound-select")]
             selectors: state.selectors,
@@ -233,6 +241,7 @@ pub fn build_outbounds(
                 dns_client: state.dns_client,
                 abort_handles: state.abort_handles,
                 detour,
+                dial,
             },
         )?;
         state.handlers.insert(outbound.tag.clone(), handler);

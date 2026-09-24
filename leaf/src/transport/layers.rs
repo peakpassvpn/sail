@@ -1,5 +1,6 @@
 //! The blocks a protocol can be carried over -- `tls`, `transport`,
-//! `multiplex` -- and `detour`, and how they become layers around it.
+//! `multiplex` -- its dial fields and `detour`, and how they become layers
+//! around it.
 //!
 //! In a configuration they are fields of the protocol's own entry, as in
 //! sing-box. Inside, an outbound with layers is a chain of handlers,
@@ -8,7 +9,6 @@
 //! names.
 
 use std::collections::HashMap;
-#[allow(unused_imports)] // only the layers compiled in use it
 use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
@@ -18,32 +18,55 @@ use serde_derive::Deserialize;
 use crate::adapter::{AnyInboundHandler, AnyOutboundHandler};
 use crate::app::SyncDnsClient;
 use crate::config::model::{parse_options, resolve_certificate, Options};
+use crate::net::DialOptions;
 
 /// Which blocks a protocol can be configured with.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Blocks {
+    /// The dial fields: `bind_interface`, `inet4_bind_address`,
+    /// `inet6_bind_address`, `routing_mark`, `connect_timeout`.
+    pub dial: bool,
     pub detour: bool,
     pub tls: bool,
     pub transport: bool,
     pub multiplex: bool,
 }
 
+/// The fields `Blocks::dial` covers.
+const DIAL_FIELDS: [&str; 5] = [
+    "bind_interface",
+    "inet4_bind_address",
+    "inet6_bind_address",
+    "routing_mark",
+    "connect_timeout",
+];
+
 impl Blocks {
     pub const NONE: Blocks = Blocks {
+        dial: false,
         detour: false,
         tls: false,
         transport: false,
         multiplex: false,
     };
 
-    /// Dialling through another outbound, and nothing else.
-    pub const DETOUR: Blocks = Blocks {
+    /// How its sockets are opened, and nothing else: for an outbound that
+    /// dials its destination itself.
+    pub const DIAL: Blocks = Blocks {
+        dial: true,
+        ..Blocks::NONE
+    };
+
+    /// How it dials its server, or through which outbound.
+    pub const DIALER: Blocks = Blocks {
+        dial: true,
         detour: true,
         ..Blocks::NONE
     };
 
     /// Everything: a proxy protocol carried over a stream.
     pub const ALL: Blocks = Blocks {
+        dial: true,
         detour: true,
         tls: true,
         transport: true,
@@ -51,6 +74,8 @@ impl Blocks {
     };
 
     fn keys(&self) -> impl Iterator<Item = &'static str> {
+        let with_dial = self.dial;
+        let dial = DIAL_FIELDS.into_iter().filter(move |_| with_dial);
         [
             (self.detour, "detour"),
             (self.tls, "tls"),
@@ -59,6 +84,7 @@ impl Blocks {
         ]
         .into_iter()
         .filter_map(|(on, key)| on.then_some(key))
+        .chain(dial)
     }
 
     /// Moves the blocks this protocol takes out of `options`, leaving what
@@ -108,6 +134,19 @@ pub struct OutboundBlocks {
     /// The outbound to dial this one's server through.
     #[serde(default)]
     pub detour: Option<String>,
+    /// The interface to send through, by name.
+    #[serde(default)]
+    pub bind_interface: Option<String>,
+    #[serde(default)]
+    pub inet4_bind_address: Option<std::net::Ipv4Addr>,
+    #[serde(default)]
+    pub inet6_bind_address: Option<std::net::Ipv6Addr>,
+    /// `SO_MARK`, Linux only.
+    #[serde(default)]
+    pub routing_mark: Option<u32>,
+    /// How long a TCP connect may take, e.g. `5s`.
+    #[serde(default, with = "crate::config::model::duration")]
+    pub connect_timeout: Option<std::time::Duration>,
     #[serde(default)]
     pub tls: Option<OutboundTls>,
     #[serde(default)]
@@ -217,6 +256,57 @@ impl OutboundBlocks {
     fn multiplex(&self) -> Option<&OutboundMultiplex> {
         self.multiplex.as_ref().filter(|m| m.enabled)
     }
+
+    /// The dial fields set, checked against each other and the platform.
+    pub fn dial(&self, tag: &str) -> Result<DialOptions> {
+        let dial = DialOptions {
+            bind_interface: self.bind_interface.clone(),
+            inet4_bind_address: self.inet4_bind_address,
+            inet6_bind_address: self.inet6_bind_address,
+            routing_mark: self.routing_mark,
+            connect_timeout: self
+                .connect_timeout
+                .unwrap_or(crate::net::dial::DEFAULT_CONNECT_TIMEOUT),
+        };
+        if let Some(detour) = &self.detour {
+            let set = [
+                ("bind_interface", dial.bind_interface.is_some()),
+                ("inet4_bind_address", dial.inet4_bind_address.is_some()),
+                ("inet6_bind_address", dial.inet6_bind_address.is_some()),
+                ("routing_mark", dial.routing_mark.is_some()),
+                ("connect_timeout", self.connect_timeout.is_some()),
+            ];
+            if let Some((field, _)) = set.iter().find(|(_, set)| *set) {
+                return Err(anyhow!(
+                    "[{}] outbound: {}: has no effect with a detour; set it on [{}]",
+                    tag,
+                    field,
+                    detour
+                ));
+            }
+        }
+        check_dial_platform("outbound", tag, &dial)?;
+        Ok(dial)
+    }
+}
+
+/// Fails for dial options this platform cannot apply.
+pub fn check_dial_platform(kind: &str, tag: &str, dial: &DialOptions) -> Result<()> {
+    if dial.routing_mark.is_some() && !crate::net::dial::supports_routing_mark() {
+        return Err(anyhow!(
+            "[{}] {}: routing_mark: only supported on Linux",
+            tag,
+            kind
+        ));
+    }
+    if dial.bind_interface.is_some() && !crate::net::dial::supports_bind_interface() {
+        return Err(anyhow!(
+            "[{}] {}: bind_interface: not supported on this platform",
+            tag,
+            kind
+        ));
+    }
+    Ok(())
 }
 
 /// What layering an outbound needs from where it is built.
@@ -228,6 +318,9 @@ pub struct OutboundLayering<'a> {
     pub abort_handles: &'a mut Vec<AbortHandle>,
     /// The outbound `detour` names, already built.
     pub detour: Option<AnyOutboundHandler>,
+    /// How the outbound dials: its dial fields over the instance's
+    /// defaults, from `OutboundBlocks::dial`.
+    pub dial: Arc<DialOptions>,
 }
 
 /// The server a protocol's options name, which the layers under it dial.
@@ -252,6 +345,7 @@ pub fn outbound(
     layering: OutboundLayering<'_>,
 ) -> Result<AnyOutboundHandler> {
     let tag = layering.tag;
+    let dial = layering.dial;
     let mut actors: Vec<AnyOutboundHandler> = Vec::new();
 
     let quic = matches!(blocks.transport, Some(OutboundTransport::Quic {}));
@@ -269,7 +363,14 @@ pub fn outbound(
             )
         })?;
         let (address, port) = server(tag, layering.options)?;
-        actors.push(quic_outbound(tag, tls, address, port, layering.dns_client)?);
+        actors.push(quic_outbound(
+            tag,
+            tls,
+            address,
+            port,
+            layering.dns_client,
+            &dial,
+        )?);
     } else {
         let mut under_mux = Vec::new();
         if let Some(tls) = blocks.tls() {
@@ -288,6 +389,7 @@ pub fn outbound(
                     port,
                     under_mux,
                     layering.dns_client,
+                    &dial,
                     layering.abort_handles,
                 )?);
             }
@@ -301,6 +403,9 @@ pub fn outbound(
         actors.push(core);
         chain_outbound(tag, actors)?
     };
+    // What it asks to have dialled is dialled as it says. Through a detour,
+    // that is what the detour asks for, with the detour's own options.
+    let layered = crate::adapter::outbound::with_dial(layered, dial);
     match layering.detour {
         Some(detour) => chain_outbound(tag, vec![detour, layered]),
         None => Ok(layered),
@@ -453,6 +558,7 @@ fn quic_outbound(
     address: String,
     port: u16,
     dns_client: &SyncDnsClient,
+    dial: &Arc<DialOptions>,
 ) -> Result<AnyOutboundHandler> {
     #[cfg(feature = "outbound-quic")]
     return Ok(crate::adapter::outbound::HandlerBuilder::default()
@@ -466,6 +572,7 @@ fn quic_outbound(
                 trusted_certificate(tls),
                 None,
                 dns_client.clone(),
+                dial.clone(),
             ),
         ))
         .build());
@@ -486,6 +593,7 @@ fn amux_outbound(
     port: u16,
     actors: Vec<AnyOutboundHandler>,
     dns_client: &SyncDnsClient,
+    dial: &Arc<DialOptions>,
     abort_handles: &mut Vec<AbortHandle>,
 ) -> Result<AnyOutboundHandler> {
     if mux.protocol != "amux" {
@@ -506,6 +614,7 @@ fn amux_outbound(
             mux.max_recv_bytes,
             mux.max_lifetime,
             dns_client.clone(),
+            dial.clone(),
         );
         abort_handles.append(&mut handles);
         Ok(crate::adapter::outbound::HandlerBuilder::default()

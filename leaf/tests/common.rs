@@ -127,12 +127,16 @@ fn new_socks_outbound(
     }
     let config =
         leaf::config::Config::from_json(&serde_json::json!({ "outbounds": [socks] }).to_string())?;
-    let dns_client = Arc::new(RwLock::new(
-        leaf::app::dns_client::DnsClient::new(&config.dns).map_err(|e| anyhow::anyhow!(e))?,
-    ));
-    let outbound_manager =
-        leaf::app::outbound::manager::OutboundManager::new(&config.outbounds, dns_client)
-            .map_err(|e| anyhow::anyhow!(e))?;
+    let dial_defaults = leaf::net::DialOptions::default();
+    let dns_client = Arc::new(RwLock::new(leaf::app::dns_client::DnsClient::new(
+        &config.dns,
+        Arc::new(dial_defaults.clone()),
+    )?));
+    let outbound_manager = leaf::app::outbound::manager::OutboundManager::new(
+        &config.outbounds,
+        &dial_defaults,
+        dns_client,
+    )?;
 
     Ok((outbound_manager
         .get("socks")

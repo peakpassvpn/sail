@@ -17,7 +17,7 @@ pub use stream::Handler as StreamHandler;
 pub(crate) fn register(registry: &mut OutboundRegistry) {
     registry.register(
         "redirect",
-        OutboundFactory::standalone(build).with_blocks(Blocks::DETOUR),
+        OutboundFactory::standalone(build).with_blocks(Blocks::DIALER),
     );
 }
 

@@ -17,7 +17,7 @@ pub use stream::Handler as StreamHandler;
 pub(crate) fn register(registry: &mut OutboundRegistry) {
     registry.register(
         "socks",
-        OutboundFactory::standalone(build).with_blocks(Blocks::DETOUR),
+        OutboundFactory::standalone(build).with_blocks(Blocks::DIALER),
     );
 }
 
@@ -46,6 +46,7 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
         username: options.username,
         password: options.password,
         dns_client: ctx.dns_client.clone(),
+        dial: ctx.dial.clone(),
     });
     Ok(HandlerBuilder::default()
         .tag(ctx.tag.to_owned())

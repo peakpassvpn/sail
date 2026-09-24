@@ -214,4 +214,6 @@ pub struct DnsClient {
     ech_cache: Arc<TokioMutex<LruCache<String, EchCacheEntry>>>,
     ech_query_locks: Arc<TokioMutex<HashMap<String, Arc<TokioMutex<()>>>>>,
     selector_state: Arc<Mutex<ServerSelectorState>>,
+    /// How its own sockets are opened: the instance's dial defaults.
+    dial: Arc<crate::net::DialOptions>,
 }

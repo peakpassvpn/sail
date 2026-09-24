@@ -6,6 +6,7 @@ use tokio::sync::RwLock;
 use leaf::app::dns_client::DnsClient;
 use leaf::app::outbound::manager::OutboundManager;
 use leaf::config;
+use leaf::net::DialOptions;
 
 fn outbound(tag: &str, protocol: &str, options: serde_json::Value) -> config::Outbound {
     let serde_json::Value::Object(options) = options else {
@@ -37,8 +38,18 @@ fn ss(tag: &str, extra: serde_json::Value) -> config::Outbound {
 }
 
 fn manager(outbounds: &[config::Outbound]) -> anyhow::Result<OutboundManager> {
-    let dns_client = Arc::new(RwLock::new(DnsClient::new(&config::Dns::default())?));
-    OutboundManager::new(outbounds, dns_client)
+    manager_with(outbounds, &DialOptions::default())
+}
+
+fn manager_with(
+    outbounds: &[config::Outbound],
+    dial_defaults: &DialOptions,
+) -> anyhow::Result<OutboundManager> {
+    let dns_client = Arc::new(RwLock::new(DnsClient::new(
+        &config::Dns::default(),
+        Arc::new(dial_defaults.clone()),
+    )?));
+    OutboundManager::new(outbounds, dial_defaults, dns_client)
 }
 
 #[test]
@@ -289,4 +300,154 @@ fn chain_and_transports_are_not_types_of_their_own() {
             err
         );
     }
+}
+
+/// What `tag` asks to have dialled, and the options it is dialled with.
+fn dial_of(m: &OutboundManager, tag: &str) -> (leaf::adapter::OutboundConnect, DialOptions) {
+    let (connect, dial) = m
+        .get(tag)
+        .unwrap()
+        .stream()
+        .unwrap()
+        .connect_addr()
+        .with_dial();
+    (connect, (*dial).clone())
+}
+
+fn server_of(connect: &leaf::adapter::OutboundConnect) -> u16 {
+    match connect {
+        leaf::adapter::OutboundConnect::Proxy(_, _, port) => *port,
+        other => panic!("not a proxy: {:?}", other),
+    }
+}
+
+#[cfg(not(windows))]
+#[test]
+fn an_outbound_dials_with_its_own_options_over_the_defaults() {
+    let defaults = DialOptions {
+        bind_interface: Some("default0".into()),
+        ..Default::default()
+    };
+    let m = manager_with(
+        &[
+            ss(
+                "own",
+                json!({ "bind_interface": "own0", "connect_timeout": "2s" }),
+            ),
+            ss("plain", json!({ "server_port": 8389 })),
+            outbound(
+                "direct",
+                "direct",
+                json!({ "inet4_bind_address": "10.0.0.2" }),
+            ),
+        ],
+        &defaults,
+    )
+    .unwrap();
+
+    let (_, own) = dial_of(&m, "own");
+    assert_eq!(own.bind_interface.as_deref(), Some("own0"));
+    assert_eq!(own.connect_timeout, std::time::Duration::from_secs(2));
+
+    let (_, plain) = dial_of(&m, "plain");
+    assert_eq!(plain.bind_interface.as_deref(), Some("default0"));
+
+    // Bound to an address, it does not also take the default interface.
+    let (connect, direct) = dial_of(&m, "direct");
+    assert!(matches!(connect, leaf::adapter::OutboundConnect::Direct));
+    assert_eq!(direct.inet4_bind_address, Some("10.0.0.2".parse().unwrap()));
+    assert_eq!(direct.bind_interface, None);
+}
+
+#[cfg(not(windows))]
+#[test]
+fn a_group_passes_its_members_dial_options_on() {
+    let m = manager(&[
+        outbound("static", "static", json!({ "outbounds": ["member"] })),
+        ss("member", json!({ "bind_interface": "member0" })),
+    ])
+    .unwrap();
+    let (_, dial) = dial_of(&m, "static");
+    assert_eq!(dial.bind_interface.as_deref(), Some("member0"));
+}
+
+#[cfg(not(windows))]
+#[test]
+fn an_outbound_through_a_detour_is_dialled_as_the_detour_says() {
+    let m = manager(&[
+        ss("via", json!({ "server_port": 9000, "detour": "hop" })),
+        ss(
+            "hop",
+            json!({ "server_port": 9001, "bind_interface": "hop0" }),
+        ),
+    ])
+    .unwrap();
+    let (connect, dial) = dial_of(&m, "via");
+    // The detour's server, with the detour's options.
+    assert_eq!(server_of(&connect), 9001);
+    assert_eq!(dial.bind_interface.as_deref(), Some("hop0"));
+}
+
+#[test]
+fn dial_fields_with_a_detour_are_an_error() {
+    let err = manager(&[
+        ss("via", json!({ "detour": "hop", "connect_timeout": "1s" })),
+        ss("hop", json!({})),
+    ])
+    .err()
+    .unwrap();
+    assert_eq!(
+        err.to_string(),
+        "[via] outbound: connect_timeout: has no effect with a detour; set it on [hop]"
+    );
+}
+
+#[test]
+fn a_bad_dial_field_names_itself() {
+    let err = manager(&[ss("ss", json!({ "connect_timeout": "soon" }))])
+        .err()
+        .unwrap();
+    assert!(
+        err.to_string()
+            .starts_with("[ss] outbound: connect_timeout: invalid duration"),
+        "{}",
+        err
+    );
+    let err = manager(&[ss("ss", json!({ "inet4_bind_address": "::1" }))])
+        .err()
+        .unwrap();
+    assert!(
+        err.to_string()
+            .starts_with("[ss] outbound: inet4_bind_address: "),
+        "{}",
+        err
+    );
+    // Groups dial through their members and take no dial fields.
+    let err = manager(&[
+        outbound(
+            "g",
+            "static",
+            json!({ "outbounds": ["ss"], "bind_interface": "x" }),
+        ),
+        ss("ss", json!({})),
+    ])
+    .err()
+    .unwrap();
+    assert!(
+        err.to_string().contains("unknown field `bind_interface`"),
+        "{}",
+        err
+    );
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+#[test]
+fn a_routing_mark_is_linux_only() {
+    let err = manager(&[ss("ss", json!({ "routing_mark": 1 }))])
+        .err()
+        .unwrap();
+    assert_eq!(
+        err.to_string(),
+        "[ss] outbound: routing_mark: only supported on Linux"
+    );
 }

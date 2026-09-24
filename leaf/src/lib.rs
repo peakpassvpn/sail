@@ -227,12 +227,16 @@ impl RuntimeManager {
         info!("reloading from config file: {}", config_path);
         let config = config::from_file(config_path).map_err(Error::Config)?;
         app::logger::setup_logger(&config.log)?;
+        let dial_defaults = dial_defaults(&config.route).map_err(Error::Config)?;
         self.router.write().await.reload(&config.route)?;
-        self.dns_client.write().await.reload(&config.dns)?;
+        self.dns_client
+            .write()
+            .await
+            .reload(&config.dns, dial_defaults.clone())?;
         self.outbound_manager
             .write()
             .await
-            .reload(&config.outbounds, self.dns_client.clone())
+            .reload(&config.outbounds, &dial_defaults, self.dns_client.clone())
             .await?;
         info!("reloaded from config file: {}", config_path);
         Ok(())
@@ -374,6 +378,26 @@ pub fn is_running(key: RuntimeId) -> bool {
     RUNTIME_MANAGER.lock().unwrap().contains_key(&key)
 }
 
+/// The dial defaults of an instance: `route`'s, with the system's default
+/// interface when `route.auto_detect_interface` asks for it.
+pub(crate) fn dial_defaults(route: &config::Route) -> anyhow::Result<Arc<net::DialOptions>> {
+    let defaults = net::DialOptions::defaults(route)?;
+    if !route.auto_detect_interface {
+        return Ok(Arc::new(defaults));
+    }
+    let detected = platform::default_interface()?;
+    info!(
+        "outbound traffic goes through the default interface: {}",
+        detected
+            .bind_interface
+            .clone()
+            .or_else(|| detected.inet4_bind_address.map(|a| a.to_string()))
+            .or_else(|| detected.inet6_bind_address.map(|a| a.to_string()))
+            .unwrap_or_default()
+    );
+    Ok(Arc::new(detected.or(&defaults)))
+}
+
 /// Checks a configuration file by building everything in it, short of
 /// listening or connecting.
 pub fn test_config(config_path: &str) -> Result<(), Error> {
@@ -389,8 +413,13 @@ pub fn check_config(config: &config::Config) -> anyhow::Result<()> {
         .enable_all()
         .build()?;
     let _g = rt.enter();
-    let dns_client = Arc::new(RwLock::new(DnsClient::new(&config.dns)?));
-    OutboundManager::new(&config.outbounds, dns_client.clone())?;
+    // The interface auto_detect_interface would find is the start's to ask.
+    let dial_defaults = Arc::new(net::DialOptions::defaults(&config.route)?);
+    let dns_client = Arc::new(RwLock::new(DnsClient::new(
+        &config.dns,
+        dial_defaults.clone(),
+    )?));
+    OutboundManager::new(&config.outbounds, &dial_defaults, dns_client.clone())?;
     let mut inbounds = HashMap::new();
     adapter::registry::build_inbounds(
         &include::INBOUNDS,
@@ -483,11 +512,13 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
     let mut tasks: Vec<Runner> = Vec::new();
     let mut runners = Vec::new();
 
+    let dial_defaults = dial_defaults(&config.route).map_err(Error::Config)?;
     let dns_client = Arc::new(RwLock::new(
-        DnsClient::new(&config.dns).map_err(Error::Config)?,
+        DnsClient::new(&config.dns, dial_defaults.clone()).map_err(Error::Config)?,
     ));
     let outbound_manager = Arc::new(RwLock::new(
-        OutboundManager::new(&config.outbounds, dns_client.clone()).map_err(Error::Config)?,
+        OutboundManager::new(&config.outbounds, &dial_defaults, dns_client.clone())
+            .map_err(Error::Config)?,
     ));
     let router = Arc::new(RwLock::new(
         Router::new(&config.route, dns_client.clone()).map_err(Error::Config)?,
@@ -524,36 +555,6 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
     } else {
         platform::tun_setup::NetInfo::default()
     };
-
-    #[cfg(all(feature = "inbound-tun", any(target_os = "macos", target_os = "linux")))]
-    {
-        if let platform::tun_setup::NetInfo {
-            default_interface: Some(iface),
-            ..
-        } = &net_info
-        {
-            let binds = if let Ok(v) = std::env::var("OUTBOUND_INTERFACE") {
-                format!("{},{}", v, iface)
-            } else {
-                iface.clone()
-            };
-            std::env::set_var("OUTBOUND_INTERFACE", binds);
-        }
-    }
-
-    // Only when a TUN inbound is actually going to route through this process,
-    // which is the same condition the other platforms apply above. Setting it
-    // unconditionally pins every outbound socket that asks for the wildcard
-    // bind to the default interface, and a socket bound to that interface
-    // cannot reach a destination the interface does not serve -- loopback
-    // most of all, where it fails with WSAEADDRNOTAVAIL.
-    #[cfg(all(feature = "inbound-tun", target_os = "windows"))]
-    if inbound_manager.has_tun_listener() && inbound_manager.tun_auto() {
-        std::env::set_var(
-            "OUTBOUND_INTERFACE",
-            platform::windows::get_default_interface_ips(),
-        );
-    }
 
     #[cfg(feature = "inbound-tun")]
     if let Some(r) = inbound_manager.get_tun_runner() {

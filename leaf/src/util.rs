@@ -147,8 +147,13 @@ pub async fn test_outbound(
     to: Option<Duration>,
 ) -> Result<(Result<Duration>, Result<Duration>)> {
     let to = to.unwrap_or(Duration::from_secs(4));
-    let dns_client = Arc::new(RwLock::new(DnsClient::new(&config.dns)?));
-    let outbound_manager = OutboundManager::new(&config.outbounds, dns_client.clone())?;
+    let dial_defaults = crate::dial_defaults(&config.route)?;
+    let dns_client = Arc::new(RwLock::new(DnsClient::new(
+        &config.dns,
+        dial_defaults.clone(),
+    )?));
+    let outbound_manager =
+        OutboundManager::new(&config.outbounds, &dial_defaults, dns_client.clone())?;
     let handler = outbound_manager
         .get(tag)
         .ok_or_else(|| anyhow!("outbound {} not found", tag))?;
@@ -180,8 +185,13 @@ pub async fn test_outbounds(
     concurrency: usize,
 ) -> Result<HashMap<String, (Result<Duration>, Result<Duration>)>> {
     let to = to.unwrap_or(Duration::from_secs(4));
-    let dns_client = Arc::new(RwLock::new(DnsClient::new(&config.dns)?));
-    let outbound_manager = OutboundManager::new(&config.outbounds, dns_client.clone())?;
+    let dial_defaults = crate::dial_defaults(&config.route)?;
+    let dns_client = Arc::new(RwLock::new(DnsClient::new(
+        &config.dns,
+        dial_defaults.clone(),
+    )?));
+    let outbound_manager =
+        OutboundManager::new(&config.outbounds, &dial_defaults, dns_client.clone())?;
 
     let mut tasks = Vec::new();
     for handler in outbound_manager.handlers() {
@@ -225,8 +235,13 @@ pub async fn stream_outbounds_tests(
     concurrency: usize,
 ) -> Result<impl futures::Stream<Item = (String, (Result<Duration>, Result<Duration>))>> {
     let to = to.unwrap_or(Duration::from_secs(4));
-    let dns_client = Arc::new(RwLock::new(DnsClient::new(&config.dns)?));
-    let outbound_manager = OutboundManager::new(&config.outbounds, dns_client.clone())?;
+    let dial_defaults = crate::dial_defaults(&config.route)?;
+    let dns_client = Arc::new(RwLock::new(DnsClient::new(
+        &config.dns,
+        dial_defaults.clone(),
+    )?));
+    let outbound_manager =
+        OutboundManager::new(&config.outbounds, &dial_defaults, dns_client.clone())?;
 
     let mut tasks = Vec::new();
     for handler in outbound_manager.handlers() {
@@ -261,8 +276,13 @@ pub async fn health_check_outbound(
     to: Option<Duration>,
 ) -> Result<(Result<Duration>, Result<Duration>)> {
     let to = to.unwrap_or(Duration::from_secs(4));
-    let dns_client = Arc::new(RwLock::new(DnsClient::new(&config.dns)?));
-    let outbound_manager = OutboundManager::new(&config.outbounds, dns_client.clone())?;
+    let dial_defaults = crate::dial_defaults(&config.route)?;
+    let dns_client = Arc::new(RwLock::new(DnsClient::new(
+        &config.dns,
+        dial_defaults.clone(),
+    )?));
+    let outbound_manager =
+        OutboundManager::new(&config.outbounds, &dial_defaults, dns_client.clone())?;
     let handler = outbound_manager
         .get(tag)
         .ok_or_else(|| anyhow!("outbound {} not found", tag))?;

@@ -8,7 +8,7 @@ mod tests {
     fn new_client(servers: Vec<&str>) -> DnsClient {
         let mut dns = crate::config::Dns::default();
         dns.servers = servers.into_iter().map(|s| s.to_string()).collect();
-        DnsClient::new(&dns).unwrap()
+        DnsClient::new(&dns, Default::default()).unwrap()
     }
 
     fn collect_server_strings(client: &DnsClient, is_direct_outbound: bool) -> Vec<String> {

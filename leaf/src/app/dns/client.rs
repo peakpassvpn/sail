@@ -18,7 +18,6 @@ use hickory_proto::{
 use lru::LruCache;
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpStream;
 use tokio::sync::Mutex as TokioMutex;
 use tokio::time::timeout;
 use tracing::{debug, trace, Instrument};
@@ -144,7 +143,7 @@ impl DnsClient {
         bootstrap_addr: SocketAddr,
     ) -> Result<AnyStream> {
         if doh.is_direct {
-            let stream = TcpStream::connect(bootstrap_addr).await?;
+            let stream = crate::net::tcp_connect(bootstrap_addr, &self.dial).await?;
             return Ok(Box::new(stream));
         }
         if let Some(dispatcher_weak) = self.dispatcher.as_ref() {
@@ -488,7 +487,7 @@ impl DnsClient {
         Ok(parsed_hosts)
     }
 
-    pub fn new(dns: &crate::config::Dns) -> Result<Self> {
+    pub fn new(dns: &crate::config::Dns, dial: Arc<crate::net::DialOptions>) -> Result<Self> {
         let servers = Self::load_servers(dns)?;
         let hosts = Self::load_hosts(dns)?;
         let ipv4_cache = Arc::new(TokioMutex::new(LruCache::<String, CacheEntry>::new(
@@ -510,6 +509,7 @@ impl DnsClient {
             ech_cache,
             ech_query_locks: Arc::new(TokioMutex::new(HashMap::new())),
             selector_state: Arc::new(Mutex::new(ServerSelectorState::default())),
+            dial,
         })
     }
 
@@ -517,7 +517,12 @@ impl DnsClient {
         self.dispatcher.replace(dispatcher);
     }
 
-    pub fn reload(&mut self, dns: &crate::config::Dns) -> Result<()> {
+    pub fn reload(
+        &mut self,
+        dns: &crate::config::Dns,
+        dial: Arc<crate::net::DialOptions>,
+    ) -> Result<()> {
+        self.dial = dial;
         let servers = Self::load_servers(dns)?;
         let hosts = Self::load_hosts(dns)?;
         self.servers = servers;
@@ -868,7 +873,7 @@ impl DnsClient {
         let (socket, span) = match resolver {
             Resolver::Server(server, _) if is_direct => {
                 debug!("direct lookup");
-                let socket = self.new_udp_socket(server).await?;
+                let socket = self.new_udp_socket(server, &self.dial).await?;
                 (
                     Box::new(StdOutboundDatagram::new(socket)) as Box<dyn OutboundDatagram>,
                     tracing::Span::current(),
@@ -954,7 +959,7 @@ impl DnsClient {
     ) -> Result<EchCacheEntry> {
         let (socket, span) = match resolver {
             Resolver::Server(server, _) if is_direct => {
-                let socket = self.new_udp_socket(server).await?;
+                let socket = self.new_udp_socket(server, &self.dial).await?;
                 (
                     Box::new(StdOutboundDatagram::new(socket)) as Box<dyn OutboundDatagram>,
                     tracing::Span::current(),

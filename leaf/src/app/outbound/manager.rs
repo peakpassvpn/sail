@@ -14,6 +14,7 @@ use crate::{
     app::SyncDnsClient,
     config::Outbound,
     include,
+    net::DialOptions,
 };
 
 #[cfg(feature = "outbound-select")]
@@ -41,7 +42,11 @@ struct Loaded {
 }
 
 impl OutboundManager {
-    fn load(outbounds: &[Outbound], dns_client: SyncDnsClient) -> Result<Loaded> {
+    fn load(
+        outbounds: &[Outbound],
+        dial_defaults: &DialOptions,
+        dns_client: SyncDnsClient,
+    ) -> Result<Loaded> {
         let mut handlers = HashMap::new();
         #[cfg(feature = "plugin")]
         let mut external_handlers = super::plugin::ExternalHandlers::new();
@@ -54,6 +59,7 @@ impl OutboundManager {
             outbounds,
             OutboundBuildState {
                 dns_client: &dns_client,
+                dial_defaults,
                 handlers: &mut handlers,
                 abort_handles: &mut abort_handles,
                 #[cfg(feature = "outbound-select")]
@@ -84,6 +90,7 @@ impl OutboundManager {
     pub async fn reload(
         &mut self,
         outbounds: &[Outbound],
+        dial_defaults: &DialOptions,
         dns_client: SyncDnsClient,
     ) -> Result<()> {
         // Save outound select states.
@@ -106,7 +113,7 @@ impl OutboundManager {
             mut selectors,
             default_handler,
             abort_handles,
-        } = Self::load(outbounds, dns_client)?;
+        } = Self::load(outbounds, dial_defaults, dns_client)?;
 
         // Restore outbound select states.
         #[cfg(feature = "outbound-select")]
@@ -141,7 +148,13 @@ impl OutboundManager {
         Ok(())
     }
 
-    pub fn new(outbounds: &[Outbound], dns_client: SyncDnsClient) -> Result<Self> {
+    /// Builds `outbounds`; their sockets are opened with `dial_defaults`
+    /// where their own dial fields leave off.
+    pub fn new(
+        outbounds: &[Outbound],
+        dial_defaults: &DialOptions,
+        dns_client: SyncDnsClient,
+    ) -> Result<Self> {
         let Loaded {
             handlers,
             #[cfg(feature = "plugin")]
@@ -150,7 +163,7 @@ impl OutboundManager {
             selectors,
             default_handler,
             abort_handles,
-        } = Self::load(outbounds, dns_client)?;
+        } = Self::load(outbounds, dial_defaults, dns_client)?;
 
         Ok(OutboundManager {
             handlers,

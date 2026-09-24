@@ -18,6 +18,7 @@ pub struct Handler {
     pub username: String,
     pub password: String,
     pub dns_client: SyncDnsClient,
+    pub dial: std::sync::Arc<crate::net::DialOptions>,
 }
 
 impl TcpConnector for Handler {}
@@ -41,7 +42,12 @@ impl OutboundDatagramHandler for Handler {
         tracing::trace!("handling outbound datagram");
         // TODO support chaining, this requires implementing our own socks5 client
         let stream = self
-            .new_tcp_stream(self.dns_client.clone(), &self.address, &self.port)
+            .new_tcp_stream(
+                self.dns_client.clone(),
+                &self.address,
+                &self.port,
+                &self.dial,
+            )
             .await?;
         let mut indicator = sess.source;
         if let Ok(ip) = self.address.parse::<IpAddr>() {
@@ -49,7 +55,7 @@ impl OutboundDatagramHandler for Handler {
                 indicator = SocketAddr::new(ip, 0);
             }
         }
-        let socket = self.new_udp_socket(&indicator).await?;
+        let socket = self.new_udp_socket(&indicator, &self.dial).await?;
 
         // Resolve the SOCKS server address to IP (handles both IP and domain names)
         let mut resolver = Resolver::new(self.dns_client.clone(), &self.address, &self.port)

@@ -9,6 +9,7 @@ use futures::stream::Stream;
 use thiserror::Error;
 use tokio::io::{AsyncRead, AsyncWrite};
 
+use crate::net::DialOptions;
 use crate::session::{DatagramSource, Network, Session, SocksAddr};
 
 pub mod inbound;
@@ -56,12 +57,41 @@ pub trait OutboundHandler: BaseHandler {
 
 pub type AnyOutboundHandler = Arc<dyn OutboundHandler>;
 
+/// What an outbound asks to have dialled before it runs.
 #[derive(Debug, Clone)]
 pub enum OutboundConnect {
+    /// Its server.
     Proxy(Network, String, u16),
+    /// The session's destination.
     Direct,
+    /// Whatever the handler after it in a chain asks for.
     Next,
+    /// Nothing: it dials by itself, or cannot say.
     Unknown,
+    /// `Proxy` or `Direct`, to be dialled with the options of the outbound
+    /// that asked for it. Every built outbound attaches its own, so that a
+    /// group or chain passing a member's request on passes the member's
+    /// options with it.
+    Dial(Box<OutboundConnect>, Arc<DialOptions>),
+}
+
+impl OutboundConnect {
+    /// The request without its dial options, and the options: those
+    /// attached, or the defaults for a request that came without any.
+    pub fn with_dial(self) -> (OutboundConnect, Arc<DialOptions>) {
+        match self {
+            OutboundConnect::Dial(connect, dial) => (*connect, dial),
+            connect => (connect, Arc::new(DialOptions::default())),
+        }
+    }
+
+    /// The request without its dial options.
+    pub fn target(&self) -> &OutboundConnect {
+        match self {
+            OutboundConnect::Dial(connect, _) => connect,
+            connect => connect,
+        }
+    }
 }
 
 /// An outbound handler for outgoing TCP conections.
