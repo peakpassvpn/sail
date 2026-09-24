@@ -8,15 +8,14 @@ use tokio::sync::RwLock;
 use tracing::{debug, info, warn, Instrument};
 
 use crate::{
+    adapter::*,
     app::SyncDnsClient,
-    common::{
-        self,
-        dns_sniff::{DnsSniffer, SniffingDatagram},
-        sniff,
-    },
-    option,
-    proxy::*,
+    net, option,
     session::*,
+    sniff::{
+        self,
+        dns::{DnsSniffer, SniffingDatagram},
+    },
 };
 
 use tokio::io::AsyncWriteExt;
@@ -276,7 +275,7 @@ impl Dispatcher {
 
         let handshake_start = tokio::time::Instant::now();
         let stream =
-            match crate::proxy::connect_stream_outbound(&sess, self.dns_client.clone(), &h).await {
+            match crate::net::connect_stream_outbound(&sess, self.dns_client.clone(), &h).await {
                 Ok(s) => s,
                 Err(e) => {
                     debug!(
@@ -324,7 +323,7 @@ impl Dispatcher {
                         .stat_stream(rhs, sess.clone());
                 }
 
-                match common::io::copy_buf_bidirectional_with_timeout(
+                match net::relay::copy_buf_bidirectional_with_timeout(
                     &mut lhs,
                     &mut rhs,
                     *option::LINK_BUFFER_SIZE * 1024,
@@ -374,7 +373,7 @@ impl Dispatcher {
         };
 
         let stream =
-            crate::proxy::connect_stream_outbound(&sess, self.dns_client.clone(), &h).await?;
+            crate::net::connect_stream_outbound(&sess, self.dns_client.clone(), &h).await?;
         h.stream()?.handle(&sess, None, stream).await
     }
 
@@ -449,7 +448,7 @@ impl Dispatcher {
 
         debug!("connect datagram outbound={}", h.tag());
         let transport =
-            crate::proxy::connect_datagram_outbound(&sess, self.dns_client.clone(), &h).await?;
+            crate::net::connect_datagram_outbound(&sess, self.dns_client.clone(), &h).await?;
 
         match h.datagram()?.handle(&sess, transport).await {
             Ok(mut d) => {

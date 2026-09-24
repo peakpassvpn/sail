@@ -17,7 +17,7 @@ use tokio::sync::RwLock;
 use tokio::time::timeout;
 use tracing::info;
 
-use leaf::proxy::*;
+use leaf::adapter::*;
 use leaf::session::Session;
 
 static NEXT_RT_ID: AtomicU16 = AtomicU16::new(0);

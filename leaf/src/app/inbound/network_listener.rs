@@ -14,9 +14,9 @@ use tracing::{debug, info, trace, warn, Instrument};
 
 use crate::app::dispatcher::Dispatcher;
 use crate::app::nat_manager::{NatManager, UdpPacket};
-use crate::proxy::*;
 use crate::session::{Network, Session, SocksAddr};
 use crate::Runner;
+use crate::{adapter::*, net::*};
 
 #[cfg(feature = "inbound-nf")]
 lazy_static::lazy_static! {
@@ -218,7 +218,7 @@ async fn handle_tcp_listen(
     dispatcher: Arc<Dispatcher>,
     nat_manager: Arc<NatManager>,
 ) -> io::Result<()> {
-    let listener = crate::proxy::TcpListener::bind(&listen_addr).await?;
+    let listener = crate::net::TcpListener::bind(&listen_addr).await?;
     let listen_addr = listener.io().local_addr()?;
     info!("listening tcp {}", &listen_addr);
 

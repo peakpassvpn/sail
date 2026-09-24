@@ -27,22 +27,21 @@ use crate::app::{stat_manager::StatManager, SyncStatManager};
 #[cfg(feature = "api")]
 use crate::app::api::api_server::ApiServer;
 
+pub mod adapter;
 pub mod app;
 pub mod common;
 pub mod config;
+pub mod net;
 pub mod option;
-pub mod proxy;
+pub mod platform;
+pub mod protocol;
 pub mod session;
+pub mod sniff;
+pub mod transport;
 pub mod util;
 
 #[cfg(any(target_os = "ios", target_os = "macos", target_os = "android"))]
 pub mod mobile;
-
-#[cfg(all(feature = "inbound-tun", any(target_os = "macos", target_os = "linux")))]
-mod sys;
-
-#[cfg(all(feature = "inbound-tun", target_os = "windows"))]
-mod winsys;
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -138,14 +137,14 @@ impl RuntimeManager {
 
         async fn test_tcp(
             dns_client: Arc<RwLock<DnsClient>>,
-            handler: crate::proxy::AnyOutboundHandler,
+            handler: crate::adapter::AnyOutboundHandler,
         ) -> anyhow::Result<Duration> {
             crate::app::healthcheck::tcp(dns_client, handler).await
         }
 
         async fn test_udp(
             dns_client: Arc<RwLock<DnsClient>>,
-            handler: crate::proxy::AnyOutboundHandler,
+            handler: crate::adapter::AnyOutboundHandler,
         ) -> anyhow::Result<Duration> {
             crate::app::healthcheck::udp(dns_client, handler).await
         }
@@ -494,14 +493,14 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
 
     #[cfg(all(feature = "inbound-tun", any(target_os = "macos", target_os = "linux")))]
     let net_info = if inbound_manager.has_tun_listener() && inbound_manager.tun_auto() {
-        sys::get_net_info()
+        platform::tun_setup::get_net_info()
     } else {
-        sys::NetInfo::default()
+        platform::tun_setup::NetInfo::default()
     };
 
     #[cfg(all(feature = "inbound-tun", any(target_os = "macos", target_os = "linux")))]
     {
-        if let sys::NetInfo {
+        if let platform::tun_setup::NetInfo {
             default_interface: Some(iface),
             ..
         } = &net_info
@@ -523,7 +522,10 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
     // most of all, where it fails with WSAEADDRNOTAVAIL.
     #[cfg(all(feature = "inbound-tun", target_os = "windows"))]
     if inbound_manager.has_tun_listener() && inbound_manager.tun_auto() {
-        std::env::set_var("OUTBOUND_INTERFACE", winsys::get_default_interface_ips());
+        std::env::set_var(
+            "OUTBOUND_INTERFACE",
+            platform::windows::get_default_interface_ips(),
+        );
     }
 
     #[cfg(feature = "inbound-tun")]
@@ -537,7 +539,7 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
     }
 
     #[cfg(all(feature = "inbound-tun", any(target_os = "macos", target_os = "linux")))]
-    sys::post_tun_creation_setup(&net_info);
+    platform::tun_setup::post_tun_creation_setup(&net_info);
 
     let runtime_manager = RuntimeManager::new(
         #[cfg(feature = "auto-reload")]
@@ -622,7 +624,7 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
     rt.block_on(futures::future::select_all(tasks));
 
     #[cfg(all(feature = "inbound-tun", any(target_os = "macos", target_os = "linux")))]
-    sys::post_tun_completion_setup(&net_info);
+    platform::tun_setup::post_tun_completion_setup(&net_info);
 
     drop(inbound_manager);
 

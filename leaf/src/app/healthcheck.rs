@@ -4,8 +4,8 @@ use anyhow::anyhow;
 use tokio::time::Instant;
 
 use crate::{
+    adapter::AnyOutboundHandler,
     app::SyncDnsClient,
-    proxy::AnyOutboundHandler,
     session::{Session, SocksAddr},
 };
 
@@ -19,7 +19,7 @@ pub async fn tcp(
         ..Default::default()
     };
     let start = Instant::now();
-    let stream = crate::proxy::connect_stream_outbound(&sess, dns_client, &handler).await?;
+    let stream = crate::net::connect_stream_outbound(&sess, dns_client, &handler).await?;
     let mut stream = handler.stream()?.handle(&sess, None, stream).await?;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     stream.write_all(b"PING").await?;
@@ -52,7 +52,7 @@ pub async fn udp(
         ..Default::default()
     };
     let start = Instant::now();
-    let dgram = crate::proxy::connect_datagram_outbound(&sess, dns_client, &handler).await?;
+    let dgram = crate::net::connect_datagram_outbound(&sess, dns_client, &handler).await?;
     let dgram = handler.datagram()?.handle(&sess, dgram).await?;
     let (mut recv, mut send) = dgram.split();
     send.send_to(b"PING", &addr).await?;

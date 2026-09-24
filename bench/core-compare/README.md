@@ -36,7 +36,7 @@ sing-box run -c configs/server-singbox-tls.json &    # Trojan / VLESS 服务端�
 
 ## Vision 上行填充（2026-09-25，分支 `pooled-relay-buffer`）
 
-`leaf/src/proxy/vless/stream.rs` 原先在请求头里声明 `xtls-rprx-vision`，写方向却直接透传。服务端遇到没有 UUID 前缀的数据会当作未填充数据接收，所以功能上能用，但 Vision 要隐藏的内层 TLS 握手长度特征完全暴露。
+`leaf/src/protocol/vless/stream.rs` 原先在请求头里声明 `xtls-rprx-vision`，写方向却直接透传。服务端遇到没有 UUID 前缀的数据会当作未填充数据接收，所以功能上能用，但 Vision 要隐藏的内层 TLS 握手长度特征完全暴露。
 
 按 sing-vmess 的 `VisionConn` 移植了客户端写路径：
 - 连接前 8 个包（上下行合计）做 TLS 探测：ClientHello / ServerHello，识别出 TLS 1.2 或 1.3 后停止。
@@ -53,7 +53,7 @@ sing-box run -c configs/server-singbox-tls.json &    # Trojan / VLESS 服务端�
 **修复前：VLESS + Vision 跑在普通 TLS 出站上时，内层是 TLS 1.3 的连接全部失败**（HTTPS 上传、下载、小请求都失败）。服务端把下行切到直连后发原始数据，但普通 TLS 出站（tokio-rustls）不支持切换到原始读取，把原始数据当 TLS 记录解密，报 `cannot decrypt peer's message`。
 
 改动：
-- 新增 `leaf/src/common/tls_stream.rs`：通用客户端 TLS 流 `ClientTlsStream`，通过 `TlsConnection` trait 同时适配 rustls 和 REALITY 用的 rustls 分支。Reality 流的读写逻辑移到这里；Reality 和普通 TLS 出站（rustls 后端）都改用它，不再用 tokio-rustls。
+- 新增 `leaf/src/transport/tls_stream.rs`：通用客户端 TLS 流 `ClientTlsStream`，通过 `TlsConnection` trait 同时适配 rustls 和 REALITY 用的 rustls 分支。Reality 流的读写逻辑移到这里；Reality 和普通 TLS 出站（rustls 后端）都改用它，不再用 tokio-rustls。
 - `VisionState`（`leaf/src/session.rs`）增加"未启用"默认状态，只有 VLESS 出站在发请求前把它设为"未定"；Trojan 等不受按记录读的影响。另有"下层可切原始读写""上行已切直连"两个标志。
 - 记录跟踪器始终跟踪读过的字节，Vision 在 TLS 握手之后才启用时边界仍然对齐。只有 Vision 未定时按记录读并经过 64KB 缓冲区；其他时候 rustls 直接读传输层（少一次拷贝）。
 - **上行直连**：VLESS 从 ServerHello 识别内层 TLS 1.3 和密码套件（排除 TLS_AES_128_CCM_8，与 sing-box 一致），在内层应用数据处发 PaddingDirect；该帧完整交给 TLS 层后置位，TLS 流把已排队的 TLS 记录全部写出后切换为原始写。切换后 flush / shutdown 直接作用于传输层，不再发 close_notify。
@@ -79,7 +79,7 @@ Trojan / VLESS 多线程三者都在 0.67–0.69；上行持平。Trojan 2000 �
 
 ## Reality 修复（2026-09-24，分支 `pooled-relay-buffer`）
 
-`leaf/src/proxy/reality/stream.rs` 修复前的实测：下行 0.84MB/s（sing-box 约 1200MB/s），上行传输几 MB 后断开（`broken pipe`）。
+`leaf/src/transport/reality/stream.rs` 修复前的实测：下行 0.84MB/s（sing-box 约 1200MB/s），上行传输几 MB 后断开（`broken pipe`）。
 
 | 问题 | 原因 | 修复 |
 | --- | --- | --- |
@@ -139,8 +139,8 @@ leaf 已经把约 4 条 TLS 记录（或 SS 块）合并成一次 writev；sing-
 
 两处改动：
 
-1. **流量统计和嗅探包装层转发向量写**（`leaf/src/app/stat_manager.rs`、`leaf/src/common/sniff.rs`）：原来只实现了 `poll_write`，rustls 想用一次 writev 发出多条 TLS 记录，经过这里被拆成每条记录一次 `sendto`。所有经过 TLS 的上行都受影响。
-2. **VLESS 读路径**（`leaf/src/proxy/vless/stream.rs`）：Vision 阶段结束后直接从底层流读入调用方的缓冲区。原来每次读都经过 8KB 临时缓冲区、解析器和两次拷贝，还会反复检查 UUID 前缀。
+1. **流量统计和嗅探包装层转发向量写**（`leaf/src/app/stat_manager.rs`、`leaf/src/sniff/stream.rs`）：原来只实现了 `poll_write`，rustls 想用一次 writev 发出多条 TLS 记录，经过这里被拆成每条记录一次 `sendto`。所有经过 TLS 的上行都受影响。
+2. **VLESS 读路径**（`leaf/src/protocol/vless/stream.rs`）：Vision 阶段结束后直接从底层流读入调用方的缓冲区。原来每次读都经过 8KB 临时缓冲区、解析器和两次拷贝，还会反复检查 UUID 前缀。
 
 每 GB CPU（秒，5 次中位数；leaf 改动前后在同一轮内对比，sing-box 取自同一天较早的基线轮）：
 
@@ -161,8 +161,8 @@ leaf 已经把约 4 条 TLS 记录（或 SS 块）合并成一次 writev；sing-
 
 在缓冲池之上又做了两处改动：
 
-1. **自适应转发缓冲区**（`leaf/src/common/io.rs`）：从 `LINK_BUFFER_SIZE`（16KB）起步，一次读满就翻倍，最大到 `LINK_BUFFER_MAX_SIZE`（默认 128KB）；读到的数据不到 1/4 就减半。每线程缓冲池按字节上限 1MB 缓存。
-2. **Shadowsocks 流读写合并**（`leaf/src/proxy/shadowsocks/shadow.rs`）：读取时一次预读最多 64KB 并连续解出多个块，不再每个块两次系统调用（其中一次只读 18 字节长度头）；写入时一次加密最多 64KB（多个块）后用一次系统调用写出。空闲时释放读写缓冲区。
+1. **自适应转发缓冲区**（`leaf/src/net/relay.rs`）：从 `LINK_BUFFER_SIZE`（16KB）起步，一次读满就翻倍，最大到 `LINK_BUFFER_MAX_SIZE`（默认 128KB）；读到的数据不到 1/4 就减半。每线程缓冲池按字节上限 1MB 缓存。
+2. **Shadowsocks 流读写合并**（`leaf/src/protocol/shadowsocks/shadow.rs`）：读取时一次预读最多 64KB 并连续解出多个块，不再每个块两次系统调用（其中一次只读 18 字节长度头）；写入时一次加密最多 64KB（多个块）后用一次系统调用写出。空闲时释放读写缓冲区。
 
 `sample` 显示 leaf 的 CPU 几乎全部花在 `sendto` / `recvfrom` / `kevent` 系统调用上，所以两处改动都以减少每 GB 的系统调用次数为目标。
 
@@ -231,7 +231,7 @@ leaf 已经把约 4 条 TLS 记录（或 SS 块）合并成一次 writev；sing-
 
 1. **缓冲区大小相同时，leaf 的单位 CPU 效率与 sing-box 持平或更好**（SS 下行 1.01 vs 1.01 秒/GB；iOS 模式下行 0.75 vs 1.14）。
 2. **leaf 默认用 2KB 转发缓冲区**（`LINK_BUFFER_SIZE`，`leaf/src/option/mod.rs`），以 3 倍的 CPU 开销和 1/3 的吞吐量换取低内存。
-3. **缓冲区调大后，leaf 并发内存反而高于 sing-box**（16KB 时 91MB vs 42MB）。原因是 `CopyBuffer::new_with_capacity`（`leaf/src/common/io.rs`）在每个连接建立时就为两个方向各分配一块完整缓冲区，并持有到连接结束，空闲连接也不释放；sing-box 只在读写时从缓冲池借用。
+3. **缓冲区调大后，leaf 并发内存反而高于 sing-box**（16KB 时 91MB vs 42MB）。原因是 `CopyBuffer::new_with_capacity`（`leaf/src/net/relay.rs`）在每个连接建立时就为两个方向各分配一块完整缓冲区，并持有到连接结束，空闲连接也不释放；sing-box 只在读写时从缓冲池借用。
 4. **空闲 footprint 差距很小**（6.3 vs 6.4MB）；RSS 的差距主要来自 Go 运行时的映射，不计入 footprint。
 
 也就是说，Rust 的优势（无 GC、内存可预测）在改造前的 leaf 中没有充分体现，瓶颈在转发缓冲区的实现。改造后的结果见上文。

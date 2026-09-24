@@ -40,7 +40,7 @@ use {
     tokio_openssl::SslStream,
 };
 
-use crate::{app::dispatcher::Dispatcher, option, proxy::*, session::*};
+use crate::{adapter::*, app::dispatcher::Dispatcher, net::*, option, session::*};
 include!("client/types.rs");
 
 impl DnsClient {

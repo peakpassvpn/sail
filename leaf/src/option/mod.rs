@@ -295,11 +295,11 @@ lazy_static! {
         get_env_var_or("OUTBOUND_DIAL_TIMEOUT", 8)
     };
 
-    pub static ref OUTBOUND_DIAL_ORDER: crate::proxy::DialOrder = {
+    pub static ref OUTBOUND_DIAL_ORDER: crate::net::DialOrder = {
         match get_env_var_or("OUTBOUND_DIAL_ORDER", "ordered".to_string()).as_str() {
-            "random" => crate::proxy::DialOrder::Random,
-            "partial-random" => crate::proxy::DialOrder::PartialRandom,
-            _ => crate::proxy::DialOrder::Ordered,
+            "random" => crate::net::DialOrder::Random,
+            "partial-random" => crate::net::DialOrder::PartialRandom,
+            _ => crate::net::DialOrder::Ordered,
         }
     };
 
@@ -342,17 +342,17 @@ lazy_static! {
         })
     };
 
-    pub static ref OUTBOUND_BINDS: Vec<crate::proxy::OutboundBind> = {
+    pub static ref OUTBOUND_BINDS: Vec<crate::net::OutboundBind> = {
         let binds = get_env_var_or("OUTBOUND_INTERFACE", "".to_string());
         if binds.is_empty() {
             return Vec::new();
         }
         let mut outbound_binds = Vec::new();
         for item in binds.split(',').map(str::trim) {
-            if let Ok(addr) = crate::common::net::parse_bind_addr(item) {
-                outbound_binds.push(crate::proxy::OutboundBind::Ip(addr));
+            if let Ok(addr) = crate::net::addr::parse_bind_addr(item) {
+                outbound_binds.push(crate::net::OutboundBind::Ip(addr));
             } else {
-                outbound_binds.push(crate::proxy::OutboundBind::Interface(item.to_owned()));
+                outbound_binds.push(crate::net::OutboundBind::Interface(item.to_owned()));
             }
         }
         outbound_binds

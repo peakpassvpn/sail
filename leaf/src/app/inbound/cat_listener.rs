@@ -12,10 +12,10 @@ use tokio::sync::mpsc::channel as tokio_channel;
 use tokio::sync::mpsc::{Receiver as TokioReceiver, Sender as TokioSender};
 use tracing::{debug, info};
 
+use crate::adapter::*;
 use crate::app::dispatcher::Dispatcher;
 use crate::app::nat_manager::{NatManager, UdpPacket};
 use crate::config::{CatInboundSettings, Inbound};
-use crate::proxy::*;
 use crate::session::*;
 use crate::Runner;
 

@@ -12,7 +12,7 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::{mpsc, RwLock};
 use tracing::debug;
 
-use crate::{option, proxy::*, session::*};
+use crate::{adapter::*, option, session::*};
 
 pub type SyncStatManager = Arc<RwLock<StatManager>>;
 
@@ -490,7 +490,7 @@ impl StatManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::proxy::{OutboundDatagram, OutboundDatagramRecvHalf, OutboundDatagramSendHalf};
+    use crate::adapter::{OutboundDatagram, OutboundDatagramRecvHalf, OutboundDatagramSendHalf};
     use crate::session::SocksAddr;
     use async_trait::async_trait;
     use std::net::{IpAddr, Ipv4Addr, SocketAddr};

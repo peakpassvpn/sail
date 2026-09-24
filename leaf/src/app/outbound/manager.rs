@@ -13,51 +13,51 @@ use protobuf::Message;
 use tracing::{debug, trace};
 
 #[cfg(feature = "outbound-chain")]
-use crate::proxy::chain;
+use crate::protocol::group::chain;
 #[cfg(feature = "outbound-failover")]
-use crate::proxy::failover;
-#[cfg(feature = "outbound-mptp")]
-use crate::proxy::mptp;
+use crate::protocol::group::failover;
 #[cfg(feature = "outbound-static")]
-use crate::proxy::r#static;
+use crate::protocol::group::r#static;
 #[cfg(feature = "outbound-select")]
-use crate::proxy::select;
+use crate::protocol::group::select;
 #[cfg(feature = "outbound-tryall")]
-use crate::proxy::tryall;
+use crate::protocol::group::tryall;
+#[cfg(feature = "outbound-mptp")]
+use crate::protocol::mptp;
 
-#[cfg(feature = "outbound-amux")]
-use crate::proxy::amux;
 #[cfg(feature = "outbound-direct")]
-use crate::proxy::direct;
+use crate::protocol::direct;
 #[cfg(feature = "outbound-drop")]
-use crate::proxy::drop;
-#[cfg(feature = "outbound-obfs")]
-use crate::proxy::obfs;
-#[cfg(feature = "outbound-quic")]
-use crate::proxy::quic;
-#[cfg(feature = "outbound-reality")]
-use crate::proxy::reality;
+use crate::protocol::drop;
 #[cfg(feature = "outbound-redirect")]
-use crate::proxy::redirect;
+use crate::protocol::redirect;
 #[cfg(feature = "outbound-shadowsocks")]
-use crate::proxy::shadowsocks;
+use crate::protocol::shadowsocks;
 #[cfg(feature = "outbound-socks")]
-use crate::proxy::socks;
-#[cfg(feature = "outbound-tls")]
-use crate::proxy::tls;
+use crate::protocol::socks;
 #[cfg(feature = "outbound-trojan")]
-use crate::proxy::trojan;
+use crate::protocol::trojan;
 #[cfg(feature = "outbound-vless")]
-use crate::proxy::vless;
+use crate::protocol::vless;
 #[cfg(feature = "outbound-vmess")]
-use crate::proxy::vmess;
+use crate::protocol::vmess;
+#[cfg(feature = "outbound-amux")]
+use crate::transport::amux;
+#[cfg(feature = "outbound-obfs")]
+use crate::transport::obfs;
+#[cfg(feature = "outbound-quic")]
+use crate::transport::quic;
+#[cfg(feature = "outbound-reality")]
+use crate::transport::reality;
+#[cfg(feature = "outbound-tls")]
+use crate::transport::tls;
 #[cfg(feature = "outbound-ws")]
-use crate::proxy::ws;
+use crate::transport::ws;
 
 use crate::{
+    adapter::{outbound::HandlerBuilder, *},
     app::SyncDnsClient,
     config::{self, Outbound},
-    proxy::{outbound::HandlerBuilder, *},
 };
 
 #[cfg(feature = "outbound-select")]

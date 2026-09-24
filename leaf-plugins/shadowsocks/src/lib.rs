@@ -8,11 +8,11 @@ use async_trait::async_trait;
 use bytes::BufMut;
 use bytes::BytesMut;
 use leaf::{
+    adapter::*,
     app::outbound::plugin::{
         ExternalOutboundDatagramHandler, ExternalOutboundStreamHandler, PluginRegistrar, PluginSpec,
     },
-    proxy::shadowsocks::shadow::{self, ShadowedDatagram, ShadowedStream},
-    proxy::*,
+    protocol::shadowsocks::shadow::{self, ShadowedDatagram, ShadowedStream},
     session::{Network, Session, SocksAddr, SocksAddrWireType},
 };
 use tokio::io::AsyncWriteExt;

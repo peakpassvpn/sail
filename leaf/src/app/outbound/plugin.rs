@@ -7,7 +7,7 @@ use async_ffi::BorrowingFfiFuture;
 use async_trait::async_trait;
 use libloading::Library;
 
-use crate::{proxy::*, session::Session};
+use crate::{adapter::*, session::Session};
 
 pub struct PluginSpec {
     pub add_handler_fn: unsafe fn(&mut dyn PluginRegistrar, &str, args: &str),
