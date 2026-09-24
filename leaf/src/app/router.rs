@@ -10,10 +10,11 @@ use maxminddb::geoip2::Country;
 use maxminddb::Mmap;
 #[cfg(feature = "rule-process-name")]
 use regex::Regex;
-use tracing::{debug, warn};
+use tracing::debug;
 
 use crate::app::SyncDnsClient;
-use crate::config;
+use crate::config::external_rule::{self, DomainKind, External, Mmdb};
+use crate::config::model;
 use crate::session::{Network, Session, SocksAddr};
 
 pub trait Condition: Send + Sync + Unpin {
@@ -79,19 +80,15 @@ struct IpCidrMatcher {
 }
 
 impl IpCidrMatcher {
-    fn new(ips: &mut [String]) -> Self {
-        let mut cidrs = Vec::new();
-        for ip in ips.iter_mut() {
-            let ip = std::mem::take(ip);
-            match ip.parse::<IpCidr>() {
-                Ok(cidr) => cidrs.push(cidr),
-                Err(err) => {
-                    debug!("parsing cidr {} failed: {}", ip, err);
-                }
-            }
-            drop(ip);
-        }
-        IpCidrMatcher { values: cidrs }
+    fn new(ips: &[String]) -> Result<Self> {
+        let values = ips
+            .iter()
+            .map(|ip| {
+                ip.parse::<IpCidr>()
+                    .map_err(|e| anyhow!("ip_cidr: invalid CIDR \"{}\": {}", ip, e))
+            })
+            .collect::<Result<_>>()?;
+        Ok(IpCidrMatcher { values })
     }
 }
 
@@ -119,12 +116,10 @@ struct InboundTagMatcher {
 }
 
 impl InboundTagMatcher {
-    fn new(tags: &mut [String]) -> Self {
-        let mut values = Vec::new();
-        for t in tags.iter_mut() {
-            values.push(std::mem::take(t));
+    fn new(tags: &[String]) -> Self {
+        Self {
+            values: tags.to_vec(),
         }
-        Self { values }
     }
 }
 
@@ -145,16 +140,16 @@ struct NetworkMatcher {
 }
 
 impl NetworkMatcher {
-    fn new(networks: &mut [String]) -> Self {
-        let mut values = Vec::new();
-        for net in networks.iter_mut() {
-            match std::mem::take(net).to_uppercase().as_str() {
-                "TCP" => values.push(Network::Tcp),
-                "UDP" => values.push(Network::Udp),
-                _ => (),
-            }
-        }
-        Self { values }
+    fn new(networks: &[String]) -> Result<Self> {
+        let values = networks
+            .iter()
+            .map(|net| match net.to_lowercase().as_str() {
+                "tcp" => Ok(Network::Tcp),
+                "udp" => Ok(Network::Udp),
+                _ => Err(anyhow!("network: unknown network \"{}\"", net)),
+            })
+            .collect::<Result<_>>()?;
+        Ok(Self { values })
     }
 }
 
@@ -175,17 +170,14 @@ struct PortMatcher {
 }
 
 impl PortMatcher {
-    fn new(port_ranges: &[String]) -> Self {
+    fn new(port_ranges: &[String]) -> Result<Self> {
         let mut cond_or = ConditionOr::new();
         for pr in port_ranges.iter() {
-            match PortRangeMatcher::new(pr) {
-                Ok(m) => cond_or.add(Box::new(m)),
-                Err(e) => warn!("failed to add port range matcher: {}", e),
-            }
+            cond_or.add(Box::new(PortRangeMatcher::new(pr)?));
         }
-        PortMatcher {
+        Ok(PortMatcher {
             condition: Box::new(cond_or),
-        }
+        })
     }
 }
 
@@ -201,23 +193,17 @@ struct PortRangeMatcher {
 }
 
 impl PortRangeMatcher {
+    /// A single port, `443`, or an inclusive range, `1000-2000`.
     fn new(port_range: &str) -> Result<Self> {
-        let parts: Vec<&str> = port_range.split('-').collect();
-        if parts.len() != 2 {
-            return Err(anyhow!("invalid port range"));
-        }
-        let start = if let Ok(v) = parts[0].parse::<u16>() {
-            v
-        } else {
-            return Err(anyhow!("invalid port range"));
+        let invalid = || anyhow!("port_range: invalid port range \"{}\"", port_range);
+        let (start, end) = match port_range.split_once('-') {
+            Some((start, end)) => (start, end),
+            None => (port_range, port_range),
         };
-        let end = if let Ok(v) = parts[1].parse::<u16>() {
-            v
-        } else {
-            return Err(anyhow!("invalid port range"));
-        };
+        let start = start.trim().parse::<u16>().map_err(|_| invalid())?;
+        let end = end.trim().parse::<u16>().map_err(|_| invalid())?;
         if start > end {
-            return Err(anyhow!("invalid port range"));
+            return Err(invalid());
         }
         Ok(PortRangeMatcher { start, end })
     }
@@ -347,18 +333,17 @@ struct DomainMatcher {
 }
 
 impl DomainMatcher {
-    fn new(domains: &mut [config::router::rule::Domain]) -> Self {
+    fn new(domains: Vec<(DomainKind, String)>) -> Self {
         let mut cond_or = ConditionOr::new();
-        for rr_domain in domains.iter_mut() {
-            let filter = std::mem::take(&mut rr_domain.value);
-            match rr_domain.type_.unwrap() {
-                config::router::rule::domain::Type::PLAIN => {
+        for (kind, filter) in domains {
+            match kind {
+                DomainKind::Keyword => {
                     cond_or.add(Box::new(DomainKeywordMatcher::new(filter)));
                 }
-                config::router::rule::domain::Type::DOMAIN => {
+                DomainKind::Suffix => {
                     cond_or.add(Box::new(DomainSuffixMatcher::new(filter)));
                 }
-                config::router::rule::domain::Type::FULL => {
+                DomainKind::Full => {
                     cond_or.add(Box::new(DomainFullMatcher::new(filter)));
                 }
             }
@@ -382,16 +367,14 @@ pub struct ProcessNameMatcher {
 
 #[cfg(feature = "rule-process-name")]
 impl ProcessNameMatcher {
-    pub fn new(patterns: Vec<String>) -> Self {
-        let mut regexes = Vec::new();
-        for pattern in patterns {
-            if let Ok(regex) = Regex::new(&pattern) {
-                regexes.push(regex);
-            } else {
-                warn!("Invalid regex pattern: {}", pattern);
-            }
-        }
-        Self { regexes }
+    pub fn new(patterns: &[String]) -> Result<Self> {
+        let regexes = patterns
+            .iter()
+            .map(|p| {
+                Regex::new(p).map_err(|e| anyhow!("process_name: invalid pattern \"{}\": {}", p, e))
+            })
+            .collect::<Result<_>>()?;
+        Ok(Self { regexes })
     }
 }
 
@@ -470,97 +453,112 @@ impl Condition for ConditionOr {
 
 pub struct Router {
     rules: Vec<Rule>,
+    final_outbound: Option<String>,
     domain_resolve: bool,
     dns_client: SyncDnsClient,
 }
 
+/// Compiles one configured rule into its conditions.
+fn compile_rule(
+    rule: &model::Rule,
+    mmdb_readers: &mut HashMap<String, Arc<maxminddb::Reader<Mmap>>>,
+) -> Result<Rule> {
+    let mut cond_and = ConditionAnd::new();
+
+    let mut domains: Vec<(DomainKind, String)> = Vec::new();
+    domains.extend(rule.domain.iter().map(|d| (DomainKind::Full, d.clone())));
+    domains.extend(
+        rule.domain_suffix
+            .iter()
+            .map(|d| (DomainKind::Suffix, d.clone())),
+    );
+    domains.extend(
+        rule.domain_keyword
+            .iter()
+            .map(|d| (DomainKind::Keyword, d.clone())),
+    );
+    let mut mmdbs: Vec<Mmdb> = rule.geoip.iter().map(|c| external_rule::geoip(c)).collect();
+    for code in &rule.geosite {
+        domains.extend(external_rule::geosite(code)?);
+    }
+    for filter in &rule.external {
+        match external_rule::load(filter)? {
+            External::Mmdb(mmdb) => mmdbs.push(mmdb),
+            External::Domains(d) => domains.extend(d),
+        }
+    }
+
+    if !domains.is_empty() {
+        cond_and.add(Box::new(DomainMatcher::new(domains)));
+    }
+    if !rule.ip_cidr.is_empty() {
+        cond_and.add(Box::new(IpCidrMatcher::new(&rule.ip_cidr)?));
+    }
+    for mmdb in mmdbs {
+        let reader = match mmdb_readers.get(&mmdb.file) {
+            Some(r) => r.clone(),
+            None => {
+                let r = Arc::new(
+                    maxminddb::Reader::open_mmap(&mmdb.file)
+                        .map_err(|e| anyhow!("geoip: open {} failed: {}", mmdb.file, e))?,
+                );
+                mmdb_readers.insert(mmdb.file.clone(), r.clone());
+                r
+            }
+        };
+        cond_and.add(Box::new(MmdbMatcher::new(reader, mmdb.country_code)));
+    }
+    if !rule.port_range.is_empty() {
+        cond_and.add(Box::new(PortMatcher::new(&rule.port_range)?));
+    }
+    if !rule.network.is_empty() {
+        cond_and.add(Box::new(NetworkMatcher::new(&rule.network)?));
+    }
+    if !rule.inbound.is_empty() {
+        cond_and.add(Box::new(InboundTagMatcher::new(&rule.inbound)));
+    }
+    if !rule.process_name.is_empty() {
+        #[cfg(feature = "rule-process-name")]
+        cond_and.add(Box::new(ProcessNameMatcher::new(&rule.process_name)?));
+        #[cfg(not(feature = "rule-process-name"))]
+        return Err(anyhow!(
+            "process_name: not supported, rule-process-name is not compiled in"
+        ));
+    }
+
+    if cond_and.is_empty() {
+        return Err(anyhow!("the rule has no conditions"));
+    }
+    Ok(Rule::new(rule.outbound.clone(), Box::new(cond_and)))
+}
+
 impl Router {
-    fn load_rules(rules: &mut Vec<Rule>, routing_rules: &mut [config::router::Rule]) {
-        let mut mmdb_readers: HashMap<String, Arc<maxminddb::Reader<Mmap>>> = HashMap::new();
-        for rr in routing_rules.iter_mut() {
-            let mut cond_and = ConditionAnd::new();
-
-            if !rr.domains.is_empty() {
-                cond_and.add(Box::new(DomainMatcher::new(&mut rr.domains)));
-            }
-
-            if !rr.ip_cidrs.is_empty() {
-                cond_and.add(Box::new(IpCidrMatcher::new(&mut rr.ip_cidrs)));
-            }
-
-            if !rr.mmdbs.is_empty() {
-                for mmdb in rr.mmdbs.iter() {
-                    let reader = match mmdb_readers.get(&mmdb.file) {
-                        Some(r) => r.clone(),
-                        None => match maxminddb::Reader::open_mmap(&mmdb.file) {
-                            Ok(r) => {
-                                let r = Arc::new(r);
-                                mmdb_readers.insert(mmdb.file.to_owned(), r.clone());
-                                r
-                            }
-                            Err(e) => {
-                                warn!("open mmdb file {} failed: {:?}", mmdb.file, e);
-                                continue;
-                            }
-                        },
-                    };
-                    cond_and.add(Box::new(MmdbMatcher::new(
-                        reader,
-                        mmdb.country_code.clone(),
-                    )));
-                }
-            }
-
-            if !rr.port_ranges.is_empty() {
-                cond_and.add(Box::new(PortMatcher::new(&rr.port_ranges)));
-            }
-
-            if !rr.networks.is_empty() {
-                cond_and.add(Box::new(NetworkMatcher::new(&mut rr.networks)));
-            }
-
-            if !rr.inbound_tags.is_empty() {
-                cond_and.add(Box::new(InboundTagMatcher::new(&mut rr.inbound_tags)));
-            }
-
-            #[cfg(feature = "rule-process-name")]
-            if !rr.process_names.is_empty() {
-                cond_and.add(Box::new(ProcessNameMatcher::new(rr.process_names.clone())));
-            }
-
-            if cond_and.is_empty() {
-                warn!("empty rule at target {}", rr.target_tag);
-                continue;
-            }
-
-            let tag = std::mem::take(&mut rr.target_tag);
-            rules.push(Rule::new(tag, Box::new(cond_and)));
-        }
+    fn load_rules(route: &model::Route) -> Result<Vec<Rule>> {
+        let mut mmdb_readers = HashMap::new();
+        route
+            .rules
+            .iter()
+            .enumerate()
+            .map(|(i, rule)| {
+                compile_rule(rule, &mut mmdb_readers)
+                    .map_err(|e| anyhow!("route.rules[{}]: {}", i, e))
+            })
+            .collect()
     }
 
-    pub fn new(
-        router: &mut protobuf::MessageField<config::Router>,
-        dns_client: SyncDnsClient,
-    ) -> Self {
-        let mut rules: Vec<Rule> = Vec::new();
-        let mut domain_resolve = false;
-        if let Some(router) = router.as_mut() {
-            Self::load_rules(&mut rules, &mut router.rules);
-            domain_resolve = router.domain_resolve;
-        }
-        Router {
-            rules,
-            domain_resolve,
+    pub fn new(route: &model::Route, dns_client: SyncDnsClient) -> Result<Self> {
+        Ok(Router {
+            rules: Self::load_rules(route)?,
+            final_outbound: route.final_outbound.clone(),
+            domain_resolve: route.domain_resolve,
             dns_client,
-        }
+        })
     }
 
-    pub fn reload(&mut self, router: &mut protobuf::MessageField<config::Router>) -> Result<()> {
-        self.rules.clear();
-        if let Some(router) = router.as_mut() {
-            Self::load_rules(&mut self.rules, &mut router.rules);
-            self.domain_resolve = router.domain_resolve;
-        }
+    pub fn reload(&mut self, route: &model::Route) -> Result<()> {
+        self.rules = Self::load_rules(route)?;
+        self.final_outbound = route.final_outbound.clone();
+        self.domain_resolve = route.domain_resolve;
         Ok(())
     }
 
@@ -600,7 +598,7 @@ impl Router {
                 }
             }
         }
-        Ok(None)
+        Ok(self.final_outbound.as_ref())
     }
 }
 
@@ -629,7 +627,7 @@ mod tests {
         };
 
         // test port range
-        let m = PortMatcher::new(&vec!["1024-5000".to_string(), "6000-7000".to_string()]);
+        let m = PortMatcher::new(&["1024-5000".to_string(), "6000-7000".to_string()]).unwrap();
         sess.destination = SocksAddr::Domain("www.google.com".to_string(), 2000);
         assert!(m.apply(&sess));
         sess.destination = SocksAddr::Domain("www.google.com".to_string(), 5001);
@@ -638,14 +636,18 @@ mod tests {
         assert!(m.apply(&sess));
 
         // test single port range
-        let m = PortMatcher::new(&vec!["22-22".to_string()]);
+        let m = PortMatcher::new(&["22-22".to_string()]).unwrap();
         sess.destination = SocksAddr::Domain("www.google.com".to_string(), 22);
         assert!(m.apply(&sess));
 
+        // a single port
+        let m = PortMatcher::new(&["22".to_string()]).unwrap();
+        assert!(m.apply(&sess));
+        sess.destination = SocksAddr::Domain("www.google.com".to_string(), 23);
+        assert!(!m.apply(&sess));
+
         // test invalid port ranges
         let m = PortRangeMatcher::new("22-21");
-        assert!(m.is_err());
-        let m = PortRangeMatcher::new("22");
         assert!(m.is_err());
         let m = PortRangeMatcher::new("22-");
         assert!(m.is_err());
@@ -693,8 +695,8 @@ mod tests {
 
         let mut sess = Session::default();
 
-        let mut ips = vec!["192.168.1.0/24".to_string(), "10.0.0.1/32".to_string()];
-        let m = IpCidrMatcher::new(&mut ips);
+        let ips = vec!["192.168.1.0/24".to_string(), "10.0.0.1/32".to_string()];
+        let m = IpCidrMatcher::new(&ips).unwrap();
 
         sess.destination = SocksAddr::from(("192.168.1.100".parse::<IpAddr>().unwrap(), 80));
         assert!(m.apply(&sess));
@@ -707,5 +709,27 @@ mod tests {
 
         sess.destination = SocksAddr::from(("10.0.0.2".parse::<IpAddr>().unwrap(), 80));
         assert!(!m.apply(&sess));
+    }
+
+    #[test]
+    fn an_invalid_cidr_is_an_error() {
+        let err = IpCidrMatcher::new(&["10.0.0.0/33".to_string()])
+            .err()
+            .unwrap();
+        assert!(
+            err.to_string().starts_with("ip_cidr: invalid CIDR"),
+            "{}",
+            err
+        );
+    }
+
+    #[test]
+    fn a_rule_without_conditions_is_an_error() {
+        let rule = model::Rule {
+            outbound: "direct".to_string(),
+            ..Default::default()
+        };
+        let err = compile_rule(&rule, &mut HashMap::new()).err().unwrap();
+        assert_eq!(err.to_string(), "the rule has no conditions");
     }
 }

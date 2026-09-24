@@ -10,6 +10,7 @@ use hickory_proto::{
     rr::{record_type::RecordType, Name},
 };
 use rand::{rngs::StdRng, Rng, SeedableRng};
+use serde_derive::Deserialize;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::{Mutex, Notify};
 use tokio::time::{timeout, Instant};
@@ -17,9 +18,8 @@ use tracing::{debug, trace, warn};
 
 use crate::adapter::outbound::HandlerBuilder;
 use crate::adapter::registry::{
-    parse_settings, OutboundContext, OutboundFactory, OutboundRegistry,
+    parse_options, Options, OutboundContext, OutboundFactory, OutboundRegistry,
 };
-use crate::config;
 use crate::{adapter::*, app::SyncDnsClient, session::*};
 
 pub mod datagram;
@@ -399,56 +399,134 @@ pub(crate) fn register(registry: &mut OutboundRegistry) {
     registry.register("failover", OutboundFactory::composite(dependencies, build));
 }
 
-fn dependencies(tag: &str, settings: &[u8]) -> Result<Vec<String>> {
-    let settings: config::FailOverOutboundSettings = parse_settings("outbound", tag, settings)?;
-    let mut tags = settings.actors.to_vec();
-    tags.extend(settings.last_resort);
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FailOverOutboundOptions {
+    outbounds: Vec<String>,
+    /// Used when every one of `outbounds` has failed.
+    #[serde(default)]
+    last_resort: Option<String>,
+    /// Seconds.
+    #[serde(default = "d::fail_timeout")]
+    fail_timeout: u32,
+    #[serde(default = "d::yes")]
+    health_check: bool,
+    /// Seconds.
+    #[serde(default = "d::health_check_timeout")]
+    health_check_timeout: u32,
+    /// Milliseconds.
+    #[serde(default = "d::health_check_delay")]
+    health_check_delay: u32,
+    /// Seconds.
+    #[serde(default = "d::health_check_active")]
+    health_check_active: u32,
+    #[serde(default)]
+    health_check_prefers: Vec<String>,
+    #[serde(default)]
+    health_check_on_start: bool,
+    #[serde(default)]
+    health_check_wait: bool,
+    #[serde(default = "d::health_check_attempts")]
+    health_check_attempts: u32,
+    #[serde(default = "d::health_check_success_percentage")]
+    health_check_success_percentage: u32,
+    /// Seconds.
+    #[serde(default = "d::check_interval")]
+    check_interval: u32,
+    #[serde(default = "d::yes")]
+    failover: bool,
+    #[serde(default)]
+    fallback_cache: bool,
+    #[serde(default = "d::cache_size")]
+    cache_size: u32,
+    /// Minutes.
+    #[serde(default = "d::cache_timeout")]
+    cache_timeout: u32,
+}
+
+mod d {
+    pub fn yes() -> bool {
+        true
+    }
+    pub fn fail_timeout() -> u32 {
+        4
+    }
+    pub fn health_check_timeout() -> u32 {
+        6
+    }
+    pub fn health_check_delay() -> u32 {
+        200
+    }
+    pub fn health_check_active() -> u32 {
+        15 * 60
+    }
+    pub fn health_check_attempts() -> u32 {
+        1
+    }
+    pub fn health_check_success_percentage() -> u32 {
+        50
+    }
+    pub fn check_interval() -> u32 {
+        300
+    }
+    pub fn cache_size() -> u32 {
+        256
+    }
+    pub fn cache_timeout() -> u32 {
+        60
+    }
+}
+
+fn dependencies(tag: &str, options: &Options) -> Result<Vec<String>> {
+    let options: FailOverOutboundOptions = parse_options("outbound", tag, options)?;
+    let mut tags = options.outbounds;
+    tags.extend(options.last_resort);
     Ok(tags)
 }
 
 fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
-    let settings: config::FailOverOutboundSettings = ctx.settings()?;
-    let actors = ctx.members(&settings.actors)?;
-    let last_resort = settings
+    let options: FailOverOutboundOptions = ctx.options()?;
+    let actors = ctx.members(&options.outbounds)?;
+    let last_resort = options
         .last_resort
         .as_ref()
         .map(|last_resort| ctx.handler(last_resort))
         .transpose()?;
     let (stream, mut stream_abort_handles) = StreamHandler::new(
         actors.clone(),
-        settings.fail_timeout,
-        settings.health_check,
-        settings.check_interval,
-        settings.failover,
-        settings.fallback_cache,
-        settings.cache_size as usize,
-        settings.cache_timeout as u64,
+        options.fail_timeout,
+        options.health_check,
+        options.check_interval,
+        options.failover,
+        options.fallback_cache,
+        options.cache_size as usize,
+        options.cache_timeout as u64,
         last_resort.clone(),
-        settings.health_check_timeout,
-        settings.health_check_delay,
-        settings.health_check_active,
-        settings.health_check_prefers.clone(),
-        settings.health_check_on_start,
-        settings.health_check_wait,
-        settings.health_check_attempts,
-        settings.health_check_success_percentage,
+        options.health_check_timeout,
+        options.health_check_delay,
+        options.health_check_active,
+        options.health_check_prefers.clone(),
+        options.health_check_on_start,
+        options.health_check_wait,
+        options.health_check_attempts,
+        options.health_check_success_percentage,
         ctx.dns_client.clone(),
     );
     let (datagram, mut datagram_abort_handles) = DatagramHandler::new(
         actors,
-        settings.fail_timeout,
-        settings.health_check,
-        settings.check_interval,
-        settings.failover,
+        options.fail_timeout,
+        options.health_check,
+        options.check_interval,
+        options.failover,
         last_resort,
-        settings.health_check_timeout,
-        settings.health_check_delay,
-        settings.health_check_active,
-        settings.health_check_prefers,
-        settings.health_check_on_start,
-        settings.health_check_wait,
-        settings.health_check_attempts,
-        settings.health_check_success_percentage,
+        options.health_check_timeout,
+        options.health_check_delay,
+        options.health_check_active,
+        options.health_check_prefers,
+        options.health_check_on_start,
+        options.health_check_wait,
+        options.health_check_attempts,
+        options.health_check_success_percentage,
         ctx.dns_client.clone(),
     );
     ctx.abort_handles.append(&mut stream_abort_handles);

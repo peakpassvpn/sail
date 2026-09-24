@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::Result;
+use serde_derive::Deserialize;
 
 use crate::adapter::inbound::Handler;
 use crate::adapter::registry::{InboundContext, InboundFactory, InboundRegistry};
@@ -14,7 +15,12 @@ pub(crate) fn register(registry: &mut InboundRegistry) {
     registry.register("http", InboundFactory::standalone(build));
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct HttpInboundOptions {}
+
 fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
+    let HttpInboundOptions {} = ctx.options()?;
     let stream = Arc::new(StreamHandler);
     Ok(Arc::new(Handler::new(
         ctx.tag.to_owned(),

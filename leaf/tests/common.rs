@@ -113,27 +113,20 @@ fn new_socks_outbound(
     password: Option<String>,
 ) -> anyhow::Result<AnyOutboundHandler> {
     // Make use of a socks outbound to initiate a socks request to a leaf instance.
-    let settings = leaf::config::json::SocksOutboundSettings {
-        address: Some(socks_addr.to_string()),
-        port: Some(socks_port),
-        username,
-        password,
-    };
-    let outbounds = vec![leaf::config::json::Outbound {
-        tag: Some("socks".to_string()),
-        settings: leaf::config::json::OutboundSettings::Socks {
-            settings: Some(settings),
-        },
-    }];
-    let config = leaf::config::json::Config {
-        log: None,
-        env: None,
-        inbounds: None,
-        outbounds: Some(outbounds),
-        router: None,
-        dns: None,
-    };
-    let config = leaf::config::json::to_internal(config).map_err(|e| anyhow::anyhow!(e))?;
+    let mut socks = serde_json::json!({
+        "type": "socks",
+        "tag": "socks",
+        "server": socks_addr,
+        "server_port": socks_port,
+    });
+    if let Some(username) = username {
+        socks["username"] = username.into();
+    }
+    if let Some(password) = password {
+        socks["password"] = password.into();
+    }
+    let config =
+        leaf::config::Config::from_json(&serde_json::json!({ "outbounds": [socks] }).to_string())?;
     let dns_client = Arc::new(RwLock::new(
         leaf::app::dns_client::DnsClient::new(&config.dns).map_err(|e| anyhow::anyhow!(e))?,
     ));

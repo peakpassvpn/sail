@@ -18,41 +18,35 @@ fn test_quic_trojan() -> anyhow::Result<()> {
     {
         "inbounds": [
             {
-                "protocol": "socks",
-                "address": "127.0.0.1",
-                "port": 1086
+                "type": "socks",
+                "listen": "127.0.0.1",
+                "listen_port": 1086
             }
         ],
         "outbounds": [
             {
-                "protocol": "chain",
-                "settings": {
-                    "actors": [
-                        "quic",
-                        "trojan"
-                    ]
-                }
+                "type": "chain",
+                "outbounds": [
+                    "quic",
+                    "trojan"
+                ]
             },
             {
-                "protocol": "quic",
+                "type": "quic",
                 "tag": "quic",
-                "settings": {
-                    "address": "127.0.0.1",
-                    "port": 3001,
-                    "serverName": "localhost",
-                    "certificate": "cert.der",
-                    "alpn": [
-                        "http/1.1",
-                        "trojan"
-                    ]
-                }
+                "server": "127.0.0.1",
+                "server_port": 3001,
+                "server_name": "localhost",
+                "certificate": "cert.der",
+                "alpn": [
+                    "http/1.1",
+                    "trojan"
+                ]
             },
             {
-                "protocol": "trojan",
+                "type": "trojan",
                 "tag": "trojan",
-                "settings": {
-                    "password": "password"
-                }
+                "password": "password"
             }
         ]
     }
@@ -62,42 +56,38 @@ fn test_quic_trojan() -> anyhow::Result<()> {
     {
         "inbounds": [
             {
+                "type": "chain",
                 "tag": "quic-in",
-                "protocol": "chain",
-                "address": "127.0.0.1",
-                "port": 3001,
-                "settings": {
-                    "actors": [
-                        "quic",
-                        "trojan"
-                    ]
-                }
+                "listen": "127.0.0.1",
+                "listen_port": 3001,
+                "inbounds": [
+                    "quic",
+                    "trojan"
+                ]
             },
             {
-                "protocol": "quic",
+                "type": "quic",
                 "tag": "quic",
-                "settings": {
-                    "certificate": "cert.der",
-                    "certificateKey": "key.der",
-                    "alpn": [
-                        "http/1.1",
-                        "trojan"
-                    ]
-                }
+                "certificate": "cert.der",
+                "certificate_key": "key.der",
+                "alpn": [
+                    "http/1.1",
+                    "trojan"
+                ]
             },
             {
-                "protocol": "trojan",
+                "type": "trojan",
                 "tag": "trojan",
-                "settings": {
-                    "passwords": [
-                        "password"
-                    ]
-                }
+                "users": [
+                    {
+                        "password": "password"
+                    }
+                ]
             }
         ],
         "outbounds": [
             {
-                "protocol": "direct"
+                "type": "direct"
             }
         ]
     }
@@ -107,37 +97,31 @@ fn test_quic_trojan() -> anyhow::Result<()> {
     {
         "inbounds": [
             {
-                "protocol": "socks",
-                "address": "127.0.0.1",
-                "port": 1087
+                "type": "socks",
+                "listen": "127.0.0.1",
+                "listen_port": 1087
             }
         ],
         "outbounds": [
             {
-                "protocol": "chain",
-                "settings": {
-                    "actors": [
-                        "quic",
-                        "trojan"
-                    ]
-                }
+                "type": "chain",
+                "outbounds": [
+                    "quic",
+                    "trojan"
+                ]
             },
             {
-                "protocol": "quic",
+                "type": "quic",
                 "tag": "quic",
-                "settings": {
-                    "address": "127.0.0.1",
-                    "port": 3002,
-                    "serverName": "localhost",
-                    "certificate": "cert.pem"
-                }
+                "server": "127.0.0.1",
+                "server_port": 3002,
+                "server_name": "localhost",
+                "certificate": "cert.pem"
             },
             {
-                "protocol": "trojan",
+                "type": "trojan",
                 "tag": "trojan",
-                "settings": {
-                    "password": "password"
-                }
+                "password": "password"
             }
         ]
     }
@@ -147,38 +131,34 @@ fn test_quic_trojan() -> anyhow::Result<()> {
     {
         "inbounds": [
             {
+                "type": "chain",
                 "tag": "quic-in",
-                "protocol": "chain",
-                "address": "127.0.0.1",
-                "port": 3002,
-                "settings": {
-                    "actors": [
-                        "quic",
-                        "trojan"
-                    ]
-                }
+                "listen": "127.0.0.1",
+                "listen_port": 3002,
+                "inbounds": [
+                    "quic",
+                    "trojan"
+                ]
             },
             {
-                "protocol": "quic",
+                "type": "quic",
                 "tag": "quic",
-                "settings": {
-                    "certificate": "cert.pem",
-                    "certificateKey": "key.pem"
-                }
+                "certificate": "cert.pem",
+                "certificate_key": "key.pem"
             },
             {
-                "protocol": "trojan",
+                "type": "trojan",
                 "tag": "trojan",
-                "settings": {
-                    "passwords": [
-                        "password"
-                    ]
-                }
+                "users": [
+                    {
+                        "password": "password"
+                    }
+                ]
             }
         ],
         "outbounds": [
             {
-                "protocol": "direct"
+                "type": "direct"
             }
         ]
     }
@@ -229,41 +209,37 @@ FINAL,Proxy
     {
         "inbounds": [
             {
+                "type": "chain",
                 "tag": "quic-in",
-                "protocol": "chain",
-                "address": "127.0.0.1",
-                "port": 3004,
-                "settings": {
-                    "actors": [
-                        "quic",
-                        "trojan"
-                    ]
-                }
+                "listen": "127.0.0.1",
+                "listen_port": 3004,
+                "inbounds": [
+                    "quic",
+                    "trojan"
+                ]
             },
             {
-                "protocol": "quic",
+                "type": "quic",
                 "tag": "quic",
-                "settings": {
-                    "certificate": "cert.pem",
-                    "certificateKey": "key.pem",
-                    "alpn": [
-                        "http/1.1"
-                    ]
-                }
+                "certificate": "cert.pem",
+                "certificate_key": "key.pem",
+                "alpn": [
+                    "http/1.1"
+                ]
             },
             {
-                "protocol": "trojan",
+                "type": "trojan",
                 "tag": "trojan",
-                "settings": {
-                    "passwords": [
-                        "password"
-                    ]
-                }
+                "users": [
+                    {
+                        "password": "password"
+                    }
+                ]
             }
         ],
         "outbounds": [
             {
-                "protocol": "direct"
+                "type": "direct"
             }
         ]
     }

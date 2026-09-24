@@ -5,7 +5,8 @@ use anyhow::{anyhow, Result};
 use crate::adapter::inbound::Handler;
 use crate::adapter::registry::{InboundContext, InboundFactory, InboundRegistry};
 use crate::adapter::AnyInboundHandler;
-use crate::config;
+use crate::config::model::resolve_certificate;
+use serde_derive::Deserialize;
 
 pub mod stream;
 
@@ -15,26 +16,44 @@ pub(crate) fn register(registry: &mut InboundRegistry) {
     registry.register("tls", InboundFactory::standalone(build));
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TlsInboundOptions {
+    /// Inline or as a path.
+    certificate: String,
+    /// Inline or as a path.
+    certificate_key: String,
+    #[serde(default)]
+    ech_config: Option<String>,
+    #[serde(default)]
+    ech_key: Option<String>,
+}
+
 fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
-    let settings: config::TlsInboundSettings = ctx.settings()?;
-    let ech_config = if settings.ech_config.is_empty() {
-        None
-    } else {
-        Some(settings.ech_config.clone())
-    };
-    let ech_key = if settings.ech_key.is_empty() {
-        None
-    } else {
-        Some(settings.ech_key.clone())
-    };
+    let options: TlsInboundOptions = ctx.options()?;
+    match (&options.ech_config, &options.ech_key) {
+        (None, None) => {}
+        (Some(_), Some(_)) => {
+            return Err(anyhow!(
+                "[{}] inbound: ech_config: inbound ECH is not supported yet",
+                ctx.tag
+            ))
+        }
+        _ => {
+            return Err(anyhow!(
+                "[{}] inbound: ech_config and ech_key must be set together",
+                ctx.tag
+            ))
+        }
+    }
     let stream = Arc::new(
         StreamHandler::new(
-            settings.certificate.clone(),
-            settings.certificate_key.clone(),
-            ech_config,
-            ech_key,
+            resolve_certificate(&options.certificate),
+            resolve_certificate(&options.certificate_key),
+            options.ech_config,
+            options.ech_key,
         )
-        .map_err(|e| anyhow!("invalid [{}] inbound tls capability: {}", ctx.tag, e))?,
+        .map_err(|e| anyhow!("[{}] inbound: {}", ctx.tag, e))?,
     );
     Ok(Arc::new(Handler::new(
         ctx.tag.to_owned(),

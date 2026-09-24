@@ -3,9 +3,11 @@ use std::sync::Arc;
 use anyhow::Result;
 
 use crate::adapter::inbound::Handler;
-use crate::adapter::registry::{parse_settings, InboundContext, InboundFactory, InboundRegistry};
+use crate::adapter::registry::{
+    parse_options, InboundContext, InboundFactory, InboundRegistry, Options,
+};
 use crate::adapter::AnyInboundHandler;
-use crate::config;
+use serde_derive::Deserialize;
 
 mod stream;
 
@@ -18,14 +20,22 @@ pub(crate) fn register(registry: &mut InboundRegistry) {
     registry.register("amux", InboundFactory::composite(dependencies, build));
 }
 
-fn dependencies(tag: &str, settings: &[u8]) -> Result<Vec<String>> {
-    let settings: config::AMuxInboundSettings = parse_settings("inbound", tag, settings)?;
-    Ok(settings.actors.to_vec())
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AMuxInboundOptions {
+    /// The layers each underlying connection comes in over.
+    #[serde(default)]
+    inbounds: Vec<String>,
+}
+
+fn dependencies(tag: &str, options: &Options) -> Result<Vec<String>> {
+    let options: AMuxInboundOptions = parse_options("inbound", tag, options)?;
+    Ok(options.inbounds)
 }
 
 fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
-    let settings: config::AMuxInboundSettings = ctx.settings()?;
-    let actors = ctx.actors(&settings.actors)?;
+    let options: AMuxInboundOptions = ctx.options()?;
+    let actors = ctx.actors(&options.inbounds)?;
     let stream = Arc::new(StreamHandler { actors });
     Ok(Arc::new(Handler::new(
         ctx.tag.to_owned(),

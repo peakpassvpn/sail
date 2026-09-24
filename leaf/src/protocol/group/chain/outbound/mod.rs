@@ -4,10 +4,10 @@ use anyhow::Result;
 
 use crate::adapter::outbound::HandlerBuilder;
 use crate::adapter::registry::{
-    parse_settings, OutboundContext, OutboundFactory, OutboundRegistry,
+    parse_options, Options, OutboundContext, OutboundFactory, OutboundRegistry,
 };
 use crate::adapter::AnyOutboundHandler;
-use crate::config;
+use serde_derive::Deserialize;
 
 pub mod datagram;
 mod plan;
@@ -20,14 +20,20 @@ pub(crate) fn register(registry: &mut OutboundRegistry) {
     registry.register("chain", OutboundFactory::composite(dependencies, build));
 }
 
-fn dependencies(tag: &str, settings: &[u8]) -> Result<Vec<String>> {
-    let settings: config::ChainOutboundSettings = parse_settings("outbound", tag, settings)?;
-    Ok(settings.actors.to_vec())
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ChainOutboundOptions {
+    outbounds: Vec<String>,
+}
+
+fn dependencies(tag: &str, options: &Options) -> Result<Vec<String>> {
+    let options: ChainOutboundOptions = parse_options("outbound", tag, options)?;
+    Ok(options.outbounds)
 }
 
 fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
-    let settings: config::ChainOutboundSettings = ctx.settings()?;
-    let actors = ctx.members(&settings.actors)?;
+    let options: ChainOutboundOptions = ctx.options()?;
+    let actors = ctx.members(&options.outbounds)?;
     let stream = Arc::new(StreamHandler {
         actors: actors.clone(),
     });

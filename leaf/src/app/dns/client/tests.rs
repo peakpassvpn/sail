@@ -6,9 +6,9 @@ mod tests {
     use super::{DnsClient, Resolver, ServerSelectorState};
 
     fn new_client(servers: Vec<&str>) -> DnsClient {
-        let mut dns = crate::config::Dns::new();
+        let mut dns = crate::config::Dns::default();
         dns.servers = servers.into_iter().map(|s| s.to_string()).collect();
-        DnsClient::new(&protobuf::MessageField::some(dns)).unwrap()
+        DnsClient::new(&dns).unwrap()
     }
 
     fn collect_server_strings(client: &DnsClient, is_direct_outbound: bool) -> Vec<String> {
@@ -21,7 +21,7 @@ mod tests {
 
     #[test]
     fn load_servers_supports_legacy_and_doh_with_ip() {
-        let mut dns = crate::config::Dns::new();
+        let mut dns = crate::config::Dns::default();
         dns.servers = vec![
             "1.1.1.1".to_string(),
             "direct:system".to_string(),
@@ -75,33 +75,28 @@ mod tests {
     }
 
     #[test]
-    fn load_servers_ignores_invalid_doh_value_if_any_valid_server_exists() {
-        let mut dns = crate::config::Dns::new();
-        dns.servers = vec![
-            "doh:@1.1.1.1".to_string(),
-            "direct:doh:example.com@not-an-ip".to_string(),
-            "doh:example.com#8.8.8.8".to_string(),
-            "1.1.1.1".to_string(),
-        ];
-        let servers = DnsClient::load_servers(&dns).unwrap();
-        assert_eq!(servers.len(), 1);
-        match &servers[0] {
-            Resolver::Server(addr, false) => assert_eq!(
-                *addr,
-                SocketAddr::new(IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1)), 53)
-            ),
-            _ => panic!("unexpected resolver"),
+    fn an_invalid_server_is_an_error_that_names_it() {
+        for invalid in [
+            "doh:@1.1.1.1",
+            "direct:doh:example.com@not-an-ip",
+            "doh:example.com#8.8.8.8",
+        ] {
+            let mut dns = crate::config::Dns::default();
+            dns.servers = vec!["1.1.1.1".to_string(), invalid.to_string()];
+            let err = DnsClient::load_servers(&dns).unwrap_err();
+            assert!(
+                err.to_string()
+                    .starts_with(&format!("dns.servers: invalid server \"{}\"", invalid)),
+                "{}",
+                err
+            );
         }
     }
 
     #[test]
-    fn load_servers_rejects_when_all_servers_invalid() {
-        let mut dns = crate::config::Dns::new();
-        dns.servers = vec![
-            "doh:@1.1.1.1".to_string(),
-            "direct:doh:example.com@not-an-ip".to_string(),
-            "doh:example.com#8.8.8.8".to_string(),
-        ];
+    fn no_servers_is_an_error() {
+        let mut dns = crate::config::Dns::default();
+        dns.servers = Vec::new();
         let err = DnsClient::load_servers(&dns).unwrap_err();
         assert!(err.to_string().contains("no dns servers"));
     }

@@ -49,11 +49,11 @@ EOF
 cat > client-leaf-reality.json <<EOF
 {
   "log": { "level": "error" },
-  "inbounds": [ { "protocol": "socks", "address": "127.0.0.1", "port": 1081 } ],
+  "inbounds": [ { "type": "socks", "listen": "127.0.0.1", "listen_port": 1081 } ],
   "outbounds": [
-    { "protocol": "chain", "settings": { "actors": [ "reality", "vless" ] } },
-    { "protocol": "reality", "tag": "reality", "settings": { "serverName": "localhost", "publicKey": "$PUB", "shortId": "0123456789abcdef" } },
-    { "protocol": "vless", "tag": "vless", "settings": { "address": "127.0.0.1", "port": 8445, "uuid": "$UUID" } }
+    { "type": "chain", "outbounds": [ "reality", "vless" ] },
+    { "type": "reality", "tag": "reality", "server_name": "localhost", "public_key": "$PUB", "short_id": "0123456789abcdef" },
+    { "type": "vless", "tag": "vless", "server": "127.0.0.1", "server_port": 8445, "uuid": "$UUID" }
   ]
 }
 EOF

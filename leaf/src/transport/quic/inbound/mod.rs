@@ -5,7 +5,8 @@ use anyhow::Result;
 use crate::adapter::inbound::Handler;
 use crate::adapter::registry::{InboundContext, InboundFactory, InboundRegistry};
 use crate::adapter::AnyInboundHandler;
-use crate::config;
+use crate::config::model::resolve_certificate;
+use serde_derive::Deserialize;
 
 mod datagram;
 
@@ -17,12 +18,23 @@ pub(crate) fn register(registry: &mut InboundRegistry) {
     registry.register("quic", InboundFactory::standalone(build));
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct QuicInboundOptions {
+    /// Inline or as a path.
+    certificate: String,
+    /// Inline or as a path.
+    certificate_key: String,
+    #[serde(default)]
+    alpn: Vec<String>,
+}
+
 fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
-    let settings: config::QuicInboundSettings = ctx.settings()?;
+    let options: QuicInboundOptions = ctx.options()?;
     let datagram = Arc::new(DatagramHandler::new(
-        settings.certificate.clone(),
-        settings.certificate_key.clone(),
-        settings.alpn.clone(),
+        resolve_certificate(&options.certificate),
+        resolve_certificate(&options.certificate_key),
+        options.alpn,
     )?);
     Ok(Arc::new(Handler::new(
         ctx.tag.to_owned(),

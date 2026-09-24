@@ -6,7 +6,7 @@ use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use futures::task::{Context, Poll};
 use futures::TryFutureExt;
-use protobuf::Message;
+use serde_derive::Deserialize;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
 use tokio::sync::mpsc::channel as tokio_channel;
 use tokio::sync::mpsc::{Receiver as TokioReceiver, Sender as TokioSender};
@@ -15,7 +15,7 @@ use tracing::{debug, info};
 use crate::adapter::*;
 use crate::app::dispatcher::Dispatcher;
 use crate::app::nat_manager::{NatManager, UdpPacket};
-use crate::config::{CatInboundSettings, Inbound};
+use crate::config::model::{parse_options, Inbound};
 use crate::session::*;
 use crate::Runner;
 
@@ -116,6 +116,21 @@ impl InboundDatagramSendHalf for DatagramSendHalf {
     }
 }
 
+/// Relays stdin to a fixed address and the replies to stdout.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CatInboundOptions {
+    /// `tcp` or `udp`.
+    #[serde(default = "default_network")]
+    network: String,
+    address: String,
+    port: u16,
+}
+
+fn default_network() -> String {
+    "tcp".to_string()
+}
+
 pub struct CatInboundListener {
     pub inbound: Inbound,
     pub dispatcher: Arc<Dispatcher>,
@@ -125,7 +140,8 @@ pub struct CatInboundListener {
 impl CatInboundListener {
     pub fn listen(&self) -> Result<Runner> {
         let inbound_tag = self.inbound.tag.clone();
-        let settings = CatInboundSettings::parse_from_bytes(&self.inbound.settings)?;
+        let settings: CatInboundOptions =
+            parse_options("inbound", &self.inbound.tag, &self.inbound.options)?;
         let dispatcher = self.dispatcher.clone();
         let nat_manager = self.nat_manager.clone();
         let target = SocksAddr::from(

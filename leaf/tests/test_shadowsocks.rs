@@ -14,20 +14,18 @@ fn test_shadowsocks() -> anyhow::Result<()> {
     {
         "inbounds": [
             {
-                "protocol": "socks",
-                "address": "127.0.0.1",
-                "port": 1086
+                "type": "socks",
+                "listen": "127.0.0.1",
+                "listen_port": 1086
             }
         ],
         "outbounds": [
             {
-                "protocol": "shadowsocks",
-                "settings": {
-                    "address": "127.0.0.1",
-                    "port": 3001,
-                    "method": "chacha20-ietf-poly1305",
-                    "password": "password"
-                }
+                "type": "shadowsocks",
+                "server": "127.0.0.1",
+                "server_port": 3001,
+                "method": "chacha20-ietf-poly1305",
+                "password": "password"
             }
         ]
     }
@@ -37,18 +35,16 @@ fn test_shadowsocks() -> anyhow::Result<()> {
     {
         "inbounds": [
             {
-                "protocol": "shadowsocks",
-                "address": "127.0.0.1",
-                "port": 3001,
-                "settings": {
-                    "method": "chacha20-ietf-poly1305",
-                    "password": "password"
-                }
+                "type": "shadowsocks",
+                "listen": "127.0.0.1",
+                "listen_port": 3001,
+                "method": "chacha20-ietf-poly1305",
+                "password": "password"
             }
         ],
         "outbounds": [
             {
-                "protocol": "direct"
+                "type": "direct"
             }
         ]
     }

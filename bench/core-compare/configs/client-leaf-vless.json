@@ -1,9 +1,34 @@
 {
-  "log": { "level": "error" },
-  "inbounds": [ { "protocol": "socks", "address": "127.0.0.1", "port": 1081 } ],
+  "log": {
+    "level": "error"
+  },
+  "inbounds": [
+    {
+      "type": "socks",
+      "listen": "127.0.0.1",
+      "listen_port": 1081
+    }
+  ],
   "outbounds": [
-    { "protocol": "chain", "settings": { "actors": [ "tls", "vless" ] } },
-    { "protocol": "tls", "tag": "tls", "settings": { "serverName": "localhost", "insecure": true } },
-    { "protocol": "vless", "tag": "vless", "settings": { "address": "127.0.0.1", "port": 8444, "uuid": "b831381d-6324-4d53-ad4f-8cda48b30811" } }
+    {
+      "type": "chain",
+      "outbounds": [
+        "tls",
+        "vless"
+      ]
+    },
+    {
+      "type": "tls",
+      "tag": "tls",
+      "server_name": "localhost",
+      "insecure": true
+    },
+    {
+      "type": "vless",
+      "tag": "vless",
+      "server": "127.0.0.1",
+      "server_port": 8444,
+      "uuid": "b831381d-6324-4d53-ad4f-8cda48b30811"
+    }
   ]
 }

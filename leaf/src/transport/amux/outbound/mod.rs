@@ -4,10 +4,10 @@ use anyhow::Result;
 
 use crate::adapter::outbound::HandlerBuilder;
 use crate::adapter::registry::{
-    parse_settings, OutboundContext, OutboundFactory, OutboundRegistry,
+    parse_options, Options, OutboundContext, OutboundFactory, OutboundRegistry,
 };
 use crate::adapter::AnyOutboundHandler;
-use crate::config;
+use serde_derive::Deserialize;
 
 mod stream;
 
@@ -21,22 +21,48 @@ pub(crate) fn register(registry: &mut OutboundRegistry) {
     registry.register("amux", OutboundFactory::composite(dependencies, build));
 }
 
-fn dependencies(tag: &str, settings: &[u8]) -> Result<Vec<String>> {
-    let settings: config::AMuxOutboundSettings = parse_settings("outbound", tag, settings)?;
-    Ok(settings.actors.to_vec())
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AMuxOutboundOptions {
+    server: String,
+    server_port: u16,
+    /// The layers each underlying connection is carried over.
+    #[serde(default)]
+    outbounds: Vec<String>,
+    #[serde(default = "default_max_accepts")]
+    max_accepts: usize,
+    #[serde(default = "default_concurrency")]
+    concurrency: usize,
+    #[serde(default)]
+    max_recv_bytes: usize,
+    #[serde(default)]
+    max_lifetime: u64,
+}
+
+fn default_max_accepts() -> usize {
+    8
+}
+
+fn default_concurrency() -> usize {
+    2
+}
+
+fn dependencies(tag: &str, options: &Options) -> Result<Vec<String>> {
+    let options: AMuxOutboundOptions = parse_options("outbound", tag, options)?;
+    Ok(options.outbounds)
 }
 
 fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
-    let settings: config::AMuxOutboundSettings = ctx.settings()?;
-    let actors = ctx.actors(&settings.actors)?;
+    let options: AMuxOutboundOptions = ctx.options()?;
+    let actors = ctx.actors(&options.outbounds)?;
     let (stream, mut abort_handles) = StreamHandler::new(
-        settings.address.clone(),
-        settings.port as u16,
+        options.server,
+        options.server_port,
         actors,
-        settings.max_accepts as usize,
-        settings.concurrency as usize,
-        settings.max_recv_bytes as usize,
-        settings.max_lifetime,
+        options.max_accepts,
+        options.concurrency,
+        options.max_recv_bytes,
+        options.max_lifetime,
         ctx.dns_client.clone(),
     );
     ctx.abort_handles.append(&mut abort_handles);

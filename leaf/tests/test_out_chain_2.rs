@@ -15,40 +15,34 @@ fn test_out_chain_2() -> anyhow::Result<()> {
     {
         "inbounds": [
             {
-                "protocol": "socks",
-                "address": "127.0.0.1",
-                "port": 1086
+                "type": "socks",
+                "listen": "127.0.0.1",
+                "listen_port": 1086
             }
         ],
         "outbounds": [
             {
-                "protocol": "chain",
-                "settings": {
-                    "actors": [
-                        "server1",
-                        "server2"
-                    ]
-                }
+                "type": "chain",
+                "outbounds": [
+                    "server1",
+                    "server2"
+                ]
             },
             {
-                "protocol": "shadowsocks",
+                "type": "shadowsocks",
                 "tag": "server1",
-                "settings": {
-                    "address": "127.0.0.1",
-                    "port": 3001,
-                    "method": "chacha20-ietf-poly1305",
-                    "password": "password"
-                }
+                "server": "127.0.0.1",
+                "server_port": 3001,
+                "method": "chacha20-ietf-poly1305",
+                "password": "password"
             },
             {
-                "protocol": "shadowsocks",
+                "type": "shadowsocks",
                 "tag": "server2",
-                "settings": {
-                    "address": "127.0.0.1",
-                    "port": 3002,
-                    "method": "aes-128-gcm",
-                    "password": "password"
-                }
+                "server": "127.0.0.1",
+                "server_port": 3002,
+                "method": "aes-128-gcm",
+                "password": "password"
             }
         ]
     }
@@ -58,18 +52,16 @@ fn test_out_chain_2() -> anyhow::Result<()> {
     {
         "inbounds": [
             {
-                "protocol": "shadowsocks",
-                "address": "127.0.0.1",
-                "port": 3001,
-                "settings": {
-                    "method": "chacha20-ietf-poly1305",
-                    "password": "password"
-                }
+                "type": "shadowsocks",
+                "listen": "127.0.0.1",
+                "listen_port": 3001,
+                "method": "chacha20-ietf-poly1305",
+                "password": "password"
             }
         ],
         "outbounds": [
             {
-                "protocol": "direct"
+                "type": "direct"
             }
         ]
     }
@@ -79,18 +71,16 @@ fn test_out_chain_2() -> anyhow::Result<()> {
     {
         "inbounds": [
             {
-                "protocol": "shadowsocks",
-                "address": "127.0.0.1",
-                "port": 3002,
-                "settings": {
-                    "method": "aes-128-gcm",
-                    "password": "password"
-                }
+                "type": "shadowsocks",
+                "listen": "127.0.0.1",
+                "listen_port": 3002,
+                "method": "aes-128-gcm",
+                "password": "password"
             }
         ],
         "outbounds": [
             {
-                "protocol": "direct"
+                "type": "direct"
             }
         ]
     }

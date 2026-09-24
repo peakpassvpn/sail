@@ -126,13 +126,13 @@ impl HandleController {
 static HANDLE: RwLock<Option<HandleController>> = RwLock::new(None);
 
 fn get_writer(config: &config::Log) -> Result<(WriterLayer, WorkerGuard)> {
-    let mode = match config.format.unwrap() {
-        config::log::Format::COMPACT => LogFormatMode::Compact,
-        _ => LogFormatMode::Full,
+    let mode = match config.format {
+        config::model::LogFormat::Compact => LogFormatMode::Compact,
+        config::model::LogFormat::Full => LogFormatMode::Full,
     };
 
-    Ok(match config.output.unwrap() {
-        config::log::Output::CONSOLE => {
+    Ok(match &config.output {
+        None => {
             #[cfg(target_os = "macos")]
             {
                 if *crate::option::LOG_CONSOLE_OUT {
@@ -170,8 +170,8 @@ fn get_writer(config: &config::Log) -> Result<(WriterLayer, WorkerGuard)> {
                 (writer, writer_guard)
             }
         }
-        config::log::Output::FILE => {
-            let p = Path::new(&config.output_file);
+        Some(output_file) => {
+            let p = Path::new(output_file);
             let writer = OpenOptions::new().append(true).create(true).open(p)?;
             let (writer, writer_guard) = tracing_appender::non_blocking(writer);
             let writer = fmt::Layer::default()
@@ -184,13 +184,13 @@ fn get_writer(config: &config::Log) -> Result<(WriterLayer, WorkerGuard)> {
 }
 
 pub fn setup_logger(config: &config::Log) -> Result<()> {
-    let filter = match config.level.unwrap() {
-        config::log::Level::TRACE => LevelFilter::TRACE,
-        config::log::Level::DEBUG => LevelFilter::DEBUG,
-        config::log::Level::INFO => LevelFilter::INFO,
-        config::log::Level::WARN => LevelFilter::WARN,
-        config::log::Level::ERROR => LevelFilter::ERROR,
-        config::log::Level::NONE => return Ok(()),
+    let filter = match config.level {
+        config::model::LogLevel::Trace => LevelFilter::TRACE,
+        config::model::LogLevel::Debug => LevelFilter::DEBUG,
+        config::model::LogLevel::Info => LevelFilter::INFO,
+        config::model::LogLevel::Warn => LevelFilter::WARN,
+        config::model::LogLevel::Error => LevelFilter::ERROR,
+        config::model::LogLevel::None => return Ok(()),
     };
     let (writer, writer_guard) = get_writer(config)?;
     let mut h = HANDLE.write().unwrap();

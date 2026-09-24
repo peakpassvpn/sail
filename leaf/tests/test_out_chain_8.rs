@@ -20,66 +20,54 @@ fn test_out_chain_8() -> anyhow::Result<()> {
     {
         "inbounds": [
             {
-                "protocol": "socks",
-                "address": "127.0.0.1",
-                "port": 1086
+                "type": "socks",
+                "listen": "127.0.0.1",
+                "listen_port": 1086
             }
         ],
         "outbounds": [
             {
-                "protocol": "chain",
+                "type": "chain",
                 "tag": "chain-server1-server2",
-                "settings": {
-                    "actors": [
-                        "server1-ws",
-                        "server1-trojan",
-                        "server2",
-                        "server3-ws",
-                        "server3-trojan"
-                    ]
-                }
+                "outbounds": [
+                    "server1-ws",
+                    "server1-trojan",
+                    "server2",
+                    "server3-ws",
+                    "server3-trojan"
+                ]
             },
             {
-                "protocol": "ws",
+                "type": "ws",
                 "tag": "server1-ws",
-                "settings": {
-                    "path": "/leaf"
-                }
+                "path": "/leaf"
             },
             {
-                "protocol": "trojan",
+                "type": "trojan",
                 "tag": "server1-trojan",
-                "settings": {
-                    "address": "127.0.0.1",
-                    "port": 3001,
-                    "password": "password"
-                }
+                "server": "127.0.0.1",
+                "server_port": 3001,
+                "password": "password"
             },
             {
-                "protocol": "shadowsocks",
+                "type": "shadowsocks",
                 "tag": "server2",
-                "settings": {
-                    "address": "127.0.0.1",
-                    "port": 3002,
-                    "method": "aes-128-gcm",
-                    "password": "password"
-                }
+                "server": "127.0.0.1",
+                "server_port": 3002,
+                "method": "aes-128-gcm",
+                "password": "password"
             },
             {
-                "protocol": "ws",
+                "type": "ws",
                 "tag": "server3-ws",
-                "settings": {
-                    "path": "/leaf"
-                }
+                "path": "/leaf"
             },
             {
-                "protocol": "trojan",
+                "type": "trojan",
                 "tag": "server3-trojan",
-                "settings": {
-                    "address": "127.0.0.1",
-                    "port": 3003,
-                    "password": "password"
-                }
+                "server": "127.0.0.1",
+                "server_port": 3003,
+                "password": "password"
             }
         ]
     }
@@ -89,37 +77,33 @@ fn test_out_chain_8() -> anyhow::Result<()> {
     {
         "inbounds": [
             {
-                "protocol": "chain",
+                "type": "chain",
                 "tag": "server1",
-                "address": "127.0.0.1",
-                "port": 3001,
-                "settings": {
-                    "actors": [
-                        "ws",
-                        "trojan"
-                    ]
-                }
+                "listen": "127.0.0.1",
+                "listen_port": 3001,
+                "inbounds": [
+                    "ws",
+                    "trojan"
+                ]
             },
             {
-                "protocol": "ws",
+                "type": "ws",
                 "tag": "ws",
-                "settings": {
-                    "path": "/leaf"
-                }
+                "path": "/leaf"
             },
             {
-                "protocol": "trojan",
+                "type": "trojan",
                 "tag": "trojan",
-                "settings": {
-                    "passwords": [
-                        "password"
-                    ]
-                }
+                "users": [
+                    {
+                        "password": "password"
+                    }
+                ]
             }
         ],
         "outbounds": [
             {
-                "protocol": "direct"
+                "type": "direct"
             }
         ]
     }
@@ -129,18 +113,16 @@ fn test_out_chain_8() -> anyhow::Result<()> {
     {
         "inbounds": [
             {
-                "protocol": "shadowsocks",
-                "address": "127.0.0.1",
-                "port": 3002,
-                "settings": {
-                    "method": "aes-128-gcm",
-                    "password": "password"
-                }
+                "type": "shadowsocks",
+                "listen": "127.0.0.1",
+                "listen_port": 3002,
+                "method": "aes-128-gcm",
+                "password": "password"
             }
         ],
         "outbounds": [
             {
-                "protocol": "direct"
+                "type": "direct"
             }
         ]
     }
@@ -150,37 +132,33 @@ fn test_out_chain_8() -> anyhow::Result<()> {
     {
         "inbounds": [
             {
-                "protocol": "chain",
+                "type": "chain",
                 "tag": "server1",
-                "address": "127.0.0.1",
-                "port": 3003,
-                "settings": {
-                    "actors": [
-                        "ws",
-                        "trojan"
-                    ]
-                }
+                "listen": "127.0.0.1",
+                "listen_port": 3003,
+                "inbounds": [
+                    "ws",
+                    "trojan"
+                ]
             },
             {
-                "protocol": "ws",
+                "type": "ws",
                 "tag": "ws",
-                "settings": {
-                    "path": "/leaf"
-                }
+                "path": "/leaf"
             },
             {
-                "protocol": "trojan",
+                "type": "trojan",
                 "tag": "trojan",
-                "settings": {
-                    "passwords": [
-                        "password"
-                    ]
-                }
+                "users": [
+                    {
+                        "password": "password"
+                    }
+                ]
             }
         ],
         "outbounds": [
             {
-                "protocol": "direct"
+                "type": "direct"
             }
         ]
     }

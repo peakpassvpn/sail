@@ -18,29 +18,27 @@ Client example (`client.json`):
 {
   "inbounds": [
     {
-      "protocol": "socks",
-      "address": "127.0.0.1",
-      "port": 1086
+      "type": "socks",
+      "listen": "127.0.0.1",
+      "listen_port": 1086
     }
   ],
   "outbounds": [
     {
-      "protocol": "mptp",
-      "settings": {
-        "actors": [
-          "direct1",
-          "direct2"
-        ],
-        "address": "127.0.0.1",
-        "port": 3001
-      }
+      "type": "mptp",
+      "outbounds": [
+        "direct1",
+        "direct2"
+      ],
+      "server": "127.0.0.1",
+      "server_port": 3001
     },
     {
-      "protocol": "direct",
+      "type": "direct",
       "tag": "direct1"
     },
     {
-      "protocol": "direct",
+      "type": "direct",
       "tag": "direct2"
     }
   ]
@@ -53,14 +51,14 @@ Server example (`server.json`):
 {
   "inbounds": [
     {
-      "protocol": "mptp",
-      "address": "0.0.0.0",
-      "port": 3001
+      "type": "mptp",
+      "listen": "0.0.0.0",
+      "listen_port": 3001
     }
   ],
   "outbounds": [
     {
-      "protocol": "direct"
+      "type": "direct"
     }
   ]
 }
@@ -68,10 +66,10 @@ Server example (`server.json`):
 
 Key fields:
 
-- `outbounds[].protocol = "mptp"`: enables MPTP client outbound
-- `settings.actors`: list of outbound tags used as sub-connections
-- `settings.address`, `settings.port`: MPTP server address and port
-- `inbounds[].protocol = "mptp"`: enables MPTP server inbound listener
+- `outbounds[].type = "mptp"`: enables MPTP client outbound
+- `outbounds`: list of outbound tags used as sub-connections
+- `server`, `server_port`: MPTP server address and port
+- `inbounds[].type = "mptp"`: enables MPTP server inbound listener
 
 ### conf Config
 

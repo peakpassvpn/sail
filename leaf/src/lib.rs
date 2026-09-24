@@ -225,9 +225,9 @@ impl RuntimeManager {
             return Err(Error::NoConfigFile);
         };
         info!("reloading from config file: {}", config_path);
-        let mut config = config::from_file(config_path).map_err(Error::Config)?;
+        let config = config::from_file(config_path).map_err(Error::Config)?;
         app::logger::setup_logger(&config.log)?;
-        self.router.write().await.reload(&mut config.router)?;
+        self.router.write().await.reload(&config.route)?;
         self.dns_client.write().await.reload(&config.dns)?;
         self.outbound_manager
             .write()
@@ -374,10 +374,35 @@ pub fn is_running(key: RuntimeId) -> bool {
     RUNTIME_MANAGER.lock().unwrap().contains_key(&key)
 }
 
+/// Checks a configuration file by building everything in it, short of
+/// listening or connecting.
 pub fn test_config(config_path: &str) -> Result<(), Error> {
-    config::from_file(config_path)
-        .map(|_| ())
-        .map_err(Error::Config)
+    let config = config::from_file(config_path).map_err(Error::Config)?;
+    check_config(&config).map_err(Error::Config)
+}
+
+/// Builds the inbounds, outbounds, DNS and routing of `config` and throws
+/// them away, so that every mistake building would find is found.
+pub fn check_config(config: &config::Config) -> anyhow::Result<()> {
+    // Some handlers start background tasks when built.
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    let _g = rt.enter();
+    let dns_client = Arc::new(RwLock::new(DnsClient::new(&config.dns)?));
+    OutboundManager::new(&config.outbounds, dns_client.clone())?;
+    adapter::registry::build_inbounds(
+        &include::INBOUNDS,
+        &config.inbounds,
+        include::LISTENER_INBOUNDS,
+        &mut HashMap::new(),
+    )?;
+    #[cfg(feature = "inbound-tun")]
+    for inbound in config.inbounds.iter().filter(|i| i.protocol == "tun") {
+        protocol::tun::inbound::options(inbound)?;
+    }
+    Router::new(&config.route, dns_client)?;
+    Ok(())
 }
 
 fn new_runtime(opt: &RuntimeOption) -> Result<tokio::runtime::Runtime, Error> {
@@ -442,7 +467,7 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
         _ => None,
     };
 
-    let mut config = match opts.config {
+    let config = match opts.config {
         Config::File(p) => config::from_file(&p).map_err(Error::Config)?,
         Config::Str(s) => config::from_string(&s).map_err(Error::Config)?,
         Config::Internal(c) => c,
@@ -462,10 +487,9 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
     let outbound_manager = Arc::new(RwLock::new(
         OutboundManager::new(&config.outbounds, dns_client.clone()).map_err(Error::Config)?,
     ));
-    let router = Arc::new(RwLock::new(Router::new(
-        &mut config.router,
-        dns_client.clone(),
-    )));
+    let router = Arc::new(RwLock::new(
+        Router::new(&config.route, dns_client.clone()).map_err(Error::Config)?,
+    ));
     let stat_manager = Arc::new(RwLock::new(StatManager::new()));
     runners.push(StatManager::cleanup_task(stat_manager.clone()));
     let dispatcher = Arc::new(Dispatcher::new(

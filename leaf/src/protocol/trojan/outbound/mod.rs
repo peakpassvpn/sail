@@ -5,7 +5,7 @@ use anyhow::Result;
 use crate::adapter::outbound::HandlerBuilder;
 use crate::adapter::registry::{OutboundContext, OutboundFactory, OutboundRegistry};
 use crate::adapter::AnyOutboundHandler;
-use crate::config;
+use serde_derive::Deserialize;
 
 pub mod datagram;
 pub mod stream;
@@ -17,17 +17,29 @@ pub(crate) fn register(registry: &mut OutboundRegistry) {
     registry.register("trojan", OutboundFactory::standalone(build));
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TrojanOutboundOptions {
+    // Only the server of the first actor in a chain is dialled; the others
+    // may leave it out until chains are built from shared blocks.
+    #[serde(default)]
+    server: String,
+    #[serde(default)]
+    server_port: u16,
+    password: String,
+}
+
 fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
-    let settings: config::TrojanOutboundSettings = ctx.settings()?;
+    let options: TrojanOutboundOptions = ctx.options()?;
     let stream = Arc::new(StreamHandler {
-        address: settings.address.clone(),
-        port: settings.port as u16,
-        password: settings.password.clone(),
+        address: options.server.clone(),
+        port: options.server_port,
+        password: options.password.clone(),
     });
     let datagram = Arc::new(DatagramHandler {
-        address: settings.address,
-        port: settings.port as u16,
-        password: settings.password,
+        address: options.server,
+        port: options.server_port,
+        password: options.password,
     });
     Ok(HandlerBuilder::default()
         .tag(ctx.tag.to_owned())

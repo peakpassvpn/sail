@@ -20,47 +20,39 @@ fn test_ws_amux_trojan() -> anyhow::Result<()> {
     {
         "inbounds": [
             {
-                "protocol": "socks",
-                "address": "127.0.0.1",
-                "port": 1086
+                "type": "socks",
+                "listen": "127.0.0.1",
+                "listen_port": 1086
             }
         ],
         "outbounds": [
             {
-                "protocol": "chain",
-                "settings": {
-                    "actors": [
-                        "amux",
-                        "trojan"
-                    ]
-                }
+                "type": "chain",
+                "outbounds": [
+                    "amux",
+                    "trojan"
+                ]
             },
             {
-                "protocol": "amux",
+                "type": "amux",
                 "tag": "amux",
-                "settings": {
-                    "actors": [
-                        "ws"
-                    ],
-                    "address": "127.0.0.1",
-                    "port": 3001,
-                    "maxAccepts": 16,
-                    "concurrency": 1
-                }
+                "outbounds": [
+                    "ws"
+                ],
+                "server": "127.0.0.1",
+                "server_port": 3001,
+                "max_accepts": 16,
+                "concurrency": 1
             },
             {
-                "protocol": "ws",
+                "type": "ws",
                 "tag": "ws",
-                "settings": {
-                    "path": "/leaf"
-                }
+                "path": "/leaf"
             },
             {
-                "protocol": "trojan",
+                "type": "trojan",
                 "tag": "trojan",
-                "settings": {
-                    "password": "password"
-                }
+                "password": "password"
             }
         ]
     }
@@ -70,45 +62,39 @@ fn test_ws_amux_trojan() -> anyhow::Result<()> {
     {
         "inbounds": [
             {
-                "protocol": "chain",
-                "address": "127.0.0.1",
-                "port": 3001,
-                "settings": {
-                    "actors": [
-                        "amux",
-                        "trojan"
-                    ]
-                }
+                "type": "chain",
+                "listen": "127.0.0.1",
+                "listen_port": 3001,
+                "inbounds": [
+                    "amux",
+                    "trojan"
+                ]
             },
             {
-                "protocol": "amux",
+                "type": "amux",
                 "tag": "amux",
-                "settings": {
-                    "actors": [
-                        "ws"
-                    ]
-                }
+                "inbounds": [
+                    "ws"
+                ]
             },
             {
-                "protocol": "ws",
+                "type": "ws",
                 "tag": "ws",
-                "settings": {
-                    "path": "/leaf"
-                }
+                "path": "/leaf"
             },
             {
-                "protocol": "trojan",
+                "type": "trojan",
                 "tag": "trojan",
-                "settings": {
-                    "passwords": [
-                        "password"
-                    ]
-                }
+                "users": [
+                    {
+                        "password": "password"
+                    }
+                ]
             }
         ],
         "outbounds": [
             {
-                "protocol": "direct"
+                "type": "direct"
             }
         ]
     }

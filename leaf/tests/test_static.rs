@@ -15,30 +15,26 @@ fn test_static() -> anyhow::Result<()> {
     {
         "inbounds": [
             {
-                "protocol": "socks",
-                "address": "127.0.0.1",
-                "port": 1086
+                "type": "socks",
+                "listen": "127.0.0.1",
+                "listen_port": 1086
             }
         ],
         "outbounds": [
             {
-                "protocol": "static",
-                "settings": {
-                    "actors": [
-                        "ss_out"
-                    ],
-                    "method": "rr"
-                }
+                "type": "static",
+                "outbounds": [
+                    "ss_out"
+                ],
+                "method": "rr"
             },
             {
-                "protocol": "shadowsocks",
+                "type": "shadowsocks",
                 "tag": "ss_out",
-                "settings": {
-                    "address": "127.0.0.1",
-                    "port": 3001,
-                    "method": "chacha20-ietf-poly1305",
-                    "password": "password"
-                }
+                "server": "127.0.0.1",
+                "server_port": 3001,
+                "method": "chacha20-ietf-poly1305",
+                "password": "password"
             }
         ]
     }
@@ -48,30 +44,26 @@ fn test_static() -> anyhow::Result<()> {
     {
         "inbounds": [
             {
-                "protocol": "socks",
-                "address": "127.0.0.1",
-                "port": 1086
+                "type": "socks",
+                "listen": "127.0.0.1",
+                "listen_port": 1086
             }
         ],
         "outbounds": [
             {
-                "protocol": "static",
-                "settings": {
-                    "actors": [
-                        "ss_out"
-                    ],
-                    "method": "random"
-                }
+                "type": "static",
+                "outbounds": [
+                    "ss_out"
+                ],
+                "method": "random"
             },
             {
-                "protocol": "shadowsocks",
+                "type": "shadowsocks",
                 "tag": "ss_out",
-                "settings": {
-                    "address": "127.0.0.1",
-                    "port": 3001,
-                    "method": "chacha20-ietf-poly1305",
-                    "password": "password"
-                }
+                "server": "127.0.0.1",
+                "server_port": 3001,
+                "method": "chacha20-ietf-poly1305",
+                "password": "password"
             }
         ]
     }
@@ -81,18 +73,16 @@ fn test_static() -> anyhow::Result<()> {
     {
         "inbounds": [
             {
-                "protocol": "shadowsocks",
-                "address": "127.0.0.1",
-                "port": 3001,
-                "settings": {
-                    "method": "chacha20-ietf-poly1305",
-                    "password": "password"
-                }
+                "type": "shadowsocks",
+                "listen": "127.0.0.1",
+                "listen_port": 3001,
+                "method": "chacha20-ietf-poly1305",
+                "password": "password"
             }
         ],
         "outbounds": [
             {
-                "protocol": "direct"
+                "type": "direct"
             }
         ]
     }

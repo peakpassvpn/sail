@@ -1,45 +1,37 @@
 use std::sync::Arc;
 
-use protobuf::Message;
+use serde_json::json;
 use tokio::sync::RwLock;
 
 use leaf::app::dns_client::DnsClient;
 use leaf::app::outbound::manager::OutboundManager;
 use leaf::config;
 
-fn outbound(tag: &str, protocol: &str, settings: Vec<u8>) -> config::Outbound {
-    let mut o = config::Outbound::new();
-    o.tag = tag.to_string();
-    o.protocol = protocol.to_string();
-    o.settings = settings;
-    o
+fn outbound(tag: &str, protocol: &str, options: serde_json::Value) -> config::Outbound {
+    let serde_json::Value::Object(options) = options else {
+        panic!("options must be an object");
+    };
+    config::Outbound {
+        protocol: protocol.to_string(),
+        tag: tag.to_string(),
+        options,
+    }
 }
 
 fn chain(tag: &str, actors: &[&str]) -> config::Outbound {
-    let mut settings = config::ChainOutboundSettings::new();
-    settings.actors = actors.iter().map(|a| a.to_string()).collect();
-    outbound(tag, "chain", settings.write_to_bytes().unwrap())
+    outbound(tag, "chain", json!({ "outbounds": actors }))
 }
 
 fn manager(outbounds: &[config::Outbound]) -> anyhow::Result<OutboundManager> {
-    // The DNS settings an otherwise empty configuration gets.
-    let defaults = config::json::to_internal(config::json::Config {
-        log: None,
-        env: None,
-        inbounds: None,
-        outbounds: None,
-        router: None,
-        dns: None,
-    })?;
-    let dns_client = Arc::new(RwLock::new(DnsClient::new(&defaults.dns)?));
+    let dns_client = Arc::new(RwLock::new(DnsClient::new(&config::Dns::default())?));
     OutboundManager::new(outbounds, dns_client)
 }
 
 #[test]
 fn an_unknown_protocol_is_an_error_that_names_the_outbound() {
     let err = manager(&[
-        outbound("direct", "direct", Vec::new()),
-        outbound("proxy-1", "no-such-protocol", Vec::new()),
+        outbound("direct", "direct", json!({})),
+        outbound("proxy-1", "no-such-protocol", json!({})),
     ])
     .err()
     .expect("an unknown protocol must fail the whole configuration");
@@ -53,7 +45,7 @@ fn a_group_is_built_whatever_its_place_in_the_configuration() {
     let m = manager(&[
         chain("outer", &["inner"]),
         chain("inner", &["direct"]),
-        outbound("direct", "direct", Vec::new()),
+        outbound("direct", "direct", json!({})),
     ])
     .unwrap();
     assert!(m.get("inner").is_some());
@@ -65,7 +57,7 @@ fn a_group_is_built_whatever_its_place_in_the_configuration() {
 #[test]
 fn a_cycle_is_an_error() {
     let err = manager(&[
-        outbound("direct", "direct", Vec::new()),
+        outbound("direct", "direct", json!({})),
         chain("a", &["b"]),
         chain("b", &["a"]),
     ])
@@ -80,7 +72,7 @@ fn a_cycle_is_an_error() {
 #[test]
 fn a_group_with_a_missing_member_is_an_error() {
     let err = manager(&[
-        outbound("direct", "direct", Vec::new()),
+        outbound("direct", "direct", json!({})),
         chain("broken", &["direct", "nowhere"]),
     ])
     .err()
@@ -105,10 +97,50 @@ fn a_group_without_members_is_an_error() {
 #[test]
 fn a_tag_used_twice_is_an_error() {
     let err = manager(&[
-        outbound("proxy", "direct", Vec::new()),
-        outbound("proxy", "drop", Vec::new()),
+        outbound("proxy", "direct", json!({})),
+        outbound("proxy", "block", json!({})),
     ])
     .err()
     .expect("a duplicate tag must fail the whole configuration");
     assert_eq!(err.to_string(), "[proxy] outbound: tag used more than once");
+}
+
+#[test]
+fn options_errors_name_the_outbound_and_the_field() {
+    let err = manager(&[outbound(
+        "ss",
+        "shadowsocks",
+        json!({ "server": "1.2.3.4", "server_port": "x", "method": "aes-128-gcm", "password": "p" }),
+    )])
+    .err()
+    .expect("a mistyped field must fail the whole configuration");
+    assert!(
+        err.to_string().starts_with("[ss] outbound: server_port: "),
+        "{}",
+        err
+    );
+
+    let err = manager(&[outbound("d", "direct", json!({ "server": "1.2.3.4" }))])
+        .err()
+        .expect("an unknown field must fail the whole configuration");
+    assert!(
+        err.to_string().contains("unknown field `server`"),
+        "{}",
+        err
+    );
+}
+
+#[test]
+fn a_blank_ech_config_list_is_an_error() {
+    let err = manager(&[outbound(
+        "tls",
+        "tls",
+        json!({ "server_name": "example.com", "ech": true, "ech_config_list": "   " }),
+    )])
+    .err()
+    .expect("a blank ech_config_list must fail the whole configuration");
+    assert_eq!(
+        err.to_string(),
+        "[tls] outbound: ech_config_list: cannot be empty"
+    );
 }

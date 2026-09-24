@@ -14,19 +14,17 @@ fn test_trojan() -> anyhow::Result<()> {
     {
         "inbounds": [
             {
-                "protocol": "socks",
-                "address": "127.0.0.1",
-                "port": 1086
+                "type": "socks",
+                "listen": "127.0.0.1",
+                "listen_port": 1086
             }
         ],
         "outbounds": [
             {
-                "protocol": "trojan",
-                "settings": {
-                    "address": "127.0.0.1",
-                    "port": 3001,
-                    "password": "password2"
-                }
+                "type": "trojan",
+                "server": "127.0.0.1",
+                "server_port": 3001,
+                "password": "password2"
             }
         ]
     }
@@ -36,20 +34,22 @@ fn test_trojan() -> anyhow::Result<()> {
     {
         "inbounds": [
             {
-                "protocol": "trojan",
-                "address": "127.0.0.1",
-                "port": 3001,
-                "settings": {
-                    "passwords": [
-                        "password",
-                        "password2"
-                    ]
-                }
+                "type": "trojan",
+                "listen": "127.0.0.1",
+                "listen_port": 3001,
+                "users": [
+                    {
+                        "password": "password"
+                    },
+                    {
+                        "password": "password2"
+                    }
+                ]
             }
         ],
         "outbounds": [
             {
-                "protocol": "direct"
+                "type": "direct"
             }
         ]
     }

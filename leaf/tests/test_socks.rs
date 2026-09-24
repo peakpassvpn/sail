@@ -12,14 +12,14 @@ fn test_socks() -> anyhow::Result<()> {
     {
         "inbounds": [
             {
-                "protocol": "socks",
-                "address": "127.0.0.1",
-                "port": 1116
+                "type": "socks",
+                "listen": "127.0.0.1",
+                "listen_port": 1116
             }
         ],
         "outbounds": [
             {
-                "protocol": "direct"
+                "type": "direct"
             }
         ]
     }
@@ -29,18 +29,16 @@ fn test_socks() -> anyhow::Result<()> {
     {
         "inbounds": [
             {
-                "protocol": "socks",
-                "address": "127.0.0.1",
-                "port": 1119
+                "type": "socks",
+                "listen": "127.0.0.1",
+                "listen_port": 1119
             }
         ],
         "outbounds": [
             {
-                "protocol": "socks",
-                "settings": {
-                    "address": "127.0.0.1",
-                    "port": 1116
-                }
+                "type": "socks",
+                "server": "127.0.0.1",
+                "server_port": 1116
             }
         ]
     }
@@ -61,18 +59,20 @@ fn test_socks_auth() -> anyhow::Result<()> {
     {
         "inbounds": [
             {
-                "protocol": "socks",
-                "address": "127.0.0.1",
-                "port": 1127,
-                "settings": {
-                    "username": "user",
-                    "password": "password"
-                }
+                "type": "socks",
+                "listen": "127.0.0.1",
+                "listen_port": 1127,
+                "users": [
+                    {
+                        "username": "user",
+                        "password": "password"
+                    }
+                ]
             }
         ],
         "outbounds": [
             {
-                "protocol": "direct"
+                "type": "direct"
             }
         ]
     }
@@ -82,20 +82,18 @@ fn test_socks_auth() -> anyhow::Result<()> {
     {
         "inbounds": [
             {
-                "protocol": "socks",
-                "address": "127.0.0.1",
-                "port": 1128
+                "type": "socks",
+                "listen": "127.0.0.1",
+                "listen_port": 1128
             }
         ],
         "outbounds": [
             {
-                "protocol": "socks",
-                "settings": {
-                    "address": "127.0.0.1",
-                    "port": 1127,
-                    "username": "user",
-                    "password": "password"
-                }
+                "type": "socks",
+                "server": "127.0.0.1",
+                "server_port": 1127,
+                "username": "user",
+                "password": "password"
             }
         ]
     }

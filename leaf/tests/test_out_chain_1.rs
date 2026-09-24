@@ -18,73 +18,59 @@ fn test_out_chain_1() -> anyhow::Result<()> {
     {
         "inbounds": [
             {
-                "protocol": "socks",
-                "address": "127.0.0.1",
-                "port": 1086
+                "type": "socks",
+                "listen": "127.0.0.1",
+                "listen_port": 1086
             }
         ],
         "outbounds": [
             {
-                "protocol": "chain",
+                "type": "chain",
                 "tag": "chain-server1-server2",
-                "settings": {
-                    "actors": [
-                        "server1",
-                        "server2"
-                    ]
-                }
+                "outbounds": [
+                    "server1",
+                    "server2"
+                ]
             },
             {
-                "protocol": "chain",
+                "type": "chain",
                 "tag": "server1",
-                "settings": {
-                    "actors": [
-                        "server1-ws",
-                        "server1-trojan"
-                    ]
-                }
+                "outbounds": [
+                    "server1-ws",
+                    "server1-trojan"
+                ]
             },
             {
-                "protocol": "ws",
+                "type": "ws",
                 "tag": "server1-ws",
-                "settings": {
-                    "path": "/leaf"
-                }
+                "path": "/leaf"
             },
             {
-                "protocol": "trojan",
+                "type": "trojan",
                 "tag": "server1-trojan",
-                "settings": {
-                    "address": "127.0.0.1",
-                    "port": 3001,
-                    "password": "password"
-                }
+                "server": "127.0.0.1",
+                "server_port": 3001,
+                "password": "password"
             },
             {
-                "protocol": "chain",
+                "type": "chain",
                 "tag": "server2",
-                "settings": {
-                    "actors": [
-                        "server2-ws",
-                        "server2-trojan"
-                    ]
-                }
+                "outbounds": [
+                    "server2-ws",
+                    "server2-trojan"
+                ]
             },
             {
-                "protocol": "ws",
+                "type": "ws",
                 "tag": "server2-ws",
-                "settings": {
-                    "path": "/leaf2"
-                }
+                "path": "/leaf2"
             },
             {
-                "protocol": "trojan",
+                "type": "trojan",
                 "tag": "server2-trojan",
-                "settings": {
-                    "address": "127.0.0.1",
-                    "port": 3002,
-                    "password": "password"
-                }
+                "server": "127.0.0.1",
+                "server_port": 3002,
+                "password": "password"
             }
         ]
     }
@@ -94,37 +80,33 @@ fn test_out_chain_1() -> anyhow::Result<()> {
     {
         "inbounds": [
             {
-                "protocol": "chain",
+                "type": "chain",
                 "tag": "server1",
-                "address": "127.0.0.1",
-                "port": 3001,
-                "settings": {
-                    "actors": [
-                        "ws",
-                        "trojan"
-                    ]
-                }
+                "listen": "127.0.0.1",
+                "listen_port": 3001,
+                "inbounds": [
+                    "ws",
+                    "trojan"
+                ]
             },
             {
-                "protocol": "ws",
+                "type": "ws",
                 "tag": "ws",
-                "settings": {
-                    "path": "/leaf"
-                }
+                "path": "/leaf"
             },
             {
-                "protocol": "trojan",
+                "type": "trojan",
                 "tag": "trojan",
-                "settings": {
-                    "passwords": [
-                        "password"
-                    ]
-                }
+                "users": [
+                    {
+                        "password": "password"
+                    }
+                ]
             }
         ],
         "outbounds": [
             {
-                "protocol": "direct"
+                "type": "direct"
             }
         ]
     }
@@ -134,37 +116,33 @@ fn test_out_chain_1() -> anyhow::Result<()> {
     {
         "inbounds": [
             {
-                "protocol": "chain",
+                "type": "chain",
                 "tag": "server2",
-                "address": "127.0.0.1",
-                "port": 3002,
-                "settings": {
-                    "actors": [
-                        "ws",
-                        "trojan"
-                    ]
-                }
+                "listen": "127.0.0.1",
+                "listen_port": 3002,
+                "inbounds": [
+                    "ws",
+                    "trojan"
+                ]
             },
             {
-                "protocol": "ws",
+                "type": "ws",
                 "tag": "ws",
-                "settings": {
-                    "path": "/leaf2"
-                }
+                "path": "/leaf2"
             },
             {
-                "protocol": "trojan",
+                "type": "trojan",
                 "tag": "trojan",
-                "settings": {
-                    "passwords": [
-                        "password"
-                    ]
-                }
+                "users": [
+                    {
+                        "password": "password"
+                    }
+                ]
             }
         ],
         "outbounds": [
             {
-                "protocol": "direct"
+                "type": "direct"
             }
         ]
     }

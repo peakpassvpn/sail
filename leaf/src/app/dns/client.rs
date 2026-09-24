@@ -21,7 +21,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::Mutex as TokioMutex;
 use tokio::time::timeout;
-use tracing::{debug, trace, warn, Instrument};
+use tracing::{debug, trace, Instrument};
 
 #[cfg(feature = "rustls-tls")]
 use {
@@ -47,10 +47,10 @@ impl DnsClient {
     fn load_servers(dns: &crate::config::Dns) -> Result<Vec<Resolver>> {
         let mut servers = Vec::new();
         for server in dns.servers.iter() {
-            match Self::parse_server(server) {
-                Ok(parsed) => servers.push(parsed),
-                Err(err) => warn!("skip invalid dns server [{}]: {}", server, err),
-            }
+            servers.push(
+                Self::parse_server(server)
+                    .map_err(|e| anyhow!("dns.servers: invalid server \"{}\": {}", server, e))?,
+            );
         }
         for server in &servers {
             debug!("loaded dns server: {}", server);
@@ -473,32 +473,24 @@ impl DnsClient {
         Err(anyhow!("no {} records for {} from {}", ty, host, resolver))
     }
 
-    fn load_hosts(dns: &crate::config::Dns) -> HashMap<String, Vec<IpAddr>> {
-        let mut hosts = HashMap::new();
-        for (name, ips) in dns.hosts.iter() {
-            hosts.insert(name.to_owned(), ips.values.to_vec());
-        }
+    fn load_hosts(dns: &crate::config::Dns) -> Result<HashMap<String, Vec<IpAddr>>> {
         let mut parsed_hosts = HashMap::new();
-        for (name, static_ips) in hosts.iter() {
-            let mut ips = Vec::new();
-            for ip in static_ips {
-                if let Ok(parsed_ip) = ip.parse::<IpAddr>() {
-                    ips.push(parsed_ip);
-                }
-            }
+        for (name, static_ips) in dns.hosts.iter() {
+            let ips = static_ips
+                .iter()
+                .map(|ip| {
+                    ip.parse::<IpAddr>()
+                        .map_err(|_| anyhow!("dns.hosts.{}: invalid address \"{}\"", name, ip))
+                })
+                .collect::<Result<Vec<_>>>()?;
             parsed_hosts.insert(name.to_owned(), ips);
         }
-        parsed_hosts
+        Ok(parsed_hosts)
     }
 
-    pub fn new(dns: &protobuf::MessageField<crate::config::Dns>) -> Result<Self> {
-        let dns = if let Some(dns) = dns.as_ref() {
-            dns
-        } else {
-            return Err(anyhow!("empty dns config"));
-        };
+    pub fn new(dns: &crate::config::Dns) -> Result<Self> {
         let servers = Self::load_servers(dns)?;
-        let hosts = Self::load_hosts(dns);
+        let hosts = Self::load_hosts(dns)?;
         let ipv4_cache = Arc::new(TokioMutex::new(LruCache::<String, CacheEntry>::new(
             NonZeroUsize::new(*option::DNS_CACHE_SIZE).unwrap(),
         )));
@@ -525,14 +517,9 @@ impl DnsClient {
         self.dispatcher.replace(dispatcher);
     }
 
-    pub fn reload(&mut self, dns: &protobuf::MessageField<crate::config::Dns>) -> Result<()> {
-        let dns = if let Some(dns) = dns.as_ref() {
-            dns
-        } else {
-            return Err(anyhow!("empty dns config"));
-        };
+    pub fn reload(&mut self, dns: &crate::config::Dns) -> Result<()> {
         let servers = Self::load_servers(dns)?;
-        let hosts = Self::load_hosts(dns);
+        let hosts = Self::load_hosts(dns)?;
         self.servers = servers;
         self.hosts = hosts;
         if let Ok(mut selector) = self.selector_state.lock() {

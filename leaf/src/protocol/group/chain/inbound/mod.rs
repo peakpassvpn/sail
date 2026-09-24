@@ -9,9 +9,11 @@ use futures::{
 use tracing::debug;
 
 use crate::adapter::inbound::Handler;
-use crate::adapter::registry::{parse_settings, InboundContext, InboundFactory, InboundRegistry};
+use crate::adapter::registry::{
+    parse_options, InboundContext, InboundFactory, InboundRegistry, Options,
+};
 use crate::adapter::*;
-use crate::config;
+use serde_derive::Deserialize;
 
 mod datagram;
 mod fold;
@@ -115,14 +117,20 @@ pub(crate) fn register(registry: &mut InboundRegistry) {
     registry.register("chain", InboundFactory::composite(dependencies, build));
 }
 
-fn dependencies(tag: &str, settings: &[u8]) -> Result<Vec<String>> {
-    let settings: config::ChainInboundSettings = parse_settings("inbound", tag, settings)?;
-    Ok(settings.actors.to_vec())
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ChainInboundOptions {
+    inbounds: Vec<String>,
+}
+
+fn dependencies(tag: &str, options: &Options) -> Result<Vec<String>> {
+    let options: ChainInboundOptions = parse_options("inbound", tag, options)?;
+    Ok(options.inbounds)
 }
 
 fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
-    let settings: config::ChainInboundSettings = ctx.settings()?;
-    let actors = ctx.members(&settings.actors)?;
+    let options: ChainInboundOptions = ctx.options()?;
+    let actors = ctx.members(&options.inbounds)?;
     let stream = if actors[0].stream().is_ok() {
         let h = Arc::new(StreamHandler {
             actors: actors.clone(),

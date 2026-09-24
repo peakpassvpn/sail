@@ -5,7 +5,7 @@ use anyhow::Result;
 use crate::adapter::outbound::HandlerBuilder;
 use crate::adapter::registry::{OutboundContext, OutboundFactory, OutboundRegistry};
 use crate::adapter::AnyOutboundHandler;
-use crate::config;
+use serde_derive::Deserialize;
 
 mod datagram;
 mod stream;
@@ -17,19 +17,30 @@ pub(crate) fn register(registry: &mut OutboundRegistry) {
     registry.register("socks", OutboundFactory::standalone(build));
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SocksOutboundOptions {
+    server: String,
+    server_port: u16,
+    #[serde(default)]
+    username: String,
+    #[serde(default)]
+    password: String,
+}
+
 fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
-    let settings: config::SocksOutboundSettings = ctx.settings()?;
+    let options: SocksOutboundOptions = ctx.options()?;
     let stream = Arc::new(StreamHandler {
-        address: settings.address.clone(),
-        port: settings.port as u16,
-        username: settings.username.clone(),
-        password: settings.password.clone(),
+        address: options.server.clone(),
+        port: options.server_port,
+        username: options.username.clone(),
+        password: options.password.clone(),
     });
     let datagram = Arc::new(DatagramHandler {
-        address: settings.address.clone(),
-        port: settings.port as u16,
-        username: settings.username.clone(),
-        password: settings.password.clone(),
+        address: options.server,
+        port: options.server_port,
+        username: options.username,
+        password: options.password,
         dns_client: ctx.dns_client.clone(),
     });
     Ok(HandlerBuilder::default()

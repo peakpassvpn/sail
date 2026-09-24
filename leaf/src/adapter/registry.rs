@@ -47,26 +47,22 @@ impl<F> Registry<F> {
     pub fn require(&self, tag: &str, protocol: &str) -> Result<&F> {
         self.get(protocol).ok_or_else(|| {
             anyhow!(
-                "[{}] {}: unknown protocol \"{}\" (not a {} protocol, or not compiled into this build)",
+                "[{}] {}: unknown protocol \"{}\" (not supported, or not compiled into this build)",
                 tag,
                 self.kind,
                 protocol,
-                self.kind,
             )
         })
     }
 }
 
-/// Parses the protobuf settings of the inbound or outbound `tag`.
-pub fn parse_settings<T: protobuf::Message>(kind: &str, tag: &str, settings: &[u8]) -> Result<T> {
-    T::parse_from_bytes(settings).map_err(|e| anyhow!("invalid [{}] {} settings: {}", tag, kind, e))
-}
+pub use crate::config::model::{parse_options, Options};
 
 /// Every handler a factory is being built into, keyed by tag.
 pub type Handlers<H> = HashMap<String, H>;
 
-/// A dependency-free factory needs no settings parsing to say so.
-pub fn no_dependencies(_tag: &str, _settings: &[u8]) -> Result<Vec<String>> {
+/// For a factory that depends on nothing.
+pub fn no_dependencies(_tag: &str, _options: &Options) -> Result<Vec<String>> {
     Ok(Vec::new())
 }
 
@@ -80,9 +76,9 @@ pub type OutboundRegistry = Registry<OutboundFactory>;
 pub struct OutboundFactory {
     /// Tags of the outbounds this one is built on. Each must exist, and is
     /// built first.
-    pub dependencies: fn(&str, &[u8]) -> Result<Vec<String>>,
+    pub dependencies: fn(&str, &Options) -> Result<Vec<String>>,
     pub build: fn(&mut OutboundContext<'_>) -> Result<AnyOutboundHandler>,
-    /// Whether outbounds with this protocol and byte-identical settings may
+    /// Whether outbounds with this protocol and identical options may
     /// share one handler instead of each building their own.
     pub shareable: bool,
 }
@@ -99,7 +95,7 @@ impl OutboundFactory {
 
     /// A protocol built out of other outbounds.
     pub fn composite(
-        dependencies: fn(&str, &[u8]) -> Result<Vec<String>>,
+        dependencies: fn(&str, &Options) -> Result<Vec<String>>,
         build: fn(&mut OutboundContext<'_>) -> Result<AnyOutboundHandler>,
     ) -> Self {
         Self {
@@ -113,7 +109,7 @@ impl OutboundFactory {
 /// What an outbound factory is given to build with.
 pub struct OutboundContext<'a> {
     pub tag: &'a str,
-    pub settings: &'a [u8],
+    pub options: &'a Options,
     pub dns_client: &'a SyncDnsClient,
     /// Tasks the handler spawned, aborted when the outbounds are replaced.
     pub abort_handles: &'a mut Vec<AbortHandle>,
@@ -125,8 +121,9 @@ pub struct OutboundContext<'a> {
 }
 
 impl OutboundContext<'_> {
-    pub fn settings<T: protobuf::Message>(&self) -> Result<T> {
-        parse_settings("outbound", self.tag, self.settings)
+    /// This outbound's options, read into its protocol's options type.
+    pub fn options<T: serde::de::DeserializeOwned>(&self) -> Result<T> {
+        parse_options("outbound", self.tag, self.options)
     }
 
     /// The outbound `tag`, which must be one of this outbound's
@@ -161,14 +158,14 @@ pub struct OutboundBuildState<'a> {
 /// Builds every outbound in `outbounds`, each after the ones it is built on.
 pub fn build_outbounds(
     registry: &OutboundRegistry,
-    outbounds: &[crate::config::Outbound],
+    outbounds: &[crate::config::model::Outbound],
     state: OutboundBuildState<'_>,
 ) -> Result<()> {
     let nodes = outbounds
         .iter()
         .map(|o| {
             let factory = registry.require(&o.tag, &o.protocol)?;
-            let dependencies = (factory.dependencies)(&o.tag, &o.settings)?;
+            let dependencies = (factory.dependencies)(&o.tag, &o.options)?;
             Ok(Node {
                 tag: &o.tag,
                 dependencies,
@@ -177,14 +174,14 @@ pub fn build_outbounds(
         })
         .collect::<Result<Vec<_>>>()?;
 
-    // Outbounds with identical settings share a handler, see
+    // Outbounds with identical options share a handler, see
     // `OutboundFactory::shareable`.
-    let mut shared: Vec<(&str, &str, &[u8])> = Vec::new();
+    let mut shared: Vec<(&str, &str, &Options)> = Vec::new();
 
     in_dependency_order("outbound", nodes, |(outbound, factory)| {
         if factory.shareable {
-            if let Some((tag, _, _)) = shared.iter().find(|(_, protocol, settings)| {
-                *protocol == outbound.protocol && *settings == &outbound.settings[..]
+            if let Some((tag, _, _)) = shared.iter().find(|(_, protocol, options)| {
+                *protocol == outbound.protocol && *options == &outbound.options
             }) {
                 let handler = state.handlers[*tag].clone();
                 state.handlers.insert(outbound.tag.clone(), handler);
@@ -193,7 +190,7 @@ pub fn build_outbounds(
         }
         let mut ctx = OutboundContext {
             tag: &outbound.tag,
-            settings: &outbound.settings,
+            options: &outbound.options,
             dns_client: state.dns_client,
             abort_handles: state.abort_handles,
             #[cfg(feature = "outbound-select")]
@@ -205,7 +202,7 @@ pub fn build_outbounds(
         let handler = (factory.build)(&mut ctx)?;
         state.handlers.insert(outbound.tag.clone(), handler);
         if factory.shareable {
-            shared.push((&outbound.tag, &outbound.protocol, &outbound.settings));
+            shared.push((&outbound.tag, &outbound.protocol, &outbound.options));
         }
         Ok(())
     })
@@ -221,7 +218,7 @@ pub type InboundRegistry = Registry<InboundFactory>;
 pub struct InboundFactory {
     /// Tags of the inbounds this one is built on. Each must exist, and is
     /// built first.
-    pub dependencies: fn(&str, &[u8]) -> Result<Vec<String>>,
+    pub dependencies: fn(&str, &Options) -> Result<Vec<String>>,
     pub build: fn(&InboundContext<'_>) -> Result<AnyInboundHandler>,
 }
 
@@ -236,7 +233,7 @@ impl InboundFactory {
 
     /// A protocol built out of other inbounds.
     pub fn composite(
-        dependencies: fn(&str, &[u8]) -> Result<Vec<String>>,
+        dependencies: fn(&str, &Options) -> Result<Vec<String>>,
         build: fn(&InboundContext<'_>) -> Result<AnyInboundHandler>,
     ) -> Self {
         Self {
@@ -249,13 +246,14 @@ impl InboundFactory {
 /// What an inbound factory is given to build with.
 pub struct InboundContext<'a> {
     pub tag: &'a str,
-    pub settings: &'a [u8],
+    pub options: &'a Options,
     handlers: &'a Handlers<AnyInboundHandler>,
 }
 
 impl InboundContext<'_> {
-    pub fn settings<T: protobuf::Message>(&self) -> Result<T> {
-        parse_settings("inbound", self.tag, self.settings)
+    /// This inbound's options, read into its protocol's options type.
+    pub fn options<T: serde::de::DeserializeOwned>(&self) -> Result<T> {
+        parse_options("inbound", self.tag, self.options)
     }
 
     /// The inbound `tag`, which must be one of this inbound's dependencies.
@@ -280,7 +278,7 @@ impl InboundContext<'_> {
 /// listener of their own rather than a handler, and are skipped.
 pub fn build_inbounds(
     registry: &InboundRegistry,
-    inbounds: &[crate::config::Inbound],
+    inbounds: &[crate::config::model::Inbound],
     listeners: &[&str],
     handlers: &mut Handlers<AnyInboundHandler>,
 ) -> Result<()> {
@@ -289,7 +287,7 @@ pub fn build_inbounds(
         .filter(|i| !listeners.contains(&i.protocol.as_str()))
         .map(|i| {
             let factory = registry.require(&i.tag, &i.protocol)?;
-            let dependencies = (factory.dependencies)(&i.tag, &i.settings)?;
+            let dependencies = (factory.dependencies)(&i.tag, &i.options)?;
             Ok(Node {
                 tag: &i.tag,
                 dependencies,
@@ -301,7 +299,7 @@ pub fn build_inbounds(
     in_dependency_order("inbound", nodes, |(inbound, factory)| {
         let ctx = InboundContext {
             tag: &inbound.tag,
-            settings: &inbound.settings,
+            options: &inbound.options,
             handlers,
         };
         let handler = (factory.build)(&ctx)?;
@@ -532,12 +530,15 @@ mod tests {
 
     #[test]
     fn an_unknown_inbound_protocol_is_an_error_but_a_listener_is_not() {
-        let mut unknown = crate::config::Inbound::new();
-        unknown.tag = "in-1".to_string();
-        unknown.protocol = "no-such-protocol".to_string();
-        let mut listener = crate::config::Inbound::new();
-        listener.tag = "tun-1".to_string();
-        listener.protocol = "tun".to_string();
+        let inbound = |tag: &str, protocol: &str| crate::config::model::Inbound {
+            protocol: protocol.to_string(),
+            tag: tag.to_string(),
+            listen: None,
+            listen_port: None,
+            options: Options::new(),
+        };
+        let unknown = inbound("in-1", "no-such-protocol");
+        let listener = inbound("tun-1", "tun");
 
         let mut handlers = Handlers::new();
         let registry: InboundRegistry = Registry::new("inbound");

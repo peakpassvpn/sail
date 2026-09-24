@@ -18,35 +18,29 @@ fn test_amux_trojan() -> anyhow::Result<()> {
     {
         "inbounds": [
             {
-                "protocol": "socks",
-                "address": "127.0.0.1",
-                "port": 1086
+                "type": "socks",
+                "listen": "127.0.0.1",
+                "listen_port": 1086
             }
         ],
         "outbounds": [
             {
-                "protocol": "chain",
-                "settings": {
-                    "actors": [
-                        "amux",
-                        "trojan"
-                    ]
-                }
+                "type": "chain",
+                "outbounds": [
+                    "amux",
+                    "trojan"
+                ]
             },
             {
-                "protocol": "amux",
+                "type": "amux",
                 "tag": "amux",
-                "settings": {
-                    "address": "127.0.0.1",
-                    "port": 3001
-                }
+                "server": "127.0.0.1",
+                "server_port": 3001
             },
             {
-                "protocol": "trojan",
+                "type": "trojan",
                 "tag": "trojan",
-                "settings": {
-                    "password": "password"
-                }
+                "password": "password"
             }
         ]
     }
@@ -56,33 +50,31 @@ fn test_amux_trojan() -> anyhow::Result<()> {
     {
         "inbounds": [
             {
-                "protocol": "chain",
-                "address": "127.0.0.1",
-                "port": 3001,
-                "settings": {
-                    "actors": [
-                        "amux",
-                        "trojan"
-                    ]
-                }
+                "type": "chain",
+                "listen": "127.0.0.1",
+                "listen_port": 3001,
+                "inbounds": [
+                    "amux",
+                    "trojan"
+                ]
             },
             {
-                "protocol": "amux",
+                "type": "amux",
                 "tag": "amux"
             },
             {
-                "protocol": "trojan",
+                "type": "trojan",
                 "tag": "trojan",
-                "settings": {
-                    "passwords": [
-                        "password"
-                    ]
-                }
+                "users": [
+                    {
+                        "password": "password"
+                    }
+                ]
             }
         ],
         "outbounds": [
             {
-                "protocol": "direct"
+                "type": "direct"
             }
         ]
     }

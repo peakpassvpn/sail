@@ -4,10 +4,10 @@ use anyhow::Result;
 
 use crate::adapter::outbound::HandlerBuilder;
 use crate::adapter::registry::{
-    parse_settings, OutboundContext, OutboundFactory, OutboundRegistry,
+    parse_options, Options, OutboundContext, OutboundFactory, OutboundRegistry,
 };
 use crate::adapter::AnyOutboundHandler;
-use crate::config;
+use serde_derive::Deserialize;
 
 pub mod stream;
 
@@ -15,18 +15,26 @@ pub(crate) fn register(registry: &mut OutboundRegistry) {
     registry.register("mptp", OutboundFactory::composite(dependencies, build));
 }
 
-fn dependencies(tag: &str, settings: &[u8]) -> Result<Vec<String>> {
-    let settings: config::MptpOutboundSettings = parse_settings("outbound", tag, settings)?;
-    Ok(settings.actors.to_vec())
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MptpOutboundOptions {
+    outbounds: Vec<String>,
+    server: String,
+    server_port: u16,
+}
+
+fn dependencies(tag: &str, options: &Options) -> Result<Vec<String>> {
+    let options: MptpOutboundOptions = parse_options("outbound", tag, options)?;
+    Ok(options.outbounds)
 }
 
 fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
-    let settings: config::MptpOutboundSettings = ctx.settings()?;
-    let actors = ctx.members(&settings.actors)?;
+    let options: MptpOutboundOptions = ctx.options()?;
+    let actors = ctx.members(&options.outbounds)?;
     let stream = Arc::new(stream::Handler {
         actors,
-        address: settings.address.clone(),
-        port: settings.port as u16,
+        address: options.server,
+        port: options.server_port,
         dns_client: ctx.dns_client.clone(),
     });
     Ok(HandlerBuilder::default()

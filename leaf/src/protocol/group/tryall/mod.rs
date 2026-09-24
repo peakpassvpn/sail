@@ -4,10 +4,10 @@ use anyhow::Result;
 
 use crate::adapter::outbound::HandlerBuilder;
 use crate::adapter::registry::{
-    parse_settings, OutboundContext, OutboundFactory, OutboundRegistry,
+    parse_options, Options, OutboundContext, OutboundFactory, OutboundRegistry,
 };
 use crate::adapter::AnyOutboundHandler;
-use crate::config;
+use serde_derive::Deserialize;
 
 pub mod datagram;
 pub mod stream;
@@ -19,22 +19,31 @@ pub(crate) fn register(registry: &mut OutboundRegistry) {
     registry.register("tryall", OutboundFactory::composite(dependencies, build));
 }
 
-fn dependencies(tag: &str, settings: &[u8]) -> Result<Vec<String>> {
-    let settings: config::TryAllOutboundSettings = parse_settings("outbound", tag, settings)?;
-    Ok(settings.actors.to_vec())
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TryAllOutboundOptions {
+    outbounds: Vec<String>,
+    /// Milliseconds to wait before trying each next outbound.
+    #[serde(default)]
+    delay_base: u32,
+}
+
+fn dependencies(tag: &str, options: &Options) -> Result<Vec<String>> {
+    let options: TryAllOutboundOptions = parse_options("outbound", tag, options)?;
+    Ok(options.outbounds)
 }
 
 fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
-    let settings: config::TryAllOutboundSettings = ctx.settings()?;
-    let actors = ctx.members(&settings.actors)?;
+    let options: TryAllOutboundOptions = ctx.options()?;
+    let actors = ctx.members(&options.outbounds)?;
     let stream = Arc::new(StreamHandler {
         actors: actors.clone(),
-        delay_base: settings.delay_base,
+        delay_base: options.delay_base,
         dns_client: ctx.dns_client.clone(),
     });
     let datagram = Arc::new(DatagramHandler {
         actors,
-        delay_base: settings.delay_base,
+        delay_base: options.delay_base,
         dns_client: ctx.dns_client.clone(),
     });
     Ok(HandlerBuilder::default()

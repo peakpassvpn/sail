@@ -657,7 +657,6 @@ mod tests {
     use anyhow::anyhow;
     use std::sync::Arc;
 
-    use protobuf::MessageField;
     use tokio::sync::RwLock;
 
     use crate::app::{dns::DnsClient, SyncDnsClient};
@@ -667,9 +666,7 @@ mod tests {
     use super::{decode_base64, ensure_ech_config_list_bytes, Handler};
 
     fn new_test_dns_client() -> SyncDnsClient {
-        let mut dns = crate::config::Dns::new();
-        dns.servers.push("1.1.1.1".to_string());
-        let dns = MessageField::some(dns);
+        let dns = crate::config::Dns::default();
         Arc::new(RwLock::new(DnsClient::new(&dns).unwrap()))
     }
 

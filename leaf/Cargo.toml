@@ -51,7 +51,6 @@ quinn-aws-lc = ["quinn/rustls-aws-lc-rs", "quinn/runtime-tokio"]
 # Grouping all features
 all-configs = [
     "config-conf",
-    "config-json",
 ]
 all-endpoints = [
     # inbounds
@@ -102,7 +101,6 @@ openssl-tls = ["openssl", "tokio-openssl", "openssl-probe"]
 
 # Config formats
 config-conf = ["regex"]
-config-json = ["serde", "serde_derive", "serde_json"]
 
 # Router rules
 rule-process-name = ["regex"]
@@ -189,10 +187,11 @@ directories = { version = "4.0", optional = true }
 async-ffi = { version = "0.2", optional = true }
 libloading = { version = "0.7", optional = true }
 
-# config-json
-serde_json = { version = "1.0", features = ["raw_value"], optional = true }
-serde_derive = { version = "1.0", optional = true }
-serde = { version = "1.0", optional = true }
+# config
+serde_json = { version = "1.0", features = ["raw_value"] }
+serde_derive = "1.0"
+serde = "1.0"
+serde_path_to_error = "0.1"
 
 # config-conf
 

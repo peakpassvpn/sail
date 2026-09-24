@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
 use futures::{sink::SinkExt, stream::StreamExt};
-use protobuf::Message;
+use serde_derive::Deserialize;
 use tokio::sync::mpsc::channel as tokio_channel;
 use tokio::sync::mpsc::{Receiver as TokioReceiver, Sender as TokioSender};
 use tokio::sync::Mutex;
@@ -15,7 +15,7 @@ use crate::{
     app::fake_dns::{FakeDns, FakeDnsMode},
     app::nat_manager::NatManager,
     app::nat_manager::UdpPacket,
-    config::{Inbound, TunInboundSettings},
+    config::model::{parse_options, Inbound},
     option,
     session::{DatagramSource, Network, Session, SocksAddr},
     Runner,
@@ -514,6 +514,56 @@ fn new_smoltcp(
     }))
 }
 
+/// The options of a TUN inbound.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct TunInboundOptions {
+    /// An already open TUN device; everything but the fake DNS options is
+    /// ignored when it is set.
+    #[serde(default = "no_fd")]
+    pub fd: i32,
+    /// Creates and routes the device with defaults.
+    #[serde(default)]
+    pub auto: bool,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub address: String,
+    #[serde(default)]
+    pub gateway: String,
+    #[serde(default)]
+    pub netmask: String,
+    #[serde(default = "default_mtu")]
+    pub mtu: i32,
+    #[serde(default)]
+    pub fake_dns_exclude: Vec<String>,
+    #[serde(default)]
+    pub fake_dns_include: Vec<String>,
+    /// `lwip` (default) or `smoltcp`.
+    #[serde(default)]
+    pub tun2socks: String,
+    /// Windows only.
+    #[serde(default)]
+    #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+    pub wintun: Option<String>,
+    /// Windows only.
+    #[serde(default)]
+    #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+    pub dns_servers: Vec<String>,
+}
+
+fn no_fd() -> i32 {
+    -1
+}
+
+fn default_mtu() -> i32 {
+    1500
+}
+
+pub(crate) fn options(inbound: &Inbound) -> Result<TunInboundOptions> {
+    parse_options("inbound", &inbound.tag, &inbound.options)
+}
+
 pub fn new(
     inbound: Inbound,
     dispatcher: Arc<Dispatcher>,
@@ -533,7 +583,7 @@ pub fn new(
         tracing::info!("set OUTBOUND_INTERFACE={}", bind_addr);
     }
 
-    let settings = TunInboundSettings::parse_from_bytes(&inbound.settings)?;
+    let settings = options(&inbound)?;
 
     let mut cfg = tun::Configuration::default();
     if settings.fd >= 0 {

@@ -4,10 +4,11 @@ use std::fs::File;
 use std::io::{self, BufRead};
 use std::path::Path;
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use regex::Regex;
+use serde_json::json;
 
-use crate::config::{common, internal};
+use crate::config::model;
 
 #[derive(Debug, Default)]
 pub struct Tun {
@@ -988,122 +989,74 @@ pub fn from_lines(lines: Vec<io::Result<String>>) -> Result<Config> {
     })
 }
 
-pub fn to_common(conf: &Config) -> Result<common::Config> {
-    let mut common_config = common::Config::default();
+/// Turns a parsed `.conf` into the configuration model.
+pub fn to_config(conf: &Config) -> Result<model::Config> {
+    let mut config = model::Config::default();
 
     if let Some(ext_general) = &conf.general {
-        let log = common::Log {
-            level: ext_general.loglevel.clone(),
-            output: ext_general.logoutput.clone(),
-            format: ext_general.logformat.clone(),
-        };
-        common_config.log = Some(log);
-
-        let mut inbounds = Vec::new();
+        config.log = to_log(ext_general)?;
 
         if let (Some(interface), Some(port)) = (
             ext_general.http_interface.as_ref(),
             ext_general.http_port.as_ref(),
         ) {
-            inbounds.push(common::Inbound {
-                tag: Some("http".to_string()),
-                address: Some(interface.clone()),
-                port: Some(*port),
-                settings: common::InboundSettings::Http,
-            });
+            config
+                .inbounds
+                .push(inbound("http", "http", Some((interface, *port)), json!({})));
         }
 
         if let (Some(interface), Some(port)) = (
             ext_general.socks_interface.as_ref(),
             ext_general.socks_port.as_ref(),
         ) {
-            inbounds.push(common::Inbound {
-                tag: Some("socks".to_string()),
-                address: Some(interface.clone()),
-                port: Some(*port),
-                settings: common::InboundSettings::Socks { settings: None },
-            });
+            config.inbounds.push(inbound(
+                "socks",
+                "socks",
+                Some((interface, *port)),
+                json!({}),
+            ));
         }
 
         if let Some(nf) = &ext_general.nf {
-            inbounds.push(common::Inbound {
-                tag: Some("nf".to_string()),
-                address: Some("127.0.0.1".to_string()),
-                port: Some(0),
-                settings: common::InboundSettings::Nf {
-                    settings: Some(common::NfInboundSettings {
-                        driver_name: nf.driver_name.clone(),
-                        nfapi: nf.nfapi.clone(),
-                        fake_dns_exclude: ext_general.always_real_ip.clone(),
-                        fake_dns_include: ext_general.always_fake_ip.clone(),
-                        tun2socks: None,
-                    }),
-                },
-            });
+            config.inbounds.push(inbound(
+                "nf",
+                "nf",
+                None,
+                json!({
+                    "driver_name": nf.driver_name,
+                    "nfapi": nf.nfapi,
+                    "fake_dns_exclude": ext_general.always_real_ip,
+                    "fake_dns_include": ext_general.always_fake_ip,
+                }),
+            ));
         }
 
         if ext_general.tun_fd.is_some()
             || ext_general.tun_auto.is_some()
             || ext_general.tun.is_some()
         {
-            let mut settings = common::TunInboundSettings {
-                auto: None,
-                fd: None,
-                name: None,
-                address: None,
-                gateway: None,
-                netmask: None,
-                mtu: None,
-                fake_dns_exclude: ext_general.always_real_ip.clone(),
-                fake_dns_include: ext_general.always_fake_ip.clone(),
-                tun2socks: ext_general.tun2socks_backend.clone(),
-                wintun: ext_general.wintun.clone(),
-                dns_servers: ext_general.tun_dns_server.clone(),
-            };
-
-            if let Some(fd) = ext_general.tun_fd {
-                settings.fd = Some(fd);
-            } else if let Some(auto) = ext_general.tun_auto {
-                if auto {
-                    settings.auto = Some(true);
-                    settings.fd = Some(-1);
-                }
-            } else if let Some(ext_tun) = &ext_general.tun {
-                settings.fd = Some(-1);
-                settings.name = ext_tun.name.clone();
-                settings.address = ext_tun.address.clone();
-                settings.gateway = ext_tun.gateway.clone();
-                settings.netmask = ext_tun.netmask.clone();
-                settings.mtu = ext_tun.mtu;
-            }
-
-            inbounds.push(common::Inbound {
-                tag: Some("tun".to_string()),
-                address: None,
-                port: None,
-                settings: common::InboundSettings::Tun {
-                    settings: Some(settings),
-                },
+            let mut tun = json!({
+                "fake_dns_exclude": ext_general.always_real_ip,
+                "fake_dns_include": ext_general.always_fake_ip,
+                "tun2socks": ext_general.tun2socks_backend,
+                "wintun": ext_general.wintun,
+                "dns_servers": ext_general.tun_dns_server,
             });
+            if let Some(fd) = ext_general.tun_fd {
+                tun["fd"] = json!(fd);
+            } else if ext_general.tun_auto == Some(true) {
+                tun["auto"] = json!(true);
+            } else if let Some(ext_tun) = &ext_general.tun {
+                tun["name"] = json!(ext_tun.name);
+                tun["address"] = json!(ext_tun.address);
+                tun["gateway"] = json!(ext_tun.gateway);
+                tun["netmask"] = json!(ext_tun.netmask);
+                tun["mtu"] = json!(ext_tun.mtu);
+            }
+            config.inbounds.push(inbound("tun", "tun", None, tun));
         }
-
-        // if let (Some(interface), Some(port)) = (
-        //     ext_general.api_interface.as_ref(),
-        //     ext_general.api_port.as_ref(),
-        // ) {
-        // The API inbound is actually an HTTP inbound with specific handling in the core
-        // but in common config it might be represented differently or just not supported in this way
-        // Looking at the original code, there was no API inbound handling in `to_common`
-        // I added it because I saw `api_interface` in `General` struct.
-        // But if `common::InboundSettings` doesn't support it, I should probably remove it or map to something else.
-        // However, leaf usually handles API via a separate server, not necessarily a standard inbound.
-        // Let's remove this block for now to fix the compilation error, as the user asked for `tun` config support, not API.
-        // }
-
-        common_config.inbounds = Some(inbounds);
     }
 
-    let mut outbounds = Vec::new();
     let certificates = conf.certificates.as_ref();
     let ech_configs = conf.ech_configs.as_ref();
     let resolve_cert = |value: &Option<String>| -> Option<String> {
@@ -1124,788 +1077,559 @@ pub fn to_common(conf: &Config) -> Result<common::Config> {
         }
         Some(value.clone())
     };
-    if let Some(ext_proxies) = &conf.proxy {
-        for ext_proxy in ext_proxies {
-            let protocol = match ext_proxy.protocol.as_str() {
-                "ss" => "shadowsocks",
-                _ => &ext_proxy.protocol,
-            };
 
-            match protocol {
-                "direct" => {
-                    outbounds.push(common::Outbound {
-                        tag: Some(ext_proxy.tag.clone()),
-                        settings: common::OutboundSettings::Direct,
-                    });
+    let outbounds = &mut config.outbounds;
+    for ext_proxy in conf.proxy.iter().flatten() {
+        let tag = ext_proxy.tag.as_str();
+        match ext_proxy.protocol.as_str() {
+            "direct" => outbounds.push(outbound(tag, "direct", json!({}))),
+            "drop" => outbounds.push(outbound(tag, "block", json!({}))),
+            "redirect" => outbounds.push(outbound(
+                tag,
+                "redirect",
+                json!({ "server": ext_proxy.address, "server_port": ext_proxy.port }),
+            )),
+            "socks" => outbounds.push(outbound(
+                tag,
+                "socks",
+                json!({
+                    "server": ext_proxy.address,
+                    "server_port": ext_proxy.port,
+                    "username": ext_proxy.username,
+                    "password": ext_proxy.password,
+                }),
+            )),
+            "ss" | "shadowsocks" => {
+                let ss = json!({
+                    "server": ext_proxy.address,
+                    "server_port": ext_proxy.port,
+                    "method": ext_proxy.encrypt_method,
+                    "password": ext_proxy.password,
+                    "prefix": ext_proxy.prefix,
+                });
+                if let Some(obfs) = &ext_proxy.obfs_type {
+                    let ss_tag = format!("{}_ss_xxx", tag);
+                    let obfs_tag = format!("{}_obfs_xxx", tag);
+                    outbounds.push(chain(tag, &[&obfs_tag, &ss_tag]));
+                    outbounds.push(outbound(
+                        &obfs_tag,
+                        "obfs",
+                        json!({
+                            "method": obfs,
+                            "host": ext_proxy.obfs_host,
+                            "path": ext_proxy.obfs_path.as_deref().unwrap_or("/"),
+                        }),
+                    ));
+                    outbounds.push(outbound(&ss_tag, "shadowsocks", ss));
+                } else {
+                    outbounds.push(outbound(tag, "shadowsocks", ss));
                 }
-                "drop" => {
-                    outbounds.push(common::Outbound {
-                        tag: Some(ext_proxy.tag.clone()),
-                        settings: common::OutboundSettings::Drop,
-                    });
+            }
+            "vless" => {
+                let vless = json!({
+                    "server": ext_proxy.address,
+                    "server_port": ext_proxy.port,
+                    // prioritize uuid, then password
+                    "uuid": ext_proxy.uuid.as_ref().or(ext_proxy.password.as_ref()),
+                });
+                if ext_proxy.reality.unwrap_or(false) {
+                    let reality_tag = format!("{}_reality_xxx", tag);
+                    let vless_tag = format!("{}_vless_xxx", tag);
+                    outbounds.push(chain(tag, &[&reality_tag, &vless_tag]));
+                    outbounds.push(outbound(
+                        &reality_tag,
+                        "reality",
+                        json!({
+                            "server_name": ext_proxy.sni,
+                            "public_key": ext_proxy.reality_public_key,
+                            "short_id": ext_proxy.reality_short_id,
+                        }),
+                    ));
+                    outbounds.push(outbound(&vless_tag, "vless", vless));
+                } else {
+                    outbounds.push(outbound(tag, "vless", vless));
                 }
-                "redirect" => {
-                    outbounds.push(common::Outbound {
-                        tag: Some(ext_proxy.tag.clone()),
-                        settings: common::OutboundSettings::Redirect {
-                            settings: Some(common::RedirectOutboundSettings {
-                                address: ext_proxy.address.clone(),
-                                port: ext_proxy.port,
-                            }),
-                        },
-                    });
-                }
-                "socks" => {
-                    outbounds.push(common::Outbound {
-                        tag: Some(ext_proxy.tag.clone()),
-                        settings: common::OutboundSettings::Socks {
-                            settings: Some(common::SocksOutboundSettings {
-                                address: ext_proxy.address.clone(),
-                                port: ext_proxy.port,
-                                username: ext_proxy.username.clone(),
-                                password: ext_proxy.password.clone(),
-                            }),
-                        },
-                    });
-                }
-                "shadowsocks" => {
-                    let settings = common::ShadowsocksOutboundSettings {
-                        address: ext_proxy.address.clone(),
-                        port: ext_proxy.port,
-                        method: ext_proxy.encrypt_method.clone(),
-                        password: ext_proxy.password.clone(),
-                        prefix: ext_proxy.prefix.clone(),
-                    };
+            }
+            protocol @ ("trojan" | "vmess") => {
+                let mut actors = Vec::new();
+                let mut components = Vec::new();
+                let amux = ext_proxy.amux.unwrap_or(false);
 
-                    if let Some(obfs) = &ext_proxy.obfs_type {
-                        let ss_tag = format!("{}_ss_xxx", ext_proxy.tag);
-                        let obfs_tag = format!("{}_obfs_xxx", ext_proxy.tag);
+                let tls_tag = format!("{}_tls_xxx", tag);
+                components.push(outbound(
+                    &tls_tag,
+                    "tls",
+                    json!({
+                        "server_name": ext_proxy.sni,
+                        "alpn": if protocol == "trojan" { None } else { Some(["http/1.1"]) },
+                        "certificate": resolve_cert(&ext_proxy.tls_cert),
+                        "insecure": ext_proxy.tls_insecure,
+                        "ech": ext_proxy.tls_ech,
+                        "ech_disable_dns_lookup": ext_proxy.tls_ech_disable_dns_lookup,
+                        "ech_config_list": resolve_ech(&ext_proxy.tls_ech_config_list),
+                    }),
+                ));
 
-                        outbounds.push(common::Outbound {
-                            tag: Some(ext_proxy.tag.clone()),
-                            settings: common::OutboundSettings::Chain {
-                                settings: Some(common::ChainOutboundSettings {
-                                    actors: Some(vec![obfs_tag.clone(), ss_tag.clone()]),
-                                }),
-                            },
-                        });
+                let ws_tag = format!("{}_ws_xxx", tag);
+                let ws_headers = ext_proxy
+                    .ws_host
+                    .as_ref()
+                    .map(|host| json!({ "Host": host }));
+                components.push(outbound(
+                    &ws_tag,
+                    "ws",
+                    json!({
+                        "path": ext_proxy.ws_path.as_deref().unwrap_or("/"),
+                        "headers": ws_headers,
+                    }),
+                ));
 
-                        outbounds.push(common::Outbound {
-                            tag: Some(obfs_tag),
-                            settings: common::OutboundSettings::Obfs {
-                                settings: Some(common::ObfsOutboundSettings {
-                                    method: Some(obfs.clone()),
-                                    host: ext_proxy.obfs_host.clone(),
-                                    path: Some(
-                                        ext_proxy.obfs_path.as_deref().unwrap_or("/").to_string(),
-                                    ),
-                                }),
-                            },
-                        });
-
-                        outbounds.push(common::Outbound {
-                            tag: Some(ss_tag),
-                            settings: common::OutboundSettings::Shadowsocks {
-                                settings: Some(settings),
-                            },
-                        });
-                    } else {
-                        outbounds.push(common::Outbound {
-                            tag: Some(ext_proxy.tag.clone()),
-                            settings: common::OutboundSettings::Shadowsocks {
-                                settings: Some(settings),
-                            },
-                        });
+                if amux {
+                    let amux_tag = format!("{}_amux_xxx", tag);
+                    let mut amux_actors = vec![tls_tag.clone()];
+                    if ext_proxy.ws.unwrap_or(false) {
+                        amux_actors.push(ws_tag.clone());
+                    }
+                    components.push(outbound(
+                        &amux_tag,
+                        "amux",
+                        json!({
+                            "server": ext_proxy.address,
+                            "server_port": ext_proxy.port,
+                            "outbounds": amux_actors,
+                            "max_accepts": ext_proxy.amux_max,
+                            "concurrency": ext_proxy.amux_con,
+                            "max_recv_bytes": ext_proxy.amux_max_recv,
+                            "max_lifetime": ext_proxy.amux_max_lifetime,
+                        }),
+                    ));
+                    actors.push(amux_tag);
+                } else if ext_proxy.quic.unwrap_or(false) {
+                    let quic_tag = format!("{}_quic_xxx", tag);
+                    components.push(outbound(
+                        &quic_tag,
+                        "quic",
+                        json!({
+                            "server": ext_proxy.address,
+                            "server_port": ext_proxy.port,
+                            "server_name": ext_proxy.sni,
+                            "certificate": resolve_cert(&ext_proxy.tls_cert),
+                            "alpn": ["http/1.1"],
+                        }),
+                    ));
+                    actors.push(quic_tag);
+                } else {
+                    actors.push(tls_tag);
+                    if ext_proxy.ws.unwrap_or(false) {
+                        actors.push(ws_tag);
                     }
                 }
-                "vless" => {
-                    let settings = common::VlessOutboundSettings {
-                        address: ext_proxy.address.clone(),
-                        port: ext_proxy.port,
-                        uuid: ext_proxy
-                            .uuid
-                            .clone()
-                            .or_else(|| ext_proxy.password.clone()), // prioritize uuid, then password
-                    };
 
-                    let mut next_tag = ext_proxy.tag.clone();
+                // Behind amux the server is amux's to dial.
+                let (server, server_port) = if amux {
+                    (None, None)
+                } else {
+                    (ext_proxy.address.as_ref(), ext_proxy.port)
+                };
+                let core_tag = format!("{}_{}_xxx", tag, protocol);
+                let core = if protocol == "trojan" {
+                    json!({
+                        "server": server,
+                        "server_port": server_port,
+                        "password": ext_proxy.password,
+                    })
+                } else {
+                    json!({
+                        "server": server,
+                        "server_port": server_port,
+                        "uuid": ext_proxy.uuid.as_ref().or(ext_proxy.username.as_ref()),
+                        "security": ext_proxy
+                            .encrypt_method
+                            .as_deref()
+                            .unwrap_or("chacha20-ietf-poly1305"),
+                    })
+                };
+                components.push(outbound(&core_tag, protocol, core));
+                actors.push(core_tag);
 
-                    if ext_proxy.reality.unwrap_or(false) {
-                        let reality_tag = format!("{}_reality_xxx", ext_proxy.tag);
-                        outbounds.push(common::Outbound {
-                            tag: Some(ext_proxy.tag.clone()),
-                            settings: common::OutboundSettings::Chain {
-                                settings: Some(common::ChainOutboundSettings {
-                                    actors: Some(vec![
-                                        reality_tag.clone(),
-                                        format!("{}_vless_xxx", ext_proxy.tag),
-                                    ]),
-                                }),
-                            },
-                        });
-
-                        outbounds.push(common::Outbound {
-                            tag: Some(reality_tag),
-                            settings: common::OutboundSettings::Reality {
-                                settings: Some(common::RealityOutboundSettings {
-                                    server_name: ext_proxy.sni.clone(),
-                                    public_key: ext_proxy.reality_public_key.clone(),
-                                    short_id: ext_proxy.reality_short_id.clone(),
-                                }),
-                            },
-                        });
-
-                        next_tag = format!("{}_vless_xxx", ext_proxy.tag);
-                    }
-
-                    outbounds.push(common::Outbound {
-                        tag: Some(next_tag),
-                        settings: common::OutboundSettings::Vless {
-                            settings: Some(settings),
-                        },
-                    });
-                }
-                "trojan" | "vmess" => {
-                    let mut actors = Vec::new();
-                    let mut component_outbounds = Vec::new();
-
-                    // tls
-                    let tls_tag = format!("{}_tls_xxx", ext_proxy.tag);
-                    component_outbounds.push(common::Outbound {
-                        tag: Some(tls_tag.clone()),
-                        settings: common::OutboundSettings::Tls {
-                            settings: Some(common::TlsOutboundSettings {
-                                server_name: ext_proxy.sni.clone(),
-                                alpn: if protocol == "trojan" {
-                                    None
-                                } else {
-                                    Some(vec!["http/1.1".to_string()])
-                                },
-                                certificate: resolve_cert(&ext_proxy.tls_cert),
-                                certificate_key: None,
-                                raw_certificate: None,
-                                raw_certificate_key: None,
-                                insecure: ext_proxy.tls_insecure,
-                                ech: ext_proxy.tls_ech,
-                                ech_disable_dns_lookup: ext_proxy.tls_ech_disable_dns_lookup,
-                                ech_config_list: resolve_ech(&ext_proxy.tls_ech_config_list),
-                            }),
-                        },
-                    });
-
-                    // ws
-                    let ws_tag = format!("{}_ws_xxx", ext_proxy.tag);
-                    let mut ws_headers = HashMap::new();
-                    if let Some(host) = &ext_proxy.ws_host {
-                        ws_headers.insert("Host".to_string(), host.clone());
-                    }
-                    component_outbounds.push(common::Outbound {
-                        tag: Some(ws_tag.clone()),
-                        settings: common::OutboundSettings::WebSocket {
-                            settings: Some(common::WebSocketOutboundSettings {
-                                path: Some(ext_proxy.ws_path.as_deref().unwrap_or("/").to_string()),
-                                headers: if ws_headers.is_empty() {
-                                    None
-                                } else {
-                                    Some(ws_headers)
-                                },
-                            }),
-                        },
-                    });
-
-                    // amux or quic or tls/ws
-                    if ext_proxy.amux.unwrap_or(false) {
-                        let amux_tag = format!("{}_amux_xxx", ext_proxy.tag);
-                        let mut amux_actors = vec![tls_tag.clone()];
-                        if ext_proxy.ws.unwrap_or(false) {
-                            amux_actors.push(ws_tag.clone());
-                        }
-                        component_outbounds.push(common::Outbound {
-                            tag: Some(amux_tag.clone()),
-                            settings: common::OutboundSettings::AMux {
-                                settings: Some(common::AMuxOutboundSettings {
-                                    address: ext_proxy.address.clone(),
-                                    port: ext_proxy.port,
-                                    actors: Some(amux_actors),
-                                    max_accepts: ext_proxy.amux_max.map(|x| x as u32),
-                                    concurrency: ext_proxy.amux_con.map(|x| x as u32),
-                                    max_recv_bytes: ext_proxy.amux_max_recv,
-                                    max_lifetime: ext_proxy.amux_max_lifetime,
-                                }),
-                            },
-                        });
-                        actors.push(amux_tag);
-                    } else if ext_proxy.quic.unwrap_or(false) {
-                        let quic_tag = format!("{}_quic_xxx", ext_proxy.tag);
-                        component_outbounds.push(common::Outbound {
-                            tag: Some(quic_tag.clone()),
-                            settings: common::OutboundSettings::Quic {
-                                settings: Some(common::QuicOutboundSettings {
-                                    address: ext_proxy.address.clone(),
-                                    port: ext_proxy.port,
-                                    server_name: ext_proxy.sni.clone(),
-                                    certificate: resolve_cert(&ext_proxy.tls_cert),
-                                    certificate_key: None,
-                                    raw_certificate: None,
-                                    raw_certificate_key: None,
-                                    alpn: Some(vec!["http/1.1".to_string()]),
-                                }),
-                            },
-                        });
-                        actors.push(quic_tag);
-                    } else {
-                        actors.push(tls_tag);
-                        if ext_proxy.ws.unwrap_or(false) {
-                            actors.push(ws_tag);
-                        }
-                    }
-
-                    // core protocol
-                    let core_tag = format!("{}_{}_xxx", ext_proxy.tag, protocol);
-                    if protocol == "trojan" {
-                        component_outbounds.push(common::Outbound {
-                            tag: Some(core_tag.clone()),
-                            settings: common::OutboundSettings::Trojan {
-                                settings: Some(common::TrojanOutboundSettings {
-                                    address: if ext_proxy.amux.unwrap_or(false) {
-                                        None
-                                    } else {
-                                        ext_proxy.address.clone()
-                                    },
-                                    port: if ext_proxy.amux.unwrap_or(false) {
-                                        None
-                                    } else {
-                                        ext_proxy.port
-                                    },
-                                    password: ext_proxy.password.clone(),
-                                }),
-                            },
-                        });
-                    } else {
-                        component_outbounds.push(common::Outbound {
-                            tag: Some(core_tag.clone()),
-                            settings: common::OutboundSettings::VMess {
-                                settings: Some(common::VMessOutboundSettings {
-                                    address: if ext_proxy.amux.unwrap_or(false) {
-                                        None
-                                    } else {
-                                        ext_proxy.address.clone()
-                                    },
-                                    port: if ext_proxy.amux.unwrap_or(false) {
-                                        None
-                                    } else {
-                                        ext_proxy.port
-                                    },
-                                    uuid: ext_proxy
-                                        .uuid
-                                        .clone()
-                                        .or_else(|| ext_proxy.username.clone()),
-                                    security: Some(
-                                        ext_proxy
-                                            .encrypt_method
-                                            .as_deref()
-                                            .unwrap_or("chacha20-ietf-poly1305")
-                                            .to_string(),
-                                    ),
-                                }),
-                            },
-                        });
-                    }
-                    actors.push(core_tag);
-
-                    // chain
-                    outbounds.push(common::Outbound {
-                        tag: Some(ext_proxy.tag.clone()),
-                        settings: common::OutboundSettings::Chain {
-                            settings: Some(common::ChainOutboundSettings {
-                                actors: Some(actors),
-                            }),
-                        },
-                    });
-                    outbounds.append(&mut component_outbounds);
-                }
-                _ => {}
+                let actors: Vec<&str> = actors.iter().map(String::as_str).collect();
+                outbounds.push(chain(tag, &actors));
+                outbounds.append(&mut components);
+            }
+            other => {
+                return Err(anyhow!(
+                    "[Proxy] {}: unsupported proxy type \"{}\"",
+                    tag,
+                    other
+                ))
             }
         }
     }
 
-    if let Some(ext_proxy_groups) = &conf.proxy_group {
-        for ext_proxy_group in ext_proxy_groups {
-            let protocol = ext_proxy_group.protocol.as_str();
-            match protocol {
-                "chain" => {
-                    outbounds.push(common::Outbound {
-                        tag: Some(ext_proxy_group.tag.clone()),
-                        settings: common::OutboundSettings::Chain {
-                            settings: Some(common::ChainOutboundSettings {
-                                actors: ext_proxy_group.actors.clone(),
-                            }),
-                        },
-                    });
-                }
-                "tryall" => {
-                    outbounds.push(common::Outbound {
-                        tag: Some(ext_proxy_group.tag.clone()),
-                        settings: common::OutboundSettings::TryAll {
-                            settings: Some(common::TryAllOutboundSettings {
-                                actors: ext_proxy_group.actors.clone(),
-                                delay_base: ext_proxy_group.delay_base,
-                            }),
-                        },
-                    });
-                }
-                "static" => {
-                    outbounds.push(common::Outbound {
-                        tag: Some(ext_proxy_group.tag.clone()),
-                        settings: common::OutboundSettings::Static {
-                            settings: Some(common::StaticOutboundSettings {
-                                actors: ext_proxy_group.actors.clone(),
-                                method: ext_proxy_group.method.clone(),
-                            }),
-                        },
-                    });
-                }
-                "failover" => {
-                    outbounds.push(common::Outbound {
-                        tag: Some(ext_proxy_group.tag.clone()),
-                        settings: common::OutboundSettings::FailOver {
-                            settings: Some(common::FailOverOutboundSettings {
-                                actors: ext_proxy_group.actors.clone(),
-                                fail_timeout: ext_proxy_group.fail_timeout,
-                                health_check: ext_proxy_group.health_check,
-                                health_check_timeout: ext_proxy_group.health_check_timeout,
-                                health_check_delay: ext_proxy_group.health_check_delay,
-                                health_check_active: ext_proxy_group.health_check_active,
-                                health_check_prefers: ext_proxy_group.health_check_prefers.clone(),
-                                check_interval: ext_proxy_group.check_interval,
-                                health_check_on_start: ext_proxy_group.health_check_on_start,
-                                health_check_wait: ext_proxy_group.health_check_wait,
-                                health_check_attempts: ext_proxy_group.health_check_attempts,
-                                health_check_success_percentage: ext_proxy_group
-                                    .health_check_success_percentage,
-                                failover: ext_proxy_group.failover,
-                                fallback_cache: ext_proxy_group.fallback_cache,
-                                cache_size: ext_proxy_group.cache_size,
-                                cache_timeout: ext_proxy_group.cache_timeout,
-                            }),
-                        },
-                    });
-                }
-                "select" => {
-                    outbounds.push(common::Outbound {
-                        tag: Some(ext_proxy_group.tag.clone()),
-                        settings: common::OutboundSettings::Select {
-                            settings: Some(common::SelectOutboundSettings {
-                                actors: ext_proxy_group.actors.clone(),
-                            }),
-                        },
-                    });
-                }
-                "mptp" => {
-                    outbounds.push(common::Outbound {
-                        tag: Some(ext_proxy_group.tag.clone()),
-                        settings: common::OutboundSettings::Mptp {
-                            settings: Some(common::MptpOutboundSettings {
-                                actors: ext_proxy_group.actors.clone(),
-                                address: ext_proxy_group.address.clone(),
-                                port: ext_proxy_group.port,
-                            }),
-                        },
-                    });
-                }
-                _ => {}
+    for ext_proxy_group in conf.proxy_group.iter().flatten() {
+        let tag = ext_proxy_group.tag.as_str();
+        let members = &ext_proxy_group.actors;
+        let group = match ext_proxy_group.protocol.as_str() {
+            "chain" => outbound(tag, "chain", json!({ "outbounds": members })),
+            "tryall" => outbound(
+                tag,
+                "tryall",
+                json!({ "outbounds": members, "delay_base": ext_proxy_group.delay_base }),
+            ),
+            "static" => outbound(
+                tag,
+                "static",
+                json!({ "outbounds": members, "method": ext_proxy_group.method }),
+            ),
+            "failover" => outbound(
+                tag,
+                "failover",
+                json!({
+                    "outbounds": members,
+                    "fail_timeout": ext_proxy_group.fail_timeout,
+                    "health_check": ext_proxy_group.health_check,
+                    "health_check_timeout": ext_proxy_group.health_check_timeout,
+                    "health_check_delay": ext_proxy_group.health_check_delay,
+                    "health_check_active": ext_proxy_group.health_check_active,
+                    "health_check_prefers": ext_proxy_group.health_check_prefers,
+                    "check_interval": ext_proxy_group.check_interval,
+                    "health_check_on_start": ext_proxy_group.health_check_on_start,
+                    "health_check_wait": ext_proxy_group.health_check_wait,
+                    "health_check_attempts": ext_proxy_group.health_check_attempts,
+                    "health_check_success_percentage": ext_proxy_group.health_check_success_percentage,
+                    "failover": ext_proxy_group.failover,
+                    "fallback_cache": ext_proxy_group.fallback_cache,
+                    "cache_size": ext_proxy_group.cache_size,
+                    "cache_timeout": ext_proxy_group.cache_timeout,
+                }),
+            ),
+            "select" => outbound(tag, "selector", json!({ "outbounds": members })),
+            "mptp" => outbound(
+                tag,
+                "mptp",
+                json!({
+                    "outbounds": members,
+                    "server": ext_proxy_group.address,
+                    "server_port": ext_proxy_group.port,
+                }),
+            ),
+            other => {
+                return Err(anyhow!(
+                    "[Proxy Group] {}: unsupported group type \"{}\"",
+                    tag,
+                    other
+                ))
             }
-        }
+        };
+        config.outbounds.push(group);
     }
-    common_config.outbounds = Some(outbounds);
 
-    let mut rules = Vec::new();
-    if let Some(ext_rules) = &conf.rule {
-        for ext_rule in ext_rules {
-            let mut rule = common::Rule {
-                type_field: Some(ext_rule.type_field.clone()),
-                ip: None,
-                domain: None,
-                domain_keyword: None,
-                domain_suffix: None,
-                geoip: None,
-                external: None,
-                port_range: None,
-                network: None,
-                inbound_tag: None,
-                process_name: None,
-                target: ext_rule.target.clone(),
-            };
-
-            if let Some(filter) = &ext_rule.filter {
-                match ext_rule.type_field.as_str() {
-                    "IP-CIDR" => rule.ip = Some(vec![filter.clone()]),
-                    "DOMAIN" => rule.domain = Some(vec![filter.clone()]),
-                    "DOMAIN-KEYWORD" => rule.domain_keyword = Some(vec![filter.clone()]),
-                    "DOMAIN-SUFFIX" => rule.domain_suffix = Some(vec![filter.clone()]),
-                    "GEOIP" => rule.geoip = Some(vec![filter.clone()]),
-                    "EXTERNAL" => rule.external = Some(vec![filter.clone()]),
-                    "PORT-RANGE" => rule.port_range = Some(vec![filter.clone()]),
-                    "NETWORK" => rule.network = Some(vec![filter.clone()]),
-                    "INBOUND-TAG" => rule.inbound_tag = Some(vec![filter.clone()]),
-                    "PROCESS-NAME" => rule.process_name = Some(vec![filter.clone()]),
-                    _ => {}
-                }
-            }
-            rules.push(rule);
+    for ext_rule in conf.rule.iter().flatten() {
+        if ext_rule.type_field == "FINAL" {
+            config.route.final_outbound = Some(ext_rule.target.clone());
+            continue;
         }
+        let mut rule = model::Rule {
+            outbound: ext_rule.target.clone(),
+            ..Default::default()
+        };
+        let filter = ext_rule.filter.clone().ok_or_else(|| {
+            anyhow!(
+                "[Rule] {},{}: missing the value to match",
+                ext_rule.type_field,
+                ext_rule.target
+            )
+        })?;
+        let condition = match ext_rule.type_field.as_str() {
+            "IP-CIDR" => &mut rule.ip_cidr,
+            "DOMAIN" => &mut rule.domain,
+            "DOMAIN-KEYWORD" => &mut rule.domain_keyword,
+            "DOMAIN-SUFFIX" => &mut rule.domain_suffix,
+            "GEOIP" => &mut rule.geoip,
+            "EXTERNAL" => &mut rule.external,
+            "PORT-RANGE" => &mut rule.port_range,
+            "NETWORK" => &mut rule.network,
+            "INBOUND-TAG" => &mut rule.inbound,
+            "PROCESS-NAME" => &mut rule.process_name,
+            other => return Err(anyhow!("[Rule] unsupported rule type \"{}\"", other)),
+        };
+        condition.push(filter);
+        config.route.rules.push(rule);
     }
-    common_config.router = Some(common::Router {
-        rules: Some(rules),
-        domain_resolve: conf.general.as_ref().and_then(|g| g.routing_domain_resolve),
-    });
+    config.route.domain_resolve = conf
+        .general
+        .as_ref()
+        .and_then(|g| g.routing_domain_resolve)
+        .unwrap_or(false);
 
-    let mut dns = common::Dns {
-        servers: None,
-        hosts: None,
+    if let Some(servers) = conf.general.as_ref().and_then(|g| g.dns_server.clone()) {
+        config.dns.servers = servers;
+    }
+    if let Some(hosts) = &conf.host {
+        config.dns.hosts = hosts.clone();
+    }
+
+    config.validate()?;
+    Ok(config)
+}
+
+fn to_log(general: &General) -> Result<model::Log> {
+    let level = match general.loglevel.as_deref() {
+        None => model::LogLevel::default(),
+        Some(level) => serde_json::from_value(json!(level.to_lowercase()))
+            .map_err(|_| anyhow!("[General] loglevel: unknown level \"{}\"", level))?,
     };
-    if let Some(ext_general) = &conf.general {
-        dns.servers = ext_general.dns_server.clone();
+    let format = match general.logformat.as_deref() {
+        None => model::LogFormat::default(),
+        Some(format) => serde_json::from_value(json!(format.to_lowercase()))
+            .map_err(|_| anyhow!("[General] logformat: unknown format \"{}\"", format))?,
+    };
+    let output = general
+        .logoutput
+        .clone()
+        .filter(|output| output != "console");
+    Ok(model::Log {
+        level,
+        output,
+        format,
+    })
+}
+
+/// The options in `value`, less the ones the `.conf` left out.
+fn options(value: serde_json::Value) -> model::Options {
+    match value {
+        serde_json::Value::Object(mut map) => {
+            map.retain(|_, v| !v.is_null());
+            map
+        }
+        _ => unreachable!("options are always an object"),
     }
-    dns.hosts = conf.host.clone();
-    common_config.dns = Some(dns);
-
-    Ok(common_config)
 }
 
-pub fn to_internal(conf: &Config) -> Result<internal::Config> {
-    let common_config = to_common(conf)?;
-    common::to_internal(common_config)
+fn inbound(
+    tag: &str,
+    protocol: &str,
+    listen: Option<(&String, u16)>,
+    value: serde_json::Value,
+) -> model::Inbound {
+    model::Inbound {
+        protocol: protocol.to_string(),
+        tag: tag.to_string(),
+        listen: listen.map(|(address, _)| address.clone()),
+        listen_port: listen.map(|(_, port)| port),
+        options: options(value),
+    }
 }
 
-pub fn from_string(s: &str) -> Result<internal::Config> {
+fn outbound(tag: &str, protocol: &str, value: serde_json::Value) -> model::Outbound {
+    model::Outbound {
+        protocol: protocol.to_string(),
+        tag: tag.to_string(),
+        options: options(value),
+    }
+}
+
+fn chain(tag: &str, actors: &[&str]) -> model::Outbound {
+    outbound(tag, "chain", json!({ "outbounds": actors }))
+}
+
+pub fn from_string(s: &str) -> Result<model::Config> {
     let lines = s.lines().map(|s| Ok(s.to_string())).collect();
     let config = from_lines(lines)?;
-    to_internal(&config)
+    to_config(&config)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use protobuf::Message;
+
+    fn load(conf: &str) -> model::Config {
+        let lines: Vec<io::Result<String>> = conf.lines().map(|s| Ok(s.to_string())).collect();
+        to_config(&from_lines(lines).unwrap()).unwrap()
+    }
+
+    fn outbound<'a>(config: &'a model::Config, tag: &str) -> &'a model::Outbound {
+        config.outbounds.iter().find(|o| o.tag == tag).unwrap()
+    }
 
     #[test]
     fn test_trojan_tls_outbound_order() {
-        let conf = r#"
+        let config = load(
+            r#"
 [Proxy]
 Direct = direct
 Trojan = trojan, 1.2.3.4, 443, password, sni=www.google.com
-"#;
-        let lines: Vec<io::Result<String>> = conf.lines().map(|s| Ok(s.to_string())).collect();
-        let config = from_lines(lines).unwrap();
-        let common = to_common(&config).unwrap();
-
-        let outbounds = common.outbounds.unwrap();
+"#,
+        );
+        let outbounds = &config.outbounds;
         // The first outbound should be "Direct"
-        assert_eq!(outbounds[0].tag, Some("Direct".to_string()));
+        assert_eq!(outbounds[0].tag, "Direct");
         // The second outbound should be the main "Trojan" outbound (which is a Chain)
-        assert_eq!(outbounds[1].tag, Some("Trojan".to_string()));
-        if let common::OutboundSettings::Chain { .. } = &outbounds[1].settings {
-            // Correct
-        } else {
-            panic!(
-                "Second outbound is not a Chain: {:?}",
-                outbounds[1].settings
-            );
-        }
+        assert_eq!(outbounds[1].tag, "Trojan");
+        assert_eq!(outbounds[1].protocol, "chain");
         // The third outbound should be the TLS component
-        assert_eq!(outbounds[2].tag, Some("Trojan_tls_xxx".to_string()));
+        assert_eq!(outbounds[2].tag, "Trojan_tls_xxx");
     }
 
     #[test]
     fn test_vmess_amux_outbound_order() {
-        let conf = r#"
+        let config = load(
+            r#"
 [Proxy]
 Vmess = vmess, 1.2.3.4, 443, username, amux=true, sni=www.google.com
-"#;
-        let lines: Vec<io::Result<String>> = conf.lines().map(|s| Ok(s.to_string())).collect();
-        let config = from_lines(lines).unwrap();
-        let common = to_common(&config).unwrap();
-
-        let outbounds = common.outbounds.unwrap();
+"#,
+        );
         // The first outbound should be the main "Vmess" outbound (Chain)
-        assert_eq!(outbounds[0].tag, Some("Vmess".to_string()));
+        assert_eq!(config.outbounds[0].tag, "Vmess");
         // The following should be components
-        let tags: Vec<_> = outbounds.iter().map(|o| o.tag.as_ref().unwrap()).collect();
-        assert!(tags.contains(&&"Vmess_tls_xxx".to_string()));
-        assert!(tags.contains(&&"Vmess_amux_xxx".to_string()));
-        assert!(tags.contains(&&"Vmess_vmess_xxx".to_string()));
-        let vmess = outbounds
-            .iter()
-            .find(|o| o.tag == Some("Vmess_vmess_xxx".to_string()))
-            .unwrap();
-        if let common::OutboundSettings::VMess { settings } = &vmess.settings {
-            assert_eq!(
-                settings.as_ref().unwrap().uuid,
-                Some("username".to_string())
-            );
-        }
+        let tags: Vec<_> = config.outbounds.iter().map(|o| o.tag.as_str()).collect();
+        assert!(tags.contains(&"Vmess_tls_xxx"));
+        assert!(tags.contains(&"Vmess_amux_xxx"));
+        assert!(tags.contains(&"Vmess_vmess_xxx"));
+        let vmess = outbound(&config, "Vmess_vmess_xxx");
+        assert_eq!(vmess.options["uuid"], "username");
+        // Behind amux, the server is amux's to dial.
+        assert!(!vmess.options.contains_key("server"));
     }
 
     #[test]
     fn test_trojan_tls_ech_mapping() {
-        let conf = r#"
+        let config = load(
+            r#"
 [Proxy]
 Trojan = trojan, 1.2.3.4, 443, password, sni=www.google.com, tls-ech=true, tls-ech-config-list=AQID
-"#;
-        let lines: Vec<io::Result<String>> = conf.lines().map(|s| Ok(s.to_string())).collect();
-        let config = from_lines(lines).unwrap();
-        let common = to_common(&config).unwrap();
-
-        let outbounds = common.outbounds.unwrap();
-        let tls_outbound = outbounds
-            .iter()
-            .find(|o| o.tag == Some("Trojan_tls_xxx".to_string()))
-            .unwrap();
-        if let common::OutboundSettings::Tls { settings } = &tls_outbound.settings {
-            assert_eq!(
-                settings.as_ref().unwrap().ech_config_list,
-                Some("AQID".to_string())
-            );
-        } else {
-            panic!("Not tls outbound: {:?}", tls_outbound.settings);
-        }
-
-        let internal = to_internal(&config).unwrap();
-        let tls_outbound = internal
-            .outbounds
-            .iter()
-            .find(|o| o.tag == "Trojan_tls_xxx")
-            .unwrap();
-        let tls_settings =
-            crate::config::internal::TlsOutboundSettings::parse_from_bytes(&tls_outbound.settings)
-                .unwrap();
-        assert_eq!(tls_settings.ech_config_list, "AQID".to_string());
+"#,
+        );
+        let tls = outbound(&config, "Trojan_tls_xxx");
+        assert_eq!(tls.options["ech_config_list"], "AQID");
     }
 
     #[test]
     fn test_trojan_tls_ech_mapping_from_section() {
-        let conf = r#"
+        let config = load(
+            r#"
 [Proxy]
 Trojan = trojan, 1.2.3.4, 443, password, sni=www.google.com, tls-ech=true, tls-ech-config-list=myech
 
 [Ech.myech]
 AQI=
-"#;
-        let lines: Vec<io::Result<String>> = conf.lines().map(|s| Ok(s.to_string())).collect();
-        let config = from_lines(lines).unwrap();
-        let common = to_common(&config).unwrap();
-
-        let outbounds = common.outbounds.unwrap();
-        let tls_outbound = outbounds
-            .iter()
-            .find(|o| o.tag == Some("Trojan_tls_xxx".to_string()))
-            .unwrap();
-        if let common::OutboundSettings::Tls { settings } = &tls_outbound.settings {
-            assert_eq!(
-                settings
-                    .as_ref()
-                    .unwrap()
-                    .ech_config_list
-                    .as_deref()
-                    .map(str::trim),
-                Some("AQI=")
-            );
-        } else {
-            panic!("Not tls outbound: {:?}", tls_outbound.settings);
-        }
-
-        let internal = to_internal(&config).unwrap();
-        let tls_outbound = internal
-            .outbounds
-            .iter()
-            .find(|o| o.tag == "Trojan_tls_xxx")
-            .unwrap();
-        let tls_settings =
-            crate::config::internal::TlsOutboundSettings::parse_from_bytes(&tls_outbound.settings)
-                .unwrap();
-        assert_eq!(tls_settings.ech_config_list.trim(), "AQI=");
-    }
-
-    #[test]
-    fn test_trojan_tls_ech_validation() {
-        let mut proxy = Proxy::default();
-        proxy.tag = "Trojan".to_string();
-        proxy.protocol = "trojan".to_string();
-        proxy.address = Some("1.2.3.4".to_string());
-        proxy.port = Some(443);
-        proxy.password = Some("password".to_string());
-        proxy.sni = Some("www.google.com".to_string());
-        proxy.tls_ech = Some(true);
-        proxy.tls_ech_config_list = Some("   ".to_string());
-
-        let config = Config {
-            general: None,
-            proxy: Some(vec![proxy]),
-            proxy_group: None,
-            rule: None,
-            host: None,
-            certificates: None,
-            ech_configs: None,
-        };
-
-        let err = to_internal(&config).unwrap_err();
-        assert!(err.to_string().contains("echConfigList cannot be empty"));
+"#,
+        );
+        let tls = outbound(&config, "Trojan_tls_xxx");
+        assert_eq!(
+            tls.options["ech_config_list"].as_str().map(str::trim),
+            Some("AQI=")
+        );
     }
 
     #[test]
     fn test_wintun_conf() {
-        let conf = r#"
+        let config = load(
+            r#"
 [General]
 tun = auto
 wintun = /path/to/wintun.dll
 tun-dns-server = 8.8.8.8, 8.8.4.4
-"#;
-        let lines: Vec<io::Result<String>> = conf.lines().map(|s| Ok(s.to_string())).collect();
-        let config = from_lines(lines).unwrap();
-        let common = to_common(&config).unwrap();
-
-        if let Some(inbounds) = common.inbounds {
-            let tun = inbounds
-                .iter()
-                .find(|i| i.tag == Some("tun".to_string()))
-                .unwrap();
-            if let common::InboundSettings::Tun { settings } = &tun.settings {
-                let settings = settings.as_ref().unwrap();
-                assert_eq!(settings.wintun, Some("/path/to/wintun.dll".to_string()));
-                assert_eq!(
-                    settings.dns_servers,
-                    Some(vec!["8.8.8.8".to_string(), "8.8.4.4".to_string()])
-                );
-            } else {
-                panic!("Not tun inbound");
-            }
-        } else {
-            panic!("No inbounds");
-        }
+"#,
+        );
+        let tun = config.inbounds.iter().find(|i| i.tag == "tun").unwrap();
+        assert_eq!(tun.options["wintun"], "/path/to/wintun.dll");
+        assert_eq!(tun.options["dns_servers"], json!(["8.8.8.8", "8.8.4.4"]));
     }
 
     #[test]
     fn test_tls_ech_fallback_mapping() {
-        let conf = r#"
+        let config = load(
+            r#"
 [General]
 dns-server = 1.1.1.1
 
 [Proxy]
 Trojan = trojan, 1.2.3.4, 443, password, sni=www.google.com, tls-ech=true, tls-ech-disable-dns-lookup=true, tls-ech-config-list=AQID
-"#;
-        let lines: Vec<io::Result<String>> = conf.lines().map(|s| Ok(s.to_string())).collect();
-        let config = from_lines(lines).unwrap();
-        let internal = to_internal(&config).unwrap();
-
-        let tls_outbound = internal
-            .outbounds
-            .iter()
-            .find(|o| o.tag == "Trojan_tls_xxx")
-            .unwrap();
-        let tls_settings =
-            crate::config::internal::TlsOutboundSettings::parse_from_bytes(&tls_outbound.settings)
-                .unwrap();
-        assert!(tls_settings.ech);
-        assert!(tls_settings.ech_disable_dns_lookup);
-        assert_eq!(tls_settings.ech_config_list, "AQID");
+"#,
+        );
+        let tls = outbound(&config, "Trojan_tls_xxx");
+        assert_eq!(tls.options["ech"], true);
+        assert_eq!(tls.options["ech_disable_dns_lookup"], true);
+        assert_eq!(tls.options["ech_config_list"], "AQID");
     }
 
     #[test]
     fn test_vmess_vless_uuid() {
-        let conf = r#"
+        let config = load(
+            r#"
 [Proxy]
 Vmess1 = vmess, 1.2.3.4, 443, username, uuid=uuid1
 Vmess2 = vmess, 1.2.3.4, 443, username
 Vless1 = vless, 1.2.3.4, 443, password, uuid=uuid2
 Vless2 = vless, 1.2.3.4, 443, password
-"#;
-        let lines: Vec<io::Result<String>> = conf.lines().map(|s| Ok(s.to_string())).collect();
-        let config = from_lines(lines).unwrap();
-        let common = to_common(&config).unwrap();
-
-        let outbounds = common.outbounds.unwrap();
-
-        // Vmess1: should use uuid1
-        let vmess1 = outbounds
-            .iter()
-            .find(|o| o.tag == Some("Vmess1_vmess_xxx".to_string()))
-            .unwrap();
-        if let common::OutboundSettings::VMess { settings } = &vmess1.settings {
-            assert_eq!(settings.as_ref().unwrap().uuid, Some("uuid1".to_string()));
-        } else {
-            panic!("Not vmess: {:?}", vmess1.settings);
-        }
-
-        // Vmess2: should use username
-        let vmess2 = outbounds
-            .iter()
-            .find(|o| o.tag == Some("Vmess2_vmess_xxx".to_string()))
-            .unwrap();
-        if let common::OutboundSettings::VMess { settings } = &vmess2.settings {
-            assert_eq!(
-                settings.as_ref().unwrap().uuid,
-                Some("username".to_string())
-            );
-        } else {
-            panic!("Not vmess: {:?}", vmess2.settings);
-        }
-
-        // Vless1: should use uuid2
-        let vless1 = outbounds
-            .iter()
-            .find(|o| o.tag == Some("Vless1".to_string()))
-            .unwrap();
-        if let common::OutboundSettings::Vless { settings } = &vless1.settings {
-            assert_eq!(settings.as_ref().unwrap().uuid, Some("uuid2".to_string()));
-        } else {
-            panic!("Not vless: {:?}", vless1.settings);
-        }
-
-        // Vless2: should use password
-        let vless2 = outbounds
-            .iter()
-            .find(|o| o.tag == Some("Vless2".to_string()))
-            .unwrap();
-        if let common::OutboundSettings::Vless { settings } = &vless2.settings {
-            assert_eq!(
-                settings.as_ref().unwrap().uuid,
-                Some("password".to_string())
-            );
-        } else {
-            panic!("Not vless: {:?}", vless2.settings);
-        }
+"#,
+        );
+        // An explicit uuid wins; otherwise vmess falls back to the username
+        // and vless to the password.
+        assert_eq!(
+            outbound(&config, "Vmess1_vmess_xxx").options["uuid"],
+            "uuid1"
+        );
+        assert_eq!(
+            outbound(&config, "Vmess2_vmess_xxx").options["uuid"],
+            "username"
+        );
+        assert_eq!(outbound(&config, "Vless1").options["uuid"], "uuid2");
+        assert_eq!(outbound(&config, "Vless2").options["uuid"], "password");
     }
 
     #[test]
     fn test_mptp_proxy_group() {
-        let conf = r#"
+        let config = load(
+            r#"
 [Proxy Group]
 MptpOutTag = mptp, actor1, actor2, actor3, address=1.2.3.4, port=10000
-"#;
-        let lines: Vec<io::Result<String>> = conf.lines().map(|s| Ok(s.to_string())).collect();
-        let config = from_lines(lines).unwrap();
-        let common = to_common(&config).unwrap();
+"#,
+        );
+        assert_eq!(config.outbounds.len(), 1);
+        let mptp = &config.outbounds[0];
+        assert_eq!(mptp.tag, "MptpOutTag");
+        assert_eq!(mptp.protocol, "mptp");
+        assert_eq!(
+            mptp.options["outbounds"],
+            json!(["actor1", "actor2", "actor3"])
+        );
+        assert_eq!(mptp.options["server"], "1.2.3.4");
+        assert_eq!(mptp.options["server_port"], 10000);
+    }
 
-        let outbounds = common.outbounds.unwrap();
-        assert_eq!(outbounds.len(), 1);
-        let mptp = &outbounds[0];
-        assert_eq!(mptp.tag, Some("MptpOutTag".to_string()));
-        if let common::OutboundSettings::Mptp { settings } = &mptp.settings {
-            let settings = settings.as_ref().unwrap();
-            assert_eq!(
-                settings.actors,
-                Some(vec![
-                    "actor1".to_string(),
-                    "actor2".to_string(),
-                    "actor3".to_string()
-                ])
-            );
-            assert_eq!(settings.address, Some("1.2.3.4".to_string()));
-            assert_eq!(settings.port, Some(10000));
-        } else {
-            panic!("Not mptp outbound: {:?}", mptp.settings);
-        }
+    #[test]
+    fn a_final_rule_becomes_the_final_outbound() {
+        let config = load(
+            r#"
+[Proxy]
+Direct = direct
+Proxy = ss, 1.2.3.4, 8388, encrypt-method=aes-128-gcm, password=pw
+
+[Rule]
+DOMAIN-SUFFIX, example.com, Direct
+FINAL, Proxy
+"#,
+        );
+        assert_eq!(config.route.final_outbound.as_deref(), Some("Proxy"));
+        assert_eq!(config.route.rules.len(), 1);
+        assert_eq!(config.route.rules[0].domain_suffix, ["example.com"]);
+        assert_eq!(config.route.rules[0].outbound, "Direct");
+    }
+
+    #[test]
+    fn an_unsupported_proxy_type_is_an_error() {
+        let lines: Vec<io::Result<String>> = "[Proxy]\nP = hysteria2, 1.2.3.4, 443\n"
+            .lines()
+            .map(|s| Ok(s.to_string()))
+            .collect();
+        let err = to_config(&from_lines(lines).unwrap()).unwrap_err();
+        assert!(
+            err.to_string().contains("unsupported proxy type"),
+            "{}",
+            err
+        );
     }
 
     #[test]
@@ -1972,11 +1696,11 @@ CERT4
     }
 }
 
-pub fn from_file<P>(path: P) -> Result<internal::Config>
+pub fn from_file<P>(path: P) -> Result<model::Config>
 where
     P: AsRef<Path>,
 {
     let lines = read_lines(path)?.collect();
     let config = from_lines(lines)?;
-    to_internal(&config)
+    to_config(&config)
 }

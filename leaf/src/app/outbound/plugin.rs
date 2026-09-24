@@ -13,7 +13,9 @@ use crate::adapter::outbound::HandlerBuilder;
 use crate::adapter::registry::{
     no_dependencies, OutboundContext, OutboundFactory, OutboundRegistry,
 };
-use crate::{adapter::*, config, session::Session};
+use serde_derive::Deserialize;
+
+use crate::{adapter::*, session::Session};
 
 pub struct PluginSpec {
     pub add_handler_fn: unsafe fn(&mut dyn PluginRegistrar, &str, args: &str),
@@ -227,7 +229,7 @@ impl OutboundDatagramHandler for ExternalOutboundDatagramHandlerProxy {
 
 pub(crate) fn register(registry: &mut OutboundRegistry) {
     // Each plugin outbound loads its own handler, so two with the same
-    // settings are still two handlers.
+    // options are still two handlers.
     registry.register(
         "plugin",
         OutboundFactory {
@@ -238,11 +240,20 @@ pub(crate) fn register(registry: &mut OutboundRegistry) {
     );
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PluginOutboundOptions {
+    /// The shared library to load.
+    path: String,
+    #[serde(default)]
+    args: String,
+}
+
 fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
-    let settings: config::PluginOutboundSettings = ctx.settings()?;
+    let options: PluginOutboundOptions = ctx.options()?;
     unsafe {
         ctx.external_handlers
-            .new_handler(settings.path, ctx.tag, &settings.args)?
+            .new_handler(options.path, ctx.tag, &options.args)?
     };
     let missing = || {
         anyhow!(

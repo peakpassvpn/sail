@@ -18,37 +18,31 @@ fn test_tls_trojan() -> anyhow::Result<()> {
     {
         "inbounds": [
             {
-                "protocol": "socks",
-                "address": "127.0.0.1",
-                "port": 1086
+                "type": "socks",
+                "listen": "127.0.0.1",
+                "listen_port": 1086
             }
         ],
         "outbounds": [
             {
-                "protocol": "chain",
-                "settings": {
-                    "actors": [
-                        "tls",
-                        "trojan"
-                    ]
-                }
+                "type": "chain",
+                "outbounds": [
+                    "tls",
+                    "trojan"
+                ]
             },
             {
-                "protocol": "tls",
+                "type": "tls",
                 "tag": "tls",
-                "settings": {
-                    "serverName": "localhost",
-                    "certificate": "cert.pem"
-                }
+                "server_name": "localhost",
+                "certificate": "cert.pem"
             },
             {
-                "protocol": "trojan",
+                "type": "trojan",
                 "tag": "trojan",
-                "settings": {
-                    "address": "127.0.0.1",
-                    "port": 3001,
-                    "password": "password"
-                }
+                "server": "127.0.0.1",
+                "server_port": 3001,
+                "password": "password"
             }
         ]
     }
@@ -58,37 +52,33 @@ fn test_tls_trojan() -> anyhow::Result<()> {
     {
         "inbounds": [
             {
-                "protocol": "chain",
-                "address": "127.0.0.1",
-                "port": 3001,
-                "settings": {
-                    "actors": [
-                        "tls",
-                        "trojan"
-                    ]
-                }
+                "type": "chain",
+                "listen": "127.0.0.1",
+                "listen_port": 3001,
+                "inbounds": [
+                    "tls",
+                    "trojan"
+                ]
             },
             {
-                "protocol": "tls",
+                "type": "tls",
                 "tag": "tls",
-                "settings": {
-                    "certificate": "cert.pem",
-                    "certificateKey": "key.pem"
-                }
+                "certificate": "cert.pem",
+                "certificate_key": "key.pem"
             },
             {
-                "protocol": "trojan",
+                "type": "trojan",
                 "tag": "trojan",
-                "settings": {
-                    "passwords": [
-                        "password"
-                    ]
-                }
+                "users": [
+                    {
+                        "password": "password"
+                    }
+                ]
             }
         ],
         "outbounds": [
             {
-                "protocol": "direct"
+                "type": "direct"
             }
         ]
     }
@@ -98,37 +88,31 @@ fn test_tls_trojan() -> anyhow::Result<()> {
     {
         "inbounds": [
             {
-                "protocol": "socks",
-                "address": "127.0.0.1",
-                "port": 1087
+                "type": "socks",
+                "listen": "127.0.0.1",
+                "listen_port": 1087
             }
         ],
         "outbounds": [
             {
-                "protocol": "chain",
-                "settings": {
-                    "actors": [
-                        "tls",
-                        "trojan"
-                    ]
-                }
+                "type": "chain",
+                "outbounds": [
+                    "tls",
+                    "trojan"
+                ]
             },
             {
-                "protocol": "tls",
+                "type": "tls",
                 "tag": "tls",
-                "settings": {
-                    "serverName": "localhost",
-                    "certificate": "cert.pem"
-                }
+                "server_name": "localhost",
+                "certificate": "cert.pem"
             },
             {
-                "protocol": "trojan",
+                "type": "trojan",
                 "tag": "trojan",
-                "settings": {
-                    "address": "127.0.0.1",
-                    "port": 3002,
-                    "password": "password"
-                }
+                "server": "127.0.0.1",
+                "server_port": 3002,
+                "password": "password"
             }
         ]
     }
@@ -138,37 +122,33 @@ fn test_tls_trojan() -> anyhow::Result<()> {
     {
         "inbounds": [
             {
-                "protocol": "chain",
-                "address": "127.0.0.1",
-                "port": 3002,
-                "settings": {
-                    "actors": [
-                        "tls",
-                        "trojan"
-                    ]
-                }
+                "type": "chain",
+                "listen": "127.0.0.1",
+                "listen_port": 3002,
+                "inbounds": [
+                    "tls",
+                    "trojan"
+                ]
             },
             {
-                "protocol": "tls",
+                "type": "tls",
                 "tag": "tls",
-                "settings": {
-                    "certificate": "cert.pem",
-                    "certificateKey": "key.pem"
-                }
+                "certificate": "cert.pem",
+                "certificate_key": "key.pem"
             },
             {
-                "protocol": "trojan",
+                "type": "trojan",
                 "tag": "trojan",
-                "settings": {
-                    "passwords": [
-                        "password"
-                    ]
-                }
+                "users": [
+                    {
+                        "password": "password"
+                    }
+                ]
             }
         ],
         "outbounds": [
             {
-                "protocol": "direct"
+                "type": "direct"
             }
         ]
     }
@@ -213,37 +193,33 @@ FINAL,Proxy
     {
         "inbounds": [
             {
-                "protocol": "chain",
-                "address": "127.0.0.1",
-                "port": 3003,
-                "settings": {
-                    "actors": [
-                        "tls",
-                        "trojan"
-                    ]
-                }
+                "type": "chain",
+                "listen": "127.0.0.1",
+                "listen_port": 3003,
+                "inbounds": [
+                    "tls",
+                    "trojan"
+                ]
             },
             {
-                "protocol": "tls",
+                "type": "tls",
                 "tag": "tls",
-                "settings": {
-                    "certificate": "cert.pem",
-                    "certificateKey": "key.pem"
-                }
+                "certificate": "cert.pem",
+                "certificate_key": "key.pem"
             },
             {
-                "protocol": "trojan",
+                "type": "trojan",
                 "tag": "trojan",
-                "settings": {
-                    "passwords": [
-                        "password"
-                    ]
-                }
+                "users": [
+                    {
+                        "password": "password"
+                    }
+                ]
             }
         ],
         "outbounds": [
             {
-                "protocol": "direct"
+                "type": "direct"
             }
         ]
     }

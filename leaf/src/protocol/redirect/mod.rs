@@ -5,7 +5,7 @@ use anyhow::Result;
 use crate::adapter::outbound::HandlerBuilder;
 use crate::adapter::registry::{OutboundContext, OutboundFactory, OutboundRegistry};
 use crate::adapter::AnyOutboundHandler;
-use crate::config;
+use serde_derive::Deserialize;
 
 pub mod datagram;
 pub mod stream;
@@ -17,15 +17,23 @@ pub(crate) fn register(registry: &mut OutboundRegistry) {
     registry.register("redirect", OutboundFactory::standalone(build));
 }
 
+/// Sends every connection to one fixed address.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RedirectOptions {
+    server: String,
+    server_port: u16,
+}
+
 fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
-    let settings: config::RedirectOutboundSettings = ctx.settings()?;
+    let options: RedirectOptions = ctx.options()?;
     let stream = Arc::new(StreamHandler {
-        address: settings.address.clone(),
-        port: settings.port as u16,
+        address: options.server.clone(),
+        port: options.server_port,
     });
     let datagram = Arc::new(DatagramHandler {
-        address: settings.address,
-        port: settings.port as u16,
+        address: options.server,
+        port: options.server_port,
     });
     Ok(HandlerBuilder::default()
         .tag(ctx.tag.to_owned())

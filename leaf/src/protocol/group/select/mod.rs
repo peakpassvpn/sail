@@ -1,16 +1,16 @@
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use tokio::sync::RwLock;
 
 use crate::adapter::outbound::HandlerBuilder;
 use crate::adapter::registry::{
-    parse_settings, OutboundContext, OutboundFactory, OutboundRegistry,
+    parse_options, Options, OutboundContext, OutboundFactory, OutboundRegistry,
 };
 use crate::adapter::AnyOutboundHandler;
 use crate::app::outbound::selector::{self, OutboundSelector};
-use crate::config;
+use serde_derive::Deserialize;
 
 pub mod datagram;
 pub mod stream;
@@ -19,17 +19,37 @@ pub use datagram::Handler as DatagramHandler;
 pub use stream::Handler as StreamHandler;
 
 pub(crate) fn register(registry: &mut OutboundRegistry) {
-    registry.register("select", OutboundFactory::composite(dependencies, build));
+    registry.register("selector", OutboundFactory::composite(dependencies, build));
 }
 
-fn dependencies(tag: &str, settings: &[u8]) -> Result<Vec<String>> {
-    let settings: config::SelectOutboundSettings = parse_settings("outbound", tag, settings)?;
-    Ok(settings.actors.to_vec())
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SelectorOutboundOptions {
+    outbounds: Vec<String>,
+    /// Selected when nothing was selected before; defaults to the first.
+    #[serde(default)]
+    default: Option<String>,
+}
+
+fn dependencies(tag: &str, options: &Options) -> Result<Vec<String>> {
+    let options: SelectorOutboundOptions = parse_options("outbound", tag, options)?;
+    Ok(options.outbounds)
 }
 
 fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
-    let settings: config::SelectOutboundSettings = ctx.settings()?;
-    let actors = ctx.members(&settings.actors)?;
+    let options: SelectorOutboundOptions = ctx.options()?;
+    let actors = ctx.members(&options.outbounds)?;
+    let default = match options.default {
+        Some(default) if !options.outbounds.contains(&default) => {
+            return Err(anyhow!(
+                "[{}] outbound: default: [{}] is not one of its outbounds",
+                ctx.tag,
+                default
+            ))
+        }
+        Some(default) => default,
+        None => options.outbounds[0].clone(),
+    };
 
     let actors_tags: Vec<String> = actors.iter().map(|x| x.tag().to_owned()).collect();
     let selected = Arc::new(AtomicUsize::new(0));
@@ -39,7 +59,7 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
         // FIXME handle error
         let _ = outbound_selector.set_selected(&selected);
     } else {
-        let _ = outbound_selector.set_selected(&settings.actors[0]);
+        let _ = outbound_selector.set_selected(&default);
     }
     ctx.selectors
         .insert(ctx.tag.to_owned(), Arc::new(RwLock::new(outbound_selector)));

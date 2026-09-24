@@ -32,7 +32,7 @@ use crate::adapter::inbound::Handler as InboundHandler;
 use crate::adapter::registry::{InboundContext, InboundFactory, InboundRegistry};
 use crate::adapter::AnyInboundHandler;
 use crate::app::fake_dns::{FakeDns, FakeDnsMode};
-use crate::config;
+use serde_derive::Deserialize;
 
 const MAX_PATH: usize = 260;
 const IPPROTO_TCP: i32 = 6;
@@ -979,19 +979,33 @@ pub(crate) fn register(registry: &mut InboundRegistry) {
     registry.register("nf", InboundFactory::standalone(build));
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NfInboundOptions {
+    driver_name: String,
+    #[serde(default = "default_nfapi")]
+    nfapi: String,
+    #[serde(default)]
+    fake_dns_exclude: Vec<String>,
+    #[serde(default)]
+    fake_dns_include: Vec<String>,
+}
+
+fn default_nfapi() -> String {
+    "nfapi.dll".to_string()
+}
+
 fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
-    let settings: config::NfInboundSettings = ctx.settings()?;
-    let fake_dns_exclude = settings.fake_dns_exclude.clone();
-    let fake_dns_include = settings.fake_dns_include.clone();
-    let (mode, filters) = if !fake_dns_include.is_empty() {
-        (FakeDnsMode::Include, fake_dns_include)
+    let options: NfInboundOptions = ctx.options()?;
+    let (mode, filters) = if !options.fake_dns_include.is_empty() {
+        (FakeDnsMode::Include, options.fake_dns_include)
     } else {
-        (FakeDnsMode::Exclude, fake_dns_exclude)
+        (FakeDnsMode::Exclude, options.fake_dns_exclude)
     };
     let fake_dns = Arc::new(FakeDns::new(mode, filters));
     let manager = Arc::new(NfManager::new(
-        settings.driver_name.clone(),
-        settings.nfapi.clone(),
+        options.driver_name,
+        options.nfapi,
         fake_dns,
     )?);
     let stream = Arc::new(StreamHandler {

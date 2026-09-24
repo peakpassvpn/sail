@@ -21,36 +21,30 @@ fn test_in_chain_1() -> anyhow::Result<()> {
         },
         "inbounds": [
             {
-                "protocol": "socks",
-                "address": "127.0.0.1",
-                "port": 1086
+                "type": "socks",
+                "listen": "127.0.0.1",
+                "listen_port": 1086
             }
         ],
         "outbounds": [
             {
-                "protocol": "chain",
-                "settings": {
-                    "actors": [
-                        "ws",
-                        "trojan"
-                    ]
-                }
+                "type": "chain",
+                "outbounds": [
+                    "ws",
+                    "trojan"
+                ]
             },
             {
-                "protocol": "ws",
+                "type": "ws",
                 "tag": "ws",
-                "settings": {
-                    "path": "/leaf"
-                }
+                "path": "/leaf"
             },
             {
-                "protocol": "trojan",
+                "type": "trojan",
                 "tag": "trojan",
-                "settings": {
-                    "address": "127.0.0.1",
-                    "port": 3001,
-                    "password": "password"
-                }
+                "server": "127.0.0.1",
+                "server_port": 3001,
+                "password": "password"
             }
         ]
     }
@@ -63,36 +57,32 @@ fn test_in_chain_1() -> anyhow::Result<()> {
         },
         "inbounds": [
             {
-                "protocol": "chain",
-                "address": "127.0.0.1",
-                "port": 3001,
-                "settings": {
-                    "actors": [
-                        "ws",
-                        "trojan"
-                    ]
-                }
+                "type": "chain",
+                "listen": "127.0.0.1",
+                "listen_port": 3001,
+                "inbounds": [
+                    "ws",
+                    "trojan"
+                ]
             },
             {
-                "protocol": "ws",
+                "type": "ws",
                 "tag": "ws",
-                "settings": {
-                    "path": "/leaf"
-                }
+                "path": "/leaf"
             },
             {
-                "protocol": "trojan",
+                "type": "trojan",
                 "tag": "trojan",
-                "settings": {
-                    "passwords": [
-                        "password"
-                    ]
-                }
+                "users": [
+                    {
+                        "password": "password"
+                    }
+                ]
             }
         ],
         "outbounds": [
             {
-                "protocol": "direct"
+                "type": "direct"
             }
         ]
     }

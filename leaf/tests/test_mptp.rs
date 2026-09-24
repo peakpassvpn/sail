@@ -14,29 +14,27 @@ fn test_mptp() -> anyhow::Result<()> {
     {
         "inbounds": [
             {
-                "protocol": "socks",
-                "address": "127.0.0.1",
-                "port": 1086
+                "type": "socks",
+                "listen": "127.0.0.1",
+                "listen_port": 1086
             }
         ],
         "outbounds": [
             {
-                "protocol": "mptp",
-                "settings": {
-                    "actors": [
-                        "direct1",
-                        "direct2"
-                    ],
-                    "address": "127.0.0.1",
-                    "port": 3001
-                }
+                "type": "mptp",
+                "outbounds": [
+                    "direct1",
+                    "direct2"
+                ],
+                "server": "127.0.0.1",
+                "server_port": 3001
             },
             {
-                "protocol": "direct",
+                "type": "direct",
                 "tag": "direct1"
             },
             {
-                "protocol": "direct",
+                "type": "direct",
                 "tag": "direct2"
             }
         ]
@@ -47,14 +45,14 @@ fn test_mptp() -> anyhow::Result<()> {
     {
         "inbounds": [
             {
-                "protocol": "mptp",
-                "address": "127.0.0.1",
-                "port": 3001
+                "type": "mptp",
+                "listen": "127.0.0.1",
+                "listen_port": 3001
             }
         ],
         "outbounds": [
             {
-                "protocol": "direct"
+                "type": "direct"
             }
         ]
     }

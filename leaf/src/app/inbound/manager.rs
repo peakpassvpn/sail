@@ -1,8 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use anyhow::Result;
-use protobuf::Message;
+use anyhow::{anyhow, Result};
 
 use crate::adapter::registry;
 use crate::adapter::AnyInboundHandler;
@@ -54,19 +53,26 @@ impl InboundManager {
         let mut tun_auto = false;
 
         for inbound in inbounds.iter() {
-            let tag = String::from(&inbound.tag);
+            let tag = inbound.tag.clone();
+            if include::LISTENER_INBOUNDS.contains(&inbound.protocol.as_str())
+                && (inbound.listen.is_some() || inbound.listen_port.is_some())
+            {
+                return Err(anyhow!(
+                    "[{}] inbound: a {} inbound does not listen on a port",
+                    tag,
+                    inbound.protocol
+                ));
+            }
             match inbound.protocol.as_str() {
                 #[cfg(feature = "inbound-tun")]
                 "tun" => {
+                    tun_auto = crate::protocol::tun::inbound::options(inbound)?.auto;
                     let listener = TunInboundListener {
                         inbound: inbound.clone(),
                         dispatcher: dispatcher.clone(),
                         nat_manager: nat_manager.clone(),
                     };
                     tun_listener.replace(listener);
-                    let settings =
-                        crate::config::TunInboundSettings::parse_from_bytes(&inbound.settings)?;
-                    tun_auto = settings.auto;
                 }
                 #[cfg(feature = "inbound-cat")]
                 "cat" => {
@@ -78,16 +84,21 @@ impl InboundManager {
                     cat_listener.replace(listener);
                 }
                 _ => {
-                    if let Some(h) = handlers.get(&tag) {
-                        let listener = NetworkInboundListener {
-                            address: inbound.address.clone(),
-                            port: inbound.port as u16,
-                            handler: h.clone(),
-                            dispatcher: dispatcher.clone(),
-                            nat_manager: nat_manager.clone(),
-                        };
-                        network_listeners.insert(tag.clone(), listener);
-                    }
+                    // Without a port an inbound is only a part of another.
+                    let Some(port) = inbound.listen_port else {
+                        continue;
+                    };
+                    let listener = NetworkInboundListener {
+                        address: inbound
+                            .listen
+                            .clone()
+                            .unwrap_or_else(|| "127.0.0.1".to_string()),
+                        port,
+                        handler: handlers[&tag].clone(),
+                        dispatcher: dispatcher.clone(),
+                        nat_manager: nat_manager.clone(),
+                    };
+                    network_listeners.insert(tag, listener);
                 }
             }
         }
