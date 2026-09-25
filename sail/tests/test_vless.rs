@@ -653,3 +653,102 @@ fn test_vless_inbound_tls_alpn_defaults_from_ws() -> anyhow::Result<()> {
     assert_eq!(alpn.as_deref(), Some("http/1.1"));
     Ok(())
 }
+
+/// Full cone, which XUDP is for: a packet to one address, and replies
+/// from it and from another address the destination hands ours to, each
+/// with the address it came from.
+fn full_cone(configs: Vec<String>, socks_port: u16) -> anyhow::Result<()> {
+    use sail::session::{Session, SocksAddr};
+    use tokio::time::timeout;
+
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    let ids = common::run_sail_instances(&rt, configs)?;
+    let result = rt.block_on(async {
+        let a = tokio::net::UdpSocket::bind("127.0.0.1:0").await?;
+        let b = tokio::net::UdpSocket::bind("127.0.0.1:0").await?;
+        let (a_addr, b_addr) = (a.local_addr()?, b.local_addr()?);
+        let servers = tokio::spawn(async move {
+            let mut buf = [0u8; 64];
+            let (n, from) = a.recv_from(&mut buf).await?;
+            a.send_to(&buf[..n], from).await?;
+            b.send_to(b"from b", from).await?;
+            Ok::<_, std::io::Error>(())
+        });
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        let sess = Session {
+            destination: SocksAddr::Ip(a_addr),
+            ..Default::default()
+        };
+        let dgram = common::new_socks_datagram("127.0.0.1", socks_port, &sess, None, None).await?;
+        let (mut r, mut w) = dgram.split();
+        w.send_to(b"to a", &sess.destination).await?;
+        let mut got = Vec::new();
+        for _ in 0..2 {
+            let mut buf = [0u8; 64];
+            let (n, from) = timeout(Duration::from_secs(2), r.recv_from(&mut buf))
+                .await
+                .map_err(|_| anyhow::anyhow!("full cone reply timed out"))??;
+            got.push((buf[..n].to_vec(), from));
+        }
+        got.sort_by_key(|(data, _)| data.clone());
+        anyhow::ensure!(
+            got == vec![
+                (b"from b".to_vec(), SocksAddr::Ip(b_addr)),
+                (b"to a".to_vec(), SocksAddr::Ip(a_addr)),
+            ],
+            "replies {:?}",
+            got
+        );
+        servers.await??;
+        Ok::<(), anyhow::Error>(())
+    });
+    for id in ids {
+        sail::shutdown(id);
+    }
+    result
+}
+
+#[test]
+fn test_vless_xudp_full_cone() -> anyhow::Result<()> {
+    let cert = Cert::new("cone")?;
+    let setup = Setup {
+        tls: false,
+        flow: "",
+        xudp: true,
+    };
+    full_cone(
+        vec![
+            sail_client(&cert, setup, 33028, 33029, UUID),
+            sail_server(&cert, setup, 33029),
+        ],
+        33028,
+    )
+}
+
+#[test]
+#[ignore = "needs sing-box"]
+fn test_vless_xudp_full_cone_sing_box() -> anyhow::Result<()> {
+    let cert = Cert::new("cone-sb")?;
+    // sail to sing-box.
+    let server = SingBox::run(
+        &cert,
+        "server",
+        sing_box_server(&cert, TLS_VISION, 33031),
+        33031,
+    )?;
+    full_cone(
+        vec![sail_client(&cert, TLS_VISION, 33030, 33031, UUID)],
+        33030,
+    )?;
+    drop(server);
+    // sing-box to sail.
+    let _client = SingBox::run(
+        &cert,
+        "client",
+        sing_box_client(&cert, TLS_XUDP, 33032, 33033),
+        33032,
+    )?;
+    full_cone(vec![sail_server(&cert, TLS_XUDP, 33033)], 33032)
+}
