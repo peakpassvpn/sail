@@ -238,12 +238,12 @@ fn block_errors_name_their_path() {
         err
     );
 
-    let err = manager(&[trojan(json!({ "transport": { "type": "grpc" } }))])
+    let err = manager(&[trojan(json!({ "transport": { "type": "kcp" } }))])
         .err()
         .unwrap();
     assert!(
         err.to_string()
-            .starts_with("[t] outbound: transport.type: unknown variant `grpc`"),
+            .starts_with("[t] outbound: transport.type: unknown variant `kcp`"),
         "{}",
         err
     );
