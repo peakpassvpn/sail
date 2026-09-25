@@ -55,6 +55,8 @@ A versatile and efficient proxy framework.
 
 ## Building
 
+TLS is BoringSSL, built from source: the build needs CMake and a C/C++ compiler (clang or gcc).
+
 ```sh
 cargo build -p leaf-cli --release
 ./target/debug/leaf --help

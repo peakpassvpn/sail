@@ -1,6 +1,6 @@
-//! A client TLS stream over rustls that can hand the transport over to XTLS
-//! Vision's direct copy: reading or writing the raw transport once Vision
-//! switches, which tokio-rustls cannot do.
+//! A TLS stream that can hand the transport over to XTLS Vision's direct copy:
+//! reading or writing the raw transport once Vision switches. It drives a
+//! connection without IO of its own: BoringSSL, or the REALITY fork of rustls.
 
 use std::io::{self, ErrorKind, IoSlice, Read, Write};
 use std::pin::Pin;
@@ -14,8 +14,8 @@ use crate::transport::vision::VisionState;
 /// Size of the ciphertext buffer used for exact reads; holds any record.
 const RX_SIZE: usize = 64 * 1024;
 
-/// The parts of a rustls client connection the stream drives. Implemented for
-/// rustls and for the REALITY fork of it.
+/// The parts of a TLS connection the stream drives, in the shape of a rustls
+/// connection. Implemented for BoringSSL and for the REALITY fork of rustls.
 pub trait TlsConnection: Unpin {
     fn is_handshaking(&self) -> bool;
     fn wants_read(&self) -> bool;
@@ -53,7 +53,9 @@ macro_rules! impl_tls_connection {
                 std::ops::DerefMut::deref_mut(self)
                     .process_new_packets()
                     .map(|_| ())
-                    .map_err(|e| io::Error::new(ErrorKind::InvalidData, format!("TLS Error: {}", e)))
+                    .map_err(|e| {
+                        io::Error::new(ErrorKind::InvalidData, format!("TLS Error: {}", e))
+                    })
             }
             fn read_plaintext(&mut self, buf: &mut [u8]) -> io::Result<usize> {
                 std::ops::DerefMut::deref_mut(self).reader().read(buf)
@@ -73,16 +75,14 @@ macro_rules! impl_tls_connection {
 
 #[cfg(feature = "outbound-reality")]
 impl_tls_connection!(reality_rustls::ClientConnection);
-#[cfg(all(feature = "outbound-tls", feature = "rustls-tls"))]
-impl_tls_connection!(tokio_rustls::rustls::ClientConnection);
 
-pub struct ClientTlsStream<C, S> {
+pub struct TlsStream<C, S> {
     conn: C,
     stream: S,
     vision: Option<VisionState>,
     read_raw: bool,
     write_raw: bool,
-    // Ciphertext read from the transport but not yet handed to rustls:
+    // Ciphertext read from the transport but not yet handed to the connection:
     // rx[rx_pos..rx_len]. Borrowed from the relay buffer pool while in use.
     rx: Option<Box<[u8]>>,
     rx_pos: usize,
@@ -134,7 +134,7 @@ struct TlsBridge<'a, 'b, S> {
     cx: &'a mut Context<'b>,
 }
 
-/// Lets rustls read the transport directly, keeping the record tracker in
+/// Lets the connection read the transport directly, keeping the record tracker in
 /// step with every byte it takes.
 struct TrackingReader<'a, 'b, S> {
     stream: Pin<&'a mut S>,
@@ -182,7 +182,7 @@ impl<S: AsyncWrite> Write for TlsBridge<'_, '_, S> {
         }
     }
 
-    // rustls hands over all queued records at once; pass them on as one writev.
+    // The connection hands over all queued records at once; pass them on as one writev.
     fn write_vectored(&mut self, bufs: &[IoSlice<'_>]) -> io::Result<usize> {
         match self.stream.as_mut().poll_write_vectored(self.cx, bufs) {
             Poll::Ready(Ok(n)) => Ok(n),
@@ -200,10 +200,10 @@ impl<S: AsyncWrite> Write for TlsBridge<'_, '_, S> {
     }
 }
 
-impl<C: TlsConnection, S: AsyncRead + AsyncWrite + Unpin> ClientTlsStream<C, S> {
-    /// Wraps a fresh client connection. With `vision`, the stream follows the
-    /// Vision state of the session and advertises that it can switch to raw
-    /// reads and writes.
+impl<C: TlsConnection, S: AsyncRead + AsyncWrite + Unpin> TlsStream<C, S> {
+    /// Wraps a fresh connection. With `vision`, the stream follows the Vision
+    /// state of the session and advertises that it can switch to raw reads and
+    /// writes.
     pub fn new(conn: C, stream: S, vision: Option<VisionState>) -> Self {
         if let Some(vision) = &vision {
             vision.set_raw_capable();
@@ -224,7 +224,9 @@ impl<C: TlsConnection, S: AsyncRead + AsyncWrite + Unpin> ClientTlsStream<C, S> 
     pub async fn handshake(&mut self) -> io::Result<()> {
         std::future::poll_fn(|cx| {
             let mut progress = false;
-            while self.conn.is_handshaking() {
+            // The last flight (the client's Finished) is written too: the peer
+            // may be waiting for it before it sends anything.
+            while self.conn.is_handshaking() || self.conn.wants_write() {
                 while self.conn.wants_write() {
                     let mut bridge = TlsBridge {
                         stream: Pin::new(&mut self.stream),
@@ -245,7 +247,7 @@ impl<C: TlsConnection, S: AsyncRead + AsyncWrite + Unpin> ClientTlsStream<C, S> 
                     }
                 }
 
-                if self.conn.wants_read() {
+                if self.conn.is_handshaking() && self.conn.wants_read() {
                     match self.pump_read(cx) {
                         Ok(false) => {}
                         Ok(true) => progress = true,
@@ -264,7 +266,7 @@ impl<C: TlsConnection, S: AsyncRead + AsyncWrite + Unpin> ClientTlsStream<C, S> 
                 }
                 progress = false;
             }
-            Poll::Ready(Ok(()))
+            Pin::new(&mut self.stream).poll_flush(cx)
         })
         .await
     }
@@ -314,7 +316,7 @@ impl<C: TlsConnection, S: AsyncRead + AsyncWrite + Unpin> ClientTlsStream<C, S> 
         }
     }
 
-    /// Hands buffered ciphertext to rustls and processes it.
+    /// Hands buffered ciphertext to the connection and processes it.
     fn feed_rx(&mut self) -> io::Result<()> {
         let rx = self.rx.as_deref().expect("rx holds unread ciphertext");
         let mut data = &rx[self.rx_pos..self.rx_len];
@@ -336,7 +338,7 @@ impl<C: TlsConnection, S: AsyncRead + AsyncWrite + Unpin> ClientTlsStream<C, S> 
             return Ok(false);
         }
         // Exact reads go through `rx` so they can stop at a record boundary;
-        // otherwise rustls reads the transport itself, saving a copy. Either
+        // otherwise the connection reads the transport itself, saving a copy. Either
         // way the tracker follows every record, so exact reads stay aligned
         // once Vision starts later in the connection.
         if self.exact() || self.rx_pos < self.rx_len {
@@ -400,7 +402,7 @@ impl<C: TlsConnection, S: AsyncRead + AsyncWrite + Unpin> ClientTlsStream<C, S> 
     }
 }
 
-impl<C, S> Drop for ClientTlsStream<C, S> {
+impl<C, S> Drop for TlsStream<C, S> {
     fn drop(&mut self) {
         if let Some(rx) = self.rx.take() {
             release_buffer(rx);
@@ -408,7 +410,7 @@ impl<C, S> Drop for ClientTlsStream<C, S> {
     }
 }
 
-impl<C: TlsConnection, S: AsyncRead + AsyncWrite + Unpin> AsyncRead for ClientTlsStream<C, S> {
+impl<C: TlsConnection, S: AsyncRead + AsyncWrite + Unpin> AsyncRead for TlsStream<C, S> {
     fn poll_read(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -434,14 +436,19 @@ impl<C: TlsConnection, S: AsyncRead + AsyncWrite + Unpin> AsyncRead for ClientTl
 
         let start = buf.filled().len();
         loop {
-            if let Ok(n) = this.conn.read_plaintext(buf.initialize_unfilled()) {
-                if n > 0 {
+            match this.conn.read_plaintext(buf.initialize_unfilled()) {
+                Ok(n) if n > 0 => {
                     buf.advance(n);
                     if buf.remaining() == 0 {
                         return Poll::Ready(Ok(()));
                     }
                     continue;
                 }
+                Ok(_) => {}
+                Err(e) if e.kind() == ErrorKind::WouldBlock => {}
+                // BoringSSL reports bad records here rather than while
+                // processing them.
+                Err(e) => return Poll::Ready(Err(e)),
             }
 
             // In exact mode stop after one record, so the VLESS layer sees a
@@ -473,7 +480,7 @@ impl<C: TlsConnection, S: AsyncRead + AsyncWrite + Unpin> AsyncRead for ClientTl
     }
 }
 
-impl<C: TlsConnection, S: AsyncRead + AsyncWrite + Unpin> AsyncWrite for ClientTlsStream<C, S> {
+impl<C: TlsConnection, S: AsyncRead + AsyncWrite + Unpin> AsyncWrite for TlsStream<C, S> {
     fn poll_write(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -488,7 +495,7 @@ impl<C: TlsConnection, S: AsyncRead + AsyncWrite + Unpin> AsyncWrite for ClientT
         }
         let mut pos = 0;
         loop {
-            // Drain what rustls already holds first, so a full send buffer
+            // Drain what the connection already holds first, so a full send buffer
             // turns into Pending (backpressure) instead of a zero-length write.
             if !this.pump_write(cx)? {
                 return if pos == 0 {
@@ -502,7 +509,7 @@ impl<C: TlsConnection, S: AsyncRead + AsyncWrite + Unpin> AsyncWrite for ClientT
             }
             let n = this.conn.write_plaintext(&buf[pos..])?;
             if n == 0 {
-                // Nothing queued, yet rustls takes nothing (e.g. after
+                // Nothing queued, yet the connection takes nothing (e.g. after
                 // close_notify).
                 return Poll::Ready(Err(io::Error::new(
                     ErrorKind::WriteZero,
@@ -548,28 +555,6 @@ impl<C: TlsConnection, S: AsyncRead + AsyncWrite + Unpin> AsyncWrite for ClientT
 #[cfg(test)]
 mod tests {
     use super::RecordTracker;
-
-    // Calls through the trait must reach rustls, not recurse into themselves.
-    #[cfg(all(feature = "outbound-tls", feature = "rustls-tls"))]
-    #[test]
-    fn test_tls_connection_impl_reaches_rustls() {
-        use super::TlsConnection;
-        use std::sync::Arc;
-        use tokio_rustls::rustls::{ClientConfig, ClientConnection, RootCertStore};
-
-        let config = ClientConfig::builder()
-            .with_root_certificates(RootCertStore::empty())
-            .with_no_client_auth();
-        let mut conn =
-            ClientConnection::new(Arc::new(config), "example.com".try_into().unwrap()).unwrap();
-        assert!(TlsConnection::is_handshaking(&conn));
-        assert!(TlsConnection::wants_write(&conn)); // the ClientHello
-        let mut out = vec![];
-        assert!(TlsConnection::write_tls(&mut conn, &mut out).unwrap() > 0);
-        assert_eq!(out[0], 0x16);
-        TlsConnection::process_new_packets(&mut conn).unwrap();
-        TlsConnection::send_close_notify(&mut conn);
-    }
 
     fn record(len: usize) -> Vec<u8> {
         let mut r = vec![0x17, 0x03, 0x03, (len >> 8) as u8, len as u8];

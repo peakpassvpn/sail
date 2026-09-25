@@ -87,7 +87,6 @@ async fn single_health_check(
                         String::from(""),
                         vec![],
                         None,
-                        None,
                         false,
                         false,
                         false,

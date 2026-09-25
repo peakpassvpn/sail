@@ -19,7 +19,8 @@ setup_env() {
         release_flag=
     fi
 
-    export IPHONEOS_DEPLOYMENT_TARGET=10.0
+    # BoringSSL needs iOS 13 (___chkstk_darwin).
+    export IPHONEOS_DEPLOYMENT_TARGET=13.0
     export MACOSX_DEPLOYMENT_TARGET=10.12
     
     # Output directories

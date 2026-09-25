@@ -22,23 +22,6 @@ use tokio::sync::Mutex as TokioMutex;
 use tokio::time::timeout;
 use tracing::{debug, trace, Instrument};
 
-#[cfg(feature = "rustls-tls")]
-use {
-    std::sync::Arc as SyncArc,
-    tokio_rustls::{
-        rustls::{pki_types::ServerName, ClientConfig, RootCertStore},
-        TlsConnector,
-    },
-};
-
-#[cfg(all(not(feature = "rustls-tls"), feature = "openssl-tls"))]
-use {
-    futures::TryFutureExt,
-    openssl::ssl::{Ssl, SslConnector, SslMethod},
-    std::pin::Pin,
-    tokio_openssl::SslStream,
-};
-
 use crate::{
     adapter::*, app::dispatcher::Dispatcher, config::model::DnsStrategy, net::*, session::*,
 };
@@ -171,42 +154,23 @@ impl DnsClient {
         Err(anyhow!("no dispatcher"))
     }
 
-    #[cfg(feature = "rustls-tls")]
+    #[cfg(feature = "tls")]
     async fn wrap_doh_tls_stream(stream: AnyStream, server_name: &str) -> Result<AnyStream> {
-        let mut roots = RootCertStore::empty();
-        roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-        let config = ClientConfig::builder()
-            .with_root_certificates(roots)
-            .with_no_client_auth();
-        let connector = TlsConnector::from(SyncArc::new(config));
-        let domain = ServerName::try_from(server_name.to_owned())
-            .map_err(|e| anyhow!("invalid tls server name {}: {}", server_name, e))?;
-        let tls_stream = connector
-            .connect(domain, stream)
+        use crate::transport::tls::TlsClient;
+        static CLIENT: std::sync::OnceLock<std::result::Result<TlsClient, String>> =
+            std::sync::OnceLock::new();
+        let client = CLIENT
+            .get_or_init(|| TlsClient::new(&[], None, false).map_err(|e| e.to_string()))
+            .as_ref()
+            .map_err(|e| anyhow!("tls client: {}", e))?;
+        let tls_stream = client
+            .connect(server_name, stream, None, None)
             .await
             .map_err(|e| anyhow!("connect tls failed: {}", e))?;
         Ok(Box::new(tls_stream))
     }
 
-    #[cfg(all(not(feature = "rustls-tls"), feature = "openssl-tls"))]
-    async fn wrap_doh_tls_stream(stream: AnyStream, server_name: &str) -> Result<AnyStream> {
-        let ssl_connector = SslConnector::builder(SslMethod::tls())
-            .map_err(|e| anyhow!("create ssl connector failed: {}", e))?
-            .build();
-        let mut ssl =
-            Ssl::new(ssl_connector.context()).map_err(|e| anyhow!("new ssl failed: {}", e))?;
-        ssl.set_hostname(server_name)
-            .map_err(|e| anyhow!("set tls name failed: {}", e))?;
-        let mut stream =
-            SslStream::new(ssl, stream).map_err(|e| anyhow!("new ssl stream failed: {}", e))?;
-        Pin::new(&mut stream)
-            .connect()
-            .map_err(|e| anyhow!("connect ssl stream failed: {}", e))
-            .await?;
-        Ok(Box::new(stream))
-    }
-
-    #[cfg(not(any(feature = "rustls-tls", feature = "openssl-tls")))]
+    #[cfg(not(feature = "tls"))]
     async fn wrap_doh_tls_stream(_stream: AnyStream, _server_name: &str) -> Result<AnyStream> {
         Err(anyhow!("no tls backend available"))
     }

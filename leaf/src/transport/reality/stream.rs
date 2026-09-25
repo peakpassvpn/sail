@@ -4,7 +4,7 @@ use reality_rustls::pki_types::ServerName;
 use reality_rustls::{ClientConfig, ClientConnection};
 use std::sync::Arc;
 
-use crate::transport::tls_stream::ClientTlsStream;
+use crate::transport::tls_stream::TlsStream;
 
 #[derive(Debug)]
 struct DebugVerifier(Arc<dyn reality_rustls::client::danger::ServerCertVerifier>);
@@ -93,4 +93,4 @@ pub fn build_rustls_config(
 
 /// A REALITY client stream: the generic client TLS stream over the REALITY
 /// fork of rustls.
-pub type RealityStream<S> = ClientTlsStream<ClientConnection, S>;
+pub type RealityStream<S> = TlsStream<ClientConnection, S>;
