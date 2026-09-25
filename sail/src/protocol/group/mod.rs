@@ -5,7 +5,9 @@ pub mod chain;
 #[cfg(feature = "outbound-failover")]
 pub mod failover;
 #[cfg(feature = "outbound-select")]
-pub mod select;
+mod interrupt;
+#[cfg(feature = "outbound-select")]
+pub mod selector;
 #[cfg(feature = "outbound-static")]
 pub mod r#static;
 #[cfg(feature = "outbound-tryall")]

@@ -64,7 +64,7 @@ all-endpoints = [
     "outbound-hysteria2",
     "outbound-tuic",
     "outbound-anytls",
-    # "outbound-select",
+    "outbound-select",
 ]
 
 # BoringSSL, through btls, is the only crypto library: TLS over TCP and
@@ -105,7 +105,9 @@ outbound-reality = ["tls", "hkdf", "sha2", "hmac", "aes-gcm", "hex", "base64"]
 outbound-amux= ["tokio-util"]
 outbound-quic = ["quic"]
 outbound-mptp = []
-outbound-select = ["directories", "axum/query"]
+# The API's select routes read their query string; without the API, the
+# selector needs nothing more.
+outbound-select = ["axum?/query"]
 outbound-vmess = ["aead", "lz_fnv", "cfb-mode", "hmac", "sha2", "aes", "aes-gcm", "sha3", "digest", "md-5", "tokio-util", "byteorder", "crc32fast"]
 
 # Inbounds
@@ -165,9 +167,6 @@ maxminddb = { version = "0.24", features = ["mmap"] }
 memmap2 = "0.9"
 cidr = "0.2"
 regex = { version = "1.11", optional = true }
-
-# outbound-select
-directories = { version = "4.0", optional = true }
 
 # plugin
 async-ffi = { version = "0.2", optional = true }
