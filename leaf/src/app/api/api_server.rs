@@ -78,6 +78,7 @@ mod models {
 
 mod handlers {
     use super::*;
+    use crate::session::SniffedFrom;
 
     #[cfg(feature = "outbound-select")]
     pub async fn select_update(
@@ -170,6 +171,10 @@ mod handlers {
         changed(rm.remove_inbound(&tag).await)
     }
 
+    fn sniffed(sess: &crate::session::Session, from: SniffedFrom) -> Option<String> {
+        sess.sniffed_domain_from(from).map(String::from)
+    }
+
     /// A change made, or why it was not.
     fn changed(result: Result<(), crate::Error>) -> (StatusCode, String) {
         match result {
@@ -199,7 +204,7 @@ mod handlers {
                 network: c.sess.network.to_string(),
                 inbound_tag: c.sess.inbound_tag.to_owned(),
                 inbound_type: c.sess.inbound_type.to_owned(),
-                user: c.sess.user.clone(),
+                user: c.sess.user.as_deref().map(String::from),
                 forwarded_source: c.sess.forwarded_source.map(|x| x.to_string()),
                 source: c.sess.source.to_string(),
                 destination: c.sess.destination.to_string(),
@@ -209,9 +214,9 @@ mod handlers {
                 send_completed: c.send_completed(),
                 recv_completed: c.recv_completed(),
                 start_time: c.start_time(),
-                dns_sniffed_domain: c.sess.dns_sniffed_domain.clone(),
-                tls_sniffed_domain: c.sess.tls_sniffed_domain.clone(),
-                http_sniffed_domain: c.sess.http_sniffed_domain.clone(),
+                dns_sniffed_domain: sniffed(&c.sess, SniffedFrom::Dns),
+                tls_sniffed_domain: sniffed(&c.sess, SniffedFrom::Tls),
+                http_sniffed_domain: sniffed(&c.sess, SniffedFrom::Http),
             });
         }
         Ok(Json(stats))
@@ -228,7 +233,7 @@ mod handlers {
                 network: c.sess.network.to_string(),
                 inbound_tag: c.sess.inbound_tag.to_owned(),
                 inbound_type: c.sess.inbound_type.to_owned(),
-                user: c.sess.user.clone(),
+                user: c.sess.user.as_deref().map(String::from),
                 forwarded_source: c.sess.forwarded_source.map(|x| x.to_string()),
                 source: c.sess.source.to_string(),
                 destination: c.sess.destination.to_string(),
@@ -238,9 +243,9 @@ mod handlers {
                 send_completed: c.send_completed(),
                 recv_completed: c.recv_completed(),
                 start_time: c.start_time(),
-                dns_sniffed_domain: c.sess.dns_sniffed_domain.clone(),
-                tls_sniffed_domain: c.sess.tls_sniffed_domain.clone(),
-                http_sniffed_domain: c.sess.http_sniffed_domain.clone(),
+                dns_sniffed_domain: sniffed(&c.sess, SniffedFrom::Dns),
+                tls_sniffed_domain: sniffed(&c.sess, SniffedFrom::Tls),
+                http_sniffed_domain: sniffed(&c.sess, SniffedFrom::Http),
             });
         }
         Ok(Json(stats))

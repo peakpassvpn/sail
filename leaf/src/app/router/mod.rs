@@ -233,7 +233,7 @@ mod tests {
         async fn sniff(&mut self, sess: &mut Session, action: &SniffAction) -> io::Result<()> {
             self.calls += 1;
             if action.tls {
-                sess.tls_sniffed_domain = Some(self.domain.to_string());
+                sess.set_sniffed_domain(crate::session::SniffedFrom::Tls, self.domain.to_string());
             }
             Ok(())
         }
@@ -261,7 +261,7 @@ mod tests {
         let decision = router.pick_route(&mut sess, &mut sniffer).await.unwrap();
         assert_eq!(decision, Decision::Route(Some("a".into())));
         assert_eq!(sniffer.calls, 1);
-        assert_eq!(sess.tls_sniffed_domain.as_deref(), Some("www.example.com"));
+        assert_eq!(sess.sniffed_domain(), Some("www.example.com"));
     }
 
     #[tokio::test]

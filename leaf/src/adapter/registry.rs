@@ -41,6 +41,13 @@ impl<F> Registry<F> {
         }
     }
 
+    /// `protocol` as it was registered, if it was.
+    pub fn name(&self, protocol: &str) -> Option<&'static str> {
+        self.factories
+            .get_key_value(protocol)
+            .map(|(name, _)| *name)
+    }
+
     pub fn get(&self, protocol: &str) -> Option<&F> {
         self.factories.get(protocol)
     }

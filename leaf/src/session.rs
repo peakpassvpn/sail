@@ -77,6 +77,17 @@ impl std::fmt::Display for DatagramSource {
     }
 }
 
+/// Where a sniffed domain came from, in rising order of precedence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum SniffedFrom {
+    /// The DNS answers seen for the destination address.
+    Dns,
+    /// The HTTP Host header.
+    Http,
+    /// The TLS server name.
+    Tls,
+}
+
 /// State the layers of one connection share, by type: one layer sets it,
 /// another reads it, as the VLESS stream and the TLS stream beneath it
 /// share XTLS Vision. The clones of a session share it too.
@@ -136,18 +147,15 @@ pub struct Session {
     /// Instructs a multiplexed transport should creates a new underlying
     /// connection for this session, and it will be used only once.
     pub new_conn_once: bool,
-    /// The sniffed domain name from TLS SNI.
-    pub tls_sniffed_domain: Option<String>,
-    /// The sniffed domain name from HTTP Host.
-    pub http_sniffed_domain: Option<String>,
-    /// The sniffed domain name if the destination is an IP address.
-    pub dns_sniffed_domain: Option<String>,
+    /// The domain sniffing found, and where; only the one from the source
+    /// that takes precedence is kept.
+    pub sniffed: Option<(SniffedFrom, String)>,
     /// State the layers of this connection share.
     pub state: ConnectionState,
     /// The protocol of the inbound this session came in through.
-    pub inbound_type: String,
+    pub inbound_type: &'static str,
     /// The user the inbound authenticated, by name.
-    pub user: Option<String>,
+    pub user: Option<std::sync::Arc<str>>,
     /// Skip domain resolution during routing.
     pub skip_resolve: bool,
 }
@@ -166,11 +174,9 @@ impl Clone for Session {
             forwarded_source: self.forwarded_source,
             process_name: self.process_name.clone(),
             new_conn_once: self.new_conn_once,
-            tls_sniffed_domain: self.tls_sniffed_domain.clone(),
-            http_sniffed_domain: self.http_sniffed_domain.clone(),
-            dns_sniffed_domain: self.dns_sniffed_domain.clone(),
+            sniffed: self.sniffed.clone(),
             state: self.state.clone(),
-            inbound_type: self.inbound_type.clone(),
+            inbound_type: self.inbound_type,
             user: self.user.clone(),
             skip_resolve: self.skip_resolve,
         }
@@ -194,11 +200,9 @@ impl Default for Session {
             forwarded_source: None,
             process_name: None,
             new_conn_once: false,
-            tls_sniffed_domain: None,
-            http_sniffed_domain: None,
-            dns_sniffed_domain: None,
+            sniffed: None,
             state: ConnectionState::default(),
-            inbound_type: String::new(),
+            inbound_type: "",
             user: None,
             skip_resolve: false,
         }
@@ -230,13 +234,29 @@ impl Session {
         self.span.clone()
     }
 
-    /// The domain sniffing found, if any: from TLS, else HTTP, else DNS
-    /// answers.
+    /// The domain sniffing found, if any.
     pub fn sniffed_domain(&self) -> Option<&str> {
-        self.tls_sniffed_domain
-            .as_deref()
-            .or(self.http_sniffed_domain.as_deref())
-            .or(self.dns_sniffed_domain.as_deref())
+        self.sniffed.as_ref().map(|(_, domain)| domain.as_str())
+    }
+
+    /// The sniffed domain, if it came from `from`.
+    pub fn sniffed_domain_from(&self, from: SniffedFrom) -> Option<&str> {
+        match &self.sniffed {
+            Some((source, domain)) if *source == from => Some(domain),
+            _ => None,
+        }
+    }
+
+    /// Records a sniffed domain, unless one from a source that takes
+    /// precedence is known already.
+    pub fn set_sniffed_domain(&mut self, from: SniffedFrom, domain: String) {
+        if self
+            .sniffed
+            .as_ref()
+            .is_none_or(|(known, _)| *known <= from)
+        {
+            self.sniffed = Some((from, domain));
+        }
     }
 }
 

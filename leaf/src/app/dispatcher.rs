@@ -91,8 +91,8 @@ where
             }
         }
         match kind {
-            sniff::SniffKind::Tls => sess.tls_sniffed_domain = Some(domain),
-            sniff::SniffKind::Http => sess.http_sniffed_domain = Some(domain),
+            sniff::SniffKind::Tls => sess.set_sniffed_domain(SniffedFrom::Tls, domain),
+            sniff::SniffKind::Http => sess.set_sniffed_domain(SniffedFrom::Http, domain),
         }
         Ok(())
     }
@@ -199,7 +199,7 @@ pub struct Dispatcher {
     dns_sniffer: DnsSniffer,
     env: crate::runtime::SyncRuntimeEnv,
     /// The protocol of each inbound, by tag.
-    inbound_types: std::sync::RwLock<std::collections::HashMap<String, String>>,
+    inbound_types: std::sync::RwLock<std::collections::HashMap<String, &'static str>>,
 }
 
 impl Dispatcher {
@@ -224,8 +224,8 @@ impl Dispatcher {
     /// Records the protocol of the inbound `tag`, or forgets the inbound.
     pub fn set_inbound_type(&self, tag: &str, protocol: Option<&str>) {
         let mut types = self.inbound_types.write().unwrap();
-        match protocol {
-            Some(protocol) => types.insert(tag.to_string(), protocol.to_string()),
+        match protocol.and_then(crate::include::inbound_protocol) {
+            Some(protocol) => types.insert(tag.to_string(), protocol),
             None => types.remove(tag),
         };
     }
@@ -234,7 +234,7 @@ impl Dispatcher {
     fn identify_inbound(&self, sess: &mut Session) {
         if sess.inbound_type.is_empty() {
             if let Some(protocol) = self.inbound_types.read().unwrap().get(&sess.inbound_tag) {
-                sess.inbound_type = protocol.clone();
+                sess.inbound_type = protocol;
             }
         }
     }
@@ -252,38 +252,17 @@ impl Dispatcher {
         self.dispatch_stream_inner(sess, lhs).instrument(span).await
     }
 
-    async fn dispatch_stream_inner<T>(&self, mut sess: Session, mut lhs: T)
+    async fn dispatch_stream_inner<T>(&self, sess: Session, lhs: T)
     where
         T: 'static + AsyncRead + AsyncWrite + Unpin + Send + Sync,
     {
-        debug!(
-            "dispatch proto={} in={} src={} dst={}",
-            &sess.network, &sess.inbound_tag, &sess.source, &sess.destination
-        );
-
-        if let Some(domain) = sess.destination.domain() {
-            if domain == "healthcheck.leaf" {
-                if let Err(e) = healthcheck_respond_simple(&mut lhs).await {
-                    debug!("healthcheck response failed: {}", e);
-                }
-                return;
-            }
-        }
-
-        self.identify_inbound(&mut sess);
-        self.reverse_map(&mut sess).await;
-        let mut sniffer = StreamSniffer::new(lhs);
-        let outbound = match self.route(&mut sess, &mut sniffer).await {
-            Ok(tag) => tag,
-            Err(e) => {
-                debug!(
-                    "route src={} dst={}: {}",
-                    &sess.source, &sess.destination, e
-                );
-                return;
-            }
+        // Routing, which may sniff and resolve, runs in a future of its own
+        // that is freed once it decides: the one relaying for the life of
+        // the connection does not keep room for it.
+        let Some((mut sess, outbound, mut lhs)) = Box::pin(self.route_stream(sess, lhs)).await
+        else {
+            return;
         };
-        let mut lhs = sniffer.into_stream();
 
         sess.outbound_tag = outbound.clone();
 
@@ -461,6 +440,45 @@ impl Dispatcher {
         }
     }
 
+    /// Where the connection `lhs` goes, with the session and the stream as
+    /// routing left them; `None` when it goes nowhere.
+    async fn route_stream<T>(
+        &self,
+        mut sess: Session,
+        mut lhs: T,
+    ) -> Option<(Session, String, Box<dyn ProxyStream>)>
+    where
+        T: 'static + AsyncRead + AsyncWrite + Unpin + Send + Sync,
+    {
+        debug!(
+            "dispatch proto={} in={} src={} dst={}",
+            &sess.network, &sess.inbound_tag, &sess.source, &sess.destination
+        );
+
+        if let Some(domain) = sess.destination.domain() {
+            if domain == "healthcheck.leaf" {
+                if let Err(e) = healthcheck_respond_simple(&mut lhs).await {
+                    debug!("healthcheck response failed: {}", e);
+                }
+                return None;
+            }
+        }
+
+        self.identify_inbound(&mut sess);
+        self.reverse_map(&mut sess).await;
+        let mut sniffer = StreamSniffer::new(lhs);
+        match self.route(&mut sess, &mut sniffer).await {
+            Ok(tag) => Some((sess, tag, sniffer.into_stream())),
+            Err(e) => {
+                debug!(
+                    "route src={} dst={}: {}",
+                    &sess.source, &sess.destination, e
+                );
+                None
+            }
+        }
+    }
+
     /// With `dns.reverse_mapping`, takes the domain of an address from the
     /// DNS answers seen, and says whether it is on.
     async fn reverse_map(&self, sess: &mut Session) -> bool {
@@ -470,7 +488,7 @@ impl Dispatcher {
         if let Some(ip) = sess.destination.ip() {
             if let Some(domain) = self.dns_sniffer.get(&ip).await {
                 debug!("dns reverse mapped domain={}", &domain);
-                sess.dns_sniffed_domain = Some(domain);
+                sess.set_sniffed_domain(SniffedFrom::Dns, domain);
             }
         }
         true

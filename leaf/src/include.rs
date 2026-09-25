@@ -79,3 +79,11 @@ pub(crate) static INBOUNDS: LazyLock<InboundRegistry> = LazyLock::new(|| {
 
     registry
 });
+
+/// The inbound protocol `protocol`, as registered, or as a listener
+/// inbound, if it is either.
+pub(crate) fn inbound_protocol(protocol: &str) -> Option<&'static str> {
+    INBOUNDS
+        .name(protocol)
+        .or_else(|| LISTENER_INBOUNDS.iter().copied().find(|p| *p == protocol))
+}

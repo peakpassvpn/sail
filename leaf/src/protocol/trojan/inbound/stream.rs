@@ -115,7 +115,7 @@ where
 
 pub struct Handler {
     /// The users by the key their password makes, with their names.
-    keys: HashMap<Vec<u8>, Option<String>>,
+    keys: HashMap<Vec<u8>, Option<std::sync::Arc<str>>>,
 }
 
 impl Handler {
@@ -125,7 +125,7 @@ impl Handler {
         for (pass, name) in users {
             let key = Sha224::digest(pass.as_bytes());
             let key = hex::encode(&key[..]);
-            keys.insert(key.as_bytes().to_vec(), name);
+            keys.insert(key.as_bytes().to_vec(), name.map(Into::into));
         }
         Handler { keys }
     }

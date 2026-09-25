@@ -27,7 +27,7 @@ pub(super) struct Facts {
     port: u16,
     network: Network,
     inbound: String,
-    user: Option<String>,
+    user: Option<std::sync::Arc<str>>,
     #[cfg_attr(not(feature = "rule-process-name"), allow(dead_code))]
     process_name: Option<String>,
 }
@@ -315,7 +315,7 @@ impl Matcher {
             && !facts
                 .user
                 .as_ref()
-                .is_some_and(|user| self.users.contains(user))
+                .is_some_and(|user| self.users.iter().any(|u| **u == **user))
         {
             return false;
         }
