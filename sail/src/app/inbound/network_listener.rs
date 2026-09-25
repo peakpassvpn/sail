@@ -35,7 +35,7 @@ pub fn get_network_listen_addr(tag: &str, kind: Network) -> Option<SocketAddr> {
 
 // Handle an inbound datagram, which is similar to a UDP socket, managed by NAT
 // manager.
-async fn handle_inbound_datagram(
+pub(super) async fn handle_inbound_datagram(
     inbound_tag: String,
     socket: Box<dyn InboundDatagram>,
     sess: Option<Session>,
@@ -122,10 +122,15 @@ async fn handle_inbound_transport(
         // A reliable transport.
         InboundTransport::Stream(stream, sess) => {
             let span = sess.span();
-            dispatcher
-                .dispatch_stream(sess, stream)
-                .instrument(span)
-                .await;
+            super::magic::serve_stream(
+                sess,
+                stream,
+                handler.tag().clone(),
+                dispatcher,
+                nat_manager,
+            )
+            .instrument(span)
+            .await;
         }
         // An unreliable transport.
         InboundTransport::Datagram(socket, sess) => {
@@ -143,11 +148,18 @@ async fn handle_inbound_transport(
             while let Some(transport) = incoming.next().await {
                 match transport {
                     BaseInboundTransport::Stream(stream, mut sess) => {
-                        let dispatcher_cloned = dispatcher.clone();
                         sess.inbound_tag = handler.tag().clone();
-                        tokio::spawn(async move {
-                            dispatcher_cloned.dispatch_stream(sess, stream).await
-                        });
+                        let span = sess.span();
+                        tokio::spawn(
+                            super::magic::serve_stream(
+                                sess,
+                                stream,
+                                handler.tag().clone(),
+                                dispatcher.clone(),
+                                nat_manager.clone(),
+                            )
+                            .instrument(span),
+                        );
                     }
                     BaseInboundTransport::Datagram(socket, sess) => {
                         tokio::spawn(handle_inbound_datagram(

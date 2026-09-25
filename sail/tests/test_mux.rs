@@ -1,7 +1,7 @@
 //! sing-box's multiplex (sing-mux): smux, yamux and h2mux, with and without
 //! padding, over Trojan (with TLS) and Shadowsocks 2022, TCP and UDP.
 //!
-//! Every case runs against sing-box.
+//! Every case runs between sail instances, and against sing-box both ways.
 //! A counting TCP forwarder in front of each server shows how many mux
 //! connections a client made. The sing-box tests need
 //! `/opt/homebrew/bin/sing-box` (or `SING_BOX`) and are ignored by default:
@@ -385,7 +385,67 @@ fn sail_client(ports: &Ports, certs: &Certs) -> String {
     .to_string()
 }
 
-/// A Trojan and a Shadowsocks server, which serve sing-mux like any other
+/// Trojan and Shadowsocks servers, which serve sing-mux like any other
+/// inbound does.
+fn sail_server(ports: &Ports, certs: &Certs) -> String {
+    let inbounds: Vec<Value> = [0, ports.padded() - ports.base]
+        .into_iter()
+        .flat_map(|offset| sail_server_inbounds(ports, certs, offset))
+        .collect();
+    let ss: Vec<String> = [0, ports.padded() - ports.base]
+        .into_iter()
+        .map(|offset| format!("ss-{}", offset))
+        .collect();
+    // Trojan's streams only get through as alice: the user of a mux
+    // connection has to reach routing with each of its streams.
+    json!({
+        "inbounds": inbounds,
+        "outbounds": [
+            { "type": "direct", "tag": "direct" },
+            { "type": "block", "tag": "block" },
+        ],
+        "route": {
+            "rules": [
+                { "auth_user": ["alice"], "outbound": "direct" },
+                { "inbound": ss, "outbound": "direct" },
+            ],
+            "final": "block",
+        },
+    })
+    .to_string()
+}
+
+fn sail_server_inbounds(ports: &Ports, certs: &Certs, offset: u16) -> Vec<Value> {
+    serde_json::from_value(json!(
+        [
+            {
+                "type": "trojan",
+                "tag": format!("trojan-{}", offset),
+                "listen": "127.0.0.1",
+                "listen_port": ports.trojan() + offset,
+                "users": [
+                    { "name": "alice", "password": PASSWORD },
+                    { "name": "bob", "password": "bob-password" },
+                ],
+                "tls": {
+                    "enabled": true,
+                    "certificate_path": certs.cert,
+                    "key_path": certs.key,
+                },
+            },
+            {
+                "type": "shadowsocks",
+                "tag": format!("ss-{}", offset),
+                "listen": "127.0.0.1",
+                "listen_port": ports.shadowsocks() + offset,
+                "method": SS_METHOD,
+                "password": SS_KEY,
+            },
+        ]
+    ))
+    .unwrap_or_default()
+}
+
 fn runtime() -> anyhow::Result<tokio::runtime::Runtime> {
     Ok(tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -445,6 +505,59 @@ fn sing_box_server_inbounds(ports: &Ports, certs: &Certs, padding: bool) -> Vec<
 }
 
 /// sing-box's client, limited as sail's is by default: up to 4
+/// connections, a new one while the least busy carries 4 streams.
+fn sing_box_client(ports: &Ports, certs: &Certs) -> Value {
+    let mut inbounds = Vec::new();
+    let mut outbounds = Vec::new();
+    let mut rules = Vec::new();
+    for (i, case) in cases().iter().enumerate() {
+        inbounds.push(json!({
+            "type": "mixed",
+            "tag": format!("in-{}", i),
+            "listen": "127.0.0.1",
+            "listen_port": ports.socks(i),
+        }));
+        let multiplex = json!({
+            "enabled": true,
+            "protocol": case.protocol,
+            "padding": case.padding,
+            "max_connections": 4,
+            "min_streams": 4,
+        });
+        outbounds.push(match case.carrier {
+            Carrier::Trojan => json!({
+                "type": "trojan",
+                "tag": format!("out-{}", i),
+                "server": "127.0.0.1",
+                "server_port": ports.forwarder(i),
+                "password": PASSWORD,
+                "tls": {
+                    "enabled": true,
+                    "server_name": "localhost",
+                    "certificate_path": certs.cert,
+                },
+                "multiplex": multiplex,
+            }),
+            Carrier::Shadowsocks => json!({
+                "type": "shadowsocks",
+                "tag": format!("out-{}", i),
+                "server": "127.0.0.1",
+                "server_port": ports.forwarder(i),
+                "method": SS_METHOD,
+                "password": SS_KEY,
+                "multiplex": multiplex,
+            }),
+        });
+        rules.push(json!({ "inbound": [format!("in-{}", i)], "outbound": format!("out-{}", i) }));
+    }
+    json!({
+        "log": { "level": "warn" },
+        "inbounds": inbounds,
+        "outbounds": outbounds,
+        "route": { "rules": rules },
+    })
+}
+
 // app(socks) -> sail(trojan|ss + mux) -> forwarder -> sing-box -> echo
 #[test]
 #[ignore = "needs sing-box"]
@@ -459,6 +572,42 @@ fn test_mux_sail_to_sing_box() -> anyhow::Result<()> {
     let rt = runtime()?;
     let ids = common::run_sail_instances(&rt, vec![sail_client(&ports, &certs)])?;
     let result = run_cases(&rt, &ports, 4);
+    for id in ids {
+        sail::shutdown(id);
+    }
+    result
+}
+
+// app(socks) -> sail(trojan|ss + mux) -> forwarder -> sail -> echo
+#[test]
+fn test_mux_sail_to_sail() -> anyhow::Result<()> {
+    let ports = Ports { base: 32960 };
+    let certs = certs("sail")?;
+    let rt = runtime()?;
+    let ids = common::run_sail_instances(
+        &rt,
+        vec![sail_server(&ports, &certs), sail_client(&ports, &certs)],
+    )?;
+    let result = run_cases(&rt, &ports, 4);
+    for id in ids {
+        sail::shutdown(id);
+    }
+    result
+}
+
+// app(socks) -> sing-box(trojan|ss + mux) -> forwarder -> sail -> echo
+#[test]
+#[ignore = "needs sing-box"]
+fn test_mux_sing_box_to_sail() -> anyhow::Result<()> {
+    let ports = Ports { base: 32930 };
+    let certs = certs("from-sing-box")?;
+    let rt = runtime()?;
+    let ids = common::run_sail_instances(&rt, vec![sail_server(&ports, &certs)])?;
+    let result = (|| {
+        let last = ports.socks(cases().len() - 1);
+        let _sing_box = run_sing_box("client", &sing_box_client(&ports, &certs), last)?;
+        run_cases(&rt, &ports, 4)
+    })();
     for id in ids {
         sail::shutdown(id);
     }
