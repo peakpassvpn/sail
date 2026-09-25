@@ -634,11 +634,11 @@ fn quic_outbound(
                 tls.server_name.clone(),
                 tls.alpn.clone().map(Listable::into_vec).unwrap_or_default(),
                 trusted_certificate(tls, env),
-                None,
                 dns_client.clone(),
                 dial.clone(),
                 &env.options.quic,
-            ),
+            )
+            .map_err(|e| anyhow!("[{}] outbound: transport quic: {}", tag, e))?,
         ))
         .build());
     #[cfg(not(feature = "outbound-quic"))]

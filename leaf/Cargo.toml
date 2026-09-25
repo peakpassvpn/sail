@@ -11,33 +11,10 @@ path = "src/lib.rs"
 
 [features]
 default = [
-    "default-aws-lc"
-]
-
-default-ring = [
     "all-configs",
     "all-endpoints",
-    "ring-aead",
-    "rustls-tls-ring",
-    "quinn-ring",
     "api",
 ]
-
-default-aws-lc = [
-    "all-configs",
-    "all-endpoints",
-    "aws-lc-aead",
-    "rustls-tls-aws-lc",
-    "quinn-aws-lc",
-    "api",
-]
-
-# The rustls crypto provider, for QUIC until it moves to BoringSSL too.
-rustls-tls-aws-lc = ["rustls/aws_lc_rs"]
-rustls-tls-ring = ["rustls/ring"]
-
-quinn-ring = ["quinn/rustls-ring", "quinn/runtime-tokio"]
-quinn-aws-lc = ["quinn/rustls-aws-lc-rs", "quinn/runtime-tokio"]
 
 # Grouping all features
 all-configs = [
@@ -81,11 +58,10 @@ all-endpoints = [
     # "outbound-select",
 ]
 
-# Ring-related
-ring-aead = ["ring"]
-aws-lc-aead = ["aws-lc-rs"]
-
-# TLS over TCP: BoringSSL, through btls.
+# BoringSSL, through btls, is the only crypto library: TLS over TCP and
+# QUIC, and the AEADs of Shadowsocks and VMess.
+aead = ["btls"]
+quic = ["tls", "quinn", "quinn-btls"]
 tls = ["btls", "btls-sys", "brotli-decompressor", "foreign-types", "sha2", "webpki-root-certs"]
 
 # Config formats
@@ -98,7 +74,7 @@ rule-process-name = ["regex"]
 outbound-direct = []
 outbound-drop = []
 outbound-redirect = []
-outbound-shadowsocks = ["hkdf", "sha-1", "md-5", "percent-encoding", "tokio-util"]
+outbound-shadowsocks = ["aead", "hkdf", "sha-1", "md-5", "percent-encoding", "tokio-util"]
 outbound-obfs = ["base64", "memchr"]
 outbound-socks = ["async-socks5"]
 outbound-trojan = ["sha2", "hex"]
@@ -111,22 +87,22 @@ outbound-chain = []
 outbound-vless = ["hex"]
 outbound-reality = ["tls", "hkdf", "sha2", "hmac", "aes-gcm", "hex", "base64"]
 outbound-amux= ["tokio-util"]
-outbound-quic = ["rustls", "webpki-roots", "rustls-pemfile"]
+outbound-quic = ["quic"]
 outbound-mptp = []
 outbound-select = ["directories", "axum/query"]
-outbound-vmess = ["lz_fnv", "cfb-mode", "hmac", "sha2", "aes", "aes-gcm", "sha3", "digest", "md-5", "tokio-util", "byteorder", "crc32fast"]
+outbound-vmess = ["aead", "lz_fnv", "cfb-mode", "hmac", "sha2", "aes", "aes-gcm", "sha3", "digest", "md-5", "tokio-util", "byteorder", "crc32fast"]
 
 # Inbounds
 inbound-trojan = ["sha2", "hex"]
 inbound-mptp = []
-inbound-shadowsocks = ["hkdf", "sha-1", "md-5", "tokio-util"]
+inbound-shadowsocks = ["aead", "hkdf", "sha-1", "md-5", "tokio-util"]
 inbound-socks = []
 inbound-http = ["http"]
 inbound-hc = []
 inbound-tun = ["tun", "netstack-lwip", "netstack-smoltcp", "pnet_datalink"]
 inbound-ws = ["tungstenite", "tokio-tungstenite", "url", "http"]
 inbound-amux = ["tokio-util"]
-inbound-quic = ["rustls", "rustls-pemfile"]
+inbound-quic = ["quic"]
 inbound-tls = ["tls"]
 inbound-chain = []
 inbound-cat = ["tokio/io-std"]
@@ -185,9 +161,6 @@ serde_path_to_error = "0.1"
 
 # config-conf
 
-ring = { version = "0.17", optional = true }
-
-aws-lc-rs = { version = "1.16", optional = true }
 
 # TLS
 btls = { version = "0.5.6", optional = true }
@@ -195,10 +168,6 @@ btls-sys = { version = "0.5.6", optional = true }
 brotli-decompressor = { version = "5", optional = true }
 foreign-types = { version = "0.5", optional = true }
 webpki-root-certs = { version = "1", optional = true }
-
-# QUIC, until it moves to BoringSSL
-webpki-roots = { version = "0.26", optional = true }
-rustls-pemfile = { version = "2.1", optional = true }
 
 # WebSocket
 tungstenite = { version = "0.24", default-features = false, optional = true }
@@ -243,8 +212,8 @@ lru_time_cache = { version = "0.11", optional = true }
 tokio-util = { version = "0.7", default-features = false, features = ["io", "codec", "compat"], optional = true }
 
 # QUIC
-quinn = { version = "0.11", default-features = false, optional = true }
-rustls = { version = "0.23", default-features = false, features = ["std"], optional = true }
+quinn = { version = "0.11", default-features = false, features = ["runtime-tokio"], optional = true }
+quinn-btls = { git = "https://github.com/0x676e67/quinn-btls.git", rev = "59f3e36e48fd590a2b43e5ba4ed1183d6dc1bda2", default-features = false, optional = true }
 
 
 # API
@@ -266,6 +235,8 @@ pnet_datalink = { version = "0.34", package = "pnet_datalink", optional = true }
 libc = "0.2"
 
 [dev-dependencies]
+aes-gcm = "0.10"
+chacha20poly1305 = "0.10"
 rcgen = "0.13"
 sha2 = "0.10"
 tokio = { version = "1", features = ["fs", "sync", "io-util", "net", "time", "rt", "rt-multi-thread"] }

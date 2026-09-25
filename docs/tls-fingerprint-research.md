@@ -226,6 +226,17 @@ quinn-btls（核实于 2026-09-25）：作者与 btls 相同；依赖 btls 0.5.5
 - **iOS 最低版本：** 提高到 13（BoringSSL 需要 `___chkstk_darwin`）。
 - **已验证的平台：** macOS 测试、aarch64-apple-ios（leaf-ffi）、aarch64-unknown-linux-musl（容器内构建）。Android 在本机没有 NDK，只能依赖 CI。
 
+**1.1b 的实施记录（2026-09-26）：**
+
+- **QUIC：** quinn 的加密层换成 quinn-btls（上游 git，固定 rev 59f3e36；它没有发布到 crates.io）。它依赖的 btls 通过 `[patch.crates-io]` 使用同一个 fork。endpoint 配置和 handshake token 密钥改用 quinn-btls 提供的 BoringSSL 实现。证书加载与 TLS 共用（PEM 或 DER），证书无效时报配置错误，不再 panic。
+- **AEAD：** Shadowsocks 和 VMess 的 AES-GCM 与 ChaCha20-Poly1305 改用 btls 的 `AeadCtx`。新增测试与 RustCrypto 的实现交叉比对，密文和 tag 逐字节一致，也能互相解开。
+- **依赖清理：** 删除了 rustls、tokio-rustls、rustls-pemfile、webpki-roots、ring、aws-lc-rs。Cargo feature 删除了 `default-ring`、`default-aws-lc`、`*-aead`、`rustls-tls-*`、`quinn-*`，只保留一个 `default`；leaf-cli、leaf-ffi 和 `scripts/apple_common.sh` 随之调整。`cargo tree --target all` 中，ring 只剩 quinn-proto 在 wasm32-unknown-unknown 下的依赖，leaf 不编译这个平台。
+- **体积（macOS arm64，release 版 leaf-cli）：**
+  - 切换前（ae6ff4c：rustls + aws-lc + ring）9.63MB；
+  - 1.1d（以上三者再加 BoringSSL）10.23MB；
+  - 1.1b 之后（只有 BoringSSL）7.91MB。
+- **验证：** workspace 全部测试通过，包括 QUIC 和 Shadowsocks 的集成测试；aarch64-apple-ios 构建通过。
+
 **1.1d 的实施记录（2026-09-26）：**
 
 - **fixture：** 用本机 Chrome 153.0.8010.53 抓了 3 个 ClientHello（全新 profile，headless，访问 localhost），存为 `leaf/tests/fixtures/tls/chrome-153.hello`。JA4 为 `t13d1517h2_8daaf6152771_cb7bf5808d99`。

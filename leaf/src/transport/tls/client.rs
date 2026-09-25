@@ -6,6 +6,7 @@ use std::io;
 use std::sync::OnceLock;
 
 use anyhow::{anyhow, Result};
+use btls::pkey::{PKey, Private};
 use btls::ssl::{SslConnector, SslMethod, SslVerifyMode, SslVersion};
 use btls::x509::store::{X509Store, X509StoreBuilder};
 use btls::x509::X509;
@@ -133,14 +134,28 @@ pub(crate) fn alpn_wire(alpn: &[String]) -> Result<Vec<u8>> {
 }
 
 /// Mozilla's root certificates, parsed once.
+pub(crate) fn bundled_root_certs() -> Result<&'static [X509]> {
+    static CERTS: OnceLock<std::result::Result<Vec<X509>, String>> = OnceLock::new();
+    CERTS
+        .get_or_init(|| {
+            webpki_root_certs::TLS_SERVER_ROOT_CERTS
+                .iter()
+                .map(|der| X509::from_der(der).map_err(|e| e.to_string()))
+                .collect()
+        })
+        .as_deref()
+        .map_err(|e| anyhow!("load root certificates failed: {}", e))
+}
+
+/// The bundled roots as a store, built once.
 fn bundled_roots() -> Result<&'static X509Store> {
     static ROOTS: OnceLock<std::result::Result<X509Store, String>> = OnceLock::new();
     ROOTS
         .get_or_init(|| {
+            let certs = bundled_root_certs().map_err(|e| e.to_string())?;
             let mut store = X509StoreBuilder::new().map_err(|e| e.to_string())?;
-            for der in webpki_root_certs::TLS_SERVER_ROOT_CERTS {
-                let cert = X509::from_der(der).map_err(|e| e.to_string())?;
-                store.add_cert(cert).map_err(|e| e.to_string())?;
+            for cert in certs {
+                store.add_cert(cert.clone()).map_err(|e| e.to_string())?;
             }
             Ok(store.build())
         })
@@ -156,20 +171,40 @@ fn trust_store(certificate: &str) -> Result<X509Store> {
     Ok(store.build())
 }
 
-/// Certificates from inline PEM, or from a PEM file.
-pub(super) fn load_certificates(certificate: &str) -> Result<Vec<X509>> {
+/// Certificates from inline PEM, or from a PEM or DER file.
+pub(crate) fn load_certificates(certificate: &str) -> Result<Vec<X509>> {
     let certs = if certificate.contains("-----BEGIN") {
         X509::stack_from_pem(certificate.as_bytes())
     } else {
-        let pem = fs::read(certificate)
+        let data = fs::read(certificate)
             .map_err(|e| anyhow!("load certificates from {} failed: {}", certificate, e))?;
-        X509::stack_from_pem(&pem)
+        if data.starts_with(b"-----BEGIN") || data.windows(10).any(|w| w == b"-----BEGIN") {
+            X509::stack_from_pem(&data)
+        } else {
+            X509::from_der(&data).map(|cert| vec![cert])
+        }
     }
     .map_err(|e| anyhow!("invalid certificate: {}", e))?;
     if certs.is_empty() {
         return Err(anyhow!("no certificate found"));
     }
     Ok(certs)
+}
+
+/// A private key (PKCS#8, PKCS#1 or SEC1) from inline PEM, or from a PEM or
+/// DER (PKCS#8) file.
+pub(crate) fn load_private_key(key: &str) -> Result<PKey<Private>> {
+    if key.contains("-----BEGIN") {
+        return PKey::private_key_from_pem(key.as_bytes())
+            .map_err(|e| anyhow!("invalid private key: {}", e));
+    }
+    let data = fs::read(key).map_err(|e| anyhow!("load key from {} failed: {}", key, e))?;
+    if data.windows(10).any(|w| w == b"-----BEGIN") {
+        PKey::private_key_from_pem(&data)
+    } else {
+        PKey::private_key_from_der(&data)
+    }
+    .map_err(|e| anyhow!("invalid private key: {}", e))
 }
 
 #[cfg(test)]
