@@ -179,6 +179,21 @@ pub type AnyOutboundTransport = OutboundTransport<AnyStream, AnyOutboundDatagram
 pub trait InboundHandler: BaseHandler {
     fn stream(&self) -> io::Result<&AnyInboundStreamHandler>;
     fn datagram(&self) -> io::Result<&AnyInboundDatagramHandler>;
+
+    /// Sets the options a socket it listens on on `network` needs, once
+    /// the socket is bound. An inbound taking traffic the system diverts
+    /// to it (tproxy) must mark its sockets transparent; most need nothing.
+    fn prepare_listener(&self, _socket: socket2::SockRef<'_>, _network: Network) -> io::Result<()> {
+        Ok(())
+    }
+
+    /// Fills in `sess` from the socket of a connection its listener
+    /// accepted, before its stream handler sees the connection. A
+    /// connection diverted by the system (redirect) carries its destination
+    /// on its socket rather than in its bytes.
+    fn accepted(&self, _socket: socket2::SockRef<'_>, _sess: &mut Session) -> io::Result<()> {
+        Ok(())
+    }
 }
 
 pub type AnyInboundHandler = Arc<dyn InboundHandler>;

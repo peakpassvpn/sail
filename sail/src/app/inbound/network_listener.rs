@@ -175,13 +175,14 @@ async fn handle_inbound_tcp_stream(
     // A connection without addresses has already gone away.
     let source = stream.peer_addr()?;
     let local_addr = stream.local_addr()?;
-    let sess = Session {
+    let mut sess = Session {
         network: Network::Tcp,
         source,
         local_addr,
         inbound_tag: handler.tag().clone(),
         ..Default::default()
     };
+    handler.accepted(socket2::SockRef::from(&stream), &mut sess)?;
     let span = sess.span();
     {
         let _g = span.enter();
@@ -301,6 +302,9 @@ impl NetworkInboundListener {
             let listener = crate::net::TcpListener::bind_now(&listen_addr)
                 .map_err(|e| bind_failed("tcp", e))?
                 .abort_on_close(self.dispatcher.env().options.inbound.tcp_abort_on_close);
+            self.handler
+                .prepare_listener(socket2::SockRef::from(listener.io()), Network::Tcp)
+                .map_err(|e| bind_failed("tcp", e))?;
             let handler = self.handler.clone();
             let dispatcher = self.dispatcher.clone();
             let nat_manager = self.nat_manager.clone();
@@ -317,6 +321,9 @@ impl NetworkInboundListener {
                     socket.set_nonblocking(true)?;
                     UdpSocket::from_std(socket)
                 })
+                .map_err(|e| bind_failed("udp", e))?;
+            self.handler
+                .prepare_listener(socket2::SockRef::from(&socket), Network::Udp)
                 .map_err(|e| bind_failed("udp", e))?;
             let handler = self.handler.clone();
             let dispatcher = self.dispatcher.clone();
