@@ -177,8 +177,7 @@ impl Manager {
         endpoint.set_default_client_config(self.client_config.clone());
         let ips = {
             self.dns_client
-                .read()
-                .await
+                .load_full()
                 .direct_lookup(&self.address)
                 .map_err(|e| io::Error::other(format!("lookup {} failed: {}", &self.address, e)))
                 .instrument(tracing::Span::current())

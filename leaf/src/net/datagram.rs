@@ -121,8 +121,7 @@ impl OutboundDatagramSendHalf for DomainResolveOutboundDatagramSendHalf {
             SocksAddr::Domain(domain, port) => {
                 let ips = self
                     .1
-                    .read()
-                    .await
+                    .load_full()
                     .direct_lookup(domain)
                     .map_err(|e| io::Error::other(format!("lookup {} failed: {}", domain, e)))
                     .await?;
@@ -215,8 +214,7 @@ impl OutboundDatagramSendHalf for DomainAssociatedOutboundDatagramSendHalf {
             SocksAddr::Domain(domain, port) => {
                 let ips = {
                     self.2
-                        .read()
-                        .await
+                        .load_full()
                         .direct_lookup(domain)
                         .map_err(|e| io::Error::other(format!("lookup {} failed: {}", domain, e)))
                         .await?

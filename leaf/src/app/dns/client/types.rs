@@ -210,7 +210,8 @@ impl ServerSelectorState {
 }
 
 pub struct DnsClient {
-    dispatcher: Option<Weak<Dispatcher>>,
+    /// Set once the dispatcher exists, and kept across reloads.
+    dispatcher: Arc<std::sync::OnceLock<Weak<Dispatcher>>>,
     servers: Vec<Resolver>,
     hosts: HashMap<String, Vec<IpAddr>>,
     ipv4_cache: Arc<TokioMutex<LruCache<String, CacheEntry>>>,

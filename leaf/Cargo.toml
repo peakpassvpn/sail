@@ -161,6 +161,7 @@ anyhow = "1.0"
 rand = "0.8"
 socket2 = { version = "0.5", features = ["all"] }
 async-recursion = "1.1"
+arc-swap = "1"
 parking_lot = "0.12"
 uuid = { version = "1", features = ["v4"] }
 

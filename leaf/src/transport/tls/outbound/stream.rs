@@ -267,7 +267,7 @@ impl Handler {
             return Ok(None);
         }
         let auto_result = if allow_dns_lookup {
-            let dns_client = self.dns_client.read().await;
+            let dns_client = self.dns_client.load_full();
             Some(dns_client.lookup_ech_config_list(name).await)
         } else {
             trace!(
@@ -655,9 +655,6 @@ impl OutboundStreamHandler for Handler {
 #[cfg(all(test, feature = "rustls-tls"))]
 mod tests {
     use anyhow::anyhow;
-    use std::sync::Arc;
-
-    use tokio::sync::RwLock;
 
     use crate::app::{dns::DnsClient, SyncDnsClient};
     #[cfg(feature = "rustls-tls-aws-lc")]
@@ -667,7 +664,9 @@ mod tests {
 
     fn new_test_dns_client() -> SyncDnsClient {
         let dns = crate::config::Dns::default();
-        Arc::new(RwLock::new(DnsClient::new(&dns, Default::default(), Default::default()).unwrap()))
+        DnsClient::new(&dns, Default::default(), Default::default())
+            .unwrap()
+            .into_shared()
     }
 
     #[test]

@@ -13,7 +13,6 @@ use rand::{rngs::StdRng, SeedableRng};
 use sha2::{Digest, Sha256};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, UdpSocket};
-use tokio::sync::RwLock;
 use tokio::time::timeout;
 use tracing::info;
 
@@ -140,11 +139,12 @@ fn new_socks_outbound(
     let config =
         leaf::config::Config::from_json(&serde_json::json!({ "outbounds": [socks] }).to_string())?;
     let dial_defaults = leaf::net::DialOptions::default();
-    let dns_client = Arc::new(RwLock::new(leaf::app::dns_client::DnsClient::new(
+    let dns_client = leaf::app::dns_client::DnsClient::new(
         &config.dns,
         Arc::new(dial_defaults.clone()),
         Default::default(),
-    )?));
+    )?
+    .into_shared();
     let outbound_manager = leaf::app::outbound::manager::OutboundManager::new(
         &config.outbounds,
         &dial_defaults,

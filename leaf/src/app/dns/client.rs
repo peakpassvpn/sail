@@ -148,7 +148,7 @@ impl DnsClient {
             let stream = crate::net::tcp_connect(bootstrap_addr, &self.dial).await?;
             return Ok(Box::new(stream));
         }
-        if let Some(dispatcher_weak) = self.dispatcher.as_ref() {
+        if let Some(dispatcher_weak) = self.dispatcher.get() {
             if let Some(dispatcher) = dispatcher_weak.upgrade() {
                 let source = match bootstrap_addr {
                     SocketAddr::V4(_) => SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0),
@@ -518,7 +518,7 @@ impl DnsClient {
         )));
 
         Ok(Self {
-            dispatcher: None,
+            dispatcher: Default::default(),
             servers,
             hosts,
             ipv4_cache,
@@ -537,39 +537,28 @@ impl DnsClient {
         })
     }
 
-    pub fn replace_dispatcher(&mut self, dispatcher: Weak<Dispatcher>) {
-        self.dispatcher.replace(dispatcher);
+    /// Shares the client between its users, who see it replaced whole on
+    /// reload.
+    pub fn into_shared(self) -> crate::app::SyncDnsClient {
+        Arc::new(arc_swap::ArcSwap::from_pointee(self))
     }
 
-    pub fn reload(
-        &mut self,
+    /// Queries that have to go through an outbound are dispatched by
+    /// `dispatcher`, once it exists.
+    pub fn set_dispatcher(&self, dispatcher: Weak<Dispatcher>) {
+        let _ = self.dispatcher.set(dispatcher);
+    }
+
+    /// A client for `dns`, to replace this one: it starts with empty caches,
+    /// and dispatches as this one does.
+    pub fn reloaded(
+        &self,
         dns: &crate::config::Dns,
         dial: Arc<crate::net::DialOptions>,
-    ) -> Result<()> {
-        self.dial = dial;
-        let servers = Self::load_servers(dns)?;
-        let hosts = Self::load_hosts(dns)?;
-        let capacity = Self::cache_capacity(dns)?;
-        self.servers = servers;
-        self.hosts = hosts;
-        self.strategy = dns.strategy;
-        self.timeout = dns.timeout();
-        self.reverse_mapping = dns.reverse_mapping;
-        // Nothing else holds these while the client is being reloaded.
-        for cache in [&self.ipv4_cache, &self.ipv6_cache] {
-            if let Ok(mut cache) = cache.try_lock() {
-                cache.resize(capacity);
-            }
-        }
-        if let Ok(mut cache) = self.ech_cache.try_lock() {
-            cache.resize(capacity);
-        }
-        if let Ok(mut selector) = self.selector_state.lock() {
-            selector.primary_server = None;
-            selector.last_reselect_at = None;
-            selector.stats.clear();
-        }
-        Ok(())
+    ) -> Result<Self> {
+        let mut client = Self::new(dns, dial, self.tuning.clone())?;
+        client.dispatcher = self.dispatcher.clone();
+        Ok(client)
     }
 
     async fn optimize_cache_ipv4(&self, address: String, connected_ip: IpAddr) {
@@ -908,7 +897,7 @@ impl DnsClient {
             }
             Resolver::Server(server, _) => {
                 debug!("dispatched lookup");
-                if let Some(dispatcher_weak) = self.dispatcher.as_ref() {
+                if let Some(dispatcher_weak) = self.dispatcher.get() {
                     // The source address will be used to determine which address the
                     // underlying socket will bind.
                     let source = match server {
@@ -993,7 +982,7 @@ impl DnsClient {
                 )
             }
             Resolver::Server(server, _) => {
-                if let Some(dispatcher_weak) = self.dispatcher.as_ref() {
+                if let Some(dispatcher_weak) = self.dispatcher.get() {
                     let source = match server {
                         SocketAddr::V4(_) => SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0),
                         SocketAddr::V6(_) => SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 0),
@@ -1146,7 +1135,7 @@ impl DnsClient {
 
     async fn is_direct_outbound(&self, host: &str) -> Result<bool> {
         let mut is_direct_outbound = false;
-        if let Some(dispatcher_weak) = self.dispatcher.as_ref() {
+        if let Some(dispatcher_weak) = self.dispatcher.get() {
             if let Some(dispatcher) = dispatcher_weak.upgrade() {
                 let dest = match SocksAddr::try_from((host.to_owned(), 0)) {
                     Ok(d) => d,
@@ -1159,8 +1148,7 @@ impl DnsClient {
                 };
                 let decision = dispatcher
                     .router
-                    .read()
-                    .await
+                    .load_full()
                     .pick_route(&mut sess, &mut crate::app::router::NoSniffer)
                     .await;
                 if let Ok(crate::app::router::Decision::Route(Some(tag))) = decision {

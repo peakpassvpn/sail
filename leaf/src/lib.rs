@@ -22,7 +22,10 @@ use app::{
     nat_manager::NatManager, outbound::manager::OutboundManager, router::Router,
 };
 
-use crate::app::{stat_manager::StatManager, SyncStatManager};
+use crate::app::{
+    stat_manager::StatManager, SyncDnsClient, SyncOutboundManager, SyncRouter, SyncStatManager,
+};
+use arc_swap::ArcSwap;
 
 #[cfg(feature = "api")]
 use crate::app::api::api_server::ApiServer;
@@ -75,9 +78,9 @@ pub struct RuntimeManager {
     auto_reload: bool,
     reload_tx: mpsc::Sender<std::sync::mpsc::SyncSender<Result<(), Error>>>,
     shutdown_tx: mpsc::Sender<()>,
-    router: Arc<RwLock<Router>>,
-    dns_client: Arc<RwLock<DnsClient>>,
-    outbound_manager: Arc<RwLock<OutboundManager>>,
+    router: SyncRouter,
+    dns_client: SyncDnsClient,
+    outbound_manager: SyncOutboundManager,
     stat_manager: SyncStatManager,
     env: runtime::SyncRuntimeEnv,
     #[cfg(feature = "auto-reload")]
@@ -92,9 +95,9 @@ impl RuntimeManager {
         #[cfg(feature = "auto-reload")] auto_reload: bool,
         reload_tx: mpsc::Sender<std::sync::mpsc::SyncSender<Result<(), Error>>>,
         shutdown_tx: mpsc::Sender<()>,
-        router: Arc<RwLock<Router>>,
-        dns_client: Arc<RwLock<DnsClient>>,
-        outbound_manager: Arc<RwLock<OutboundManager>>,
+        router: SyncRouter,
+        dns_client: SyncDnsClient,
+        outbound_manager: SyncOutboundManager,
         stat_manager: SyncStatManager,
         env: runtime::SyncRuntimeEnv,
     ) -> Arc<Self> {
@@ -133,21 +136,21 @@ impl RuntimeManager {
     > {
         let to = to.unwrap_or(Duration::from_secs(4));
         let dns_client = self.dns_client.clone();
-        let handler = {
-            let om = self.outbound_manager.read().await;
-            om.get(tag)
-                .ok_or_else(|| Error::Config(anyhow!("outbound {} not found", tag)))?
-        };
+        let handler = self
+            .outbound_manager
+            .load()
+            .get(tag)
+            .ok_or_else(|| Error::Config(anyhow!("outbound {} not found", tag)))?;
 
         async fn test_tcp(
-            dns_client: Arc<RwLock<DnsClient>>,
+            dns_client: SyncDnsClient,
             handler: crate::adapter::AnyOutboundHandler,
         ) -> anyhow::Result<Duration> {
             crate::app::healthcheck::tcp(dns_client, handler).await
         }
 
         async fn test_udp(
-            dns_client: Arc<RwLock<DnsClient>>,
+            dns_client: SyncDnsClient,
             handler: crate::adapter::AnyOutboundHandler,
         ) -> anyhow::Result<Duration> {
             crate::app::healthcheck::udp(dns_client, handler).await
@@ -178,7 +181,7 @@ impl RuntimeManager {
 
     #[cfg(feature = "outbound-select")]
     pub async fn set_outbound_selected(&self, outbound: &str, select: &str) -> Result<(), Error> {
-        if let Some(selector) = self.outbound_manager.read().await.get_selector(outbound) {
+        if let Some(selector) = self.outbound_manager.load().get_selector(outbound) {
             selector
                 .write()
                 .await
@@ -191,7 +194,7 @@ impl RuntimeManager {
 
     #[cfg(feature = "outbound-select")]
     pub async fn get_outbound_selected(&self, outbound: &str) -> Result<String, Error> {
-        if let Some(selector) = self.outbound_manager.read().await.get_selector(outbound) {
+        if let Some(selector) = self.outbound_manager.load().get_selector(outbound) {
             return Ok(selector.read().await.get_selected_tag());
         }
         Err(Error::Config(anyhow!("selector {} not found", outbound)))
@@ -199,7 +202,7 @@ impl RuntimeManager {
 
     #[cfg(feature = "outbound-select")]
     pub async fn get_outbound_selects(&self, outbound: &str) -> Result<Vec<String>, Error> {
-        if let Some(selector) = self.outbound_manager.read().await.get_selector(outbound) {
+        if let Some(selector) = self.outbound_manager.load().get_selector(outbound) {
             return Ok(selector.read().await.get_available_tags());
         }
         Err(Error::Config(anyhow!("selector {} not found", outbound)))
@@ -217,7 +220,10 @@ impl RuntimeManager {
             .get_last_peer_active(outbound))
     }
 
-    // This function could block by an in-progress connection dialing.
+    /// Reloads DNS, outbounds and routing from the configuration file. They
+    /// are all built before any is replaced: a configuration that fails to
+    /// build changes nothing. Connections already routed keep what they
+    /// were routed with.
     //
     // TODO Reload FakeDns. And perhaps the inbounds as long as the listening
     // addresses haven't changed.
@@ -229,23 +235,33 @@ impl RuntimeManager {
         };
         info!("reloading from config file: {}", config_path);
         let config = config::from_file(config_path).map_err(Error::Config)?;
-        app::logger::setup_logger(&config.log, self.env.host.log_to_system)?;
         let dial_defaults = dial_defaults(&config, &self.env).map_err(Error::Config)?;
-        self.router.write().await.reload(&config.route, &self.env)?;
-        self.dns_client
-            .write()
-            .await
-            .reload(&config.dns, dial_defaults.clone())?;
-        self.outbound_manager
-            .write()
-            .await
-            .reload(
-                &config.outbounds,
-                &dial_defaults,
-                &self.env,
-                self.dns_client.clone(),
-            )
-            .await?;
+        let dns_client = self
+            .dns_client
+            .load()
+            .reloaded(&config.dns, dial_defaults.clone())
+            .map_err(Error::Config)?;
+        // Outbounds and routing reach the DNS client through the shared
+        // cell, and so find the new one once it is stored.
+        let outbound_manager = OutboundManager::new(
+            &config.outbounds,
+            &dial_defaults,
+            &self.env,
+            self.dns_client.clone(),
+        )
+        .map_err(Error::Config)?;
+        let router = Router::new(&config.route, self.dns_client.clone(), &self.env)
+            .map_err(Error::Config)?;
+        app::logger::setup_logger(&config.log, self.env.host.log_to_system)?;
+
+        #[cfg(feature = "outbound-select")]
+        outbound_manager
+            .restore_selected(&self.outbound_manager.load())
+            .await;
+        self.dns_client.store(Arc::new(dns_client));
+        let replaced = self.outbound_manager.swap(Arc::new(outbound_manager));
+        self.router.store(Arc::new(router));
+        replaced.abort_tasks();
         info!("reloaded from config file: {}", config_path);
         Ok(())
     }
@@ -434,11 +450,8 @@ pub fn check_config(config: &config::Config, env: &runtime::RuntimeEnv) -> anyho
     let _g = rt.enter();
     // The interface auto_detect_interface would find is the start's to ask.
     let dial_defaults = Arc::new(net::DialOptions::defaults(&config.route)?);
-    let dns_client = Arc::new(RwLock::new(DnsClient::new(
-        &config.dns,
-        dial_defaults.clone(),
-        env.options.dns.clone(),
-    )?));
+    let dns_client =
+        DnsClient::new(&config.dns, dial_defaults.clone(), env.options.dns.clone())?.into_shared();
     OutboundManager::new(&config.outbounds, &dial_defaults, env, dns_client.clone())?;
     let mut inbounds = HashMap::new();
     adapter::registry::build_inbounds(
@@ -545,15 +558,14 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
     let mut runners = Vec::new();
 
     let dial_defaults = dial_defaults(&config, &env).map_err(Error::Config)?;
-    let dns_client = Arc::new(RwLock::new(
-        DnsClient::new(&config.dns, dial_defaults.clone(), env.options.dns.clone())
-            .map_err(Error::Config)?,
-    ));
-    let outbound_manager = Arc::new(RwLock::new(
+    let dns_client = DnsClient::new(&config.dns, dial_defaults.clone(), env.options.dns.clone())
+        .map_err(Error::Config)?
+        .into_shared();
+    let outbound_manager: SyncOutboundManager = Arc::new(ArcSwap::from_pointee(
         OutboundManager::new(&config.outbounds, &dial_defaults, &env, dns_client.clone())
             .map_err(Error::Config)?,
     ));
-    let router = Arc::new(RwLock::new(
+    let router: SyncRouter = Arc::new(ArcSwap::from_pointee(
         Router::new(&config.route, dns_client.clone(), &env).map_err(Error::Config)?,
     ));
     let stat_manager = Arc::new(RwLock::new(
@@ -568,14 +580,9 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
         env.clone(),
     ));
 
-    let dispatcher_weak = Arc::downgrade(&dispatcher);
-    let dns_client_cloned = dns_client.clone();
-    rt.block_on(async move {
-        dns_client_cloned
-            .write()
-            .await
-            .replace_dispatcher(dispatcher_weak);
-    });
+    dns_client
+        .load()
+        .set_dispatcher(Arc::downgrade(&dispatcher));
 
     let nat_manager = Arc::new(NatManager::new(dispatcher.clone(), &config.inbounds));
     let inbound_manager = InboundManager::new(&config.inbounds, &env, dispatcher, nat_manager)

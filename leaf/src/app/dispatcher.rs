@@ -1,9 +1,7 @@
 use std::io::{self};
-use std::sync::Arc;
 
 use async_recursion::async_recursion;
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::sync::RwLock;
 use tracing::{debug, info, warn, Instrument};
 
 use crate::{
@@ -30,8 +28,8 @@ where
 
 use crate::app::SyncStatManager;
 
-use super::outbound::manager::OutboundManager;
-use super::router::{Decision, NoSniffer, Router, SniffAction, Sniffer};
+use super::router::{Decision, NoSniffer, SniffAction, Sniffer};
+use super::{SyncOutboundManager, SyncRouter};
 
 /// Sniffs a TCP connection the first time a rule asks, and keeps what it
 /// read for whoever reads the connection next. A connection no rule sniffs
@@ -194,8 +192,8 @@ fn log_request(sess: &Session, outbound_tag: &str, handshake_time: Option<u128>)
 }
 
 pub struct Dispatcher {
-    pub(crate) outbound_manager: Arc<RwLock<OutboundManager>>,
-    pub(crate) router: Arc<RwLock<Router>>,
+    pub(crate) outbound_manager: SyncOutboundManager,
+    pub(crate) router: SyncRouter,
     dns_client: SyncDnsClient,
     stat_manager: SyncStatManager,
     dns_sniffer: DnsSniffer,
@@ -204,8 +202,8 @@ pub struct Dispatcher {
 
 impl Dispatcher {
     pub fn new(
-        outbound_manager: Arc<RwLock<OutboundManager>>,
-        router: Arc<RwLock<Router>>,
+        outbound_manager: SyncOutboundManager,
+        router: SyncRouter,
         dns_client: SyncDnsClient,
         stat_manager: SyncStatManager,
         env: crate::runtime::SyncRuntimeEnv,
@@ -267,7 +265,7 @@ impl Dispatcher {
 
         sess.outbound_tag = outbound.clone();
 
-        let h = if let Some(h) = self.outbound_manager.read().await.get(&outbound) {
+        let h = if let Some(h) = self.outbound_manager.load().get(&outbound) {
             h
         } else {
             // FIXME use  the default handler
@@ -360,7 +358,7 @@ impl Dispatcher {
 
         sess.outbound_tag = outbound.clone();
 
-        let h = if let Some(h) = self.outbound_manager.read().await.get(&outbound) {
+        let h = if let Some(h) = self.outbound_manager.load().get(&outbound) {
             h
         } else {
             return Err(io::Error::other("handler not found"));
@@ -401,7 +399,7 @@ impl Dispatcher {
 
         sess.outbound_tag = outbound.clone();
 
-        let h = if let Some(h) = self.outbound_manager.read().await.get(&outbound) {
+        let h = if let Some(h) = self.outbound_manager.load().get(&outbound) {
             h
         } else {
             warn!("handler not found");
@@ -443,7 +441,7 @@ impl Dispatcher {
     /// With `dns.reverse_mapping`, takes the domain of an address from the
     /// DNS answers seen, and says whether it is on.
     async fn reverse_map(&self, sess: &mut Session) -> bool {
-        if !self.dns_client.read().await.reverse_mapping() {
+        if !self.dns_client.load().reverse_mapping() {
             return false;
         }
         if let Some(ip) = sess.destination.ip() {
@@ -459,8 +457,7 @@ impl Dispatcher {
     async fn route(&self, sess: &mut Session, sniffer: &mut dyn Sniffer) -> io::Result<String> {
         let decision = self
             .router
-            .read()
-            .await
+            .load_full()
             .pick_route(sess, sniffer)
             .await
             .map_err(|e| io::Error::other(format!("pick route: {}", e)))?;
@@ -468,8 +465,7 @@ impl Dispatcher {
             Decision::Route(Some(tag)) => tag,
             Decision::Route(None) => self
                 .outbound_manager
-                .read()
-                .await
+                .load()
                 .default_handler()
                 .ok_or_else(|| io::Error::other("no outbound found"))?,
             Decision::Reject => {
@@ -487,7 +483,7 @@ impl Dispatcher {
     }
 
     pub async fn is_direct_outbound(&self, tag: &str) -> bool {
-        if let Some(h) = self.outbound_manager.read().await.get(tag) {
+        if let Some(h) = self.outbound_manager.load().get(tag) {
             h.is_direct()
         } else {
             false

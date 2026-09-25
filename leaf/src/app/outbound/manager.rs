@@ -89,67 +89,23 @@ impl OutboundManager {
         })
     }
 
-    // TODO make this non-async?
-    pub async fn reload(
-        &mut self,
-        outbounds: &[Outbound],
-        dial_defaults: &DialOptions,
-        env: &RuntimeEnv,
-        dns_client: SyncDnsClient,
-    ) -> Result<()> {
-        // Save outound select states.
-        #[cfg(feature = "outbound-select")]
-        let selected_outbounds: HashMap<String, String> = {
-            let mut m = HashMap::new();
-            for (k, v) in self.selectors.iter() {
-                m.insert(k.to_owned(), v.read().await.get_selected_tag());
-            }
-            m
-        };
-
-        // Load new outbounds.
-        #[allow(unused_mut)]
-        let Loaded {
-            handlers,
-            #[cfg(feature = "plugin")]
-            external_handlers,
-            #[cfg(feature = "outbound-select")]
-            mut selectors,
-            default_handler,
-            abort_handles,
-        } = Self::load(outbounds, dial_defaults, env, dns_client)?;
-
-        // Restore outbound select states.
-        #[cfg(feature = "outbound-select")]
-        {
-            for (k, v) in selected_outbounds.iter() {
-                for (k2, v2) in selectors.iter_mut() {
-                    if k == k2 {
-                        let _ = v2.write().await.set_selected(v);
-                    }
-                }
+    /// Selects what `previous`, the manager this one replaces, had
+    /// selected, where the same selector still offers it.
+    #[cfg(feature = "outbound-select")]
+    pub async fn restore_selected(&self, previous: &OutboundManager) {
+        for (tag, selector) in self.selectors.iter() {
+            if let Some(old) = previous.selectors.get(tag) {
+                let selected = old.read().await.get_selected_tag();
+                let _ = selector.write().await.set_selected(&selected);
             }
         }
+    }
 
-        // Abort spawned tasks inside handlers.
+    /// Stops the tasks the handlers started, once they are replaced.
+    pub fn abort_tasks(&self) {
         for abort_handle in self.abort_handles.iter() {
             abort_handle.abort();
         }
-
-        self.handlers = handlers;
-
-        #[cfg(feature = "plugin")]
-        {
-            self.external_handlers = external_handlers;
-        }
-        #[cfg(feature = "outbound-select")]
-        {
-            self.selectors = Arc::new(selectors);
-        }
-
-        self.default_handler = default_handler;
-        self.abort_handles = abort_handles;
-        Ok(())
     }
 
     /// Builds `outbounds`; their sockets are opened with `dial_defaults`

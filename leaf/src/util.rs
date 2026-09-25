@@ -1,12 +1,10 @@
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::str::FromStr;
-use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{anyhow, Result};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::sync::RwLock;
 use tokio::time::timeout;
 
 use crate::{
@@ -149,11 +147,8 @@ pub async fn test_outbound(
 ) -> Result<(Result<Duration>, Result<Duration>)> {
     let to = to.unwrap_or(Duration::from_secs(4));
     let dial_defaults = crate::dial_defaults(config, env)?;
-    let dns_client = Arc::new(RwLock::new(DnsClient::new(
-        &config.dns,
-        dial_defaults.clone(),
-        env.options.dns.clone(),
-    )?));
+    let dns_client =
+        DnsClient::new(&config.dns, dial_defaults.clone(), env.options.dns.clone())?.into_shared();
     let outbound_manager =
         OutboundManager::new(&config.outbounds, &dial_defaults, env, dns_client.clone())?;
     let handler = outbound_manager
@@ -189,11 +184,8 @@ pub async fn test_outbounds(
 ) -> Result<HashMap<String, (Result<Duration>, Result<Duration>)>> {
     let to = to.unwrap_or(Duration::from_secs(4));
     let dial_defaults = crate::dial_defaults(config, env)?;
-    let dns_client = Arc::new(RwLock::new(DnsClient::new(
-        &config.dns,
-        dial_defaults.clone(),
-        env.options.dns.clone(),
-    )?));
+    let dns_client =
+        DnsClient::new(&config.dns, dial_defaults.clone(), env.options.dns.clone())?.into_shared();
     let outbound_manager =
         OutboundManager::new(&config.outbounds, &dial_defaults, env, dns_client.clone())?;
 
@@ -241,11 +233,8 @@ pub async fn stream_outbounds_tests(
 ) -> Result<impl futures::Stream<Item = (String, (Result<Duration>, Result<Duration>))>> {
     let to = to.unwrap_or(Duration::from_secs(4));
     let dial_defaults = crate::dial_defaults(config, env)?;
-    let dns_client = Arc::new(RwLock::new(DnsClient::new(
-        &config.dns,
-        dial_defaults.clone(),
-        env.options.dns.clone(),
-    )?));
+    let dns_client =
+        DnsClient::new(&config.dns, dial_defaults.clone(), env.options.dns.clone())?.into_shared();
     let outbound_manager =
         OutboundManager::new(&config.outbounds, &dial_defaults, env, dns_client.clone())?;
 
@@ -284,11 +273,8 @@ pub async fn health_check_outbound(
 ) -> Result<(Result<Duration>, Result<Duration>)> {
     let to = to.unwrap_or(Duration::from_secs(4));
     let dial_defaults = crate::dial_defaults(config, env)?;
-    let dns_client = Arc::new(RwLock::new(DnsClient::new(
-        &config.dns,
-        dial_defaults.clone(),
-        env.options.dns.clone(),
-    )?));
+    let dns_client =
+        DnsClient::new(&config.dns, dial_defaults.clone(), env.options.dns.clone())?.into_shared();
     let outbound_manager =
         OutboundManager::new(&config.outbounds, &dial_defaults, env, dns_client.clone())?;
     let handler = outbound_manager

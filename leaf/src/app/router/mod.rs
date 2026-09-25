@@ -175,8 +175,7 @@ impl Router {
     async fn resolve(&self, domain: &str) -> Vec<IpAddr> {
         match self
             .dns_client
-            .read()
-            .await
+            .load_full()
             .lookup(&domain.to_string())
             .await
         {
@@ -194,10 +193,6 @@ impl Router {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
-    use tokio::sync::RwLock;
-
     use super::*;
     use crate::app::dns_client::DnsClient;
     use crate::session::SocksAddr;
@@ -212,9 +207,9 @@ mod tests {
             .to_string(),
         )
         .unwrap();
-        let dns = Arc::new(RwLock::new(
-            DnsClient::new(&config.dns, Default::default(), Default::default()).unwrap(),
-        ));
+        let dns = DnsClient::new(&config.dns, Default::default(), Default::default())
+            .unwrap()
+            .into_shared();
         Router::new(&config.route, dns, &RuntimeEnv::default()).unwrap()
     }
 

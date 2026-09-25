@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use serde_json::json;
-use tokio::sync::RwLock;
 
 use leaf::app::dns_client::DnsClient;
 use leaf::app::outbound::manager::OutboundManager;
@@ -45,11 +44,12 @@ fn manager_with(
     outbounds: &[config::Outbound],
     dial_defaults: &DialOptions,
 ) -> anyhow::Result<OutboundManager> {
-    let dns_client = Arc::new(RwLock::new(DnsClient::new(
+    let dns_client = DnsClient::new(
         &config::Dns::default(),
         Arc::new(dial_defaults.clone()),
         Default::default(),
-    )?));
+    )?
+    .into_shared();
     OutboundManager::new(
         outbounds,
         dial_defaults,

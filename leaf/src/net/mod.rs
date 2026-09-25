@@ -296,8 +296,7 @@ pub async fn new_tcp_stream(
         match tcp_dial_task(dial_addr, dial).await {
             Ok(v) => {
                 dns_client
-                    .read()
-                    .await
+                    .load_full()
                     .optimize_cache(address.to_owned(), v.addr.ip())
                     .await;
                 return Ok(v.stream);

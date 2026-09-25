@@ -17,8 +17,7 @@ impl Resolver {
     ) -> Result<Self> {
         let mut ips = {
             dns_client
-                .read()
-                .await
+                .load_full()
                 .direct_lookup(address)
                 .map_err(|e| anyhow!("lookup {} failed: {}", address, e))
                 .await?
