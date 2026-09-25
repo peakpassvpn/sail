@@ -327,6 +327,13 @@ fn server_of(connect: &leaf::adapter::OutboundConnect) -> u16 {
     }
 }
 
+/// An interface every host has, for dial fields that name one.
+const LOOPBACK: &str = if cfg!(target_os = "macos") {
+    "lo0"
+} else {
+    "lo"
+};
+
 #[cfg(not(windows))]
 #[test]
 fn an_outbound_dials_with_its_own_options_over_the_defaults() {
@@ -338,7 +345,7 @@ fn an_outbound_dials_with_its_own_options_over_the_defaults() {
         &[
             ss(
                 "own",
-                json!({ "bind_interface": "own0", "connect_timeout": "2s" }),
+                json!({ "bind_interface": LOOPBACK, "connect_timeout": "2s" }),
             ),
             ss("plain", json!({ "server_port": 8389 })),
             outbound(
@@ -352,7 +359,7 @@ fn an_outbound_dials_with_its_own_options_over_the_defaults() {
     .unwrap();
 
     let (_, own) = dial_of(&m, "own");
-    assert_eq!(own.bind_interface.as_deref(), Some("own0"));
+    assert_eq!(own.bind_interface.as_deref(), Some(LOOPBACK));
     assert_eq!(own.connect_timeout, std::time::Duration::from_secs(2));
 
     let (_, plain) = dial_of(&m, "plain");
@@ -370,11 +377,11 @@ fn an_outbound_dials_with_its_own_options_over_the_defaults() {
 fn a_group_passes_its_members_dial_options_on() {
     let m = manager(&[
         outbound("static", "static", json!({ "outbounds": ["member"] })),
-        ss("member", json!({ "bind_interface": "member0" })),
+        ss("member", json!({ "bind_interface": LOOPBACK })),
     ])
     .unwrap();
     let (_, dial) = dial_of(&m, "static");
-    assert_eq!(dial.bind_interface.as_deref(), Some("member0"));
+    assert_eq!(dial.bind_interface.as_deref(), Some(LOOPBACK));
 }
 
 #[cfg(not(windows))]
@@ -384,14 +391,26 @@ fn an_outbound_through_a_detour_is_dialled_as_the_detour_says() {
         ss("via", json!({ "server_port": 9000, "detour": "hop" })),
         ss(
             "hop",
-            json!({ "server_port": 9001, "bind_interface": "hop0" }),
+            json!({ "server_port": 9001, "bind_interface": LOOPBACK }),
         ),
     ])
     .unwrap();
     let (connect, dial) = dial_of(&m, "via");
     // The detour's server, with the detour's options.
     assert_eq!(server_of(&connect), 9001);
-    assert_eq!(dial.bind_interface.as_deref(), Some("hop0"));
+    assert_eq!(dial.bind_interface.as_deref(), Some(LOOPBACK));
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[test]
+fn an_interface_that_does_not_exist_is_an_error_when_built() {
+    let err = manager(&[ss("ss", json!({ "bind_interface": "no-such-if0" }))])
+        .err()
+        .unwrap();
+    assert_eq!(
+        err.to_string(),
+        "[ss] outbound: bind_interface: there is no interface \"no-such-if0\""
+    );
 }
 
 #[test]

@@ -302,12 +302,22 @@ pub fn check_dial_platform(kind: &str, tag: &str, dial: &DialOptions) -> Result<
             kind
         ));
     }
-    if dial.bind_interface.is_some() && !crate::net::dial::supports_bind_interface() {
-        return Err(anyhow!(
-            "[{}] {}: bind_interface: not supported on this platform",
-            tag,
-            kind
-        ));
+    if let Some(name) = &dial.bind_interface {
+        if !crate::net::dial::supports_bind_interface() {
+            return Err(anyhow!(
+                "[{}] {}: bind_interface: not supported on this platform",
+                tag,
+                kind
+            ));
+        }
+        if crate::net::dial::interface_exists(name) == Some(false) {
+            return Err(anyhow!(
+                "[{}] {}: bind_interface: there is no interface \"{}\"",
+                tag,
+                kind,
+                name
+            ));
+        }
     }
     Ok(())
 }

@@ -111,8 +111,16 @@ impl DialOptions {
         if defaults.routing_mark.is_some() && !supports_routing_mark() {
             anyhow::bail!("route.default_mark: only supported on Linux");
         }
-        if defaults.bind_interface.is_some() && !supports_bind_interface() {
-            anyhow::bail!("route.default_interface: not supported on this platform");
+        if let Some(name) = &defaults.bind_interface {
+            if !supports_bind_interface() {
+                anyhow::bail!("route.default_interface: not supported on this platform");
+            }
+            if interface_exists(name) == Some(false) {
+                anyhow::bail!(
+                    "route.default_interface: there is no interface \"{}\"",
+                    name
+                );
+            }
         }
         Ok(defaults)
     }
@@ -227,6 +235,22 @@ pub fn supports_routing_mark() -> bool {
     cfg!(any(target_os = "linux", target_os = "android"))
 }
 
+/// Whether the host has an interface named `name`, where that can be
+/// asked. It is not asked on Android, where interfaces come and go with the
+/// network.
+pub fn interface_exists(name: &str) -> Option<bool> {
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    {
+        let name = std::ffi::CString::new(name).ok()?;
+        Some(unsafe { libc::if_nametoindex(name.as_ptr()) } != 0)
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    {
+        let _ = name;
+        None
+    }
+}
+
 /// Whether `bind_interface` can be used on this platform.
 pub fn supports_bind_interface() -> bool {
     cfg!(any(
@@ -296,6 +320,18 @@ mod tests {
         let bound = bind(&socket, &"1.1.1.1:53".parse().unwrap(), &dial).unwrap();
         // Bound to an interface, not to an address.
         assert!(!bound);
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn a_missing_interface_is_known_as_missing() {
+        let loopback = if cfg!(target_os = "macos") {
+            "lo0"
+        } else {
+            "lo"
+        };
+        assert_eq!(interface_exists(loopback), Some(true));
+        assert_eq!(interface_exists("no-such-if0"), Some(false));
     }
 
     #[cfg(target_os = "macos")]

@@ -1,7 +1,74 @@
 use std::net::{Ipv4Addr, Ipv6Addr};
-use std::process::Command;
+use std::process::{Command, Stdio};
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
+
+/// Runs `ip` for something that may already be undone -- a route that went
+/// away with its device, say -- where the failure is not worth a word.
+fn ip_quiet(args: &[&str]) {
+    let _ = Command::new("ip")
+        .args(args)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+}
+
+/// Flags `ip route` prints that it does not take back.
+const PRINTED_ONLY: &[&str] = &[
+    "linkdown",
+    "dead",
+    "offload",
+    "rt_offload",
+    "trap",
+    "pervasive",
+];
+
+/// The main table's default routes, as `ip route` prints them, so that they
+/// can be put back exactly -- gateway, device, protocol, source, metric --
+/// after the TUN has taken the default route.
+pub fn get_default_routes(v6: bool) -> Result<Vec<String>> {
+    let family = if v6 { "-6" } else { "-4" };
+    let out = Command::new("ip")
+        .args([family, "route", "show", "table", "main", "default"])
+        .output()?;
+    if !out.status.success() {
+        return Err(anyhow!(
+            "ip route show: {}",
+            String::from_utf8_lossy(&out.stderr)
+        ));
+    }
+    Ok(String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .map(str::trim)
+        .filter(|l| l.starts_with("default"))
+        .map(String::from)
+        .collect())
+}
+
+/// Puts back the routes `get_default_routes` read.
+pub fn restore_default_routes(v6: bool, routes: &[String]) -> Result<()> {
+    let family = if v6 { "-6" } else { "-4" };
+    for route in routes {
+        let mut args = vec![family, "route", "replace"];
+        let mut words = route.split_whitespace();
+        while let Some(word) = words.next() {
+            match word {
+                w if PRINTED_ONLY.contains(&w) => {}
+                // A lifetime counting down when it was read.
+                "expires" => {
+                    words.next();
+                }
+                w => args.push(w),
+            }
+        }
+        args.extend(["table", "main"]);
+        let status = Command::new("ip").args(&args).status()?;
+        if !status.success() {
+            return Err(anyhow!("could not restore the route \"{}\"", route));
+        }
+    }
+    Ok(())
+}
 
 pub fn get_default_ipv4_gateway() -> Result<String> {
     let out = Command::new("ip")
@@ -116,9 +183,10 @@ pub fn add_interface_ipv4_address(
     _gw: Ipv4Addr,
     mask: Ipv4Addr,
 ) -> Result<()> {
+    // `replace`: creating the device may have assigned it already.
     Command::new("ip")
         .arg("addr")
-        .arg("add")
+        .arg("replace")
         .arg(format!("{}/{}", addr, mask))
         .arg("dev")
         .arg(name)
@@ -131,7 +199,7 @@ pub fn add_interface_ipv6_address(name: &str, addr: Ipv6Addr, prefixlen: i32) ->
     Command::new("ip")
         .arg("-6")
         .arg("addr")
-        .arg("add")
+        .arg("replace")
         .arg(format!("{}/{}", addr, prefixlen))
         .arg("dev")
         .arg(name)
@@ -203,50 +271,14 @@ pub fn add_default_ipv6_route(gateway: Ipv6Addr, interface: String, primary: boo
 }
 
 pub fn delete_default_ipv4_route(ifscope: Option<String>) -> Result<()> {
-    if let Some(_ifscope) = ifscope {
-        Command::new("ip")
-            .arg("route")
-            .arg("del")
-            .arg("default")
-            .arg("table")
-            .arg("default")
-            .status()
-            .expect("failed to execute command");
-    } else {
-        Command::new("ip")
-            .arg("route")
-            .arg("del")
-            .arg("default")
-            .arg("table")
-            .arg("main")
-            .status()
-            .expect("failed to execute command");
-    };
+    let table = if ifscope.is_some() { "default" } else { "main" };
+    ip_quiet(&["route", "del", "default", "table", table]);
     Ok(())
 }
 
 pub fn delete_default_ipv6_route(ifscope: Option<String>) -> Result<()> {
-    if let Some(_ifscope) = ifscope {
-        Command::new("ip")
-            .arg("-6")
-            .arg("route")
-            .arg("del")
-            .arg("default")
-            .arg("table")
-            .arg("default")
-            .status()
-            .expect("failed to execute command");
-    } else {
-        Command::new("ip")
-            .arg("-6")
-            .arg("route")
-            .arg("del")
-            .arg("default")
-            .arg("table")
-            .arg("main")
-            .status()
-            .expect("failed to execute command");
-    };
+    let table = if ifscope.is_some() { "default" } else { "main" };
+    ip_quiet(&["-6", "route", "del", "default", "table", table]);
     Ok(())
 }
 
@@ -278,29 +310,20 @@ pub fn add_default_ipv6_rule(addr: Ipv6Addr) -> Result<()> {
 }
 
 pub fn delete_default_ipv4_rule(addr: Ipv4Addr) -> Result<()> {
-    Command::new("ip")
-        .arg("rule")
-        .arg("del")
-        .arg("from")
-        .arg(addr.to_string())
-        .arg("table")
-        .arg("default")
-        .status()
-        .expect("failed to execute command");
+    ip_quiet(&["rule", "del", "from", &addr.to_string(), "table", "default"]);
     Ok(())
 }
 
 pub fn delete_default_ipv6_rule(addr: Ipv6Addr) -> Result<()> {
-    Command::new("ip")
-        .arg("-6")
-        .arg("rule")
-        .arg("del")
-        .arg("from")
-        .arg(addr.to_string())
-        .arg("table")
-        .arg("default")
-        .status()
-        .expect("failed to execute command");
+    ip_quiet(&[
+        "-6",
+        "rule",
+        "del",
+        "from",
+        &addr.to_string(),
+        "table",
+        "default",
+    ]);
     Ok(())
 }
 
