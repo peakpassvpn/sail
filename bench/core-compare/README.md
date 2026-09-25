@@ -34,6 +34,27 @@ sing-box run -c configs/server-singbox-tls.json &    # Trojan / VLESS 服务端�
 - **footprint** 是 macOS `footprint` 命令给出的 phys_footprint，iOS 按这个指标决定是否杀掉 Network Extension（上限约 50MB）。
 - **iOS 模式**：sing-box 按 libbox 的方式运行（`with_low_memory` 编译标签，缓冲区 16KB；GOGC=10、GOMEMLIMIT=45MiB，见 `experimental/libbox/memory.go`）；leaf 用单线程模式运行。
 
+## 只用 BoringSSL 之后（2026-09-26，P1.1b，macOS arm64）
+
+P1.1b 把 Shadowsocks / VMess 的 AEAD 从 aws-lc 换成 BoringSSL（btls），QUIC 换成 quinn-btls，删除了 rustls、ring 和 aws-lc。TLS 类出站从 P1.1a 起就在 BoringSSL 上，这一步没有变化。
+
+对比 `6d19ea4`（base，AEAD 用 aws-lc）和 `a627fbb`（new），运行 `./run.py --group regression --rounds 2`，两边使用同一份配置。结果为中位数：
+
+| 指标 | base 直连 | new 直连 | base 直连 1T | new 直连 1T | base SS | new SS | base SS 1T | new SS 1T |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 空闲 footprint (MB) | 6.7 | 6.5 | 6.3 | 6.3 | 6.6 | 6.5 | 6.4 | 6.2 |
+| 下行 CPU (秒/GB) | 0.32 | 0.33 | 0.22 | 0.23 | 0.59 | 0.60 | 0.45 | 0.44 |
+| 上行 CPU (秒/GB) | 0.33 | 0.33 | 0.22 | 0.23 | 0.51 | 0.51 | 0.47 | 0.46 |
+| 新建连接 p50 (ms) | 0.289 | 0.214 | 0.237 | 0.223 | 0.407 | 0.476 | 0.417 | 0.382 |
+| 2000 并发 footprint (MB) | 30.0 | 30.5 | 25.0 | 25.0 | 34.5 | 34.0 | 29.5 | 30.0 |
+| 负载结束 3s 后 footprint (MB) | 30.5 | 31.0 | 26.0 | 25.0 | 35.0 | 34.0 | 30.0 | 30.0 |
+
+结论：
+- SS 的每 GB CPU 与 aws-lc 持平（相差不超过 0.01）；
+- 内存持平；
+- 吞吐两边波动都很大，不作比较；
+- release 版 leaf-cli 从 10.23MB 降到 7.91MB。
+
 ## P0.2 重构后的 Linux 回归（2026-09-25，PVE 上的 Debian 13 VM，4 核）
 
 同样对比 `11c74ad`（base）和重构后（new），sing-box 1.13.12，loadgen 交叉编译。Linux 上没有 footprint，只看 RSS；CPU 从 `/proc/<pid>/stat` 读（`ps` 只精确到秒）。
