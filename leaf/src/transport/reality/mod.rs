@@ -1,6 +1,6 @@
-pub mod stream;
+//! REALITY: TLS that authenticates the client in the ClientHello session ID
+//! and the server with a certificate only the client can check.
 
-pub use stream::RealityStream;
-
-#[cfg(feature = "outbound-reality")]
 pub mod outbound;
+
+pub use outbound::Handler as StreamHandler;
