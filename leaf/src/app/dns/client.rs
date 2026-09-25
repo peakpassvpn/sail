@@ -39,7 +39,9 @@ use {
     tokio_openssl::SslStream,
 };
 
-use crate::{adapter::*, app::dispatcher::Dispatcher, net::*, option, session::*};
+use crate::{
+    adapter::*, app::dispatcher::Dispatcher, config::model::DnsStrategy, net::*, session::*,
+};
 include!("client/types.rs");
 
 impl DnsClient {
@@ -487,6 +489,11 @@ impl DnsClient {
         Ok(parsed_hosts)
     }
 
+    fn cache_capacity(dns: &crate::config::Dns) -> Result<NonZeroUsize> {
+        NonZeroUsize::new(dns.cache_capacity())
+            .ok_or_else(|| anyhow!("dns.cache_capacity: must be at least 1"))
+    }
+
     pub fn new(
         dns: &crate::config::Dns,
         dial: Arc<crate::net::DialOptions>,
@@ -494,14 +501,15 @@ impl DnsClient {
     ) -> Result<Self> {
         let servers = Self::load_servers(dns)?;
         let hosts = Self::load_hosts(dns)?;
+        let capacity = Self::cache_capacity(dns)?;
         let ipv4_cache = Arc::new(TokioMutex::new(LruCache::<String, CacheEntry>::new(
-            NonZeroUsize::new(*option::DNS_CACHE_SIZE).unwrap(),
+            capacity,
         )));
         let ipv6_cache = Arc::new(TokioMutex::new(LruCache::<String, CacheEntry>::new(
-            NonZeroUsize::new(*option::DNS_CACHE_SIZE).unwrap(),
+            capacity,
         )));
         let ech_cache = Arc::new(TokioMutex::new(LruCache::<String, EchCacheEntry>::new(
-            NonZeroUsize::new(*option::DNS_CACHE_SIZE).unwrap(),
+            capacity,
         )));
 
         Ok(Self {
@@ -518,6 +526,8 @@ impl DnsClient {
             })),
             dial,
             tuning,
+            strategy: dns.strategy,
+            timeout: dns.timeout(),
         })
     }
 
@@ -533,8 +543,20 @@ impl DnsClient {
         self.dial = dial;
         let servers = Self::load_servers(dns)?;
         let hosts = Self::load_hosts(dns)?;
+        let capacity = Self::cache_capacity(dns)?;
         self.servers = servers;
         self.hosts = hosts;
+        self.strategy = dns.strategy;
+        self.timeout = dns.timeout();
+        // Nothing else holds these while the client is being reloaded.
+        for cache in [&self.ipv4_cache, &self.ipv6_cache] {
+            if let Ok(mut cache) = cache.try_lock() {
+                cache.resize(capacity);
+            }
+        }
+        if let Ok(mut cache) = self.ech_cache.try_lock() {
+            cache.resize(capacity);
+        }
         if let Ok(mut selector) = self.selector_state.lock() {
             selector.primary_server = None;
             selector.last_reselect_at = None;
@@ -635,12 +657,7 @@ impl DnsClient {
                 }
 
                 let mut buf = vec![0u8; 512];
-                let n = match timeout(
-                    Duration::from_secs(*option::DNS_TIMEOUT),
-                    r.recv_from(&mut buf),
-                )
-                .await
-                {
+                let n = match timeout(self.timeout, r.recv_from(&mut buf)).await {
                     Ok(Ok((n, _))) => n,
                     Ok(Err(e)) => {
                         debug!("recv DNS response from {} failed: {}", resolver, e);
@@ -782,12 +799,7 @@ impl DnsClient {
                 }
 
                 let mut buf = vec![0u8; 2048];
-                let n = match timeout(
-                    Duration::from_secs(*option::DNS_TIMEOUT),
-                    r.recv_from(&mut buf),
-                )
-                .await
-                {
+                let n = match timeout(self.timeout, r.recv_from(&mut buf)).await {
                     Ok(Ok((n, _))) => n,
                     Ok(Err(e)) => {
                         debug!("recv DNS ech response from {} failed: {}", resolver, e);
@@ -1062,7 +1074,7 @@ impl DnsClient {
     ) -> Result<(CacheEntry, Duration)> {
         let start = tokio::time::Instant::now();
         let res = match timeout(
-            Duration::from_secs(*option::DNS_TIMEOUT),
+            self.timeout,
             self.resolve_with_server(is_direct, request, host, resolver),
         )
         .await
@@ -1099,7 +1111,7 @@ impl DnsClient {
     ) -> Result<(EchCacheEntry, Duration)> {
         let start = tokio::time::Instant::now();
         let res = match timeout(
-            Duration::from_secs(*option::DNS_TIMEOUT),
+            self.timeout,
             self.resolve_ech_with_server(is_direct, request, host, resolver, ty),
         )
         .await
@@ -1517,10 +1529,11 @@ impl DnsClient {
     async fn get_cached(&self, host: &String) -> Result<Vec<IpAddr>> {
         let mut cached_ips = Vec::new();
 
-        let fetch_order = match (*crate::option::ENABLE_IPV6, *crate::option::PREFER_IPV6) {
-            (true, true) => vec![&self.ipv6_cache, &self.ipv4_cache],
-            (true, false) => vec![&self.ipv4_cache, &self.ipv6_cache],
-            _ => vec![&self.ipv4_cache],
+        let fetch_order = match self.strategy {
+            DnsStrategy::Ipv4Only => vec![&self.ipv4_cache],
+            DnsStrategy::Ipv6Only => vec![&self.ipv6_cache],
+            DnsStrategy::PreferIpv4 => vec![&self.ipv4_cache, &self.ipv6_cache],
+            DnsStrategy::PreferIpv6 => vec![&self.ipv6_cache, &self.ipv4_cache],
         };
 
         // Query caches in priority order
@@ -1599,37 +1612,42 @@ impl DnsClient {
             Err(e) => return Err(anyhow!("invalid domain name [{}]: {}", host, e)),
         };
 
-        if *crate::option::ENABLE_IPV6 {
-            let delay = self.tuning.dualstack_delay;
-            let mut a_fut = Box::pin(self.query_record_type(is_direct, &name, host, RecordType::A));
-            let mut aaaa_fut =
-                Box::pin(self.query_record_type(is_direct, &name, host, RecordType::AAAA));
-
-            let (first, second) = if *crate::option::PREFER_IPV6 {
-                self.dualstack_query(&mut aaaa_fut, &mut a_fut, delay)
-                    .await?
-            } else {
-                self.dualstack_query(&mut a_fut, &mut aaaa_fut, delay)
-                    .await?
-            };
-
-            let mut ips = first.ips.clone();
-            self.cache_insert(host, first).await;
-            if let Some(second) = second {
-                ips.extend_from_slice(&second.ips);
-                self.cache_insert(host, second).await;
-            }
+        let single = match self.strategy {
+            DnsStrategy::Ipv4Only => Some(RecordType::A),
+            DnsStrategy::Ipv6Only => Some(RecordType::AAAA),
+            DnsStrategy::PreferIpv4 | DnsStrategy::PreferIpv6 => None,
+        };
+        if let Some(record_type) = single {
+            let entry = self
+                .query_record_type(is_direct, &name, host, record_type)
+                .await?;
+            let ips = entry.ips.clone();
+            self.cache_insert(host, entry).await;
             if !ips.is_empty() {
                 return Ok(ips);
             }
             return Err(anyhow!("could not resolve to any address"));
         }
 
-        let entry = self
-            .query_record_type(is_direct, &name, host, RecordType::A)
-            .await?;
-        let ips = entry.ips.clone();
-        self.cache_insert(host, entry).await;
+        let delay = self.tuning.dualstack_delay;
+        let mut a_fut = Box::pin(self.query_record_type(is_direct, &name, host, RecordType::A));
+        let mut aaaa_fut =
+            Box::pin(self.query_record_type(is_direct, &name, host, RecordType::AAAA));
+
+        let (first, second) = if self.strategy == DnsStrategy::PreferIpv6 {
+            self.dualstack_query(&mut aaaa_fut, &mut a_fut, delay)
+                .await?
+        } else {
+            self.dualstack_query(&mut a_fut, &mut aaaa_fut, delay)
+                .await?
+        };
+
+        let mut ips = first.ips.clone();
+        self.cache_insert(host, first).await;
+        if let Some(second) = second {
+            ips.extend_from_slice(&second.ips);
+            self.cache_insert(host, second).await;
+        }
         if !ips.is_empty() {
             return Ok(ips);
         }

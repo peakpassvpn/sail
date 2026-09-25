@@ -1,4 +1,55 @@
-use crate::option;
+use std::net::{Ipv4Addr, Ipv6Addr};
+
+use anyhow::{anyhow, Result};
+
+/// The IPv6 address the TUN takes when IPv6 is routed into it.
+const TUN_IPV6_ADDRESS: Ipv6Addr = Ipv6Addr::new(0x2001, 2, 0, 0, 0, 0, 0, 2);
+const TUN_IPV6_GATEWAY: Ipv6Addr = Ipv6Addr::new(0x2001, 2, 0, 0, 0, 0, 0, 1);
+const TUN_IPV6_PREFIX_LEN: i32 = 64;
+
+/// How a TUN with `auto` is addressed and routed.
+#[derive(Debug, Clone)]
+pub struct TunRoute {
+    pub name: String,
+    pub address: Ipv4Addr,
+    pub gateway: Ipv4Addr,
+    pub netmask: Ipv4Addr,
+    /// Routes IPv6 into the TUN as well (`dns.strategy` uses IPv6).
+    pub ipv6: bool,
+    /// Forwards the traffic of other hosts: the host is their gateway.
+    pub gateway_mode: bool,
+}
+
+impl TunRoute {
+    /// The route of the TUN inbound in `config`, if it has one with `auto`.
+    pub fn from_config(config: &crate::config::Config) -> Result<Option<TunRoute>> {
+        let Some(inbound) = config.inbounds.iter().find(|i| i.protocol == "tun") else {
+            return Ok(None);
+        };
+        let options = crate::protocol::tun::inbound::options(inbound)?;
+        if !options.auto {
+            return Ok(None);
+        }
+        let ip = |field: &str, value: &str| {
+            value.parse::<Ipv4Addr>().map_err(|_| {
+                anyhow!(
+                    "[{}] inbound: {}: \"{}\" is not an IPv4 address",
+                    inbound.tag,
+                    field,
+                    value
+                )
+            })
+        };
+        Ok(Some(TunRoute {
+            name: options.name().to_string(),
+            address: ip("address", options.address())?,
+            gateway: ip("gateway", options.gateway())?,
+            netmask: ip("netmask", options.netmask())?,
+            ipv6: config.dns.strategy.ipv6(),
+            gateway_mode: options.gateway_mode,
+        }))
+    }
+}
 
 #[derive(Default)]
 pub struct NetInfo {
@@ -9,13 +60,15 @@ pub struct NetInfo {
     pub ipv4_forwarding: bool,
     pub ipv6_forwarding: bool,
     pub default_interface: Option<String>,
+    /// The route set up, which is undone by the same description.
+    pub route: Option<TunRoute>,
 }
 
-pub fn get_net_info() -> NetInfo {
+pub fn get_net_info(route: TunRoute) -> NetInfo {
     let iface = super::cmd::get_default_interface().unwrap();
 
     let ipv4_gw = super::cmd::get_default_ipv4_gateway().unwrap();
-    let ipv6_gw = if *option::ENABLE_IPV6 {
+    let ipv6_gw = if route.ipv6 {
         Some(super::cmd::get_default_ipv6_gateway().unwrap())
     } else {
         None
@@ -33,7 +86,7 @@ pub fn get_net_info() -> NetInfo {
     } else {
         None
     };
-    let ipv6_addr = if *option::ENABLE_IPV6 {
+    let ipv6_addr = if route.ipv6 {
         if let Some(ifa) = all_interfaces
             .iter()
             .find(|ifa| ifa.name == iface && !ifa.ips.is_empty())
@@ -49,7 +102,7 @@ pub fn get_net_info() -> NetInfo {
         None
     };
     let ipv4_forwarding = super::cmd::get_ipv4_forwarding().unwrap();
-    let ipv6_forwarding = if *option::ENABLE_IPV6 {
+    let ipv6_forwarding = if route.ipv6 {
         super::cmd::get_ipv6_forwarding().unwrap()
     } else {
         false
@@ -63,6 +116,7 @@ pub fn get_net_info() -> NetInfo {
         ipv4_forwarding,
         ipv6_forwarding,
         default_interface: Some(iface),
+        route: Some(route),
     }
 }
 
@@ -76,28 +130,19 @@ pub fn post_tun_creation_setup(net_info: &NetInfo) {
         ipv4_forwarding,
         ipv6_forwarding,
         default_interface: Some(iface),
+        route: Some(route),
     } = net_info
     {
-        use std::net::{Ipv4Addr, Ipv6Addr};
         super::cmd::add_interface_ipv4_address(
-            &option::DEFAULT_TUN_NAME,
-            (*option::DEFAULT_TUN_IPV4_ADDR)
-                .parse::<Ipv4Addr>()
-                .unwrap(),
-            (*option::DEFAULT_TUN_IPV4_GW).parse::<Ipv4Addr>().unwrap(),
-            (*option::DEFAULT_TUN_IPV4_MASK)
-                .parse::<Ipv4Addr>()
-                .unwrap(),
+            &route.name,
+            route.address,
+            route.gateway,
+            route.netmask,
         )
         .unwrap();
         super::cmd::delete_default_ipv4_route(None).unwrap();
 
-        super::cmd::add_default_ipv4_route(
-            option::DEFAULT_TUN_IPV4_GW.parse::<Ipv4Addr>().unwrap(),
-            iface.clone(),
-            true,
-        )
-        .unwrap();
+        super::cmd::add_default_ipv4_route(route.gateway, iface.clone(), true).unwrap();
         super::cmd::add_default_ipv4_route(
             ipv4_gw.parse::<Ipv4Addr>().unwrap(),
             iface.clone(),
@@ -112,26 +157,21 @@ pub fn post_tun_creation_setup(net_info: &NetInfo) {
             }
         }
 
-        if *option::GATEWAY_MODE && !ipv4_forwarding {
+        if route.gateway_mode && !ipv4_forwarding {
             super::cmd::set_ipv4_forwarding(true).unwrap();
         }
 
-        if *option::ENABLE_IPV6 {
+        if route.ipv6 {
             super::cmd::add_interface_ipv6_address(
-                &option::DEFAULT_TUN_NAME,
-                option::DEFAULT_TUN_IPV6_ADDR.parse::<Ipv6Addr>().unwrap(),
-                *option::DEFAULT_TUN_IPV6_PREFIXLEN,
+                &route.name,
+                TUN_IPV6_ADDRESS,
+                TUN_IPV6_PREFIX_LEN,
             )
             .unwrap();
 
             if let Some(ipv6_gw) = ipv6_gw {
                 super::cmd::delete_default_ipv6_route(None).unwrap();
-                super::cmd::add_default_ipv6_route(
-                    option::DEFAULT_TUN_IPV6_GW.parse::<Ipv6Addr>().unwrap(),
-                    iface.clone(),
-                    true,
-                )
-                .unwrap();
+                super::cmd::add_default_ipv6_route(TUN_IPV6_GATEWAY, iface.clone(), true).unwrap();
                 super::cmd::add_default_ipv6_route(
                     ipv6_gw.parse::<Ipv6Addr>().unwrap(),
                     iface.clone(),
@@ -147,15 +187,15 @@ pub fn post_tun_creation_setup(net_info: &NetInfo) {
                 }
             }
 
-            if *option::GATEWAY_MODE && !ipv6_forwarding {
+            if route.gateway_mode && !ipv6_forwarding {
                 super::cmd::set_ipv6_forwarding(true).unwrap();
             }
         }
 
         #[cfg(target_os = "linux")]
         {
-            if *option::GATEWAY_MODE {
-                super::cmd::add_iptable_forward(&option::DEFAULT_TUN_NAME).unwrap();
+            if route.gateway_mode {
+                super::cmd::add_iptable_forward(&route.name).unwrap();
             }
         }
     }
@@ -171,9 +211,9 @@ pub fn post_tun_completion_setup(net_info: &NetInfo) {
         ipv4_forwarding,
         ipv6_forwarding,
         default_interface: Some(iface),
+        route: Some(route),
     } = &net_info
     {
-        use std::net::{Ipv4Addr, Ipv6Addr};
         super::cmd::delete_default_ipv4_route(None).unwrap();
         super::cmd::delete_default_ipv4_route(Some(iface.clone())).unwrap();
 
@@ -191,11 +231,11 @@ pub fn post_tun_completion_setup(net_info: &NetInfo) {
             }
         }
 
-        if *option::GATEWAY_MODE && !ipv4_forwarding {
+        if route.gateway_mode && !ipv4_forwarding {
             super::cmd::set_ipv4_forwarding(false).unwrap();
         }
 
-        if *option::ENABLE_IPV6 {
+        if route.ipv6 {
             if let Some(ipv6_gw) = ipv6_gw {
                 super::cmd::delete_default_ipv6_route(None).unwrap();
                 super::cmd::delete_default_ipv6_route(Some(iface.clone())).unwrap();
@@ -214,15 +254,15 @@ pub fn post_tun_completion_setup(net_info: &NetInfo) {
                 }
             }
 
-            if *option::GATEWAY_MODE && !ipv6_forwarding {
+            if route.gateway_mode && !ipv6_forwarding {
                 super::cmd::set_ipv6_forwarding(false).unwrap();
             }
         }
 
         #[cfg(target_os = "linux")]
         {
-            if *option::GATEWAY_MODE {
-                super::cmd::delete_iptable_forward(&option::DEFAULT_TUN_NAME).unwrap();
+            if route.gateway_mode {
+                super::cmd::delete_iptable_forward(&route.name).unwrap();
             }
         }
     }

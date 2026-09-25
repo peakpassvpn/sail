@@ -26,7 +26,6 @@ pub struct InboundManager {
     tun_listener: Option<TunInboundListener>,
     #[cfg(feature = "inbound-cat")]
     cat_listener: Option<CatInboundListener>,
-    tun_auto: bool,
 }
 
 impl InboundManager {
@@ -62,13 +61,10 @@ impl InboundManager {
         #[cfg(feature = "inbound-cat")]
         let mut cat_listener: Option<CatInboundListener> = None;
 
-        let mut tun_auto = false;
-
         for inbound in inbounds.iter() {
             match inbound.protocol.as_str() {
                 #[cfg(feature = "inbound-tun")]
                 "tun" => {
-                    tun_auto = crate::protocol::tun::inbound::options(inbound)?.auto;
                     let listener = TunInboundListener {
                         inbound: inbound.clone(),
                         dispatcher: dispatcher.clone(),
@@ -95,7 +91,6 @@ impl InboundManager {
             tun_listener,
             #[cfg(feature = "inbound-cat")]
             cat_listener,
-            tun_auto,
         })
     }
 
@@ -115,15 +110,6 @@ impl InboundManager {
     #[cfg(feature = "inbound-cat")]
     pub fn get_cat_runner(&self) -> Option<Result<Runner>> {
         self.cat_listener.as_ref().map(CatInboundListener::listen)
-    }
-
-    #[cfg(feature = "inbound-tun")]
-    pub fn has_tun_listener(&self) -> bool {
-        self.tun_listener.is_some()
-    }
-
-    pub fn tun_auto(&self) -> bool {
-        self.tun_auto
     }
 }
 

@@ -165,7 +165,7 @@ impl Manager {
 
         // FIXME A better indicator.
         let socket = self
-            .new_udp_socket(&crate::option::UNSPECIFIED_BIND_ADDR, &self.dial)
+            .new_udp_socket(&self.dial.unspecified(), &self.dial)
             .instrument(tracing::Span::current())
             .await?;
         let mut endpoint = quinn::Endpoint::new(

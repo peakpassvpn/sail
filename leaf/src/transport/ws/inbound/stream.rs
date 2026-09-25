@@ -12,11 +12,16 @@ use crate::{adapter::*, session::Session};
 struct SimpleCallback<'a> {
     sess: &'a mut Session,
     path: &'a str,
+    forwarded_header: Option<&'a str>,
 }
 
 impl<'a> SimpleCallback<'a> {
-    pub fn new(sess: &'a mut Session, path: &'a str) -> Self {
-        Self { sess, path }
+    pub fn new(sess: &'a mut Session, path: &'a str, forwarded_header: Option<&'a str>) -> Self {
+        Self {
+            sess,
+            path,
+            forwarded_header,
+        }
     }
 }
 
@@ -28,9 +33,9 @@ impl<'a> Callback for SimpleCallback<'a> {
                 .body(None)
                 .unwrap());
         }
-        if let Some(Ok(forwarded)) = request
-            .headers()
-            .get(&*crate::option::HTTP_FORWARDED_HEADER)
+        if let Some(Ok(forwarded)) = self
+            .forwarded_header
+            .and_then(|header| request.headers().get(header))
             .map(|x| x.to_str())
         {
             if let Some(f) = forwarded
@@ -50,12 +55,18 @@ impl<'a> Callback for SimpleCallback<'a> {
 
 pub struct Handler {
     path: String,
+    /// The header a trusted proxy in front puts the client's address in.
+    forwarded_header: Option<String>,
     half_close: bool,
 }
 
 impl Handler {
-    pub fn new(path: String, half_close: bool) -> Self {
-        Handler { path, half_close }
+    pub fn new(path: String, forwarded_header: Option<String>, half_close: bool) -> Self {
+        Handler {
+            path,
+            forwarded_header,
+            half_close,
+        }
     }
 }
 
@@ -67,9 +78,12 @@ impl InboundStreamHandler for Handler {
         stream: AnyStream,
     ) -> std::io::Result<AnyInboundTransport> {
         tracing::trace!("handling inbound stream");
-        let s = accept_hdr_async(stream, SimpleCallback::new(&mut sess, &self.path))
-            .map_err(|e| io::Error::other(format!("accept ws failed: {}", e)))
-            .await?;
+        let s = accept_hdr_async(
+            stream,
+            SimpleCallback::new(&mut sess, &self.path, self.forwarded_header.as_deref()),
+        )
+        .map_err(|e| io::Error::other(format!("accept ws failed: {}", e)))
+        .await?;
         debug!("accepted WS stream");
         Ok(InboundTransport::Stream(
             Box::new(super::ws_stream::WebSocketToStream::new(s, self.half_close)),

@@ -221,4 +221,8 @@ pub struct DnsClient {
     /// How its own sockets are opened: the instance's dial defaults.
     dial: Arc<crate::net::DialOptions>,
     tuning: crate::runtime::options::Dns,
+    /// `dns.strategy`.
+    strategy: crate::config::model::DnsStrategy,
+    /// `dns.timeout`: how long one query to one server may take.
+    timeout: Duration,
 }

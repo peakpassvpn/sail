@@ -48,6 +48,10 @@ pub struct General {
     pub routing_domain_resolve: Option<bool>,
     pub wintun: Option<String>,
     pub tun_dns_server: Option<Vec<String>>,
+    /// Surge's `ipv6`: whether IPv6 is used at all.
+    pub ipv6: Option<bool>,
+    /// With `tun = auto`, forwards the traffic of other hosts.
+    pub gateway_mode: Option<bool>,
 }
 
 #[derive(Debug)]
@@ -455,20 +459,26 @@ where
     None
 }
 
+fn parse_bool(key: &str, value: &str) -> Result<bool> {
+    match value {
+        "true" => Ok(true),
+        "false" => Ok(false),
+        _ => Err(anyhow!(
+            "{}: expected true or false, got \"{}\"",
+            key,
+            value
+        )),
+    }
+}
+
 pub fn from_lines(lines: Vec<io::Result<String>>) -> Result<Config> {
     let certificates = get_certificate_sections(lines.iter());
     let ech_configs = get_ech_sections(lines.iter());
-    let env_lines = get_lines_by_section("Env", lines.iter());
-    for line in env_lines {
-        let parts: Vec<&str> = line
-            .split('=')
-            .map(|s| s.trim_matches('\u{0}'))
-            .map(str::trim)
-            .collect();
-        if parts.len() != 2 {
-            continue;
-        }
-        std::env::set_var(parts[0], parts[1]);
+    if !get_lines_by_section("Env", lines.iter()).is_empty() {
+        return Err(anyhow!(
+            "[Env] is not supported: tuning is given at start (--profile, --set), \
+             and everything else has a configuration field"
+        ));
     }
 
     let mut general = General::default();
@@ -570,6 +580,12 @@ pub fn from_lines(lines: Vec<io::Result<String>>) -> Result<Config> {
             }
             "tun-dns-server" => {
                 general.tun_dns_server = get_char_sep_slice(parts[1], ',');
+            }
+            "ipv6" => {
+                general.ipv6 = Some(parse_bool("ipv6", parts[1])?);
+            }
+            "gateway-mode" => {
+                general.gateway_mode = Some(parse_bool("gateway-mode", parts[1])?);
             }
             _ => {}
         }
@@ -1032,6 +1048,9 @@ pub fn to_config(conf: &Config) -> Result<model::Config> {
             ));
         }
 
+        if ext_general.gateway_mode.is_some() && ext_general.tun_auto != Some(true) {
+            return Err(anyhow!("gateway-mode needs tun = auto"));
+        }
         if ext_general.tun_fd.is_some()
             || ext_general.tun_auto.is_some()
             || ext_general.tun.is_some()
@@ -1048,6 +1067,9 @@ pub fn to_config(conf: &Config) -> Result<model::Config> {
             } else if ext_general.tun_auto == Some(true) {
                 tun["auto"] = json!(true);
                 config.route.auto_detect_interface = true;
+                if let Some(gateway_mode) = ext_general.gateway_mode {
+                    tun["gateway_mode"] = json!(gateway_mode);
+                }
             } else if let Some(ext_tun) = &ext_general.tun {
                 tun["name"] = json!(ext_tun.name);
                 tun["address"] = json!(ext_tun.address);
@@ -1376,6 +1398,25 @@ pub fn to_config(conf: &Config) -> Result<model::Config> {
     if let Some(servers) = conf.general.as_ref().and_then(|g| g.dns_server.clone()) {
         config.dns.servers = servers;
     }
+    if let Some(ipv6) = conf.general.as_ref().and_then(|g| g.ipv6) {
+        config.dns.strategy = if ipv6 {
+            model::DnsStrategy::PreferIpv4
+        } else {
+            model::DnsStrategy::Ipv4Only
+        };
+    }
+    if let Some(general) = &conf.general {
+        match (&general.api_interface, general.api_port) {
+            (Some(interface), Some(port)) => {
+                let ip = interface.parse::<std::net::IpAddr>().map_err(|_| {
+                    anyhow!("api-interface: \"{}\" is not an IP address", interface)
+                })?;
+                config.api.listen = Some((ip, port).into());
+            }
+            (None, None) => {}
+            _ => return Err(anyhow!("api-interface and api-port go together")),
+        }
+    }
     if let Some(hosts) = &conf.host {
         config.dns.hosts = hosts.clone();
     }
@@ -1437,6 +1478,7 @@ fn inbound(
         tag: tag.to_string(),
         listen: listen.map(|(address, _)| address.clone()),
         listen_port: listen.map(|(_, port)| port),
+        udp_timeout: None,
         options: options(value),
     }
 }
@@ -1462,6 +1504,44 @@ mod tests {
     fn load(conf: &str) -> model::Config {
         let lines: Vec<io::Result<String>> = conf.lines().map(|s| Ok(s.to_string())).collect();
         to_config(&from_lines(lines).unwrap()).unwrap()
+    }
+
+    fn load_err(conf: &str) -> String {
+        let lines: Vec<io::Result<String>> = conf.lines().map(|s| Ok(s.to_string())).collect();
+        from_lines(lines)
+            .and_then(|c| to_config(&c))
+            .unwrap_err()
+            .to_string()
+    }
+
+    #[test]
+    fn general_ipv6_api_and_gateway_mode() {
+        let config = load(
+            r#"
+[General]
+ipv6 = true
+api-interface = 127.0.0.1
+api-port = 9090
+tun = auto
+gateway-mode = true
+"#,
+        );
+        assert_eq!(config.dns.strategy, model::DnsStrategy::PreferIpv4);
+        assert_eq!(config.api.listen, Some("127.0.0.1:9090".parse().unwrap()));
+        let tun = config
+            .inbounds
+            .iter()
+            .find(|i| i.protocol == "tun")
+            .unwrap();
+        assert_eq!(tun.options["gateway_mode"], json!(true));
+    }
+
+    #[test]
+    fn general_mistakes_are_errors() {
+        assert!(load_err("[Env]\nFOO = 1\n").contains("[Env]"));
+        assert!(load_err("[General]\nipv6 = yes\n").contains("ipv6"));
+        assert!(load_err("[General]\napi-port = 9090\n").contains("api-interface"));
+        assert!(load_err("[General]\ngateway-mode = true\n").contains("tun = auto"));
     }
 
     fn outbound<'a>(config: &'a model::Config, tag: &str) -> &'a model::Outbound {

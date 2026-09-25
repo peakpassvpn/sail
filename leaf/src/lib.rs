@@ -231,7 +231,7 @@ impl RuntimeManager {
         info!("reloading from config file: {}", config_path);
         let config = config::from_file(config_path).map_err(Error::Config)?;
         app::logger::setup_logger(&config.log, self.env.host.log_to_system)?;
-        let dial_defaults = dial_defaults(&config.route, &self.env).map_err(Error::Config)?;
+        let dial_defaults = dial_defaults(&config, &self.env).map_err(Error::Config)?;
         self.router.write().await.reload(&config.route, &self.env)?;
         self.dns_client
             .write()
@@ -390,11 +390,13 @@ pub fn is_running(key: RuntimeId) -> bool {
 /// The dial defaults of an instance: `route`'s, with the system's default
 /// interface when `route.auto_detect_interface` asks for it.
 pub(crate) fn dial_defaults(
-    route: &config::Route,
+    config: &config::Config,
     env: &runtime::RuntimeEnv,
 ) -> anyhow::Result<Arc<net::DialOptions>> {
+    let route = &config.route;
     let mut defaults = net::DialOptions::defaults(route)?;
     defaults.protect = env.host.socket_protect.clone();
+    defaults.ipv6 = config.dns.strategy.ipv6();
     if !route.auto_detect_interface {
         return Ok(Arc::new(defaults));
     }
@@ -452,6 +454,8 @@ pub fn check_config(config: &config::Config, env: &runtime::RuntimeEnv) -> anyho
     for inbound in config.inbounds.iter().filter(|i| i.protocol == "tun") {
         protocol::tun::inbound::options(inbound)?;
     }
+    #[cfg(all(feature = "inbound-tun", any(target_os = "macos", target_os = "linux")))]
+    platform::tun_setup::TunRoute::from_config(config)?;
     Router::new(&config.route, dns_client, env)?;
     Ok(())
 }
@@ -541,7 +545,7 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
     let mut tasks: Vec<Runner> = Vec::new();
     let mut runners = Vec::new();
 
-    let dial_defaults = dial_defaults(&config.route, &env).map_err(Error::Config)?;
+    let dial_defaults = dial_defaults(&config, &env).map_err(Error::Config)?;
     let dns_client = Arc::new(RwLock::new(
         DnsClient::new(&config.dns, dial_defaults.clone(), env.options.dns.clone())
             .map_err(Error::Config)?,
@@ -574,7 +578,7 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
             .replace_dispatcher(dispatcher_weak);
     });
 
-    let nat_manager = Arc::new(NatManager::new(dispatcher.clone()));
+    let nat_manager = Arc::new(NatManager::new(dispatcher.clone(), &config.inbounds));
     let inbound_manager = InboundManager::new(&config.inbounds, &env, dispatcher, nat_manager)
         .map_err(Error::Config)?;
     let mut inbound_net_runners = inbound_manager
@@ -583,11 +587,11 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
     runners.append(&mut inbound_net_runners);
 
     #[cfg(all(feature = "inbound-tun", any(target_os = "macos", target_os = "linux")))]
-    let net_info = if inbound_manager.has_tun_listener() && inbound_manager.tun_auto() {
-        platform::tun_setup::get_net_info()
-    } else {
-        platform::tun_setup::NetInfo::default()
-    };
+    let net_info =
+        match platform::tun_setup::TunRoute::from_config(&config).map_err(Error::Config)? {
+            Some(route) => platform::tun_setup::get_net_info(route),
+            None => platform::tun_setup::NetInfo::default(),
+        };
 
     #[cfg(feature = "inbound-tun")]
     if let Some(r) = inbound_manager.get_tun_runner() {
@@ -626,21 +630,9 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
     }
 
     #[cfg(feature = "api")]
-    {
-        use std::net::SocketAddr;
-        let listen_addr = if !option::API_LISTEN.is_empty() {
-            Some(
-                option::API_LISTEN
-                    .parse::<SocketAddr>()
-                    .map_err(|e| Error::Config(anyhow!("parse SocketAddr failed: {}", e)))?,
-            )
-        } else {
-            None
-        };
-        if let Some(listen_addr) = listen_addr {
-            let api_server = ApiServer::new(runtime_manager.clone());
-            runners.push(api_server.serve(listen_addr));
-        }
+    if let Some(listen_addr) = config.api.listen {
+        let api_server = ApiServer::new(runtime_manager.clone());
+        runners.push(api_server.serve(listen_addr));
     }
 
     drop(config); // explicitly free the memory

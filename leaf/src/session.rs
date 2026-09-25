@@ -213,13 +213,16 @@ impl Clone for Session {
     }
 }
 
+/// An address that stands for no address in particular.
+const UNSPECIFIED: SocketAddr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 0));
+
 impl Default for Session {
     fn default() -> Self {
         Session {
             span: Self::create_span(),
             network: Network::Tcp,
-            source: *crate::option::UNSPECIFIED_BIND_ADDR,
-            local_addr: *crate::option::UNSPECIFIED_BIND_ADDR,
+            source: UNSPECIFIED,
+            local_addr: UNSPECIFIED,
             destination: SocksAddr::any(),
             inbound_tag: "".to_string(),
             outbound_tag: "".to_string(),
@@ -335,7 +338,7 @@ fn invalid_addr_type() -> io::Error {
 
 impl SocksAddr {
     pub fn any() -> Self {
-        Self::Ip(*crate::option::UNSPECIFIED_BIND_ADDR)
+        Self::Ip(UNSPECIFIED)
     }
 
     pub fn any_ipv4() -> Self {

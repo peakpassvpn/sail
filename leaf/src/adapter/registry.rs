@@ -603,6 +603,7 @@ mod tests {
             tag: tag.to_string(),
             listen: None,
             listen_port: None,
+            udp_timeout: None,
             options: Options::new(),
         };
         let unknown = inbound("in-1", "no-such-protocol");

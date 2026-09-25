@@ -148,7 +148,7 @@ pub async fn test_outbound(
     env: &crate::runtime::RuntimeEnv,
 ) -> Result<(Result<Duration>, Result<Duration>)> {
     let to = to.unwrap_or(Duration::from_secs(4));
-    let dial_defaults = crate::dial_defaults(&config.route, env)?;
+    let dial_defaults = crate::dial_defaults(config, env)?;
     let dns_client = Arc::new(RwLock::new(DnsClient::new(
         &config.dns,
         dial_defaults.clone(),
@@ -188,7 +188,7 @@ pub async fn test_outbounds(
     env: &crate::runtime::RuntimeEnv,
 ) -> Result<HashMap<String, (Result<Duration>, Result<Duration>)>> {
     let to = to.unwrap_or(Duration::from_secs(4));
-    let dial_defaults = crate::dial_defaults(&config.route, env)?;
+    let dial_defaults = crate::dial_defaults(config, env)?;
     let dns_client = Arc::new(RwLock::new(DnsClient::new(
         &config.dns,
         dial_defaults.clone(),
@@ -240,7 +240,7 @@ pub async fn stream_outbounds_tests(
     env: &crate::runtime::RuntimeEnv,
 ) -> Result<impl futures::Stream<Item = (String, (Result<Duration>, Result<Duration>))>> {
     let to = to.unwrap_or(Duration::from_secs(4));
-    let dial_defaults = crate::dial_defaults(&config.route, env)?;
+    let dial_defaults = crate::dial_defaults(config, env)?;
     let dns_client = Arc::new(RwLock::new(DnsClient::new(
         &config.dns,
         dial_defaults.clone(),
@@ -283,7 +283,7 @@ pub async fn health_check_outbound(
     env: &crate::runtime::RuntimeEnv,
 ) -> Result<(Result<Duration>, Result<Duration>)> {
     let to = to.unwrap_or(Duration::from_secs(4));
-    let dial_defaults = crate::dial_defaults(&config.route, env)?;
+    let dial_defaults = crate::dial_defaults(config, env)?;
     let dns_client = Arc::new(RwLock::new(DnsClient::new(
         &config.dns,
         dial_defaults.clone(),

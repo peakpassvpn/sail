@@ -269,6 +269,7 @@ impl OutboundBlocks {
                 .connect_timeout
                 .unwrap_or(crate::net::dial::DEFAULT_CONNECT_TIMEOUT),
             protect: None,
+            ipv6: false,
         };
         if let Some(detour) = &self.detour {
             let set = [
@@ -675,6 +676,11 @@ pub enum InboundTransport {
     Ws {
         #[serde(default = "default_path")]
         path: String,
+        /// The header a trusted reverse proxy in front puts the client's
+        /// address in, such as `X-Forwarded-For`. Unset, no header is
+        /// believed: anyone can send one.
+        #[serde(default)]
+        forwarded_header: Option<String>,
     },
     /// Its certificate comes from the `tls` block.
     Quic {},
@@ -759,8 +765,12 @@ pub fn inbound(
             }
             under_mux.push(tls_inbound(tag, tls, env)?);
         }
-        if let Some(InboundTransport::Ws { path }) = &blocks.transport {
-            under_mux.push(ws_inbound(tag, path, env)?);
+        if let Some(InboundTransport::Ws {
+            path,
+            forwarded_header,
+        }) = &blocks.transport
+        {
+            under_mux.push(ws_inbound(tag, path, forwarded_header, env)?);
         }
         match mux {
             Some(mux) => actors.push(amux_inbound(tag, mux, under_mux)?),
@@ -830,12 +840,18 @@ fn tls_inbound(tag: &str, tls: &InboundTls, env: &RuntimeEnv) -> Result<AnyInbou
 }
 
 #[allow(unused_variables)]
-fn ws_inbound(tag: &str, path: &str, env: &RuntimeEnv) -> Result<AnyInboundHandler> {
+fn ws_inbound(
+    tag: &str,
+    path: &str,
+    forwarded_header: &Option<String>,
+    env: &RuntimeEnv,
+) -> Result<AnyInboundHandler> {
     #[cfg(feature = "inbound-ws")]
     return Ok(Arc::new(crate::adapter::inbound::Handler::new(
         format!("{}/ws", tag),
         Some(Arc::new(crate::transport::ws::inbound::StreamHandler::new(
             path.to_string(),
+            forwarded_header.clone(),
             env.options.ws.half_close,
         ))),
         None,

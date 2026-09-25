@@ -35,6 +35,9 @@ pub struct DialOptions {
     pub connect_timeout: Duration,
     /// From the host, never from a configuration.
     pub protect: Option<SocketProtect>,
+    /// Whether IPv6 is used at all (`dns.strategy`), which makes the UDP
+    /// sockets that are not bound to anything in particular dual-stack.
+    pub ipv6: bool,
 }
 
 impl Default for DialOptions {
@@ -46,6 +49,7 @@ impl Default for DialOptions {
             routing_mark: None,
             connect_timeout: DEFAULT_CONNECT_TIMEOUT,
             protect: None,
+            ipv6: false,
         }
     }
 }
@@ -79,6 +83,17 @@ impl DialOptions {
             routing_mark: self.routing_mark.or(defaults.routing_mark),
             connect_timeout: self.connect_timeout,
             protect: self.protect.clone().or_else(|| defaults.protect.clone()),
+            ipv6: defaults.ipv6,
+        }
+    }
+
+    /// The local address for a UDP socket that is not bound to anything in
+    /// particular.
+    pub fn unspecified(&self) -> SocketAddr {
+        if self.ipv6 {
+            (Ipv6Addr::UNSPECIFIED, 0).into()
+        } else {
+            (Ipv4Addr::UNSPECIFIED, 0).into()
         }
     }
 
@@ -291,5 +306,19 @@ mod tests {
             ..Default::default()
         };
         assert!(bind(&socket, &"1.1.1.1:53".parse().unwrap(), &dial).is_err());
+    }
+
+    #[test]
+    fn unbound_udp_sockets_are_dual_stack_only_with_ipv6() {
+        let v4 = DialOptions::default();
+        assert_eq!(v4.unspecified(), "0.0.0.0:0".parse().unwrap());
+        let defaults = DialOptions {
+            ipv6: true,
+            ..Default::default()
+        };
+        assert_eq!(
+            DialOptions::default().or(&defaults).unspecified(),
+            "[::]:0".parse().unwrap()
+        );
     }
 }

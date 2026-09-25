@@ -10,7 +10,6 @@ use tokio::sync::{
 use tracing::{debug, error, trace, Instrument};
 
 use crate::app::dispatcher::Dispatcher;
-use crate::option;
 use crate::session::{DatagramSource, Network, Session, SocksAddr};
 
 #[derive(Debug)]
@@ -42,12 +41,21 @@ impl std::fmt::Display for UdpPacket {
     }
 }
 
-type SessionMap = HashMap<DatagramSource, (Sender<UdpPacket>, oneshot::Sender<bool>, Instant)>;
+/// Per session: the uplink, the downlink's abort signal, the last activity,
+/// and how long the session may be idle.
+type SessionMap =
+    HashMap<DatagramSource, (Sender<UdpPacket>, oneshot::Sender<bool>, Instant, Duration)>;
+
+/// How long a session through an inbound without its own `udp_timeout`
+/// may be idle.
+const DEFAULT_UDP_TIMEOUT: Duration = Duration::from_secs(30);
 
 pub struct NatManager {
     sessions: Arc<Mutex<SessionMap>>,
     dispatcher: Arc<Dispatcher>,
     timeout_check_task: Mutex<Option<BoxFuture<'static, ()>>>,
+    /// `udp_timeout` by inbound tag.
+    udp_timeouts: HashMap<String, Duration>,
 }
 
 impl NatManager {
@@ -56,7 +64,11 @@ impl NatManager {
         self.dispatcher.env()
     }
 
-    pub fn new(dispatcher: Arc<Dispatcher>) -> Self {
+    pub fn new(dispatcher: Arc<Dispatcher>, inbounds: &[crate::config::Inbound]) -> Self {
+        let udp_timeouts = inbounds
+            .iter()
+            .map(|i| (i.tag.clone(), i.udp_timeout()))
+            .collect();
         let sessions: Arc<Mutex<SessionMap>> = Arc::new(Mutex::new(HashMap::new()));
         let sessions2 = sessions.clone();
         let check_interval = dispatcher.env().options.udp.session_check_interval;
@@ -69,7 +81,7 @@ impl NatManager {
                 let now = Instant::now();
                 let mut to_be_remove = Vec::new();
                 for (key, val) in sessions.iter() {
-                    if now.duration_since(val.2).as_secs() >= *option::UDP_SESSION_TIMEOUT {
+                    if now.duration_since(val.2) >= val.3 {
                         to_be_remove.push(key.to_owned());
                     }
                 }
@@ -102,6 +114,7 @@ impl NatManager {
             sessions,
             dispatcher,
             timeout_check_task: Mutex::new(Some(timeout_check_task)),
+            udp_timeouts,
         }
     }
 
@@ -184,9 +197,14 @@ impl NatManager {
             mpsc::channel(self.dispatcher.env().options.udp.uplink_channel_size);
         let (downlink_abort_tx, downlink_abort_rx) = oneshot::channel();
 
+        let udp_timeout = self
+            .udp_timeouts
+            .get(&sess.inbound_tag)
+            .copied()
+            .unwrap_or(DEFAULT_UDP_TIMEOUT);
         guard.insert(
             raddr.clone(),
-            (target_ch_tx, downlink_abort_tx, Instant::now()),
+            (target_ch_tx, downlink_abort_tx, Instant::now(), udp_timeout),
         );
 
         let dispatcher = self.dispatcher.clone();
@@ -252,9 +270,7 @@ impl NatManager {
                                             // If the destination port is 53, we assume it's a
                                             // DNS query and set a negative timeout so it will
                                             // be removed on next check.
-                                            if let Some(new_time) = sess.2.checked_sub(
-                                                Duration::from_secs(*option::UDP_SESSION_TIMEOUT),
-                                            ) {
+                                            if let Some(new_time) = sess.2.checked_sub(sess.3) {
                                                 sess.2 = new_time;
                                             }
                                         } else {

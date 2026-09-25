@@ -16,7 +16,6 @@ use crate::{
     app::nat_manager::NatManager,
     app::nat_manager::UdpPacket,
     config::model::{parse_options, Inbound},
-    option,
     session::{DatagramSource, Network, Session, SocksAddr},
     Runner,
 };
@@ -515,24 +514,29 @@ fn new_smoltcp(
 }
 
 /// The options of a TUN inbound.
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct TunInboundOptions {
     /// An already open TUN device; everything but the fake DNS options is
     /// ignored when it is set.
     #[serde(default = "no_fd")]
     pub fd: i32,
-    /// Creates and routes the device with defaults.
+    /// Routes all traffic into the device.
     #[serde(default)]
     pub auto: bool,
     #[serde(default)]
-    pub name: String,
+    pub name: Option<String>,
     #[serde(default)]
-    pub address: String,
+    pub address: Option<String>,
     #[serde(default)]
-    pub gateway: String,
+    pub gateway: Option<String>,
     #[serde(default)]
-    pub netmask: String,
+    pub netmask: Option<String>,
+    /// With `auto`, forwards the traffic of other hosts, which use this one
+    /// as their gateway.
+    #[serde(default)]
+    #[cfg_attr(not(any(target_os = "macos", target_os = "linux")), allow(dead_code))]
+    pub gateway_mode: bool,
     #[serde(default = "default_mtu")]
     pub mtu: i32,
     #[serde(default)]
@@ -552,6 +556,33 @@ pub(crate) struct TunInboundOptions {
     pub dns_servers: Vec<String>,
 }
 
+#[cfg(windows)]
+const DEFAULT_ADDRESS: &str = "10.7.7.2";
+#[cfg(windows)]
+const DEFAULT_GATEWAY: &str = "10.7.7.1";
+#[cfg(not(windows))]
+const DEFAULT_ADDRESS: &str = "192.168.233.2";
+#[cfg(not(windows))]
+const DEFAULT_GATEWAY: &str = "192.168.233.1";
+
+impl TunInboundOptions {
+    pub fn name(&self) -> &str {
+        self.name.as_deref().unwrap_or("utun233")
+    }
+
+    pub fn address(&self) -> &str {
+        self.address.as_deref().unwrap_or(DEFAULT_ADDRESS)
+    }
+
+    pub fn gateway(&self) -> &str {
+        self.gateway.as_deref().unwrap_or(DEFAULT_GATEWAY)
+    }
+
+    pub fn netmask(&self) -> &str {
+        self.netmask.as_deref().unwrap_or("255.255.255.0")
+    }
+}
+
 fn no_fd() -> i32 {
     -1
 }
@@ -561,7 +592,20 @@ fn default_mtu() -> i32 {
 }
 
 pub(crate) fn options(inbound: &Inbound) -> Result<TunInboundOptions> {
-    parse_options("inbound", &inbound.tag, &inbound.options)
+    let options: TunInboundOptions = parse_options("inbound", &inbound.tag, &inbound.options)?;
+    if options.auto && options.fd >= 0 {
+        return Err(anyhow!(
+            "[{}] inbound: auto sets up a device of its own; it cannot take fd",
+            inbound.tag
+        ));
+    }
+    if options.gateway_mode && !options.auto {
+        return Err(anyhow!(
+            "[{}] inbound: gateway_mode needs auto, which does the routing",
+            inbound.tag
+        ));
+    }
+    Ok(options)
 }
 
 pub fn new(
@@ -576,27 +620,15 @@ pub fn new(
     let mut cfg = tun::Configuration::default();
     if settings.fd >= 0 {
         cfg.raw_fd(settings.fd);
-    } else if settings.auto {
-        cfg.tun_name(&*option::DEFAULT_TUN_NAME)
-            .address(&*option::DEFAULT_TUN_IPV4_ADDR)
-            .destination(&*option::DEFAULT_TUN_IPV4_GW)
-            .mtu(1500);
-
-        #[cfg(not(any(target_arch = "mips", target_arch = "mips64")))]
-        {
-            cfg.netmask(&*option::DEFAULT_TUN_IPV4_MASK);
-        }
-
-        cfg.up();
     } else {
-        cfg.tun_name(settings.name)
-            .address(settings.address)
-            .destination(settings.gateway)
+        cfg.tun_name(settings.name())
+            .address(settings.address())
+            .destination(settings.gateway())
             .mtu(settings.mtu as u16);
 
         #[cfg(not(any(target_arch = "mips", target_arch = "mips64")))]
         {
-            cfg.netmask(settings.netmask);
+            cfg.netmask(settings.netmask());
         }
 
         cfg.up();
@@ -648,10 +680,6 @@ pub fn new(
 
     let tun = tun::create_as_async(&cfg).map_err(|e| anyhow!("create tun failed: {}", e))?;
 
-    if settings.auto {
-        assert!(settings.fd == -1, "tun-auto is not compatible with tun-fd");
-    }
-
     match settings.tun2socks.as_str() {
         "smoltcp" => {
             #[cfg(feature = "netstack-smoltcp")]
@@ -665,5 +693,37 @@ pub fn new(
             #[cfg(not(feature = "netstack-lwip"))]
             return Err(anyhow!("netstack-lwip feature is not enabled"));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tun(options: serde_json::Value) -> Inbound {
+        Inbound {
+            protocol: "tun".into(),
+            tag: "tun".into(),
+            listen: None,
+            listen_port: None,
+            udp_timeout: None,
+            options: options.as_object().unwrap().clone(),
+        }
+    }
+
+    #[test]
+    fn unset_addresses_take_the_defaults() {
+        let options = options(&tun(serde_json::json!({ "auto": true }))).unwrap();
+        assert_eq!(options.name(), "utun233");
+        assert_eq!(options.address(), DEFAULT_ADDRESS);
+        assert_eq!(options.netmask(), "255.255.255.0");
+    }
+
+    #[test]
+    fn conflicting_options_are_errors() {
+        let err = options(&tun(serde_json::json!({ "auto": true, "fd": 3 }))).unwrap_err();
+        assert!(err.to_string().contains("fd"), "{}", err);
+        let err = options(&tun(serde_json::json!({ "gateway_mode": true }))).unwrap_err();
+        assert!(err.to_string().contains("gateway_mode"), "{}", err);
     }
 }

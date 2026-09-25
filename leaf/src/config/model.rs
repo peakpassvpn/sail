@@ -22,10 +22,6 @@ pub type Options = serde_json::Map<String, serde_json::Value>;
 pub struct Config {
     #[serde(default)]
     pub log: Log,
-    /// Environment variables set before anything else is read. Stands in
-    /// for runtime options until they are part of the configuration.
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub env: HashMap<String, String>,
     #[serde(default)]
     pub dns: Dns,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -34,6 +30,23 @@ pub struct Config {
     pub outbounds: Vec<Outbound>,
     #[serde(default)]
     pub route: Route,
+    #[serde(default, skip_serializing_if = "Api::is_default")]
+    pub api: Api,
+}
+
+/// The control API.
+#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct Api {
+    /// Where the API listens; it is not served when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub listen: Option<std::net::SocketAddr>,
+}
+
+impl Api {
+    fn is_default(&self) -> bool {
+        *self == Api::default()
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -76,6 +89,37 @@ pub struct Dns {
     pub servers: Vec<String>,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub hosts: HashMap<String, Vec<String>>,
+    /// Which address families names resolve to, and in what order.
+    #[serde(default)]
+    pub strategy: DnsStrategy,
+    /// Answers kept per address family; 512, or 64 on iOS, when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_capacity: Option<usize>,
+    /// How long one query to one server may take; 4s when unset.
+    #[serde(default, with = "duration", skip_serializing_if = "Option::is_none")]
+    pub timeout: Option<std::time::Duration>,
+}
+
+/// Which address families names resolve to, as sing-box names them.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DnsStrategy {
+    /// IPv4 addresses only.
+    #[default]
+    Ipv4Only,
+    /// IPv6 addresses only.
+    Ipv6Only,
+    /// Both, IPv4 first.
+    PreferIpv4,
+    /// Both, IPv6 first.
+    PreferIpv6,
+}
+
+impl DnsStrategy {
+    /// Whether IPv6 destinations are used at all.
+    pub fn ipv6(self) -> bool {
+        self != DnsStrategy::Ipv4Only
+    }
 }
 
 fn default_dns_servers() -> Vec<String> {
@@ -87,7 +131,21 @@ impl Default for Dns {
         Self {
             servers: default_dns_servers(),
             hosts: HashMap::new(),
+            strategy: DnsStrategy::default(),
+            cache_capacity: None,
+            timeout: None,
         }
+    }
+}
+
+impl Dns {
+    pub fn cache_capacity(&self) -> usize {
+        self.cache_capacity
+            .unwrap_or(if cfg!(target_os = "ios") { 64 } else { 512 })
+    }
+
+    pub fn timeout(&self) -> std::time::Duration {
+        self.timeout.unwrap_or(std::time::Duration::from_secs(4))
     }
 }
 
@@ -105,8 +163,19 @@ pub struct Inbound {
     /// only useful as a part of another inbound.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub listen_port: Option<u16>,
+    /// How long a UDP session through this inbound lives without traffic;
+    /// 30s when unset.
+    #[serde(default, with = "duration", skip_serializing_if = "Option::is_none")]
+    pub udp_timeout: Option<std::time::Duration>,
     #[serde(flatten)]
     pub options: Options,
+}
+
+impl Inbound {
+    pub fn udp_timeout(&self) -> std::time::Duration {
+        self.udp_timeout
+            .unwrap_or(std::time::Duration::from_secs(30))
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -192,6 +261,18 @@ impl Config {
             if inbound.tag.is_empty() {
                 inbound.tag = inbound.protocol.clone();
             }
+            if inbound.udp_timeout == Some(std::time::Duration::ZERO) {
+                return Err(anyhow!(
+                    "[{}] inbound: udp_timeout: must be more than 0",
+                    inbound.tag
+                ));
+            }
+        }
+        if self.dns.timeout == Some(std::time::Duration::ZERO) {
+            return Err(anyhow!("dns.timeout: must be more than 0"));
+        }
+        if self.dns.cache_capacity == Some(0) {
+            return Err(anyhow!("dns.cache_capacity: must be at least 1"));
         }
         for outbound in &mut self.outbounds {
             if outbound.tag.is_empty() {
@@ -282,7 +363,17 @@ pub fn parse_duration(s: &str) -> Result<std::time::Duration> {
 
 /// Serde support for optional durations in the sing-box notation.
 pub mod duration {
-    use serde::{Deserialize, Deserializer};
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(
+        d: &Option<std::time::Duration>,
+        s: S,
+    ) -> Result<S::Ok, S::Error> {
+        match d {
+            Some(d) => s.serialize_str(&format!("{}ms", d.as_millis())),
+            None => s.serialize_none(),
+        }
+    }
 
     pub fn deserialize<'de, D: Deserializer<'de>>(
         de: D,
@@ -425,5 +516,50 @@ mod tests {
             "{}",
             err
         );
+    }
+
+    #[test]
+    fn dns_api_and_udp_timeout_fields() {
+        let config = Config::from_json(
+            r#"{
+                "dns": { "strategy": "prefer_ipv6", "cache_capacity": 8, "timeout": "2s" },
+                "api": { "listen": "127.0.0.1:9090" },
+                "inbounds": [{ "type": "socks", "listen_port": 1080, "udp_timeout": "1m" }]
+            }"#,
+        )
+        .unwrap();
+        assert_eq!(config.dns.strategy, DnsStrategy::PreferIpv6);
+        assert!(config.dns.strategy.ipv6());
+        assert_eq!(config.dns.cache_capacity(), 8);
+        assert_eq!(config.dns.timeout(), std::time::Duration::from_secs(2));
+        assert_eq!(config.api.listen, Some("127.0.0.1:9090".parse().unwrap()));
+        assert_eq!(
+            config.inbounds[0].udp_timeout(),
+            std::time::Duration::from_secs(60)
+        );
+
+        let defaults = Config::from_json("{}").unwrap();
+        assert_eq!(defaults.dns.strategy, DnsStrategy::Ipv4Only);
+        assert_eq!(defaults.dns.timeout(), std::time::Duration::from_secs(4));
+        assert_eq!(defaults.api.listen, None);
+    }
+
+    #[test]
+    fn zero_timeouts_and_capacity_and_env_are_errors() {
+        for (json, field) in [
+            (r#"{ "dns": { "timeout": "0s" } }"#, "dns.timeout"),
+            (
+                r#"{ "dns": { "cache_capacity": 0 } }"#,
+                "dns.cache_capacity",
+            ),
+            (
+                r#"{ "inbounds": [{ "type": "socks", "udp_timeout": "0s" }] }"#,
+                "udp_timeout",
+            ),
+            (r#"{ "env": { "A": "1" } }"#, "env"),
+        ] {
+            let err = Config::from_json(json).unwrap_err();
+            assert!(err.to_string().contains(field), "{}: {}", json, err);
+        }
     }
 }

@@ -172,12 +172,9 @@ async fn handle_inbound_tcp_stream(
     dispatcher: Arc<Dispatcher>,
     nat_manager: Arc<NatManager>,
 ) -> io::Result<()> {
-    let source = stream
-        .peer_addr()
-        .unwrap_or_else(|_| *crate::option::UNSPECIFIED_BIND_ADDR);
-    let local_addr = stream
-        .local_addr()
-        .unwrap_or_else(|_| *crate::option::UNSPECIFIED_BIND_ADDR);
+    // A connection without addresses has already gone away.
+    let source = stream.peer_addr()?;
+    let local_addr = stream.local_addr()?;
     let sess = Session {
         network: Network::Tcp,
         source,
