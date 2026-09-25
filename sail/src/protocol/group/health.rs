@@ -102,6 +102,17 @@ impl Checker {
         self.latencies.clone()
     }
 
+    /// Whether member `i` passed its last test, or none was done yet.
+    pub fn is_up(&self, i: usize) -> bool {
+        if !self.tested.load(std::sync::atomic::Ordering::Relaxed) {
+            return true;
+        }
+        self.latencies
+            .read()
+            .map(|l| l.get(i).is_some_and(Option::is_some))
+            .unwrap_or(true)
+    }
+
     /// Notes that the group is being used, which resumes paused tests.
     pub fn used(&self) {
         self.start();
