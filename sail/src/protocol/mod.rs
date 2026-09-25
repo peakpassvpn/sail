@@ -19,12 +19,14 @@ pub mod mixed;
 pub mod mptp;
 #[cfg(all(feature = "inbound-nf", windows))]
 pub mod nf;
-#[cfg(feature = "outbound-redirect")]
+#[cfg(any(feature = "inbound-redirect", feature = "outbound-redirect"))]
 pub mod redirect;
 #[cfg(any(feature = "inbound-shadowsocks", feature = "outbound-shadowsocks"))]
 pub mod shadowsocks;
 #[cfg(any(feature = "inbound-socks", feature = "outbound-socks"))]
 pub mod socks;
+#[cfg(feature = "inbound-tproxy")]
+pub mod tproxy;
 #[cfg(any(feature = "inbound-trojan", feature = "outbound-trojan"))]
 pub mod trojan;
 #[cfg(any(feature = "inbound-tuic", feature = "outbound-tuic"))]

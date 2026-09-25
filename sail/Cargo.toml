@@ -40,6 +40,8 @@ all-endpoints = [
     "inbound-hysteria2",
     "inbound-tuic",
     "inbound-anytls",
+    "inbound-redirect",
+    "inbound-tproxy",
     # outbounds
     "outbound-direct",
     "outbound-drop",
@@ -134,6 +136,8 @@ inbound-tls = ["tls"]
 inbound-chain = []
 inbound-cat = ["tokio/io-std"]
 inbound-nf = ["libloading"]
+inbound-redirect = []
+inbound-tproxy = []
 
 plugin = ["async-ffi", "libloading"]
 api = ["axum"]

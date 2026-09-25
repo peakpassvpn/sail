@@ -29,7 +29,7 @@ pub(crate) static OUTBOUNDS: LazyLock<OutboundRegistry> = LazyLock::new(|| {
     #[cfg(feature = "outbound-drop")]
     crate::protocol::drop::register(&mut registry);
     #[cfg(feature = "outbound-redirect")]
-    crate::protocol::redirect::register(&mut registry);
+    crate::protocol::redirect::outbound::register(&mut registry);
     #[cfg(feature = "outbound-socks")]
     crate::protocol::socks::outbound::register(&mut registry);
     #[cfg(feature = "outbound-shadowsocks")]
@@ -96,6 +96,10 @@ pub(crate) static INBOUNDS: LazyLock<InboundRegistry> = LazyLock::new(|| {
     crate::protocol::anytls::inbound::register(&mut registry);
     #[cfg(all(feature = "inbound-nf", windows))]
     crate::protocol::nf::inbound::register(&mut registry);
+    #[cfg(feature = "inbound-redirect")]
+    crate::protocol::redirect::inbound::register(&mut registry);
+    #[cfg(feature = "inbound-tproxy")]
+    crate::protocol::tproxy::register(&mut registry);
 
     registry
 });
