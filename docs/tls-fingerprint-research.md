@@ -226,6 +226,35 @@ quinn-btls（核实于 2026-09-25）：作者与 btls 相同；依赖 btls 0.5.5
 - **iOS 最低版本：** 提高到 13（BoringSSL 需要 `___chkstk_darwin`）。
 - **已验证的平台：** macOS 测试、aarch64-apple-ios（leaf-ffi）、aarch64-unknown-linux-musl（容器内构建）。Android 在本机没有 NDK，只能依赖 CI。
 
+**1.1b 的实施记录（2026-09-26）：**
+
+- **QUIC：** quinn 的加密层换成 quinn-btls（上游 git，固定 rev 59f3e36；它没有发布到 crates.io）。它依赖的 btls 通过 `[patch.crates-io]` 使用同一个 fork。endpoint 配置和 handshake token 密钥改用 quinn-btls 提供的 BoringSSL 实现。证书加载与 TLS 共用（PEM 或 DER），证书无效时报配置错误，不再 panic。
+- **AEAD：** Shadowsocks 和 VMess 的 AES-GCM 与 ChaCha20-Poly1305 改用 btls 的 `AeadCtx`。新增测试与 RustCrypto 的实现交叉比对，密文和 tag 逐字节一致，也能互相解开。
+- **依赖清理：** 删除了 rustls、tokio-rustls、rustls-pemfile、webpki-roots、ring、aws-lc-rs。Cargo feature 删除了 `default-ring`、`default-aws-lc`、`*-aead`、`rustls-tls-*`、`quinn-*`，只保留一个 `default`；leaf-cli、leaf-ffi 和 `scripts/apple_common.sh` 随之调整。`cargo tree --target all` 中，ring 只剩 quinn-proto 在 wasm32-unknown-unknown 下的依赖，leaf 不编译这个平台。
+- **体积（macOS arm64，release 版 leaf-cli）：**
+  - 切换前（ae6ff4c：rustls + aws-lc + ring）9.63MB；
+  - 1.1d（以上三者再加 BoringSSL）10.23MB；
+  - 1.1b 之后（只有 BoringSSL）7.91MB。
+- **验证：** workspace 全部测试通过，包括 QUIC 和 Shadowsocks 的集成测试；aarch64-apple-ios 构建通过。
+
+**1.1d 的实施记录（2026-09-26）：**
+
+- **fixture：** 用本机 Chrome 153.0.8010.53 抓了 3 个 ClientHello（全新 profile，headless，访问 localhost），存为 `leaf/tests/fixtures/tls/chrome-153.hello`。JA4 为 `t13d1517h2_8daaf6152771_cb7bf5808d99`。
+- **Chrome 153 与调研时的预期不同的地方：**
+  - 签名算法开头是一个 GREASE 值，接着是 ML-DSA-44/65/87（0x0904–0x0906），然后才是常见的 8 个；
+  - 多了 Trust Anchor IDs 扩展（0xca34），内容是固定的 184 字节；
+  - ALPS 使用新码点 17613。
+- **btls 版本：** v0.5.6 缺 GREASE 签名算法、trust anchors 的 API，BoringSSL 也不支持 ML-DSA 签名算法。因此 fork 的 `leaf` 分支改为基于 btls main，Reality 补丁在 main 的补丁集上重新生成（打在最后，并在带 PSK 的连接上报错）。
+- **实现：** `transport/tls/fingerprint.rs`。配置为 `tls.utls: { enabled, fingerprint }`，不写时默认 chrome，`edge` 是 chrome 的别名。Reality 固定使用浏览器指纹，关闭 utls 是配置错误。DoH 和 failover 健康检查也使用 Chrome 指纹。
+- **验证：**
+  - 单元测试把生成的 ClientHello 与 fixture 逐项比较：JA4、密码套件、扩展集合、groups、签名算法、versions、key share，以及其余每个扩展的原始字节。普通 TLS 和 Reality 都做了比较，普通 TLS 连续生成 8 次，覆盖 GREASE 和扩展顺序的随机化。另用独立的 Python 解析脚本核对过一次。
+  - 联网测试（`#[ignore]`）：Google、Cloudflare、Apple、Microsoft、GitHub 都能完成握手并协商出 h2。
+  - Reality 使用 Chrome 指纹后，在 Xray 26.9.9 和 26.3.27 上重新做了端到端测试。
+- **未覆盖：**
+  - WS 走的是同一个 TLS 出站 handler，没有单独测试；
+  - gRPC 还没有实现（P1.7）；
+  - HTTP/2 层的 SETTINGS 指纹不在 1.1 范围内。
+
 **1.1c 的实施记录（2026-09-26）：**
 
 - **BoringSSL 补丁：** 在 peakpassvpn/btls 的 `leaf` 分支上，新增 `btls-sys/patches/reality.patch`，提供两个通用钩子：

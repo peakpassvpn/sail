@@ -1,14 +1,10 @@
-use std::fs;
 use std::io;
 use std::net::SocketAddr;
-use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use futures::TryFutureExt;
-use rustls::pki_types::CertificateDer;
-use rustls_pemfile::certs;
 use tokio::sync::RwLock;
 use tokio::time::timeout;
 use tracing::{debug, trace, Instrument};
@@ -28,75 +24,37 @@ struct Manager {
 }
 
 impl Manager {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         address: String,
         port: u16,
         server_name: Option<String>,
         alpns: Vec<String>,
         certificate: Option<String>,
-        certificate_key: Option<String>,
         dns_client: SyncDnsClient,
         dial: Arc<crate::net::DialOptions>,
         tuning: &crate::runtime::options::Quic,
-    ) -> Self {
-        let mut roots = rustls::RootCertStore::empty();
-        if let Some(cert_path) = certificate.as_ref() {
-            if cert_path.contains("-----BEGIN") {
-                let mut reader = io::BufReader::new(cert_path.as_bytes());
-                for cert in certs(&mut reader) {
-                    roots.add(cert.unwrap()).unwrap();
-                }
-            } else {
-                match fs::read(cert_path) {
-                    Ok(cert) => {
-                        match Path::new(&cert_path).extension().map(|ext| ext.to_str()) {
-                            Some(Some("der")) => {
-                                roots.add(CertificateDer::from(cert)).unwrap(); // FIXME
-                            }
-                            _ => {
-                                let mut reader = io::BufReader::new(&*cert);
-                                for cert in certs(&mut reader) {
-                                    roots.add(cert.unwrap()).unwrap();
-                                }
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        panic!("read certificate {} failed: {}", cert_path, e);
-                    }
-                }
-            }
-        } else {
-            roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-        }
-
-        #[cfg(feature = "rustls-tls-aws-lc")]
-        let provider = rustls::crypto::aws_lc_rs::default_provider().into();
-        #[cfg(not(feature = "rustls-tls-aws-lc"))]
-        let provider = rustls::crypto::ring::default_provider().into();
-
-        let builder = rustls::ClientConfig::builder_with_provider(provider)
-            .with_safe_default_protocol_versions()
-            .unwrap()
-            .with_root_certificates(roots);
-
-        let mut client_crypto = if let Some(_certificate) = certificate {
-            if let Some(_certificate_key) = certificate_key {
-                // FIXME support client auth
-                builder.with_no_client_auth()
-            } else {
-                builder.with_no_client_auth()
-            }
-        } else {
-            builder.with_no_client_auth()
+    ) -> Result<Self> {
+        use quinn_btls::QuicSslContext;
+        let mut crypto =
+            quinn_btls::ClientConfig::new().map_err(|e| anyhow!("quic client config: {}", e))?;
+        // `certificate` replaces the bundled roots, as for TLS.
+        let certs = match certificate.as_deref() {
+            Some(certificate) => crate::transport::tls::client::load_certificates(certificate)?,
+            None => crate::transport::tls::client::bundled_root_certs()?.to_vec(),
         };
-        for alpn in alpns {
-            client_crypto.alpn_protocols.push(alpn.as_bytes().to_vec());
+        let store = crypto.ctx_mut().cert_store_mut();
+        for cert in certs {
+            store.add_cert(cert)?;
+        }
+        if !alpns.is_empty() {
+            let alpns: Vec<Vec<u8>> = alpns.into_iter().map(String::into_bytes).collect();
+            crypto
+                .set_alpn(&alpns)
+                .map_err(|e| anyhow!("quic alpn: {}", e))?;
         }
 
-        let mut client_config = quinn::ClientConfig::new(Arc::new(
-            quinn::crypto::rustls::QuicClientConfig::try_from(client_crypto).unwrap(),
-        ));
+        let mut client_config = quinn::ClientConfig::new(Arc::new(crypto));
         let mut transport_config = quinn::TransportConfig::default();
         transport_config
             .max_concurrent_bidi_streams(quinn::VarInt::from_u32(tuning.max_concurrent_streams));
@@ -110,7 +68,7 @@ impl Manager {
             .congestion_controller_factory(Arc::new(quinn::congestion::BbrConfig::default()));
         client_config.transport_config(Arc::new(transport_config));
 
-        Manager {
+        Ok(Manager {
             address,
             port,
             server_name,
@@ -118,7 +76,7 @@ impl Manager {
             dial,
             client_config,
             connections: RwLock::new(Vec::new()),
-        }
+        })
     }
 }
 
@@ -169,7 +127,7 @@ impl Manager {
             .instrument(tracing::Span::current())
             .await?;
         let mut endpoint = quinn::Endpoint::new(
-            quinn::EndpointConfig::default(),
+            quinn_btls::helpers::default_endpoint_config(),
             None,
             socket.into_std()?,
             Arc::new(quinn::TokioRuntime),
@@ -248,24 +206,22 @@ impl Handler {
         server_name: Option<String>,
         alpns: Vec<String>,
         certificate: Option<String>,
-        certificate_key: Option<String>,
         dns_client: SyncDnsClient,
         dial: Arc<crate::net::DialOptions>,
         tuning: &crate::runtime::options::Quic,
-    ) -> Self {
-        Self {
+    ) -> Result<Self> {
+        Ok(Self {
             manager: Manager::new(
                 address,
                 port,
                 server_name,
                 alpns,
                 certificate,
-                certificate_key,
                 dns_client,
                 dial,
                 tuning,
-            ),
-        }
+            )?,
+        })
     }
 
     pub async fn new_stream(

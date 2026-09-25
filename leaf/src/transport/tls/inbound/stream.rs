@@ -1,11 +1,8 @@
-use std::fs;
-
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
-use btls::pkey::PKey;
 use btls::ssl::{Ssl, SslAcceptor, SslMethod, SslVersion};
 
-use super::super::client::load_certificates;
+use super::super::client::{load_certificates, load_private_key};
 use super::super::conn::BoringConnection;
 use crate::{adapter::*, session::Session, transport::tls_stream::TlsStream};
 
@@ -18,7 +15,7 @@ impl Handler {
     /// PEM or paths.
     pub fn new(certificate: String, certificate_key: String) -> Result<Self> {
         let certs = load_certificates(&certificate)?;
-        let key = load_key(&certificate_key)?;
+        let key = load_private_key(&certificate_key)?;
         let mut builder = SslAcceptor::mozilla_intermediate_v5(SslMethod::tls())?;
         builder.set_min_proto_version(Some(SslVersion::TLS1_2))?;
         let mut certs = certs.into_iter();
@@ -34,16 +31,6 @@ impl Handler {
             acceptor: builder.build(),
         })
     }
-}
-
-/// A private key (PKCS#8, PKCS#1 or SEC1) from inline PEM, or from a PEM file.
-fn load_key(key: &str) -> Result<PKey<btls::pkey::Private>> {
-    let pem = if key.contains("-----BEGIN") {
-        key.as_bytes().to_vec()
-    } else {
-        fs::read(key).map_err(|e| anyhow!("load key from {} failed: {}", key, e))?
-    };
-    PKey::private_key_from_pem(&pem).map_err(|e| anyhow!("invalid private key: {}", e))
 }
 
 #[async_trait]

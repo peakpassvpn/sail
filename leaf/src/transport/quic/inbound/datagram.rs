@@ -1,6 +1,4 @@
-use std::fs;
 use std::net::SocketAddr;
-use std::path::Path;
 use std::sync::Arc;
 use std::{io, pin::Pin};
 
@@ -9,8 +7,6 @@ use async_trait::async_trait;
 use futures::stream::Stream;
 use futures::task::{Context, Poll};
 use quinn::{RecvStream, SendStream};
-use rustls::pki_types::{CertificateDer, PrivateKeyDer};
-use rustls_pemfile::{certs, ec_private_keys, pkcs8_private_keys, rsa_private_keys};
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::time::{timeout, Duration};
 use tracing::{debug, trace, warn};
@@ -68,83 +64,30 @@ impl Handler {
         alpns: Vec<String>,
         tuning: &crate::runtime::options::Quic,
     ) -> Result<Self> {
-        let cert = if certificate.contains("-----BEGIN") {
-            certificate.as_bytes().to_vec()
-        } else {
-            fs::read(&certificate)?
-        };
+        use crate::transport::tls::client::{load_certificates, load_private_key};
+        use quinn_btls::QuicSslContext;
+        let mut certs = load_certificates(&certificate)?.into_iter();
+        let key = load_private_key(&certificate_key)?;
 
-        let key = if certificate_key.contains("-----BEGIN") {
-            certificate_key.as_bytes().to_vec()
-        } else {
-            fs::read(&certificate_key)?
-        };
-
-        let cert = if !certificate.contains("-----BEGIN")
-            && Path::new(&certificate).extension().map(|ext| ext.to_str()) == Some(Some("der"))
-        {
-            vec![CertificateDer::from(cert)]
-        } else {
-            certs(&mut io::BufReader::new(&*cert)).collect::<Result<Vec<_>, _>>()?
-        };
-
-        let key = if !certificate_key.contains("-----BEGIN")
-            && Path::new(&certificate_key)
-                .extension()
-                .map(|ext| ext.to_str())
-                == Some(Some("der"))
-        {
-            PrivateKeyDer::Pkcs8(key.into())
-        } else {
-            let pkcs8 = pkcs8_private_keys(&mut io::BufReader::new(&*key))
-                .collect::<Result<Vec<_>, _>>()?;
-            match pkcs8.into_iter().next() {
-                Some(x) => PrivateKeyDer::Pkcs8(x),
-                None => {
-                    let rsa = rsa_private_keys(&mut io::BufReader::new(&*key))
-                        .collect::<Result<Vec<_>, _>>()?;
-                    match rsa.into_iter().next() {
-                        Some(x) => PrivateKeyDer::Pkcs1(x),
-                        None => {
-                            // A SEC1 key -- "BEGIN EC PRIVATE KEY", what
-                            // openssl and rcgen hand out for an elliptic curve
-                            // by default. The TLS inbound has always taken
-                            // one; without this the same key file works there
-                            // and fails here with "no private keys found",
-                            // which says nothing about what is wrong with it.
-                            let ec = ec_private_keys(&mut io::BufReader::new(&*key))
-                                .collect::<Result<Vec<_>, _>>()?;
-                            match ec.into_iter().next() {
-                                Some(x) => PrivateKeyDer::Sec1(x),
-                                None => {
-                                    return Err(anyhow!(
-                                        "no private key found: expected a PKCS#8, PKCS#1 or SEC1 key"
-                                    ));
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        };
-
-        #[cfg(feature = "rustls-tls-aws-lc")]
-        let provider = rustls::crypto::aws_lc_rs::default_provider().into();
-        #[cfg(not(feature = "rustls-tls-aws-lc"))]
-        let provider = rustls::crypto::ring::default_provider().into();
-
-        let mut crypto = rustls::ServerConfig::builder_with_provider(provider)
-            .with_safe_default_protocol_versions()
-            .unwrap()
-            .with_no_client_auth()
-            .with_single_cert(cert, key)?;
-        for alpn in alpns {
-            crypto.alpn_protocols.push(alpn.as_bytes().to_vec());
+        let mut crypto =
+            quinn_btls::ServerConfig::new().map_err(|e| anyhow!("quic server config: {}", e))?;
+        let ctx = crypto.ctx_mut();
+        ctx.set_certificate(certs.next().expect("load_certificates returns one or more"))?;
+        for cert in certs {
+            ctx.add_to_cert_chain(cert)?;
+        }
+        ctx.set_private_key(key)?;
+        ctx.check_private_key()
+            .map_err(|e| anyhow!("private key does not match the certificate: {}", e))?;
+        if !alpns.is_empty() {
+            let alpns: Vec<Vec<u8>> = alpns.into_iter().map(String::into_bytes).collect();
+            crypto
+                .set_alpn(&alpns)
+                .map_err(|e| anyhow!("quic alpn: {}", e))?;
         }
 
-        let mut server_config = quinn::ServerConfig::with_crypto(Arc::new(
-            quinn::crypto::rustls::QuicServerConfig::try_from(crypto).unwrap(),
-        ));
+        let mut server_config = quinn_btls::helpers::server_config(Arc::new(crypto))
+            .map_err(|e| anyhow!("quic server config: {}", e))?;
         let mut transport_config = quinn::TransportConfig::default();
         transport_config
             .max_concurrent_bidi_streams(quinn::VarInt::from_u32(tuning.max_concurrent_streams));
@@ -197,7 +140,7 @@ impl InboundDatagramHandler for Handler {
         tracing::trace!("handling inbound datagram");
         let (stream_tx, stream_rx) = channel(ACCEPT_CHANNEL_SIZE);
         let endpoint = quinn::Endpoint::new(
-            quinn::EndpointConfig::default(),
+            quinn_btls::helpers::default_endpoint_config(),
             Some(self.server_config.clone()),
             socket.into_std()?,
             Arc::new(quinn::TokioRuntime),

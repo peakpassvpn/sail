@@ -1,7 +1,4 @@
-use std::collections::HashMap;
-
 use anyhow::{anyhow, Result};
-use lazy_static::lazy_static;
 
 pub trait Cipher<N>: Sync + Send + Unpin
 where
@@ -40,37 +37,41 @@ pub trait NonceSequence: Sync + Send + Unpin {
     fn advance(&mut self) -> Result<Vec<u8>>;
 }
 
-#[cfg(any(feature = "aws-lc-aead", feature = "ring-aead"))]
+#[cfg(feature = "aead")]
 pub mod aead {
-    #[cfg(feature = "aws-lc-aead")]
-    use aws_lc_rs::aead::{self, Aad, Algorithm, LessSafeKey, Nonce, UnboundKey};
-    #[cfg(all(feature = "ring-aead", not(feature = "aws-lc-aead")))]
-    use ring::aead::{self, Aad, Algorithm, LessSafeKey, Nonce, UnboundKey};
+    use btls::aead::{AeadCtx, Algorithm};
 
     use super::*;
 
-    lazy_static! {
-        static ref AEAD_LIST: HashMap<&'static str, &'static Algorithm> = {
-            let mut m = HashMap::new();
-            m.insert("chacha20-poly1305", &aead::CHACHA20_POLY1305);
-            m.insert("chacha20-ietf-poly1305", &aead::CHACHA20_POLY1305);
-            m.insert("aes-256-gcm", &aead::AES_256_GCM);
-            m.insert("aes-128-gcm", &aead::AES_128_GCM);
-            m
-        };
+    /// The tag every supported cipher appends.
+    const TAG_LEN: usize = 16;
+
+    fn algorithm(cipher: &str) -> Option<Algorithm> {
+        match cipher {
+            "chacha20-poly1305" | "chacha20-ietf-poly1305" => Some(Algorithm::chacha20_poly1305()),
+            "aes-256-gcm" => Some(Algorithm::aes_256_gcm()),
+            "aes-128-gcm" => Some(Algorithm::aes_128_gcm()),
+            _ => None,
+        }
     }
 
     pub struct AeadCipher {
-        algorithm: &'static Algorithm,
+        algorithm: Algorithm,
     }
 
     impl AeadCipher {
         pub fn new(cipher: &str) -> Result<Self> {
-            let alg = match AEAD_LIST.get(cipher) {
-                Some(v) => v,
-                None => return Err(anyhow!("unsupported cipher: {}", cipher)),
-            };
-            Ok(AeadCipher { algorithm: alg })
+            let algorithm =
+                algorithm(cipher).ok_or_else(|| anyhow!("unsupported cipher: {}", cipher))?;
+            Ok(AeadCipher { algorithm })
+        }
+
+        fn ctx(&self, key: &[u8]) -> Result<AeadCtx> {
+            if key.len() != self.algorithm.key_length() {
+                return Err(anyhow!("new aead key failed: wrong key length"));
+            }
+            AeadCtx::new(&self.algorithm, key, TAG_LEN)
+                .map_err(|e| anyhow!("new aead key failed: {}", e))
         }
     }
 
@@ -82,29 +83,23 @@ pub mod aead {
         type Dec = AeadDecryptor<N>;
 
         fn encryptor(&self, key: &[u8], nonce: N) -> Result<Self::Enc> {
-            let unbound_key = UnboundKey::new(self.algorithm, key)
-                .map_err(|e| anyhow!("new unbound key failed: {}", e))?;
-            let enc = AeadEncryptor {
-                enc: LessSafeKey::new(unbound_key),
+            Ok(AeadEncryptor {
+                ctx: self.ctx(key)?,
                 nonce,
-            };
-            Ok(enc)
+            })
         }
 
         fn decryptor(&self, key: &[u8], nonce: N) -> Result<Self::Dec> {
-            let unbound_key = UnboundKey::new(self.algorithm, key)
-                .map_err(|e| anyhow!("new unbound key failed: {}", e))?;
-            let enc = AeadDecryptor {
-                enc: LessSafeKey::new(unbound_key),
+            Ok(AeadDecryptor {
+                ctx: self.ctx(key)?,
                 nonce,
-            };
-            Ok(enc)
+            })
         }
     }
 
     impl SizedCipher for AeadCipher {
         fn key_len(&self) -> usize {
-            self.algorithm.key_len()
+            self.algorithm.key_length()
         }
 
         fn nonce_len(&self) -> usize {
@@ -113,23 +108,15 @@ pub mod aead {
     }
 
     pub struct AeadEncryptor<N> {
-        enc: LessSafeKey,
+        ctx: AeadCtx,
         nonce: N,
-    }
-
-    impl<N> AeadEncryptor<N>
-    where
-        N: NonceSequence,
-    {
-        pub fn new(enc: LessSafeKey, nonce: N) -> Self {
-            AeadEncryptor { enc, nonce }
-        }
     }
 
     impl<N> Encryptor for AeadEncryptor<N>
     where
         N: NonceSequence,
     {
+        /// Encrypts in place and appends the tag.
         fn encrypt<InOut>(&mut self, in_out: &mut InOut) -> Result<()>
         where
             InOut: AsRef<[u8]> + AsMut<[u8]> + for<'in_out> Extend<&'in_out u8>,
@@ -138,33 +125,28 @@ pub mod aead {
                 .nonce
                 .advance()
                 .map_err(|e| anyhow!("encrypt failed: {}", e))?;
-            let nonce = Nonce::try_assume_unique_for_key(&nonce)
-                .map_err(|e| anyhow!("encrypt failed: {}", e))?;
-            self.enc
-                .seal_in_place_append_tag(nonce, Aad::empty(), in_out)
-                .map_err(|e| anyhow!("encrypt failed: {}", e))?;
+            let mut tag = [0u8; TAG_LEN];
+            let tag_len = self
+                .ctx
+                .seal_in_place_mut(&nonce, in_out.as_mut(), &mut tag, &[])
+                .map_err(|e| anyhow!("encrypt failed: {}", e))?
+                .len();
+            in_out.extend(&tag[..tag_len]);
             Ok(())
         }
     }
 
     pub struct AeadDecryptor<N> {
-        enc: LessSafeKey,
+        ctx: AeadCtx,
         nonce: N,
-    }
-
-    impl<N> AeadDecryptor<N>
-    where
-        N: NonceSequence,
-    {
-        pub fn new(enc: LessSafeKey, nonce: N) -> Self {
-            AeadDecryptor { enc, nonce }
-        }
     }
 
     impl<N> Decryptor for AeadDecryptor<N>
     where
         N: NonceSequence,
     {
+        /// Decrypts ciphertext followed by its tag in place. The plaintext is
+        /// the part before the tag; the caller drops the rest.
         fn decrypt<InOut>(&mut self, in_out: &mut InOut) -> Result<()>
         where
             InOut: AsRef<[u8]> + AsMut<[u8]> + for<'in_out> Extend<&'in_out u8>,
@@ -172,12 +154,15 @@ pub mod aead {
             let nonce = self
                 .nonce
                 .advance()
-                .map_err(|e| anyhow!("encrypt failed: {}", e))?;
-            let nonce = Nonce::try_assume_unique_for_key(&nonce)
-                .map_err(|e| anyhow!("encrypt failed: {}", e))?;
-            self.enc
-                .open_within(nonce, Aad::empty(), in_out.as_mut(), 0..)
-                .map_err(|e| anyhow!("encrypt failed: {}", e))?;
+                .map_err(|e| anyhow!("decrypt failed: {}", e))?;
+            let buf = in_out.as_mut();
+            if buf.len() < TAG_LEN {
+                return Err(anyhow!("decrypt failed: shorter than the tag"));
+            }
+            let (ciphertext, tag) = buf.split_at_mut(buf.len() - TAG_LEN);
+            self.ctx
+                .open_in_place_mut(&nonce, ciphertext, tag, &[])
+                .map_err(|e| anyhow!("decrypt failed: {}", e))?;
             Ok(())
         }
     }
@@ -188,7 +173,7 @@ mod tests {
     use super::*;
 
     #[test]
-    #[cfg(any(feature = "aws-lc-aead", feature = "ring-aead"))]
+    #[cfg(feature = "aead")]
     fn test_aead_enc_dec() {
         struct ShadowsocksNonceSequence(Vec<u8>);
 
@@ -233,5 +218,70 @@ mod tests {
         dec.decrypt(&mut buf).unwrap();
 
         assert_eq!(&buf[..plaintext.len()], plaintext);
+    }
+
+    /// A fixed nonce sequence: the same nonce every time.
+    #[cfg(feature = "aead")]
+    struct FixedNonce(Vec<u8>);
+
+    #[cfg(feature = "aead")]
+    impl NonceSequence for FixedNonce {
+        fn advance(&mut self) -> Result<Vec<u8>> {
+            Ok(self.0.clone())
+        }
+    }
+
+    // BoringSSL and RustCrypto agree on every cipher: same ciphertext and
+    // tag, and each opens the other's.
+    #[test]
+    #[cfg(feature = "aead")]
+    fn test_aead_matches_rustcrypto() {
+        use aes_gcm::aead::{Aead, KeyInit};
+        let key: Vec<u8> = (0..32).collect();
+        let nonce: Vec<u8> = (0..12).collect();
+        let plaintext = b"leaf aead known answer".to_vec();
+
+        let reference = |cipher: &str, key: &[u8]| -> Vec<u8> {
+            let n = aes_gcm::Nonce::from_slice(&nonce);
+            match cipher {
+                "aes-128-gcm" => aes_gcm::Aes128Gcm::new_from_slice(key)
+                    .unwrap()
+                    .encrypt(n, &plaintext[..]),
+                "aes-256-gcm" => aes_gcm::Aes256Gcm::new_from_slice(key)
+                    .unwrap()
+                    .encrypt(n, &plaintext[..]),
+                _ => chacha20poly1305::ChaCha20Poly1305::new_from_slice(key)
+                    .unwrap()
+                    .encrypt(chacha20poly1305::Nonce::from_slice(&nonce), &plaintext[..]),
+            }
+            .unwrap()
+        };
+
+        for name in [
+            "aes-128-gcm",
+            "aes-256-gcm",
+            "chacha20-poly1305",
+            "chacha20-ietf-poly1305",
+        ] {
+            let cipher = aead::AeadCipher::new(name).unwrap();
+            let key = &key[..cipher.key_len()];
+            let expected = reference(name, key);
+
+            let mut buf = plaintext.clone();
+            let mut enc = cipher.encryptor(key, FixedNonce(nonce.clone())).unwrap();
+            enc.encrypt(&mut buf).unwrap();
+            assert_eq!(buf, expected, "{} seal", name);
+
+            let mut dec = cipher.decryptor(key, FixedNonce(nonce.clone())).unwrap();
+            dec.decrypt(&mut buf).unwrap();
+            assert_eq!(&buf[..plaintext.len()], &plaintext[..], "{} open", name);
+
+            // A flipped bit fails authentication.
+            let mut bad = expected.clone();
+            bad[0] ^= 1;
+            let mut dec = cipher.decryptor(key, FixedNonce(nonce.clone())).unwrap();
+            assert!(dec.decrypt(&mut bad).is_err(), "{} tamper", name);
+        }
+        assert!(aead::AeadCipher::new("rc4-md5").is_err());
     }
 }

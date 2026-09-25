@@ -156,11 +156,14 @@ impl DnsClient {
 
     #[cfg(feature = "tls")]
     async fn wrap_doh_tls_stream(stream: AnyStream, server_name: &str) -> Result<AnyStream> {
-        use crate::transport::tls::TlsClient;
+        use crate::transport::tls::{Fingerprint, TlsClient};
         static CLIENT: std::sync::OnceLock<std::result::Result<TlsClient, String>> =
             std::sync::OnceLock::new();
         let client = CLIENT
-            .get_or_init(|| TlsClient::new(&[], None, false).map_err(|e| e.to_string()))
+            .get_or_init(|| {
+                TlsClient::new(&[], None, false, Some(Fingerprint::Chrome))
+                    .map_err(|e| e.to_string())
+            })
             .as_ref()
             .map_err(|e| anyhow!("tls client: {}", e))?;
         let tls_stream = client

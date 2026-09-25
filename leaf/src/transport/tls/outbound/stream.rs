@@ -5,6 +5,7 @@ use async_trait::async_trait;
 use tracing::trace;
 
 use super::super::client::TlsClient;
+use super::super::fingerprint::Fingerprint;
 use crate::{adapter::*, app::SyncDnsClient, session::Session, transport::vision::VisionState};
 
 pub struct Handler {
@@ -27,6 +28,7 @@ impl Handler {
         alpns: Vec<String>,
         certificate: Option<String>,
         insecure: bool,
+        fingerprint: Option<Fingerprint>,
         ech: bool,
         ech_disable_dns_lookup: bool,
         ech_config_list: Option<String>,
@@ -37,7 +39,7 @@ impl Handler {
         }
         Ok(Handler {
             server_name,
-            client: TlsClient::new(&alpns, certificate.as_deref(), insecure)?,
+            client: TlsClient::new(&alpns, certificate.as_deref(), insecure, fingerprint)?,
             ech: ech.then_some(Ech {
                 fixed_config_list: ech_config_list,
                 disable_dns_lookup: ech_disable_dns_lookup,
@@ -410,6 +412,7 @@ mod tests {
             vec![],
             None,
             false,
+            None,
             true,
             false,
             Some("$$$".to_string()),

@@ -6,26 +6,48 @@ use std::io;
 use std::sync::OnceLock;
 
 use anyhow::{anyhow, Result};
+use btls::pkey::{PKey, Private};
 use btls::ssl::{SslConnector, SslMethod, SslVerifyMode, SslVersion};
 use btls::x509::store::{X509Store, X509StoreBuilder};
 use btls::x509::X509;
 use tokio::io::{AsyncRead, AsyncWrite};
 
 use super::conn::BoringConnection;
+use super::fingerprint::Fingerprint;
 use crate::transport::tls_stream::TlsStream;
 use crate::transport::vision::VisionState;
 
 pub struct TlsClient {
     connector: SslConnector,
     insecure: bool,
+    fingerprint: Option<Fingerprint>,
+    alpn: Vec<String>,
 }
 
 impl TlsClient {
     /// `certificate`, inline PEM or a path, replaces the bundled roots as the
-    /// certificates to trust. `insecure` trusts any certificate.
-    pub fn new(alpn: &[String], certificate: Option<&str>, insecure: bool) -> Result<Self> {
+    /// certificates to trust. `insecure` trusts any certificate. With a
+    /// `fingerprint` the ClientHello is the browser's, and an empty `alpn` is
+    /// the browser's default.
+    pub fn new(
+        alpn: &[String],
+        certificate: Option<&str>,
+        insecure: bool,
+        fingerprint: Option<Fingerprint>,
+    ) -> Result<Self> {
         let mut builder = SslConnector::bare_builder(SslMethod::tls())?;
         builder.set_min_proto_version(Some(SslVersion::TLS1_2))?;
+        if let Some(fingerprint) = fingerprint {
+            fingerprint.configure(&mut builder)?;
+        }
+        let alpn: Vec<String> = match fingerprint {
+            Some(fingerprint) if alpn.is_empty() => fingerprint
+                .default_alpn()
+                .iter()
+                .map(|p| p.to_string())
+                .collect(),
+            _ => alpn.to_vec(),
+        };
         if insecure {
             builder.set_verify(SslVerifyMode::NONE);
         } else {
@@ -36,11 +58,13 @@ impl TlsClient {
             }
         }
         if !alpn.is_empty() {
-            builder.set_alpn_protos(&alpn_wire(alpn)?)?;
+            builder.set_alpn_protos(&alpn_wire(&alpn)?)?;
         }
         Ok(Self {
             connector: builder.build(),
             insecure,
+            fingerprint,
+            alpn,
         })
     }
 
@@ -69,6 +93,11 @@ impl TlsClient {
                 )
             })?;
         }
+        if let Some(fingerprint) = self.fingerprint {
+            fingerprint
+                .configure_connection(&mut ssl, &self.alpn, ech_config_list.is_some())
+                .map_err(io::Error::other)?;
+        }
         BoringConnection::client(ssl)
     }
 
@@ -91,7 +120,7 @@ impl TlsClient {
 }
 
 /// ALPN protocols as the wire lists them: each prefixed with its length.
-fn alpn_wire(alpn: &[String]) -> Result<Vec<u8>> {
+pub(crate) fn alpn_wire(alpn: &[String]) -> Result<Vec<u8>> {
     let mut wire = Vec::new();
     for proto in alpn {
         let len = u8::try_from(proto.len())
@@ -105,14 +134,28 @@ fn alpn_wire(alpn: &[String]) -> Result<Vec<u8>> {
 }
 
 /// Mozilla's root certificates, parsed once.
+pub(crate) fn bundled_root_certs() -> Result<&'static [X509]> {
+    static CERTS: OnceLock<std::result::Result<Vec<X509>, String>> = OnceLock::new();
+    CERTS
+        .get_or_init(|| {
+            webpki_root_certs::TLS_SERVER_ROOT_CERTS
+                .iter()
+                .map(|der| X509::from_der(der).map_err(|e| e.to_string()))
+                .collect()
+        })
+        .as_deref()
+        .map_err(|e| anyhow!("load root certificates failed: {}", e))
+}
+
+/// The bundled roots as a store, built once.
 fn bundled_roots() -> Result<&'static X509Store> {
     static ROOTS: OnceLock<std::result::Result<X509Store, String>> = OnceLock::new();
     ROOTS
         .get_or_init(|| {
+            let certs = bundled_root_certs().map_err(|e| e.to_string())?;
             let mut store = X509StoreBuilder::new().map_err(|e| e.to_string())?;
-            for der in webpki_root_certs::TLS_SERVER_ROOT_CERTS {
-                let cert = X509::from_der(der).map_err(|e| e.to_string())?;
-                store.add_cert(cert).map_err(|e| e.to_string())?;
+            for cert in certs {
+                store.add_cert(cert.clone()).map_err(|e| e.to_string())?;
             }
             Ok(store.build())
         })
@@ -128,20 +171,40 @@ fn trust_store(certificate: &str) -> Result<X509Store> {
     Ok(store.build())
 }
 
-/// Certificates from inline PEM, or from a PEM file.
-pub(super) fn load_certificates(certificate: &str) -> Result<Vec<X509>> {
+/// Certificates from inline PEM, or from a PEM or DER file.
+pub(crate) fn load_certificates(certificate: &str) -> Result<Vec<X509>> {
     let certs = if certificate.contains("-----BEGIN") {
         X509::stack_from_pem(certificate.as_bytes())
     } else {
-        let pem = fs::read(certificate)
+        let data = fs::read(certificate)
             .map_err(|e| anyhow!("load certificates from {} failed: {}", certificate, e))?;
-        X509::stack_from_pem(&pem)
+        if data.starts_with(b"-----BEGIN") || data.windows(10).any(|w| w == b"-----BEGIN") {
+            X509::stack_from_pem(&data)
+        } else {
+            X509::from_der(&data).map(|cert| vec![cert])
+        }
     }
     .map_err(|e| anyhow!("invalid certificate: {}", e))?;
     if certs.is_empty() {
         return Err(anyhow!("no certificate found"));
     }
     Ok(certs)
+}
+
+/// A private key (PKCS#8, PKCS#1 or SEC1) from inline PEM, or from a PEM or
+/// DER (PKCS#8) file.
+pub(crate) fn load_private_key(key: &str) -> Result<PKey<Private>> {
+    if key.contains("-----BEGIN") {
+        return PKey::private_key_from_pem(key.as_bytes())
+            .map_err(|e| anyhow!("invalid private key: {}", e));
+    }
+    let data = fs::read(key).map_err(|e| anyhow!("load key from {} failed: {}", key, e))?;
+    if data.windows(10).any(|w| w == b"-----BEGIN") {
+        PKey::private_key_from_pem(&data)
+    } else {
+        PKey::private_key_from_der(&data)
+    }
+    .map_err(|e| anyhow!("invalid private key: {}", e))
 }
 
 #[cfg(test)]
@@ -163,7 +226,7 @@ mod tests {
     #[test]
     fn test_client_hello_is_ready() {
         use crate::transport::tls_stream::TlsConnection;
-        let client = TlsClient::new(&[], None, false).unwrap();
+        let client = TlsClient::new(&[], None, false, None).unwrap();
         let mut conn = client.connection("example.com", None).unwrap();
         assert!(conn.is_handshaking());
         assert!(conn.wants_write());

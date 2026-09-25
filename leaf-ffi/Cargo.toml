@@ -11,16 +11,8 @@ crate-type = ["staticlib", "dylib"]
 
 [features]
 default = [
-    "default-aws-lc",
+    "leaf/default",
     "auto-reload",
-]
-
-default-aws-lc= [
-    "leaf/default-aws-lc",
-]
-
-default-ring = [
-    "leaf/default-ring",
 ]
 
 auto-reload = ["leaf/auto-reload"]

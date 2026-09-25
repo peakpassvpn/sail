@@ -174,6 +174,11 @@ impl<C: TlsConnection, S: AsyncRead + AsyncWrite + Unpin> TlsStream<C, S> {
         }
     }
 
+    /// The TLS connection, for what the handshake negotiated.
+    pub fn conn(&self) -> &C {
+        &self.conn
+    }
+
     pub async fn handshake(&mut self) -> io::Result<()> {
         std::future::poll_fn(|cx| {
             let mut progress = false;

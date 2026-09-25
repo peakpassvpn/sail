@@ -18,10 +18,7 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use btls::ex_data::Index;
 use btls::pkey::Id;
-use btls::ssl::{
-    KeyShare, Ssl, SslAlert, SslConnector, SslMethod, SslRef, SslVerifyError, SslVerifyMode,
-    SslVersion,
-};
+use btls::ssl::{Ssl, SslAlert, SslConnector, SslMethod, SslRef, SslVerifyError, SslVerifyMode};
 use foreign_types::ForeignTypeRef;
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
@@ -29,7 +26,7 @@ use sha2::{Sha256, Sha512};
 
 use crate::adapter::*;
 use crate::session::Session;
-use crate::transport::tls::BoringConnection;
+use crate::transport::tls::{BoringConnection, Fingerprint};
 use crate::transport::tls_stream::TlsStream;
 use crate::transport::vision::VisionState;
 
@@ -41,6 +38,8 @@ pub struct Handler {
     public_key: [u8; 32],
     short_id: [u8; 8],
     connector: SslConnector,
+    fingerprint: Fingerprint,
+    alpn: Vec<String>,
 }
 
 /// What the ClientHello hook and the certificate check of one connection
@@ -59,21 +58,32 @@ fn auth_index() -> Index<Ssl, Arc<Auth>> {
 
 impl Handler {
     /// `public_key` is the server's X25519 key, hex or base64url; `short_id`
-    /// is up to 16 hex digits.
-    pub fn new(server_name: String, public_key: &str, short_id: &str) -> Result<Self> {
+    /// is up to 16 hex digits. The ClientHello is `fingerprint`'s, with the
+    /// browser's ALPN.
+    pub fn new(
+        server_name: String,
+        public_key: &str,
+        short_id: &str,
+        fingerprint: Fingerprint,
+    ) -> Result<Self> {
         if server_name.is_empty() {
             return Err(anyhow!("server_name is required"));
         }
         let mut builder = SslConnector::bare_builder(SslMethod::tls())?;
-        builder.set_min_proto_version(Some(SslVersion::TLS1_2))?;
-        builder.set_max_proto_version(Some(SslVersion::TLS1_3))?;
-        builder.set_curves_list("X25519MLKEM768:X25519:P-256:P-384")?;
-        builder.set_alpn_protos(b"\x02h2\x08http/1.1")?;
+        fingerprint.configure(&mut builder)?;
+        let alpn: Vec<String> = fingerprint
+            .default_alpn()
+            .iter()
+            .map(|p| p.to_string())
+            .collect();
+        builder.set_alpn_protos(&super::super::tls::client::alpn_wire(&alpn)?)?;
         Ok(Self {
             server_name,
             public_key: parse_public_key(public_key)?,
             short_id: parse_short_id(short_id)?,
             connector: builder.build(),
+            fingerprint,
+            alpn,
         })
     }
 
@@ -84,7 +94,10 @@ impl Handler {
         let mut ssl = config
             .into_ssl(&self.server_name)
             .map_err(io::Error::other)?;
-        ssl.set_client_key_shares(&[KeyShare::X25519_MLKEM768, KeyShare::X25519])
+        // The browser's key shares include X25519MLKEM768, which REALITY
+        // servers require, and X25519.
+        self.fingerprint
+            .configure_connection(&mut ssl, &self.alpn, false)
             .map_err(io::Error::other)?;
         // The server signs with its Ed25519 certificate, which the ClientHello
         // does not offer; accept it without listing it.
@@ -273,6 +286,29 @@ mod tests {
         assert_eq!(parse_short_id("").unwrap(), [0; 8]);
         assert!(parse_short_id("0123456789abcdef0").is_err());
         assert!(parse_short_id("zz").is_err());
+    }
+
+    // The REALITY ClientHello is Chrome's, session ID aside.
+    #[test]
+    fn test_client_hello_is_chrome() {
+        use crate::transport::tls::hello::{assert_same_hello, fixture};
+        let handler = Handler::new(
+            "www.example.com".to_string(),
+            &hex::encode([7u8; 32]),
+            "ab12",
+            Fingerprint::Chrome,
+        )
+        .unwrap();
+        let mut conn = handler.connection().unwrap();
+        let hello = crate::transport::tls::tests::first_hello(&mut conn);
+        assert_same_hello(&hello, &fixture("chrome-153"));
+        assert!(auth_key_set(&conn));
+    }
+
+    fn auth_key_set(conn: &BoringConnection) -> bool {
+        let auth = conn.ssl().ex_data(auth_index()).unwrap();
+        let set = auth.key.lock().unwrap().is_some();
+        set
     }
 
     // The server side of the derivation, as Xray does it: it must recover
