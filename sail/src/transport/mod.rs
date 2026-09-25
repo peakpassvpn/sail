@@ -3,6 +3,8 @@
 
 #[cfg(any(feature = "inbound-amux", feature = "outbound-amux"))]
 pub mod amux;
+#[cfg(any(feature = "inbound-grpc", feature = "outbound-grpc"))]
+pub mod grpc;
 #[cfg(any(
     feature = "inbound-ws",
     feature = "outbound-ws",

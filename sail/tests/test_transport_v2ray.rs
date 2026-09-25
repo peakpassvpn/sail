@@ -24,6 +24,8 @@
     feature = "outbound-ws",
     feature = "inbound-httpupgrade",
     feature = "outbound-httpupgrade",
+    feature = "inbound-grpc",
+    feature = "outbound-grpc",
     feature = "inbound-chain",
     feature = "outbound-chain",
 ))]
@@ -528,4 +530,129 @@ fn test_httpupgrade_sing_box_tls() -> anyhow::Result<()> {
         tls: true,
     };
     against_sing_box("up-tls", carriage, 32844)
+}
+
+// ---------------------------------------------------------------------------
+// gRPC
+// ---------------------------------------------------------------------------
+
+fn grpc() -> Value {
+    json!({
+        "type": "grpc",
+        "service_name": "SailService",
+        "idle_timeout": "15s",
+        "ping_timeout": "15s",
+    })
+}
+
+#[test]
+fn test_grpc_sail_to_sail() -> anyhow::Result<()> {
+    let carriage = Carriage {
+        transport: grpc(),
+        tls: false,
+    };
+    sail_to_sail("grpc", carriage, true, 32850, 32851)
+}
+
+#[test]
+fn test_grpc_sail_to_sail_tls() -> anyhow::Result<()> {
+    let carriage = Carriage {
+        transport: grpc(),
+        tls: true,
+    };
+    sail_to_sail("grpc-tls", carriage, true, 32852, 32853)
+}
+
+/// A client calling another service is refused.
+#[test]
+fn test_grpc_wrong_service() -> anyhow::Result<()> {
+    let cert = Cert::new("grpc-wrong")?;
+    let client_side = Carriage {
+        transport: json!({ "type": "grpc", "service_name": "Other" }),
+        tls: false,
+    };
+    let server_side = Carriage {
+        transport: grpc(),
+        tls: false,
+    };
+    let configs = vec![
+        client(false, &cert, &client_side, 32854, 32855).to_string(),
+        server(false, &cert, &server_side, 32855).to_string(),
+    ];
+    assert!(common::test_configs(configs, "127.0.0.1", 32854).is_err());
+    Ok(())
+}
+
+/// sing-box's HTTP/2 transport, and multiplex over gRPC, are refused when
+/// the configuration is loaded.
+#[test]
+fn test_unsupported_transport_configs() -> anyhow::Result<()> {
+    let cert = Cert::new("unsupported")?;
+    let http = Carriage {
+        transport: json!({ "type": "http", "host": ["a.example"], "path": "/" }),
+        tls: false,
+    };
+    let mut grpc_mux = client(
+        false,
+        &cert,
+        &Carriage {
+            transport: grpc(),
+            tls: false,
+        },
+        32856,
+        32857,
+    );
+    grpc_mux["outbounds"][0]["multiplex"] = json!({ "enabled": true, "protocol": "amux" });
+    let mut grpc_alpn = client(
+        false,
+        &cert,
+        &Carriage {
+            transport: grpc(),
+            tls: true,
+        },
+        32856,
+        32857,
+    );
+    grpc_alpn["outbounds"][0]["tls"]["alpn"] = json!(["http/1.1"]);
+    for (config, expected) in [
+        (client(false, &cert, &http, 32856, 32857), "not supported"),
+        (server(false, &cert, &http, 32857), "not supported"),
+        (grpc_mux, "multiplex"),
+        (grpc_alpn, "tls.alpn"),
+    ] {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?;
+        let err = match common::run_sail_instances(&rt, vec![config.to_string()]) {
+            Ok(ids) => {
+                ids.into_iter().for_each(|id| {
+                    sail::shutdown(id);
+                });
+                anyhow::bail!("started with {}", config);
+            }
+            Err(e) => e.to_string(),
+        };
+        anyhow::ensure!(err.contains(expected), "{}: {}", expected, err);
+    }
+    Ok(())
+}
+
+#[test]
+#[ignore = "needs sing-box"]
+fn test_grpc_sing_box() -> anyhow::Result<()> {
+    let carriage = Carriage {
+        transport: grpc(),
+        tls: false,
+    };
+    against_sing_box("grpc", carriage, 32860)
+}
+
+#[test]
+#[ignore = "needs sing-box"]
+fn test_grpc_sing_box_tls() -> anyhow::Result<()> {
+    let carriage = Carriage {
+        transport: grpc(),
+        tls: true,
+    };
+    against_sing_box("grpc-tls", carriage, 32864)
 }

@@ -37,6 +37,7 @@ impl<S> WebSocketToStream<S> {
 
     /// Like `new`, with `early_data` -- what the client sent in its upgrade
     /// request -- read before anything the WebSocket carries.
+    #[cfg_attr(not(feature = "inbound-ws"), allow(dead_code))]
     pub fn with_early_data(stream: S, half_close: bool, early_data: Vec<u8>) -> Self {
         WebSocketToStream {
             buf: BytesMut::from(&early_data[..]),

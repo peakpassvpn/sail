@@ -179,7 +179,7 @@ enum State {
     /// In a mutex only to be `Sync`, as a stream must be; nothing contends
     /// for it.
     Upgrading(std::sync::Mutex<BoxFuture<'static, io::Result<Ws>>>),
-    Open(Ws),
+    Open(Box<Ws>),
     Failed,
 }
 
@@ -237,7 +237,7 @@ impl EarlyStream {
                         waker.wake();
                     }
                     match upgraded {
-                        Ok(ws) => self.state = State::Open(ws),
+                        Ok(ws) => self.state = State::Open(Box::new(ws)),
                         Err(e) => {
                             self.state = State::Failed;
                             return Poll::Ready(Err(e));
@@ -260,7 +260,7 @@ impl EarlyStream {
     /// The WebSocket, once `poll_open` has said it is open.
     fn ws(&mut self) -> Pin<&mut Ws> {
         match &mut self.state {
-            State::Open(ws) => Pin::new(ws),
+            State::Open(ws) => Pin::new(&mut **ws),
             _ => unreachable!("poll_open said the websocket is open"),
         }
     }

@@ -265,6 +265,21 @@ pub enum OutboundTransport {
         #[serde(default)]
         headers: HashMap<String, String>,
     },
+    Grpc {
+        #[serde(default = "default_service_name")]
+        service_name: String,
+        /// Unset, no keepalive pings.
+        #[serde(default, with = "crate::config::model::duration")]
+        idle_timeout: Option<std::time::Duration>,
+        #[serde(default, with = "crate::config::model::duration")]
+        ping_timeout: Option<std::time::Duration>,
+        /// sing-box's; no effect here, where a connection carries one call
+        /// and is closed when that ends.
+        #[serde(default)]
+        permit_without_stream: bool,
+    },
+    /// sing-box's HTTP/2 transport: not supported.
+    Http(serde::de::IgnoredAny),
     /// Its TLS parameters come from the `tls` block.
     Quic {},
 }
@@ -288,6 +303,10 @@ pub struct OutboundMultiplex {
 
 fn default_path() -> String {
     "/".to_string()
+}
+
+fn default_service_name() -> String {
+    "TunService".to_string()
 }
 
 fn default_max_accepts() -> usize {
@@ -316,6 +335,7 @@ impl OutboundBlocks {
             Some(OutboundTransport::Ws { .. } | OutboundTransport::HttpUpgrade { .. }) => {
                 "http/1.1"
             }
+            Some(OutboundTransport::Grpc { .. }) => "h2",
             _ => return Ok(()),
         };
         let Some(tls) = self.tls.as_mut().filter(|t| t.enabled) else {
@@ -447,6 +467,20 @@ pub fn outbound(
     let dial = layering.dial;
     let mut actors: Vec<AnyOutboundHandler> = Vec::new();
 
+    if let Some(OutboundTransport::Http(_)) = &blocks.transport {
+        return Err(anyhow!(
+            "[{}] outbound: transport: type http (HTTP/2) is not supported; grpc is",
+            tag
+        ));
+    }
+    if matches!(blocks.transport, Some(OutboundTransport::Grpc { .. }))
+        && blocks.multiplex().is_some()
+    {
+        return Err(anyhow!(
+            "[{}] outbound: multiplex: not supported over the grpc transport",
+            tag
+        ));
+    }
     let quic = matches!(blocks.transport, Some(OutboundTransport::Quic {}));
     if quic {
         if blocks.multiplex().is_some() {
@@ -499,6 +533,21 @@ pub fn outbound(
         }) = &blocks.transport
         {
             under_mux.push(httpupgrade_outbound(tag, host, path, headers)?);
+        }
+        if let Some(OutboundTransport::Grpc {
+            service_name,
+            idle_timeout,
+            ping_timeout,
+            permit_without_stream: _,
+        }) = &blocks.transport
+        {
+            under_mux.push(grpc_outbound(
+                tag,
+                service_name,
+                blocks.tls().is_some(),
+                *idle_timeout,
+                *ping_timeout,
+            )?);
         }
         match blocks.multiplex() {
             Some(mux) => {
@@ -797,6 +846,37 @@ fn httpupgrade_outbound(
 }
 
 #[allow(unused_variables)]
+fn grpc_outbound(
+    tag: &str,
+    service_name: &str,
+    tls: bool,
+    idle_timeout: Option<std::time::Duration>,
+    ping_timeout: Option<std::time::Duration>,
+) -> Result<AnyOutboundHandler> {
+    #[cfg(feature = "outbound-grpc")]
+    {
+        let handler = crate::transport::grpc::outbound::StreamHandler::new(
+            service_name,
+            tls,
+            idle_timeout,
+            ping_timeout,
+        )
+        .map_err(|e| anyhow!("[{}] outbound: transport: {}", tag, e))?;
+        Ok(crate::adapter::outbound::HandlerBuilder::default()
+            .tag(format!("{}/grpc", tag))
+            .stream_handler(Arc::new(handler))
+            .build())
+    }
+    #[cfg(not(feature = "outbound-grpc"))]
+    Err(not_compiled(
+        tag,
+        "outbound",
+        "transport grpc",
+        "outbound-grpc",
+    ))
+}
+
+#[allow(unused_variables)]
 fn quic_outbound(
     tag: &str,
     tls: &OutboundTls,
@@ -936,6 +1016,17 @@ pub enum InboundTransport {
         #[serde(default)]
         headers: HashMap<String, String>,
     },
+    Grpc {
+        #[serde(default = "default_service_name")]
+        service_name: String,
+        /// Unset, no keepalive pings.
+        #[serde(default, with = "crate::config::model::duration")]
+        idle_timeout: Option<std::time::Duration>,
+        #[serde(default, with = "crate::config::model::duration")]
+        ping_timeout: Option<std::time::Duration>,
+    },
+    /// sing-box's HTTP/2 transport: not supported.
+    Http(serde::de::IgnoredAny),
     /// Its certificate comes from the `tls` block.
     Quic {},
 }
@@ -994,6 +1085,20 @@ pub fn inbound(
     let mux = blocks.multiplex.as_ref().filter(|m| m.enabled);
     let mut actors: Vec<AnyInboundHandler> = Vec::new();
 
+    if let Some(InboundTransport::Http(_)) = &blocks.transport {
+        return Err(anyhow!(
+            "[{}] inbound: transport: type http (HTTP/2) is not supported; grpc is",
+            tag
+        ));
+    }
+    // Every call of a gRPC connection is a stream of its own, and the
+    // multiplex layer takes one stream to multiplex.
+    if matches!(blocks.transport, Some(InboundTransport::Grpc { .. })) && mux.is_some() {
+        return Err(anyhow!(
+            "[{}] inbound: multiplex: not supported over the grpc transport",
+            tag
+        ));
+    }
     if matches!(blocks.transport, Some(InboundTransport::Quic {})) {
         if mux.is_some() {
             return Err(anyhow!(
@@ -1042,6 +1147,19 @@ pub fn inbound(
         }) = &blocks.transport
         {
             under_mux.push(httpupgrade_inbound(tag, host, path, headers)?);
+        }
+        if let Some(InboundTransport::Grpc {
+            service_name,
+            idle_timeout,
+            ping_timeout,
+        }) = &blocks.transport
+        {
+            under_mux.push(grpc_inbound(
+                tag,
+                service_name,
+                *idle_timeout,
+                *ping_timeout,
+            )?);
         }
         match mux {
             Some(mux) => actors.push(amux_inbound(tag, mux, under_mux)?),
@@ -1164,6 +1282,36 @@ fn httpupgrade_inbound(
         "inbound",
         "transport httpupgrade",
         "inbound-httpupgrade",
+    ))
+}
+
+#[allow(unused_variables)]
+fn grpc_inbound(
+    tag: &str,
+    service_name: &str,
+    idle_timeout: Option<std::time::Duration>,
+    ping_timeout: Option<std::time::Duration>,
+) -> Result<AnyInboundHandler> {
+    #[cfg(feature = "inbound-grpc")]
+    {
+        let handler = crate::transport::grpc::inbound::StreamHandler::new(
+            service_name,
+            idle_timeout,
+            ping_timeout,
+        )
+        .map_err(|e| anyhow!("[{}] inbound: transport: {}", tag, e))?;
+        Ok(Arc::new(crate::adapter::inbound::Handler::new(
+            format!("{}/grpc", tag),
+            Some(Arc::new(handler)),
+            None,
+        )))
+    }
+    #[cfg(not(feature = "inbound-grpc"))]
+    Err(not_compiled(
+        tag,
+        "inbound",
+        "transport grpc",
+        "inbound-grpc",
     ))
 }
 

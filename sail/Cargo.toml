@@ -28,6 +28,7 @@ all-endpoints = [
     "inbound-quic",
     "inbound-ws",
     "inbound-httpupgrade",
+    "inbound-grpc",
     "inbound-tls",
     "inbound-trojan",
     "inbound-mptp",
@@ -54,6 +55,7 @@ all-endpoints = [
     "outbound-tls",
     "outbound-ws",
     "outbound-httpupgrade",
+    "outbound-grpc",
     "outbound-amux",
     "outbound-vmess",
     "outbound-quic",
@@ -103,6 +105,7 @@ outbound-anytls = ["sha2", "md-5", "tokio-util"]
 outbound-tls = ["tls"]
 outbound-ws = ["tungstenite", "tokio-tungstenite", "http", "httparse", "base64"]
 outbound-httpupgrade = ["http", "httparse"]
+outbound-grpc = ["h2", "http"]
 outbound-failover = ["lru_time_cache"]
 outbound-static= []
 outbound-tryall = []
@@ -134,6 +137,7 @@ inbound-hc = []
 inbound-tun = ["tun", "netstack-lwip", "netstack-smoltcp", "pnet_datalink"]
 inbound-ws = ["tungstenite", "tokio-tungstenite", "http", "httparse", "base64"]
 inbound-httpupgrade = ["http", "httparse"]
+inbound-grpc = ["h2", "http"]
 inbound-amux = ["tokio-util"]
 inbound-quic = ["quic"]
 inbound-tls = ["tls"]
@@ -211,6 +215,7 @@ tokio-tungstenite = { version = "0.24", optional = true }
 url = { version = "2.5", optional = true }
 http = { version = "1.1", optional = true }
 httparse = { version = "1.9", optional = true }
+h2 = { version = "0.4", optional = true }
 
 # SOCKS outbound
 async-socks5 = { version = "0.6", optional = true }
