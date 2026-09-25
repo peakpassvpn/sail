@@ -170,6 +170,8 @@ impl InboundManager {
         }
         self.handlers = handlers;
         self.dependencies = dependencies;
+        self.dispatcher
+            .set_inbound_type(&inbound.tag, Some(&inbound.protocol));
         Ok(())
     }
 
@@ -192,6 +194,7 @@ impl InboundManager {
         self.network_listeners.remove(tag);
         self.handlers.remove(tag);
         self.dependencies.remove(tag);
+        self.dispatcher.set_inbound_type(tag, None);
         Ok(())
     }
 

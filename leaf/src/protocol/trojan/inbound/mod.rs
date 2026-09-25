@@ -33,17 +33,20 @@ struct TrojanInboundOptions {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct TrojanUser {
-    /// Not used yet; users are told apart by password alone.
+    /// Who the user is to routing (`auth_user`), statistics and logs.
     #[serde(default)]
-    #[allow(dead_code)]
-    name: String,
+    name: Option<String>,
     password: String,
 }
 
 fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
     let options: TrojanInboundOptions = ctx.options()?;
-    let passwords = options.users.into_iter().map(|u| u.password).collect();
-    let stream = Arc::new(StreamHandler::new(passwords));
+    let users = options
+        .users
+        .into_iter()
+        .map(|u| (u.password, u.name))
+        .collect();
+    let stream = Arc::new(StreamHandler::new(users));
     Ok(Arc::new(Handler::new(
         ctx.tag.to_owned(),
         Some(stream),

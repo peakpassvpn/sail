@@ -76,6 +76,9 @@ impl Instance {
         dns_client
             .load()
             .set_dispatcher(Arc::downgrade(&dispatcher));
+        for inbound in &config.inbounds {
+            dispatcher.set_inbound_type(&inbound.tag, Some(&inbound.protocol));
+        }
         let nat_manager = Arc::new(NatManager::new(dispatcher.clone(), &config.inbounds));
         let inbound_manager = Arc::new(std::sync::Mutex::new(InboundManager::new(
             &config.inbounds,

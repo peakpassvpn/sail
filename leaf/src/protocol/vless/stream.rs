@@ -309,7 +309,7 @@ fn padded_chunk_len(data: &[u8]) -> usize {
         .unwrap_or(8192 / 2)
 }
 
-use crate::session::VisionState;
+use crate::transport::vision::VisionState;
 use futures::ready;
 use std::pin::Pin;
 use std::task::{Context, Poll};

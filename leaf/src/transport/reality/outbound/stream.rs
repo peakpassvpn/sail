@@ -74,7 +74,11 @@ impl OutboundStreamHandler for Handler {
 
         let conn = ClientConnection::new(config, server_name)
             .map_err(|e| io::Error::other(format!("failed to create reality stream: {}", e)))?;
-        let mut reality_stream = RealityStream::new(conn, stream, Some(sess.vision.clone()));
+        let mut reality_stream = RealityStream::new(
+            conn,
+            stream,
+            Some(crate::transport::vision::VisionState::of(sess)),
+        );
         reality_stream.handshake().await?;
 
         Ok(Box::new(reality_stream))

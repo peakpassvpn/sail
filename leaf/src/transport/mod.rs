@@ -20,3 +20,9 @@ pub mod tls_stream;
 pub mod ws;
 
 pub mod layers;
+#[cfg(any(
+    feature = "outbound-vless",
+    feature = "outbound-reality",
+    feature = "outbound-tls"
+))]
+pub mod vision;

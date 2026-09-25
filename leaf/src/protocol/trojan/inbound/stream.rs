@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::io;
 use std::net::SocketAddr;
 
@@ -114,16 +114,18 @@ where
 }
 
 pub struct Handler {
-    keys: HashSet<Vec<u8>>,
+    /// The users by the key their password makes, with their names.
+    keys: HashMap<Vec<u8>, Option<String>>,
 }
 
 impl Handler {
-    pub fn new(passwords: Vec<String>) -> Self {
-        let mut keys = HashSet::new();
-        for pass in passwords {
+    /// Takes the users as their passwords and names.
+    pub fn new(users: Vec<(String, Option<String>)>) -> Self {
+        let mut keys = HashMap::new();
+        for (pass, name) in users {
             let key = Sha224::digest(pass.as_bytes());
             let key = hex::encode(&key[..]);
-            keys.insert(key.as_bytes().to_vec());
+            keys.insert(key.as_bytes().to_vec(), name);
         }
         Handler { keys }
     }
@@ -140,9 +142,10 @@ impl InboundStreamHandler for Handler {
         let mut buf = [0; 56];
         // read key
         stream.read_exact(&mut buf[..56]).await?;
-        if !self.keys.contains(&buf[..]) {
+        let Some(user) = self.keys.get(&buf[..]) else {
             return Err(io::Error::other("invalid key"));
-        }
+        };
+        sess.user = user.clone();
         // read crlf and cmd
         stream.read_exact(&mut buf[..3]).await?;
         // TODO Check CRLF?

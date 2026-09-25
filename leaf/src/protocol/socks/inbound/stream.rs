@@ -151,6 +151,7 @@ impl Handler {
                 && self.password.as_ref().unwrap() == &password
             {
                 stream.write_all(&[0x01, 0x00]).await?;
+                sess.user = Some(username);
             } else {
                 stream.write_all(&[0x01, 0x01]).await?;
                 return Err(io::Error::other("socks5 authentication failed"));

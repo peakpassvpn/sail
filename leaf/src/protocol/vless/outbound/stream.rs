@@ -5,7 +5,7 @@ use tokio::io::AsyncWriteExt;
 use uuid::Uuid;
 
 use super::super::stream::{build_vless_tcp_header, VlessStream};
-use crate::{adapter::*, session::*};
+use crate::{adapter::*, session::*, transport::vision::VisionState};
 
 pub struct Handler {
     pub address: String,
@@ -48,13 +48,13 @@ impl OutboundStreamHandler for Handler {
         let mut stream = stream.ok_or_else(|| io::Error::other("invalid input"))?;
         // From the request on, the TLS layer must stop reads at record
         // boundaries until Vision settles.
-        sess.vision.start();
+        VisionState::of(sess).start();
         stream.write_all(&header).await?;
 
         Ok(Box::new(VlessStream::new(
             stream,
             uuid_bytes,
-            Some(sess.vision.clone()),
+            Some(VisionState::of(sess)),
         )))
     }
 }

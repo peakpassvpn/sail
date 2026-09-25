@@ -27,6 +27,7 @@ pub(super) struct Facts {
     port: u16,
     network: Network,
     inbound: String,
+    user: Option<String>,
     #[cfg_attr(not(feature = "rule-process-name"), allow(dead_code))]
     process_name: Option<String>,
 }
@@ -45,6 +46,7 @@ impl Facts {
             port: sess.destination.port(),
             network: sess.network,
             inbound: sess.inbound_tag.clone(),
+            user: sess.user.clone(),
             process_name: sess.process_name.clone(),
         }
     }
@@ -183,6 +185,7 @@ pub(super) struct Matcher {
     ports: Vec<(u16, u16)>,
     networks: Vec<Network>,
     inbounds: Vec<String>,
+    users: Vec<String>,
     #[cfg(feature = "rule-process-name")]
     process_names: Vec<Regex>,
 }
@@ -266,6 +269,7 @@ impl Matcher {
                 })
                 .collect::<Result<_>>()?,
             inbounds: rule.inbound.clone(),
+            users: rule.auth_user.clone(),
             #[cfg(feature = "rule-process-name")]
             process_names: rule
                 .process_name
@@ -305,6 +309,14 @@ impl Matcher {
             return false;
         }
         if !self.inbounds.is_empty() && !self.inbounds.contains(&facts.inbound) {
+            return false;
+        }
+        if !self.users.is_empty()
+            && !facts
+                .user
+                .as_ref()
+                .is_some_and(|user| self.users.contains(user))
+        {
             return false;
         }
         #[cfg(feature = "rule-process-name")]
@@ -446,6 +458,20 @@ mod tests {
         sess.network = Network::Tcp;
         sess.inbound_tag = "http".into();
         assert!(!m.matches(&Facts::new(&sess, &[])));
+    }
+
+    #[test]
+    fn users_match_by_name() {
+        let m = matcher(model::Rule {
+            auth_user: vec!["alice".into()],
+            ..Default::default()
+        });
+        let mut sess = Session::default();
+        assert!(!m.matches(&Facts::new(&sess, &[])));
+        sess.user = Some("bob".into());
+        assert!(!m.matches(&Facts::new(&sess, &[])));
+        sess.user = Some("alice".into());
+        assert!(m.matches(&Facts::new(&sess, &[])));
     }
 
     #[test]

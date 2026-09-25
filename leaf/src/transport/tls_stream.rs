@@ -9,7 +9,7 @@ use std::task::{Context, Poll};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 use crate::net::relay::{acquire_buffer, release_buffer};
-use crate::session::VisionState;
+use crate::transport::vision::VisionState;
 
 /// Size of the ciphertext buffer used for exact reads; holds any record.
 const RX_SIZE: usize = 64 * 1024;

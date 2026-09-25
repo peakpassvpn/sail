@@ -257,6 +257,9 @@ pub struct Rule {
     pub inbound: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub process_name: Vec<String>,
+    /// Names of the users an inbound authenticated.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub auth_user: Vec<String>,
 
     #[serde(default)]
     pub action: RuleAction,
@@ -313,7 +316,8 @@ impl Rule {
             && self.port_range.is_empty()
             && self.network.is_empty()
             && self.inbound.is_empty()
-            && self.process_name.is_empty())
+            && self.process_name.is_empty()
+            && self.auth_user.is_empty())
     }
 
     /// The configuration mistakes one rule can make on its own.

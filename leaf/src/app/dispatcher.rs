@@ -198,6 +198,8 @@ pub struct Dispatcher {
     stat_manager: SyncStatManager,
     dns_sniffer: DnsSniffer,
     env: crate::runtime::SyncRuntimeEnv,
+    /// The protocol of each inbound, by tag.
+    inbound_types: std::sync::RwLock<std::collections::HashMap<String, String>>,
 }
 
 impl Dispatcher {
@@ -215,6 +217,25 @@ impl Dispatcher {
             stat_manager,
             dns_sniffer: DnsSniffer::new(),
             env,
+            inbound_types: Default::default(),
+        }
+    }
+
+    /// Records the protocol of the inbound `tag`, or forgets the inbound.
+    pub fn set_inbound_type(&self, tag: &str, protocol: Option<&str>) {
+        let mut types = self.inbound_types.write().unwrap();
+        match protocol {
+            Some(protocol) => types.insert(tag.to_string(), protocol.to_string()),
+            None => types.remove(tag),
+        };
+    }
+
+    /// Fills in what the session's inbound tells about it.
+    fn identify_inbound(&self, sess: &mut Session) {
+        if sess.inbound_type.is_empty() {
+            if let Some(protocol) = self.inbound_types.read().unwrap().get(&sess.inbound_tag) {
+                sess.inbound_type = protocol.clone();
+            }
         }
     }
 
@@ -249,6 +270,7 @@ impl Dispatcher {
             }
         }
 
+        self.identify_inbound(&mut sess);
         self.reverse_map(&mut sess).await;
         let mut sniffer = StreamSniffer::new(lhs);
         let outbound = match self.route(&mut sess, &mut sniffer).await {
@@ -394,6 +416,7 @@ impl Dispatcher {
             }
         }
 
+        self.identify_inbound(&mut sess);
         let reverse_mapping = self.reverse_map(&mut sess).await;
         let outbound = self.route(&mut sess, &mut NoSniffer).await?;
 

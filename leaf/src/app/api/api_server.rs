@@ -40,6 +40,8 @@ mod models {
     pub struct Stat {
         pub network: String,
         pub inbound_tag: String,
+        pub inbound_type: String,
+        pub user: Option<String>,
         pub forwarded_source: Option<String>,
         pub source: String,
         pub destination: String,
@@ -196,6 +198,8 @@ mod handlers {
             stats.push(models::Stat {
                 network: c.sess.network.to_string(),
                 inbound_tag: c.sess.inbound_tag.to_owned(),
+                inbound_type: c.sess.inbound_type.to_owned(),
+                user: c.sess.user.clone(),
                 forwarded_source: c.sess.forwarded_source.map(|x| x.to_string()),
                 source: c.sess.source.to_string(),
                 destination: c.sess.destination.to_string(),
@@ -223,6 +227,8 @@ mod handlers {
             stats.push(models::Stat {
                 network: c.sess.network.to_string(),
                 inbound_tag: c.sess.inbound_tag.to_owned(),
+                inbound_type: c.sess.inbound_type.to_owned(),
+                user: c.sess.user.clone(),
                 forwarded_source: c.sess.forwarded_source.map(|x| x.to_string()),
                 source: c.sess.source.to_string(),
                 destination: c.sess.destination.to_string(),

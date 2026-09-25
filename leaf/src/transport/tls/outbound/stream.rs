@@ -591,7 +591,7 @@ impl OutboundStreamHandler for Handler {
                     })?;
                 // Our own stream rather than tokio-rustls, so VLESS Vision can
                 // switch the transport to direct copy.
-                let mut tls_stream = ClientTlsStream::new(conn, stream, Some(sess.vision.clone()));
+                let mut tls_stream = ClientTlsStream::new(conn, stream, Some(crate::transport::vision::VisionState::of(sess)));
                 tls_stream
                     .handshake()
                     .map_err(|e| {

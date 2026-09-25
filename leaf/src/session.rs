@@ -77,79 +77,38 @@ impl std::fmt::Display for DatagramSource {
     }
 }
 
-/// XTLS Vision state shared between the VLESS stream, which parses and writes
-/// Vision frames, and the TLS stream beneath it.
-///
-/// While Vision is pending the server may switch to raw data right after any
-/// TLS record, so the TLS stream reads exactly up to record boundaries until
-/// Vision switches to direct copy or finishes.
-#[derive(Clone, Default, Debug)]
-pub struct VisionState(std::sync::Arc<VisionShared>);
+/// State the layers of one connection share, by type: one layer sets it,
+/// another reads it, as the VLESS stream and the TLS stream beneath it
+/// share XTLS Vision. The clones of a session share it too.
+#[derive(Clone, Default)]
+pub struct ConnectionState(
+    std::sync::Arc<
+        std::sync::Mutex<
+            std::collections::HashMap<
+                std::any::TypeId,
+                std::sync::Arc<dyn std::any::Any + Send + Sync>,
+            >,
+        >,
+    >,
+);
 
-#[derive(Default, Debug)]
-struct VisionShared {
-    read: std::sync::atomic::AtomicU8,
-    write_direct: std::sync::atomic::AtomicBool,
-    raw_capable: std::sync::atomic::AtomicBool,
+impl ConnectionState {
+    /// The connection's `T`, made the first time it is asked for.
+    pub fn get<T: std::any::Any + Send + Sync + Default>(&self) -> std::sync::Arc<T> {
+        let mut map = self.0.lock().unwrap();
+        let entry = map
+            .entry(std::any::TypeId::of::<T>())
+            .or_insert_with(|| std::sync::Arc::new(T::default()));
+        entry
+            .clone()
+            .downcast::<T>()
+            .expect("the entry of a type holds that type")
+    }
 }
 
-impl VisionState {
-    const PENDING: u8 = 1;
-    const DIRECT_COPY: u8 = 2;
-    const DONE: u8 = 3;
-
-    fn set_read(&self, state: u8) {
-        self.0.read.store(state, std::sync::atomic::Ordering::Relaxed);
-    }
-
-    fn read(&self) -> u8 {
-        self.0.read.load(std::sync::atomic::Ordering::Relaxed)
-    }
-
-    /// Vision is in use on this connection (set by VLESS before its request).
-    pub fn start(&self) {
-        self.set_read(Self::PENDING);
-    }
-
-    /// The server switched to raw data: read the transport directly.
-    pub fn set_direct_copy(&self) {
-        self.set_read(Self::DIRECT_COPY);
-    }
-
-    /// Vision ended without direct copy; TLS carries the rest of the
-    /// connection and can no longer switch.
-    pub fn set_done(&self) {
-        self.set_read(Self::DONE);
-    }
-
-    pub fn is_pending(&self) -> bool {
-        self.read() == Self::PENDING
-    }
-
-    pub fn is_direct_copy(&self) -> bool {
-        self.read() == Self::DIRECT_COPY
-    }
-
-    /// The TLS layer can switch to raw reads and writes on the transport.
-    pub fn set_raw_capable(&self) {
-        self.0
-            .raw_capable
-            .store(true, std::sync::atomic::Ordering::Relaxed);
-    }
-
-    pub fn is_raw_capable(&self) -> bool {
-        self.0.raw_capable.load(std::sync::atomic::Ordering::Relaxed)
-    }
-
-    /// VLESS sent PaddingDirect: further writes go to the transport directly.
-    pub fn set_write_direct(&self) {
-        self.0
-            .write_direct
-            .store(true, std::sync::atomic::Ordering::Relaxed);
-    }
-
-    pub fn is_write_direct(&self) -> bool {
-        self.0.write_direct.load(std::sync::atomic::Ordering::Relaxed)
+impl fmt::Debug for ConnectionState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("ConnectionState")
     }
 }
 
@@ -183,8 +142,12 @@ pub struct Session {
     pub http_sniffed_domain: Option<String>,
     /// The sniffed domain name if the destination is an IP address.
     pub dns_sniffed_domain: Option<String>,
-    /// Shared XTLS Vision state between the VLESS and TLS layers.
-    pub vision: VisionState,
+    /// State the layers of this connection share.
+    pub state: ConnectionState,
+    /// The protocol of the inbound this session came in through.
+    pub inbound_type: String,
+    /// The user the inbound authenticated, by name.
+    pub user: Option<String>,
     /// Skip domain resolution during routing.
     pub skip_resolve: bool,
 }
@@ -206,7 +169,9 @@ impl Clone for Session {
             tls_sniffed_domain: self.tls_sniffed_domain.clone(),
             http_sniffed_domain: self.http_sniffed_domain.clone(),
             dns_sniffed_domain: self.dns_sniffed_domain.clone(),
-            vision: self.vision.clone(),
+            state: self.state.clone(),
+            inbound_type: self.inbound_type.clone(),
+            user: self.user.clone(),
             skip_resolve: self.skip_resolve,
         }
     }
@@ -232,7 +197,9 @@ impl Default for Session {
             tls_sniffed_domain: None,
             http_sniffed_domain: None,
             dns_sniffed_domain: None,
-            vision: VisionState::default(),
+            state: ConnectionState::default(),
+            inbound_type: String::new(),
+            user: None,
             skip_resolve: false,
         }
     }
