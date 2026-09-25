@@ -28,6 +28,7 @@ struct ShadowsocksInboundOptions {
 
 fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
     let options: ShadowsocksInboundOptions = ctx.options()?;
+    shadow::check_method("inbound", ctx.tag, &options.method)?;
     let stream = Arc::new(StreamHandler {
         cipher: options.method.clone(),
         password: options.password.clone(),

@@ -334,6 +334,15 @@ fn short_packet() -> io::Error {
     io::Error::other("short packet")
 }
 
+/// Checks that `method` is a cipher this build supports, for reporting a
+/// configuration mistake when the handler is built rather than on the
+/// first connection.
+pub fn check_method(kind: &str, tag: &str, method: &str) -> anyhow::Result<()> {
+    AeadCipher::new(method)
+        .map(|_| ())
+        .map_err(|e| anyhow::anyhow!("[{}] {}: method: {}", tag, kind, e))
+}
+
 pub struct ShadowedDatagram {
     cipher: AeadCipher,
     psk: Vec<u8>,

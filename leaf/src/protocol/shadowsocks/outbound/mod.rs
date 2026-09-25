@@ -44,6 +44,7 @@ struct ShadowsocksOutboundOptions {
 
 fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
     let options: ShadowsocksOutboundOptions = ctx.options()?;
+    shadow::check_method("outbound", ctx.tag, &options.method)?;
     let stream = Arc::new(StreamHandler::new(
         options.server.clone(),
         options.server_port,

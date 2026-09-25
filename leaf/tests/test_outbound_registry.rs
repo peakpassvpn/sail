@@ -457,3 +457,51 @@ fn a_routing_mark_is_linux_only() {
         "[ss] outbound: routing_mark: only supported on Linux"
     );
 }
+
+#[cfg(feature = "outbound-shadowsocks")]
+#[test]
+fn an_unsupported_cipher_is_an_error_when_built() {
+    let err = manager(&[outbound(
+        "ss",
+        "shadowsocks",
+        json!({
+            "server": "127.0.0.1",
+            "server_port": 8388,
+            "method": "no-such-cipher",
+            "password": "x"
+        }),
+    )])
+    .err()
+    .expect("an unsupported cipher must fail the configuration");
+    assert!(
+        err.to_string().starts_with("[ss] outbound: method: "),
+        "{}",
+        err
+    );
+}
+
+#[cfg(feature = "outbound-vmess")]
+#[test]
+fn vmess_uuid_and_security_are_checked_when_built() {
+    for (options, field) in [
+        (
+            json!({ "server": "a", "server_port": 1, "uuid": "not-a-uuid", "security": "aes-128-gcm" }),
+            "uuid",
+        ),
+        (
+            json!({ "server": "a", "server_port": 1,
+                    "uuid": "6c5e8a2e-4d9b-4b52-8d64-0bcb3e1a8a2f", "security": "rot13" }),
+            "security",
+        ),
+    ] {
+        let err = manager(&[outbound("vm", "vmess", options)])
+            .err()
+            .expect("a bad value must fail the configuration");
+        assert!(
+            err.to_string()
+                .starts_with(&format!("[vm] outbound: {}: ", field)),
+            "{}",
+            err
+        );
+    }
+}

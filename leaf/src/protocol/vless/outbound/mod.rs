@@ -31,6 +31,8 @@ struct VlessOutboundOptions {
 
 fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
     let options: VlessOutboundOptions = ctx.options()?;
+    uuid::Uuid::parse_str(&options.uuid)
+        .map_err(|e| anyhow::anyhow!("[{}] outbound: uuid: {}", ctx.tag, e))?;
     let stream = Arc::new(StreamHandler {
         address: options.server.clone(),
         port: options.server_port,

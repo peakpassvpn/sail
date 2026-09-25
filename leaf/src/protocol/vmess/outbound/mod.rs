@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 
 use crate::adapter::outbound::HandlerBuilder;
 use crate::adapter::registry::{OutboundContext, OutboundFactory, OutboundRegistry};
@@ -36,6 +36,19 @@ struct VMessOutboundOptions {
 
 fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
     let options: VMessOutboundOptions = ctx.options()?;
+    uuid::Uuid::parse_str(&options.uuid)
+        .map_err(|e| anyhow!("[{}] outbound: uuid: {}", ctx.tag, e))?;
+    match options.security.to_lowercase().as_str() {
+        "chacha20-poly1305" | "chacha20-ietf-poly1305" | "aes-128-gcm" => {}
+        other => {
+            return Err(anyhow!(
+                "[{}] outbound: security: unsupported \"{}\", expected \
+                 chacha20-poly1305 or aes-128-gcm",
+                ctx.tag,
+                other
+            ))
+        }
+    }
     let stream = Arc::new(StreamHandler {
         address: options.server.clone(),
         port: options.server_port,
