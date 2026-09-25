@@ -9,12 +9,9 @@ pub mod obfs;
 pub mod quic;
 #[cfg(feature = "outbound-reality")]
 pub mod reality;
-#[cfg(feature = "outbound-tls")]
+#[cfg(feature = "tls")]
 pub mod tls;
-#[cfg(any(
-    feature = "outbound-reality",
-    all(feature = "outbound-tls", feature = "rustls-tls")
-))]
+#[cfg(any(feature = "outbound-reality", feature = "tls"))]
 pub mod tls_stream;
 #[cfg(any(feature = "inbound-ws", feature = "outbound-ws"))]
 pub mod ws;
@@ -23,6 +20,6 @@ pub mod layers;
 #[cfg(any(
     feature = "outbound-vless",
     feature = "outbound-reality",
-    feature = "outbound-tls"
+    feature = "tls"
 ))]
 pub mod vision;

@@ -23,10 +23,6 @@ default-ring = [
     "leaf/default-ring",
 ]
 
-default-openssl = [
-    "leaf/default-openssl",
-]
-
 auto-reload = ["leaf/auto-reload"]
 
 [dependencies]

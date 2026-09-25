@@ -513,7 +513,6 @@ fn tls_outbound(
             server_name,
             tls.alpn.clone().map(Listable::into_vec).unwrap_or_default(),
             trusted_certificate(tls, env),
-            None,
             tls.insecure,
             ech.is_some(),
             ech.is_some_and(|e| e.disable_dns_lookup),
@@ -835,8 +834,6 @@ fn tls_inbound(tag: &str, tls: &InboundTls, env: &RuntimeEnv) -> Result<AnyInbou
         let handler = crate::transport::tls::inbound::StreamHandler::new(
             tls.certificate(tag, env)?,
             tls.key(tag, env)?,
-            None,
-            None,
         )
         .map_err(|e| anyhow!("[{}] inbound: tls: {}", tag, e))?;
         Ok(Arc::new(crate::adapter::inbound::Handler::new(
