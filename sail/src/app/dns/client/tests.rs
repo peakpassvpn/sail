@@ -94,6 +94,116 @@ mod tests {
     }
 
     #[test]
+    fn load_servers_supports_encrypted_upstreams() {
+        let mut dns = crate::config::Dns::default();
+        dns.servers = vec![
+            "tls://dns.google".to_string(),
+            "direct:tls://dns.google:8853@8.8.8.8".to_string(),
+            "tls://1.1.1.1".to_string(),
+            "quic://dns.adguard-dns.com".to_string(),
+            "QUIC://[2606:4700::1111]:784".to_string(),
+            "h3://dns.google".to_string(),
+            "direct:h3://cloudflare-dns.com:8443/custom/path@1.1.1.1".to_string(),
+            "h3://[::1]/q@::1".to_string(),
+        ];
+        let servers: Vec<String> = DnsClient::load_servers(&dns)
+            .unwrap()
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        assert_eq!(
+            servers,
+            vec![
+                "tls://dns.google:853",
+                "direct:tls://dns.google:8853@8.8.8.8",
+                "tls://1.1.1.1:853",
+                "quic://dns.adguard-dns.com:853",
+                "quic://[2606:4700::1111]:784",
+                "h3://dns.google:443/dns-query",
+                "direct:h3://cloudflare-dns.com:8443/custom/path@1.1.1.1",
+                "h3://[::1]:443/q@::1",
+            ]
+        );
+        let servers = DnsClient::load_servers(&dns).unwrap();
+        match &servers[1] {
+            Resolver::Upstream(upstream) => {
+                assert_eq!(upstream.host, "dns.google");
+                assert_eq!(upstream.port, 8853);
+                assert_eq!(
+                    upstream.bootstrap_ip,
+                    Some(IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)))
+                );
+                assert!(upstream.is_direct);
+            }
+            _ => panic!("unexpected resolver"),
+        }
+        match &servers[4] {
+            Resolver::Upstream(upstream) => {
+                assert_eq!(upstream.host, "2606:4700::1111");
+                assert_eq!(upstream.bootstrap_ip, None);
+                assert!(!upstream.is_direct);
+            }
+            _ => panic!("unexpected resolver"),
+        }
+    }
+
+    #[test]
+    fn an_invalid_encrypted_upstream_is_an_error_that_names_it() {
+        for invalid in [
+            "tls://",
+            "tls://:853",
+            "tls://dns.google:",
+            "tls://dns.google:0",
+            "tls://dns.google:65536",
+            "tls://dns.google:port",
+            "tls://dns.google/dns-query",
+            "quic://dns.google/",
+            "tls://dns.google@",
+            "tls://dns.google@not-an-ip",
+            "quic://dns_google",
+            "quic://dns.google#8.8.8.8",
+            "quic://[::1",
+            "quic://[not-v6]:853",
+            "quic://[::1]x",
+            "h3://dns.google/dns-query?dns=x",
+            "h3://dns.google/a b",
+            "h3://dns.google/user@example",
+            "https://dns.google/dns-query",
+            "udp://8.8.8.8",
+        ] {
+            let mut dns = crate::config::Dns::default();
+            dns.servers = vec!["1.1.1.1".to_string(), invalid.to_string()];
+            let err = DnsClient::load_servers(&dns).unwrap_err();
+            assert!(
+                err.to_string()
+                    .starts_with(&format!("dns.servers: invalid server \"{}\"", invalid)),
+                "{}",
+                err
+            );
+        }
+    }
+
+    #[test]
+    fn collect_servers_keeps_encrypted_upstreams_by_directness() {
+        let client = new_client(vec![
+            "tls://proxied.example",
+            "direct:quic://direct.example@8.8.8.8",
+            "h3://proxied.example",
+        ]);
+        assert_eq!(
+            collect_server_strings(&client, true),
+            vec!["direct:quic://direct.example:853@8.8.8.8"]
+        );
+        assert_eq!(
+            collect_server_strings(&client, false),
+            vec![
+                "tls://proxied.example:853",
+                "h3://proxied.example:443/dns-query"
+            ]
+        );
+    }
+
+    #[test]
     fn no_servers_is_an_error() {
         let mut dns = crate::config::Dns::default();
         dns.servers = Vec::new();

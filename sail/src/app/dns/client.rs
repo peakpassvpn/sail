@@ -27,6 +27,8 @@ use crate::{
 };
 include!("client/types.rs");
 
+mod upstream;
+
 impl DnsClient {
     fn load_servers(dns: &crate::config::Dns) -> Result<Vec<Resolver>> {
         let mut servers = Vec::new();
@@ -57,6 +59,9 @@ impl DnsClient {
         }
         if server.to_ascii_lowercase().starts_with("doh:") {
             return Self::parse_doh_server(server, is_direct);
+        }
+        if let Some(upstream) = upstream::Upstream::parse(server, is_direct) {
+            return Ok(Resolver::Upstream(Arc::new(upstream?)));
         }
         let ip = server
             .parse::<IpAddr>()
@@ -106,12 +111,23 @@ impl DnsClient {
         domain: &str,
         bootstrap_ip: Option<IpAddr>,
     ) -> Result<SocketAddr> {
-        if let Some(ip) = bootstrap_ip {
-            return Ok(SocketAddr::new(ip, 443));
+        self.resolve_bootstrap_addr(domain, 443, bootstrap_ip).await
+    }
+
+    /// Where an encrypted server is: at its bootstrap IP, at `host` if that
+    /// is an IP, or else wherever the system resolver says.
+    async fn resolve_bootstrap_addr(
+        &self,
+        host: &str,
+        port: u16,
+        bootstrap_ip: Option<IpAddr>,
+    ) -> Result<SocketAddr> {
+        if let Some(ip) = bootstrap_ip.or_else(|| host.parse().ok()) {
+            return Ok(SocketAddr::new(ip, port));
         }
-        let domain = domain.to_owned();
+        let host = host.to_owned();
         let addr = tokio::task::spawn_blocking(move || {
-            (domain.as_str(), 443)
+            (host.as_str(), port)
                 .to_socket_addrs()
                 .ok()
                 .and_then(|mut addrs| addrs.next())
@@ -127,7 +143,13 @@ impl DnsClient {
         doh: &DohResolver,
         bootstrap_addr: SocketAddr,
     ) -> Result<AnyStream> {
-        if doh.is_direct {
+        self.dial_stream(doh.is_direct, bootstrap_addr).await
+    }
+
+    /// A TCP connection to `bootstrap_addr`, direct or through the outbound
+    /// the router picks.
+    async fn dial_stream(&self, is_direct: bool, bootstrap_addr: SocketAddr) -> Result<AnyStream> {
+        if is_direct {
             let stream = crate::net::tcp_connect(bootstrap_addr, &self.dial).await?;
             return Ok(Box::new(stream));
         }
@@ -171,6 +193,67 @@ impl DnsClient {
             .await
             .map_err(|e| anyhow!("connect tls failed: {}", e))?;
         Ok(Box::new(tls_stream))
+    }
+
+    /// Datagrams to `addr` through the outbound the router picks.
+    #[cfg(feature = "quic")]
+    async fn dial_datagram(&self, addr: SocketAddr) -> Result<AnyOutboundDatagram> {
+        let dispatcher = self
+            .dispatcher
+            .get()
+            .ok_or_else(|| anyhow!("no dispatcher"))?
+            .upgrade()
+            .ok_or_else(|| anyhow!("dispatcher is gone"))?;
+        let source = match addr {
+            SocketAddr::V4(_) => SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0),
+            SocketAddr::V6(_) => SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 0),
+        };
+        let sess = Session {
+            network: Network::Udp,
+            source,
+            destination: SocksAddr::from(addr),
+            inbound_tag: "dnsclient".to_string(),
+            ..Default::default()
+        };
+        let span = sess.span();
+        dispatcher
+            .dispatch_datagram(sess)
+            .instrument(span)
+            .await
+            .map_err(|e| anyhow!("dispatch datagram failed: {}", e))
+    }
+
+    /// The TLS client of the `tls://` servers. They are asked for DNS only,
+    /// so the ClientHello is BoringSSL's own, with no ALPN, which a DoT
+    /// server does not need (RFC 7858 §3.1).
+    #[cfg(feature = "tls")]
+    fn upstream_tls_client(&self) -> Result<&crate::transport::tls::TlsClient> {
+        self.upstream_tls
+            .get_or_init(|| {
+                crate::transport::tls::TlsClient::new(
+                    &[],
+                    self.upstream_certificate.as_deref(),
+                    false,
+                    None,
+                )
+                .map_err(|e| e.to_string())
+            })
+            .as_ref()
+            .map_err(|e| anyhow!("tls client: {}", e))
+    }
+
+    /// Trusts `certificate`, inline PEM or a path, instead of the bundled
+    /// roots, for the `tls://`, `quic://` and `h3://` servers: for a private
+    /// resolver, and for tests.
+    pub fn with_upstream_certificate(mut self, certificate: &str) -> Result<Self> {
+        #[cfg(feature = "tls")]
+        crate::transport::tls::client::load_certificates(certificate)?;
+        self.upstream_certificate = Some(certificate.to_owned());
+        #[cfg(feature = "tls")]
+        {
+            self.upstream_tls = Default::default();
+        }
+        Ok(self)
     }
 
     #[cfg(not(feature = "tls"))]
@@ -358,6 +441,16 @@ impl DnsClient {
         let (resp, elapsed) = self
             .query_doh_message(&request, host, resolver, doh)
             .await?;
+        Self::answer_entry(&resp, elapsed, host, resolver)
+    }
+
+    /// The addresses an answer carries, kept for its TTL.
+    fn answer_entry(
+        resp: &Message,
+        elapsed: Duration,
+        host: &str,
+        resolver: &Resolver,
+    ) -> Result<CacheEntry> {
         let mut ips = Vec::new();
         for ans in resp.answers() {
             if let Some(data) = ans.data() {
@@ -375,7 +468,11 @@ impl DnsClient {
                 host
             ));
         }
-        let ttl = resp.answers().iter().next().unwrap().ttl();
+        let ttl = resp
+            .answers()
+            .first()
+            .map(|ans| ans.ttl())
+            .unwrap_or_default();
         let Some(deadline) = Instant::now().checked_add(Duration::from_secs(ttl.into())) else {
             return Err(anyhow!("invalid ttl"));
         };
@@ -400,6 +497,17 @@ impl DnsClient {
         let (resp, elapsed) = self
             .query_doh_message(&request, host, resolver, doh)
             .await?;
+        Self::ech_entry(&resp, elapsed, host, resolver, ty)
+    }
+
+    /// The ECH configs an HTTPS or SVCB answer carries.
+    fn ech_entry(
+        resp: &Message,
+        elapsed: Duration,
+        host: &str,
+        resolver: &Resolver,
+        ty: RecordType,
+    ) -> Result<EchCacheEntry> {
         let mut last_ttl = None;
         for ans in resp.answers() {
             if ans.record_type() != ty {
@@ -439,6 +547,50 @@ impl DnsClient {
             ));
         }
         Err(anyhow!("no {} records for {} from {}", ty, host, resolver))
+    }
+
+    /// Asks an encrypted upstream, trying again as for DoH.
+    async fn query_upstream_message(
+        &self,
+        request: &[u8],
+        host: &str,
+        resolver: &Resolver,
+        upstream: &upstream::Upstream,
+        is_direct: bool,
+    ) -> Result<(Message, Duration)> {
+        let mut last_err = None;
+        for i in 0..self.tuning.max_retries.max(1) {
+            debug!(
+                "looking up host={} server={} ({}/{})",
+                host,
+                resolver,
+                i + 1,
+                self.tuning.max_retries
+            );
+            let start = tokio::time::Instant::now();
+            let response = match self.exchange_upstream(upstream, request, is_direct).await {
+                Ok(response) => response,
+                Err(err) => {
+                    debug!("query {} failed: {}", resolver, err);
+                    last_err = Some(err);
+                    continue;
+                }
+            };
+            let message = Message::from_vec(&response)
+                .map_err(|e| anyhow!("parse dns answer from {} failed: {}", resolver, e))?;
+            // An answer, even an error, is the server's: asking again would
+            // not change it.
+            if message.response_code() != ResponseCode::NoError {
+                return Err(anyhow!(
+                    "error DNS response from {} for {}: {}",
+                    resolver,
+                    host,
+                    message.response_code()
+                ));
+            }
+            return Ok((message, start.elapsed()));
+        }
+        Err(last_err.unwrap_or_else(|| anyhow!("all lookup attempts failed")))
     }
 
     fn load_hosts(dns: &crate::config::Dns) -> Result<HashMap<String, Vec<IpAddr>>> {
@@ -501,6 +653,9 @@ impl DnsClient {
             strategy: dns.strategy,
             timeout: dns.timeout(),
             reverse_mapping: dns.reverse_mapping,
+            upstream_certificate: None,
+            #[cfg(feature = "tls")]
+            upstream_tls: Default::default(),
         })
     }
 
@@ -525,6 +680,7 @@ impl DnsClient {
     ) -> Result<Self> {
         let mut client = Self::new(dns, dial, self.tuning.clone())?;
         client.dispatcher = self.dispatcher.clone();
+        client.upstream_certificate = self.upstream_certificate.clone();
         Ok(client)
     }
 
@@ -926,6 +1082,12 @@ impl DnsClient {
             Resolver::DoH(doh) => {
                 return self.query_with_doh(request, host, resolver, doh).await;
             }
+            Resolver::Upstream(upstream) => {
+                let (resp, elapsed) = self
+                    .query_upstream_message(&request, host, resolver, upstream, is_direct)
+                    .await?;
+                return Self::answer_entry(&resp, elapsed, host, resolver);
+            }
         };
 
         self.query_with_socket(socket, request, span, host, resolver)
@@ -984,6 +1146,12 @@ impl DnsClient {
                 return self
                     .query_ech_with_doh(request, host, resolver, doh, ty)
                     .await;
+            }
+            Resolver::Upstream(upstream) => {
+                let (resp, elapsed) = self
+                    .query_upstream_message(&request, host, resolver, upstream, is_direct)
+                    .await?;
+                return Self::ech_entry(&resp, elapsed, host, resolver, ty);
             }
         };
 
@@ -1137,6 +1305,9 @@ impl DnsClient {
                     Resolver::DoH(doh) if doh.is_direct => {
                         servers.push(server);
                     }
+                    Resolver::Upstream(upstream) if upstream.is_direct => {
+                        servers.push(server);
+                    }
                     _ => (),
                 }
             }
@@ -1150,6 +1321,9 @@ impl DnsClient {
                         Resolver::DoH(doh) if !doh.is_direct => {
                             servers.push(server);
                         }
+                        Resolver::Upstream(upstream) if !upstream.is_direct => {
+                            servers.push(server);
+                        }
                         _ => (),
                     }
                 }
@@ -1161,6 +1335,9 @@ impl DnsClient {
                         servers.push(server);
                     }
                     Resolver::DoH(doh) if !doh.is_direct => {
+                        servers.push(server);
+                    }
+                    Resolver::Upstream(upstream) if !upstream.is_direct => {
                         servers.push(server);
                     }
                     _ => (),

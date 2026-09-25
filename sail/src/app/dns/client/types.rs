@@ -21,6 +21,8 @@ struct DohResolver {
 enum Resolver {
     Server(SocketAddr, bool),
     DoH(DohResolver),
+    /// `tls://`, `quic://` or `h3://`.
+    Upstream(Arc<upstream::Upstream>),
     System(bool),
 }
 
@@ -64,6 +66,7 @@ impl fmt::Display for Resolver {
                 }
                 Ok(())
             }
+            Self::Upstream(upstream) => write!(f, "{}", upstream),
             Self::System(direct) => {
                 if *direct {
                     write!(f, "direct:system")
@@ -228,4 +231,11 @@ pub struct DnsClient {
     timeout: Duration,
     /// `dns.reverse_mapping`.
     reverse_mapping: bool,
+    /// The certificates `tls://`, `quic://` and `h3://` servers are checked
+    /// against, instead of the bundled roots.
+    upstream_certificate: Option<String>,
+    /// The TLS client of the `tls://` servers, built on first use.
+    #[cfg(feature = "tls")]
+    upstream_tls:
+        std::sync::OnceLock<std::result::Result<crate::transport::tls::TlsClient, String>>,
 }

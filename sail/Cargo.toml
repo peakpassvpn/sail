@@ -14,6 +14,7 @@ default = [
     "all-configs",
     "all-endpoints",
     "api",
+    "dns-h3",
 ]
 
 # Grouping all features
@@ -71,6 +72,9 @@ all-endpoints = [
 aead = ["btls"]
 quic = ["tls", "quinn", "quinn-btls"]
 tls = ["btls", "btls-sys", "brotli-decompressor", "foreign-types", "miniz_oxide", "ruzstd", "sha2", "webpki-root-certs"]
+
+# DNS over HTTP/3 upstreams (`h3://`).
+dns-h3 = ["quic", "h3", "h3-quinn", "http"]
 
 # Config formats
 config-conf = ["regex"]
@@ -232,6 +236,8 @@ tokio-util = { version = "0.7", default-features = false, features = ["io", "cod
 
 # QUIC
 quinn = { version = "0.11", default-features = false, features = ["runtime-tokio"], optional = true }
+h3 = { version = "0.0.8", optional = true }
+h3-quinn = { version = "0.0.10", optional = true }
 quinn-btls = { git = "https://github.com/peakpassvpn/quinn-btls.git", rev = "be77189270a5c18f4867f8bd5b8f455def8c9f97", default-features = false, optional = true }
 
 
