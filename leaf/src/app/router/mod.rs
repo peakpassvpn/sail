@@ -129,6 +129,15 @@ impl Router {
         Ok(())
     }
 
+    /// Whether a rule, or `final`, routes to the outbound `tag`.
+    pub fn uses(&self, tag: &str) -> bool {
+        self.final_outbound.as_deref() == Some(tag)
+            || self
+                .rules
+                .iter()
+                .any(|rule| matches!(&rule.action, Action::Route(t) if t == tag))
+    }
+
     /// Matches `sess` against the rules in order, sniffing through
     /// `sniffer` and resolving as they say, until one decides.
     pub async fn pick_route(

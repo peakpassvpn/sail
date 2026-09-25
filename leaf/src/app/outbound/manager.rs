@@ -1,11 +1,10 @@
 use std::collections::{hash_map, HashMap};
-#[cfg(feature = "outbound-select")]
 use std::sync::Arc;
 
 #[cfg(feature = "outbound-select")]
 use tokio::sync::RwLock;
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use futures::future::AbortHandle;
 
 use crate::{
@@ -21,41 +20,64 @@ use crate::{
 #[cfg(feature = "outbound-select")]
 use super::selector::OutboundSelector;
 
+/// The outbounds of an instance. It is not changed in place: a change
+/// makes a new manager, which replaces this one in the instance's
+/// snapshot.
+#[derive(Clone)]
 pub struct OutboundManager {
     handlers: HashMap<String, AnyOutboundHandler>,
+    /// Keeps the plugin libraries the handlers come from loaded.
     #[cfg(feature = "plugin")]
-    external_handlers: super::plugin::ExternalHandlers,
+    external_handlers: Vec<Arc<super::plugin::ExternalHandlers>>,
     #[cfg(feature = "outbound-select")]
     selectors: Arc<super::Selectors>,
     default_handler: Option<String>,
-    abort_handles: Vec<AbortHandle>,
-}
-
-/// Everything building a set of outbounds produces.
-struct Loaded {
-    handlers: HashMap<String, AnyOutboundHandler>,
-    #[cfg(feature = "plugin")]
-    external_handlers: super::plugin::ExternalHandlers,
-    #[cfg(feature = "outbound-select")]
-    selectors: super::Selectors,
-    default_handler: Option<String>,
-    abort_handles: Vec<AbortHandle>,
+    /// The tasks each outbound's handler spawned.
+    abort_handles: HashMap<String, Vec<AbortHandle>>,
+    /// The outbounds each outbound is built on.
+    dependencies: HashMap<String, Vec<String>>,
 }
 
 impl OutboundManager {
-    fn load(
+    /// Builds `outbounds`; their sockets are opened with `dial_defaults`
+    /// where their own dial fields leave off.
+    pub fn new(
         outbounds: &[Outbound],
         dial_defaults: &DialOptions,
         env: &RuntimeEnv,
         dns_client: SyncDnsClient,
-    ) -> Result<Loaded> {
-        let mut handlers = HashMap::new();
+    ) -> Result<Self> {
+        let empty = OutboundManager {
+            handlers: HashMap::new(),
+            #[cfg(feature = "plugin")]
+            external_handlers: Vec::new(),
+            #[cfg(feature = "outbound-select")]
+            selectors: Arc::new(HashMap::new()),
+            // The first outbound in the configuration is the default one.
+            default_handler: outbounds.first().map(|o| o.tag.clone()),
+            abort_handles: HashMap::new(),
+            dependencies: HashMap::new(),
+        };
+        if let Some(tag) = &empty.default_handler {
+            tracing::debug!("default handler [{}]", tag);
+        }
+        empty.with(outbounds, dial_defaults, env, dns_client)
+    }
+
+    /// This manager with `outbounds` built onto it: they may be built on
+    /// the outbounds here, but not take their tags.
+    fn with(
+        &self,
+        outbounds: &[Outbound],
+        dial_defaults: &DialOptions,
+        env: &RuntimeEnv,
+        dns_client: SyncDnsClient,
+    ) -> Result<Self> {
+        let mut next = self.clone();
         #[cfg(feature = "plugin")]
         let mut external_handlers = super::plugin::ExternalHandlers::new();
         #[cfg(feature = "outbound-select")]
-        let mut selectors = HashMap::new();
-        let mut abort_handles = Vec::new();
-
+        let mut selectors = (*self.selectors).clone();
         registry::build_outbounds(
             &include::OUTBOUNDS,
             outbounds,
@@ -63,30 +85,78 @@ impl OutboundManager {
                 dns_client: &dns_client,
                 dial_defaults,
                 env,
-                handlers: &mut handlers,
-                abort_handles: &mut abort_handles,
+                handlers: &mut next.handlers,
+                abort_handles: &mut next.abort_handles,
+                dependencies: &mut next.dependencies,
                 #[cfg(feature = "outbound-select")]
                 selectors: &mut selectors,
                 #[cfg(feature = "plugin")]
                 external_handlers: &mut external_handlers,
             },
         )?;
-
-        // The first outbound in the configuration is the default one.
-        let default_handler = outbounds.first().map(|o| o.tag.clone());
-        if let Some(tag) = &default_handler {
-            tracing::debug!("default handler [{}]", tag);
+        #[cfg(feature = "plugin")]
+        next.external_handlers.push(Arc::new(external_handlers));
+        #[cfg(feature = "outbound-select")]
+        {
+            next.selectors = Arc::new(selectors);
         }
+        Ok(next)
+    }
 
-        Ok(Loaded {
-            handlers,
-            #[cfg(feature = "plugin")]
-            external_handlers,
-            #[cfg(feature = "outbound-select")]
-            selectors,
-            default_handler,
-            abort_handles,
-        })
+    /// This manager with `outbound` added.
+    pub fn with_outbound(
+        &self,
+        outbound: &Outbound,
+        dial_defaults: &DialOptions,
+        env: &RuntimeEnv,
+        dns_client: SyncDnsClient,
+    ) -> Result<Self> {
+        self.with(
+            std::slice::from_ref(outbound),
+            dial_defaults,
+            env,
+            dns_client,
+        )
+    }
+
+    /// This manager without the outbound `tag`, which nothing else may be
+    /// built on, and the tasks to stop once it is replaced.
+    pub fn without_outbound(&self, tag: &str) -> Result<(Self, Vec<AbortHandle>)> {
+        let Some(removed) = self.handlers.get(tag) else {
+            return Err(anyhow!("[{}] outbound: does not exist", tag));
+        };
+        if let Some((user, _)) = self
+            .dependencies
+            .iter()
+            .find(|(user, deps)| user.as_str() != tag && deps.iter().any(|d| d == tag))
+        {
+            return Err(anyhow!("[{}] outbound: [{}] is built on it", tag, user));
+        }
+        if self.default_handler.as_deref() == Some(tag) {
+            return Err(anyhow!(
+                "[{}] outbound: it is the default outbound, the first configured",
+                tag
+            ));
+        }
+        let mut next = self.clone();
+        next.handlers.remove(tag);
+        next.dependencies.remove(tag);
+        let mut tasks = next.abort_handles.remove(tag).unwrap_or_default();
+        // An outbound identical to another shares its handler, and the
+        // tasks go on for the one left.
+        if let Some((twin, _)) = next.handlers.iter().find(|(_, h)| Arc::ptr_eq(h, removed)) {
+            next.abort_handles
+                .entry(twin.clone())
+                .or_default()
+                .append(&mut tasks);
+        }
+        #[cfg(feature = "outbound-select")]
+        if next.selectors.contains_key(tag) {
+            let mut selectors = (*next.selectors).clone();
+            selectors.remove(tag);
+            next.selectors = Arc::new(selectors);
+        }
+        Ok((next, tasks))
     }
 
     /// Selects what `previous`, the manager this one replaces, had
@@ -103,43 +173,9 @@ impl OutboundManager {
 
     /// Stops the tasks the handlers started, once they are replaced.
     pub fn abort_tasks(&self) {
-        for abort_handle in self.abort_handles.iter() {
+        for abort_handle in self.abort_handles.values().flatten() {
             abort_handle.abort();
         }
-    }
-
-    /// Builds `outbounds`; their sockets are opened with `dial_defaults`
-    /// where their own dial fields leave off.
-    pub fn new(
-        outbounds: &[Outbound],
-        dial_defaults: &DialOptions,
-        env: &RuntimeEnv,
-        dns_client: SyncDnsClient,
-    ) -> Result<Self> {
-        let Loaded {
-            handlers,
-            #[cfg(feature = "plugin")]
-            external_handlers,
-            #[cfg(feature = "outbound-select")]
-            selectors,
-            default_handler,
-            abort_handles,
-        } = Self::load(outbounds, dial_defaults, env, dns_client)?;
-
-        Ok(OutboundManager {
-            handlers,
-            #[cfg(feature = "plugin")]
-            external_handlers,
-
-            #[cfg(feature = "outbound-select")]
-            selectors: Arc::new(selectors),
-            default_handler,
-            abort_handles,
-        })
-    }
-
-    pub fn add(&mut self, tag: String, handler: AnyOutboundHandler) {
-        self.handlers.insert(tag, handler);
     }
 
     pub fn get(&self, tag: &str) -> Option<AnyOutboundHandler> {

@@ -10,7 +10,7 @@ use axum::{
     extract::{Path, State},
     http::StatusCode,
     response::{Html, Json},
-    routing::{get, post},
+    routing::{delete, get, post},
     Router,
 };
 use tracing::info;
@@ -137,6 +137,42 @@ mod handlers {
             Ok(StatusCode::OK)
         } else {
             Ok(StatusCode::ACCEPTED)
+        }
+    }
+
+    pub async fn outbound_add(
+        State(rm): State<Arc<RuntimeManager>>,
+        Json(outbound): Json<crate::config::Outbound>,
+    ) -> (StatusCode, String) {
+        changed(rm.add_outbound(outbound).await)
+    }
+
+    pub async fn outbound_remove(
+        State(rm): State<Arc<RuntimeManager>>,
+        Path(tag): Path<String>,
+    ) -> (StatusCode, String) {
+        changed(rm.remove_outbound(&tag).await)
+    }
+
+    pub async fn inbound_add(
+        State(rm): State<Arc<RuntimeManager>>,
+        Json(inbound): Json<crate::config::Inbound>,
+    ) -> (StatusCode, String) {
+        changed(rm.add_inbound(inbound).await)
+    }
+
+    pub async fn inbound_remove(
+        State(rm): State<Arc<RuntimeManager>>,
+        Path(tag): Path<String>,
+    ) -> (StatusCode, String) {
+        changed(rm.remove_inbound(&tag).await)
+    }
+
+    /// A change made, or why it was not.
+    fn changed(result: Result<(), crate::Error>) -> (StatusCode, String) {
+        match result {
+            Ok(()) => (StatusCode::OK, String::new()),
+            Err(e) => (StatusCode::BAD_REQUEST, e.to_string()),
         }
     }
 
@@ -376,7 +412,17 @@ impl ApiServer {
     pub fn serve(&self, listen_addr: SocketAddr) -> crate::Runner {
         let mut app = Router::new()
             .route("/api/v1/runtime/reload", post(handlers::runtime_reload))
-            .route("/api/v1/runtime/shutdown", post(handlers::runtime_shutdown));
+            .route("/api/v1/runtime/shutdown", post(handlers::runtime_shutdown))
+            .route("/api/v1/runtime/outbounds", post(handlers::outbound_add))
+            .route(
+                "/api/v1/runtime/outbounds/:tag",
+                delete(handlers::outbound_remove),
+            )
+            .route("/api/v1/runtime/inbounds", post(handlers::inbound_add))
+            .route(
+                "/api/v1/runtime/inbounds/:tag",
+                delete(handlers::inbound_remove),
+            );
 
         #[cfg(feature = "outbound-select")]
         {
@@ -398,15 +444,15 @@ impl ApiServer {
                 get(handlers::stat_recent_json),
             )
             .route(
-                "/api/v1/runtime/outbound/{tag}/last_peer_active",
+                "/api/v1/runtime/outbound/:tag/last_peer_active",
                 get(handlers::last_peer_active),
             )
             .route(
-                "/api/v1/runtime/outbound/{tag}/since_last_peer_active",
+                "/api/v1/runtime/outbound/:tag/since_last_peer_active",
                 get(handlers::since_last_peer_active),
             )
             .route(
-                "/api/v1/runtime/outbound/{tag}/health",
+                "/api/v1/runtime/outbound/:tag/health",
                 get(handlers::outbound_health),
             );
 

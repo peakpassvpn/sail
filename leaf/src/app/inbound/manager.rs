@@ -3,6 +3,7 @@ use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
+use futures::future::{abortable, AbortHandle};
 
 use crate::adapter::registry;
 use crate::adapter::AnyInboundHandler;
@@ -21,7 +22,15 @@ use super::cat_listener::CatInboundListener;
 use super::tun_listener::TunInboundListener;
 
 pub struct InboundManager {
+    /// Every inbound's handler, for inbounds built on others.
+    handlers: HashMap<String, AnyInboundHandler>,
+    /// The inbounds each inbound is built on.
+    dependencies: HashMap<String, Vec<String>>,
     network_listeners: HashMap<String, NetworkInboundListener>,
+    /// The tasks of each started listener.
+    running: HashMap<String, Vec<AbortHandle>>,
+    dispatcher: Arc<Dispatcher>,
+    nat_manager: Arc<NatManager>,
     #[cfg(feature = "inbound-tun")]
     tun_listener: Option<TunInboundListener>,
     #[cfg(feature = "inbound-cat")]
@@ -36,12 +45,14 @@ impl InboundManager {
         nat_manager: Arc<NatManager>,
     ) -> Result<Self> {
         let mut handlers: HashMap<String, AnyInboundHandler> = HashMap::new();
+        let mut dependencies = HashMap::new();
         registry::build_inbounds(
             &include::INBOUNDS,
             inbounds,
             include::LISTENER_INBOUNDS,
             env,
             &mut handlers,
+            &mut dependencies,
         )?;
 
         let mut network_listeners: HashMap<String, NetworkInboundListener> = HashMap::new();
@@ -65,6 +76,7 @@ impl InboundManager {
             match inbound.protocol.as_str() {
                 #[cfg(feature = "inbound-tun")]
                 "tun" => {
+                    crate::protocol::tun::inbound::options(inbound)?;
                     let listener = TunInboundListener {
                         inbound: inbound.clone(),
                         dispatcher: dispatcher.clone(),
@@ -86,7 +98,12 @@ impl InboundManager {
         }
 
         Ok(InboundManager {
+            handlers,
+            dependencies,
             network_listeners,
+            running: HashMap::new(),
+            dispatcher,
+            nat_manager,
             #[cfg(feature = "inbound-tun")]
             tun_listener,
             #[cfg(feature = "inbound-cat")]
@@ -94,12 +111,88 @@ impl InboundManager {
         })
     }
 
-    pub fn get_network_runners(&self) -> Result<Vec<Runner>> {
-        let mut runners: Vec<Runner> = Vec::new();
-        for (_, listener) in self.network_listeners.iter() {
-            runners.append(&mut listener.listen()?);
+    /// Binds every listener, and runs each as a task of its own, to be
+    /// stopped alone. Fails, with none running, when one cannot bind.
+    pub fn start_network_listeners(&mut self) -> Result<()> {
+        let mut bound = Vec::new();
+        for (tag, listener) in self.network_listeners.iter() {
+            bound.push((tag.clone(), listener.listen()?));
         }
-        Ok(runners)
+        for (tag, runners) in bound {
+            self.run(tag, runners);
+        }
+        Ok(())
+    }
+
+    fn run(&mut self, tag: String, runners: Vec<Runner>) {
+        let handles = runners
+            .into_iter()
+            .map(|runner| {
+                let (task, handle) = abortable(runner);
+                tokio::spawn(task);
+                handle
+            })
+            .collect();
+        self.running.insert(tag, handles);
+    }
+
+    /// Builds `inbound` and starts listening on its port. A TUN or cat
+    /// inbound is only configured at start.
+    pub fn add(&mut self, inbound: &config::Inbound) -> Result<()> {
+        if include::LISTENER_INBOUNDS.contains(&inbound.protocol.as_str()) {
+            return Err(anyhow!(
+                "[{}] inbound: a {} inbound is only configured at start",
+                inbound.tag,
+                inbound.protocol
+            ));
+        }
+        let mut handlers = self.handlers.clone();
+        let mut dependencies = self.dependencies.clone();
+        registry::build_inbounds(
+            &include::INBOUNDS,
+            std::slice::from_ref(inbound),
+            include::LISTENER_INBOUNDS,
+            self.dispatcher.env(),
+            &mut handlers,
+            &mut dependencies,
+        )?;
+        let planned = plan_listeners(std::slice::from_ref(inbound), &handlers)?;
+        if let Some((_, address)) = planned.first() {
+            let listener = NetworkInboundListener {
+                address: *address,
+                handler: handlers[&inbound.tag].clone(),
+                dispatcher: self.dispatcher.clone(),
+                nat_manager: self.nat_manager.clone(),
+            };
+            let runners = listener.listen()?;
+            self.network_listeners.insert(inbound.tag.clone(), listener);
+            self.run(inbound.tag.clone(), runners);
+        }
+        self.handlers = handlers;
+        self.dependencies = dependencies;
+        Ok(())
+    }
+
+    /// Stops listening for the inbound `tag` and removes it. Connections it
+    /// accepted go on.
+    pub fn remove(&mut self, tag: &str) -> Result<()> {
+        if !self.handlers.contains_key(tag) {
+            return Err(anyhow!("[{}] inbound: does not exist", tag));
+        }
+        if let Some((user, _)) = self
+            .dependencies
+            .iter()
+            .find(|(user, deps)| user.as_str() != tag && deps.iter().any(|d| d == tag))
+        {
+            return Err(anyhow!("[{}] inbound: [{}] is built on it", tag, user));
+        }
+        for handle in self.running.remove(tag).unwrap_or_default() {
+            handle.abort();
+        }
+        self.network_listeners.remove(tag);
+        self.handlers.remove(tag);
+        self.dependencies.remove(tag);
+        Ok(())
     }
 
     #[cfg(feature = "inbound-tun")]
@@ -207,6 +300,7 @@ mod tests {
             include::LISTENER_INBOUNDS,
             &crate::runtime::RuntimeEnv::default(),
             &mut handlers,
+            &mut HashMap::new(),
         )?;
         Ok(plan_listeners(&config.inbounds, &handlers)?
             .into_iter()

@@ -6,6 +6,7 @@ pub mod dispatcher;
 pub mod dns;
 pub mod healthcheck;
 pub mod inbound;
+pub mod instance;
 pub mod logger;
 pub mod nat_manager;
 pub mod outbound;

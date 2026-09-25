@@ -169,15 +169,21 @@ pub struct OutboundBuildState<'a> {
     /// What outbounds dial with where their dial fields leave off.
     pub dial_defaults: &'a crate::net::DialOptions,
     pub env: &'a RuntimeEnv,
+    /// Built already, besides those built here; they may be depended on.
     pub handlers: &'a mut Handlers<AnyOutboundHandler>,
-    pub abort_handles: &'a mut Vec<AbortHandle>,
+    /// The tasks each outbound's handler spawned.
+    pub abort_handles: &'a mut HashMap<String, Vec<AbortHandle>>,
+    /// The outbounds each outbound is built on.
+    pub dependencies: &'a mut HashMap<String, Vec<String>>,
     #[cfg(feature = "outbound-select")]
     pub selectors: &'a mut crate::app::outbound::Selectors,
     #[cfg(feature = "plugin")]
     pub external_handlers: &'a mut crate::app::outbound::plugin::ExternalHandlers,
 }
 
-/// Builds every outbound in `outbounds`, each after the ones it is built on.
+/// Builds every outbound in `outbounds`, each after the ones it is built
+/// on, into `state`, where they may be built on the outbounds already
+/// there.
 pub fn build_outbounds(
     registry: &OutboundRegistry,
     outbounds: &[crate::config::model::Outbound],
@@ -202,60 +208,71 @@ pub fn build_outbounds(
     // Outbounds with identical options share a handler, see
     // `OutboundFactory::shareable`.
     let mut shared: Vec<(&str, &str, &Options)> = Vec::new();
+    let existing: HashSet<String> = state.handlers.keys().cloned().collect();
 
-    in_dependency_order("outbound", nodes, |(outbound, factory, options, blocks)| {
-        if factory.shareable {
-            if let Some((tag, _, _)) = shared.iter().find(|(_, protocol, options)| {
-                *protocol == outbound.protocol && *options == &outbound.options
-            }) {
-                let handler = state.handlers[*tag].clone();
-                state.handlers.insert(outbound.tag.clone(), handler);
-                return Ok(());
+    in_dependency_order(
+        "outbound",
+        nodes,
+        &existing,
+        |(outbound, factory, options, blocks), dependencies| {
+            state
+                .dependencies
+                .insert(outbound.tag.clone(), dependencies);
+            if factory.shareable {
+                if let Some((tag, _, _)) = shared.iter().find(|(_, protocol, options)| {
+                    *protocol == outbound.protocol && *options == &outbound.options
+                }) {
+                    let handler = state.handlers[*tag].clone();
+                    state.handlers.insert(outbound.tag.clone(), handler);
+                    return Ok(());
+                }
             }
-        }
-        let dial = Arc::new(blocks.dial(&outbound.tag)?.or(state.dial_defaults));
-        let mut ctx = OutboundContext {
-            tag: &outbound.tag,
-            options: &options,
-            dns_client: state.dns_client,
-            dial: dial.clone(),
-            env: state.env,
-            abort_handles: state.abort_handles,
-            #[cfg(feature = "outbound-select")]
-            selectors: state.selectors,
-            #[cfg(feature = "plugin")]
-            external_handlers: state.external_handlers,
-            handlers: state.handlers,
-        };
-        let core = (factory.build)(&mut ctx)?;
-        let detour = match &blocks.detour {
-            Some(detour) => Some(dependency(
-                state.handlers,
-                "outbound",
-                &outbound.tag,
-                detour,
-            )?),
-            None => None,
-        };
-        let handler = layers::outbound(
-            core,
-            &blocks,
-            OutboundLayering {
+            let mut tasks = Vec::new();
+            let dial = Arc::new(blocks.dial(&outbound.tag)?.or(state.dial_defaults));
+            let mut ctx = OutboundContext {
                 tag: &outbound.tag,
                 options: &options,
                 dns_client: state.dns_client,
-                abort_handles: state.abort_handles,
-                detour,
-                dial,
+                dial: dial.clone(),
                 env: state.env,
-            },
-        )?;
-        state.handlers.insert(outbound.tag.clone(), handler);
-        if factory.shareable {
-            shared.push((&outbound.tag, &outbound.protocol, &outbound.options));
-        }
-        Ok(())
-    })
+                abort_handles: &mut tasks,
+                #[cfg(feature = "outbound-select")]
+                selectors: state.selectors,
+                #[cfg(feature = "plugin")]
+                external_handlers: state.external_handlers,
+                handlers: state.handlers,
+            };
+            let core = (factory.build)(&mut ctx)?;
+            let detour = match &blocks.detour {
+                Some(detour) => Some(dependency(
+                    state.handlers,
+                    "outbound",
+                    &outbound.tag,
+                    detour,
+                )?),
+                None => None,
+            };
+            let handler = layers::outbound(
+                core,
+                &blocks,
+                OutboundLayering {
+                    tag: &outbound.tag,
+                    options: &options,
+                    dns_client: state.dns_client,
+                    abort_handles: &mut tasks,
+                    detour,
+                    dial,
+                    env: state.env,
+                },
+            )?;
+            state.handlers.insert(outbound.tag.clone(), handler);
+            state.abort_handles.insert(outbound.tag.clone(), tasks);
+            if factory.shareable {
+                shared.push((&outbound.tag, &outbound.protocol, &outbound.options));
+            }
+            Ok(())
+        },
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -345,6 +362,7 @@ pub fn build_inbounds(
     listeners: &[&str],
     env: &RuntimeEnv,
     handlers: &mut Handlers<AnyInboundHandler>,
+    dependencies: &mut HashMap<String, Vec<String>>,
 ) -> Result<()> {
     let nodes = inbounds
         .iter()
@@ -362,18 +380,25 @@ pub fn build_inbounds(
         })
         .collect::<Result<Vec<_>>>()?;
 
-    in_dependency_order("inbound", nodes, |(inbound, factory, options, blocks)| {
-        let ctx = InboundContext {
-            tag: &inbound.tag,
-            options: &options,
-            env,
-            handlers,
-        };
-        let core = (factory.build)(&ctx)?;
-        let handler = layers::inbound(&inbound.tag, core, &blocks, env)?;
-        handlers.insert(inbound.tag.clone(), handler);
-        Ok(())
-    })
+    let existing: HashSet<String> = handlers.keys().cloned().collect();
+    in_dependency_order(
+        "inbound",
+        nodes,
+        &existing,
+        |(inbound, factory, options, blocks), deps| {
+            dependencies.insert(inbound.tag.clone(), deps);
+            let ctx = InboundContext {
+                tag: &inbound.tag,
+                options: &options,
+                env,
+                handlers,
+            };
+            let core = (factory.build)(&ctx)?;
+            let handler = layers::inbound(&inbound.tag, core, &blocks, env)?;
+            handlers.insert(inbound.tag.clone(), handler);
+            Ok(())
+        },
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -409,12 +434,15 @@ struct Node<'a, T> {
 ///
 /// The graph is checked first: two nodes sharing a tag, a dependency on a
 /// tag no node has, and a cycle are each an error, and nothing is built.
+/// Builds `nodes`, each after those it depends on, which are among `nodes`
+/// or `existing`, the ones built before.
 fn in_dependency_order<T>(
     kind: &str,
     nodes: Vec<Node<'_, T>>,
-    mut build: impl FnMut(T) -> Result<()>,
+    existing: &HashSet<String>,
+    mut build: impl FnMut(T, Vec<String>) -> Result<()>,
 ) -> Result<()> {
-    let mut known: HashSet<&str> = HashSet::new();
+    let mut known: HashSet<&str> = existing.iter().map(String::as_str).collect();
     for node in &nodes {
         if !known.insert(node.tag) {
             return Err(anyhow!("[{}] {}: tag used more than once", node.tag, kind));
@@ -444,14 +472,14 @@ fn in_dependency_order<T>(
 
     // Acyclic with every dependency present, so each pass settles at least
     // one node.
-    let mut settled: HashSet<String> = HashSet::new();
+    let mut settled: HashSet<String> = existing.clone();
     let mut pending = nodes;
     while !pending.is_empty() {
         let mut waiting = Vec::new();
         for node in pending {
             if node.dependencies.iter().all(|d| settled.contains(d)) {
                 let tag = node.tag.to_owned();
-                build(node.item)?;
+                build(node.item, node.dependencies)?;
                 settled.insert(tag);
             } else {
                 waiting.push(node);
@@ -527,12 +555,29 @@ mod tests {
     }
 
     fn order(nodes: Vec<Node<'_, &str>>) -> Result<Vec<String>> {
+        order_onto(nodes, &[])
+    }
+
+    fn order_onto(nodes: Vec<Node<'_, &str>>, existing: &[&str]) -> Result<Vec<String>> {
+        let existing = existing.iter().map(|t| t.to_string()).collect();
         let mut built = Vec::new();
-        in_dependency_order("test", nodes, |tag| {
+        in_dependency_order("test", nodes, &existing, |tag, _| {
             built.push(tag.to_owned());
             Ok(())
         })?;
         Ok(built)
+    }
+
+    #[test]
+    fn nodes_may_depend_on_those_built_before_but_not_take_their_tags() {
+        let built = order_onto(vec![node("group", &["a"])], &["a"]).unwrap();
+        assert_eq!(built, ["group"]);
+        let err = order_onto(vec![node("a", &[])], &["a"]).unwrap_err();
+        assert!(
+            err.to_string().contains("tag used more than once"),
+            "{}",
+            err
+        );
     }
 
     #[test]
@@ -618,6 +663,7 @@ mod tests {
             &["tun"],
             &env,
             &mut handlers,
+            &mut HashMap::new(),
         )
         .unwrap();
         let err = build_inbounds(
@@ -626,6 +672,7 @@ mod tests {
             &["tun"],
             &env,
             &mut handlers,
+            &mut HashMap::new(),
         )
         .err()
         .unwrap();

@@ -8,7 +8,6 @@ use anyhow::anyhow;
 use lazy_static::lazy_static;
 use thiserror::Error;
 use tokio::sync::mpsc;
-use tokio::sync::RwLock;
 use tokio::time::{timeout, Duration};
 use tracing::{info, trace, warn};
 
@@ -17,15 +16,9 @@ use notify::{
     event, Error as NotifyError, RecommendedWatcher, RecursiveMode, Result as NotifyResult, Watcher,
 };
 
-use app::{
-    dispatcher::Dispatcher, dns::DnsClient, inbound::manager::InboundManager,
-    nat_manager::NatManager, outbound::manager::OutboundManager, router::Router,
-};
+use app::{outbound::manager::OutboundManager, router::Router};
 
-use crate::app::{
-    stat_manager::StatManager, SyncDnsClient, SyncOutboundManager, SyncRouter, SyncStatManager,
-};
-use arc_swap::ArcSwap;
+use crate::app::{SyncDnsClient, SyncOutboundManager, SyncRouter, SyncStatManager};
 
 #[cfg(feature = "api")]
 use crate::app::api::api_server::ApiServer;
@@ -81,8 +74,15 @@ pub struct RuntimeManager {
     router: SyncRouter,
     dns_client: SyncDnsClient,
     outbound_manager: SyncOutboundManager,
+    inbound_manager: Arc<Mutex<app::inbound::manager::InboundManager>>,
     stat_manager: SyncStatManager,
     env: runtime::SyncRuntimeEnv,
+    /// What outbounds dial with where theirs leave off, as the current
+    /// configuration has it.
+    dial_defaults: arc_swap::ArcSwap<net::DialOptions>,
+    /// Serializes the changes: reloads, and outbounds and inbounds added
+    /// or removed.
+    update: tokio::sync::Mutex<()>,
     #[cfg(feature = "auto-reload")]
     watcher: Mutex<Option<RecommendedWatcher>>,
 }
@@ -95,11 +95,8 @@ impl RuntimeManager {
         #[cfg(feature = "auto-reload")] auto_reload: bool,
         reload_tx: mpsc::Sender<std::sync::mpsc::SyncSender<Result<(), Error>>>,
         shutdown_tx: mpsc::Sender<()>,
-        router: SyncRouter,
-        dns_client: SyncDnsClient,
-        outbound_manager: SyncOutboundManager,
-        stat_manager: SyncStatManager,
-        env: runtime::SyncRuntimeEnv,
+        instance: &app::instance::Instance,
+        dial_defaults: Arc<net::DialOptions>,
     ) -> Arc<Self> {
         Arc::new(Self {
             #[cfg(feature = "auto-reload")]
@@ -109,11 +106,14 @@ impl RuntimeManager {
             auto_reload,
             reload_tx,
             shutdown_tx,
-            router,
-            dns_client,
-            outbound_manager,
-            stat_manager,
-            env,
+            router: instance.router.clone(),
+            dns_client: instance.dns_client.clone(),
+            outbound_manager: instance.outbound_manager.clone(),
+            inbound_manager: instance.inbound_manager.clone(),
+            stat_manager: instance.stat_manager.clone(),
+            env: instance.env.clone(),
+            dial_defaults: arc_swap::ArcSwap::new(dial_defaults),
+            update: tokio::sync::Mutex::new(()),
             #[cfg(feature = "auto-reload")]
             watcher: Mutex::new(None),
         })
@@ -233,6 +233,7 @@ impl RuntimeManager {
         } else {
             return Err(Error::NoConfigFile);
         };
+        let _update = self.update.lock().await;
         info!("reloading from config file: {}", config_path);
         let config = config::from_file(config_path).map_err(Error::Config)?;
         let dial_defaults = dial_defaults(&config, &self.env).map_err(Error::Config)?;
@@ -261,8 +262,81 @@ impl RuntimeManager {
         self.dns_client.store(Arc::new(dns_client));
         let replaced = self.outbound_manager.swap(Arc::new(outbound_manager));
         self.router.store(Arc::new(router));
+        self.dial_defaults.store(dial_defaults);
         replaced.abort_tasks();
         info!("reloaded from config file: {}", config_path);
+        Ok(())
+    }
+
+    /// Builds `outbound` and makes it available to routing. It may be built
+    /// on the outbounds there are, but not take one's tag.
+    pub async fn add_outbound(&self, mut outbound: config::Outbound) -> Result<(), Error> {
+        let _update = self.update.lock().await;
+        if outbound.tag.is_empty() {
+            outbound.tag = outbound.protocol.clone();
+        }
+        let next = self
+            .outbound_manager
+            .load()
+            .with_outbound(
+                &outbound,
+                &self.dial_defaults.load(),
+                &self.env,
+                self.dns_client.clone(),
+            )
+            .map_err(Error::Config)?;
+        self.outbound_manager.store(Arc::new(next));
+        info!("added outbound [{}]", outbound.tag);
+        Ok(())
+    }
+
+    /// Removes the outbound `tag`, which no rule may route to and no other
+    /// outbound be built on. Connections through it go on.
+    pub async fn remove_outbound(&self, tag: &str) -> Result<(), Error> {
+        let _update = self.update.lock().await;
+        if self.router.load().uses(tag) {
+            return Err(Error::Config(anyhow!(
+                "[{}] outbound: the routing uses it",
+                tag
+            )));
+        }
+        let (next, tasks) = self
+            .outbound_manager
+            .load()
+            .without_outbound(tag)
+            .map_err(Error::Config)?;
+        self.outbound_manager.store(Arc::new(next));
+        for task in tasks {
+            task.abort();
+        }
+        info!("removed outbound [{}]", tag);
+        Ok(())
+    }
+
+    /// Builds `inbound` and starts listening on its port.
+    pub async fn add_inbound(&self, mut inbound: config::Inbound) -> Result<(), Error> {
+        let _update = self.update.lock().await;
+        if inbound.tag.is_empty() {
+            inbound.tag = inbound.protocol.clone();
+        }
+        self.inbound_manager
+            .lock()
+            .map_err(|_| Error::RuntimeManager)?
+            .add(&inbound)
+            .map_err(Error::Config)?;
+        info!("added inbound [{}]", inbound.tag);
+        Ok(())
+    }
+
+    /// Stops listening for the inbound `tag`, and removes it.
+    pub async fn remove_inbound(&self, tag: &str) -> Result<(), Error> {
+        let _update = self.update.lock().await;
+        self.inbound_manager
+            .lock()
+            .map_err(|_| Error::RuntimeManager)?
+            .remove(tag)
+            .map_err(Error::Config)?;
+        info!("removed inbound [{}]", tag);
         Ok(())
     }
 
@@ -450,25 +524,7 @@ pub fn check_config(config: &config::Config, env: &runtime::RuntimeEnv) -> anyho
     let _g = rt.enter();
     // The interface auto_detect_interface would find is the start's to ask.
     let dial_defaults = Arc::new(net::DialOptions::defaults(&config.route)?);
-    let dns_client =
-        DnsClient::new(&config.dns, dial_defaults.clone(), env.options.dns.clone())?.into_shared();
-    OutboundManager::new(&config.outbounds, &dial_defaults, env, dns_client.clone())?;
-    let mut inbounds = HashMap::new();
-    adapter::registry::build_inbounds(
-        &include::INBOUNDS,
-        &config.inbounds,
-        include::LISTENER_INBOUNDS,
-        env,
-        &mut inbounds,
-    )?;
-    app::inbound::manager::plan_listeners(&config.inbounds, &inbounds)?;
-    #[cfg(feature = "inbound-tun")]
-    for inbound in config.inbounds.iter().filter(|i| i.protocol == "tun") {
-        protocol::tun::inbound::options(inbound)?;
-    }
-    #[cfg(all(feature = "inbound-tun", any(target_os = "macos", target_os = "linux")))]
-    platform::tun_setup::TunRoute::from_config(config)?;
-    Router::new(&config.route, dns_client, env)?;
+    app::instance::Instance::build(config, Arc::new(env.clone()), dial_defaults)?;
     Ok(())
 }
 
@@ -527,9 +583,6 @@ pub struct StartOptions {
 }
 
 pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
-    #[cfg(debug_assertions)]
-    println!("start with options:\n{:#?}", opts);
-
     let (reload_tx, mut reload_rx) = mpsc::channel(1);
     let (shutdown_tx, mut shutdown_rx) = mpsc::channel(1);
 
@@ -550,67 +603,19 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
     });
 
     app::logger::setup_logger(&config.log, env.host.log_to_system)?;
+    tracing::debug!("runtime options: {:?}", env.options);
 
     let rt = new_runtime(&opts.runtime_opt)?;
     let _g = rt.enter();
 
     let mut tasks: Vec<Runner> = Vec::new();
-    let mut runners = Vec::new();
 
     let dial_defaults = dial_defaults(&config, &env).map_err(Error::Config)?;
-    let dns_client = DnsClient::new(&config.dns, dial_defaults.clone(), env.options.dns.clone())
-        .map_err(Error::Config)?
-        .into_shared();
-    let outbound_manager: SyncOutboundManager = Arc::new(ArcSwap::from_pointee(
-        OutboundManager::new(&config.outbounds, &dial_defaults, &env, dns_client.clone())
-            .map_err(Error::Config)?,
-    ));
-    let router: SyncRouter = Arc::new(ArcSwap::from_pointee(
-        Router::new(&config.route, dns_client.clone(), &env).map_err(Error::Config)?,
-    ));
-    let stat_manager = Arc::new(RwLock::new(
-        StatManager::new().with_max_recent_connections(env.options.stats.max_recent_connections),
-    ));
-    runners.push(StatManager::cleanup_task(stat_manager.clone()));
-    let dispatcher = Arc::new(Dispatcher::new(
-        outbound_manager.clone(),
-        router.clone(),
-        dns_client.clone(),
-        stat_manager.clone(),
-        env.clone(),
-    ));
-
-    dns_client
-        .load()
-        .set_dispatcher(Arc::downgrade(&dispatcher));
-
-    let nat_manager = Arc::new(NatManager::new(dispatcher.clone(), &config.inbounds));
-    let inbound_manager = InboundManager::new(&config.inbounds, &env, dispatcher, nat_manager)
+    let mut instance = app::instance::Instance::build(&config, env.clone(), dial_defaults.clone())
         .map_err(Error::Config)?;
-    let mut inbound_net_runners = inbound_manager
-        .get_network_runners()
-        .map_err(Error::Config)?;
-    runners.append(&mut inbound_net_runners);
-
-    #[cfg(all(feature = "inbound-tun", any(target_os = "macos", target_os = "linux")))]
-    let net_info =
-        match platform::tun_setup::TunRoute::from_config(&config).map_err(Error::Config)? {
-            Some(route) => platform::tun_setup::get_net_info(route),
-            None => platform::tun_setup::NetInfo::default(),
-        };
-
-    #[cfg(feature = "inbound-tun")]
-    if let Some(r) = inbound_manager.get_tun_runner() {
-        runners.push(r.map_err(Error::Config)?);
-    }
-
-    #[cfg(feature = "inbound-cat")]
-    if let Some(r) = inbound_manager.get_cat_runner() {
-        runners.push(r.map_err(Error::Config)?);
-    }
-
-    #[cfg(all(feature = "inbound-tun", any(target_os = "macos", target_os = "linux")))]
-    platform::tun_setup::post_tun_creation_setup(&net_info);
+    // The API server joins them, when it is compiled in.
+    #[allow(unused_mut)]
+    let mut runners = instance.start().map_err(Error::Config)?;
 
     let runtime_manager = RuntimeManager::new(
         #[cfg(feature = "auto-reload")]
@@ -620,11 +625,8 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
         opts.auto_reload,
         reload_tx,
         shutdown_tx,
-        router,
-        dns_client,
-        outbound_manager,
-        stat_manager,
-        env.clone(),
+        &instance,
+        dial_defaults,
     );
 
     // Monitor config file changes.
@@ -683,10 +685,8 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
 
     rt.block_on(futures::future::select_all(tasks));
 
-    #[cfg(all(feature = "inbound-tun", any(target_os = "macos", target_os = "linux")))]
-    platform::tun_setup::post_tun_completion_setup(&net_info);
-
-    drop(inbound_manager);
+    instance.stop();
+    drop(instance);
 
     RUNTIME_MANAGER
         .lock()
