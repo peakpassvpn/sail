@@ -9,12 +9,14 @@ use crate::transport::layers::{self, Blocks};
 use serde_derive::Deserialize;
 
 pub mod datagram;
+mod ss2022;
 pub mod stream;
 
 pub use datagram::Handler as DatagramHandler;
 pub use stream::Handler as StreamHandler;
 
 use super::shadow;
+use super::sip022;
 
 pub(crate) fn register(registry: &mut OutboundRegistry) {
     registry.register(
@@ -29,6 +31,8 @@ struct ShadowsocksOutboundOptions {
     server: String,
     server_port: u16,
     method: String,
+    /// With a 2022 method, the base64 PSK, or `iPSK:uPSK` for a server
+    /// with users.
     password: String,
     /// Bytes sent before the first payload, percent-encoded.
     #[serde(default)]
@@ -44,25 +48,29 @@ struct ShadowsocksOutboundOptions {
 
 fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
     let options: ShadowsocksOutboundOptions = ctx.options()?;
-    shadow::check_method("outbound", ctx.tag, &options.method)?;
-    let stream = Arc::new(StreamHandler::new(
-        options.server.clone(),
-        options.server_port,
-        options.method.clone(),
-        options.password.clone(),
-        options.prefix,
-    )?);
-    let datagram = Arc::new(DatagramHandler {
-        address: options.server,
-        port: options.server_port,
-        cipher: options.method,
-        password: options.password,
-    });
-    let ss = HandlerBuilder::default()
-        .tag(ctx.tag.to_owned())
-        .stream_handler(stream)
-        .datagram_handler(datagram)
-        .build();
+    let ss = if sip022::is_2022(&options.method) {
+        build_2022(ctx.tag, &options)?
+    } else {
+        shadow::check_method("outbound", ctx.tag, &options.method)?;
+        let stream = Arc::new(StreamHandler::new(
+            options.server.clone(),
+            options.server_port,
+            options.method.clone(),
+            options.password.clone(),
+            options.prefix.clone(),
+        )?);
+        let datagram = Arc::new(DatagramHandler {
+            address: options.server.clone(),
+            port: options.server_port,
+            cipher: options.method.clone(),
+            password: options.password.clone(),
+        });
+        HandlerBuilder::default()
+            .tag(ctx.tag.to_owned())
+            .stream_handler(stream)
+            .datagram_handler(datagram)
+            .build()
+    };
     match options.plugin.as_deref() {
         None => Ok(ss),
         Some("obfs-local") => {
@@ -75,6 +83,38 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
             plugin
         )),
     }
+}
+
+fn build_2022(tag: &str, options: &ShadowsocksOutboundOptions) -> Result<AnyOutboundHandler> {
+    let method = sip022::Method::from_name(&options.method)
+        .map_err(|e| anyhow!("[{}] outbound: method: {}", tag, e))?;
+    let psks = sip022::decode_psk_list(method, &options.password)
+        .map_err(|e| anyhow!("[{}] outbound: password: {}", tag, e))?;
+    // The 2022 salt is all random; a fixed prefix would weaken it.
+    if options.prefix.is_some() {
+        return Err(anyhow!(
+            "[{}] outbound: prefix: not available with the 2022 methods",
+            tag
+        ));
+    }
+    let psks = Arc::new(psks);
+    let stream = Arc::new(ss2022::StreamHandler {
+        address: options.server.clone(),
+        port: options.server_port,
+        method,
+        psks: psks.clone(),
+    });
+    let datagram = Arc::new(ss2022::DatagramHandler {
+        address: options.server.clone(),
+        port: options.server_port,
+        method,
+        psks,
+    });
+    Ok(HandlerBuilder::default()
+        .tag(tag.to_owned())
+        .stream_handler(stream)
+        .datagram_handler(datagram)
+        .build())
 }
 
 /// The simple-obfs layer `plugin_opts` describes.

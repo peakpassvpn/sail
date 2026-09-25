@@ -82,7 +82,7 @@ rule-process-name = ["regex"]
 outbound-direct = []
 outbound-drop = []
 outbound-redirect = []
-outbound-shadowsocks = ["aead", "hkdf", "sha-1", "md-5", "percent-encoding", "tokio-util"]
+outbound-shadowsocks = ["aead", "hkdf", "sha-1", "md-5", "percent-encoding", "tokio-util", "blake3", "base64"]
 outbound-obfs = ["base64", "memchr"]
 outbound-socks = ["async-socks5"]
 outbound-trojan = ["sha2", "hex"]
@@ -111,7 +111,7 @@ inbound-hysteria2 = ["quic"]
 inbound-tuic = ["quic", "tokio/macros"]
 inbound-anytls = ["sha2", "md-5", "tokio-util"]
 inbound-mptp = []
-inbound-shadowsocks = ["aead", "hkdf", "sha-1", "md-5", "tokio-util"]
+inbound-shadowsocks = ["aead", "hkdf", "sha-1", "md-5", "tokio-util", "blake3", "base64"]
 inbound-socks = []
 inbound-http = ["http"]
 inbound-hc = []
@@ -206,6 +206,7 @@ percent-encoding = { version = "2.3", optional = true }
 
 # Obfs
 base64 = { version = "0.22", optional = true }
+blake3 = { version = "1", optional = true }
 memchr = { version = "2", optional = true }
 
 # Trojan
