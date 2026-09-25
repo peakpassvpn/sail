@@ -109,7 +109,7 @@ outbound-static= []
 outbound-tryall = []
 outbound-chain = []
 outbound-vless = ["hex"]
-outbound-reality = ["reality", "reality-rustls", "webpki-roots", "rustls-pemfile", "hex", "base64"]
+outbound-reality = ["tls", "hkdf", "sha2", "hmac", "aes-gcm", "hex", "base64"]
 outbound-amux= ["tokio-util"]
 outbound-quic = ["rustls", "webpki-roots", "rustls-pemfile"]
 outbound-mptp = []
@@ -195,7 +195,7 @@ btls-sys = { version = "0.5.6", optional = true }
 foreign-types = { version = "0.5", optional = true }
 webpki-root-certs = { version = "1", optional = true }
 
-# QUIC and REALITY, until they move to BoringSSL
+# QUIC, until it moves to BoringSSL
 webpki-roots = { version = "0.26", optional = true }
 rustls-pemfile = { version = "2.1", optional = true }
 
@@ -245,9 +245,6 @@ tokio-util = { version = "0.7", default-features = false, features = ["io", "cod
 quinn = { version = "0.11", default-features = false, optional = true }
 rustls = { version = "0.23", default-features = false, features = ["std"], optional = true }
 
-# Reality
-reality = { git = "https://github.com/eycorsican/reality-rs.git", optional = true }
-reality-rustls = { package = "rustls", git = "https://github.com/eycorsican/reality-rustls.git", branch = "reality-rebase-0.23.36", optional = true, default-features = false, features = ["ring", "std", "tls12", "logging"] }
 
 # API
 axum = { version = "0.7", default-features = false, features = ["http1", "tokio", "json"], optional = true }

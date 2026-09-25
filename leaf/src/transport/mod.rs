@@ -11,7 +11,7 @@ pub mod quic;
 pub mod reality;
 #[cfg(feature = "tls")]
 pub mod tls;
-#[cfg(any(feature = "outbound-reality", feature = "tls"))]
+#[cfg(feature = "tls")]
 pub mod tls_stream;
 #[cfg(any(feature = "inbound-ws", feature = "outbound-ws"))]
 pub mod ws;

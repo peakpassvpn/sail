@@ -477,11 +477,12 @@ fn tls_outbound(
         return Ok(HandlerBuilder::default()
             .tag(format!("{}/reality", tag))
             .stream_handler(Arc::new(
-                crate::transport::reality::outbound::StreamHandler {
+                crate::transport::reality::StreamHandler::new(
                     server_name,
-                    public_key: reality.public_key.clone(),
-                    short_id: reality.short_id.clone(),
-                },
+                    &reality.public_key,
+                    &reality.short_id,
+                )
+                .map_err(|e| anyhow!("[{}] outbound: tls.reality: {}", tag, e))?,
             ))
             .build());
         #[cfg(not(feature = "outbound-reality"))]

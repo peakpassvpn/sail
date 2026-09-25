@@ -1,6 +1,6 @@
 //! A TLS stream that can hand the transport over to XTLS Vision's direct copy:
 //! reading or writing the raw transport once Vision switches. It drives a
-//! connection without IO of its own: BoringSSL, or the REALITY fork of rustls.
+//! BoringSSL connection without IO of its own.
 
 use std::io::{self, ErrorKind, IoSlice, Read, Write};
 use std::pin::Pin;
@@ -15,7 +15,7 @@ use crate::transport::vision::VisionState;
 const RX_SIZE: usize = 64 * 1024;
 
 /// The parts of a TLS connection the stream drives, in the shape of a rustls
-/// connection. Implemented for BoringSSL and for the REALITY fork of rustls.
+/// connection.
 pub trait TlsConnection: Unpin {
     fn is_handshaking(&self) -> bool;
     fn wants_read(&self) -> bool;
@@ -28,53 +28,6 @@ pub trait TlsConnection: Unpin {
     fn flush_plaintext(&mut self) -> io::Result<()>;
     fn send_close_notify(&mut self);
 }
-
-// The connection methods live on the types the connection derefs to; calling
-// them through `Deref` keeps these impls from resolving to themselves.
-macro_rules! impl_tls_connection {
-    ($conn:ty) => {
-        impl TlsConnection for $conn {
-            fn is_handshaking(&self) -> bool {
-                std::ops::Deref::deref(self).is_handshaking()
-            }
-            fn wants_read(&self) -> bool {
-                std::ops::Deref::deref(self).wants_read()
-            }
-            fn wants_write(&self) -> bool {
-                std::ops::Deref::deref(self).wants_write()
-            }
-            fn read_tls(&mut self, rd: &mut dyn Read) -> io::Result<usize> {
-                std::ops::DerefMut::deref_mut(self).read_tls(rd)
-            }
-            fn write_tls(&mut self, wr: &mut dyn Write) -> io::Result<usize> {
-                std::ops::DerefMut::deref_mut(self).write_tls(wr)
-            }
-            fn process_new_packets(&mut self) -> io::Result<()> {
-                std::ops::DerefMut::deref_mut(self)
-                    .process_new_packets()
-                    .map(|_| ())
-                    .map_err(|e| {
-                        io::Error::new(ErrorKind::InvalidData, format!("TLS Error: {}", e))
-                    })
-            }
-            fn read_plaintext(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-                std::ops::DerefMut::deref_mut(self).reader().read(buf)
-            }
-            fn write_plaintext(&mut self, buf: &[u8]) -> io::Result<usize> {
-                std::ops::DerefMut::deref_mut(self).writer().write(buf)
-            }
-            fn flush_plaintext(&mut self) -> io::Result<()> {
-                std::ops::DerefMut::deref_mut(self).writer().flush()
-            }
-            fn send_close_notify(&mut self) {
-                std::ops::DerefMut::deref_mut(self).send_close_notify()
-            }
-        }
-    };
-}
-
-#[cfg(feature = "outbound-reality")]
-impl_tls_connection!(reality_rustls::ClientConnection);
 
 pub struct TlsStream<C, S> {
     conn: C,

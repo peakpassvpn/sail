@@ -4,7 +4,7 @@
 
 ## 0. 结论先行
 
-1. **现有 Reality 出站已经连不上新版 Xray 服务端。** Xray-core v26.9.8（REALITY 库 2026-09-08 的更新）开始拒绝不带 X25519MLKEM768 key share、或把它放在 X25519 之后的 ClientHello。Leaf 的 Reality 走 reality-rustls + ring provider，只发纯 X25519，所以会被拒绝。sing-box 目前也因同样原因失败（SagerNet/sing-box#4520）。这是 1.1 里最先要解决的问题。
+1. **现有 Reality 出站连不上新版 Xray 服务端。** Xray-core v26.9.8（REALITY 库 2026-09-08 的更新；截至 2026-09-26，v26.9.8 和 v26.9.9 都还是预发布版，正式版是 v26.3.27）开始拒绝不带 X25519MLKEM768 key share、或把它放在 X25519 之后的 ClientHello。Leaf 的 Reality 走 reality-rustls + ring provider，只发纯 X25519，所以会被拒绝。sing-box 目前也因同样原因失败（SagerNet/sing-box#4520）。这是 1.1 里最先要解决的问题。
 2. **rustls 上游不会提供 ClientHello 定制。** 相关 issue（#1421、#1932、#2498）都以 duplicate 或 not planned 关闭。任何方案都得 fork 某个 TLS 库。
 3. **已定：全部 TLS 和密码实现统一到 btls（BoringSSL）。**
    - 覆盖客户端 TLS、Reality、TLS 入站、QUIC（quinn 的加密层换成 quinn-btls）和 Shadowsocks / VMess 的 AEAD。
@@ -225,6 +225,14 @@ quinn-btls（核实于 2026-09-25）：作者与 btls 相同；依赖 btls 0.5.5
   - `SslRef` 上没有 `set_connect_state` / `set_accept_state`，目前通过 btls-sys 直接调用。
 - **iOS 最低版本：** 提高到 13（BoringSSL 需要 `___chkstk_darwin`）。
 - **已验证的平台：** macOS 测试、aarch64-apple-ios（leaf-ffi）、aarch64-unknown-linux-musl（容器内构建）。Android 在本机没有 NDK，只能依赖 CI。
+
+**1.1c 的实施记录（2026-09-26）：**
+
+- **BoringSSL 补丁：** 在 peakpassvpn/btls 的 `leaf` 分支上，新增 `btls-sys/patches/reality.patch`，提供两个通用钩子：
+  - `SSL_set_client_hello_finalize_cb`：在 ClientHello 编码完成、加入 transcript 之前调用，传入 hello（session_id 已置零）、client random 和 X25519 私钥，由回调写回 session_id。X25519 私钥优先取单独的 X25519 share，没有时取 X25519MLKEM768 中的 X25519 部分，和 Xray 服务端的选择一致。
+  - `SSL_set_extra_peer_verify_algorithms`：额外接受对端使用 ClientHello 中未声明的签名算法。Xray 在认证成功后会用 Ed25519 签名，而浏览器的 ClientHello 不声明 Ed25519；Go 的 TLS 客户端本来就接受它。
+- **证书校验：** 只接受用会话密钥 HMAC 签名的 Ed25519 证书。如果收到的是真实网站的证书，直接报错。原来的 reality-rs 会退回普通证书校验并继续连接，导致 VLESS 请求被发给真实网站。
+- **端到端验证：** 在 Xray v26.9.9 和 v26.3.27 上，VLESS + Vision + REALITY 的 https、http 和 10MB 下载都成功；short_id 错误时立即失败，并给出「not authenticated」错误。
 
 Reality 的故障修复（1.1c）依赖 1.1a；1.1b 与 1.1c 互不依赖，可以对调。如果需要更快恢复 Reality，可以先在现有 reality-rustls 上改用 aws-lc provider 并加 hybrid share，作为临时修复（见 T10）。
 
