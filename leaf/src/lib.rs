@@ -617,6 +617,16 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
         .map_err(Error::Config)?;
     // The API server joins them, when it is compiled in.
     #[allow(unused_mut)]
+    // Bound before anything starts: an address in use fails the start.
+    #[cfg(feature = "api")]
+    let api_listener = config
+        .api
+        .listen
+        .map(|addr| {
+            std::net::TcpListener::bind(addr)
+                .map_err(|e| Error::Config(anyhow!("api.listen: {}: {}", addr, e)))
+        })
+        .transpose()?;
     let mut runners = instance.start().map_err(Error::Config)?;
 
     let runtime_manager = RuntimeManager::new(
@@ -640,9 +650,9 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
     }
 
     #[cfg(feature = "api")]
-    if let Some(listen_addr) = config.api.listen {
+    if let Some(listener) = api_listener {
         let api_server = ApiServer::new(runtime_manager.clone());
-        runners.push(api_server.serve(listen_addr));
+        runners.push(api_server.serve(listener)?);
     }
 
     drop(config); // explicitly free the memory
@@ -677,6 +687,16 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
     tasks.push(Box::pin(async move {
         let _ = tokio::signal::ctrl_c().await;
     }));
+
+    // SIGTERM too, as systemd, kill and container runtimes send it, so that
+    // what the instance changed on the system is put back.
+    #[cfg(all(feature = "ctrlc", unix))]
+    match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+        Ok(mut terminate) => tasks.push(Box::pin(async move {
+            terminate.recv().await;
+        })),
+        Err(e) => warn!("cannot watch SIGTERM: {}", e),
+    }
 
     RUNTIME_MANAGER
         .lock()

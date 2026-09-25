@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::convert::Infallible;
 use std::iter::FromIterator;
-use std::net::{IpAddr, SocketAddr};
+use std::net::IpAddr;
 use std::sync::Arc;
 
 use chrono::{Local, TimeZone};
@@ -420,7 +420,12 @@ impl ApiServer {
         Self { runtime_manager }
     }
 
-    pub fn serve(&self, listen_addr: SocketAddr) -> crate::Runner {
+    /// Serves on `listener`, bound at start so that an address in use
+    /// fails the start rather than the API alone, later.
+    pub fn serve(&self, listener: std::net::TcpListener) -> std::io::Result<crate::Runner> {
+        let listen_addr = listener.local_addr()?;
+        listener.set_nonblocking(true)?;
+        let listener = tokio::net::TcpListener::from_std(listener)?;
         let mut app = Router::new()
             .route("/api/v1/runtime/reload", post(handlers::runtime_reload))
             .route("/api/v1/runtime/shutdown", post(handlers::runtime_shutdown))
@@ -471,9 +476,10 @@ impl ApiServer {
 
         info!("api server listening tcp {}", &listen_addr);
 
-        Box::pin(async move {
-            let listener = tokio::net::TcpListener::bind(listen_addr).await.unwrap();
-            axum::serve(listener, app).await.unwrap();
-        })
+        Ok(Box::pin(async move {
+            if let Err(e) = axum::serve(listener, app).await {
+                tracing::error!("api server failed: {}", e);
+            }
+        }))
     }
 }
