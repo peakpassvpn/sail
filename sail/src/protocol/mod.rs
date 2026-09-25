@@ -39,6 +39,7 @@ pub mod vless;
 #[cfg(any(
     feature = "inbound-vless",
     feature = "outbound-vless",
+    feature = "inbound-vmess",
     feature = "outbound-vmess"
 ))]
 pub mod vmess;

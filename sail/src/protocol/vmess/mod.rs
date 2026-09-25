@@ -1,12 +1,14 @@
-#[cfg(feature = "outbound-vmess")]
-mod crypto;
-#[cfg(feature = "outbound-vmess")]
+//! VMess, AEAD headers only, and XUDP, which VLESS shares.
+
+#[cfg(any(feature = "inbound-vmess", feature = "outbound-vmess"))]
+mod body;
+#[cfg(any(feature = "inbound-vmess", feature = "outbound-vmess"))]
+mod header;
+#[cfg(any(feature = "inbound-vmess", feature = "outbound-vmess"))]
 mod kdf;
-#[cfg(feature = "outbound-vmess")]
-mod protocol;
-#[cfg(feature = "outbound-vmess")]
-mod stream;
 pub mod xudp;
 
+#[cfg(feature = "inbound-vmess")]
+pub mod inbound;
 #[cfg(feature = "outbound-vmess")]
 pub mod outbound;

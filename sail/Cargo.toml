@@ -45,6 +45,7 @@ all-endpoints = [
     "inbound-redirect",
     "inbound-tproxy",
     "inbound-vless",
+    "inbound-vmess",
     # outbounds
     "outbound-direct",
     "outbound-drop",
@@ -124,11 +125,12 @@ outbound-select = ["axum?/query"]
 # Exposes its selection and latencies the way a selector does.
 outbound-urltest = ["outbound-select"]
 outbound-load-balance = ["lru_time_cache"]
-outbound-vmess = ["aead", "lz_fnv", "cfb-mode", "hmac", "sha2", "aes", "aes-gcm", "sha3", "digest", "md-5", "tokio-util", "byteorder", "crc32fast"]
+outbound-vmess = ["aead", "hmac", "sha2", "aes", "sha3", "md-5", "crc32fast"]
 
 # Inbounds
 inbound-trojan = ["sha2", "hex"]
 inbound-vless = []
+inbound-vmess = ["aead", "hmac", "sha2", "aes", "sha3", "md-5", "crc32fast"]
 inbound-mixed = ["inbound-http", "inbound-socks"]
 inbound-hysteria2 = ["quic", "blake2", "quinn-proto", "url"]
 inbound-tuic = ["quic", "tokio/macros"]
@@ -243,14 +245,10 @@ sha2 = { version = "0.10", optional = true }
 hex = { version = "0.4", optional = true }
 
 # VMess
-lz_fnv = { version = "0.1", optional = true }
-cfb-mode = { version = "0.8", optional = true }
 hmac = { version = "0.12", optional = true }
 aes = { version = "0.8", optional = true }
 aes-gcm = { version = "0.10", optional = true }
 sha3 = { version = "0.10", optional = true }
-digest = { version = "0.10", optional = true }
-byteorder = { version = "1", optional = true }
 crc32fast = { version = "1", optional = true }
 
 # Failover

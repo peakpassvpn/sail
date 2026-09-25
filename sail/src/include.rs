@@ -84,6 +84,8 @@ pub(crate) static INBOUNDS: LazyLock<InboundRegistry> = LazyLock::new(|| {
     crate::protocol::trojan::inbound::register(&mut registry);
     #[cfg(feature = "inbound-vless")]
     crate::protocol::vless::inbound::register(&mut registry);
+    #[cfg(feature = "inbound-vmess")]
+    crate::protocol::vmess::inbound::register(&mut registry);
     #[cfg(feature = "inbound-mptp")]
     crate::protocol::mptp::inbound::register(&mut registry);
     #[cfg(feature = "inbound-hc")]

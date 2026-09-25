@@ -1,22 +1,19 @@
-use std::{cmp::min, io};
+use std::io;
+use std::sync::Arc;
 
 use async_trait::async_trait;
-use bytes::BytesMut;
-use futures::future::TryFutureExt;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadHalf, WriteHalf};
-use uuid::Uuid;
 
+use super::super::header::*;
+use super::super::xudp;
+use super::stream::Client;
 use crate::{adapter::*, session::*};
-
-use super::crypto::*;
-use super::protocol::*;
-use super::vmess_stream::*;
 
 pub struct Handler {
     pub address: String,
     pub port: u16,
-    pub uuid: String,
-    pub security: String,
+    pub client: Arc<Client>,
+    pub xudp: bool,
 }
 
 #[async_trait]
@@ -35,73 +32,20 @@ impl OutboundDatagramHandler for Handler {
         transport: Option<AnyOutboundTransport>,
     ) -> io::Result<AnyOutboundDatagram> {
         tracing::trace!("handling outbound datagram");
-        let uuid = Uuid::parse_str(&self.uuid)
-            .map_err(|e| io::Error::other(format!("parse uuid failed: {}", e)))?;
-        let mut request_header = RequestHeader {
-            version: 0x1,
-            command: REQUEST_COMMAND_UDP,
-            option: REQUEST_OPTION_CHUNK_STREAM,
-            security: SECURITY_TYPE_CHACHA20_POLY1305,
-            address: sess.destination.clone(),
-            uuid,
-        };
-        request_header.set_option(REQUEST_OPTION_CHUNK_MASKING);
-        request_header.set_option(REQUEST_OPTION_GLOBAL_PADDING);
-
-        match self.security.to_lowercase().as_str() {
-            "chacha20-poly1305" | "chacha20-ietf-poly1305" => {
-                request_header.security = SECURITY_TYPE_CHACHA20_POLY1305;
-            }
-            "aes-128-gcm" => {
-                request_header.security = SECURITY_TYPE_AES128_GCM;
-            }
-            _ => {
-                return Err(io::Error::other(format!(
-                    "unsupported cipher: {}",
-                    &self.security
-                )))
-            }
-        }
-
-        let mut header_buf = BytesMut::new();
-        let client_sess = ClientSession::new(true);
-        request_header
-            .encode(&mut header_buf, &client_sess)
-            .map_err(|e| io::Error::other(format!("encode request header failed: {}", e)))?;
-
-        let enc_size_parser = ShakeSizeParser::new(&client_sess.request_body_iv);
-        let enc = new_encryptor(
-            self.security.as_str(),
-            &client_sess.request_body_key,
-            &client_sess.request_body_iv,
-        )
-        .map_err(|e| io::Error::other(format!("new encryptor failed: {}", e)))?;
-
-        let dec_size_parser = ShakeSizeParser::new(&client_sess.response_body_iv);
-        let dec = new_decryptor(
-            self.security.as_str(),
-            &client_sess.response_body_key,
-            &client_sess.response_body_iv,
-        )
-        .map_err(|e| io::Error::other(format!("new decryptor failed: {}", e)))?;
-
-        let mut stream = if let Some(OutboundTransport::Stream(stream)) = transport {
-            stream
-        } else {
+        let Some(OutboundTransport::Stream(stream)) = transport else {
             return Err(io::Error::other("invalid input"));
         };
-
-        stream.write_all(&header_buf).await?; // write request
-        let stream = VMessAuthStream::new(
-            stream,
-            client_sess,
-            enc,
-            enc_size_parser,
-            dec,
-            dec_size_parser,
-            16, // FIXME
-        );
-
+        if self.xudp {
+            let stream = self.client.open(stream, COMMAND_MUX, None).await?;
+            return Ok(Box::new(xudp::ClientDatagram::new(
+                stream,
+                sess.destination.clone(),
+            )));
+        }
+        let stream = self
+            .client
+            .open(stream, COMMAND_UDP, Some(sess.destination.clone()))
+            .await?;
         Ok(Box::new(Datagram {
             stream,
             destination: sess.destination.clone(),
@@ -109,7 +53,9 @@ impl OutboundDatagramHandler for Handler {
     }
 }
 
-pub struct Datagram<S> {
+/// VMess's own UDP: a chunk per packet, to and from the request's one
+/// destination.
+struct Datagram<S> {
     stream: S,
     destination: SocksAddr,
 }
@@ -132,7 +78,7 @@ where
     }
 }
 
-pub struct DatagramRecvHalf<T>(ReadHalf<T>, SocksAddr);
+struct DatagramRecvHalf<T>(ReadHalf<T>, SocksAddr);
 
 #[async_trait]
 impl<T> OutboundDatagramRecvHalf for DatagramRecvHalf<T>
@@ -140,16 +86,18 @@ where
     T: AsyncRead + AsyncWrite + Send + Sync,
 {
     async fn recv_from(&mut self, buf: &mut [u8]) -> io::Result<(usize, SocksAddr)> {
-        // TODO optimize
-        let mut buf2 = vec![0u8; 2 * 1024];
-        let n = self.0.read(&mut buf2).await?;
-        let to_write = min(n, buf.len());
-        buf[..to_write].copy_from_slice(&buf2[..to_write]);
-        Ok((to_write, self.1.clone()))
+        let n = self.0.read(buf).await?;
+        if n == 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "vmess: UDP session ended",
+            ));
+        }
+        Ok((n, self.1.clone()))
     }
 }
 
-pub struct DatagramSendHalf<T>(WriteHalf<T>);
+struct DatagramSendHalf<T>(WriteHalf<T>);
 
 #[async_trait]
 impl<T> OutboundDatagramSendHalf for DatagramSendHalf<T>
@@ -157,7 +105,13 @@ where
     T: AsyncRead + AsyncWrite + Send + Sync,
 {
     async fn send_to(&mut self, buf: &[u8], _target: &SocksAddr) -> io::Result<usize> {
-        self.0.write_all(buf).map_ok(|_| buf.len()).await
+        if buf.is_empty() {
+            // An empty chunk would end the session.
+            return Ok(0);
+        }
+        self.0.write_all(buf).await?;
+        self.0.flush().await?;
+        Ok(buf.len())
     }
 
     async fn close(&mut self) -> io::Result<()> {

@@ -1,21 +1,39 @@
 use std::io;
 
 use async_trait::async_trait;
-use bytes::BytesMut;
 use tokio::io::AsyncWriteExt;
-use uuid::Uuid;
 
+use super::super::body::VmessStream;
+use super::super::header::*;
+use super::ClientSecurity;
 use crate::{adapter::*, session::*};
 
-use super::crypto::*;
-use super::protocol::*;
-use super::vmess_stream::*;
+/// What every request of an outbound shares.
+pub struct Client {
+    pub cmd_key: [u8; 16],
+    pub security: ClientSecurity,
+    pub global_padding: bool,
+}
+
+impl Client {
+    /// Sends a request for `command` and returns the body that follows.
+    pub async fn open(
+        &self,
+        mut stream: AnyStream,
+        command: u8,
+        address: Option<SocksAddr>,
+    ) -> io::Result<VmessStream<AnyStream>> {
+        let (security, option) = self.security.request(command, self.global_padding);
+        let request = RequestHeader::new(option, security, command, address);
+        stream.write_all(&request.seal(&self.cmd_key)?).await?;
+        VmessStream::client(stream, &request, command == COMMAND_UDP)
+    }
+}
 
 pub struct Handler {
     pub address: String,
     pub port: u16,
-    pub uuid: String,
-    pub security: String,
+    pub client: std::sync::Arc<Client>,
 }
 
 #[async_trait]
@@ -31,69 +49,11 @@ impl OutboundStreamHandler for Handler {
         stream: Option<AnyStream>,
     ) -> io::Result<AnyStream> {
         tracing::trace!("handling outbound stream");
-        let uuid = Uuid::parse_str(&self.uuid)
-            .map_err(|e| io::Error::other(format!("parse uuid failed: {}", e)))?;
-        let mut request_header = RequestHeader {
-            version: 0x1,
-            command: REQUEST_COMMAND_TCP,
-            option: REQUEST_OPTION_CHUNK_STREAM,
-            security: SECURITY_TYPE_CHACHA20_POLY1305,
-            address: sess.destination.clone(),
-            uuid,
-        };
-        request_header.set_option(REQUEST_OPTION_CHUNK_MASKING);
-        request_header.set_option(REQUEST_OPTION_GLOBAL_PADDING);
-
-        match self.security.to_lowercase().as_str() {
-            "chacha20-poly1305" | "chacha20-ietf-poly1305" => {
-                request_header.security = SECURITY_TYPE_CHACHA20_POLY1305;
-            }
-            "aes-128-gcm" => {
-                request_header.security = SECURITY_TYPE_AES128_GCM;
-            }
-            _ => {
-                return Err(io::Error::other(format!(
-                    "unsupported cipher: {}",
-                    &self.security
-                )))
-            }
-        }
-
-        let mut header_buf = BytesMut::new();
-        let client_sess = ClientSession::new(true);
-        request_header
-            .encode(&mut header_buf, &client_sess)
-            .map_err(|e| io::Error::other(format!("encode request header failed: {}", e)))?;
-
-        let enc_size_parser = ShakeSizeParser::new(&client_sess.request_body_iv);
-
-        let enc = new_encryptor(
-            self.security.as_str(),
-            &client_sess.request_body_key,
-            &client_sess.request_body_iv,
-        )
-        .map_err(|e| io::Error::other(format!("new encryptor failed: {}", e)))?;
-
-        let dec_size_parser = ShakeSizeParser::new(&client_sess.response_body_iv);
-        let dec = new_decryptor(
-            self.security.as_str(),
-            &client_sess.response_body_key,
-            &client_sess.response_body_iv,
-        )
-        .map_err(|e| io::Error::other(format!("new decryptor failed: {}", e)))?;
-
-        let mut stream = stream.ok_or_else(|| io::Error::other("invalid input"))?;
-
-        stream.write_all(&header_buf).await?; // write request
-        let stream = VMessAuthStream::new(
-            stream,
-            client_sess,
-            enc,
-            enc_size_parser,
-            dec,
-            dec_size_parser,
-            16, // FIXME
-        );
+        let stream = stream.ok_or_else(|| io::Error::other("invalid input"))?;
+        let stream = self
+            .client
+            .open(stream, COMMAND_TCP, Some(sess.destination.clone()))
+            .await?;
         Ok(Box::new(stream))
     }
 }
