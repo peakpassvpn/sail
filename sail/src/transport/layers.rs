@@ -1227,13 +1227,11 @@ pub fn inbound(
     } else {
         let mut under_mux = Vec::new();
         if let Some(tls) = tls {
-            if tls.alpn.is_some() {
-                return Err(anyhow!(
-                    "[{}] inbound: tls.alpn: only supported with the quic transport",
-                    tag
-                ));
-            }
-            under_mux.push(tls_inbound(tag, tls, env)?);
+            let alpn = match &tls.alpn {
+                Some(alpn) => alpn.clone().into_vec(),
+                None => default_inbound_alpn(blocks.transport.as_ref()),
+            };
+            under_mux.push(tls_inbound(tag, tls, alpn, env)?);
         }
         if let Some(InboundTransport::Ws {
             path,
@@ -1318,13 +1316,34 @@ fn chain_inbound(
     Err(not_compiled(tag, "inbound", "layers", "inbound-chain"))
 }
 
+/// The ALPN an inbound's TLS offers when `tls.alpn` is unset: what the
+/// transport inside it speaks, so that clients defaulting the same way
+/// agree.
+fn default_inbound_alpn(transport: Option<&InboundTransport>) -> Vec<String> {
+    match transport {
+        Some(InboundTransport::Ws { .. } | InboundTransport::HttpUpgrade { .. }) => {
+            vec!["http/1.1".to_string()]
+        }
+        Some(InboundTransport::Grpc { .. }) => vec!["h2".to_string()],
+        // QUIC has its own TLS; bare TLS carries no application protocol.
+        // `http` is refused before TLS is built.
+        Some(InboundTransport::Quic {} | InboundTransport::Http(_)) | None => Vec::new(),
+    }
+}
+
 #[allow(unused_variables)]
-fn tls_inbound(tag: &str, tls: &InboundTls, env: &RuntimeEnv) -> Result<AnyInboundHandler> {
+fn tls_inbound(
+    tag: &str,
+    tls: &InboundTls,
+    alpn: Vec<String>,
+    env: &RuntimeEnv,
+) -> Result<AnyInboundHandler> {
     #[cfg(feature = "inbound-tls")]
     {
         let handler = crate::transport::tls::inbound::StreamHandler::new(
             tls.certificate(tag, env)?,
             tls.key(tag, env)?,
+            alpn,
         )
         .map_err(|e| anyhow!("[{}] inbound: tls: {}", tag, e))?;
         Ok(Arc::new(crate::adapter::inbound::Handler::new(

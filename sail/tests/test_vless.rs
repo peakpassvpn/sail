@@ -564,3 +564,92 @@ fn test_vless_sing_box_to_sail_tls_xudp() -> anyhow::Result<()> {
 fn test_vless_sing_box_to_sail_vision() -> anyhow::Result<()> {
     sing_box_to_sail("in-vision", TLS_VISION, 33024, 33025)
 }
+/// The ALPN a plain TLS client offering `offered` gets from a VLESS
+/// inbound on `port`, with the TLS block `inbound_tls` and `transport`
+/// inside it.
+fn negotiated_alpn(
+    port: u16,
+    inbound_tls: serde_json::Value,
+    transport: serde_json::Value,
+    offered: &[&str],
+) -> anyhow::Result<Option<String>> {
+    use btls::ssl::{SslConnector, SslMethod, SslVerifyMode};
+    let config = prune(json!({
+        "inbounds": [{
+            "type": "vless",
+            "listen": "127.0.0.1",
+            "listen_port": port,
+            "users": [{ "uuid": UUID }],
+            "tls": inbound_tls,
+            "transport": transport,
+        }],
+        "outbounds": [{ "type": "direct" }],
+    }));
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    let ids = common::run_sail_instances(&rt, vec![config.to_string()])?;
+    let mut wire = Vec::new();
+    for p in offered {
+        wire.push(p.len() as u8);
+        wire.extend_from_slice(p.as_bytes());
+    }
+    // The listener runs on `rt`, which must be polled while the blocking
+    // handshake runs on a thread of its own.
+    let handshake = std::thread::spawn(move || -> anyhow::Result<Option<String>> {
+        let tcp = TcpStream::connect(("127.0.0.1", port))?;
+        let mut connector = SslConnector::builder(SslMethod::tls())?;
+        connector.set_verify(SslVerifyMode::NONE);
+        connector.set_alpn_protos(&wire)?;
+        let stream = connector
+            .build()
+            .connect("localhost", tcp)
+            .map_err(|e| anyhow::anyhow!("TLS connect: {}", e))?;
+        Ok(stream
+            .ssl()
+            .selected_alpn_protocol()
+            .map(|p| String::from_utf8_lossy(p).into_owned()))
+    });
+    rt.block_on(async {
+        while !handshake.is_finished() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    });
+    for id in ids {
+        sail::shutdown(id);
+    }
+    handshake
+        .join()
+        .map_err(|_| anyhow::anyhow!("handshake thread panicked"))?
+}
+
+#[test]
+fn test_vless_inbound_tls_alpn() -> anyhow::Result<()> {
+    let cert = Cert::new("alpn")?;
+    let mut tls = server_tls(&cert, TLS_XUDP);
+    // Unset, bare TLS offers none.
+    let alpn = negotiated_alpn(33026, tls.clone(), json!(null), &["h2", "http/1.1"])?;
+    assert_eq!(alpn, None);
+    // Set, the server's preference wins among what the client offers, and
+    // a client offering none of it gets none rather than an alert.
+    tls["alpn"] = json!(["h2", "http/1.1"]);
+    let alpn = negotiated_alpn(33026, tls.clone(), json!(null), &["http/1.1", "h2"])?;
+    assert_eq!(alpn.as_deref(), Some("h2"));
+    let alpn = negotiated_alpn(33026, tls, json!(null), &["h3"])?;
+    assert_eq!(alpn, None);
+    Ok(())
+}
+
+#[cfg(feature = "inbound-ws")]
+#[test]
+fn test_vless_inbound_tls_alpn_defaults_from_ws() -> anyhow::Result<()> {
+    let cert = Cert::new("alpn-ws")?;
+    let alpn = negotiated_alpn(
+        33027,
+        server_tls(&cert, TLS_XUDP),
+        json!({ "type": "ws" }),
+        &["h2", "http/1.1"],
+    )?;
+    assert_eq!(alpn.as_deref(), Some("http/1.1"));
+    Ok(())
+}
