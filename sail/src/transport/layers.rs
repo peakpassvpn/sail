@@ -289,17 +289,81 @@ pub enum OutboundTransport {
 pub struct OutboundMultiplex {
     #[serde(default)]
     pub enabled: bool,
-    /// Only `amux` for now.
-    pub protocol: String,
-    #[serde(default = "default_max_accepts")]
-    pub max_accepts: usize,
-    #[serde(default = "default_concurrency")]
-    pub concurrency: usize,
+    /// sing-box's multiplex, above the protocol: `smux`, the default,
+    /// `yamux` or `h2mux`. Or `amux`, sail's own, below the protocol, which
+    /// is to be removed.
     #[serde(default)]
-    pub max_recv_bytes: usize,
+    pub protocol: Option<String>,
     #[serde(default)]
-    pub max_lifetime: u64,
+    pub max_connections: Option<usize>,
+    #[serde(default)]
+    pub min_streams: Option<usize>,
+    #[serde(default)]
+    pub max_streams: Option<usize>,
+    #[serde(default)]
+    pub padding: bool,
+    /// amux only.
+    #[serde(default)]
+    pub max_accepts: Option<usize>,
+    #[serde(default)]
+    pub concurrency: Option<usize>,
+    #[serde(default)]
+    pub max_recv_bytes: Option<usize>,
+    #[serde(default)]
+    pub max_lifetime: Option<u64>,
 }
+
+impl OutboundMultiplex {
+    fn is_amux(&self) -> bool {
+        self.protocol.as_deref() == Some("amux")
+    }
+}
+
+/// The sing-mux client `mux` configures.
+#[allow(unused_variables)]
+fn sing_mux_options(tag: &str, mux: &OutboundMultiplex) -> Result<SingMuxOptions> {
+    let amux_only = [
+        ("max_accepts", mux.max_accepts.is_some()),
+        ("concurrency", mux.concurrency.is_some()),
+        ("max_recv_bytes", mux.max_recv_bytes.is_some()),
+        ("max_lifetime", mux.max_lifetime.is_some()),
+    ];
+    if let Some((field, _)) = amux_only.iter().find(|(_, set)| *set) {
+        return Err(anyhow!(
+            "[{}] outbound: multiplex.{}: only for the amux protocol",
+            tag,
+            field
+        ));
+    }
+    #[cfg(feature = "mux")]
+    {
+        use crate::transport::mux::{client::ClientOptions, Protocol};
+        let name = mux.protocol.as_deref().unwrap_or("smux");
+        let protocol = Protocol::from_name(name).ok_or_else(|| {
+            anyhow!(
+                "[{}] outbound: multiplex.protocol: unknown protocol \"{}\", \
+                 one of smux, yamux, h2mux, amux",
+                tag,
+                name
+            )
+        })?;
+        ClientOptions::new(
+            protocol,
+            mux.padding,
+            mux.max_connections,
+            mux.min_streams,
+            mux.max_streams,
+        )
+        .map_err(|e| anyhow!("[{}] outbound: multiplex: {}", tag, e))
+    }
+    #[cfg(not(feature = "mux"))]
+    Err(not_compiled(tag, "outbound", "multiplex", "mux"))
+}
+
+#[cfg(feature = "mux")]
+type SingMuxOptions = crate::transport::mux::client::ClientOptions;
+#[cfg(not(feature = "mux"))]
+type SingMuxOptions = ();
 
 fn default_path() -> String {
     "/".to_string()
@@ -307,14 +371,6 @@ fn default_path() -> String {
 
 fn default_service_name() -> String {
     "TunService".to_string()
-}
-
-fn default_max_accepts() -> usize {
-    8
-}
-
-fn default_concurrency() -> usize {
-    2
 }
 
 impl OutboundBlocks {
@@ -466,6 +522,8 @@ pub fn outbound(
     let tag = layering.tag;
     let dial = layering.dial;
     let mut actors: Vec<AnyOutboundHandler> = Vec::new();
+    // sing-mux runs above everything else, over connections of the whole.
+    let mut sing_mux = None;
 
     if let Some(OutboundTransport::Http(_)) = &blocks.transport {
         return Err(anyhow!(
@@ -550,6 +608,11 @@ pub fn outbound(
             )?);
         }
         match blocks.multiplex() {
+            None => actors.extend(under_mux),
+            Some(mux) if !mux.is_amux() => {
+                sing_mux = Some(sing_mux_options(tag, mux)?);
+                actors.extend(under_mux);
+            }
             Some(mux) => {
                 let (address, port) = server(tag, layering.options)?;
                 actors.push(amux_outbound(
@@ -563,7 +626,6 @@ pub fn outbound(
                     layering.abort_handles,
                 )?);
             }
-            None => actors.extend(under_mux),
         }
     }
 
@@ -576,10 +638,40 @@ pub fn outbound(
     // What it asks to have dialled is dialled as it says. Through a detour,
     // that is what the detour asks for, with the detour's own options.
     let layered = crate::adapter::outbound::with_dial(layered, dial);
-    match layering.detour {
-        Some(detour) => chain_outbound(tag, vec![detour, layered]),
-        None => Ok(layered),
+    let whole = match layering.detour {
+        Some(detour) => chain_outbound(tag, vec![detour, layered])?,
+        None => layered,
+    };
+    match sing_mux {
+        Some(options) => sing_mux_outbound(
+            tag,
+            whole,
+            layering.dns_client,
+            options,
+            layering.abort_handles,
+        ),
+        None => Ok(whole),
     }
+}
+
+#[allow(unused_variables)]
+fn sing_mux_outbound(
+    tag: &str,
+    whole: AnyOutboundHandler,
+    dns_client: &SyncDnsClient,
+    options: SingMuxOptions,
+    abort_handles: &mut Vec<AbortHandle>,
+) -> Result<AnyOutboundHandler> {
+    #[cfg(feature = "mux")]
+    return Ok(crate::transport::mux::client::outbound(
+        tag,
+        whole,
+        dns_client.clone(),
+        options,
+        abort_handles,
+    ));
+    #[cfg(not(feature = "mux"))]
+    Err(not_compiled(tag, "outbound", "multiplex", "mux"))
 }
 
 /// Opens connections to a protocol's server through the layers its blocks
@@ -610,6 +702,19 @@ impl Connector {
             dns_client,
             tls: blocks.tls().is_some(),
         })
+    }
+
+    /// Connections made by `handler` as a whole, protocol and all, for
+    /// sing-mux, whose connections are those of the outbound it serves.
+    /// They count as not over TLS: `tls` is for a protocol that insists on
+    /// its own.
+    #[cfg_attr(not(feature = "mux"), allow(dead_code))]
+    pub(crate) fn around(handler: AnyOutboundHandler, dns_client: SyncDnsClient) -> Self {
+        Connector {
+            layers: handler,
+            dns_client,
+            tls: false,
+        }
     }
 
     /// Whether the connections are made over TLS (or REALITY).
@@ -923,11 +1028,17 @@ fn amux_outbound(
     dial: &Arc<DialOptions>,
     abort_handles: &mut Vec<AbortHandle>,
 ) -> Result<AnyOutboundHandler> {
-    if mux.protocol != "amux" {
+    let sing_mux_only = [
+        ("max_connections", mux.max_connections.is_some()),
+        ("min_streams", mux.min_streams.is_some()),
+        ("max_streams", mux.max_streams.is_some()),
+        ("padding", mux.padding),
+    ];
+    if let Some((field, _)) = sing_mux_only.iter().find(|(_, set)| *set) {
         return Err(anyhow!(
-            "[{}] outbound: multiplex.protocol: unsupported protocol \"{}\", only amux is",
+            "[{}] outbound: multiplex.{}: not for the amux protocol",
             tag,
-            mux.protocol
+            field
         ));
     }
     #[cfg(feature = "outbound-amux")]
@@ -936,10 +1047,10 @@ fn amux_outbound(
             address,
             port,
             actors,
-            mux.max_accepts,
-            mux.concurrency,
-            mux.max_recv_bytes,
-            mux.max_lifetime,
+            mux.max_accepts.unwrap_or(8),
+            mux.concurrency.unwrap_or(2),
+            mux.max_recv_bytes.unwrap_or(0),
+            mux.max_lifetime.unwrap_or(0),
             dns_client.clone(),
             dial.clone(),
         );
@@ -1377,9 +1488,14 @@ mod tests {
     #[test]
     fn test_utls_fingerprint() {
         let chrome = Some(Fingerprint::Chrome);
-        assert_eq!(tls(r#"{"enabled": true}"#).fingerprint("t").unwrap(), chrome);
         assert_eq!(
-            tls(r#"{"enabled": true, "utls": {}}"#).fingerprint("t").unwrap(),
+            tls(r#"{"enabled": true}"#).fingerprint("t").unwrap(),
+            chrome
+        );
+        assert_eq!(
+            tls(r#"{"enabled": true, "utls": {}}"#)
+                .fingerprint("t")
+                .unwrap(),
             chrome
         );
         assert_eq!(
@@ -1388,8 +1504,14 @@ mod tests {
                 .unwrap(),
             chrome
         );
-        for (name, fingerprint) in [("firefox", Fingerprint::Firefox), ("safari", Fingerprint::Safari)] {
-            let json = format!(r#"{{"enabled": true, "utls": {{"fingerprint": "{}"}}}}"#, name);
+        for (name, fingerprint) in [
+            ("firefox", Fingerprint::Firefox),
+            ("safari", Fingerprint::Safari),
+        ] {
+            let json = format!(
+                r#"{{"enabled": true, "utls": {{"fingerprint": "{}"}}}}"#,
+                name
+            );
             assert_eq!(tls(&json).fingerprint("t").unwrap(), Some(fingerprint));
         }
         assert_eq!(
@@ -1403,6 +1525,8 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(err.contains("tls.utls.fingerprint"), "{}", err);
-        assert!(serde_json::from_str::<OutboundTls>(r#"{"utls": {"fingerprnt": "chrome"}}"#).is_err());
+        assert!(
+            serde_json::from_str::<OutboundTls>(r#"{"utls": {"fingerprnt": "chrome"}}"#).is_err()
+        );
     }
 }

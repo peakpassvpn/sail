@@ -249,13 +249,14 @@ fn block_errors_name_their_path() {
     );
 
     let err = manager(&[trojan(
-        json!({ "multiplex": { "enabled": true, "protocol": "smux" } }),
+        json!({ "multiplex": { "enabled": true, "protocol": "quux" } }),
     )])
     .err()
     .unwrap();
     assert_eq!(
         err.to_string(),
-        "[t] outbound: multiplex.protocol: unsupported protocol \"smux\", only amux is"
+        "[t] outbound: multiplex.protocol: unknown protocol \"quux\", \
+         one of smux, yamux, h2mux, amux"
     );
 
     let err = manager(&[trojan(json!({ "transport": { "type": "quic" } }))])

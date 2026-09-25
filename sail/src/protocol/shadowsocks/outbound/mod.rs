@@ -21,7 +21,11 @@ use super::sip022;
 pub(crate) fn register(registry: &mut OutboundRegistry) {
     registry.register(
         "shadowsocks",
-        OutboundFactory::standalone(build).with_blocks(Blocks::DIALER),
+        // `multiplex` as sing-box has it: sing-mux, over the protocol.
+        OutboundFactory::standalone(build).with_blocks(Blocks {
+            multiplex: true,
+            ..Blocks::DIALER
+        }),
     );
 }
 
