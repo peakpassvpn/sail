@@ -288,21 +288,27 @@ mod tests {
         assert!(parse_short_id("zz").is_err());
     }
 
-    // The REALITY ClientHello is Chrome's, session ID aside.
+    // The REALITY ClientHello is the browser's, session ID aside.
     #[test]
-    fn test_client_hello_is_chrome() {
+    fn test_client_hello_is_the_browsers() {
         use crate::transport::tls::hello::{assert_same_hello, fixture};
-        let handler = Handler::new(
-            "www.example.com".to_string(),
-            &hex::encode([7u8; 32]),
-            "ab12",
-            Fingerprint::Chrome,
-        )
-        .unwrap();
-        let mut conn = handler.connection().unwrap();
-        let hello = crate::transport::tls::tests::first_hello(&mut conn);
-        assert_same_hello(&hello, &fixture("chrome-153"));
-        assert!(auth_key_set(&conn));
+        for (fingerprint, capture) in [
+            (Fingerprint::Chrome, "chrome-153"),
+            (Fingerprint::Firefox, "firefox-156"),
+            (Fingerprint::Safari, "safari-26"),
+        ] {
+            let handler = Handler::new(
+                "www.example.com".to_string(),
+                &hex::encode([7u8; 32]),
+                "ab12",
+                fingerprint,
+            )
+            .unwrap();
+            let mut conn = handler.connection().unwrap();
+            let hello = crate::transport::tls::tests::first_hello(&mut conn);
+            assert_same_hello(&hello, &fixture(capture));
+            assert!(auth_key_set(&conn), "{:?}", fingerprint);
+        }
     }
 
     fn auth_key_set(conn: &BoringConnection) -> bool {

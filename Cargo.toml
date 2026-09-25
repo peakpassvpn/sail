@@ -11,8 +11,8 @@ resolver = "2"
 # btls with the patches leaf needs before they are upstream: the ClientHello
 # hook REALITY uses, the Apple deployment target, SslRef::set_*_state.
 [patch.crates-io]
-btls = { git = "https://github.com/peakpassvpn/btls.git", rev = "0e474cea60f5d92185f1176ec3a3236bb8501f61" }
-btls-sys = { git = "https://github.com/peakpassvpn/btls.git", rev = "0e474cea60f5d92185f1176ec3a3236bb8501f61" }
+btls = { git = "https://github.com/peakpassvpn/btls.git", rev = "4123de36dc5ac86914c8a744f958025e598aa712" }
+btls-sys = { git = "https://github.com/peakpassvpn/btls.git", rev = "4123de36dc5ac86914c8a744f958025e598aa712" }
 
 [profile.release]
 opt-level = 3

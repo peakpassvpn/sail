@@ -226,6 +226,33 @@ quinn-btls（核实于 2026-09-25）：作者与 btls 相同；依赖 btls 0.5.5
 - **iOS 最低版本：** 提高到 13（BoringSSL 需要 `___chkstk_darwin`）。
 - **已验证的平台：** macOS 测试、aarch64-apple-ios（leaf-ffi）、aarch64-unknown-linux-musl（容器内构建）。Android 在本机没有 NDK，只能依赖 CI。
 
+**1.1e 的实施记录（2026-09-26）：**
+
+- **fixture：**
+  - Firefox 156.0.1：下载官方 dmg 挂载后 headless 运行，使用全新 profile；
+  - Safari 26.3.1：用 `open -g` 在后台打开一次；
+  - 同一系统上 URLSession 的 ClientHello 与 Safari 完全一致。
+  - 两个 JA4 分别为 `t13d1517h2_8daaf6152771_3cbfd9057e0d`（Firefox）和 `t13d2013h2_a09f3c656075_7f0f34a4126d`（Safari）。
+- **Firefox 的特点：**
+  - 没有 GREASE，扩展顺序固定；
+  - TLS 1.3 套件顺序为 AES-128、ChaCha20、AES-256；
+  - key share 有 3 个（X25519MLKEM768、X25519、P-256），groups 里多了 P-521；
+  - 带 delegated_credentials 和 record_size_limit（0x4001）；
+  - 证书压缩声明 zlib、brotli、zstd；
+  - 签名算法末尾带 ECDSA-SHA1 和 RSA-PKCS1-SHA1；
+  - ECH GREASE 固定为 ChaCha20-Poly1305，载荷 240 字节。
+- **Safari 的特点：**
+  - 有 GREASE（签名算法里没有），扩展顺序固定；
+  - TLS 1.3 套件顺序为 AES-256、ChaCha20、AES-128，并带有 CBC-SHA1 和 3DES 等老套件；
+  - 签名算法里 rsa_pss_rsae_sha384 出现两次；
+  - 没有 session_ticket、ECH 和 ALPS；证书压缩只声明 zlib。
+- **BoringSSL 补丁：** BoringSSL 的 ECH GREASE 按是否有 AES 硬件选择 AEAD，载荷长度随机，这让 ClientHello 的总长度与 Firefox 不同。fork 新增 `fingerprint.patch`，提供 `SSL_set_ech_grease_shape`，可以固定 AEAD 和载荷长度。
+- **证书解压：** zlib 用 miniz_oxide，zstd 用 ruzstd，都是纯 Rust 实现。
+- **验证：**
+  - 普通 TLS 和 Reality 的 ClientHello 都与各自的 fixture 逐项比较；Firefox 和 Safari 另外比较了扩展顺序和密码套件顺序，Firefox 还比较了 ECH GREASE 的长度和 AEAD；另用独立的 Python 解析脚本核对过。
+  - 三个 profile 对 5 个真实网站都能完成握手并协商出 h2。
+  - Reality 配 Firefox 或 Safari 指纹，在 Xray 26.9.9 和 26.3.27 上都通过了端到端测试。
+
 **1.1b 的实施记录（2026-09-26）：**
 
 - **QUIC：** quinn 的加密层换成 quinn-btls（上游 git，固定 rev 59f3e36；它没有发布到 crates.io）。它依赖的 btls 通过 `[patch.crates-io]` 使用同一个 fork。endpoint 配置和 handshake token 密钥改用 quinn-btls 提供的 BoringSSL 实现。证书加载与 TLS 共用（PEM 或 DER），证书无效时报配置错误，不再 panic。

@@ -986,6 +986,10 @@ mod tests {
                 .unwrap(),
             chrome
         );
+        for (name, fingerprint) in [("firefox", Fingerprint::Firefox), ("safari", Fingerprint::Safari)] {
+            let json = format!(r#"{{"enabled": true, "utls": {{"fingerprint": "{}"}}}}"#, name);
+            assert_eq!(tls(&json).fingerprint("t").unwrap(), Some(fingerprint));
+        }
         assert_eq!(
             tls(r#"{"enabled": true, "utls": {"enabled": false}}"#)
                 .fingerprint("t")

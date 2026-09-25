@@ -235,13 +235,15 @@ pub fn assert_same_hello(ours: &ClientHello, capture: &ClientHello) {
     ours_ext.sort();
     capture_ext.sort();
     assert_eq!(ours_ext, capture_ext, "extensions");
-    for hello in [ours, capture] {
-        let types = hello.extension_types();
-        assert!(
-            is_grease(types[0]) && is_grease(*types.last().unwrap()),
-            "GREASE extensions first and last"
-        );
-    }
+    let ends = |h: &ClientHello| {
+        let types = h.extension_types();
+        (is_grease(types[0]), is_grease(*types.last().unwrap()))
+    };
+    assert_eq!(
+        ends(ours),
+        ends(capture),
+        "GREASE extensions first and last"
+    );
 
     // Values GREASE only in position.
     let shape = |v: Vec<u16>| {

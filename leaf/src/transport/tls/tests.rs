@@ -176,6 +176,65 @@ fn test_chrome_client_hello_matches_capture() {
     }
 }
 
+// Firefox and Safari keep one extension order; the ClientHello must too.
+fn assert_same_order(ours: &super::hello::ClientHello, capture: &super::hello::ClientHello) {
+    use super::hello::is_grease;
+    let order = |h: &super::hello::ClientHello| {
+        h.extension_types()
+            .into_iter()
+            .map(|t| if is_grease(t) { 0x0a0a } else { t })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(order(ours), order(capture), "extension order");
+    assert_eq!(
+        ours.ciphers
+            .iter()
+            .map(|c| if is_grease(*c) { 0x0a0a } else { *c })
+            .collect::<Vec<_>>(),
+        capture
+            .ciphers
+            .iter()
+            .map(|c| if is_grease(*c) { 0x0a0a } else { *c })
+            .collect::<Vec<_>>(),
+        "cipher order"
+    );
+}
+
+#[test]
+fn test_firefox_client_hello_matches_capture() {
+    use super::hello::{assert_same_hello, fixture};
+    use super::Fingerprint;
+    let firefox = fixture("firefox-156");
+    let client = TlsClient::new(&[], None, false, Some(Fingerprint::Firefox)).unwrap();
+    for _ in 0..4 {
+        let mut conn = client.connection("localhost", None).unwrap();
+        let hello = first_hello(&mut conn);
+        assert_same_hello(&hello, &firefox);
+        assert_same_order(&hello, &firefox);
+        // Firefox's ECH GREASE has one shape: KDF, AEAD, config ID aside, and
+        // the lengths.
+        let ech = |h: &super::hello::ClientHello| {
+            let e = h.extension(super::hello::EXT_ECH).unwrap().to_vec();
+            (e.len(), e[..5].to_vec())
+        };
+        assert_eq!(ech(&hello), ech(&firefox), "ECH GREASE");
+    }
+}
+
+#[test]
+fn test_safari_client_hello_matches_capture() {
+    use super::hello::{assert_same_hello, fixture};
+    use super::Fingerprint;
+    let safari = fixture("safari-26");
+    let client = TlsClient::new(&[], None, false, Some(Fingerprint::Safari)).unwrap();
+    for _ in 0..4 {
+        let mut conn = client.connection("localhost", None).unwrap();
+        let hello = first_hello(&mut conn);
+        assert_same_hello(&hello, &safari);
+        assert_same_order(&hello, &safari);
+    }
+}
+
 #[test]
 fn test_no_fingerprint_is_not_chrome() {
     use super::hello::fixture;
@@ -229,52 +288,63 @@ async fn test_chrome_client_handshakes() {
 }
 
 // Real sites, including BoringSSL servers that negotiate ALPS. Needs the
-// network: `cargo test -- --ignored chrome_against_real_sites`.
+// network: `cargo test -- --ignored fingerprints_against_real_sites`.
 #[tokio::test]
 #[ignore]
-async fn chrome_against_real_sites() {
+async fn fingerprints_against_real_sites() {
     use super::Fingerprint;
-    let client = TlsClient::new(&[], None, false, Some(Fingerprint::Chrome)).unwrap();
-    for host in [
-        "www.google.com",
-        "www.cloudflare.com",
-        "www.apple.com",
-        "www.microsoft.com",
-        "github.com",
+    for fingerprint in [
+        Fingerprint::Chrome,
+        Fingerprint::Firefox,
+        Fingerprint::Safari,
     ] {
-        let tcp = tokio::net::TcpStream::connect((host, 443)).await.unwrap();
-        let mut tls = client
-            .connect(host, tcp, None, None)
-            .await
-            .unwrap_or_else(|e| panic!("{}: {}", host, e));
-        let alpn = tls
-            .conn()
-            .ssl()
-            .selected_alpn_protocol()
-            .map(|p| String::from_utf8_lossy(p).to_string());
-        // An HTTP/1.1 request when h2 is not picked; with h2, the preface.
-        if alpn.as_deref() == Some("h2") {
-            tls.write_all(b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n\x00\x00\x00\x04\x00\x00\x00\x00\x00")
+        let client = TlsClient::new(&[], None, false, Some(fingerprint)).unwrap();
+        for host in [
+            "www.google.com",
+            "www.cloudflare.com",
+            "www.apple.com",
+            "www.microsoft.com",
+            "github.com",
+        ] {
+            let tcp = tokio::net::TcpStream::connect((host, 443)).await.unwrap();
+            let mut tls = client
+                .connect(host, tcp, None, None)
+                .await
+                .unwrap_or_else(|e| panic!("{}: {}", host, e));
+            let alpn = tls
+                .conn()
+                .ssl()
+                .selected_alpn_protocol()
+                .map(|p| String::from_utf8_lossy(p).to_string());
+            // An HTTP/1.1 request when h2 is not picked; with h2, the preface.
+            if alpn.as_deref() == Some("h2") {
+                tls.write_all(
+                    b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n\x00\x00\x00\x04\x00\x00\x00\x00\x00",
+                )
                 .await
                 .unwrap();
-        } else {
-            tls.write_all(
-                format!(
-                    "HEAD / HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n",
-                    host
+            } else {
+                tls.write_all(
+                    format!(
+                        "HEAD / HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n",
+                        host
+                    )
+                    .as_bytes(),
                 )
-                .as_bytes(),
-            )
-            .await
-            .unwrap();
+                .await
+                .unwrap();
+            }
+            tls.flush().await.unwrap();
+            let mut buf = [0u8; 16];
+            let n = tls
+                .read(&mut buf)
+                .await
+                .unwrap_or_else(|e| panic!("{}: {}", host, e));
+            eprintln!(
+                "{:?} {}: alpn={:?} read {} bytes",
+                fingerprint, host, alpn, n
+            );
+            assert!(n > 0, "{}", host);
         }
-        tls.flush().await.unwrap();
-        let mut buf = [0u8; 16];
-        let n = tls
-            .read(&mut buf)
-            .await
-            .unwrap_or_else(|e| panic!("{}: {}", host, e));
-        eprintln!("{}: alpn={:?} read {} bytes", host, alpn, n);
-        assert!(n > 0, "{}", host);
     }
 }
