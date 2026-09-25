@@ -22,6 +22,8 @@
     feature = "outbound-tls",
     feature = "inbound-ws",
     feature = "outbound-ws",
+    feature = "inbound-httpupgrade",
+    feature = "outbound-httpupgrade",
     feature = "inbound-chain",
     feature = "outbound-chain",
 ))]
@@ -446,4 +448,84 @@ fn test_ws_early_data_in_header_sing_box_tls() -> anyhow::Result<()> {
         tls: true,
     };
     against_sing_box("ws-header", carriage, 32820)
+}
+
+// ---------------------------------------------------------------------------
+// HTTPUpgrade
+// ---------------------------------------------------------------------------
+
+fn httpupgrade() -> Value {
+    json!({
+        "type": "httpupgrade",
+        "host": "upgrade.example",
+        "path": "/sail-up",
+        "headers": { "X-Sail": "1" },
+    })
+}
+
+#[test]
+fn test_httpupgrade_sail_to_sail() -> anyhow::Result<()> {
+    let carriage = Carriage {
+        transport: httpupgrade(),
+        tls: false,
+    };
+    sail_to_sail("up", carriage, true, 32830, 32831)
+}
+
+#[test]
+fn test_httpupgrade_sail_to_sail_tls() -> anyhow::Result<()> {
+    let carriage = Carriage {
+        transport: httpupgrade(),
+        tls: true,
+    };
+    sail_to_sail("up-tls", carriage, true, 32832, 32833)
+}
+
+/// A client asking for another host or path is turned away.
+#[test]
+fn test_httpupgrade_wrong_host_or_path() -> anyhow::Result<()> {
+    let cert = Cert::new("up-wrong")?;
+    let server_side = Carriage {
+        transport: httpupgrade(),
+        tls: false,
+    };
+    for (i, transport) in [
+        json!({ "type": "httpupgrade", "host": "other.example", "path": "/sail-up" }),
+        json!({ "type": "httpupgrade", "host": "upgrade.example", "path": "/other" }),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let port = 32834 + 2 * i as u16;
+        let client_side = Carriage {
+            transport,
+            tls: false,
+        };
+        let configs = vec![
+            client(false, &cert, &client_side, port, port + 1).to_string(),
+            server(false, &cert, &server_side, port + 1).to_string(),
+        ];
+        assert!(common::test_configs(configs, "127.0.0.1", port).is_err());
+    }
+    Ok(())
+}
+
+#[test]
+#[ignore = "needs sing-box"]
+fn test_httpupgrade_sing_box() -> anyhow::Result<()> {
+    let carriage = Carriage {
+        transport: httpupgrade(),
+        tls: false,
+    };
+    against_sing_box("up", carriage, 32840)
+}
+
+#[test]
+#[ignore = "needs sing-box"]
+fn test_httpupgrade_sing_box_tls() -> anyhow::Result<()> {
+    let carriage = Carriage {
+        transport: httpupgrade(),
+        tls: true,
+    };
+    against_sing_box("up-tls", carriage, 32844)
 }

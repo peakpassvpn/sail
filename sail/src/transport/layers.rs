@@ -255,6 +255,16 @@ pub enum OutboundTransport {
         #[serde(default)]
         early_data_header_name: Option<String>,
     },
+    #[serde(rename = "httpupgrade")]
+    HttpUpgrade {
+        /// Unset, the server's address.
+        #[serde(default)]
+        host: Option<String>,
+        #[serde(default = "default_path")]
+        path: String,
+        #[serde(default)]
+        headers: HashMap<String, String>,
+    },
     /// Its TLS parameters come from the `tls` block.
     Quic {},
 }
@@ -303,7 +313,9 @@ impl OutboundBlocks {
     /// include it.
     fn transport_alpn(&mut self, tag: &str) -> Result<()> {
         let wanted = match &self.transport {
-            Some(OutboundTransport::Ws { .. }) => "http/1.1",
+            Some(OutboundTransport::Ws { .. } | OutboundTransport::HttpUpgrade { .. }) => {
+                "http/1.1"
+            }
             _ => return Ok(()),
         };
         let Some(tls) = self.tls.as_mut().filter(|t| t.enabled) else {
@@ -479,6 +491,14 @@ pub fn outbound(
                 early_data_header_name.as_deref(),
                 layering.env,
             )?);
+        }
+        if let Some(OutboundTransport::HttpUpgrade {
+            host,
+            path,
+            headers,
+        }) = &blocks.transport
+        {
+            under_mux.push(httpupgrade_outbound(tag, host, path, headers)?);
         }
         match blocks.multiplex() {
             Some(mux) => {
@@ -748,6 +768,35 @@ fn ws_outbound(
 }
 
 #[allow(unused_variables)]
+fn httpupgrade_outbound(
+    tag: &str,
+    host: &Option<String>,
+    path: &str,
+    headers: &HashMap<String, String>,
+) -> Result<AnyOutboundHandler> {
+    #[cfg(feature = "outbound-httpupgrade")]
+    {
+        let handler = crate::transport::httpupgrade::outbound::StreamHandler::new(
+            host.clone(),
+            path.to_string(),
+            headers,
+        )
+        .map_err(|e| anyhow!("[{}] outbound: transport: {}", tag, e))?;
+        Ok(crate::adapter::outbound::HandlerBuilder::default()
+            .tag(format!("{}/httpupgrade", tag))
+            .stream_handler(Arc::new(handler))
+            .build())
+    }
+    #[cfg(not(feature = "outbound-httpupgrade"))]
+    Err(not_compiled(
+        tag,
+        "outbound",
+        "transport httpupgrade",
+        "outbound-httpupgrade",
+    ))
+}
+
+#[allow(unused_variables)]
 fn quic_outbound(
     tag: &str,
     tls: &OutboundTls,
@@ -876,6 +925,17 @@ pub enum InboundTransport {
         #[serde(default)]
         early_data_header_name: Option<String>,
     },
+    #[serde(rename = "httpupgrade")]
+    HttpUpgrade {
+        /// The `Host` a request must carry; unset, any.
+        #[serde(default)]
+        host: Option<String>,
+        #[serde(default = "default_path")]
+        path: String,
+        /// Added to the response.
+        #[serde(default)]
+        headers: HashMap<String, String>,
+    },
     /// Its certificate comes from the `tls` block.
     Quic {},
 }
@@ -975,6 +1035,14 @@ pub fn inbound(
                 env,
             )?);
         }
+        if let Some(InboundTransport::HttpUpgrade {
+            host,
+            path,
+            headers,
+        }) = &blocks.transport
+        {
+            under_mux.push(httpupgrade_inbound(tag, host, path, headers)?);
+        }
         match mux {
             Some(mux) => actors.push(amux_inbound(tag, mux, under_mux)?),
             None => actors.extend(under_mux),
@@ -1067,6 +1135,36 @@ fn ws_inbound(
     }
     #[cfg(not(feature = "inbound-ws"))]
     Err(not_compiled(tag, "inbound", "transport ws", "inbound-ws"))
+}
+
+#[allow(unused_variables)]
+fn httpupgrade_inbound(
+    tag: &str,
+    host: &Option<String>,
+    path: &str,
+    headers: &HashMap<String, String>,
+) -> Result<AnyInboundHandler> {
+    #[cfg(feature = "inbound-httpupgrade")]
+    {
+        let handler = crate::transport::httpupgrade::inbound::StreamHandler::new(
+            host.clone(),
+            path.to_string(),
+            headers,
+        )
+        .map_err(|e| anyhow!("[{}] inbound: transport: {}", tag, e))?;
+        Ok(Arc::new(crate::adapter::inbound::Handler::new(
+            format!("{}/httpupgrade", tag),
+            Some(Arc::new(handler)),
+            None,
+        )))
+    }
+    #[cfg(not(feature = "inbound-httpupgrade"))]
+    Err(not_compiled(
+        tag,
+        "inbound",
+        "transport httpupgrade",
+        "inbound-httpupgrade",
+    ))
 }
 
 #[allow(unused_variables)]

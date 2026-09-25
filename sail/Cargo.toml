@@ -27,6 +27,7 @@ all-endpoints = [
     "inbound-amux",
     "inbound-quic",
     "inbound-ws",
+    "inbound-httpupgrade",
     "inbound-tls",
     "inbound-trojan",
     "inbound-mptp",
@@ -52,6 +53,7 @@ all-endpoints = [
     "outbound-trojan",
     "outbound-tls",
     "outbound-ws",
+    "outbound-httpupgrade",
     "outbound-amux",
     "outbound-vmess",
     "outbound-quic",
@@ -100,6 +102,7 @@ outbound-tuic = ["quic", "tokio/macros"]
 outbound-anytls = ["sha2", "md-5", "tokio-util"]
 outbound-tls = ["tls"]
 outbound-ws = ["tungstenite", "tokio-tungstenite", "http", "httparse", "base64"]
+outbound-httpupgrade = ["http", "httparse"]
 outbound-failover = ["lru_time_cache"]
 outbound-static= []
 outbound-tryall = []
@@ -130,6 +133,7 @@ inbound-http = ["http", "base64"]
 inbound-hc = []
 inbound-tun = ["tun", "netstack-lwip", "netstack-smoltcp", "pnet_datalink"]
 inbound-ws = ["tungstenite", "tokio-tungstenite", "http", "httparse", "base64"]
+inbound-httpupgrade = ["http", "httparse"]
 inbound-amux = ["tokio-util"]
 inbound-quic = ["quic"]
 inbound-tls = ["tls"]
