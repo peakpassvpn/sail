@@ -5,17 +5,20 @@
 //! - `sp.mux.sing-box.arpa`: a sing-mux connection. Each of its streams is
 //!   a session of its own, with the inbound tag and user of the connection
 //!   that carries it.
+//! - `sp.v2.udp-over-tcp.arpa`: UDP over TCP, version 2, a UDP session of
+//!   its own; on a mux stream too. Version 1 is refused.
 
 use std::sync::Arc;
 use std::time::Duration;
 
 use tokio::time::timeout;
-use tracing::{debug, Instrument};
+use tracing::debug;
 
 use crate::adapter::AnyStream;
 use crate::app::dispatcher::Dispatcher;
 use crate::app::nat_manager::NatManager;
 use crate::session::{DatagramSource, Network, Session, StreamId};
+use crate::transport::uot;
 
 use super::network_listener::handle_inbound_datagram;
 
@@ -33,8 +36,54 @@ pub async fn serve_stream(
         serve_mux(sess, stream, inbound_tag, dispatcher, nat_manager).await;
         return;
     }
-    let _ = (inbound_tag, nat_manager);
-    dispatcher.dispatch_stream(sess, stream).await;
+    serve_unmuxed(sess, stream, inbound_tag, dispatcher, nat_manager).await;
+}
+
+/// Serves a stream, UoT or routed, that cannot be a mux connection.
+async fn serve_unmuxed(
+    sess: Session,
+    stream: AnyStream,
+    inbound_tag: String,
+    dispatcher: Arc<Dispatcher>,
+    nat_manager: Arc<NatManager>,
+) {
+    match uot::version(&sess.destination) {
+        None => dispatcher.dispatch_stream(sess, stream).await,
+        Some(2) => {
+            let handshake_timeout = dispatcher.env().options.inbound.handshake_timeout;
+            serve_uot(sess, stream, inbound_tag, nat_manager, handshake_timeout).await
+        }
+        Some(version) => debug!(
+            "udp-over-tcp from {}: version {} is not supported",
+            sess.source, version
+        ),
+    }
+}
+
+async fn serve_uot(
+    mut sess: Session,
+    mut stream: AnyStream,
+    inbound_tag: String,
+    nat_manager: Arc<NatManager>,
+    handshake_timeout: Duration,
+) {
+    let (is_connect, destination) =
+        match timeout(handshake_timeout, uot::read_request(&mut stream)).await {
+            Ok(Ok(v)) => v,
+            Ok(Err(e)) => {
+                debug!("udp-over-tcp from {}: {}", sess.source, e);
+                return;
+            }
+            Err(_) => {
+                debug!("udp-over-tcp from {}: request timed out", sess.source);
+                return;
+            }
+        };
+    sess.destination = destination.clone();
+    let source = udp_session(&mut sess);
+    let connected = is_connect.then_some(destination);
+    let datagram = uot::InboundDatagram::new(stream, connected, source);
+    handle_inbound_datagram(inbound_tag, Box::new(datagram), Some(sess), nat_manager).await;
 }
 
 /// A session of its own for a stream of `sess`'s connection.
@@ -48,7 +97,6 @@ fn stream_session(sess: &Session) -> Session {
 
 /// Makes `sess` a UDP session of its own, and returns the source its
 /// datagrams are reported from: one NAT session per stream.
-#[cfg_attr(not(feature = "mux"), allow(dead_code))]
 fn udp_session(sess: &mut Session) -> DatagramSource {
     sess.network = Network::Udp;
     // Unique among the streams of one connection, which share its source.
@@ -65,8 +113,9 @@ async fn serve_mux(
     nat_manager: Arc<NatManager>,
 ) {
     use crate::transport::mux::{self, packet::ServerDatagram, server, StreamRequest};
+    use tracing::Instrument;
 
-    let handshake_timeout: Duration = dispatcher.env().options.inbound.handshake_timeout;
+    let handshake_timeout = dispatcher.env().options.inbound.handshake_timeout;
     let mut server = match timeout(handshake_timeout, server::Server::start(stream)).await {
         Ok(Ok(server)) => server,
         Ok(Err(e)) => {
@@ -106,7 +155,7 @@ async fn serve_mux(
                             debug!("mux stream: a mux connection inside one is refused");
                             return;
                         }
-                        dispatcher.dispatch_stream(sess, stream).await;
+                        serve_unmuxed(sess, stream, inbound_tag, dispatcher, nat_manager).await;
                     }
                     StreamRequest::Udp(destination) => {
                         let source = udp_session(&mut sess);

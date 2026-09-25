@@ -37,10 +37,6 @@ pub const VERSION: u8 = 2;
 /// What this implementation reports as its `client` setting.
 pub const CLIENT_NAME: &str = concat!("sail/", env!("CARGO_PKG_VERSION"));
 
-/// The magic destination a stream carrying UDP over TCP (version 2) asks
-/// for.
-pub const UOT_MAGIC_ADDRESS: &str = "sp.v2.udp-over-tcp.arpa";
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Header {
     pub cmd: u8,

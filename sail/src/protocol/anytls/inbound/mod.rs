@@ -21,7 +21,6 @@ use crate::transport::layers::{self, Blocks, InboundBlocks, Listable};
 
 use super::padding::PaddingScheme;
 
-mod datagram;
 mod stream;
 
 pub use stream::Handler as StreamHandler;

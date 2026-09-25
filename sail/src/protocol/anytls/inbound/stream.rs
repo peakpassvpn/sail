@@ -11,18 +11,11 @@ use tokio::sync::mpsc;
 use tracing::debug;
 
 use crate::adapter::*;
-use crate::session::{
-    DatagramSource, Network, Session as ProxySession, SocksAddr, SocksAddrWireType, StreamId,
-};
+use crate::session::{Session as ProxySession, SocksAddr, SocksAddrWireType, StreamId};
+use crate::transport::uot;
 
-use super::super::frame::UOT_MAGIC_ADDRESS;
 use super::super::padding::PaddingScheme;
 use super::super::session::{read_auth, Session, Stream, MAX_STREAMS};
-use super::super::uot;
-use super::datagram::Datagram;
-
-/// UDP over TCP, version 1, which is not supported.
-const UOT_LEGACY_MAGIC_ADDRESS: &str = "sp.udp-over-tcp.arpa";
 
 /// Streams handshaken and waiting for the listener to take them.
 const INCOMING_QUEUE: usize = 64;
@@ -86,20 +79,17 @@ async fn accept(
     handshake_timeout: Duration,
 ) {
     let sid = stream.id();
+    // A stream for UDP over TCP is handed on like any other, and served
+    // where every inbound's are; version 1 is refused here, where the
+    // client can be told.
     let handshake = async {
         let destination = SocksAddr::read_from(&mut stream, SocksAddrWireType::PortLast).await?;
-        let uot = match &destination {
-            SocksAddr::Domain(domain, _) if domain == UOT_MAGIC_ADDRESS => {
-                Some(uot::read_request(&mut stream).await?)
-            }
-            SocksAddr::Domain(domain, _) if domain == UOT_LEGACY_MAGIC_ADDRESS => {
-                return Err(io::Error::other("udp-over-tcp version 1 is not supported"));
-            }
-            _ => None,
-        };
-        Ok::<_, io::Error>((destination, uot))
+        if uot::version(&destination) == Some(1) {
+            return Err(io::Error::other("udp-over-tcp version 1 is not supported"));
+        }
+        Ok::<_, io::Error>(destination)
     };
-    let (destination, uot) = match tokio::time::timeout(handshake_timeout, handshake).await {
+    let destination = match tokio::time::timeout(handshake_timeout, handshake).await {
         Ok(Ok(v)) => v,
         Ok(Err(e)) => {
             debug!("anytls stream {}: {}", sid, e);
@@ -116,23 +106,10 @@ async fn accept(
     }
     // Unique with the source, which is this connection's.
     sess.stream_id = Some(StreamId::U64(sid as u64));
-    let transport = match uot {
-        Some((is_connect, destination)) => {
-            sess.network = Network::Udp;
-            sess.destination = destination.clone();
-            let source = DatagramSource::new(sess.source, sess.stream_id);
-            let connected = is_connect.then_some(destination);
-            AnyBaseInboundTransport::Datagram(
-                Box::new(Datagram::new(stream, connected, source)),
-                Some(sess),
-            )
-        }
-        None => {
-            sess.destination = destination;
-            AnyBaseInboundTransport::Stream(Box::new(stream), sess)
-        }
-    };
-    let _ = tx.send(transport).await;
+    sess.destination = destination;
+    let _ = tx
+        .send(AnyBaseInboundTransport::Stream(Box::new(stream), sess))
+        .await;
 }
 
 /// The streams of one session, as they are opened.

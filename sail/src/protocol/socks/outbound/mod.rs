@@ -6,6 +6,7 @@ use crate::adapter::outbound::HandlerBuilder;
 use crate::adapter::registry::{OutboundContext, OutboundFactory, OutboundRegistry};
 use crate::adapter::AnyOutboundHandler;
 use crate::transport::layers::Blocks;
+use crate::transport::uot;
 use serde_derive::Deserialize;
 
 mod datagram;
@@ -30,10 +31,18 @@ struct SocksOutboundOptions {
     username: String,
     #[serde(default)]
     password: String,
+    /// UDP over its TCP, to `sp.v2.udp-over-tcp.arpa`, instead of UDP
+    /// ASSOCIATE.
+    #[serde(default)]
+    udp_over_tcp: Option<uot::UdpOverTcpOptions>,
 }
 
 fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
     let options: SocksOutboundOptions = ctx.options()?;
+    let udp_over_tcp = match &options.udp_over_tcp {
+        Some(uot) => uot.enabled(ctx.tag)?,
+        None => false,
+    };
     let stream = Arc::new(StreamHandler {
         address: options.server.clone(),
         port: options.server_port,
@@ -48,9 +57,13 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
         dns_client: ctx.dns_client.clone(),
         dial: ctx.dial.clone(),
     });
-    Ok(HandlerBuilder::default()
+    let socks = HandlerBuilder::default()
         .tag(ctx.tag.to_owned())
         .stream_handler(stream)
         .datagram_handler(datagram)
-        .build())
+        .build();
+    if udp_over_tcp {
+        return Ok(uot::over_stream(socks)?);
+    }
+    Ok(socks)
 }

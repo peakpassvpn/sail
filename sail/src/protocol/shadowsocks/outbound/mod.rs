@@ -6,6 +6,7 @@ use crate::adapter::outbound::HandlerBuilder;
 use crate::adapter::registry::{OutboundContext, OutboundFactory, OutboundRegistry};
 use crate::adapter::AnyOutboundHandler;
 use crate::transport::layers::{self, Blocks};
+use crate::transport::uot;
 use serde_derive::Deserialize;
 
 pub mod datagram;
@@ -48,10 +49,18 @@ struct ShadowsocksOutboundOptions {
     /// takes them.
     #[serde(default)]
     plugin_opts: Option<String>,
+    /// UDP over its TCP, to `sp.v2.udp-over-tcp.arpa`, instead of its own
+    /// UDP.
+    #[serde(default)]
+    udp_over_tcp: Option<uot::UdpOverTcpOptions>,
 }
 
 fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
     let options: ShadowsocksOutboundOptions = ctx.options()?;
+    let udp_over_tcp = match &options.udp_over_tcp {
+        Some(uot) => uot.enabled(ctx.tag)?,
+        None => false,
+    };
     let ss = if sip022::is_2022(&options.method) {
         build_2022(ctx.tag, &options)?
     } else {
@@ -74,6 +83,11 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
             .stream_handler(stream)
             .datagram_handler(datagram)
             .build()
+    };
+    let ss = if udp_over_tcp {
+        uot::over_stream(ss)?
+    } else {
+        ss
     };
     match options.plugin.as_deref() {
         None => Ok(ss),

@@ -28,6 +28,7 @@ pub mod tls_stream;
 pub mod ws;
 
 pub mod layers;
+pub mod uot;
 #[cfg(any(
     feature = "outbound-vless",
     feature = "outbound-reality",
