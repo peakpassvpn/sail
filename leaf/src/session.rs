@@ -1,5 +1,4 @@
 use std::{
-    borrow::Cow,
     convert::TryFrom,
     fmt, io,
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6},
@@ -264,36 +263,13 @@ impl Session {
         self.span.clone()
     }
 
-    pub fn destination_for_routing(&self) -> io::Result<Cow<'_, SocksAddr>> {
-        let mut target_domain = None;
-        if crate::option::TLS_DOMAIN_SNIFFING.load(std::sync::atomic::Ordering::Relaxed) {
-            if let Some(domain) = &self.tls_sniffed_domain {
-                target_domain = Some(domain);
-            }
-        }
-        if target_domain.is_none()
-            && crate::option::HTTP_DOMAIN_SNIFFING.load(std::sync::atomic::Ordering::Relaxed)
-        {
-            if let Some(domain) = &self.http_sniffed_domain {
-                target_domain = Some(domain);
-            }
-        }
-        if target_domain.is_none()
-            && crate::option::DNS_DOMAIN_SNIFFING.load(std::sync::atomic::Ordering::Relaxed)
-        {
-            if let Some(domain) = &self.dns_sniffed_domain {
-                target_domain = Some(domain);
-            }
-        }
-
-        if let Some(domain) = target_domain {
-            Ok(Cow::Owned(SocksAddr::try_from((
-                domain.as_str(),
-                self.destination.port(),
-            ))?))
-        } else {
-            Ok(Cow::Borrowed(&self.destination))
-        }
+    /// The domain sniffing found, if any: from TLS, else HTTP, else DNS
+    /// answers.
+    pub fn sniffed_domain(&self) -> Option<&str> {
+        self.tls_sniffed_domain
+            .as_deref()
+            .or(self.http_sniffed_domain.as_deref())
+            .or(self.dns_sniffed_domain.as_deref())
     }
 }
 

@@ -9,7 +9,7 @@ use tracing::{debug, info, warn, Instrument};
 use crate::{
     adapter::*,
     app::SyncDnsClient,
-    net, option,
+    net,
     session::*,
     sniff::{
         self,
@@ -31,7 +31,74 @@ where
 use crate::app::SyncStatManager;
 
 use super::outbound::manager::OutboundManager;
-use super::router::Router;
+use super::router::{Decision, NoSniffer, Router, SniffAction, Sniffer};
+
+/// Sniffs a TCP connection the first time a rule asks, and keeps what it
+/// read for whoever reads the connection next. A connection no rule sniffs
+/// is left as it is.
+struct StreamSniffer<T> {
+    stream: Option<T>,
+    sniffing: Option<sniff::SniffingStream<T>>,
+}
+
+impl<T> StreamSniffer<T>
+where
+    T: 'static + AsyncRead + AsyncWrite + Unpin + Send + Sync,
+{
+    fn new(stream: T) -> Self {
+        StreamSniffer {
+            stream: Some(stream),
+            sniffing: None,
+        }
+    }
+
+    fn into_stream(self) -> Box<dyn ProxyStream> {
+        match (self.sniffing, self.stream) {
+            (Some(sniffing), _) => Box::new(sniffing),
+            (None, Some(stream)) => Box::new(stream),
+            (None, None) => unreachable!("the stream is in one or the other"),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl<T> Sniffer for StreamSniffer<T>
+where
+    T: 'static + AsyncRead + AsyncWrite + Unpin + Send + Sync,
+{
+    async fn sniff(&mut self, sess: &mut Session, action: &SniffAction) -> io::Result<()> {
+        // A connection is sniffed once, and one to a domain not at all.
+        if self.sniffing.is_some() || sess.destination.is_domain() {
+            return Ok(());
+        }
+        let Some(stream) = self.stream.take() else {
+            return Ok(());
+        };
+        let sniffing = self.sniffing.insert(sniff::SniffingStream::new(stream));
+        let Some((kind, domain)) = sniffing.sniff(action.timeout).await? else {
+            return Ok(());
+        };
+        let wanted = match kind {
+            sniff::SniffKind::Tls => action.tls,
+            sniff::SniffKind::Http => action.http,
+        };
+        if !wanted {
+            return Ok(());
+        }
+        debug!("sniffed domain={}", &domain);
+        if action.override_destination {
+            if let Ok(dest) = SocksAddr::try_from((domain.as_str(), sess.destination.port())) {
+                debug!("override destination with sniffed domain={}", dest);
+                sess.destination = dest;
+            }
+        }
+        match kind {
+            sniff::SniffKind::Tls => sess.tls_sniffed_domain = Some(domain),
+            sniff::SniffKind::Http => sess.http_sniffed_domain = Some(domain),
+        }
+        Ok(())
+    }
+}
 
 struct HealthcheckUdpRecvHalf {
     responded: bool,
@@ -175,15 +242,6 @@ impl Dispatcher {
             &sess.network, &sess.inbound_tag, &sess.source, &sess.destination
         );
 
-        if option::DNS_DOMAIN_SNIFFING.load(std::sync::atomic::Ordering::Relaxed) {
-            if let Some(ip) = sess.destination.ip() {
-                if let Some(domain) = self.dns_sniffer.get(&ip).await {
-                    debug!("dns sniffed domain={}", &domain);
-                    sess.dns_sniffed_domain = Some(domain);
-                }
-            }
-        }
-
         if let Some(domain) = sess.destination.domain() {
             if domain == "healthcheck.leaf" {
                 if let Err(e) = healthcheck_respond_simple(&mut lhs).await {
@@ -193,82 +251,19 @@ impl Dispatcher {
             }
         }
 
-        let tls_sniff = option::TLS_DOMAIN_SNIFFING.load(std::sync::atomic::Ordering::Relaxed);
-        let tls_sniff_all =
-            option::TLS_DOMAIN_SNIFFING_ALL.load(std::sync::atomic::Ordering::Relaxed);
-        let http_sniff = option::HTTP_DOMAIN_SNIFFING.load(std::sync::atomic::Ordering::Relaxed);
-        let http_sniff_all =
-            option::HTTP_DOMAIN_SNIFFING_ALL.load(std::sync::atomic::Ordering::Relaxed);
-
-        let is_tls_port = sess.destination.port() == 443;
-        let is_http_port = sess.destination.port() == 80;
-
-        let do_tls = (tls_sniff && is_tls_port) || tls_sniff_all;
-        let do_http = (http_sniff && is_http_port) || http_sniff_all;
-
-        let mut lhs: Box<dyn ProxyStream> = if (do_tls || do_http) && sniff::should_sniff(&sess) {
-            let mut lhs = sniff::SniffingStream::new(lhs);
-            match lhs.sniff(&sess).await {
-                Ok(res) => {
-                    if let Some((kind, domain)) = res {
-                        debug!("sniffed domain={}", &domain);
-                        match kind {
-                            sniff::SniffKind::Tls => {
-                                if do_tls {
-                                    sess.tls_sniffed_domain = Some(domain.clone());
-                                }
-                            }
-                            sniff::SniffKind::Http => {
-                                if do_http {
-                                    sess.http_sniffed_domain = Some(domain.clone());
-                                }
-                            }
-                        }
-
-                        if option::DOMAIN_OVERRIDE.load(std::sync::atomic::Ordering::Relaxed) {
-                            if let Ok(dest) = SocksAddr::try_from((domain, sess.destination.port()))
-                            {
-                                debug!("override destination with sniffed domain={}", dest);
-                                sess.destination = dest;
-                            }
-                        }
-                    }
-                }
-                Err(e) => {
-                    debug!("sniff err={}", e);
-                    return;
-                }
-            }
-            Box::new(lhs)
-        } else {
-            Box::new(lhs)
-        };
-
-        let outbound = {
-            let router = self.router.read().await;
-            match router.pick_route(&sess).await {
-                Ok(Some(tag)) => {
-                    debug!(
-                        "picked route out={} src={} dst={}",
-                        tag, &sess.source, &sess.destination
-                    );
-                    tag.to_owned()
-                }
-                Ok(None) => {
-                    if let Some(tag) = self.outbound_manager.read().await.default_handler() {
-                        debug!("picked default out={}", &tag);
-                        tag
-                    } else {
-                        warn!("no outbound found");
-                        return;
-                    }
-                }
-                Err(err) => {
-                    debug!("pick route err={}", err);
-                    return;
-                }
+        self.reverse_map(&mut sess).await;
+        let mut sniffer = StreamSniffer::new(lhs);
+        let outbound = match self.route(&mut sess, &mut sniffer).await {
+            Ok(tag) => tag,
+            Err(e) => {
+                debug!(
+                    "route src={} dst={}: {}",
+                    &sess.source, &sess.destination, e
+                );
+                return;
             }
         };
+        let mut lhs = sniffer.into_stream();
 
         sess.outbound_tag = outbound.clone();
 
@@ -361,20 +356,7 @@ impl Dispatcher {
     }
 
     pub async fn dispatch_stream_outbound(&self, mut sess: Session) -> io::Result<AnyStream> {
-        let outbound = {
-            let router = self.router.read().await;
-            match router.pick_route(&sess).await {
-                Ok(Some(tag)) => tag.to_owned(),
-                Ok(None) => {
-                    if let Some(tag) = self.outbound_manager.read().await.default_handler() {
-                        tag
-                    } else {
-                        return Err(io::Error::other("no outbound found"));
-                    }
-                }
-                Err(_) => return Err(io::Error::other("pick route failed")),
-            }
-        };
+        let outbound = self.route(&mut sess, &mut NoSniffer).await?;
 
         sess.outbound_tag = outbound.clone();
 
@@ -399,13 +381,6 @@ impl Dispatcher {
             &sess.network, &sess.inbound_tag, &sess.source, &sess.destination
         );
 
-        if let Some(ip) = sess.destination.ip() {
-            if let Some(domain) = self.dns_sniffer.get(&ip).await {
-                debug!("dns sniffed domain={}", &domain);
-                sess.dns_sniffed_domain = Some(domain);
-            }
-        }
-
         if let Some(domain) = sess.destination.domain() {
             if domain == "healthcheck.leaf" {
                 let recv = HealthcheckUdpRecvHalf {
@@ -421,31 +396,8 @@ impl Dispatcher {
             }
         }
 
-        let outbound = {
-            let router = self.router.read().await;
-            match router.pick_route(&sess).await {
-                Ok(Some(tag)) => {
-                    debug!(
-                        "picked route out={} src={} dst={}",
-                        tag, &sess.source, &sess.destination
-                    );
-                    tag.to_owned()
-                }
-                Ok(None) => {
-                    if let Some(tag) = self.outbound_manager.read().await.default_handler() {
-                        debug!("picked default out={}", &tag);
-                        tag
-                    } else {
-                        warn!("no outbound found");
-                        return Err(io::Error::other("no outbound found"));
-                    }
-                }
-                Err(err) => {
-                    debug!("pick route err={}", err);
-                    return Err(io::Error::other("pick route failed"));
-                }
-            }
-        };
+        let reverse_mapping = self.reverse_map(&mut sess).await;
+        let outbound = self.route(&mut sess, &mut NoSniffer).await?;
 
         sess.outbound_tag = outbound.clone();
 
@@ -474,9 +426,7 @@ impl Dispatcher {
                     .await
                     .stat_outbound_datagram(d, sess.clone());
 
-                if option::DNS_DOMAIN_SNIFFING.load(std::sync::atomic::Ordering::Relaxed)
-                    && sess.destination.port() == 53
-                {
+                if reverse_mapping && sess.destination.port() == 53 {
                     d = Box::new(SniffingDatagram::new(d, self.dns_sniffer.clone()));
                 }
 
@@ -488,6 +438,52 @@ impl Dispatcher {
                 Err(e)
             }
         }
+    }
+
+    /// With `dns.reverse_mapping`, takes the domain of an address from the
+    /// DNS answers seen, and says whether it is on.
+    async fn reverse_map(&self, sess: &mut Session) -> bool {
+        if !self.dns_client.read().await.reverse_mapping() {
+            return false;
+        }
+        if let Some(ip) = sess.destination.ip() {
+            if let Some(domain) = self.dns_sniffer.get(&ip).await {
+                debug!("dns reverse mapped domain={}", &domain);
+                sess.dns_sniffed_domain = Some(domain);
+            }
+        }
+        true
+    }
+
+    /// The outbound `sess` goes to, as the rules decide.
+    async fn route(&self, sess: &mut Session, sniffer: &mut dyn Sniffer) -> io::Result<String> {
+        let decision = self
+            .router
+            .read()
+            .await
+            .pick_route(sess, sniffer)
+            .await
+            .map_err(|e| io::Error::other(format!("pick route: {}", e)))?;
+        let tag = match decision {
+            Decision::Route(Some(tag)) => tag,
+            Decision::Route(None) => self
+                .outbound_manager
+                .read()
+                .await
+                .default_handler()
+                .ok_or_else(|| io::Error::other("no outbound found"))?,
+            Decision::Reject => {
+                return Err(io::Error::new(
+                    io::ErrorKind::ConnectionRefused,
+                    "rejected by a rule",
+                ))
+            }
+        };
+        debug!(
+            "picked route out={} src={} dst={}",
+            tag, &sess.source, &sess.destination
+        );
+        Ok(tag)
     }
 
     pub async fn is_direct_outbound(&self, tag: &str) -> bool {

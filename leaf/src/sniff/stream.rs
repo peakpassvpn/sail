@@ -6,13 +6,10 @@ use std::time::Duration;
 
 use bytes::BytesMut;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, ReadBuf};
-use tokio::time::timeout;
+use tokio::time::{timeout_at, Instant};
 
-use crate::session::Session;
-
-pub fn should_sniff(sess: &Session) -> bool {
-    !sess.destination.is_domain()
-}
+/// How much of a connection is read looking for a domain.
+const MAX_SNIFF_LEN: usize = 16 * 1024;
 
 pub enum SniffKind {
     Tls,
@@ -193,42 +190,29 @@ where
         SniffResult::NotEnoughData
     }
 
-    pub async fn sniff(&mut self, _sess: &Session) -> io::Result<Option<(SniffKind, String)>> {
-        for _ in 0..3 {
-            match timeout(
-                Duration::from_millis(100),
-                self.inner.read_buf(&mut self.buf),
-            )
-            .await
-            {
-                Ok(res) => match res {
-                    Ok(n) => {
-                        if n == 0 {
-                            return Ok(None);
-                        }
-                        match self.sniff_tls_sni(&self.buf[..]) {
-                            SniffResult::NotEnoughData => continue,
-                            SniffResult::NotMatch => (),
-                            SniffResult::Domain(domain) => {
-                                return Ok(Some((SniffKind::Tls, domain)))
-                            }
-                        }
-                        match self.sniff_http_host(&self.buf[..]) {
-                            SniffResult::NotEnoughData => continue,
-                            SniffResult::NotMatch => (),
-                            SniffResult::Domain(domain) => {
-                                return Ok(Some((SniffKind::Http, domain)))
-                            }
-                        }
-                        return Ok(None);
-                    }
-                    Err(e) => {
-                        return Err(e);
-                    }
-                },
-                Err(_) => {
-                    return Ok(None);
-                }
+    /// Reads the first bytes, for at most `wait`, and finds the domain in
+    /// them. What was read is still read by whoever reads this stream.
+    pub async fn sniff(&mut self, wait: Duration) -> io::Result<Option<(SniffKind, String)>> {
+        let deadline = Instant::now() + wait;
+        while self.buf.len() < MAX_SNIFF_LEN {
+            let n = match timeout_at(deadline, self.inner.read_buf(&mut self.buf)).await {
+                Ok(read) => read?,
+                Err(_) => return Ok(None),
+            };
+            if n == 0 {
+                return Ok(None);
+            }
+            let tls = match self.sniff_tls_sni(&self.buf[..]) {
+                SniffResult::Domain(domain) => return Ok(Some((SniffKind::Tls, domain))),
+                other => other,
+            };
+            let http = match self.sniff_http_host(&self.buf[..]) {
+                SniffResult::Domain(domain) => return Ok(Some((SniffKind::Http, domain))),
+                other => other,
+            };
+            // Keeps reading only while one of them may yet find it.
+            if matches!(tls, SniffResult::NotMatch) && matches!(http, SniffResult::NotMatch) {
+                return Ok(None);
             }
         }
         Ok(None)

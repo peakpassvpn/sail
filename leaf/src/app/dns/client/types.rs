@@ -225,4 +225,6 @@ pub struct DnsClient {
     strategy: crate::config::model::DnsStrategy,
     /// `dns.timeout`: how long one query to one server may take.
     timeout: Duration,
+    /// `dns.reverse_mapping`.
+    reverse_mapping: bool,
 }

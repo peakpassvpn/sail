@@ -489,6 +489,11 @@ impl DnsClient {
         Ok(parsed_hosts)
     }
 
+    /// Whether `dns.reverse_mapping` is on.
+    pub fn reverse_mapping(&self) -> bool {
+        self.reverse_mapping
+    }
+
     fn cache_capacity(dns: &crate::config::Dns) -> Result<NonZeroUsize> {
         NonZeroUsize::new(dns.cache_capacity())
             .ok_or_else(|| anyhow!("dns.cache_capacity: must be at least 1"))
@@ -528,6 +533,7 @@ impl DnsClient {
             tuning,
             strategy: dns.strategy,
             timeout: dns.timeout(),
+            reverse_mapping: dns.reverse_mapping,
         })
     }
 
@@ -548,6 +554,7 @@ impl DnsClient {
         self.hosts = hosts;
         self.strategy = dns.strategy;
         self.timeout = dns.timeout();
+        self.reverse_mapping = dns.reverse_mapping;
         // Nothing else holds these while the client is being reloaded.
         for cache in [&self.ipv4_cache, &self.ipv6_cache] {
             if let Ok(mut cache) = cache.try_lock() {
@@ -1145,13 +1152,19 @@ impl DnsClient {
                     Ok(d) => d,
                     Err(e) => return Err(anyhow!("invalid host {}: {}", host, e)),
                 };
-                let sess = Session {
+                let mut sess = Session {
                     destination: dest,
                     skip_resolve: true,
                     ..Default::default()
                 };
-                if let Ok(Some(tag)) = dispatcher.router.read().await.pick_route(&sess).await {
-                    is_direct_outbound = dispatcher.is_direct_outbound(tag).await;
+                let decision = dispatcher
+                    .router
+                    .read()
+                    .await
+                    .pick_route(&mut sess, &mut crate::app::router::NoSniffer)
+                    .await;
+                if let Ok(crate::app::router::Decision::Route(Some(tag))) = decision {
+                    is_direct_outbound = dispatcher.is_direct_outbound(&tag).await;
                 }
             }
         }

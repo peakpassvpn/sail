@@ -52,6 +52,9 @@ pub struct General {
     pub ipv6: Option<bool>,
     /// With `tun = auto`, forwards the traffic of other hosts.
     pub gateway_mode: Option<bool>,
+    /// Sniffs the domain of every TCP connection to an address.
+    pub sniffing: Option<bool>,
+    pub dns_reverse_mapping: Option<bool>,
 }
 
 #[derive(Debug)]
@@ -586,6 +589,12 @@ pub fn from_lines(lines: Vec<io::Result<String>>) -> Result<Config> {
             }
             "gateway-mode" => {
                 general.gateway_mode = Some(parse_bool("gateway-mode", parts[1])?);
+            }
+            "sniffing" => {
+                general.sniffing = Some(parse_bool("sniffing", parts[1])?);
+            }
+            "dns-reverse-mapping" => {
+                general.dns_reverse_mapping = Some(parse_bool("dns-reverse-mapping", parts[1])?);
             }
             _ => {}
         }
@@ -1357,13 +1366,22 @@ pub fn to_config(conf: &Config) -> Result<model::Config> {
         config.outbounds.push(group);
     }
 
+    if conf.general.as_ref().and_then(|g| g.sniffing) == Some(true) {
+        config.route.rules.push(model::Rule {
+            action: model::RuleAction::Sniff,
+            ..Default::default()
+        });
+    }
+    if let Some(reverse_mapping) = conf.general.as_ref().and_then(|g| g.dns_reverse_mapping) {
+        config.dns.reverse_mapping = reverse_mapping;
+    }
     for ext_rule in conf.rule.iter().flatten() {
         if ext_rule.type_field == "FINAL" {
             config.route.final_outbound = Some(ext_rule.target.clone());
             continue;
         }
         let mut rule = model::Rule {
-            outbound: ext_rule.target.clone(),
+            outbound: Some(ext_rule.target.clone()),
             ..Default::default()
         };
         let filter = ext_rule.filter.clone().ok_or_else(|| {
@@ -1389,11 +1407,31 @@ pub fn to_config(conf: &Config) -> Result<model::Config> {
         condition.push(filter);
         config.route.rules.push(rule);
     }
-    config.route.domain_resolve = conf
+    // A domain no rule matches is resolved, and the address rules are
+    // tried again with its addresses.
+    if conf
         .general
         .as_ref()
         .and_then(|g| g.routing_domain_resolve)
-        .unwrap_or(false);
+        .unwrap_or(false)
+    {
+        let by_address: Vec<model::Rule> = config
+            .route
+            .rules
+            .iter()
+            .filter(|r| {
+                !r.ip_cidr.is_empty()
+                    || !r.geoip.is_empty()
+                    || r.external.iter().any(|e| e.starts_with("mmdb:"))
+            })
+            .cloned()
+            .collect();
+        config.route.rules.push(model::Rule {
+            action: model::RuleAction::Resolve,
+            ..Default::default()
+        });
+        config.route.rules.extend(by_address);
+    }
 
     if let Some(servers) = conf.general.as_ref().and_then(|g| g.dns_server.clone()) {
         config.dns.servers = servers;
@@ -1534,6 +1572,31 @@ gateway-mode = true
             .find(|i| i.protocol == "tun")
             .unwrap();
         assert_eq!(tun.options["gateway_mode"], json!(true));
+    }
+
+    #[test]
+    fn sniffing_and_domain_resolve_become_rule_actions() {
+        let config = load(
+            r#"
+[General]
+sniffing = true
+dns-reverse-mapping = true
+routing-domain-resolve = true
+
+[Proxy]
+Direct = direct
+
+[Rule]
+DOMAIN-SUFFIX, example.com, Direct
+IP-CIDR, 10.0.0.0/8, Direct
+FINAL, Direct
+"#,
+        );
+        assert!(config.dns.reverse_mapping);
+        let actions: Vec<_> = config.route.rules.iter().map(|r| r.action).collect();
+        use model::RuleAction::*;
+        assert_eq!(actions, [Sniff, Route, Route, Resolve, Route]);
+        assert_eq!(config.route.rules[4].ip_cidr, ["10.0.0.0/8"]);
     }
 
     #[test]
@@ -1700,7 +1763,7 @@ FINAL, Proxy
         assert_eq!(config.route.final_outbound.as_deref(), Some("Proxy"));
         assert_eq!(config.route.rules.len(), 1);
         assert_eq!(config.route.rules[0].domain_suffix, ["example.com"]);
-        assert_eq!(config.route.rules[0].outbound, "Direct");
+        assert_eq!(config.route.rules[0].outbound.as_deref(), Some("Direct"));
     }
 
     #[test]

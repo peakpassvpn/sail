@@ -33,7 +33,6 @@ pub mod common;
 pub mod config;
 mod include;
 pub mod net;
-pub mod option;
 pub mod platform;
 pub mod protocol;
 pub mod runtime;

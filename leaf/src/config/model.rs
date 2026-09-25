@@ -98,6 +98,11 @@ pub struct Dns {
     /// How long one query to one server may take; 4s when unset.
     #[serde(default, with = "duration", skip_serializing_if = "Option::is_none")]
     pub timeout: Option<std::time::Duration>,
+    /// Remembers the domain of each address the DNS answers that pass
+    /// through carry, so that connections to the address are routed by the
+    /// domain.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub reverse_mapping: bool,
 }
 
 /// Which address families names resolve to, as sing-box names them.
@@ -134,6 +139,7 @@ impl Default for Dns {
             strategy: DnsStrategy::default(),
             cache_capacity: None,
             timeout: None,
+            reverse_mapping: false,
         }
     }
 }
@@ -198,10 +204,6 @@ pub struct Route {
     /// outbound.
     #[serde(rename = "final", default, skip_serializing_if = "Option::is_none")]
     pub final_outbound: Option<String>,
-    /// Whether a domain no rule matches is resolved and matched again by its
-    /// address.
-    #[serde(default)]
-    pub domain_resolve: bool,
     /// The interface outbounds that name none of their own send through.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_interface: Option<String>,
@@ -215,8 +217,14 @@ pub struct Route {
     pub auto_detect_interface: bool,
 }
 
-/// A routing rule. It matches when every condition it sets matches, and a
-/// condition that lists several values matches when any of them does.
+/// A routing rule, matched in order. As in sing-box, the destination
+/// conditions (`domain*`, `geosite`, `ip_cidr`, `geoip`, `external`) match
+/// when any of them does; the rule matches when that and every other
+/// condition it sets match, and a condition listing several values matches
+/// when any of them does.
+///
+/// `route` and `reject` end the matching. `sniff` and `resolve` learn more
+/// about the connection and matching goes on with the next rule.
 #[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Rule {
@@ -249,8 +257,100 @@ pub struct Rule {
     pub inbound: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub process_name: Vec<String>,
-    /// Where a matching connection goes.
-    pub outbound: String,
+
+    #[serde(default)]
+    pub action: RuleAction,
+    /// `route`: where a matching connection goes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outbound: Option<String>,
+    /// `sniff`: the protocols to look for; all of them when empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sniffer: Vec<Sniffer>,
+    /// `sniff`: how long to wait for the first bytes; 300ms when unset.
+    #[serde(default, with = "duration", skip_serializing_if = "Option::is_none")]
+    pub timeout: Option<std::time::Duration>,
+    /// `sniff`: connects to the sniffed domain rather than to the address
+    /// the client asked for.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub override_destination: bool,
+}
+
+/// What a matching rule does.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum RuleAction {
+    /// Sends the connection to `outbound`.
+    #[default]
+    Route,
+    /// Closes the connection.
+    Reject,
+    /// Reads the domain from the first bytes of a TCP connection (TLS SNI,
+    /// HTTP Host), so that later rules match it.
+    Sniff,
+    /// Resolves the domain, so that later rules match its addresses.
+    Resolve,
+}
+
+/// A protocol a `sniff` rule reads the domain from.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum Sniffer {
+    Tls,
+    Http,
+}
+
+impl Rule {
+    /// Whether the rule sets any condition; one that sets none matches
+    /// every connection.
+    pub fn has_conditions(&self) -> bool {
+        !(self.domain.is_empty()
+            && self.domain_suffix.is_empty()
+            && self.domain_keyword.is_empty()
+            && self.ip_cidr.is_empty()
+            && self.geoip.is_empty()
+            && self.geosite.is_empty()
+            && self.external.is_empty()
+            && self.port_range.is_empty()
+            && self.network.is_empty()
+            && self.inbound.is_empty()
+            && self.process_name.is_empty())
+    }
+
+    /// The configuration mistakes one rule can make on its own.
+    fn check(&self, outbounds: &HashSet<&str>) -> Result<()> {
+        let sniff_fields =
+            !self.sniffer.is_empty() || self.timeout.is_some() || self.override_destination;
+        match self.action {
+            RuleAction::Route => {
+                let tag = self
+                    .outbound
+                    .as_ref()
+                    .ok_or_else(|| anyhow!("outbound: a route rule needs one"))?;
+                if !outbounds.contains(tag.as_str()) {
+                    return Err(anyhow!("outbound [{}] does not exist", tag));
+                }
+            }
+            _ if self.outbound.is_some() => {
+                return Err(anyhow!("outbound: only a route rule has one"));
+            }
+            _ => {}
+        }
+        if sniff_fields && self.action != RuleAction::Sniff {
+            return Err(anyhow!(
+                "sniffer, timeout and override_destination are for sniff rules"
+            ));
+        }
+        if self.timeout == Some(std::time::Duration::ZERO) {
+            return Err(anyhow!("timeout: must be more than 0"));
+        }
+        // A rule that ends the matching for every connection is `final`.
+        if matches!(self.action, RuleAction::Route | RuleAction::Reject) && !self.has_conditions() {
+            return Err(anyhow!(
+                "the rule has no conditions; route.final is where everything else goes"
+            ));
+        }
+        Ok(())
+    }
 }
 
 impl Config {
@@ -307,13 +407,8 @@ impl Config {
             }
         }
         for (i, rule) in self.route.rules.iter().enumerate() {
-            if !outbounds.contains(rule.outbound.as_str()) {
-                return Err(anyhow!(
-                    "route.rules[{}]: outbound [{}] does not exist",
-                    i,
-                    rule.outbound
-                ));
-            }
+            rule.check(&outbounds)
+                .map_err(|e| anyhow!("route.rules[{}]: {}", i, e))?;
         }
         Ok(())
     }
@@ -456,6 +551,44 @@ mod tests {
             err.to_string(),
             "route.rules[0]: outbound [proxy] does not exist"
         );
+    }
+
+    #[test]
+    fn rule_actions_and_their_mistakes() {
+        let config = |rules: &str| {
+            Config::from_json(&format!(
+                r#"{{ "outbounds": [{{ "type": "direct" }}], "route": {{ "rules": {} }} }}"#,
+                rules
+            ))
+        };
+        let ok = config(
+            r#"[{ "action": "sniff", "sniffer": ["tls"], "timeout": "1s" },
+                { "action": "resolve" },
+                { "domain": ["a"], "action": "reject" },
+                { "ip_cidr": ["10.0.0.0/8"], "outbound": "direct" }]"#,
+        )
+        .unwrap();
+        assert_eq!(ok.route.rules[0].action, RuleAction::Sniff);
+        assert_eq!(ok.route.rules[0].sniffer, [Sniffer::Tls]);
+        assert_eq!(ok.route.rules[3].action, RuleAction::Route);
+
+        for (rules, message) in [
+            (r#"[{ "domain": ["a"] }]"#, "a route rule needs one"),
+            (
+                r#"[{ "action": "sniff", "outbound": "direct" }]"#,
+                "only a route rule",
+            ),
+            (
+                r#"[{ "domain": ["a"], "action": "reject", "sniffer": ["tls"] }]"#,
+                "are for sniff rules",
+            ),
+            (r#"[{ "outbound": "direct" }]"#, "route.final"),
+            (r#"[{ "action": "reject" }]"#, "route.final"),
+            (r#"[{ "action": "sniff", "sniffer": ["quic"] }]"#, "quic"),
+        ] {
+            let err = config(rules).unwrap_err().to_string();
+            assert!(err.contains(message), "{}: {}", rules, err);
+        }
     }
 
     #[test]
