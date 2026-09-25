@@ -1,7 +1,7 @@
 use tracing::{debug, error};
 
 use super::protocol::{
-    Frame, DATA_HEADER_LEN, MTYP_DATA, MTYP_FIN, MTYP_PING, MTYP_PONG, MTYP_RST,
+    Frame, DATA_HEADER_LEN, FIN_LEN, MTYP_DATA, MTYP_FIN, MTYP_PING, MTYP_PONG, MTYP_RST,
 };
 use bytes::{Buf, Bytes, BytesMut};
 use std::collections::BTreeMap;
@@ -39,7 +39,10 @@ pub struct MptpStream<S> {
     expected_read_pn: u64,
     reorder_buffer: BTreeMap<u64, Bytes>,
 
-    closed: bool,
+    /// The peer's last packet, once its FIN has come.
+    fin_pn: Option<u64>,
+    /// Whether this side's FIN is queued.
+    fin_sent: bool,
 }
 
 impl<S: AsyncRead + AsyncWrite + Unpin> MptpStream<S> {
@@ -52,7 +55,8 @@ impl<S: AsyncRead + AsyncWrite + Unpin> MptpStream<S> {
             next_pn: 1,
             expected_read_pn: 1,
             reorder_buffer: BTreeMap::new(),
-            closed: false,
+            fin_pn: None,
+            fin_sent: false,
         }
     }
 
@@ -64,7 +68,8 @@ impl<S: AsyncRead + AsyncWrite + Unpin> MptpStream<S> {
             next_pn: 1,
             expected_read_pn: 1,
             reorder_buffer: BTreeMap::new(),
-            closed: false,
+            fin_pn: None,
+            fin_sent: false,
         }
     }
 
@@ -80,8 +85,14 @@ impl<S: AsyncRead + AsyncWrite + Unpin> MptpStream<S> {
             next_pn: 1,
             expected_read_pn: 1,
             reorder_buffer: BTreeMap::new(),
-            closed: false,
+            fin_pn: None,
+            fin_sent: false,
         }
+    }
+
+    /// Whether the peer's FIN has come, and every packet up to it.
+    fn finished(&self) -> bool {
+        self.fin_pn.is_some_and(|last| self.expected_read_pn > last)
     }
 
     fn poll_new_subs(&mut self, cx: &mut Context<'_>) {
@@ -126,7 +137,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> AsyncRead for MptpStream<S> {
             return Poll::Ready(Ok(()));
         }
 
-        if this.closed {
+        if this.finished() {
             return Poll::Ready(Ok(()));
         }
 
@@ -184,17 +195,18 @@ impl<S: AsyncRead + AsyncWrite + Unpin> AsyncRead for MptpStream<S> {
 
         // Check if ALL are closed
         let all_closed = this.subs.iter().all(|s| s.closed);
-        if all_closed && !this.subs.is_empty() && this.new_subs_rx.is_none() {
-            if !this.closed {
-                debug!("all sub-connections closed/failed without MTYP_FIN");
-                return Poll::Ready(Err(io::Error::new(
-                    io::ErrorKind::ConnectionAborted,
-                    "all sub-connections failed",
-                )));
-            } else {
-                // We received FIN and all subs are closed, that's fine
+        // Frames still buffered are processed below, whether or not their
+        // path has closed since.
+        let unread = this.subs.iter().any(|s| !s.read_buf.is_empty());
+        if all_closed && !unread && !this.subs.is_empty() && this.new_subs_rx.is_none() {
+            if this.finished() {
                 return Poll::Ready(Ok(()));
             }
+            debug!("all sub-connections closed before the data was complete");
+            return Poll::Ready(Err(io::Error::new(
+                io::ErrorKind::ConnectionAborted,
+                "all sub-connections closed before the data was complete",
+            )));
         }
 
         // Second pass: Process frames from buffer
@@ -220,7 +232,8 @@ impl<S: AsyncRead + AsyncWrite + Unpin> AsyncRead for MptpStream<S> {
                             DATA_HEADER_LEN + len
                         }
                     }
-                    MTYP_FIN | MTYP_RST | MTYP_PING | MTYP_PONG => 1,
+                    MTYP_FIN => FIN_LEN,
+                    MTYP_RST | MTYP_PING | MTYP_PONG => 1,
                     _ => {
                         error!("unknown MTYP: {}", mtyp);
                         1 // Consume 1 byte to maybe recover? Or Error?
@@ -270,12 +283,11 @@ impl<S: AsyncRead + AsyncWrite + Unpin> AsyncRead for MptpStream<S> {
                         }
                     }
                     MTYP_FIN => {
-                        debug!("received fin from sub {}", i);
-                        sub.read_buf.advance(1);
-                        this.closed = true;
-                        // Don't return EOF yet, we might have data in read_buffer
-                        // But we should stop processing from this sub?
-                        // Actually, FIN should be the last thing.
+                        let last_pn = (&sub.read_buf[1..FIN_LEN]).get_u64();
+                        debug!("received fin from sub {}, last packet {}", i, last_pn);
+                        sub.read_buf.advance(FIN_LEN);
+                        this.fin_pn = Some(last_pn);
+                        // The FIN is the last frame on its path.
                         break;
                     }
                     MTYP_RST => {
@@ -299,9 +311,16 @@ impl<S: AsyncRead + AsyncWrite + Unpin> AsyncRead for MptpStream<S> {
             return Poll::Ready(Ok(()));
         }
 
-        if all_eof && !this.subs.is_empty() {
-            debug!("all sub-connections EOF");
+        if this.finished() {
             return Poll::Ready(Ok(()));
+        }
+
+        if all_eof && !this.subs.is_empty() {
+            debug!("all sub-connections EOF before the data was complete");
+            return Poll::Ready(Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "all sub-connections ended before the data was complete",
+            )));
         }
 
         if any_progress {
@@ -461,58 +480,69 @@ impl<S: AsyncRead + AsyncWrite + Unpin> AsyncWrite for MptpStream<S> {
         // Check for new sub-connections
         this.poll_new_subs(cx);
 
-        // Send FIN frame
-        let frame = Frame::Fin;
-        let mut encoded = BytesMut::new();
-        frame.encode(&mut encoded);
-        let encoded_bytes = encoded.freeze();
-
-        // Broadcast FIN to all subs
-        for sub in &mut this.subs {
-            // We just append to write buf. poll_flush will send it.
-            // But shutdown expects to close *now*.
-            // However, standard AsyncWrite::poll_shutdown implies "flush pending writes and close".
-            if !sub.closed {
-                sub.write_buf.extend_from_slice(&encoded_bytes);
+        // The FIN goes down every path once, naming the last packet so the
+        // peer can wait for packets still on other paths.
+        if !this.fin_sent {
+            let mut encoded = BytesMut::new();
+            Frame::Fin {
+                last_pn: this.next_pn - 1,
             }
+            .encode(&mut encoded);
+            for sub in this.subs.iter_mut().filter(|s| !s.closed) {
+                sub.write_buf.extend_from_slice(&encoded);
+            }
+            this.fin_sent = true;
         }
 
-        // Flush all buffers
-        let _ = Pin::new(&mut *this).poll_flush(cx);
-
-        // Now shutdown underlying streams
-        let mut all_done = true;
-        let mut any_done = false;
+        // A packet may have gone down one path only, when the others were
+        // full: every path is written out before any is shut down, or the
+        // packets on it would be lost.
+        let mut pending = false;
         let mut active_subs = 0;
-
-        for sub in &mut this.subs {
+        for (i, sub) in this.subs.iter_mut().enumerate() {
             if sub.closed {
                 continue;
             }
             active_subs += 1;
-            match Pin::new(&mut sub.stream).poll_shutdown(cx) {
-                Poll::Ready(Ok(())) => {
-                    any_done = true;
-                }
-                Poll::Ready(Err(_)) => {
-                    // Just ignore error and mark closed?
-                    sub.closed = true;
-                    any_done = true;
-                }
-                Poll::Pending => {
-                    all_done = false;
+            while !sub.write_buf.is_empty() {
+                match Pin::new(&mut sub.stream).poll_write(cx, &sub.write_buf) {
+                    Poll::Ready(Ok(0)) => {
+                        sub.closed = true;
+                        break;
+                    }
+                    Poll::Ready(Ok(n)) => sub.write_buf.advance(n),
+                    Poll::Ready(Err(e)) => {
+                        debug!("sub {} write error while closing: {}", i, e);
+                        sub.closed = true;
+                        break;
+                    }
+                    Poll::Pending => {
+                        pending = true;
+                        break;
+                    }
                 }
             }
         }
-
-        if all_done || (any_done && active_subs > 0) {
-            // If at least one path is shut down, we consider the overall stream "shut down" enough
-            Poll::Ready(Ok(()))
-        } else if active_subs == 0 {
-            Poll::Ready(Ok(()))
-        } else {
-            Poll::Pending
+        if pending {
+            return Poll::Pending;
         }
+
+        for sub in this.subs.iter_mut().filter(|s| !s.closed) {
+            match Pin::new(&mut sub.stream).poll_shutdown(cx) {
+                Poll::Ready(_) => {}
+                Poll::Pending => pending = true,
+            }
+        }
+        if pending {
+            return Poll::Pending;
+        }
+        if active_subs > 0 && this.subs.iter().all(|s| s.closed) {
+            return Poll::Ready(Err(io::Error::new(
+                io::ErrorKind::ConnectionAborted,
+                "all sub-connections failed while closing",
+            )));
+        }
+        Poll::Ready(Ok(()))
     }
 }
 
@@ -623,5 +653,83 @@ mod tests {
 
         // Flush should succeed because c1 is flushed
         mptp.flush().await.unwrap();
+    }
+
+    fn data_frame(pn: u64, payload: &'static [u8]) -> BytesMut {
+        let mut encoded = BytesMut::new();
+        Frame::Data {
+            pn,
+            payload: Bytes::from_static(payload),
+        }
+        .encode(&mut encoded);
+        encoded
+    }
+
+    /// A packet that went down one path only is still read when the FIN
+    /// comes first down another.
+    #[tokio::test]
+    async fn fin_on_one_path_waits_for_data_still_on_another() {
+        let (c1, mut s1) = tokio::io::duplex(1024);
+        let (c2, mut s2) = tokio::io::duplex(1024);
+        let mut mptp = MptpStream::new(vec![c1, c2]);
+
+        let mut fin = BytesMut::new();
+        Frame::Fin { last_pn: 2 }.encode(&mut fin);
+        // Path 1 carries packet 1 and the FIN; packet 2 is late on path 2.
+        s1.write_all(&data_frame(1, b"first")).await.unwrap();
+        s1.write_all(&fin).await.unwrap();
+        let late = tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            s2.write_all(&data_frame(2, b"second")).await.unwrap();
+            s2
+        });
+
+        let mut received = Vec::new();
+        mptp.read_to_end(&mut received).await.unwrap();
+        assert_eq!(received, b"firstsecond");
+        drop(late.await.unwrap());
+        drop(s1);
+    }
+
+    /// Paths closing with packets missing is an error, not a short read.
+    #[tokio::test]
+    async fn paths_ending_before_the_last_packet_is_an_error() {
+        let (c1, mut s1) = tokio::io::duplex(1024);
+        let mut mptp = MptpStream::new(vec![c1]);
+        let mut fin = BytesMut::new();
+        Frame::Fin { last_pn: 2 }.encode(&mut fin);
+        s1.write_all(&data_frame(1, b"first")).await.unwrap();
+        s1.write_all(&fin).await.unwrap();
+        drop(s1);
+
+        let mut received = Vec::new();
+        let err = mptp.read_to_end(&mut received).await.unwrap_err();
+        assert_eq!(received, b"first");
+        assert_eq!(err.kind(), io::ErrorKind::ConnectionAborted);
+    }
+
+    /// Everything written before a shutdown arrives, over paths too small
+    /// to take it at once.
+    #[tokio::test]
+    async fn shutdown_delivers_everything_written() {
+        let (c1, s1) = tokio::io::duplex(256);
+        let (c2, s2) = tokio::io::duplex(256);
+        let mut writer = MptpStream::new(vec![c1, c2]);
+        let mut reader = MptpStream::new(vec![s1, s2]);
+
+        let data: Vec<u8> = (0..200_000u32).map(|i| (i % 251) as u8).collect();
+        let expected = data.clone();
+        let send = tokio::spawn(async move {
+            for chunk in data.chunks(3000) {
+                writer.write_all(chunk).await.unwrap();
+            }
+            writer.shutdown().await.unwrap();
+        });
+
+        let mut received = Vec::new();
+        reader.read_to_end(&mut received).await.unwrap();
+        send.await.unwrap();
+        assert_eq!(received.len(), expected.len());
+        assert!(received == expected);
     }
 }

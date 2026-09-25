@@ -23,6 +23,8 @@ pub const ATYP_IPV6: u8 = 0x04;
 pub const DATA_HEADER_LEN: usize = 1 + 8 + 4;
 // Control Frame Header (min): MTYP(1)
 pub const MIN_HEADER_LEN: usize = 1;
+// FIN Frame: MTYP(1) + the last data PN(8)
+pub const FIN_LEN: usize = 1 + 8;
 
 #[derive(Debug, Clone)]
 pub enum Address {
@@ -252,10 +254,18 @@ impl UdpHeader {
 
 #[derive(Debug, Clone)]
 pub enum Frame {
-    Data { pn: u64, payload: Bytes },
+    Data {
+        pn: u64,
+        payload: Bytes,
+    },
     Ping,
     Pong,
-    Fin,
+    /// The end of the sender's data, the last packet being `last_pn` (0
+    /// when there was none): it may overtake packets on other paths, so
+    /// the reader ends only once it has every one up to it.
+    Fin {
+        last_pn: u64,
+    },
     Rst,
     Unknown(u8, Bytes),
 }
@@ -272,7 +282,10 @@ impl Frame {
             }
             Frame::Ping => buf.put_u8(MTYP_PING),
             Frame::Pong => buf.put_u8(MTYP_PONG),
-            Frame::Fin => buf.put_u8(MTYP_FIN),
+            Frame::Fin { last_pn } => {
+                buf.put_u8(MTYP_FIN);
+                buf.put_u64(*last_pn);
+            }
             Frame::Rst => buf.put_u8(MTYP_RST),
             Frame::Unknown(mtyp, cnt) => {
                 buf.put_u8(*mtyp);
