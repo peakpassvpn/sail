@@ -215,7 +215,7 @@ quinn-btls（核实于 2026-09-25）：作者与 btls 相同；依赖 btls 0.5.5
 | 1.1c | Reality C 补丁（fork btls，在 `btls-sys/patches/` 下加一个补丁），Reality 出站迁移到 btls，默认发送 X25519MLKEM768；删除 reality-rs 和 reality-rustls | 能连上 Xray v26.9.x 的 Reality 服务端 |
 | 1.1d | Chrome profile、`utls` 配置，普通 TLS 和 Reality 默认使用 chrome，附 fixture 和 JA4 测试 | JA4 与 Chrome fixture 一致；各项互操作通过 |
 | 1.1e | Firefox 和 Safari profile | JA4 分别与各自的 fixture 一致 |
-| 1.1f | 入站证书热更新 | 替换证书文件后新连接使用新证书，已有连接不中断 |
+| 1.1f | 入站证书热更新：**已并入 roadmap P3 的 3.4**，与用户表、规则集共用一套可热更新资源机制 | 替换证书文件后新连接使用新证书，已有连接不中断 |
 
 **1.1a 的实施记录（2026-09-25）：**
 
