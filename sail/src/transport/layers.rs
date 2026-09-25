@@ -1096,6 +1096,36 @@ pub struct InboundTls {
     pub key_path: Option<String>,
     #[serde(default)]
     pub alpn: Option<Listable>,
+    /// The name REALITY clients must ask for; only REALITY uses it.
+    #[serde(default)]
+    pub server_name: Option<String>,
+    #[serde(default)]
+    pub reality: Option<InboundReality>,
+}
+
+/// A REALITY server in place of a certificate: clients it does not know
+/// are relayed to `handshake`.
+#[derive(Deserialize, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct InboundReality {
+    #[serde(default)]
+    pub enabled: bool,
+    pub handshake: RealityHandshake,
+    /// X25519, hex or base64url.
+    pub private_key: String,
+    pub short_id: Listable,
+    /// How far a client's clock may be from ours, e.g. `1m`. Unset, any
+    /// time is accepted, as in sing-box.
+    #[serde(default, with = "crate::config::model::duration")]
+    pub max_time_difference: Option<std::time::Duration>,
+}
+
+/// The site REALITY imitates.
+#[derive(Deserialize, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct RealityHandshake {
+    pub server: String,
+    pub server_port: u16,
 }
 
 #[derive(Deserialize, Debug)]
@@ -1163,6 +1193,14 @@ impl InboundBlocks {
 )]
 impl InboundTls {
     fn certificate(&self, tag: &str, env: &RuntimeEnv) -> Result<String> {
+        // tls_inbound serves REALITY without one; what asks for it here
+        // is the quic transport.
+        if self.reality.as_ref().is_some_and(|r| r.enabled) {
+            return Err(anyhow!(
+                "[{}] inbound: tls.reality: not supported with the quic transport",
+                tag
+            ));
+        }
         match (&self.certificate, &self.certificate_path) {
             (Some(inline), None) => Ok(inline.clone().joined()),
             (None, Some(path)) => Ok(env.data_path(path)),
@@ -1338,6 +1376,22 @@ fn tls_inbound(
     alpn: Vec<String>,
     env: &RuntimeEnv,
 ) -> Result<AnyInboundHandler> {
+    if let Some(reality) = tls.reality.as_ref().filter(|r| r.enabled) {
+        // REALITY negotiates no ALPN, as Xray's does not by default.
+        if tls.alpn.is_some() {
+            return Err(anyhow!(
+                "[{}] inbound: tls.alpn: not supported with tls.reality",
+                tag
+            ));
+        }
+        return reality_inbound(tag, tls, reality);
+    }
+    if tls.server_name.is_some() {
+        return Err(anyhow!(
+            "[{}] inbound: tls.server_name: only used by tls.reality",
+            tag
+        ));
+    }
     #[cfg(feature = "inbound-tls")]
     {
         let handler = crate::transport::tls::inbound::StreamHandler::new(
@@ -1354,6 +1408,54 @@ fn tls_inbound(
     }
     #[cfg(not(feature = "inbound-tls"))]
     Err(not_compiled(tag, "inbound", "tls", "inbound-tls"))
+}
+
+#[allow(unused_variables)]
+fn reality_inbound(
+    tag: &str,
+    tls: &InboundTls,
+    reality: &InboundReality,
+) -> Result<AnyInboundHandler> {
+    if tls.certificate.is_some()
+        || tls.certificate_path.is_some()
+        || tls.key.is_some()
+        || tls.key_path.is_some()
+    {
+        return Err(anyhow!(
+            "[{}] inbound: tls.reality: takes no certificate or key",
+            tag
+        ));
+    }
+    #[cfg(feature = "inbound-reality")]
+    {
+        let server_name = tls
+            .server_name
+            .clone()
+            .ok_or_else(|| anyhow!("[{}] inbound: tls.server_name: tls.reality needs it", tag))?;
+        let handler = crate::transport::reality::inbound::Handler::new(
+            server_name,
+            &reality.private_key,
+            &reality.short_id.clone().into_vec(),
+            reality.max_time_difference,
+            (
+                reality.handshake.server.clone(),
+                reality.handshake.server_port,
+            ),
+        )
+        .map_err(|e| anyhow!("[{}] inbound: tls.reality: {}", tag, e))?;
+        Ok(Arc::new(crate::adapter::inbound::Handler::new(
+            format!("{}/reality", tag),
+            Some(Arc::new(handler)),
+            None,
+        )))
+    }
+    #[cfg(not(feature = "inbound-reality"))]
+    Err(not_compiled(
+        tag,
+        "inbound",
+        "tls.reality",
+        "inbound-reality",
+    ))
 }
 
 #[allow(unused_variables)]

@@ -18,7 +18,7 @@ pub mod mux;
 pub mod obfs;
 #[cfg(any(feature = "inbound-quic", feature = "outbound-quic"))]
 pub mod quic;
-#[cfg(feature = "outbound-reality")]
+#[cfg(any(feature = "inbound-reality", feature = "outbound-reality"))]
 pub mod reality;
 #[cfg(feature = "tls")]
 pub mod tls;

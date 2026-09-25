@@ -14,8 +14,6 @@ use aes_gcm::aead::AeadInPlace;
 use aes_gcm::{Aes256Gcm, KeyInit};
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use base64::Engine;
 use btls::ex_data::Index;
 use btls::pkey::Id;
 use btls::ssl::{Ssl, SslAlert, SslConnector, SslMethod, SslRef, SslVerifyError, SslVerifyMode};
@@ -24,14 +22,12 @@ use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
 use sha2::{Sha256, Sha512};
 
+use super::{parse_key, parse_short_id, CLIENT_VERSION};
 use crate::adapter::*;
 use crate::session::Session;
 use crate::transport::tls::{BoringConnection, Fingerprint};
 use crate::transport::tls_stream::TlsStream;
 use crate::transport::vision::VisionState;
-
-/// The client version the session ID reports; servers can require a range.
-const CLIENT_VERSION: [u8; 3] = [26, 9, 8];
 
 pub struct Handler {
     server_name: String,
@@ -79,7 +75,7 @@ impl Handler {
         builder.set_alpn_protos(&super::super::tls::client::alpn_wire(&alpn)?)?;
         Ok(Self {
             server_name,
-            public_key: parse_public_key(public_key)?,
+            public_key: parse_key("public_key", public_key)?,
             short_id: parse_short_id(short_id)?,
             connector: builder.build(),
             fingerprint,
@@ -87,7 +83,7 @@ impl Handler {
         })
     }
 
-    fn connection(&self) -> io::Result<BoringConnection> {
+    pub(crate) fn connection(&self) -> io::Result<BoringConnection> {
         let mut config = self.connector.configure().map_err(io::Error::other)?;
         // The certificate is checked against the REALITY key instead.
         config.set_verify_hostname(false);
@@ -128,26 +124,6 @@ impl Handler {
         });
         BoringConnection::client(ssl)
     }
-}
-
-fn parse_public_key(key: &str) -> Result<[u8; 32]> {
-    let bytes = hex::decode(key)
-        .or_else(|_| URL_SAFE_NO_PAD.decode(key))
-        .map_err(|_| anyhow!("public_key: neither hex nor base64url"))?;
-    bytes
-        .try_into()
-        .map_err(|_| anyhow!("public_key: must be 32 bytes"))
-}
-
-fn parse_short_id(short_id: &str) -> Result<[u8; 8]> {
-    if short_id.len() > 16 {
-        return Err(anyhow!("short_id: at most 16 hex digits"));
-    }
-    let mut out = [0u8; 8];
-    // Missing digits are zeros at the end, as Xray reads it.
-    let padded = format!("{:0<16}", short_id);
-    hex::decode_to_slice(&padded, &mut out).map_err(|_| anyhow!("short_id: not hex"))?;
-    Ok(out)
 }
 
 /// The session ID: the version, a timestamp and the short ID, sealed under
@@ -275,18 +251,6 @@ impl OutboundStreamHandler for Handler {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_parse_keys() {
-        let key = [7u8; 32];
-        assert_eq!(parse_public_key(&hex::encode(key)).unwrap(), key);
-        assert_eq!(parse_public_key(&URL_SAFE_NO_PAD.encode(key)).unwrap(), key);
-        assert!(parse_public_key("abcd").is_err());
-        assert_eq!(parse_short_id("ab").unwrap(), [0xab, 0, 0, 0, 0, 0, 0, 0]);
-        assert_eq!(parse_short_id("").unwrap(), [0; 8]);
-        assert!(parse_short_id("0123456789abcdef0").is_err());
-        assert!(parse_short_id("zz").is_err());
-    }
 
     // The REALITY ClientHello is the browser's, session ID aside.
     #[test]

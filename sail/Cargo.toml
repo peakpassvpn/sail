@@ -46,6 +46,7 @@ all-endpoints = [
     "inbound-tproxy",
     "inbound-vless",
     "inbound-vmess",
+    "inbound-reality",
     # outbounds
     "outbound-direct",
     "outbound-drop",
@@ -147,6 +148,7 @@ inbound-grpc = ["h2", "http"]
 inbound-amux = ["tokio-util"]
 inbound-quic = ["quic"]
 inbound-tls = ["tls"]
+inbound-reality = ["tls", "hkdf", "sha2", "hmac", "aes-gcm", "hex", "base64"]
 inbound-chain = []
 inbound-cat = ["tokio/io-std"]
 inbound-nf = ["libloading"]
