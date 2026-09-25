@@ -25,6 +25,12 @@ jobs:
       - name: test sail
         run: cargo test -p sail
 
+      - name: test sail-netstack
+        run: cargo test -p sail-netstack
+
+      - name: lint sail-netstack
+        run: cargo clippy -p sail-netstack --all-targets -- -D warnings
+
   build-cli-cross:
     runs-on: ubuntu-latest
     strategy:

@@ -1,0 +1,43 @@
+[package]
+name = "sail-netstack-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+sail-netstack = { path = ".." }
+
+[[bin]]
+name = "wire_parse"
+path = "fuzz_targets/wire_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fragment_reassembly"
+path = "fuzz_targets/fragment_reassembly.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "tcp_state"
+path = "fuzz_targets/tcp_state.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "tcp_table"
+path = "fuzz_targets/tcp_table.rs"
+test = false
+doc = false
+bench = false
+
+# Keep the fuzz harness independent from Sail's workspace and release graph.
+[workspace]

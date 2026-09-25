@@ -3,6 +3,7 @@ members = [
     "sail",
     "sail-cli",
     "sail-ffi",
+    "sail-netstack",
     "sail-plugins/shadowsocks",
 ]
 default-members = ["sail-cli"]

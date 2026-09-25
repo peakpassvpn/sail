@@ -1,0 +1,20 @@
+[package]
+name = "sail-netstack"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Resource-bounded userspace TCP/IP stack for sail"
+publish = false
+
+[dependencies]
+
+[dev-dependencies]
+futures = "0.3"
+smoltcp = { version = "0.12", default-features = false, features = ["std", "medium-ip", "proto-ipv4", "socket-tcp"] }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = "warn"
+pedantic = "warn"
