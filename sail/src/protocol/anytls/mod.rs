@@ -1,3 +1,32 @@
+//! AnyTLS: streams multiplexed over a TLS connection, with the first writes
+//! of each connection padded to sizes the server chooses.
+//!
+//! See <https://github.com/anytls/anytls-go/blob/main/docs/protocol.md>.
+//! This follows `sing-anytls`, which sing-box and mihomo use, including UDP
+//! as UDP over TCP (version 2) to `sp.v2.udp-over-tcp.arpa`.
+
+// Each end uses its own part of these.
+#[cfg_attr(
+    not(all(feature = "inbound-anytls", feature = "outbound-anytls")),
+    allow(dead_code)
+)]
+mod frame;
+#[cfg_attr(
+    not(all(feature = "inbound-anytls", feature = "outbound-anytls")),
+    allow(dead_code)
+)]
+mod padding;
+#[cfg_attr(
+    not(all(feature = "inbound-anytls", feature = "outbound-anytls")),
+    allow(dead_code)
+)]
+mod session;
+#[cfg_attr(
+    not(all(feature = "inbound-anytls", feature = "outbound-anytls")),
+    allow(dead_code)
+)]
+mod uot;
+
 #[cfg(feature = "inbound-anytls")]
 pub mod inbound;
 #[cfg(feature = "outbound-anytls")]
