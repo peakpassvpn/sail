@@ -88,6 +88,7 @@ async fn single_health_check(
                         vec![],
                         None,
                         false,
+                        Some(crate::transport::tls::Fingerprint::Chrome),
                         false,
                         false,
                         None,

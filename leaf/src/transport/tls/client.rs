@@ -12,20 +12,41 @@ use btls::x509::X509;
 use tokio::io::{AsyncRead, AsyncWrite};
 
 use super::conn::BoringConnection;
+use super::fingerprint::Fingerprint;
 use crate::transport::tls_stream::TlsStream;
 use crate::transport::vision::VisionState;
 
 pub struct TlsClient {
     connector: SslConnector,
     insecure: bool,
+    fingerprint: Option<Fingerprint>,
+    alpn: Vec<String>,
 }
 
 impl TlsClient {
     /// `certificate`, inline PEM or a path, replaces the bundled roots as the
-    /// certificates to trust. `insecure` trusts any certificate.
-    pub fn new(alpn: &[String], certificate: Option<&str>, insecure: bool) -> Result<Self> {
+    /// certificates to trust. `insecure` trusts any certificate. With a
+    /// `fingerprint` the ClientHello is the browser's, and an empty `alpn` is
+    /// the browser's default.
+    pub fn new(
+        alpn: &[String],
+        certificate: Option<&str>,
+        insecure: bool,
+        fingerprint: Option<Fingerprint>,
+    ) -> Result<Self> {
         let mut builder = SslConnector::bare_builder(SslMethod::tls())?;
         builder.set_min_proto_version(Some(SslVersion::TLS1_2))?;
+        if let Some(fingerprint) = fingerprint {
+            fingerprint.configure(&mut builder)?;
+        }
+        let alpn: Vec<String> = match fingerprint {
+            Some(fingerprint) if alpn.is_empty() => fingerprint
+                .default_alpn()
+                .iter()
+                .map(|p| p.to_string())
+                .collect(),
+            _ => alpn.to_vec(),
+        };
         if insecure {
             builder.set_verify(SslVerifyMode::NONE);
         } else {
@@ -36,11 +57,13 @@ impl TlsClient {
             }
         }
         if !alpn.is_empty() {
-            builder.set_alpn_protos(&alpn_wire(alpn)?)?;
+            builder.set_alpn_protos(&alpn_wire(&alpn)?)?;
         }
         Ok(Self {
             connector: builder.build(),
             insecure,
+            fingerprint,
+            alpn,
         })
     }
 
@@ -69,6 +92,11 @@ impl TlsClient {
                 )
             })?;
         }
+        if let Some(fingerprint) = self.fingerprint {
+            fingerprint
+                .configure_connection(&mut ssl, &self.alpn, ech_config_list.is_some())
+                .map_err(io::Error::other)?;
+        }
         BoringConnection::client(ssl)
     }
 
@@ -91,7 +119,7 @@ impl TlsClient {
 }
 
 /// ALPN protocols as the wire lists them: each prefixed with its length.
-fn alpn_wire(alpn: &[String]) -> Result<Vec<u8>> {
+pub(crate) fn alpn_wire(alpn: &[String]) -> Result<Vec<u8>> {
     let mut wire = Vec::new();
     for proto in alpn {
         let len = u8::try_from(proto.len())
@@ -163,7 +191,7 @@ mod tests {
     #[test]
     fn test_client_hello_is_ready() {
         use crate::transport::tls_stream::TlsConnection;
-        let client = TlsClient::new(&[], None, false).unwrap();
+        let client = TlsClient::new(&[], None, false, None).unwrap();
         let mut conn = client.connection("example.com", None).unwrap();
         assert!(conn.is_handshaking());
         assert!(conn.wants_write());

@@ -31,11 +31,11 @@ A versatile and efficient proxy framework.
 | Transport | Inbound | Outbound | Notes |
 |---|---|---|---|
 | WebSocket | ✅ | ✅ | |
-| TLS | ✅ | ✅ | |
+| TLS | ✅ | ✅ | BoringSSL; the outbound sends Chrome's ClientHello by default (`tls.utls`) |
 | QUIC | ✅ | ✅ | |
 | AMux | ✅ | ✅ | Leaf specific multiplexing |
 | Obfs | ❌ | ✅ | Simple obfuscation |
-| Reality | ❌ | ✅ | Xray Reality |
+| Reality | ❌ | ✅ | Xray Reality, with Chrome's ClientHello and X25519MLKEM768 |
 | MPTP | ✅ | ✅ | Multi-path Transport Protocol (Aggregation) ([Architecture](docs/mptp_architecture.md), [Usage](docs/mptp_usage.md)) |
 
 ### Traffic Control

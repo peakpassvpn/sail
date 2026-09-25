@@ -178,6 +178,43 @@ pub struct OutboundTls {
     pub ech: Option<OutboundEch>,
     #[serde(default)]
     pub reality: Option<OutboundReality>,
+    /// The browser the ClientHello imitates. Unset, it is Chrome's.
+    #[serde(default)]
+    pub utls: Option<OutboundUtls>,
+}
+
+/// Unlike sing-box, a browser fingerprint is on by default: set
+/// `enabled: false` for BoringSSL's own ClientHello.
+#[derive(Deserialize, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct OutboundUtls {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default = "default_fingerprint")]
+    pub fingerprint: String,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_fingerprint() -> String {
+    "chrome".to_string()
+}
+
+impl OutboundTls {
+    /// The ClientHello fingerprint, or None for BoringSSL's own.
+    #[cfg(feature = "tls")]
+    fn fingerprint(&self, tag: &str) -> Result<Option<crate::transport::tls::Fingerprint>> {
+        use crate::transport::tls::Fingerprint;
+        match &self.utls {
+            None => Ok(Some(Fingerprint::Chrome)),
+            Some(utls) if !utls.enabled => Ok(None),
+            Some(utls) => Fingerprint::from_name(&utls.fingerprint)
+                .map(Some)
+                .map_err(|e| anyhow!("[{}] outbound: tls.utls.fingerprint: {}", tag, e)),
+        }
+    }
 }
 
 #[derive(Deserialize, Debug)]
@@ -491,6 +528,13 @@ fn tls_outbound(
                     server_name,
                     &reality.public_key,
                     &reality.short_id,
+                    tls.fingerprint(tag)?.ok_or_else(|| {
+                        anyhow!(
+                            "[{}] outbound: tls.reality: needs a browser fingerprint, \
+                             tls.utls cannot be disabled",
+                            tag
+                        )
+                    })?,
                 )
                 .map_err(|e| anyhow!("[{}] outbound: tls.reality: {}", tag, e))?,
             ))
@@ -515,6 +559,7 @@ fn tls_outbound(
             tls.alpn.clone().map(Listable::into_vec).unwrap_or_default(),
             trusted_certificate(tls, env),
             tls.insecure,
+            tls.fingerprint(tag)?,
             ech.is_some(),
             ech.is_some_and(|e| e.disable_dns_lookup),
             ech_config_list,
@@ -916,4 +961,42 @@ fn amux_inbound(
     )));
     #[cfg(not(feature = "inbound-amux"))]
     Err(not_compiled(tag, "inbound", "multiplex", "inbound-amux"))
+}
+
+#[cfg(all(test, feature = "tls"))]
+mod tests {
+    use super::OutboundTls;
+    use crate::transport::tls::Fingerprint;
+
+    fn tls(json: &str) -> OutboundTls {
+        serde_json::from_str(json).unwrap()
+    }
+
+    #[test]
+    fn test_utls_fingerprint() {
+        let chrome = Some(Fingerprint::Chrome);
+        assert_eq!(tls(r#"{"enabled": true}"#).fingerprint("t").unwrap(), chrome);
+        assert_eq!(
+            tls(r#"{"enabled": true, "utls": {}}"#).fingerprint("t").unwrap(),
+            chrome
+        );
+        assert_eq!(
+            tls(r#"{"enabled": true, "utls": {"fingerprint": "edge"}}"#)
+                .fingerprint("t")
+                .unwrap(),
+            chrome
+        );
+        assert_eq!(
+            tls(r#"{"enabled": true, "utls": {"enabled": false}}"#)
+                .fingerprint("t")
+                .unwrap(),
+            None
+        );
+        let err = tls(r#"{"enabled": true, "utls": {"fingerprint": "netscape"}}"#)
+            .fingerprint("t")
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("tls.utls.fingerprint"), "{}", err);
+        assert!(serde_json::from_str::<OutboundTls>(r#"{"utls": {"fingerprnt": "chrome"}}"#).is_err());
+    }
 }
