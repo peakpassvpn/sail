@@ -1,4 +1,6 @@
+use std::collections::HashMap;
 use std::io;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use bytes::{BufMut, BytesMut};
@@ -10,12 +12,62 @@ use crate::{
     session::{Session, SocksAddr, SocksAddrWireType},
 };
 
+/// How long a SOCKS4 USERID or SOCKS4a host may be. Neither has a length of
+/// its own, and a client that sends more is not one to hold memory for.
+const MAX_SOCKS4_FIELD: usize = 1024;
+
+/// Reads a SOCKS4 field up to its NUL, without the NUL.
+async fn read_nul_terminated(stream: &mut AnyStream) -> io::Result<Vec<u8>> {
+    let mut field = Vec::new();
+    loop {
+        let b = stream.read_u8().await?;
+        if b == 0 {
+            return Ok(field);
+        }
+        if field.len() >= MAX_SOCKS4_FIELD {
+            return Err(io::Error::other(format!(
+                "socks4 field longer than {} bytes",
+                MAX_SOCKS4_FIELD
+            )));
+        }
+        field.push(b);
+    }
+}
+
+/// Compares without an early exit, so that timing does not tell how much of
+/// a guessed password was right.
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+}
+
 pub struct Handler {
-    pub username: Option<String>,
-    pub password: Option<String>,
+    /// Passwords by username. Empty lets anyone in.
+    users: Arc<HashMap<String, String>>,
 }
 
 impl Handler {
+    pub fn new(users: HashMap<String, String>) -> Self {
+        Handler {
+            users: Arc::new(users),
+        }
+    }
+
+    /// Handles a stream whose version byte, `version`, was read already:
+    /// by `handle`, or by the mixed inbound telling SOCKS from HTTP.
+    pub(crate) async fn handle_version(
+        &self,
+        sess: Session,
+        stream: AnyStream,
+        version: u8,
+    ) -> io::Result<AnyInboundTransport> {
+        let span = sess.span();
+        match version {
+            0x04 => self.handle_socks4(sess, stream).instrument(span).await,
+            0x05 => self.handle_socks5(sess, stream).instrument(span).await,
+            v => Err(io::Error::other(format!("unknown socks version {}", v))),
+        }
+    }
+
     async fn handle_socks4(
         &self,
         mut sess: Session,
@@ -37,14 +89,15 @@ impl Handler {
         let ip_bytes = [buf[3], buf[4], buf[5], buf[6]];
 
         // USERID
-        let mut userid = Vec::new();
-        loop {
-            let mut b = [0u8; 1];
-            stream.read_exact(&mut b).await?;
-            if b[0] == 0 {
-                break;
-            }
-            userid.push(b[0]);
+        let _userid = read_nul_terminated(&mut stream).await?;
+
+        // SOCKS4 has no passwords, so it cannot authenticate anyone.
+        if !self.users.is_empty() {
+            // Reply: VN=0, CD=91(Rejected)
+            stream.write_all(&[0, 91, 0, 0, 0, 0, 0, 0]).await?;
+            return Err(io::Error::other(
+                "socks4 refused: users are configured, and socks4 cannot authenticate",
+            ));
         }
 
         // SOCKS4a check: 0.0.0.x, x != 0
@@ -52,15 +105,7 @@ impl Handler {
             ip_bytes[0] == 0 && ip_bytes[1] == 0 && ip_bytes[2] == 0 && ip_bytes[3] != 0;
 
         let destination = if is_socks4a {
-            let mut domain = Vec::new();
-            loop {
-                let mut b = [0u8; 1];
-                stream.read_exact(&mut b).await?;
-                if b[0] == 0 {
-                    break;
-                }
-                domain.push(b[0]);
-            }
+            let domain = read_nul_terminated(&mut stream).await?;
             let domain_str = String::from_utf8_lossy(&domain).to_string();
             SocksAddr::Domain(domain_str, port)
         } else {
@@ -103,7 +148,7 @@ impl Handler {
         // methods
         stream.read_exact(&mut buf[..]).await?;
         let mut method_accepted = false;
-        let supported_method: u8 = if self.username.is_some() { 0x02 } else { 0x00 };
+        let supported_method: u8 = if self.users.is_empty() { 0x00 } else { 0x02 };
 
         for method in buf[..].iter() {
             if method == &supported_method {
@@ -147,9 +192,11 @@ impl Handler {
             stream.read_exact(&mut buf[..]).await?;
             let password = String::from_utf8_lossy(&buf).to_string();
 
-            if self.username.as_ref().unwrap() == &username
-                && self.password.as_ref().unwrap() == &password
-            {
+            let accepted = self
+                .users
+                .get(&username)
+                .is_some_and(|expected| constant_time_eq(expected.as_bytes(), password.as_bytes()));
+            if accepted {
                 stream.write_all(&[0x01, 0x00]).await?;
                 sess.user = Some(username.into());
             } else {
@@ -235,11 +282,85 @@ impl InboundStreamHandler for Handler {
         tracing::trace!("handling inbound stream");
         let mut buf = [0u8; 1];
         stream.read_exact(&mut buf).await?;
-        let span = sess.span();
-        match buf[0] {
-            0x04 => self.handle_socks4(sess, stream).instrument(span).await,
-            0x05 => self.handle_socks5(sess, stream).instrument(span).await,
-            v => Err(io::Error::other(format!("unknown socks version {}", v))),
+        self.handle_version(sess, stream, buf[0]).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn handler() -> Handler {
+        Handler::new(HashMap::from([
+            ("alice".to_string(), "apass".to_string()),
+            ("bob".to_string(), "bpass".to_string()),
+        ]))
+    }
+
+    /// Runs `request` through the handler, returning its result and what it
+    /// answered.
+    async fn run(handler: Handler, request: &[u8]) -> (io::Result<Option<Session>>, Vec<u8>) {
+        let (client, server) = tokio::io::duplex(4096);
+        let (mut client_r, mut client_w) = tokio::io::split(client);
+        client_w.write_all(request).await.unwrap();
+        let result = handler
+            .handle(Session::default(), Box::new(server))
+            .await
+            .map(|transport| match transport {
+                InboundTransport::Stream(_, sess) => Some(sess),
+                _ => None,
+            });
+        drop(client_w);
+        let mut answer = Vec::new();
+        client_r.read_to_end(&mut answer).await.unwrap();
+        (result, answer)
+    }
+
+    fn socks5_connect(username: &str, password: &str) -> Vec<u8> {
+        let mut request = vec![0x05, 0x01, 0x02, 0x01, username.len() as u8];
+        request.extend_from_slice(username.as_bytes());
+        request.push(password.len() as u8);
+        request.extend_from_slice(password.as_bytes());
+        // CONNECT 127.0.0.1:80
+        request.extend_from_slice(&[0x05, 0x01, 0x00, 0x01, 127, 0, 0, 1, 0, 80]);
+        request
+    }
+
+    #[tokio::test]
+    async fn any_configured_user_authenticates() {
+        for (user, pass) in [("alice", "apass"), ("bob", "bpass")] {
+            let (result, answer) = run(handler(), &socks5_connect(user, pass)).await;
+            let sess = result.unwrap().unwrap();
+            assert_eq!(sess.user.as_deref(), Some(user));
+            assert_eq!(sess.destination.to_string(), "127.0.0.1:80");
+            assert_eq!(&answer[..4], &[0x05, 0x02, 0x01, 0x00]);
         }
+    }
+
+    #[tokio::test]
+    async fn another_users_password_is_refused() {
+        let (result, answer) = run(handler(), &socks5_connect("bob", "apass")).await;
+        assert!(result.is_err());
+        assert_eq!(answer, [0x05, 0x02, 0x01, 0x01]);
+    }
+
+    #[tokio::test]
+    async fn socks4_is_refused_when_users_are_set() {
+        let request = [0x04, 0x01, 0, 80, 127, 0, 0, 1, b'x', 0];
+        let (result, answer) = run(handler(), &request).await;
+        assert!(result.is_err());
+        assert_eq!(answer[1], 91);
+
+        let (result, answer) = run(Handler::new(HashMap::new()), &request).await;
+        assert!(result.unwrap().is_some());
+        assert_eq!(answer[1], 90);
+    }
+
+    #[tokio::test]
+    async fn socks4_fields_are_bounded() {
+        let mut request = vec![0x04, 0x01, 0, 80, 127, 0, 0, 1];
+        request.resize(request.len() + MAX_SOCKS4_FIELD + 10, b'a');
+        let (result, _) = run(Handler::new(HashMap::new()), &request).await;
+        assert!(result.is_err());
     }
 }
