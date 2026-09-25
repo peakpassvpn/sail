@@ -1,42 +1,6 @@
-pub fn build_vless_tcp_header(
-    uuid_bytes: &[u8; 16],
-    dst_addr: &str,
-    dst_port: u16,
-    addr_type: u8,
-) -> Vec<u8> {
-    let mut vless_header = vec![];
-    vless_header.push(0x00); // Version
-    vless_header.extend_from_slice(uuid_bytes);
-
-    // TCP - Use Vision Flow
-    let flow_str = b"xtls-rprx-vision";
-    vless_header.push(18); // Extensions length
-    vless_header.push(0x0a); // Protobuf Field 1, Type Length-Delimited
-    vless_header.push(16); // String length
-    vless_header.extend_from_slice(flow_str);
-    vless_header.push(0x01); // Command: TCP
-
-    vless_header.push((dst_port >> 8) as u8);
-    vless_header.push((dst_port & 0xFF) as u8);
-    vless_header.push(addr_type);
-
-    match addr_type {
-        1 => {
-            let parts: Vec<u8> = dst_addr.split('.').map(|s| s.parse().unwrap()).collect();
-            vless_header.extend_from_slice(&parts);
-        }
-        2 => {
-            vless_header.push(dst_addr.len() as u8);
-            vless_header.extend_from_slice(dst_addr.as_bytes());
-        }
-        3 => {
-            let addr: std::net::Ipv6Addr = dst_addr.parse().unwrap();
-            vless_header.extend_from_slice(&addr.octets());
-        }
-        _ => unreachable!(),
-    }
-    vless_header
-}
+//! XTLS Vision over VLESS: the padded frames both sides write while the
+//! proxied traffic may still be a TLS handshake, and the switch to direct
+//! copy.
 
 pub struct VisionParser {
     uuid_bytes: [u8; 16],
@@ -62,6 +26,14 @@ impl VisionParser {
             vless_response_header_parsed: false,
             v_direct_copy_rx: false,
             v_vision_done: false,
+        }
+    }
+
+    /// A parser for what a client sends: no response header comes first.
+    pub fn for_server(uuid_bytes: [u8; 16]) -> Self {
+        Self {
+            vless_response_header_parsed: true,
+            ..Self::new(uuid_bytes)
         }
     }
 
@@ -379,6 +351,16 @@ impl<S: AsyncRead + AsyncWrite + Unpin> VlessStream<S> {
             }
         }
         Poll::Ready(Ok(()))
+    }
+
+    /// The server side: it reads the client's frames, which follow the
+    /// request directly. The response header goes out beneath it, see
+    /// `request::ServerStream`.
+    pub fn server(stream: S, uuid_bytes: [u8; 16], vision_state: Option<VisionState>) -> Self {
+        Self {
+            vision_parser: VisionParser::for_server(uuid_bytes),
+            ..Self::new(stream, uuid_bytes, vision_state)
+        }
     }
 
     pub fn get_stream_mut(&mut self) -> &mut S {

@@ -2,15 +2,46 @@ use std::io;
 
 use async_trait::async_trait;
 use tokio::io::AsyncWriteExt;
-use uuid::Uuid;
 
-use super::super::stream::{build_vless_tcp_header, VlessStream};
+use super::super::request::{encode_request, ClientStream, Flow, COMMAND_TCP};
+use super::super::stream::VlessStream;
 use crate::{adapter::*, session::*, transport::vision::VisionState};
 
 pub struct Handler {
     pub address: String,
     pub port: u16,
-    pub uuid: String,
+    pub uuid: [u8; 16],
+    pub flow: Flow,
+}
+
+/// Sends a request and wraps `stream` for what follows it: Vision frames
+/// with Vision, else plain data behind the response header.
+pub(super) async fn open(
+    sess: &Session,
+    mut stream: AnyStream,
+    uuid: &[u8; 16],
+    flow: Flow,
+    command: u8,
+    destination: Option<&SocksAddr>,
+) -> io::Result<AnyStream> {
+    let header = encode_request(uuid, flow, command, destination);
+    match flow {
+        Flow::Vision => {
+            // From the request on, the TLS layer must stop reads at record
+            // boundaries until Vision settles.
+            VisionState::of(sess).start();
+            stream.write_all(&header).await?;
+            Ok(Box::new(VlessStream::new(
+                stream,
+                *uuid,
+                Some(VisionState::of(sess)),
+            )))
+        }
+        Flow::None => {
+            stream.write_all(&header).await?;
+            Ok(Box::new(ClientStream::new(stream)))
+        }
+    }
 }
 
 #[async_trait]
@@ -26,35 +57,15 @@ impl OutboundStreamHandler for Handler {
         stream: Option<AnyStream>,
     ) -> io::Result<AnyStream> {
         tracing::trace!("handling outbound stream");
-        let u = Uuid::parse_str(&self.uuid)
-            .map_err(|e| io::Error::other(format!("parse uuid failed: {}", e)))?;
-        let uuid_bytes = *u.as_bytes();
-
-        let addr_type = match sess.destination.ip() {
-            Some(ip) => {
-                if ip.is_ipv4() {
-                    1
-                } else {
-                    3
-                }
-            }
-            None => 2,
-        };
-        let host = sess.destination.host();
-        let port = sess.destination.port();
-
-        let header = build_vless_tcp_header(&uuid_bytes, &host, port, addr_type);
-
-        let mut stream = stream.ok_or_else(|| io::Error::other("invalid input"))?;
-        // From the request on, the TLS layer must stop reads at record
-        // boundaries until Vision settles.
-        VisionState::of(sess).start();
-        stream.write_all(&header).await?;
-
-        Ok(Box::new(VlessStream::new(
+        let stream = stream.ok_or_else(|| io::Error::other("invalid input"))?;
+        open(
+            sess,
             stream,
-            uuid_bytes,
-            Some(VisionState::of(sess)),
-        )))
+            &self.uuid,
+            self.flow,
+            COMMAND_TCP,
+            Some(&sess.destination),
+        )
+        .await
     }
 }

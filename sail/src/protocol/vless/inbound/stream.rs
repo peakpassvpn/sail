@@ -1,0 +1,192 @@
+use std::collections::HashMap;
+use std::io;
+use std::net::SocketAddr;
+use std::sync::Arc;
+
+use async_trait::async_trait;
+use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, ReadHalf, WriteHalf};
+
+use super::super::request::{
+    read_packet, read_request, write_packet, Flow, ServerStream, COMMAND_MUX, COMMAND_TCP,
+    COMMAND_UDP,
+};
+use super::super::stream::VlessStream;
+use crate::protocol::vmess::xudp;
+use crate::transport::vision::VisionState;
+use crate::{
+    adapter::*,
+    session::{DatagramSource, Network, Session, SocksAddr},
+};
+
+/// A VLESS user.
+pub struct User {
+    pub name: Option<Arc<str>>,
+    pub flow: Flow,
+}
+
+pub struct Handler {
+    users: HashMap<[u8; 16], User>,
+}
+
+impl Handler {
+    /// Takes the users by UUID.
+    pub fn new(users: HashMap<[u8; 16], User>) -> Self {
+        Handler { users }
+    }
+}
+
+fn refused(what: String) -> io::Error {
+    io::Error::new(io::ErrorKind::PermissionDenied, what)
+}
+
+#[async_trait]
+impl InboundStreamHandler for Handler {
+    async fn handle<'a>(
+        &'a self,
+        mut sess: Session,
+        mut stream: AnyStream,
+    ) -> io::Result<AnyInboundTransport> {
+        tracing::trace!("handling inbound stream");
+        let request = read_request(&mut stream, |uuid| self.users.contains_key(uuid)).await?;
+        let user = self
+            .users
+            .get(&request.uuid)
+            .ok_or_else(|| refused("unknown user".to_string()))?;
+        sess.user = user.name.clone();
+        let flow = Flow::parse(&request.flow).map_err(refused)?;
+        // As Xray has it: a Vision user may leave the flow out only for UDP,
+        // which Vision cannot carry itself.
+        match (flow, user.flow) {
+            (Flow::Vision, Flow::Vision) if request.command == COMMAND_UDP => {
+                return Err(refused(
+                    "xtls-rprx-vision does not carry UDP; use xudp".to_string(),
+                ))
+            }
+            (Flow::Vision, Flow::Vision) | (Flow::None, Flow::None) => {}
+            (Flow::None, Flow::Vision) if request.command != COMMAND_TCP => {}
+            (flow, expected) => {
+                return Err(refused(format!(
+                    "flow mismatch: the user has \"{}\", the request \"{}\"",
+                    expected.as_str(),
+                    flow.as_str()
+                )))
+            }
+        }
+
+        let stream: AnyStream = Box::new(ServerStream::new(stream));
+        let stream: AnyStream = match flow {
+            Flow::Vision => {
+                // From here the TLS layer must stop reads at record
+                // boundaries until Vision settles.
+                let vision = VisionState::of(&sess);
+                vision.start();
+                Box::new(VlessStream::server(stream, request.uuid, Some(vision)))
+            }
+            Flow::None => stream,
+        };
+
+        let source = DatagramSource::new(sess.source, sess.stream_id).with_user(sess.user.clone());
+        match (request.command, request.destination) {
+            (COMMAND_TCP, Some(destination)) => {
+                sess.destination = destination;
+                Ok(InboundTransport::Stream(stream, sess))
+            }
+            (COMMAND_UDP, Some(destination)) => {
+                sess.network = Network::Udp;
+                sess.destination = destination.clone();
+                Ok(InboundTransport::Datagram(
+                    Box::new(Datagram {
+                        stream,
+                        source,
+                        destination,
+                    }),
+                    Some(sess),
+                ))
+            }
+            (COMMAND_MUX, _) => {
+                sess.network = Network::Udp;
+                Ok(InboundTransport::Datagram(
+                    Box::new(xudp::ServerDatagram::new(stream, source)),
+                    Some(sess),
+                ))
+            }
+            _ => Err(io::Error::other("invalid request")),
+        }
+    }
+}
+
+/// VLESS's own UDP: length-prefixed packets to the request's destination.
+struct Datagram {
+    stream: AnyStream,
+    source: DatagramSource,
+    destination: SocksAddr,
+}
+
+impl InboundDatagram for Datagram {
+    fn split(
+        self: Box<Self>,
+    ) -> (
+        Box<dyn InboundDatagramRecvHalf>,
+        Box<dyn InboundDatagramSendHalf>,
+    ) {
+        let (r, w) = tokio::io::split(self.stream);
+        (
+            Box::new(DatagramRecvHalf {
+                reader: r,
+                source: self.source,
+                destination: self.destination,
+            }),
+            Box::new(DatagramSendHalf { writer: w }),
+        )
+    }
+
+    fn into_std(self: Box<Self>) -> io::Result<std::net::UdpSocket> {
+        Err(io::Error::other("stream transport"))
+    }
+}
+
+struct DatagramRecvHalf<T> {
+    reader: ReadHalf<T>,
+    source: DatagramSource,
+    destination: SocksAddr,
+}
+
+#[async_trait]
+impl<T> InboundDatagramRecvHalf for DatagramRecvHalf<T>
+where
+    T: AsyncRead + AsyncWrite + Send + Sync,
+{
+    async fn recv_from(
+        &mut self,
+        buf: &mut [u8],
+    ) -> ProxyResult<(usize, DatagramSource, SocksAddr)> {
+        let n = read_packet(&mut self.reader, buf)
+            .await
+            .map_err(|e| ProxyError::DatagramFatal(e.into()))?;
+        Ok((n, self.source.clone(), self.destination.clone()))
+    }
+}
+
+struct DatagramSendHalf<T> {
+    writer: WriteHalf<T>,
+}
+
+#[async_trait]
+impl<T> InboundDatagramSendHalf for DatagramSendHalf<T>
+where
+    T: AsyncRead + AsyncWrite + Send + Sync,
+{
+    async fn send_to(
+        &mut self,
+        buf: &[u8],
+        _src_addr: &SocksAddr,
+        _dst_addr: &SocketAddr,
+    ) -> io::Result<usize> {
+        write_packet(&mut self.writer, buf).await?;
+        Ok(buf.len())
+    }
+
+    async fn close(&mut self) -> io::Result<()> {
+        self.writer.shutdown().await
+    }
+}

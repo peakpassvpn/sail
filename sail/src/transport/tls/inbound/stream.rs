@@ -4,7 +4,11 @@ use btls::ssl::{Ssl, SslAcceptor, SslMethod, SslVersion};
 
 use super::super::client::{load_certificates, load_private_key};
 use super::super::conn::BoringConnection;
-use crate::{adapter::*, session::Session, transport::tls_stream::TlsStream};
+use crate::{
+    adapter::*,
+    session::Session,
+    transport::{tls_stream::TlsStream, vision::VisionState},
+};
 
 pub struct Handler {
     acceptor: SslAcceptor,
@@ -42,7 +46,9 @@ impl InboundStreamHandler for Handler {
     ) -> std::io::Result<AnyInboundTransport> {
         tracing::trace!("handling inbound stream");
         let ssl = Ssl::new(self.acceptor.context()).map_err(std::io::Error::other)?;
-        let mut stream = TlsStream::new(BoringConnection::server(ssl)?, stream, None);
+        // VLESS with XTLS Vision may hand the connection over to direct copy.
+        let vision = VisionState::of(&sess);
+        let mut stream = TlsStream::new(BoringConnection::server(ssl)?, stream, Some(vision));
         stream.handshake().await?;
         Ok(InboundTransport::Stream(Box::new(stream), sess))
     }

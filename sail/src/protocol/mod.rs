@@ -33,9 +33,14 @@ pub mod trojan;
 pub mod tuic;
 #[cfg(feature = "inbound-tun")]
 pub mod tun;
-#[cfg(feature = "outbound-vless")]
+#[cfg(any(feature = "inbound-vless", feature = "outbound-vless"))]
 pub mod vless;
-#[cfg(feature = "outbound-vmess")]
+// XUDP lives with VMess and serves VLESS too.
+#[cfg(any(
+    feature = "inbound-vless",
+    feature = "outbound-vless",
+    feature = "outbound-vmess"
+))]
 pub mod vmess;
 
 pub mod group;
