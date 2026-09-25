@@ -43,6 +43,10 @@ pub struct DatagramSource {
     pub address: SocketAddr,
     pub stream_id: Option<StreamId>,
     pub process_name: Option<String>,
+    /// Who sent it, for inbounds that authenticate each datagram. It is
+    /// part of the key: datagrams of different users never share a
+    /// session.
+    pub user: Option<std::sync::Arc<str>>,
 }
 
 impl DatagramSource {
@@ -51,7 +55,14 @@ impl DatagramSource {
             address,
             stream_id,
             process_name: None,
+            user: None,
         }
+    }
+
+    /// The same source, sent by `user`.
+    pub fn with_user(mut self, user: Option<std::sync::Arc<str>>) -> Self {
+        self.user = user;
+        self
     }
 
     pub fn new_with_process_name(
@@ -63,6 +74,7 @@ impl DatagramSource {
             address,
             stream_id,
             process_name,
+            user: None,
         }
     }
 }

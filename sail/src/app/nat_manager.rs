@@ -151,11 +151,15 @@ impl NatManager {
             destination: pkt.dst_addr.clone(),
             inbound_tag: inbound_tag.to_string(),
             process_name: dgram_src.process_name.clone(),
+            user: dgram_src.user.clone(),
             ..Default::default()
         });
 
         if sess.inbound_tag.is_empty() {
             sess.inbound_tag = inbound_tag.to_string();
+        }
+        if dgram_src.user.is_some() {
+            sess.user = dgram_src.user.clone();
         }
 
         sess.new_span();

@@ -155,8 +155,8 @@ fn sail_to_sing_box(
 }
 
 /// sing-box (socks in, ss2022 out) -> sail (ss2022 in, direct out).
-/// With `user`, sail has users and only routes that one's TCP: a user
-/// sail misidentifies fails the TCP check.
+/// With `user`, sail has users and only routes that one's traffic: a user
+/// sail misidentifies fails the TCP and UDP checks.
 fn sing_box_to_sail(
     method: &str,
     user: Option<&str>,
@@ -179,12 +179,9 @@ fn sing_box_to_sail(
                 { "name": "alice", "password": alice },
                 { "name": "bob", "password": bob },
             ]);
-            // UDP users do not reach the session yet, so UDP goes
-            // through regardless.
             route = serde_json::json!({ "rules": [
                 { "auth_user": [name], "outbound": "direct" },
-                { "network": ["udp"], "outbound": "direct" },
-                { "network": ["tcp"], "action": "reject" },
+                { "network": ["tcp", "udp"], "action": "reject" },
             ]});
             let upsk = if name == "alice" { alice } else { bob };
             format!("{}:{}", server, upsk)
@@ -345,7 +342,14 @@ fn sail_to_sail() -> anyhow::Result<()> {
             "password": server,
         });
         let mut password = server.to_string();
+        let mut route = serde_json::json!({ "rules": [] });
         if users {
+            // Only bob gets through, over TCP and UDP alike, so a user
+            // misidentified on either fails the checks.
+            route = serde_json::json!({ "rules": [
+                { "auth_user": ["bob"], "outbound": "direct" },
+                { "network": ["tcp", "udp"], "action": "reject" },
+            ]});
             inbound["users"] = serde_json::json!([
                 { "name": "alice", "password": alice },
                 { "name": "bob", "password": bob },
@@ -365,7 +369,8 @@ fn sail_to_sail() -> anyhow::Result<()> {
         .to_string();
         let server = serde_json::json!({
             "inbounds": [inbound],
-            "outbounds": [{ "type": "direct" }],
+            "outbounds": [{ "type": "direct", "tag": "direct" }],
+            "route": route,
         })
         .to_string();
         common::test_configs(vec![client, server], "127.0.0.1", port)

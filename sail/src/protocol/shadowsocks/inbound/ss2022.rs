@@ -106,15 +106,16 @@ impl InboundDatagramRecvHalf for RecvHalf {
             .server
             .decode(src.address, packet)
             .map_err(|e| ProxyError::DatagramWarn(anyhow!("ss2022 packet: {}", e)))?;
-        // The user of a UDP packet cannot reach the session yet: the
-        // datagram source has no field for it.
-        let _ = received.user;
         let payload = &packet[received.payload];
         if payload.len() > buf.len() {
             return Err(ProxyError::DatagramWarn(anyhow!("ss2022 packet too large")));
         }
         buf[..payload.len()].copy_from_slice(payload);
-        Ok((payload.len(), src, received.destination))
+        Ok((
+            payload.len(),
+            src.with_user(received.user),
+            received.destination,
+        ))
     }
 }
 
