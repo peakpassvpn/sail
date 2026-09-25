@@ -9,6 +9,7 @@ use super::Incoming;
 
 pub struct Handler {
     pub actors: Vec<AnyInboundHandler>,
+    pub accept: super::Accept,
 }
 
 #[async_trait]
@@ -38,7 +39,7 @@ impl InboundStreamHandler for Handler {
             // The actors that have not run belong to each transport this one
             // yields, not to the thing yielding them.
             Folded::Incoming(incoming, next) => Ok(InboundTransport::Incoming(Box::new(
-                Incoming::new(incoming, self.actors[next..].to_vec()),
+                Incoming::new(incoming, self.actors[next..].to_vec(), self.accept),
             ))),
         }
     }

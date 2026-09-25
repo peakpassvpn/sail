@@ -14,6 +14,7 @@ use crate::{adapter::*, session::Session};
 pub struct Handler {
     pub path: String,
     pub headers: HashMap<String, String>,
+    pub half_close: bool,
 }
 
 struct Request<'a> {
@@ -31,12 +32,6 @@ impl<'a> IntoClientRequest for Request<'a> {
                 req.headers_mut()
                     .insert(HeaderName::try_from(k)?, HeaderValue::from_str(v)?);
             }
-        }
-        if !crate::option::HTTP_USER_AGENT.is_empty() {
-            req.headers_mut().insert(
-                ::http::header::USER_AGENT,
-                HeaderValue::from_static(&crate::option::HTTP_USER_AGENT),
-            );
         }
         Ok(req)
     }
@@ -74,7 +69,7 @@ impl OutboundStreamHandler for Handler {
             let (socket, _) = client_async_with_config(req, stream, Some(ws_config))
                 .map_err(|e| io::Error::other(format!("connect ws {} failed: {}", &url, e)))
                 .await?;
-            let ws_stream = super::ws_stream::WebSocketToStream::new(socket);
+            let ws_stream = super::ws_stream::WebSocketToStream::new(socket, self.half_close);
             Ok(Box::new(ws_stream))
         } else {
             Err(io::Error::other("invalid input"))

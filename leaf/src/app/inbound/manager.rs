@@ -32,6 +32,7 @@ pub struct InboundManager {
 impl InboundManager {
     pub fn new(
         inbounds: &[config::Inbound],
+        env: &crate::runtime::RuntimeEnv,
         dispatcher: Arc<Dispatcher>,
         nat_manager: Arc<NatManager>,
     ) -> Result<Self> {
@@ -40,6 +41,7 @@ impl InboundManager {
             &include::INBOUNDS,
             inbounds,
             include::LISTENER_INBOUNDS,
+            env,
             &mut handlers,
         )?;
 
@@ -217,6 +219,7 @@ mod tests {
             &include::INBOUNDS,
             &config.inbounds,
             include::LISTENER_INBOUNDS,
+            &crate::runtime::RuntimeEnv::default(),
             &mut handlers,
         )?;
         Ok(plan_listeners(&config.inbounds, &handlers)?

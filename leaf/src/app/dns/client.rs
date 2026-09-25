@@ -299,14 +299,14 @@ impl DnsClient {
         resolver: &Resolver,
         doh: &DohResolver,
     ) -> Result<(Message, Duration)> {
-        for i in 0..*option::MAX_DNS_RETRIES {
+        for i in 0..self.tuning.max_retries {
             let start = tokio::time::Instant::now();
             debug!(
                 "looking up host={} server={} ({}/{})",
                 host,
                 resolver,
                 i + 1,
-                *option::MAX_DNS_RETRIES
+                self.tuning.max_retries
             );
             let bootstrap_addr = match self
                 .resolve_doh_bootstrap_addr(&doh.domain, doh.bootstrap_ip)
@@ -487,7 +487,11 @@ impl DnsClient {
         Ok(parsed_hosts)
     }
 
-    pub fn new(dns: &crate::config::Dns, dial: Arc<crate::net::DialOptions>) -> Result<Self> {
+    pub fn new(
+        dns: &crate::config::Dns,
+        dial: Arc<crate::net::DialOptions>,
+        tuning: crate::runtime::options::Dns,
+    ) -> Result<Self> {
         let servers = Self::load_servers(dns)?;
         let hosts = Self::load_hosts(dns)?;
         let ipv4_cache = Arc::new(TokioMutex::new(LruCache::<String, CacheEntry>::new(
@@ -508,8 +512,12 @@ impl DnsClient {
             ipv6_cache,
             ech_cache,
             ech_query_locks: Arc::new(TokioMutex::new(HashMap::new())),
-            selector_state: Arc::new(Mutex::new(ServerSelectorState::default())),
+            selector_state: Arc::new(Mutex::new(ServerSelectorState {
+                tuning: tuning.clone(),
+                ..Default::default()
+            })),
             dial,
+            tuning,
         })
     }
 
@@ -611,13 +619,13 @@ impl DnsClient {
         };
         async move {
             let (mut r, mut s) = socket.split();
-            for i in 0..*option::MAX_DNS_RETRIES {
+            for i in 0..self.tuning.max_retries {
                 debug!(
                     "looking up host={} server={} ({}/{})",
                     host,
                     resolver,
                     i + 1,
-                    *option::MAX_DNS_RETRIES
+                    self.tuning.max_retries
                 );
                 let start = tokio::time::Instant::now();
 
@@ -757,14 +765,14 @@ impl DnsClient {
         };
         async move {
             let (mut r, mut s) = socket.split();
-            for i in 0..*option::MAX_DNS_RETRIES {
+            for i in 0..self.tuning.max_retries {
                 debug!(
                     "fetching ech host={} type={} server={} ({}/{})",
                     host,
                     ty,
                     resolver,
                     i + 1,
-                    *option::MAX_DNS_RETRIES
+                    self.tuning.max_retries
                 );
                 let start = tokio::time::Instant::now();
 
@@ -1225,7 +1233,7 @@ impl DnsClient {
         }
 
         let fallback_indices = self.fallback_server_indices(&servers, preferred_idx);
-        let fallback_concurrency = (*option::DNS_SERVER_FALLBACK_CONCURRENCY).max(1);
+        let fallback_concurrency = self.tuning.fallback_concurrency.max(1);
         let mut cursor = 0usize;
         while cursor < fallback_indices.len() {
             let batch_end = std::cmp::min(
@@ -1307,7 +1315,7 @@ impl DnsClient {
         }
 
         let fallback_indices = self.fallback_server_indices(&servers, preferred_idx);
-        let fallback_concurrency = (*option::DNS_SERVER_FALLBACK_CONCURRENCY).max(1);
+        let fallback_concurrency = self.tuning.fallback_concurrency.max(1);
         let mut cursor = 0usize;
         while cursor < fallback_indices.len() {
             let batch_end = std::cmp::min(
@@ -1592,7 +1600,7 @@ impl DnsClient {
         };
 
         if *crate::option::ENABLE_IPV6 {
-            let delay = Duration::from_millis(*crate::option::DNS_DUALSTACK_DELAY_MS);
+            let delay = self.tuning.dualstack_delay;
             let mut a_fut = Box::pin(self.query_record_type(is_direct, &name, host, RecordType::A));
             let mut aaaa_fut =
                 Box::pin(self.query_record_type(is_direct, &name, host, RecordType::AAAA));

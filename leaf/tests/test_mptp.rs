@@ -27,7 +27,7 @@ fn test_mptp() -> anyhow::Result<()> {
                     "direct2"
                 ],
                 "server": "127.0.0.1",
-                "server_port": 3001
+                "server_port": 23001
             },
             {
                 "type": "direct",
@@ -47,7 +47,7 @@ fn test_mptp() -> anyhow::Result<()> {
             {
                 "type": "mptp",
                 "listen": "127.0.0.1",
-                "listen_port": 3001
+                "listen_port": 23001
             }
         ],
         "outbounds": [

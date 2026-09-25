@@ -23,7 +23,7 @@ fn test_shadowsocks() -> anyhow::Result<()> {
             {
                 "type": "shadowsocks",
                 "server": "127.0.0.1",
-                "server_port": 3001,
+                "server_port": 23001,
                 "method": "chacha20-ietf-poly1305",
                 "password": "password"
             }
@@ -37,7 +37,7 @@ fn test_shadowsocks() -> anyhow::Result<()> {
             {
                 "type": "shadowsocks",
                 "listen": "127.0.0.1",
-                "listen_port": 3001,
+                "listen_port": 23001,
                 "method": "chacha20-ietf-poly1305",
                 "password": "password"
             }
@@ -49,9 +49,6 @@ fn test_shadowsocks() -> anyhow::Result<()> {
         ]
     }
     "#;
-
-    std::env::set_var("TCP_DOWNLINK_TIMEOUT", "3");
-    std::env::set_var("TCP_UPLINK_TIMEOUT", "3");
 
     let configs = vec![config1.to_string(), config2.to_string()];
     common::test_configs(configs.clone(), "127.0.0.1", 1086)?;

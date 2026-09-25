@@ -30,7 +30,7 @@ fn test_out_chain_4() -> anyhow::Result<()> {
                 "type": "trojan",
                 "tag": "chain-server1-server2",
                 "server": "127.0.0.1",
-                "server_port": 3001,
+                "server_port": 23001,
                 "password": "password",
                 "transport": {
                     "type": "ws",
@@ -42,7 +42,7 @@ fn test_out_chain_4() -> anyhow::Result<()> {
                 "type": "shadowsocks",
                 "tag": "chain-server1-server2/1",
                 "server": "127.0.0.1",
-                "server_port": 3002,
+                "server_port": 23002,
                 "method": "aes-128-gcm",
                 "password": "password"
             }
@@ -57,7 +57,7 @@ fn test_out_chain_4() -> anyhow::Result<()> {
                 "type": "trojan",
                 "tag": "server1",
                 "listen": "127.0.0.1",
-                "listen_port": 3001,
+                "listen_port": 23001,
                 "users": [
                     {
                         "password": "password"
@@ -83,7 +83,7 @@ fn test_out_chain_4() -> anyhow::Result<()> {
             {
                 "type": "shadowsocks",
                 "listen": "127.0.0.1",
-                "listen_port": 3002,
+                "listen_port": 23002,
                 "method": "aes-128-gcm",
                 "password": "password"
             }

@@ -24,7 +24,6 @@ use {
 use crate::{
     adapter::*,
     app::SyncDnsClient,
-    option,
     session::{Network, Session, SocksAddr},
 };
 
@@ -39,7 +38,7 @@ pub use datagram::*;
 pub use dial::DialOptions;
 
 #[cfg(target_os = "android")]
-async fn protect_socket(fd: RawFd) -> io::Result<()> {
+async fn protect_socket(fd: RawFd, dial: &DialOptions) -> io::Result<()> {
     if crate::mobile::callback::android::is_protect_socket_callback_set() {
         let start = std::time::Instant::now();
         crate::mobile::callback::android::protect_socket(fd).map_err(|e| {
@@ -55,33 +54,31 @@ async fn protect_socket(fd: RawFd) -> io::Result<()> {
         );
         return Ok(());
     }
-    if let Some(addr) = &*option::SOCKET_PROTECT_SERVER {
-        let mut stream = TcpStream::connect(addr).await?;
-        stream.write_i32(fd as i32).await?;
-        if stream.read_i32().await? != 0 {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!("failed to protect outbound socket {}", fd),
-            ));
+    let answer = match &dial.protect {
+        None => return Ok(()),
+        Some(dial::SocketProtect::Tcp(addr)) => {
+            let mut stream = TcpStream::connect(addr).await?;
+            stream.write_i32(fd as i32).await?;
+            stream.read_i32().await?
         }
-        return Ok(());
-    }
-    if !option::SOCKET_PROTECT_PATH.is_empty() {
-        let mut stream = UnixStream::connect(&*option::SOCKET_PROTECT_PATH).await?;
-        stream.write_i32(fd as i32).await?;
-        if stream.read_i32().await? != 0 {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!("failed to protect outbound socket {}", fd),
-            ));
+        Some(dial::SocketProtect::Unix(path)) => {
+            let mut stream = UnixStream::connect(path).await?;
+            stream.write_i32(fd as i32).await?;
+            stream.read_i32().await?
         }
-        return Ok(());
+    };
+    if answer != 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::Other,
+            format!("failed to protect outbound socket {}", fd),
+        ));
     }
     Ok(())
 }
 
 pub struct TcpListener {
     inner: tokio::net::TcpListener,
+    abort_on_close: bool,
 }
 
 impl TcpListener {
@@ -102,7 +99,16 @@ impl TcpListener {
         socket.set_nonblocking(true)?;
         Ok(Self {
             inner: tokio::net::TcpListener::from_std(socket.into())?,
+            abort_on_close: false,
         })
+    }
+
+    /// Resets accepted connections on close instead of closing them
+    /// gracefully: sockets are reclaimed at once, and whatever is still
+    /// queued for the peer is lost.
+    pub fn abort_on_close(mut self, abort: bool) -> Self {
+        self.abort_on_close = abort;
+        self
     }
 
     pub fn io(&self) -> &tokio::net::TcpListener {
@@ -112,7 +118,7 @@ impl TcpListener {
     pub async fn accept(&self) -> io::Result<(TcpStream, SocketAddr)> {
         let (stream, addr) = self.inner.accept().await?;
         apply_socket_opts(&stream)?;
-        if *option::TCP_INBOUND_ABORT_ON_CLOSE {
+        if self.abort_on_close {
             // Reclaims the socket the moment it is closed, and discards
             // anything still queued for the peer along with it. See the
             // option's own documentation for when that trade is the right one.
@@ -133,7 +139,7 @@ pub async fn new_udp_socket(indicator: &SocketAddr, dial: &DialOptions) -> io::R
     }
 
     #[cfg(target_os = "android")]
-    protect_socket(socket.as_raw_fd()).await?;
+    protect_socket(socket.as_raw_fd(), dial).await?;
 
     UdpSocket::from_std(socket.into())
 }
@@ -164,7 +170,7 @@ pub async fn tcp_connect(addr: SocketAddr, dial: &DialOptions) -> io::Result<Tcp
     dial::bind(&SockRef::from(&socket), &addr, dial)?;
 
     #[cfg(target_os = "android")]
-    protect_socket(socket.as_raw_fd()).await?;
+    protect_socket(socket.as_raw_fd(), dial).await?;
 
     debug!("tcp dialing {}", &addr);
     let start = tokio::time::Instant::now();
@@ -365,30 +371,33 @@ mod tests {
     /// the peer, including the tail of a response whose end is the close.
     #[test]
     fn accepted_socket_linger_follows_the_option() {
-        runtime().block_on(async {
-            let listener = TcpListener::bind(&"127.0.0.1:0".parse().unwrap())
-                .await
-                .unwrap();
-            let addr = listener.io().local_addr().unwrap();
-            let connecting = tokio::spawn(TcpStream::connect(addr));
-            let (accepted, _) = listener.accept().await.unwrap();
-            let _client = connecting.await.unwrap().unwrap();
+        for abort in [false, true] {
+            runtime().block_on(async {
+                let listener = TcpListener::bind(&"127.0.0.1:0".parse().unwrap())
+                    .await
+                    .unwrap()
+                    .abort_on_close(abort);
+                let addr = listener.io().local_addr().unwrap();
+                let connecting = tokio::spawn(TcpStream::connect(addr));
+                let (accepted, _) = listener.accept().await.unwrap();
+                let _client = connecting.await.unwrap().unwrap();
 
-            let linger = SockRef::from(&accepted).linger().unwrap();
-            if *option::TCP_INBOUND_ABORT_ON_CLOSE {
-                assert_eq!(linger, Some(Duration::ZERO));
-            } else {
-                assert_eq!(linger, None);
-            }
-        });
+                let linger = SockRef::from(&accepted).linger().unwrap();
+                if abort {
+                    assert_eq!(linger, Some(Duration::ZERO));
+                } else {
+                    assert_eq!(linger, None);
+                }
+            });
+        }
     }
 
     #[test]
     fn abort_on_close_is_off_unless_asked_for() {
-        if std::env::var("TCP_INBOUND_ABORT_ON_CLOSE").is_ok() {
-            // The environment chose; the case above covers the wiring.
-            return;
-        }
-        assert!(!*option::TCP_INBOUND_ABORT_ON_CLOSE);
+        assert!(
+            !crate::runtime::RuntimeOptions::default()
+                .inbound
+                .tcp_abort_on_close
+        );
     }
 }

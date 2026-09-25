@@ -125,7 +125,8 @@ impl HandleController {
 
 static HANDLE: RwLock<Option<HandleController>> = RwLock::new(None);
 
-fn get_writer(config: &config::Log) -> Result<(WriterLayer, WorkerGuard)> {
+#[cfg_attr(not(target_os = "macos"), allow(unused_variables))]
+fn get_writer(config: &config::Log, to_system: bool) -> Result<(WriterLayer, WorkerGuard)> {
     let mode = match config.format {
         config::model::LogFormat::Compact => LogFormatMode::Compact,
         config::model::LogFormat::Full => LogFormatMode::Full,
@@ -135,7 +136,7 @@ fn get_writer(config: &config::Log) -> Result<(WriterLayer, WorkerGuard)> {
         None => {
             #[cfg(target_os = "macos")]
             {
-                if *crate::option::LOG_CONSOLE_OUT {
+                if to_system {
                     let writer = crate::mobile::logger::ConsoleWriter::default();
                     let (writer, writer_guard) = tracing_appender::non_blocking(writer);
                     let writer = fmt::Layer::default()
@@ -183,7 +184,9 @@ fn get_writer(config: &config::Log) -> Result<(WriterLayer, WorkerGuard)> {
     })
 }
 
-pub fn setup_logger(config: &config::Log) -> Result<()> {
+/// Sets up logging as `config` says; `to_system` sends console output to
+/// the system log (macOS) instead of standard output.
+pub fn setup_logger(config: &config::Log, to_system: bool) -> Result<()> {
     let filter = match config.level {
         config::model::LogLevel::Trace => LevelFilter::TRACE,
         config::model::LogLevel::Debug => LevelFilter::DEBUG,
@@ -192,7 +195,7 @@ pub fn setup_logger(config: &config::Log) -> Result<()> {
         config::model::LogLevel::Error => LevelFilter::ERROR,
         config::model::LogLevel::None => return Ok(()),
     };
-    let (writer, writer_guard) = get_writer(config)?;
+    let (writer, writer_guard) = get_writer(config, to_system)?;
     let mut h = HANDLE.write().unwrap();
     if let Some(h) = h.as_mut() {
         h.reload(filter, writer, writer_guard)?;

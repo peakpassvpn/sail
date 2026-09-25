@@ -25,7 +25,7 @@ fn test_out_chain_2() -> anyhow::Result<()> {
                 "type": "shadowsocks",
                 "tag": "proxy",
                 "server": "127.0.0.1",
-                "server_port": 3002,
+                "server_port": 23002,
                 "method": "aes-128-gcm",
                 "password": "password",
                 "detour": "proxy/1"
@@ -34,7 +34,7 @@ fn test_out_chain_2() -> anyhow::Result<()> {
                 "type": "shadowsocks",
                 "tag": "proxy/1",
                 "server": "127.0.0.1",
-                "server_port": 3001,
+                "server_port": 23001,
                 "method": "chacha20-ietf-poly1305",
                 "password": "password"
             }
@@ -48,7 +48,7 @@ fn test_out_chain_2() -> anyhow::Result<()> {
             {
                 "type": "shadowsocks",
                 "listen": "127.0.0.1",
-                "listen_port": 3001,
+                "listen_port": 23001,
                 "method": "chacha20-ietf-poly1305",
                 "password": "password"
             }
@@ -67,7 +67,7 @@ fn test_out_chain_2() -> anyhow::Result<()> {
             {
                 "type": "shadowsocks",
                 "listen": "127.0.0.1",
-                "listen_port": 3002,
+                "listen_port": 23002,
                 "method": "aes-128-gcm",
                 "password": "password"
             }

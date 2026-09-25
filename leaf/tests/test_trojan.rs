@@ -23,7 +23,7 @@ fn test_trojan() -> anyhow::Result<()> {
             {
                 "type": "trojan",
                 "server": "127.0.0.1",
-                "server_port": 3001,
+                "server_port": 23001,
                 "password": "password2"
             }
         ]
@@ -36,7 +36,7 @@ fn test_trojan() -> anyhow::Result<()> {
             {
                 "type": "trojan",
                 "listen": "127.0.0.1",
-                "listen_port": 3001,
+                "listen_port": 23001,
                 "users": [
                     {
                         "password": "password"

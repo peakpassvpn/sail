@@ -28,7 +28,7 @@ fn test_quic_trojan() -> anyhow::Result<()> {
                 "type": "trojan",
                 "tag": "proxy",
                 "server": "127.0.0.1",
-                "server_port": 3001,
+                "server_port": 23001,
                 "password": "password",
                 "transport": {
                     "type": "quic"
@@ -54,7 +54,7 @@ fn test_quic_trojan() -> anyhow::Result<()> {
                 "type": "trojan",
                 "tag": "quic-in",
                 "listen": "127.0.0.1",
-                "listen_port": 3001,
+                "listen_port": 23001,
                 "users": [
                     {
                         "password": "password"
@@ -96,7 +96,7 @@ fn test_quic_trojan() -> anyhow::Result<()> {
                 "type": "trojan",
                 "tag": "proxy",
                 "server": "127.0.0.1",
-                "server_port": 3002,
+                "server_port": 23002,
                 "password": "password",
                 "transport": {
                     "type": "quic"
@@ -118,7 +118,7 @@ fn test_quic_trojan() -> anyhow::Result<()> {
                 "type": "trojan",
                 "tag": "quic-in",
                 "listen": "127.0.0.1",
-                "listen_port": 3002,
+                "listen_port": 23002,
                 "users": [
                     {
                         "password": "password"
@@ -141,9 +141,6 @@ fn test_quic_trojan() -> anyhow::Result<()> {
         ]
     }
     "#;
-
-    std::env::set_var("TCP_DOWNLINK_TIMEOUT", "3");
-    std::env::set_var("TCP_UPLINK_TIMEOUT", "3");
 
     let mut path =
         std::env::current_exe().map_err(|e| anyhow::anyhow!("current exe failed: {}", e))?;
@@ -177,7 +174,7 @@ fn test_quic_trojan() -> anyhow::Result<()> {
 socks-interface = 127.0.0.1
 socks-port = 1089
 [Proxy]
-Proxy = trojan, 127.0.0.1, 3004, password=password, sni=localhost, quic=true, tls-cert=mycert
+Proxy = trojan, 127.0.0.1, 23004, password=password, sni=localhost, quic=true, tls-cert=mycert
 [Rule]
 FINAL,Proxy
 "#,
@@ -190,7 +187,7 @@ FINAL,Proxy
                 "type": "trojan",
                 "tag": "quic-in",
                 "listen": "127.0.0.1",
-                "listen_port": 3004,
+                "listen_port": 23004,
                 "users": [
                     {
                         "password": "password"

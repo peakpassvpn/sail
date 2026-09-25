@@ -10,7 +10,7 @@ use futures::TryFutureExt;
 use rustls::pki_types::CertificateDer;
 use rustls_pemfile::certs;
 use tokio::sync::RwLock;
-use tokio::time::{timeout, Duration};
+use tokio::time::timeout;
 use tracing::{debug, trace, Instrument};
 
 use crate::{adapter::*, app::SyncDnsClient, net::*, session::Session};
@@ -37,6 +37,7 @@ impl Manager {
         certificate_key: Option<String>,
         dns_client: SyncDnsClient,
         dial: Arc<crate::net::DialOptions>,
+        tuning: &crate::runtime::options::Quic,
     ) -> Self {
         let mut roots = rustls::RootCertStore::empty();
         if let Some(cert_path) = certificate.as_ref() {
@@ -97,15 +98,14 @@ impl Manager {
             quinn::crypto::rustls::QuicClientConfig::try_from(client_crypto).unwrap(),
         ));
         let mut transport_config = quinn::TransportConfig::default();
-        transport_config.max_concurrent_bidi_streams(quinn::VarInt::from_u32(
-            *crate::option::QUIC_MAX_CONCURRENT_BIDI_STREAMS,
-        ));
-        transport_config.max_idle_timeout(Some(quinn::IdleTimeout::from(quinn::VarInt::from_u32(
-            *crate::option::QUIC_MAX_IDLE_TIMEOUT_MS,
-        ))));
-        transport_config.keep_alive_interval(Some(Duration::from_millis(
-            *crate::option::QUIC_KEEP_ALIVE_INTERVAL_MS,
-        )));
+        transport_config
+            .max_concurrent_bidi_streams(quinn::VarInt::from_u32(tuning.max_concurrent_streams));
+        transport_config
+            .max_idle_timeout(quinn::IdleTimeout::try_from(tuning.client_idle_timeout).ok());
+        transport_config.keep_alive_interval(
+            (!tuning.client_keep_alive_interval.is_zero())
+                .then_some(tuning.client_keep_alive_interval),
+        );
         transport_config
             .congestion_controller_factory(Arc::new(quinn::congestion::BbrConfig::default()));
         client_config.transport_config(Arc::new(transport_config));
@@ -252,6 +252,7 @@ impl Handler {
         certificate_key: Option<String>,
         dns_client: SyncDnsClient,
         dial: Arc<crate::net::DialOptions>,
+        tuning: &crate::runtime::options::Quic,
     ) -> Self {
         Self {
             manager: Manager::new(
@@ -263,6 +264,7 @@ impl Handler {
                 certificate_key,
                 dns_client,
                 dial,
+                tuning,
             ),
         }
     }

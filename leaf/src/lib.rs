@@ -36,6 +36,7 @@ pub mod net;
 pub mod option;
 pub mod platform;
 pub mod protocol;
+pub mod runtime;
 pub mod session;
 pub mod sniff;
 pub mod transport;
@@ -79,6 +80,7 @@ pub struct RuntimeManager {
     dns_client: Arc<RwLock<DnsClient>>,
     outbound_manager: Arc<RwLock<OutboundManager>>,
     stat_manager: SyncStatManager,
+    env: runtime::SyncRuntimeEnv,
     #[cfg(feature = "auto-reload")]
     watcher: Mutex<Option<RecommendedWatcher>>,
 }
@@ -95,6 +97,7 @@ impl RuntimeManager {
         dns_client: Arc<RwLock<DnsClient>>,
         outbound_manager: Arc<RwLock<OutboundManager>>,
         stat_manager: SyncStatManager,
+        env: runtime::SyncRuntimeEnv,
     ) -> Arc<Self> {
         Arc::new(Self {
             #[cfg(feature = "auto-reload")]
@@ -108,6 +111,7 @@ impl RuntimeManager {
             dns_client,
             outbound_manager,
             stat_manager,
+            env,
             #[cfg(feature = "auto-reload")]
             watcher: Mutex::new(None),
         })
@@ -226,9 +230,9 @@ impl RuntimeManager {
         };
         info!("reloading from config file: {}", config_path);
         let config = config::from_file(config_path).map_err(Error::Config)?;
-        app::logger::setup_logger(&config.log)?;
-        let dial_defaults = dial_defaults(&config.route).map_err(Error::Config)?;
-        self.router.write().await.reload(&config.route)?;
+        app::logger::setup_logger(&config.log, self.env.host.log_to_system)?;
+        let dial_defaults = dial_defaults(&config.route, &self.env).map_err(Error::Config)?;
+        self.router.write().await.reload(&config.route, &self.env)?;
         self.dns_client
             .write()
             .await
@@ -236,7 +240,12 @@ impl RuntimeManager {
         self.outbound_manager
             .write()
             .await
-            .reload(&config.outbounds, &dial_defaults, self.dns_client.clone())
+            .reload(
+                &config.outbounds,
+                &dial_defaults,
+                &self.env,
+                self.dns_client.clone(),
+            )
             .await?;
         info!("reloaded from config file: {}", config_path);
         Ok(())
@@ -380,8 +389,12 @@ pub fn is_running(key: RuntimeId) -> bool {
 
 /// The dial defaults of an instance: `route`'s, with the system's default
 /// interface when `route.auto_detect_interface` asks for it.
-pub(crate) fn dial_defaults(route: &config::Route) -> anyhow::Result<Arc<net::DialOptions>> {
-    let defaults = net::DialOptions::defaults(route)?;
+pub(crate) fn dial_defaults(
+    route: &config::Route,
+    env: &runtime::RuntimeEnv,
+) -> anyhow::Result<Arc<net::DialOptions>> {
+    let mut defaults = net::DialOptions::defaults(route)?;
+    defaults.protect = env.host.socket_protect.clone();
     if !route.auto_detect_interface {
         return Ok(Arc::new(defaults));
     }
@@ -401,13 +414,18 @@ pub(crate) fn dial_defaults(route: &config::Route) -> anyhow::Result<Arc<net::Di
 /// Checks a configuration file by building everything in it, short of
 /// listening or connecting.
 pub fn test_config(config_path: &str) -> Result<(), Error> {
+    test_config_with(config_path, &runtime::RuntimeEnv::default())
+}
+
+/// `test_config`, with the tuning and host the instance would run with.
+pub fn test_config_with(config_path: &str, env: &runtime::RuntimeEnv) -> Result<(), Error> {
     let config = config::from_file(config_path).map_err(Error::Config)?;
-    check_config(&config).map_err(Error::Config)
+    check_config(&config, env).map_err(Error::Config)
 }
 
 /// Builds the inbounds, outbounds, DNS and routing of `config` and throws
 /// them away, so that every mistake building would find is found.
-pub fn check_config(config: &config::Config) -> anyhow::Result<()> {
+pub fn check_config(config: &config::Config, env: &runtime::RuntimeEnv) -> anyhow::Result<()> {
     // Some handlers start background tasks when built.
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -418,13 +436,15 @@ pub fn check_config(config: &config::Config) -> anyhow::Result<()> {
     let dns_client = Arc::new(RwLock::new(DnsClient::new(
         &config.dns,
         dial_defaults.clone(),
+        env.options.dns.clone(),
     )?));
-    OutboundManager::new(&config.outbounds, &dial_defaults, dns_client.clone())?;
+    OutboundManager::new(&config.outbounds, &dial_defaults, env, dns_client.clone())?;
     let mut inbounds = HashMap::new();
     adapter::registry::build_inbounds(
         &include::INBOUNDS,
         &config.inbounds,
         include::LISTENER_INBOUNDS,
+        env,
         &mut inbounds,
     )?;
     app::inbound::manager::plan_listeners(&config.inbounds, &inbounds)?;
@@ -432,7 +452,7 @@ pub fn check_config(config: &config::Config) -> anyhow::Result<()> {
     for inbound in config.inbounds.iter().filter(|i| i.protocol == "tun") {
         protocol::tun::inbound::options(inbound)?;
     }
-    Router::new(&config.route, dns_client)?;
+    Router::new(&config.route, dns_client, env)?;
     Ok(())
 }
 
@@ -484,6 +504,10 @@ pub struct StartOptions {
     pub auto_reload: bool,
     // Tokio runtime options.
     pub runtime_opt: RuntimeOption,
+    /// Tuning: a profile and settings on top of it.
+    pub runtime: runtime::RuntimeOptions,
+    /// What the host provides.
+    pub host: runtime::Host,
 }
 
 pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
@@ -504,7 +528,12 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
         Config::Internal(c) => c,
     };
 
-    app::logger::setup_logger(&config.log)?;
+    let env = Arc::new(runtime::RuntimeEnv {
+        options: opts.runtime,
+        host: opts.host,
+    });
+
+    app::logger::setup_logger(&config.log, env.host.log_to_system)?;
 
     let rt = new_runtime(&opts.runtime_opt)?;
     let _g = rt.enter();
@@ -512,24 +541,28 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
     let mut tasks: Vec<Runner> = Vec::new();
     let mut runners = Vec::new();
 
-    let dial_defaults = dial_defaults(&config.route).map_err(Error::Config)?;
+    let dial_defaults = dial_defaults(&config.route, &env).map_err(Error::Config)?;
     let dns_client = Arc::new(RwLock::new(
-        DnsClient::new(&config.dns, dial_defaults.clone()).map_err(Error::Config)?,
+        DnsClient::new(&config.dns, dial_defaults.clone(), env.options.dns.clone())
+            .map_err(Error::Config)?,
     ));
     let outbound_manager = Arc::new(RwLock::new(
-        OutboundManager::new(&config.outbounds, &dial_defaults, dns_client.clone())
+        OutboundManager::new(&config.outbounds, &dial_defaults, &env, dns_client.clone())
             .map_err(Error::Config)?,
     ));
     let router = Arc::new(RwLock::new(
-        Router::new(&config.route, dns_client.clone()).map_err(Error::Config)?,
+        Router::new(&config.route, dns_client.clone(), &env).map_err(Error::Config)?,
     ));
-    let stat_manager = Arc::new(RwLock::new(StatManager::new()));
+    let stat_manager = Arc::new(RwLock::new(
+        StatManager::new().with_max_recent_connections(env.options.stats.max_recent_connections),
+    ));
     runners.push(StatManager::cleanup_task(stat_manager.clone()));
     let dispatcher = Arc::new(Dispatcher::new(
         outbound_manager.clone(),
         router.clone(),
         dns_client.clone(),
         stat_manager.clone(),
+        env.clone(),
     ));
 
     let dispatcher_weak = Arc::downgrade(&dispatcher);
@@ -542,8 +575,8 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
     });
 
     let nat_manager = Arc::new(NatManager::new(dispatcher.clone()));
-    let inbound_manager =
-        InboundManager::new(&config.inbounds, dispatcher, nat_manager).map_err(Error::Config)?;
+    let inbound_manager = InboundManager::new(&config.inbounds, &env, dispatcher, nat_manager)
+        .map_err(Error::Config)?;
     let mut inbound_net_runners = inbound_manager
         .get_network_runners()
         .map_err(Error::Config)?;
@@ -581,6 +614,7 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
         dns_client,
         outbound_manager,
         stat_manager,
+        env.clone(),
     );
 
     // Monitor config file changes.
@@ -694,6 +728,8 @@ Direct = direct
                     #[cfg(feature = "auto-reload")]
                     auto_reload: false,
                     runtime_opt: RuntimeOption::SingleThread,
+                    runtime: Default::default(),
+                    host: Default::default(),
                 };
                 start(0, opts).unwrap();
             });

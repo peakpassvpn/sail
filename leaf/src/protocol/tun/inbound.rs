@@ -121,7 +121,7 @@ async fn handle_inbound_datagram_lwip(
 
     // The channel for sending back datagrams from NAT manager to netstack.
     let (l_tx, mut l_rx): (TokioSender<UdpPacket>, TokioReceiver<UdpPacket>) =
-        tokio_channel(*crate::option::UDP_DOWNLINK_CHANNEL_SIZE);
+        tokio_channel(nat_manager.env().options.udp.downlink_channel_size);
 
     // Receive datagrams from NAT manager and send back to netstack.
     let fakedns_cloned = fakedns.clone();
@@ -233,7 +233,7 @@ async fn handle_inbound_datagram_smoltcp(
 
     // The channel for sending back datagrams from NAT manager to netstack.
     let (l_tx, mut l_rx): (TokioSender<UdpPacket>, TokioReceiver<UdpPacket>) =
-        tokio_channel(*crate::option::UDP_DOWNLINK_CHANNEL_SIZE);
+        tokio_channel(nat_manager.env().options.udp.downlink_channel_size);
 
     // Receive datagrams from NAT manager and send back to netstack.
     let fakedns_cloned = fakedns.clone();
@@ -340,8 +340,8 @@ fn new_lwip(
     tun: tun::AsyncDevice,
 ) -> Result<Runner> {
     let (stack, mut tcp_listener, udp_socket) = lwip::NetStack::with_buffer_size(
-        *crate::option::NETSTACK_OUTPUT_CHANNEL_SIZE,
-        *crate::option::NETSTACK_UDP_UPLINK_CHANNEL_SIZE,
+        dispatcher.env().options.netstack.output_channel_size,
+        dispatcher.env().options.netstack.udp_uplink_channel_size,
     )?;
 
     Ok(Box::pin(async move {
@@ -429,9 +429,9 @@ fn new_smoltcp(
         .enable_tcp(true)
         .enable_udp(true)
         .enable_icmp(true)
-        .stack_buffer_size(*crate::option::NETSTACK_OUTPUT_CHANNEL_SIZE)
-        .udp_buffer_size(*crate::option::NETSTACK_UDP_UPLINK_CHANNEL_SIZE)
-        .tcp_buffer_size(*crate::option::NETSTACK_UDP_UPLINK_CHANNEL_SIZE)
+        .stack_buffer_size(dispatcher.env().options.netstack.output_channel_size)
+        .udp_buffer_size(dispatcher.env().options.netstack.udp_uplink_channel_size)
+        .tcp_buffer_size(dispatcher.env().options.netstack.udp_uplink_channel_size)
         .build()
         .map_err(|e| anyhow!("stack build failed: {}", e))?;
 
@@ -570,18 +570,6 @@ pub fn new(
     nat_manager: Arc<NatManager>,
 ) -> Result<Runner> {
     tracing::debug!("Create TUN inbound");
-
-    #[cfg(target_os = "windows")]
-    {
-        // Before the creation of WinTun adapter, determine the bind address
-        // for traffic from leaf to escape the WinTun adapter.
-        use std::net::UdpSocket;
-        let s = UdpSocket::bind("0.0.0.0:0")?;
-        s.connect("1.1.1.1:53")?;
-        let bind_addr = s.local_addr()?.ip().to_string();
-        std::env::set_var("OUTBOUND_INTERFACE", &bind_addr);
-        tracing::info!("set OUTBOUND_INTERFACE={}", bind_addr);
-    }
 
     let settings = options(&inbound)?;
 

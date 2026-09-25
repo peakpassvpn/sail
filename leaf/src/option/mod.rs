@@ -50,15 +50,6 @@ where
 
 #[cfg(target_os = "ios")]
 lazy_static! {
-    /// Maximum number of proxy outbound TCP connections allowed at the same time.
-    pub static ref ENDPOINT_TCP_CONCURRENCY: usize = {
-        get_env_var_or("ENDPOINT_TCP_CONCURRENCY", 45)
-    };
-
-    /// Maximum number of direct outbound TCP connections allowed at the same time.
-    pub static ref DIRECT_TCP_CONCURRENCY: usize = {
-        get_env_var_or("DIRECT_TCP_CONCURRENCY", 64)
-    };
 
     /// DNS cache size in the built-in DNS client.
     pub static ref DNS_CACHE_SIZE: usize = {
@@ -68,15 +59,6 @@ lazy_static! {
 
 #[cfg(not(target_os = "ios"))]
 lazy_static! {
-    /// Maximum number of proxy outbound TCP connections allowed at the same time.
-    pub static ref ENDPOINT_TCP_CONCURRENCY: usize = {
-        get_env_var_or("ENDPOINT_TCP_CONCURRENCY", 1024)
-    };
-
-    /// Maximum number of direct outbound TCP connections allowed at the same time.
-    pub static ref DIRECT_TCP_CONCURRENCY: usize = {
-        get_env_var_or("DIRECT_TCP_CONCURRENCY", 1024)
-    };
 
     /// DNS cache size in the built-in DNS client.
     pub static ref DNS_CACHE_SIZE: usize = {
@@ -85,17 +67,6 @@ lazy_static! {
 }
 
 lazy_static! {
-    /// Maximum number of recent connections stored in StatManager.
-    pub static ref MAX_RECENT_CONNECTIONS: usize = {
-        get_env_var_or("MAX_RECENT_CONNECTIONS", 0)
-    };
-
-    pub static ref HTTP_USER_AGENT: String = {
-        get_env_var_or_else(
-            "HTTP_USER_AGENT",
-            || get_env_var_or("USER_AGENT", "".to_string()), // legacy support
-        )
-    };
 
     // The purpose is not to propagate the header, but to extract the forwarded
     // source IP. Expects only comma separated IP list and only the first IP is
@@ -104,10 +75,6 @@ lazy_static! {
     // which you can trust, for example the CF-Connecting-IP provided by Cloudflare.
     pub static ref HTTP_FORWARDED_HEADER: String = {
         get_env_var_or("HTTP_FORWARDED_HEADER", "X-Forwarded-For".to_string())
-    };
-
-    pub static ref LOG_CONSOLE_OUT: bool = {
-        get_env_var_or("LOG_CONSOLE_OUT", false)
     };
 
     /// Turn on TLS SNI sniffing, the sniffed SNI would override the original
@@ -158,151 +125,6 @@ lazy_static! {
         AtomicBool::new(v)
     };
 
-    /// Uplink timeout after downlink EOF.
-    pub static ref TCP_UPLINK_TIMEOUT: u64 = {
-        get_env_var_or("TCP_UPLINK_TIMEOUT", 10)
-    };
-
-    /// Downlink timeout after uplink EOF.
-    pub static ref TCP_DOWNLINK_TIMEOUT: u64 = {
-        get_env_var_or("TCP_DOWNLINK_TIMEOUT", 10)
-    };
-
-    /// Whether to abort inbound TCP connections instead of closing them
-    /// gracefully.
-    ///
-    /// With this on, every accepted socket gets `SO_LINGER = 0`, so closing it
-    /// sends a reset: no TIME_WAIT, nothing left waiting on a peer that has
-    /// gone away, and the socket reclaimed at once. It also discards whatever
-    /// is still queued for that peer, which is why it is off by default. A
-    /// response whose end is marked by the close itself -- HTTP/1.0, a body
-    /// with no length, anything read to EOF -- can be truncated, and a peer
-    /// that has received every byte but not yet read them can still see the
-    /// transfer fail.
-    ///
-    /// The reclaim is only ever paid for on the paths where leaf closes first,
-    /// which are the idle timeouts and the error teardowns. When the peer
-    /// closes first, leaf is the passive closer and has no TIME_WAIT to avoid.
-    /// So turn this on where a device cannot afford the sockets, not as a
-    /// matter of course.
-    pub static ref TCP_INBOUND_ABORT_ON_CLOSE: bool = {
-        get_env_bool("TCP_INBOUND_ABORT_ON_CLOSE", false)
-    };
-
-    /// Whether a websocket transport tells the far end when its side of the
-    /// conversation has ended.
-    ///
-    /// A client that has finished sending says so by closing its write side
-    /// and going on reading, and plenty of protocols end a request that way
-    /// and no other. WebSocket has no half-close: the nearest thing is a Close
-    /// frame, which RFC 6455 defines as the start of closing the whole
-    /// connection. leaf's own websocket transport reads a Close frame as the
-    /// end of the peer's side alone and keeps carrying the other direction, so
-    /// between two leaf nodes a Close frame is exactly the missing signal.
-    ///
-    /// Against anything else it may not be. A strict peer answers a Close
-    /// frame with its own and closes, which would cut off a reply that is
-    /// still coming -- and that reply arrives today, because leaf sends
-    /// nothing and lets the session run on until its downlink grace expires.
-    /// Turning a working session into a broken one is worse than a request
-    /// whose end never arrives, so this is off unless a deployment knows what
-    /// is at the other end.
-    ///
-    /// With it off, a request that ends in a half-close is never signalled
-    /// over a websocket transport at all: the far end learns only when the
-    /// connection itself goes away.
-    pub static ref WS_HALF_CLOSE: bool = {
-        get_env_bool("WS_HALF_CLOSE", false)
-    };
-
-    /// Initial buffer size for uplink and downlink connections, in KB. Buffers
-    /// are pooled and only held while data is in flight, so idle connections
-    /// don't pay for it.
-    pub static ref LINK_BUFFER_SIZE: usize = {
-        get_env_var_or("LINK_BUFFER_SIZE", 16)
-    };
-
-    /// Largest buffer a bulk transfer grows to, in KB. Set it equal to
-    /// LINK_BUFFER_SIZE to disable growing.
-    pub static ref LINK_BUFFER_MAX_SIZE: usize = {
-        get_env_var_or("LINK_BUFFER_MAX_SIZE", 128)
-    };
-
-    pub static ref NETSTACK_OUTPUT_CHANNEL_SIZE: usize = {
-        get_env_var_or("NETSTACK_OUTPUT_CHANNEL_SIZE", 512)
-    };
-
-    pub static ref NETSTACK_UDP_UPLINK_CHANNEL_SIZE: usize = {
-        get_env_var_or("NETSTACK_UDP_UPLINK_CHANNEL_SIZE", 256)
-    };
-
-    pub static ref UDP_UPLINK_CHANNEL_SIZE: usize = {
-        get_env_var_or("UDP_UPLINK_CHANNEL_SIZE", 256)
-    };
-
-    pub static ref UDP_DOWNLINK_CHANNEL_SIZE: usize = {
-        get_env_var_or("UDP_DOWNLINK_CHANNEL_SIZE", 256)
-    };
-
-    pub static ref QUIC_ACCEPT_CHANNEL_SIZE: usize = {
-        get_env_var_or("QUIC_ACCEPT_CHANNEL_SIZE", 1024)
-    };
-
-    pub static ref INCOMING_ACCEPT_CONCURRENCY: usize = {
-        get_env_var_or("INCOMING_ACCEPT_CONCURRENCY", 256)
-    };
-
-    pub static ref QUIC_MAX_CONCURRENT_BIDI_STREAMS: u32 = {
-        get_env_var_or("QUIC_MAX_CONCURRENT_BIDI_STREAMS", 1024)
-    };
-
-    pub static ref QUIC_MAX_IDLE_TIMEOUT_MS: u32 = {
-        get_env_var_or("QUIC_MAX_IDLE_TIMEOUT_MS", 15_000)
-    };
-
-    pub static ref QUIC_KEEP_ALIVE_INTERVAL_MS: u64 = {
-        get_env_var_or("QUIC_KEEP_ALIVE_INTERVAL_MS", 3_000)
-    };
-
-    pub static ref QUIC_ACCEPT_QUEUE_TIMEOUT: u64 = {
-        get_env_var_or("QUIC_ACCEPT_QUEUE_TIMEOUT", 5)
-    };
-
-    pub static ref AMUX_ACCEPT_CHANNEL_SIZE: usize = {
-        get_env_var_or("AMUX_ACCEPT_CHANNEL_SIZE", 1024)
-    };
-
-    pub static ref AMUX_STREAM_CHANNEL_SIZE: usize = {
-        get_env_var_or("AMUX_STREAM_CHANNEL_SIZE", 16)
-    };
-
-    pub static ref AMUX_FRAME_CHANNEL_SIZE: usize = {
-        get_env_var_or("AMUX_FRAME_CHANNEL_SIZE", 32)
-    };
-
-    /// Buffer size for UDP datagrams receiving/sending, in KB.
-    pub static ref DATAGRAM_BUFFER_SIZE: usize = {
-        get_env_var_or("DATAGRAM_BUFFER_SIZE", 2)
-    };
-
-    /// The timeout for an accepted inbound TCP connection to finish the proxy
-    /// protocol handshake.
-    pub static ref INBOUND_ACCEPT_TIMEOUT: u64 = {
-        get_env_var_or("INBOUND_ACCEPT_TIMEOUT", 60)
-    };
-
-    pub static ref ASSET_LOCATION: String = {
-        get_env_var_or_else("ASSET_LOCATION", || {
-            let mut file = std::env::current_exe().unwrap();
-            file.pop();
-            file.to_str().unwrap().to_string()
-        })
-    };
-
-    pub static ref CACHE_LOCATION: String = {
-        get_env_var_or("CACHE_LOCATION", "".to_string())
-    };
-
     pub static ref API_LISTEN: String = {
         get_env_var_or("API_LISTEN", "".to_string())
     };
@@ -325,19 +147,6 @@ lazy_static! {
         })
     };
 
-    /// Sets the RPC service endpoint for protecting outbound sockets on Android to
-    /// avoid infinite loop. The `path` is treated as a Unix domain socket endpoint.
-    /// The RPC service simply listens for incoming connections, reads an int32 on
-    /// each connection, treats it as the file descriptor to protect, writes back 0
-    /// on success.
-    pub static ref SOCKET_PROTECT_PATH: String = {
-        get_env_var_or("SOCKET_PROTECT_PATH", "".to_string())
-    };
-
-    pub static ref SOCKET_PROTECT_SERVER: Option<SocketAddr> = {
-        get_env_var_or("SOCKET_PROTECT_SERVER", "".to_string()).parse().ok()
-    };
-
     pub static ref GATEWAY_MODE: bool = {
         get_env_var_or("GATEWAY_MODE", false)
     };
@@ -349,40 +158,9 @@ lazy_static! {
         get_env_var_or("UDP_SESSION_TIMEOUT", 30)
     };
 
-    /// UDP session timeout check interval. The interval to check for UDP session
-    /// timeouts.
-    pub static ref UDP_SESSION_TIMEOUT_CHECK_INTERVAL: u64 = {
-        get_env_var_or("UDP_SESSION_TIMEOUT_CHECK_INTERVAL", 10)
-    };
-
-    /// Maximum retries for a specific DNS query for the built-in DNS client.
-    pub static ref MAX_DNS_RETRIES: usize = {
-        get_env_var_or("MAX_DNS_RETRIES", 4)
-    };
-
     /// Timeout for a DNS query for the built-in DNS client.
     pub static ref DNS_TIMEOUT: u64 = {
         get_env_var_or("DNS_TIMEOUT", 4)
-    };
-
-    pub static ref DNS_SERVER_RESELECT_INTERVAL_SECS: u64 = {
-        get_env_var_or("DNS_SERVER_RESELECT_INTERVAL_SECS", 30)
-    };
-
-    pub static ref DNS_SERVER_SLOW_RESPONSE_MS: u64 = {
-        get_env_var_or("DNS_SERVER_SLOW_RESPONSE_MS", 800)
-    };
-
-    pub static ref DNS_SERVER_SWITCH_THRESHOLD: usize = {
-        get_env_var_or("DNS_SERVER_SWITCH_THRESHOLD", 3)
-    };
-
-    pub static ref DNS_SERVER_FALLBACK_CONCURRENCY: usize = {
-        get_env_var_or("DNS_SERVER_FALLBACK_CONCURRENCY", 1)
-    };
-
-    pub static ref DNS_DUALSTACK_DELAY_MS: u64 = {
-        get_env_var_or("DNS_DUALSTACK_DELAY_MS", 250)
     };
 
     pub static ref DEFAULT_TUN_NAME: String = {

@@ -17,8 +17,9 @@ use serde_derive::Deserialize;
 
 use crate::adapter::{AnyInboundHandler, AnyOutboundHandler};
 use crate::app::SyncDnsClient;
-use crate::config::model::{parse_options, resolve_certificate, Options};
+use crate::config::model::{parse_options, Options};
 use crate::net::DialOptions;
+use crate::runtime::RuntimeEnv;
 
 /// Which blocks a protocol can be configured with.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -267,6 +268,7 @@ impl OutboundBlocks {
             connect_timeout: self
                 .connect_timeout
                 .unwrap_or(crate::net::dial::DEFAULT_CONNECT_TIMEOUT),
+            protect: None,
         };
         if let Some(detour) = &self.detour {
             let set = [
@@ -321,6 +323,7 @@ pub struct OutboundLayering<'a> {
     /// How the outbound dials: its dial fields over the instance's
     /// defaults, from `OutboundBlocks::dial`.
     pub dial: Arc<DialOptions>,
+    pub env: &'a RuntimeEnv,
 }
 
 /// The server a protocol's options name, which the layers under it dial.
@@ -370,14 +373,15 @@ pub fn outbound(
             port,
             layering.dns_client,
             &dial,
+            layering.env,
         )?);
     } else {
         let mut under_mux = Vec::new();
         if let Some(tls) = blocks.tls() {
-            under_mux.push(tls_outbound(tag, tls, layering.dns_client)?);
+            under_mux.push(tls_outbound(tag, tls, layering.dns_client, layering.env)?);
         }
         if let Some(OutboundTransport::Ws { path, headers }) = &blocks.transport {
-            under_mux.push(ws_outbound(tag, path, headers)?);
+            under_mux.push(ws_outbound(tag, path, headers, layering.env)?);
         }
         match blocks.multiplex() {
             Some(mux) => {
@@ -449,10 +453,10 @@ fn not_compiled(tag: &str, kind: &str, what: &str, feature: &str) -> anyhow::Err
     not(any(feature = "outbound-tls", feature = "outbound-quic")),
     allow(dead_code)
 )]
-fn trusted_certificate(tls: &OutboundTls) -> Option<String> {
+fn trusted_certificate(tls: &OutboundTls, env: &RuntimeEnv) -> Option<String> {
     match (&tls.certificate, &tls.certificate_path) {
         (Some(inline), _) => Some(inline.clone().joined()),
-        (None, Some(path)) => Some(resolve_certificate(path)),
+        (None, Some(path)) => Some(env.data_path(path)),
         (None, None) => None,
     }
 }
@@ -462,6 +466,7 @@ fn tls_outbound(
     tag: &str,
     tls: &OutboundTls,
     dns_client: &SyncDnsClient,
+    env: &RuntimeEnv,
 ) -> Result<AnyOutboundHandler> {
     #[allow(unused_imports)]
     use crate::adapter::outbound::HandlerBuilder;
@@ -496,7 +501,7 @@ fn tls_outbound(
         let handler = crate::transport::tls::outbound::StreamHandler::new(
             server_name,
             tls.alpn.clone().map(Listable::into_vec).unwrap_or_default(),
-            trusted_certificate(tls),
+            trusted_certificate(tls, env),
             None,
             tls.insecure,
             ech.is_some(),
@@ -538,6 +543,7 @@ fn ws_outbound(
     tag: &str,
     path: &str,
     headers: &HashMap<String, String>,
+    env: &RuntimeEnv,
 ) -> Result<AnyOutboundHandler> {
     #[cfg(feature = "outbound-ws")]
     return Ok(crate::adapter::outbound::HandlerBuilder::default()
@@ -545,6 +551,7 @@ fn ws_outbound(
         .stream_handler(Arc::new(crate::transport::ws::outbound::StreamHandler {
             path: path.to_string(),
             headers: headers.clone(),
+            half_close: env.options.ws.half_close,
         }))
         .build());
     #[cfg(not(feature = "outbound-ws"))]
@@ -559,6 +566,7 @@ fn quic_outbound(
     port: u16,
     dns_client: &SyncDnsClient,
     dial: &Arc<DialOptions>,
+    env: &RuntimeEnv,
 ) -> Result<AnyOutboundHandler> {
     #[cfg(feature = "outbound-quic")]
     return Ok(crate::adapter::outbound::HandlerBuilder::default()
@@ -569,10 +577,11 @@ fn quic_outbound(
                 port,
                 tls.server_name.clone(),
                 tls.alpn.clone().map(Listable::into_vec).unwrap_or_default(),
-                trusted_certificate(tls),
+                trusted_certificate(tls, env),
                 None,
                 dns_client.clone(),
                 dial.clone(),
+                &env.options.quic,
             ),
         ))
         .build());
@@ -691,10 +700,10 @@ impl InboundBlocks {
     allow(dead_code)
 )]
 impl InboundTls {
-    fn certificate(&self, tag: &str) -> Result<String> {
+    fn certificate(&self, tag: &str, env: &RuntimeEnv) -> Result<String> {
         match (&self.certificate, &self.certificate_path) {
             (Some(inline), None) => Ok(inline.clone().joined()),
-            (None, Some(path)) => Ok(resolve_certificate(path)),
+            (None, Some(path)) => Ok(env.data_path(path)),
             _ => Err(anyhow!(
                 "[{}] inbound: tls: set exactly one of certificate and certificate_path",
                 tag
@@ -702,10 +711,10 @@ impl InboundTls {
         }
     }
 
-    fn key(&self, tag: &str) -> Result<String> {
+    fn key(&self, tag: &str, env: &RuntimeEnv) -> Result<String> {
         match (&self.key, &self.key_path) {
             (Some(inline), None) => Ok(inline.clone().joined()),
-            (None, Some(path)) => Ok(resolve_certificate(path)),
+            (None, Some(path)) => Ok(env.data_path(path)),
             _ => Err(anyhow!(
                 "[{}] inbound: tls: set exactly one of key and key_path",
                 tag
@@ -719,6 +728,7 @@ pub fn inbound(
     tag: &str,
     core: AnyInboundHandler,
     blocks: &InboundBlocks,
+    env: &RuntimeEnv,
 ) -> Result<AnyInboundHandler> {
     let tls = blocks.tls.as_ref().filter(|t| t.enabled);
     let mux = blocks.multiplex.as_ref().filter(|m| m.enabled);
@@ -737,7 +747,7 @@ pub fn inbound(
                 tag
             )
         })?;
-        actors.push(quic_inbound(tag, tls)?);
+        actors.push(quic_inbound(tag, tls, env)?);
     } else {
         let mut under_mux = Vec::new();
         if let Some(tls) = tls {
@@ -747,10 +757,10 @@ pub fn inbound(
                     tag
                 ));
             }
-            under_mux.push(tls_inbound(tag, tls)?);
+            under_mux.push(tls_inbound(tag, tls, env)?);
         }
         if let Some(InboundTransport::Ws { path }) = &blocks.transport {
-            under_mux.push(ws_inbound(tag, path)?);
+            under_mux.push(ws_inbound(tag, path, env)?);
         }
         match mux {
             Some(mux) => actors.push(amux_inbound(tag, mux, under_mux)?),
@@ -762,23 +772,30 @@ pub fn inbound(
         return Ok(core);
     }
     actors.push(core);
-    chain_inbound(tag, actors)
+    chain_inbound(tag, actors, env)
 }
 
 #[allow(unused_variables)]
-fn chain_inbound(tag: &str, actors: Vec<AnyInboundHandler>) -> Result<AnyInboundHandler> {
+fn chain_inbound(
+    tag: &str,
+    actors: Vec<AnyInboundHandler>,
+    env: &RuntimeEnv,
+) -> Result<AnyInboundHandler> {
     #[cfg(feature = "inbound-chain")]
     {
         use crate::adapter::{AnyInboundDatagramHandler, AnyInboundStreamHandler};
-        use crate::protocol::group::chain::inbound::{DatagramHandler, StreamHandler};
+        use crate::protocol::group::chain::inbound::{Accept, DatagramHandler, StreamHandler};
+        let accept = Accept::from(&env.options.inbound);
         let stream = actors[0].stream().is_ok().then(|| {
             Arc::new(StreamHandler {
                 actors: actors.clone(),
+                accept,
             }) as AnyInboundStreamHandler
         });
         let datagram = actors[0].datagram().is_ok().then(|| {
             Arc::new(DatagramHandler {
                 actors: actors.clone(),
+                accept,
             }) as AnyInboundDatagramHandler
         });
         Ok(Arc::new(crate::adapter::inbound::Handler::new(
@@ -792,12 +809,12 @@ fn chain_inbound(tag: &str, actors: Vec<AnyInboundHandler>) -> Result<AnyInbound
 }
 
 #[allow(unused_variables)]
-fn tls_inbound(tag: &str, tls: &InboundTls) -> Result<AnyInboundHandler> {
+fn tls_inbound(tag: &str, tls: &InboundTls, env: &RuntimeEnv) -> Result<AnyInboundHandler> {
     #[cfg(feature = "inbound-tls")]
     {
         let handler = crate::transport::tls::inbound::StreamHandler::new(
-            tls.certificate(tag)?,
-            tls.key(tag)?,
+            tls.certificate(tag, env)?,
+            tls.key(tag, env)?,
             None,
             None,
         )
@@ -813,12 +830,13 @@ fn tls_inbound(tag: &str, tls: &InboundTls) -> Result<AnyInboundHandler> {
 }
 
 #[allow(unused_variables)]
-fn ws_inbound(tag: &str, path: &str) -> Result<AnyInboundHandler> {
+fn ws_inbound(tag: &str, path: &str, env: &RuntimeEnv) -> Result<AnyInboundHandler> {
     #[cfg(feature = "inbound-ws")]
     return Ok(Arc::new(crate::adapter::inbound::Handler::new(
         format!("{}/ws", tag),
         Some(Arc::new(crate::transport::ws::inbound::StreamHandler::new(
             path.to_string(),
+            env.options.ws.half_close,
         ))),
         None,
     )));
@@ -827,13 +845,14 @@ fn ws_inbound(tag: &str, path: &str) -> Result<AnyInboundHandler> {
 }
 
 #[allow(unused_variables)]
-fn quic_inbound(tag: &str, tls: &InboundTls) -> Result<AnyInboundHandler> {
+fn quic_inbound(tag: &str, tls: &InboundTls, env: &RuntimeEnv) -> Result<AnyInboundHandler> {
     #[cfg(feature = "inbound-quic")]
     {
         let handler = crate::transport::quic::inbound::DatagramHandler::new(
-            tls.certificate(tag)?,
-            tls.key(tag)?,
+            tls.certificate(tag, env)?,
+            tls.key(tag, env)?,
             tls.alpn.clone().map(Listable::into_vec).unwrap_or_default(),
+            &env.options.quic,
         )?;
         Ok(Arc::new(crate::adapter::inbound::Handler::new(
             format!("{}/quic", tag),

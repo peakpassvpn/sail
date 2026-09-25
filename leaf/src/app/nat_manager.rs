@@ -51,9 +51,15 @@ pub struct NatManager {
 }
 
 impl NatManager {
+    /// The tuning and host of the instance this NAT belongs to.
+    pub fn env(&self) -> &crate::runtime::RuntimeEnv {
+        self.dispatcher.env()
+    }
+
     pub fn new(dispatcher: Arc<Dispatcher>) -> Self {
         let sessions: Arc<Mutex<SessionMap>> = Arc::new(Mutex::new(HashMap::new()));
         let sessions2 = sessions.clone();
+        let check_interval = dispatcher.env().options.udp.session_check_interval;
 
         // The task is lazy, will not run until any sessions added.
         let timeout_check_task: BoxFuture<'static, ()> = Box::pin(async move {
@@ -88,10 +94,7 @@ impl NatManager {
                         n_removed, n_remaining
                     );
                 }
-                tokio::time::sleep(Duration::from_secs(
-                    *option::UDP_SESSION_TIMEOUT_CHECK_INTERVAL,
-                ))
-                .await;
+                tokio::time::sleep(check_interval).await;
             }
         });
 
@@ -178,7 +181,7 @@ impl NatManager {
         }
 
         let (target_ch_tx, mut target_ch_rx) =
-            mpsc::channel(*crate::option::UDP_UPLINK_CHANNEL_SIZE);
+            mpsc::channel(self.dispatcher.env().options.udp.uplink_channel_size);
         let (downlink_abort_tx, downlink_abort_rx) = oneshot::channel();
 
         guard.insert(
@@ -187,6 +190,7 @@ impl NatManager {
         );
 
         let dispatcher = self.dispatcher.clone();
+        let datagram_buffer_size = dispatcher.env().options.udp.datagram_buffer_size * 1024;
         let sessions = self.sessions.clone();
 
         // Spawns a new task for dispatching to avoid blocking the current task,
@@ -215,7 +219,7 @@ impl NatManager {
                 // downlink
                 let raddr_downlink = raddr_cloned.clone();
                 let downlink_task = async move {
-                    let mut buf = vec![0u8; *crate::option::DATAGRAM_BUFFER_SIZE * 1024];
+                    let mut buf = vec![0u8; datagram_buffer_size];
                     loop {
                         match target_sock_recv.recv_from(&mut buf).await {
                             Err(err) => {

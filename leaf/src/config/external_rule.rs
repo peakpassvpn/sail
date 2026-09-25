@@ -3,11 +3,11 @@
 
 use std::fs::File;
 use std::io::BufReader;
-use std::path::Path;
 
 use anyhow::{anyhow, Result};
 
 use super::geosite;
+use crate::runtime::RuntimeEnv;
 
 /// How a domain condition compares against a destination.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -33,32 +33,22 @@ pub enum External {
     Domains(Vec<(DomainKind, String)>),
 }
 
-fn asset(file: &str) -> String {
-    if Path::new(file).is_absolute() {
-        return file.to_string();
-    }
-    Path::new(&*crate::option::ASSET_LOCATION)
-        .join(file)
-        .to_string_lossy()
-        .to_string()
-}
-
 /// `code` in the default GeoIP database.
-pub fn geoip(code: &str) -> Mmdb {
+pub fn geoip(code: &str, env: &RuntimeEnv) -> Mmdb {
     Mmdb {
-        file: asset("geo.mmdb"),
+        file: env.data_path("geo.mmdb"),
         country_code: code.to_string(),
     }
 }
 
 /// The site group `code` in the default site list.
-pub fn geosite(code: &str) -> Result<Vec<(DomainKind, String)>> {
-    load_site_group(&asset("site.dat"), code)
+pub fn geosite(code: &str, env: &RuntimeEnv) -> Result<Vec<(DomainKind, String)>> {
+    load_site_group(&env.data_path("site.dat"), code)
 }
 
 /// `mmdb:<code>`, `mmdb:<file>:<code>`, `site:<code>` or `site:<file>:<code>`.
-/// A relative file is looked up in the asset directory.
-pub fn load(filter: &str) -> Result<External> {
+/// A relative file is looked up in the data directory.
+pub fn load(filter: &str, env: &RuntimeEnv) -> Result<External> {
     let parts: Vec<&str> = filter.split(':').collect();
     let (kind, file, code) = match parts.as_slice() {
         [kind, code] => (*kind, None, *code),
@@ -67,11 +57,11 @@ pub fn load(filter: &str) -> Result<External> {
     };
     match kind {
         "mmdb" => Ok(External::Mmdb(Mmdb {
-            file: asset(file.unwrap_or("geo.mmdb")),
+            file: env.data_path(file.unwrap_or("geo.mmdb")),
             country_code: code.to_string(),
         })),
         "site" => Ok(External::Domains(load_site_group(
-            &asset(file.unwrap_or("site.dat")),
+            &env.data_path(file.unwrap_or("site.dat")),
             code,
         )?)),
         _ => Err(anyhow!(

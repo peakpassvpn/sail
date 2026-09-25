@@ -32,7 +32,7 @@ fn test_out_chain_10() -> anyhow::Result<()> {
                 "type": "shadowsocks",
                 "tag": "out",
                 "server": "127.0.0.1",
-                "server_port": 3002,
+                "server_port": 23002,
                 "method": "chacha20-ietf-poly1305",
                 "password": "password",
                 "detour": "out/1"
@@ -41,7 +41,7 @@ fn test_out_chain_10() -> anyhow::Result<()> {
                 "type": "trojan",
                 "tag": "out/1",
                 "server": "127.0.0.1",
-                "server_port": 3001,
+                "server_port": 23001,
                 "password": "password",
                 "transport": {
                     "type": "ws",
@@ -65,7 +65,7 @@ fn test_out_chain_10() -> anyhow::Result<()> {
                 "type": "trojan",
                 "tag": "in",
                 "listen": "127.0.0.1",
-                "listen_port": 3001,
+                "listen_port": 23001,
                 "users": [
                     {
                         "password": "password"
@@ -95,7 +95,7 @@ fn test_out_chain_10() -> anyhow::Result<()> {
             {
                 "type": "shadowsocks",
                 "listen": "127.0.0.1",
-                "listen_port": 3002,
+                "listen_port": 23002,
                 "method": "chacha20-ietf-poly1305",
                 "password": "password"
             }

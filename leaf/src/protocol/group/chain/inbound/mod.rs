@@ -23,18 +23,43 @@ enum State {
     Closed,
 }
 
+/// How the streams of a multiplexed transport are taken in.
+#[derive(Debug, Clone, Copy)]
+pub struct Accept {
+    /// Streams handshaking at once.
+    pub concurrency: usize,
+    /// How long a stream has to finish the handshakes of the actors after
+    /// the multiplexer.
+    pub handshake_timeout: Duration,
+}
+
+impl From<&crate::runtime::options::Inbound> for Accept {
+    fn from(inbound: &crate::runtime::options::Inbound) -> Self {
+        Accept {
+            concurrency: inbound.multiplex_accept_concurrency,
+            handshake_timeout: inbound.handshake_timeout,
+        }
+    }
+}
+
 pub struct Incoming {
     incoming: AnyIncomingTransport,
     actors: Vec<AnyInboundHandler>,
+    accept: Accept,
     pending: FuturesUnordered<BoxFuture<'static, io::Result<AnyBaseInboundTransport>>>,
     state: State,
 }
 
 impl Incoming {
-    pub fn new(incoming: AnyIncomingTransport, actors: Vec<AnyInboundHandler>) -> Self {
+    pub fn new(
+        incoming: AnyIncomingTransport,
+        actors: Vec<AnyInboundHandler>,
+        accept: Accept,
+    ) -> Self {
         Incoming {
             incoming,
             actors,
+            accept,
             pending: FuturesUnordered::new(),
             state: State::Running,
         }
@@ -63,8 +88,8 @@ impl Stream for Incoming {
     type Item = AnyBaseInboundTransport;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let max_concurrency = (*crate::option::INCOMING_ACCEPT_CONCURRENCY).max(1);
-        let handshake_timeout = Duration::from_secs(*crate::option::INBOUND_ACCEPT_TIMEOUT);
+        let max_concurrency = self.accept.concurrency.max(1);
+        let handshake_timeout = self.accept.handshake_timeout;
 
         loop {
             while matches!(self.state, State::Running) && self.pending.len() < max_concurrency {
@@ -162,7 +187,11 @@ mod tests {
             AnyBaseInboundTransport::Stream(Box::new(stream1), sess1),
             AnyBaseInboundTransport::Stream(Box::new(stream2), sess2),
         ]);
-        let mut incoming = Incoming::new(Box::new(incoming), actors);
+        let mut incoming = Incoming::new(
+            Box::new(incoming),
+            actors,
+            Accept::from(&crate::runtime::RuntimeOptions::default().inbound),
+        );
 
         let first = timeout(Duration::from_millis(100), incoming.next())
             .await

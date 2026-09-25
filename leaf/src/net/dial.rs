@@ -10,6 +10,16 @@ use tracing::debug;
 /// The default time a TCP connect may take.
 pub const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_secs(8);
 
+/// How the host keeps outbound sockets out of its VPN (Android), when it
+/// has not registered a callback for it: an endpoint that takes each
+/// socket's file descriptor as an int32 and answers 0 once it is protected.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SocketProtect {
+    /// A Unix domain socket, by path.
+    Unix(String),
+    Tcp(SocketAddr),
+}
+
 /// Options for the sockets one outbound opens, already combined with the
 /// instance's defaults (`route.default_interface`, `route.default_mark`).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -23,6 +33,8 @@ pub struct DialOptions {
     /// `SO_MARK`, Linux only.
     pub routing_mark: Option<u32>,
     pub connect_timeout: Duration,
+    /// From the host, never from a configuration.
+    pub protect: Option<SocketProtect>,
 }
 
 impl Default for DialOptions {
@@ -33,6 +45,7 @@ impl Default for DialOptions {
             inet6_bind_address: None,
             routing_mark: None,
             connect_timeout: DEFAULT_CONNECT_TIMEOUT,
+            protect: None,
         }
     }
 }
@@ -65,6 +78,7 @@ impl DialOptions {
             }),
             routing_mark: self.routing_mark.or(defaults.routing_mark),
             connect_timeout: self.connect_timeout,
+            protect: self.protect.clone().or_else(|| defaults.protect.clone()),
         }
     }
 

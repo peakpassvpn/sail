@@ -179,7 +179,7 @@ impl CatInboundListener {
                     let (mut lr, mut ls) = dgram.split();
 
                     let (l_tx, mut l_rx): (TokioSender<UdpPacket>, TokioReceiver<UdpPacket>) =
-                        tokio_channel(*crate::option::UDP_UPLINK_CHANNEL_SIZE);
+                        tokio_channel(nat_manager.env().options.udp.uplink_channel_size);
 
                     tokio::spawn(async move {
                         while let Some(pkt) = l_rx.recv().await {
@@ -195,7 +195,8 @@ impl CatInboundListener {
                         }
                     });
 
-                    let mut buf = vec![0u8; *crate::option::DATAGRAM_BUFFER_SIZE * 1024];
+                    let mut buf =
+                        vec![0u8; nat_manager.env().options.udp.datagram_buffer_size * 1024];
                     loop {
                         match lr.recv_from(&mut buf).await {
                             Err(ProxyError::DatagramFatal(e)) => {

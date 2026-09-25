@@ -80,6 +80,16 @@ pub async fn run_udp_echo_server(
     Ok((local_addr, fut))
 }
 
+/// The tuning test instances run with: short relay timeouts, so that the
+/// half-close tests do not wait out the defaults.
+pub fn runtime_options() -> leaf::runtime::RuntimeOptions {
+    let mut options = leaf::runtime::RuntimeOptions::default();
+    options
+        .set_all(["relay.uplink_timeout=3s", "relay.downlink_timeout=3s"])
+        .unwrap();
+    options
+}
+
 // Runs multiple leaf instances.
 pub fn run_leaf_instances(
     rt: &tokio::runtime::Runtime,
@@ -95,6 +105,8 @@ pub fn run_leaf_instances(
             #[cfg(feature = "auto-reload")]
             auto_reload: false,
             runtime_opt: leaf::RuntimeOption::SingleThread,
+            runtime: runtime_options(),
+            host: Default::default(),
         };
         rt.spawn_blocking(move || {
             if let Err(e) = leaf::start(rt_id, opts) {
@@ -131,10 +143,12 @@ fn new_socks_outbound(
     let dns_client = Arc::new(RwLock::new(leaf::app::dns_client::DnsClient::new(
         &config.dns,
         Arc::new(dial_defaults.clone()),
+        Default::default(),
     )?));
     let outbound_manager = leaf::app::outbound::manager::OutboundManager::new(
         &config.outbounds,
         &dial_defaults,
+        &leaf::runtime::RuntimeEnv::default(),
         dns_client,
     )?;
 
@@ -280,7 +294,9 @@ pub fn test_tcp_half_close_on_configs(
             .map_err(|e| anyhow::anyhow!("read failed: {}", e))?;
         assert_eq!(n, 0);
         tokio::time::sleep(
-            Duration::from_secs(*leaf::option::TCP_DOWNLINK_TIMEOUT)
+            runtime_options()
+                .relay
+                .downlink_timeout
                 .checked_sub(Duration::from_secs(1))
                 .ok_or_else(|| anyhow::anyhow!("duration sub failed"))?,
         )
@@ -365,7 +381,9 @@ pub fn test_tcp_half_close_on_configs(
             .map_err(|e| anyhow::anyhow!("read 3 failed: {}", e))?;
         assert_eq!(n, 0);
         tokio::time::sleep(
-            Duration::from_secs(*leaf::option::TCP_UPLINK_TIMEOUT)
+            runtime_options()
+                .relay
+                .uplink_timeout
                 .checked_sub(Duration::from_millis(500))
                 .ok_or_else(|| anyhow::anyhow!("duration sub failed"))?,
         )

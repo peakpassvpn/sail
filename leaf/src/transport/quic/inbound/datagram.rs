@@ -52,12 +52,22 @@ where
     io::Error::other(error)
 }
 
+/// Streams accepted and not yet handed on.
+const ACCEPT_CHANNEL_SIZE: usize = 1024;
+/// How long a connection may wait for room in the accept queue.
+const ACCEPT_QUEUE_TIMEOUT: Duration = Duration::from_secs(5);
+
 pub struct Handler {
     server_config: quinn::ServerConfig,
 }
 
 impl Handler {
-    pub fn new(certificate: String, certificate_key: String, alpns: Vec<String>) -> Result<Self> {
+    pub fn new(
+        certificate: String,
+        certificate_key: String,
+        alpns: Vec<String>,
+        tuning: &crate::runtime::options::Quic,
+    ) -> Result<Self> {
         let cert = if certificate.contains("-----BEGIN") {
             certificate.as_bytes().to_vec()
         } else {
@@ -136,15 +146,14 @@ impl Handler {
             quinn::crypto::rustls::QuicServerConfig::try_from(crypto).unwrap(),
         ));
         let mut transport_config = quinn::TransportConfig::default();
-        transport_config.max_concurrent_bidi_streams(quinn::VarInt::from_u32(
-            *crate::option::QUIC_MAX_CONCURRENT_BIDI_STREAMS,
-        ));
-        transport_config.max_idle_timeout(Some(quinn::IdleTimeout::from(quinn::VarInt::from_u32(
-            crate::option::get_env_var_or("QUIC_SERVER_MAX_IDLE_TIMEOUT_MS", 120_000),
-        ))));
-        transport_config.keep_alive_interval(Some(Duration::from_millis(
-            crate::option::get_env_var_or("QUIC_SERVER_KEEP_ALIVE_INTERVAL_MS", 0),
-        )));
+        transport_config
+            .max_concurrent_bidi_streams(quinn::VarInt::from_u32(tuning.max_concurrent_streams));
+        transport_config
+            .max_idle_timeout(quinn::IdleTimeout::try_from(tuning.server_idle_timeout).ok());
+        transport_config.keep_alive_interval(
+            (!tuning.server_keep_alive_interval.is_zero())
+                .then_some(tuning.server_keep_alive_interval),
+        );
         transport_config
             .congestion_controller_factory(Arc::new(quinn::congestion::BbrConfig::default()));
         server_config.transport_config(Arc::new(transport_config));
@@ -161,7 +170,7 @@ async fn handle_conn(
     let (conn, _) = conn
         .into_0rtt()
         .map_err(|_| anyhow!("convert 0rtt failed"))?;
-    let send_timeout = Duration::from_secs(*crate::option::QUIC_ACCEPT_QUEUE_TIMEOUT);
+    let send_timeout = ACCEPT_QUEUE_TIMEOUT;
     trace!("quic handling connection from {}", remote_addr);
     loop {
         let s = conn.accept_bi().await?;
@@ -186,7 +195,7 @@ async fn handle_conn(
 impl InboundDatagramHandler for Handler {
     async fn handle<'a>(&'a self, socket: AnyInboundDatagram) -> io::Result<AnyInboundTransport> {
         tracing::trace!("handling inbound datagram");
-        let (stream_tx, stream_rx) = channel(*crate::option::QUIC_ACCEPT_CHANNEL_SIZE);
+        let (stream_tx, stream_rx) = channel(ACCEPT_CHANNEL_SIZE);
         let endpoint = quinn::Endpoint::new(
             quinn::EndpointConfig::default(),
             Some(self.server_config.clone()),

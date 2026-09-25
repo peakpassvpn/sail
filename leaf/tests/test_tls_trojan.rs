@@ -28,7 +28,7 @@ fn test_tls_trojan() -> anyhow::Result<()> {
                 "type": "trojan",
                 "tag": "proxy",
                 "server": "127.0.0.1",
-                "server_port": 3001,
+                "server_port": 23001,
                 "password": "password",
                 "tls": {
                     "enabled": true,
@@ -46,7 +46,7 @@ fn test_tls_trojan() -> anyhow::Result<()> {
             {
                 "type": "trojan",
                 "listen": "127.0.0.1",
-                "listen_port": 3001,
+                "listen_port": 23001,
                 "users": [
                     {
                         "password": "password"
@@ -81,7 +81,7 @@ fn test_tls_trojan() -> anyhow::Result<()> {
                 "type": "trojan",
                 "tag": "proxy",
                 "server": "127.0.0.1",
-                "server_port": 3002,
+                "server_port": 23002,
                 "password": "password",
                 "tls": {
                     "enabled": true,
@@ -99,7 +99,7 @@ fn test_tls_trojan() -> anyhow::Result<()> {
             {
                 "type": "trojan",
                 "listen": "127.0.0.1",
-                "listen_port": 3002,
+                "listen_port": 23002,
                 "users": [
                     {
                         "password": "password"
@@ -149,7 +149,7 @@ fn test_tls_trojan() -> anyhow::Result<()> {
 socks-interface = 127.0.0.1
 socks-port = 1088
 [Proxy]
-Proxy = trojan, 127.0.0.1, 3003, password=password, sni=localhost, tls=true, tls-cert=mycert
+Proxy = trojan, 127.0.0.1, 23003, password=password, sni=localhost, tls=true, tls-cert=mycert
 [Rule]
 FINAL,Proxy
 "#,
@@ -161,7 +161,7 @@ FINAL,Proxy
             {
                 "type": "trojan",
                 "listen": "127.0.0.1",
-                "listen_port": 3003,
+                "listen_port": 23003,
                 "users": [
                     {
                         "password": "password"

@@ -50,11 +50,12 @@ impl<'a> Callback for SimpleCallback<'a> {
 
 pub struct Handler {
     path: String,
+    half_close: bool,
 }
 
 impl Handler {
-    pub fn new(path: String) -> Self {
-        Handler { path }
+    pub fn new(path: String, half_close: bool) -> Self {
+        Handler { path, half_close }
     }
 }
 
@@ -71,7 +72,7 @@ impl InboundStreamHandler for Handler {
             .await?;
         debug!("accepted WS stream");
         Ok(InboundTransport::Stream(
-            Box::new(super::ws_stream::WebSocketToStream::new(s)),
+            Box::new(super::ws_stream::WebSocketToStream::new(s, self.half_close)),
             sess,
         ))
     }

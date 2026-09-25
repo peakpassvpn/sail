@@ -40,6 +40,7 @@ struct ServerSelectorState {
     primary_server: Option<String>,
     stats: HashMap<String, ServerRuntimeStats>,
     last_reselect_at: Option<Instant>,
+    tuning: crate::runtime::options::Dns,
 }
 
 impl fmt::Display for Resolver {
@@ -78,7 +79,7 @@ impl ServerSelectorState {
     fn score_of(&self, server: &str) -> f64 {
         if let Some(stat) = self.stats.get(server) {
             let baseline = if stat.samples == 0 {
-                (*option::DNS_SERVER_SLOW_RESPONSE_MS as f64) / 2.0
+                self.slow_response_ms() / 2.0
             } else {
                 stat.avg_latency_ms
             };
@@ -88,12 +89,16 @@ impl ServerSelectorState {
                 + (stat.consecutive_failures as f64 * 1200.0)
                 + (stat.consecutive_slow as f64 * 300.0)
         } else {
-            (*option::DNS_SERVER_SLOW_RESPONSE_MS as f64) / 2.0
+            self.slow_response_ms() / 2.0
         }
     }
 
+    fn slow_response_ms(&self) -> f64 {
+        (self.tuning.slow_response.as_millis() as f64).max(1.0)
+    }
+
     fn is_degraded(&self, server: &str) -> bool {
-        let switch_threshold = (*option::DNS_SERVER_SWITCH_THRESHOLD).max(1);
+        let switch_threshold = self.tuning.switch_threshold.max(1);
         if let Some(stat) = self.stats.get(server) {
             (stat.consecutive_failures as usize) >= switch_threshold
                 || (stat.consecutive_slow as usize) >= switch_threshold
@@ -117,8 +122,7 @@ impl ServerSelectorState {
         }
         self.ensure_candidates(servers);
         let now = Instant::now();
-        let reselect_interval =
-            Duration::from_secs((*option::DNS_SERVER_RESELECT_INTERVAL_SECS).max(1));
+        let reselect_interval = self.tuning.reselect_interval.max(Duration::from_secs(1));
         let should_reselect = self
             .last_reselect_at
             .map(|last| now.saturating_duration_since(last) >= reselect_interval)
@@ -163,6 +167,7 @@ impl ServerSelectorState {
     }
 
     fn mark_success(&mut self, server: &str, elapsed: Duration) {
+        let slow_threshold = self.slow_response_ms();
         let stat = self.stats.entry(server.to_owned()).or_default();
         let elapsed_ms = elapsed.as_millis() as f64;
         stat.successes = stat.successes.saturating_add(1);
@@ -172,7 +177,6 @@ impl ServerSelectorState {
         } else {
             stat.avg_latency_ms = stat.avg_latency_ms * 0.8 + elapsed_ms * 0.2;
         }
-        let slow_threshold = (*option::DNS_SERVER_SLOW_RESPONSE_MS).max(1) as f64;
         if elapsed_ms >= slow_threshold {
             stat.consecutive_slow = stat.consecutive_slow.saturating_add(1);
         } else {
@@ -191,7 +195,7 @@ impl ServerSelectorState {
             stat.timeouts = stat.timeouts.saturating_add(1);
         }
         stat.consecutive_failures = stat.consecutive_failures.saturating_add(1);
-        let switch_threshold = (*option::DNS_SERVER_SWITCH_THRESHOLD).max(1);
+        let switch_threshold = self.tuning.switch_threshold.max(1);
         if self.primary_server.as_deref() == Some(server)
             && (stat.consecutive_failures as usize) >= switch_threshold
         {
@@ -216,4 +220,5 @@ pub struct DnsClient {
     selector_state: Arc<Mutex<ServerSelectorState>>,
     /// How its own sockets are opened: the instance's dial defaults.
     dial: Arc<crate::net::DialOptions>,
+    tuning: crate::runtime::options::Dns,
 }

@@ -314,71 +314,9 @@ fn path<E>(e: &serde_path_to_error::Error<E>) -> String {
     }
 }
 
-/// Resolves a certificate or a private key, either of which may be given
-/// inline or as a path.
-///
-/// The two halves of a keypair are configured the same way and have to be read
-/// the same way. They were not: a certificate was recognised inline and a key
-/// never was, so an inline key became a path under the asset directory made of
-/// PEM, and what the operator saw was "no private keys found" about a key that
-/// was right there in the configuration.
-pub fn resolve_certificate(value: &str) -> String {
-    if value.contains("-----BEGIN") {
-        return value.to_string();
-    }
-    let path = std::path::Path::new(value);
-    if path.is_absolute() {
-        return path.to_string_lossy().to_string();
-    }
-    std::path::Path::new(&*crate::option::ASSET_LOCATION)
-        .join(path)
-        .to_string_lossy()
-        .to_string()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    const INLINE_KEY: &str = "-----BEGIN PRIVATE KEY-----\nMIGH\n-----END PRIVATE KEY-----\n";
-
-    /// Both halves of a keypair are configured the same way and have to be
-    /// read the same way. The key was not: it was always taken for a path, so
-    /// an inline one became a filename made of PEM under the asset directory,
-    /// and what the operator saw was "no private keys found" about a key that
-    /// was right there in the configuration.
-    #[test]
-    fn an_inline_key_is_not_mistaken_for_a_path() {
-        assert_eq!(resolve_certificate(INLINE_KEY), INLINE_KEY);
-    }
-
-    /// What counts as absolute is the platform's business, and the test has to
-    /// ask the same question the code does. A leading slash is a whole path on
-    /// Unix; on Windows it names the root of whichever drive is current, so
-    /// `resolve_certificate` resolves it against the asset directory like any
-    /// other relative path -- correctly, and to something no assertion written
-    /// for Unix would recognise.
-    #[test]
-    fn an_absolute_path_is_left_alone() {
-        let absolute = if cfg!(windows) {
-            r"C:\leaf\cert.pem"
-        } else {
-            "/etc/leaf/cert.pem"
-        };
-        assert_eq!(resolve_certificate(absolute), absolute);
-    }
-
-    /// A relative path is still resolved against the asset directory, which is
-    /// what makes `"certificate": "cert.pem"` work in a config file.
-    #[test]
-    fn a_relative_path_is_resolved_against_the_asset_directory() {
-        let resolved = resolve_certificate("cert.pem");
-        assert!(
-            resolved.ends_with("cert.pem") && resolved != "cert.pem",
-            "expected a path under the asset directory, got {}",
-            resolved
-        );
-    }
 
     #[test]
     fn protocol_options_stay_with_the_entry() {

@@ -32,7 +32,7 @@ fn test_static() -> anyhow::Result<()> {
                 "type": "shadowsocks",
                 "tag": "ss_out",
                 "server": "127.0.0.1",
-                "server_port": 3001,
+                "server_port": 23001,
                 "method": "chacha20-ietf-poly1305",
                 "password": "password"
             }
@@ -61,7 +61,7 @@ fn test_static() -> anyhow::Result<()> {
                 "type": "shadowsocks",
                 "tag": "ss_out",
                 "server": "127.0.0.1",
-                "server_port": 3001,
+                "server_port": 23001,
                 "method": "chacha20-ietf-poly1305",
                 "password": "password"
             }
@@ -75,7 +75,7 @@ fn test_static() -> anyhow::Result<()> {
             {
                 "type": "shadowsocks",
                 "listen": "127.0.0.1",
-                "listen_port": 3001,
+                "listen_port": 23001,
                 "method": "chacha20-ietf-poly1305",
                 "password": "password"
             }

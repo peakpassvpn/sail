@@ -15,6 +15,7 @@ use crate::{
     config::Outbound,
     include,
     net::DialOptions,
+    runtime::RuntimeEnv,
 };
 
 #[cfg(feature = "outbound-select")]
@@ -45,6 +46,7 @@ impl OutboundManager {
     fn load(
         outbounds: &[Outbound],
         dial_defaults: &DialOptions,
+        env: &RuntimeEnv,
         dns_client: SyncDnsClient,
     ) -> Result<Loaded> {
         let mut handlers = HashMap::new();
@@ -60,6 +62,7 @@ impl OutboundManager {
             OutboundBuildState {
                 dns_client: &dns_client,
                 dial_defaults,
+                env,
                 handlers: &mut handlers,
                 abort_handles: &mut abort_handles,
                 #[cfg(feature = "outbound-select")]
@@ -91,6 +94,7 @@ impl OutboundManager {
         &mut self,
         outbounds: &[Outbound],
         dial_defaults: &DialOptions,
+        env: &RuntimeEnv,
         dns_client: SyncDnsClient,
     ) -> Result<()> {
         // Save outound select states.
@@ -113,7 +117,7 @@ impl OutboundManager {
             mut selectors,
             default_handler,
             abort_handles,
-        } = Self::load(outbounds, dial_defaults, dns_client)?;
+        } = Self::load(outbounds, dial_defaults, env, dns_client)?;
 
         // Restore outbound select states.
         #[cfg(feature = "outbound-select")]
@@ -153,6 +157,7 @@ impl OutboundManager {
     pub fn new(
         outbounds: &[Outbound],
         dial_defaults: &DialOptions,
+        env: &RuntimeEnv,
         dns_client: SyncDnsClient,
     ) -> Result<Self> {
         let Loaded {
@@ -163,7 +168,7 @@ impl OutboundManager {
             selectors,
             default_handler,
             abort_handles,
-        } = Self::load(outbounds, dial_defaults, dns_client)?;
+        } = Self::load(outbounds, dial_defaults, env, dns_client)?;
 
         Ok(OutboundManager {
             handlers,

@@ -48,8 +48,14 @@ fn manager_with(
     let dns_client = Arc::new(RwLock::new(DnsClient::new(
         &config::Dns::default(),
         Arc::new(dial_defaults.clone()),
+        Default::default(),
     )?));
-    OutboundManager::new(outbounds, dial_defaults, dns_client)
+    OutboundManager::new(
+        outbounds,
+        dial_defaults,
+        &leaf::runtime::RuntimeEnv::default(),
+        dns_client,
+    )
 }
 
 #[test]

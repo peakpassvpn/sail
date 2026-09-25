@@ -25,6 +25,13 @@ use tokio::sync::Mutex;
 use tokio::time::{sleep, Instant};
 use tracing::{debug, trace, Instrument};
 
+/// Streams accepted on a session and not yet handed on.
+const ACCEPT_CHANNEL_SIZE: usize = 1024;
+/// Frames queued for a session's connection.
+const FRAME_CHANNEL_SIZE: usize = 32;
+/// Payloads queued for one stream's reader.
+const STREAM_CHANNEL_SIZE: usize = 16;
+
 #[cfg(feature = "inbound-amux")]
 pub mod inbound;
 #[cfg(feature = "outbound-amux")]
@@ -112,8 +119,7 @@ impl MuxStream {
         stream_end: Arc<AtomicBool>,
     ) -> (Self, Sender<Vec<u8>>) {
         trace!("new mux stream {} (session {})", stream_id, session_id);
-        let (stream_read_tx, stream_read_rx) =
-            mpsc::channel::<Vec<u8>>(*crate::option::AMUX_STREAM_CHANNEL_SIZE);
+        let (stream_read_tx, stream_read_rx) = mpsc::channel::<Vec<u8>>(STREAM_CHANNEL_SIZE);
         (
             MuxStream {
                 session_id,
@@ -544,8 +550,7 @@ impl MuxSession {
         S: 'static + AsyncRead + AsyncWrite + Unpin + Send,
     {
         let (frame_sink, frame_stream) = MuxConnection::new(conn).split();
-        let (frame_write_tx, frame_write_rx) =
-            mpsc::channel::<MuxFrame>(*crate::option::AMUX_FRAME_CHANNEL_SIZE);
+        let (frame_write_tx, frame_write_rx) = mpsc::channel::<MuxFrame>(FRAME_CHANNEL_SIZE);
         let (recv_end, send_end) = (Arc::new(Mutex::new(false)), Arc::new(Mutex::new(false)));
         let streams: Streams = Arc::new(Mutex::new(HashMap::new()));
         let recv_bytes_counter = Arc::new(AtomicUsize::new(0));
@@ -586,11 +591,9 @@ impl MuxSession {
         S: 'static + AsyncRead + AsyncWrite + Unpin + Send,
     {
         let (frame_sink, frame_stream) = MuxConnection::new(conn).split();
-        let (frame_write_tx, frame_write_rx) =
-            mpsc::channel::<MuxFrame>(*crate::option::AMUX_FRAME_CHANNEL_SIZE);
+        let (frame_write_tx, frame_write_rx) = mpsc::channel::<MuxFrame>(FRAME_CHANNEL_SIZE);
         let streams: Streams = Arc::new(Mutex::new(HashMap::new()));
-        let (stream_accept_tx, stream_accept_rx) =
-            mpsc::channel(*crate::option::AMUX_ACCEPT_CHANNEL_SIZE);
+        let (stream_accept_tx, stream_accept_rx) = mpsc::channel(ACCEPT_CHANNEL_SIZE);
         let session_id = random_u16();
         let recv_handle = Self::run_frame_receive_loop(
             streams.clone(),

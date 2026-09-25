@@ -9,6 +9,7 @@ use super::Incoming;
 
 pub struct Handler {
     pub actors: Vec<AnyInboundHandler>,
+    pub accept: super::Accept,
 }
 
 #[async_trait]
@@ -34,7 +35,7 @@ impl InboundDatagramHandler for Handler {
                 Err(io::Error::other("the chain produced nothing"))
             }
             Folded::Incoming(incoming, next) => Ok(InboundTransport::Incoming(Box::new(
-                Incoming::new(incoming, self.actors[next..].to_vec()),
+                Incoming::new(incoming, self.actors[next..].to_vec(), self.accept),
             ))),
         }
     }

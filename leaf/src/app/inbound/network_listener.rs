@@ -1,7 +1,6 @@
 use std::io;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::time::Duration;
 
 use anyhow::{anyhow, Result};
 
@@ -67,7 +66,7 @@ async fn handle_inbound_datagram_inner(
     // from the right-hand side socket, they would be sent back here through a
     // channel, then we can send them to left-hand side socket.
     let (l_tx, mut l_rx): (TokioSender<UdpPacket>, TokioReceiver<UdpPacket>) =
-        tokio_channel(*crate::option::UDP_UPLINK_CHANNEL_SIZE);
+        tokio_channel(nat_manager.env().options.udp.uplink_channel_size);
 
     tokio::spawn(
         async move {
@@ -85,7 +84,7 @@ async fn handle_inbound_datagram_inner(
         .instrument(sess.span()),
     );
 
-    let mut buf = vec![0u8; *crate::option::DATAGRAM_BUFFER_SIZE * 1024];
+    let mut buf = vec![0u8; nat_manager.env().options.udp.datagram_buffer_size * 1024];
     loop {
         match lr.recv_from(&mut buf).instrument(sess.span()).await {
             Err(ProxyError::DatagramFatal(e)) => {
@@ -197,7 +196,7 @@ async fn handle_inbound_tcp_stream(
     async move {
         // Transforms the TCP stream into an inbound transport.
         let transport = timeout(
-            Duration::from_secs(*crate::option::INBOUND_ACCEPT_TIMEOUT),
+            dispatcher.env().options.inbound.handshake_timeout,
             handler.stream()?.handle(sess, Box::new(stream)),
         )
         .instrument(tracing::Span::current())
@@ -303,7 +302,8 @@ impl NetworkInboundListener {
         let mut runners: Vec<Runner> = Vec::new();
         if self.handler.stream().is_ok() {
             let listener = crate::net::TcpListener::bind_now(&listen_addr)
-                .map_err(|e| bind_failed("tcp", e))?;
+                .map_err(|e| bind_failed("tcp", e))?
+                .abort_on_close(self.dispatcher.env().options.inbound.tcp_abort_on_close);
             let handler = self.handler.clone();
             let dispatcher = self.dispatcher.clone();
             let nat_manager = self.nat_manager.clone();

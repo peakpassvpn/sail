@@ -21,14 +21,17 @@ pub struct WebSocketToStream<S> {
     /// the sink yet. `poll_shutdown` can be polled more than once, and the
     /// frame goes out exactly once.
     end_signalled: bool,
+    /// Whether a shutdown is signalled at all; see `poll_shutdown`.
+    half_close: bool,
 }
 
 impl<S> WebSocketToStream<S> {
-    pub fn new(stream: S) -> Self {
+    pub fn new(stream: S, half_close: bool) -> Self {
         WebSocketToStream {
             buf: BytesMut::new(),
             inner: stream,
             end_signalled: false,
+            half_close,
         }
     }
 }
@@ -133,7 +136,7 @@ impl<S: Sink<Message> + Unpin> AsyncWrite for WebSocketToStream<S> {
         // an error rather than as nothing would end a session that works
         // today. `poll_close` is not called either way: closing the sink would
         // end the direction that is still carrying the reply.
-        if !*crate::option::WS_HALF_CLOSE {
+        if !self.half_close {
             return Poll::Ready(Ok(()));
         }
         if !self.end_signalled {
@@ -165,50 +168,49 @@ mod tests {
             .unwrap()
     }
 
-    /// A shutdown of the write side emits a Close frame, or nothing at all,
+    /// A shutdown of the write side emits an empty frame, or nothing at all,
     /// according to the option -- and never closes the sink, which would end
     /// the direction still carrying the reply.
     #[test]
     fn shutdown_signals_the_end_of_this_side_only_when_asked_to() {
-        runtime().block_on(async {
-            let (sink, mut frames) = mpsc::channel::<Message>(4);
-            let mut stream = WebSocketToStream::new(sink);
+        for half_close in [false, true] {
+            runtime().block_on(async {
+                let (sink, mut frames) = mpsc::channel::<Message>(4);
+                let mut stream = WebSocketToStream::new(sink, half_close);
 
-            stream.write_all(b"a request").await.unwrap();
-            stream.shutdown().await.unwrap();
+                stream.write_all(b"a request").await.unwrap();
+                stream.shutdown().await.unwrap();
 
-            // Nothing here is awaited: whatever the shutdown had to say has
-            // been said by the time it returns, and awaiting what is not
-            // coming would hang rather than fail.
-            assert!(
-                matches!(frames.try_recv(), Ok(Message::Binary(ref data)) if data == b"a request"),
-                "the request itself should arrive as one binary frame"
-            );
-            let closing = frames.try_recv();
-            if *crate::option::WS_HALF_CLOSE {
+                // Nothing here is awaited: whatever the shutdown had to say
+                // has been said by the time it returns, and awaiting what is
+                // not coming would hang rather than fail.
                 assert!(
-                    matches!(closing, Ok(Message::Binary(ref data)) if data.is_empty()),
-                    "a half close should be signalled with an empty frame, got {:?}",
-                    closing
+                    matches!(frames.try_recv(), Ok(Message::Binary(ref data)) if data == b"a request"),
+                    "the request itself should arrive as one binary frame"
                 );
-            } else {
-                // Nothing sent, and the channel still open: the sink was not
-                // closed either, so the direction carrying the reply survives.
-                assert!(
-                    closing.is_err(),
-                    "nothing should be sent and the sink should stay open, got {:?}",
-                    closing
-                );
-            }
-        });
+                let closing = frames.try_recv();
+                if half_close {
+                    assert!(
+                        matches!(closing, Ok(Message::Binary(ref data)) if data.is_empty()),
+                        "a half close should be signalled with an empty frame, got {:?}",
+                        closing
+                    );
+                } else {
+                    // Nothing sent, and the channel still open: the sink was
+                    // not closed either, so the direction carrying the reply
+                    // survives.
+                    assert!(
+                        closing.is_err(),
+                        "nothing should be sent and the sink should stay open, got {:?}",
+                        closing
+                    );
+                }
+            });
+        }
     }
 
     #[test]
     fn half_close_is_off_unless_asked_for() {
-        if std::env::var("WS_HALF_CLOSE").is_ok() {
-            // The environment chose; the case above covers both ways.
-            return;
-        }
-        assert!(!*crate::option::WS_HALF_CLOSE);
+        assert!(!crate::runtime::RuntimeOptions::default().ws.half_close);
     }
 }

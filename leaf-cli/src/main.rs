@@ -57,10 +57,22 @@ struct Args {
     #[argh(option, short = 'd', default = "4")]
     test_outbound_timeout: u64,
 
-    /// bound interface, explicitly sets the OUTBOUND_INTERFACE environment variable
-    #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
-    #[argh(option, short = 'b')]
-    boundif: Option<String>,
+    /// tuning preset: mobile, desktop (default), server or router
+    #[argh(option)]
+    profile: Option<String>,
+
+    /// overrides one tuning value, e.g. --set relay.buffer_size=32; repeatable
+    #[argh(option)]
+    set: Vec<String>,
+
+    /// the directory for data files (geo.mmdb, site.dat) and relative
+    /// certificate paths; defaults to the executable's directory
+    #[argh(option, short = 'D')]
+    data_dir: Option<String>,
+
+    /// keeps state such as selected outbounds across restarts
+    #[argh(option)]
+    cache_dir: Option<String>,
 
     /// prints version
     #[argh(switch, short = 'V')]
@@ -75,19 +87,33 @@ fn main() {
         exit(0);
     }
 
+    let settings = leaf::runtime::StartSettings {
+        profile: args.profile,
+        set: args.set,
+        data_dir: args.data_dir.map(Into::into),
+        cache_dir: args.cache_dir.map(Into::into),
+        ..Default::default()
+    };
+    let (runtime, host) = match settings.resolve() {
+        Ok(v) => v,
+        Err(e) => {
+            println!("{}", e);
+            exit(1);
+        }
+    };
+    let env = leaf::runtime::RuntimeEnv {
+        options: runtime.clone(),
+        host: host.clone(),
+    };
+
     if args.test {
-        if let Err(e) = leaf::test_config(&args.config) {
+        if let Err(e) = leaf::test_config_with(&args.config, &env) {
             println!("{}", e);
             exit(1);
         } else {
             println!("ok");
             exit(0);
         }
-    }
-
-    #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
-    if let Some(iface) = args.boundif {
-        std::env::set_var("OUTBOUND_INTERFACE", iface);
     }
 
     if let Some(tag) = args.test_outbound {
@@ -100,6 +126,7 @@ fn main() {
             &tag,
             &config,
             Some(std::time::Duration::from_secs(args.test_outbound_timeout)),
+            &env,
         )) {
             Err(e) => {
                 println!("test outbound failed: {}", e);
@@ -127,6 +154,8 @@ fn main() {
         true,
         0, // auto_threads is true, this value no longer matters
         args.thread_stack_size,
+        runtime,
+        host,
     ) {
         println!("start leaf failed: {}", e);
         exit(1);

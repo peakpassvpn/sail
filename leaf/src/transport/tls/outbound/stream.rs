@@ -667,7 +667,7 @@ mod tests {
 
     fn new_test_dns_client() -> SyncDnsClient {
         let dns = crate::config::Dns::default();
-        Arc::new(RwLock::new(DnsClient::new(&dns, Default::default()).unwrap()))
+        Arc::new(RwLock::new(DnsClient::new(&dns, Default::default(), Default::default()).unwrap()))
     }
 
     #[test]

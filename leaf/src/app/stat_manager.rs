@@ -12,7 +12,7 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::{mpsc, RwLock};
 use tracing::debug;
 
-use crate::{adapter::*, option, session::*};
+use crate::{adapter::*, session::*};
 
 pub type SyncStatManager = Arc<RwLock<StatManager>>;
 
@@ -271,7 +271,7 @@ impl Default for StatManager {
         Self {
             counters: HashMap::new(),
             recent_counters: VecDeque::new(),
-            max_recent_connections: *option::MAX_RECENT_CONNECTIONS,
+            max_recent_connections: 0,
             next_id: 1,
             tx,
             rx: Some(rx),
@@ -282,6 +282,12 @@ impl Default for StatManager {
 impl StatManager {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Keeps up to `n` finished connections for the API to list.
+    pub fn with_max_recent_connections(mut self, n: usize) -> Self {
+        self.max_recent_connections = n;
+        self
     }
 
     pub fn move_to_recent(&mut self) {

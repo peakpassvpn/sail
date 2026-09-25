@@ -8,7 +8,7 @@ mod tests {
     fn new_client(servers: Vec<&str>) -> DnsClient {
         let mut dns = crate::config::Dns::default();
         dns.servers = servers.into_iter().map(|s| s.to_string()).collect();
-        DnsClient::new(&dns, Default::default()).unwrap()
+        DnsClient::new(&dns, Default::default(), Default::default()).unwrap()
     }
 
     fn collect_server_strings(client: &DnsClient, is_direct_outbound: bool) -> Vec<String> {
@@ -166,7 +166,7 @@ mod tests {
         let initial = selector.select_primary_index(&servers);
         assert_eq!(initial, 0);
         let key = s1.to_string();
-        let threshold = (*crate::option::DNS_SERVER_SWITCH_THRESHOLD).max(1);
+        let threshold = crate::runtime::options::Dns::default().switch_threshold.max(1);
         for _ in 0..threshold {
             selector.mark_failure(&key, true);
         }
@@ -192,8 +192,8 @@ mod tests {
         let server = DnsClient::parse_server("1.1.1.1").unwrap();
         let mut selector = ServerSelectorState::default();
         let key = server.to_string();
-        let threshold = (*crate::option::DNS_SERVER_SWITCH_THRESHOLD).max(1);
-        let slow_elapsed = Duration::from_millis(*crate::option::DNS_SERVER_SLOW_RESPONSE_MS + 50);
+        let threshold = crate::runtime::options::Dns::default().switch_threshold.max(1);
+        let slow_elapsed = crate::runtime::options::Dns::default().slow_response + Duration::from_millis(50);
         for _ in 0..threshold {
             selector.mark_success(&key, slow_elapsed);
         }

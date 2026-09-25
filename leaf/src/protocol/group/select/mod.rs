@@ -53,9 +53,24 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
 
     let actors_tags: Vec<String> = actors.iter().map(|x| x.tag().to_owned()).collect();
     let selected = Arc::new(AtomicUsize::new(0));
-    let mut outbound_selector =
-        OutboundSelector::new(ctx.tag.to_owned(), actors_tags, selected.clone());
-    if let Ok(Some(selected)) = selector::get_selected_from_cache(ctx.tag) {
+    let cache_file = match selector::cache_file(ctx.env.host.cache_dir.as_deref()) {
+        Ok(file) => Some(file),
+        Err(e) => {
+            tracing::warn!("selections of [{}] will not be kept: {}", ctx.tag, e);
+            None
+        }
+    };
+    let cached = cache_file
+        .as_deref()
+        .and_then(|file| selector::get_selected_from_cache(file, ctx.tag).ok())
+        .flatten();
+    let mut outbound_selector = OutboundSelector::new(
+        ctx.tag.to_owned(),
+        actors_tags,
+        selected.clone(),
+        cache_file,
+    );
+    if let Some(selected) = cached {
         // FIXME handle error
         let _ = outbound_selector.set_selected(&selected);
     } else {

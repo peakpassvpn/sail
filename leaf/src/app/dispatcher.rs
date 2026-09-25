@@ -1,6 +1,5 @@
 use std::io::{self};
 use std::sync::Arc;
-use std::time::Duration;
 
 use async_recursion::async_recursion;
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -133,6 +132,7 @@ pub struct Dispatcher {
     dns_client: SyncDnsClient,
     stat_manager: SyncStatManager,
     dns_sniffer: DnsSniffer,
+    env: crate::runtime::SyncRuntimeEnv,
 }
 
 impl Dispatcher {
@@ -141,6 +141,7 @@ impl Dispatcher {
         router: Arc<RwLock<Router>>,
         dns_client: SyncDnsClient,
         stat_manager: SyncStatManager,
+        env: crate::runtime::SyncRuntimeEnv,
     ) -> Self {
         Dispatcher {
             outbound_manager,
@@ -148,7 +149,13 @@ impl Dispatcher {
             dns_client,
             stat_manager,
             dns_sniffer: DnsSniffer::new(),
+            env,
         }
+    }
+
+    /// The tuning and host of the instance this dispatcher belongs to.
+    pub fn env(&self) -> &crate::runtime::RuntimeEnv {
+        &self.env
     }
 
     pub async fn dispatch_stream<T>(&self, sess: Session, lhs: T)
@@ -326,10 +333,15 @@ impl Dispatcher {
                 match net::relay::copy_buf_bidirectional_with_timeout(
                     &mut lhs,
                     &mut rhs,
-                    *option::LINK_BUFFER_SIZE * 1024,
-                    (*option::LINK_BUFFER_MAX_SIZE).max(*option::LINK_BUFFER_SIZE) * 1024,
-                    Duration::from_secs(*option::TCP_UPLINK_TIMEOUT),
-                    Duration::from_secs(*option::TCP_DOWNLINK_TIMEOUT),
+                    self.env.options.relay.buffer_size * 1024,
+                    self.env
+                        .options
+                        .relay
+                        .buffer_max_size
+                        .max(self.env.options.relay.buffer_size)
+                        * 1024,
+                    self.env.options.relay.uplink_timeout,
+                    self.env.options.relay.downlink_timeout,
                 )
                 .await
                 {

@@ -28,7 +28,7 @@ fn test_out_chain_1() -> anyhow::Result<()> {
                 "type": "trojan",
                 "tag": "chain-server1-server2",
                 "server": "127.0.0.1",
-                "server_port": 3002,
+                "server_port": 23002,
                 "password": "password",
                 "transport": {
                     "type": "ws",
@@ -40,7 +40,7 @@ fn test_out_chain_1() -> anyhow::Result<()> {
                 "type": "trojan",
                 "tag": "chain-server1-server2/1",
                 "server": "127.0.0.1",
-                "server_port": 3001,
+                "server_port": 23001,
                 "password": "password",
                 "transport": {
                     "type": "ws",
@@ -58,7 +58,7 @@ fn test_out_chain_1() -> anyhow::Result<()> {
                 "type": "trojan",
                 "tag": "server1",
                 "listen": "127.0.0.1",
-                "listen_port": 3001,
+                "listen_port": 23001,
                 "users": [
                     {
                         "password": "password"
@@ -85,7 +85,7 @@ fn test_out_chain_1() -> anyhow::Result<()> {
                 "type": "trojan",
                 "tag": "server2",
                 "listen": "127.0.0.1",
-                "listen_port": 3002,
+                "listen_port": 23002,
                 "users": [
                     {
                         "password": "password"

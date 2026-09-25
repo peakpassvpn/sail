@@ -21,6 +21,33 @@ pub const ERR_RUNTIME_MANAGER: i32 = 7;
 pub const ERR_NO_CONFIG_FILE: i32 = 8;
 /// No data found.
 pub const ERR_NO_DATA: i32 = 9;
+/// Invalid start settings.
+pub const ERR_SETTINGS: i32 = 10;
+
+/// The tuning and host described by `settings`, a JSON object (see
+/// `leaf::runtime::StartSettings`), or the defaults when it is null.
+unsafe fn start_settings(
+    settings: *const c_char,
+) -> Result<(leaf::runtime::RuntimeOptions, leaf::runtime::Host), i32> {
+    if settings.is_null() {
+        return Ok(Default::default());
+    }
+    let json = unsafe { CStr::from_ptr(settings) }
+        .to_str()
+        .map_err(|_| ERR_SETTINGS)?;
+    leaf::runtime::StartSettings::from_json(json)
+        .and_then(leaf::runtime::StartSettings::resolve)
+        .map_err(|e| {
+            eprintln!("{}", e);
+            ERR_SETTINGS
+        })
+}
+
+/// `start_settings` as the environment offline checks run with.
+unsafe fn start_env(settings: *const c_char) -> Result<leaf::runtime::RuntimeEnv, i32> {
+    let (options, host) = unsafe { start_settings(settings) }?;
+    Ok(leaf::runtime::RuntimeEnv { options, host })
+}
 
 fn to_errno(e: leaf::Error) -> i32 {
     match e {
@@ -53,6 +80,10 @@ fn to_errno(e: leaf::Error) -> i32 {
 ///                     multi_thread is true, but can be overridden by auto_threads.
 /// @param stack_size Sets stack size of the runtime worker threads, takes effect when
 ///                   multi_thread is true.
+/// @param settings Tuning and host options as a JSON object, or null for the
+///                 defaults: `{"profile": "mobile", "set": ["relay.buffer_size=32"],
+///                 "data_dir": "...", "cache_dir": "...", "log_to_system": true,
+///                 "socket_protect": "/path/or/host:port"}`.
 /// @return ERR_OK on finish running, any other errors means a startup failure.
 #[no_mangle]
 #[allow(unused_variables)]
@@ -64,7 +95,12 @@ pub unsafe extern "C" fn leaf_run_with_options(
     auto_threads: bool,
     threads: i32,
     stack_size: i32,
+    settings: *const c_char,
 ) -> i32 {
+    let (runtime, host) = match unsafe { start_settings(settings) } {
+        Ok(v) => v,
+        Err(e) => return e,
+    };
     if let Ok(config_path) = unsafe { CStr::from_ptr(config_path).to_str() } {
         if let Err(e) = leaf::util::run_with_options(
             rt_id,
@@ -75,6 +111,8 @@ pub unsafe extern "C" fn leaf_run_with_options(
             auto_threads,
             threads as usize,
             stack_size as usize,
+            runtime,
+            host,
         ) {
             return to_errno(e);
         }
@@ -91,15 +129,29 @@ pub unsafe extern "C" fn leaf_run_with_options(
 ///              calling subsequent FFI functions, e.g. reload, shutdown.
 /// @param config_path The path of the config file, must be a file with suffix .conf
 ///                    or .json, according to the enabled features.
+/// @param settings Tuning and host options as a JSON object, or null for the
+///                 defaults: `{"profile": "mobile", "set": ["relay.buffer_size=32"],
+///                 "data_dir": "...", "cache_dir": "...", "log_to_system": true,
+///                 "socket_protect": "/path/or/host:port"}`.
 /// @return ERR_OK on finish running, any other errors means a startup failure.
 #[no_mangle]
-pub unsafe extern "C" fn leaf_run(rt_id: u16, config_path: *const c_char) -> i32 {
+pub unsafe extern "C" fn leaf_run(
+    rt_id: u16,
+    config_path: *const c_char,
+    settings: *const c_char,
+) -> i32 {
+    let (runtime, host) = match unsafe { start_settings(settings) } {
+        Ok(v) => v,
+        Err(e) => return e,
+    };
     if let Ok(config_path) = unsafe { CStr::from_ptr(config_path).to_str() } {
         let opts = leaf::StartOptions {
             config: leaf::Config::File(config_path.to_string()),
             #[cfg(feature = "auto-reload")]
             auto_reload: false,
             runtime_opt: leaf::RuntimeOption::SingleThread,
+            runtime,
+            host,
         };
         if let Err(e) = leaf::start(rt_id, opts) {
             return to_errno(e);
@@ -110,14 +162,29 @@ pub unsafe extern "C" fn leaf_run(rt_id: u16, config_path: *const c_char) -> i32
     }
 }
 
+/// Starts leaf like `leaf_run`, with the configuration given as a string.
+/// @param settings Tuning and host options as a JSON object, or null for the
+///                 defaults: `{"profile": "mobile", "set": ["relay.buffer_size=32"],
+///                 "data_dir": "...", "cache_dir": "...", "log_to_system": true,
+///                 "socket_protect": "/path/or/host:port"}`.
 #[no_mangle]
-pub unsafe extern "C" fn leaf_run_with_config_string(rt_id: u16, config: *const c_char) -> i32 {
+pub unsafe extern "C" fn leaf_run_with_config_string(
+    rt_id: u16,
+    config: *const c_char,
+    settings: *const c_char,
+) -> i32 {
+    let (runtime, host) = match unsafe { start_settings(settings) } {
+        Ok(v) => v,
+        Err(e) => return e,
+    };
     if let Ok(config) = unsafe { CStr::from_ptr(config).to_str() } {
         let opts = leaf::StartOptions {
             config: leaf::Config::Str(config.to_string()),
             #[cfg(feature = "auto-reload")]
             auto_reload: false,
             runtime_opt: leaf::RuntimeOption::SingleThread,
+            runtime,
+            host,
         };
         if let Err(e) = leaf::start(rt_id, opts) {
             return to_errno(e);
@@ -155,11 +222,19 @@ pub extern "C" fn leaf_shutdown(rt_id: u16) -> bool {
 ///
 /// @param config_path The path of the config file, must be a file with suffix .conf
 ///                    or .json, according to the enabled features.
+/// @param settings The start settings the instance would run with, or null.
 /// @return Returns ERR_OK on success, i.e no syntax error.
 #[no_mangle]
-pub unsafe extern "C" fn leaf_test_config(config_path: *const c_char) -> i32 {
+pub unsafe extern "C" fn leaf_test_config(
+    config_path: *const c_char,
+    settings: *const c_char,
+) -> i32 {
+    let env = match unsafe { start_env(settings) } {
+        Ok(v) => v,
+        Err(e) => return e,
+    };
     if let Ok(config_path) = unsafe { CStr::from_ptr(config_path).to_str() } {
-        if let Err(e) = leaf::test_config(config_path) {
+        if let Err(e) = leaf::test_config_with(config_path, &env) {
             return to_errno(e);
         }
         ERR_OK
@@ -176,6 +251,7 @@ pub unsafe extern "C" fn leaf_test_config(config_path: *const c_char) -> i32 {
 /// @param context User-provided context pointer to be passed back to the callback.
 /// @param callback The callback function to receive results.
 ///                 Arguments: tag (string), tcp_latency (ms, -1 if failed), udp_latency (ms, -1 if failed), context.
+/// @param settings The start settings the instance would run with, or null.
 /// @return Returns ERR_OK on success.
 #[no_mangle]
 pub unsafe extern "C" fn leaf_test_outbounds(
@@ -184,7 +260,12 @@ pub unsafe extern "C" fn leaf_test_outbounds(
     timeout_sec: u32,
     context: *mut std::ffi::c_void,
     callback: extern "C" fn(*const c_char, i32, i32, *mut std::ffi::c_void),
+    settings: *const c_char,
 ) -> i32 {
+    let env = match unsafe { start_env(settings) } {
+        Ok(v) => v,
+        Err(e) => return e,
+    };
     if let Ok(config_str) = unsafe { CStr::from_ptr(config).to_str() } {
         // Send context safely to the other thread?
         // raw pointers are not Send.
@@ -222,7 +303,8 @@ pub unsafe extern "C" fn leaf_test_outbounds(
                 None
             };
             if let Ok(mut stream) =
-                leaf::util::stream_outbounds_tests(&config, timeout, concurrency as usize).await
+                leaf::util::stream_outbounds_tests(&config, timeout, concurrency as usize, &env)
+                    .await
             {
                 while let Some((tag, (tcp_res, udp_res))) = stream.next().await {
                     let tag_cstring = std::ffi::CString::new(tag.clone()).unwrap();

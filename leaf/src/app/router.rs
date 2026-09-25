@@ -15,6 +15,7 @@ use tracing::debug;
 use crate::app::SyncDnsClient;
 use crate::config::external_rule::{self, DomainKind, External, Mmdb};
 use crate::config::model;
+use crate::runtime::RuntimeEnv;
 use crate::session::{Network, Session, SocksAddr};
 
 pub trait Condition: Send + Sync + Unpin {
@@ -462,6 +463,7 @@ pub struct Router {
 fn compile_rule(
     rule: &model::Rule,
     mmdb_readers: &mut HashMap<String, Arc<maxminddb::Reader<Mmap>>>,
+    env: &RuntimeEnv,
 ) -> Result<Rule> {
     let mut cond_and = ConditionAnd::new();
 
@@ -477,12 +479,16 @@ fn compile_rule(
             .iter()
             .map(|d| (DomainKind::Keyword, d.clone())),
     );
-    let mut mmdbs: Vec<Mmdb> = rule.geoip.iter().map(|c| external_rule::geoip(c)).collect();
+    let mut mmdbs: Vec<Mmdb> = rule
+        .geoip
+        .iter()
+        .map(|c| external_rule::geoip(c, env))
+        .collect();
     for code in &rule.geosite {
-        domains.extend(external_rule::geosite(code)?);
+        domains.extend(external_rule::geosite(code, env)?);
     }
     for filter in &rule.external {
-        match external_rule::load(filter)? {
+        match external_rule::load(filter, env)? {
             External::Mmdb(mmdb) => mmdbs.push(mmdb),
             External::Domains(d) => domains.extend(d),
         }
@@ -533,30 +539,30 @@ fn compile_rule(
 }
 
 impl Router {
-    fn load_rules(route: &model::Route) -> Result<Vec<Rule>> {
+    fn load_rules(route: &model::Route, env: &RuntimeEnv) -> Result<Vec<Rule>> {
         let mut mmdb_readers = HashMap::new();
         route
             .rules
             .iter()
             .enumerate()
             .map(|(i, rule)| {
-                compile_rule(rule, &mut mmdb_readers)
+                compile_rule(rule, &mut mmdb_readers, env)
                     .map_err(|e| anyhow!("route.rules[{}]: {}", i, e))
             })
             .collect()
     }
 
-    pub fn new(route: &model::Route, dns_client: SyncDnsClient) -> Result<Self> {
+    pub fn new(route: &model::Route, dns_client: SyncDnsClient, env: &RuntimeEnv) -> Result<Self> {
         Ok(Router {
-            rules: Self::load_rules(route)?,
+            rules: Self::load_rules(route, env)?,
             final_outbound: route.final_outbound.clone(),
             domain_resolve: route.domain_resolve,
             dns_client,
         })
     }
 
-    pub fn reload(&mut self, route: &model::Route) -> Result<()> {
-        self.rules = Self::load_rules(route)?;
+    pub fn reload(&mut self, route: &model::Route, env: &RuntimeEnv) -> Result<()> {
+        self.rules = Self::load_rules(route, env)?;
         self.final_outbound = route.final_outbound.clone();
         self.domain_resolve = route.domain_resolve;
         Ok(())
@@ -729,7 +735,9 @@ mod tests {
             outbound: "direct".to_string(),
             ..Default::default()
         };
-        let err = compile_rule(&rule, &mut HashMap::new()).err().unwrap();
+        let err = compile_rule(&rule, &mut HashMap::new(), &RuntimeEnv::default())
+            .err()
+            .unwrap();
         assert_eq!(err.to_string(), "the rule has no conditions");
     }
 }

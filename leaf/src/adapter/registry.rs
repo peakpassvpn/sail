@@ -10,6 +10,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use crate::app::SyncDnsClient;
+use crate::runtime::RuntimeEnv;
 use crate::transport::layers::{self, Blocks, InboundBlocks, OutboundBlocks, OutboundLayering};
 use anyhow::{anyhow, Result};
 use futures::future::AbortHandle;
@@ -127,6 +128,8 @@ pub struct OutboundContext<'a> {
     /// How this outbound opens its sockets, for a handler that dials by
     /// itself rather than asking through `connect_addr`.
     pub dial: Arc<crate::net::DialOptions>,
+    /// The instance's tuning and host.
+    pub env: &'a RuntimeEnv,
     /// Tasks the handler spawned, aborted when the outbounds are replaced.
     pub abort_handles: &'a mut Vec<AbortHandle>,
     #[cfg(feature = "outbound-select")]
@@ -165,6 +168,7 @@ pub struct OutboundBuildState<'a> {
     pub dns_client: &'a SyncDnsClient,
     /// What outbounds dial with where their dial fields leave off.
     pub dial_defaults: &'a crate::net::DialOptions,
+    pub env: &'a RuntimeEnv,
     pub handlers: &'a mut Handlers<AnyOutboundHandler>,
     pub abort_handles: &'a mut Vec<AbortHandle>,
     #[cfg(feature = "outbound-select")]
@@ -215,6 +219,7 @@ pub fn build_outbounds(
             options: &options,
             dns_client: state.dns_client,
             dial: dial.clone(),
+            env: state.env,
             abort_handles: state.abort_handles,
             #[cfg(feature = "outbound-select")]
             selectors: state.selectors,
@@ -242,6 +247,7 @@ pub fn build_outbounds(
                 abort_handles: state.abort_handles,
                 detour,
                 dial,
+                env: state.env,
             },
         )?;
         state.handlers.insert(outbound.tag.clone(), handler);
@@ -302,6 +308,8 @@ impl InboundFactory {
 pub struct InboundContext<'a> {
     pub tag: &'a str,
     pub options: &'a Options,
+    /// The instance's tuning and host.
+    pub env: &'a RuntimeEnv,
     handlers: &'a Handlers<AnyInboundHandler>,
 }
 
@@ -335,6 +343,7 @@ pub fn build_inbounds(
     registry: &InboundRegistry,
     inbounds: &[crate::config::model::Inbound],
     listeners: &[&str],
+    env: &RuntimeEnv,
     handlers: &mut Handlers<AnyInboundHandler>,
 ) -> Result<()> {
     let nodes = inbounds
@@ -357,10 +366,11 @@ pub fn build_inbounds(
         let ctx = InboundContext {
             tag: &inbound.tag,
             options: &options,
+            env,
             handlers,
         };
         let core = (factory.build)(&ctx)?;
-        let handler = layers::inbound(&inbound.tag, core, &blocks)?;
+        let handler = layers::inbound(&inbound.tag, core, &blocks, env)?;
         handlers.insert(inbound.tag.clone(), handler);
         Ok(())
     })
@@ -600,10 +610,24 @@ mod tests {
 
         let mut handlers = Handlers::new();
         let registry: InboundRegistry = Registry::new("inbound");
-        build_inbounds(&registry, &[listener.clone()], &["tun"], &mut handlers).unwrap();
-        let err = build_inbounds(&registry, &[listener, unknown], &["tun"], &mut handlers)
-            .err()
-            .unwrap();
+        let env = RuntimeEnv::default();
+        build_inbounds(
+            &registry,
+            &[listener.clone()],
+            &["tun"],
+            &env,
+            &mut handlers,
+        )
+        .unwrap();
+        let err = build_inbounds(
+            &registry,
+            &[listener, unknown],
+            &["tun"],
+            &env,
+            &mut handlers,
+        )
+        .err()
+        .unwrap();
         assert!(err.to_string().contains("[in-1]"), "{}", err);
     }
 

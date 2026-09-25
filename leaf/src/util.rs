@@ -23,31 +23,27 @@ fn get_start_options(
     auto_threads: bool,
     threads: usize,
     stack_size: usize,
+    runtime: crate::runtime::RuntimeOptions,
+    host: crate::runtime::Host,
 ) -> crate::StartOptions {
-    if !multi_thread {
-        return crate::StartOptions {
-            config: crate::Config::File(config_path),
-            #[cfg(feature = "auto-reload")]
-            auto_reload,
-            runtime_opt: crate::RuntimeOption::SingleThread,
-        };
-    }
-    if auto_threads {
-        return crate::StartOptions {
-            config: crate::Config::File(config_path),
-            #[cfg(feature = "auto-reload")]
-            auto_reload,
-            runtime_opt: crate::RuntimeOption::MultiThreadAuto(stack_size),
-        };
-    }
+    let runtime_opt = if !multi_thread {
+        crate::RuntimeOption::SingleThread
+    } else if auto_threads {
+        crate::RuntimeOption::MultiThreadAuto(stack_size)
+    } else {
+        crate::RuntimeOption::MultiThread(threads, stack_size)
+    };
     crate::StartOptions {
         config: crate::Config::File(config_path),
         #[cfg(feature = "auto-reload")]
         auto_reload,
-        runtime_opt: crate::RuntimeOption::MultiThread(threads, stack_size),
+        runtime_opt,
+        runtime,
+        host,
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn run_with_options(
     rt_id: crate::RuntimeId,
     config_path: String,
@@ -56,6 +52,8 @@ pub fn run_with_options(
     auto_threads: bool,
     threads: usize,
     stack_size: usize,
+    runtime: crate::runtime::RuntimeOptions,
+    host: crate::runtime::Host,
 ) -> Result<(), crate::Error> {
     let opts = get_start_options(
         config_path,
@@ -65,6 +63,8 @@ pub fn run_with_options(
         auto_threads,
         threads,
         stack_size,
+        runtime,
+        host,
     );
     crate::start(rt_id, opts)
 }
@@ -145,15 +145,17 @@ pub async fn test_outbound(
     tag: &str,
     config: &Config,
     to: Option<Duration>,
+    env: &crate::runtime::RuntimeEnv,
 ) -> Result<(Result<Duration>, Result<Duration>)> {
     let to = to.unwrap_or(Duration::from_secs(4));
-    let dial_defaults = crate::dial_defaults(&config.route)?;
+    let dial_defaults = crate::dial_defaults(&config.route, env)?;
     let dns_client = Arc::new(RwLock::new(DnsClient::new(
         &config.dns,
         dial_defaults.clone(),
+        env.options.dns.clone(),
     )?));
     let outbound_manager =
-        OutboundManager::new(&config.outbounds, &dial_defaults, dns_client.clone())?;
+        OutboundManager::new(&config.outbounds, &dial_defaults, env, dns_client.clone())?;
     let handler = outbound_manager
         .get(tag)
         .ok_or_else(|| anyhow!("outbound {} not found", tag))?;
@@ -183,15 +185,17 @@ pub async fn test_outbounds(
     config: &Config,
     to: Option<Duration>,
     concurrency: usize,
+    env: &crate::runtime::RuntimeEnv,
 ) -> Result<HashMap<String, (Result<Duration>, Result<Duration>)>> {
     let to = to.unwrap_or(Duration::from_secs(4));
-    let dial_defaults = crate::dial_defaults(&config.route)?;
+    let dial_defaults = crate::dial_defaults(&config.route, env)?;
     let dns_client = Arc::new(RwLock::new(DnsClient::new(
         &config.dns,
         dial_defaults.clone(),
+        env.options.dns.clone(),
     )?));
     let outbound_manager =
-        OutboundManager::new(&config.outbounds, &dial_defaults, dns_client.clone())?;
+        OutboundManager::new(&config.outbounds, &dial_defaults, env, dns_client.clone())?;
 
     let mut tasks = Vec::new();
     for handler in outbound_manager.handlers() {
@@ -233,15 +237,17 @@ pub async fn stream_outbounds_tests(
     config: &Config,
     to: Option<Duration>,
     concurrency: usize,
+    env: &crate::runtime::RuntimeEnv,
 ) -> Result<impl futures::Stream<Item = (String, (Result<Duration>, Result<Duration>))>> {
     let to = to.unwrap_or(Duration::from_secs(4));
-    let dial_defaults = crate::dial_defaults(&config.route)?;
+    let dial_defaults = crate::dial_defaults(&config.route, env)?;
     let dns_client = Arc::new(RwLock::new(DnsClient::new(
         &config.dns,
         dial_defaults.clone(),
+        env.options.dns.clone(),
     )?));
     let outbound_manager =
-        OutboundManager::new(&config.outbounds, &dial_defaults, dns_client.clone())?;
+        OutboundManager::new(&config.outbounds, &dial_defaults, env, dns_client.clone())?;
 
     let mut tasks = Vec::new();
     for handler in outbound_manager.handlers() {
@@ -274,15 +280,17 @@ pub async fn health_check_outbound(
     tag: &str,
     config: &Config,
     to: Option<Duration>,
+    env: &crate::runtime::RuntimeEnv,
 ) -> Result<(Result<Duration>, Result<Duration>)> {
     let to = to.unwrap_or(Duration::from_secs(4));
-    let dial_defaults = crate::dial_defaults(&config.route)?;
+    let dial_defaults = crate::dial_defaults(&config.route, env)?;
     let dns_client = Arc::new(RwLock::new(DnsClient::new(
         &config.dns,
         dial_defaults.clone(),
+        env.options.dns.clone(),
     )?));
     let outbound_manager =
-        OutboundManager::new(&config.outbounds, &dial_defaults, dns_client.clone())?;
+        OutboundManager::new(&config.outbounds, &dial_defaults, env, dns_client.clone())?;
     let handler = outbound_manager
         .get(tag)
         .ok_or_else(|| anyhow!("outbound {} not found", tag))?;

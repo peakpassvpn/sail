@@ -23,6 +23,8 @@ fn a_port_in_use_fails_the_start() {
             #[cfg(feature = "auto-reload")]
             auto_reload: false,
             runtime_opt: leaf::RuntimeOption::SingleThread,
+            runtime: Default::default(),
+            host: Default::default(),
         };
         let _ = tx.send(leaf::start(1000, opts));
     });
