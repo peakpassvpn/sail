@@ -332,12 +332,7 @@ async fn doq_answers_on_one_connection_with_a_stream_per_query() {
     assert_eq!(counters.connections.load(Ordering::SeqCst), 1);
 }
 
-/// Ignored: on a failed handshake quinn-btls asks BoringSSL for ECH retry
-/// configs (`SessionState::inject_ech_retry_configs`), which BoringSSL
-/// asserts is only done after ECH was rejected: a debug build aborts. Run it
-/// with `--release`.
 #[tokio::test(flavor = "multi_thread")]
-#[ignore]
 async fn doq_rejects_an_untrusted_certificate() {
     let cert = cert();
     let counters = start_doq_server(32612, &cert);

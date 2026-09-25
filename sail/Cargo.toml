@@ -238,7 +238,7 @@ tokio-util = { version = "0.7", default-features = false, features = ["io", "cod
 quinn = { version = "0.11", default-features = false, features = ["runtime-tokio"], optional = true }
 h3 = { version = "0.0.8", optional = true }
 h3-quinn = { version = "0.0.10", optional = true }
-quinn-btls = { git = "https://github.com/peakpassvpn/quinn-btls.git", rev = "be77189270a5c18f4867f8bd5b8f455def8c9f97", default-features = false, optional = true }
+quinn-btls = { git = "https://github.com/peakpassvpn/quinn-btls.git", rev = "a3efed7d26fa69e323819da8eb6ebf7628c8e7c4", default-features = false, optional = true }
 
 # Hysteria2: Salamander obfuscation, and the congestion controller trait
 blake2 = { version = "0.10", optional = true }
