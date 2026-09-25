@@ -4,6 +4,7 @@
 //! without the internet. The tests use ports 33100-33199 only.
 #![allow(dead_code)]
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -68,6 +69,18 @@ pub fn member(tag: &str, port: u16) -> serde_json::Value {
 /// a 204 naming `name`. Stops, closing the port, when the handle is
 /// aborted.
 pub async fn serve(port: u16, name: &str, delay: Duration) -> AbortHandle {
+    serve_adjustable(port, name, delay).await.0
+}
+
+/// Like `serve`, with a delay that can be changed as it runs, in
+/// milliseconds.
+pub async fn serve_adjustable(
+    port: u16,
+    name: &str,
+    delay: Duration,
+) -> (AbortHandle, Arc<AtomicU64>) {
+    let delay = Arc::new(AtomicU64::new(delay.as_millis() as u64));
+    let delay_ms = delay.clone();
     let listener = TcpListener::bind(("127.0.0.1", port))
         .await
         .unwrap_or_else(|e| panic!("bind {}: {}", port, e));
@@ -79,6 +92,7 @@ pub async fn serve(port: u16, name: &str, delay: Duration) -> AbortHandle {
                 continue;
             };
             let name = name.clone();
+            let delay = delay_ms.clone();
             // The connections go when the server does.
             let (conn, conn_handle) = abortable(async move {
                 let mut buf = Vec::new();
@@ -93,7 +107,8 @@ pub async fn serve(port: u16, name: &str, delay: Duration) -> AbortHandle {
                     buf.extend_from_slice(&chunk[..n]);
                     while let Some(end) = find(&buf, b"\r\n\r\n") {
                         buf.drain(..end + 4);
-                        tokio::time::sleep(delay).await;
+                        let ms = delay.load(Ordering::Relaxed);
+                        tokio::time::sleep(Duration::from_millis(ms)).await;
                         let response = format!(
                             "HTTP/1.1 204 No Content\r\nX-Member: {}\r\nContent-Length: 0\r\n\r\n",
                             name
@@ -111,7 +126,7 @@ pub async fn serve(port: u16, name: &str, delay: Duration) -> AbortHandle {
     tokio::spawn(async move {
         let _ = task.await;
     });
-    handle
+    (handle, delay)
 }
 
 /// Aborts its tasks when dropped, as a server's task is when it stops.
@@ -194,9 +209,20 @@ pub async fn eventually(within: Duration, mut f: impl FnMut() -> bool) -> bool {
     f()
 }
 
-/// The member the group `tag` has selected, and its latencies.
+/// The member the group `tag` has selected.
 pub fn selected(m: &OutboundManager, tag: &str) -> String {
     let selector = m.get_selector(tag).expect("a selector");
     let s = selector.try_read().expect("not locked").get_selected_tag();
     s
+}
+
+/// The latency of each member of the group `tag`, as last tested.
+pub fn latencies(m: &OutboundManager, tag: &str) -> Vec<(String, Option<Duration>)> {
+    let selector = m.get_selector(tag).expect("a selector");
+    let l = selector
+        .try_read()
+        .expect("not locked")
+        .get_latencies()
+        .expect("latencies");
+    l
 }

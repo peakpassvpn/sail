@@ -65,6 +65,7 @@ all-endpoints = [
     "outbound-tuic",
     "outbound-anytls",
     "outbound-select",
+    "outbound-urltest",
 ]
 
 # BoringSSL, through btls, is the only crypto library: TLS over TCP and
@@ -108,6 +109,8 @@ outbound-mptp = []
 # The API's select routes read their query string; without the API, the
 # selector needs nothing more.
 outbound-select = ["axum?/query"]
+# Exposes its selection and latencies the way a selector does.
+outbound-urltest = ["outbound-select"]
 outbound-vmess = ["aead", "lz_fnv", "cfb-mode", "hmac", "sha2", "aes", "aes-gcm", "sha3", "digest", "md-5", "tokio-util", "byteorder", "crc32fast"]
 
 # Inbounds

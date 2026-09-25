@@ -59,6 +59,8 @@ pub(crate) static OUTBOUNDS: LazyLock<OutboundRegistry> = LazyLock::new(|| {
     crate::protocol::group::r#static::register(&mut registry);
     #[cfg(feature = "outbound-tryall")]
     crate::protocol::group::tryall::register(&mut registry);
+    #[cfg(feature = "outbound-urltest")]
+    crate::protocol::group::urltest::register(&mut registry);
 
     #[cfg(feature = "plugin")]
     crate::app::outbound::plugin::register(&mut registry);
