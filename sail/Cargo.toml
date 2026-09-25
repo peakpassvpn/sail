@@ -231,7 +231,7 @@ tokio-util = { version = "0.7", default-features = false, features = ["io", "cod
 
 # QUIC
 quinn = { version = "0.11", default-features = false, features = ["runtime-tokio"], optional = true }
-quinn-btls = { git = "https://github.com/0x676e67/quinn-btls.git", rev = "59f3e36e48fd590a2b43e5ba4ed1183d6dc1bda2", default-features = false, optional = true }
+quinn-btls = { git = "https://github.com/peakpassvpn/quinn-btls.git", rev = "be77189270a5c18f4867f8bd5b8f455def8c9f97", default-features = false, optional = true }
 
 
 # API
