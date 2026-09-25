@@ -42,6 +42,14 @@ pub(crate) static OUTBOUNDS: LazyLock<OutboundRegistry> = LazyLock::new(|| {
     crate::protocol::vless::outbound::register(&mut registry);
     #[cfg(feature = "outbound-mptp")]
     crate::protocol::mptp::outbound::register(&mut registry);
+    #[cfg(feature = "outbound-http")]
+    crate::protocol::http::outbound::register(&mut registry);
+    #[cfg(feature = "outbound-hysteria2")]
+    crate::protocol::hysteria2::outbound::register(&mut registry);
+    #[cfg(feature = "outbound-tuic")]
+    crate::protocol::tuic::outbound::register(&mut registry);
+    #[cfg(feature = "outbound-anytls")]
+    crate::protocol::anytls::outbound::register(&mut registry);
 
     #[cfg(feature = "outbound-failover")]
     crate::protocol::group::failover::register(&mut registry);
@@ -74,6 +82,14 @@ pub(crate) static INBOUNDS: LazyLock<InboundRegistry> = LazyLock::new(|| {
     crate::protocol::mptp::inbound::register(&mut registry);
     #[cfg(feature = "inbound-hc")]
     crate::protocol::hc::inbound::register(&mut registry);
+    #[cfg(feature = "inbound-mixed")]
+    crate::protocol::mixed::inbound::register(&mut registry);
+    #[cfg(feature = "inbound-hysteria2")]
+    crate::protocol::hysteria2::inbound::register(&mut registry);
+    #[cfg(feature = "inbound-tuic")]
+    crate::protocol::tuic::inbound::register(&mut registry);
+    #[cfg(feature = "inbound-anytls")]
+    crate::protocol::anytls::inbound::register(&mut registry);
     #[cfg(all(feature = "inbound-nf", windows))]
     crate::protocol::nf::inbound::register(&mut registry);
 

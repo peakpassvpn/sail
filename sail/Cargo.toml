@@ -35,6 +35,10 @@ all-endpoints = [
     "inbound-socks",
     "inbound-tun",
     "inbound-cat",
+    "inbound-mixed",
+    "inbound-hysteria2",
+    "inbound-tuic",
+    "inbound-anytls",
     # outbounds
     "outbound-direct",
     "outbound-drop",
@@ -55,6 +59,10 @@ all-endpoints = [
     "outbound-vless",
     "outbound-reality",
     "outbound-mptp",
+    "outbound-http",
+    "outbound-hysteria2",
+    "outbound-tuic",
+    "outbound-anytls",
     # "outbound-select",
 ]
 
@@ -78,6 +86,10 @@ outbound-shadowsocks = ["aead", "hkdf", "sha-1", "md-5", "percent-encoding", "to
 outbound-obfs = ["base64", "memchr"]
 outbound-socks = ["async-socks5"]
 outbound-trojan = ["sha2", "hex"]
+outbound-http = ["base64"]
+outbound-hysteria2 = ["quic"]
+outbound-tuic = ["quic"]
+outbound-anytls = []
 outbound-tls = ["tls"]
 outbound-ws = ["tungstenite", "tokio-tungstenite", "url", "http"]
 outbound-failover = ["lru_time_cache"]
@@ -94,6 +106,10 @@ outbound-vmess = ["aead", "lz_fnv", "cfb-mode", "hmac", "sha2", "aes", "aes-gcm"
 
 # Inbounds
 inbound-trojan = ["sha2", "hex"]
+inbound-mixed = ["inbound-http", "inbound-socks"]
+inbound-hysteria2 = ["quic"]
+inbound-tuic = ["quic"]
+inbound-anytls = []
 inbound-mptp = []
 inbound-shadowsocks = ["aead", "hkdf", "sha-1", "md-5", "tokio-util"]
 inbound-socks = []
