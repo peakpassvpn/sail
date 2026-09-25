@@ -10,14 +10,16 @@ use tracing::debug;
 /// The default time a TCP connect may take.
 pub const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_secs(8);
 
-/// How the host keeps outbound sockets out of its VPN (Android), when it
-/// has not registered a callback for it: an endpoint that takes each
-/// socket's file descriptor as an int32 and answers 0 once it is protected.
+/// How the host keeps outbound sockets out of its VPN (Android).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SocketProtect {
-    /// A Unix domain socket, by path.
+    /// An endpoint that takes each socket's file descriptor as an int32
+    /// and answers 0 once it is protected: a Unix domain socket, by path.
     Unix(String),
+    /// The same, over TCP.
     Tcp(SocketAddr),
+    /// The host's `Platform::protect_socket`.
+    Platform(crate::runtime::PlatformRef),
 }
 
 /// Options for the sockets one outbound opens, already combined with the

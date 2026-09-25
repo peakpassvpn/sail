@@ -5,8 +5,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 pub mod options;
+pub mod platform;
 
 pub use options::{Profile, RuntimeOptions};
+pub use platform::{Platform, PlatformRef};
 
 use anyhow::{anyhow, Result};
 use serde_derive::Deserialize;
@@ -19,11 +21,14 @@ pub struct Host {
     pub data_dir: Option<PathBuf>,
     /// Keeps state across restarts, such as selected outbounds, when set.
     pub cache_dir: Option<PathBuf>,
-    /// Sends logs to the system log (macOS unified logging) rather than to
-    /// standard output.
+    /// Sends logs to the platform's system log rather than to standard
+    /// output; needs a platform.
     pub log_to_system: bool,
-    /// How outbound sockets are kept out of the VPN (Android).
+    /// How outbound sockets are kept out of the VPN (Android), when the
+    /// platform does not do it.
     pub socket_protect: Option<crate::net::dial::SocketProtect>,
+    /// What the embedding host does for the instance.
+    pub platform: Option<PlatformRef>,
 }
 
 /// Everything an instance runs with that is not its configuration.
@@ -90,8 +95,10 @@ pub struct StartSettings {
     pub data_dir: Option<PathBuf>,
     #[serde(default)]
     pub cache_dir: Option<PathBuf>,
+    /// Whether to log to the platform's system log; the host decides when
+    /// unset.
     #[serde(default)]
-    pub log_to_system: bool,
+    pub log_to_system: Option<bool>,
     /// A Unix socket path, or an `address:port` to connect to over TCP.
     #[serde(default)]
     pub socket_protect: Option<String>,
@@ -121,8 +128,9 @@ impl StartSettings {
             Host {
                 data_dir: self.data_dir,
                 cache_dir: self.cache_dir,
-                log_to_system: self.log_to_system,
+                log_to_system: self.log_to_system.unwrap_or(false),
                 socket_protect,
+                platform: None,
             },
         ))
     }

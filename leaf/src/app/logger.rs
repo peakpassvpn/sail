@@ -2,7 +2,7 @@ use std::fs::OpenOptions;
 use std::path::Path;
 use std::sync::RwLock;
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use tracing::field::Visit;
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{
@@ -16,6 +16,7 @@ use tracing_subscriber::{
 };
 
 use crate::config;
+use crate::runtime::Host;
 
 type FilterHandle = Handle<LevelFilter, Registry>;
 
@@ -125,51 +126,32 @@ impl HandleController {
 
 static HANDLE: RwLock<Option<HandleController>> = RwLock::new(None);
 
-#[cfg_attr(not(target_os = "macos"), allow(unused_variables))]
-fn get_writer(config: &config::Log, to_system: bool) -> Result<(WriterLayer, WorkerGuard)> {
+fn get_writer(config: &config::Log, host: &Host) -> Result<(WriterLayer, WorkerGuard)> {
     let mode = match config.format {
         config::model::LogFormat::Compact => LogFormatMode::Compact,
         config::model::LogFormat::Full => LogFormatMode::Full,
     };
 
     Ok(match &config.output {
+        None if host.log_to_system => {
+            let platform = host
+                .platform
+                .clone()
+                .ok_or_else(|| anyhow!("log_to_system: the host provides no system log"))?;
+            let (writer, writer_guard) =
+                tracing_appender::non_blocking(crate::runtime::platform::LineWriter::new(platform));
+            let writer = fmt::Layer::default()
+                .with_ansi(false)
+                .with_writer(writer)
+                .event_format(LogEventFormat { mode });
+            (writer, writer_guard)
+        }
         None => {
-            #[cfg(target_os = "macos")]
-            {
-                if to_system {
-                    let writer = crate::mobile::logger::ConsoleWriter::default();
-                    let (writer, writer_guard) = tracing_appender::non_blocking(writer);
-                    let writer = fmt::Layer::default()
-                        .with_ansi(false)
-                        .with_writer(writer)
-                        .event_format(LogEventFormat { mode });
-                    (writer, writer_guard)
-                } else {
-                    let (writer, writer_guard) = tracing_appender::non_blocking(std::io::stdout());
-                    let writer = fmt::Layer::default()
-                        .with_writer(writer)
-                        .event_format(LogEventFormat { mode });
-                    (writer, writer_guard)
-                }
-            }
-            #[cfg(any(target_os = "linux", target_os = "windows"))]
-            {
-                let (writer, writer_guard) = tracing_appender::non_blocking(std::io::stdout());
-                let writer = fmt::Layer::default()
-                    .with_writer(writer)
-                    .event_format(LogEventFormat { mode });
-                (writer, writer_guard)
-            }
-            #[cfg(any(target_os = "ios", target_os = "android"))]
-            {
-                let writer = crate::mobile::logger::ConsoleWriter::default();
-                let (writer, writer_guard) = tracing_appender::non_blocking(writer);
-                let writer = fmt::Layer::default()
-                    .with_ansi(false)
-                    .with_writer(writer)
-                    .event_format(LogEventFormat { mode });
-                (writer, writer_guard)
-            }
+            let (writer, writer_guard) = tracing_appender::non_blocking(std::io::stdout());
+            let writer = fmt::Layer::default()
+                .with_writer(writer)
+                .event_format(LogEventFormat { mode });
+            (writer, writer_guard)
         }
         Some(output_file) => {
             let p = Path::new(output_file);
@@ -184,9 +166,9 @@ fn get_writer(config: &config::Log, to_system: bool) -> Result<(WriterLayer, Wor
     })
 }
 
-/// Sets up logging as `config` says; `to_system` sends console output to
-/// the system log (macOS) instead of standard output.
-pub fn setup_logger(config: &config::Log, to_system: bool) -> Result<()> {
+/// Sets up logging as `config` says; `host` may send console output to the
+/// system log instead of standard output.
+pub fn setup_logger(config: &config::Log, host: &Host) -> Result<()> {
     let filter = match config.level {
         config::model::LogLevel::Trace => LevelFilter::TRACE,
         config::model::LogLevel::Debug => LevelFilter::DEBUG,
@@ -195,7 +177,7 @@ pub fn setup_logger(config: &config::Log, to_system: bool) -> Result<()> {
         config::model::LogLevel::Error => LevelFilter::ERROR,
         config::model::LogLevel::None => return Ok(()),
     };
-    let (writer, writer_guard) = get_writer(config, to_system)?;
+    let (writer, writer_guard) = get_writer(config, host)?;
     let mut h = HANDLE.write().unwrap();
     if let Some(h) = h.as_mut() {
         h.reload(filter, writer, writer_guard)?;

@@ -14,7 +14,7 @@ use tracing::{debug, trace};
 use std::os::unix::io::AsFd;
 #[cfg(windows)]
 use std::os::windows::io::AsSocket;
-#[cfg(target_os = "android")]
+#[cfg(unix)]
 use {
     std::os::unix::io::{AsRawFd, RawFd},
     tokio::io::AsyncWriteExt,
@@ -37,25 +37,23 @@ pub mod resolver;
 pub use datagram::*;
 pub use dial::DialOptions;
 
-#[cfg(target_os = "android")]
+/// Keeps an outbound socket out of the host's VPN, as `dial.protect` says.
+#[cfg(unix)]
 async fn protect_socket(fd: RawFd, dial: &DialOptions) -> io::Result<()> {
-    if crate::mobile::callback::android::is_protect_socket_callback_set() {
-        let start = std::time::Instant::now();
-        crate::mobile::callback::android::protect_socket(fd).map_err(|e| {
-            io::Error::new(
-                io::ErrorKind::Other,
-                format!("failed to protect outbound socket {}: {:?}", fd, e),
-            )
-        })?;
-        trace!(
-            "protected socket {} in {} µs",
-            fd,
-            start.elapsed().as_micros()
-        );
-        return Ok(());
-    }
     let answer = match &dial.protect {
         None => return Ok(()),
+        Some(dial::SocketProtect::Platform(platform)) => {
+            let start = std::time::Instant::now();
+            platform.protect_socket(fd).map_err(|e| {
+                io::Error::other(format!("failed to protect outbound socket {}: {}", fd, e))
+            })?;
+            trace!(
+                "protected socket {} in {} µs",
+                fd,
+                start.elapsed().as_micros()
+            );
+            return Ok(());
+        }
         Some(dial::SocketProtect::Tcp(addr)) => {
             let mut stream = TcpStream::connect(addr).await?;
             stream.write_i32(fd as i32).await?;
@@ -138,7 +136,7 @@ pub async fn new_udp_socket(indicator: &SocketAddr, dial: &DialOptions) -> io::R
         socket.bind(&(*indicator).into())?;
     }
 
-    #[cfg(target_os = "android")]
+    #[cfg(unix)]
     protect_socket(socket.as_raw_fd(), dial).await?;
 
     UdpSocket::from_std(socket.into())
@@ -169,7 +167,7 @@ pub async fn tcp_connect(addr: SocketAddr, dial: &DialOptions) -> io::Result<Tcp
 
     dial::bind(&SockRef::from(&socket), &addr, dial)?;
 
-    #[cfg(target_os = "android")]
+    #[cfg(unix)]
     protect_socket(socket.as_raw_fd(), dial).await?;
 
     debug!("tcp dialing {}", &addr);

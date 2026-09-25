@@ -37,9 +37,6 @@ pub mod sniff;
 pub mod transport;
 pub mod util;
 
-#[cfg(any(target_os = "ios", target_os = "macos", target_os = "android"))]
-pub mod mobile;
-
 #[derive(Error, Debug)]
 pub enum Error {
     #[error(transparent)]
@@ -253,7 +250,7 @@ impl RuntimeManager {
         .map_err(Error::Config)?;
         let router = Router::new(&config.route, self.dns_client.clone(), &self.env)
             .map_err(Error::Config)?;
-        app::logger::setup_logger(&config.log, self.env.host.log_to_system)?;
+        app::logger::setup_logger(&config.log, &self.env.host)?;
 
         #[cfg(feature = "outbound-select")]
         outbound_manager
@@ -484,7 +481,12 @@ pub(crate) fn dial_defaults(
 ) -> anyhow::Result<Arc<net::DialOptions>> {
     let route = &config.route;
     let mut defaults = net::DialOptions::defaults(route)?;
-    defaults.protect = env.host.socket_protect.clone();
+    defaults.protect = match &env.host.platform {
+        Some(platform) if platform.protects_sockets() => {
+            Some(net::dial::SocketProtect::Platform(platform.clone()))
+        }
+        _ => env.host.socket_protect.clone(),
+    };
     defaults.ipv6 = config.dns.strategy.ipv6();
     if !route.auto_detect_interface {
         return Ok(Arc::new(defaults));
@@ -602,7 +604,7 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
         host: opts.host,
     });
 
-    app::logger::setup_logger(&config.log, env.host.log_to_system)?;
+    app::logger::setup_logger(&config.log, &env.host)?;
     tracing::debug!("runtime options: {:?}", env.options);
 
     let rt = new_runtime(&opts.runtime_opt)?;

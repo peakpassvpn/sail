@@ -277,16 +277,9 @@ netstack-smoltcp = { git = "https://github.com/eycorsican/netstack-smoltcp", bra
 [target.'cfg(target_os = "windows")'.dependencies]
 ipconfig = "0.3"
 
-[target.'cfg(target_os = "android")'.dependencies]
-jni = "0.21"
-
 [target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
 pnet_datalink = { version = "0.34", package = "pnet_datalink", optional = true }
 libc = "0.2"
-
-# Used in mobile logger
-[target.'cfg(any(target_os = "ios", target_os = "macos", target_os = "android"))'.dependencies]
-memchr = { version = "2" }
 
 [dev-dependencies]
 rcgen = "0.13"
@@ -295,6 +288,5 @@ tokio = { version = "1", features = ["fs", "sync", "io-util", "net", "time", "rt
 
 [build-dependencies]
 cc = "1.2"
-bindgen = "0.72"
 protobuf-codegen = "=3.6.0"
 protoc-bin-vendored = "3.2"

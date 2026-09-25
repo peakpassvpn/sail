@@ -1,6 +1,8 @@
 #![allow(clippy::missing_safety_doc)]
 use std::{ffi::CStr, os::raw::c_char};
 
+mod platform;
+
 /// No error.
 pub const ERR_OK: i32 = 0;
 /// Config path error.
@@ -25,22 +27,51 @@ pub const ERR_NO_DATA: i32 = 9;
 pub const ERR_SETTINGS: i32 = 10;
 
 /// The tuning and host described by `settings`, a JSON object (see
-/// `leaf::runtime::StartSettings`), or the defaults when it is null.
+/// `leaf::runtime::StartSettings`), or the defaults when it is null. The
+/// host is given the FFI's platform: the system log, which iOS and Android
+/// log to unless told otherwise, and the socket protector registered with
+/// `leaf_set_socket_protector`.
 unsafe fn start_settings(
     settings: *const c_char,
 ) -> Result<(leaf::runtime::RuntimeOptions, leaf::runtime::Host), i32> {
-    if settings.is_null() {
-        return Ok(Default::default());
-    }
-    let json = unsafe { CStr::from_ptr(settings) }
-        .to_str()
-        .map_err(|_| ERR_SETTINGS)?;
-    leaf::runtime::StartSettings::from_json(json)
-        .and_then(leaf::runtime::StartSettings::resolve)
-        .map_err(|e| {
+    let mut parsed = if settings.is_null() {
+        leaf::runtime::StartSettings::default()
+    } else {
+        let json = unsafe { CStr::from_ptr(settings) }
+            .to_str()
+            .map_err(|_| ERR_SETTINGS)?;
+        leaf::runtime::StartSettings::from_json(json).map_err(|e| {
             eprintln!("{}", e);
             ERR_SETTINGS
-        })
+        })?
+    };
+    parsed
+        .log_to_system
+        .get_or_insert(cfg!(any(target_os = "ios", target_os = "android")));
+    let (options, mut host) = parsed.resolve().map_err(|e| {
+        eprintln!("{}", e);
+        ERR_SETTINGS
+    })?;
+    host.platform = Some(leaf::runtime::PlatformRef(std::sync::Arc::new(
+        platform::FfiPlatform,
+    )));
+    Ok((options, host))
+}
+
+/// Registers the function that keeps outbound sockets out of the host's
+/// VPN (Android's `VpnService.protect`), for the instances started after
+/// it; null unregisters it.
+///
+/// @param callback Called with each outbound socket's file descriptor and
+///                 `context` before it connects; returns whether the socket
+///                 is protected. It may be called from any thread.
+/// @param context Passed back to `callback`.
+#[no_mangle]
+pub extern "C" fn leaf_set_socket_protector(
+    callback: Option<platform::ProtectSocketCallback>,
+    context: *mut std::ffi::c_void,
+) {
+    platform::set_protector(callback, context);
 }
 
 /// `start_settings` as the environment offline checks run with.
