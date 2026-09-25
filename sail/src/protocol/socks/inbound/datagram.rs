@@ -60,11 +60,25 @@ impl InboundDatagramRecvHalf for DatagramRecvHalf {
         if n < 3 {
             return Err(ProxyError::DatagramWarn(anyhow!("Short message")));
         }
-        let dst_addr = SocksAddr::try_from((&recv_buf[3..], SocksAddrWireType::PortLast))
+        // Fragments are not supported; RFC 1928 lets a server drop them.
+        if recv_buf[2] != 0 {
+            return Err(ProxyError::DatagramWarn(anyhow!(
+                "Fragmented datagram dropped"
+            )));
+        }
+        let dst_addr = SocksAddr::try_from((&recv_buf[3..n], SocksAddrWireType::PortLast))
             .map_err(|e| ProxyError::DatagramWarn(anyhow!("Parse target address failed: {}", e)))?;
         let header_size = 3 + dst_addr.size();
-        let payload_size = n - header_size;
-        assert!(buf.len() >= payload_size);
+        let payload_size = n
+            .checked_sub(header_size)
+            .ok_or_else(|| ProxyError::DatagramWarn(anyhow!("Short message")))?;
+        if payload_size > buf.len() {
+            return Err(ProxyError::DatagramWarn(anyhow!(
+                "Datagram of {} bytes exceeds the {}-byte buffer, dropped",
+                payload_size,
+                buf.len()
+            )));
+        }
         buf[..payload_size].copy_from_slice(&recv_buf[header_size..header_size + payload_size]);
         Ok((payload_size, src_addr, dst_addr))
     }
@@ -90,5 +104,65 @@ impl InboundDatagramSendHalf for DatagramSendHalf {
 
     async fn close(&mut self) -> io::Result<()> {
         self.0.close().await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Hands out one datagram, as a socket would.
+    struct OnePacket(Vec<u8>);
+
+    #[async_trait]
+    impl InboundDatagramRecvHalf for OnePacket {
+        async fn recv_from(
+            &mut self,
+            buf: &mut [u8],
+        ) -> ProxyResult<(usize, DatagramSource, SocksAddr)> {
+            let n = self.0.len().min(buf.len());
+            buf[..n].copy_from_slice(&self.0[..n]);
+            let src = DatagramSource::new("127.0.0.1:1".parse().unwrap(), None);
+            Ok((n, src, SocksAddr::any()))
+        }
+    }
+
+    fn packet(frag: u8, payload: usize) -> Vec<u8> {
+        let mut p = vec![0, 0, frag, 0x01, 1, 2, 3, 4, 0, 53];
+        p.resize(p.len() + payload, 0xab);
+        p
+    }
+
+    async fn recv(packet: Vec<u8>, buf_len: usize) -> ProxyResult<usize> {
+        let mut half = DatagramRecvHalf(Box::new(OnePacket(packet)));
+        let mut buf = vec![0u8; buf_len];
+        half.recv_from(&mut buf).await.map(|(n, _, _)| n)
+    }
+
+    #[tokio::test]
+    async fn payload_is_unwrapped() {
+        assert_eq!(recv(packet(0, 100), 2048).await.unwrap(), 100);
+    }
+
+    #[tokio::test]
+    async fn oversized_payload_is_dropped_not_a_panic() {
+        assert!(matches!(
+            recv(packet(0, 3000), 2048).await,
+            Err(ProxyError::DatagramWarn(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn truncated_header_and_fragments_are_dropped() {
+        let mut short = packet(0, 0);
+        short.truncate(7);
+        assert!(matches!(
+            recv(short, 2048).await,
+            Err(ProxyError::DatagramWarn(_))
+        ));
+        assert!(matches!(
+            recv(packet(1, 10), 2048).await,
+            Err(ProxyError::DatagramWarn(_))
+        ));
     }
 }
