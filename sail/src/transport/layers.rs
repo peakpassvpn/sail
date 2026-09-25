@@ -248,6 +248,12 @@ pub enum OutboundTransport {
         path: String,
         #[serde(default)]
         headers: HashMap<String, String>,
+        /// How many of the first bytes to carry in the upgrade request.
+        #[serde(default)]
+        max_early_data: usize,
+        /// The header they go in; unset, they go in the path.
+        #[serde(default)]
+        early_data_header_name: Option<String>,
     },
     /// Its TLS parameters come from the `tls` block.
     Quic {},
@@ -284,7 +290,37 @@ fn default_concurrency() -> usize {
 
 impl OutboundBlocks {
     pub fn parse(tag: &str, blocks: &Options) -> Result<Self> {
-        parse_options("outbound", tag, blocks)
+        let mut parsed: Self = parse_options("outbound", tag, blocks)?;
+        parsed.transport_alpn(tag)?;
+        Ok(parsed)
+    }
+
+    /// Settles the ALPN of TLS under a transport that speaks one version of
+    /// HTTP. Offered anything else -- as a browser's ClientHello offers `h2`
+    /// before `http/1.1` -- a server may well pick it, and the transport's
+    /// first request is then in a language the connection does not speak.
+    /// Unset, it is the transport's own, as sing-box sets it; set, it must
+    /// include it.
+    fn transport_alpn(&mut self, tag: &str) -> Result<()> {
+        let wanted = match &self.transport {
+            Some(OutboundTransport::Ws { .. }) => "http/1.1",
+            _ => return Ok(()),
+        };
+        let Some(tls) = self.tls.as_mut().filter(|t| t.enabled) else {
+            return Ok(());
+        };
+        match &tls.alpn {
+            None => tls.alpn = Some(Listable::One(wanted.to_string())),
+            Some(alpn) if !alpn.clone().into_vec().iter().any(|p| p == wanted) => {
+                return Err(anyhow!(
+                    "[{}] outbound: tls.alpn: the transport speaks {}, which is not offered",
+                    tag,
+                    wanted
+                ))
+            }
+            Some(_) => {}
+        }
+        Ok(())
     }
 
     fn tls(&self) -> Option<&OutboundTls> {
@@ -428,8 +464,21 @@ pub fn outbound(
         if let Some(tls) = blocks.tls() {
             under_mux.push(tls_outbound(tag, tls, layering.dns_client, layering.env)?);
         }
-        if let Some(OutboundTransport::Ws { path, headers }) = &blocks.transport {
-            under_mux.push(ws_outbound(tag, path, headers, layering.env)?);
+        if let Some(OutboundTransport::Ws {
+            path,
+            headers,
+            max_early_data,
+            early_data_header_name,
+        }) = &blocks.transport
+        {
+            under_mux.push(ws_outbound(
+                tag,
+                path,
+                headers,
+                *max_early_data,
+                early_data_header_name.as_deref(),
+                layering.env,
+            )?);
         }
         match blocks.multiplex() {
             Some(mux) => {
@@ -673,17 +722,27 @@ fn ws_outbound(
     tag: &str,
     path: &str,
     headers: &HashMap<String, String>,
+    max_early_data: usize,
+    early_data_header_name: Option<&str>,
     env: &RuntimeEnv,
 ) -> Result<AnyOutboundHandler> {
     #[cfg(feature = "outbound-ws")]
-    return Ok(crate::adapter::outbound::HandlerBuilder::default()
-        .tag(format!("{}/ws", tag))
-        .stream_handler(Arc::new(crate::transport::ws::outbound::StreamHandler {
-            path: path.to_string(),
-            headers: headers.clone(),
-            half_close: env.options.ws.half_close,
-        }))
-        .build());
+    {
+        use crate::transport::ws::{outbound::StreamHandler, EarlyData};
+        let invalid = |e: anyhow::Error| anyhow!("[{}] outbound: transport: {}", tag, e);
+        let early_data = EarlyData::new(max_early_data, early_data_header_name).map_err(invalid)?;
+        let handler = StreamHandler::new(
+            path.to_string(),
+            headers,
+            env.options.ws.half_close,
+            early_data,
+        )
+        .map_err(invalid)?;
+        Ok(crate::adapter::outbound::HandlerBuilder::default()
+            .tag(format!("{}/ws", tag))
+            .stream_handler(Arc::new(handler))
+            .build())
+    }
     #[cfg(not(feature = "outbound-ws"))]
     Err(not_compiled(tag, "outbound", "transport ws", "outbound-ws"))
 }
@@ -810,6 +869,12 @@ pub enum InboundTransport {
         /// believed: anyone can send one.
         #[serde(default)]
         forwarded_header: Option<String>,
+        /// The most early data a client may send in its upgrade request.
+        #[serde(default)]
+        max_early_data: usize,
+        /// The header it comes in; unset, it comes in the path.
+        #[serde(default)]
+        early_data_header_name: Option<String>,
     },
     /// Its certificate comes from the `tls` block.
     Quic {},
@@ -897,9 +962,18 @@ pub fn inbound(
         if let Some(InboundTransport::Ws {
             path,
             forwarded_header,
+            max_early_data,
+            early_data_header_name,
         }) = &blocks.transport
         {
-            under_mux.push(ws_inbound(tag, path, forwarded_header, env)?);
+            under_mux.push(ws_inbound(
+                tag,
+                path,
+                forwarded_header,
+                *max_early_data,
+                early_data_header_name.as_deref(),
+                env,
+            )?);
         }
         match mux {
             Some(mux) => actors.push(amux_inbound(tag, mux, under_mux)?),
@@ -971,18 +1045,26 @@ fn ws_inbound(
     tag: &str,
     path: &str,
     forwarded_header: &Option<String>,
+    max_early_data: usize,
+    early_data_header_name: Option<&str>,
     env: &RuntimeEnv,
 ) -> Result<AnyInboundHandler> {
     #[cfg(feature = "inbound-ws")]
-    return Ok(Arc::new(crate::adapter::inbound::Handler::new(
-        format!("{}/ws", tag),
-        Some(Arc::new(crate::transport::ws::inbound::StreamHandler::new(
-            path.to_string(),
-            forwarded_header.clone(),
-            env.options.ws.half_close,
-        ))),
-        None,
-    )));
+    {
+        use crate::transport::ws::{inbound::StreamHandler, EarlyData};
+        let early_data = EarlyData::new(max_early_data, early_data_header_name)
+            .map_err(|e| anyhow!("[{}] inbound: transport: {}", tag, e))?;
+        Ok(Arc::new(crate::adapter::inbound::Handler::new(
+            format!("{}/ws", tag),
+            Some(Arc::new(StreamHandler::new(
+                path.to_string(),
+                forwarded_header.clone(),
+                env.options.ws.half_close,
+                early_data,
+            ))),
+            None,
+        )))
+    }
     #[cfg(not(feature = "inbound-ws"))]
     Err(not_compiled(tag, "inbound", "transport ws", "inbound-ws"))
 }

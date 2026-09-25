@@ -3,6 +3,8 @@
 
 #[cfg(any(feature = "inbound-amux", feature = "outbound-amux"))]
 pub mod amux;
+#[cfg(any(feature = "inbound-ws", feature = "outbound-ws"))]
+pub mod httpupgrade;
 #[cfg(feature = "outbound-obfs")]
 pub mod obfs;
 #[cfg(any(feature = "inbound-quic", feature = "outbound-quic"))]

@@ -99,7 +99,7 @@ outbound-hysteria2 = ["quic", "blake2", "quinn-proto"]
 outbound-tuic = ["quic", "tokio/macros"]
 outbound-anytls = ["sha2", "md-5", "tokio-util"]
 outbound-tls = ["tls"]
-outbound-ws = ["tungstenite", "tokio-tungstenite", "url", "http"]
+outbound-ws = ["tungstenite", "tokio-tungstenite", "http", "httparse", "base64"]
 outbound-failover = ["lru_time_cache"]
 outbound-static= []
 outbound-tryall = []
@@ -129,7 +129,7 @@ inbound-socks = []
 inbound-http = ["http", "base64"]
 inbound-hc = []
 inbound-tun = ["tun", "netstack-lwip", "netstack-smoltcp", "pnet_datalink"]
-inbound-ws = ["tungstenite", "tokio-tungstenite", "url", "http"]
+inbound-ws = ["tungstenite", "tokio-tungstenite", "http", "httparse", "base64"]
 inbound-amux = ["tokio-util"]
 inbound-quic = ["quic"]
 inbound-tls = ["tls"]
@@ -203,9 +203,10 @@ webpki-root-certs = { version = "1", optional = true }
 tungstenite = { version = "0.24", default-features = false, optional = true }
 tokio-tungstenite = { version = "0.24", optional = true }
 
-# WebSocket
+# WebSocket, HTTPUpgrade, gRPC
 url = { version = "2.5", optional = true }
 http = { version = "1.1", optional = true }
+httparse = { version = "1.9", optional = true }
 
 # SOCKS outbound
 async-socks5 = { version = "0.6", optional = true }
