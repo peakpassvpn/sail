@@ -6,13 +6,13 @@ CFG_COMMIT_DATE := $(shell git log --format="%ci" -n 1)
 export CFG_COMMIT_DATE := $(CFG_COMMIT_DATE)
 
 cli:
-	cargo build -p leaf-cli --release
+	cargo build -p sail-cli --release
 
 cli-dev:
-	cargo build -p leaf-cli
+	cargo build -p sail-cli
 
 test:
-	cargo test -p leaf -- --nocapture
+	cargo test -p sail -- --nocapture
 
 proto-gen:
 	./scripts/regenerate_proto_files.sh

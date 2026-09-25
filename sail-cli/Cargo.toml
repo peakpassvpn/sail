@@ -1,0 +1,33 @@
+[package]
+name = "sail-cli"
+version = "0.14.2"
+authors = ["eycorsican <eric.y.corsican@gmail.com>"]
+edition = "2021"
+
+[[bin]]
+name = "sail"
+path = "src/main.rs"
+
+[dependencies]
+tokio = { version = "1", features = ["rt"] }
+argh = "0.1"
+
+[target.'cfg(not(windows))'.dependencies.sail]
+path = "../sail"
+default-features = false
+features = [
+  "default",
+  "ctrlc",
+  "auto-reload"
+]
+
+[target.'cfg(windows)'.dependencies.sail]
+path = "../sail"
+default-features = false
+features = [
+  "default",
+  "ctrlc",
+  "auto-reload",
+  "inbound-nf",
+  "rule-process-name"
+]

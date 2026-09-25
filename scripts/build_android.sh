@@ -2,8 +2,8 @@
 
 set -ex
 
-name=leaf
-package=leaf-ffi
+name=sail
+package=sail-ffi
 manifest=android/Cargo.toml
 mode=--release
 targets=
@@ -92,11 +92,11 @@ for target in $targets; do
 	cargo build -p $package --target $target $mode
 done
 
-android_libs=$BASE/../target/leaf-android-libs
+android_libs=$BASE/../target/sail-android-libs
 
 mkdir -p $android_libs
 for target in $targets; do
-	mv $BASE/../target/$target/$profile/libleaf.so $android_libs/libleaf-$target.so
+	mv $BASE/../target/$target/$profile/libsail.so $android_libs/libsail-$target.so
 done
 cbindgen \
 	--config $BASE/../$package/cbindgen.toml \

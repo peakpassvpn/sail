@@ -4,7 +4,7 @@
 
 ## 0. 结论先行
 
-1. **现有 Reality 出站连不上新版 Xray 服务端。** Xray-core v26.9.8（REALITY 库 2026-09-08 的更新；截至 2026-09-26，v26.9.8 和 v26.9.9 都还是预发布版，正式版是 v26.3.27）开始拒绝不带 X25519MLKEM768 key share、或把它放在 X25519 之后的 ClientHello。Leaf 的 Reality 走 reality-rustls + ring provider，只发纯 X25519，所以会被拒绝。sing-box 目前也因同样原因失败（SagerNet/sing-box#4520）。这是 1.1 里最先要解决的问题。
+1. **现有 Reality 出站连不上新版 Xray 服务端。** Xray-core v26.9.8（REALITY 库 2026-09-08 的更新；截至 2026-09-26，v26.9.8 和 v26.9.9 都还是预发布版，正式版是 v26.3.27）开始拒绝不带 X25519MLKEM768 key share、或把它放在 X25519 之后的 ClientHello。Sail 的 Reality 走 reality-rustls + ring provider，只发纯 X25519，所以会被拒绝。sing-box 目前也因同样原因失败（SagerNet/sing-box#4520）。这是 1.1 里最先要解决的问题。
 2. **rustls 上游不会提供 ClientHello 定制。** 相关 issue（#1421、#1932、#2498）都以 duplicate 或 not planned 关闭。任何方案都得 fork 某个 TLS 库。
 3. **已定：全部 TLS 和密码实现统一到 btls（BoringSSL）。**
    - 覆盖客户端 TLS、Reality、TLS 入站、QUIC（quinn 的加密层换成 quinn-btls）和 Shadowsocks / VMess 的 AEAD。
@@ -110,7 +110,7 @@
 3. `ActiveKeyExchange::extract_reality_key`：为 aws-lc 的 X25519MLKEM768 hybrid 实现，返回其中 X25519 部分的共享密钥。Reality 的 provider 改用 aws-lc，不再使用 ring。
 4. Reality 的 `RealityCallback` 保持不变，仍在 hello 序列化后改写 session_id。它与 spec 是正交的。
 
-**leaf 侧：**
+**sail 侧：**
 
 - 在 `transport/tls/fingerprint/` 下每个 profile 一个文件（`chrome.rs`、`firefox.rs`、`safari.rs`），把 spec 写成常量，并注明对应的浏览器版本和抓包来源。
 - `OutboundTls` 增加 `utls` 块，字段名对齐 sing-box（见 T2）。Reality 只接受带 X25519MLKEM768 的 profile，配成其他 profile 视为配置错误。
@@ -177,7 +177,7 @@ quinn-btls（核实于 2026-09-25）：作者与 btls 相同；依赖 btls 0.5.5
 
 - 删除：reality-rs、reality-rustls、rustls、tokio-rustls、rustls-pemfile（新旧两版）、ring、aws-lc-rs，以及 `openssl-tls` / `openssl-aead` 和整套 openssl。quinn 关闭 rustls 相关的 feature。
 - 新增：`btls`、`btls-sys`、`tokio-btls`（或只用内存 BIO，不引入 tokio-btls），以及 `quinn-btls`。Reality 补丁用的是 btls 的 fork（T7）。
-- 已核实：rustls、ring 和 aws-lc 只有 leaf 自己的 TLS、QUIC 和 AEAD 在用，没有其他依赖会间接引入。进程里只有一套 BoringSSL，就不需要 `prefix-symbols`，构建也不需要 Go。
+- 已核实：rustls、ring 和 aws-lc 只有 sail 自己的 TLS、QUIC 和 AEAD 在用，没有其他依赖会间接引入。进程里只有一套 BoringSSL，就不需要 `prefix-symbols`，构建也不需要 Go。
 - 根证书：webpki-roots 只提供 trust anchor，BoringSSL 需要完整的证书，因此改用 `webpki-root-certs`。是否另外加载系统证书，在 1.1a 中确定。
 - Cargo feature 精简：`default-ring`、`default-aws-lc`、`default-openssl`、`*-aead`、`rustls-tls-*` 和 `quinn-*` 合并为一套。
 - 构建环境：需要 cmake 和 clang。release 用 `cross` 构建 musl 版本，需要确认 cross 镜像里有这些工具，没有就换成自定义镜像。mips 不在 btls 的 CI 中，需要时自行验证。
@@ -224,7 +224,7 @@ quinn-btls（核实于 2026-09-25）：作者与 btls 相同；依赖 btls 0.5.5
   - `btls-sys` 没有把 Apple 的部署目标传给 CMake，导致 BoringSSL 按 SDK 版本编译。补丁已在本地验证：打上后 iOS 目标文件按 13.0 编译，链接警告消失。
   - `SslRef` 上没有 `set_connect_state` / `set_accept_state`，目前通过 btls-sys 直接调用。
 - **iOS 最低版本：** 提高到 13（BoringSSL 需要 `___chkstk_darwin`）。
-- **已验证的平台：** macOS 测试、aarch64-apple-ios（leaf-ffi）、aarch64-unknown-linux-musl（容器内构建）。Android 在本机没有 NDK，只能依赖 CI。
+- **已验证的平台：** macOS 测试、aarch64-apple-ios（sail-ffi）、aarch64-unknown-linux-musl（容器内构建）。Android 在本机没有 NDK，只能依赖 CI。
 
 **1.1e 的实施记录（2026-09-26）：**
 
@@ -257,8 +257,8 @@ quinn-btls（核实于 2026-09-25）：作者与 btls 相同；依赖 btls 0.5.5
 
 - **QUIC：** quinn 的加密层换成 quinn-btls（上游 git，固定 rev 59f3e36；它没有发布到 crates.io）。它依赖的 btls 通过 `[patch.crates-io]` 使用同一个 fork。endpoint 配置和 handshake token 密钥改用 quinn-btls 提供的 BoringSSL 实现。证书加载与 TLS 共用（PEM 或 DER），证书无效时报配置错误，不再 panic。
 - **AEAD：** Shadowsocks 和 VMess 的 AES-GCM 与 ChaCha20-Poly1305 改用 btls 的 `AeadCtx`。新增测试与 RustCrypto 的实现交叉比对，密文和 tag 逐字节一致，也能互相解开。
-- **依赖清理：** 删除了 rustls、tokio-rustls、rustls-pemfile、webpki-roots、ring、aws-lc-rs。Cargo feature 删除了 `default-ring`、`default-aws-lc`、`*-aead`、`rustls-tls-*`、`quinn-*`，只保留一个 `default`；leaf-cli、leaf-ffi 和 `scripts/apple_common.sh` 随之调整。`cargo tree --target all` 中，ring 只剩 quinn-proto 在 wasm32-unknown-unknown 下的依赖，leaf 不编译这个平台。
-- **体积（macOS arm64，release 版 leaf-cli）：**
+- **依赖清理：** 删除了 rustls、tokio-rustls、rustls-pemfile、webpki-roots、ring、aws-lc-rs。Cargo feature 删除了 `default-ring`、`default-aws-lc`、`*-aead`、`rustls-tls-*`、`quinn-*`，只保留一个 `default`；sail-cli、sail-ffi 和 `scripts/apple_common.sh` 随之调整。`cargo tree --target all` 中，ring 只剩 quinn-proto 在 wasm32-unknown-unknown 下的依赖，sail 不编译这个平台。
+- **体积（macOS arm64，release 版 sail-cli）：**
   - 切换前（ae6ff4c：rustls + aws-lc + ring）9.63MB；
   - 1.1d（以上三者再加 BoringSSL）10.23MB；
   - 1.1b 之后（只有 BoringSSL）7.91MB。
@@ -266,7 +266,7 @@ quinn-btls（核实于 2026-09-25）：作者与 btls 相同；依赖 btls 0.5.5
 
 **1.1d 的实施记录（2026-09-26）：**
 
-- **fixture：** 用本机 Chrome 153.0.8010.53 抓了 3 个 ClientHello（全新 profile，headless，访问 localhost），存为 `leaf/tests/fixtures/tls/chrome-153.hello`。JA4 为 `t13d1517h2_8daaf6152771_cb7bf5808d99`。
+- **fixture：** 用本机 Chrome 153.0.8010.53 抓了 3 个 ClientHello（全新 profile，headless，访问 localhost），存为 `sail/tests/fixtures/tls/chrome-153.hello`。JA4 为 `t13d1517h2_8daaf6152771_cb7bf5808d99`。
 - **Chrome 153 与调研时的预期不同的地方：**
   - 签名算法开头是一个 GREASE 值，接着是 ML-DSA-44/65/87（0x0904–0x0906），然后才是常见的 8 个；
   - 多了 Trust Anchor IDs 扩展（0xca34），内容是固定的 184 字节；

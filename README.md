@@ -1,17 +1,15 @@
+<h1 align="center">Sail</h1>
+
 <p align="center">
-<img src=".github/assets/leaf-logo-horizontal-white-bg.png" alt="Leaf Logo" width="360">
+<img src="https://github.com/peakpassvpn/sail/actions/workflows/release.yml/badge.svg">
+<img src="https://github.com/peakpassvpn/sail/actions/workflows/ci.yml/badge.svg">
 </p>
 
 <p align="center">
-<img src="https://github.com/eycorsican/leaf/workflows/releases/badge.svg">
-<img src="https://github.com/eycorsican/leaf/workflows/ci/badge.svg">
+A proxy platform in Rust: one core for clients, servers and relays.
 </p>
 
-<h1 align="center">Leaf</h1>
-
-<p align="center">
-A versatile and efficient proxy framework.
-</p>
+Sail started as a fork of [leaf](https://github.com/eycorsican/leaf) by eycorsican and is now maintained on its own. It no longer tracks upstream: the config format, the FFI and the TLS stack (BoringSSL only, browser ClientHellos) have diverged.
 
 ## Supported Protocols
 
@@ -33,7 +31,7 @@ A versatile and efficient proxy framework.
 | WebSocket | ✅ | ✅ | |
 | TLS | ✅ | ✅ | BoringSSL; the outbound sends a browser's ClientHello (`tls.utls`: chrome by default, firefox, safari) |
 | QUIC | ✅ | ✅ | |
-| AMux | ✅ | ✅ | Leaf specific multiplexing |
+| AMux | ✅ | ✅ | Multiplexing from leaf; interoperates with leaf |
 | Obfs | ❌ | ✅ | Simple obfuscation |
 | Reality | ❌ | ✅ | Xray Reality, with a browser's ClientHello and X25519MLKEM768 |
 | MPTP | ✅ | ✅ | Multi-path Transport Protocol (Aggregation) ([Architecture](docs/mptp_architecture.md), [Usage](docs/mptp_usage.md)) |
@@ -58,10 +56,10 @@ A versatile and efficient proxy framework.
 TLS is BoringSSL, built from source: the build needs CMake and a C/C++ compiler (clang or gcc).
 
 ```sh
-cargo build -p leaf-cli --release
-./target/debug/leaf --help
+cargo build -p sail-cli --release
+./target/release/sail --help
 ```
 
 ## License
 
-This project is licensed under the [Apache License 2.0](https://github.com/eycorsican/leaf/blob/master/LICENSE).
+Licensed under the [Apache License 2.0](LICENSE). Code from leaf keeps its original copyright.

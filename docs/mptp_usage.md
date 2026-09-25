@@ -3,7 +3,7 @@
 ## Overview
 
 MPTP (Multipath Transport Protocol) combines multiple outbound paths into one logical transport channel.
-In Leaf, the common deployment is:
+In Sail, the common deployment is:
 
 - Client side: local `socks` inbound + `mptp` outbound
 - Server side: `mptp` inbound + `direct` outbound
@@ -85,19 +85,19 @@ MptpOutTag = mptp, actor1, actor2, actor3, address=1.2.3.4, port=10000
 Build:
 
 ```bash
-cargo build -p leaf-cli --release
+cargo build -p sail-cli --release
 ```
 
 Run server:
 
 ```bash
-./target/release/leaf -c server.json
+./target/release/sail -c server.json
 ```
 
 Run client:
 
 ```bash
-./target/release/leaf -c client.json
+./target/release/sail -c client.json
 ```
 
 ## Validation
@@ -112,8 +112,8 @@ curl --socks5 127.0.0.1:1086 https://example.com
 3. Verify configuration syntax before production startup:
 
 ```bash
-./target/release/leaf -c client.json -T
-./target/release/leaf -c server.json -T
+./target/release/sail -c client.json -T
+./target/release/sail -c server.json -T
 ```
 
 ## Notes

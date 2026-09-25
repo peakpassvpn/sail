@@ -22,8 +22,8 @@ jobs:
         with:
           rust-version: stable
 
-      - name: test leaf
-        run: cargo test -p leaf
+      - name: test sail
+        run: cargo test -p sail
 
   build-cli-cross:
     runs-on: ubuntu-latest
@@ -65,26 +65,26 @@ jobs:
       - name: rename and compress artifacts
         if: ${{ matrix.target == 'x86_64-pc-windows-gnu' }}
         run: |
-          mv target/${{ matrix.target }}/release/leaf.exe leaf-${{ matrix.target }}.exe
+          mv target/${{ matrix.target }}/release/sail.exe sail-${{ matrix.target }}.exe
 
       - name: rename and compress artifacts
         if: ${{ matrix.target != 'x86_64-pc-windows-gnu' }}
         run: |
-          mv target/${{ matrix.target }}/release/leaf leaf-${{ matrix.target }}
+          mv target/${{ matrix.target }}/release/sail sail-${{ matrix.target }}
 
       - name: upload assets
         if: ${{ matrix.target == 'x86_64-pc-windows-gnu' }}
         uses: actions/upload-artifact@v4
         with:
-          name: leaf-${{ matrix.target }}.exe
-          path: leaf-${{ matrix.target }}.exe
+          name: sail-${{ matrix.target }}.exe
+          path: sail-${{ matrix.target }}.exe
 
       - name: upload assets
         if: ${{ matrix.target != 'x86_64-pc-windows-gnu' }}
         uses: actions/upload-artifact@v4
         with:
-          name: leaf-${{ matrix.target }}
-          path: leaf-${{ matrix.target }}
+          name: sail-${{ matrix.target }}
+          path: sail-${{ matrix.target }}
 
   build-cli-macos:
     runs-on: [macos-latest]
@@ -122,17 +122,17 @@ jobs:
         run: |
           export CFG_COMMIT_HASH=`git log --pretty=format:'%h' -n 1`
           export CFG_COMMIT_DATE=`git log --format="%ci" -n 1`
-          cargo build --release --target ${{ matrix.target }} -p leaf-cli
+          cargo build --release --target ${{ matrix.target }} -p sail-cli
 
       - name: rename and compress artifacts
         run: |
-          mv target/${{ matrix.target }}/release/leaf leaf-${{ matrix.target }}
+          mv target/${{ matrix.target }}/release/sail sail-${{ matrix.target }}
 
       - name: upload assets
         uses: actions/upload-artifact@v4
         with:
-          name: leaf-${{ matrix.target }}
-          path: leaf-${{ matrix.target }}
+          name: sail-${{ matrix.target }}
+          path: sail-${{ matrix.target }}
 
   build-lib-apple:
     runs-on: macos-latest
@@ -158,14 +158,14 @@ jobs:
 
       - name: zip artifacts
         run: |
-          mv target/apple/release/leaf.xcframework .
-          zip -r leaf.xcframework.zip leaf.xcframework
+          mv target/apple/release/sail.xcframework .
+          zip -r sail.xcframework.zip sail.xcframework
 
       - name: upload assets
         uses: actions/upload-artifact@v4
         with:
-          name: leaf.xcframework.zip
-          path: leaf.xcframework.zip
+          name: sail.xcframework.zip
+          path: sail.xcframework.zip
 
   build-lib-android:
     runs-on: ubuntu-latest
@@ -203,11 +203,11 @@ jobs:
 
       - name: zip artifacts
         run: |
-          mv target/leaf-android-libs .
-          zip -r leaf-android-libs.zip leaf-android-libs
+          mv target/sail-android-libs .
+          zip -r sail-android-libs.zip sail-android-libs
 
       - name: upload assets
         uses: actions/upload-artifact@v4
         with:
-          name: leaf-android-libs.zip
-          path: leaf-android-libs.zip
+          name: sail-android-libs.zip
+          path: sail-android-libs.zip

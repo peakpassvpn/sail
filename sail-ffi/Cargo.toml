@@ -1,0 +1,28 @@
+[package]
+name = "sail-ffi"
+version = "0.1.0"
+authors = ["eycorsican <eric.y.corsican@gmail.com>"]
+edition = "2021"
+
+[lib]
+name = "sail"
+path = "src/lib.rs"
+crate-type = ["staticlib", "dylib"]
+
+[features]
+default = [
+    "sail/default",
+    "auto-reload",
+]
+
+auto-reload = ["sail/auto-reload"]
+
+[dependencies]
+sail = { path = "../sail", default-features = false, optional = true }
+serde_json = "1.0"
+tokio = { version = "1", features = ["rt"] }
+anyhow = "1.0"
+futures = "0.3"
+
+[build-dependencies]
+bindgen = "0.72"

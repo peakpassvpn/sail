@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare leaf and sing-box as local SOCKS5 clients.
+"""Compare sail and sing-box as local SOCKS5 clients.
 
 Topology (all on 127.0.0.1):
 
@@ -10,7 +10,7 @@ For every client config the harness records, per phase, the client's peak RSS
 uses to kill a Network Extension) at idle, with all concurrent connections open,
 and after the load has stopped.
 
-Usage: ./run.py [--group desktop|ios] [--rounds 3] [--leaf PATH] [--singbox PATH] [--out FILE]
+Usage: ./run.py [--group desktop|ios] [--rounds 3] [--sail PATH] [--singbox PATH] [--out FILE]
 """
 
 import argparse
@@ -33,34 +33,34 @@ PROXY = "127.0.0.1:1081"
 TARGET = "127.0.0.1:9000"
 
 # name -> (command, extra env), per group.
-def clients(group, leaf, singbox, singbox_lowmem, base_leaf=None, base_configs=None):
+def clients(group, sail, singbox, singbox_lowmem, base_sail=None, base_configs=None):
     if group == "regression":
         # The build under test against a baseline build, which reads the
         # configuration format of its own commit from base_configs.
         rows = []
-        for label, path, configs in (("base", base_leaf, Path(base_configs)), ("new", leaf, CONFIGS)):
+        for label, path, configs in (("base", base_sail, Path(base_configs)), ("new", sail, CONFIGS)):
             for proto in ("direct", "ss"):
-                cfg = configs / f"client-leaf-{proto}.json"
+                cfg = configs / f"client-sail-{proto}.json"
                 rows.append((f"{label}/{proto}", [path, "-c", cfg], {}))
                 rows.append((f"{label}/{proto} 1T", [path, "--single-thread", "-c", cfg], {}))
         return rows
     if group == "desktop":
         return [
-            ("leaf/direct", [leaf, "-c", CONFIGS / "client-leaf-direct.json"], {}),
+            ("sail/direct", [sail, "-c", CONFIGS / "client-sail-direct.json"], {}),
             ("sing-box/direct", [singbox, "run", "-c", CONFIGS / "client-singbox-direct.json"], {}),
-            ("leaf/ss", [leaf, "-c", CONFIGS / "client-leaf-ss.json"], {}),
-            # sing-box relays with 32 KB buffers; leaf starts at 16 KB and grows to 128 KB on bulk transfers.
-            ("leaf/ss fixed 16K",
-             [leaf, "--set", "relay.buffer_max_size=16", "-c", CONFIGS / "client-leaf-ss.json"], {}),
+            ("sail/ss", [sail, "-c", CONFIGS / "client-sail-ss.json"], {}),
+            # sing-box relays with 32 KB buffers; sail starts at 16 KB and grows to 128 KB on bulk transfers.
+            ("sail/ss fixed 16K",
+             [sail, "--set", "relay.buffer_max_size=16", "-c", CONFIGS / "client-sail-ss.json"], {}),
             ("sing-box/ss", [singbox, "run", "-c", CONFIGS / "client-singbox-ss.json"], {}),
         ]
     # Mirrors how each core runs inside an iOS Network Extension: libbox is built
     # with with_low_memory (16 KB buffers) and sets GOGC=10 and a 45 MiB limit
-    # (experimental/libbox/memory.go); leaf apps typically use a single thread.
+    # (experimental/libbox/memory.go); sail apps typically use a single thread.
     return [
-        ("leaf/ss 1T", [leaf, "--single-thread", "-c", CONFIGS / "client-leaf-ss.json"], {}),
-        ("leaf/ss 1T init=2K",
-         [leaf, "--single-thread", "--set", "relay.buffer_size=2", "-c", CONFIGS / "client-leaf-ss.json"], {}),
+        ("sail/ss 1T", [sail, "--single-thread", "-c", CONFIGS / "client-sail-ss.json"], {}),
+        ("sail/ss 1T init=2K",
+         [sail, "--single-thread", "--set", "relay.buffer_size=2", "-c", CONFIGS / "client-sail-ss.json"], {}),
         ("sing-box/ss lowmem", [singbox_lowmem, "run", "-c", CONFIGS / "client-singbox-ss.json"],
          {"GOGC": "10", "GOMEMLIMIT": "45MiB"}),
     ]
@@ -256,11 +256,11 @@ def summarize(results):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--rounds", type=int, default=1)
-    ap.add_argument("--leaf", default=str(HERE.parents[1] / "target" / "release" / "leaf"))
+    ap.add_argument("--sail", default=str(HERE.parents[1] / "target" / "release" / "sail"))
     ap.add_argument("--singbox", default="sing-box")
     ap.add_argument("--singbox-lowmem", default=str(HERE / "bin" / "sing-box-lowmem"))
     ap.add_argument("--group", choices=["desktop", "ios", "regression"], default="desktop")
-    ap.add_argument("--base-leaf", help="regression: the baseline leaf binary")
+    ap.add_argument("--base-sail", help="regression: the baseline sail binary")
     ap.add_argument("--base-configs", help="regression: its client configs directory")
     ap.add_argument("--out")
     a = ap.parse_args()
@@ -275,9 +275,9 @@ def main():
     try:
         wait_port(TARGET)
         wait_port("127.0.0.1:8388")
-        if a.group == "regression" and not (a.base_leaf and a.base_configs):
-            ap.error("--group regression needs --base-leaf and --base-configs")
-        cl = clients(a.group, a.leaf, a.singbox, a.singbox_lowmem, a.base_leaf, a.base_configs)
+        if a.group == "regression" and not (a.base_sail and a.base_configs):
+            ap.error("--group regression needs --base-sail and --base-configs")
+        cl = clients(a.group, a.sail, a.singbox, a.singbox_lowmem, a.base_sail, a.base_configs)
         for rnd in range(a.rounds):
             # Alternate the order so neither side always runs on a warmer machine.
             order = cl if rnd % 2 == 0 else list(reversed(cl))

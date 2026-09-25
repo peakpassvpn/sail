@@ -23,7 +23,7 @@ server_ext="${out_dir}/server.ext"
 server_crt="${out_dir}/server.crt"
 
 openssl genrsa -out "${ca_key}" 2048
-openssl req -x509 -new -key "${ca_key}" -sha256 -days 3650 -subj "/CN=leaf-quic-ca" -out "${ca_crt}"
+openssl req -x509 -new -key "${ca_key}" -sha256 -days 3650 -subj "/CN=sail-quic-ca" -out "${ca_crt}"
 
 openssl genrsa -out "${server_key}" 2048
 openssl req -new -key "${server_key}" -subj "/CN=${domain}" -out "${server_csr}"

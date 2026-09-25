@@ -2,5 +2,5 @@
 
 set -ex
 
-touch leaf/build.rs
-PROTO_GEN=1 cargo build -p leaf
+touch sail/build.rs
+PROTO_GEN=1 cargo build -p sail

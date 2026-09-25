@@ -1,6 +1,6 @@
-# leaf vs sing-box 内核对比
+# sail vs sing-box 内核对比
 
-在本机用同一条链路分别跑 leaf 和 sing-box，比较内存、吞吐、CPU 和延迟。
+在本机用同一条链路分别跑 sail 和 sing-box，比较内存、吞吐、CPU 和延迟。
 
 ```
 loadgen --SOCKS5--> 被测客户端 (:1081) --直连或 SS aes-128-gcm--> sing-box SS 服务端 (:8388) --> sink (:9000)
@@ -11,7 +11,7 @@ loadgen --SOCKS5--> 被测客户端 (:1081) --直连或 SS aes-128-gcm--> sing-b
 ```sh
 (cd loadgen && go build -o loadgen .)
 configs/gen-tls.sh                           # 生成自签名证书、REALITY 密钥和引用它们的配置（不入库）
-cargo build -p leaf-cli --release            # 在仓库根目录执行
+cargo build -p sail-cli --release            # 在仓库根目录执行
 # iOS 模式需要按 libbox 方式编译的 sing-box：
 #   在 sing-box 源码目录执行 go build -tags with_low_memory,with_quic,with_utls,with_clash_api -o <此目录>/bin/sing-box-lowmem ./cmd/sing-box
 ./run.py --group desktop      # 两边都用默认配置
@@ -26,13 +26,13 @@ cargo build -p leaf-cli --release            # 在仓库根目录执行
 ./loadgen/loadgen sink &
 sing-box run -c configs/server-singbox.json &        # SS 服务端
 sing-box run -c configs/server-singbox-tls.json &    # Trojan / VLESS 服务端（TLS，自签名证书）
-./throughput.sh "leaf trojan" down 5 -- ../../target/release/leaf -c configs/client-leaf-trojan.json
+./throughput.sh "sail trojan" down 5 -- ../../target/release/sail -c configs/client-sail-trojan.json
 ```
 
-统计系统调用次数和每次字节数用 `syscount/`：`clang -O2 -dynamiclib -o syscount/syscount.dylib syscount/syscount.c` 编译后，`syscount/measure.sh "leaf trojan" up -- ../../target/release/leaf -c configs/client-leaf-trojan.json`。它通过 `DYLD_INSERT_LIBRARIES` 拦截 socket 收发调用，不需要 root。libc 的 `send`/`recv` 内部会再调用 `sendto`/`recvfrom`，两者会各计一次，看其中一个即可。
+统计系统调用次数和每次字节数用 `syscount/`：`clang -O2 -dynamiclib -o syscount/syscount.dylib syscount/syscount.c` 编译后，`syscount/measure.sh "sail trojan" up -- ../../target/release/sail -c configs/client-sail-trojan.json`。它通过 `DYLD_INSERT_LIBRARIES` 拦截 socket 收发调用，不需要 root。libc 的 `send`/`recv` 内部会再调用 `sendto`/`recvfrom`，两者会各计一次，看其中一个即可。
 
 - **footprint** 是 macOS `footprint` 命令给出的 phys_footprint，iOS 按这个指标决定是否杀掉 Network Extension（上限约 50MB）。
-- **iOS 模式**：sing-box 按 libbox 的方式运行（`with_low_memory` 编译标签，缓冲区 16KB；GOGC=10、GOMEMLIMIT=45MiB，见 `experimental/libbox/memory.go`）；leaf 用单线程模式运行。
+- **iOS 模式**：sing-box 按 libbox 的方式运行（`with_low_memory` 编译标签，缓冲区 16KB；GOGC=10、GOMEMLIMIT=45MiB，见 `experimental/libbox/memory.go`）；sail 用单线程模式运行。
 
 ## 只用 BoringSSL 之后（2026-09-26，P1.1b，macOS arm64）
 
@@ -53,7 +53,7 @@ P1.1b 把 Shadowsocks / VMess 的 AEAD 从 aws-lc 换成 BoringSSL（btls），Q
 - SS 的每 GB CPU 与 aws-lc 持平（相差不超过 0.01）；
 - 内存持平；
 - 吞吐两边波动都很大，不作比较；
-- release 版 leaf-cli 从 10.23MB 降到 7.91MB。
+- release 版 sail-cli 从 10.23MB 降到 7.91MB。
 
 ## P0.2 重构后的 Linux 回归（2026-09-25，PVE 上的 Debian 13 VM，4 核）
 
@@ -73,7 +73,7 @@ TLS 类出站每 GB CPU（秒，两轮，base / new）：Trojan、VLESS、REALIT
 
 ## P0.2 重构后的性能回归（2026-09-25，`dev`）
 
-对比 P0.2 重构前的 `11c74ad`（base）和重构后的 `dev`（new），各用自己版本的配置格式。`./run.py --group regression --base-leaf <base 的 leaf> --base-configs <base 的配置目录>` 跑直连和 SS，多线程和单线程，2 轮取中位数；Trojan / VLESS / REALITY 用 `throughput.sh` 交替跑 base 和 new，各 2 轮 × 5 次。
+对比 P0.2 重构前的 `11c74ad`（base）和重构后的 `dev`（new），各用自己版本的配置格式。`./run.py --group regression --base-sail <base 的 sail> --base-configs <base 的配置目录>` 跑直连和 SS，多线程和单线程，2 轮取中位数；Trojan / VLESS / REALITY 用 `throughput.sh` 交替跑 base 和 new，各 2 轮 × 5 次。
 
 **发现并修复的退化：** 第一次测时，2000 并发连接的 footprint 在四个场景都高出 3–4MB（每条连接约 1.5KB）。`heap -s` 对比：每条连接的任务分配从 6KB 档变成 7KB 档（2000 个），另有每条连接约 7 个 16 字节分配。原因：
 - 每条连接的任务 future 从 5968 字节涨到 6544 字节，加上分配器开销，跨过了 6KB 的大小档。主要来自 `Session` 变大（新增 `inbound_type`、`user`），它在各层 future 里有多份。
@@ -104,7 +104,7 @@ TLS 类出站每 GB CPU（秒，两轮各 5 次中位数，base / new）：
 
 ## Vision 上行填充（2026-09-25，分支 `pooled-relay-buffer`）
 
-`leaf/src/protocol/vless/stream.rs` 原先在请求头里声明 `xtls-rprx-vision`，写方向却直接透传。服务端遇到没有 UUID 前缀的数据会当作未填充数据接收，所以功能上能用，但 Vision 要隐藏的内层 TLS 握手长度特征完全暴露。
+`sail/src/protocol/vless/stream.rs` 原先在请求头里声明 `xtls-rprx-vision`，写方向却直接透传。服务端遇到没有 UUID 前缀的数据会当作未填充数据接收，所以功能上能用，但 Vision 要隐藏的内层 TLS 握手长度特征完全暴露。
 
 按 sing-vmess 的 `VisionConn` 移植了客户端写路径：
 - 连接前 8 个包（上下行合计）做 TLS 探测：ClientHello / ServerHello，识别出 TLS 1.2 或 1.3 后停止。
@@ -121,8 +121,8 @@ TLS 类出站每 GB CPU（秒，两轮各 5 次中位数，base / new）：
 **修复前：VLESS + Vision 跑在普通 TLS 出站上时，内层是 TLS 1.3 的连接全部失败**（HTTPS 上传、下载、小请求都失败）。服务端把下行切到直连后发原始数据，但普通 TLS 出站（tokio-rustls）不支持切换到原始读取，把原始数据当 TLS 记录解密，报 `cannot decrypt peer's message`。
 
 改动：
-- 新增 `leaf/src/transport/tls_stream.rs`：通用客户端 TLS 流 `ClientTlsStream`，通过 `TlsConnection` trait 同时适配 rustls 和 REALITY 用的 rustls 分支。Reality 流的读写逻辑移到这里；Reality 和普通 TLS 出站（rustls 后端）都改用它，不再用 tokio-rustls。
-- `VisionState`（`leaf/src/session.rs`）增加"未启用"默认状态，只有 VLESS 出站在发请求前把它设为"未定"；Trojan 等不受按记录读的影响。另有"下层可切原始读写""上行已切直连"两个标志。
+- 新增 `sail/src/transport/tls_stream.rs`：通用客户端 TLS 流 `ClientTlsStream`，通过 `TlsConnection` trait 同时适配 rustls 和 REALITY 用的 rustls 分支。Reality 流的读写逻辑移到这里；Reality 和普通 TLS 出站（rustls 后端）都改用它，不再用 tokio-rustls。
+- `VisionState`（`sail/src/session.rs`）增加"未启用"默认状态，只有 VLESS 出站在发请求前把它设为"未定"；Trojan 等不受按记录读的影响。另有"下层可切原始读写""上行已切直连"两个标志。
 - 记录跟踪器始终跟踪读过的字节，Vision 在 TLS 握手之后才启用时边界仍然对齐。只有 Vision 未定时按记录读并经过 64KB 缓冲区；其他时候 rustls 直接读传输层（少一次拷贝）。
 - **上行直连**：VLESS 从 ServerHello 识别内层 TLS 1.3 和密码套件（排除 TLS_AES_128_CCM_8，与 sing-box 一致），在内层应用数据处发 PaddingDirect；该帧完整交给 TLS 层后置位，TLS 流把已排队的 TLS 记录全部写出后切换为原始写。切换后 flush / shutdown 直接作用于传输层，不再发 close_notify。
 - trait 实现最初写成 `<$conn>::method(self)`，因为这些方法实际定义在 Deref 目标上，解析到了 trait 自身导致无限递归（编译器警告发现）；改为显式 Deref，并加了单元测试。
@@ -147,7 +147,7 @@ Trojan / VLESS 多线程三者都在 0.67–0.69；上行持平。Trojan 2000 �
 
 ## Reality 修复（2026-09-24，分支 `pooled-relay-buffer`）
 
-`leaf/src/transport/reality/stream.rs` 修复前的实测：下行 0.84MB/s（sing-box 约 1200MB/s），上行传输几 MB 后断开（`broken pipe`）。
+`sail/src/transport/reality/stream.rs` 修复前的实测：下行 0.84MB/s（sing-box 约 1200MB/s），上行传输几 MB 后断开（`broken pipe`）。
 
 | 问题 | 原因 | 修复 |
 | --- | --- | --- |
@@ -169,7 +169,7 @@ Trojan / VLESS 多线程三者都在 0.67–0.69；上行持平。Trojan 2000 �
 
 但只有 Vision 还没有结论时才需要按记录读：切到直连后读原始数据，不经过 rustls；正常结束（padding end）后不可能再切换。改动：
 
-- `Session` 里的 `vision_read_raw: Arc<AtomicBool>` 改为三态 `VisionState`（未定 / 直连 / 已结束，`leaf/src/session.rs`），VLESS 在 Vision 正常结束时标记为已结束。
+- `Session` 里的 `vision_read_raw: Arc<AtomicBool>` 改为三态 `VisionState`（未定 / 直连 / 已结束，`sail/src/session.rs`），VLESS 在 Vision 正常结束时标记为已结束。
 - Reality 维护一个 64KB 密文缓冲区（从转发缓冲池借用，读返回 Pending 时归还）。Vision 未定时按 `RecordTracker` 读到记录末尾，交出一条记录的明文就返回；结束后一次读最多 64KB，在同一次 `poll_read` 里连续解出多条记录填满调用方缓冲区。
 - 收到 close_notify 后 `read_tls` 返回 0 时丢弃剩余数据，不再当错误。
 
@@ -177,25 +177,25 @@ Trojan / VLESS 多线程三者都在 0.67–0.69；上行持平。Trojan 2000 �
 
 每 GB CPU（秒，两轮交替，各 5 次中位数）：
 
-| 方向 | sing-box | leaf 第一轮 多线程 | leaf 第二轮 多线程 | leaf 第一轮 单线程 | leaf 第二轮 单线程 |
+| 方向 | sing-box | sail 第一轮 多线程 | sail 第二轮 多线程 | sail 第一轮 单线程 | sail 第二轮 单线程 |
 | --- | --- | --- | --- | --- | --- |
 | 下行 | 0.88–0.91 | 1.15–1.17 | 0.67–0.71 | 0.88–0.89 | 0.58–0.60 |
 | 上行 | 0.86 | 0.54 | 0.54 | 0.45 | — |
 
 验证：多线程、单线程各 3 次 HTTPS 下载都触发了直连切换，sha256 一致；上下行、单连接 256MB、500 条并发正常；库测试 83 个及全部集成测试通过。
 
-内存（单线程，先跑一次批量下行，再保持 2000 条连接）：leaf 第一轮 87MB、第二轮 80MB，sing-box（lowmem、GOGC=10、GOMEMLIMIT=45MiB）116MB；空闲均约 6.4–6.9MB。2000 条 Reality 连接两边都超过 iOS 约 50MB 的上限，主要是每条 TLS 连接自身的状态。
+内存（单线程，先跑一次批量下行，再保持 2000 条连接）：sail 第一轮 87MB、第二轮 80MB，sing-box（lowmem、GOGC=10、GOMEMLIMIT=45MiB）116MB；空闲均约 6.4–6.9MB。2000 条 Reality 连接两边都超过 iOS 约 50MB 的上限，主要是每条 TLS 连接自身的状态。
 
 ## 合并写（2026-09-24）
 
 用 `syscount/` 统计每 GB 数据的写调用（上行，写往服务端一侧）：
 
-| 链路 | leaf | sing-box |
+| 链路 | sail | sing-box |
 | --- | --- | --- |
 | SS | writev 1.6 万次，平均 62KB | write 6.2 万次，平均 16KB |
 | Trojan / VLESS | writev 1.6 万次，平均 62KB | write 6.2 万次，平均 16KB |
 
-leaf 已经把约 4 条 TLS 记录（或 SS 块）合并成一次 writev；sing-box 每条 16KB 记录单独写一次。62KB 的上限来自 rustls 默认 64KB 发送缓冲和 SS 的 `MAX_WRITE`。
+sail 已经把约 4 条 TLS 记录（或 SS 块）合并成一次 writev；sing-box 每条 16KB 记录单独写一次。62KB 的上限来自 rustls 默认 64KB 发送缓冲和 SS 的 `MAX_WRITE`。
 
 **试过但没有收益、已撤回：** 把 rustls 发送缓冲上限提到 `LINK_BUFFER_MAX_SIZE` + 16KB、SS `MAX_WRITE` 提到 128KB。每次 writev 升到约 107KB，每 GB 写调用降到约 1 万次，但 EAGAIN 比例从 2%–3% 升到 11%–12%（macOS TCP 发送缓冲约 128KB），两轮交替 A/B 的每 GB CPU 差异在噪声内，吞吐不变；而反压时每条连接缓存的待发数据会从 64KB 升到约 144KB，不划算。
 
@@ -207,12 +207,12 @@ leaf 已经把约 4 条 TLS 记录（或 SS 块）合并成一次 writev；sing-
 
 两处改动：
 
-1. **流量统计和嗅探包装层转发向量写**（`leaf/src/app/stat_manager.rs`、`leaf/src/sniff/stream.rs`）：原来只实现了 `poll_write`，rustls 想用一次 writev 发出多条 TLS 记录，经过这里被拆成每条记录一次 `sendto`。所有经过 TLS 的上行都受影响。
-2. **VLESS 读路径**（`leaf/src/protocol/vless/stream.rs`）：Vision 阶段结束后直接从底层流读入调用方的缓冲区。原来每次读都经过 8KB 临时缓冲区、解析器和两次拷贝，还会反复检查 UUID 前缀。
+1. **流量统计和嗅探包装层转发向量写**（`sail/src/app/stat_manager.rs`、`sail/src/sniff/stream.rs`）：原来只实现了 `poll_write`，rustls 想用一次 writev 发出多条 TLS 记录，经过这里被拆成每条记录一次 `sendto`。所有经过 TLS 的上行都受影响。
+2. **VLESS 读路径**（`sail/src/protocol/vless/stream.rs`）：Vision 阶段结束后直接从底层流读入调用方的缓冲区。原来每次读都经过 8KB 临时缓冲区、解析器和两次拷贝，还会反复检查 UUID 前缀。
 
-每 GB CPU（秒，5 次中位数；leaf 改动前后在同一轮内对比，sing-box 取自同一天较早的基线轮）：
+每 GB CPU（秒，5 次中位数；sail 改动前后在同一轮内对比，sing-box 取自同一天较早的基线轮）：
 
-| 场景 | sing-box | leaf 改动前 多线程 | leaf 改动后 多线程 | leaf 改动后 单线程 |
+| 场景 | sing-box | sail 改动前 多线程 | sail 改动后 多线程 | sail 改动后 单线程 |
 | --- | --- | --- | --- | --- |
 | Trojan 下行 | 0.88 | 0.61 | 0.61 | 0.54 |
 | Trojan 上行 | 0.86 | 0.84 | 0.54 | 0.45 |
@@ -229,19 +229,19 @@ leaf 已经把约 4 条 TLS 记录（或 SS 块）合并成一次 writev；sing-
 
 在缓冲池之上又做了两处改动：
 
-1. **自适应转发缓冲区**（`leaf/src/net/relay.rs`）：从 `LINK_BUFFER_SIZE`（16KB）起步，一次读满就翻倍，最大到 `LINK_BUFFER_MAX_SIZE`（默认 128KB）；读到的数据不到 1/4 就减半。每线程缓冲池按字节上限 1MB 缓存。
-2. **Shadowsocks 流读写合并**（`leaf/src/protocol/shadowsocks/shadow.rs`）：读取时一次预读最多 64KB 并连续解出多个块，不再每个块两次系统调用（其中一次只读 18 字节长度头）；写入时一次加密最多 64KB（多个块）后用一次系统调用写出。空闲时释放读写缓冲区。
+1. **自适应转发缓冲区**（`sail/src/net/relay.rs`）：从 `LINK_BUFFER_SIZE`（16KB）起步，一次读满就翻倍，最大到 `LINK_BUFFER_MAX_SIZE`（默认 128KB）；读到的数据不到 1/4 就减半。每线程缓冲池按字节上限 1MB 缓存。
+2. **Shadowsocks 流读写合并**（`sail/src/protocol/shadowsocks/shadow.rs`）：读取时一次预读最多 64KB 并连续解出多个块，不再每个块两次系统调用（其中一次只读 18 字节长度头）；写入时一次加密最多 64KB（多个块）后用一次系统调用写出。空闲时释放读写缓冲区。
 
-`sample` 显示 leaf 的 CPU 几乎全部花在 `sendto` / `recvfrom` / `kevent` 系统调用上，所以两处改动都以减少每 GB 的系统调用次数为目标。
+`sample` 显示 sail 的 CPU 几乎全部花在 `sendto` / `recvfrom` / `kevent` 系统调用上，所以两处改动都以减少每 GB 的系统调用次数为目标。
 
 每 GB CPU（秒，5 次中位数，只测吞吐）：
 
-| 场景 | sing-box | leaf 改动前（固定 16KB） | leaf 改动后 多线程 | leaf 改动后 单线程 |
+| 场景 | sing-box | sail 改动前（固定 16KB） | sail 改动后 多线程 | sail 改动后 单线程 |
 | --- | --- | --- | --- | --- |
 | 直连 下行 / 上行 | 0.34 / 0.37 | 0.63 / 0.61 | 0.30 / 0.28 | 0.24 / 0.24 |
 | SS 下行 / 上行 | 1.04 / 0.80 | 1.06 / 0.99（自适应后） | 0.56 / 0.50 | 0.45 / 0.47 |
 
-- 直连吞吐中位数 leaf 约 2200–2300MB/s，sing-box 约 2000–2100MB/s。
+- 直连吞吐中位数 sail 约 2200–2300MB/s，sing-box 约 2000–2100MB/s。
 - SS 吞吐两边都在约 1000MB/s，上限应在共用的 sing-box 服务端，所以这里只比较 CPU。
 - iOS 模式下 2000 条并发连接的 footprint 仍为 30MB（sing-box 42MB），负载结束后回落不变。
 
@@ -251,7 +251,7 @@ leaf 已经把约 4 条 TLS 记录（或 SS 块）合并成一次 writev；sing-
 
 ### iOS 模式（Shadowsocks）
 
-| 指标 | leaf 单线程（新默认 16KB） | leaf 单线程 2KB | sing-box lowmem |
+| 指标 | sail 单线程（新默认 16KB） | sail 单线程 2KB | sing-box lowmem |
 | --- | --- | --- | --- |
 | 空闲 footprint (MB) | 6.3 | 6.3 | 6.3 |
 | 下行 / 上行吞吐 (MB/s) | 932 / 848 | 348 / 233 | 881 / 991 |
@@ -260,23 +260,23 @@ leaf 已经把约 4 条 TLS 记录（或 SS 块）合并成一次 writev；sing-
 
 ### 桌面默认配置
 
-| 指标 | leaf 直连 | sing-box 直连 | leaf SS（16KB） | leaf SS 32KB | leaf SS 2KB | sing-box SS |
+| 指标 | sail 直连 | sing-box 直连 | sail SS（16KB） | sail SS 32KB | sail SS 2KB | sing-box SS |
 | --- | --- | --- | --- | --- | --- | --- |
 | 下行 / 上行吞吐 (MB/s) | 1835 / 1651 | 2018 / 2557 | 698 / 743 | 1268 / 879 | 407 / 282 | 1162 / 1275 |
 | 下行 / 上行 CPU (秒/GB) | 0.63 / 0.67 | 0.45 / 0.39 | 0.97 / 1.17 | 0.99 / 0.97 | 3.02 / 3.37 | 1.02 / 0.78 |
 | 2000 并发连接 footprint (MB) | 24 | 47 | 30 | 30 | 28 | 49 |
 
 - 并发内存不再随缓冲区大小增长：16KB 从 91MB 降到 29MB，32KB 从 155MB 降到 30MB，和 2KB 基本一样，比 sing-box 低约 1/3。
-- 吞吐和 CPU 效率回到大缓冲区的水平：iOS 模式下 leaf 单线程下行吞吐与 sing-box 相当，每 GB CPU 少约 30%。
-- 上表中 leaf SS 16KB 多线程的 698MB/s 是单次噪声：只测吞吐、每个配置重复 5 次后，改造前后、16KB / 32KB、单线程 / 多线程的下行吞吐都在约 1000–1400MB/s，同一配置单次波动约 ±15%。改造前后吞吐和每 GB CPU 没有可测差异。
+- 吞吐和 CPU 效率回到大缓冲区的水平：iOS 模式下 sail 单线程下行吞吐与 sing-box 相当，每 GB CPU 少约 30%。
+- 上表中 sail SS 16KB 多线程的 698MB/s 是单次噪声：只测吞吐、每个配置重复 5 次后，改造前后、16KB / 32KB、单线程 / 多线程的下行吞吐都在约 1000–1400MB/s，同一配置单次波动约 ±15%。改造前后吞吐和每 GB CPU 没有可测差异。
 - 多线程没有提高 SS 吞吐，只让每 GB CPU 从约 0.7 秒升到约 1.1 秒，瓶颈可能在共用的 sing-box 服务端或 loadgen；这套测试里每 GB CPU 比吞吐更可靠。
 - 桌面直连场景 sing-box 当时仍快约 10%–35%，每 GB CPU 也更低；已由上文的自适应缓冲区解决。
 
-## 改造前的结果（2026-09-24，Apple M1 Max，leaf `5e8d947`，sing-box 1.13.12，1 轮）
+## 改造前的结果（2026-09-24，Apple M1 Max，sail `5e8d947`，sing-box 1.13.12，1 轮）
 
 ### iOS 模式（Shadowsocks）
 
-| 指标 | leaf 单线程（默认 2KB 缓冲区） | leaf 单线程 16KB 缓冲区 | sing-box lowmem |
+| 指标 | sail 单线程（默认 2KB 缓冲区） | sail 单线程 16KB 缓冲区 | sing-box lowmem |
 | --- | --- | --- | --- |
 | 空闲 footprint (MB) | 6.3 | 6.3 | 6.4 |
 | 空闲 RSS (MB) | 12.2 | 12.2 | 20.6 |
@@ -286,7 +286,7 @@ leaf 已经把约 4 条 TLS 记录（或 SS 块）合并成一次 writev；sing-
 
 ### 桌面默认配置
 
-| 指标 | leaf 直连 | sing-box 直连 | leaf SS | leaf SS 32KB 缓冲区 | sing-box SS |
+| 指标 | sail 直连 | sing-box 直连 | sail SS | sail SS 32KB 缓冲区 | sing-box SS |
 | --- | --- | --- | --- | --- | --- |
 | 空闲 footprint (MB) | 6.5 | 8.0 | 6.5 | 6.5 | 8.0 |
 | 下行 / 上行吞吐 (MB/s) | 447 / 318 | 2034 / 2719 | 314 / 296 | 1277 / 1020 | 842 / 917 |
@@ -297,12 +297,12 @@ leaf 已经把约 4 条 TLS 记录（或 SS 块）合并成一次 writev；sing-
 
 ## 改造前的结论
 
-1. **缓冲区大小相同时，leaf 的单位 CPU 效率与 sing-box 持平或更好**（SS 下行 1.01 vs 1.01 秒/GB；iOS 模式下行 0.75 vs 1.14）。
-2. **leaf 默认用 2KB 转发缓冲区**（`LINK_BUFFER_SIZE`，`leaf/src/option/mod.rs`），以 3 倍的 CPU 开销和 1/3 的吞吐量换取低内存。
-3. **缓冲区调大后，leaf 并发内存反而高于 sing-box**（16KB 时 91MB vs 42MB）。原因是 `CopyBuffer::new_with_capacity`（`leaf/src/net/relay.rs`）在每个连接建立时就为两个方向各分配一块完整缓冲区，并持有到连接结束，空闲连接也不释放；sing-box 只在读写时从缓冲池借用。
+1. **缓冲区大小相同时，sail 的单位 CPU 效率与 sing-box 持平或更好**（SS 下行 1.01 vs 1.01 秒/GB；iOS 模式下行 0.75 vs 1.14）。
+2. **sail 默认用 2KB 转发缓冲区**（`LINK_BUFFER_SIZE`，`sail/src/option/mod.rs`），以 3 倍的 CPU 开销和 1/3 的吞吐量换取低内存。
+3. **缓冲区调大后，sail 并发内存反而高于 sing-box**（16KB 时 91MB vs 42MB）。原因是 `CopyBuffer::new_with_capacity`（`sail/src/net/relay.rs`）在每个连接建立时就为两个方向各分配一块完整缓冲区，并持有到连接结束，空闲连接也不释放；sing-box 只在读写时从缓冲池借用。
 4. **空闲 footprint 差距很小**（6.3 vs 6.4MB）；RSS 的差距主要来自 Go 运行时的映射，不计入 footprint。
 
-也就是说，Rust 的优势（无 GC、内存可预测）在改造前的 leaf 中没有充分体现，瓶颈在转发缓冲区的实现。改造后的结果见上文。
+也就是说，Rust 的优势（无 GC、内存可预测）在改造前的 sail 中没有充分体现，瓶颈在转发缓冲区的实现。改造后的结果见上文。
 
 ## 局限
 

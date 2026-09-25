@@ -42,26 +42,26 @@ jobs:
       - name: rename and compress artifacts
         if: ${{ matrix.target == 'x86_64-pc-windows-gnu' }}
         run: |
-          mv target/${{ matrix.target }}/release/leaf.exe leaf-${{ matrix.target }}.exe
+          mv target/${{ matrix.target }}/release/sail.exe sail-${{ matrix.target }}.exe
 
       - name: rename and compress artifacts
         if: ${{ matrix.target != 'x86_64-pc-windows-gnu' }}
         run: |
-          mv target/${{ matrix.target }}/release/leaf leaf-${{ matrix.target }}
+          mv target/${{ matrix.target }}/release/sail sail-${{ matrix.target }}
 
       - name: upload assets
         if: ${{ matrix.target == 'x86_64-pc-windows-gnu' }}
         uses: actions/upload-artifact@v4
         with:
-          name: leaf-${{ matrix.target }}.exe
-          path: leaf-${{ matrix.target }}.exe
+          name: sail-${{ matrix.target }}.exe
+          path: sail-${{ matrix.target }}.exe
 
       - name: upload assets
         if: ${{ matrix.target != 'x86_64-pc-windows-gnu' }}
         uses: actions/upload-artifact@v4
         with:
-          name: leaf-${{ matrix.target }}
-          path: leaf-${{ matrix.target }}
+          name: sail-${{ matrix.target }}
+          path: sail-${{ matrix.target }}
 
   build-cli-macos:
     runs-on: [macos-latest]
@@ -95,17 +95,17 @@ jobs:
         run: |
           export CFG_COMMIT_HASH=`git log --pretty=format:'%h' -n 1`
           export CFG_COMMIT_DATE=`git log --format="%ci" -n 1`
-          cargo build --release --target ${{ matrix.target }} -p leaf-cli
+          cargo build --release --target ${{ matrix.target }} -p sail-cli
 
       - name: rename and compress artifacts
         run: |
-          mv target/${{ matrix.target }}/release/leaf leaf-${{ matrix.target }}
+          mv target/${{ matrix.target }}/release/sail sail-${{ matrix.target }}
 
       - name: upload assets
         uses: actions/upload-artifact@v4
         with:
-          name: leaf-${{ matrix.target }}
-          path: leaf-${{ matrix.target }}
+          name: sail-${{ matrix.target }}
+          path: sail-${{ matrix.target }}
 
   build-lib-apple:
     runs-on: macos-latest
@@ -131,14 +131,14 @@ jobs:
 
       - name: zip artifacts
         run: |
-          mv target/apple/release/leaf.xcframework .
-          zip -r leaf.xcframework.zip leaf.xcframework
+          mv target/apple/release/sail.xcframework .
+          zip -r sail.xcframework.zip sail.xcframework
 
       - name: upload assets
         uses: actions/upload-artifact@v4
         with:
-          name: leaf.xcframework.zip
-          path: leaf.xcframework.zip
+          name: sail.xcframework.zip
+          path: sail.xcframework.zip
 
   build-lib-android:
     runs-on: ubuntu-latest
@@ -176,14 +176,14 @@ jobs:
 
       - name: zip artifacts
         run: |
-          mv target/leaf-android-libs .
-          zip -r leaf-android-libs.zip leaf-android-libs
+          mv target/sail-android-libs .
+          zip -r sail-android-libs.zip sail-android-libs
 
       - name: upload assets
         uses: actions/upload-artifact@v4
         with:
-          name: leaf-android-libs.zip
-          path: leaf-android-libs.zip
+          name: sail-android-libs.zip
+          path: sail-android-libs.zip
 
   create-release:
     needs: [build-cli-cross, build-cli-macos, build-lib-apple, build-lib-android]
@@ -241,23 +241,23 @@ jobs:
         if: ${{ matrix.target != 'x86_64-pc-windows-gnu' }}
         uses: actions/download-artifact@v4
         with:
-          name: leaf-${{ matrix.target }}
+          name: sail-${{ matrix.target }}
 
       - name: download asset
         if: ${{ matrix.target == 'x86_64-pc-windows-gnu' }}
         uses: actions/download-artifact@v4
         with:
-          name: leaf-${{ matrix.target }}.exe
+          name: sail-${{ matrix.target }}.exe
 
       - name: zip artifacts
         if: ${{ matrix.target != 'x86_64-pc-windows-gnu' }}
         run: |
-          gzip leaf-${{ matrix.target }}
+          gzip sail-${{ matrix.target }}
 
       - name: zip artifacts
         if: ${{ matrix.target == 'x86_64-pc-windows-gnu' }}
         run: |
-          zip -9 leaf-${{ matrix.target }}.zip leaf-${{ matrix.target }}.exe
+          zip -9 sail-${{ matrix.target }}.zip sail-${{ matrix.target }}.exe
 
       - name: upload asset
         if: ${{ matrix.target != 'x86_64-pc-windows-gnu' }}
@@ -266,8 +266,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ env.uploadurl }}
-          asset_path: ./leaf-${{ matrix.target }}.gz
-          asset_name: leaf-${{ matrix.target }}.gz
+          asset_path: ./sail-${{ matrix.target }}.gz
+          asset_name: sail-${{ matrix.target }}.gz
           asset_content_type: application/octet-stream
 
       - name: upload asset
@@ -277,8 +277,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ env.uploadurl }}
-          asset_path: ./leaf-${{ matrix.target }}.zip
-          asset_name: leaf-${{ matrix.target }}.zip
+          asset_path: ./sail-${{ matrix.target }}.zip
+          asset_name: sail-${{ matrix.target }}.zip
           asset_content_type: application/octet-stream
 
   release-mobile-libs:
@@ -298,12 +298,12 @@ jobs:
       - name: download asset
         uses: actions/download-artifact@v4
         with:
-          name: leaf.xcframework.zip
+          name: sail.xcframework.zip
 
       - name: download asset
         uses: actions/download-artifact@v4
         with:
-          name: leaf-android-libs.zip
+          name: sail-android-libs.zip
 
       - name: upload asset
         uses: actions/upload-release-asset@v1
@@ -311,8 +311,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ env.uploadurl }}
-          asset_path: ./leaf.xcframework.zip
-          asset_name: leaf.xcframework.zip
+          asset_path: ./sail.xcframework.zip
+          asset_name: sail.xcframework.zip
           asset_content_type: application/octet-stream
 
       - name: upload asset
@@ -321,6 +321,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ env.uploadurl }}
-          asset_path: ./leaf-android-libs.zip
-          asset_name: leaf-android-libs.zip
+          asset_path: ./sail-android-libs.zip
+          asset_name: sail-android-libs.zip
           asset_content_type: application/octet-stream

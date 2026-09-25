@@ -10,8 +10,8 @@ setup_env() {
     # Default values
     mode=release
     release_flag=--release
-    package=leaf-ffi
-    name=leaf
+    package=sail-ffi
+    name=sail
     lib=lib$name.a
 
     if [ "$1" = "debug" ]; then

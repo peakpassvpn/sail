@@ -46,7 +46,7 @@ cat > server-singbox-reality.json <<EOF
 }
 EOF
 
-cat > client-leaf-reality.json <<EOF
+cat > client-sail-reality.json <<EOF
 {
   "log": { "level": "error" },
   "inbounds": [ { "type": "socks", "listen": "127.0.0.1", "listen_port": 1081 } ],
