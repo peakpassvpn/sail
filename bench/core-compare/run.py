@@ -116,6 +116,11 @@ def rss_kb(pid):
 
 
 def cpu_seconds(pid):
+    # Linux: utime + stime from /proc, in clock ticks; ps only has seconds.
+    stat = Path(f"/proc/{pid}/stat")
+    if stat.exists():
+        fields = stat.read_text().rsplit(")", 1)[1].split()
+        return (int(fields[11]) + int(fields[12])) / os.sysconf("SC_CLK_TCK")
     # ps cputime: [[dd-]hh:]mm:ss.ss
     out = subprocess.run(["ps", "-o", "cputime=", "-p", str(pid)], capture_output=True, text=True).stdout.strip()
     days, _, rest = out.rpartition("-")
@@ -127,7 +132,11 @@ def cpu_seconds(pid):
 
 
 def footprint_mb(pid):
-    out = subprocess.run(["footprint", "-p", str(pid)], capture_output=True, text=True).stdout
+    # macOS only; elsewhere RSS is what there is.
+    try:
+        out = subprocess.run(["footprint", "-p", str(pid)], capture_output=True, text=True).stdout
+    except FileNotFoundError:
+        return None
     m = re.search(r"Footprint:\s*([\d.]+)\s*(KB|MB|GB)", out)
     if not m:
         return None

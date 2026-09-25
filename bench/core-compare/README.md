@@ -34,6 +34,22 @@ sing-box run -c configs/server-singbox-tls.json &    # Trojan / VLESS 服务端�
 - **footprint** 是 macOS `footprint` 命令给出的 phys_footprint，iOS 按这个指标决定是否杀掉 Network Extension（上限约 50MB）。
 - **iOS 模式**：sing-box 按 libbox 的方式运行（`with_low_memory` 编译标签，缓冲区 16KB；GOGC=10、GOMEMLIMIT=45MiB，见 `experimental/libbox/memory.go`）；leaf 用单线程模式运行。
 
+## P0.2 重构后的 Linux 回归（2026-09-25，PVE 上的 Debian 13 VM，4 核）
+
+同样对比 `11c74ad`（base）和重构后（new），sing-box 1.13.12，loadgen 交叉编译。Linux 上没有 footprint，只看 RSS；CPU 从 `/proc/<pid>/stat` 读（`ps` 只精确到秒）。
+
+| 指标（中位数） | base 直连 | new 直连 | base 直连 1T | new 直连 1T | base SS | new SS | base SS 1T | new SS 1T |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 空闲 RSS (MB) | 11.5 | 11.7 | 11.4 | 11.5 | 11.5 | 11.9 | 11.3 | 11.4 |
+| 下行 CPU (秒/GB) | 0.70 | 0.66 | 0.41 | 0.39 | 1.14 | 1.13 | 0.82 | 0.82 |
+| 上行 CPU (秒/GB) | 0.68 | 0.64 | 0.40 | 0.41 | 1.02 | 1.11 | 0.88 | 0.89 |
+| 新建连接 p50 (ms) | 0.285 | 0.281 | 0.265 | 0.269 | 0.598 | 0.573 | 0.565 | 0.565 |
+| 2000 并发峰值 RSS (MB) | 30.0 | 29.6 | 27.8 | 28.1 | 33.8 | 33.6 | 31.7 | 31.8 |
+
+TLS 类出站每 GB CPU（秒，两轮，base / new）：Trojan、VLESS、REALITY 各场景差异都在 ±0.04 以内（例如 REALITY 多线程下行 1.38–1.40 / 1.42，Trojan 单线程上行 0.93–0.95 / 0.93–0.95）。
+
+**负载后内存不回落（glibc）：** 多线程模式下，2000 条连接关闭后 RSS base 回到约 16–17MB，new 停在约 27.6MB；同一进程反复加压，new 逐轮升到约 34.6MB，base 在 16–18MB。用 gdb 调 `malloc_trim(0)` 后两边都回到约 15MB，所以不是泄漏，是 glibc 按线程 arena 留着已释放的内存；base 也会这样（有一次 trim 前 28.2MB），只是 new 的分配模式留得更多。macOS 上没有这个现象。P0.1 要求压测后 RSS 能回落，Linux 上需要另行处理（换分配器或在空闲时 trim）。
+
 ## P0.2 重构后的性能回归（2026-09-25，`dev`）
 
 对比 P0.2 重构前的 `11c74ad`（base）和重构后的 `dev`（new），各用自己版本的配置格式。`./run.py --group regression --base-leaf <base 的 leaf> --base-configs <base 的配置目录>` 跑直连和 SS，多线程和单线程，2 轮取中位数；Trojan / VLESS / REALITY 用 `throughput.sh` 交替跑 base 和 new，各 2 轮 × 5 次。

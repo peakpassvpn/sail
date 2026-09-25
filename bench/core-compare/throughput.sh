@@ -4,11 +4,20 @@ cd "$(dirname "$0")"
 label=$1; dir=$2; reps=$3; shift 4
 "$@" >/dev/null 2>&1 & P=$!
 sleep 1
+# CPU seconds used by $P so far: /proc on Linux (ps only has whole
+# seconds there), ps cputime (m:ss.ss) on macOS.
+cpu() {
+  if [ -r /proc/$P/stat ]; then
+    awk -v t=$(getconf CLK_TCK) '{sub(/.*\) /, ""); print ($12 + $13) / t}' /proc/$P/stat
+  else
+    ps -o cputime= -p $P | awk -F: '{print $1*60+$2}'
+  fi
+}
 out=()
 for i in $(seq $reps); do
-  c0=$(ps -o cputime= -p $P | awk -F: '{print $1*60+$2}')
+  c0=$(cpu)
   r=$(./loadgen/loadgen throughput -streams 8 -bytes 67108864 -dir $dir | python3 -c 'import json,sys;print(round(json.load(sys.stdin)["mbps"]))')
-  c1=$(ps -o cputime= -p $P | awk -F: '{print $1*60+$2}')
+  c1=$(cpu)
   out+=("$r/$(python3 -c "print(round(($c1-$c0)/0.537,2))")")
 done
 kill $P; wait $P 2>/dev/null
