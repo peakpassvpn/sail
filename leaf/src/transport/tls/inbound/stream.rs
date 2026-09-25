@@ -291,7 +291,7 @@ impl InboundStreamHandler for Handler {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "rustls-tls"))]
 mod tests {
     use super::{decode_base64, decode_ech_blob, load_ech};
 
