@@ -135,7 +135,7 @@ ctrlc = ["tokio/signal"]
 
 [dependencies]
 # Common
-tokio = { version = "1", features = ["sync", "io-util", "net", "time", "rt", "rt-multi-thread"] }
+tokio = { version = "1", features = ["sync", "io-util", "net", "time", "rt", "rt-multi-thread", "macros"] }
 protobuf = "3.6"
 thiserror = "1.0"
 futures = "0.3"

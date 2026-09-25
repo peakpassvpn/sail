@@ -287,6 +287,9 @@ impl super::DnsClient {
                 self.exchange_quic(upstream, pool, addr, is_direct, request)
                     .await?
             }
+            // No upstream kind is compiled in, so there is no state.
+            #[cfg(not(any(feature = "tls", feature = "quic", feature = "dns-h3")))]
+            _ => match upstream.state {},
         };
         if response.len() < 12 {
             return Err(anyhow!("dns response too short"));
