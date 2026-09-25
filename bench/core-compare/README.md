@@ -34,6 +34,37 @@ sing-box run -c configs/server-singbox-tls.json &    # Trojan / VLESS 服务端�
 - **footprint** 是 macOS `footprint` 命令给出的 phys_footprint，iOS 按这个指标决定是否杀掉 Network Extension（上限约 50MB）。
 - **iOS 模式**：sing-box 按 libbox 的方式运行（`with_low_memory` 编译标签，缓冲区 16KB；GOGC=10、GOMEMLIMIT=45MiB，见 `experimental/libbox/memory.go`）；leaf 用单线程模式运行。
 
+## P0.2 重构后的性能回归（2026-09-25，`dev`）
+
+对比 P0.2 重构前的 `11c74ad`（base）和重构后的 `dev`（new），各用自己版本的配置格式。`./run.py --group regression --base-leaf <base 的 leaf> --base-configs <base 的配置目录>` 跑直连和 SS，多线程和单线程，2 轮取中位数；Trojan / VLESS / REALITY 用 `throughput.sh` 交替跑 base 和 new，各 2 轮 × 5 次。
+
+**发现并修复的退化：** 第一次测时，2000 并发连接的 footprint 在四个场景都高出 3–4MB（每条连接约 1.5KB）。`heap -s` 对比：每条连接的任务分配从 6KB 档变成 7KB 档（2000 个），另有每条连接约 7 个 16 字节分配。原因：
+- 每条连接的任务 future 从 5968 字节涨到 6544 字节，加上分配器开销，跨过了 6KB 的大小档。主要来自 `Session` 变大（新增 `inbound_type`、`user`），它在各层 future 里有多份。
+- `inbound_type` 是 `String`，每次克隆 `Session` 都分配一次。
+
+修复：`inbound_type` 改为注册表里协议名的 `&'static str`；`user` 改为 `Arc<str>`；三个嗅探域名合并为一个 `sniffed: Option<(SniffedFrom, String)>`（只保留优先级最高的来源，路由也只用它）；路由阶段（嗅探、解析、选路）放进单独装箱的 future，选完即释放。任务 future 降到 5872 字节，比重构前还小。
+
+修复后（中位数）：
+
+| 指标 | base 直连 | new 直连 | base 直连 1T | new 直连 1T | base SS | new SS | base SS 1T | new SS 1T |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 空闲 footprint (MB) | 6.5 | 6.6 | 6.3 | 6.3 | 6.5 | 6.6 | 6.3 | 6.3 |
+| 下行 CPU (秒/GB) | 0.33 | 0.32 | 0.22 | 0.22 | 0.59 | 0.57 | 0.43 | 0.41 |
+| 上行 CPU (秒/GB) | 0.32 | 0.31 | 0.21 | 0.21 | 0.49 | 0.49 | 0.44 | 0.43 |
+| 新建连接 p50 (ms) | 0.286 | 0.224 | 0.199 | 0.199 | 0.349 | 0.379 | 0.387 | 0.354 |
+| 2000 并发 footprint (MB) | 30 | 30 | 25 | 25 | 35 | 34 | 29 | 29.5 |
+| 负载结束 3s 后 footprint (MB) | 30 | 30 | 25 | 26 | 35 | 34.5 | 30 | 30.5 |
+
+TLS 类出站每 GB CPU（秒，两轮各 5 次中位数，base / new）：
+
+| 链路 | 下行 多线程 | 下行 单线程 | 上行 多线程 | 上行 单线程 |
+| --- | --- | --- | --- | --- |
+| Trojan | 0.56–0.60 / 0.56–0.60 | 0.47–0.48 / 0.47–0.50 | 0.45–0.50 / 0.48 | 0.43–0.47 / 0.43 |
+| VLESS | 0.61–0.65 / 0.58–0.60 | 0.47–0.48 / 0.47–0.48 | 0.50–0.52 / 0.50–0.52 | 0.43 / 0.43 |
+| REALITY | 0.63 / 0.61–0.63 | 0.50–0.52 / 0.50 | 0.52–0.54 / 0.52–0.54 | 0.45 / 0.45 |
+
+结论：CPU、延迟和内存都不低于重构前；吞吐两边都在 1100–3600MB/s 间大幅波动，不作比较。
+
 ## Vision 上行填充（2026-09-25，分支 `pooled-relay-buffer`）
 
 `leaf/src/protocol/vless/stream.rs` 原先在请求头里声明 `xtls-rprx-vision`，写方向却直接透传。服务端遇到没有 UUID 前缀的数据会当作未填充数据接收，所以功能上能用，但 Vision 要隐藏的内层 TLS 握手长度特征完全暴露。

@@ -33,14 +33,25 @@ PROXY = "127.0.0.1:1081"
 TARGET = "127.0.0.1:9000"
 
 # name -> (command, extra env), per group.
-def clients(group, leaf, singbox, singbox_lowmem):
+def clients(group, leaf, singbox, singbox_lowmem, base_leaf=None, base_configs=None):
+    if group == "regression":
+        # The build under test against a baseline build, which reads the
+        # configuration format of its own commit from base_configs.
+        rows = []
+        for label, path, configs in (("base", base_leaf, Path(base_configs)), ("new", leaf, CONFIGS)):
+            for proto in ("direct", "ss"):
+                cfg = configs / f"client-leaf-{proto}.json"
+                rows.append((f"{label}/{proto}", [path, "-c", cfg], {}))
+                rows.append((f"{label}/{proto} 1T", [path, "--single-thread", "-c", cfg], {}))
+        return rows
     if group == "desktop":
         return [
             ("leaf/direct", [leaf, "-c", CONFIGS / "client-leaf-direct.json"], {}),
             ("sing-box/direct", [singbox, "run", "-c", CONFIGS / "client-singbox-direct.json"], {}),
             ("leaf/ss", [leaf, "-c", CONFIGS / "client-leaf-ss.json"], {}),
             # sing-box relays with 32 KB buffers; leaf starts at 16 KB and grows to 128 KB on bulk transfers.
-            ("leaf/ss fixed 16K", [leaf, "-c", CONFIGS / "client-leaf-ss.json"], {"LINK_BUFFER_MAX_SIZE": "16"}),
+            ("leaf/ss fixed 16K",
+             [leaf, "--set", "relay.buffer_max_size=16", "-c", CONFIGS / "client-leaf-ss.json"], {}),
             ("sing-box/ss", [singbox, "run", "-c", CONFIGS / "client-singbox-ss.json"], {}),
         ]
     # Mirrors how each core runs inside an iOS Network Extension: libbox is built
@@ -48,8 +59,8 @@ def clients(group, leaf, singbox, singbox_lowmem):
     # (experimental/libbox/memory.go); leaf apps typically use a single thread.
     return [
         ("leaf/ss 1T", [leaf, "--single-thread", "-c", CONFIGS / "client-leaf-ss.json"], {}),
-        ("leaf/ss 1T init=2K", [leaf, "--single-thread", "-c", CONFIGS / "client-leaf-ss.json"],
-         {"LINK_BUFFER_SIZE": "2"}),
+        ("leaf/ss 1T init=2K",
+         [leaf, "--single-thread", "--set", "relay.buffer_size=2", "-c", CONFIGS / "client-leaf-ss.json"], {}),
         ("sing-box/ss lowmem", [singbox_lowmem, "run", "-c", CONFIGS / "client-singbox-ss.json"],
          {"GOGC": "10", "GOMEMLIMIT": "45MiB"}),
     ]
@@ -239,7 +250,9 @@ def main():
     ap.add_argument("--leaf", default=str(HERE.parents[1] / "target" / "release" / "leaf"))
     ap.add_argument("--singbox", default="sing-box")
     ap.add_argument("--singbox-lowmem", default=str(HERE / "bin" / "sing-box-lowmem"))
-    ap.add_argument("--group", choices=["desktop", "ios"], default="desktop")
+    ap.add_argument("--group", choices=["desktop", "ios", "regression"], default="desktop")
+    ap.add_argument("--base-leaf", help="regression: the baseline leaf binary")
+    ap.add_argument("--base-configs", help="regression: its client configs directory")
     ap.add_argument("--out")
     a = ap.parse_args()
 
@@ -253,7 +266,9 @@ def main():
     try:
         wait_port(TARGET)
         wait_port("127.0.0.1:8388")
-        cl = clients(a.group, a.leaf, a.singbox, a.singbox_lowmem)
+        if a.group == "regression" and not (a.base_leaf and a.base_configs):
+            ap.error("--group regression needs --base-leaf and --base-configs")
+        cl = clients(a.group, a.leaf, a.singbox, a.singbox_lowmem, a.base_leaf, a.base_configs)
         for rnd in range(a.rounds):
             # Alternate the order so neither side always runs on a warmer machine.
             order = cl if rnd % 2 == 0 else list(reversed(cl))
