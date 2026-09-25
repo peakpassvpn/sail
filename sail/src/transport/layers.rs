@@ -464,6 +464,80 @@ pub fn outbound(
     }
 }
 
+/// Opens connections to a protocol's server through the layers its blocks
+/// configure: dial fields, detour, tls, transport.
+///
+/// For a protocol whose connections outlive the streams on them, such as a
+/// session pool, and which therefore cannot be one more handler in a chain
+/// that dials anew for every stream. Its factory asks for one with
+/// `OutboundFactory::over_connector`.
+#[derive(Clone)]
+pub struct Connector {
+    /// The layers around a handler that only hands the connection over.
+    layers: AnyOutboundHandler,
+    dns_client: SyncDnsClient,
+    tls: bool,
+}
+
+impl Connector {
+    pub fn new(blocks: &OutboundBlocks, layering: OutboundLayering<'_>) -> Result<Self> {
+        let (server, port) = server(layering.tag, layering.options)?;
+        let dns_client = layering.dns_client.clone();
+        let handover = crate::adapter::outbound::HandlerBuilder::default()
+            .tag(layering.tag.to_owned())
+            .stream_handler(Arc::new(Handover { server, port }))
+            .build();
+        Ok(Connector {
+            layers: outbound(handover, blocks, layering)?,
+            dns_client,
+            tls: blocks.tls().is_some(),
+        })
+    }
+
+    /// Whether the connections are made over TLS (or REALITY).
+    pub fn tls(&self) -> bool {
+        self.tls
+    }
+
+    /// A new connection to the server, for `sess`.
+    pub async fn connect(
+        &self,
+        sess: &crate::session::Session,
+    ) -> std::io::Result<crate::adapter::AnyStream> {
+        let stream =
+            crate::net::connect_stream_outbound(sess, self.dns_client.clone(), &self.layers)
+                .await?;
+        self.layers.stream()?.handle(sess, None, stream).await
+    }
+}
+
+/// The innermost layer of a `Connector`: asks for the server to be dialled,
+/// and hands over what the layers around it made of that.
+struct Handover {
+    server: String,
+    port: u16,
+}
+
+#[async_trait::async_trait]
+impl crate::adapter::OutboundStreamHandler for Handover {
+    fn connect_addr(&self) -> crate::adapter::OutboundConnect {
+        crate::adapter::OutboundConnect::Proxy(
+            crate::session::Network::Tcp,
+            self.server.clone(),
+            self.port,
+        )
+    }
+
+    async fn handle<'a>(
+        &'a self,
+        _sess: &'a crate::session::Session,
+        _lhs: Option<&mut crate::adapter::AnyStream>,
+        stream: Option<crate::adapter::AnyStream>,
+    ) -> std::io::Result<crate::adapter::AnyStream> {
+        stream.ok_or_else(|| std::io::Error::other("no connection to the server"))
+    }
+}
+
 /// An outbound running `actors` in order, each over the one before.
 pub fn chain_outbound(tag: &str, actors: Vec<AnyOutboundHandler>) -> Result<AnyOutboundHandler> {
     #[cfg(feature = "outbound-chain")]

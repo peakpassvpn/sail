@@ -19,10 +19,8 @@ use sha2::{Digest, Sha256};
 use tokio::io::AsyncWriteExt;
 use tracing::{debug, Instrument};
 
-use crate::adapter::AnyOutboundHandler;
-use crate::app::SyncDnsClient;
-use crate::net::connect_stream_outbound;
 use crate::session::{Network, Session as ProxySession, SocksAddr};
+use crate::transport::layers::Connector;
 
 use super::super::padding::PaddingScheme;
 use super::super::session::{auth, PaddingCell, Session, Stream};
@@ -48,8 +46,7 @@ pub struct Client {
     password_hash: [u8; 32],
     padding: PaddingCell,
     /// Dials the server through the configured layers: TLS, and a detour.
-    connector: AnyOutboundHandler,
-    dns_client: SyncDnsClient,
+    connector: Connector,
     options: ClientOptions,
     /// Idle sessions by their sequence number, newest last.
     idle: Mutex<BTreeMap<u64, Idle<Arc<Session>>>>,
@@ -65,8 +62,7 @@ impl Client {
         server: String,
         port: u16,
         password: &str,
-        connector: AnyOutboundHandler,
-        dns_client: SyncDnsClient,
+        connector: Connector,
         options: ClientOptions,
     ) -> (Arc<Client>, AbortHandle) {
         let client = Arc::new(Client {
@@ -75,7 +71,6 @@ impl Client {
             password_hash: Sha256::digest(password.as_bytes()).into(),
             padding: Arc::new(RwLock::new(Arc::new(PaddingScheme::default_scheme()))),
             connector,
-            dns_client,
             options,
             idle: Mutex::new(BTreeMap::new()),
             next_seq: AtomicU64::new(0),
@@ -186,9 +181,7 @@ impl Client {
         sess.network = Network::Tcp;
         sess.destination = SocksAddr::try_from((&self.server, self.port))?;
         sess.sniffed = None;
-        let stream =
-            connect_stream_outbound(&sess, self.dns_client.clone(), &self.connector).await?;
-        let mut conn = self.connector.stream()?.handle(&sess, None, stream).await?;
+        let mut conn = self.connector.connect(&sess).await?;
         let padding = self
             .padding
             .read()

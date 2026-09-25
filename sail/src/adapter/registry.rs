@@ -95,6 +95,10 @@ pub struct OutboundFactory {
     /// its options before `dependencies` and `build` see them, and applied
     /// around what `build` returns.
     pub blocks: Blocks,
+    /// Whether the blocks are applied to the protocol's connections rather
+    /// than around its handler: `build` gets them as a `Connector`
+    /// (`OutboundContext::connector`), and what it returns is used as is.
+    pub over_connector: bool,
 }
 
 impl OutboundFactory {
@@ -105,6 +109,7 @@ impl OutboundFactory {
             build,
             shareable: true,
             blocks: Blocks::NONE,
+            over_connector: false,
         }
     }
 
@@ -118,11 +123,18 @@ impl OutboundFactory {
             build,
             shareable: false,
             blocks: Blocks::NONE,
+            over_connector: false,
         }
     }
 
     pub fn with_blocks(mut self, blocks: Blocks) -> Self {
         self.blocks = blocks;
+        self
+    }
+
+    /// Its blocks make its connections, see `over_connector`.
+    pub fn over_connector(mut self) -> Self {
+        self.over_connector = true;
         self
     }
 }
@@ -144,6 +156,7 @@ pub struct OutboundContext<'a> {
     #[cfg(feature = "plugin")]
     pub external_handlers: &'a mut crate::app::outbound::plugin::ExternalHandlers,
     handlers: &'a Handlers<AnyOutboundHandler>,
+    connector: Option<layers::Connector>,
 }
 
 impl OutboundContext<'_> {
@@ -162,6 +175,17 @@ impl OutboundContext<'_> {
     /// dependencies. There may be none.
     pub fn actors(&self, tags: &[String]) -> Result<Vec<AnyOutboundHandler>> {
         tags.iter().map(|tag| self.handler(tag)).collect()
+    }
+
+    /// The connections its blocks make, for a factory built
+    /// `over_connector`.
+    pub fn connector(&self) -> Result<layers::Connector> {
+        self.connector.clone().ok_or_else(|| {
+            anyhow!(
+                "[{}] outbound: built without a connector (not over_connector)",
+                self.tag
+            )
+        })
     }
 
     /// Like `actors`, for a group that needs at least one member.
@@ -236,6 +260,31 @@ pub fn build_outbounds(
             }
             let mut tasks = Vec::new();
             let dial = Arc::new(blocks.dial(&outbound.tag)?.or(state.dial_defaults));
+            let detour = match &blocks.detour {
+                Some(detour) => Some(dependency(
+                    state.handlers,
+                    "outbound",
+                    &outbound.tag,
+                    detour,
+                )?),
+                None => None,
+            };
+            let connector = if factory.over_connector {
+                Some(layers::Connector::new(
+                    &blocks,
+                    OutboundLayering {
+                        tag: &outbound.tag,
+                        options: &options,
+                        dns_client: state.dns_client,
+                        abort_handles: &mut tasks,
+                        detour: detour.clone(),
+                        dial: dial.clone(),
+                        env: state.env,
+                    },
+                )?)
+            } else {
+                None
+            };
             let mut ctx = OutboundContext {
                 tag: &outbound.tag,
                 options: &options,
@@ -248,30 +297,26 @@ pub fn build_outbounds(
                 #[cfg(feature = "plugin")]
                 external_handlers: state.external_handlers,
                 handlers: state.handlers,
+                connector,
             };
             let core = (factory.build)(&mut ctx)?;
-            let detour = match &blocks.detour {
-                Some(detour) => Some(dependency(
-                    state.handlers,
-                    "outbound",
-                    &outbound.tag,
-                    detour,
-                )?),
-                None => None,
+            let handler = if factory.over_connector {
+                core
+            } else {
+                layers::outbound(
+                    core,
+                    &blocks,
+                    OutboundLayering {
+                        tag: &outbound.tag,
+                        options: &options,
+                        dns_client: state.dns_client,
+                        abort_handles: &mut tasks,
+                        detour,
+                        dial,
+                        env: state.env,
+                    },
+                )?
             };
-            let handler = layers::outbound(
-                core,
-                &blocks,
-                OutboundLayering {
-                    tag: &outbound.tag,
-                    options: &options,
-                    dns_client: state.dns_client,
-                    abort_handles: &mut tasks,
-                    detour,
-                    dial,
-                    env: state.env,
-                },
-            )?;
             state.handlers.insert(outbound.tag.clone(), handler);
             state.abort_handles.insert(outbound.tag.clone(), tasks);
             if factory.shareable {
