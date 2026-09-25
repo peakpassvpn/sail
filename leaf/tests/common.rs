@@ -107,11 +107,32 @@ pub fn run_leaf_instances(
             runtime: runtime_options(),
             host: Default::default(),
         };
-        rt.spawn_blocking(move || {
-            if let Err(e) = leaf::start(rt_id, opts) {
-                panic!("start leaf failed: {}", e);
+        let start = rt.spawn_blocking(move || leaf::start(rt_id, opts));
+        // Returns once the instance runs, or with the error it failed with:
+        // a start that fails must fail the test, not leave it waiting.
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        let failure = loop {
+            if leaf::is_running(rt_id) {
+                break None;
             }
-        });
+            if start.is_finished() {
+                break Some(match rt.block_on(start) {
+                    Ok(Err(e)) => anyhow::anyhow!("start leaf failed: {}", e),
+                    Ok(Ok(())) => anyhow::anyhow!("leaf stopped as soon as it started"),
+                    Err(e) => anyhow::anyhow!("start leaf panicked: {}", e),
+                });
+            }
+            if std::time::Instant::now() > deadline {
+                break Some(anyhow::anyhow!("leaf did not start within 10s"));
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        if let Some(e) = failure {
+            for id in &leaf_rt_ids {
+                leaf::shutdown(*id);
+            }
+            return Err(e);
+        }
         leaf_rt_ids.push(rt_id);
     }
     Ok(leaf_rt_ids)
