@@ -16,8 +16,6 @@ mod interrupt;
 pub mod load_balance;
 #[cfg(feature = "outbound-select")]
 pub mod selector;
-#[cfg(feature = "outbound-static")]
-pub mod r#static;
 #[cfg(feature = "outbound-tryall")]
 pub mod tryall;
 #[cfg(feature = "outbound-urltest")]
