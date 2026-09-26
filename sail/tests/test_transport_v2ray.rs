@@ -8,8 +8,6 @@
 //! The sing-box tests need `sing-box` on the PATH or in /opt/homebrew/bin,
 //! and are ignored unless asked for:
 //! `cargo test -p sail --test test_transport_v2ray -- --ignored`.
-//!
-//! Ports 32800-32899 only.
 
 #![cfg(all(
     feature = "inbound-socks",
@@ -31,9 +29,8 @@
 
 mod common;
 
-use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
-use std::time::{Duration, Instant};
+use std::path::PathBuf;
+use std::time::Duration;
 
 use serde_json::{json, Value};
 
@@ -186,23 +183,20 @@ fn server(sing_box: bool, cert: &Cert, carriage: &Carriage, port: u16) -> Value 
 /// sail to sail, with the common echo test, a transfer, and
 /// the half-close one for a transport that carries a half close. WebSocket
 /// does only when `ws.half_close` is set, which it is not here.
-fn sail_to_sail(
-    name: &str,
-    carriage: Carriage,
-    half_close: bool,
-    socks_port: u16,
-    server_port: u16,
-) -> anyhow::Result<()> {
-    let cert = Cert::new(name)?;
-    let configs = vec![
-        client(false, &cert, &carriage, socks_port, server_port).to_string(),
-        server(false, &cert, &carriage, server_port).to_string(),
-    ];
-    common::test_configs(configs.clone(), "127.0.0.1", socks_port)?;
-    if half_close {
-        common::test_tcp_half_close_on_configs(configs.clone(), "127.0.0.1", socks_port)?;
-    }
-    transfer(configs, socks_port)
+fn sail_to_sail(name: &str, carriage: Carriage, half_close: bool) -> anyhow::Result<()> {
+    common::retry_port_clash(|| {
+        let [socks_port, server_port] = common::free_ports();
+        let cert = Cert::new(name)?;
+        let configs = vec![
+            client(false, &cert, &carriage, socks_port, server_port).to_string(),
+            server(false, &cert, &carriage, server_port).to_string(),
+        ];
+        common::test_configs(configs.clone(), "127.0.0.1", socks_port)?;
+        if half_close {
+            common::test_tcp_half_close_on_configs(configs.clone(), "127.0.0.1", socks_port)?;
+        }
+        transfer(configs, socks_port)
+    })
 }
 
 /// Runs `configs` and, through the socks server on `socks_port`, echoes
@@ -281,101 +275,49 @@ fn transfer(configs: Vec<String>, socks_port: u16) -> anyhow::Result<()> {
 // sing-box
 // ---------------------------------------------------------------------------
 
-fn sing_box_path() -> PathBuf {
-    let homebrew = Path::new("/opt/homebrew/bin/sing-box");
-    if homebrew.exists() {
-        homebrew.to_path_buf()
-    } else {
-        PathBuf::from("sing-box")
-    }
-}
-
-/// A sing-box process, killed when dropped.
-struct SingBox(Child);
-
-impl SingBox {
-    /// Runs sing-box with `config` and waits for it to listen on `port`.
-    fn run(cert: &Cert, name: &str, config: Value, port: u16) -> anyhow::Result<Self> {
-        let path = cert.dir.join(format!("{}.json", name));
-        std::fs::write(&path, config.to_string())?;
-        let child = Command::new(sing_box_path())
-            .arg("run")
-            .arg("-c")
-            .arg(&path)
-            .stdout(Stdio::null())
-            .stderr(Stdio::inherit())
-            .spawn()
-            .map_err(|e| anyhow::anyhow!("run sing-box: {}", e))?;
-        let sing_box = SingBox(child);
-        let deadline = Instant::now() + Duration::from_secs(10);
-        loop {
-            if std::net::TcpStream::connect(("127.0.0.1", port)).is_ok() {
-                return Ok(sing_box);
-            }
-            if Instant::now() > deadline {
-                return Err(anyhow::anyhow!("sing-box did not listen on {}", port));
-            }
-            std::thread::sleep(Duration::from_millis(50));
-        }
-    }
-}
-
-impl Drop for SingBox {
-    fn drop(&mut self) {
-        let _ = self.0.kill();
-        let _ = self.0.wait();
-    }
-}
-
 /// sail outbound -> sing-box inbound.
-fn sail_to_sing_box(
-    name: &str,
-    carriage: Carriage,
-    socks_port: u16,
-    server_port: u16,
-) -> anyhow::Result<()> {
-    let cert = Cert::new(name)?;
-    let _server = SingBox::run(
-        &cert,
-        "server",
-        server(true, &cert, &carriage, server_port),
-        server_port,
-    )?;
-    let configs = vec![client(false, &cert, &carriage, socks_port, server_port).to_string()];
-    common::test_configs(configs.clone(), "127.0.0.1", socks_port)?;
-    transfer(configs, socks_port)
+fn sail_to_sing_box(name: &str, carriage: Carriage) -> anyhow::Result<()> {
+    common::retry_port_clash(|| {
+        let [socks_port, server_port] = common::free_ports();
+        let cert = Cert::new(name)?;
+        let _server = common::Daemon::sing_box(
+            &cert.dir,
+            "server",
+            server(true, &cert, &carriage, server_port),
+        )?;
+        let configs = vec![client(false, &cert, &carriage, socks_port, server_port).to_string()];
+        common::test_configs(configs.clone(), "127.0.0.1", socks_port)?;
+        transfer(configs, socks_port)
+    })
 }
 
 /// sing-box outbound -> sail inbound.
-fn sing_box_to_sail(
-    name: &str,
-    carriage: Carriage,
-    socks_port: u16,
-    server_port: u16,
-) -> anyhow::Result<()> {
-    let cert = Cert::new(name)?;
-    let configs = vec![server(false, &cert, &carriage, server_port).to_string()];
-    // A sing-box client may keep its connection to the sail it saw last,
-    // and each common test runs sail anew: a fresh client each.
-    let client = || {
-        SingBox::run(
-            &cert,
-            "client",
-            client(true, &cert, &carriage, socks_port, server_port),
-            socks_port,
-        )
-    };
-    let sing_box = client()?;
-    common::test_configs(configs.clone(), "127.0.0.1", socks_port)?;
-    drop(sing_box);
-    let _sing_box = client()?;
-    transfer(configs, socks_port)
+fn sing_box_to_sail(name: &str, carriage: Carriage) -> anyhow::Result<()> {
+    common::retry_port_clash(|| {
+        let [socks_port, server_port] = common::free_ports();
+        let cert = Cert::new(name)?;
+        let configs = vec![server(false, &cert, &carriage, server_port).to_string()];
+        // A sing-box client may keep its connection to the sail it saw last,
+        // and each common test runs sail anew: a fresh client each.
+        let client = || {
+            common::Daemon::sing_box(
+                &cert.dir,
+                "client",
+                client(true, &cert, &carriage, socks_port, server_port),
+            )
+        };
+        let sing_box = client()?;
+        common::test_configs(configs.clone(), "127.0.0.1", socks_port)?;
+        drop(sing_box);
+        let _sing_box = client()?;
+        transfer(configs, socks_port)
+    })
 }
 
-/// Both ways against sing-box, on the four ports from `port` on.
-fn against_sing_box(name: &str, carriage: Carriage, port: u16) -> anyhow::Result<()> {
-    sail_to_sing_box(&format!("{}-out", name), carriage.clone(), port, port + 1)?;
-    sing_box_to_sail(&format!("{}-in", name), carriage, port + 2, port + 3)
+/// Both ways against sing-box.
+fn against_sing_box(name: &str, carriage: Carriage) -> anyhow::Result<()> {
+    sail_to_sing_box(&format!("{}-out", name), carriage.clone())?;
+    sing_box_to_sail(&format!("{}-in", name), carriage)
 }
 
 // ---------------------------------------------------------------------------
@@ -388,7 +330,7 @@ fn test_ws_early_data_in_path_sail_to_sail() -> anyhow::Result<()> {
         transport: ws_early_data_in_path(),
         tls: false,
     };
-    sail_to_sail("ws-path", carriage, false, 32800, 32801)
+    sail_to_sail("ws-path", carriage, false)
 }
 
 #[test]
@@ -397,7 +339,7 @@ fn test_ws_early_data_in_header_sail_to_sail_tls() -> anyhow::Result<()> {
         transport: ws_early_data_in_header(),
         tls: true,
     };
-    sail_to_sail("ws-header", carriage, false, 32802, 32803)
+    sail_to_sail("ws-header", carriage, false)
 }
 
 /// A client with no early data at a server that takes it, and one with
@@ -413,22 +355,28 @@ fn test_ws_early_data_mismatch() -> anyhow::Result<()> {
         transport: ws_early_data_in_header(),
         tls: false,
     };
-    let configs = vec![
-        client(false, &cert, &plain, 32804, 32805).to_string(),
-        server(false, &cert, &early, 32805).to_string(),
-    ];
-    common::test_configs(configs, "127.0.0.1", 32804)?;
+    common::retry_port_clash(|| {
+        let [socks_port, server_port] = common::free_ports();
+        let configs = vec![
+            client(false, &cert, &plain, socks_port, server_port).to_string(),
+            server(false, &cert, &early, server_port).to_string(),
+        ];
+        common::test_configs(configs, "127.0.0.1", socks_port)
+    })?;
 
     let in_path = Carriage {
         transport: ws_early_data_in_path(),
         tls: false,
     };
-    let configs = vec![
-        client(false, &cert, &in_path, 32806, 32807).to_string(),
-        server(false, &cert, &plain, 32807).to_string(),
-    ];
-    assert!(common::test_configs(configs, "127.0.0.1", 32806).is_err());
-    Ok(())
+    common::retry_port_clash(|| {
+        let [socks_port, server_port] = common::free_ports();
+        let configs = vec![
+            client(false, &cert, &in_path, socks_port, server_port).to_string(),
+            server(false, &cert, &plain, server_port).to_string(),
+        ];
+        assert!(common::test_configs(configs, "127.0.0.1", socks_port).is_err());
+        Ok(())
+    })
 }
 
 #[test]
@@ -438,7 +386,7 @@ fn test_ws_early_data_in_path_sing_box() -> anyhow::Result<()> {
         transport: ws_early_data_in_path(),
         tls: false,
     };
-    against_sing_box("ws-path", carriage, 32810)
+    against_sing_box("ws-path", carriage)
 }
 
 #[test]
@@ -448,7 +396,7 @@ fn test_ws_early_data_in_header_sing_box_tls() -> anyhow::Result<()> {
         transport: ws_early_data_in_header(),
         tls: true,
     };
-    against_sing_box("ws-header", carriage, 32820)
+    against_sing_box("ws-header", carriage)
 }
 
 // ---------------------------------------------------------------------------
@@ -470,7 +418,7 @@ fn test_httpupgrade_sail_to_sail() -> anyhow::Result<()> {
         transport: httpupgrade(),
         tls: false,
     };
-    sail_to_sail("up", carriage, true, 32830, 32831)
+    sail_to_sail("up", carriage, true)
 }
 
 #[test]
@@ -479,7 +427,7 @@ fn test_httpupgrade_sail_to_sail_tls() -> anyhow::Result<()> {
         transport: httpupgrade(),
         tls: true,
     };
-    sail_to_sail("up-tls", carriage, true, 32832, 32833)
+    sail_to_sail("up-tls", carriage, true)
 }
 
 /// A client asking for another host or path is turned away.
@@ -490,23 +438,23 @@ fn test_httpupgrade_wrong_host_or_path() -> anyhow::Result<()> {
         transport: httpupgrade(),
         tls: false,
     };
-    for (i, transport) in [
+    for transport in [
         json!({ "type": "httpupgrade", "host": "other.example", "path": "/sail-up" }),
         json!({ "type": "httpupgrade", "host": "upgrade.example", "path": "/other" }),
-    ]
-    .into_iter()
-    .enumerate()
-    {
-        let port = 32834 + 2 * i as u16;
+    ] {
         let client_side = Carriage {
             transport,
             tls: false,
         };
-        let configs = vec![
-            client(false, &cert, &client_side, port, port + 1).to_string(),
-            server(false, &cert, &server_side, port + 1).to_string(),
-        ];
-        assert!(common::test_configs(configs, "127.0.0.1", port).is_err());
+        common::retry_port_clash(|| {
+            let [socks_port, server_port] = common::free_ports();
+            let configs = vec![
+                client(false, &cert, &client_side, socks_port, server_port).to_string(),
+                server(false, &cert, &server_side, server_port).to_string(),
+            ];
+            assert!(common::test_configs(configs, "127.0.0.1", socks_port).is_err());
+            Ok(())
+        })?;
     }
     Ok(())
 }
@@ -518,7 +466,7 @@ fn test_httpupgrade_sing_box() -> anyhow::Result<()> {
         transport: httpupgrade(),
         tls: false,
     };
-    against_sing_box("up", carriage, 32840)
+    against_sing_box("up", carriage)
 }
 
 #[test]
@@ -528,7 +476,7 @@ fn test_httpupgrade_sing_box_tls() -> anyhow::Result<()> {
         transport: httpupgrade(),
         tls: true,
     };
-    against_sing_box("up-tls", carriage, 32844)
+    against_sing_box("up-tls", carriage)
 }
 
 // ---------------------------------------------------------------------------
@@ -550,7 +498,7 @@ fn test_grpc_sail_to_sail() -> anyhow::Result<()> {
         transport: grpc(),
         tls: false,
     };
-    sail_to_sail("grpc", carriage, true, 32850, 32851)
+    sail_to_sail("grpc", carriage, true)
 }
 
 #[test]
@@ -559,7 +507,7 @@ fn test_grpc_sail_to_sail_tls() -> anyhow::Result<()> {
         transport: grpc(),
         tls: true,
     };
-    sail_to_sail("grpc-tls", carriage, true, 32852, 32853)
+    sail_to_sail("grpc-tls", carriage, true)
 }
 
 /// A client calling another service is refused.
@@ -574,12 +522,15 @@ fn test_grpc_wrong_service() -> anyhow::Result<()> {
         transport: grpc(),
         tls: false,
     };
-    let configs = vec![
-        client(false, &cert, &client_side, 32854, 32855).to_string(),
-        server(false, &cert, &server_side, 32855).to_string(),
-    ];
-    assert!(common::test_configs(configs, "127.0.0.1", 32854).is_err());
-    Ok(())
+    common::retry_port_clash(|| {
+        let [socks_port, server_port] = common::free_ports();
+        let configs = vec![
+            client(false, &cert, &client_side, socks_port, server_port).to_string(),
+            server(false, &cert, &server_side, server_port).to_string(),
+        ];
+        assert!(common::test_configs(configs, "127.0.0.1", socks_port).is_err());
+        Ok(())
+    })
 }
 
 /// sing-box's HTTP/2 transport, and multiplex over gRPC, are refused when
@@ -587,6 +538,8 @@ fn test_grpc_wrong_service() -> anyhow::Result<()> {
 #[test]
 fn test_unsupported_transport_configs() -> anyhow::Result<()> {
     let cert = Cert::new("unsupported")?;
+    // Each is refused before it listens.
+    let [socks_port, server_port] = common::free_ports();
     let http = Carriage {
         transport: json!({ "type": "http", "host": ["a.example"], "path": "/" }),
         tls: false,
@@ -598,8 +551,8 @@ fn test_unsupported_transport_configs() -> anyhow::Result<()> {
             transport: grpc(),
             tls: false,
         },
-        32856,
-        32857,
+        socks_port,
+        server_port,
     );
     grpc_mux["outbounds"][0]["multiplex"] = json!({ "enabled": true, "protocol": "amux" });
     let mut grpc_alpn = client(
@@ -609,13 +562,16 @@ fn test_unsupported_transport_configs() -> anyhow::Result<()> {
             transport: grpc(),
             tls: true,
         },
-        32856,
-        32857,
+        socks_port,
+        server_port,
     );
     grpc_alpn["outbounds"][0]["tls"]["alpn"] = json!(["http/1.1"]);
     for (config, expected) in [
-        (client(false, &cert, &http, 32856, 32857), "not supported"),
-        (server(false, &cert, &http, 32857), "not supported"),
+        (
+            client(false, &cert, &http, socks_port, server_port),
+            "not supported",
+        ),
+        (server(false, &cert, &http, server_port), "not supported"),
         (grpc_mux, "multiplex"),
         (grpc_alpn, "tls.alpn"),
     ] {
@@ -643,7 +599,7 @@ fn test_grpc_sing_box() -> anyhow::Result<()> {
         transport: grpc(),
         tls: false,
     };
-    against_sing_box("grpc", carriage, 32860)
+    against_sing_box("grpc", carriage)
 }
 
 #[test]
@@ -653,5 +609,5 @@ fn test_grpc_sing_box_tls() -> anyhow::Result<()> {
         transport: grpc(),
         tls: true,
     };
-    against_sing_box("grpc-tls", carriage, 32864)
+    against_sing_box("grpc-tls", carriage)
 }

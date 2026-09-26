@@ -7,8 +7,6 @@ mod common;
 //
 // The sing-box tests need `sing-box` on PATH (or SING_BOX set to it) and
 // are ignored by default: run them with `--ignored`.
-//
-// Ports: 32300-32399 only.
 
 #[cfg(all(
     feature = "outbound-socks",
@@ -20,7 +18,6 @@ mod common;
 mod tuic {
     use std::net::SocketAddr;
     use std::path::PathBuf;
-    use std::process::{Child, Command, Stdio};
     use std::time::Duration;
 
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -188,9 +185,7 @@ mod tuic {
             .await??;
             anyhow::Ok(())
         });
-        for id in ids {
-            sail::shutdown(id);
-        }
+        common::shutdown_instances(&rt, ids);
         udp_echo.abort();
         tcp_echo.abort();
         result
@@ -199,131 +194,62 @@ mod tuic {
     #[test]
     fn test_tuic_sail_to_sail() -> anyhow::Result<()> {
         let cert = Cert::new("sail")?;
-        let native = vec![
-            sail_client(32301, 32300, &cert, r#""congestion_control": "bbr","#),
-            sail_server(32300, &cert, r#""congestion_control": "bbr","#),
-        ];
-        common::test_configs(native.clone(), "127.0.0.1", 32301)?;
-        check_large_transfers(native, 32301)?;
+        common::retry_port_clash(|| {
+            let [socks_port, server_port] = common::free_ports();
+            let native = vec![
+                sail_client(
+                    socks_port,
+                    server_port,
+                    &cert,
+                    r#""congestion_control": "bbr","#,
+                ),
+                sail_server(server_port, &cert, r#""congestion_control": "bbr","#),
+            ];
+            common::test_configs(native.clone(), "127.0.0.1", socks_port)?;
+            check_large_transfers(native, socks_port)
+        })?;
 
-        let quic = vec![
-            sail_client(
-                32303,
-                32302,
-                &cert,
-                r#""udp_relay_mode": "quic", "zero_rtt_handshake": true, "heartbeat": "1s","#,
-            ),
-            sail_server(
-                32302,
-                &cert,
-                r#""zero_rtt_handshake": true, "congestion_control": "new_reno","#,
-            ),
-        ];
-        common::test_configs(quic.clone(), "127.0.0.1", 32303)?;
-        check_large_transfers(quic, 32303)?;
-        Ok(())
+        common::retry_port_clash(|| {
+            let [socks_port, server_port] = common::free_ports();
+            let quic = vec![
+                sail_client(
+                    socks_port,
+                    server_port,
+                    &cert,
+                    r#""udp_relay_mode": "quic", "zero_rtt_handshake": true, "heartbeat": "1s","#,
+                ),
+                sail_server(
+                    server_port,
+                    &cert,
+                    r#""zero_rtt_handshake": true, "congestion_control": "new_reno","#,
+                ),
+            ];
+            common::test_configs(quic.clone(), "127.0.0.1", socks_port)?;
+            check_large_transfers(quic, socks_port)
+        })
     }
 
     #[test]
     fn test_tuic_wrong_password_is_refused() -> anyhow::Result<()> {
         let cert = Cert::new("refused")?;
-        let client = sail_client(32305, 32304, &cert, "").replace(PASSWORD, "wrong");
-        let configs = vec![client, sail_server(32304, &cert, "")];
-        anyhow::ensure!(
-            common::test_configs(configs, "127.0.0.1", 32305).is_err(),
-            "a wrong password got through"
-        );
-        Ok(())
+        common::retry_port_clash(|| {
+            let [socks_port, server_port] = common::free_ports();
+            let client = sail_client(socks_port, server_port, &cert, "").replace(PASSWORD, "wrong");
+            let configs = vec![client, sail_server(server_port, &cert, "")];
+            anyhow::ensure!(
+                common::test_configs(configs, "127.0.0.1", socks_port).is_err(),
+                "a wrong password got through"
+            );
+            Ok(())
+        })
     }
 
     // -----------------------------------------------------------------------
     // sing-box
     // -----------------------------------------------------------------------
 
-    struct SingBox {
-        child: Child,
-        _dir: tempdir::Dir,
-    }
-
-    mod tempdir {
-        pub struct Dir(pub std::path::PathBuf);
-        impl Drop for Dir {
-            fn drop(&mut self) {
-                let _ = std::fs::remove_dir_all(&self.0);
-            }
-        }
-    }
-
-    impl SingBox {
-        /// Runs sing-box with `config`, waiting for `ready_tcp_port` to
-        /// listen when there is one.
-        fn start(
-            name: &str,
-            config: serde_json::Value,
-            ready_tcp_port: Option<u16>,
-        ) -> anyhow::Result<Self> {
-            let dir = std::env::temp_dir().join(format!(
-                "sail-test-tuic-singbox-{}-{}",
-                name,
-                std::process::id()
-            ));
-            std::fs::create_dir_all(&dir)?;
-            let path = dir.join("config.json");
-            std::fs::write(&path, serde_json::to_vec_pretty(&config)?)?;
-            let bin = std::env::var("SING_BOX").unwrap_or_else(|_| {
-                if std::path::Path::new("/opt/homebrew/bin/sing-box").exists() {
-                    "/opt/homebrew/bin/sing-box".to_string()
-                } else {
-                    "sing-box".to_string()
-                }
-            });
-            let child = Command::new(bin)
-                .arg("run")
-                .arg("-c")
-                .arg(&path)
-                .stdout(Stdio::null())
-                .stderr(Stdio::inherit())
-                .spawn()
-                .map_err(|e| anyhow::anyhow!("run sing-box failed: {}", e))?;
-            let mut sing_box = SingBox {
-                child,
-                _dir: tempdir::Dir(dir),
-            };
-            let deadline = std::time::Instant::now() + Duration::from_secs(10);
-            loop {
-                if let Some(status) = sing_box.child.try_wait()? {
-                    anyhow::bail!("sing-box exited: {}", status);
-                }
-                let ready = match ready_tcp_port {
-                    Some(port) => std::net::TcpStream::connect(("127.0.0.1", port)).is_ok(),
-                    // A UDP listener cannot be probed; give it a moment.
-                    None => {
-                        std::thread::sleep(Duration::from_millis(500));
-                        true
-                    }
-                };
-                if ready {
-                    return Ok(sing_box);
-                }
-                anyhow::ensure!(
-                    std::time::Instant::now() < deadline,
-                    "sing-box did not start"
-                );
-                std::thread::sleep(Duration::from_millis(50));
-            }
-        }
-    }
-
-    impl Drop for SingBox {
-        fn drop(&mut self) {
-            let _ = self.child.kill();
-            let _ = self.child.wait();
-        }
-    }
-
     fn sing_box_server(port: u16, cert: &Cert, congestion: &str) -> serde_json::Value {
         serde_json::json!({
-            "log": {"level": "warn"},
             "inbounds": [{
                 "type": "tuic",
                 "listen": "127.0.0.1",
@@ -348,7 +274,6 @@ mod tuic {
         mode: &str,
     ) -> serde_json::Value {
         serde_json::json!({
-            "log": {"level": "warn"},
             "inbounds": [{"type": "socks", "listen": "127.0.0.1", "listen_port": socks_port}],
             "outbounds": [{
                 "type": "tuic",
@@ -371,49 +296,60 @@ mod tuic {
     #[ignore = "needs sing-box"]
     fn test_tuic_sail_outbound_to_sing_box_inbound() -> anyhow::Result<()> {
         let cert = Cert::new("to-sing-box")?;
-        let _server = SingBox::start("server", sing_box_server(32310, &cert, "cubic"), None)?;
+        common::retry_port_clash(|| {
+            let [server_port, native_port, quic_port] = common::free_ports();
+            let _server = common::Daemon::sing_box(
+                &cert.dir,
+                "server",
+                sing_box_server(server_port, &cert, "cubic"),
+            )?;
 
-        let native = vec![sail_client(32311, 32310, &cert, "")];
-        common::test_configs(native.clone(), "127.0.0.1", 32311)?;
-        check_large_transfers(native, 32311)?;
+            let native = vec![sail_client(native_port, server_port, &cert, "")];
+            common::test_configs(native.clone(), "127.0.0.1", native_port)?;
+            check_large_transfers(native, native_port)?;
 
-        let quic = vec![sail_client(
-            32312,
-            32310,
-            &cert,
-            r#""udp_relay_mode": "quic", "congestion_control": "bbr","#,
-        )];
-        common::test_configs(quic.clone(), "127.0.0.1", 32312)?;
-        check_large_transfers(quic, 32312)?;
-        Ok(())
+            let quic = vec![sail_client(
+                quic_port,
+                server_port,
+                &cert,
+                r#""udp_relay_mode": "quic", "congestion_control": "bbr","#,
+            )];
+            common::test_configs(quic.clone(), "127.0.0.1", quic_port)?;
+            check_large_transfers(quic, quic_port)?;
+            Ok(())
+        })
     }
 
     #[test]
     #[ignore = "needs sing-box"]
     fn test_tuic_sing_box_outbound_to_sail_inbound() -> anyhow::Result<()> {
         let cert = Cert::new("from-sing-box")?;
-        let server = vec![sail_server(32320, &cert, "")];
-        for (mode, socks_port) in [("native", 32321), ("quic", 32322)] {
-            // Each check starts the sail server anew, and sing-box would keep
-            // using its connection to the one before until that times out:
-            // a fresh sing-box for each.
-            let client = |name: &str| {
-                SingBox::start(
-                    &format!("client-{}-{}", mode, name),
-                    sing_box_client(socks_port, 32320, &cert, mode),
-                    Some(socks_port),
-                )
-            };
-            {
-                let _client = client("basic")?;
-                common::test_configs(server.clone(), "127.0.0.1", socks_port)
-                    .map_err(|e| anyhow::anyhow!("{}: {}", mode, e))?;
-            }
-            {
-                let _client = client("large")?;
-                check_large_transfers(server.clone(), socks_port)
-                    .map_err(|e| anyhow::anyhow!("{}: {}", mode, e))?;
-            }
+        for mode in ["native", "quic"] {
+            common::retry_port_clash(|| {
+                let [server_port, socks_port] = common::free_ports();
+                let server = vec![sail_server(server_port, &cert, "")];
+                // Each check starts the sail server anew, and sing-box would
+                // keep using its connection to the one before until that
+                // times out: a fresh sing-box for each.
+                let client = |name: &str| {
+                    common::Daemon::sing_box(
+                        &cert.dir,
+                        &format!("client-{}-{}", mode, name),
+                        sing_box_client(socks_port, server_port, &cert, mode),
+                    )
+                };
+                {
+                    let _client = client("basic")?;
+                    common::test_configs(server.clone(), "127.0.0.1", socks_port)
+                        .map_err(|e| e.context(mode))?;
+                }
+                {
+                    let _client = client("large")?;
+                    check_large_transfers(server.clone(), socks_port)
+                        .map_err(|e| e.context(mode))?;
+                }
+                Ok(())
+            })?;
         }
         Ok(())
     }

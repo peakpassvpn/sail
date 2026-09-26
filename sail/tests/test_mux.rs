@@ -9,8 +9,6 @@
 //! ```text
 //! cargo test -p sail --test test_mux -- --ignored
 //! ```
-//!
-//! Ports: 32900-32987.
 
 #![cfg(all(
     feature = "mux",
@@ -30,8 +28,6 @@
 mod common;
 
 use std::net::SocketAddr;
-use std::path::PathBuf;
-use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -76,41 +72,44 @@ fn cases() -> Vec<Case> {
     cases
 }
 
-/// The ports one direction uses from `base`: the Trojan and Shadowsocks
-/// servers, then per case the client's SOCKS port and its forwarder's,
-/// then the servers again for padded connections, which sing-box's refuse
-/// any other.
+/// The ports of one direction: the Trojan and Shadowsocks servers, the
+/// same again for padded connections, which sing-box's refuse any other,
+/// and per case the client's SOCKS port and its forwarder's.
 struct Ports {
-    base: u16,
+    trojan: u16,
+    shadowsocks: u16,
+    padded_trojan: u16,
+    padded_shadowsocks: u16,
+    socks: Vec<u16>,
+    forwarders: Vec<u16>,
 }
 
 impl Ports {
-    fn trojan(&self) -> u16 {
-        self.base
-    }
-    fn shadowsocks(&self) -> u16 {
-        self.base + 1
-    }
-    fn padded(&self) -> u16 {
-        self.base + 2 + 2 * cases().len() as u16
+    fn new() -> Self {
+        let [trojan, shadowsocks, padded_trojan, padded_shadowsocks] = common::free_ports();
+        let n = cases().len();
+        Ports {
+            trojan,
+            shadowsocks,
+            padded_trojan,
+            padded_shadowsocks,
+            socks: (0..n).map(|_| common::free_port()).collect(),
+            forwarders: (0..n).map(|_| common::free_port()).collect(),
+        }
     }
     fn server(&self, case: &Case) -> u16 {
-        let padded = if case.padding {
-            self.padded() - self.base
-        } else {
-            0
-        };
-        padded
-            + match case.carrier {
-                Carrier::Trojan => self.trojan(),
-                Carrier::Shadowsocks => self.shadowsocks(),
-            }
+        match (case.carrier, case.padding) {
+            (Carrier::Trojan, false) => self.trojan,
+            (Carrier::Trojan, true) => self.padded_trojan,
+            (Carrier::Shadowsocks, false) => self.shadowsocks,
+            (Carrier::Shadowsocks, true) => self.padded_shadowsocks,
+        }
     }
     fn socks(&self, i: usize) -> u16 {
-        self.base + 2 + 2 * i as u16
+        self.socks[i]
     }
     fn forwarder(&self, i: usize) -> u16 {
-        self.base + 3 + 2 * i as u16
+        self.forwarders[i]
     }
 }
 
@@ -152,48 +151,6 @@ async fn counting_forwarder(listen: u16, target: u16) -> anyhow::Result<Arc<Atom
         }
     });
     Ok(count)
-}
-
-/// sing-box, killed when dropped.
-struct SingBox(Child);
-
-impl Drop for SingBox {
-    fn drop(&mut self) {
-        let _ = self.0.kill();
-        let _ = self.0.wait();
-    }
-}
-
-fn sing_box_path() -> PathBuf {
-    std::env::var_os("SING_BOX")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("/opt/homebrew/bin/sing-box"))
-}
-
-/// Runs sing-box with `config` and waits for it to listen on `port`.
-fn run_sing_box(name: &str, config: &Value, port: u16) -> anyhow::Result<SingBox> {
-    let path = std::env::temp_dir().join(format!("sail-mux-{}-{}.json", name, std::process::id()));
-    std::fs::write(&path, serde_json::to_vec_pretty(config)?)?;
-    let child = Command::new(sing_box_path())
-        .arg("run")
-        .arg("-c")
-        .arg(&path)
-        .stdout(Stdio::null())
-        .stderr(Stdio::inherit())
-        .spawn()
-        .map_err(|e| anyhow::anyhow!("run sing-box failed: {}", e))?;
-    let mut sing_box = SingBox(child);
-    let deadline = std::time::Instant::now() + Duration::from_secs(10);
-    while std::net::TcpStream::connect(("127.0.0.1", port)).is_err() {
-        if let Some(status) = sing_box.0.try_wait()? {
-            anyhow::bail!("sing-box exited: {}", status);
-        }
-        if std::time::Instant::now() > deadline {
-            anyhow::bail!("sing-box did not listen on {} within 10s", port);
-        }
-        std::thread::sleep(Duration::from_millis(50));
-    }
-    Ok(sing_box)
 }
 
 fn session_to(addr: SocketAddr) -> Session {
@@ -388,13 +345,13 @@ fn sail_client(ports: &Ports, certs: &Certs) -> String {
 /// Trojan and Shadowsocks servers, which serve sing-mux like any other
 /// inbound does.
 fn sail_server(ports: &Ports, certs: &Certs) -> String {
-    let inbounds: Vec<Value> = [0, ports.padded() - ports.base]
+    let inbounds: Vec<Value> = [false, true]
         .into_iter()
-        .flat_map(|offset| sail_server_inbounds(ports, certs, offset))
+        .flat_map(|padding| sail_server_inbounds(ports, certs, padding))
         .collect();
-    let ss: Vec<String> = [0, ports.padded() - ports.base]
+    let ss: Vec<String> = [false, true]
         .into_iter()
-        .map(|offset| format!("ss-{}", offset))
+        .map(|padding| format!("ss-{}", padding))
         .collect();
     // Trojan's streams only get through as alice: the user of a mux
     // connection has to reach routing with each of its streams.
@@ -415,14 +372,15 @@ fn sail_server(ports: &Ports, certs: &Certs) -> String {
     .to_string()
 }
 
-fn sail_server_inbounds(ports: &Ports, certs: &Certs, offset: u16) -> Vec<Value> {
+fn sail_server_inbounds(ports: &Ports, certs: &Certs, padding: bool) -> Vec<Value> {
+    let (trojan, shadowsocks) = server_ports(ports, padding);
     serde_json::from_value(json!(
         [
             {
                 "type": "trojan",
-                "tag": format!("trojan-{}", offset),
+                "tag": format!("trojan-{}", padding),
                 "listen": "127.0.0.1",
-                "listen_port": ports.trojan() + offset,
+                "listen_port": trojan,
                 "users": [
                     { "name": "alice", "password": PASSWORD },
                     { "name": "bob", "password": "bob-password" },
@@ -435,15 +393,24 @@ fn sail_server_inbounds(ports: &Ports, certs: &Certs, offset: u16) -> Vec<Value>
             },
             {
                 "type": "shadowsocks",
-                "tag": format!("ss-{}", offset),
+                "tag": format!("ss-{}", padding),
                 "listen": "127.0.0.1",
-                "listen_port": ports.shadowsocks() + offset,
+                "listen_port": shadowsocks,
                 "method": SS_METHOD,
                 "password": SS_KEY,
             },
         ]
     ))
     .unwrap_or_default()
+}
+
+/// The Trojan and Shadowsocks servers' ports, padded or not.
+fn server_ports(ports: &Ports, padding: bool) -> (u16, u16) {
+    if padding {
+        (ports.padded_trojan, ports.padded_shadowsocks)
+    } else {
+        (ports.trojan, ports.shadowsocks)
+    }
 }
 
 fn runtime() -> anyhow::Result<tokio::runtime::Runtime> {
@@ -462,7 +429,6 @@ fn sing_box_server(ports: &Ports, certs: &Certs) -> Value {
         .flat_map(|padding| sing_box_server_inbounds(ports, certs, padding))
         .collect();
     json!({
-        "log": { "level": "warn" },
         "inbounds": inbounds,
         "outbounds": [{ "type": "direct" }],
     })
@@ -470,18 +436,14 @@ fn sing_box_server(ports: &Ports, certs: &Certs) -> Value {
 
 /// With `padding`, on the padded ports, refusing connections that are not.
 fn sing_box_server_inbounds(ports: &Ports, certs: &Certs, padding: bool) -> Vec<Value> {
-    let offset = if padding {
-        ports.padded() - ports.base
-    } else {
-        0
-    };
+    let (trojan, shadowsocks) = server_ports(ports, padding);
     serde_json::from_value(json!(
         [
             {
                 "type": "trojan",
                 "tag": format!("trojan-{}", padding),
                 "listen": "127.0.0.1",
-                "listen_port": ports.trojan() + offset,
+                "listen_port": trojan,
                 "users": [{ "name": "a", "password": PASSWORD }],
                 "tls": {
                     "enabled": true,
@@ -494,7 +456,7 @@ fn sing_box_server_inbounds(ports: &Ports, certs: &Certs, padding: bool) -> Vec<
                 "type": "shadowsocks",
                 "tag": format!("ss-{}", padding),
                 "listen": "127.0.0.1",
-                "listen_port": ports.shadowsocks() + offset,
+                "listen_port": shadowsocks,
                 "method": SS_METHOD,
                 "password": SS_KEY,
                 "multiplex": { "enabled": true, "padding": padding },
@@ -551,7 +513,6 @@ fn sing_box_client(ports: &Ports, certs: &Certs) -> Value {
         rules.push(json!({ "inbound": [format!("in-{}", i)], "outbound": format!("out-{}", i) }));
     }
     json!({
-        "log": { "level": "warn" },
         "inbounds": inbounds,
         "outbounds": outbounds,
         "route": { "rules": rules },
@@ -562,54 +523,53 @@ fn sing_box_client(ports: &Ports, certs: &Certs) -> Value {
 #[test]
 #[ignore = "needs sing-box"]
 fn test_mux_sail_to_sing_box() -> anyhow::Result<()> {
-    let ports = Ports { base: 32900 };
     let certs = certs("to-sing-box")?;
-    let _sing_box = run_sing_box(
-        "server",
-        &sing_box_server(&ports, &certs),
-        ports.padded() + 1,
-    )?;
-    let rt = runtime()?;
-    let ids = common::run_sail_instances(&rt, vec![sail_client(&ports, &certs)])?;
-    let result = run_cases(&rt, &ports, 4);
-    for id in ids {
-        sail::shutdown(id);
-    }
-    result
+    common::retry_port_clash(|| {
+        let ports = Ports::new();
+        let dir = common::TempDir::new("mux")?;
+        let _sing_box =
+            common::Daemon::sing_box(dir.path(), "server", sing_box_server(&ports, &certs))?;
+        let rt = runtime()?;
+        let ids = common::run_sail_instances(&rt, vec![sail_client(&ports, &certs)])?;
+        let result = run_cases(&rt, &ports, 4);
+        common::shutdown_instances(&rt, ids);
+        result
+    })
 }
 
 // app(socks) -> sail(trojan|ss + mux) -> forwarder -> sail -> echo
 #[test]
 fn test_mux_sail_to_sail() -> anyhow::Result<()> {
-    let ports = Ports { base: 32960 };
     let certs = certs("sail")?;
-    let rt = runtime()?;
-    let ids = common::run_sail_instances(
-        &rt,
-        vec![sail_server(&ports, &certs), sail_client(&ports, &certs)],
-    )?;
-    let result = run_cases(&rt, &ports, 4);
-    for id in ids {
-        sail::shutdown(id);
-    }
-    result
+    common::retry_port_clash(|| {
+        let ports = Ports::new();
+        let rt = runtime()?;
+        let ids = common::run_sail_instances(
+            &rt,
+            vec![sail_server(&ports, &certs), sail_client(&ports, &certs)],
+        )?;
+        let result = run_cases(&rt, &ports, 4);
+        common::shutdown_instances(&rt, ids);
+        result
+    })
 }
 
 // app(socks) -> sing-box(trojan|ss + mux) -> forwarder -> sail -> echo
 #[test]
 #[ignore = "needs sing-box"]
 fn test_mux_sing_box_to_sail() -> anyhow::Result<()> {
-    let ports = Ports { base: 32930 };
     let certs = certs("from-sing-box")?;
-    let rt = runtime()?;
-    let ids = common::run_sail_instances(&rt, vec![sail_server(&ports, &certs)])?;
-    let result = (|| {
-        let last = ports.socks(cases().len() - 1);
-        let _sing_box = run_sing_box("client", &sing_box_client(&ports, &certs), last)?;
-        run_cases(&rt, &ports, 4)
-    })();
-    for id in ids {
-        sail::shutdown(id);
-    }
-    result
+    common::retry_port_clash(|| {
+        let ports = Ports::new();
+        let dir = common::TempDir::new("mux")?;
+        let rt = runtime()?;
+        let ids = common::run_sail_instances(&rt, vec![sail_server(&ports, &certs)])?;
+        let result = (|| {
+            let _sing_box =
+                common::Daemon::sing_box(dir.path(), "client", sing_box_client(&ports, &certs))?;
+            run_cases(&rt, &ports, 4)
+        })();
+        common::shutdown_instances(&rt, ids);
+        result
+    })
 }

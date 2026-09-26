@@ -74,10 +74,10 @@ impl Counters {
     }
 }
 
-/// A DoT server on `port`, on threads. With `close_after_answer` it closes
-/// every connection once it has answered, as a server whose idle timeout
-/// has passed would.
-fn start_dot_server(port: u16, cert: &Cert, close_after_answer: bool) -> Arc<Counters> {
+/// A DoT server on a port of its own, on threads, and that port. With
+/// `close_after_answer` it closes every connection once it has answered,
+/// as a server whose idle timeout has passed would.
+fn start_dot_server(cert: &Cert, close_after_answer: bool) -> (u16, Arc<Counters>) {
     use btls::pkey::PKey;
     use btls::ssl::{SslAcceptor, SslMethod};
     use btls::x509::X509;
@@ -90,7 +90,8 @@ fn start_dot_server(port: u16, cert: &Cert, close_after_answer: bool) -> Arc<Cou
         .set_private_key(&PKey::private_key_from_pem(cert.key_pem.as_bytes()).unwrap())
         .unwrap();
     let acceptor = Arc::new(acceptor.build());
-    let listener = TcpListener::bind(("127.0.0.1", port)).unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
     let counters = Arc::new(Counters::default());
     let c = counters.clone();
     std::thread::spawn(move || {
@@ -127,10 +128,11 @@ fn start_dot_server(port: u16, cert: &Cert, close_after_answer: bool) -> Arc<Cou
             });
         }
     });
-    counters
+    (port, counters)
 }
 
-fn quic_server_endpoint(port: u16, cert: &Cert, alpn: &[u8]) -> quinn::Endpoint {
+/// A QUIC server endpoint on a port of its own, and that port.
+fn quic_server_endpoint(cert: &Cert, alpn: &[u8]) -> (u16, quinn::Endpoint) {
     use btls::pkey::PKey;
     use btls::x509::X509;
     use quinn_btls::QuicSslContext;
@@ -143,19 +145,21 @@ fn quic_server_endpoint(port: u16, cert: &Cert, alpn: &[u8]) -> quinn::Endpoint 
         .unwrap();
     crypto.set_alpn(&[alpn.to_vec()]).unwrap();
     let server_config = quinn_btls::helpers::server_config(Arc::new(crypto)).unwrap();
-    let socket = std::net::UdpSocket::bind(("127.0.0.1", port)).unwrap();
-    quinn::Endpoint::new(
+    let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+    let port = socket.local_addr().unwrap().port();
+    let endpoint = quinn::Endpoint::new(
         quinn_btls::helpers::default_endpoint_config(),
         Some(server_config),
         socket,
         Arc::new(quinn::TokioRuntime),
     )
-    .unwrap()
+    .unwrap();
+    (port, endpoint)
 }
 
-/// A DoQ server on `port`: a stream per query, as RFC 9250 has it.
-fn start_doq_server(port: u16, cert: &Cert) -> Arc<Counters> {
-    let endpoint = quic_server_endpoint(port, cert, b"doq");
+/// A DoQ server, and its port: a stream per query, as RFC 9250 has it.
+fn start_doq_server(cert: &Cert) -> (u16, Arc<Counters>) {
+    let (port, endpoint) = quic_server_endpoint(cert, b"doq");
     let counters = Arc::new(Counters::default());
     let c = counters.clone();
     tokio::spawn(async move {
@@ -186,12 +190,12 @@ fn start_doq_server(port: u16, cert: &Cert) -> Arc<Counters> {
             });
         }
     });
-    counters
+    (port, counters)
 }
 
-/// A DoH3 server on `port`, answering POSTs to `path`.
-fn start_h3_server(port: u16, cert: &Cert, path: &'static str) -> Arc<Counters> {
-    let endpoint = quic_server_endpoint(port, cert, b"h3");
+/// A DoH3 server, and its port, answering POSTs to `path`.
+fn start_h3_server(cert: &Cert, path: &'static str) -> (u16, Arc<Counters>) {
+    let (port, endpoint) = quic_server_endpoint(cert, b"h3");
     let counters = Arc::new(Counters::default());
     let c = counters.clone();
     tokio::spawn(async move {
@@ -245,7 +249,7 @@ fn start_h3_server(port: u16, cert: &Cert, path: &'static str) -> Arc<Counters> 
             });
         }
     });
-    counters
+    (port, counters)
 }
 
 fn client(servers: &[&str], cert: Option<&Cert>) -> DnsClient {
@@ -267,8 +271,9 @@ async fn lookup(client: &DnsClient, host: &str) -> anyhow::Result<Vec<IpAddr>> {
 #[tokio::test(flavor = "multi_thread")]
 async fn dot_answers_and_keeps_its_connection() {
     let cert = cert();
-    let counters = start_dot_server(32601, &cert, false);
-    let client = client(&["direct:tls://localhost:32601@127.0.0.1"], Some(&cert));
+    let (port, counters) = start_dot_server(&cert, false);
+    let server = format!("direct:tls://localhost:{}@127.0.0.1", port);
+    let client = client(&[&server], Some(&cert));
     for host in ["a.example", "b.example", "c.example"] {
         assert_eq!(
             lookup(&client, host).await.unwrap(),
@@ -282,8 +287,9 @@ async fn dot_answers_and_keeps_its_connection() {
 #[tokio::test(flavor = "multi_thread")]
 async fn dot_connects_again_when_the_server_closed_the_kept_connection() {
     let cert = cert();
-    let counters = start_dot_server(32602, &cert, true);
-    let client = client(&["direct:tls://localhost:32602@127.0.0.1"], Some(&cert));
+    let (port, counters) = start_dot_server(&cert, true);
+    let server = format!("direct:tls://localhost:{}@127.0.0.1", port);
+    let client = client(&[&server], Some(&cert));
     for host in ["a.example", "b.example"] {
         // Lets the close reach the client before the next query.
         tokio::time::sleep(Duration::from_millis(100)).await;
@@ -299,9 +305,10 @@ async fn dot_connects_again_when_the_server_closed_the_kept_connection() {
 #[tokio::test(flavor = "multi_thread")]
 async fn dot_rejects_an_untrusted_certificate() {
     let cert = cert();
-    let counters = start_dot_server(32603, &cert, false);
+    let (port, counters) = start_dot_server(&cert, false);
     // The bundled roots do not know the test certificate.
-    let client = client(&["direct:tls://localhost:32603@127.0.0.1"], None);
+    let server = format!("direct:tls://localhost:{}@127.0.0.1", port);
+    let client = client(&[&server], None);
     assert!(lookup(&client, "a.example").await.is_err());
     assert_eq!(counters.queries.load(Ordering::SeqCst), 0);
 }
@@ -309,9 +316,10 @@ async fn dot_rejects_an_untrusted_certificate() {
 #[tokio::test(flavor = "multi_thread")]
 async fn dot_rejects_a_certificate_for_another_name() {
     let cert = cert();
-    let counters = start_dot_server(32604, &cert, false);
+    let (port, counters) = start_dot_server(&cert, false);
     // The certificate is for localhost, not 127.0.0.1.
-    let client = client(&["direct:tls://127.0.0.1:32604"], Some(&cert));
+    let server = format!("direct:tls://127.0.0.1:{}", port);
+    let client = client(&[&server], Some(&cert));
     assert!(lookup(&client, "a.example").await.is_err());
     assert_eq!(counters.queries.load(Ordering::SeqCst), 0);
 }
@@ -319,8 +327,9 @@ async fn dot_rejects_a_certificate_for_another_name() {
 #[tokio::test(flavor = "multi_thread")]
 async fn doq_answers_on_one_connection_with_a_stream_per_query() {
     let cert = cert();
-    let counters = start_doq_server(32611, &cert);
-    let client = client(&["direct:quic://localhost:32611@127.0.0.1"], Some(&cert));
+    let (port, counters) = start_doq_server(&cert);
+    let server = format!("direct:quic://localhost:{}@127.0.0.1", port);
+    let client = client(&[&server], Some(&cert));
     for host in ["a.example", "b.example", "c.example"] {
         assert_eq!(
             lookup(&client, host).await.unwrap(),
@@ -335,8 +344,9 @@ async fn doq_answers_on_one_connection_with_a_stream_per_query() {
 #[tokio::test(flavor = "multi_thread")]
 async fn doq_rejects_an_untrusted_certificate() {
     let cert = cert();
-    let counters = start_doq_server(32612, &cert);
-    let client = client(&["direct:quic://localhost:32612@127.0.0.1"], None);
+    let (port, counters) = start_doq_server(&cert);
+    let server = format!("direct:quic://localhost:{}@127.0.0.1", port);
+    let client = client(&[&server], None);
     let err = lookup(&client, "a.example").await.unwrap_err();
     println!("{}", err);
     assert_eq!(counters.queries.load(Ordering::SeqCst), 0);
@@ -345,11 +355,9 @@ async fn doq_rejects_an_untrusted_certificate() {
 #[tokio::test(flavor = "multi_thread")]
 async fn doh3_answers_on_one_connection() {
     let cert = cert();
-    let counters = start_h3_server(32621, &cert, "/custom-path");
-    let client = client(
-        &["direct:h3://localhost:32621/custom-path@127.0.0.1"],
-        Some(&cert),
-    );
+    let (port, counters) = start_h3_server(&cert, "/custom-path");
+    let server = format!("direct:h3://localhost:{}/custom-path@127.0.0.1", port);
+    let client = client(&[&server], Some(&cert));
     for host in ["a.example", "b.example", "c.example"] {
         assert_eq!(
             lookup(&client, host).await.unwrap(),
@@ -364,12 +372,10 @@ async fn doh3_answers_on_one_connection() {
 #[tokio::test(flavor = "multi_thread")]
 async fn doh3_fails_on_an_http_error() {
     let cert = cert();
-    let counters = start_h3_server(32622, &cert, "/dns-query");
+    let (port, counters) = start_h3_server(&cert, "/dns-query");
     // The server answers 400 on any other path.
-    let client = client(
-        &["direct:h3://localhost:32622/wrong@127.0.0.1"],
-        Some(&cert),
-    );
+    let server = format!("direct:h3://localhost:{}/wrong@127.0.0.1", port);
+    let client = client(&[&server], Some(&cert));
     let err = lookup(&client, "a.example").await.unwrap_err();
     assert!(err.to_string().contains("http status 400"), "{}", err);
     assert_eq!(counters.queries.load(Ordering::SeqCst), 0);
@@ -387,18 +393,18 @@ async fn upstreams_are_reached_through_the_dispatcher() {
     use sail::app::stat_manager::StatManager;
 
     let cert = cert();
-    let dot = start_dot_server(32631, &cert, false);
-    let doq = start_doq_server(32632, &cert);
-    let h3 = start_h3_server(32633, &cert, "/dns-query");
+    let (dot_port, dot) = start_dot_server(&cert, false);
+    let (doq_port, doq) = start_doq_server(&cert);
+    let (h3_port, h3) = start_h3_server(&cert, "/dns-query");
 
     for (server, counters) in [
-        ("tls://localhost:32631@127.0.0.1", &dot),
-        ("quic://localhost:32632@127.0.0.1", &doq),
-        ("h3://localhost:32633@127.0.0.1", &h3),
+        (format!("tls://localhost:{}@127.0.0.1", dot_port), &dot),
+        (format!("quic://localhost:{}@127.0.0.1", doq_port), &doq),
+        (format!("h3://localhost:{}@127.0.0.1", h3_port), &h3),
     ] {
         let dial = Arc::new(DialOptions::default());
         let env = Arc::new(sail::runtime::RuntimeEnv::default());
-        let dns_client = client(&[server], Some(&cert)).into_shared();
+        let dns_client = client(&[&server], Some(&cert)).into_shared();
         let outbounds = vec![config::Outbound {
             protocol: "direct".to_string(),
             tag: "direct".to_string(),

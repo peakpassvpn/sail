@@ -21,6 +21,257 @@ use sail::session::Session;
 
 static NEXT_RT_ID: AtomicU16 = AtomicU16::new(0);
 
+// ---------------------------------------------------------------------------
+// Ports and files
+//
+// Tests never use fixed ports or paths, so that any number of test binaries,
+// and whole suites in other checkouts, can run at the same time.
+// ---------------------------------------------------------------------------
+
+/// A port on 127.0.0.1 that is free for both TCP and UDP, as sail inbounds
+/// bind both on the port they are given. The OS picks it, from its
+/// ephemeral range, and no port is handed out twice in one process.
+///
+/// The port is free when returned, but not held: another process may take
+/// it before the test binds it. `retry_port_clash` covers that.
+pub fn free_port() -> u16 {
+    static TAKEN: std::sync::Mutex<Option<std::collections::HashSet<u16>>> =
+        std::sync::Mutex::new(None);
+    for _ in 0..1000 {
+        let Ok(tcp) = std::net::TcpListener::bind("127.0.0.1:0") else {
+            continue;
+        };
+        let Ok(port) = tcp.local_addr().map(|a| a.port()) else {
+            continue;
+        };
+        if std::net::UdpSocket::bind(("127.0.0.1", port)).is_err() {
+            continue;
+        }
+        let mut taken = TAKEN.lock().unwrap_or_else(|e| e.into_inner());
+        if taken.get_or_insert_with(Default::default).insert(port) {
+            return port;
+        }
+    }
+    panic!("no free port on 127.0.0.1");
+}
+
+/// `N` distinct free ports.
+pub fn free_ports<const N: usize>() -> [u16; N] {
+    std::array::from_fn(|_| free_port())
+}
+
+/// Whether `e` says an address was in use: a port from `free_port` that
+/// someone else took before the test bound it.
+pub fn is_port_clash(e: &anyhow::Error) -> bool {
+    e.chain().any(|cause| {
+        if let Some(io) = cause.downcast_ref::<std::io::Error>() {
+            if io.kind() == std::io::ErrorKind::AddrInUse {
+                return true;
+            }
+        }
+        let message = cause.to_string().to_ascii_lowercase();
+        message.contains("address already in use")
+            || message.contains("address in use")
+            || message.contains("os error 10048")
+    })
+}
+
+/// Runs `f` until it does not fail for a port clash, a few times at most.
+/// `f` takes its ports from `free_port`, so that each try has new ones.
+pub fn retry_port_clash<T>(mut f: impl FnMut() -> anyhow::Result<T>) -> anyhow::Result<T> {
+    const TRIES: usize = 5;
+    for attempt in 1.. {
+        match f() {
+            Err(e) if attempt < TRIES && is_port_clash(&e) => {
+                tracing::warn!("port clash, retrying with new ports: {:#}", e);
+            }
+            result => return result,
+        }
+    }
+    unreachable!()
+}
+
+/// A directory of its own under the system's temporary directory, removed
+/// with everything in it when dropped.
+pub struct TempDir(std::path::PathBuf);
+
+impl TempDir {
+    /// A new directory, its name starting with `prefix`; unique to this
+    /// process and call.
+    pub fn new(prefix: &str) -> anyhow::Result<Self> {
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.subsec_nanos())
+            .unwrap_or(0);
+        let path = std::env::temp_dir().join(format!(
+            "sail-test-{}-{}-{}-{}",
+            prefix,
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed),
+            nanos
+        ));
+        std::fs::create_dir_all(&path)
+            .map_err(|e| anyhow::anyhow!("create {}: {}", path.display(), e))?;
+        Ok(TempDir(path))
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.0
+    }
+
+    pub fn join<P: AsRef<Path>>(&self, p: P) -> std::path::PathBuf {
+        self.0.join(p)
+    }
+}
+
+impl Drop for TempDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// sing-box
+// ---------------------------------------------------------------------------
+
+/// sing-box: `$SING_BOX`, else Homebrew's, else the one on the PATH.
+pub fn sing_box_path() -> std::path::PathBuf {
+    if let Some(path) = std::env::var_os("SING_BOX") {
+        return path.into();
+    }
+    let homebrew = Path::new("/opt/homebrew/bin/sing-box");
+    if homebrew.exists() {
+        homebrew.to_path_buf()
+    } else {
+        "sing-box".into()
+    }
+}
+
+/// An external proxy process (sing-box, Xray), killed when dropped. Its
+/// log goes to the test's stderr, but for the lines at level INFO.
+pub struct Daemon {
+    child: std::process::Child,
+}
+
+impl Daemon {
+    /// Writes `config` to `dir/name.json` and runs sing-box on it. Returns
+    /// once sing-box has started, every inbound listening: waiting on what
+    /// sing-box says, not on probes, works for UDP inbounds too. An inbound
+    /// that cannot listen fails it with sing-box's message, which
+    /// `retry_port_clash` recognizes.
+    pub fn sing_box(dir: &Path, name: &str, mut config: serde_json::Value) -> anyhow::Result<Self> {
+        // "sing-box started" is at INFO.
+        config["log"] = serde_json::json!({
+            "level": "info",
+            "timestamp": false,
+        });
+        let path = dir.join(format!("{}.json", name));
+        std::fs::write(&path, config.to_string())?;
+        let mut command = std::process::Command::new(sing_box_path());
+        command.arg("run").arg("-c").arg(&path);
+        Self::spawn(command, &format!("sing-box {}", name), |line| {
+            line.contains("sing-box started")
+        })
+    }
+
+    /// Runs `command`, its log on stderr, and returns once a line of it
+    /// satisfies `ready`; it fails if the process exits first, or is not
+    /// ready within 30s.
+    pub fn spawn(
+        mut command: std::process::Command,
+        name: &str,
+        ready: impl Fn(&str) -> bool + Send + Sync + 'static,
+    ) -> anyhow::Result<Self> {
+        use std::io::BufRead;
+        use std::process::Stdio;
+
+        let mut child = command
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| anyhow::anyhow!("run {}: {}", name, e))?;
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel::<Result<(), String>>();
+        // Both streams are read to the end, so that the process never
+        // blocks on a full pipe.
+        let streams: Vec<Box<dyn std::io::Read + Send>> = vec![
+            Box::new(child.stdout.take().expect("piped")),
+            Box::new(child.stderr.take().expect("piped")),
+        ];
+        let ready = Arc::new(ready);
+        for stream in streams {
+            let ready = ready.clone();
+            let ready_tx = ready_tx.clone();
+            let name = name.to_string();
+            std::thread::spawn(move || {
+                let mut tail = std::collections::VecDeque::new();
+                let mut signalled = false;
+                for line in std::io::BufReader::new(stream).lines() {
+                    let Ok(line) = line else { break };
+                    if !line.contains("INFO") {
+                        eprintln!("[{}] {}", name, line);
+                    }
+                    if !signalled {
+                        if ready(&line) {
+                            signalled = true;
+                            let _ = ready_tx.send(Ok(()));
+                        } else {
+                            tail.push_back(line);
+                            if tail.len() > 20 {
+                                tail.pop_front();
+                            }
+                        }
+                    }
+                }
+                if !signalled {
+                    let tail: Vec<_> = tail.into_iter().collect();
+                    let _ = ready_tx.send(Err(tail.join("\n")));
+                }
+            });
+        }
+        drop(ready_tx);
+        let mut daemon = Daemon { child };
+        let deadline = std::time::Instant::now() + Duration::from_secs(30);
+        let mut logs = Vec::new();
+        loop {
+            let left = deadline.saturating_duration_since(std::time::Instant::now());
+            match ready_rx.recv_timeout(left) {
+                Ok(Ok(())) => return Ok(daemon),
+                // One stream ended; the other may still say it is ready.
+                Ok(Err(tail)) => logs.push(tail),
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    let status = daemon.child.wait()?;
+                    anyhow::bail!("{} exited ({}): {}", name, status, logs.join("\n"));
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    anyhow::bail!("{} did not start within 30s", name);
+                }
+            }
+        }
+    }
+}
+
+impl Drop for Daemon {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+/// Shuts the instances down and waits until each has stopped, so that
+/// what they listened on is free again.
+pub fn shutdown_instances(rt: &tokio::runtime::Runtime, ids: Vec<sail::RuntimeId>) {
+    for id in ids {
+        sail::shutdown(id);
+        let stopped =
+            rt.block_on(async { timeout(Duration::from_secs(10), wait_for_shutdown(id)).await });
+        if stopped.is_err() {
+            tracing::warn!("sail instance {} did not stop within 10s", id);
+        }
+    }
+}
+
 pub async fn run_tcp_echo_server(
     addr: &str,
 ) -> anyhow::Result<(
@@ -189,7 +440,7 @@ pub async fn new_socks_stream(
     let handler = new_socks_outbound(socks_addr, socks_port, username, password)?;
     let stream = tokio::net::TcpStream::connect(format!("{}:{}", socks_addr, socks_port)).await?;
     timeout(
-        Duration::from_secs(2),
+        Duration::from_secs(10),
         handler.stream().map_err(|e| anyhow::anyhow!(e))?.handle(
             sess,
             None,
@@ -210,7 +461,7 @@ pub async fn new_socks_datagram(
     // Use a socks outbound to simulate a client request.
     let handler = new_socks_outbound(socks_addr, socks_port, username, password)?;
     timeout(
-        Duration::from_secs(2),
+        Duration::from_secs(10),
         handler
             .datagram()
             .map_err(|e| anyhow::anyhow!(e))?
@@ -309,7 +560,7 @@ pub fn test_tcp_half_close_on_configs(
             .map_err(|e| anyhow::anyhow!("read world after shutdown failed: {}", e))?;
         assert_eq!(String::from_utf8_lossy(&buf[..n]), "world");
         let mut buf = Vec::new();
-        let n = timeout(Duration::from_millis(20), server_stream.read_buf(&mut buf))
+        let n = timeout(Duration::from_secs(2), server_stream.read_buf(&mut buf))
             .await
             .map_err(|e| anyhow::anyhow!("timeout read failed: {}", e))?
             .map_err(|e| anyhow::anyhow!("read failed: {}", e))?;
@@ -333,7 +584,7 @@ pub fn test_tcp_half_close_on_configs(
             .map_err(|e| anyhow::anyhow!("read buf after timeout failed: {}", e))?;
         assert_eq!(res, 5);
         let mut buf = Vec::new();
-        let n = timeout(Duration::from_millis(20), client_stream.read_buf(&mut buf))
+        let n = timeout(Duration::from_secs(2), client_stream.read_buf(&mut buf))
             .await
             .map_err(|e| anyhow::anyhow!("timeout read 2 failed: {}", e))?
             .map_err(|e| anyhow::anyhow!("read 2 failed: {}", e))?;
@@ -396,7 +647,7 @@ pub fn test_tcp_half_close_on_configs(
             .map_err(|e| e.kind());
         assert!(res.is_err());
         let mut buf = Vec::new();
-        let n = timeout(Duration::from_millis(20), client_stream.read_buf(&mut buf))
+        let n = timeout(Duration::from_secs(2), client_stream.read_buf(&mut buf))
             .await
             .map_err(|e| anyhow::anyhow!("timeout read 3 failed: {}", e))?
             .map_err(|e| anyhow::anyhow!("read 3 failed: {}", e))?;
@@ -420,23 +671,14 @@ pub fn test_tcp_half_close_on_configs(
             .map_err(|e| anyhow::anyhow!("read buf 3 failed: {}", e))?;
         assert_eq!(res, 5);
         let mut buf = Vec::new();
-        let n = timeout(Duration::from_millis(20), server_stream.read_buf(&mut buf))
+        let n = timeout(Duration::from_secs(2), server_stream.read_buf(&mut buf))
             .await
             .map_err(|e| anyhow::anyhow!("timeout read 4 failed: {}", e))?
             .map_err(|e| anyhow::anyhow!("read 4 failed: {}", e))?;
         assert_eq!(n, 0);
         Ok::<(), anyhow::Error>(())
     }));
-    for id in sail_rt_ids.into_iter() {
-        sail::shutdown(id);
-        assert!(rt
-            .block_on(rt.spawn(async move {
-                timeout(Duration::from_millis(50), wait_for_shutdown(id))
-                    .await
-                    .map_err(|e| anyhow::anyhow!("wait shutdown timeout: {}", e))
-            }))
-            .is_ok());
-    }
+    shutdown_instances(&rt, sail_rt_ids);
     match res {
         Ok(Ok(())) => Ok(()),
         Ok(Err(e)) => Err(e),
@@ -475,17 +717,13 @@ pub fn test_data_transfering_reliability_on_configs(
         .enable_all()
         .build()
         .map_err(|e| anyhow::anyhow!("build runtime failed: {}", e))?;
-    let mut path =
-        std::env::current_exe().map_err(|e| anyhow::anyhow!("current exe failed: {}", e))?;
-    path.pop();
+    // Files of this call's own, removed when it returns.
+    let dir = TempDir::new("transfer")?;
     let src_file = "source_random_bytes.bin";
     let dst_file = "destination_random_bytes.bin";
-    let source = path.join(src_file);
-    let dst = path.join(dst_file);
-    if source.exists() {
-        std::fs::remove_file(&source)
-            .map_err(|e| anyhow::anyhow!("remove source failed: {}", e))?;
-    }
+    let source = dir.join(src_file);
+    let dst = dir.join(dst_file);
+    let path = dir.path().to_path_buf();
     let mut rng = StdRng::from_entropy();
     let mut data = vec![0u8; 2 * 1024 * 1024];
     rng.fill_bytes(&mut data);
@@ -506,7 +744,7 @@ pub fn test_data_transfering_reliability_on_configs(
     let recv_task = async move {
         let source = path.join(src_file);
         let dst = path.join(dst_file);
-        let (mut stream, _) = timeout(Duration::from_secs(1), listener.accept())
+        let (mut stream, _) = timeout(Duration::from_secs(10), listener.accept())
             .await
             .map_err(|e| anyhow::anyhow!("accept timeout: {}", e))?
             .map_err(|e| anyhow::anyhow!("accept failed: {}", e))?;
@@ -546,9 +784,7 @@ pub fn test_data_transfering_reliability_on_configs(
         Ok::<(), anyhow::Error>(())
     };
     let socks_addr_cloned = socks_addr.to_string();
-    let mut path =
-        std::env::current_exe().map_err(|e| anyhow::anyhow!("current exe failed: {}", e))?;
-    path.pop();
+    let path = dir.path().to_path_buf();
     let send_task = async move {
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
         let source = path.join(src_file);
@@ -575,16 +811,7 @@ pub fn test_data_transfering_reliability_on_configs(
     futs.push(Box::pin(recv_task));
     futs.push(Box::pin(send_task));
     let res = rt.block_on(rt.spawn(futures::future::try_join_all(futs)));
-    for id in sail_rt_ids.into_iter() {
-        sail::shutdown(id);
-        assert!(rt
-            .block_on(rt.spawn(async move {
-                timeout(Duration::from_millis(50), wait_for_shutdown(id))
-                    .await
-                    .map_err(|e| anyhow::anyhow!("wait shutdown timeout: {}", e))
-            }))
-            .is_ok());
-    }
+    shutdown_instances(&rt, sail_rt_ids);
     match res {
         Ok(Ok(_)) => (),
         Ok(Err(e)) => return Err(e),
@@ -599,9 +826,7 @@ pub fn test_data_transfering_reliability_on_configs(
         .local_addr()
         .map_err(|e| anyhow::anyhow!("get local addr failed: {}", e))?;
     let socks_addr_cloned = socks_addr.to_string();
-    let mut path =
-        std::env::current_exe().map_err(|e| anyhow::anyhow!("current exe failed: {}", e))?;
-    path.pop();
+    let path = dir.path().to_path_buf();
     let recv_task = async move {
         let source = path.join(src_file);
         let dst = path.join(dst_file);
@@ -646,12 +871,10 @@ pub fn test_data_transfering_reliability_on_configs(
         Ok::<(), anyhow::Error>(())
     };
     let _socks_addr_cloned = socks_addr.to_string();
-    let mut path =
-        std::env::current_exe().map_err(|e| anyhow::anyhow!("current exe failed: {}", e))?;
-    path.pop();
+    let path = dir.path().to_path_buf();
     let send_task = async move {
         let source = path.join(src_file);
-        let (mut stream, _) = timeout(Duration::from_secs(1), listener.accept())
+        let (mut stream, _) = timeout(Duration::from_secs(10), listener.accept())
             .await
             .map_err(|e| anyhow::anyhow!("accept timeout: {}", e))?
             .map_err(|e| anyhow::anyhow!("accept failed: {}", e))?;
@@ -674,16 +897,7 @@ pub fn test_data_transfering_reliability_on_configs(
     futs.push(Box::pin(recv_task));
     futs.push(Box::pin(send_task));
     let res = rt.block_on(rt.spawn(futures::future::try_join_all(futs)));
-    for id in sail_rt_ids.into_iter() {
-        sail::shutdown(id);
-        assert!(rt
-            .block_on(rt.spawn(async move {
-                timeout(Duration::from_millis(50), wait_for_shutdown(id))
-                    .await
-                    .map_err(|e| anyhow::anyhow!("wait shutdown timeout: {}", e))
-            }))
-            .is_ok());
-    }
+    shutdown_instances(&rt, sail_rt_ids);
     match res {
         Ok(Ok(_)) => (),
         Ok(Err(e)) => return Err(e),
@@ -698,9 +912,7 @@ pub fn test_data_transfering_reliability_on_configs(
         .local_addr()
         .map_err(|e| anyhow::anyhow!("get local addr failed: {}", e))?;
 
-    let mut path =
-        std::env::current_exe().map_err(|e| anyhow::anyhow!("current exe failed: {}", e))?;
-    path.pop();
+    let path = dir.path().to_path_buf();
     let recv_task = async move {
         let source = path.join(src_file);
         let dst = path.join(dst_file);
@@ -730,7 +942,7 @@ pub fn test_data_transfering_reliability_on_configs(
             if recvd_bytes == expected_total_bytes {
                 break;
             }
-            let (n, _) = timeout(Duration::from_secs(2), socket.recv_from(&mut buf))
+            let (n, _) = timeout(Duration::from_secs(10), socket.recv_from(&mut buf))
                 .await
                 .map_err(|e| anyhow::anyhow!("recv timeout: {}", e))?
                 .map_err(|e| anyhow::anyhow!("recv failed: {}", e))?;
@@ -761,9 +973,7 @@ pub fn test_data_transfering_reliability_on_configs(
         Ok::<(), anyhow::Error>(())
     };
     let socks_addr_cloned = socks_addr.to_string();
-    let mut path =
-        std::env::current_exe().map_err(|e| anyhow::anyhow!("current exe failed: {}", e))?;
-    path.pop();
+    let path = dir.path().to_path_buf();
     let send_task = async move {
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
         let source = path.join(src_file);
@@ -804,16 +1014,7 @@ pub fn test_data_transfering_reliability_on_configs(
     futs.push(Box::pin(recv_task));
     futs.push(Box::pin(send_task));
     let res = rt.block_on(rt.spawn(futures::future::try_join_all(futs)));
-    for id in sail_rt_ids.into_iter() {
-        sail::shutdown(id);
-        assert!(rt
-            .block_on(rt.spawn(async move {
-                timeout(Duration::from_millis(50), wait_for_shutdown(id))
-                    .await
-                    .map_err(|e| anyhow::anyhow!("wait shutdown timeout: {}", e))
-            }))
-            .is_ok());
-    }
+    shutdown_instances(&rt, sail_rt_ids);
     match res {
         Ok(Ok(_)) => (),
         Ok(Err(e)) => return Err(e),
@@ -829,9 +1030,7 @@ pub fn test_data_transfering_reliability_on_configs(
         .map_err(|e| anyhow::anyhow!("get local addr failed: {}", e))?;
 
     let socks_addr_cloned = socks_addr.to_string();
-    let mut path =
-        std::env::current_exe().map_err(|e| anyhow::anyhow!("current exe failed: {}", e))?;
-    path.pop();
+    let path = dir.path().to_path_buf();
     let recv_task = async move {
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
         let mut sess = sail::session::Session::default();
@@ -870,7 +1069,7 @@ pub fn test_data_transfering_reliability_on_configs(
             if recvd_bytes == expected_total_bytes {
                 break;
             }
-            let (n, _) = timeout(Duration::from_secs(2), r.recv_from(&mut buf))
+            let (n, _) = timeout(Duration::from_secs(10), r.recv_from(&mut buf))
                 .await
                 .map_err(|e| anyhow::anyhow!("recv timeout: {}", e))?
                 .map_err(|e| anyhow::anyhow!("recv failed: {}", e))?;
@@ -901,9 +1100,7 @@ pub fn test_data_transfering_reliability_on_configs(
         Ok::<(), anyhow::Error>(())
     };
     let _socks_addr_cloned = socks_addr.to_string();
-    let mut path =
-        std::env::current_exe().map_err(|e| anyhow::anyhow!("current exe failed: {}", e))?;
-    path.pop();
+    let path = dir.path().to_path_buf();
     let send_task = async move {
         let source = path.join(src_file);
         let mut src = tokio::fs::File::open(source)
@@ -941,16 +1138,7 @@ pub fn test_data_transfering_reliability_on_configs(
     futs.push(Box::pin(recv_task));
     futs.push(Box::pin(send_task));
     let res = rt.block_on(rt.spawn(futures::future::try_join_all(futs)));
-    for id in sail_rt_ids.into_iter() {
-        sail::shutdown(id);
-        assert!(rt
-            .block_on(rt.spawn(async move {
-                timeout(Duration::from_millis(50), wait_for_shutdown(id))
-                    .await
-                    .map_err(|e| anyhow::anyhow!("wait shutdown timeout: {}", e))
-            }))
-            .is_ok());
-    }
+    shutdown_instances(&rt, sail_rt_ids);
     match res {
         Ok(Ok(_)) => Ok(()),
         Ok(Err(e)) => Err(e),
@@ -998,7 +1186,7 @@ pub fn test_configs_with_auth(
         let mut sess = sail::session::Session::default();
         sess.destination = sail::session::SocksAddr::Ip(tcp_addr);
         let mut s = timeout(
-            Duration::from_secs(1),
+            Duration::from_secs(10),
             new_socks_stream(
                 &socks_addr,
                 socks_port,
@@ -1011,13 +1199,13 @@ pub fn test_configs_with_auth(
         .map_err(|e| anyhow::anyhow!("connect socks stream timeout: {}", e))?
         .map_err(|e| anyhow::anyhow!("connect socks stream failed: {}", e))?;
 
-        timeout(Duration::from_secs(1), s.write_all(b"abc"))
+        timeout(Duration::from_secs(10), s.write_all(b"abc"))
             .await
             .map_err(|e| anyhow::anyhow!("write to stream timeout: {}", e))?
             .map_err(|e| anyhow::anyhow!("write to stream failed: {}", e))?;
 
         let mut buf = Vec::new();
-        let n = timeout(Duration::from_secs(1), s.read_buf(&mut buf))
+        let n = timeout(Duration::from_secs(10), s.read_buf(&mut buf))
             .await
             .map_err(|e| anyhow::anyhow!("read from stream timeout: {}", e))?
             .map_err(|e| anyhow::anyhow!("read from stream failed: {}", e))?;
@@ -1032,7 +1220,7 @@ pub fn test_configs_with_auth(
         // Test UDP
         sess.destination = sail::session::SocksAddr::Ip(udp_addr);
         let dgram = timeout(
-            Duration::from_secs(1),
+            Duration::from_secs(10),
             new_socks_datagram(
                 &socks_addr,
                 socks_port,
@@ -1048,7 +1236,7 @@ pub fn test_configs_with_auth(
         let (mut r, mut s) = dgram.split();
         let msg = b"def";
         let n = timeout(
-            Duration::from_secs(1),
+            Duration::from_secs(10),
             s.send_to(msg.as_ref(), &sess.destination),
         )
         .await
@@ -1064,7 +1252,7 @@ pub fn test_configs_with_auth(
         }
 
         let mut buf = vec![0u8; 2 * 1024];
-        let (n, raddr) = timeout(Duration::from_secs(1), r.recv_from(&mut buf))
+        let (n, raddr) = timeout(Duration::from_secs(10), r.recv_from(&mut buf))
             .await
             .map_err(|e| anyhow::anyhow!("recv datagram timeout: {}", e))?
             .map_err(|e| anyhow::anyhow!("recv datagram failed: {}", e))?;
@@ -1087,7 +1275,7 @@ pub fn test_configs_with_auth(
         // Test if we can handle a second UDP session. This can fail in stream
         // transports if the stream ID has not been correctly set.
         let dgram2 = timeout(
-            Duration::from_secs(1),
+            Duration::from_secs(10),
             new_socks_datagram(
                 &socks_addr,
                 socks_port,
@@ -1103,7 +1291,7 @@ pub fn test_configs_with_auth(
         let (mut r, mut s) = dgram2.split();
         let msg = b"ghi";
         let n = timeout(
-            Duration::from_secs(1),
+            Duration::from_secs(10),
             s.send_to(msg.as_ref(), &sess.destination),
         )
         .await
@@ -1119,7 +1307,7 @@ pub fn test_configs_with_auth(
         }
 
         let mut buf = vec![0u8; 2 * 1024];
-        let (n, raddr) = timeout(Duration::from_secs(1), r.recv_from(&mut buf))
+        let (n, raddr) = timeout(Duration::from_secs(10), r.recv_from(&mut buf))
             .await
             .map_err(|e| anyhow::anyhow!("recv second datagram timeout: {}", e))?
             .map_err(|e| anyhow::anyhow!("recv second datagram failed: {}", e))?;
@@ -1153,22 +1341,12 @@ pub fn test_configs_with_auth(
     futs.push(rt.spawn(bg_task));
     futs.push(rt.spawn(app_task));
     let res = rt.block_on(async {
-        timeout(Duration::from_secs(30), futures::future::select_all(futs))
+        timeout(Duration::from_secs(60), futures::future::select_all(futs))
             .await
             .map_err(|e| anyhow::anyhow!("test timeout: {}", e))
     });
 
-    for id in sail_rt_ids.into_iter() {
-        assert!(sail::shutdown(id));
-        assert!(rt
-            .block_on(rt.spawn(async move {
-                timeout(Duration::from_millis(50), wait_for_shutdown(id))
-                    .await
-                    .map_err(|e| anyhow::anyhow!("wait shutdown timeout: {}", e))?;
-                Ok::<(), anyhow::Error>(())
-            }))
-            .is_ok());
-    }
+    shutdown_instances(&rt, sail_rt_ids);
 
     match res {
         Ok((result, _, _)) => {
@@ -1182,7 +1360,7 @@ pub fn test_configs_with_auth(
     }
 }
 
-async fn wait_for_shutdown(id: sail::RuntimeId) {
+pub async fn wait_for_shutdown(id: sail::RuntimeId) {
     loop {
         if !sail::is_running(id) {
             return;

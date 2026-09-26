@@ -4,8 +4,6 @@
 //! The sing-box tests need `sing-box` on the PATH or in
 //! /opt/homebrew/bin, and are ignored unless asked for:
 //! `cargo test -p sail --test test_vmess -- --ignored`.
-//!
-//! Ports 33040-33069 only.
 
 #![cfg(all(
     feature = "inbound-vmess",
@@ -21,9 +19,8 @@ mod common;
 
 use std::io::{Read, Write};
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
-use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
-use std::time::{Duration, Instant};
+use std::path::PathBuf;
+use std::time::Duration;
 
 use serde_json::json;
 
@@ -166,75 +163,71 @@ fn sail_server(cert: &Cert, setup: Setup, port: u16) -> String {
     .to_string()
 }
 
-fn sail_to_sail(name: &str, setup: Setup, socks_port: u16, server_port: u16) -> anyhow::Result<()> {
-    let cert = Cert::new(name)?;
-    let configs = vec![
-        sail_client(&cert, setup, socks_port, server_port, UUID),
-        sail_server(&cert, setup, server_port),
-    ];
-    common::test_configs(configs.clone(), "127.0.0.1", socks_port)?;
-    transfer(configs, socks_port, true)
+fn sail_to_sail(name: &str, setup: Setup) -> anyhow::Result<()> {
+    common::retry_port_clash(|| {
+        let [socks_port, server_port] = common::free_ports();
+        let cert = Cert::new(name)?;
+        let configs = vec![
+            sail_client(&cert, setup, socks_port, server_port, UUID),
+            sail_server(&cert, setup, server_port),
+        ];
+        common::test_configs(configs.clone(), "127.0.0.1", socks_port)?;
+        transfer(configs, socks_port, true)
+    })
 }
 
 #[test]
 fn test_vmess_sail_to_sail_aes_128_gcm() -> anyhow::Result<()> {
-    sail_to_sail(
-        "aes",
-        setup("aes-128-gcm", false, false, true),
-        33040,
-        33041,
-    )
+    sail_to_sail("aes", setup("aes-128-gcm", false, false, true))
 }
 
 #[test]
 fn test_vmess_sail_to_sail_chacha20_xudp() -> anyhow::Result<()> {
-    sail_to_sail(
-        "chacha",
-        setup("chacha20-poly1305", false, true, false),
-        33042,
-        33043,
-    )
+    sail_to_sail("chacha", setup("chacha20-poly1305", false, true, false))
 }
 
 #[test]
 fn test_vmess_sail_to_sail_none_tls() -> anyhow::Result<()> {
-    sail_to_sail("none", setup("none", true, false, true), 33044, 33045)
+    sail_to_sail("none", setup("none", true, false, true))
 }
 
 #[test]
 fn test_vmess_sail_to_sail_zero_xudp() -> anyhow::Result<()> {
-    sail_to_sail("zero", setup("zero", false, true, false), 33046, 33047)
+    sail_to_sail("zero", setup("zero", false, true, false))
 }
 
 #[test]
 fn test_vmess_sail_to_sail_zero_udp_auto() -> anyhow::Result<()> {
-    sail_to_sail("zero-udp", setup("zero", false, false, false), 33048, 33049)?;
-    sail_to_sail("auto", setup("auto", true, true, false), 33048, 33049)
+    sail_to_sail("zero-udp", setup("zero", false, false, false))?;
+    sail_to_sail("auto", setup("auto", true, true, false))
 }
 
 #[test]
 fn test_vmess_refuses_unknown_user() -> anyhow::Result<()> {
-    let cert = Cert::new("refuse")?;
-    let setup = setup("aes-128-gcm", false, false, false);
-    let configs = vec![
-        sail_client(
-            &cert,
-            setup,
-            33050,
-            33051,
-            "00000000-0000-0000-0000-000000000001",
-        ),
-        sail_server(&cert, setup, 33051),
-    ];
-    assert!(common::test_configs(configs, "127.0.0.1", 33050).is_err());
-    Ok(())
+    common::retry_port_clash(|| {
+        let [socks_port, server_port] = common::free_ports();
+        let cert = Cert::new("refuse")?;
+        let setup = setup("aes-128-gcm", false, false, false);
+        let configs = vec![
+            sail_client(
+                &cert,
+                setup,
+                socks_port,
+                server_port,
+                "00000000-0000-0000-0000-000000000001",
+            ),
+            sail_server(&cert, setup, server_port),
+        ];
+        assert!(common::test_configs(configs, "127.0.0.1", socks_port).is_err());
+        Ok(())
+    })
 }
 
 #[test]
 fn test_vmess_refuses_legacy_alter_id() -> anyhow::Result<()> {
     let cert = Cert::new("alter")?;
     let setup = setup("aes-128-gcm", false, false, false);
-    let mut server = vmess_inbound(&cert, setup, 33052);
+    let mut server = vmess_inbound(&cert, setup, common::free_port());
     server["users"][0]["alterId"] = json!(4);
     let config = prune(json!({ "inbounds": [server], "outbounds": [{ "type": "direct" }] }));
     let config = sail::config::from_string(&config.to_string())?;
@@ -409,53 +402,8 @@ fn socks_connect(socks_port: u16, target: SocketAddr) -> anyhow::Result<TcpStrea
 // sing-box
 // ---------------------------------------------------------------------------
 
-fn sing_box_path() -> PathBuf {
-    let homebrew = Path::new("/opt/homebrew/bin/sing-box");
-    if homebrew.exists() {
-        homebrew.to_path_buf()
-    } else {
-        PathBuf::from("sing-box")
-    }
-}
-
-/// A sing-box process, killed when dropped.
-struct SingBox(Child);
-
-impl SingBox {
-    /// Runs sing-box with `config` and waits for it to listen on TCP `port`.
-    fn run(cert: &Cert, name: &str, config: serde_json::Value, port: u16) -> anyhow::Result<Self> {
-        let path = cert.dir.join(format!("{}.json", name));
-        std::fs::write(&path, prune(config).to_string())?;
-        let child = Command::new(sing_box_path())
-            .arg("run")
-            .arg("-c")
-            .arg(&path)
-            .stdout(Stdio::null())
-            .stderr(Stdio::inherit())
-            .spawn()
-            .map_err(|e| anyhow::anyhow!("run sing-box: {}", e))?;
-        let sing_box = SingBox(child);
-        let deadline = Instant::now() + Duration::from_secs(10);
-        while TcpStream::connect(("127.0.0.1", port)).is_err() {
-            if Instant::now() > deadline {
-                return Err(anyhow::anyhow!("sing-box did not listen on {}", port));
-            }
-            std::thread::sleep(Duration::from_millis(50));
-        }
-        Ok(sing_box)
-    }
-}
-
-impl Drop for SingBox {
-    fn drop(&mut self) {
-        let _ = self.0.kill();
-        let _ = self.0.wait();
-    }
-}
-
 fn sing_box_server(cert: &Cert, setup: Setup, port: u16) -> serde_json::Value {
     json!({
-        "log": { "level": "warn" },
         "inbounds": [vmess_inbound(cert, setup, port)],
         "outbounds": [{ "type": "direct" }],
     })
@@ -470,48 +418,41 @@ fn sing_box_client(
     let mut outbound = vmess_outbound(cert, setup, server_port, UUID);
     outbound["alter_id"] = json!(0);
     json!({
-        "log": { "level": "warn" },
         "inbounds": [{ "type": "socks", "listen": "127.0.0.1", "listen_port": socks_port }],
         "outbounds": [outbound],
     })
 }
 
 /// sail outbound -> sing-box inbound.
-fn sail_to_sing_box(
-    name: &str,
-    setup: Setup,
-    socks_port: u16,
-    server_port: u16,
-) -> anyhow::Result<()> {
-    let cert = Cert::new(name)?;
-    let _server = SingBox::run(
-        &cert,
-        "server",
-        sing_box_server(&cert, setup, server_port),
-        server_port,
-    )?;
-    let configs = vec![sail_client(&cert, setup, socks_port, server_port, UUID)];
-    common::test_configs(configs.clone(), "127.0.0.1", socks_port)?;
-    transfer(configs, socks_port, true)
+fn sail_to_sing_box(name: &str, setup: Setup) -> anyhow::Result<()> {
+    common::retry_port_clash(|| {
+        let [socks_port, server_port] = common::free_ports();
+        let cert = Cert::new(name)?;
+        let _server = common::Daemon::sing_box(
+            &cert.dir,
+            "server",
+            prune(sing_box_server(&cert, setup, server_port)),
+        )?;
+        let configs = vec![sail_client(&cert, setup, socks_port, server_port, UUID)];
+        common::test_configs(configs.clone(), "127.0.0.1", socks_port)?;
+        transfer(configs, socks_port, true)
+    })
 }
 
 /// sing-box outbound -> sail inbound.
-fn sing_box_to_sail(
-    name: &str,
-    setup: Setup,
-    socks_port: u16,
-    server_port: u16,
-) -> anyhow::Result<()> {
-    let cert = Cert::new(name)?;
-    let configs = vec![sail_server(&cert, setup, server_port)];
-    let _client = SingBox::run(
-        &cert,
-        "client",
-        sing_box_client(&cert, setup, socks_port, server_port),
-        socks_port,
-    )?;
-    common::test_configs(configs.clone(), "127.0.0.1", socks_port)?;
-    transfer(configs, socks_port, true)
+fn sing_box_to_sail(name: &str, setup: Setup) -> anyhow::Result<()> {
+    common::retry_port_clash(|| {
+        let [socks_port, server_port] = common::free_ports();
+        let cert = Cert::new(name)?;
+        let configs = vec![sail_server(&cert, setup, server_port)];
+        let _client = common::Daemon::sing_box(
+            &cert.dir,
+            "client",
+            prune(sing_box_client(&cert, setup, socks_port, server_port)),
+        )?;
+        common::test_configs(configs.clone(), "127.0.0.1", socks_port)?;
+        transfer(configs, socks_port, true)
+    })
 }
 
 /// Each security, both UDP encodings between them, one over TLS.
@@ -523,13 +464,13 @@ const INTEROP: [(&str, Setup); 5] = [
     ("auto", setup("auto", true, true, false)),
 ];
 
-/// Runs each setup in turn on the same two ports.
-fn interop(to_sing_box: bool, port: u16) -> anyhow::Result<()> {
+/// Runs each setup in turn.
+fn interop(to_sing_box: bool) -> anyhow::Result<()> {
     for (name, setup) in INTEROP.iter() {
         let result = if to_sing_box {
-            sail_to_sing_box(&format!("out-{}", name), *setup, port, port + 1)
+            sail_to_sing_box(&format!("out-{}", name), *setup)
         } else {
-            sing_box_to_sail(&format!("in-{}", name), *setup, port, port + 1)
+            sing_box_to_sail(&format!("in-{}", name), *setup)
         };
         result.map_err(|e| anyhow::anyhow!("{}: {}", name, e))?;
     }
@@ -539,13 +480,13 @@ fn interop(to_sing_box: bool, port: u16) -> anyhow::Result<()> {
 #[test]
 #[ignore = "needs sing-box"]
 fn test_vmess_sail_to_sing_box() -> anyhow::Result<()> {
-    interop(true, 33054)
+    interop(true)
 }
 
 #[test]
 #[ignore = "needs sing-box"]
 fn test_vmess_sing_box_to_sail() -> anyhow::Result<()> {
-    interop(false, 33056)
+    interop(false)
 }
 
 /// Full cone, which XUDP is for: a packet to one address, and replies
@@ -608,13 +549,16 @@ fn full_cone(configs: Vec<String>, socks_port: u16) -> anyhow::Result<()> {
 fn test_vmess_xudp_full_cone() -> anyhow::Result<()> {
     let cert = Cert::new("cone")?;
     let setup = setup("aes-128-gcm", false, true, true);
-    full_cone(
-        vec![
-            sail_client(&cert, setup, 33066, 33067, UUID),
-            sail_server(&cert, setup, 33067),
-        ],
-        33066,
-    )
+    common::retry_port_clash(|| {
+        let [socks_port, server_port] = common::free_ports();
+        full_cone(
+            vec![
+                sail_client(&cert, setup, socks_port, server_port, UUID),
+                sail_server(&cert, setup, server_port),
+            ],
+            socks_port,
+        )
+    })
 }
 
 #[test]
@@ -622,14 +566,25 @@ fn test_vmess_xudp_full_cone() -> anyhow::Result<()> {
 fn test_vmess_xudp_full_cone_sing_box() -> anyhow::Result<()> {
     let cert = Cert::new("cone-sb")?;
     let setup = setup("chacha20-poly1305", true, true, false);
-    let server = SingBox::run(&cert, "server", sing_box_server(&cert, setup, 33069), 33069)?;
-    full_cone(vec![sail_client(&cert, setup, 33068, 33069, UUID)], 33068)?;
-    drop(server);
-    let _client = SingBox::run(
-        &cert,
-        "client",
-        sing_box_client(&cert, setup, 33068, 33069),
-        33068,
-    )?;
-    full_cone(vec![sail_server(&cert, setup, 33069)], 33068)
+    common::retry_port_clash(|| {
+        let [socks_port, server_port] = common::free_ports();
+        let _server = common::Daemon::sing_box(
+            &cert.dir,
+            "server",
+            prune(sing_box_server(&cert, setup, server_port)),
+        )?;
+        full_cone(
+            vec![sail_client(&cert, setup, socks_port, server_port, UUID)],
+            socks_port,
+        )
+    })?;
+    common::retry_port_clash(|| {
+        let [socks_port, server_port] = common::free_ports();
+        let _client = common::Daemon::sing_box(
+            &cert.dir,
+            "client",
+            prune(sing_box_client(&cert, setup, socks_port, server_port)),
+        )?;
+        full_cone(vec![sail_server(&cert, setup, server_port)], socks_port)
+    })
 }

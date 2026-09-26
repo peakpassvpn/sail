@@ -24,7 +24,7 @@ async fn relayed(port: u16, sess: &sail::session::Session) -> bool {
     }
     let mut buf = [0u8; 4];
     matches!(
-        timeout(Duration::from_secs(2), stream.read(&mut buf)).await,
+        timeout(Duration::from_secs(10), stream.read(&mut buf)).await,
         Ok(Ok(4))
     ) && &buf == b"ping"
 }
@@ -38,13 +38,21 @@ async fn relayed(port: u16, sess: &sail::session::Session) -> bool {
 ))]
 #[test]
 fn components_are_added_and_removed_while_running() -> anyhow::Result<()> {
-    let config = r#"
-    {
-        "inbounds": [{ "type": "socks", "listen": "127.0.0.1", "listen_port": 1089 }],
+    common::retry_port_clash(|| {
+        let [port, extra_port] = common::free_ports();
+        components_are_added_and_removed(port, extra_port)
+    })
+}
+
+/// The test above, with the instance's inbound on `port` and the one added
+/// on `extra_port`.
+#[allow(dead_code)]
+fn components_are_added_and_removed(port: u16, extra_port: u16) -> anyhow::Result<()> {
+    let config = serde_json::json!({
+        "inbounds": [{ "type": "socks", "listen": "127.0.0.1", "listen_port": port }],
         "outbounds": [{ "type": "direct" }, { "type": "direct", "tag": "routed" }],
         "route": { "rules": [{ "domain": ["example.com"], "outbound": "routed" }] }
-    }
-    "#;
+    });
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
@@ -69,23 +77,30 @@ fn components_are_added_and_removed_while_running() -> anyhow::Result<()> {
         };
 
         // Inbounds.
-        anyhow::ensure!(!relayed(1090, &sess).await, "nothing listens on 1090 yet");
+        anyhow::ensure!(
+            !relayed(extra_port, &sess).await,
+            "nothing listens on {} yet",
+            extra_port
+        );
         manager
             .add_inbound(inbound(serde_json::json!({
-                "type": "socks", "tag": "extra", "listen": "127.0.0.1", "listen_port": 1090
+                "type": "socks", "tag": "extra", "listen": "127.0.0.1", "listen_port": extra_port
             })))
             .await?;
-        anyhow::ensure!(relayed(1090, &sess).await, "the added inbound serves");
+        anyhow::ensure!(relayed(extra_port, &sess).await, "the added inbound serves");
         let taken = manager
             .add_inbound(inbound(serde_json::json!({
-                "type": "socks", "tag": "again", "listen": "127.0.0.1", "listen_port": 1090
+                "type": "socks", "tag": "again", "listen": "127.0.0.1", "listen_port": extra_port
             })))
             .await;
         anyhow::ensure!(taken.is_err(), "a port in use fails the add");
         manager.remove_inbound("extra").await?;
         tokio::time::sleep(Duration::from_millis(100)).await;
-        anyhow::ensure!(!relayed(1090, &sess).await, "the removed inbound stops");
-        anyhow::ensure!(relayed(1089, &sess).await, "the others go on");
+        anyhow::ensure!(
+            !relayed(extra_port, &sess).await,
+            "the removed inbound stops"
+        );
+        anyhow::ensure!(relayed(port, &sess).await, "the others go on");
 
         // Outbounds.
         manager

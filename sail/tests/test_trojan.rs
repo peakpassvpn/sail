@@ -10,51 +10,50 @@ mod common;
 ))]
 #[test]
 fn test_trojan() -> anyhow::Result<()> {
-    let config1 = r#"
-    {
-        "inbounds": [
-            {
-                "type": "socks",
-                "listen": "127.0.0.1",
-                "listen_port": 1086
-            }
-        ],
-        "outbounds": [
-            {
-                "type": "trojan",
-                "server": "127.0.0.1",
-                "server_port": 23001,
-                "password": "password2"
-            }
-        ]
-    }
-    "#;
+    common::retry_port_clash(|| {
+        let [socks_port, trojan_port] = common::free_ports();
+        let config1 = serde_json::json!({
+            "inbounds": [
+                {
+                    "type": "socks",
+                    "listen": "127.0.0.1",
+                    "listen_port": socks_port
+                }
+            ],
+            "outbounds": [
+                {
+                    "type": "trojan",
+                    "server": "127.0.0.1",
+                    "server_port": trojan_port,
+                    "password": "password2"
+                }
+            ]
+        });
 
-    let config2 = r#"
-    {
-        "inbounds": [
-            {
-                "type": "trojan",
-                "listen": "127.0.0.1",
-                "listen_port": 23001,
-                "users": [
-                    {
-                        "password": "password"
-                    },
-                    {
-                        "password": "password2"
-                    }
-                ]
-            }
-        ],
-        "outbounds": [
-            {
-                "type": "direct"
-            }
-        ]
-    }
-    "#;
+        let config2 = serde_json::json!({
+            "inbounds": [
+                {
+                    "type": "trojan",
+                    "listen": "127.0.0.1",
+                    "listen_port": trojan_port,
+                    "users": [
+                        {
+                            "password": "password"
+                        },
+                        {
+                            "password": "password2"
+                        }
+                    ]
+                }
+            ],
+            "outbounds": [
+                {
+                    "type": "direct"
+                }
+            ]
+        });
 
-    let configs = vec![config1.to_string(), config2.to_string()];
-    common::test_configs(configs, "127.0.0.1", 1086)
+        let configs = vec![config1.to_string(), config2.to_string()];
+        common::test_configs(configs, "127.0.0.1", socks_port)
+    })
 }

@@ -14,134 +14,6 @@ mod common;
 ))]
 #[test]
 fn test_quic_trojan() -> anyhow::Result<()> {
-    let config1 = r#"
-    {
-        "inbounds": [
-            {
-                "type": "socks",
-                "listen": "127.0.0.1",
-                "listen_port": 1086
-            }
-        ],
-        "outbounds": [
-            {
-                "type": "trojan",
-                "tag": "proxy",
-                "server": "127.0.0.1",
-                "server_port": 23001,
-                "password": "password",
-                "transport": {
-                    "type": "quic"
-                },
-                "tls": {
-                    "enabled": true,
-                    "server_name": "localhost",
-                    "alpn": [
-                        "http/1.1",
-                        "trojan"
-                    ],
-                    "certificate_path": "cert.der"
-                }
-            }
-        ]
-    }
-    "#;
-
-    let config2 = r#"
-    {
-        "inbounds": [
-            {
-                "type": "trojan",
-                "tag": "quic-in",
-                "listen": "127.0.0.1",
-                "listen_port": 23001,
-                "users": [
-                    {
-                        "password": "password"
-                    }
-                ],
-                "transport": {
-                    "type": "quic"
-                },
-                "tls": {
-                    "enabled": true,
-                    "certificate_path": "cert.der",
-                    "key_path": "key.der",
-                    "alpn": [
-                        "http/1.1",
-                        "trojan"
-                    ]
-                }
-            }
-        ],
-        "outbounds": [
-            {
-                "type": "direct"
-            }
-        ]
-    }
-    "#;
-
-    let config3 = r#"
-    {
-        "inbounds": [
-            {
-                "type": "socks",
-                "listen": "127.0.0.1",
-                "listen_port": 1087
-            }
-        ],
-        "outbounds": [
-            {
-                "type": "trojan",
-                "tag": "proxy",
-                "server": "127.0.0.1",
-                "server_port": 23002,
-                "password": "password",
-                "transport": {
-                    "type": "quic"
-                },
-                "tls": {
-                    "enabled": true,
-                    "server_name": "localhost",
-                    "certificate_path": "cert.pem"
-                }
-            }
-        ]
-    }
-    "#;
-
-    let config4 = r#"
-    {
-        "inbounds": [
-            {
-                "type": "trojan",
-                "tag": "quic-in",
-                "listen": "127.0.0.1",
-                "listen_port": 23002,
-                "users": [
-                    {
-                        "password": "password"
-                    }
-                ],
-                "transport": {
-                    "type": "quic"
-                },
-                "tls": {
-                    "enabled": true,
-                    "certificate_path": "cert.pem",
-                    "key_path": "key.pem"
-                }
-            }
-        ],
-        "outbounds": [
-            {
-                "type": "direct"
-            }
-        ]
-    }
-    "#;
-
     let mut path =
         std::env::current_exe().map_err(|e| anyhow::anyhow!("current exe failed: {}", e))?;
     path.pop();
@@ -158,61 +30,188 @@ fn test_quic_trojan() -> anyhow::Result<()> {
         .map_err(|e| anyhow::anyhow!("write cert.pem failed: {}", e))?;
     let cert_pem = cert.pem();
 
-    let configs = vec![config1.to_string(), config2.to_string()];
-    common::test_configs(configs.clone(), "127.0.0.1", 1086)?;
-    common::test_tcp_half_close_on_configs(configs.clone(), "127.0.0.1", 1086)?;
-    common::test_data_transfering_reliability_on_configs(configs.clone(), "127.0.0.1", 1086)?;
+    common::retry_port_clash(|| {
+        let [socks_port, server_port] = common::free_ports();
+        let config1 = serde_json::json!({
+            "inbounds": [
+                {
+                    "type": "socks",
+                    "listen": "127.0.0.1",
+                    "listen_port": socks_port
+                }
+            ],
+            "outbounds": [
+                {
+                    "type": "trojan",
+                    "tag": "proxy",
+                    "server": "127.0.0.1",
+                    "server_port": server_port,
+                    "password": "password",
+                    "transport": {
+                        "type": "quic"
+                    },
+                    "tls": {
+                        "enabled": true,
+                        "server_name": "localhost",
+                        "alpn": [
+                            "http/1.1",
+                            "trojan"
+                        ],
+                        "certificate_path": "cert.der"
+                    }
+                }
+            ]
+        });
 
-    let configs = vec![config3.to_string(), config4.to_string()];
-    common::test_configs(configs.clone(), "127.0.0.1", 1087)?;
+        let config2 = serde_json::json!({
+            "inbounds": [
+                {
+                    "type": "trojan",
+                    "tag": "quic-in",
+                    "listen": "127.0.0.1",
+                    "listen_port": server_port,
+                    "users": [
+                        {
+                            "password": "password"
+                        }
+                    ],
+                    "transport": {
+                        "type": "quic"
+                    },
+                    "tls": {
+                        "enabled": true,
+                        "certificate_path": "cert.der",
+                        "key_path": "key.der",
+                        "alpn": [
+                            "http/1.1",
+                            "trojan"
+                        ]
+                    }
+                }
+            ],
+            "outbounds": [
+                {
+                    "type": "direct"
+                }
+            ]
+        });
 
-    let config5 = format!(
-        r#"
+        let configs = vec![config1.to_string(), config2.to_string()];
+        common::test_configs(configs.clone(), "127.0.0.1", socks_port)?;
+        common::test_tcp_half_close_on_configs(configs.clone(), "127.0.0.1", socks_port)?;
+        common::test_data_transfering_reliability_on_configs(configs, "127.0.0.1", socks_port)
+    })?;
+
+    common::retry_port_clash(|| {
+        let [socks_port, server_port] = common::free_ports();
+        let config3 = serde_json::json!({
+            "inbounds": [
+                {
+                    "type": "socks",
+                    "listen": "127.0.0.1",
+                    "listen_port": socks_port
+                }
+            ],
+            "outbounds": [
+                {
+                    "type": "trojan",
+                    "tag": "proxy",
+                    "server": "127.0.0.1",
+                    "server_port": server_port,
+                    "password": "password",
+                    "transport": {
+                        "type": "quic"
+                    },
+                    "tls": {
+                        "enabled": true,
+                        "server_name": "localhost",
+                        "certificate_path": "cert.pem"
+                    }
+                }
+            ]
+        });
+
+        let config4 = serde_json::json!({
+            "inbounds": [
+                {
+                    "type": "trojan",
+                    "tag": "quic-in",
+                    "listen": "127.0.0.1",
+                    "listen_port": server_port,
+                    "users": [
+                        {
+                            "password": "password"
+                        }
+                    ],
+                    "transport": {
+                        "type": "quic"
+                    },
+                    "tls": {
+                        "enabled": true,
+                        "certificate_path": "cert.pem",
+                        "key_path": "key.pem"
+                    }
+                }
+            ],
+            "outbounds": [
+                {
+                    "type": "direct"
+                }
+            ]
+        });
+
+        let configs = vec![config3.to_string(), config4.to_string()];
+        common::test_configs(configs, "127.0.0.1", socks_port)
+    })?;
+
+    common::retry_port_clash(|| {
+        let [socks_port, server_port] = common::free_ports();
+        let config5 = format!(
+            r#"
 [Certificate.mycert]
 {cert_pem}
 [General]
 socks-interface = 127.0.0.1
-socks-port = 1089
+socks-port = {socks_port}
 [Proxy]
-Proxy = trojan, 127.0.0.1, 23004, password=password, sni=localhost, quic=true, tls-cert=mycert
+Proxy = trojan, 127.0.0.1, {server_port}, password=password, sni=localhost, quic=true, tls-cert=mycert
 [Rule]
 FINAL,Proxy
 "#,
-        cert_pem = cert_pem
-    );
-    let config6 = r#"
-    {
-        "inbounds": [
-            {
-                "type": "trojan",
-                "tag": "quic-in",
-                "listen": "127.0.0.1",
-                "listen_port": 23004,
-                "users": [
-                    {
-                        "password": "password"
+            cert_pem = cert_pem
+        );
+        let config6 = serde_json::json!({
+            "inbounds": [
+                {
+                    "type": "trojan",
+                    "tag": "quic-in",
+                    "listen": "127.0.0.1",
+                    "listen_port": server_port,
+                    "users": [
+                        {
+                            "password": "password"
+                        }
+                    ],
+                    "transport": {
+                        "type": "quic"
+                    },
+                    "tls": {
+                        "enabled": true,
+                        "certificate_path": "cert.pem",
+                        "key_path": "key.pem",
+                        "alpn": [
+                            "http/1.1"
+                        ]
                     }
-                ],
-                "transport": {
-                    "type": "quic"
-                },
-                "tls": {
-                    "enabled": true,
-                    "certificate_path": "cert.pem",
-                    "key_path": "key.pem",
-                    "alpn": [
-                        "http/1.1"
-                    ]
                 }
-            }
-        ],
-        "outbounds": [
-            {
-                "type": "direct"
-            }
-        ]
-    }
-    "#;
-    let configs = vec![config5, config6.to_string()];
-    common::test_configs(configs, "127.0.0.1", 1089)
+            ],
+            "outbounds": [
+                {
+                    "type": "direct"
+                }
+            ]
+        });
+        let configs = vec![config5, config6.to_string()];
+        common::test_configs(configs, "127.0.0.1", socks_port)
+    })
 }

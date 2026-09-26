@@ -14,111 +14,63 @@ mod common;
 ))]
 #[test]
 fn test_tls_trojan() -> anyhow::Result<()> {
-    let config1 = r#"
-    {
-        "inbounds": [
-            {
-                "type": "socks",
-                "listen": "127.0.0.1",
-                "listen_port": 1086
-            }
-        ],
-        "outbounds": [
-            {
-                "type": "trojan",
-                "tag": "proxy",
-                "server": "127.0.0.1",
-                "server_port": 23001,
-                "password": "password",
-                "tls": {
-                    "enabled": true,
-                    "server_name": "localhost",
-                    "certificate_path": "cert.pem"
+    // A client with a socks inbound on `socks_port` and a trojan outbound
+    // to `trojan_port`.
+    let client = |socks_port: u16, trojan_port: u16| {
+        serde_json::json!({
+            "inbounds": [
+                {
+                    "type": "socks",
+                    "listen": "127.0.0.1",
+                    "listen_port": socks_port
                 }
-            }
-        ]
-    }
-    "#;
-
-    let config2 = r#"
-    {
-        "inbounds": [
-            {
-                "type": "trojan",
-                "listen": "127.0.0.1",
-                "listen_port": 23001,
-                "users": [
-                    {
-                        "password": "password"
+            ],
+            "outbounds": [
+                {
+                    "type": "trojan",
+                    "tag": "proxy",
+                    "server": "127.0.0.1",
+                    "server_port": trojan_port,
+                    "password": "password",
+                    "tls": {
+                        "enabled": true,
+                        "server_name": "localhost",
+                        "certificate_path": "cert.pem"
                     }
-                ],
-                "tls": {
-                    "enabled": true,
-                    "certificate_path": "cert.pem",
-                    "key_path": "key.pem"
                 }
-            }
-        ],
-        "outbounds": [
-            {
-                "type": "direct"
-            }
-        ]
-    }
-    "#;
+            ]
+        })
+        .to_string()
+    };
 
-    let config3 = r#"
-    {
-        "inbounds": [
-            {
-                "type": "socks",
-                "listen": "127.0.0.1",
-                "listen_port": 1087
-            }
-        ],
-        "outbounds": [
-            {
-                "type": "trojan",
-                "tag": "proxy",
-                "server": "127.0.0.1",
-                "server_port": 23002,
-                "password": "password",
-                "tls": {
-                    "enabled": true,
-                    "server_name": "localhost",
-                    "certificate_path": "cert.pem"
-                }
-            }
-        ]
-    }
-    "#;
-
-    let config4 = r#"
-    {
-        "inbounds": [
-            {
-                "type": "trojan",
-                "listen": "127.0.0.1",
-                "listen_port": 23002,
-                "users": [
-                    {
-                        "password": "password"
+    // A trojan server on `trojan_port`.
+    let server = |trojan_port: u16| {
+        serde_json::json!({
+            "inbounds": [
+                {
+                    "type": "trojan",
+                    "listen": "127.0.0.1",
+                    "listen_port": trojan_port,
+                    "users": [
+                        {
+                            "password": "password"
+                        }
+                    ],
+                    "tls": {
+                        "enabled": true,
+                        "certificate_path": "cert.pem",
+                        "key_path": "key.pem"
                     }
-                ],
-                "tls": {
-                    "enabled": true,
-                    "certificate_path": "cert.pem",
-                    "key_path": "key.pem"
                 }
-            }
-        ],
-        "outbounds": [
-            {
-                "type": "direct"
-            }
-        ]
-    }
-    "#;
+            ],
+            "outbounds": [
+                {
+                    "type": "direct"
+                }
+            ]
+        })
+        .to_string()
+    };
 
     let mut path =
         std::env::current_exe().map_err(|e| anyhow::anyhow!("current exe failed: {}", e))?;
@@ -135,52 +87,34 @@ fn test_tls_trojan() -> anyhow::Result<()> {
     std::fs::write(path.join("cert.pem"), cert.pem())
         .map_err(|e| anyhow::anyhow!("write cert.pem failed: {}", e))?;
     let cert_pem = cert.pem();
-    let configs = vec![config1.to_string(), config2.to_string()];
-    common::test_configs(configs, "127.0.0.1", 1086)?;
+    common::retry_port_clash(|| {
+        let [socks_port, trojan_port] = common::free_ports();
+        let configs = vec![client(socks_port, trojan_port), server(trojan_port)];
+        common::test_configs(configs, "127.0.0.1", socks_port)
+    })?;
 
-    let configs = vec![config3.to_string(), config4.to_string()];
-    common::test_configs(configs, "127.0.0.1", 1087)?;
+    common::retry_port_clash(|| {
+        let [socks_port, trojan_port] = common::free_ports();
+        let configs = vec![client(socks_port, trojan_port), server(trojan_port)];
+        common::test_configs(configs, "127.0.0.1", socks_port)
+    })?;
 
-    let config5 = format!(
-        r#"
+    common::retry_port_clash(|| {
+        let [socks_port, trojan_port] = common::free_ports();
+        let config5 = format!(
+            r#"
 [Certificate.mycert]
 {cert_pem}
 [General]
 socks-interface = 127.0.0.1
-socks-port = 1088
+socks-port = {socks_port}
 [Proxy]
-Proxy = trojan, 127.0.0.1, 23003, password=password, sni=localhost, tls=true, tls-cert=mycert
+Proxy = trojan, 127.0.0.1, {trojan_port}, password=password, sni=localhost, tls=true, tls-cert=mycert
 [Rule]
 FINAL,Proxy
-"#,
-        cert_pem = cert_pem
-    );
-    let config6 = r#"
-    {
-        "inbounds": [
-            {
-                "type": "trojan",
-                "listen": "127.0.0.1",
-                "listen_port": 23003,
-                "users": [
-                    {
-                        "password": "password"
-                    }
-                ],
-                "tls": {
-                    "enabled": true,
-                    "certificate_path": "cert.pem",
-                    "key_path": "key.pem"
-                }
-            }
-        ],
-        "outbounds": [
-            {
-                "type": "direct"
-            }
-        ]
-    }
-    "#;
-    let configs = vec![config5, config6.to_string()];
-    common::test_configs(configs, "127.0.0.1", 1088)
+"#
+        );
+        let configs = vec![config5, server(trojan_port)];
+        common::test_configs(configs, "127.0.0.1", socks_port)
+    })
 }

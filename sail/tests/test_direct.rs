@@ -8,23 +8,24 @@ mod common;
 ))]
 #[test]
 fn test_direct() -> anyhow::Result<()> {
-    let config1 = r#"
-    {
-        "inbounds": [
-            {
-                "type": "socks",
-                "listen": "127.0.0.1",
-                "listen_port": 1086
-            }
-        ],
-        "outbounds": [
-            {
-                "type": "direct"
-            }
-        ]
-    }
-    "#;
+    common::retry_port_clash(|| {
+        let [socks_port] = common::free_ports();
+        let config1 = serde_json::json!({
+            "inbounds": [
+                {
+                    "type": "socks",
+                    "listen": "127.0.0.1",
+                    "listen_port": socks_port
+                }
+            ],
+            "outbounds": [
+                {
+                    "type": "direct"
+                }
+            ]
+        });
 
-    let configs = vec![config1.to_string()];
-    common::test_configs(configs, "127.0.0.1", 1086)
+        let configs = vec![config1.to_string()];
+        common::test_configs(configs, "127.0.0.1", socks_port)
+    })
 }

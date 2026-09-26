@@ -3,8 +3,6 @@
 //! The sing-box tests need `sing-box` on the PATH or in
 //! /opt/homebrew/bin, and are ignored unless asked for:
 //! `cargo test -p sail --test test_hysteria2 -- --ignored`.
-//!
-//! Ports 32200-32299 only.
 
 #![cfg(all(
     feature = "inbound-hysteria2",
@@ -16,9 +14,8 @@
 
 mod common;
 
-use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
-use std::time::{Duration, Instant};
+use std::path::PathBuf;
+use std::time::Duration;
 
 use serde_json::json;
 
@@ -149,25 +146,35 @@ fn sail_server(cert: &Cert, port: u16, salamander: bool, bandwidth: bool) -> Str
 #[test]
 fn test_hysteria2_sail_to_sail() -> anyhow::Result<()> {
     let cert = Cert::new("sail")?;
-    let configs = vec![
-        sail_client(&cert, 32201, 32202, false, false),
-        sail_server(&cert, 32202, false, false),
-    ];
-    common::test_configs(configs.clone(), "127.0.0.1", 32201)?;
-    common::test_tcp_half_close_on_configs(configs.clone(), "127.0.0.1", 32201)?;
-    common::test_data_transfering_reliability_on_configs(configs.clone(), "127.0.0.1", 32201)?;
-    transfer(configs, 32201)
+    common::retry_port_clash(|| {
+        let [socks_port, server_port] = common::free_ports();
+        let configs = vec![
+            sail_client(&cert, socks_port, server_port, false, false),
+            sail_server(&cert, server_port, false, false),
+        ];
+        common::test_configs(configs.clone(), "127.0.0.1", socks_port)?;
+        common::test_tcp_half_close_on_configs(configs.clone(), "127.0.0.1", socks_port)?;
+        common::test_data_transfering_reliability_on_configs(
+            configs.clone(),
+            "127.0.0.1",
+            socks_port,
+        )?;
+        transfer(configs, socks_port)
+    })
 }
 
 #[test]
 fn test_hysteria2_sail_to_sail_salamander_brutal() -> anyhow::Result<()> {
     let cert = Cert::new("sail-obfs")?;
-    let configs = vec![
-        sail_client(&cert, 32203, 32204, true, true),
-        sail_server(&cert, 32204, true, true),
-    ];
-    common::test_configs(configs.clone(), "127.0.0.1", 32203)?;
-    transfer(configs, 32203)
+    common::retry_port_clash(|| {
+        let [socks_port, server_port] = common::free_ports();
+        let configs = vec![
+            sail_client(&cert, socks_port, server_port, true, true),
+            sail_server(&cert, server_port, true, true),
+        ];
+        common::test_configs(configs.clone(), "127.0.0.1", socks_port)?;
+        transfer(configs, socks_port)
+    })
 }
 
 /// A client with the wrong password, or without the obfuscation the
@@ -175,82 +182,30 @@ fn test_hysteria2_sail_to_sail_salamander_brutal() -> anyhow::Result<()> {
 #[test]
 fn test_hysteria2_refuses_the_wrong_credentials() -> anyhow::Result<()> {
     let cert = Cert::new("refuse")?;
-    let wrong_password = sail_client(&cert, 32205, 32206, false, false).replace(PASSWORD, "nope");
-    let configs = vec![wrong_password, sail_server(&cert, 32206, false, false)];
-    assert!(common::test_configs(configs, "127.0.0.1", 32205).is_err());
+    common::retry_port_clash(|| {
+        let [socks_port, server_port] = common::free_ports();
+        let wrong_password =
+            sail_client(&cert, socks_port, server_port, false, false).replace(PASSWORD, "nope");
+        let configs = vec![
+            wrong_password,
+            sail_server(&cert, server_port, false, false),
+        ];
+        assert!(common::test_configs(configs, "127.0.0.1", socks_port).is_err());
 
-    let no_obfs = sail_client(&cert, 32207, 32208, false, false);
-    let configs = vec![no_obfs, sail_server(&cert, 32208, true, false)];
-    assert!(common::test_configs(configs, "127.0.0.1", 32207).is_err());
-    Ok(())
+        let [socks_port, server_port] = common::free_ports();
+        let no_obfs = sail_client(&cert, socks_port, server_port, false, false);
+        let configs = vec![no_obfs, sail_server(&cert, server_port, true, false)];
+        assert!(common::test_configs(configs, "127.0.0.1", socks_port).is_err());
+        Ok(())
+    })
 }
 
 // ---------------------------------------------------------------------------
 // sing-box
 // ---------------------------------------------------------------------------
 
-fn sing_box_path() -> PathBuf {
-    let homebrew = Path::new("/opt/homebrew/bin/sing-box");
-    if homebrew.exists() {
-        homebrew.to_path_buf()
-    } else {
-        PathBuf::from("sing-box")
-    }
-}
-
-/// A sing-box process, killed when dropped.
-struct SingBox(Child);
-
-impl SingBox {
-    /// Runs sing-box with `config` and waits for it to listen on `port`,
-    /// `udp` telling which protocol.
-    fn run(
-        cert: &Cert,
-        name: &str,
-        config: serde_json::Value,
-        port: u16,
-        udp: bool,
-    ) -> anyhow::Result<Self> {
-        let path = cert.dir.join(format!("{}.json", name));
-        std::fs::write(&path, prune(config).to_string())?;
-        let child = Command::new(sing_box_path())
-            .arg("run")
-            .arg("-c")
-            .arg(&path)
-            .stdout(Stdio::null())
-            .stderr(Stdio::inherit())
-            .spawn()
-            .map_err(|e| anyhow::anyhow!("run sing-box: {}", e))?;
-        let sing_box = SingBox(child);
-        let deadline = Instant::now() + Duration::from_secs(10);
-        loop {
-            let listening = if udp {
-                // Bound by someone else.
-                std::net::UdpSocket::bind(("127.0.0.1", port)).is_err()
-            } else {
-                std::net::TcpStream::connect(("127.0.0.1", port)).is_ok()
-            };
-            if listening {
-                return Ok(sing_box);
-            }
-            if Instant::now() > deadline {
-                return Err(anyhow::anyhow!("sing-box did not listen on {}", port));
-            }
-            std::thread::sleep(Duration::from_millis(50));
-        }
-    }
-}
-
-impl Drop for SingBox {
-    fn drop(&mut self) {
-        let _ = self.0.kill();
-        let _ = self.0.wait();
-    }
-}
-
 fn sing_box_server(cert: &Cert, port: u16, salamander: bool, bandwidth: bool) -> serde_json::Value {
     json!({
-        "log": { "level": "warn" },
         "inbounds": [{
             "type": "hysteria2",
             "listen": "127.0.0.1",
@@ -277,7 +232,6 @@ fn sing_box_client(
     bandwidth: bool,
 ) -> serde_json::Value {
     json!({
-        "log": { "level": "warn" },
         "inbounds": [{
             "type": "socks",
             "listen": "127.0.0.1",
@@ -301,58 +255,55 @@ fn sing_box_client(
 }
 
 /// sail outbound -> sing-box inbound.
-fn sail_to_sing_box(
-    name: &str,
-    socks_port: u16,
-    server_port: u16,
-    salamander: bool,
-    bandwidth: bool,
-) -> anyhow::Result<()> {
+fn sail_to_sing_box(name: &str, salamander: bool, bandwidth: bool) -> anyhow::Result<()> {
     let cert = Cert::new(name)?;
-    let _server = SingBox::run(
-        &cert,
-        "server",
-        sing_box_server(&cert, server_port, salamander, bandwidth),
-        server_port,
-        true,
-    )?;
-    let configs = vec![sail_client(
-        &cert,
-        socks_port,
-        server_port,
-        salamander,
-        bandwidth,
-    )];
-    common::test_configs(configs.clone(), "127.0.0.1", socks_port)?;
-    transfer(configs, socks_port)
+    common::retry_port_clash(|| {
+        let [socks_port, server_port] = common::free_ports();
+        let _server = common::Daemon::sing_box(
+            &cert.dir,
+            "server",
+            prune(sing_box_server(&cert, server_port, salamander, bandwidth)),
+        )?;
+        let configs = vec![sail_client(
+            &cert,
+            socks_port,
+            server_port,
+            salamander,
+            bandwidth,
+        )];
+        common::test_configs(configs.clone(), "127.0.0.1", socks_port)?;
+        transfer(configs, socks_port)
+    })
 }
 
 /// sing-box outbound -> sail inbound.
-fn sing_box_to_sail(
-    name: &str,
-    socks_port: u16,
-    server_port: u16,
-    salamander: bool,
-    bandwidth: bool,
-) -> anyhow::Result<()> {
+fn sing_box_to_sail(name: &str, salamander: bool, bandwidth: bool) -> anyhow::Result<()> {
     let cert = Cert::new(name)?;
-    let configs = vec![sail_server(&cert, server_port, salamander, bandwidth)];
-    // A sing-box client keeps its connection to the sail it saw last until
-    // that times out, and each test runs sail anew: a fresh client each.
-    let client = || {
-        SingBox::run(
-            &cert,
-            "client",
-            sing_box_client(&cert, socks_port, server_port, salamander, bandwidth),
-            socks_port,
-            false,
-        )
-    };
-    let sing_box = client()?;
-    common::test_configs(configs.clone(), "127.0.0.1", socks_port)?;
-    drop(sing_box);
-    let _sing_box = client()?;
-    transfer(configs, socks_port)
+    common::retry_port_clash(|| {
+        let [socks_port, server_port] = common::free_ports();
+        let configs = vec![sail_server(&cert, server_port, salamander, bandwidth)];
+        // A sing-box client keeps its connection to the sail it saw last
+        // until that times out, and each test runs sail anew: a fresh
+        // client each.
+        let client = || {
+            common::Daemon::sing_box(
+                &cert.dir,
+                "client",
+                prune(sing_box_client(
+                    &cert,
+                    socks_port,
+                    server_port,
+                    salamander,
+                    bandwidth,
+                )),
+            )
+        };
+        let sing_box = client()?;
+        common::test_configs(configs.clone(), "127.0.0.1", socks_port)?;
+        drop(sing_box);
+        let _sing_box = client()?;
+        transfer(configs, socks_port)
+    })
 }
 
 /// Runs `configs` and, through the socks server on `socks_port`, echoes
@@ -413,7 +364,7 @@ fn transfer(configs: Vec<String>, socks_port: u16) -> anyhow::Result<()> {
             rand::thread_rng().fill_bytes(&mut packet);
             w.send_to(&packet, &sess.destination).await?;
             let mut buf = vec![0u8; 4096];
-            let (n, from) = timeout(Duration::from_secs(2), r.recv_from(&mut buf))
+            let (n, from) = timeout(Duration::from_secs(10), r.recv_from(&mut buf))
                 .await
                 .map_err(|_| anyhow::anyhow!("UDP echo of {} bytes timed out", size))??;
             anyhow::ensure!(buf[..n] == packet[..], "UDP echo of {} bytes differs", size);
@@ -423,32 +374,30 @@ fn transfer(configs: Vec<String>, socks_port: u16) -> anyhow::Result<()> {
         udp_echo.abort();
         Ok::<(), anyhow::Error>(())
     });
-    for id in ids {
-        sail::shutdown(id);
-    }
+    common::shutdown_instances(&rt, ids);
     result
 }
 
 #[test]
 #[ignore = "needs sing-box"]
 fn test_hysteria2_sail_to_sing_box() -> anyhow::Result<()> {
-    sail_to_sing_box("out-plain", 32210, 32211, false, false)
+    sail_to_sing_box("out-plain", false, false)
 }
 
 #[test]
 #[ignore = "needs sing-box"]
 fn test_hysteria2_sail_to_sing_box_salamander_brutal() -> anyhow::Result<()> {
-    sail_to_sing_box("out-obfs", 32212, 32213, true, true)
+    sail_to_sing_box("out-obfs", true, true)
 }
 
 #[test]
 #[ignore = "needs sing-box"]
 fn test_hysteria2_sing_box_to_sail() -> anyhow::Result<()> {
-    sing_box_to_sail("in-plain", 32220, 32221, false, false)
+    sing_box_to_sail("in-plain", false, false)
 }
 
 #[test]
 #[ignore = "needs sing-box"]
 fn test_hysteria2_sing_box_to_sail_salamander_brutal() -> anyhow::Result<()> {
-    sing_box_to_sail("in-obfs", 32222, 32223, true, true)
+    sing_box_to_sail("in-obfs", true, true)
 }

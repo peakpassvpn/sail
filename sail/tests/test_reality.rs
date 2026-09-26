@@ -6,8 +6,6 @@
 //! /opt/homebrew/bin, the Xray tests `xray` on the PATH or in `XRAY`; both
 //! are ignored unless asked for:
 //! `cargo test -p sail --test test_reality -- --ignored`.
-//!
-//! Ports 33500-33549 only.
 
 #![cfg(all(
     feature = "inbound-reality",
@@ -23,9 +21,8 @@ mod common;
 
 use std::io::{Read, Write};
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
-use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
-use std::time::{Duration, Instant};
+use std::path::PathBuf;
+use std::time::Duration;
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
@@ -226,18 +223,24 @@ fn test_reality_sail_to_sail() -> anyhow::Result<()> {
     let cert = Cert::new("sail")?;
     let site = Site::run(&cert)?;
     let keys = Keys::new();
-    let configs = vec![
-        sail_client(&keys, 33500, 33501, SHORT_ID),
-        sail_server(&keys, &site, 33501),
-    ];
-    common::test_configs(configs.clone(), "127.0.0.1", 33500)?;
-    transfer(configs, 33500, true)?;
+    common::retry_port_clash(|| {
+        let [socks_port, server_port] = common::free_ports();
+        let configs = vec![
+            sail_client(&keys, socks_port, server_port, SHORT_ID),
+            sail_server(&keys, &site, server_port),
+        ];
+        common::test_configs(configs.clone(), "127.0.0.1", socks_port)?;
+        transfer(configs, socks_port, true)
+    })?;
     // A short ID the server lists, given short.
-    let configs = vec![
-        sail_client(&keys, 33500, 33501, "ab"),
-        sail_server(&keys, &site, 33501),
-    ];
-    common::test_configs(configs, "127.0.0.1", 33500)
+    common::retry_port_clash(|| {
+        let [socks_port, server_port] = common::free_ports();
+        let configs = vec![
+            sail_client(&keys, socks_port, server_port, "ab"),
+            sail_server(&keys, &site, server_port),
+        ];
+        common::test_configs(configs, "127.0.0.1", socks_port)
+    })
 }
 
 #[test]
@@ -245,17 +248,20 @@ fn test_reality_refuses_unknown_short_id_and_key() -> anyhow::Result<()> {
     let cert = Cert::new("refuse")?;
     let site = Site::run(&cert)?;
     let keys = Keys::new();
-    let configs = vec![
-        sail_client(&keys, 33502, 33503, "cd"),
-        sail_server(&keys, &site, 33503),
-    ];
-    assert!(common::test_configs(configs, "127.0.0.1", 33502).is_err());
-    let configs = vec![
-        sail_client(&Keys::new(), 33502, 33503, SHORT_ID),
-        sail_server(&keys, &site, 33503),
-    ];
-    assert!(common::test_configs(configs, "127.0.0.1", 33502).is_err());
-    Ok(())
+    common::retry_port_clash(|| {
+        let [socks_port, server_port, socks_port2, server_port2] = common::free_ports();
+        let configs = vec![
+            sail_client(&keys, socks_port, server_port, "cd"),
+            sail_server(&keys, &site, server_port),
+        ];
+        assert!(common::test_configs(configs, "127.0.0.1", socks_port).is_err());
+        let configs = vec![
+            sail_client(&Keys::new(), socks_port2, server_port2, SHORT_ID),
+            sail_server(&keys, &site, server_port2),
+        ];
+        assert!(common::test_configs(configs, "127.0.0.1", socks_port2).is_err());
+        Ok(())
+    })
 }
 
 /// What a TLS client that is not a REALITY client sees at `port`: the
@@ -288,18 +294,24 @@ fn test_reality_probes_see_the_handshake_server() -> anyhow::Result<()> {
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;
-    let ids = common::run_sail_instances(&rt, vec![sail_server(&keys, &site, 33504)])?;
+    let (port, ids) = common::retry_port_clash(|| {
+        let port = common::free_port();
+        Ok((
+            port,
+            common::run_sail_instances(&rt, vec![sail_server(&keys, &site, port)])?,
+        ))
+    })?;
     // The prober blocks; the sail instance runs on `rt`, polled meanwhile.
-    let prober = std::thread::spawn(|| -> anyhow::Result<()> {
+    let prober = std::thread::spawn(move || -> anyhow::Result<()> {
         for server_name in [SERVER_NAME, "other.example"] {
-            let (certificate, greeting) = probe(33504, server_name)
+            let (certificate, greeting) = probe(port, server_name)
                 .map_err(|e| anyhow::anyhow!("probe {}: {}", server_name, e))?;
             anyhow::ensure!(greeting == SITE_GREETING, "greeting {:?}", greeting);
             let _ = certificate;
         }
         // Not TLS at all: relayed all the same, and the site's TLS stack
         // hangs up rather than anyone waiting for more.
-        let mut tcp = TcpStream::connect(("127.0.0.1", 33504))?;
+        let mut tcp = TcpStream::connect(("127.0.0.1", port))?;
         tcp.set_read_timeout(Some(Duration::from_secs(5)))?;
         tcp.write_all(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")?;
         let mut reply = Vec::new();
@@ -322,8 +334,14 @@ fn test_reality_probes_see_the_handshake_server() -> anyhow::Result<()> {
     result?;
     // And the certificate was the site's, not a REALITY one.
     let (certificate, _) = {
-        let ids = common::run_sail_instances(&rt, vec![sail_server(&keys, &site, 33505)])?;
-        let prober = std::thread::spawn(|| probe(33505, SERVER_NAME));
+        let (port, ids) = common::retry_port_clash(|| {
+            let port = common::free_port();
+            Ok((
+                port,
+                common::run_sail_instances(&rt, vec![sail_server(&keys, &site, port)])?,
+            ))
+        })?;
+        let prober = std::thread::spawn(move || probe(port, SERVER_NAME));
         rt.block_on(async {
             while !prober.is_finished() {
                 tokio::time::sleep(Duration::from_millis(10)).await;
@@ -343,11 +361,13 @@ fn test_reality_probes_see_the_handshake_server() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// A TCP forwarder on threads from `listen` to `to`: for each connection,
+/// The port of a TCP forwarder on threads to `to`, and for each connection,
 /// what came back from `to`, in the order connections were accepted.
-fn tap(listen: u16, to: u16) -> anyhow::Result<std::sync::Arc<std::sync::Mutex<Vec<Vec<u8>>>>> {
+#[allow(clippy::type_complexity)]
+fn tap(to: u16) -> anyhow::Result<(u16, std::sync::Arc<std::sync::Mutex<Vec<Vec<u8>>>>)> {
     use std::sync::{Arc, Mutex};
-    let listener = TcpListener::bind(("127.0.0.1", listen))?;
+    let listener = TcpListener::bind("127.0.0.1:0")?;
+    let listen = listener.local_addr()?.port();
     let seen: Arc<Mutex<Vec<Vec<u8>>>> = Arc::default();
     let all = seen.clone();
     std::thread::spawn(move || {
@@ -382,7 +402,7 @@ fn tap(listen: u16, to: u16) -> anyhow::Result<std::sync::Arc<std::sync::Mutex<V
             });
         }
     });
-    Ok(seen)
+    Ok((listen, seen))
 }
 
 /// The lengths of the first `n` records in `wire`, headers included.
@@ -405,18 +425,22 @@ fn test_reality_flight_has_the_sites_shape() -> anyhow::Result<()> {
     let cert = Cert::new("shape")?;
     let site = Site::run(&cert)?;
     let keys = Keys::new();
-    // client 33530 -> tap 33533 -> server 33532 -> tap 33531 -> site
-    let from_site = tap(33531, site.port)?;
-    let from_server = tap(33533, 33532)?;
-    let proxied_site = Site {
-        port: 33531,
-        certificate_der: Vec::new(),
-    };
-    let configs = vec![
-        sail_client(&keys, 33530, 33533, SHORT_ID),
-        sail_server(&keys, &proxied_site, 33532),
-    ];
-    common::test_configs(configs, "127.0.0.1", 33530)?;
+    // client -> tap -> server -> tap -> site
+    let (from_site, from_server) = common::retry_port_clash(|| {
+        let [socks_port, server_port] = common::free_ports();
+        let (site_tap_port, from_site) = tap(site.port)?;
+        let (server_tap_port, from_server) = tap(server_port)?;
+        let proxied_site = Site {
+            port: site_tap_port,
+            certificate_der: Vec::new(),
+        };
+        let configs = vec![
+            sail_client(&keys, socks_port, server_tap_port, SHORT_ID),
+            sail_server(&keys, &proxied_site, server_port),
+        ];
+        common::test_configs(configs, "127.0.0.1", socks_port)?;
+        Ok((from_site, from_server))
+    })?;
     let from_site = from_site.lock().unwrap().clone();
     let from_server = from_server.lock().unwrap().clone();
     anyhow::ensure!(!from_server.is_empty(), "no connection");
@@ -604,53 +628,8 @@ fn socks_connect(socks_port: u16, target: SocketAddr) -> anyhow::Result<TcpStrea
 // sing-box
 // ---------------------------------------------------------------------------
 
-fn sing_box_path() -> PathBuf {
-    let homebrew = Path::new("/opt/homebrew/bin/sing-box");
-    if homebrew.exists() {
-        homebrew.to_path_buf()
-    } else {
-        PathBuf::from("sing-box")
-    }
-}
-
-/// A sing-box process, killed when dropped.
-struct SingBox(Child);
-
-impl SingBox {
-    /// Runs sing-box with `config` and waits for it to listen on TCP `port`.
-    fn run(cert: &Cert, name: &str, config: serde_json::Value, port: u16) -> anyhow::Result<Self> {
-        let path = cert.dir.join(format!("{}.json", name));
-        std::fs::write(&path, prune(config).to_string())?;
-        let child = Command::new(sing_box_path())
-            .arg("run")
-            .arg("-c")
-            .arg(&path)
-            .stdout(Stdio::null())
-            .stderr(Stdio::inherit())
-            .spawn()
-            .map_err(|e| anyhow::anyhow!("run sing-box: {}", e))?;
-        let sing_box = SingBox(child);
-        let deadline = Instant::now() + Duration::from_secs(10);
-        while TcpStream::connect(("127.0.0.1", port)).is_err() {
-            if Instant::now() > deadline {
-                return Err(anyhow::anyhow!("sing-box did not listen on {}", port));
-            }
-            std::thread::sleep(Duration::from_millis(50));
-        }
-        Ok(sing_box)
-    }
-}
-
-impl Drop for SingBox {
-    fn drop(&mut self) {
-        let _ = self.0.kill();
-        let _ = self.0.wait();
-    }
-}
-
 fn sing_box_server(keys: &Keys, site: &Site, port: u16) -> serde_json::Value {
     json!({
-        "log": { "level": "warn" },
         "inbounds": [vless_inbound(keys, site, port)],
         "outbounds": [{ "type": "direct" }],
     })
@@ -658,7 +637,6 @@ fn sing_box_server(keys: &Keys, site: &Site, port: u16) -> serde_json::Value {
 
 fn sing_box_client(keys: &Keys, socks_port: u16, server_port: u16) -> serde_json::Value {
     json!({
-        "log": { "level": "warn" },
         "inbounds": [{ "type": "socks", "listen": "127.0.0.1", "listen_port": socks_port }],
         "outbounds": [vless_outbound(keys, server_port, SHORT_ID)],
     })
@@ -670,10 +648,17 @@ fn test_reality_sail_to_sing_box() -> anyhow::Result<()> {
     let cert = Cert::new("out")?;
     let site = Site::run(&cert)?;
     let keys = Keys::new();
-    let _server = SingBox::run(&cert, "server", sing_box_server(&keys, &site, 33511), 33511)?;
-    let configs = vec![sail_client(&keys, 33510, 33511, SHORT_ID)];
-    common::test_configs(configs.clone(), "127.0.0.1", 33510)?;
-    transfer(configs, 33510, true)
+    common::retry_port_clash(|| {
+        let [socks_port, server_port] = common::free_ports();
+        let _server = common::Daemon::sing_box(
+            &cert.dir,
+            "server",
+            prune(sing_box_server(&keys, &site, server_port)),
+        )?;
+        let configs = vec![sail_client(&keys, socks_port, server_port, SHORT_ID)];
+        common::test_configs(configs.clone(), "127.0.0.1", socks_port)?;
+        transfer(configs, socks_port, true)
+    })
 }
 
 #[test]
@@ -682,50 +667,39 @@ fn test_reality_sing_box_to_sail() -> anyhow::Result<()> {
     let cert = Cert::new("in")?;
     let site = Site::run(&cert)?;
     let keys = Keys::new();
-    let configs = vec![sail_server(&keys, &site, 33513)];
-    let _client = SingBox::run(&cert, "client", sing_box_client(&keys, 33512, 33513), 33512)?;
-    common::test_configs(configs.clone(), "127.0.0.1", 33512)?;
-    transfer(configs, 33512, true)
+    common::retry_port_clash(|| {
+        let [socks_port, server_port] = common::free_ports();
+        let configs = vec![sail_server(&keys, &site, server_port)];
+        let _client = common::Daemon::sing_box(
+            &cert.dir,
+            "client",
+            prune(sing_box_client(&keys, socks_port, server_port)),
+        )?;
+        common::test_configs(configs.clone(), "127.0.0.1", socks_port)?;
+        transfer(configs, socks_port, true)
+    })
 }
 
 // ---------------------------------------------------------------------------
 // Xray
 // ---------------------------------------------------------------------------
 
-/// An Xray process, killed when dropped.
-struct Xray(Child);
-
-impl Xray {
-    /// Runs Xray with `config` and waits for it to listen on TCP `port`.
-    fn run(cert: &Cert, name: &str, config: serde_json::Value, port: u16) -> anyhow::Result<Self> {
-        let path = cert.dir.join(format!("xray-{}.json", name));
-        std::fs::write(&path, config.to_string())?;
-        let xray = std::env::var_os("XRAY").map_or_else(|| PathBuf::from("xray"), PathBuf::from);
-        let child = Command::new(xray)
-            .arg("run")
-            .arg("-c")
-            .arg(&path)
-            .stdout(Stdio::null())
-            .stderr(Stdio::inherit())
-            .spawn()
-            .map_err(|e| anyhow::anyhow!("run xray: {}", e))?;
-        let xray = Xray(child);
-        let deadline = Instant::now() + Duration::from_secs(10);
-        while TcpStream::connect(("127.0.0.1", port)).is_err() {
-            if Instant::now() > deadline {
-                return Err(anyhow::anyhow!("xray did not listen on {}", port));
-            }
-            std::thread::sleep(Duration::from_millis(50));
-        }
-        Ok(xray)
-    }
-}
-
-impl Drop for Xray {
-    fn drop(&mut self) {
-        let _ = self.0.kill();
-        let _ = self.0.wait();
-    }
+/// Runs Xray, `xray` on the PATH or in `XRAY`, with `config`, which it
+/// reads from `dir`, and returns once it has started.
+fn xray(
+    dir: &std::path::Path,
+    name: &str,
+    config: serde_json::Value,
+) -> anyhow::Result<common::Daemon> {
+    let path = dir.join(format!("xray-{}.json", name));
+    std::fs::write(&path, config.to_string())?;
+    let xray = std::env::var_os("XRAY").map_or_else(|| PathBuf::from("xray"), PathBuf::from);
+    let mut command = std::process::Command::new(xray);
+    command.arg("run").arg("-c").arg(&path);
+    // "[Warning] core: Xray 25.x.x started", once every inbound listens.
+    common::Daemon::spawn(command, &format!("xray {}", name), |line| {
+        line.contains("Xray") && line.contains("started")
+    })
 }
 
 #[test]
@@ -734,34 +708,37 @@ fn test_reality_xray_to_sail() -> anyhow::Result<()> {
     let cert = Cert::new("xray-in")?;
     let site = Site::run(&cert)?;
     let keys = Keys::new();
-    let configs = vec![sail_server(&keys, &site, 33541)];
-    let client = json!({
-        "log": { "loglevel": "warning" },
-        "inbounds": [{
-            "listen": "127.0.0.1", "port": 33540, "protocol": "socks",
-            "settings": { "udp": true },
-        }],
-        "outbounds": [{
-            "protocol": "vless",
-            "settings": { "vnext": [{
-                "address": "127.0.0.1", "port": 33541,
-                "users": [{ "id": UUID, "flow": VISION, "encryption": "none" }],
-            }] },
-            "streamSettings": {
-                "network": "tcp",
-                "security": "reality",
-                "realitySettings": {
-                    "serverName": SERVER_NAME,
-                    "fingerprint": "chrome",
-                    "publicKey": keys.public,
-                    "shortId": SHORT_ID,
+    common::retry_port_clash(|| {
+        let [socks_port, server_port] = common::free_ports();
+        let configs = vec![sail_server(&keys, &site, server_port)];
+        let client = json!({
+            "log": { "loglevel": "warning" },
+            "inbounds": [{
+                "listen": "127.0.0.1", "port": socks_port, "protocol": "socks",
+                "settings": { "udp": true },
+            }],
+            "outbounds": [{
+                "protocol": "vless",
+                "settings": { "vnext": [{
+                    "address": "127.0.0.1", "port": server_port,
+                    "users": [{ "id": UUID, "flow": VISION, "encryption": "none" }],
+                }] },
+                "streamSettings": {
+                    "network": "tcp",
+                    "security": "reality",
+                    "realitySettings": {
+                        "serverName": SERVER_NAME,
+                        "fingerprint": "chrome",
+                        "publicKey": keys.public,
+                        "shortId": SHORT_ID,
+                    },
                 },
-            },
-        }],
-    });
-    let _client = Xray::run(&cert, "client", client, 33540)?;
-    common::test_configs(configs.clone(), "127.0.0.1", 33540)?;
-    transfer(configs, 33540, true)
+            }],
+        });
+        let _client = xray(&cert.dir, "client", client)?;
+        common::test_configs(configs.clone(), "127.0.0.1", socks_port)?;
+        transfer(configs, socks_port, true)
+    })
 }
 
 /// Xray's server and ours, each in front of the site, answer sail's client
@@ -784,39 +761,42 @@ fn test_reality_flight_shape_as_xray() -> anyhow::Result<()> {
         out
     };
 
-    // sail client 33544 -> tap 33543 -> Xray 33542 -> tap 33548 -> site
-    let xray_site = tap(33548, site.port)?;
-    let from_xray = tap(33543, 33542)?;
-    let server = json!({
-        "log": { "loglevel": "warning" },
-        "inbounds": [{
-            "listen": "127.0.0.1", "port": 33542, "protocol": "vless",
-            "settings": {
-                "clients": [{ "id": UUID, "flow": VISION }],
-                "decryption": "none",
-            },
-            "streamSettings": {
-                "network": "tcp",
-                "security": "reality",
-                "realitySettings": {
-                    "target": "127.0.0.1:33548",
-                    "serverNames": [SERVER_NAME],
-                    "privateKey": keys.private,
-                    "shortIds": [SHORT_ID],
+    // sail client -> tap -> Xray -> tap -> site
+    let (xray, xray_site) = common::retry_port_clash(|| {
+        let [socks_port, server_port] = common::free_ports();
+        let (site_tap_port, xray_site) = tap(site.port)?;
+        let (server_tap_port, from_xray) = tap(server_port)?;
+        let server = json!({
+            "log": { "loglevel": "warning" },
+            "inbounds": [{
+                "listen": "127.0.0.1", "port": server_port, "protocol": "vless",
+                "settings": {
+                    "clients": [{ "id": UUID, "flow": VISION }],
+                    "decryption": "none",
                 },
-            },
-        }],
-        "outbounds": [{ "protocol": "freedom" }],
-    });
-    let _server = Xray::run(&cert, "server", server, 33542)?;
-    // Connections Xray may make to the site by itself, as it learns what
-    // the site sends after a handshake, have no counterpart.
-    std::thread::sleep(Duration::from_millis(500));
-    let before = xray_site.lock().unwrap().len();
-    xray_site.lock().unwrap().drain(..before);
-    let configs = vec![sail_client(&keys, 33544, 33543, SHORT_ID)];
-    common::test_configs(configs, "127.0.0.1", 33544)?;
-    let (xray, xray_site) = (shapes(&from_xray), shapes(&xray_site));
+                "streamSettings": {
+                    "network": "tcp",
+                    "security": "reality",
+                    "realitySettings": {
+                        "target": format!("127.0.0.1:{}", site_tap_port),
+                        "serverNames": [SERVER_NAME],
+                        "privateKey": keys.private,
+                        "shortIds": [SHORT_ID],
+                    },
+                },
+            }],
+            "outbounds": [{ "protocol": "freedom" }],
+        });
+        let _server = xray(&cert.dir, "server", server)?;
+        // Connections Xray may make to the site by itself, as it learns what
+        // the site sends after a handshake, have no counterpart.
+        std::thread::sleep(Duration::from_millis(500));
+        let before = xray_site.lock().unwrap().len();
+        xray_site.lock().unwrap().drain(..before);
+        let configs = vec![sail_client(&keys, socks_port, server_tap_port, SHORT_ID)];
+        common::test_configs(configs, "127.0.0.1", socks_port)?;
+        Ok((shapes(&from_xray), shapes(&xray_site)))
+    })?;
     anyhow::ensure!(!xray.is_empty(), "no connection");
     anyhow::ensure!(
         xray == xray_site,
@@ -825,19 +805,22 @@ fn test_reality_flight_shape_as_xray() -> anyhow::Result<()> {
         xray_site
     );
 
-    // sail client 33547 -> tap 33546 -> sail 33545 -> tap 33549 -> site
-    let our_site = tap(33549, site.port)?;
-    let from_ours = tap(33546, 33545)?;
-    let proxied_site = Site {
-        port: 33549,
-        certificate_der: Vec::new(),
-    };
-    let configs = vec![
-        sail_client(&keys, 33547, 33546, SHORT_ID),
-        sail_server(&keys, &proxied_site, 33545),
-    ];
-    common::test_configs(configs, "127.0.0.1", 33547)?;
-    let (ours, our_site) = (shapes(&from_ours), shapes(&our_site));
+    // sail client -> tap -> sail -> tap -> site
+    let (ours, our_site) = common::retry_port_clash(|| {
+        let [socks_port, server_port] = common::free_ports();
+        let (site_tap_port, our_site) = tap(site.port)?;
+        let (server_tap_port, from_ours) = tap(server_port)?;
+        let proxied_site = Site {
+            port: site_tap_port,
+            certificate_der: Vec::new(),
+        };
+        let configs = vec![
+            sail_client(&keys, socks_port, server_tap_port, SHORT_ID),
+            sail_server(&keys, &proxied_site, server_port),
+        ];
+        common::test_configs(configs, "127.0.0.1", socks_port)?;
+        Ok((shapes(&from_ours), shapes(&our_site)))
+    })?;
     anyhow::ensure!(
         ours == our_site,
         "ours {:?}, the site's {:?}",
@@ -914,17 +897,26 @@ fn test_reality_sing_box_to_sail_four_records() -> anyhow::Result<()> {
         certificate_der: Vec::new(),
     };
     let keys = Keys::new();
-    let configs = vec![sail_server(&keys, &site, 33515)];
-    let _client = SingBox::run(&cert, "client", sing_box_client(&keys, 33514, 33515), 33514)?;
-    common::test_configs(configs.clone(), "127.0.0.1", 33514)?;
-    transfer(configs, 33514, true)
+    common::retry_port_clash(|| {
+        let [socks_port, server_port] = common::free_ports();
+        let configs = vec![sail_server(&keys, &site, server_port)];
+        let _client = common::Daemon::sing_box(
+            &cert.dir,
+            "client",
+            prune(sing_box_client(&keys, socks_port, server_port)),
+        )?;
+        common::test_configs(configs.clone(), "127.0.0.1", socks_port)?;
+        transfer(configs, socks_port, true)
+    })
 }
 
 #[test]
 fn test_reality_config_mistakes_are_errors() -> anyhow::Result<()> {
     let cert = Cert::new("config")?;
+    // Only checked, never listened on or dialed.
+    let [site_port, port] = common::free_ports();
     let site = Site {
-        port: 1,
+        port: site_port,
         certificate_der: Vec::new(),
     };
     let keys = Keys::new();
@@ -933,28 +925,28 @@ fn test_reality_config_mistakes_are_errors() -> anyhow::Result<()> {
         let config = sail::config::from_string(&config.to_string())?;
         sail::check_config(&config, &Default::default())
     };
-    assert!(check(vless_inbound(&keys, &site, 33520)).is_ok());
-    let mut with_certificate = vless_inbound(&keys, &site, 33520);
+    assert!(check(vless_inbound(&keys, &site, port)).is_ok());
+    let mut with_certificate = vless_inbound(&keys, &site, port);
     with_certificate["tls"]["certificate_path"] = json!(cert.cert_path());
     assert!(check(with_certificate).is_err());
-    let mut without_name = vless_inbound(&keys, &site, 33520);
+    let mut without_name = vless_inbound(&keys, &site, port);
     without_name["tls"]["server_name"] = json!(null);
     assert!(check(prune(without_name)).is_err());
-    let mut bad_short_id = vless_inbound(&keys, &site, 33520);
+    let mut bad_short_id = vless_inbound(&keys, &site, port);
     bad_short_id["tls"]["reality"]["short_id"] = json!(["xyz"]);
     assert!(check(bad_short_id).is_err());
     // The handshake server is dialed with sing-box's dial fields, as this
     // platform allows them; a detour is not one of them.
-    let mut dialed = vless_inbound(&keys, &site, 33520);
+    let mut dialed = vless_inbound(&keys, &site, port);
     dialed["tls"]["reality"]["handshake"]["connect_timeout"] = json!("3s");
     assert!(check(dialed).is_ok());
-    let mut marked = vless_inbound(&keys, &site, 33520);
+    let mut marked = vless_inbound(&keys, &site, port);
     marked["tls"]["reality"]["handshake"]["routing_mark"] = json!(1);
     assert_eq!(check(marked).is_ok(), cfg!(target_os = "linux"));
-    let mut detour = vless_inbound(&keys, &site, 33520);
+    let mut detour = vless_inbound(&keys, &site, port);
     detour["tls"]["reality"]["handshake"]["detour"] = json!("direct");
     assert!(check(detour).is_err());
-    let mut plain_with_name = vless_inbound(&keys, &site, 33520);
+    let mut plain_with_name = vless_inbound(&keys, &site, port);
     plain_with_name["tls"]["reality"]["enabled"] = json!(false);
     plain_with_name["tls"]["certificate_path"] = json!(cert.cert_path());
     plain_with_name["tls"]["key_path"] = json!(cert.key_path());
