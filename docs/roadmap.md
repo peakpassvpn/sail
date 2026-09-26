@@ -36,7 +36,7 @@ P1 及之后各表的「涉及位置」按 P0.2 完成后的目标结构书写�
 
 ### 结论：继续基于 leaf 代码迭代
 
-Sail 与 sing-box 的对比已经完成，测试代码和完整结果见 [`bench/core-compare/`](../bench/core-compare/README.md)。当前结果表明：
+Sail 与 sing-box 的对比已经完成。当前结果表明：
 
 - 相同量级的缓冲区下，Sail 的单位数据 CPU 成本与 sing-box 持平或更低，Rust 的计算效率优势成立。
 - Sail 默认 2KB 转发缓冲区，以较高 CPU 和较低吞吐换取并发内存。
@@ -58,7 +58,7 @@ Sail 与 sing-box 的对比已经完成，测试代码和完整结果见 [`bench
 | 性能回归基线 | 保留 direct 和 Shadowsocks 场景，并增加不同连接数、活跃比例和包大小 | 每组至少 3 轮取中位数；同时报告吞吐、CPU/GB、RSS、footprint、分配次数和峰值并发内存 |
 | 跨环境场景 | 移动端模拟、桌面默认、低内存路由器、服务端高并发分别测试 | 移动端不越过约 50MB 的目标预算；桌面/服务端不以 2KB 缓冲牺牲吞吐；路由器预算可收紧且不会 OOM |
 
-优化后的结果补充到 `bench/core-compare/README.md`。真机 iOS / Android TUN、Linux 服务端和低内存设备测试在 P2/P5 持续补齐。
+优化后的结果补充到本地 benchmark 记录。真机 iOS / Android TUN、Linux 服务端和低内存设备测试在 P2/P5 持续补齐。
 
 ### P0.2 平台架构重构（P0.1 合并后开始，先于 P1 新协议开发）
 

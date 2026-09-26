@@ -69,7 +69,7 @@ Sail 应该保留的优势：
 
 - chain 通用叠加 + `plan.rs` 在 I/O 之前做规划。
 - 按 feature 裁剪。
-- Rust 在资源占用上的可控性，见 [`bench/core-compare/`](../bench/core-compare/README.md)。
+- Rust 在资源占用上的可控性。
 
 ---
 
