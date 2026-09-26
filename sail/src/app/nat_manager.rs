@@ -158,6 +158,17 @@ impl NatManager {
         if sess.inbound_tag.is_empty() {
             sess.inbound_tag = inbound_tag.to_string();
         }
+        // A datagram listener hands over a session with nothing filled in;
+        // what it knows of the sender is in the datagram source.
+        if sess.source.ip().is_unspecified() && sess.source.port() == 0 {
+            sess.source = dgram_src.address;
+        }
+        if sess.stream_id.is_none() {
+            sess.stream_id = dgram_src.stream_id;
+        }
+        if sess.process_name.is_none() {
+            sess.process_name = dgram_src.process_name.clone();
+        }
         if dgram_src.user.is_some() {
             sess.user = dgram_src.user.clone();
         }
