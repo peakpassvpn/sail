@@ -41,10 +41,33 @@ impl std::fmt::Display for UdpPacket {
     }
 }
 
+/// A UDP session: the inbound its datagrams came in on, and their source.
+/// The inbound is part of it, for sources of different inbounds are
+/// unrelated even when their addresses happen to be the same.
+#[derive(PartialEq, Eq, Hash, Clone, Debug)]
+struct NatKey {
+    inbound_tag: String,
+    source: DatagramSource,
+}
+
+impl NatKey {
+    fn new(inbound_tag: &str, source: &DatagramSource) -> Self {
+        NatKey {
+            inbound_tag: inbound_tag.to_string(),
+            source: source.clone(),
+        }
+    }
+}
+
+impl std::fmt::Display for NatKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "[{}] {}", self.inbound_tag, self.source)
+    }
+}
+
 /// Per session: the uplink, the downlink's abort signal, the last activity,
 /// and how long the session may be idle.
-type SessionMap =
-    HashMap<DatagramSource, (Sender<UdpPacket>, oneshot::Sender<bool>, Instant, Duration)>;
+type SessionMap = HashMap<NatKey, (Sender<UdpPacket>, oneshot::Sender<bool>, Instant, Duration)>;
 
 /// How long a session through an inbound without its own `udp_timeout`
 /// may be idle.
@@ -118,7 +141,7 @@ impl NatManager {
         }
     }
 
-    fn _send(&self, guard: &mut MutexGuard<'_, SessionMap>, key: &DatagramSource, pkt: UdpPacket) {
+    fn _send(&self, guard: &mut MutexGuard<'_, SessionMap>, key: &NatKey, pkt: UdpPacket) {
         if let Some(sess) = guard.get_mut(key) {
             if let Err(err) = sess.0.try_send(pkt) {
                 trace!("send uplink packet failed {}", err);
@@ -137,10 +160,11 @@ impl NatManager {
         client_ch_tx: &Sender<UdpPacket>,
         pkt: UdpPacket,
     ) {
+        let key = NatKey::new(inbound_tag, dgram_src);
         let mut guard = self.sessions.lock().await;
 
-        if guard.contains_key(dgram_src) {
-            self._send(&mut guard, dgram_src, pkt);
+        if guard.contains_key(&key) {
+            self._send(&mut guard, &key, pkt);
             return;
         }
 
@@ -191,12 +215,12 @@ impl NatManager {
             guard.len(),
         );
 
-        self._send(&mut guard, dgram_src, pkt);
+        self._send(&mut guard, &key, pkt);
 
         drop(guard);
     }
 
-    pub async fn add_session<'a>(
+    async fn add_session<'a>(
         &self,
         sess: Session,
         raddr: DatagramSource,
@@ -217,8 +241,9 @@ impl NatManager {
             .get(&sess.inbound_tag)
             .copied()
             .unwrap_or(DEFAULT_UDP_TIMEOUT);
+        let key = NatKey::new(&sess.inbound_tag, &raddr);
         guard.insert(
-            raddr.clone(),
+            key.clone(),
             (target_ch_tx, downlink_abort_tx, Instant::now(), udp_timeout),
         );
 
@@ -242,7 +267,7 @@ impl NatManager {
                     Ok(s) => s,
                     Err(e) => {
                         debug!("dispatch {} failed: {}", &raddr_cloned, e);
-                        sessions.lock().await.remove(&raddr_cloned);
+                        sessions.lock().await.remove(&key);
                         return;
                     }
                 };
@@ -251,6 +276,7 @@ impl NatManager {
 
                 // downlink
                 let raddr_downlink = raddr_cloned.clone();
+                let key_downlink = key.clone();
                 let downlink_task = async move {
                     let mut buf = vec![0u8; datagram_buffer_size];
                     loop {
@@ -280,7 +306,7 @@ impl NatManager {
                                 // activity update
                                 {
                                     let mut sessions = sessions.lock().await;
-                                    if let Some(sess) = sessions.get_mut(&raddr_downlink) {
+                                    if let Some(sess) = sessions.get_mut(&key_downlink) {
                                         if addr.port() == 53 {
                                             // If the destination port is 53, we assume it's a
                                             // DNS query and set a negative timeout so it will
@@ -296,7 +322,7 @@ impl NatManager {
                             }
                         }
                     }
-                    sessions.lock().await.remove(&raddr_downlink);
+                    sessions.lock().await.remove(&key_downlink);
                 }
                 .instrument(tracing::Span::current());
 
