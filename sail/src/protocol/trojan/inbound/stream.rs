@@ -67,7 +67,7 @@ where
             .read_exact(&mut buf2)
             .map_err(|e| ProxyError::DatagramFatal(e.into()))
             .await?;
-        let payload_len = u16::from_be_bytes(buf2[..2].try_into().unwrap()) as usize;
+        let payload_len = u16::from_be_bytes([buf2[0], buf2[1]]) as usize;
         if buf.len() < payload_len {
             return Err(ProxyError::DatagramFatal(anyhow!("Small buffer")));
         }

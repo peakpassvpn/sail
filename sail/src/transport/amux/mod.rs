@@ -1,6 +1,5 @@
 use std::cmp::min;
 use std::collections::HashMap;
-use std::convert::TryInto;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -284,14 +283,14 @@ impl<S> MuxConnection<S> {
                     self.read_buf.reserve(3);
                     return Ok(None);
                 }
-                let stream_id = u16::from_be_bytes((&buf[..2]).try_into().unwrap());
+                let stream_id = u16::from_be_bytes([buf[0], buf[1]]);
                 buf = &buf[2..];
 
                 if buf.len() < 2 {
                     self.read_buf.reserve(5);
                     return Ok(None);
                 }
-                let len = u16::from_be_bytes((&buf[..2]).try_into().unwrap()) as usize;
+                let len = u16::from_be_bytes([buf[0], buf[1]]) as usize;
                 buf = &buf[2..];
 
                 if buf.len() < len {
@@ -315,7 +314,7 @@ impl<S> MuxConnection<S> {
                     self.read_buf.reserve(3);
                     return Ok(None);
                 }
-                let stream_id = u16::from_be_bytes((&buf[..2]).try_into().unwrap());
+                let stream_id = u16::from_be_bytes([buf[0], buf[1]]);
 
                 let frame = MuxFrame::StreamFin(stream_id);
                 let _ = self.read_buf.split_to(1 + 2);

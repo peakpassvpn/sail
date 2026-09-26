@@ -122,7 +122,7 @@ impl<R: AsyncRead + Send + Sync + Unpin> InboundDatagramRecvHalf
         let src_addr = self
             .1
             .clone()
-            .unwrap_or_else(|| DatagramSource::new("0.0.0.0:0".parse().unwrap(), None));
+            .unwrap_or_else(|| DatagramSource::new(SocketAddr::from(([0, 0, 0, 0], 0)), None));
 
         Ok((payload_len, src_addr, dst_addr))
     }

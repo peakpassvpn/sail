@@ -191,7 +191,7 @@ unsafe extern "C" fn finalize_client_hello(
         Some((session_id, key)) => {
             // SAFETY: `out_session_id` is 32 writable bytes.
             unsafe { std::ptr::copy_nonoverlapping(session_id.as_ptr(), out_session_id, 32) };
-            *auth.key.lock().unwrap() = Some(key);
+            *auth.key.lock().unwrap_or_else(|e| e.into_inner()) = Some(key);
             1
         }
         None => 0,
@@ -205,7 +205,7 @@ fn verify_certificate(ssl: &mut SslRef, auth: &Auth) -> Result<()> {
     let key = auth
         .key
         .lock()
-        .unwrap()
+        .unwrap_or_else(|e| e.into_inner())
         .ok_or_else(|| anyhow!("no session key"))?;
     let cert = ssl
         .peer_certificate()

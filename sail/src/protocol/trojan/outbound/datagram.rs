@@ -94,7 +94,7 @@ where
         let addr = SocksAddr::read_from(&mut self.0, SocksAddrWireType::PortLast).await?;
         let mut buf2 = [0; 4];
         self.0.read_exact(&mut buf2).await?;
-        let payload_len = u16::from_be_bytes(buf2[..2].try_into().unwrap()) as usize;
+        let payload_len = u16::from_be_bytes([buf2[0], buf2[1]]) as usize;
         // TODO Check CLRF?
         if buf.len() < payload_len {
             return Err(io::Error::new(io::ErrorKind::Interrupted, "Small buffer"));

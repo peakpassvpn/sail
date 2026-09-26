@@ -176,10 +176,8 @@ impl HandshakeRequest {
 
         let cmd = buf.get_u8();
 
-        let dst_addr = match Address::decode(buf)? {
-            Some(a) => a,
-            None => unreachable!("We checked length"),
-        };
+        // The peek above checked the length, so this is only defensive.
+        let dst_addr = Address::decode(buf)?.ok_or_else(|| anyhow::anyhow!("truncated address"))?;
 
         let dst_port = buf.get_u16();
 
@@ -242,10 +240,8 @@ impl UdpHeader {
         // Consume
         buf.advance(2); // RSV
         let frag = buf.get_u8();
-        let addr = match Address::decode(buf)? {
-            Some(a) => a,
-            None => unreachable!(),
-        };
+        // The peek above checked the length, so this is only defensive.
+        let addr = Address::decode(buf)?.ok_or_else(|| anyhow::anyhow!("truncated address"))?;
         let port = buf.get_u16();
 
         Ok(Some(UdpHeader { frag, addr, port }))

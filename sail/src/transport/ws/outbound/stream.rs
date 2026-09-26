@@ -215,7 +215,7 @@ impl EarlyStream {
             let State::Idle(request, host, stream) =
                 std::mem::replace(&mut self.state, State::Failed)
             else {
-                unreachable!()
+                unreachable!("the state was matched as Idle just above")
             };
             let upgrading = connect(request, host, stream, early_data.to_vec()).boxed();
             self.state = State::Upgrading(std::sync::Mutex::new(upgrading));

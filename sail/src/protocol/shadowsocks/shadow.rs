@@ -196,7 +196,7 @@ where
                 ReadState::Length => {
                     // decipher payload length
                     let mut length = me.read_buf.split_to(need);
-                    let dec = me.dec.as_mut().expect("uninitialized cipher");
+                    let dec = me.dec.as_mut().expect("the salt state sets the decryptor");
                     dec.decrypt(&mut length).map_err(|_| crypto_err())?;
                     let payload_len = u16::from_be_bytes([length[0], length[1]]) as usize;
                     me.read_state = ReadState::Data(payload_len);
@@ -204,7 +204,7 @@ where
                 ReadState::Data(n) => {
                     // decipher payload
                     let mut payload = me.read_buf.split_to(need);
-                    let dec = me.dec.as_mut().expect("uninitialized cipher");
+                    let dec = me.dec.as_mut().expect("the salt state sets the decryptor");
                     dec.decrypt(&mut payload).map_err(|_| crypto_err())?;
                     payload.truncate(n);
                     me.plain = payload;
@@ -285,7 +285,7 @@ where
                     let chunks = total.div_ceil(MAX_CHUNK);
                     let overhead = 2 + 2 * me.cipher.tag_len();
                     me.write_buf.reserve(total + chunks * overhead);
-                    let enc = me.enc.as_mut().expect("uninitialized cipher");
+                    let enc = me.enc.as_mut().expect("the salt state sets the encryptor");
                     for data in buf[..total].chunks(MAX_CHUNK) {
                         seal_chunk(&mut me.write_buf, enc, data)?;
                     }

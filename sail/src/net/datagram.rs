@@ -205,10 +205,7 @@ struct DomainTargetMap {
 
 impl DomainTargetMap {
     /// Addresses remembered per socket; the least recently used goes first.
-    const CAPACITY: NonZeroUsize = match NonZeroUsize::new(256) {
-        Some(capacity) => capacity,
-        None => unreachable!(),
-    };
+    const CAPACITY: NonZeroUsize = NonZeroUsize::new(256).expect("256 is not zero");
 
     fn new() -> Self {
         Self {

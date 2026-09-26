@@ -959,6 +959,22 @@ mod tests {
     }
 
     #[test]
+    fn test_corrupt_hellos_do_not_panic() {
+        let server = server(None);
+        let hello = client_hello(Fingerprint::Chrome, "ab12", "www.example.com");
+        for i in 0..hello.len() {
+            for byte in [0x00, 0x01, 0x20, 0x7f, 0xff] {
+                let mut bad = hello.clone();
+                bad[i] = byte;
+                if let Some(parsed) = parse_client_hello(&bad) {
+                    let _ = server.authenticate(&parsed);
+                }
+                let _ = scan_client_hello(&bad);
+            }
+        }
+    }
+
+    #[test]
     fn test_scan_client_hello() {
         let hello = client_hello(Fingerprint::Chrome, "ab12", "www.example.com");
         let mut wire = Vec::new();

@@ -53,7 +53,7 @@ impl InboundDatagram for Datagram {
     }
 
     fn into_std(self: Box<Self>) -> io::Result<std::net::UdpSocket> {
-        unimplemented!();
+        Err(io::Error::other("shadowsocks datagram"))
     }
 }
 

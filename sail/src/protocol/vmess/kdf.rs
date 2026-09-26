@@ -137,7 +137,7 @@ impl_hmac_with_hasher!(VmessKdf3, VmessKdf2);
 #[inline]
 fn get_vmess_kdf_1(key1: &[u8]) -> VmessKdf1 {
     VmessKdf1::new(
-        HmacSha256::new_from_slice(KDF_SALT_CONST_VMESS_AEAD_KDF).unwrap(),
+        HmacSha256::new_from_slice(KDF_SALT_CONST_VMESS_AEAD_KDF).expect("HMAC takes any key size"),
         key1,
     )
 }
