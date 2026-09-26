@@ -33,7 +33,7 @@ fn a_port_in_use_fails_the_start() {
     let result = rx
         .recv_timeout(Duration::from_secs(10))
         .expect("the start should have failed instead of running");
-    let err = result.err().expect("the start should have failed");
+    let err = result.expect_err("the start should have failed");
     assert!(
         err.to_string()
             .contains(&format!("listen tcp 127.0.0.1:{}", port)),

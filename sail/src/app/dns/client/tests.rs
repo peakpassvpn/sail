@@ -6,8 +6,10 @@ mod tests {
     use super::{DnsClient, Resolver, ServerSelectorState};
 
     fn new_client(servers: Vec<&str>) -> DnsClient {
-        let mut dns = crate::config::Dns::default();
-        dns.servers = servers.into_iter().map(|s| s.to_string()).collect();
+        let dns = crate::config::Dns {
+            servers: servers.into_iter().map(|s| s.to_string()).collect(),
+            ..Default::default()
+        };
         DnsClient::new(&dns, Default::default(), Default::default()).unwrap()
     }
 
@@ -21,14 +23,16 @@ mod tests {
 
     #[test]
     fn load_servers_supports_legacy_and_doh_with_ip() {
-        let mut dns = crate::config::Dns::default();
-        dns.servers = vec![
-            "1.1.1.1".to_string(),
-            "direct:system".to_string(),
-            "doh:example.com@9.9.9.9".to_string(),
-            "direct:doh:example.com@8.8.8.8".to_string(),
-            "doh:example.net".to_string(),
-        ];
+        let dns = crate::config::Dns {
+            servers: vec![
+                "1.1.1.1".to_string(),
+                "direct:system".to_string(),
+                "doh:example.com@9.9.9.9".to_string(),
+                "direct:doh:example.com@8.8.8.8".to_string(),
+                "doh:example.net".to_string(),
+            ],
+            ..Default::default()
+        };
         let servers = DnsClient::load_servers(&dns).unwrap();
 
         match &servers[0] {
@@ -81,8 +85,10 @@ mod tests {
             "direct:doh:example.com@not-an-ip",
             "doh:example.com#8.8.8.8",
         ] {
-            let mut dns = crate::config::Dns::default();
-            dns.servers = vec!["1.1.1.1".to_string(), invalid.to_string()];
+            let dns = crate::config::Dns {
+                servers: vec!["1.1.1.1".to_string(), invalid.to_string()],
+                ..Default::default()
+            };
             let err = DnsClient::load_servers(&dns).unwrap_err();
             assert!(
                 err.to_string()
@@ -95,17 +101,19 @@ mod tests {
 
     #[test]
     fn load_servers_supports_encrypted_upstreams() {
-        let mut dns = crate::config::Dns::default();
-        dns.servers = vec![
-            "tls://dns.google".to_string(),
-            "direct:tls://dns.google:8853@8.8.8.8".to_string(),
-            "tls://1.1.1.1".to_string(),
-            "quic://dns.adguard-dns.com".to_string(),
-            "QUIC://[2606:4700::1111]:784".to_string(),
-            "h3://dns.google".to_string(),
-            "direct:h3://cloudflare-dns.com:8443/custom/path@1.1.1.1".to_string(),
-            "h3://[::1]/q@::1".to_string(),
-        ];
+        let dns = crate::config::Dns {
+            servers: vec![
+                "tls://dns.google".to_string(),
+                "direct:tls://dns.google:8853@8.8.8.8".to_string(),
+                "tls://1.1.1.1".to_string(),
+                "quic://dns.adguard-dns.com".to_string(),
+                "QUIC://[2606:4700::1111]:784".to_string(),
+                "h3://dns.google".to_string(),
+                "direct:h3://cloudflare-dns.com:8443/custom/path@1.1.1.1".to_string(),
+                "h3://[::1]/q@::1".to_string(),
+            ],
+            ..Default::default()
+        };
         let servers: Vec<String> = DnsClient::load_servers(&dns)
             .unwrap()
             .iter()
@@ -171,8 +179,10 @@ mod tests {
             "https://dns.google/dns-query",
             "udp://8.8.8.8",
         ] {
-            let mut dns = crate::config::Dns::default();
-            dns.servers = vec!["1.1.1.1".to_string(), invalid.to_string()];
+            let dns = crate::config::Dns {
+                servers: vec!["1.1.1.1".to_string(), invalid.to_string()],
+                ..Default::default()
+            };
             let err = DnsClient::load_servers(&dns).unwrap_err();
             assert!(
                 err.to_string()
@@ -205,8 +215,10 @@ mod tests {
 
     #[test]
     fn no_servers_is_an_error() {
-        let mut dns = crate::config::Dns::default();
-        dns.servers = Vec::new();
+        let dns = crate::config::Dns {
+            servers: Vec::new(),
+            ..Default::default()
+        };
         let err = DnsClient::load_servers(&dns).unwrap_err();
         assert!(err.to_string().contains("no dns servers"));
     }

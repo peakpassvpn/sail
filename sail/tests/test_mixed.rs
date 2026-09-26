@@ -290,7 +290,7 @@ fn test_mixed_socks4a() -> anyhow::Result<()> {
                 let mut request = vec![0x04, 0x01];
                 request.extend_from_slice(&echo.port().to_be_bytes());
                 request.extend_from_slice(&[0, 0, 0, 1]);
-                request.extend_from_slice(b"user\0127.0.0.1\0");
+                request.extend_from_slice(b"user\x00127.0.0.1\x00");
                 stream.write_all(&request).await?;
                 let mut reply = [0u8; 8];
                 timeout(Duration::from_secs(5), stream.read_exact(&mut reply)).await??;

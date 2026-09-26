@@ -253,9 +253,11 @@ fn start_h3_server(cert: &Cert, path: &'static str) -> (u16, Arc<Counters>) {
 }
 
 fn client(servers: &[&str], cert: Option<&Cert>) -> DnsClient {
-    let mut dns = config::Dns::default();
-    dns.servers = servers.iter().map(|s| s.to_string()).collect();
-    dns.timeout = Some(Duration::from_secs(3));
+    let dns = config::Dns {
+        servers: servers.iter().map(|s| s.to_string()).collect(),
+        timeout: Some(Duration::from_secs(3)),
+        ..Default::default()
+    };
     let client =
         DnsClient::new(&dns, Arc::new(DialOptions::default()), Default::default()).unwrap();
     match cert {

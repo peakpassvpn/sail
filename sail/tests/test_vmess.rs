@@ -58,8 +58,6 @@ impl Cert {
 }
 
 /// How a test connects.
-
-/// How a test connects.
 #[derive(Clone, Copy)]
 struct Setup {
     security: &'static str,

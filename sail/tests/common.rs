@@ -490,8 +490,10 @@ pub fn test_tcp_half_close_on_configs(
         let local_addr = listener
             .local_addr()
             .map_err(|e| anyhow::anyhow!("get local addr failed: {}", e))?;
-        let mut sess = sail::session::Session::default();
-        sess.destination = sail::session::SocksAddr::Ip(local_addr);
+        let sess = sail::session::Session {
+            destination: sail::session::SocksAddr::Ip(local_addr),
+            ..Default::default()
+        };
         let mut client_stream =
             new_socks_stream(&socks_addr, socks_port, &sess, None, None).await?;
         let (mut server_stream, _) = listener
@@ -786,8 +788,10 @@ pub fn test_data_transfering_reliability_on_configs(
     let path = dir.path().to_path_buf();
     let send_task = async move {
         let source = path.join(src_file);
-        let mut sess = sail::session::Session::default();
-        sess.destination = sail::session::SocksAddr::Ip(local_addr);
+        let sess = sail::session::Session {
+            destination: sail::session::SocksAddr::Ip(local_addr),
+            ..Default::default()
+        };
         let mut stream =
             new_socks_stream(&socks_addr_cloned, socks_port, &sess, None, None).await?;
         let mut src = tokio::fs::File::open(source)
@@ -803,11 +807,8 @@ pub fn test_data_transfering_reliability_on_configs(
         Ok::<(), anyhow::Error>(())
     };
     let sail_rt_ids = run_sail_instances(&rt, configs.clone())?;
-    let mut futs: Vec<
-        std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<()>> + Send>>,
-    > = Vec::new();
-    futs.push(Box::pin(recv_task));
-    futs.push(Box::pin(send_task));
+    let futs: Vec<std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<()>> + Send>>> =
+        vec![Box::pin(recv_task), Box::pin(send_task)];
     let res = rt.block_on(rt.spawn(futures::future::try_join_all(futs)));
     shutdown_instances(&rt, sail_rt_ids);
     match res {
@@ -828,8 +829,10 @@ pub fn test_data_transfering_reliability_on_configs(
     let recv_task = async move {
         let source = path.join(src_file);
         let dst = path.join(dst_file);
-        let mut sess = sail::session::Session::default();
-        sess.destination = sail::session::SocksAddr::Ip(local_addr);
+        let sess = sail::session::Session {
+            destination: sail::session::SocksAddr::Ip(local_addr),
+            ..Default::default()
+        };
         let mut stream =
             new_socks_stream(&socks_addr_cloned, socks_port, &sess, None, None).await?;
         if dst.exists() {
@@ -888,11 +891,8 @@ pub fn test_data_transfering_reliability_on_configs(
         Ok::<(), anyhow::Error>(())
     };
     let sail_rt_ids = run_sail_instances(&rt, configs.clone())?;
-    let mut futs: Vec<
-        std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<()>> + Send>>,
-    > = Vec::new();
-    futs.push(Box::pin(recv_task));
-    futs.push(Box::pin(send_task));
+    let futs: Vec<std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<()>> + Send>>> =
+        vec![Box::pin(recv_task), Box::pin(send_task)];
     let res = rt.block_on(rt.spawn(futures::future::try_join_all(futs)));
     shutdown_instances(&rt, sail_rt_ids);
     match res {
@@ -973,8 +973,10 @@ pub fn test_data_transfering_reliability_on_configs(
     let path = dir.path().to_path_buf();
     let send_task = async move {
         let source = path.join(src_file);
-        let mut sess = sail::session::Session::default();
-        sess.destination = sail::session::SocksAddr::Ip(local_addr);
+        let sess = sail::session::Session {
+            destination: sail::session::SocksAddr::Ip(local_addr),
+            ..Default::default()
+        };
         let dgram = new_socks_datagram(&socks_addr_cloned, socks_port, &sess, None, None).await?;
         let (_, mut s) = dgram.split();
         let mut src = tokio::fs::File::open(source)
@@ -1004,11 +1006,8 @@ pub fn test_data_transfering_reliability_on_configs(
         Ok::<(), anyhow::Error>(())
     };
     let sail_rt_ids = run_sail_instances(&rt, configs.clone())?;
-    let mut futs: Vec<
-        std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<()>> + Send>>,
-    > = Vec::new();
-    futs.push(Box::pin(recv_task));
-    futs.push(Box::pin(send_task));
+    let futs: Vec<std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<()>> + Send>>> =
+        vec![Box::pin(recv_task), Box::pin(send_task)];
     let res = rt.block_on(rt.spawn(futures::future::try_join_all(futs)));
     shutdown_instances(&rt, sail_rt_ids);
     match res {
@@ -1028,8 +1027,10 @@ pub fn test_data_transfering_reliability_on_configs(
     let socks_addr_cloned = socks_addr.to_string();
     let path = dir.path().to_path_buf();
     let recv_task = async move {
-        let mut sess = sail::session::Session::default();
-        sess.destination = sail::session::SocksAddr::Ip(local_addr);
+        let sess = sail::session::Session {
+            destination: sail::session::SocksAddr::Ip(local_addr),
+            ..Default::default()
+        };
         let dgram = new_socks_datagram(&socks_addr_cloned, socks_port, &sess, None, None).await?;
         let (mut r, mut s) = dgram.split();
         let source = path.join(src_file);
@@ -1127,11 +1128,8 @@ pub fn test_data_transfering_reliability_on_configs(
         Ok::<(), anyhow::Error>(())
     };
     let sail_rt_ids = run_sail_instances(&rt, configs.clone())?;
-    let mut futs: Vec<
-        std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<()>> + Send>>,
-    > = Vec::new();
-    futs.push(Box::pin(recv_task));
-    futs.push(Box::pin(send_task));
+    let futs: Vec<std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<()>> + Send>>> =
+        vec![Box::pin(recv_task), Box::pin(send_task)];
     let res = rt.block_on(rt.spawn(futures::future::try_join_all(futs)));
     shutdown_instances(&rt, sail_rt_ids);
     match res {
@@ -1176,8 +1174,10 @@ pub fn test_configs_with_auth(
     // Simulates an application request.
     let socks_addr = socks_addr.to_string();
     let app_task = async move {
-        let mut sess = sail::session::Session::default();
-        sess.destination = sail::session::SocksAddr::Ip(tcp_addr);
+        let mut sess = sail::session::Session {
+            destination: sail::session::SocksAddr::Ip(tcp_addr),
+            ..Default::default()
+        };
         let mut s = timeout(
             Duration::from_secs(10),
             new_socks_stream(
@@ -1257,7 +1257,7 @@ pub fn test_configs_with_auth(
                 &buf[..n]
             ));
         }
-        if &raddr != &sess.destination {
+        if raddr != sess.destination {
             return Err(anyhow::anyhow!(
                 "datagram source mismatch: expected {:?}, got {:?}",
                 sess.destination,
@@ -1312,7 +1312,7 @@ pub fn test_configs_with_auth(
                 &buf[..n]
             ));
         }
-        if &raddr != &sess.destination {
+        if raddr != sess.destination {
             return Err(anyhow::anyhow!(
                 "second datagram source mismatch: expected {:?}, got {:?}",
                 sess.destination,
@@ -1330,9 +1330,7 @@ pub fn test_configs_with_auth(
             Err(_) => Ok(()), // Aborted
         }
     };
-    let mut futs = Vec::new();
-    futs.push(rt.spawn(bg_task));
-    futs.push(rt.spawn(app_task));
+    let futs = vec![rt.spawn(bg_task), rt.spawn(app_task)];
     let res = rt.block_on(async {
         timeout(Duration::from_secs(60), futures::future::select_all(futs))
             .await
