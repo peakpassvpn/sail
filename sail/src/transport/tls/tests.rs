@@ -221,6 +221,21 @@ fn test_firefox_client_hello_matches_capture() {
     }
 }
 
+// iOS sends the same ClientHello as macOS Safari, so `ios` is the Safari
+// profile.
+#[test]
+fn test_safari_client_hello_matches_ios_capture() {
+    use super::hello::{assert_same_hello, fixture};
+    use super::Fingerprint;
+    let ios = fixture("ios-26");
+    assert_eq!(Fingerprint::from_name("ios").unwrap(), Fingerprint::Safari);
+    let client = TlsClient::new(&[], None, false, Some(Fingerprint::Safari)).unwrap();
+    let mut conn = client.connection("localhost", None).unwrap();
+    let hello = first_hello(&mut conn);
+    assert_same_hello(&hello, &ios);
+    assert_same_order(&hello, &ios);
+}
+
 #[test]
 fn test_safari_client_hello_matches_capture() {
     use super::hello::{assert_same_hello, fixture};

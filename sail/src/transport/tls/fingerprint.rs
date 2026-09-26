@@ -19,20 +19,21 @@ pub enum Fingerprint {
     /// Firefox 156 on macOS.
     Firefox,
     /// Safari 26.3 on macOS, the same ClientHello as the system's
-    /// URLSession.
+    /// URLSession, and as URLSession on iOS 26.4: iOS and macOS share one
+    /// network stack.
     Safari,
 }
 
 impl Fingerprint {
     /// The fingerprint a config names: `chrome` (or `edge`, the same),
-    /// `firefox` or `safari`.
+    /// `firefox`, or `safari` (or `ios`, the same).
     pub fn from_name(name: &str) -> Result<Self> {
         match name {
             "chrome" | "edge" => Ok(Self::Chrome),
             "firefox" => Ok(Self::Firefox),
-            "safari" => Ok(Self::Safari),
+            "safari" | "ios" => Ok(Self::Safari),
             _ => Err(anyhow!(
-                "unsupported fingerprint \"{}\", supported: chrome, edge, firefox, safari",
+                "unsupported fingerprint \"{}\", supported: chrome, edge, firefox, safari, ios",
                 name
             )),
         }

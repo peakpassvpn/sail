@@ -226,6 +226,8 @@ quinn-btls（核实于 2026-09-25）：作者与 btls 相同；依赖 btls 0.5.5
 - **iOS 最低版本：** 提高到 13（BoringSSL 需要 `___chkstk_darwin`）。
 - **已验证的平台：** macOS 测试、aarch64-apple-ios（sail-ffi）、aarch64-unknown-linux-musl（容器内构建）。Android 在本机没有 NDK，只能依赖 CI。
 
+**iOS（2026-09-26）：** 在 Xcode 模拟器（iOS 26.4，iPhone 17）里运行 URLSession 抓包，ClientHello 与 macOS Safari 26.3 完全一致（JA4 `t13d2013h2_a09f3c656075_7f0f34a4126d`，每个扩展的内容也相同），因为 iOS 与 macOS 使用同一套网络库。headless 模拟器里的 Safari 只抓到一个带 TLS_FALLBACK_SCSV 的重试连接，除这一点外也相同。因此 `ios` 作为 `safari` 的别名，fixture 为 `ios-26.hello`。今后有真机时再核对一次。
+
 **btls fork 的维护方式（2026-09-26）：** 工作分支为 `sail`；最初基于 v0.5.6 的分支保留为 `sail-0.5.6`，因为较早的提交按 rev 固定在它上面。上游 PR（#205–#208）都被维护者直接关闭，没有留言，因此不再向上游提 PR，改为不定期把上游 main 合进 `sail` 分支。
 
 **1.1e 的实施记录（2026-09-26）：**
