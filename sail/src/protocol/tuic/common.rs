@@ -1,34 +1,20 @@
-//! What the TUIC client and server share on top of quinn.
-//!
-//! Some of this repeats `transport::quic`, which stays as it is while the
-//! QUIC protocols are written; they are to share one set of glue later.
+//! What the TUIC client and server share on top of `transport::quic`.
 
 use std::io;
-use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::task::{Context, Poll};
 use std::time::Duration;
 
 use anyhow::{anyhow, Result};
 use serde_derive::Deserialize;
-use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tracing::trace;
 
 use super::frag::fragment;
 use super::proto::{encode_heartbeat, encode_packet, PacketHeader, TOKEN_LEN};
 use crate::session::SocksAddr;
+use crate::transport::quic::Side;
 
-/// The congestion controllers sing-box offers for TUIC, all in quinn.
-#[derive(Deserialize, Debug, Clone, Copy, Default, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum CongestionControl {
-    /// sing-box's default.
-    #[default]
-    Cubic,
-    NewReno,
-    Bbr,
-}
+pub use crate::transport::quic::CongestionControl;
 
 /// Which way UDP packets travel.
 #[derive(Deserialize, Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -52,42 +38,21 @@ pub const UNI_STREAM_TIMEOUT: Duration = Duration::from_secs(10);
 /// The heartbeat interval when none is configured, as in sing-box.
 pub const DEFAULT_HEARTBEAT: Duration = Duration::from_secs(10);
 /// The ALPN offered and accepted when none is configured.
-pub const DEFAULT_ALPN: &str = "h3";
+pub const DEFAULT_ALPN: &[&str] = &["h3"];
 
 /// The transport parameters of a TUIC connection.
 pub fn transport_config(
     congestion: CongestionControl,
     tuning: &crate::runtime::options::Quic,
-    idle_timeout: Duration,
+    side: Side,
 ) -> quinn::TransportConfig {
-    let mut config = quinn::TransportConfig::default();
-    let streams = quinn::VarInt::from_u32(tuning.max_concurrent_streams);
-    config.max_concurrent_bidi_streams(streams);
+    let mut config = crate::transport::quic::transport_config(tuning, side, congestion.factory());
     // In `quic` relay mode every UDP packet is a stream of its own.
-    config.max_concurrent_uni_streams(streams);
-    config.max_idle_timeout(quinn::IdleTimeout::try_from(idle_timeout).ok());
+    config.max_concurrent_uni_streams(quinn::VarInt::from_u32(tuning.max_concurrent_streams));
     // TUIC keeps a connection alive with heartbeats while it relays, and
     // lets it go idle otherwise.
     config.keep_alive_interval(None);
-    match congestion {
-        CongestionControl::Cubic => config
-            .congestion_controller_factory(Arc::new(quinn::congestion::CubicConfig::default())),
-        CongestionControl::NewReno => config
-            .congestion_controller_factory(Arc::new(quinn::congestion::NewRenoConfig::default())),
-        CongestionControl::Bbr => {
-            config.congestion_controller_factory(Arc::new(quinn::congestion::BbrConfig::default()))
-        }
-    };
     config
-}
-
-/// The ALPN protocols as quinn-btls takes them.
-pub fn alpn_protocols(alpn: Option<Vec<String>>) -> Vec<Vec<u8>> {
-    alpn.filter(|a| !a.is_empty())
-        .unwrap_or_else(|| vec![DEFAULT_ALPN.to_string()])
-        .into_iter()
-        .map(String::into_bytes)
-        .collect()
 }
 
 pub fn parse_uuid(kind: &str, tag: &str, field: &str, uuid: &str) -> Result<[u8; 16]> {
@@ -195,42 +160,9 @@ pub async fn send_packet(
     }
 }
 
-/// A bidirectional stream, relaying one TCP connection.
-pub struct QuicStream {
-    pub send: quinn::SendStream,
-    pub recv: quinn::RecvStream,
-    pub _active: ActiveGuard,
-}
-
-impl AsyncRead for QuicStream {
-    fn poll_read(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &mut ReadBuf<'_>,
-    ) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.recv).poll_read(cx, buf)
-    }
-}
-
-impl AsyncWrite for QuicStream {
-    fn poll_write(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &[u8],
-    ) -> Poll<io::Result<usize>> {
-        Pin::new(&mut self.send)
-            .poll_write(cx, buf)
-            .map_err(io::Error::from)
-    }
-
-    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.send).poll_flush(cx)
-    }
-
-    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.send).poll_shutdown(cx)
-    }
-}
+/// A bidirectional stream, relaying one TCP connection, counted while it
+/// lives.
+pub type QuicStream = crate::transport::quic::QuicStream<ActiveGuard>;
 
 #[cfg(test)]
 mod tests {

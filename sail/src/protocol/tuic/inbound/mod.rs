@@ -8,10 +8,10 @@ use serde_derive::Deserialize;
 use crate::adapter::inbound::Handler;
 use crate::adapter::registry::{InboundContext, InboundFactory, InboundRegistry};
 use crate::adapter::AnyInboundHandler;
-use crate::runtime::RuntimeEnv;
-use crate::transport::layers::{InboundTls, Listable};
+use crate::transport::layers::InboundTls;
+use crate::transport::quic::{alpn_protocols, inbound_crypto};
 
-use super::common::{parse_uuid, CongestionControl, DEFAULT_HEARTBEAT};
+use super::common::{parse_uuid, CongestionControl, DEFAULT_ALPN, DEFAULT_HEARTBEAT};
 
 mod server;
 
@@ -79,11 +79,15 @@ fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
         return Err(anyhow!("[{}] inbound: tls: TUIC needs TLS enabled", tag));
     }
     let tls = &options.tls;
+    let crypto = inbound_crypto(
+        tag,
+        tls,
+        ctx.env,
+        &alpn_protocols(tls.alpn.as_ref(), DEFAULT_ALPN),
+    )?;
     let server = Server::new(
         users,
-        certificate(tag, tls, ctx.env)?,
-        key(tag, tls, ctx.env)?,
-        tls.alpn.clone().map(Listable::into_vec),
+        crypto,
         options.congestion_control,
         options.auth_timeout.unwrap_or(DEFAULT_AUTH_TIMEOUT),
         options.zero_rtt_handshake,
@@ -96,31 +100,6 @@ fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
         None,
         Some(Arc::new(server)),
     )))
-}
-
-// As `InboundTls` reads them for the `tls` block, which keeps its readers
-// to itself.
-
-fn certificate(tag: &str, tls: &InboundTls, env: &RuntimeEnv) -> Result<String> {
-    match (&tls.certificate, &tls.certificate_path) {
-        (Some(inline), None) => Ok(inline.clone().joined()),
-        (None, Some(path)) => Ok(env.data_path(path)),
-        _ => Err(anyhow!(
-            "[{}] inbound: tls: set exactly one of certificate and certificate_path",
-            tag
-        )),
-    }
-}
-
-fn key(tag: &str, tls: &InboundTls, env: &RuntimeEnv) -> Result<String> {
-    match (&tls.key, &tls.key_path) {
-        (Some(inline), None) => Ok(inline.clone().joined()),
-        (None, Some(path)) => Ok(env.data_path(path)),
-        _ => Err(anyhow!(
-            "[{}] inbound: tls: set exactly one of key and key_path",
-            tag
-        )),
-    }
 }
 
 #[cfg(test)]
