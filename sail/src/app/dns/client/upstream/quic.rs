@@ -1,7 +1,7 @@
 //! DNS over QUIC (RFC 9250) and over HTTP/3: one QUIC connection per
 //! upstream, kept while it lives, and a stream per query.
 
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::net::SocketAddr;
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
@@ -12,7 +12,7 @@ use tracing::debug;
 
 use super::{Upstream, MAX_MESSAGE_LEN};
 use crate::app::dns::DnsClient;
-use crate::net::UdpConnector;
+use crate::transport::quic::{bind, client_crypto, endpoint, endpoint_on};
 
 /// How long a connection without queries is kept. Neither side sends
 /// keep-alives: a connection that went idle is dropped, and the next query
@@ -94,19 +94,9 @@ impl Pool {
 }
 
 fn build_client_config(kind: Kind, certificate: Option<&str>) -> Result<quinn::ClientConfig> {
-    use quinn_btls::QuicSslContext;
-    let mut crypto = quinn_btls::ClientConfig::new()?;
-    // As for TLS: the bundled roots, or `certificate` instead. The server is
-    // verified, which quinn-btls does by default.
-    let certs = match certificate {
-        Some(certificate) => crate::transport::tls::client::load_certificates(certificate)?,
-        None => crate::transport::tls::client::bundled_root_certs()?.to_vec(),
-    };
-    let store = crypto.ctx_mut().cert_store_mut();
-    for cert in certs {
-        store.add_cert(cert)?;
-    }
-    crypto.set_alpn(&[kind.alpn().to_vec()])?;
+    // As for TLS: the bundled roots, or `certificate` instead, and the
+    // server verified.
+    let crypto = client_crypto(certificate, false, &[kind.alpn().to_vec()])?;
     let mut client_config = quinn::ClientConfig::new(Arc::new(crypto));
     let mut transport = quinn::TransportConfig::default();
     transport.max_idle_timeout(quinn::IdleTimeout::try_from(IDLE_TIMEOUT).ok());
@@ -201,25 +191,13 @@ impl DnsClient {
     ) -> Result<Live> {
         let client_config = pool.client_config(self.upstream_certificate.as_deref())?;
         let mut endpoint = if is_direct {
-            let indicator = match addr {
-                SocketAddr::V4(_) => SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0),
-                SocketAddr::V6(_) => SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 0),
-            };
-            let socket = self.new_udp_socket(&indicator, &self.dial).await?;
-            quinn::Endpoint::new(
-                quinn_btls::helpers::default_endpoint_config(),
-                None,
-                socket.into_std()?,
-                Arc::new(quinn::TokioRuntime),
-            )?
+            endpoint(bind(addr.ip(), &self.dial).await?, None)?
         } else {
             // QUIC over the datagrams of the outbound the router picks.
             let datagram = self.dial_datagram(addr).await?;
-            quinn::Endpoint::new_with_abstract_socket(
-                quinn_btls::helpers::default_endpoint_config(),
-                None,
+            endpoint_on(
                 Arc::new(super::socket::DatagramSocket::new(datagram, addr)),
-                Arc::new(quinn::TokioRuntime),
+                None,
             )?
         };
         endpoint.set_default_client_config(client_config);
@@ -346,8 +324,8 @@ async fn exchange_h3(upstream: &Upstream, h3: &H3Handle, request: &[u8]) -> Resu
     use http::header::{ACCEPT, CONTENT_LENGTH, CONTENT_TYPE};
 
     const DNS_MESSAGE: &str = "application/dns-message";
-    let authority = match upstream.host.parse::<IpAddr>() {
-        Ok(IpAddr::V6(ip)) => format!("[{}]", ip),
+    let authority = match upstream.host.parse::<std::net::IpAddr>() {
+        Ok(std::net::IpAddr::V6(ip)) => format!("[{}]", ip),
         _ => upstream.host.clone(),
     };
     let uri = if upstream.port == 443 {
