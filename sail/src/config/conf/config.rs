@@ -196,15 +196,16 @@ where
 }
 
 fn remove_comments(text: &str) -> Cow<'_, str> {
-    let re = Regex::new(r"(#[^*]*)").unwrap();
-    re.replace(text, "")
+    static RE: std::sync::LazyLock<Regex> =
+        std::sync::LazyLock::new(|| Regex::new(r"(#[^*]*)").expect("a valid regex"));
+    RE.replace(text, "")
 }
 
 fn get_section(text: &str) -> Option<&str> {
-    let re = Regex::new(r"^\s*\[\s*([^\]]*)\s*\]\s*$").unwrap();
-    let caps = re.captures(text);
-    caps.as_ref()?;
-    Some(caps.unwrap().get(1).unwrap().as_str())
+    static RE: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
+        Regex::new(r"^\s*\[\s*([^\]]*)\s*\]\s*$").expect("a valid regex")
+    });
+    Some(RE.captures(text)?.get(1)?.as_str())
 }
 
 fn normalize_section(s: &str) -> String {

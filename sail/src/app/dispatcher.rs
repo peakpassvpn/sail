@@ -223,7 +223,10 @@ impl Dispatcher {
 
     /// Records the protocol of the inbound `tag`, or forgets the inbound.
     pub fn set_inbound_type(&self, tag: &str, protocol: Option<&str>) {
-        let mut types = self.inbound_types.write().unwrap();
+        let mut types = self
+            .inbound_types
+            .write()
+            .unwrap_or_else(|e| e.into_inner());
         match protocol.and_then(crate::include::inbound_protocol) {
             Some(protocol) => types.insert(tag.to_string(), protocol),
             None => types.remove(tag),
@@ -233,7 +236,12 @@ impl Dispatcher {
     /// Fills in what the session's inbound tells about it.
     fn identify_inbound(&self, sess: &mut Session) {
         if sess.inbound_type.is_empty() {
-            if let Some(protocol) = self.inbound_types.read().unwrap().get(&sess.inbound_tag) {
+            if let Some(protocol) = self
+                .inbound_types
+                .read()
+                .unwrap_or_else(|e| e.into_inner())
+                .get(&sess.inbound_tag)
+            {
                 sess.inbound_type = protocol;
             }
         }

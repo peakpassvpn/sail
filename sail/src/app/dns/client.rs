@@ -827,7 +827,8 @@ impl DnsClient {
                 }
 
                 let elapsed = tokio::time::Instant::now().duration_since(start);
-                let ttl = resp.answers().iter().next().unwrap().ttl();
+                // The IPs came from the answers, so there is a first one.
+                let ttl = resp.answers().first().map_or(0, |answer| answer.ttl());
                 debug!(
                     "received from server={} ttl={} elapsed={}ms ips={:?}",
                     resolver,
@@ -1735,7 +1736,7 @@ impl DnsClient {
                     if ips.len() > 1 {
                         let deadline = Instant::now()
                             .checked_add(Duration::from_secs(6000))
-                            .unwrap();
+                            .expect("100 minutes from now is a valid instant");
                         self.cache_insert(
                             host,
                             CacheEntry {

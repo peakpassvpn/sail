@@ -169,12 +169,17 @@ impl ExternalHandlers {
         let lib = if let Some(lib) = self.libraries.get(&path.to_string()) {
             lib.clone()
         } else {
-            let lib = Arc::new(Library::new(path.clone()).unwrap());
+            let lib = Arc::new(Library::new(path.clone()).map_err(|e| {
+                io::Error::other(format!("load plugin {}: {}", path.to_string(), e))
+            })?);
             self.libraries.insert(path.to_string(), lib.clone());
             lib
         };
 
-        let plugin = lib.get::<*mut PluginSpec>(b"plugin_spec\0").unwrap().read();
+        let plugin = lib
+            .get::<*mut PluginSpec>(b"plugin_spec\0")
+            .map_err(|e| io::Error::other(format!("plugin {}: {}", path.to_string(), e)))?
+            .read();
         let mut registrar = PluginRegistrarImpl::new(Arc::clone(&lib));
         (plugin.add_handler_fn)(&mut registrar, tag, args);
         self.stream_handlers.extend(registrar.stream_handlers);

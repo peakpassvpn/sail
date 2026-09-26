@@ -126,7 +126,11 @@ impl OutboundDatagram for Datagram {
         Box<dyn OutboundDatagramRecvHalf>,
         Box<dyn OutboundDatagramSendHalf>,
     ) {
-        let (r, s) = self.inner.take().expect("inner should be present").split();
+        let (r, s) = self
+            .inner
+            .take()
+            .expect("split takes the datagram, so inner is still here")
+            .split();
         (
             Box::new(DatagramRecvHalf(
                 r,
@@ -322,9 +326,10 @@ impl StatManager {
 
     pub fn cleanup_task(sm: SyncStatManager) -> crate::Runner {
         Box::pin(async move {
-            let mut rx = {
-                let mut sm_w = sm.write().await;
-                sm_w.rx.take().expect("rx should be present")
+            // Only the first cleanup task of a manager gets the receiver.
+            let Some(mut rx) = sm.write().await.rx.take() else {
+                tracing::warn!("stat manager cleanup is already running");
+                return;
             };
             loop {
                 let mut ids = Vec::new();

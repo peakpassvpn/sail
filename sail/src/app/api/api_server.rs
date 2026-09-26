@@ -311,10 +311,7 @@ table, th, td {
                 c.bytes_recvd(),
                 c.send_completed(),
                 c.recv_completed(),
-                Local
-                    .timestamp_opt(c.start_time() as i64, 0)
-                    .unwrap()
-                    .format("%H:%M:%S"),
+                clock_time(c.start_time()),
             ));
         }
         body.push_str("</table></html>");
@@ -358,10 +355,7 @@ table, th, td {
                 c.bytes_recvd(),
                 c.send_completed(),
                 c.recv_completed(),
-                Local
-                    .timestamp_opt(c.start_time() as i64, 0)
-                    .unwrap()
-                    .format("%H:%M:%S"),
+                clock_time(c.start_time()),
             ));
         }
         body.push_str("</table></html>");
@@ -480,4 +474,13 @@ impl ApiServer {
             }
         }))
     }
+}
+
+/// The local wall-clock time of `secs` since the epoch, or "-" if it has
+/// none.
+fn clock_time(secs: u32) -> String {
+    Local
+        .timestamp_opt(i64::from(secs), 0)
+        .single()
+        .map_or_else(|| "-".to_string(), |t| t.format("%H:%M:%S").to_string())
 }

@@ -119,7 +119,7 @@ impl Instance {
         )]
         let mut runners = vec![StatManager::cleanup_task(self.stat_manager.clone())];
         let inbound_manager = self.inbound_manager.clone();
-        let mut inbounds = inbound_manager.lock().unwrap();
+        let mut inbounds = inbound_manager.lock().unwrap_or_else(|e| e.into_inner());
         inbounds.start_network_listeners()?;
 
         // What the routes replace is read before the device takes them.

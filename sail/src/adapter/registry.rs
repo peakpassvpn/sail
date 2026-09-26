@@ -589,7 +589,10 @@ fn find_cycle<T>(nodes: &[Node<'_, T>]) -> Option<Vec<String>> {
         match marks.get(tag) {
             Some(Mark::Done) => return None,
             Some(Mark::Visiting) => {
-                let start = path.iter().position(|t| *t == tag).unwrap();
+                let start = path
+                    .iter()
+                    .position(|t| *t == tag)
+                    .expect("a tag being visited is on the path");
                 let mut cycle: Vec<String> = path[start..].iter().map(|t| t.to_string()).collect();
                 cycle.push(tag.to_owned());
                 return Some(cycle);

@@ -178,7 +178,7 @@ pub fn setup_logger(config: &config::Log, host: &Host) -> Result<()> {
         config::model::LogLevel::None => return Ok(()),
     };
     let (writer, writer_guard) = get_writer(config, host)?;
-    let mut h = HANDLE.write().unwrap();
+    let mut h = HANDLE.write().unwrap_or_else(|e| e.into_inner());
     if let Some(h) = h.as_mut() {
         h.reload(filter, writer, writer_guard)?;
     } else {

@@ -475,7 +475,7 @@ impl RuntimeManager {
                             // by an editor, in that case create a new watcher to watch
                             // the new file.
                             if let event::EventKind::Remove(event::RemoveKind::File) = ev.kind {
-                                if let Some(m) = RUNTIME_MANAGER.lock().unwrap().get(&rt_id) {
+                                if let Some(m) = runtime_managers().get(&rt_id) {
                                     let _ = m.new_watcher();
                                 }
                             }
@@ -493,7 +493,10 @@ impl RuntimeManager {
                 )
                 .map_err(Error::Watcher)?;
             info!("watching changes of file: {}", config_path);
-            self.watcher.lock().unwrap().replace(watcher);
+            self.watcher
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .replace(watcher);
         }
         Ok(())
     }
@@ -513,19 +516,23 @@ lazy_static! {
         Mutex::new(HashMap::new());
 }
 
+/// The running runtimes. A panic while the registry was locked cannot leave
+/// the map half-changed, so a poisoned lock is taken over rather than
+/// failing every later call.
+pub fn runtime_managers() -> std::sync::MutexGuard<'static, HashMap<RuntimeId, Arc<RuntimeManager>>>
+{
+    RUNTIME_MANAGER.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 pub fn reload(key: RuntimeId) -> Result<(), Error> {
-    if let Some(m) = RUNTIME_MANAGER
-        .lock()
-        .map_err(|_| Error::RuntimeManager)?
-        .get(&key)
-    {
+    if let Some(m) = runtime_managers().get(&key) {
         return m.blocking_reload();
     }
     Err(Error::RuntimeManager)
 }
 
 pub fn shutdown(key: RuntimeId) -> bool {
-    if let Some(m) = RUNTIME_MANAGER.lock().unwrap().get(&key) {
+    if let Some(m) = runtime_managers().get(&key) {
         return m.blocking_shutdown();
     }
     false
@@ -534,9 +541,7 @@ pub fn shutdown(key: RuntimeId) -> bool {
 /// Tells the TUN inbound of runtime `key` that the host's network changed,
 /// with the new interface MTU when it changed too.
 pub fn network_changed(key: RuntimeId, mtu: Option<usize>) -> Result<(), Error> {
-    let manager = RUNTIME_MANAGER
-        .lock()
-        .map_err(|_| Error::RuntimeManager)?
+    let manager = runtime_managers()
         .get(&key)
         .cloned()
         .ok_or(Error::RuntimeManager)?;
@@ -569,7 +574,7 @@ async fn stop_tun(control: Option<protocol::tun::NativeRuntimeControl>) {
 }
 
 pub fn is_running(key: RuntimeId) -> bool {
-    RUNTIME_MANAGER.lock().unwrap().contains_key(&key)
+    runtime_managers().contains_key(&key)
 }
 
 /// The dial defaults of an instance: `route`'s, with the system's default
@@ -837,10 +842,7 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
         Err(e) => warn!("cannot watch SIGTERM: {}", e),
     }
 
-    RUNTIME_MANAGER
-        .lock()
-        .map_err(|_| Error::RuntimeManager)?
-        .insert(rt_id, runtime_manager);
+    runtime_managers().insert(rt_id, runtime_manager);
 
     trace!("added runtime {}", &rt_id);
 
@@ -849,10 +851,7 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
     instance.stop();
     drop(instance);
 
-    RUNTIME_MANAGER
-        .lock()
-        .map_err(|_| Error::RuntimeManager)?
-        .remove(&rt_id);
+    runtime_managers().remove(&rt_id);
 
     rt.shutdown_background();
 

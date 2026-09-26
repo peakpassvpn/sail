@@ -90,7 +90,7 @@ impl InboundDatagramRecvHalf for DatagramRecvHalf {
             .map_ok(|n| {
                 (
                     n,
-                    DatagramSource::new("0.0.0.0:0".parse::<SocketAddr>().unwrap(), None),
+                    DatagramSource::new(SocketAddr::from(([0, 0, 0, 0], 0)), None),
                     self.1.clone(),
                 )
             })

@@ -28,8 +28,16 @@ lazy_static::lazy_static! {
 #[cfg(feature = "inbound-nf")]
 pub fn get_network_listen_addr(tag: &str, kind: Network) -> Option<SocketAddr> {
     match kind {
-        Network::Tcp => TCP_LISTENING_ADDRESSES.read().unwrap().get(tag).copied(),
-        Network::Udp => UDP_LISTENING_ADDRESSES.read().unwrap().get(tag).copied(),
+        Network::Tcp => TCP_LISTENING_ADDRESSES
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(tag)
+            .copied(),
+        Network::Udp => UDP_LISTENING_ADDRESSES
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(tag)
+            .copied(),
     }
 }
 
@@ -237,7 +245,7 @@ async fn handle_tcp_listen(
     {
         TCP_LISTENING_ADDRESSES
             .write()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .insert(handler.tag().clone(), listen_addr);
     }
 
@@ -276,7 +284,7 @@ async fn handle_udp_listen(
     {
         UDP_LISTENING_ADDRESSES
             .write()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .insert(handler.tag().clone(), listen_addr);
     }
 
