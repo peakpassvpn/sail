@@ -41,7 +41,10 @@ Sail started as a fork of [leaf](https://github.com/eycorsican/leaf) by eycorsic
 | Feature | Inbound | Outbound | Notes |
 |---|---|---|---|
 | Chain | ✅ | ✅ | Proxy chaining |
-| Failover | ❌ | ✅ | Failover with health check |
+| Selector | ❌ | ✅ | Manual choice, kept across restarts |
+| URLTest | ❌ | ✅ | Fastest member by URL test |
+| Fallback | ❌ | ✅ | First healthy member, in order |
+| Load balance | ❌ | ✅ | Consistent hashing, round-robin, sticky sessions |
 
 ### Transparent Proxying
 
