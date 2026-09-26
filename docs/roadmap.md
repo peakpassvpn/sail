@@ -266,7 +266,7 @@ Sail 与 sing-box 的对比已经完成。当前结果表明：
 | 5.12 | 定期检查浏览器指纹（**由用户手动执行**，约每月一次，或在浏览器发布大版本时） | 各 profile 只对应一个浏览器版本：chrome 154（桌面与 Android 相同）、firefox 156、safari 26.3（iOS 26 相同）、android（OkHttp 4.12 + Android 17 Conscrypt） | 每个 profile 都与该浏览器最新正式版的 ClientHello 一致；抓包与 fixture 不同时更新 profile 和 fixture，旧 fixture 删除（见下方说明） |
 
 **5.12 检查方法：**
-1. **抓包。** 在本机起一个只保存首个 ClientHello 的监听（示例见 `sail/tests/fixtures/tls/README.md`），让浏览器用全新 profile 访问 `https://localhost:<port>/`，每个浏览器抓 2–3 次。
+1. **抓包。** 运行 `scripts/capture-client-hello.py <port> <前缀>`，它只保存每个连接的首个 ClientHello，让浏览器用全新 profile 访问 `https://localhost:<port>/`，每个浏览器抓 2–3 次。
    - Chrome：用官方 stable dmg，把 app 复制出 dmg 后加 `--headless=new --use-mock-keychain` 运行。**不要**用 Chrome for Testing，它会多发实验性扩展 `0x12e0`。
    - Firefox：挂载官方 dmg 后 headless 运行，`user.js` 里设置 `network.proxy.type` 为 0。
    - Safari：`open -g -a Safari <url>`；也可以跑一个 ephemeral URLSession，两者的 ClientHello 相同。
