@@ -289,9 +289,9 @@ pub enum OutboundTransport {
 pub struct OutboundMultiplex {
     #[serde(default)]
     pub enabled: bool,
-    /// sing-box's multiplex, above the protocol: `smux`, the default,
-    /// `yamux` or `h2mux`. Or `amux`, sail's own, below the protocol, which
-    /// is to be removed.
+    /// sing-box's multiplex, above the protocol: `h2mux`, the default as in
+    /// sing-box, `smux` or `yamux`. Or `amux`, sail's own, below the
+    /// protocol, which is to be removed.
     #[serde(default)]
     pub protocol: Option<String>,
     #[serde(default)]
@@ -338,7 +338,7 @@ fn sing_mux_options(tag: &str, mux: &OutboundMultiplex) -> Result<SingMuxOptions
     #[cfg(feature = "mux")]
     {
         use crate::transport::mux::{client::ClientOptions, Protocol};
-        let name = mux.protocol.as_deref().unwrap_or("smux");
+        let name = mux.protocol.as_deref().unwrap_or("h2mux");
         let protocol = Protocol::from_name(name).ok_or_else(|| {
             anyhow!(
                 "[{}] outbound: multiplex.protocol: unknown protocol \"{}\", \
