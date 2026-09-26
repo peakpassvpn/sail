@@ -931,6 +931,24 @@ impl<I: PacketIo> SingleShardRunner<I> {
         Ok(())
     }
 
+    /// Observes memory pressure and expires the state it shortens: idle UDP
+    /// flows, incomplete fragments, and stale PMTU entries.
+    fn expire_under_pressure(&mut self, now_ms: u64) -> Result<(), RunnerError> {
+        let pressure = self.ledger.snapshot().pressure;
+        self.observe_pressure(now_ms, pressure);
+        let timeout_divisor = match pressure {
+            PressureLevel::Normal => 1,
+            PressureLevel::Constrained => 2,
+            PressureLevel::Critical => 4,
+            PressureLevel::Exhausted => 8,
+        };
+        self.udp
+            .expire_idle_under_pressure(now_ms, timeout_divisor)?;
+        self.expire_fragments(now_ms, timeout_divisor)?;
+        self.pmtu.expire(now_ms)?;
+        Ok(())
+    }
+
     /// Performs one bounded send/receive pass. `WouldBlock` is reported as a
     /// temporary outcome; other I/O errors transition the runner to `Failed`.
     ///
@@ -955,19 +973,14 @@ impl<I: PacketIo> SingleShardRunner<I> {
         }
 
         let mut outcome = StepOutcome::default();
-        let pressure = self.ledger.snapshot().pressure;
-        self.observe_pressure(now_ms, pressure);
-        let timeout_divisor = match pressure {
-            PressureLevel::Normal => 1,
-            PressureLevel::Constrained => 2,
-            PressureLevel::Critical => 4,
-            PressureLevel::Exhausted => 8,
-        };
-        self.udp
-            .expire_idle_under_pressure(now_ms, timeout_divisor)?;
-        self.expire_fragments(now_ms, timeout_divisor)?;
-        self.pmtu.expire(now_ms)?;
+        self.expire_under_pressure(now_ms)?;
         self.advance_tcp_timers(now_ms, &mut outcome)?;
+        // Adapters drop a pending step whenever a timer or command wins the
+        // race, and events only exist in this outcome: hand them over before
+        // any await. What the timers queued to send goes out next step.
+        if !outcome.tcp_events.is_empty() {
+            return Ok(outcome);
+        }
         self.flush_tx(&mut outcome).await?;
         if outcome.would_block || !self.tx.is_empty() {
             return Ok(outcome);

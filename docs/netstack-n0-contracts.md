@@ -828,7 +828,7 @@ those cross-target library checks need to be rerun.
   datagrams) and passed 10 of 10 runs in about one second each after the
   contract, adapter, wrapper, and UDP endpoint fixes. The wrapper's delay is
   now a deadline rechecked on retry rather than an await.
-- `cargo test -p sail-netstack` currently runs 257 deterministic contract,
+- `cargo test -p sail-netstack` currently runs 258 deterministic contract,
   randomized-model, scheduler, timer, wire, and UDP lifecycle tests. Strict
   `cargo clippy -p sail-netstack --all-targets -- -D warnings` is clean. Both
   are required by the macOS/Linux CI matrix.
@@ -851,10 +851,10 @@ those cross-target library checks need to be rerun.
   unconditional 64-bit atomic in `sail-netstack`: the denial counter now uses
   a saturating `AtomicUsize` while preserving the public `u64` snapshot field.
   `cargo check -p sail-netstack --locked -Z build-std=std,panic_abort --target
-  mips-unknown-linux-musl` passes without warnings. The current 257-test
+  mips-unknown-linux-musl` passes without warnings. The current 258-test
   library and integration suite, including the wire-validation and legacy
   zero-MTU PMTU cases, passes under the image's MIPS32 big-endian QEMU runner
-  (latest run 257 of 257, including every fix in this revision).
+  (latest run 258 of 258, including every fix in this revision).
   Protocol tests use a relaxed test-only scheduler time ceiling so emulation
   speed cannot masquerade as a packet/state failure; the production 2 ms
   ceiling and its dedicated scheduler test are unchanged. This proves the
@@ -945,7 +945,7 @@ the latter while the kernel soak below was running. The `linux-server` core
 benchmark (three samples per group, zero drops) measured shard-routing
 medians of 83.3, 76.9, and 48.6 ms for 1, 2, and 4 shards on this VM; that is
 host evidence, not the target-server baseline. After the port, the `dev`
-branch passes on the same host: the 257-test `sail-netstack` suite and its
+branch passes on the same host: the 258-test `sail-netstack` suite and its
 strict Clippy, the `sail` library suite (362 passed on `dev` at `bd5680e`;
 5 ignored privileged tests), all three privileged kernel tests, and Linux
 Clippy with no warning in the ported files. `sail-ffi` also checks for `aarch64-apple-ios`.
@@ -981,6 +981,26 @@ device. That was a harness collision, not a stack failure: the soak, GSO,
 and multi-queue tests now use distinct subnets (10.206, 10.207, 10.203). The
 24-hour kernel soak restarted on the `dev` port at 2026-09-26T00:33:54Z
 (release build) and ran 15,074 iterations (4.0 GB) in its first minute.
+
+Every kernel soak so far also slowed down steadily while its ledger stayed
+flat: from about 15,000 iterations per minute to about 30 within an hour,
+with one CPU saturated and RSS creeping from 14 to 41 MiB. A fresh process
+started beside a degraded one ran at full speed, so the cause was state the
+process accumulated, not host contention. Stack samples from a symbolized
+build (in `/root/sail-soak/run3-kernel-leak`) show the native runtime's
+10 ms `retry_pending` pass over its `FlowBridge` map dominating after 15
+minutes: the map grew by about one entry per connection. A step fired the
+TIME-WAIT expiry, put the resulting `Closed` event in its local outcome,
+and then awaited the idle device; the runtime dropped the step on the next
+timer tick, so the event was lost and the bridge entry for that closed flow
+was never removed. A step now returns its events before any await. TIME-WAIT
+eviction, which removed the oldest entry without any event, and a flow that
+could not get a TIME-WAIT slot now also report `Closed`.
+`a_timer_event_survives_a_step_dropped_while_the_device_is_idle` polls each
+step once and drops it the way the runtime does; it fails without the fix,
+and the TIME-WAIT eviction test asserts the evicted flow's `Closed` event.
+The leaking soak was stopped and the 24-hour kernel soak restarted on the
+fixed code.
 Completion status is appended to `/root/sail-soak/status`; the stopped and
 interrupted runs' logs are kept in `/root/sail-soak/run1-prefix` and
 `/root/sail-soak/run2-kernel-interrupted`. A VM soak does not replace the

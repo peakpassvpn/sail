@@ -1915,6 +1915,100 @@ fn runner_keepalive_probe_times_out_an_unresponsive_idle_flow() {
     assert_eq!(ledger.snapshot().used[ResourceKind::TcpFlows as usize], 0);
 }
 
+/// A device that is idle between the packets a test queues: `recv` stays
+/// pending, as a real TUN does, instead of failing with `WouldBlock`.
+struct IdleIo(DynamicIo);
+
+impl PacketIo for IdleIo {
+    async fn recv(&mut self, out: &mut PacketBatch) -> io::Result<usize> {
+        if self.0.recv.lock().unwrap().is_empty() {
+            return poll_fn(|_| Poll::Pending).await;
+        }
+        self.0.recv(out).await
+    }
+
+    async fn send(&mut self, packets: &PacketBatch) -> io::Result<usize> {
+        self.0.send(packets).await
+    }
+
+    fn capabilities(&self) -> PacketCapabilities {
+        self.0.capabilities()
+    }
+}
+
+#[test]
+fn a_timer_event_survives_a_step_dropped_while_the_device_is_idle() {
+    // Found by the kernel soak: adapters drop a step on every timer tick,
+    // and a step that fired a timer and then waited on an idle device lost
+    // the timer's events, so the adapter never forgot the closed flow.
+    use futures::FutureExt;
+
+    let source = SocketAddr::from((Ipv4Addr::new(10, 1, 2, 3), 40_003));
+    let destination = SocketAddr::from((Ipv4Addr::new(10, 1, 2, 1), 443));
+    let recv = Arc::new(Mutex::new(VecDeque::from([tcp_packet(
+        source,
+        destination,
+        100,
+        0,
+        TcpFlags::SYN,
+    )])));
+    let sent = Arc::new(Mutex::new(Vec::new()));
+    let io = IdleIo(DynamicIo {
+        recv: Arc::clone(&recv),
+        sent: Arc::clone(&sent),
+        max_batch: 1,
+    });
+    let ledger = ResourceLedger::new(BudgetProfile::Mobile.budget()).unwrap();
+    let config = RunnerConfig {
+        tcp: sail_netstack::TcpTableConfig {
+            keepalive_idle_ms: Some(10),
+            keepalive_interval_ms: 5,
+            keepalive_max_probes: 1,
+            ..sail_netstack::TcpTableConfig::default()
+        },
+        ..deterministic_runner_config()
+    };
+    let mut runner = SingleShardRunner::new(io, Arc::clone(&ledger), config).unwrap();
+
+    for now in 1..=3 {
+        let _ = runner.step(now).now_or_never();
+    }
+    let (syn_ack, _) = last_sent_tcp(&sent);
+    recv.lock().unwrap().push_back(tcp_packet(
+        source,
+        destination,
+        101,
+        syn_ack.sequence.wrapping_add(1).get(),
+        TcpFlags::ACK,
+    ));
+    let mut handshake = Vec::new();
+    for now in 4..=6 {
+        if let Some(outcome) = runner.step(now).now_or_never() {
+            handshake.extend(outcome.unwrap().tcp_events);
+        }
+    }
+    let token = match handshake.as_slice() {
+        [TcpEvent::Accepted(connection)] => connection.token,
+        events => panic!("unexpected TCP events: {events:?}"),
+    };
+    runner.accept_tcp(token).unwrap();
+    // The first poll sends the keepalive probe and then waits on the idle
+    // device; the probe was already handed over.
+    let _ = runner.step(20).now_or_never();
+    assert_eq!(runner.stats_snapshot().tcp_keepalive_probes, 1);
+
+    // The keepalive timeout closes the flow. Poll each step once and drop
+    // it, as an adapter racing a timer tick does.
+    let mut events = Vec::new();
+    for now in [30, 31, 32] {
+        if let Some(outcome) = runner.step(now).now_or_never() {
+            events.extend(outcome.unwrap().tcp_events);
+        }
+    }
+    assert!(events.contains(&TcpEvent::Closed(token)), "{events:?}");
+    assert_eq!(ledger.snapshot().used[ResourceKind::TcpFlows as usize], 0);
+}
+
 #[test]
 fn authenticated_packet_too_big_lowers_live_tcp_write_limit() {
     let source = SocketAddr::from((Ipv4Addr::new(10, 3, 0, 2), 40_000));

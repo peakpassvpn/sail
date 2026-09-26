@@ -2398,9 +2398,17 @@ mod tests {
             .ok()
             .and_then(|value| value.parse::<u64>().ok())
             .unwrap_or(30);
+        // `SAIL_NETSTACK_SOAK_NET` (default 206) picks the 10.N.0.0/24 the
+        // device takes, so that soaks can run side by side: two devices on
+        // one subnet would receive each other's traffic.
+        let net = std::env::var("SAIL_NETSTACK_SOAK_NET")
+            .ok()
+            .and_then(|value| value.parse::<u8>().ok())
+            .unwrap_or(206);
+        let local = Ipv4Addr::new(10, net, 0, 1);
         let first = tun_rs::DeviceBuilder::new()
-            .name("sailns-soak")
-            .ipv4("10.206.0.1", 24, None)
+            .name(format!("sailns-soak{net}"))
+            .ipv4(local, 24, None)
             .mtu(1_500)
             .enable(true)
             .multi_queue(true)
@@ -2424,8 +2432,8 @@ mod tests {
         let (runtime, mut accepted, mut datagrams, mut udp_reply, mut control) =
             NativeRuntimeGroup::new(queues, Arc::clone(&ledger), config, 8, 64, 64).unwrap();
         let runtime_task = tokio::spawn(runtime.run());
-        let udp_remote = SocketAddr::from((Ipv4Addr::new(10, 206, 0, 2), 53_000));
-        let tcp_remote = SocketAddr::from((Ipv4Addr::new(10, 206, 0, 2), 45_000));
+        let udp_remote = SocketAddr::from((Ipv4Addr::new(10, net, 0, 2), 53_000));
+        let tcp_remote = SocketAddr::from((Ipv4Addr::new(10, net, 0, 2), 45_000));
         let started = std::time::Instant::now();
         let deadline = started + Duration::from_secs(seconds);
         let mut next_report = started;
@@ -2433,7 +2441,9 @@ mod tests {
         let mut transferred = 0_u64;
         while std::time::Instant::now() < deadline {
             let seed = iterations;
-            let socket = tokio::net::UdpSocket::bind("10.206.0.1:0").await.unwrap();
+            let socket = tokio::net::UdpSocket::bind(SocketAddr::from((local, 0)))
+                .await
+                .unwrap();
             let udp_size = 1 + usize::try_from(seed % 4_000).unwrap();
             let udp_payload = (0..udp_size)
                 .map(|index| (index as u64 ^ seed) as u8)

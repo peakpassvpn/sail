@@ -975,8 +975,17 @@ impl TcpTable {
         if closed {
             self.remove(key);
         } else if enters_time_wait {
-            if let Some(cancelled) = self.compact_time_wait(key)? {
+            // Whichever flow leaves the table here, its owner is told: the
+            // evicted oldest TIME-WAIT, or this one when it cannot wait.
+            let (evicted, kept) = self.compact_time_wait(key)?;
+            if let Some(cancelled) = evicted {
+                output.events.push(TcpEvent::Closed(cancelled.token));
                 output.cancelled_timers.push(cancelled);
+            }
+            if !kept {
+                let token = TcpFlowToken::new_on_shard(id, self.generation, self.shard);
+                output.timers.retain(|timer| timer.token != token);
+                output.events.push(TcpEvent::Closed(token));
             }
         }
         self.sync_flow_stats(key);
@@ -2092,21 +2101,26 @@ impl TcpTable {
         Ok(output)
     }
 
+    /// Moves a flow into TIME-WAIT, evicting the oldest entry when the slots
+    /// are full. Returns the evicted entry, and whether the flow was kept:
+    /// without a slot it is removed outright.
     fn compact_time_wait(
         &mut self,
         key: TcpFlowKey,
-    ) -> Result<Option<TcpTimerCancel>, TcpTableError> {
+    ) -> Result<(Option<TcpTimerCancel>, bool), TcpTableError> {
         let mut cancelled = None;
-        let slot_lease = match self.ledger.try_acquire(ResourceKind::TimeWait, 1) {
-            Ok(lease) => lease,
-            Err(error) => {
-                let Some(cancel) = self.evict_oldest_time_wait() else {
-                    self.remove(key);
-                    return Err(error.into());
-                };
-                cancelled = Some(cancel);
-                self.ledger.try_acquire(ResourceKind::TimeWait, 1)?
-            }
+        let slot_lease = self
+            .ledger
+            .try_acquire(ResourceKind::TimeWait, 1)
+            .ok()
+            .or_else(|| {
+                cancelled = self.evict_oldest_time_wait();
+                cancelled.as_ref()?;
+                self.ledger.try_acquire(ResourceKind::TimeWait, 1).ok()
+            });
+        let Some(slot_lease) = slot_lease else {
+            self.remove(key);
+            return Ok((cancelled, false));
         };
         let flow = self.by_key.remove(&key).ok_or(TcpTableError::Invariant(
             "TIME-WAIT transition lost its full flow",
@@ -2137,7 +2151,7 @@ impl TcpTable {
             },
         );
         self.time_wait_order.insert(id.get(), key);
-        Ok(cancelled)
+        Ok((cancelled, true))
     }
 
     fn evict_oldest_time_wait(&mut self) -> Option<TcpTimerCancel> {

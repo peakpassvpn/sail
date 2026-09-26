@@ -2368,6 +2368,8 @@ fn time_wait_reuses_metadata_and_evicts_the_oldest_slot_deterministically() {
     assert_eq!(table.stats().time_wait_evictions, 1);
     assert_eq!(replacement.cancelled_timers.len(), 1);
     assert_eq!(replacement.cancelled_timers[0].token, first);
+    // The evicted flow's owner must learn that it is gone.
+    assert!(replacement.events.contains(&TcpEvent::Closed(first)));
     assert_eq!(
         replacement.cancelled_timers[0].event,
         TimerEvent::TimeWaitExpired
