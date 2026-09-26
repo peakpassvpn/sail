@@ -22,18 +22,22 @@ pub enum Fingerprint {
     /// URLSession, and as URLSession on iOS 26.4: iOS and macOS share one
     /// network stack.
     Safari,
+    /// An Android app on OkHttp 4.12 over the platform's Conscrypt, as on
+    /// Android 17.
+    Android,
 }
 
 impl Fingerprint {
     /// The fingerprint a config names: `chrome` (or `edge`, the same),
-    /// `firefox`, or `safari` (or `ios`, the same).
+    /// `firefox`, `safari` (or `ios`, the same), or `android` (OkHttp).
     pub fn from_name(name: &str) -> Result<Self> {
         match name {
             "chrome" | "edge" => Ok(Self::Chrome),
             "firefox" => Ok(Self::Firefox),
             "safari" | "ios" => Ok(Self::Safari),
+            "android" => Ok(Self::Android),
             _ => Err(anyhow!(
-                "unsupported fingerprint \"{}\", supported: chrome, edge, firefox, safari, ios",
+                "unsupported fingerprint \"{}\", supported: chrome, edge, firefox, safari, ios, android",
                 name
             )),
         }
@@ -52,6 +56,7 @@ impl Fingerprint {
             Self::Chrome => chrome::configure(builder),
             Self::Firefox => firefox::configure(builder),
             Self::Safari => safari::configure(builder),
+            Self::Android => android::configure(builder),
         }
     }
 
@@ -67,6 +72,7 @@ impl Fingerprint {
             Self::Chrome => chrome::configure_connection(ssl, alpn, ech),
             Self::Firefox => firefox::configure_connection(ssl, ech),
             Self::Safari => safari::configure_connection(ssl),
+            Self::Android => android::configure_connection(ssl),
         }
     }
 }
@@ -323,6 +329,74 @@ fn set_ech_grease_shape(ssl: &mut SslRef, aead_id: u16, payload_len: usize) -> R
         return Err(anyhow!("set ech grease shape failed"));
     }
     Ok(())
+}
+
+mod android {
+    use super::*;
+
+    // OkHttp 4's MODERN_TLS order. OkHttp 5 differs only here: its TLS 1.2
+    // list starts ECDHE-ECDSA-AES128-GCM, ECDHE-RSA-AES128-GCM,
+    // ECDHE-ECDSA-AES256-GCM, ECDHE-RSA-AES256-GCM.
+    const CIPHERS: &str = "TLS_AES_128_GCM_SHA256:\
+        TLS_AES_256_GCM_SHA384:\
+        TLS_CHACHA20_POLY1305_SHA256:\
+        ECDHE-ECDSA-AES128-GCM-SHA256:\
+        ECDHE-ECDSA-AES256-GCM-SHA384:\
+        ECDHE-ECDSA-CHACHA20-POLY1305:\
+        ECDHE-RSA-AES128-GCM-SHA256:\
+        ECDHE-RSA-AES256-GCM-SHA384:\
+        ECDHE-RSA-CHACHA20-POLY1305:\
+        ECDHE-RSA-AES128-SHA:\
+        ECDHE-RSA-AES256-SHA:\
+        AES128-GCM-SHA256:\
+        AES256-GCM-SHA384:\
+        AES128-SHA:\
+        AES256-SHA";
+
+    const CURVES: &str = "X25519MLKEM768:X25519:P-256:P-384";
+
+    const SIGALGS: &[SslSignatureAlgorithm] = &[
+        SslSignatureAlgorithm::ECDSA_SECP256R1_SHA256,
+        SslSignatureAlgorithm::RSA_PSS_RSAE_SHA256,
+        SslSignatureAlgorithm::RSA_PKCS1_SHA256,
+        SslSignatureAlgorithm::ECDSA_SECP384R1_SHA384,
+        SslSignatureAlgorithm::RSA_PSS_RSAE_SHA384,
+        SslSignatureAlgorithm::RSA_PKCS1_SHA384,
+        SslSignatureAlgorithm::RSA_PSS_RSAE_SHA512,
+        SslSignatureAlgorithm::RSA_PKCS1_SHA512,
+        SslSignatureAlgorithm::RSA_PKCS1_SHA1,
+    ];
+
+    // Conscrypt keeps one order: no GREASE, no permutation.
+    const EXTENSIONS: &[ExtensionType] = &[
+        ExtensionType::SERVER_NAME,
+        ExtensionType::EXTENDED_MASTER_SECRET,
+        ExtensionType::RENEGOTIATE,
+        ExtensionType::SUPPORTED_GROUPS,
+        ExtensionType::EC_POINT_FORMATS,
+        ExtensionType::SESSION_TICKET,
+        ExtensionType::APPLICATION_LAYER_PROTOCOL_NEGOTIATION,
+        ExtensionType::STATUS_REQUEST,
+        ExtensionType::SIGNATURE_ALGORITHMS,
+        ExtensionType::KEY_SHARE,
+        ExtensionType::PSK_KEY_EXCHANGE_MODES,
+        ExtensionType::SUPPORTED_VERSIONS,
+    ];
+
+    pub(super) fn configure(builder: &mut SslConnectorBuilder) -> Result<()> {
+        builder.set_preserve_tls13_cipher_list(true);
+        builder.set_cipher_list(CIPHERS)?;
+        builder.set_curves_list(CURVES)?;
+        builder.set_verify_algorithm_prefs(SIGALGS)?;
+        builder.set_extension_permutation(EXTENSIONS)?;
+        builder.enable_ocsp_stapling();
+        Ok(())
+    }
+
+    pub(super) fn configure_connection(ssl: &mut SslRef) -> Result<()> {
+        ssl.set_client_key_shares(&[KeyShare::X25519_MLKEM768, KeyShare::X25519])?;
+        Ok(())
+    }
 }
 
 /// Copies `reader` to `output`.

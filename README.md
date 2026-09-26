@@ -29,7 +29,7 @@ Sail started as a fork of [leaf](https://github.com/eycorsican/leaf) by eycorsic
 | Transport | Inbound | Outbound | Notes |
 |---|---|---|---|
 | WebSocket | ✅ | ✅ | |
-| TLS | ✅ | ✅ | BoringSSL; the outbound sends a browser's ClientHello (`tls.utls`: chrome by default, firefox, safari, ios) |
+| TLS | ✅ | ✅ | BoringSSL; the outbound sends a browser's ClientHello (`tls.utls`: chrome by default, firefox, safari, ios, android) |
 | QUIC | ✅ | ✅ | |
 | AMux | ✅ | ✅ | Multiplexing from leaf; interoperates with leaf |
 | Obfs | ❌ | ✅ | Simple obfuscation |

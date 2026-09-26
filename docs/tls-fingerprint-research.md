@@ -228,6 +228,13 @@ quinn-btls（核实于 2026-09-25）：作者与 btls 相同；依赖 btls 0.5.5
 
 **iOS（2026-09-26）：** 在 Xcode 模拟器（iOS 26.4，iPhone 17）里运行 URLSession 抓包，ClientHello 与 macOS Safari 26.3 完全一致（JA4 `t13d2013h2_a09f3c656075_7f0f34a4126d`，每个扩展的内容也相同），因为 iOS 与 macOS 使用同一套网络库。headless 模拟器里的 Safari 只抓到一个带 TLS_FALLBACK_SCSV 的重试连接，除这一点外也相同。因此 `ios` 作为 `safari` 的别名，fixture 为 `ios-26.hello`。今后有真机时再核对一次。
 
+**Android（2026-09-27）：** 在 PVE 上临时建的 VM（嵌套 KVM）里运行 Android 模拟器抓包。M1 Max 上的模拟器拿不到 HVF，所以没有在 Mac 上跑。
+- **`android` 对应 OkHttp。** 抓包对象是 Android 17 上的 OkHttp 4.12（走平台自带的 Conscrypt），JA4 为 `t13d1512h2_8daaf6152771_40271e0a5736`。
+  - 特点：没有 GREASE，扩展顺序固定；没有 ECH、ALPS、SCT 和证书压缩；key share 为 X25519MLKEM768 + X25519；签名算法末尾带 RSA-PKCS1-SHA1。
+  - OkHttp 5.5（`okhttp-android`）只有 TLS 1.2 套件的顺序不同，所以 JA4 相同，JA3 不同。现在的 profile 按 4.12 做，因为它在 App 中最常见。
+  - fixture 为 `android-okhttp4.hello`。
+- **Chrome Android 尚未抓到。** APKPure 上的 Chrome 153 只有 32 位 ARM 的通用包，x86 模拟器上翻译运行时原生代码崩溃（SIGSEGV）。按用户的决定，抓到后先与桌面 Chrome 对比：一致就并入 chrome，不一致才单独做 `chrome-android`。
+
 **btls fork 的维护方式（2026-09-26）：** 工作分支为 `sail`；最初基于 v0.5.6 的分支保留为 `sail-0.5.6`，因为较早的提交按 rev 固定在它上面。上游 PR（#205–#208）都被维护者直接关闭，没有留言，因此不再向上游提 PR，改为不定期把上游 main 合进 `sail` 分支。
 
 **1.1e 的实施记录（2026-09-26）：**

@@ -110,7 +110,7 @@ pub struct Proxy {
     pub reality_short_id: Option<String>,
 
     // The browser whose ClientHello TLS sends, as Clash's
-    // `client-fingerprint` (chrome, edge, firefox, safari, ios); `none` sends
+    // `client-fingerprint` (chrome, edge, firefox, safari, ios, android); `none` sends
     // BoringSSL's own. Unset, it is Chrome's.
     pub client_fingerprint: Option<String>,
 

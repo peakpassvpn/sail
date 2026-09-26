@@ -221,6 +221,20 @@ fn test_firefox_client_hello_matches_capture() {
     }
 }
 
+#[test]
+fn test_android_client_hello_matches_capture() {
+    use super::hello::{assert_same_hello, fixture};
+    use super::Fingerprint;
+    let okhttp = fixture("android-okhttp4");
+    let client = TlsClient::new(&[], None, false, Some(Fingerprint::Android)).unwrap();
+    for _ in 0..4 {
+        let mut conn = client.connection("localhost", None).unwrap();
+        let hello = first_hello(&mut conn);
+        assert_same_hello(&hello, &okhttp);
+        assert_same_order(&hello, &okhttp);
+    }
+}
+
 // iOS sends the same ClientHello as macOS Safari, so `ios` is the Safari
 // profile.
 #[test]
@@ -312,6 +326,7 @@ async fn fingerprints_against_real_sites() {
         Fingerprint::Chrome,
         Fingerprint::Firefox,
         Fingerprint::Safari,
+        Fingerprint::Android,
     ] {
         let client = TlsClient::new(&[], None, false, Some(fingerprint)).unwrap();
         for host in [
