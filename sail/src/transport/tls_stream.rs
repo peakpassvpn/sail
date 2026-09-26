@@ -4,8 +4,10 @@
 
 use std::io::{self, ErrorKind, IoSlice, Read, Write};
 use std::pin::Pin;
+use std::sync::Arc;
 use std::task::{Context, Poll};
 
+use futures::task::{waker_ref, ArcWake, AtomicWaker};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 use crate::net::relay::{acquire_buffer, release_buffer};
@@ -41,6 +43,37 @@ pub struct TlsStream<C, S> {
     rx_pos: usize,
     rx_len: usize,
     records: RecordTracker,
+    write_wakers: Arc<WriteWakers>,
+}
+
+/// The tasks waiting for the transport to take more data.
+///
+/// Both sides of the stream write to the transport: the write side its own
+/// records, the read side whatever the write side left queued (a request
+/// written without a flush, before its reply is read). A transport keeps one
+/// waker per direction, so if each side polled it with its own waker, the
+/// last one would take the wakeup: with the stream split across two tasks, a
+/// writer blocked on a full transport would never run again once the reader
+/// flushed. Both sides poll the transport's write half with this waker
+/// instead, which wakes every side registered with it.
+#[derive(Default)]
+struct WriteWakers {
+    read: AtomicWaker,
+    write: AtomicWaker,
+}
+
+impl ArcWake for WriteWakers {
+    fn wake_by_ref(arc_self: &Arc<Self>) {
+        arc_self.read.wake();
+        arc_self.write.wake();
+    }
+}
+
+/// The side of the stream that writes to the transport.
+#[derive(Clone, Copy)]
+enum Side {
+    Read,
+    Write,
 }
 
 /// Follows TLS record boundaries in the bytes read from the transport, so
@@ -171,6 +204,7 @@ impl<C: TlsConnection, S: AsyncRead + AsyncWrite + Unpin> TlsStream<C, S> {
             rx_pos: 0,
             rx_len: 0,
             records: RecordTracker::default(),
+            write_wakers: Arc::default(),
         }
     }
 
@@ -322,27 +356,37 @@ impl<C: TlsConnection, S: AsyncRead + AsyncWrite + Unpin> TlsStream<C, S> {
         }
     }
 
-    /// Writes queued TLS data to the transport. Returns false if the transport
-    /// would block (the waker is registered), true once everything is written.
-    fn pump_write(&mut self, cx: &mut Context<'_>) -> io::Result<bool> {
-        while self.conn.wants_write() {
-            let mut bridge = TlsBridge {
-                stream: Pin::new(&mut self.stream),
-                cx,
-            };
-            match self.conn.write_tls(&mut bridge) {
-                Ok(0) => {
-                    return Err(io::Error::new(
-                        ErrorKind::WriteZero,
-                        "transport accepted no bytes",
-                    ))
+    /// Writes queued TLS data to the transport for `side`. Returns false if
+    /// the transport would block (`side` is woken once it takes more), true
+    /// once everything is written.
+    fn pump_write(&mut self, side: Side, cx: &mut Context<'_>) -> io::Result<bool> {
+        let conn = &mut self.conn;
+        with_write_waker(
+            &self.write_wakers,
+            &mut self.stream,
+            side,
+            cx,
+            |stream, cx| {
+                while conn.wants_write() {
+                    let mut bridge = TlsBridge {
+                        stream: stream.as_mut(),
+                        cx,
+                    };
+                    match conn.write_tls(&mut bridge) {
+                        Ok(0) => {
+                            return Err(io::Error::new(
+                                ErrorKind::WriteZero,
+                                "transport accepted no bytes",
+                            ))
+                        }
+                        Ok(_) => {}
+                        Err(e) if e.kind() == ErrorKind::WouldBlock => return Ok(false),
+                        Err(e) => return Err(e),
+                    }
                 }
-                Ok(_) => {}
-                Err(e) if e.kind() == ErrorKind::WouldBlock => return Ok(false),
-                Err(e) => return Err(e),
-            }
-        }
-        Ok(true)
+                Ok(true)
+            },
+        )
     }
 
     /// Switches writes to the raw transport once VLESS has sent
@@ -351,13 +395,31 @@ impl<C: TlsConnection, S: AsyncRead + AsyncWrite + Unpin> TlsStream<C, S> {
     fn poll_switch_write_raw(&mut self, cx: &mut Context<'_>) -> io::Result<bool> {
         if !self.write_raw && self.vision.as_ref().is_some_and(|v| v.is_write_direct()) {
             self.conn.flush_plaintext()?;
-            if !self.pump_write(cx)? {
+            if !self.pump_write(Side::Write, cx)? {
                 return Ok(false);
             }
             self.write_raw = true;
         }
         Ok(true)
     }
+}
+
+/// Runs `f` on the transport's write half with a waker that wakes both sides,
+/// registering `cx` for `side` first so no wakeup is missed.
+fn with_write_waker<S: Unpin, R>(
+    wakers: &Arc<WriteWakers>,
+    stream: &mut S,
+    side: Side,
+    cx: &mut Context<'_>,
+    f: impl FnOnce(&mut Pin<&mut S>, &mut Context<'_>) -> R,
+) -> R {
+    match side {
+        Side::Read => wakers.read.register(cx.waker()),
+        Side::Write => wakers.write.register(cx.waker()),
+    }
+    let waker = waker_ref(wakers);
+    let mut shared = Context::from_waker(&waker);
+    f(&mut Pin::new(stream), &mut shared)
 }
 
 impl<C, S> Drop for TlsStream<C, S> {
@@ -387,14 +449,36 @@ impl<C: TlsConnection, S: AsyncRead + AsyncWrite + Unpin> AsyncRead for TlsStrea
             return Pin::new(&mut this.stream).poll_read(cx, buf);
         }
 
-        // Ensure any pending writes are flushed to network
-        if !this.write_raw {
-            let _ = this.pump_write(cx)?;
-        }
+        let res = this.poll_read_tls(cx, buf);
 
+        // Pass on records the write side left queued, and any alert reading
+        // produced, but never wait for them here: reading does not depend on
+        // them. While the transport is full the read side is woken once it
+        // takes more, and so is a writer blocked on it. Errors are left for the
+        // write side, which meets them with the records still queued.
+        if !this.write_raw && this.conn.wants_write() {
+            if let Ok(true) = this.pump_write(Side::Read, cx) {
+                this.write_wakers.read.take();
+            }
+        }
+        res
+    }
+}
+
+impl<C: TlsConnection, S: AsyncRead + AsyncWrite + Unpin> TlsStream<C, S> {
+    /// Reads plaintext, taking TLS data from the transport as needed.
+    ///
+    /// It never writes: with BoringSSL over memory, a read that must answer
+    /// the peer (a TLS 1.3 KeyUpdate) only queues the reply, and BoringSSL
+    /// sends it with the next write. The caller flushes what reading queued.
+    fn poll_read_tls(
+        &mut self,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
         let start = buf.filled().len();
         loop {
-            match this.conn.read_plaintext(buf.initialize_unfilled()) {
+            match self.conn.read_plaintext(buf.initialize_unfilled()) {
                 Ok(n) if n > 0 => {
                     buf.advance(n);
                     if buf.remaining() == 0 {
@@ -413,26 +497,22 @@ impl<C: TlsConnection, S: AsyncRead + AsyncWrite + Unpin> AsyncRead for TlsStrea
             // Vision switch before anything past it is read. Otherwise keep
             // decrypting records while the transport has data.
             let delivered = buf.filled().len() > start;
-            if delivered && this.exact() {
+            if delivered && self.exact() {
                 return Poll::Ready(Ok(()));
             }
 
-            if this.conn.wants_read() {
-                if !this.pump_read(cx)? {
-                    // Return what we have rather than wait for more.
-                    return if delivered {
-                        Poll::Ready(Ok(()))
-                    } else {
-                        Poll::Pending // Awaits socket read wake
-                    };
-                }
-            } else if this.conn.wants_write() && !this.write_raw {
-                let _ = this.pump_write(cx)?;
-                // wait for writes to clear, though want_read was false so it might still be pending
-                return Poll::Pending;
-            } else {
-                // Reached EOF and cleanly terminated TLS?
+            if !self.conn.wants_read() {
+                // close_notify received: the end of the stream, after what
+                // was delivered.
                 return Poll::Ready(Ok(()));
+            }
+            if !self.pump_read(cx)? {
+                // Return what we have rather than wait for more.
+                return if delivered {
+                    Poll::Ready(Ok(()))
+                } else {
+                    Poll::Pending
+                };
             }
         }
     }
@@ -455,7 +535,7 @@ impl<C: TlsConnection, S: AsyncRead + AsyncWrite + Unpin> AsyncWrite for TlsStre
         loop {
             // Drain what the connection already holds first, so a full send buffer
             // turns into Pending (backpressure) instead of a zero-length write.
-            if !this.pump_write(cx)? {
+            if !this.pump_write(Side::Write, cx)? {
                 return if pos == 0 {
                     Poll::Pending
                 } else {
@@ -483,13 +563,20 @@ impl<C: TlsConnection, S: AsyncRead + AsyncWrite + Unpin> AsyncWrite for TlsStre
         if !this.poll_switch_write_raw(cx)? {
             return Poll::Pending;
         }
-        if !this.write_raw {
-            this.conn.flush_plaintext()?;
-            if !this.pump_write(cx)? {
-                return Poll::Pending;
-            }
+        if this.write_raw {
+            return Pin::new(&mut this.stream).poll_flush(cx);
         }
-        Pin::new(&mut this.stream).poll_flush(cx)
+        this.conn.flush_plaintext()?;
+        if !this.pump_write(Side::Write, cx)? {
+            return Poll::Pending;
+        }
+        with_write_waker(
+            &this.write_wakers,
+            &mut this.stream,
+            Side::Write,
+            cx,
+            |s, cx| s.as_mut().poll_flush(cx),
+        )
     }
 
     fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
@@ -499,14 +586,21 @@ impl<C: TlsConnection, S: AsyncRead + AsyncWrite + Unpin> AsyncWrite for TlsStre
         }
         // After the switch the transport carries raw data; a close_notify
         // record would corrupt it.
-        if !this.write_raw {
-            // No-op after the first call.
-            this.conn.send_close_notify();
-            if !this.pump_write(cx)? {
-                return Poll::Pending;
-            }
+        if this.write_raw {
+            return Pin::new(&mut this.stream).poll_shutdown(cx);
         }
-        Pin::new(&mut this.stream).poll_shutdown(cx)
+        // No-op after the first call.
+        this.conn.send_close_notify();
+        if !this.pump_write(Side::Write, cx)? {
+            return Poll::Pending;
+        }
+        with_write_waker(
+            &this.write_wakers,
+            &mut this.stream,
+            Side::Write,
+            cx,
+            |s, cx| s.as_mut().poll_shutdown(cx),
+        )
     }
 }
 
