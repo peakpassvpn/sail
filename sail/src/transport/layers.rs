@@ -998,14 +998,12 @@ fn quic_outbound(
         .tag(format!("{}/quic", tag))
         .stream_handler(Arc::new(
             crate::transport::quic::outbound::StreamHandler::new(
+                tls,
                 address,
                 port,
-                tls.server_name.clone(),
-                tls.alpn.clone().map(Listable::into_vec).unwrap_or_default(),
-                trusted_certificate(tls, env),
                 dns_client.clone(),
                 dial.clone(),
-                &env.options.quic,
+                env,
             )
             .map_err(|e| anyhow!("[{}] outbound: transport quic: {}", tag, e))?,
         ))
@@ -1230,14 +1228,6 @@ impl InboundBlocks {
 impl InboundTls {
     /// The certificate to present: inline, or by path.
     pub(crate) fn certificate(&self, tag: &str, env: &RuntimeEnv) -> Result<String> {
-        // tls_inbound serves REALITY without one; what asks for it here
-        // is the quic transport.
-        if self.reality.as_ref().is_some_and(|r| r.enabled) {
-            return Err(anyhow!(
-                "[{}] inbound: tls.reality: not supported with the quic transport",
-                tag
-            ));
-        }
         match (&self.certificate, &self.certificate_path) {
             (Some(inline), None) => Ok(inline.clone().joined()),
             (None, Some(path)) => Ok(env.data_path(path)),
@@ -1590,12 +1580,7 @@ fn grpc_inbound(
 fn quic_inbound(tag: &str, tls: &InboundTls, env: &RuntimeEnv) -> Result<AnyInboundHandler> {
     #[cfg(feature = "inbound-quic")]
     {
-        let handler = crate::transport::quic::inbound::DatagramHandler::new(
-            tls.certificate(tag, env)?,
-            tls.key(tag, env)?,
-            tls.alpn.clone().map(Listable::into_vec).unwrap_or_default(),
-            &env.options.quic,
-        )?;
+        let handler = crate::transport::quic::inbound::DatagramHandler::new(tag, tls, env)?;
         Ok(Arc::new(crate::adapter::inbound::Handler::new(
             format!("{}/quic", tag),
             None,
