@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 use std::io;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::net::{IpAddr, SocketAddr};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -19,12 +19,13 @@ use tracing::{debug, trace};
 use crate::app::SyncDnsClient;
 use crate::net::DialOptions;
 use crate::session::SocksAddr;
+use crate::transport::quic::{bind, endpoint_on, QuicStream, Side};
 
 use super::super::congestion::CongestionHandle;
 use super::super::h3;
 use super::super::hop::HopSocket;
 use super::super::proto::{self, Defragger, UdpMessage};
-use super::super::quic::{self, QuicStream};
+use super::super::quic;
 use super::super::salamander::Salamander;
 
 /// UDP sessions one connection carries at most.
@@ -143,12 +144,7 @@ impl Client {
 
     async fn new_socket(&self, ip: IpAddr) -> io::Result<Arc<dyn quinn::AsyncUdpSocket>> {
         let o = &self.options;
-        let indicator = match ip {
-            IpAddr::V4(_) => SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), 0),
-            IpAddr::V6(_) => SocketAddr::new(Ipv6Addr::UNSPECIFIED.into(), 0),
-        };
-        let socket = crate::net::new_udp_socket(&indicator, &o.dial).await?;
-        quic::wrap_socket(socket.into_std()?, o.obfs.as_ref())
+        quic::wrap_socket(bind(ip, &o.dial).await?, o.obfs.as_ref())
     }
 
     async fn connect_to(&self, ip: IpAddr) -> Result<Connection> {
@@ -161,17 +157,12 @@ impl Client {
         } else {
             (socket, SocketAddr::new(ip, o.ports[0]), None)
         };
-        let endpoint = quinn::Endpoint::new_with_abstract_socket(
-            quinn_btls::helpers::default_endpoint_config(),
-            None,
-            socket,
-            Arc::new(quinn::TokioRuntime),
-        )?;
+        let endpoint = endpoint_on(socket, None)?;
         let congestion = CongestionHandle::default();
         let mut config = quinn::ClientConfig::new(o.crypto.clone());
         config.transport_config(Arc::new(quic::transport_config(
             &o.tuning,
-            false,
+            Side::Client,
             &congestion,
         )));
         let conn = endpoint
@@ -420,23 +411,12 @@ async fn hop_ports(
     dial: Arc<DialOptions>,
     obfs: Option<Salamander>,
 ) {
-    let indicator = match ip {
-        IpAddr::V4(_) => SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), 0),
-        IpAddr::V6(_) => SocketAddr::new(Ipv6Addr::UNSPECIFIED.into(), 0),
-    };
     loop {
         if timeout(interval, conn.closed()).await.is_ok() {
             return;
         }
-        let socket = match crate::net::new_udp_socket(&indicator, &dial).await {
-            Ok(socket) => socket,
-            Err(e) => {
-                debug!("hysteria2: port hop: new socket: {}", e);
-                continue;
-            }
-        };
-        match socket
-            .into_std()
+        match bind(ip, &dial)
+            .await
             .and_then(|s| quic::wrap_socket(s, obfs.as_ref()))
         {
             Ok(socket) => {

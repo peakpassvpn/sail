@@ -16,6 +16,7 @@ use crate::adapter::*;
 use crate::net::peek_tcp_one_off;
 use crate::session::{Session, SocksAddr};
 use crate::transport::layers::{Blocks, Listable, OutboundTls};
+use crate::transport::{self, quic::ClientTls};
 
 use super::hop;
 use super::proto::MBPS_TO_BPS;
@@ -92,31 +93,16 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
     if !tls.enabled {
         return Err(err("tls: hysteria2 needs tls enabled".into()));
     }
-    if tls.reality.as_ref().is_some_and(|r| r.enabled) {
-        return Err(err("tls.reality: not supported over QUIC".into()));
+    if let Some(field) = transport::quic::unsupported(&tls) {
+        return Err(err(format!("tls.{}: not supported over QUIC", field)));
     }
-    if tls.ech.as_ref().is_some_and(|e| e.enabled) {
-        return Err(err("tls.ech: not supported over QUIC".into()));
+    if tls.certificate.is_some() && tls.certificate_path.is_some() {
+        return Err(err(
+            "tls: set at most one of certificate and certificate_path".into(),
+        ));
     }
-    if tls.utls.as_ref().is_some_and(|u| u.enabled) {
-        return Err(err("tls.utls: not supported over QUIC".into()));
-    }
-    let certificate = match (&tls.certificate, &tls.certificate_path) {
-        (Some(inline), None) => Some(inline.clone().joined()),
-        (None, Some(path)) => Some(ctx.env.data_path(path)),
-        (None, None) => None,
-        (Some(_), Some(_)) => {
-            return Err(err(
-                "tls: set at most one of certificate and certificate_path".into(),
-            ))
-        }
-    };
-    let crypto = quic::client_crypto(
-        certificate.as_deref(),
-        tls.insecure,
-        &quic::alpns(tls.alpn.clone()),
-    )
-    .map_err(|e| err(format!("tls: {}", e)))?;
+    let client_tls = ClientTls::new(&tls, &options.server, quic::DEFAULT_ALPN, ctx.env)
+        .map_err(|e| err(format!("tls: {}", e)))?;
 
     let obfs = options
         .obfs
@@ -137,10 +123,7 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
     }
 
     let client = Arc::new(Client::new(ClientOptions {
-        server_name: tls
-            .server_name
-            .clone()
-            .unwrap_or_else(|| options.server.clone()),
+        server_name: client_tls.server_name,
         server: options.server,
         ports,
         hop_interval,
@@ -148,7 +131,7 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
         send_bps: options.up_mbps.unwrap_or(0) * MBPS_TO_BPS,
         recv_bps: options.down_mbps.unwrap_or(0) * MBPS_TO_BPS,
         obfs,
-        crypto: Arc::new(crypto),
+        crypto: Arc::new(client_tls.crypto),
         tuning: ctx.env.options.quic.clone(),
         dns_client: ctx.dns_client.clone(),
         dial: ctx.dial.clone(),

@@ -21,11 +21,12 @@ use tracing::{debug, trace};
 
 use crate::adapter::*;
 use crate::session::{DatagramSource, Network, Session, SocksAddr, StreamId};
+use crate::transport::quic::{endpoint_on, QuicStream, Side};
 
 use super::super::congestion::CongestionHandle;
 use super::super::h3::{self, Field};
 use super::super::proto::{self, Defragger, UdpMessage};
-use super::super::quic::{self, QuicStream};
+use super::super::quic;
 use super::super::salamander::Salamander;
 use super::masquerade::Masquerade;
 
@@ -92,12 +93,7 @@ impl InboundDatagramHandler for DatagramHandler {
         let socket = socket.into_std()?;
         let local_addr = socket.local_addr()?;
         let socket = quic::wrap_socket(socket, self.obfs.as_ref())?;
-        let endpoint = quinn::Endpoint::new_with_abstract_socket(
-            quinn_btls::helpers::default_endpoint_config(),
-            Some(self.server_config.clone()),
-            socket,
-            Arc::new(quinn::TokioRuntime),
-        )?;
+        let endpoint = endpoint_on(socket, Some(self.server_config.clone()))?;
         let (tx, rx) = mpsc::channel(ACCEPT_QUEUE);
         let server = self.server.clone();
         let server_config = self.server_config.clone();
@@ -145,7 +141,7 @@ impl Conn {
         let mut config = config;
         config.transport_config(Arc::new(quic::transport_config(
             &self.server.tuning,
-            true,
+            Side::Server,
             &congestion,
         )));
         let conn = incoming
@@ -561,6 +557,9 @@ impl InboundDatagramSendHalf for DatagramSendHalf {
 mod tests {
     use super::super::masquerade::{MasqueradeObject, MasqueradeOptions};
     use super::*;
+    use crate::transport::quic::{
+        alpn_protocols, client_crypto, endpoint, server_config, server_crypto,
+    };
     use futures::StreamExt;
 
     struct Fixture {
@@ -572,8 +571,9 @@ mod tests {
     async fn serve(masquerade: Masquerade) -> Fixture {
         let rcgen::CertifiedKey { cert, key_pair } =
             rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
-        let alpns = quic::alpns(None);
-        let config = quic::server_config(&cert.pem(), &key_pair.serialize_pem(), &alpns).unwrap();
+        let alpns = alpn_protocols(None, quic::DEFAULT_ALPN);
+        let crypto = server_crypto(&cert.pem(), &key_pair.serialize_pem(), &alpns).unwrap();
+        let config = server_config(crypto).unwrap();
         let server = Arc::new(Server {
             users: [("pw".to_string(), Some(Arc::from("alice")))].into(),
             send_bps: 0,
@@ -593,14 +593,9 @@ mod tests {
         let InboundTransport::Incoming(incoming) = transport else {
             panic!("not incoming");
         };
-        let crypto = quic::client_crypto(Some(&cert.pem()), false, &alpns).unwrap();
-        let mut endpoint = quinn::Endpoint::new(
-            quinn_btls::helpers::default_endpoint_config(),
-            None,
-            std::net::UdpSocket::bind("127.0.0.1:0").unwrap(),
-            Arc::new(quinn::TokioRuntime),
-        )
-        .unwrap();
+        let crypto = client_crypto(Some(&cert.pem()), false, &alpns).unwrap();
+        let mut endpoint =
+            endpoint(std::net::UdpSocket::bind("127.0.0.1:0").unwrap(), None).unwrap();
         endpoint.set_default_client_config(quinn::ClientConfig::new(Arc::new(crypto)));
         Fixture {
             endpoint,
