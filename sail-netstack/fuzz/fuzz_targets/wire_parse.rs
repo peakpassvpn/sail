@@ -1,9 +1,9 @@
 #![no_main]
 
+use libfuzzer_sys::fuzz_target;
 use sail_netstack::{
     parse_icmp_packet, parse_ip_packet, parse_tcp_segment, parse_udp_datagram, ParsedIpPacket,
 };
-use libfuzzer_sys::fuzz_target;
 
 const MAX_PACKET_LEN: usize = 65_535;
 

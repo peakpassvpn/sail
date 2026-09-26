@@ -167,8 +167,8 @@ fn udp_packet(source_port: u16, payload: &[u8]) -> Vec<u8> {
 
 fn ipv4_checksum(header: &[u8]) -> u16 {
     let mut sum = 0_u32;
-    for chunk in header.chunks_exact(2) {
-        sum += u32::from(u16::from_be_bytes([chunk[0], chunk[1]]));
+    for chunk in header.as_chunks::<2>().0 {
+        sum += u32::from(u16::from_be_bytes(*chunk));
     }
     while sum >> 16 != 0 {
         sum = (sum & 0xffff) + (sum >> 16);
@@ -1322,33 +1322,43 @@ struct DynamicIo {
 }
 
 impl PacketIo for DynamicIo {
-    async fn recv(&mut self, out: &mut PacketBatch) -> io::Result<usize> {
-        let mut recv = self.recv.lock().unwrap();
-        if recv.is_empty() {
-            return Err(io::ErrorKind::WouldBlock.into());
-        }
-        let mut count = 0;
-        while count < self.max_batch {
-            let Some(bytes) = recv.pop_front() else {
-                break;
-            };
-            out.push(Packet::from_payload(
-                PacketToken::new(u64::try_from(count).unwrap()),
-                0,
-                &bytes,
-            ))
-            .map_err(|_| io::Error::other("dynamic mock overflow"))?;
-            count += 1;
-        }
-        Ok(count)
+    fn recv(
+        &mut self,
+        out: &mut PacketBatch,
+    ) -> impl std::future::Future<Output = io::Result<usize>> + Send {
+        std::future::ready((|| -> io::Result<usize> {
+            let mut recv = self.recv.lock().unwrap();
+            if recv.is_empty() {
+                return Err(io::ErrorKind::WouldBlock.into());
+            }
+            let mut count = 0;
+            while count < self.max_batch {
+                let Some(bytes) = recv.pop_front() else {
+                    break;
+                };
+                out.push(Packet::from_payload(
+                    PacketToken::new(u64::try_from(count).unwrap()),
+                    0,
+                    &bytes,
+                ))
+                .map_err(|_| io::Error::other("dynamic mock overflow"))?;
+                count += 1;
+            }
+            Ok(count)
+        })())
     }
 
-    async fn send(&mut self, packets: &PacketBatch) -> io::Result<usize> {
-        self.sent
-            .lock()
-            .unwrap()
-            .extend(packets.iter().map(|packet| packet.payload().to_vec()));
-        Ok(packets.len())
+    fn send(
+        &mut self,
+        packets: &PacketBatch,
+    ) -> impl std::future::Future<Output = io::Result<usize>> + Send {
+        std::future::ready({
+            self.sent
+                .lock()
+                .unwrap()
+                .extend(packets.iter().map(|packet| packet.payload().to_vec()));
+            Ok(packets.len())
+        })
     }
 
     fn capabilities(&self) -> PacketCapabilities {

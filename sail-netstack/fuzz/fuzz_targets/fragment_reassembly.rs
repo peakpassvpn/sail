@@ -3,19 +3,19 @@
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::Arc;
 
+use libfuzzer_sys::fuzz_target;
 use sail_netstack::{
     emit_udp_packet, fragment_outbound_ip_packet, parse_ip_packet, parse_udp_datagram,
     BudgetProfile, FragmentReassembler, ResourceKind, ResourceLedger,
 };
-use libfuzzer_sys::fuzz_target;
 
 const MAX_PAYLOAD_LEN: usize = 2_048;
 const MIN_PAYLOAD_LEN: usize = 96;
 
 fn checksum(header: &[u8]) -> u16 {
     let mut sum = 0_u32;
-    for chunk in header.chunks_exact(2) {
-        sum = sum.saturating_add(u32::from(u16::from_be_bytes([chunk[0], chunk[1]])));
+    for chunk in header.as_chunks::<2>().0 {
+        sum = sum.saturating_add(u32::from(u16::from_be_bytes(*chunk)));
     }
     while sum >> 16 != 0 {
         sum = (sum & 0xffff) + (sum >> 16);

@@ -1,7 +1,7 @@
 #![no_main]
 
-use sail_netstack::{AppEvent, SeqNumber, TcpFlags, TcpSegmentMeta, TcpState, TcpTcb, TimerEvent};
 use libfuzzer_sys::fuzz_target;
+use sail_netstack::{AppEvent, SeqNumber, TcpFlags, TcpSegmentMeta, TcpState, TcpTcb, TimerEvent};
 
 const MAX_INPUT_LEN: usize = 4_096;
 const OPERATION_BYTES: usize = 16;
@@ -63,7 +63,7 @@ fuzz_target!(|input: &[u8]| {
 
     let mut previous_right_edge = tcb.advertised_right_edge();
     assert_invariants(&tcb, receive_capacity, previous_right_edge);
-    for operation in data[OPERATION_BYTES..].chunks_exact(OPERATION_BYTES) {
+    for operation in data[OPERATION_BYTES..].as_chunks::<OPERATION_BYTES>().0 {
         let selector = operation[0] % 13;
         match selector {
             0..=4 => {

@@ -678,8 +678,8 @@ fn rebuild(mut assembly: Assembly, version: IpVersion) -> Result<Vec<u8>, Fragme
 
 fn ipv4_checksum(header: &[u8]) -> u16 {
     let mut sum = 0_u32;
-    for chunk in header.chunks_exact(2) {
-        sum += u32::from(u16::from_be_bytes([chunk[0], chunk[1]]));
+    for chunk in header.as_chunks::<2>().0 {
+        sum += u32::from(u16::from_be_bytes(*chunk));
     }
     while sum >> 16 != 0 {
         sum = (sum & 0xffff) + (sum >> 16);

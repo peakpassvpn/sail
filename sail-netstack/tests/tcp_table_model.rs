@@ -121,14 +121,14 @@ fn rewrite_ipv4_tcp_checksum(packet: &mut [u8]) {
     let (ip_header, tcp) = packet.split_at_mut(header_len);
     tcp[16..18].fill(0);
     let mut sum = u32::from(6_u16) + u32::try_from(tcp.len()).unwrap();
-    for bytes in ip_header[12..20].chunks_exact(2) {
-        sum += u32::from(u16::from_be_bytes([bytes[0], bytes[1]]));
+    for bytes in ip_header[12..20].as_chunks::<2>().0 {
+        sum += u32::from(u16::from_be_bytes(*bytes));
     }
-    let mut chunks = tcp.chunks_exact(2);
-    for bytes in &mut chunks {
-        sum += u32::from(u16::from_be_bytes([bytes[0], bytes[1]]));
+    let (chunks, remainder) = tcp.as_chunks::<2>();
+    for bytes in chunks {
+        sum += u32::from(u16::from_be_bytes(*bytes));
     }
-    if let Some(&byte) = chunks.remainder().first() {
+    if let Some(&byte) = remainder.first() {
         sum += u32::from(byte) << 8;
     }
     while sum >> 16 != 0 {

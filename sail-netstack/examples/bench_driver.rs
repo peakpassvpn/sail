@@ -602,17 +602,25 @@ struct BenchQueueIo {
 }
 
 impl PacketIo for BenchQueueIo {
-    async fn recv(&mut self, out: &mut PacketBatch) -> io::Result<usize> {
-        let Some((token, wire)) = self.inbound.pop_front() else {
-            return Err(io::Error::from(io::ErrorKind::WouldBlock));
-        };
-        out.push(Packet::from_payload(token, 0, &wire))
-            .map_err(|_| io::Error::other("benchmark packet batch overflow"))?;
-        Ok(1)
+    fn recv(
+        &mut self,
+        out: &mut PacketBatch,
+    ) -> impl std::future::Future<Output = io::Result<usize>> + Send {
+        std::future::ready((|| -> io::Result<usize> {
+            let Some((token, wire)) = self.inbound.pop_front() else {
+                return Err(io::Error::from(io::ErrorKind::WouldBlock));
+            };
+            out.push(Packet::from_payload(token, 0, &wire))
+                .map_err(|_| io::Error::other("benchmark packet batch overflow"))?;
+            Ok(1)
+        })())
     }
 
-    async fn send(&mut self, packets: &PacketBatch) -> io::Result<usize> {
-        Ok(packets.len())
+    fn send(
+        &mut self,
+        packets: &PacketBatch,
+    ) -> impl std::future::Future<Output = io::Result<usize>> + Send {
+        std::future::ready(Ok(packets.len()))
     }
 
     fn capabilities(&self) -> PacketCapabilities {

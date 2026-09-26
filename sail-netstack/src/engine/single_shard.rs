@@ -476,9 +476,7 @@ impl ScheduledContext<'_> {
                     self.drop_packet(PacketDropReason::RateLimited);
                     return;
                 }
-                let queued = emit_icmp_echo_reply(ip, 64)
-                    .ok()
-                    .is_some_and(|wire| self.push_wire(&wire));
+                let queued = emit_icmp_echo_reply(ip, 64).is_ok_and(|wire| self.push_wire(&wire));
                 if queued {
                     increment_counter(&mut self.counters.icmp_echo_replies);
                 } else {

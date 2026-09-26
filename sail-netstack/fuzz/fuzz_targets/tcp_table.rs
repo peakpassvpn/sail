@@ -12,12 +12,12 @@
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::{Arc, OnceLock};
 
+use libfuzzer_sys::fuzz_target;
 use sail_netstack::{
     emit_tcp_segment_with_options, parse_ip_packet, parse_tcp_segment, BudgetProfile,
     NetworkGeneration, ResourceLedger, SendControl, SeqNumber, TcpError, TcpEvent, TcpFlags,
     TcpFlowToken, TcpTable, TcpTableConfig, TcpTableError, TimerEvent,
 };
-use libfuzzer_sys::fuzz_target;
 
 const MAX_INPUT_LEN: usize = 8_192;
 const HEADER_BYTES: usize = 8;
@@ -394,7 +394,7 @@ fuzz_target!(|input: &[u8]| {
         now_ms: 0,
     };
 
-    for operation in data[HEADER_BYTES..].chunks_exact(OPERATION_BYTES) {
+    for operation in data[HEADER_BYTES..].as_chunks::<OPERATION_BYTES>().0 {
         harness.run(operation);
         let stats = harness.table.stats();
         assert!(stats.active_flows <= PEERS);

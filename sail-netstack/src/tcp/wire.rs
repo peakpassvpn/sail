@@ -133,7 +133,7 @@ fn parse_options(mut bytes: &[u8]) -> Result<TcpOptions, WireError> {
                     }
                     (4, 2) => options.sack_permitted = true,
                     (5, _) if length >= 10 && (length - 2) % 8 == 0 => {
-                        for block in data.chunks_exact(8) {
+                        for block in data.as_chunks::<8>().0 {
                             if sack_index == options.sack_blocks.len() {
                                 return Err(WireError::Malformed("too many TCP SACK blocks"));
                             }
@@ -301,8 +301,8 @@ pub fn emit_tcp_segment_with_options(
 
 fn ipv4_header_checksum(header: &[u8]) -> u16 {
     let mut sum = 0_u32;
-    for chunk in header.chunks_exact(2) {
-        sum += u32::from(u16::from_be_bytes([chunk[0], chunk[1]]));
+    for chunk in header.as_chunks::<2>().0 {
+        sum += u32::from(u16::from_be_bytes(*chunk));
     }
     while sum >> 16 != 0 {
         sum = (sum & 0xffff) + (sum >> 16);

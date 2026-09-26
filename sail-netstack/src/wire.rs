@@ -517,11 +517,11 @@ pub(crate) fn checksum_sum(bytes: &[u8], initial: u32) -> u16 {
 }
 
 fn checksum_accumulate(bytes: &[u8], mut sum: u32) -> u32 {
-    let mut chunks = bytes.chunks_exact(2);
-    for chunk in &mut chunks {
-        sum = sum.wrapping_add(u32::from(u16::from_be_bytes([chunk[0], chunk[1]])));
+    let (chunks, remainder) = bytes.as_chunks::<2>();
+    for chunk in chunks {
+        sum = sum.wrapping_add(u32::from(u16::from_be_bytes(*chunk)));
     }
-    if let Some(byte) = chunks.remainder().first() {
+    if let Some(byte) = remainder.first() {
         sum = sum.wrapping_add(u32::from(*byte) << 8);
     }
     sum

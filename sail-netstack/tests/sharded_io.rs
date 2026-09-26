@@ -97,8 +97,11 @@ impl PacketIo for PendingQueueIo {
         .await
     }
 
-    async fn send(&mut self, packets: &PacketBatch) -> io::Result<usize> {
-        Ok(packets.len())
+    fn send(
+        &mut self,
+        packets: &PacketBatch,
+    ) -> impl std::future::Future<Output = io::Result<usize>> + Send {
+        std::future::ready(Ok(packets.len()))
     }
 
     fn capabilities(&self) -> PacketCapabilities {
@@ -138,31 +141,39 @@ impl QueueIo {
 }
 
 impl PacketIo for QueueIo {
-    async fn recv(&mut self, out: &mut PacketBatch) -> io::Result<usize> {
-        let mut inbound = self.inbound.0.lock().unwrap();
-        let mut received = 0;
-        while out.len() < out.limit() {
-            let Some(payload) = inbound.pop_front() else {
-                break;
-            };
-            out.push(Packet::from_payload(
-                PacketToken::new(self.next_token),
-                0,
-                &payload,
-            ))
-            .unwrap();
-            self.next_token = self.next_token.wrapping_add(1);
-            received += 1;
-        }
-        if received == 0 {
-            Err(io::Error::from(io::ErrorKind::WouldBlock))
-        } else {
-            Ok(received)
-        }
+    fn recv(
+        &mut self,
+        out: &mut PacketBatch,
+    ) -> impl std::future::Future<Output = io::Result<usize>> + Send {
+        std::future::ready({
+            let mut inbound = self.inbound.0.lock().unwrap();
+            let mut received = 0;
+            while out.len() < out.limit() {
+                let Some(payload) = inbound.pop_front() else {
+                    break;
+                };
+                out.push(Packet::from_payload(
+                    PacketToken::new(self.next_token),
+                    0,
+                    &payload,
+                ))
+                .unwrap();
+                self.next_token = self.next_token.wrapping_add(1);
+                received += 1;
+            }
+            if received == 0 {
+                Err(io::Error::from(io::ErrorKind::WouldBlock))
+            } else {
+                Ok(received)
+            }
+        })
     }
 
-    async fn send(&mut self, packets: &PacketBatch) -> io::Result<usize> {
-        Ok(packets.len())
+    fn send(
+        &mut self,
+        packets: &PacketBatch,
+    ) -> impl std::future::Future<Output = io::Result<usize>> + Send {
+        std::future::ready(Ok(packets.len()))
     }
 
     fn capabilities(&self) -> PacketCapabilities {
