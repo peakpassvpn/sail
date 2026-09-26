@@ -10,9 +10,7 @@ use libloading::Library;
 use anyhow::{anyhow, Result};
 
 use crate::adapter::outbound::HandlerBuilder;
-use crate::adapter::registry::{
-    no_dependencies, OutboundContext, OutboundFactory, OutboundRegistry,
-};
+use crate::adapter::registry::{OutboundContext, OutboundFactory, OutboundRegistry};
 use serde_derive::Deserialize;
 
 use crate::{adapter::*, session::Session};
@@ -157,6 +155,13 @@ impl ExternalHandlers {
         Self::default()
     }
 
+    /// Loads the plugin library at `path` and registers its handlers for `tag`.
+    ///
+    /// # Safety
+    ///
+    /// `path` must be a sail plugin built against this version of sail: its
+    /// `plugin_spec` symbol is read and called as a `PluginSpec`, and nothing
+    /// checks that it is one.
     pub unsafe fn new_handler<P>(&mut self, path: P, tag: &str, args: &str) -> io::Result<()>
     where
         P: AsRef<OsStr> + ToString + Clone,
@@ -233,10 +238,8 @@ pub(crate) fn register(registry: &mut OutboundRegistry) {
     registry.register(
         "plugin",
         OutboundFactory {
-            dependencies: no_dependencies,
-            build,
             shareable: false,
-            blocks: crate::transport::layers::Blocks::NONE,
+            ..OutboundFactory::standalone(build)
         },
     );
 }
