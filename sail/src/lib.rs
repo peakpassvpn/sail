@@ -68,6 +68,14 @@ pub struct RuntimeManager {
     auto_reload: bool,
     reload_tx: mpsc::Sender<std::sync::mpsc::SyncSender<Result<(), Error>>>,
     shutdown_tx: mpsc::Sender<()>,
+    #[cfg(feature = "inbound-tun")]
+    network_change_tx: mpsc::Sender<NetworkChange>,
+    /// The TUN inbound's stack, when there is one.
+    #[cfg(feature = "inbound-tun")]
+    tun_control: Option<protocol::tun::NativeRuntimeControl>,
+    /// The generation of the network the TUN flows belong to.
+    #[cfg(feature = "inbound-tun")]
+    network_generation: Mutex<u64>,
     router: SyncRouter,
     dns_client: SyncDnsClient,
     outbound_manager: SyncOutboundManager,
@@ -92,6 +100,7 @@ impl RuntimeManager {
         #[cfg(feature = "auto-reload")] auto_reload: bool,
         reload_tx: mpsc::Sender<std::sync::mpsc::SyncSender<Result<(), Error>>>,
         shutdown_tx: mpsc::Sender<()>,
+        #[cfg(feature = "inbound-tun")] network_change_tx: mpsc::Sender<NetworkChange>,
         instance: &app::instance::Instance,
         dial_defaults: Arc<net::DialOptions>,
     ) -> Arc<Self> {
@@ -103,6 +112,12 @@ impl RuntimeManager {
             auto_reload,
             reload_tx,
             shutdown_tx,
+            #[cfg(feature = "inbound-tun")]
+            network_change_tx,
+            #[cfg(feature = "inbound-tun")]
+            tun_control: instance.tun_control.clone(),
+            #[cfg(feature = "inbound-tun")]
+            network_generation: Mutex::new(0),
             router: instance.router.clone(),
             dns_client: instance.dns_client.clone(),
             outbound_manager: instance.outbound_manager.clone(),
@@ -358,6 +373,46 @@ impl RuntimeManager {
         true
     }
 
+    /// Tells the TUN inbound's stack that the host's network changed: flows
+    /// of the previous network stop being served, and with `mtu`, the stack
+    /// takes the new interface MTU.
+    #[cfg(feature = "inbound-tun")]
+    pub async fn network_changed(&self, mtu: Option<usize>) -> Result<(), Error> {
+        let _update = self.update.lock().await;
+        let Some(mut control) = self.tun_control.clone() else {
+            return Err(Error::Config(anyhow!("there is no tun inbound")));
+        };
+        let generation = {
+            let mut generation = self
+                .network_generation
+                .lock()
+                .map_err(|_| Error::RuntimeManager)?;
+            // Zero is the generation the stack starts in.
+            *generation = generation.wrapping_add(1).max(1);
+            *generation
+        };
+        control
+            .reset_network(sail_netstack::NetworkGeneration::new(generation))
+            .await?;
+        if let Some(mtu) = mtu {
+            control.update_mtu(mtu).await?;
+        }
+        info!("network changed (generation {})", generation);
+        Ok(())
+    }
+
+    #[cfg(feature = "inbound-tun")]
+    pub fn blocking_network_changed(&self, mtu: Option<usize>) -> Result<(), Error> {
+        let (res_tx, res_rx) = sync_channel(0);
+        self.network_change_tx
+            .blocking_send(NetworkChange {
+                mtu,
+                response: res_tx,
+            })
+            .map_err(|_| Error::RuntimeManager)?;
+        res_rx.recv().map_err(Error::SyncChannelRecv)?
+    }
+
     pub fn blocking_shutdown(&self) -> bool {
         let tx = self.shutdown_tx.clone();
         if let Err(e) = tx.blocking_send(()) {
@@ -446,6 +501,13 @@ impl RuntimeManager {
 
 pub type RuntimeId = u16;
 
+/// A network change a host reports, and where its result goes.
+#[cfg(feature = "inbound-tun")]
+pub struct NetworkChange {
+    mtu: Option<usize>,
+    response: std::sync::mpsc::SyncSender<Result<(), Error>>,
+}
+
 lazy_static! {
     pub static ref RUNTIME_MANAGER: Mutex<HashMap<RuntimeId, Arc<RuntimeManager>>> =
         Mutex::new(HashMap::new());
@@ -467,6 +529,43 @@ pub fn shutdown(key: RuntimeId) -> bool {
         return m.blocking_shutdown();
     }
     false
+}
+
+/// Tells the TUN inbound of runtime `key` that the host's network changed,
+/// with the new interface MTU when it changed too.
+pub fn network_changed(key: RuntimeId, mtu: Option<usize>) -> Result<(), Error> {
+    let manager = RUNTIME_MANAGER
+        .lock()
+        .map_err(|_| Error::RuntimeManager)?
+        .get(&key)
+        .cloned()
+        .ok_or(Error::RuntimeManager)?;
+    #[cfg(feature = "inbound-tun")]
+    return manager.blocking_network_changed(mtu);
+    #[cfg(not(feature = "inbound-tun"))]
+    {
+        let _ = (manager, mtu);
+        Err(Error::Config(anyhow!("there is no tun inbound")))
+    }
+}
+
+/// Stops the TUN inbound's stack, so that its flows are reset rather than
+/// left open, before the instance goes.
+#[cfg(feature = "inbound-tun")]
+async fn stop_tun(control: Option<protocol::tun::NativeRuntimeControl>) {
+    let Some(mut control) = control else {
+        return;
+    };
+    let stopped = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        control.shutdown(0).await?;
+        control.wait_stopped().await
+    })
+    .await;
+    match stopped {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => warn!("stopping the tun inbound failed: {}", e),
+        Err(_) => warn!("the tun inbound did not stop in time"),
+    }
 }
 
 pub fn is_running(key: RuntimeId) -> bool {
@@ -587,6 +686,8 @@ pub struct StartOptions {
 pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
     let (reload_tx, mut reload_rx) = mpsc::channel(1);
     let (shutdown_tx, mut shutdown_rx) = mpsc::channel(1);
+    #[cfg(feature = "inbound-tun")]
+    let (network_change_tx, mut network_change_rx) = mpsc::channel::<NetworkChange>(1);
 
     let config_path = match opts.config {
         Config::File(ref p) => Some(p.to_owned()),
@@ -637,6 +738,8 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
         opts.auto_reload,
         reload_tx,
         shutdown_tx,
+        #[cfg(feature = "inbound-tun")]
+        network_change_tx,
         &instance,
         dial_defaults,
     );
@@ -672,29 +775,64 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
         }
     }));
 
+    // Monitor network changes the host reports.
+    #[cfg(feature = "inbound-tun")]
+    {
+        let rm = runtime_manager.clone();
+        tasks.push(Box::pin(async move {
+            while let Some(change) = network_change_rx.recv().await {
+                let res = rm.network_changed(change.mtu).await;
+                if change.response.send(res).is_err() {
+                    warn!("sending network change result failed");
+                }
+            }
+        }));
+    }
+
     // The main task joining all runners.
     tasks.push(Box::pin(async move {
         futures::future::join_all(runners).await;
     }));
 
+    // Every way to stop stops the TUN inbound first, while its runners still
+    // run.
+    #[cfg(feature = "inbound-tun")]
+    let tun_control = instance.tun_control.clone();
+
     // Monitor shutdown signal.
+    #[cfg(feature = "inbound-tun")]
+    let control = tun_control.clone();
     tasks.push(Box::pin(async move {
         let _ = shutdown_rx.recv().await;
+        #[cfg(feature = "inbound-tun")]
+        stop_tun(control).await;
     }));
 
     // Monitor ctrl-c exit signal.
     #[cfg(feature = "ctrlc")]
-    tasks.push(Box::pin(async move {
-        let _ = tokio::signal::ctrl_c().await;
-    }));
+    {
+        #[cfg(feature = "inbound-tun")]
+        let control = tun_control.clone();
+        tasks.push(Box::pin(async move {
+            let _ = tokio::signal::ctrl_c().await;
+            #[cfg(feature = "inbound-tun")]
+            stop_tun(control).await;
+        }));
+    }
 
     // SIGTERM too, as systemd, kill and container runtimes send it, so that
     // what the instance changed on the system is put back.
     #[cfg(all(feature = "ctrlc", unix))]
     match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
-        Ok(mut terminate) => tasks.push(Box::pin(async move {
-            terminate.recv().await;
-        })),
+        Ok(mut terminate) => {
+            #[cfg(feature = "inbound-tun")]
+            let control = tun_control.clone();
+            tasks.push(Box::pin(async move {
+                terminate.recv().await;
+                #[cfg(feature = "inbound-tun")]
+                stop_tun(control).await;
+            }))
+        }
         Err(e) => warn!("cannot watch SIGTERM: {}", e),
     }
 

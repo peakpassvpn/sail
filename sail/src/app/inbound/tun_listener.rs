@@ -6,7 +6,6 @@ use crate::app::dispatcher::Dispatcher;
 use crate::app::nat_manager::NatManager;
 use crate::config::Inbound;
 use crate::protocol::tun;
-use crate::Runner;
 
 pub struct TunInboundListener {
     pub inbound: Inbound,
@@ -15,7 +14,7 @@ pub struct TunInboundListener {
 }
 
 impl TunInboundListener {
-    pub fn listen(&self) -> Result<Runner> {
+    pub(crate) fn listen(&self) -> Result<tun::inbound::TunRunner> {
         tun::inbound::new(
             self.inbound.clone(),
             self.dispatcher.clone(),

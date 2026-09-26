@@ -249,6 +249,23 @@ pub extern "C" fn sail_shutdown(rt_id: u16) -> bool {
     sail::shutdown(rt_id)
 }
 
+/// Tells the TUN inbound that the platform's network changed, for example
+/// after a switch between Wi-Fi and cellular. Flows of the previous network
+/// are reset, and new ones start on the current network.
+///
+/// @param rt_id The ID of the sail instance.
+/// @param mtu The new interface MTU, or 0 to keep the current one.
+///
+/// @return ERR_OK on success.
+#[no_mangle]
+pub extern "C" fn sail_network_changed(rt_id: u16, mtu: u16) -> i32 {
+    let mtu = (mtu != 0).then_some(usize::from(mtu));
+    match sail::network_changed(rt_id, mtu) {
+        Ok(()) => ERR_OK,
+        Err(e) => to_errno(e),
+    }
+}
+
 /// Tests the configuration.
 ///
 /// @param config_path The path of the config file, must be a file with suffix .conf

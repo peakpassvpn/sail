@@ -1,12 +1,15 @@
 use std::{
     io,
     net::{IpAddr, SocketAddr},
+    num::NonZeroUsize,
     sync::Arc,
 };
 
 use async_trait::async_trait;
 use futures::TryFutureExt;
+use lru::LruCache;
 use tokio::net::UdpSocket;
+use tokio::sync::Mutex;
 
 use crate::{
     app::SyncDnsClient,
@@ -170,17 +173,63 @@ impl OutboundDatagram for DomainAssociatedOutboundDatagram {
     ) {
         let r = Arc::new(self.inner);
         let s = r.clone();
+        let targets = DomainTargetMap::new();
         (
             Box::new(DomainAssociatedOutboundDatagramRecvHalf(
                 r,
                 self.destination,
+                targets.clone(),
             )),
             Box::new(DomainAssociatedOutboundDatagramSendHalf(
                 s,
                 self.source,
                 self.dns_client,
+                targets,
             )),
         )
+    }
+}
+
+/// The resolved addresses a domain-associated datagram sent to, each with
+/// the target it was sent as.
+///
+/// A datagram to a domain goes out to the address it resolves to, and the
+/// reply has to come back as from that domain. With one target per socket,
+/// every reply was labelled with the socket's first target, so replies from
+/// a second domain, or answered out of order, reached the client as if from
+/// the first.
+#[derive(Clone)]
+struct DomainTargetMap {
+    targets: Arc<Mutex<LruCache<SocketAddr, SocksAddr>>>,
+}
+
+impl DomainTargetMap {
+    /// Addresses remembered per socket; the least recently used goes first.
+    const CAPACITY: NonZeroUsize = match NonZeroUsize::new(256) {
+        Some(capacity) => capacity,
+        None => unreachable!(),
+    };
+
+    fn new() -> Self {
+        Self {
+            targets: Arc::new(Mutex::new(LruCache::new(Self::CAPACITY))),
+        }
+    }
+
+    async fn record(&self, address: SocketAddr, target: SocksAddr) {
+        self.targets
+            .lock()
+            .await
+            .put(unmapped_ipv4(address), target);
+    }
+
+    async fn target(&self, address: SocketAddr, fallback: &SocksAddr) -> SocksAddr {
+        self.targets
+            .lock()
+            .await
+            .get(&unmapped_ipv4(address))
+            .cloned()
+            .unwrap_or_else(|| fallback.clone())
     }
 }
 
@@ -193,19 +242,22 @@ fn unmapped_ipv4(addr: SocketAddr) -> SocketAddr {
     addr
 }
 
-pub struct DomainAssociatedOutboundDatagramRecvHalf(Arc<UdpSocket>, SocksAddr);
+pub struct DomainAssociatedOutboundDatagramRecvHalf(Arc<UdpSocket>, SocksAddr, DomainTargetMap);
 
 #[async_trait]
 impl OutboundDatagramRecvHalf for DomainAssociatedOutboundDatagramRecvHalf {
     async fn recv_from(&mut self, buf: &mut [u8]) -> io::Result<(usize, SocksAddr)> {
-        match self.0.recv_from(buf).await {
-            Ok((n, _a)) => Ok((n, self.1.clone())),
-            Err(e) => Err(e),
-        }
+        let (n, address) = self.0.recv_from(buf).await?;
+        Ok((n, self.2.target(address, &self.1).await))
     }
 }
 
-pub struct DomainAssociatedOutboundDatagramSendHalf(Arc<UdpSocket>, SocketAddr, SyncDnsClient);
+pub struct DomainAssociatedOutboundDatagramSendHalf(
+    Arc<UdpSocket>,
+    SocketAddr,
+    SyncDnsClient,
+    DomainTargetMap,
+);
 
 #[async_trait]
 impl OutboundDatagramSendHalf for DomainAssociatedOutboundDatagramSendHalf {
@@ -236,6 +288,7 @@ impl OutboundDatagramSendHalf for DomainAssociatedOutboundDatagramSendHalf {
             }
             SocksAddr::Ip(a) => a.to_owned(),
         };
+        self.3.record(addr, target.clone()).await;
         self.0.send_to(buf, &addr).await
     }
 
@@ -307,5 +360,29 @@ impl InboundDatagramSendHalf for SimpleInboundDatagramSendHalf {
 
     async fn close(&mut self) -> io::Result<()> {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn replies_carry_the_target_their_address_was_sent_as() {
+        let targets = DomainTargetMap::new();
+        let first_address = "127.0.0.1:41001".parse().unwrap();
+        let second_address = "127.0.0.1:41002".parse().unwrap();
+        let unknown_address = "127.0.0.1:41003".parse().unwrap();
+        let first = SocksAddr::Domain("first.example".into(), 53);
+        let second = SocksAddr::Domain("second.example".into(), 5353);
+        let fallback = SocksAddr::any_ipv4();
+
+        targets.record(first_address, first.clone()).await;
+        targets.record(second_address, second.clone()).await;
+
+        // The second reply arrives first.
+        assert_eq!(targets.target(second_address, &fallback).await, second);
+        assert_eq!(targets.target(first_address, &fallback).await, first);
+        assert_eq!(targets.target(unknown_address, &fallback).await, fallback);
     }
 }

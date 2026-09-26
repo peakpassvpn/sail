@@ -140,7 +140,7 @@ inbound-shadowsocks = ["aead", "hkdf", "sha-1", "md-5", "tokio-util", "blake3", 
 inbound-socks = []
 inbound-http = ["http", "base64"]
 inbound-hc = []
-inbound-tun = ["tun", "netstack-lwip", "netstack-smoltcp", "pnet_datalink"]
+inbound-tun = ["tun", "dep:sail-netstack", "dep:tun-rs", "pnet_datalink"]
 inbound-ws = ["tungstenite", "tokio-tungstenite", "http", "httparse", "base64"]
 inbound-httpupgrade = ["http", "httparse"]
 inbound-grpc = ["h2", "http"]
@@ -277,8 +277,11 @@ notify = { version = "6", optional = true }
 
 # TUN
 tun = { version = "0.7", features = ["async"], optional = true  }
-netstack-lwip = { git = "https://github.com/eycorsican/netstack-lwip", rev = "4943435", optional = true }
-netstack-smoltcp = { git = "https://github.com/eycorsican/netstack-smoltcp", branch = "pr-16-initialize-unfilled", optional = true }
+sail-netstack = { path = "../sail-netstack", optional = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# Multi-queue TUN with GSO/GRO offload for the TUN inbound.
+tun-rs = { version = "2.8.11", features = ["async"], optional = true }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 ipconfig = "0.3"

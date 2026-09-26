@@ -1,7 +1,5 @@
 pub mod inbound;
+mod native;
+mod native_stream;
 
-#[cfg(feature = "netstack-lwip")]
-pub use netstack_lwip;
-
-#[cfg(feature = "netstack-smoltcp")]
-pub use netstack_smoltcp;
+pub(crate) use native::NativeRuntimeControl;

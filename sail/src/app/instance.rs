@@ -37,6 +37,9 @@ pub struct Instance {
     tun_route: Option<tun_setup::TunRoute>,
     #[cfg(all(feature = "inbound-tun", any(target_os = "macos", target_os = "linux")))]
     net_info: Option<tun_setup::NetInfo>,
+    /// Controls the TUN inbound's stack once it is started.
+    #[cfg(feature = "inbound-tun")]
+    pub(crate) tun_control: Option<crate::protocol::tun::NativeRuntimeControl>,
 }
 
 impl Instance {
@@ -100,6 +103,8 @@ impl Instance {
             tun_route,
             #[cfg(all(feature = "inbound-tun", any(target_os = "macos", target_os = "linux")))]
             net_info: None,
+            #[cfg(feature = "inbound-tun")]
+            tun_control: None,
         })
     }
 
@@ -116,8 +121,10 @@ impl Instance {
         #[cfg(all(feature = "inbound-tun", any(target_os = "macos", target_os = "linux")))]
         let net_info = self.tun_route.clone().map(tun_setup::get_net_info);
         #[cfg(feature = "inbound-tun")]
-        if let Some(runner) = inbounds.get_tun_runner() {
-            runners.push(runner?);
+        if let Some(tun) = inbounds.get_tun_runner() {
+            let tun = tun?;
+            runners.push(tun.runner);
+            self.tun_control = Some(tun.control);
         }
         #[cfg(feature = "inbound-cat")]
         if let Some(runner) = inbounds.get_cat_runner() {

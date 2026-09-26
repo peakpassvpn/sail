@@ -30,7 +30,6 @@ pub struct General {
     pub tun: Option<Tun>,
     pub tun_fd: Option<i32>,
     pub tun_auto: Option<bool>,
-    pub tun2socks_backend: Option<String>,
     pub nf: Option<Nf>,
     pub loglevel: Option<String>,
     pub logoutput: Option<String>,
@@ -463,9 +462,6 @@ pub fn from_lines(lines: Vec<io::Result<String>>) -> Result<Config> {
                     };
                     general.tun = Some(tun);
                 }
-            }
-            "tun2socks-backend" => {
-                general.tun2socks_backend = Some(parts[1].to_string());
             }
             "nf" => {
                 // nf = driver_name, path/to/nfapi.dll
@@ -912,7 +908,6 @@ pub fn to_config(conf: &Config) -> Result<model::Config> {
             let mut tun = json!({
                 "fake_dns_exclude": ext_general.always_real_ip,
                 "fake_dns_include": ext_general.always_fake_ip,
-                "tun2socks": ext_general.tun2socks_backend,
                 "wintun": ext_general.wintun,
                 "dns_servers": ext_general.tun_dns_server,
             });

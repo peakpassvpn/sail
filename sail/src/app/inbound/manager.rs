@@ -199,7 +199,9 @@ impl InboundManager {
     }
 
     #[cfg(feature = "inbound-tun")]
-    pub fn get_tun_runner(&self) -> Option<Result<Runner>> {
+    pub(crate) fn get_tun_runner(
+        &self,
+    ) -> Option<Result<crate::protocol::tun::inbound::TunRunner>> {
         self.tun_listener.as_ref().map(TunInboundListener::listen)
     }
 

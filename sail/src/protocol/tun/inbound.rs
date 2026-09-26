@@ -1,33 +1,48 @@
-use std::net::SocketAddr;
-use std::pin::Pin;
-use std::sync::Arc;
+use std::{net::SocketAddr, num::NonZeroUsize, sync::Arc};
 
 use anyhow::{anyhow, Result};
-use futures::{sink::SinkExt, stream::StreamExt};
+use lru::LruCache;
+use sail_netstack::{BudgetProfile, ResourceLedger, RunnerConfig, UdpFlowToken};
 use serde_derive::Deserialize;
-use tokio::sync::mpsc::channel as tokio_channel;
-use tokio::sync::mpsc::{Receiver as TokioReceiver, Sender as TokioSender};
-use tokio::sync::Mutex;
+use tokio::sync::mpsc::{
+    channel as tokio_channel, Receiver as TokioReceiver, Sender as TokioSender,
+};
 use tracing::{debug, error, info, warn};
 
 use crate::{
     app::dispatcher::Dispatcher,
     app::fake_dns::{FakeDns, FakeDnsMode},
-    app::nat_manager::NatManager,
-    app::nat_manager::UdpPacket,
+    app::nat_manager::{NatManager, UdpPacket},
     config::model::{parse_options, Inbound},
+    runtime::options::{Netstack, NetstackBudget},
     session::{DatagramSource, Network, Session, SocksAddr},
     Runner,
 };
 
-#[cfg(feature = "netstack-lwip")]
-use super::netstack_lwip as lwip;
-#[cfg(feature = "netstack-smoltcp")]
-use super::netstack_smoltcp as smoltcp;
+#[cfg(target_os = "linux")]
+use super::native::TunRsPacketIo;
+use super::native::{
+    NativeRuntimeControl, NativeRuntimeGroup, NativeUdpDatagram, NativeUdpReplyHandle, TunPacketIo,
+};
+use super::native_stream::NativeTcpStream;
 
-#[cfg(feature = "netstack-lwip")]
-async fn handle_inbound_stream_lwip(
-    stream: Pin<Box<lwip::TcpStream>>,
+/// What runs a TUN inbound, and how the instance controls it.
+pub(crate) struct TunRunner {
+    pub runner: Runner,
+    pub control: NativeRuntimeControl,
+}
+
+const fn budget_profile(budget: NetstackBudget) -> BudgetProfile {
+    match budget {
+        NetstackBudget::Mobile => BudgetProfile::Mobile,
+        NetstackBudget::Router => BudgetProfile::Router,
+        NetstackBudget::Desktop => BudgetProfile::Desktop,
+        NetstackBudget::Server => BudgetProfile::Server,
+    }
+}
+
+async fn handle_stream(
+    stream: NativeTcpStream,
     local_addr: SocketAddr,
     remote_addr: SocketAddr,
     inbound_tag: String,
@@ -47,470 +62,276 @@ async fn handle_inbound_stream_lwip(
         if fakedns.is_fake_ip(&remote_addr.ip()).await {
             if let Some(domain) = fakedns.query_domain(&remote_addr.ip()).await {
                 sess.destination = SocksAddr::Domain(domain, remote_addr.port());
-            } else {
-                // Although requests targeting fake IPs are assumed
-                // never happen in real network traffic, which are
-                // likely caused by poisoned DNS cache records, we
-                // still have a chance to sniff the request domain
-                // for TLS traffic in dispatcher.
-                if remote_addr.port() != 443 && remote_addr.port() != 80 {
-                    debug!(
-                        "No paired domain found for this fake IP: {}, connection is rejected.",
-                        &remote_addr.ip()
-                    );
-                    return;
-                }
+            } else if remote_addr.port() != 443 && remote_addr.port() != 80 {
+                // Although requests targeting fake IPs are assumed never to
+                // happen in real traffic, poisoned DNS cache records cause
+                // them; TLS and HTTP may still be sniffed in the dispatcher.
+                debug!(
+                    "No paired domain found for this fake IP: {}, connection is rejected.",
+                    remote_addr.ip()
+                );
+                return;
             }
         }
     }
     dispatcher.dispatch_stream(sess, stream).await;
 }
 
-#[cfg(feature = "netstack-smoltcp")]
-async fn handle_inbound_stream_smoltcp(
-    stream: Pin<Box<smoltcp::TcpStream>>,
-    local_addr: SocketAddr,
-    remote_addr: SocketAddr,
-    inbound_tag: String,
-    dispatcher: Arc<Dispatcher>,
-    fakedns: Option<Arc<FakeDns>>,
-) {
-    let mut sess = Session {
-        network: Network::Tcp,
-        source: local_addr,
-        local_addr: remote_addr,
-        destination: SocksAddr::Ip(remote_addr),
-        inbound_tag,
-        ..Default::default()
-    };
-    // Whether to override the destination according to Fake DNS.
-    if let Some(fakedns) = fakedns {
-        if fakedns.is_fake_ip(&remote_addr.ip()).await {
-            if let Some(domain) = fakedns.query_domain(&remote_addr.ip()).await {
-                sess.destination = SocksAddr::Domain(domain, remote_addr.port());
-            } else {
-                // Although requests targeting fake IPs are assumed
-                // never happen in real network traffic, which are
-                // likely caused by poisoned DNS cache records, we
-                // still have a chance to sniff the request domain
-                // for TLS traffic in dispatcher.
-                if remote_addr.port() != 443 && remote_addr.port() != 80 {
-                    debug!(
-                        "No paired domain found for this fake IP: {}, connection is rejected.",
-                        &remote_addr.ip()
-                    );
-                    return;
-                }
-            }
-        }
-    }
-    dispatcher.dispatch_stream(sess, stream).await;
-}
-
-#[cfg(feature = "netstack-lwip")]
-async fn handle_inbound_datagram_lwip(
-    socket: Pin<Box<lwip::UdpSocket>>,
+async fn handle_datagrams(
+    mut uplink: TokioReceiver<NativeUdpDatagram>,
+    mut reply: NativeUdpReplyHandle,
     inbound_tag: String,
     nat_manager: Arc<NatManager>,
     fakedns: Option<Arc<FakeDns>>,
+    flow_capacity: usize,
 ) {
-    // The socket to receive/send packets from/to the netstack.
-    let (ls, mut lr) = socket.split();
-    let ls = Arc::new(ls);
-
-    // The channel for sending back datagrams from NAT manager to netstack.
-    let (l_tx, mut l_rx): (TokioSender<UdpPacket>, TokioReceiver<UdpPacket>) =
+    let (downlink_tx, mut downlink_rx): (TokioSender<UdpPacket>, TokioReceiver<UdpPacket>) =
         tokio_channel(nat_manager.env().options.udp.downlink_channel_size);
+    // Replies name a client and a source; the stack wants the flow token.
+    let mut flows = LruCache::<(SocketAddr, SocketAddr), UdpFlowToken>::new(
+        NonZeroUsize::new(flow_capacity).unwrap_or(NonZeroUsize::MIN),
+    );
 
-    // Receive datagrams from NAT manager and send back to netstack.
-    let fakedns_cloned = fakedns.clone();
-    let ls_cloned = ls.clone();
-    tokio::spawn(async move {
-        while let Some(pkt) = l_rx.recv().await {
-            let src_addr = match pkt.src_addr {
-                SocksAddr::Ip(a) => a,
-                SocksAddr::Domain(domain, port) => {
-                    if let Some(fakedns) = &fakedns_cloned {
-                        if let Some(ip) = fakedns.query_fake_ip(&domain).await {
-                            SocketAddr::new(ip, port)
-                        } else {
-                            warn!(
-                                "Received datagram with source address {}:{} without paired fake IP found.",
-                                &domain, &port
-                            );
-                            continue;
-                        }
-                    } else {
-                        warn!(
-                            "Received datagram with source address {}:{} but fake DNS is disabled.",
-                            &domain, &port
-                        );
-                        continue;
-                    }
-                }
-            };
-            if let Err(e) = ls_cloned.send_to(&pkt.data[..], &src_addr, pkt.dst_addr.must_ip()) {
-                warn!("A packet failed to send to the netstack: {}", e);
-            }
-        }
-    });
-
-    // Accept datagrams from netstack and send to NAT manager.
     loop {
-        match lr.recv_from().await {
-            Err(e) => {
-                warn!("Failed to accept a datagram from netstack: {}", e);
-            }
-            Ok((data, src_addr, dst_addr)) => {
-                // Fake DNS logic.
-                if dst_addr.port() == 53 {
+        tokio::select! {
+            datagram = uplink.recv() => {
+                let Some(datagram) = datagram else {
+                    return;
+                };
+                flows.put((datagram.source, datagram.destination), datagram.token);
+                let payload = datagram.payload.to_vec();
+
+                if datagram.destination.port() == 53 {
                     if let Some(fakedns) = &fakedns {
-                        match fakedns.generate_fake_response(&data).await {
-                            Ok(resp) => {
-                                if let Err(e) = ls.send_to(resp.as_ref(), &dst_addr, &src_addr) {
-                                    warn!("A packet failed to send to the netstack: {}", e);
+                        match fakedns.generate_fake_response(&payload).await {
+                            Ok(response) => {
+                                if let Err(e) = reply
+                                    .send(datagram.token, datagram.destination, response)
+                                    .await
+                                {
+                                    warn!("A fake DNS response failed to reach the netstack: {}", e);
                                 }
                                 continue;
                             }
-                            Err(err) => {
-                                debug!("generate fake ip failed: {}", err);
-                            }
+                            Err(e) => debug!("generate fake ip failed: {}", e),
                         }
                     }
                 }
 
-                // Whether to override the destination according to Fake DNS.
-                //
-                // WARNING
-                //
-                // This allows datagram to have a domain name as destination,
-                // but real UDP traffic are sent with IP address only. If the
-                // outbound for this datagram is a direct one, the outbound
-                // would resolve the domain to IP address before sending out
-                // the datagram. If the outbound is a proxy one, it would
-                // require a proxy server with the ability to handle datagrams
-                // with domain name destination, sail itself of course supports
-                // this feature very well.
-                let dst_addr = if let Some(fakedns) = &fakedns {
-                    if fakedns.is_fake_ip(&dst_addr.ip()).await {
-                        if let Some(domain) = fakedns.query_domain(&dst_addr.ip()).await {
-                            SocksAddr::Domain(domain, dst_addr.port())
-                        } else {
+                // A fake IP destination becomes its domain. Real UDP only
+                // carries addresses, so a direct outbound resolves it again
+                // and a proxy outbound needs a server that takes domains.
+                let destination = if let Some(fakedns) = &fakedns {
+                    if fakedns.is_fake_ip(&datagram.destination.ip()).await {
+                        let Some(domain) = fakedns.query_domain(&datagram.destination.ip()).await
+                        else {
                             debug!(
                                 "No paired domain found for this fake IP: {}, datagram is rejected.",
-                                &dst_addr.ip()
+                                datagram.destination.ip()
                             );
                             continue;
-                        }
+                        };
+                        SocksAddr::Domain(domain, datagram.destination.port())
                     } else {
-                        SocksAddr::Ip(dst_addr)
+                        SocksAddr::Ip(datagram.destination)
                     }
                 } else {
-                    SocksAddr::Ip(dst_addr)
+                    SocksAddr::Ip(datagram.destination)
                 };
 
-                let dgram_src = DatagramSource::new(src_addr, None);
-                let pkt = UdpPacket::new(data, SocksAddr::Ip(src_addr), dst_addr);
+                let source = DatagramSource::new(datagram.source, None);
+                let packet = UdpPacket::new(payload, SocksAddr::Ip(datagram.source), destination);
                 nat_manager
-                    .send(None, &dgram_src, &inbound_tag, &l_tx, pkt)
+                    .send(None, &source, &inbound_tag, &downlink_tx, packet)
                     .await;
+            }
+            packet = downlink_rx.recv() => {
+                let Some(packet) = packet else {
+                    return;
+                };
+                let client = match packet.dst_addr {
+                    SocksAddr::Ip(address) => address,
+                    SocksAddr::Domain(domain, port) => {
+                        warn!("Received a datagram for client {}:{}, which is not an address.", domain, port);
+                        continue;
+                    }
+                };
+                let source = match packet.src_addr {
+                    SocksAddr::Ip(address) => address,
+                    SocksAddr::Domain(domain, port) => {
+                        let Some(fakedns) = &fakedns else {
+                            warn!(
+                                "Received datagram with source address {}:{} but fake DNS is disabled.",
+                                domain, port
+                            );
+                            continue;
+                        };
+                        let Some(ip) = fakedns.query_fake_ip(&domain).await else {
+                            warn!(
+                                "Received datagram with source address {}:{} without paired fake IP found.",
+                                domain, port
+                            );
+                            continue;
+                        };
+                        SocketAddr::new(ip, port)
+                    }
+                };
+                let Some(token) = flows.get(&(client, source)).copied() else {
+                    debug!("No netstack UDP flow for client {} and source {}.", client, source);
+                    continue;
+                };
+                if let Err(e) = reply.send(token, source, packet.data).await {
+                    warn!("A packet failed to send to the netstack: {}", e);
+                }
             }
         }
     }
 }
 
-#[cfg(feature = "netstack-smoltcp")]
-async fn handle_inbound_datagram_smoltcp(
-    socket: smoltcp::UdpSocket,
-    inbound_tag: String,
+fn run<I: sail_netstack::PacketIo + 'static>(
+    inbound: Inbound,
+    dispatcher: Arc<Dispatcher>,
     nat_manager: Arc<NatManager>,
     fakedns: Option<Arc<FakeDns>>,
-) {
-    // The socket to receive/send packets from/to the netstack.
-    let (mut lr, ls) = socket.split();
-    let ls = Arc::new(Mutex::new(ls));
+    queues: Vec<I>,
+    mtu: usize,
+    netstack: &Netstack,
+) -> Result<TunRunner> {
+    let profile = budget_profile(netstack.budget);
+    let ledger = ResourceLedger::new(profile.budget())?;
+    let udp_flow_capacity = profile.budget().max_udp_flows;
+    let mut config = RunnerConfig::default();
+    config.mtu = mtu;
+    config.max_packet_size = config.max_packet_size.max(mtu);
+    // Room for the largest IPv6 and TCP headers with options.
+    config.tcp.max_segment_payload_bytes = config
+        .tcp
+        .max_segment_payload_bytes
+        .min(mtu.saturating_sub(84));
+    config.tcp.keepalive_idle_ms = Some(2 * 60 * 60 * 1_000);
+    config.tcp.nagle_enabled = true;
+    let (runtime, mut accepted, datagrams, udp_reply, mut control) = NativeRuntimeGroup::new(
+        queues,
+        ledger,
+        config,
+        netstack.command_channel_size,
+        netstack.command_channel_size,
+        netstack.udp_uplink_channel_size,
+    )?;
 
-    // The channel for sending back datagrams from NAT manager to netstack.
-    let (l_tx, mut l_rx): (TokioSender<UdpPacket>, TokioReceiver<UdpPacket>) =
-        tokio_channel(nat_manager.env().options.udp.downlink_channel_size);
-
-    // Receive datagrams from NAT manager and send back to netstack.
-    let fakedns_cloned = fakedns.clone();
-    let ls_cloned = ls.clone();
-    tokio::spawn(async move {
-        while let Some(pkt) = l_rx.recv().await {
-            let src_addr = match pkt.src_addr {
-                SocksAddr::Ip(a) => a,
-                SocksAddr::Domain(domain, port) => {
-                    if let Some(fakedns) = &fakedns_cloned {
-                        if let Some(ip) = fakedns.query_fake_ip(&domain).await {
-                            SocketAddr::new(ip, port)
-                        } else {
-                            warn!(
-                                "Received datagram with source address {}:{} without paired fake IP found.",
-                                &domain, &port
-                            );
-                            continue;
-                        }
-                    } else {
-                        warn!(
-                            "Received datagram with source address {}:{} but fake DNS is disabled.",
-                            &domain, &port
-                        );
-                        continue;
-                    }
+    let runtime_control = control.clone();
+    let runner = Box::pin(async move {
+        let inbound_tag = inbound.tag;
+        let datagram_tag = inbound_tag.clone();
+        let datagram_fakedns = fakedns.clone();
+        let accept_loop = async move {
+            while let Some(accepted) = accepted.recv().await {
+                tokio::spawn(handle_stream(
+                    accepted.stream,
+                    accepted.connection.source,
+                    accepted.connection.destination,
+                    inbound_tag.clone(),
+                    dispatcher.clone(),
+                    fakedns.clone(),
+                ));
+            }
+        };
+        let datagram_loop = handle_datagrams(
+            datagrams,
+            udp_reply,
+            datagram_tag,
+            nat_manager,
+            datagram_fakedns,
+            udp_flow_capacity,
+        );
+        let mut runtime = Box::pin(runtime.run());
+        info!("start tun inbound");
+        let runtime_finished = tokio::select! {
+            result = &mut runtime => {
+                if let Err(e) = result {
+                    error!("netstack runner failed: {}", e);
                 }
-            };
-            if let Err(e) = ls_cloned
-                .lock()
-                .await
-                .send((pkt.data, src_addr, *pkt.dst_addr.must_ip()))
-                .await
-            {
-                warn!("A packet failed to send to the netstack: {}", e);
+                true
+            }
+            () = accept_loop => {
+                error!("netstack accept loop stopped");
+                false
+            }
+            () = datagram_loop => {
+                error!("netstack datagram loop stopped");
+                false
+            }
+        };
+        // A bridge ended first: stop every shard and wait for them, rather
+        // than dropping live runners.
+        if !runtime_finished {
+            if let Ok(snapshot) = control.stats_snapshot().await {
+                debug!(
+                    shards = snapshot.shard_count,
+                    tcp_flows = snapshot.stack.tcp_active_flows,
+                    udp_flows = snapshot.stack.udp_active_flows,
+                    queued_packets = snapshot.router.queued_packets,
+                    "netstack final snapshot"
+                );
+            }
+            if let Err(e) = control.shutdown(0).await {
+                debug!("netstack shutdown failed: {}", e);
+                let _ = control.abort().await;
+            }
+            if let Err(e) = runtime.await {
+                error!("netstack runner failed during shutdown: {}", e);
             }
         }
     });
-
-    // Accept datagrams from netstack and send to NAT manager.
-    while let Some(item) = lr.next().await {
-        let (data, src_addr, dst_addr) = item;
-        // Fake DNS logic.
-        if dst_addr.port() == 53 {
-            if let Some(fakedns) = &fakedns {
-                match fakedns.generate_fake_response(&data).await {
-                    Ok(resp) => {
-                        if let Err(e) = ls.lock().await.send((resp, dst_addr, src_addr)).await {
-                            warn!("A packet failed to send to the netstack: {}", e);
-                        }
-                        continue;
-                    }
-                    Err(err) => {
-                        debug!("generate fake ip failed: {}", err);
-                    }
-                }
-            }
-        }
-
-        // Whether to override the destination according to Fake DNS.
-        //
-        // WARNING
-        //
-        // This allows datagram to have a domain name as destination,
-        // but real UDP traffic are sent with IP address only. If the
-        // outbound for this datagram is a direct one, the outbound
-        // would resolve the domain to IP address before sending out
-        // the datagram. If the outbound is a proxy one, it would
-        // require a proxy server with the ability to handle datagrams
-        // with domain name destination, sail itself of course supports
-        // this feature very well.
-        let dst_addr = if let Some(fakedns) = &fakedns {
-            if fakedns.is_fake_ip(&dst_addr.ip()).await {
-                if let Some(domain) = fakedns.query_domain(&dst_addr.ip()).await {
-                    SocksAddr::Domain(domain, dst_addr.port())
-                } else {
-                    debug!(
-                        "No paired domain found for this fake IP: {}, datagram is rejected.",
-                        &dst_addr.ip()
-                    );
-                    continue;
-                }
-            } else {
-                SocksAddr::Ip(dst_addr)
-            }
-        } else {
-            SocksAddr::Ip(dst_addr)
-        };
-
-        let dgram_src = DatagramSource::new(src_addr, None);
-        let pkt = UdpPacket::new(data, SocksAddr::Ip(src_addr), dst_addr);
-        nat_manager
-            .send(None, &dgram_src, &inbound_tag, &l_tx, pkt)
-            .await;
-    }
+    Ok(TunRunner {
+        runner,
+        control: runtime_control,
+    })
 }
 
-#[cfg(feature = "netstack-lwip")]
-fn new_lwip(
-    inbound: Inbound,
-    dispatcher: Arc<Dispatcher>,
-    nat_manager: Arc<NatManager>,
-    fakedns: Option<Arc<FakeDns>>,
-    tun: tun::AsyncDevice,
-) -> Result<Runner> {
-    let (stack, mut tcp_listener, udp_socket) = lwip::NetStack::with_buffer_size(
-        dispatcher.env().options.netstack.output_channel_size,
-        dispatcher.env().options.netstack.udp_uplink_channel_size,
-    )?;
-
-    Ok(Box::pin(async move {
-        let inbound_tag = inbound.tag.clone();
-        let framed = tun.into_framed();
-        let (mut tun_sink, mut tun_stream) = framed.split();
-        let (mut stack_sink, mut stack_stream) = stack.split();
-
-        let mut futs: Vec<Runner> = Vec::new();
-
-        // Reads packet from stack and sends to TUN.
-        futs.push(Box::pin(async move {
-            while let Some(pkt) = stack_stream.next().await {
-                match pkt {
-                    Ok(pkt) => {
-                        if let Err(e) = tun_sink.send(pkt).await {
-                            // TODO Return the error
-                            error!("Sending packet to TUN failed: {}", e);
-                            return;
-                        }
-                    }
-                    Err(e) => {
-                        error!("Net stack erorr: {}", e);
-                        return;
-                    }
-                }
-            }
-        }));
-
-        // Reads packet from TUN and sends to stack.
-        futs.push(Box::pin(async move {
-            while let Some(pkt) = tun_stream.next().await {
-                match pkt {
-                    Ok(pkt) => {
-                        if let Err(e) = stack_sink.send(pkt).await {
-                            error!("Sending packet to NetStack failed: {}", e);
-                            return;
-                        }
-                    }
-                    Err(e) => {
-                        error!("TUN error: {}", e);
-                        return;
-                    }
-                }
-            }
-        }));
-
-        // Extracts TCP connections from stack and sends them to the dispatcher.
-        let inbound_tag_cloned = inbound_tag.clone();
-        let fakedns_cloned = fakedns.clone();
-        futs.push(Box::pin(async move {
-            while let Some((stream, local_addr, remote_addr)) = tcp_listener.next().await {
-                tokio::spawn(handle_inbound_stream_lwip(
-                    stream,
-                    local_addr,
-                    remote_addr,
-                    inbound_tag_cloned.clone(),
-                    dispatcher.clone(),
-                    fakedns_cloned.clone(),
-                ));
-            }
-        }));
-
-        // Receive and send UDP packets between netstack and NAT manager. The NAT
-        // manager would maintain UDP sessions and send them to the dispatcher.
-        futs.push(Box::pin(async move {
-            handle_inbound_datagram_lwip(udp_socket, inbound_tag, nat_manager, fakedns.clone())
-                .await;
-        }));
-
-        info!("start tun inbound (lwip)");
-        futures::future::select_all(futs).await;
-    }))
-}
-
-#[cfg(feature = "netstack-smoltcp")]
-fn new_smoltcp(
-    inbound: Inbound,
-    dispatcher: Arc<Dispatcher>,
-    nat_manager: Arc<NatManager>,
-    fakedns: Option<Arc<FakeDns>>,
-    tun: tun::AsyncDevice,
-) -> Result<Runner> {
-    let (stack, runner, udp_socket, tcp_listener) = smoltcp::StackBuilder::default()
-        .enable_tcp(true)
-        .enable_udp(true)
-        .enable_icmp(true)
-        .stack_buffer_size(dispatcher.env().options.netstack.output_channel_size)
-        .udp_buffer_size(dispatcher.env().options.netstack.udp_uplink_channel_size)
-        .tcp_buffer_size(dispatcher.env().options.netstack.udp_uplink_channel_size)
-        .build()
-        .map_err(|e| anyhow!("stack build failed: {}", e))?;
-
-    if let Some(runner) = runner {
-        tokio::spawn(runner);
+/// One multi-queue device, a queue per shard, each with its own runner.
+#[cfg(target_os = "linux")]
+fn linux_queues(settings: &TunInboundOptions, netstack: &Netstack) -> Result<Vec<TunRsPacketIo>> {
+    let mtu = usize::try_from(settings.mtu).map_err(|_| anyhow!("invalid TUN mtu"))?;
+    let available = std::thread::available_parallelism()
+        .map(NonZeroUsize::get)
+        .unwrap_or(1);
+    let queue_count = available.min(netstack.max_queues).max(1);
+    let first = tun_rs::DeviceBuilder::new()
+        .name(settings.name())
+        .ipv4(
+            settings.address(),
+            settings.netmask(),
+            Some(settings.gateway()),
+        )
+        .mtu(u16::try_from(settings.mtu).map_err(|_| anyhow!("invalid TUN mtu"))?)
+        .enable(true)
+        .multi_queue(queue_count > 1)
+        .offload(netstack.offload)
+        .build_async()
+        .map_err(|e| anyhow!("create tun failed: {}", e))?;
+    let mut devices = Vec::with_capacity(queue_count);
+    for _ in 1..queue_count {
+        devices.push(
+            first
+                .try_clone()
+                .map_err(|e| anyhow!("attach tun queue failed: {}", e))?,
+        );
     }
-
-    let mut tcp_listener = tcp_listener.ok_or_else(|| anyhow!("no tcp listener"))?;
-    let udp_socket = udp_socket.ok_or_else(|| anyhow!("no udp socket"))?;
-
-    Ok(Box::pin(async move {
-        let inbound_tag = inbound.tag.clone();
-        let framed = tun.into_framed();
-        let (mut tun_sink, mut tun_stream) = framed.split();
-        let (mut stack_sink, mut stack_stream) = stack.split();
-
-        let mut futs: Vec<Runner> = Vec::new();
-
-        // Reads packet from stack and sends to TUN.
-        futs.push(Box::pin(async move {
-            while let Some(pkt) = stack_stream.next().await {
-                match pkt {
-                    Ok(pkt) => {
-                        if let Err(e) = tun_sink.send(pkt).await {
-                            error!("Sending packet to TUN failed: {}", e);
-                            return;
-                        }
-                    }
-                    Err(e) => {
-                        error!("Net stack erorr: {}", e);
-                        return;
-                    }
-                }
-            }
-        }));
-
-        // Reads packet from TUN and sends to stack.
-        futs.push(Box::pin(async move {
-            while let Some(pkt) = tun_stream.next().await {
-                match pkt {
-                    Ok(pkt) => {
-                        if let Err(e) = stack_sink.send(pkt).await {
-                            error!("Sending packet to NetStack failed: {}", e);
-                            return;
-                        }
-                    }
-                    Err(e) => {
-                        error!("TUN error: {}", e);
-                        return;
-                    }
-                }
-            }
-        }));
-
-        // Extracts TCP connections from stack and sends them to the dispatcher.
-        let inbound_tag_cloned = inbound_tag.clone();
-        let fakedns_cloned = fakedns.clone();
-        futs.push(Box::pin(async move {
-            while let Some((stream, local_addr, remote_addr)) = tcp_listener.next().await {
-                tokio::spawn(handle_inbound_stream_smoltcp(
-                    Box::pin(stream),
-                    local_addr,
-                    remote_addr,
-                    inbound_tag_cloned.clone(),
-                    dispatcher.clone(),
-                    fakedns_cloned.clone(),
-                ));
-            }
-        }));
-
-        // Receive and send UDP packets between netstack and NAT manager. The NAT
-        // manager would maintain UDP sessions and send them to the dispatcher.
-        futs.push(Box::pin(async move {
-            handle_inbound_datagram_smoltcp(udp_socket, inbound_tag, nat_manager, fakedns.clone())
-                .await;
-        }));
-
-        info!("start tun inbound (smoltcp)");
-        futures::future::select_all(futs).await;
-    }))
+    devices.push(first);
+    devices
+        .into_iter()
+        .map(|device| {
+            TunRsPacketIo::new(
+                device,
+                mtu,
+                netstack.batch_size,
+                queue_count,
+                netstack.offload,
+            )
+        })
+        .collect::<std::io::Result<Vec<_>>>()
+        .map_err(Into::into)
 }
 
 /// The options of a TUN inbound.
@@ -543,9 +364,6 @@ pub(crate) struct TunInboundOptions {
     pub fake_dns_exclude: Vec<String>,
     #[serde(default)]
     pub fake_dns_include: Vec<String>,
-    /// `lwip` (default) or `smoltcp`.
-    #[serde(default)]
-    pub tun2socks: String,
     /// Windows only.
     #[serde(default)]
     #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
@@ -605,17 +423,25 @@ pub(crate) fn options(inbound: &Inbound) -> Result<TunInboundOptions> {
             inbound.tag
         ));
     }
+    // IPv4 hosts must take 576-byte datagrams; an IP packet is at most 64 KiB.
+    if !(576..=65_535).contains(&options.mtu) {
+        return Err(anyhow!(
+            "[{}] inbound: mtu {} is outside 576 to 65535",
+            inbound.tag,
+            options.mtu
+        ));
+    }
     Ok(options)
 }
 
-pub fn new(
+pub(crate) fn new(
     inbound: Inbound,
     dispatcher: Arc<Dispatcher>,
     nat_manager: Arc<NatManager>,
-) -> Result<Runner> {
+) -> Result<TunRunner> {
     tracing::debug!("Create TUN inbound");
 
-    let settings = options(&inbound)?;
+    let mut settings = options(&inbound)?;
 
     let mut cfg = tun::Configuration::default();
     if settings.fd >= 0 {
@@ -635,8 +461,8 @@ pub fn new(
     }
 
     // FIXME it's a bad design to have 2 lists in config while we need only one
-    let fake_dns_exclude = settings.fake_dns_exclude;
-    let fake_dns_include = settings.fake_dns_include;
+    let fake_dns_exclude = std::mem::take(&mut settings.fake_dns_exclude);
+    let fake_dns_include = std::mem::take(&mut settings.fake_dns_include);
     if !fake_dns_exclude.is_empty() && !fake_dns_include.is_empty() {
         return Err(anyhow!(
             "fake DNS run in either include mode or exclude mode"
@@ -678,22 +504,34 @@ pub fn new(
         });
     }
 
-    let tun = tun::create_as_async(&cfg).map_err(|e| anyhow!("create tun failed: {}", e))?;
+    let netstack = &dispatcher.env().options.netstack;
+    let mtu = usize::try_from(settings.mtu).map_err(|_| anyhow!("invalid TUN mtu"))?;
 
-    match settings.tun2socks.as_str() {
-        "smoltcp" => {
-            #[cfg(feature = "netstack-smoltcp")]
-            return new_smoltcp(inbound, dispatcher, nat_manager, fakedns, tun);
-            #[cfg(not(feature = "netstack-smoltcp"))]
-            return Err(anyhow!("netstack-smoltcp feature is not enabled"));
-        }
-        _ => {
-            #[cfg(feature = "netstack-lwip")]
-            return new_lwip(inbound, dispatcher, nat_manager, fakedns, tun);
-            #[cfg(not(feature = "netstack-lwip"))]
-            return Err(anyhow!("netstack-lwip feature is not enabled"));
-        }
+    #[cfg(target_os = "linux")]
+    if settings.fd < 0 {
+        let queues = linux_queues(&settings, netstack)?;
+        return run(
+            inbound,
+            dispatcher.clone(),
+            nat_manager,
+            fakedns,
+            queues,
+            mtu,
+            netstack,
+        );
     }
+
+    let tun = tun::create_as_async(&cfg).map_err(|e| anyhow!("create tun failed: {}", e))?;
+    let io = TunPacketIo::new(tun, mtu, netstack.batch_size)?;
+    run(
+        inbound,
+        dispatcher.clone(),
+        nat_manager,
+        fakedns,
+        vec![io],
+        mtu,
+        netstack,
+    )
 }
 
 #[cfg(test)]

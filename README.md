@@ -50,7 +50,7 @@ Sail started as a fork of [leaf](https://github.com/eycorsican/leaf) by eycorsic
 
 | Mechanism | Inbound | Outbound | Notes |
 |---|---|---|---|
-| TUN | ✅ | ❌ | Linux, macOS, Windows, iOS, Android; lwip, smoltcp |
+| TUN | ✅ | ❌ | Linux, macOS, Windows, iOS, Android; sail-netstack |
 | NF | ✅ | ❌ | Windows, [NetFilter SDK](https://netfiltersdk.com/) |
 | TPROXY | ❌ | ❌ | Linux; Coming soon |
 
