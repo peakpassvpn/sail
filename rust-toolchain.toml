@@ -1,0 +1,10 @@
+# The toolchain CI and release builds use, so a new stable cannot break
+# them unannounced. Moving to a new Rust is a commit: bump this, fix what
+# its clippy finds, and keep `dtolnay/rust-toolchain@<version>` in
+# .github/workflows in step. Cross targets are added by
+# scripts/install_cross_toolchain.sh, not here, so a local build does not
+# download them.
+[toolchain]
+channel = "1.98.1"
+components = ["clippy", "rustfmt"]
+profile = "minimal"
