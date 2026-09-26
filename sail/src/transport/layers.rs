@@ -204,7 +204,7 @@ fn default_fingerprint() -> String {
 
 impl OutboundTls {
     /// The ClientHello fingerprint, or None for BoringSSL's own.
-    #[cfg(feature = "tls")]
+    #[cfg(any(feature = "outbound-tls", feature = "outbound-reality"))]
     fn fingerprint(&self, tag: &str) -> Result<Option<crate::transport::tls::Fingerprint>> {
         use crate::transport::tls::Fingerprint;
         match &self.utls {
@@ -1618,7 +1618,7 @@ fn amux_inbound(
     Err(not_compiled(tag, "inbound", "multiplex", "inbound-amux"))
 }
 
-#[cfg(all(test, feature = "tls"))]
+#[cfg(all(test, any(feature = "outbound-tls", feature = "outbound-reality")))]
 mod tests {
     use super::OutboundTls;
     use crate::transport::tls::Fingerprint;

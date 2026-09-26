@@ -112,6 +112,11 @@ impl Instance {
     /// start before the system is touched; then the TUN device, and the
     /// routes into it. Returns what runs the instance.
     pub fn start(&mut self) -> Result<Vec<Runner>> {
+        // Only the TUN and cat inbounds add to them.
+        #[cfg_attr(
+            not(any(feature = "inbound-tun", feature = "inbound-cat")),
+            allow(unused_mut)
+        )]
         let mut runners = vec![StatManager::cleanup_task(self.stat_manager.clone())];
         let inbound_manager = self.inbound_manager.clone();
         let mut inbounds = inbound_manager.lock().unwrap();

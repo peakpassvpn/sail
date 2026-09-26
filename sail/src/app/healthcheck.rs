@@ -77,7 +77,7 @@ pub struct HttpProbe {
     host: String,
     /// The path and query.
     path: String,
-    #[cfg(feature = "tls")]
+    #[cfg(feature = "outbound-tls")]
     tls: Option<crate::transport::tls::outbound::StreamHandler>,
 }
 
@@ -126,7 +126,7 @@ impl HttpProbe {
             Ok(ip) => SocksAddr::Ip(std::net::SocketAddr::new(ip, port)),
             Err(_) => SocksAddr::Domain(host.to_string(), port),
         };
-        #[cfg(feature = "tls")]
+        #[cfg(feature = "outbound-tls")]
         let tls = if https {
             Some(crate::transport::tls::outbound::StreamHandler::new(
                 host.to_string(),
@@ -142,18 +142,18 @@ impl HttpProbe {
         } else {
             None
         };
-        #[cfg(not(feature = "tls"))]
+        #[cfg(not(feature = "outbound-tls"))]
         {
             let _ = dns_client;
             if https {
-                return Err(invalid("https needs a build with TLS"));
+                return Err(invalid("https needs a build with outbound-tls"));
             }
         }
         Ok(Self {
             destination,
             host: authority.to_string(),
             path,
-            #[cfg(feature = "tls")]
+            #[cfg(feature = "outbound-tls")]
             tls,
         })
     }
@@ -174,7 +174,7 @@ impl HttpProbe {
         let start = Instant::now();
         let stream = crate::net::connect_stream_outbound(&sess, dns_client, handler).await?;
         let stream = handler.stream()?.handle(&sess, None, stream).await?;
-        #[cfg(feature = "tls")]
+        #[cfg(feature = "outbound-tls")]
         let mut stream = match &self.tls {
             Some(tls) => {
                 use crate::adapter::OutboundStreamHandler;
@@ -182,7 +182,7 @@ impl HttpProbe {
             }
             None => stream,
         };
-        #[cfg(not(feature = "tls"))]
+        #[cfg(not(feature = "outbound-tls"))]
         let mut stream = stream;
         let request = format!(
             "GET {} HTTP/1.1\r\nHost: {}\r\nUser-Agent: sail\r\nConnection: close\r\n\r\n",

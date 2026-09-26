@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 
 pub trait Cipher<N>: Sync + Send + Unpin
 where
@@ -39,6 +39,7 @@ pub trait NonceSequence: Sync + Send + Unpin {
 
 #[cfg(feature = "aead")]
 pub mod aead {
+    use anyhow::anyhow;
     use btls::aead::{AeadCtx, Algorithm};
 
     use super::*;

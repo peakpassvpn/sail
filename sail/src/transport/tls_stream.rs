@@ -97,6 +97,7 @@ impl RecordTracker {
     }
 
     /// Between two records: the last one ended and the next has not begun.
+    #[cfg(any(feature = "inbound-vless", feature = "outbound-vless"))]
     pub(crate) fn at_record_end(&self) -> bool {
         self.header_len == 0 && self.body_left == 0
     }

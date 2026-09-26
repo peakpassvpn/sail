@@ -717,7 +717,6 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
     let mut instance = app::instance::Instance::build(&config, env.clone(), dial_defaults.clone())
         .map_err(Error::Config)?;
     // The API server joins them, when it is compiled in.
-    #[allow(unused_mut)]
     // Bound before anything starts: an address in use fails the start.
     #[cfg(feature = "api")]
     let api_listener = config
@@ -728,6 +727,8 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
                 .map_err(|e| Error::Config(anyhow!("api.listen: {}: {}", addr, e)))
         })
         .transpose()?;
+    // Without the API nothing is added to them.
+    #[cfg_attr(not(feature = "api"), allow(unused_mut))]
     let mut runners = instance.start().map_err(Error::Config)?;
 
     let runtime_manager = RuntimeManager::new(

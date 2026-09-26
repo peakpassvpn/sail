@@ -10,6 +10,7 @@
 use std::fmt;
 use std::net::IpAddr;
 use std::str::FromStr;
+#[cfg(feature = "tls")]
 use std::time::Duration;
 
 use anyhow::{anyhow, Result};
@@ -23,6 +24,7 @@ mod quic;
 mod socket;
 
 /// The largest DNS message: its length is a 16-bit field in DoT and DoQ.
+#[cfg(feature = "quic")]
 const MAX_MESSAGE_LEN: usize = u16::MAX as usize;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -228,6 +230,7 @@ impl Upstream {
     }
 
     /// The query's ID, which DoQ and DoH3 send as 0 and give back.
+    #[cfg(any(feature = "tls", feature = "quic", feature = "dns-h3"))]
     fn message_id(request: &[u8]) -> Result<[u8; 2]> {
         match request {
             [a, b, ..] if request.len() >= 12 => Ok([*a, *b]),
@@ -257,9 +260,7 @@ impl State {
 impl super::DnsClient {
     /// Sends `request` to `upstream` and returns the answer, as it came, but
     /// with the query's ID.
-    // Without the tls and quic features no upstream parses, and nothing
-    // follows the match.
-    #[allow(unreachable_code)]
+    #[cfg(any(feature = "tls", feature = "quic", feature = "dns-h3"))]
     pub(super) async fn exchange_upstream(
         &self,
         upstream: &Upstream,
@@ -287,9 +288,6 @@ impl super::DnsClient {
                 self.exchange_quic(upstream, pool, addr, is_direct, request)
                     .await?
             }
-            // No upstream kind is compiled in, so there is no state.
-            #[cfg(not(any(feature = "tls", feature = "quic", feature = "dns-h3")))]
-            _ => match upstream.state {},
         };
         if response.len() < 12 {
             return Err(anyhow!("dns response too short"));
@@ -300,9 +298,22 @@ impl super::DnsClient {
         Ok(response)
     }
 
+    /// Without the tls and quic features no upstream parses, so there is
+    /// never one to send to.
+    #[cfg(not(any(feature = "tls", feature = "quic", feature = "dns-h3")))]
+    pub(super) async fn exchange_upstream(
+        &self,
+        upstream: &Upstream,
+        _request: &[u8],
+        _is_direct: bool,
+    ) -> Result<Vec<u8>> {
+        match upstream.state {}
+    }
+
     /// How long a query may take on a connection kept from before, which
     /// may have died without a word: the rest of the query's time is left
     /// for a new connection.
+    #[cfg(feature = "tls")]
     fn reused_connection_timeout(&self) -> Duration {
         self.timeout / 2
     }
