@@ -16,7 +16,7 @@ pub mod httpupgrade;
 pub mod mux;
 #[cfg(feature = "outbound-obfs")]
 pub mod obfs;
-#[cfg(any(feature = "inbound-quic", feature = "outbound-quic"))]
+#[cfg(feature = "quic")]
 pub mod quic;
 #[cfg(any(feature = "inbound-reality", feature = "outbound-reality"))]
 pub mod reality;

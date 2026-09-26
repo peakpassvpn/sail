@@ -799,11 +799,8 @@ fn not_compiled(tag: &str, kind: &str, what: &str, feature: &str) -> anyhow::Err
 }
 
 /// The certificate to trust: inline, or by path.
-#[cfg_attr(
-    not(any(feature = "outbound-tls", feature = "outbound-quic")),
-    allow(dead_code)
-)]
-fn trusted_certificate(tls: &OutboundTls, env: &RuntimeEnv) -> Option<String> {
+#[cfg_attr(not(any(feature = "outbound-tls", feature = "quic")), allow(dead_code))]
+pub(crate) fn trusted_certificate(tls: &OutboundTls, env: &RuntimeEnv) -> Option<String> {
     match (&tls.certificate, &tls.certificate_path) {
         (Some(inline), _) => Some(inline.clone().joined()),
         (None, Some(path)) => Some(env.data_path(path)),
@@ -1229,12 +1226,10 @@ impl InboundBlocks {
     }
 }
 
-#[cfg_attr(
-    not(any(feature = "inbound-tls", feature = "inbound-quic")),
-    allow(dead_code)
-)]
+#[cfg_attr(not(any(feature = "inbound-tls", feature = "quic")), allow(dead_code))]
 impl InboundTls {
-    fn certificate(&self, tag: &str, env: &RuntimeEnv) -> Result<String> {
+    /// The certificate to present: inline, or by path.
+    pub(crate) fn certificate(&self, tag: &str, env: &RuntimeEnv) -> Result<String> {
         // tls_inbound serves REALITY without one; what asks for it here
         // is the quic transport.
         if self.reality.as_ref().is_some_and(|r| r.enabled) {
@@ -1253,7 +1248,8 @@ impl InboundTls {
         }
     }
 
-    fn key(&self, tag: &str, env: &RuntimeEnv) -> Result<String> {
+    /// The key of the certificate: inline, or by path.
+    pub(crate) fn key(&self, tag: &str, env: &RuntimeEnv) -> Result<String> {
         match (&self.key, &self.key_path) {
             (Some(inline), None) => Ok(inline.clone().joined()),
             (None, Some(path)) => Ok(env.data_path(path)),

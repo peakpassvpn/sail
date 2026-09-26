@@ -3,6 +3,10 @@ use std::{io, pin::Pin};
 use futures::task::{Context, Poll};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
+mod common;
+
+pub use common::*;
+
 #[cfg(feature = "inbound-quic")]
 pub mod inbound;
 #[cfg(feature = "outbound-quic")]
