@@ -165,7 +165,7 @@ Sail 与 sing-box 的对比已经完成。当前结果表明：
 | 1.6 | **已完成（2026-09-26）** TUIC 入站与出站（`udp_over_stream` 未实现） | `protocol/tuic/` | 与主流实现双向互通；TCP、UDP 和拥塞控制参数生效 |
 | 1.7 | **已完成（2026-09-26）** V2Ray 传输层：HTTP、gRPC、HTTPUpgrade；补齐 WebSocket early-data；入站和出站都支持（HTTP/2 传输按分级不支持；gRPC 出站暂为一流一连接） | `transport/` | VLESS / VMess / Trojan 与 Xray、sing-box 双向互通 |
 | 1.8 | **已完成（2026-09-26）** 通用多路复用：smux / yamux / h2mux，入站和出站；按需求决定是否实现 TCP Brutal（兼容 sing-mux，默认 h2mux；含 UoT v2；TCP Brutal 未做） | `transport/mux/` | 与 sing-box / Mihomo 互通；高并发下不会因池化叠加导致内存失控 |
-| 1.9 | **已完成（2026-09-26）** 出站组：默认启用 select，补齐 URLTest、fallback、load-balance 和选择持久化（selector / urltest / load-balance；failover 待整合） | `protocol/group/` | 手动选择、自动测速、故障切换和重启恢复都有测试 |
+| 1.9 | **已完成（2026-09-26）** 出站组：默认启用 select，补齐 URLTest、fallback、load-balance 和选择持久化（selector / urltest / fallback / load-balance；failover 并入 fallback，static 已删除） | `protocol/group/` | 手动选择、自动测速、故障切换和重启恢复都有测试 |
 | 1.10 | 统一拨号选项：IP 策略、接口绑定、detour、连接/空闲超时、TCP Fast Open、MPTCP、UDP over TCP | `net/`、共享 Dial options | 各协议共享同一实现，按出站配置，不重复实现 socket 与网络选择逻辑 |
 | 1.11 | **已完成（2026-09-26）** 入站防探测与回落：Trojan / VLESS fallback，鉴权失败时的行为可配置（字段对齐 sing-box `fallback` / `fallback_for_alpn`） | `protocol/trojan/`、`protocol/vless/` | 未通过鉴权的连接可回落到指定目标；主动探测下行为与主流实现一致 |
 | 1.12 | 分享链接导入：`ss://`、`trojan://`、`vless://`、`vmess://`、`hy2://`、`tuic://` | `config/` | 真实节点语料可导入；错误字段有可诊断提示；敏感信息不进入日志 |
@@ -252,8 +252,8 @@ Sail 与 sing-box 的对比已经完成。当前结果表明：
 
 | # | 任务 | 现状 | 目标 |
 | --- | --- | --- | --- |
-| 5.1 | 清理 `.unwrap()` / panic | 非测试代码约 328 处 `.unwrap()`，release 为 `panic = "abort"` | 数据通路、配置、DNS、协议解析、入站鉴权和 FFI 不因外部输入退出进程；显式处理 `panic!` / `unimplemented!` |
-| 5.2 | 补测试 | `sail/tests` 主要覆盖链式代理和 Trojan | DNS、路由、TUN、Reality、协议双向互操作、多用户和网络生命周期都有自动测试 |
+| 5.1 | **进行中（2026-09-26）** 清理 `.unwrap()` / panic | 非测试代码约 200 处（含 `platform/` 路由设置、`nf`、FFI），release 为 `panic = "abort"` | 数据通路、配置、DNS、协议解析、入站鉴权和 FFI 不因外部输入退出进程；显式处理 `panic!` / `unimplemented!` |
+| 5.2 | **部分完成（2026-09-26）** 补测试 | 协议双向互操作（对 sing-box 1.13.12 / Xray）、Reality、多用户、回落、DNS 上游已有自动测试；测试全部使用系统分配的端口和独立临时目录，可并行运行；路由、TUN、网络生命周期仍缺 | DNS、路由、TUN、Reality、协议双向互操作、多用户和网络生命周期都有自动测试 |
 | 5.3 | 模糊测试 | 无 | 对协议解析（入站方向优先，直接暴露给公网）、DNS 报文、嗅探、订阅和规则集导入做 cargo-fuzz |
 | 5.4 | 性能回归 CI | 目前为手动 benchmark | 移动端、桌面、服务端、路由器四种预算都有可比较基线；吞吐、CPU、内存或分配次数超阈值即告警 |
 | 5.5 | 长稳与弱网测试 | 无 | 24 小时运行，以及延迟、丢包、乱序、断网重连、高并发和半关闭场景通过 |
@@ -262,6 +262,7 @@ Sail 与 sing-box 的对比已经完成。当前结果表明：
 | 5.8 | 跨平台发布 | 已有部分 Apple/Android 构建脚本 | 自动产出 XCFramework、AAR、桌面、服务端和路由器二进制；记录符号、包体积、依赖和可重复构建信息 |
 | 5.9 | 处理 TODO / FIXME | 49 处 | 逐项处理，或转成带优先级的 issue |
 | 5.10 | 与上游的关系 | 已同步到 `5e8d947` | 按 D5 的结论执行；P0.2 之后文件结构与上游不再对应，上游修复按需人工移植并跑回归矩阵 |
+| 5.11 | **已完成（2026-09-26）** 代码规范门禁 | CI 此前只跑默认 feature 的测试 | CI 检查 `cargo fmt --check`、全仓库 `clippy -D warnings`（macOS 与 Linux），以及一组最小 feature 组合的无警告编译 |
 
 ## 不作为近期目标
 
