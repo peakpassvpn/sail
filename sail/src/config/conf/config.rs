@@ -1476,7 +1476,6 @@ pub fn from_string(s: &str) -> Result<model::Config> {
     to_config(&config)
 }
 
-
 /// The `tls.utls` block for a `client-fingerprint`: none when unset (Chrome
 /// by default), disabled for `none`. The name is checked where the TLS
 /// options are, so the error names the field.
