@@ -109,6 +109,11 @@ pub struct Proxy {
     pub reality_public_key: Option<String>,
     pub reality_short_id: Option<String>,
 
+    // The browser whose ClientHello TLS sends, as Clash's
+    // `client-fingerprint`; `none` sends BoringSSL's own. Unset, it is
+    // Chrome's.
+    pub client_fingerprint: Option<String>,
+
     // vless: the flow, e.g. `xtls-rprx-vision`; none when unset
     pub flow: Option<String>,
 }
@@ -148,6 +153,7 @@ impl Default for Proxy {
             reality: Some(false),
             reality_public_key: None,
             reality_short_id: None,
+            client_fingerprint: None,
             flow: None,
         }
     }
@@ -658,6 +664,9 @@ pub fn from_lines(lines: Vec<io::Result<String>>) -> Result<Config> {
                 "reality-short-id" => {
                     proxy.reality_short_id = Some(v.to_string());
                 }
+                "client-fingerprint" => {
+                    proxy.client_fingerprint = Some(v.to_string());
+                }
                 "flow" => {
                     proxy.flow = Some(v.to_string());
                 }
@@ -1013,6 +1022,7 @@ pub fn to_config(conf: &Config) -> Result<model::Config> {
                             "public_key": ext_proxy.reality_public_key,
                             "short_id": ext_proxy.reality_short_id,
                         },
+                        "utls": utls(&ext_proxy.client_fingerprint),
                     });
                 }
                 outbounds.push(outbound(tag, "vless", vless));
@@ -1057,6 +1067,7 @@ pub fn to_config(conf: &Config) -> Result<model::Config> {
                     "certificate": certificate,
                     "certificate_path": certificate_path,
                     "ech": ech,
+                    "utls": utls(&ext_proxy.client_fingerprint),
                 });
                 if quic {
                     proxy["transport"] = json!({ "type": "quic" });
@@ -1465,6 +1476,17 @@ pub fn from_string(s: &str) -> Result<model::Config> {
     to_config(&config)
 }
 
+
+/// The `tls.utls` block for a `client-fingerprint`: none when unset (Chrome
+/// by default), disabled for `none`. The name is checked where the TLS
+/// options are, so the error names the field.
+fn utls(fingerprint: &Option<String>) -> Option<serde_json::Value> {
+    match fingerprint.as_deref() {
+        None => None,
+        Some("none") => Some(json!({ "enabled": false })),
+        Some(name) => Some(json!({ "fingerprint": name })),
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1780,6 +1802,32 @@ V = vless, 1.2.3.4, 443, uuid=id, sni=example.com, reality=true, reality-public-
         assert_eq!(
             tls["reality"],
             json!({ "enabled": true, "public_key": "pk", "short_id": "ab" })
+        );
+    }
+
+    #[test]
+    fn client_fingerprint_becomes_utls() {
+        let config = load(
+            r#"
+[Proxy]
+C = trojan, 1.2.3.4, 443, password=p, sni=example.com
+F = trojan, 1.2.3.4, 443, password=p, sni=example.com, client-fingerprint=firefox
+N = trojan, 1.2.3.4, 443, password=p, sni=example.com, client-fingerprint=none
+R = vless, 1.2.3.4, 443, uuid=id, sni=example.com, reality=true, reality-public-key=pk, client-fingerprint=safari
+"#,
+        );
+        assert!(outbound(&config, "C").options["tls"]["utls"].is_null());
+        assert_eq!(
+            outbound(&config, "F").options["tls"]["utls"],
+            json!({ "fingerprint": "firefox" })
+        );
+        assert_eq!(
+            outbound(&config, "N").options["tls"]["utls"],
+            json!({ "enabled": false })
+        );
+        assert_eq!(
+            outbound(&config, "R").options["tls"]["utls"],
+            json!({ "fingerprint": "safari" })
         );
     }
 
