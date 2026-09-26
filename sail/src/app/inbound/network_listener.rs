@@ -71,7 +71,10 @@ async fn handle_inbound_datagram_inner(
     tokio::spawn(
         async move {
             while let Some(pkt) = l_rx.recv().await {
-                let dst_addr = pkt.dst_addr.must_ip();
+                let Some(dst_addr) = pkt.dst_addr.as_socket_addr() else {
+                    debug!("drop udp packet to non-ip address {}", &pkt.dst_addr);
+                    continue;
+                };
                 trace!("send udp packet dst={} len={}", &dst_addr, pkt.data.len());
                 if let Err(e) = ls.send_to(&pkt.data[..], &pkt.src_addr, dst_addr).await {
                     debug!("send datagram failed: {}", e);

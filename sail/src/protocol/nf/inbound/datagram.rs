@@ -98,8 +98,13 @@ impl InboundDatagramRecvHalf for DatagramRecvHalf {
         if dst_addr.port() == 53 {
             match self.1.generate_fake_response(real_payload).await {
                 Ok(resp) => {
-                    if let Err(e) = udp_post_receive(&local_addr, *dst_addr.must_ip(), &resp) {
-                        warn!("send to local failed: {}", e);
+                    match dst_addr.as_socket_addr() {
+                        Some(dst) => {
+                            if let Err(e) = udp_post_receive(&local_addr, *dst, &resp) {
+                                warn!("send to local failed: {}", e);
+                            }
+                        }
+                        None => warn!("fake dns reply to non-ip address {}", &dst_addr),
                     }
                     return Err(ProxyError::DatagramWarn(anyhow!(format!(
                         "responsed with fake ip, id={}",

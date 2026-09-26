@@ -24,9 +24,9 @@ impl Default for DnsSniffer {
 
 impl DnsSniffer {
     pub fn new() -> Self {
-        let cap = NonZeroUsize::new(2048).unwrap();
+        const CAP: NonZeroUsize = NonZeroUsize::new(2048).expect("2048 is not zero");
         DnsSniffer {
-            cache: Arc::new(RwLock::new(LruCache::new(cap))),
+            cache: Arc::new(RwLock::new(LruCache::new(CAP))),
         }
     }
 

@@ -118,7 +118,9 @@ pub struct ConnectionState(
 impl ConnectionState {
     /// The connection's `T`, made the first time it is asked for.
     pub fn get<T: std::any::Any + Send + Sync + Default>(&self) -> std::sync::Arc<T> {
-        let mut map = self.0.lock().unwrap();
+        // The map is only ever inserted into, so a panic elsewhere while
+        // the lock was held cannot leave it inconsistent.
+        let mut map = self.0.lock().unwrap_or_else(|e| e.into_inner());
         let entry = map
             .entry(std::any::TypeId::of::<T>())
             .or_insert_with(|| std::sync::Arc::new(T::default()));
@@ -293,6 +295,7 @@ impl SocksAddrPortFirstType {
     const DOMAIN: u8 = 0x2;
 }
 
+#[derive(Clone, Copy)]
 pub enum SocksAddrWireType {
     PortFirst,
     PortLast,
@@ -322,19 +325,18 @@ impl SocksAddr {
     }
 
     pub fn any_ipv4() -> Self {
-        Self::Ip("0.0.0.0:0".parse().unwrap())
+        Self::Ip(SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0)))
     }
 
     pub fn any_ipv6() -> Self {
-        Self::Ip("[::]:0".parse().unwrap())
+        Self::Ip(SocketAddr::from((Ipv6Addr::UNSPECIFIED, 0)))
     }
 
-    pub fn must_ip(&self) -> &SocketAddr {
+    /// The socket address, if `self` is not a domain.
+    pub fn as_socket_addr(&self) -> Option<&SocketAddr> {
         match self {
-            SocksAddr::Ip(ref a) => a,
-            _ => {
-                panic!("assert SocksAddr as SocketAddr failed");
-            }
+            SocksAddr::Ip(a) => Some(a),
+            SocksAddr::Domain(..) => None,
         }
     }
 
@@ -491,7 +493,7 @@ impl Clone for SocksAddr {
     fn clone(&self) -> Self {
         match self {
             SocksAddr::Ip(a) => Self::from(a.to_owned()),
-            SocksAddr::Domain(domain, port) => Self::try_from((domain, *port)).unwrap(),
+            SocksAddr::Domain(domain, port) => Self::Domain(domain.clone(), *port),
         }
     }
 }
@@ -614,11 +616,11 @@ impl TryFrom<(&[u8], SocksAddrWireType)> for SocksAddr {
                     Ok(Self::Ip((ip, port).into()))
                 }
                 SocksAddrPortLastType::DOMAIN => {
-                    if buf.is_empty() {
+                    if buf.len() < 2 {
                         return Err(insuff_bytes());
                     }
                     let domain_len = buf[1] as usize;
-                    if buf.len() < 1 + domain_len + 2 {
+                    if buf.len() < 2 + domain_len + 2 {
                         return Err(insuff_bytes());
                     }
                     let domain = String::from_utf8(buf[2..domain_len + 2].to_vec())
@@ -636,7 +638,7 @@ impl TryFrom<(&[u8], SocksAddrWireType)> for SocksAddr {
                     if buf.len() < 4 + 2 {
                         return Err(insuff_bytes());
                     }
-                    let port = u16::from_be_bytes(buf[..2].try_into().unwrap());
+                    let port = u16::from_be_bytes([buf[0], buf[1]]);
                     let buf = &buf[2..];
                     let mut ip_bytes = [0u8; 4];
                     ip_bytes.copy_from_slice(&buf[..4]);
@@ -648,7 +650,7 @@ impl TryFrom<(&[u8], SocksAddrWireType)> for SocksAddr {
                     if buf.len() < 16 + 2 {
                         return Err(insuff_bytes());
                     }
-                    let port = u16::from_be_bytes(buf[..2].try_into().unwrap());
+                    let port = u16::from_be_bytes([buf[0], buf[1]]);
                     let buf = &buf[2..];
                     let mut ip_bytes = [0u8; 16];
                     ip_bytes.copy_from_slice(&buf[..16]);
@@ -660,7 +662,7 @@ impl TryFrom<(&[u8], SocksAddrWireType)> for SocksAddr {
                     if buf.len() < 3 {
                         return Err(insuff_bytes());
                     }
-                    let port = u16::from_be_bytes(buf[..2].try_into().unwrap());
+                    let port = u16::from_be_bytes([buf[0], buf[1]]);
                     let buf = &buf[2..];
                     let domain_len = buf[0] as usize;
                     let buf = &buf[1..];
@@ -674,5 +676,55 @@ impl TryFrom<(&[u8], SocksAddrWireType)> for SocksAddr {
                 _ => Err(io::Error::other("invalid address type")),
             },
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse(buf: &[u8], ty: SocksAddrWireType) -> io::Result<SocksAddr> {
+        SocksAddr::try_from((buf, ty))
+    }
+
+    #[test]
+    fn truncated_addresses_are_errors() {
+        for ty in [SocksAddrWireType::PortLast, SocksAddrWireType::PortFirst] {
+            assert!(parse(&[], ty).is_err());
+            for kind in [0x01, 0x03, 0x04] {
+                assert!(parse(&[kind], ty).is_err());
+                assert!(parse(&[kind, 5], ty).is_err());
+            }
+        }
+        // PortLast domain: type, len, name, port. A length byte that
+        // claims more than is there must not read past the end.
+        assert!(parse(&[0x03, 3, b'a', b'b', b'c', 0], SocksAddrWireType::PortLast).is_err());
+        assert!(parse(&[0x03, 3, b'a', b'b', b'c'], SocksAddrWireType::PortLast).is_err());
+        assert!(parse(&[0x03, 200, 1, 2], SocksAddrWireType::PortLast).is_err());
+        // The PortFirst parser reads type, port, len, name.
+        assert!(parse(&[0x02, 0, 80, 4, b'a'], SocksAddrWireType::PortFirst).is_err());
+        assert!(parse(&[0xff], SocksAddrWireType::PortLast).is_err());
+    }
+
+    #[test]
+    fn addresses_round_trip() {
+        let addrs = [
+            SocksAddr::from(SocketAddr::from(([1, 2, 3, 4], 80))),
+            SocksAddr::from(SocketAddr::from((Ipv6Addr::LOCALHOST, 443))),
+            SocksAddr::try_from(("example.com".to_string(), 8080)).unwrap(),
+        ];
+        for addr in &addrs {
+            let mut buf = Vec::new();
+            addr.write_buf(&mut buf, SocksAddrWireType::PortLast);
+            assert_eq!(&parse(&buf, SocksAddrWireType::PortLast).unwrap(), addr);
+        }
+    }
+
+    #[test]
+    fn domain_has_no_socket_addr() {
+        let domain = SocksAddr::try_from(("example.com".to_string(), 53)).unwrap();
+        assert!(domain.as_socket_addr().is_none());
+        assert_eq!(domain.clone(), domain);
+        assert!(SocksAddr::any_ipv6().as_socket_addr().unwrap().is_ipv6());
     }
 }

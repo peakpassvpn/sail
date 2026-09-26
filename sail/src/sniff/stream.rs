@@ -21,6 +21,12 @@ pub struct SniffingStream<T> {
     buf: BytesMut,
 }
 
+/// The big-endian `u16` `buf` starts with. The callers check that it holds
+/// two bytes.
+fn be_u16(buf: &[u8]) -> u16 {
+    u16::from_be_bytes([buf[0], buf[1]])
+}
+
 enum SniffResult {
     NotMatch,
     NotEnoughData,
@@ -93,7 +99,7 @@ where
         if sbuf[1] != 0x3 {
             return SniffResult::NotMatch;
         }
-        let header_len = u16::from_be_bytes(sbuf[3..5].try_into().unwrap()) as usize;
+        let header_len = be_u16(&sbuf[3..]) as usize;
         if sbuf.len() < 5 + header_len {
             return SniffResult::NotEnoughData;
         }
@@ -110,7 +116,7 @@ where
         if sbuf.len() < 2 {
             return SniffResult::NotEnoughData;
         }
-        let cipher_suite_bytes = u16::from_be_bytes(sbuf[..2].try_into().unwrap()) as usize;
+        let cipher_suite_bytes = be_u16(sbuf) as usize;
         if sbuf.len() < 2 + cipher_suite_bytes {
             return SniffResult::NotEnoughData;
         }
@@ -126,7 +132,7 @@ where
         if sbuf.len() < 2 {
             return SniffResult::NotEnoughData;
         }
-        let extensions_bytes = u16::from_be_bytes(sbuf[..2].try_into().unwrap()) as usize;
+        let extensions_bytes = be_u16(sbuf) as usize;
         if sbuf.len() < 2 + extensions_bytes {
             return SniffResult::NotEnoughData;
         }
@@ -136,8 +142,8 @@ where
             if sbuf.len() < 4 {
                 return SniffResult::NotEnoughData;
             }
-            let extension = u16::from_be_bytes(sbuf[..2].try_into().unwrap());
-            let extension_len = u16::from_be_bytes(sbuf[2..4].try_into().unwrap()) as usize;
+            let extension = be_u16(sbuf);
+            let extension_len = be_u16(&sbuf[2..]) as usize;
             sbuf = &sbuf[4..];
             if sbuf.len() < extension_len {
                 return SniffResult::NotEnoughData;
@@ -148,7 +154,7 @@ where
                 if ebuf.len() < 2 {
                     return SniffResult::NotEnoughData;
                 }
-                let entry_len = u16::from_be_bytes(ebuf[..2].try_into().unwrap()) as usize;
+                let entry_len = be_u16(ebuf) as usize;
                 ebuf = &ebuf[2..];
                 if ebuf.len() < entry_len {
                     return SniffResult::NotEnoughData;
@@ -165,7 +171,7 @@ where
                     if ebuf.len() < 2 {
                         return SniffResult::NotEnoughData;
                     }
-                    let hostname_len = u16::from_be_bytes(ebuf[..2].try_into().unwrap()) as usize;
+                    let hostname_len = be_u16(ebuf) as usize;
                     ebuf = &ebuf[2..];
                     if ebuf.len() < hostname_len {
                         return SniffResult::NotEnoughData;
@@ -263,5 +269,62 @@ impl<T: AsyncWrite + Unpin> AsyncWrite for SniffingStream<T> {
 
     fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<io::Result<()>> {
         AsyncWrite::poll_shutdown(Pin::new(&mut self.inner), cx)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A ClientHello record naming `host`.
+    fn client_hello(host: &str) -> Vec<u8> {
+        let mut sni = Vec::new();
+        sni.extend_from_slice(&((host.len() + 3) as u16).to_be_bytes());
+        sni.push(0);
+        sni.extend_from_slice(&(host.len() as u16).to_be_bytes());
+        sni.extend_from_slice(host.as_bytes());
+        let mut extensions = vec![0, 0];
+        extensions.extend_from_slice(&(sni.len() as u16).to_be_bytes());
+        extensions.extend_from_slice(&sni);
+
+        let mut body = vec![0x03, 0x03];
+        body.extend_from_slice(&[7; 32]);
+        body.push(32);
+        body.extend_from_slice(&[9; 32]);
+        body.extend_from_slice(&[0, 2, 0x13, 0x01]);
+        body.extend_from_slice(&[1, 0]);
+        body.extend_from_slice(&(extensions.len() as u16).to_be_bytes());
+        body.extend_from_slice(&extensions);
+
+        let mut handshake = vec![0x01, 0];
+        handshake.extend_from_slice(&(body.len() as u16).to_be_bytes());
+        handshake.extend_from_slice(&body);
+
+        let mut record = vec![0x16, 0x03, 0x01];
+        record.extend_from_slice(&(handshake.len() as u16).to_be_bytes());
+        record.extend_from_slice(&handshake);
+        record
+    }
+
+    #[test]
+    fn malformed_client_hellos_do_not_panic() {
+        let stream = SniffingStream::new(tokio::io::duplex(1).0);
+        let hello = client_hello("example.com");
+        assert!(matches!(
+            stream.sniff_tls_sni(&hello),
+            SniffResult::Domain(d) if d == "example.com"
+        ));
+        for len in 0..hello.len() {
+            let _ = stream.sniff_tls_sni(&hello[..len]);
+            let _ = stream.sniff_http_host(&hello[..len]);
+        }
+        for i in 0..hello.len() {
+            for byte in [0x00, 0x01, 0x7f, 0x80, 0xff] {
+                let mut bad = hello.clone();
+                bad[i] = byte;
+                let _ = stream.sniff_tls_sni(&bad);
+                let _ = stream.sniff_tls_sni(&bad[..i]);
+            }
+        }
     }
 }
