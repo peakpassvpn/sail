@@ -14,7 +14,7 @@ use serde_derive::Deserialize;
 use crate::adapter::inbound::Handler;
 use crate::adapter::registry::{InboundContext, InboundFactory, InboundRegistry};
 use crate::adapter::AnyInboundHandler;
-use crate::transport::layers::InboundTls;
+use crate::transport::{self, layers::InboundTls};
 
 use super::proto::MBPS_TO_BPS;
 use super::quic;
@@ -86,22 +86,14 @@ fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
     if !tls.enabled {
         return Err(err("tls: hysteria2 needs tls enabled".into()));
     }
-    let certificate = match (&tls.certificate, &tls.certificate_path) {
-        (Some(inline), None) => inline.clone().joined(),
-        (None, Some(path)) => ctx.env.data_path(path),
-        _ => {
-            return Err(err(
-                "tls: set exactly one of certificate and certificate_path".into(),
-            ))
-        }
-    };
-    let key = match (&tls.key, &tls.key_path) {
-        (Some(inline), None) => inline.clone().joined(),
-        (None, Some(path)) => ctx.env.data_path(path),
-        _ => return Err(err("tls: set exactly one of key and key_path".into())),
-    };
-    let server_config = quic::server_config(&certificate, &key, &quic::alpns(tls.alpn.clone()))
-        .map_err(|e| err(format!("tls: {}", e)))?;
+    let crypto = transport::quic::inbound_crypto(
+        tag,
+        &tls,
+        ctx.env,
+        &transport::quic::alpn_protocols(tls.alpn.as_ref(), quic::DEFAULT_ALPN),
+    )?;
+    let server_config =
+        transport::quic::server_config(crypto).map_err(|e| err(format!("tls: {}", e)))?;
 
     let obfs = options
         .obfs

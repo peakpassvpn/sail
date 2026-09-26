@@ -286,17 +286,18 @@ mod tests {
     #[tokio::test]
     async fn a_connection_survives_hops() {
         use crate::protocol::hysteria2::quic;
+        use crate::transport::quic::{
+            alpn_protocols, client_crypto, endpoint, endpoint_on, server_config, server_crypto,
+        };
         use std::net::Ipv4Addr;
 
         let rcgen::CertifiedKey { cert, key_pair } =
             rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
-        let alpns = quic::alpns(None);
-        let config = quic::server_config(&cert.pem(), &key_pair.serialize_pem(), &alpns).unwrap();
-        let server = quinn::Endpoint::new(
-            quinn_btls::helpers::default_endpoint_config(),
-            Some(config),
+        let alpns = alpn_protocols(None, quic::DEFAULT_ALPN);
+        let crypto = server_crypto(&cert.pem(), &key_pair.serialize_pem(), &alpns).unwrap();
+        let server = endpoint(
             std::net::UdpSocket::bind("127.0.0.1:0").unwrap(),
-            Arc::new(quinn::TokioRuntime),
+            Some(server_config(crypto).unwrap()),
         )
         .unwrap();
         let server_addr = server.local_addr().unwrap();
@@ -351,14 +352,8 @@ mod tests {
             vec![server_addr.port(), relay_port],
             new_socket(),
         ));
-        let mut client = quinn::Endpoint::new_with_abstract_socket(
-            quinn_btls::helpers::default_endpoint_config(),
-            None,
-            hop.clone(),
-            Arc::new(quinn::TokioRuntime),
-        )
-        .unwrap();
-        let crypto = quic::client_crypto(Some(&cert.pem()), false, &alpns).unwrap();
+        let mut client = endpoint_on(hop.clone(), None).unwrap();
+        let crypto = client_crypto(Some(&cert.pem()), false, &alpns).unwrap();
         client.set_default_client_config(quinn::ClientConfig::new(Arc::new(crypto)));
         let conn = client
             .connect(hop.virtual_addr(), "localhost")
