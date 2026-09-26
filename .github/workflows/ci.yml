@@ -18,9 +18,18 @@ jobs:
           submodules: true
 
       - name: install rust toolchain
-        uses: hecrj/setup-rust-action@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
-          rust-version: stable
+          components: clippy, rustfmt
+
+      - name: cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: format
+        run: cargo fmt --all --check
+
+      - name: lint
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: test sail
         run: cargo test -p sail
@@ -28,8 +37,41 @@ jobs:
       - name: test sail-netstack
         run: cargo test -p sail-netstack
 
-      - name: lint sail-netstack
-        run: cargo clippy -p sail-netstack --all-targets -- -D warnings
+  # Small builds, one feature set at a time, so that cfg gates and feature
+  # dependencies stay right.
+  check-features:
+    runs-on: ubuntu-latest
+    env:
+      RUSTFLAGS: -D warnings
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: install rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: check feature sets
+        run: |
+          set -e
+          for features in \
+            inbound-socks,outbound-direct \
+            inbound-shadowsocks,outbound-shadowsocks \
+            inbound-trojan,inbound-tls,outbound-trojan,outbound-tls \
+            inbound-vless,inbound-tls,inbound-reality,outbound-vless,outbound-tls,outbound-reality \
+            inbound-hysteria2,outbound-hysteria2 \
+            inbound-tuic,outbound-tuic \
+            inbound-tun,outbound-direct \
+            config-conf
+          do
+            echo "::group::$features"
+            cargo check -p sail --no-default-features --features "$features"
+            echo "::endgroup::"
+          done
 
   build-cli-cross:
     runs-on: ubuntu-latest
