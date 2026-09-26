@@ -484,7 +484,6 @@ pub fn test_tcp_half_close_on_configs(
     let sail_rt_ids = run_sail_instances(&rt, configs)?;
     let socks_addr = socks_addr.to_string();
     let res = rt.block_on(rt.spawn(async move {
-        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
         let listener = TcpListener::bind("127.0.0.1:0")
             .await
             .map_err(|e| anyhow::anyhow!("bind tcp failed: {}", e))?;
@@ -786,7 +785,6 @@ pub fn test_data_transfering_reliability_on_configs(
     let socks_addr_cloned = socks_addr.to_string();
     let path = dir.path().to_path_buf();
     let send_task = async move {
-        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
         let source = path.join(src_file);
         let mut sess = sail::session::Session::default();
         sess.destination = sail::session::SocksAddr::Ip(local_addr);
@@ -830,7 +828,6 @@ pub fn test_data_transfering_reliability_on_configs(
     let recv_task = async move {
         let source = path.join(src_file);
         let dst = path.join(dst_file);
-        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
         let mut sess = sail::session::Session::default();
         sess.destination = sail::session::SocksAddr::Ip(local_addr);
         let mut stream =
@@ -975,7 +972,6 @@ pub fn test_data_transfering_reliability_on_configs(
     let socks_addr_cloned = socks_addr.to_string();
     let path = dir.path().to_path_buf();
     let send_task = async move {
-        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
         let source = path.join(src_file);
         let mut sess = sail::session::Session::default();
         sess.destination = sail::session::SocksAddr::Ip(local_addr);
@@ -1032,7 +1028,6 @@ pub fn test_data_transfering_reliability_on_configs(
     let socks_addr_cloned = socks_addr.to_string();
     let path = dir.path().to_path_buf();
     let recv_task = async move {
-        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
         let mut sess = sail::session::Session::default();
         sess.destination = sail::session::SocksAddr::Ip(local_addr);
         let dgram = new_socks_datagram(&socks_addr_cloned, socks_port, &sess, None, None).await?;
@@ -1181,8 +1176,6 @@ pub fn test_configs_with_auth(
     // Simulates an application request.
     let socks_addr = socks_addr.to_string();
     let app_task = async move {
-        tokio::time::sleep(Duration::from_millis(200)).await;
-
         let mut sess = sail::session::Session::default();
         sess.destination = sail::session::SocksAddr::Ip(tcp_addr);
         let mut s = timeout(
