@@ -9,8 +9,6 @@
 //! ```text
 //! cargo test -p sail --test test_uot -- --ignored
 //! ```
-//!
-//! Ports: 32988-32999, and the forwarders' of the system's choosing.
 
 #![cfg(all(
     feature = "inbound-shadowsocks",
@@ -23,13 +21,11 @@
 
 mod common;
 
-use std::path::PathBuf;
-use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use serde_json::{json, Value};
+use serde_json::json;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::time::timeout;
 
@@ -41,21 +37,21 @@ const SS_KEY: &str = "a8C5QncIl9HvTmenrEb7aw==";
 /// The ports of one direction: the clients' SOCKS ports in front of the
 /// Shadowsocks and the SOCKS outbound, then the servers'.
 struct Ports {
-    base: u16,
+    client_ss: u16,
+    client_socks: u16,
+    server_ss: u16,
+    server_socks: u16,
 }
 
 impl Ports {
-    fn client_ss(&self) -> u16 {
-        self.base
-    }
-    fn client_socks(&self) -> u16 {
-        self.base + 1
-    }
-    fn server_ss(&self) -> u16 {
-        self.base + 2
-    }
-    fn server_socks(&self) -> u16 {
-        self.base + 3
+    fn new() -> Self {
+        let [client_ss, client_socks, server_ss, server_socks] = common::free_ports();
+        Ports {
+            client_ss,
+            client_socks,
+            server_ss,
+            server_socks,
+        }
     }
 }
 
@@ -77,48 +73,6 @@ async fn counting_forwarder(target: u16) -> anyhow::Result<(u16, Arc<AtomicUsize
         }
     });
     Ok((port, count))
-}
-
-/// sing-box, killed when dropped.
-struct SingBox(Child);
-
-impl Drop for SingBox {
-    fn drop(&mut self) {
-        let _ = self.0.kill();
-        let _ = self.0.wait();
-    }
-}
-
-fn sing_box_path() -> PathBuf {
-    std::env::var_os("SING_BOX")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("/opt/homebrew/bin/sing-box"))
-}
-
-/// Runs sing-box with `config` and waits for it to listen on `port`.
-fn run_sing_box(name: &str, config: &Value, port: u16) -> anyhow::Result<SingBox> {
-    let path = std::env::temp_dir().join(format!("sail-uot-{}-{}.json", name, std::process::id()));
-    std::fs::write(&path, serde_json::to_vec_pretty(config)?)?;
-    let child = Command::new(sing_box_path())
-        .arg("run")
-        .arg("-c")
-        .arg(&path)
-        .stdout(Stdio::null())
-        .stderr(Stdio::inherit())
-        .spawn()
-        .map_err(|e| anyhow::anyhow!("run sing-box failed: {}", e))?;
-    let mut sing_box = SingBox(child);
-    let deadline = std::time::Instant::now() + Duration::from_secs(10);
-    while std::net::TcpStream::connect(("127.0.0.1", port)).is_err() {
-        if let Some(status) = sing_box.0.try_wait()? {
-            anyhow::bail!("sing-box exited: {}", status);
-        }
-        if std::time::Instant::now() > deadline {
-            anyhow::bail!("sing-box did not listen on {} within 10s", port);
-        }
-        std::thread::sleep(Duration::from_millis(50));
-    }
-    Ok(sing_box)
 }
 
 /// Echoes a few packets through each of two UDP associations, and checks
@@ -169,16 +123,16 @@ fn run(
 ) -> anyhow::Result<()> {
     let ((ss_forwarder, ss_count), (socks_forwarder, socks_count)) = rt.block_on(async {
         anyhow::Ok((
-            counting_forwarder(ports.server_ss()).await?,
-            counting_forwarder(ports.server_socks()).await?,
+            counting_forwarder(ports.server_ss).await?,
+            counting_forwarder(ports.server_socks).await?,
         ))
     })?;
     let _client = client(ss_forwarder, socks_forwarder)?;
     rt.block_on(async {
-        echo_datagrams(ports.client_ss(), &ss_count)
+        echo_datagrams(ports.client_ss, &ss_count)
             .await
             .map_err(|e| anyhow::anyhow!("shadowsocks: {}", e))?;
-        echo_datagrams(ports.client_socks(), &socks_count)
+        echo_datagrams(ports.client_socks, &socks_count)
             .await
             .map_err(|e| anyhow::anyhow!("socks: {}", e))
     })
@@ -196,11 +150,11 @@ fn sail_server(ports: &Ports) -> String {
             {
                 "type": "shadowsocks",
                 "listen": "127.0.0.1",
-                "listen_port": ports.server_ss(),
+                "listen_port": ports.server_ss,
                 "method": SS_METHOD,
                 "password": SS_KEY,
             },
-            { "type": "socks", "listen": "127.0.0.1", "listen_port": ports.server_socks() },
+            { "type": "socks", "listen": "127.0.0.1", "listen_port": ports.server_socks },
         ],
         "outbounds": [{ "type": "direct" }],
     })
@@ -210,8 +164,8 @@ fn sail_server(ports: &Ports) -> String {
 fn sail_client(ports: &Ports, ss_forwarder: u16, socks_forwarder: u16) -> String {
     json!({
         "inbounds": [
-            { "type": "socks", "tag": "in-ss", "listen": "127.0.0.1", "listen_port": ports.client_ss() },
-            { "type": "socks", "tag": "in-socks", "listen": "127.0.0.1", "listen_port": ports.client_socks() },
+            { "type": "socks", "tag": "in-ss", "listen": "127.0.0.1", "listen_port": ports.client_ss },
+            { "type": "socks", "tag": "in-socks", "listen": "127.0.0.1", "listen_port": ports.client_socks },
         ],
         "outbounds": [
             {
@@ -255,12 +209,14 @@ impl Drop for Instances {
 // app(socks) -> sail(ss|socks, udp_over_tcp) -> forwarder -> sail -> echo
 #[test]
 fn test_uot_sail_to_sail() -> anyhow::Result<()> {
-    let ports = Ports { base: 32988 };
-    let rt = runtime()?;
-    let _server = Instances(common::run_sail_instances(&rt, vec![sail_server(&ports)])?);
-    run(&rt, &ports, |ss, socks| {
-        let ids = common::run_sail_instances(&rt, vec![sail_client(&ports, ss, socks)])?;
-        Ok(Box::new(Instances(ids)))
+    common::retry_port_clash(|| {
+        let ports = Ports::new();
+        let rt = runtime()?;
+        let _server = Instances(common::run_sail_instances(&rt, vec![sail_server(&ports)])?);
+        run(&rt, &ports, |ss, socks| {
+            let ids = common::run_sail_instances(&rt, vec![sail_client(&ports, ss, socks)])?;
+            Ok(Box::new(Instances(ids)))
+        })
     })
 }
 
@@ -268,26 +224,28 @@ fn test_uot_sail_to_sail() -> anyhow::Result<()> {
 #[test]
 #[ignore = "needs sing-box"]
 fn test_uot_sail_to_sing_box() -> anyhow::Result<()> {
-    let ports = Ports { base: 32992 };
-    let server = json!({
-        "log": { "level": "warn" },
-        "inbounds": [
-            {
-                "type": "shadowsocks",
-                "listen": "127.0.0.1",
-                "listen_port": ports.server_ss(),
-                "method": SS_METHOD,
-                "password": SS_KEY,
-            },
-            { "type": "socks", "listen": "127.0.0.1", "listen_port": ports.server_socks() },
-        ],
-        "outbounds": [{ "type": "direct" }],
-    });
-    let _sing_box = run_sing_box("server", &server, ports.server_socks())?;
-    let rt = runtime()?;
-    run(&rt, &ports, |ss, socks| {
-        let ids = common::run_sail_instances(&rt, vec![sail_client(&ports, ss, socks)])?;
-        Ok(Box::new(Instances(ids)))
+    common::retry_port_clash(|| {
+        let ports = Ports::new();
+        let dir = common::TempDir::new("uot")?;
+        let server = json!({
+            "inbounds": [
+                {
+                    "type": "shadowsocks",
+                    "listen": "127.0.0.1",
+                    "listen_port": ports.server_ss,
+                    "method": SS_METHOD,
+                    "password": SS_KEY,
+                },
+                { "type": "socks", "listen": "127.0.0.1", "listen_port": ports.server_socks },
+            ],
+            "outbounds": [{ "type": "direct" }],
+        });
+        let _sing_box = common::Daemon::sing_box(dir.path(), "server", server)?;
+        let rt = runtime()?;
+        run(&rt, &ports, |ss, socks| {
+            let ids = common::run_sail_instances(&rt, vec![sail_client(&ports, ss, socks)])?;
+            Ok(Box::new(Instances(ids)))
+        })
     })
 }
 
@@ -295,45 +253,47 @@ fn test_uot_sail_to_sing_box() -> anyhow::Result<()> {
 #[test]
 #[ignore = "needs sing-box"]
 fn test_uot_sing_box_to_sail() -> anyhow::Result<()> {
-    let ports = Ports { base: 32996 };
-    let rt = runtime()?;
-    let _server = Instances(common::run_sail_instances(&rt, vec![sail_server(&ports)])?);
-    run(&rt, &ports, |ss, socks| {
-        let client = json!({
-            "log": { "level": "warn" },
-            "inbounds": [
-                { "type": "mixed", "tag": "in-ss", "listen": "127.0.0.1", "listen_port": ports.client_ss() },
-                { "type": "mixed", "tag": "in-socks", "listen": "127.0.0.1", "listen_port": ports.client_socks() },
-            ],
-            "outbounds": [
-                {
-                    "type": "shadowsocks",
-                    "tag": "ss",
-                    "server": "127.0.0.1",
-                    "server_port": ss,
-                    "method": SS_METHOD,
-                    "password": SS_KEY,
-                    "udp_over_tcp": { "enabled": true, "version": 2 },
-                },
-                {
-                    "type": "socks",
-                    "tag": "socks",
-                    "server": "127.0.0.1",
-                    "server_port": socks,
-                    "udp_over_tcp": { "enabled": true, "version": 2 },
-                },
-            ],
-            "route": {
-                "rules": [
-                    { "inbound": ["in-ss"], "outbound": "ss" },
-                    { "inbound": ["in-socks"], "outbound": "socks" },
+    common::retry_port_clash(|| {
+        let ports = Ports::new();
+        let dir = common::TempDir::new("uot")?;
+        let rt = runtime()?;
+        let _server = Instances(common::run_sail_instances(&rt, vec![sail_server(&ports)])?);
+        run(&rt, &ports, |ss, socks| {
+            let client = json!({
+                "inbounds": [
+                    { "type": "mixed", "tag": "in-ss", "listen": "127.0.0.1", "listen_port": ports.client_ss },
+                    { "type": "mixed", "tag": "in-socks", "listen": "127.0.0.1", "listen_port": ports.client_socks },
                 ],
-            },
-        });
-        Ok(Box::new(run_sing_box(
-            "client",
-            &client,
-            ports.client_socks(),
-        )?))
+                "outbounds": [
+                    {
+                        "type": "shadowsocks",
+                        "tag": "ss",
+                        "server": "127.0.0.1",
+                        "server_port": ss,
+                        "method": SS_METHOD,
+                        "password": SS_KEY,
+                        "udp_over_tcp": { "enabled": true, "version": 2 },
+                    },
+                    {
+                        "type": "socks",
+                        "tag": "socks",
+                        "server": "127.0.0.1",
+                        "server_port": socks,
+                        "udp_over_tcp": { "enabled": true, "version": 2 },
+                    },
+                ],
+                "route": {
+                    "rules": [
+                        { "inbound": ["in-ss"], "outbound": "ss" },
+                        { "inbound": ["in-socks"], "outbound": "socks" },
+                    ],
+                },
+            });
+            Ok(Box::new(common::Daemon::sing_box(
+                dir.path(),
+                "client",
+                client,
+            )?))
+        })
     })
 }

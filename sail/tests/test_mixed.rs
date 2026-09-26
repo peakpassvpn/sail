@@ -1,7 +1,5 @@
 //! The mixed inbound serving HTTP, SOCKS4a and SOCKS5 (TCP and UDP) on one
 //! port, and the socks inbound with more than one user.
-//!
-//! Ports: 32520-32539.
 
 #![cfg(all(
     feature = "inbound-mixed",
@@ -157,140 +155,155 @@ async fn socks_stream(
 // bob, the second user, the only one routing lets through.
 #[test]
 fn test_mixed_http_and_socks5_tcp() -> anyhow::Result<()> {
-    with_instances(
-        vec![server("mixed", 32520, true, true)],
-        |echo| async move {
-            // HTTP as bob.
-            let (head, mut stream) = http_connect(32520, echo, Some("bob:bob-pass")).await?;
-            anyhow::ensure!(head.starts_with("HTTP/1.1 200"), "answered {:?}", head);
-            expect_echo(&mut stream).await?;
+    common::retry_port_clash(|| {
+        let port = common::free_port();
+        with_instances(
+            vec![server("mixed", port, true, true)],
+            move |echo| async move {
+                // HTTP as bob.
+                let (head, mut stream) = http_connect(port, echo, Some("bob:bob-pass")).await?;
+                anyhow::ensure!(head.starts_with("HTTP/1.1 200"), "answered {:?}", head);
+                expect_echo(&mut stream).await?;
 
-            // HTTP without credentials, or wrong ones.
-            for credentials in [None, Some("bob:alice-pass")] {
-                let (head, _) = http_connect(32520, echo, credentials).await?;
+                // HTTP without credentials, or wrong ones.
+                for credentials in [None, Some("bob:alice-pass")] {
+                    let (head, _) = http_connect(port, echo, credentials).await?;
+                    anyhow::ensure!(
+                        head.starts_with("HTTP/1.1 407 ")
+                            && head.contains("Proxy-Authenticate: Basic realm="),
+                        "answered {:?}",
+                        head
+                    );
+                }
+
+                // SOCKS5 as bob.
+                let mut stream = socks_stream(port, echo, Some(("bob", "bob-pass"))).await?;
+                expect_echo(&mut stream).await?;
+
+                // SOCKS5 with a wrong password, and without credentials.
                 anyhow::ensure!(
-                    head.starts_with("HTTP/1.1 407 ")
-                        && head.contains("Proxy-Authenticate: Basic realm="),
-                    "answered {:?}",
-                    head
+                    socks_stream(port, echo, Some(("bob", "alice-pass")))
+                        .await
+                        .is_err(),
+                    "socks5 with a wrong password got in"
                 );
-            }
+                anyhow::ensure!(
+                    socks_stream(port, echo, None).await.is_err(),
+                    "socks5 without credentials got in"
+                );
 
-            // SOCKS5 as bob.
-            let mut stream = socks_stream(32520, echo, Some(("bob", "bob-pass"))).await?;
-            expect_echo(&mut stream).await?;
-
-            // SOCKS5 with a wrong password, and without credentials.
-            anyhow::ensure!(
-                socks_stream(32520, echo, Some(("bob", "alice-pass")))
-                    .await
-                    .is_err(),
-                "socks5 with a wrong password got in"
-            );
-            anyhow::ensure!(
-                socks_stream(32520, echo, None).await.is_err(),
-                "socks5 without credentials got in"
-            );
-
-            // alice authenticates, and routing, which sees her name, blocks her.
-            let (head, mut stream) = http_connect(32520, echo, Some("alice:alice-pass")).await?;
-            anyhow::ensure!(head.starts_with("HTTP/1.1 200"), "answered {:?}", head);
-            anyhow::ensure!(
-                expect_echo(&mut stream).await.is_err(),
-                "alice was routed through"
-            );
-            Ok(())
-        },
-    )
+                // alice authenticates, and routing, which sees her name, blocks her.
+                let (head, mut stream) = http_connect(port, echo, Some("alice:alice-pass")).await?;
+                anyhow::ensure!(head.starts_with("HTTP/1.1 200"), "answered {:?}", head);
+                anyhow::ensure!(
+                    expect_echo(&mut stream).await.is_err(),
+                    "alice was routed through"
+                );
+                Ok(())
+            },
+        )
+    })
 }
 
 // A plain HTTP request in absolute form reaches the origin in origin form,
 // without the headers meant for the proxy.
 #[test]
 fn test_mixed_http_forward() -> anyhow::Result<()> {
-    with_instances(vec![server("mixed", 32521, true, false)], |_| async move {
-        let origin = TcpListener::bind("127.0.0.1:0").await?;
-        let origin_addr = origin.local_addr()?;
-        let serve = tokio::spawn(async move {
-            let (mut stream, _) = origin.accept().await?;
-            let head = read_head(&mut stream).await?;
-            stream
-                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
-                .await?;
-            anyhow::Ok(head)
-        });
+    common::retry_port_clash(|| {
+        let port = common::free_port();
+        with_instances(
+            vec![server("mixed", port, true, false)],
+            move |_| async move {
+                let origin = TcpListener::bind("127.0.0.1:0").await?;
+                let origin_addr = origin.local_addr()?;
+                let serve = tokio::spawn(async move {
+                    let (mut stream, _) = origin.accept().await?;
+                    let head = read_head(&mut stream).await?;
+                    stream
+                        .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
+                        .await?;
+                    anyhow::Ok(head)
+                });
 
-        let mut client = TcpStream::connect("127.0.0.1:32521").await?;
-        client
-            .write_all(
-                format!(
-                    "GET http://{origin_addr}/path?q=1 HTTP/1.1\r\nHost: {origin_addr}\r\n\
+                let mut client = TcpStream::connect(("127.0.0.1", port)).await?;
+                client
+                    .write_all(
+                        format!(
+                            "GET http://{origin_addr}/path?q=1 HTTP/1.1\r\nHost: {origin_addr}\r\n\
                      Proxy-Authorization: Basic {}\r\nProxy-Connection: keep-alive\r\n\r\n",
-                    BASE64_STANDARD.encode("alice:alice-pass")
-                )
-                .as_bytes(),
-            )
-            .await?;
-        let answer = read_head(&mut client).await?;
-        anyhow::ensure!(
-            answer.starts_with("HTTP/1.1 200 OK"),
-            "answered {:?}",
-            answer
-        );
+                            BASE64_STANDARD.encode("alice:alice-pass")
+                        )
+                        .as_bytes(),
+                    )
+                    .await?;
+                let answer = read_head(&mut client).await?;
+                anyhow::ensure!(
+                    answer.starts_with("HTTP/1.1 200 OK"),
+                    "answered {:?}",
+                    answer
+                );
 
-        let request = timeout(Duration::from_secs(5), serve).await???;
-        anyhow::ensure!(
-            request.starts_with("GET /path?q=1 HTTP/1.1\r\n"),
-            "origin got {:?}",
-            request
-        );
-        anyhow::ensure!(
-            !request.to_ascii_lowercase().contains("proxy-"),
-            "origin got the proxy's headers: {:?}",
-            request
-        );
-        Ok(())
+                let request = timeout(Duration::from_secs(5), serve).await???;
+                anyhow::ensure!(
+                    request.starts_with("GET /path?q=1 HTTP/1.1\r\n"),
+                    "origin got {:?}",
+                    request
+                );
+                anyhow::ensure!(
+                    !request.to_ascii_lowercase().contains("proxy-"),
+                    "origin got the proxy's headers: {:?}",
+                    request
+                );
+                Ok(())
+            },
+        )
     })
 }
 
 // SOCKS5 TCP and UDP ASSOCIATE through the mixed port, as bob.
 #[test]
 fn test_mixed_socks5_tcp_and_udp() -> anyhow::Result<()> {
-    common::test_configs_with_auth(
-        vec![server("mixed", 32522, true, false)],
-        "127.0.0.1",
-        32522,
-        Some("bob".into()),
-        Some("bob-pass".into()),
-    )
+    common::retry_port_clash(|| {
+        let port = common::free_port();
+        common::test_configs_with_auth(
+            vec![server("mixed", port, true, false)],
+            "127.0.0.1",
+            port,
+            Some("bob".into()),
+            Some("bob-pass".into()),
+        )
+    })
 }
 
 // SOCKS4a through the mixed port, which takes it only without users.
 #[test]
 fn test_mixed_socks4a() -> anyhow::Result<()> {
-    let configs = vec![
-        server("mixed", 32523, false, false),
-        server("mixed", 32524, true, false),
-    ];
-    with_instances(configs, |echo| async move {
-        let socks4a = |port: u16| async move {
-            let mut stream = TcpStream::connect(("127.0.0.1", port)).await?;
-            let mut request = vec![0x04, 0x01];
-            request.extend_from_slice(&echo.port().to_be_bytes());
-            request.extend_from_slice(&[0, 0, 0, 1]);
-            request.extend_from_slice(b"user\0127.0.0.1\0");
-            stream.write_all(&request).await?;
-            let mut reply = [0u8; 8];
-            timeout(Duration::from_secs(5), stream.read_exact(&mut reply)).await??;
-            anyhow::Ok((reply[1], stream))
-        };
-        let (status, mut stream) = socks4a(32523).await?;
-        anyhow::ensure!(status == 90, "socks4a refused: {}", status);
-        expect_echo(&mut stream).await?;
+    common::retry_port_clash(|| {
+        let [port, port2] = common::free_ports();
+        let configs = vec![
+            server("mixed", port, false, false),
+            server("mixed", port2, true, false),
+        ];
+        with_instances(configs, move |echo| async move {
+            let socks4a = |port: u16| async move {
+                let mut stream = TcpStream::connect(("127.0.0.1", port)).await?;
+                let mut request = vec![0x04, 0x01];
+                request.extend_from_slice(&echo.port().to_be_bytes());
+                request.extend_from_slice(&[0, 0, 0, 1]);
+                request.extend_from_slice(b"user\0127.0.0.1\0");
+                stream.write_all(&request).await?;
+                let mut reply = [0u8; 8];
+                timeout(Duration::from_secs(5), stream.read_exact(&mut reply)).await??;
+                anyhow::Ok((reply[1], stream))
+            };
+            let (status, mut stream) = socks4a(port).await?;
+            anyhow::ensure!(status == 90, "socks4a refused: {}", status);
+            expect_echo(&mut stream).await?;
 
-        let (status, _) = socks4a(32524).await?;
-        anyhow::ensure!(status == 91, "socks4a let in with users set: {}", status);
-        Ok(())
+            let (status, _) = socks4a(port2).await?;
+            anyhow::ensure!(status == 91, "socks4a let in with users set: {}", status);
+            Ok(())
+        })
     })
 }
 
@@ -298,26 +311,29 @@ fn test_mixed_socks4a() -> anyhow::Result<()> {
 // reaches routing.
 #[test]
 fn test_socks_second_user() -> anyhow::Result<()> {
-    with_instances(
-        vec![server("socks", 32525, true, true)],
-        |echo| async move {
-            let mut stream = socks_stream(32525, echo, Some(("bob", "bob-pass"))).await?;
-            expect_echo(&mut stream).await?;
+    common::retry_port_clash(|| {
+        let port = common::free_port();
+        with_instances(
+            vec![server("socks", port, true, true)],
+            move |echo| async move {
+                let mut stream = socks_stream(port, echo, Some(("bob", "bob-pass"))).await?;
+                expect_echo(&mut stream).await?;
 
-            anyhow::ensure!(
-                socks_stream(32525, echo, Some(("bob", "alice-pass")))
-                    .await
-                    .is_err(),
-                "a wrong password got in"
-            );
+                anyhow::ensure!(
+                    socks_stream(port, echo, Some(("bob", "alice-pass")))
+                        .await
+                        .is_err(),
+                    "a wrong password got in"
+                );
 
-            // alice authenticates, and routing blocks her by name.
-            let mut stream = socks_stream(32525, echo, Some(("alice", "alice-pass"))).await?;
-            anyhow::ensure!(
-                expect_echo(&mut stream).await.is_err(),
-                "alice was routed through"
-            );
-            Ok(())
-        },
-    )
+                // alice authenticates, and routing blocks her by name.
+                let mut stream = socks_stream(port, echo, Some(("alice", "alice-pass"))).await?;
+                anyhow::ensure!(
+                    expect_echo(&mut stream).await.is_err(),
+                    "alice was routed through"
+                );
+                Ok(())
+            },
+        )
+    })
 }

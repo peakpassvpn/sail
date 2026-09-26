@@ -83,9 +83,10 @@ where
     (c, s)
 }
 
-async fn tcp_pair(port: u16) -> (TcpStream, TcpStream) {
-    let listener = TcpListener::bind(("127.0.0.1", port)).await.unwrap();
-    let (c, s) = tokio::join!(TcpStream::connect(("127.0.0.1", port)), listener.accept());
+async fn tcp_pair() -> (TcpStream, TcpStream) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let (c, s) = tokio::join!(TcpStream::connect(addr), listener.accept());
     let (c, s) = (c.unwrap(), s.unwrap().0);
     c.set_nodelay(true).unwrap();
     s.set_nodelay(true).unwrap();
@@ -208,14 +209,14 @@ const TOTAL: u64 = 32 * 1024 * 1024;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_tls_split_tcp_tls13() {
-    let (c, s) = tcp_pair(33300).await;
+    let (c, s) = tcp_pair().await;
     let (c, s) = handshake(SslVersion::TLS1_3, c, s, false).await;
     exchange(c, s, TOTAL, None).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_tls_split_tcp_tls12() {
-    let (c, s) = tcp_pair(33301).await;
+    let (c, s) = tcp_pair().await;
     let (c, s) = handshake(SslVersion::TLS1_2, c, s, false).await;
     exchange(c, s, TOTAL, None).await;
 }
@@ -224,7 +225,7 @@ async fn test_tls_split_tcp_tls12() {
 // out with its next write.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_tls_split_tcp_key_update() {
-    let (c, s) = tcp_pair(33302).await;
+    let (c, s) = tcp_pair().await;
     let (c, s) = handshake(SslVersion::TLS1_3, c, s, false).await;
     exchange(c, s, TOTAL, Some(16)).await;
 }
@@ -232,7 +233,7 @@ async fn test_tls_split_tcp_key_update() {
 // Exact reads, one record at a time, as while Vision is pending.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_tls_split_tcp_vision_exact() {
-    let (c, s) = tcp_pair(33303).await;
+    let (c, s) = tcp_pair().await;
     let (c, s) = handshake(SslVersion::TLS1_3, c, s, true).await;
     exchange(c, s, TOTAL, None).await;
 }
@@ -273,8 +274,8 @@ async fn test_tls_close_while_writes_queued() {
 const BENCH_SIZE: usize = 64 * 1024 * 1024;
 
 /// Seconds to send `BENCH_SIZE` bytes one way.
-async fn one_way(port: u16) -> f64 {
-    let (c, s) = tcp_pair(port).await;
+async fn one_way() -> f64 {
+    let (c, s) = tcp_pair().await;
     let (mut c, mut s) = handshake(SslVersion::TLS1_3, c, s, false).await;
     let start = Instant::now();
     let writer = async {
@@ -297,8 +298,8 @@ async fn one_way(port: u16) -> f64 {
 
 /// Seconds to send `BENCH_SIZE` bytes each way at once, each end reading and
 /// writing from one task.
-async fn both_ways(port: u16) -> f64 {
-    let (c, s) = tcp_pair(port).await;
+async fn both_ways() -> f64 {
+    let (c, s) = tcp_pair().await;
     let (c, s) = handshake(SslVersion::TLS1_3, c, s, false).await;
     let end = |mut t: Tls<TcpStream>| async move {
         let wbuf = vec![7u8; CHUNK];
@@ -339,9 +340,9 @@ async fn bench_tls_throughput() {
     };
     let mut one = Vec::new();
     let mut both = Vec::new();
-    for i in 0..RUNS {
-        one.push(mib / one_way(33320 + i).await);
-        both.push(2.0 * mib / both_ways(33340 + i).await);
+    for _ in 0..RUNS {
+        one.push(mib / one_way().await);
+        both.push(2.0 * mib / both_ways().await);
     }
     println!(
         "one way:   median {:.0} MiB/s of {one:.0?}",

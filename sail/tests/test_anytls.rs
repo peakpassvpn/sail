@@ -8,8 +8,6 @@
 //! ```text
 //! cargo test -p sail --test test_anytls -- --ignored
 //! ```
-//!
-//! Ports: 32400-32429.
 
 #![cfg(all(
     feature = "inbound-anytls",
@@ -26,8 +24,6 @@
 mod common;
 
 use std::net::SocketAddr;
-use std::path::PathBuf;
-use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -62,62 +58,24 @@ fn certs(name: &str) -> anyhow::Result<Certs> {
     })
 }
 
-/// Forwards `listen` to `target`, counting the connections.
-async fn counting_forwarder(listen: &str, target: SocketAddr) -> anyhow::Result<Arc<AtomicUsize>> {
-    let listener = TcpListener::bind(listen).await?;
+/// A TCP forwarder to `target` on a port of the system's choosing, and the
+/// count of its connections.
+async fn counting_forwarder(target: u16) -> anyhow::Result<(u16, Arc<AtomicUsize>)> {
+    let listener = TcpListener::bind("127.0.0.1:0").await?;
+    let port = listener.local_addr()?.port();
     let count = Arc::new(AtomicUsize::new(0));
     let counted = count.clone();
     tokio::spawn(async move {
         while let Ok((mut inbound, _)) = listener.accept().await {
             counted.fetch_add(1, Ordering::SeqCst);
             tokio::spawn(async move {
-                if let Ok(mut outbound) = TcpStream::connect(target).await {
+                if let Ok(mut outbound) = TcpStream::connect(("127.0.0.1", target)).await {
                     let _ = tokio::io::copy_bidirectional(&mut inbound, &mut outbound).await;
                 }
             });
         }
     });
-    Ok(count)
-}
-
-/// sing-box, killed when dropped.
-struct SingBox(Child);
-
-impl Drop for SingBox {
-    fn drop(&mut self) {
-        let _ = self.0.kill();
-        let _ = self.0.wait();
-    }
-}
-
-fn sing_box_path() -> PathBuf {
-    std::env::var_os("SING_BOX")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("/opt/homebrew/bin/sing-box"))
-}
-
-/// Runs sing-box with `config` and waits for it to listen on `port`.
-fn run_sing_box(name: &str, config: &str, port: u16) -> anyhow::Result<SingBox> {
-    let path =
-        std::env::temp_dir().join(format!("sail-anytls-{}-{}.json", name, std::process::id()));
-    std::fs::write(&path, config)?;
-    let child = Command::new(sing_box_path())
-        .arg("run")
-        .arg("-c")
-        .arg(&path)
-        .stdout(Stdio::null())
-        .stderr(Stdio::inherit())
-        .spawn()
-        .map_err(|e| anyhow::anyhow!("run sing-box failed: {}", e))?;
-    let sing_box = SingBox(child);
-    let deadline = std::time::Instant::now() + Duration::from_secs(10);
-    while std::net::TcpStream::connect(("127.0.0.1", port)).is_err() {
-        if std::time::Instant::now() > deadline {
-            anyhow::bail!("sing-box did not listen on {} within 10s", port);
-        }
-        std::thread::sleep(Duration::from_millis(50));
-    }
-    Ok(sing_box)
+    Ok((port, count))
 }
 
 fn session_to(addr: SocketAddr) -> Session {
@@ -338,46 +296,48 @@ fn runtime() -> anyhow::Result<tokio::runtime::Runtime> {
 #[test]
 fn test_anytls_sail_to_sail() -> anyhow::Result<()> {
     let certs = certs("sail")?;
-    let rt = runtime()?;
-    // A scheme of the server's own, which it pushes to the client.
-    let scheme = r#"["stop=4", "0=10-20", "1=200-300", "2=100-200,c,300-400", "3=50-60"]"#;
-    let ids = common::run_sail_instances(
-        &rt,
-        vec![
-            anytls_server(32401, Some(scheme), &certs),
-            socks_to_anytls(32400, 32402, PASSWORD, &certs),
-            socks_to_anytls(32403, 32401, "wrong", &certs),
-            socks_to_anytls(32404, 32401, "bob-password", &certs),
-            detoured(32405, 32401, 32406, &certs),
-            r#"{
-                "inbounds": [{ "type": "socks", "listen": "127.0.0.1", "listen_port": 32406 }],
-                "outbounds": [{ "type": "direct" }]
-            }"#
-            .to_string(),
-        ],
-    )?;
-    let result = rt.block_on(async {
-        let connections = counting_forwarder("127.0.0.1:32402", "127.0.0.1:32401".parse()?).await?;
-        exercise(32400, &connections).await?;
+    common::retry_port_clash(|| {
+        let [server, socks, wrong, bob, via_detour, detour] = common::free_ports();
+        let rt = runtime()?;
+        // The forwarder runs on `rt`, for as long as it does.
+        let (forwarder, connections) = rt.block_on(counting_forwarder(server))?;
+        // A scheme of the server's own, which it pushes to the client.
+        let scheme = r#"["stop=4", "0=10-20", "1=200-300", "2=100-200,c,300-400", "3=50-60"]"#;
+        let ids = common::run_sail_instances(
+            &rt,
+            vec![
+                anytls_server(server, Some(scheme), &certs),
+                socks_to_anytls(socks, forwarder, PASSWORD, &certs),
+                socks_to_anytls(wrong, server, "wrong", &certs),
+                socks_to_anytls(bob, server, "bob-password", &certs),
+                detoured(via_detour, server, detour, &certs),
+                serde_json::json!({
+                    "inbounds": [{ "type": "socks", "listen": "127.0.0.1", "listen_port": detour }],
+                    "outbounds": [{ "type": "direct" }]
+                })
+                .to_string(),
+            ],
+        )?;
+        let result = rt.block_on(async {
+            exercise(socks, &connections).await?;
 
-        let (echo, server) = common::run_tcp_echo_server("127.0.0.1:0").await?;
-        let server = tokio::spawn(server);
-        // Through a detour: the sessions' connections are dialled through it.
-        for i in 0..3 {
-            echo_stream(32405, echo, i, 20_000).await?;
-        }
-        // A wrong password, and a user routing does not let through.
-        for port in [32403, 32404] {
-            let result = echo_stream(port, echo, 1, 10).await;
-            anyhow::ensure!(result.is_err(), "port {}: expected a failure", port);
-        }
-        server.abort();
-        anyhow::Ok(())
-    });
-    for id in ids {
-        sail::shutdown(id);
-    }
-    result
+            let (echo, server) = common::run_tcp_echo_server("127.0.0.1:0").await?;
+            let server = tokio::spawn(server);
+            // Through a detour: the sessions' connections are dialled through it.
+            for i in 0..3 {
+                echo_stream(via_detour, echo, i, 20_000).await?;
+            }
+            // A wrong password, and a user routing does not let through.
+            for port in [wrong, bob] {
+                let result = echo_stream(port, echo, 1, 10).await;
+                anyhow::ensure!(result.is_err(), "port {}: expected a failure", port);
+            }
+            server.abort();
+            anyhow::Ok(())
+        });
+        common::shutdown_instances(&rt, ids);
+        result
+    })
 }
 
 // app(socks) -> sail(anytls) -> forwarder -> sing-box(anytls) -> echo
@@ -385,38 +345,35 @@ fn test_anytls_sail_to_sail() -> anyhow::Result<()> {
 #[ignore = "needs sing-box"]
 fn test_anytls_sail_to_sing_box() -> anyhow::Result<()> {
     let certs = certs("to-sing-box")?;
-    let sing_box_config = format!(
-        r#"{{
-            "log": {{ "level": "warn" }},
-            "inbounds": [{{
+    common::retry_port_clash(|| {
+        let [server, socks] = common::free_ports();
+        let dir = common::TempDir::new("anytls")?;
+        let sing_box_config = serde_json::json!({
+            "inbounds": [{
                 "type": "anytls",
                 "listen": "127.0.0.1",
-                "listen_port": 32411,
-                "users": [{{ "name": "alice", "password": "{PASSWORD}" }}],
+                "listen_port": server,
+                "users": [{ "name": "alice", "password": PASSWORD }],
                 "padding_scheme": ["stop=3", "0=5-10", "1=300-400", "2=100-200,c,50-60"],
-                "tls": {{
+                "tls": {
                     "enabled": true,
-                    "certificate_path": "{cert}",
-                    "key_path": "{key}"
-                }}
-            }}],
-            "outbounds": [{{ "type": "direct" }}]
-        }}"#,
-        cert = certs.cert,
-        key = certs.key,
-    );
-    let _sing_box = run_sing_box("server", &sing_box_config, 32411)?;
-    let rt = runtime()?;
-    let ids =
-        common::run_sail_instances(&rt, vec![socks_to_anytls(32410, 32412, PASSWORD, &certs)])?;
-    let result = rt.block_on(async {
-        let connections = counting_forwarder("127.0.0.1:32412", "127.0.0.1:32411".parse()?).await?;
-        exercise(32410, &connections).await
-    });
-    for id in ids {
-        sail::shutdown(id);
-    }
-    result
+                    "certificate_path": certs.cert,
+                    "key_path": certs.key
+                }
+            }],
+            "outbounds": [{ "type": "direct" }]
+        });
+        let _sing_box = common::Daemon::sing_box(dir.path(), "server", sing_box_config)?;
+        let rt = runtime()?;
+        let (forwarder, connections) = rt.block_on(counting_forwarder(server))?;
+        let ids = common::run_sail_instances(
+            &rt,
+            vec![socks_to_anytls(socks, forwarder, PASSWORD, &certs)],
+        )?;
+        let result = rt.block_on(exercise(socks, &connections));
+        common::shutdown_instances(&rt, ids);
+        result
+    })
 }
 
 // app(socks) -> sing-box(anytls) -> forwarder -> sail(anytls, alice only) -> echo
@@ -424,40 +381,35 @@ fn test_anytls_sail_to_sing_box() -> anyhow::Result<()> {
 #[ignore = "needs sing-box"]
 fn test_anytls_sing_box_to_sail() -> anyhow::Result<()> {
     let certs = certs("from-sing-box")?;
-    let rt = runtime()?;
-    let ids = common::run_sail_instances(&rt, vec![anytls_server(32421, None, &certs)])?;
-    let sing_box_config = format!(
-        r#"{{
-            "log": {{ "level": "warn" }},
-            "inbounds": [{{ "type": "mixed", "listen": "127.0.0.1", "listen_port": 32420 }}],
-            "outbounds": [{{
-                "type": "anytls",
-                "server": "127.0.0.1",
-                "server_port": 32422,
-                "password": "{PASSWORD}",
-                "idle_session_check_interval": "30s",
-                "idle_session_timeout": "60s",
-                "tls": {{
-                    "enabled": true,
-                    "server_name": "localhost",
-                    "certificate_path": "{cert}"
-                }}
-            }}]
-        }}"#,
-        cert = certs.cert,
-    );
-    let result = (|| {
-        let sing_box = run_sing_box("client", &sing_box_config, 32420)?;
-        let result = rt.block_on(async {
-            let connections =
-                counting_forwarder("127.0.0.1:32422", "127.0.0.1:32421".parse()?).await?;
-            exercise(32420, &connections).await
-        });
-        drop(sing_box);
+    common::retry_port_clash(|| {
+        let [server, socks] = common::free_ports();
+        let dir = common::TempDir::new("anytls")?;
+        let rt = runtime()?;
+        let ids = common::run_sail_instances(&rt, vec![anytls_server(server, None, &certs)])?;
+        let result = (|| {
+            let (forwarder, connections) = rt.block_on(counting_forwarder(server))?;
+            let sing_box_config = serde_json::json!({
+                "inbounds": [{ "type": "mixed", "listen": "127.0.0.1", "listen_port": socks }],
+                "outbounds": [{
+                    "type": "anytls",
+                    "server": "127.0.0.1",
+                    "server_port": forwarder,
+                    "password": PASSWORD,
+                    "idle_session_check_interval": "30s",
+                    "idle_session_timeout": "60s",
+                    "tls": {
+                        "enabled": true,
+                        "server_name": "localhost",
+                        "certificate_path": certs.cert
+                    }
+                }]
+            });
+            let sing_box = common::Daemon::sing_box(dir.path(), "client", sing_box_config)?;
+            let result = rt.block_on(exercise(socks, &connections));
+            drop(sing_box);
+            result
+        })();
+        common::shutdown_instances(&rt, ids);
         result
-    })();
-    for id in ids {
-        sail::shutdown(id);
-    }
-    result
+    })
 }

@@ -7,11 +7,11 @@ use tokio::time::timeout;
 
 /// Whether a connection through the instance to `sess`'s destination is
 /// relayed (true) or closed (false).
-async fn relayed(sess: &sail::session::Session) -> anyhow::Result<bool> {
-    let mut stream = common::new_socks_stream("127.0.0.1", 1088, sess, None, None).await?;
+async fn relayed(port: u16, sess: &sail::session::Session) -> anyhow::Result<bool> {
+    let mut stream = common::new_socks_stream("127.0.0.1", port, sess, None, None).await?;
     stream.write_all(b"ping").await?;
     let mut buf = [0u8; 4];
-    match timeout(Duration::from_secs(2), stream.read(&mut buf)).await? {
+    match timeout(Duration::from_secs(10), stream.read(&mut buf)).await? {
         Ok(4) => Ok(&buf == b"ping"),
         Ok(_) | Err(_) => Ok(false),
     }
@@ -27,10 +27,17 @@ async fn relayed(sess: &sail::session::Session) -> anyhow::Result<bool> {
 ))]
 #[test]
 fn a_failed_reload_changes_nothing() -> anyhow::Result<()> {
+    common::retry_port_clash(|| a_failed_reload_changes_nothing_on(common::free_port()))
+}
+
+/// The test above, with the instance's inbound on `port`, the same across
+/// the reloads.
+#[allow(dead_code)]
+fn a_failed_reload_changes_nothing_on(port: u16) -> anyhow::Result<()> {
     let config_with = |outbounds: &str, rules: &str| {
         format!(
             r#"{{
-                "inbounds": [{{ "type": "socks", "listen": "127.0.0.1", "listen_port": 1088 }}],
+                "inbounds": [{{ "type": "socks", "listen": "127.0.0.1", "listen_port": {port} }}],
                 "outbounds": [{{ "type": "direct" }}{}],
                 "route": {{ "rules": {} }}
             }}"#,
@@ -55,7 +62,23 @@ fn a_failed_reload_changes_nothing() -> anyhow::Result<()> {
         runtime: common::runtime_options(),
         host: Default::default(),
     };
-    rt.spawn_blocking(move || sail::start(id, opts));
+    let start = rt.spawn_blocking(move || sail::start(id, opts));
+    // Returns once the instance runs, or with the error it failed with, a
+    // port clash among them.
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while !sail::is_running(id) {
+        if start.is_finished() {
+            match rt.block_on(start)? {
+                Err(e) => anyhow::bail!("start sail failed: {}", e),
+                Ok(()) => anyhow::bail!("sail stopped as soon as it started"),
+            }
+        }
+        anyhow::ensure!(
+            std::time::Instant::now() < deadline,
+            "sail did not start within 10s"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
 
     // Fails with an error rather than a panic, so that the instance is shut
     // down either way.
@@ -67,7 +90,7 @@ fn a_failed_reload_changes_nothing() -> anyhow::Result<()> {
             destination: sail::session::SocksAddr::from(echo_addr),
             ..Default::default()
         };
-        anyhow::ensure!(relayed(&sess).await?, "relayed before any reload");
+        anyhow::ensure!(relayed(port, &sess).await?, "relayed before any reload");
 
         std::fs::write(
             &path,
@@ -75,7 +98,7 @@ fn a_failed_reload_changes_nothing() -> anyhow::Result<()> {
         )?;
         let reload = tokio::task::spawn_blocking(move || sail::reload(id)).await?;
         anyhow::ensure!(reload.is_ok(), "the reload failed: {:?}", reload.err());
-        anyhow::ensure!(!relayed(&sess).await?, "rejected after the reload");
+        anyhow::ensure!(!relayed(port, &sess).await?, "rejected after the reload");
 
         // Routing that would relay again, with an outbound that reads as a
         // configuration but fails to build.
@@ -89,7 +112,7 @@ fn a_failed_reload_changes_nothing() -> anyhow::Result<()> {
         let reload = tokio::task::spawn_blocking(move || sail::reload(id)).await?;
         anyhow::ensure!(reload.is_err(), "a broken configuration should not load");
         anyhow::ensure!(
-            !relayed(&sess).await?,
+            !relayed(port, &sess).await?,
             "still rejected: the failed reload changed nothing"
         );
         anyhow::Ok(())

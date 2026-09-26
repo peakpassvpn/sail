@@ -14,59 +14,62 @@ mod common;
 ))]
 #[test]
 fn test_amux_trojan() -> anyhow::Result<()> {
-    let config1 = r#"
-    {
-        "inbounds": [
-            {
-                "type": "socks",
-                "listen": "127.0.0.1",
-                "listen_port": 1086
-            }
-        ],
-        "outbounds": [
-            {
-                "type": "trojan",
-                "tag": "proxy",
-                "server": "127.0.0.1",
-                "server_port": 23001,
-                "password": "password",
-                "multiplex": {
-                    "enabled": true,
-                    "protocol": "amux"
+    common::retry_port_clash(|| {
+        let [socks_port, server_port] = common::free_ports();
+        let config1 = serde_json::json!({
+            "inbounds": [
+                {
+                    "type": "socks",
+                    "listen": "127.0.0.1",
+                    "listen_port": socks_port
                 }
-            }
-        ]
-    }
-    "#;
-
-    let config2 = r#"
-    {
-        "inbounds": [
-            {
-                "type": "trojan",
-                "listen": "127.0.0.1",
-                "listen_port": 23001,
-                "users": [
-                    {
-                        "password": "password"
+            ],
+            "outbounds": [
+                {
+                    "type": "trojan",
+                    "tag": "proxy",
+                    "server": "127.0.0.1",
+                    "server_port": server_port,
+                    "password": "password",
+                    "multiplex": {
+                        "enabled": true,
+                        "protocol": "amux"
                     }
-                ],
-                "multiplex": {
-                    "enabled": true,
-                    "protocol": "amux"
                 }
-            }
-        ],
-        "outbounds": [
-            {
-                "type": "direct"
-            }
-        ]
-    }
-    "#;
+            ]
+        });
 
-    let configs = vec![config1.to_string(), config2.to_string()];
-    common::test_configs(configs.clone(), "127.0.0.1", 1086)?;
-    common::test_tcp_half_close_on_configs(configs.clone(), "127.0.0.1", 1086)?;
-    common::test_data_transfering_reliability_on_configs(configs.clone(), "127.0.0.1", 1086)
+        let config2 = serde_json::json!({
+            "inbounds": [
+                {
+                    "type": "trojan",
+                    "listen": "127.0.0.1",
+                    "listen_port": server_port,
+                    "users": [
+                        {
+                            "password": "password"
+                        }
+                    ],
+                    "multiplex": {
+                        "enabled": true,
+                        "protocol": "amux"
+                    }
+                }
+            ],
+            "outbounds": [
+                {
+                    "type": "direct"
+                }
+            ]
+        });
+
+        let configs = vec![config1.to_string(), config2.to_string()];
+        common::test_configs(configs.clone(), "127.0.0.1", socks_port)?;
+        common::test_tcp_half_close_on_configs(configs.clone(), "127.0.0.1", socks_port)?;
+        common::test_data_transfering_reliability_on_configs(
+            configs.clone(),
+            "127.0.0.1",
+            socks_port,
+        )
+    })
 }

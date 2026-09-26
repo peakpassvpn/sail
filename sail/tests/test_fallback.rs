@@ -5,8 +5,6 @@
 //! The sing-box tests need `sing-box` on the PATH or in /opt/homebrew/bin,
 //! and are ignored unless asked for:
 //! `cargo test -p sail --test test_fallback -- --ignored`.
-//!
-//! Ports 33400-33499 only.
 
 #![cfg(all(
     feature = "inbound-trojan",
@@ -24,8 +22,7 @@ mod common;
 
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use serde_json::json;
@@ -72,9 +69,10 @@ impl Drop for Cert {
 
 /// A stand-in for a web server, on a thread: for each connection it reads
 /// until the peer has been quiet for a moment, then answers with its name, a
-/// newline and every byte it received, and closes.
-fn run_web_server(name: &'static str, port: u16) -> anyhow::Result<()> {
-    let listener = TcpListener::bind(("127.0.0.1", port))?;
+/// newline and every byte it received, and closes. Returns its port.
+fn run_web_server(name: &'static str) -> anyhow::Result<u16> {
+    let listener = TcpListener::bind("127.0.0.1:0")?;
+    let port = listener.local_addr()?.port();
     std::thread::spawn(move || {
         for conn in listener.incoming() {
             let Ok(mut conn) = conn else { return };
@@ -98,7 +96,7 @@ fn run_web_server(name: &'static str, port: u16) -> anyhow::Result<()> {
             });
         }
     });
-    Ok(())
+    Ok(port)
 }
 
 /// What `run_web_server` named `name` answers to `sent`.
@@ -244,9 +242,10 @@ where
 }
 
 /// Echoes a few kilobytes through the socks server on `socks_port`, to an
-/// echo server on `echo_port`.
-fn echo_through_socks(socks_port: u16, echo_port: u16) -> anyhow::Result<()> {
-    let echo = TcpListener::bind(("127.0.0.1", echo_port))?;
+/// echo server of its own.
+fn echo_through_socks(socks_port: u16) -> anyhow::Result<()> {
+    let echo = TcpListener::bind("127.0.0.1:0")?;
+    let echo_port = echo.local_addr()?.port();
     std::thread::spawn(move || {
         if let Ok((mut conn, _)) = echo.accept() {
             let mut buf = [0u8; 4096];
@@ -298,62 +297,73 @@ fn vless_header(uuid: &str) -> Vec<u8> {
 #[test]
 fn test_trojan_fallback() -> anyhow::Result<()> {
     let cert = Cert::new("trojan")?;
-    run_web_server("http1", 33400)?;
-    run_web_server("h2", 33401)?;
-    let configs = vec![
-        trojan_server(&cert, 33402, Some((33400, 33401))),
-        sail_client(trojan_outbound(&cert, 33402, "h2"), 33403),
-        sail_client(trojan_outbound(&cert, 33402, "http/1.1"), 33404),
-    ];
-    with_sail(configs, || {
-        // A web client gets the web server, whichever ALPN it speaks.
-        probe(33402, b"\x08http/1.1", HTTP1_REQUEST, "http1")?;
-        probe(33402, b"", HTTP1_REQUEST, "http1")?;
-        probe(33402, b"\x02h2", H2_PREFACE, "h2")?;
-        // A well-formed header with a wrong password.
-        let mut wrong = hex::encode(sha2::Sha224::digest(b"wrong")).into_bytes();
-        wrong.extend_from_slice(b"\r\n\x01\x01\x7f\x00\x00\x01\x00\x50\r\nGET / HTTP/1.1\r\n\r\n");
-        probe(33402, b"\x08http/1.1", &wrong, "http1")?;
-        // Trojan clients still get through, on either ALPN.
-        echo_through_socks(33403, 33405)?;
-        echo_through_socks(33404, 33406)?;
-        Ok(())
+    let http1 = run_web_server("http1")?;
+    let h2 = run_web_server("h2")?;
+    common::retry_port_clash(|| {
+        let [port, socks_h2, socks_http1] = common::free_ports();
+        let configs = vec![
+            trojan_server(&cert, port, Some((http1, h2))),
+            sail_client(trojan_outbound(&cert, port, "h2"), socks_h2),
+            sail_client(trojan_outbound(&cert, port, "http/1.1"), socks_http1),
+        ];
+        with_sail(configs, move || {
+            // A web client gets the web server, whichever ALPN it speaks.
+            probe(port, b"\x08http/1.1", HTTP1_REQUEST, "http1")?;
+            probe(port, b"", HTTP1_REQUEST, "http1")?;
+            probe(port, b"\x02h2", H2_PREFACE, "h2")?;
+            // A well-formed header with a wrong password.
+            let mut wrong = hex::encode(sha2::Sha224::digest(b"wrong")).into_bytes();
+            wrong.extend_from_slice(
+                b"\r\n\x01\x01\x7f\x00\x00\x01\x00\x50\r\nGET / HTTP/1.1\r\n\r\n",
+            );
+            probe(port, b"\x08http/1.1", &wrong, "http1")?;
+            // Trojan clients still get through, on either ALPN.
+            echo_through_socks(socks_h2)?;
+            echo_through_socks(socks_http1)?;
+            Ok(())
+        })
     })
 }
 
 #[test]
 fn test_trojan_fallback_after_partial_header() -> anyhow::Result<()> {
     let cert = Cert::new("trojan-partial")?;
-    run_web_server("http1", 33410)?;
-    run_web_server("h2", 33411)?;
-    let configs = vec![trojan_server(&cert, 33412, Some((33410, 33411)))];
-    with_sail(configs, || {
-        // Hex, as a key starts: the inbound waits for the rest, then gives up.
-        let took = probe(33412, b"\x08http/1.1", b"0123456789abcdef", "http1")?;
-        anyhow::ensure!(
-            took >= HEADER_TIMEOUT - Duration::from_millis(100),
-            "fell back after {:?}, before the header timeout",
-            took
-        );
-        // Not hex: no waiting.
-        let took = probe(33412, b"\x08http/1.1", b"GET /", "http1")?;
-        anyhow::ensure!(took < HEADER_TIMEOUT, "waited {:?} for a non-key", took);
-        Ok(())
+    let http1 = run_web_server("http1")?;
+    let h2 = run_web_server("h2")?;
+    common::retry_port_clash(|| {
+        let port = common::free_port();
+        let configs = vec![trojan_server(&cert, port, Some((http1, h2)))];
+        with_sail(configs, move || {
+            // Hex, as a key starts: the inbound waits for the rest, then gives up.
+            let took = probe(port, b"\x08http/1.1", b"0123456789abcdef", "http1")?;
+            anyhow::ensure!(
+                took >= HEADER_TIMEOUT - Duration::from_millis(100),
+                "fell back after {:?}, before the header timeout",
+                took
+            );
+            // Not hex: no waiting.
+            let took = probe(port, b"\x08http/1.1", b"GET /", "http1")?;
+            anyhow::ensure!(took < HEADER_TIMEOUT, "waited {:?} for a non-key", took);
+            Ok(())
+        })
     })
 }
 
 #[test]
 fn test_trojan_without_fallback_closes() -> anyhow::Result<()> {
     let cert = Cert::new("trojan-none")?;
-    let configs = vec![trojan_server(&cert, 33415, None)];
-    with_sail(configs, || {
-        let mut tls = tls_connect(33415, b"\x08http/1.1")?;
-        tls.write_all(HTTP1_REQUEST)?;
-        let mut buf = [0u8; 64];
-        match tls.read(&mut buf) {
-            Ok(0) | Err(_) => Ok(()),
-            Ok(n) => Err(anyhow::anyhow!("got {} bytes without a fallback", n)),
-        }
+    common::retry_port_clash(|| {
+        let port = common::free_port();
+        let configs = vec![trojan_server(&cert, port, None)];
+        with_sail(configs, move || {
+            let mut tls = tls_connect(port, b"\x08http/1.1")?;
+            tls.write_all(HTTP1_REQUEST)?;
+            let mut buf = [0u8; 64];
+            match tls.read(&mut buf) {
+                Ok(0) | Err(_) => Ok(()),
+                Ok(n) => Err(anyhow::anyhow!("got {} bytes without a fallback", n)),
+            }
+        })
     })
 }
 
@@ -364,52 +374,58 @@ fn test_trojan_without_fallback_closes() -> anyhow::Result<()> {
 #[test]
 fn test_vless_fallback() -> anyhow::Result<()> {
     let cert = Cert::new("vless")?;
-    run_web_server("http1", 33420)?;
-    run_web_server("h2", 33421)?;
-    let configs = vec![
-        vless_server(&cert, 33422, Some((33420, 33421))),
-        sail_client(vless_outbound(&cert, 33422, "h2"), 33423),
-        sail_client(vless_outbound(&cert, 33422, "http/1.1"), 33424),
-    ];
-    with_sail(configs, || {
-        probe(33422, b"\x08http/1.1", HTTP1_REQUEST, "http1")?;
-        probe(33422, b"\x02h2", H2_PREFACE, "h2")?;
-        // A wrong UUID: the header, then whatever follows it.
-        let mut wrong = vless_header("00000000-0000-0000-0000-000000000001");
-        wrong.extend_from_slice(HTTP1_REQUEST);
-        probe(33422, b"\x02h2", &wrong, "h2")?;
-        // A bad version.
-        let mut bad_version = vless_header(UUID);
-        bad_version[0] = 1;
-        probe(33422, b"\x08http/1.1", &bad_version, "http1")?;
-        // A flow the user does not have.
-        let mut vision = vec![0u8];
-        vision.extend_from_slice(uuid::Uuid::parse_str(UUID)?.as_bytes());
-        vision.extend_from_slice(b"\x12\x0a\x10xtls-rprx-vision");
-        vision.extend_from_slice(&[1, 0, 80, 1, 127, 0, 0, 1]);
-        probe(33422, b"\x08http/1.1", &vision, "http1")?;
-        // VLESS clients still get through, on either ALPN.
-        echo_through_socks(33423, 33425)?;
-        echo_through_socks(33424, 33426)?;
-        Ok(())
+    let http1 = run_web_server("http1")?;
+    let h2 = run_web_server("h2")?;
+    common::retry_port_clash(|| {
+        let [port, socks_h2, socks_http1] = common::free_ports();
+        let configs = vec![
+            vless_server(&cert, port, Some((http1, h2))),
+            sail_client(vless_outbound(&cert, port, "h2"), socks_h2),
+            sail_client(vless_outbound(&cert, port, "http/1.1"), socks_http1),
+        ];
+        with_sail(configs, move || {
+            probe(port, b"\x08http/1.1", HTTP1_REQUEST, "http1")?;
+            probe(port, b"\x02h2", H2_PREFACE, "h2")?;
+            // A wrong UUID: the header, then whatever follows it.
+            let mut wrong = vless_header("00000000-0000-0000-0000-000000000001");
+            wrong.extend_from_slice(HTTP1_REQUEST);
+            probe(port, b"\x02h2", &wrong, "h2")?;
+            // A bad version.
+            let mut bad_version = vless_header(UUID);
+            bad_version[0] = 1;
+            probe(port, b"\x08http/1.1", &bad_version, "http1")?;
+            // A flow the user does not have.
+            let mut vision = vec![0u8];
+            vision.extend_from_slice(uuid::Uuid::parse_str(UUID)?.as_bytes());
+            vision.extend_from_slice(b"\x12\x0a\x10xtls-rprx-vision");
+            vision.extend_from_slice(&[1, 0, 80, 1, 127, 0, 0, 1]);
+            probe(port, b"\x08http/1.1", &vision, "http1")?;
+            // VLESS clients still get through, on either ALPN.
+            echo_through_socks(socks_h2)?;
+            echo_through_socks(socks_http1)?;
+            Ok(())
+        })
     })
 }
 
 #[test]
 fn test_vless_fallback_after_partial_header() -> anyhow::Result<()> {
     let cert = Cert::new("vless-partial")?;
-    run_web_server("http1", 33430)?;
-    run_web_server("h2", 33431)?;
-    let configs = vec![vless_server(&cert, 33432, Some((33430, 33431)))];
-    with_sail(configs, || {
-        let header = vless_header(UUID);
-        let took = probe(33432, b"\x08http/1.1", &header[..10], "http1")?;
-        anyhow::ensure!(
-            took >= HEADER_TIMEOUT - Duration::from_millis(100),
-            "fell back after {:?}, before the header timeout",
-            took
-        );
-        Ok(())
+    let http1 = run_web_server("http1")?;
+    let h2 = run_web_server("h2")?;
+    common::retry_port_clash(|| {
+        let port = common::free_port();
+        let configs = vec![vless_server(&cert, port, Some((http1, h2)))];
+        with_sail(configs, move || {
+            let header = vless_header(UUID);
+            let took = probe(port, b"\x08http/1.1", &header[..10], "http1")?;
+            anyhow::ensure!(
+                took >= HEADER_TIMEOUT - Duration::from_millis(100),
+                "fell back after {:?}, before the header timeout",
+                took
+            );
+            Ok(())
+        })
     })
 }
 
@@ -418,8 +434,9 @@ fn test_fallback_config_mistakes() -> anyhow::Result<()> {
     let cert = Cert::new("config")?;
     let bad = |inbound: fn(&Cert, u16, Option<(u16, u16)>) -> String,
                patch: &dyn Fn(&mut serde_json::Value)| {
+        let [port, http1, h2] = common::free_ports();
         let mut config: serde_json::Value =
-            serde_json::from_str(&inbound(&cert, 33440, Some((33441, 33442)))).unwrap();
+            serde_json::from_str(&inbound(&cert, port, Some((http1, h2)))).unwrap();
         patch(&mut config["inbounds"][0]);
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -449,53 +466,8 @@ fn test_fallback_config_mistakes() -> anyhow::Result<()> {
 // sing-box
 // ---------------------------------------------------------------------------
 
-fn sing_box_path() -> PathBuf {
-    let homebrew = Path::new("/opt/homebrew/bin/sing-box");
-    if homebrew.exists() {
-        homebrew.to_path_buf()
-    } else {
-        PathBuf::from("sing-box")
-    }
-}
-
-/// A sing-box process, killed when dropped.
-struct SingBox(Child);
-
-impl SingBox {
-    /// Runs sing-box with `config` and waits for it to listen on TCP `port`.
-    fn run(cert: &Cert, name: &str, config: serde_json::Value, port: u16) -> anyhow::Result<Self> {
-        let path = cert.dir.join(format!("{}.json", name));
-        std::fs::write(&path, config.to_string())?;
-        let child = Command::new(sing_box_path())
-            .arg("run")
-            .arg("-c")
-            .arg(&path)
-            .stdout(Stdio::null())
-            .stderr(Stdio::inherit())
-            .spawn()
-            .map_err(|e| anyhow::anyhow!("run sing-box: {}", e))?;
-        let sing_box = SingBox(child);
-        let deadline = Instant::now() + Duration::from_secs(10);
-        while TcpStream::connect(("127.0.0.1", port)).is_err() {
-            if Instant::now() > deadline {
-                return Err(anyhow::anyhow!("sing-box did not listen on {}", port));
-            }
-            std::thread::sleep(Duration::from_millis(50));
-        }
-        Ok(sing_box)
-    }
-}
-
-impl Drop for SingBox {
-    fn drop(&mut self) {
-        let _ = self.0.kill();
-        let _ = self.0.wait();
-    }
-}
-
 fn sing_box_client(outbound: serde_json::Value, socks_port: u16) -> serde_json::Value {
     json!({
-        "log": { "level": "warn" },
         "inbounds": [{ "type": "socks", "listen": "127.0.0.1", "listen_port": socks_port }],
         "outbounds": [outbound],
     })
@@ -505,24 +477,26 @@ fn sing_box_client(outbound: serde_json::Value, socks_port: u16) -> serde_json::
 #[ignore]
 fn test_trojan_fallback_sing_box_client() -> anyhow::Result<()> {
     let cert = Cert::new("sb-trojan")?;
-    run_web_server("http1", 33450)?;
-    run_web_server("h2", 33451)?;
-    let configs = vec![trojan_server(&cert, 33452, Some((33450, 33451)))];
-    let mut sing_box = Vec::new();
-    for (alpn, socks) in [("h2", 33453), ("http/1.1", 33454)] {
-        let config = sing_box_client(trojan_outbound(&cert, 33452, alpn), socks);
-        sing_box.push(SingBox::run(
-            &cert,
-            &format!("client-{}", socks),
-            config,
-            socks,
-        )?);
-    }
-    with_sail(configs, || {
-        echo_through_socks(33453, 33455)?;
-        echo_through_socks(33454, 33456)?;
-        probe(33452, b"\x02h2", H2_PREFACE, "h2")?;
-        Ok(())
+    let http1 = run_web_server("http1")?;
+    let h2 = run_web_server("h2")?;
+    common::retry_port_clash(|| {
+        let [port, socks_h2, socks_http1] = common::free_ports();
+        let configs = vec![trojan_server(&cert, port, Some((http1, h2)))];
+        let mut sing_box = Vec::new();
+        for (alpn, socks) in [("h2", socks_h2), ("http/1.1", socks_http1)] {
+            let config = sing_box_client(trojan_outbound(&cert, port, alpn), socks);
+            sing_box.push(common::Daemon::sing_box(
+                &cert.dir,
+                &format!("client-{}", socks),
+                config,
+            )?);
+        }
+        with_sail(configs, move || {
+            echo_through_socks(socks_h2)?;
+            echo_through_socks(socks_http1)?;
+            probe(port, b"\x02h2", H2_PREFACE, "h2")?;
+            Ok(())
+        })
     })
 }
 
@@ -530,23 +504,25 @@ fn test_trojan_fallback_sing_box_client() -> anyhow::Result<()> {
 #[ignore]
 fn test_vless_fallback_sing_box_client() -> anyhow::Result<()> {
     let cert = Cert::new("sb-vless")?;
-    run_web_server("http1", 33460)?;
-    run_web_server("h2", 33461)?;
-    let configs = vec![vless_server(&cert, 33462, Some((33460, 33461)))];
-    let mut sing_box = Vec::new();
-    for (alpn, socks) in [("h2", 33463), ("http/1.1", 33464)] {
-        let config = sing_box_client(vless_outbound(&cert, 33462, alpn), socks);
-        sing_box.push(SingBox::run(
-            &cert,
-            &format!("client-{}", socks),
-            config,
-            socks,
-        )?);
-    }
-    with_sail(configs, || {
-        echo_through_socks(33463, 33465)?;
-        echo_through_socks(33464, 33466)?;
-        probe(33462, b"\x08http/1.1", HTTP1_REQUEST, "http1")?;
-        Ok(())
+    let http1 = run_web_server("http1")?;
+    let h2 = run_web_server("h2")?;
+    common::retry_port_clash(|| {
+        let [port, socks_h2, socks_http1] = common::free_ports();
+        let configs = vec![vless_server(&cert, port, Some((http1, h2)))];
+        let mut sing_box = Vec::new();
+        for (alpn, socks) in [("h2", socks_h2), ("http/1.1", socks_http1)] {
+            let config = sing_box_client(vless_outbound(&cert, port, alpn), socks);
+            sing_box.push(common::Daemon::sing_box(
+                &cert.dir,
+                &format!("client-{}", socks),
+                config,
+            )?);
+        }
+        with_sail(configs, move || {
+            echo_through_socks(socks_h2)?;
+            echo_through_socks(socks_http1)?;
+            probe(port, b"\x08http/1.1", HTTP1_REQUEST, "http1")?;
+            Ok(())
+        })
     })
 }
