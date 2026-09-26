@@ -2934,11 +2934,7 @@ mod tests {
         .await;
 
         // Release the registry lock before awaiting the shutdown.
-        let manager = crate::RUNTIME_MANAGER
-            .lock()
-            .expect("runtime manager lock")
-            .get(&runtime_id)
-            .cloned();
+        let manager = crate::runtime_managers().get(&runtime_id).cloned();
         if let Some(manager) = manager {
             manager.shutdown().await;
         }
