@@ -64,7 +64,7 @@ all-endpoints = [
     # sing-mux, outbound and served on every inbound
     "mux",
     "outbound-quic",
-    "outbound-failover",
+    "outbound-fallback",
     "outbound-static",
     "outbound-tryall",
     "outbound-chain",
@@ -111,7 +111,6 @@ outbound-tls = ["tls"]
 outbound-ws = ["tungstenite", "tokio-tungstenite", "http", "httparse", "base64"]
 outbound-httpupgrade = ["http", "httparse"]
 outbound-grpc = ["h2", "http"]
-outbound-failover = ["lru_time_cache"]
 outbound-static= []
 outbound-tryall = []
 outbound-chain = []
@@ -126,6 +125,8 @@ outbound-select = ["axum?/query"]
 # Exposes its selection and latencies the way a selector does.
 outbound-urltest = ["outbound-select"]
 outbound-load-balance = ["lru_time_cache"]
+# Exposes its selection and latencies the way a selector does.
+outbound-fallback = ["outbound-select"]
 outbound-vmess = ["aead", "hmac", "sha2", "aes", "sha3", "md-5", "crc32fast"]
 
 # Inbounds
@@ -253,7 +254,7 @@ aes-gcm = { version = "0.10", optional = true }
 sha3 = { version = "0.10", optional = true }
 crc32fast = { version = "1", optional = true }
 
-# Failover
+# load-balance: sticky sessions
 lru_time_cache = { version = "0.11", optional = true }
 
 # amux

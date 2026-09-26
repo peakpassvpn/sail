@@ -2,9 +2,13 @@
 
 #[cfg(any(feature = "inbound-chain", feature = "outbound-chain"))]
 pub mod chain;
-#[cfg(feature = "outbound-failover")]
-pub mod failover;
-#[cfg(any(feature = "outbound-urltest", feature = "outbound-load-balance"))]
+#[cfg(feature = "outbound-fallback")]
+pub mod fallback;
+#[cfg(any(
+    feature = "outbound-urltest",
+    feature = "outbound-load-balance",
+    feature = "outbound-fallback"
+))]
 mod health;
 #[cfg(feature = "outbound-select")]
 mod interrupt;

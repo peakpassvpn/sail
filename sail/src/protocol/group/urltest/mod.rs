@@ -132,6 +132,7 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
         probe,
         ctx.dns_client.clone(),
         interval,
+        health::DEFAULT_TIMEOUT,
         Some(idle_timeout),
         on_tested,
     );
