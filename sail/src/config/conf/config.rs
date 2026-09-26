@@ -109,6 +109,9 @@ pub struct Proxy {
     pub reality: Option<bool>,
     pub reality_public_key: Option<String>,
     pub reality_short_id: Option<String>,
+
+    // vless: the flow, e.g. `xtls-rprx-vision`; none when unset
+    pub flow: Option<String>,
 }
 
 impl Default for Proxy {
@@ -146,6 +149,7 @@ impl Default for Proxy {
             reality: Some(false),
             reality_public_key: None,
             reality_short_id: None,
+            flow: None,
         }
     }
 }
@@ -712,6 +716,9 @@ pub fn from_lines(lines: Vec<io::Result<String>>) -> Result<Config> {
                 "reality-short-id" => {
                     proxy.reality_short_id = Some(v.to_string());
                 }
+                "flow" => {
+                    proxy.flow = Some(v.to_string());
+                }
                 "interface" => {
                     proxy.interface = Some(v.to_string());
                 }
@@ -1161,6 +1168,9 @@ pub fn to_config(conf: &Config) -> Result<model::Config> {
                     // prioritize uuid, then password
                     "uuid": ext_proxy.uuid.as_ref().or(ext_proxy.password.as_ref()),
                 });
+                if let Some(flow) = &ext_proxy.flow {
+                    vless["flow"] = json!(flow);
+                }
                 if ext_proxy.reality.unwrap_or(false) {
                     vless["tls"] = json!({
                         "enabled": true,
@@ -1784,9 +1794,10 @@ SS = ss, 1.2.3.4, 8388, encrypt-method=aes-128-gcm, password=pw, obfs=http, obfs
         let config = load(
             r#"
 [Proxy]
-V = vless, 1.2.3.4, 443, uuid=id, sni=example.com, reality=true, reality-public-key=pk, reality-short-id=ab
+V = vless, 1.2.3.4, 443, uuid=id, sni=example.com, reality=true, reality-public-key=pk, reality-short-id=ab, flow=xtls-rprx-vision
 "#,
         );
+        assert_eq!(outbound(&config, "V").options["flow"], "xtls-rprx-vision");
         let tls = &outbound(&config, "V").options["tls"];
         assert_eq!(tls["server_name"], "example.com");
         assert_eq!(
