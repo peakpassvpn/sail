@@ -1,72 +1,44 @@
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::process::Command;
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
+
+use super::{output, run, sysctl_flag};
+
+/// The value `route -n get` prints for `key` (as in "  gateway: 10.0.0.1")
+/// when asked about `args`.
+fn route_get(args: &[&str], key: &str) -> Result<String> {
+    let out = output(Command::new("route").arg("-n").arg("get").args(args))?;
+    let label = format!("{}:", key);
+    out.lines()
+        .find_map(|line| {
+            let mut cols = line.split_whitespace();
+            if cols.next()? == label {
+                cols.next().map(str::to_string)
+            } else {
+                None
+            }
+        })
+        .ok_or_else(|| anyhow!("route get {}: no {}", args.join(" "), key))
+}
 
 pub fn get_default_ipv4_gateway() -> Result<String> {
-    let out = Command::new("route")
-        .arg("-n")
-        .arg("get")
-        .arg("1")
-        .output()
-        .expect("failed to execute command");
-    assert!(out.status.success());
-    let out = String::from_utf8_lossy(&out.stdout).to_string();
-    let cols: Vec<&str> = out
-        .lines()
-        .find(|l| l.contains("gateway"))
-        .unwrap()
-        .split_whitespace()
-        .map(str::trim)
-        .collect();
-    assert!(cols.len() == 2);
-    let res = cols[1].to_string();
-    Ok(res)
+    route_get(&["1"], "gateway")
 }
 
 pub fn get_default_ipv6_gateway() -> Result<String> {
-    let out = Command::new("route")
-        .arg("-n")
-        .arg("get")
-        .arg("-inet6")
-        .arg("::2")
-        .output()
-        .expect("failed to execute command");
-    assert!(out.status.success());
-    let out = String::from_utf8_lossy(&out.stdout).to_string();
-    let cols: Vec<&str> = out
-        .lines()
-        .find(|l| l.contains("gateway"))
-        .unwrap()
-        .split_whitespace()
-        .map(str::trim)
-        .collect();
-    assert!(cols.len() == 2);
-    let parts: Vec<&str> = cols[1].split('%').map(str::trim).collect();
-    assert!(!parts.is_empty());
-    let res = parts[0].to_string();
-    Ok(res)
+    let gateway = route_get(&["-inet6", "::2"], "gateway")?;
+    // A link-local gateway is printed with its scope: fe80::1%en0.
+    Ok(gateway
+        .split('%')
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .to_string())
 }
 
 pub fn get_default_interface() -> Result<String> {
-    let out = Command::new("route")
-        .arg("-n")
-        .arg("get")
-        .arg("1")
-        .output()
-        .expect("failed to execute command");
-    assert!(out.status.success());
-    let out = String::from_utf8_lossy(&out.stdout).to_string();
-    let cols: Vec<&str> = out
-        .lines()
-        .find(|l| l.contains("interface"))
-        .unwrap()
-        .split_whitespace()
-        .map(str::trim)
-        .collect();
-    assert!(cols.len() == 2);
-    let res = cols[1].to_string();
-    Ok(res)
+    route_get(&["1"], "interface")
 }
 
 pub fn add_interface_ipv4_address(
@@ -75,51 +47,34 @@ pub fn add_interface_ipv4_address(
     gw: Ipv4Addr,
     mask: Ipv4Addr,
 ) -> Result<()> {
-    Command::new("ifconfig")
+    run(Command::new("ifconfig")
         .arg(name)
         .arg("inet")
         .arg(addr.to_string())
         .arg("netmask")
         .arg(mask.to_string())
-        .arg(gw.to_string())
-        .status()
-        .expect("failed to execute command");
-    Ok(())
+        .arg(gw.to_string()))
 }
 
 pub fn add_interface_ipv6_address(name: &str, addr: Ipv6Addr, prefixlen: i32) -> Result<()> {
-    Command::new("ifconfig")
+    run(Command::new("ifconfig")
         .arg(name)
         .arg("inet6")
         .arg(addr.to_string())
         .arg("prefixlen")
-        .arg(prefixlen.to_string())
-        .status()
-        .expect("failed to execute command");
-    Ok(())
+        .arg(prefixlen.to_string()))
 }
 
 pub fn add_default_ipv4_route(gateway: Ipv4Addr, interface: String, primary: bool) -> Result<()> {
-    if primary {
-        Command::new("route")
-            .arg("add")
-            .arg("-inet")
-            .arg("default")
-            .arg(gateway.to_string())
-            .status()
-            .expect("failed to execute command");
-    } else {
-        Command::new("route")
-            .arg("add")
-            .arg("-inet")
-            .arg("default")
-            .arg(gateway.to_string())
-            .arg("-ifscope")
-            .arg(interface)
-            .status()
-            .expect("failed to execute command");
-    };
-    Ok(())
+    let mut cmd = Command::new("route");
+    cmd.arg("add")
+        .arg("-inet")
+        .arg("default")
+        .arg(gateway.to_string());
+    if !primary {
+        cmd.arg("-ifscope").arg(interface);
+    }
+    run(&mut cmd)
 }
 
 pub fn add_default_ipv6_route(gateway: Ipv6Addr, interface: String, primary: bool) -> Result<()> {
@@ -129,118 +84,50 @@ pub fn add_default_ipv6_route(gateway: Ipv6Addr, interface: String, primary: boo
     } else {
         gateway.to_string()
     };
-    if primary {
-        Command::new("route")
-            .arg("add")
-            .arg("-inet6")
-            .arg("default")
-            .arg(gw)
-            .status()
-            .expect("failed to execute command");
-    } else {
-        Command::new("route")
-            .arg("add")
-            .arg("-inet6")
-            .arg("default")
-            .arg(gw)
-            .arg("-ifscope")
-            .arg(interface)
-            .status()
-            .expect("failed to execute command");
-    };
-    Ok(())
+    let mut cmd = Command::new("route");
+    cmd.arg("add").arg("-inet6").arg("default").arg(gw);
+    if !primary {
+        cmd.arg("-ifscope").arg(interface);
+    }
+    run(&mut cmd)
 }
 
 pub fn delete_default_ipv4_route(ifscope: Option<String>) -> Result<()> {
+    let mut cmd = Command::new("route");
+    cmd.arg("delete").arg("-inet").arg("default");
     if let Some(ifscope) = ifscope {
-        Command::new("route")
-            .arg("delete")
-            .arg("-inet")
-            .arg("default")
-            .arg("-ifscope")
-            .arg(ifscope)
-            .status()
-            .expect("failed to execute command");
-    } else {
-        Command::new("route")
-            .arg("delete")
-            .arg("-inet")
-            .arg("default")
-            .status()
-            .expect("failed to execute command");
-    };
-    Ok(())
+        cmd.arg("-ifscope").arg(ifscope);
+    }
+    run(&mut cmd)
 }
 
 pub fn delete_default_ipv6_route(ifscope: Option<String>) -> Result<()> {
+    let mut cmd = Command::new("route");
+    cmd.arg("delete").arg("-inet6").arg("default");
     if let Some(ifscope) = ifscope {
-        Command::new("route")
-            .arg("delete")
-            .arg("-inet6")
-            .arg("default")
-            .arg("-ifscope")
-            .arg(ifscope)
-            .status()
-            .expect("failed to execute command");
-    } else {
-        Command::new("route")
-            .arg("delete")
-            .arg("-inet6")
-            .arg("default")
-            .status()
-            .expect("failed to execute command");
-    };
-    Ok(())
+        cmd.arg("-ifscope").arg(ifscope);
+    }
+    run(&mut cmd)
 }
 
 pub fn get_ipv4_forwarding() -> Result<bool> {
-    let out = Command::new("sysctl")
-        .arg("-n")
-        .arg("net.inet.ip.forwarding")
-        .output()
-        .expect("failed to execute command");
-    let out = String::from_utf8_lossy(&out.stdout).to_string();
-    Ok(out
-        .trim()
-        .parse::<i8>()
-        .expect("unexpected ip_forward value")
-        != 0)
+    sysctl_flag("net.inet.ip.forwarding")
 }
 
 pub fn get_ipv6_forwarding() -> Result<bool> {
-    let out = Command::new("sysctl")
-        .arg("-n")
-        .arg("net.inet6.ip6.forwarding")
-        .output()
-        .expect("failed to execute command");
-    let out = String::from_utf8_lossy(&out.stdout).to_string();
-    Ok(out
-        .trim()
-        .parse::<i8>()
-        .expect("unexpected ip_forward value")
-        != 0)
+    sysctl_flag("net.inet6.ip6.forwarding")
 }
 
 pub fn set_ipv4_forwarding(val: bool) -> Result<()> {
-    Command::new("sysctl")
-        .arg("-w")
-        .arg(format!(
-            "net.inet.ip.forwarding={}",
-            if val { "1" } else { "0" }
-        ))
-        .status()
-        .expect("failed to execute command");
-    Ok(())
+    run(Command::new("sysctl").arg("-w").arg(format!(
+        "net.inet.ip.forwarding={}",
+        if val { "1" } else { "0" }
+    )))
 }
 
 pub fn set_ipv6_forwarding(val: bool) -> Result<()> {
-    Command::new("sysctl")
-        .arg("-w")
-        .arg(format!(
-            "net.inet6.ip6.forwarding={}",
-            if val { "1" } else { "0" }
-        ))
-        .status()
-        .expect("failed to execute command");
-    Ok(())
+    run(Command::new("sysctl").arg("-w").arg(format!(
+        "net.inet6.ip6.forwarding={}",
+        if val { "1" } else { "0" }
+    )))
 }

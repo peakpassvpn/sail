@@ -124,7 +124,11 @@ impl Instance {
 
         // What the routes replace is read before the device takes them.
         #[cfg(all(feature = "inbound-tun", any(target_os = "macos", target_os = "linux")))]
-        let net_info = self.tun_route.clone().map(tun_setup::get_net_info);
+        let net_info = self
+            .tun_route
+            .clone()
+            .map(tun_setup::get_net_info)
+            .transpose()?;
         #[cfg(feature = "inbound-tun")]
         if let Some(tun) = inbounds.get_tun_runner() {
             let tun = tun?;
@@ -137,7 +141,15 @@ impl Instance {
         }
         #[cfg(all(feature = "inbound-tun", any(target_os = "macos", target_os = "linux")))]
         if let Some(net_info) = net_info {
-            tun_setup::post_tun_creation_setup(&net_info);
+            if let Err(e) = tun_setup::post_tun_creation_setup(&net_info) {
+                // The routes are restored already. The TUN runner has not
+                // been polled, so its stack never ran: dropping the runners
+                // drops it and closes the device, and the instance keeps
+                // no control of it.
+                self.tun_control = None;
+                drop(runners);
+                return Err(e);
+            }
             // Only what was done is undone.
             self.net_info = Some(net_info);
         }

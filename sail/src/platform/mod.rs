@@ -21,6 +21,48 @@ use anyhow::{anyhow, Result};
 
 use crate::net::DialOptions;
 
+/// Runs a command that changes the system. Failing to run it at all is an
+/// error; a failure it reports is logged, as the change may well be there
+/// already -- a route left by an earlier run, say.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn run(cmd: &mut std::process::Command) -> Result<()> {
+    let status = cmd
+        .status()
+        .map_err(|e| anyhow!("cannot run {:?}: {}", cmd.get_program(), e))?;
+    if !status.success() {
+        tracing::warn!("{:?} failed: {}", cmd, status);
+    }
+    Ok(())
+}
+
+/// Runs a command that reads the system, and returns what it printed.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn output(cmd: &mut std::process::Command) -> Result<String> {
+    let out = cmd
+        .output()
+        .map_err(|e| anyhow!("cannot run {:?}: {}", cmd.get_program(), e))?;
+    if !out.status.success() {
+        return Err(anyhow!(
+            "{:?} failed: {}: {}",
+            cmd,
+            out.status,
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
+/// A sysctl flag as `sysctl -n` prints it: whether it is not 0.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn sysctl_flag(name: &str) -> Result<bool> {
+    let out = output(std::process::Command::new("sysctl").arg("-n").arg(name))?;
+    let value = out
+        .trim()
+        .parse::<i64>()
+        .map_err(|_| anyhow!("sysctl {}: unexpected value \"{}\"", name, out.trim()))?;
+    Ok(value != 0)
+}
+
 /// Dial options that send through the system's default interface, for
 /// `route.auto_detect_interface`: its name where sockets can be bound to an
 /// interface, its addresses otherwise.
