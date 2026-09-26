@@ -1,7 +1,7 @@
 //! What the group tests share: members that are local HTTP servers, each
 //! reached through a `redirect` outbound and answering with its name after
 //! a delay of its own, so a group's choice and latencies can be told apart
-//! without the internet. The tests use ports 33100-33199 only.
+//! without the internet. The servers listen on ports the OS assigns.
 #![allow(dead_code)]
 
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -65,25 +65,35 @@ pub fn member(tag: &str, port: u16) -> serde_json::Value {
     })
 }
 
-/// Serves HTTP on `port`: every request is answered, after `delay`, with
-/// a 204 naming `name`. Stops, closing the port, when the handle is
-/// aborted.
-pub async fn serve(port: u16, name: &str, delay: Duration) -> AbortHandle {
-    serve_adjustable(port, name, delay).await.0
+/// A port for members that are never connected to.
+pub const UNSERVED: u16 = 9;
+
+/// Serves HTTP on a port of its own, which it returns: every request is
+/// answered, after `delay`, with a 204 naming `name`. Stops, closing the
+/// port, when the handle is aborted.
+pub async fn serve(name: &str, delay: Duration) -> (AbortHandle, u16) {
+    let (handle, _, port) = serve_adjustable(name, delay).await;
+    (handle, port)
 }
 
 /// Like `serve`, with a delay that can be changed as it runs, in
 /// milliseconds.
-pub async fn serve_adjustable(
-    port: u16,
+pub async fn serve_adjustable(name: &str, delay: Duration) -> (AbortHandle, Arc<AtomicU64>, u16) {
+    let (handle, delay, port, _) = serve_counted(name, delay).await;
+    (handle, delay, port)
+}
+
+/// Like `serve_adjustable`, counting the requests answered.
+pub async fn serve_counted(
     name: &str,
     delay: Duration,
-) -> (AbortHandle, Arc<AtomicU64>) {
+) -> (AbortHandle, Arc<AtomicU64>, u16, Arc<AtomicU64>) {
     let delay = Arc::new(AtomicU64::new(delay.as_millis() as u64));
     let delay_ms = delay.clone();
-    let listener = TcpListener::bind(("127.0.0.1", port))
-        .await
-        .unwrap_or_else(|e| panic!("bind {}: {}", port, e));
+    let requests = Arc::new(AtomicU64::new(0));
+    let counted = requests.clone();
+    let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let port = listener.local_addr().unwrap().port();
     let name = name.to_string();
     let (task, handle) = abortable(async move {
         let mut conns = AbortOnDrop(Vec::new());
@@ -93,6 +103,7 @@ pub async fn serve_adjustable(
             };
             let name = name.clone();
             let delay = delay_ms.clone();
+            let counted = counted.clone();
             // The connections go when the server does.
             let (conn, conn_handle) = abortable(async move {
                 let mut buf = Vec::new();
@@ -107,6 +118,7 @@ pub async fn serve_adjustable(
                     buf.extend_from_slice(&chunk[..n]);
                     while let Some(end) = find(&buf, b"\r\n\r\n") {
                         buf.drain(..end + 4);
+                        counted.fetch_add(1, Ordering::Relaxed);
                         let ms = delay.load(Ordering::Relaxed);
                         tokio::time::sleep(Duration::from_millis(ms)).await;
                         let response = format!(
@@ -126,7 +138,7 @@ pub async fn serve_adjustable(
     tokio::spawn(async move {
         let _ = task.await;
     });
-    (handle, delay)
+    (handle, delay, port, requests)
 }
 
 /// Aborts its tasks when dropped, as a server's task is when it stops.

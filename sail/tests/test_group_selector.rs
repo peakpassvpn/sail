@@ -15,9 +15,9 @@ fn selector(extra: serde_json::Value) -> serde_json::Value {
         .extend(extra.as_object().unwrap().clone());
     json!([
         group,
-        member("a", 33100),
-        member("b", 33101),
-        member("c", 33102)
+        member("a", UNSERVED),
+        member("b", UNSERVED),
+        member("c", UNSERVED)
     ])
 }
 
@@ -74,8 +74,8 @@ fn a_kept_selection_that_is_no_longer_a_member_falls_back_to_the_default() {
 
     let without_c = json!([
         { "type": "selector", "tag": "sel", "outbounds": ["a", "b"], "default": "b" },
-        member("a", 33100),
-        member("b", 33101),
+        member("a", UNSERVED),
+        member("b", UNSERVED),
     ]);
     let m = manager(without_c, &env).unwrap();
     assert_eq!(selected(&m, "sel"), "b");
@@ -115,7 +115,7 @@ fn configuration_mistakes_are_errors() {
 
     let msg = error(json!([
         { "type": "selector", "tag": "sel", "outbounds": ["a", "nope"] },
-        member("a", 33100),
+        member("a", UNSERVED),
     ]));
     assert!(msg.contains("nope"), "{}", msg);
 
@@ -130,8 +130,8 @@ fn configuration_mistakes_are_errors() {
 fn connections_go_to_the_selected_member_and_are_interrupted_on_a_switch() {
     let rt = rt();
     rt.block_on(async {
-        let _a = serve(33103, "a", Duration::ZERO).await;
-        let _b = serve(33104, "b", Duration::ZERO).await;
+        let (_a, p_a) = serve("a", Duration::ZERO).await;
+        let (_b, p_b) = serve("b", Duration::ZERO).await;
         let outbounds = json!([
             {
                 "type": "selector",
@@ -139,8 +139,8 @@ fn connections_go_to_the_selected_member_and_are_interrupted_on_a_switch() {
                 "outbounds": ["a", "b"],
                 "interrupt_exist_connections": true,
             },
-            member("a", 33103),
-            member("b", 33104),
+            member("a", p_a),
+            member("b", p_b),
         ]);
         let m = manager(outbounds, &env("selector-interrupt")).unwrap();
         let sess = session("10.0.0.1", "example.com");
@@ -163,12 +163,12 @@ fn connections_go_to_the_selected_member_and_are_interrupted_on_a_switch() {
 fn without_interrupting_connections_stay_on_their_member() {
     let rt = rt();
     rt.block_on(async {
-        let _a = serve(33105, "a", Duration::ZERO).await;
-        let _b = serve(33106, "b", Duration::ZERO).await;
+        let (_a, p_a) = serve("a", Duration::ZERO).await;
+        let (_b, p_b) = serve("b", Duration::ZERO).await;
         let outbounds = json!([
             { "type": "selector", "tag": "sel", "outbounds": ["a", "b"] },
-            member("a", 33105),
-            member("b", 33106),
+            member("a", p_a),
+            member("b", p_b),
         ]);
         let m = manager(outbounds, &env("selector-no-interrupt")).unwrap();
         let sess = session("10.0.0.1", "example.com");
