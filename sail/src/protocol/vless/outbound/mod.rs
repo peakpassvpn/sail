@@ -3,12 +3,12 @@ use std::sync::Arc;
 use anyhow::{anyhow, Result};
 
 use crate::adapter::outbound::HandlerBuilder;
-use crate::adapter::registry::{OutboundContext, OutboundFactory, OutboundRegistry};
+use crate::adapter::registry::{Options, OutboundContext, OutboundFactory, OutboundRegistry};
 use crate::adapter::AnyOutboundHandler;
-use crate::transport::layers::Blocks;
+use crate::transport::layers::{Blocks, OutboundBlocks};
 use serde_derive::Deserialize;
 
-use super::request::Flow;
+use super::request::{Flow, FLOW_VISION};
 
 pub mod datagram;
 pub mod stream;
@@ -19,8 +19,25 @@ pub use stream::Handler as StreamHandler;
 pub(crate) fn register(registry: &mut OutboundRegistry) {
     registry.register(
         "vless",
-        OutboundFactory::standalone(build).with_blocks(Blocks::ALL),
+        OutboundFactory::standalone(build)
+            .with_blocks(Blocks::ALL)
+            .checked_by(check),
     );
+}
+
+/// Vision reads the TLS records of the connection it runs on, and may
+/// switch to copying the raw TLS stream: it needs TLS (or REALITY)
+/// directly under VLESS, with no transport between.
+fn check(tag: &str, options: &Options, blocks: &OutboundBlocks) -> Result<()> {
+    let vision = options.get("flow").and_then(|f| f.as_str()) == Some(FLOW_VISION);
+    if vision && (!blocks.has_tls() || blocks.transport.is_some()) {
+        return Err(anyhow!(
+            "[{}] outbound: flow: {} needs tls directly under vless, with no transport",
+            tag,
+            FLOW_VISION
+        ));
+    }
+    Ok(())
 }
 
 #[derive(Deserialize)]
@@ -101,4 +118,34 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
         .stream_handler(stream)
         .datagram_handler(datagram)
         .build())
+}
+
+#[cfg(test)]
+mod check_tests {
+    use super::*;
+
+    fn check_json(options: serde_json::Value, blocks: serde_json::Value) -> Result<()> {
+        let options: Options = serde_json::from_value(options).unwrap();
+        let blocks = OutboundBlocks::parse("v", &serde_json::from_value(blocks).unwrap()).unwrap();
+        check("v", &options, &blocks)
+    }
+
+    #[test]
+    fn vision_needs_tls_directly_under_it() {
+        let vision = serde_json::json!({ "flow": FLOW_VISION });
+        let tls = serde_json::json!({ "enabled": true });
+        assert!(check_json(vision.clone(), serde_json::json!({ "tls": tls })).is_ok());
+        let err = check_json(
+            vision.clone(),
+            serde_json::json!({ "tls": tls, "transport": { "type": "ws" } }),
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("no transport"), "{}", err);
+        assert!(check_json(vision, serde_json::json!({})).is_err());
+        assert!(check_json(
+            serde_json::json!({ "flow": "" }),
+            serde_json::json!({ "tls": tls, "transport": { "type": "ws" } }),
+        )
+        .is_ok());
+    }
 }

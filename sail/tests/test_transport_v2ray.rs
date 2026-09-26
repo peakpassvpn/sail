@@ -1,10 +1,9 @@
 //! The V2Ray transports -- WebSocket with early data, HTTPUpgrade, gRPC --
 //! under Trojan: sail to sail, and against sing-box in either role.
 //!
-//! Not under VLESS. sail has no VLESS inbound, and its VLESS outbound always
-//! asks for the `xtls-rprx-vision` flow, which sing-box serves over TLS
-//! directly and nothing else: over any of these transports it refuses the
-//! connection ("vision: not a valid supported TLS connection").
+//! VLESS is tested in `test_vless`. Its Vision flow needs TLS directly under
+//! it, so a configuration with Vision over any of these transports is an
+//! error.
 //!
 //! The sing-box tests need `sing-box` on the PATH or in /opt/homebrew/bin,
 //! and are ignored unless asked for:

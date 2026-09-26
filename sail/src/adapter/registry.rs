@@ -99,6 +99,9 @@ pub struct OutboundFactory {
     /// than around its handler: `build` gets them as a `Connector`
     /// (`OutboundContext::connector`), and what it returns is used as is.
     pub over_connector: bool,
+    /// Checks its options against its blocks, for protocols whose options
+    /// only make sense over some layerings.
+    pub check: fn(&str, &Options, &OutboundBlocks) -> Result<()>,
 }
 
 impl OutboundFactory {
@@ -110,6 +113,7 @@ impl OutboundFactory {
             shareable: true,
             blocks: Blocks::NONE,
             over_connector: false,
+            check: |_, _, _| Ok(()),
         }
     }
 
@@ -124,6 +128,7 @@ impl OutboundFactory {
             shareable: false,
             blocks: Blocks::NONE,
             over_connector: false,
+            check: |_, _, _| Ok(()),
         }
     }
 
@@ -135,6 +140,12 @@ impl OutboundFactory {
     /// Its blocks make its connections, see `over_connector`.
     pub fn over_connector(mut self) -> Self {
         self.over_connector = true;
+        self
+    }
+
+    /// Checks its options against its blocks with `check`.
+    pub fn checked_by(mut self, check: fn(&str, &Options, &OutboundBlocks) -> Result<()>) -> Self {
+        self.check = check;
         self
     }
 }
@@ -226,6 +237,7 @@ pub fn build_outbounds(
             let factory = registry.require(&o.tag, &o.protocol)?;
             let (options, blocks) = factory.blocks.split(&o.options);
             let blocks = OutboundBlocks::parse(&o.tag, &blocks)?;
+            (factory.check)(&o.tag, &options, &blocks)?;
             let mut dependencies = (factory.dependencies)(&o.tag, &options)?;
             dependencies.extend(blocks.detour.clone());
             Ok(Node {
@@ -342,6 +354,8 @@ pub struct InboundFactory {
     /// The shared blocks it can be configured with; see
     /// `OutboundFactory::blocks`. `detour` means nothing to an inbound.
     pub blocks: Blocks,
+    /// Checks its options against its blocks; see `OutboundFactory::check`.
+    pub check: fn(&str, &Options, &InboundBlocks) -> Result<()>,
 }
 
 impl InboundFactory {
@@ -351,6 +365,7 @@ impl InboundFactory {
             dependencies: no_dependencies,
             build,
             blocks: Blocks::NONE,
+            check: |_, _, _| Ok(()),
         }
     }
 
@@ -363,12 +378,19 @@ impl InboundFactory {
             dependencies,
             build,
             blocks: Blocks::NONE,
+            check: |_, _, _| Ok(()),
         }
     }
 
     pub fn with_blocks(mut self, blocks: Blocks) -> Self {
         debug_assert!(!blocks.detour, "an inbound cannot detour");
         self.blocks = blocks;
+        self
+    }
+
+    /// Checks its options against its blocks with `check`.
+    pub fn checked_by(mut self, check: fn(&str, &Options, &InboundBlocks) -> Result<()>) -> Self {
+        self.check = check;
         self
     }
 }
@@ -423,6 +445,7 @@ pub fn build_inbounds(
             let factory = registry.require(&i.tag, &i.protocol)?;
             let (options, blocks) = factory.blocks.split(&i.options);
             let blocks = InboundBlocks::parse(&i.tag, &blocks)?;
+            (factory.check)(&i.tag, &options, &blocks)?;
             let dependencies = (factory.dependencies)(&i.tag, &options)?;
             Ok(Node {
                 tag: &i.tag,

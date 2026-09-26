@@ -411,6 +411,11 @@ impl OutboundBlocks {
         Ok(())
     }
 
+    /// Whether TLS (or REALITY) is on.
+    pub fn has_tls(&self) -> bool {
+        self.tls().is_some()
+    }
+
     fn tls(&self) -> Option<&OutboundTls> {
         self.tls.as_ref().filter(|t| t.enabled)
     }
@@ -1184,6 +1189,11 @@ pub struct InboundMultiplex {
 impl InboundBlocks {
     pub fn parse(tag: &str, blocks: &Options) -> Result<Self> {
         parse_options("inbound", tag, blocks)
+    }
+
+    /// Whether TLS (or REALITY) is on.
+    pub fn has_tls(&self) -> bool {
+        self.tls.as_ref().is_some_and(|t| t.enabled)
     }
 }
 
