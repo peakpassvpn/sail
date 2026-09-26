@@ -729,22 +729,31 @@ mod tests {
 
     #[test]
     fn test_restart() {
-        let conf = r#"
+        // A port of the system's choosing, so parallel test runs do not
+        // clash.
+        let port = std::net::TcpListener::bind("127.0.0.1:0")
+            .and_then(|l| l.local_addr())
+            .unwrap()
+            .port();
+        let conf = format!(
+            r#"
 [General]
 loglevel = trace
 dns-server = 1.1.1.1
 socks-interface = 127.0.0.1
-socks-port = 1080
-# tun = auto
+socks-port = {}
 
 [Proxy]
 Direct = direct
-"#;
+"#,
+            port
+        );
 
         for _i in 1..3 {
+            let conf = conf.clone();
             thread::spawn(move || {
                 let opts = StartOptions {
-                    config: Config::Str(conf.to_string()),
+                    config: Config::Str(conf),
                     #[cfg(feature = "auto-reload")]
                     auto_reload: false,
                     runtime_opt: RuntimeOption::SingleThread,
