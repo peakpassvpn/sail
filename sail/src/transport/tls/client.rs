@@ -6,7 +6,6 @@ use std::io;
 use std::sync::OnceLock;
 
 use anyhow::{anyhow, Result};
-use btls::pkey::{PKey, Private};
 use btls::ssl::{SslConnector, SslMethod, SslVerifyMode, SslVersion};
 use btls::x509::store::{X509Store, X509StoreBuilder};
 use btls::x509::X509;
@@ -193,7 +192,9 @@ pub(crate) fn load_certificates(certificate: &str) -> Result<Vec<X509>> {
 
 /// A private key (PKCS#8, PKCS#1 or SEC1) from inline PEM, or from a PEM or
 /// DER (PKCS#8) file.
-pub(crate) fn load_private_key(key: &str) -> Result<PKey<Private>> {
+#[cfg(any(feature = "inbound-tls", feature = "quic"))]
+pub(crate) fn load_private_key(key: &str) -> Result<btls::pkey::PKey<btls::pkey::Private>> {
+    use btls::pkey::PKey;
     if key.contains("-----BEGIN") {
         return PKey::private_key_from_pem(key.as_bytes())
             .map_err(|e| anyhow!("invalid private key: {}", e));
