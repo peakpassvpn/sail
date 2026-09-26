@@ -1125,12 +1125,44 @@ pub struct InboundReality {
     pub max_time_difference: Option<std::time::Duration>,
 }
 
-/// The site REALITY imitates.
+/// The site REALITY imitates, dialed for every connection, with sing-box's
+/// dial fields. `detour` is not among them: inbounds do not reach the
+/// outbounds.
 #[derive(Deserialize, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct RealityHandshake {
     pub server: String,
     pub server_port: u16,
+    #[serde(default)]
+    pub bind_interface: Option<String>,
+    #[serde(default)]
+    pub inet4_bind_address: Option<std::net::Ipv4Addr>,
+    #[serde(default)]
+    pub inet6_bind_address: Option<std::net::Ipv6Addr>,
+    /// `SO_MARK`, Linux only.
+    #[serde(default)]
+    pub routing_mark: Option<u32>,
+    /// How long the TCP connect may take, e.g. `5s`.
+    #[serde(default, with = "crate::config::model::duration")]
+    pub connect_timeout: Option<std::time::Duration>,
+}
+
+impl RealityHandshake {
+    #[cfg_attr(not(feature = "inbound-reality"), allow(dead_code))]
+    fn dial(&self, tag: &str) -> Result<DialOptions> {
+        let dial = DialOptions {
+            bind_interface: self.bind_interface.clone(),
+            inet4_bind_address: self.inet4_bind_address,
+            inet6_bind_address: self.inet6_bind_address,
+            routing_mark: self.routing_mark,
+            connect_timeout: self
+                .connect_timeout
+                .unwrap_or(crate::net::dial::DEFAULT_CONNECT_TIMEOUT),
+            ..Default::default()
+        };
+        check_dial_platform("inbound: tls.reality.handshake", tag, &dial)?;
+        Ok(dial)
+    }
 }
 
 #[derive(Deserialize, Debug)]
@@ -1451,6 +1483,7 @@ fn reality_inbound(
                 reality.handshake.server.clone(),
                 reality.handshake.server_port,
             ),
+            reality.handshake.dial(tag)?,
         )
         .map_err(|e| anyhow!("[{}] inbound: tls.reality: {}", tag, e))?;
         Ok(Arc::new(crate::adapter::inbound::Handler::new(

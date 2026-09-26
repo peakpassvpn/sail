@@ -1,15 +1,47 @@
-//! The REALITY server over BoringSSL.
+//! The REALITY server over BoringSSL, after Xray's.
 //!
-//! It reads the ClientHello before BoringSSL sees anything. A client that
-//! opens the session ID -- sealed with AES-256-GCM under a key from X25519
-//! between its key share and our private key -- to a short ID we know and
-//! a time close to ours gets TLS 1.3 from us, with a throwaway Ed25519
-//! certificate whose signature is an HMAC under that key. Everyone else,
-//! and everything that is not such a ClientHello, is relayed byte for byte
-//! to the handshake server, so a prober talks to the real site.
+//! Every connection starts as a relay to the handshake server: it is
+//! dialed first, and what the client sends is forwarded to it as it comes,
+//! while the server reads the ClientHello out of it. Anything the handshake
+//! server says in the meantime, anything that is not a ClientHello, and a
+//! ClientHello that is not whole within `Timeouts::hello` or 64 KiB leave
+//! the connection a relay for good, so a prober talks to the real site --
+//! its timeouts, its alerts, its certificate.
 //!
-//! Unlike Xray's, this server does not dial the real site for clients it
-//! serves, and does not shape its handshake records after the site's.
+//! A client that opens the session ID -- sealed with AES-256-GCM under a
+//! key from X25519 between its key share and our private key -- to a short
+//! ID we know and a time close to ours is ours. Its ClientHello has reached
+//! the handshake server too; the server reads that server's answer, which
+//! must be a TLS 1.3 ServerHello and ChangeCipherSpec (if it is not TLS
+//! 1.3, the client is relayed to it after all), and answers the client
+//! itself: TLS 1.3 with a throwaway Ed25519 certificate whose signature is
+//! an HMAC under that key, in the handshake server's cipher suite and key
+//! exchange group, its encrypted flight re-framed into records of the
+//! handshake server's lengths (see `shape`). The handshake server is hung
+//! up on once the client's handshake is done; if it hangs up first, so do
+//! we, as Xray does.
+//!
+//! Where this differs from Xray's server:
+//! - The ServerHello is BoringSSL's own: the same length, cipher suite and
+//!   group as the handshake server's, but not its random or its extension
+//!   order.
+//! - A NewSessionTicket the handshake server sends right after its Finished
+//!   is not imitated: its record would take the first sequence number of
+//!   the application traffic key, which BoringSSL uses itself. Nor are the
+//!   post-handshake records Xray learns per site.
+//! - When the handshake server's cipher suite is AES-128-GCM, BoringSSL
+//!   takes the client's first TLS 1.3 suite; a client that lists another
+//!   first is refused rather than served in a different one.
+//! - A handshake server that answers in two or three encrypted records is
+//!   imitated once it has been quiet for `Timeouts::quiet`; Xray waits for
+//!   four.
+//! - ClientHellos with only an X25519 share, not X25519MLKEM768, are
+//!   served, as sing-box serves them; the latest Xray refuses them.
+//! - No `min_client_ver` / `max_client_ver`, as sing-box has none; no
+//!   PROXY protocol, no fallback rate limits and no ML-DSA-65 signature.
+//! - The handshake server's name is resolved by the system, not by sail's
+//!   DNS, which the inbound layers do not reach; the socket is sail's (the
+//!   dial fields, keepalive, no delay).
 //!
 //! Chrome's ClientHello, which REALITY clients imitate, does not offer
 //! Ed25519 signatures, and BoringSSL signs only with what the client
@@ -19,6 +51,7 @@
 //! `select_certificate` and `restore_sigalgs`.
 
 use std::collections::HashSet;
+use std::ffi::CStr;
 use std::io;
 use std::pin::Pin;
 use std::sync::{Mutex, OnceLock};
@@ -41,21 +74,51 @@ use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
 use sha2::{Sha256, Sha512};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
+use tokio::net::TcpStream;
+use tokio::time::Instant;
 
+use super::shape::{
+    parse_reply, Reader, Reply, SecretSlot, Shaper, TargetFlight, MAX_FLIGHT, X25519,
+    X25519_MLKEM768,
+};
 use super::{parse_key, parse_short_id};
 use crate::adapter::*;
+use crate::net::DialOptions;
 use crate::session::Session;
 use crate::transport::tls::BoringConnection;
 use crate::transport::tls_stream::TlsStream;
 use crate::transport::vision::VisionState;
 
-const X25519: u16 = 0x001d;
-const X25519_MLKEM768: u16 = 0x11ec;
 const MLKEM768_ENCAPSULATION_KEY: usize = 1184;
 const SIGN_ED25519: [u8; 2] = [0x08, 0x07];
 
 /// The most of a ClientHello we read before giving up on it.
 const MAX_CLIENT_HELLO: usize = 64 * 1024;
+/// The largest TLS plaintext record body.
+const MAX_PLAINTEXT_RECORD: usize = 16384;
+
+/// How long each step may take.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Timeouts {
+    /// For the whole ClientHello; a client slower than that is relayed, and
+    /// the handshake server's own timeouts apply to it.
+    pub hello: Duration,
+    /// For the handshake server's answer to an authenticated client.
+    pub reply: Duration,
+    /// Silence after which fewer than four encrypted records from the
+    /// handshake server are taken as its whole flight.
+    pub quiet: Duration,
+}
+
+impl Default for Timeouts {
+    fn default() -> Self {
+        Self {
+            hello: Duration::from_secs(10),
+            reply: Duration::from_secs(10),
+            quiet: Duration::from_millis(500),
+        }
+    }
+}
 
 pub struct Handler {
     server_names: HashSet<String>,
@@ -63,6 +126,8 @@ pub struct Handler {
     short_ids: HashSet<[u8; 8]>,
     max_time_difference: Option<Duration>,
     handshake: (String, u16),
+    dial: DialOptions,
+    pub(crate) timeouts: Timeouts,
     context: SslContext,
     key: PKey<Private>,
     public_key: [u8; 32],
@@ -82,6 +147,11 @@ struct SigalgSwap {
 
 fn swap_index() -> Index<Ssl, SigalgSwap> {
     static INDEX: OnceLock<Index<Ssl, SigalgSwap>> = OnceLock::new();
+    *INDEX.get_or_init(|| Ssl::new_ex_index().expect("allocate an SSL ex_data index"))
+}
+
+fn secret_index() -> Index<Ssl, SecretSlot> {
+    static INDEX: OnceLock<Index<Ssl, SecretSlot>> = OnceLock::new();
     *INDEX.get_or_init(|| Ssl::new_ex_index().expect("allocate an SSL ex_data index"))
 }
 
@@ -131,16 +201,43 @@ unsafe extern "C" fn restore_sigalgs(
     1
 }
 
+/// BoringSSL's key log: keeps the server handshake traffic secret, which
+/// the flight is re-framed under, and nothing else.
+unsafe extern "C" fn keylog(ssl: *const btls_sys::SSL, line: *const std::os::raw::c_char) {
+    // SAFETY: BoringSSL passes a valid SSL and a NUL-terminated line for
+    // the duration of the call.
+    let (ssl, line) = unsafe {
+        (
+            btls::ssl::SslRef::from_ptr(ssl as *mut btls_sys::SSL),
+            CStr::from_ptr(line).to_bytes(),
+        )
+    };
+    let Some(rest) = line.strip_prefix(b"SERVER_HANDSHAKE_TRAFFIC_SECRET ") else {
+        return;
+    };
+    let Some(slot) = ssl.ex_data(secret_index()) else {
+        return;
+    };
+    let secret = rest
+        .rsplit(|&b| b == b' ')
+        .next()
+        .and_then(|h| hex::decode(h).ok());
+    if let (Some(secret), Ok(mut slot)) = (secret, slot.lock()) {
+        *slot = Some(secret);
+    }
+}
+
 impl Handler {
     /// `private_key` is hex or base64url, each short ID up to 16 hex
-    /// digits; `handshake` is the site clients that are not ours are
-    /// relayed to.
+    /// digits; `handshake` is the site REALITY imitates and relays to,
+    /// dialed as `dial` says.
     pub fn new(
         server_name: String,
         private_key: &str,
         short_ids: &[String],
         max_time_difference: Option<Duration>,
         handshake: (String, u16),
+        dial: DialOptions,
     ) -> Result<Self> {
         if server_name.is_empty() {
             return Err(anyhow!("server_name is required"));
@@ -161,7 +258,8 @@ impl Handler {
         let mut builder = SslContextBuilder::new(SslMethod::tls())?;
         builder.set_min_proto_version(Some(SslVersion::TLS1_3))?;
         builder.set_max_proto_version(Some(SslVersion::TLS1_3))?;
-        builder.set_curves_list("X25519MLKEM768:X25519:P-256:P-384")?;
+        // Each connection narrows this to the handshake server's group.
+        builder.set_curves_list("X25519MLKEM768:X25519")?;
         // SAFETY: the context is valid; the callbacks only touch what their
         // comments say.
         unsafe {
@@ -173,6 +271,7 @@ impl Handler {
                 Some(restore_sigalgs),
                 std::ptr::null_mut(),
             );
+            btls_sys::SSL_CTX_set_keylog_callback(builder.as_ptr(), Some(keylog));
         }
         Ok(Handler {
             server_names: HashSet::from([server_name]),
@@ -180,6 +279,8 @@ impl Handler {
             short_ids,
             max_time_difference,
             handshake,
+            dial,
+            timeouts: Timeouts::default(),
             context: builder.build(),
             key,
             public_key,
@@ -220,11 +321,15 @@ impl Handler {
         X509::from_der(&der).map_err(io::Error::other)
     }
 
+    /// A TLS server for a client authenticated with `auth_key`, set to
+    /// choose what the handshake server chose, and the slot its handshake
+    /// traffic secret is put in.
     fn connection(
         &self,
         auth_key: &[u8; 32],
         hello: &ClientHello<'_>,
-    ) -> io::Result<BoringConnection> {
+        target: &TargetFlight,
+    ) -> io::Result<(BoringConnection, SecretSlot)> {
         let mut ssl = Ssl::new(&self.context).map_err(io::Error::other)?;
         let certificate = self.certificate_for(auth_key)?;
         ssl.set_certificate(&certificate)
@@ -240,8 +345,141 @@ impl Handler {
                 },
             );
         }
-        BoringConnection::server(ssl)
+        let secret = SecretSlot::default();
+        ssl.set_ex_data(secret_index(), secret.clone());
+        let group = [target.group];
+        // SAFETY: `ssl` is valid and `group` outlives the call. BoringSSL
+        // has no TLS 1.3 cipher suite list; its choice is steered instead:
+        // told it has AES hardware it takes the client's first suite, told
+        // it has none ChaCha20 first, and under the CNSA policy AES-256-GCM
+        // first. The `Shaper` checks what it chose.
+        unsafe {
+            if btls_sys::SSL_set1_group_ids(ssl.as_ptr(), group.as_ptr(), 1) != 1 {
+                return Err(io::Error::other("set the key exchange group failed"));
+            }
+            match target.cipher_suite {
+                0x1302 => {
+                    btls_sys::SSL_set_compliance_policy(
+                        ssl.as_ptr(),
+                        btls_sys::ssl_compliance_policy_t::ssl_compliance_policy_cnsa_202407,
+                    );
+                }
+                0x1303 => btls_sys::SSL_set_aes_hw_override(ssl.as_ptr(), 0),
+                _ => btls_sys::SSL_set_aes_hw_override(ssl.as_ptr(), 1),
+            }
+        }
+        Ok((BoringConnection::server(ssl)?, secret))
     }
+
+    /// A TCP connection to the handshake server.
+    async fn dial_target(&self) -> io::Result<TcpStream> {
+        let (host, port) = (self.handshake.0.as_str(), self.handshake.1);
+        let addrs = tokio::time::timeout(
+            self.dial.connect_timeout,
+            tokio::net::lookup_host((host, port)),
+        )
+        .await
+        .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "resolve timed out"))??;
+        let mut last = None;
+        for addr in addrs {
+            match crate::net::tcp_connect(addr, &self.dial).await {
+                Ok(stream) => return Ok(stream),
+                Err(e) => last = Some(e),
+            }
+        }
+        Err(last.unwrap_or_else(|| io::Error::new(io::ErrorKind::NotFound, "no address")))
+    }
+
+    /// Relays the client to the handshake server until a whole ClientHello
+    /// is in `raw`, which keeps every byte read.
+    async fn read_opening(
+        &self,
+        stream: &mut AnyStream,
+        target: &mut TcpStream,
+        raw: &mut Vec<u8>,
+    ) -> io::Result<Opening> {
+        let deadline = Instant::now() + self.timeouts.hello;
+        let mut buf = vec![0u8; 4096];
+        let mut from_target = vec![0u8; 4096];
+        let mut need = 0;
+        loop {
+            // Scanned only once enough has come for a step: a ClientHello a
+            // byte at a time is not scanned once per byte.
+            if raw.len() >= need {
+                match scan_client_hello(raw) {
+                    Scan::Hello(message) => return Ok(Opening::Hello(message)),
+                    Scan::NotHello => return Ok(Opening::Relay(Vec::new())),
+                    Scan::Incomplete(n) => need = n,
+                }
+            }
+            tokio::select! {
+                read = stream.read(&mut buf) => {
+                    let n = read?;
+                    if n == 0 {
+                        return Ok(Opening::Relay(Vec::new()));
+                    }
+                    target.write_all(&buf[..n]).await?;
+                    raw.extend_from_slice(&buf[..n]);
+                }
+                read = target.read(&mut from_target) => {
+                    let n = read?;
+                    if n == 0 {
+                        return Err(io::Error::new(
+                            io::ErrorKind::UnexpectedEof,
+                            "reality: the handshake server hung up",
+                        ));
+                    }
+                    return Ok(Opening::Relay(from_target[..n].to_vec()));
+                }
+                _ = tokio::time::sleep_until(deadline) => return Ok(Opening::Relay(Vec::new())),
+            }
+        }
+    }
+
+    /// Reads the handshake server's answer to an authenticated client's
+    /// ClientHello into `saved`.
+    async fn read_reply(&self, target: &mut TcpStream, saved: &mut Vec<u8>) -> io::Result<Reply> {
+        let deadline = Instant::now() + self.timeouts.reply;
+        let mut buf = vec![0u8; 4096];
+        loop {
+            match parse_reply(saved, false) {
+                Reply::Incomplete => {}
+                reply => return Ok(reply),
+            }
+            if saved.len() > MAX_FLIGHT {
+                return Ok(Reply::Malformed);
+            }
+            let until = deadline.min(Instant::now() + self.timeouts.quiet);
+            match tokio::time::timeout_at(until, target.read(&mut buf)).await {
+                Ok(read) => {
+                    let n = read?;
+                    if n == 0 {
+                        return Ok(parse_reply(saved, true));
+                    }
+                    saved.extend_from_slice(&buf[..n]);
+                }
+                Err(_) if Instant::now() >= deadline => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::TimedOut,
+                        "reality: the handshake server did not answer in time",
+                    ));
+                }
+                Err(_) => match parse_reply(saved, true) {
+                    Reply::Incomplete => {}
+                    reply => return Ok(reply),
+                },
+            }
+        }
+    }
+}
+
+/// How a connection opened.
+enum Opening {
+    /// With a whole ClientHello, the message.
+    Hello(Vec<u8>),
+    /// With something else: a relay to the handshake server from now on,
+    /// with what that server has already said for the client.
+    Relay(Vec<u8>),
 }
 
 /// A self-signed Ed25519 certificate with no names: its signature is
@@ -322,48 +560,12 @@ struct ClientHello<'a> {
     sigalgs_to_swap: Option<(usize, [u8; 2])>,
 }
 
-/// A cursor over a ClientHello that fails rather than panics.
-struct Reader<'a> {
-    buf: &'a [u8],
-    pos: usize,
-}
-
-impl<'a> Reader<'a> {
-    fn take(&mut self, n: usize) -> Option<&'a [u8]> {
-        let out = self.buf.get(self.pos..self.pos.checked_add(n)?)?;
-        self.pos += n;
-        Some(out)
-    }
-
-    fn u8(&mut self) -> Option<u8> {
-        Some(self.take(1)?[0])
-    }
-
-    fn u16(&mut self) -> Option<u16> {
-        let b = self.take(2)?;
-        Some(u16::from_be_bytes([b[0], b[1]]))
-    }
-
-    fn vec8(&mut self) -> Option<&'a [u8]> {
-        let n = self.u8()? as usize;
-        self.take(n)
-    }
-
-    fn vec16(&mut self) -> Option<&'a [u8]> {
-        let n = self.u16()? as usize;
-        self.take(n)
-    }
-}
-
 fn parse_client_hello(message: &[u8]) -> Option<ClientHello<'_>> {
     let mut hello = ClientHello {
         message,
         ..Default::default()
     };
-    let mut r = Reader {
-        buf: message,
-        pos: 0,
-    };
+    let mut r = Reader::new(message);
     if r.u8()? != 1 {
         return None;
     }
@@ -377,22 +579,16 @@ fn parse_client_hello(message: &[u8]) -> Option<ClientHello<'_>> {
     r.vec8()?; // compression methods
     let extensions = r.vec16()?;
     let extensions_start = r.pos - extensions.len();
-    let mut e = Reader {
-        buf: extensions,
-        pos: 0,
-    };
+    let mut e = Reader::new(extensions);
     while e.pos < extensions.len() {
         let typ = e.u16()?;
         let data = e.vec16()?;
         let data_start = extensions_start + e.pos - data.len();
-        let mut d = Reader { buf: data, pos: 0 };
+        let mut d = Reader::new(data);
         match typ {
             // server_name
             0 => {
-                let mut list = Reader {
-                    buf: d.vec16()?,
-                    pos: 0,
-                };
+                let mut list = Reader::new(d.vec16()?);
                 if list.u8()? == 0 {
                     hello.server_name = String::from_utf8(list.vec16()?.to_vec()).ok();
                 }
@@ -413,10 +609,7 @@ fn parse_client_hello(message: &[u8]) -> Option<ClientHello<'_>> {
             43 => hello.tls13 = d.vec8()?.chunks(2).any(|v| v == [3, 4]),
             // key_share
             51 => {
-                let mut shares = Reader {
-                    buf: d.vec16()?,
-                    pos: 0,
-                };
+                let mut shares = Reader::new(d.vec16()?);
                 let mut mlkem = None;
                 while shares.pos < shares.buf.len() {
                     let group = shares.u16()?;
@@ -440,58 +633,51 @@ fn parse_client_hello(message: &[u8]) -> Option<ClientHello<'_>> {
     Some(hello)
 }
 
-/// Reads until a whole ClientHello is in `raw`, which keeps every byte
-/// read. Returns the message, or None if what came is not one.
-async fn read_client_hello<S: AsyncRead + Unpin>(
-    stream: &mut S,
-    raw: &mut Vec<u8>,
-) -> io::Result<Option<Vec<u8>>> {
-    async fn fill<S: AsyncRead + Unpin>(
-        s: &mut S,
-        raw: &mut Vec<u8>,
-        n: usize,
-    ) -> io::Result<bool> {
-        let mut buf = [0u8; 4096];
-        while raw.len() < n {
-            let got = s.read(&mut buf).await?;
-            if got == 0 {
-                return Ok(false);
-            }
-            raw.extend_from_slice(&buf[..got]);
-        }
-        Ok(true)
-    }
+/// What the bytes a connection opened with are.
+#[derive(Debug, PartialEq, Eq)]
+enum Scan {
+    /// A ClientHello, the message.
+    Hello(Vec<u8>),
+    /// Not a ClientHello, or one too large.
+    NotHello,
+    /// The start of one; nothing more can be told before there are this
+    /// many bytes.
+    Incomplete(usize),
+}
+
+/// Finds a ClientHello, which may span records, at the start of `raw`.
+fn scan_client_hello(raw: &[u8]) -> Scan {
     let mut message = Vec::new();
     let mut pos = 0;
     loop {
-        if !fill(stream, raw, pos + 5).await? {
-            return Ok(None);
-        }
-        let header = &raw[pos..pos + 5];
+        let Some(header) = raw.get(pos..pos + 5) else {
+            // A first byte that cannot start a handshake record is enough.
+            if raw.get(pos).is_some_and(|&b| b != 0x16) {
+                return Scan::NotHello;
+            }
+            return Scan::Incomplete(pos + 5);
+        };
         if header[0] != 0x16 {
-            return Ok(None);
+            return Scan::NotHello;
         }
         let len = u16::from_be_bytes([header[3], header[4]]) as usize;
-        if len == 0 || len > 16384 + 256 {
-            return Ok(None);
+        if len == 0 || len > MAX_PLAINTEXT_RECORD || pos + 5 + len > MAX_CLIENT_HELLO + 5 {
+            return Scan::NotHello;
         }
-        if !fill(stream, raw, pos + 5 + len).await? {
-            return Ok(None);
-        }
-        message.extend_from_slice(&raw[pos + 5..pos + 5 + len]);
+        let Some(body) = raw.get(pos + 5..pos + 5 + len) else {
+            return Scan::Incomplete(pos + 5 + len);
+        };
+        message.extend_from_slice(body);
         pos += 5 + len;
         if message.len() >= 4 {
             let body = u32::from_be_bytes([0, message[1], message[2], message[3]]) as usize;
             if message[0] != 1 || body + 4 > MAX_CLIENT_HELLO {
-                return Ok(None);
+                return Scan::NotHello;
             }
             if message.len() >= body + 4 {
                 message.truncate(body + 4);
-                return Ok(Some(message));
+                return Scan::Hello(message);
             }
-        }
-        if raw.len() > MAX_CLIENT_HELLO {
-            return Ok(None);
         }
     }
 }
@@ -554,18 +740,42 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for Prefixed<S> {
     }
 }
 
-/// Relays a connection that is not ours to the handshake server: what
-/// was read of it first, then both ways until either side is done.
-async fn relay(mut stream: AnyStream, raw: Vec<u8>, target: (String, u16)) {
+/// Relays a connection that is not ours, or whose handshake server does
+/// not speak TLS 1.3, to the handshake server: first what that server has
+/// already said, then both ways until either side is done.
+async fn relay(mut stream: AnyStream, mut target: TcpStream, to_client: Vec<u8>) {
     let result = async {
-        let mut remote = tokio::net::TcpStream::connect((target.0.as_str(), target.1)).await?;
-        remote.write_all(&raw).await?;
-        tokio::io::copy_bidirectional(&mut stream, &mut remote).await
+        stream.write_all(&to_client).await?;
+        tokio::io::copy_bidirectional(&mut stream, &mut target).await
     }
     .await;
     if let Err(e) = result {
-        tracing::debug!("reality: relay to {}:{}: {}", target.0, target.1, e);
+        tracing::debug!("reality: relay to the handshake server: {}", e);
     }
+}
+
+/// Returns once the handshake server hangs up; what it says is dropped.
+async fn hung_up(target: &mut TcpStream) -> io::Error {
+    let mut buf = [0u8; 1024];
+    loop {
+        match target.read(&mut buf).await {
+            Ok(0) => {
+                return io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    "reality: the handshake server hung up first",
+                )
+            }
+            Ok(_) => {}
+            Err(e) => return e,
+        }
+    }
+}
+
+fn not_ours(what: &str) -> io::Error {
+    io::Error::new(
+        io::ErrorKind::PermissionDenied,
+        format!("reality: {}, relayed to the handshake server", what),
+    )
 }
 
 #[async_trait]
@@ -576,31 +786,62 @@ impl InboundStreamHandler for Handler {
         mut stream: AnyStream,
     ) -> io::Result<AnyInboundTransport> {
         tracing::trace!("handling inbound stream");
+        let mut target = self.dial_target().await.map_err(|e| {
+            io::Error::other(format!(
+                "reality: dial the handshake server {}:{}: {}",
+                self.handshake.0, self.handshake.1, e
+            ))
+        })?;
         let mut raw = Vec::new();
-        let message = read_client_hello(&mut stream, &mut raw).await?;
-        let hello = message.as_deref().and_then(parse_client_hello);
+        let message = match self
+            .read_opening(&mut stream, &mut target, &mut raw)
+            .await?
+        {
+            Opening::Hello(message) => message,
+            Opening::Relay(to_client) => {
+                // Relayed outside the handshake deadline: the site may take
+                // as long as it takes.
+                tokio::spawn(relay(stream, target, to_client));
+                return Err(not_ours("no ClientHello"));
+            }
+        };
+        let hello = parse_client_hello(&message);
         let Some((auth_key, hello)) =
             hello.and_then(|hello| Some((self.authenticate(&hello)?, hello)))
         else {
-            // Relayed outside the handshake deadline: the site may take as
-            // long as it takes.
-            tokio::spawn(relay(stream, raw, self.handshake.clone()));
-            return Err(io::Error::new(
-                io::ErrorKind::PermissionDenied,
-                "reality: not authenticated, relayed to the handshake server",
-            ));
+            tokio::spawn(relay(stream, target, Vec::new()));
+            return Err(not_ours("not authenticated"));
         };
-        let connection = self.connection(&auth_key, &hello)?;
+
+        // Ours: what the client sends from now on is not forwarded.
+        let mut saved = Vec::new();
+        let flight = match self.read_reply(&mut target, &mut saved).await? {
+            Reply::Tls13(flight) => flight,
+            Reply::NotTls13 => {
+                tokio::spawn(relay(stream, target, saved));
+                return Err(not_ours("the handshake server does not answer in TLS 1.3"));
+            }
+            Reply::Malformed | Reply::Incomplete => {
+                return Err(io::Error::other(
+                    "reality: the handshake server's answer is not a TLS 1.3 flight",
+                ))
+            }
+        };
+        tracing::trace!("reality: imitating {:?}", flight);
+        let (connection, secret) = self.connection(&auth_key, &hello, &flight)?;
         let stream = Prefixed {
             prefix: raw,
             pos: 0,
             inner: stream,
         };
+        let stream = Shaper::new(stream, flight, secret);
         let mut stream = TlsStream::new(connection, stream, Some(VisionState::of(&sess)));
-        stream
-            .handshake()
-            .await
-            .map_err(|e| io::Error::other(format!("reality handshake failed: {}", e)))?;
+        tokio::select! {
+            done = stream.handshake() => done
+                .map_err(|e| io::Error::other(format!("reality handshake failed: {}", e)))?,
+            e = hung_up(&mut target) => return Err(e),
+        }
+        drop(target);
         Ok(InboundTransport::Stream(Box::new(stream), sess))
     }
 }
@@ -608,7 +849,10 @@ impl InboundStreamHandler for Handler {
 #[cfg(all(test, feature = "outbound-reality"))]
 mod tests {
     use super::*;
+    use crate::transport::reality::shape::fake;
     use crate::transport::tls::Fingerprint;
+    use crate::transport::tls_stream::TlsConnection;
+    use std::sync::Arc;
 
     fn keys() -> ([u8; 32], [u8; 32]) {
         let private = [3u8; 32];
@@ -618,41 +862,52 @@ mod tests {
         (private, public)
     }
 
-    fn server(max_time_difference: Option<Duration>) -> Handler {
+    fn server_to(max_time_difference: Option<Duration>, port: u16) -> Handler {
         let (private, _) = keys();
         Handler::new(
             "www.example.com".to_string(),
             &hex::encode(private),
             &["ab12".to_string()],
             max_time_difference,
-            ("127.0.0.1".to_string(), 1),
+            ("127.0.0.1".to_string(), port),
+            DialOptions::default(),
         )
         .unwrap()
     }
 
-    // The ClientHello sail's REALITY client sends for `fingerprint`.
-    fn client_hello(fingerprint: Fingerprint, short_id: &str, server_name: &str) -> Vec<u8> {
+    fn server(max_time_difference: Option<Duration>) -> Handler {
+        server_to(max_time_difference, 1)
+    }
+
+    fn client(fingerprint: Fingerprint, short_id: &str, server_name: &str) -> BoringConnection {
         let (_, public) = keys();
-        let client = crate::transport::reality::outbound::Handler::new(
+        crate::transport::reality::outbound::Handler::new(
             server_name.to_string(),
             &hex::encode(public),
             short_id,
             fingerprint,
         )
-        .unwrap();
-        let mut conn = client.connection().unwrap();
+        .unwrap()
+        .connection()
+        .unwrap()
+    }
+
+    /// What `conn` has to write: its ClientHello records.
+    fn written(conn: &mut BoringConnection) -> Vec<u8> {
         let mut wire = vec![];
-        {
-            use crate::transport::tls_stream::TlsConnection;
-            while conn.wants_write() {
-                conn.write_tls(&mut wire).unwrap();
-            }
+        while conn.wants_write() {
+            conn.write_tls(&mut wire).unwrap();
         }
-        let mut raw = Vec::new();
-        // Reading a slice never waits.
-        futures::executor::block_on(read_client_hello(&mut &wire[..], &mut raw))
-            .unwrap()
-            .unwrap()
+        wire
+    }
+
+    // The ClientHello sail's REALITY client sends for `fingerprint`.
+    fn client_hello(fingerprint: Fingerprint, short_id: &str, server_name: &str) -> Vec<u8> {
+        let wire = written(&mut client(fingerprint, short_id, server_name));
+        match scan_client_hello(&wire) {
+            Scan::Hello(message) => message,
+            other => panic!("{:?}", other),
+        }
     }
 
     #[test]
@@ -703,8 +958,8 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn test_read_client_hello_across_records() {
+    #[test]
+    fn test_scan_client_hello() {
         let hello = client_hello(Fingerprint::Chrome, "ab12", "www.example.com");
         let mut wire = Vec::new();
         for chunk in hello.chunks(300) {
@@ -712,17 +967,23 @@ mod tests {
             wire.extend_from_slice(chunk);
         }
         wire.extend_from_slice(b"after");
-        let mut raw = Vec::new();
-        let message = read_client_hello(&mut &wire[..], &mut raw).await.unwrap();
-        assert_eq!(message.unwrap(), hello);
-        assert!(wire.starts_with(&raw));
-
-        let mut raw = Vec::new();
-        let got = read_client_hello(&mut &b"GET / HTTP/1.1\r\n\r\n"[..], &mut raw)
-            .await
-            .unwrap();
-        assert!(got.is_none());
-        assert_eq!(raw, b"GET / HTTP/1.1\r\n\r\n");
+        assert_eq!(scan_client_hello(&wire), Scan::Hello(hello.clone()));
+        // Every prefix asks for more, never for fewer bytes than it has.
+        for cut in 0..wire.len() - 5 {
+            match scan_client_hello(&wire[..cut]) {
+                Scan::Incomplete(need) => assert!(need > cut, "{}", cut),
+                Scan::Hello(_) => assert!(cut >= wire.len() - 5 - 300),
+                Scan::NotHello => panic!("{}", cut),
+            }
+        }
+        // Not TLS: known at the first byte.
+        assert_eq!(scan_client_hello(b"G"), Scan::NotHello);
+        assert_eq!(scan_client_hello(b"GET / HTTP/1.1\r\n\r\n"), Scan::NotHello);
+        // A ClientHello longer than we read.
+        let mut huge = vec![0x16, 3, 1, 0x40, 0];
+        huge.extend_from_slice(&[1, 0x01, 0, 0]);
+        huge.resize(5 + 0x4000, 0);
+        assert_eq!(scan_client_hello(&huge), Scan::NotHello);
     }
 
     #[test]
@@ -737,5 +998,304 @@ mod tests {
             &mac.finalize().into_bytes()[..]
         );
         assert_eq!(cert.public_key().unwrap().id(), Id::ED25519);
+    }
+
+    // -----------------------------------------------------------------
+    // Over TCP, against a handshake server that answers with records of
+    // chosen lengths.
+    // -----------------------------------------------------------------
+
+    /// A handshake server for one connection: once it has a whole
+    /// ClientHello it sends `answer(session_id)`, then reads until the
+    /// other side is gone. Returns its port and everything it received.
+    async fn handshake_server(
+        answer: impl Fn(&[u8]) -> Vec<u8> + Send + 'static,
+    ) -> (u16, tokio::task::JoinHandle<Vec<u8>>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let task = tokio::spawn(async move {
+            let (mut tcp, _) = listener.accept().await.unwrap();
+            let mut got = Vec::new();
+            let mut buf = [0u8; 4096];
+            let mut answered = false;
+            loop {
+                let n = tcp.read(&mut buf).await.unwrap_or(0);
+                if n == 0 {
+                    return got;
+                }
+                got.extend_from_slice(&buf[..n]);
+                if !answered {
+                    if let Scan::Hello(message) = scan_client_hello(&got) {
+                        answered = true;
+                        let session_id = message[SESSION_ID..SESSION_ID + 32].to_vec();
+                        let _ = tcp.write_all(&answer(&session_id)).await;
+                    }
+                }
+            }
+        });
+        (port, task)
+    }
+
+    /// Runs `server` on one connection from a new listener; returns the
+    /// port and whether its handshake completed.
+    async fn serve(server: Arc<Handler>) -> (u16, tokio::task::JoinHandle<io::Result<()>>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let task = tokio::spawn(async move {
+            let (tcp, _) = listener.accept().await?;
+            match server.handle(Session::default(), Box::new(tcp)).await? {
+                InboundTransport::Stream(mut stream, _) => {
+                    // Echo one message back.
+                    let mut buf = [0u8; 4];
+                    stream.read_exact(&mut buf).await?;
+                    stream.write_all(&buf).await?;
+                    stream.flush().await?;
+                    Ok(())
+                }
+                _ => Err(io::Error::other("not a stream")),
+            }
+        });
+        (port, task)
+    }
+
+    /// Reads what a client stream receives, keeping a copy.
+    struct Tap {
+        inner: TcpStream,
+        seen: Arc<Mutex<Vec<u8>>>,
+    }
+
+    impl AsyncRead for Tap {
+        fn poll_read(
+            self: Pin<&mut Self>,
+            cx: &mut Context<'_>,
+            buf: &mut ReadBuf<'_>,
+        ) -> Poll<io::Result<()>> {
+            let this = self.get_mut();
+            let before = buf.filled().len();
+            let r = Pin::new(&mut this.inner).poll_read(cx, buf);
+            this.seen
+                .lock()
+                .unwrap()
+                .extend_from_slice(&buf.filled()[before..]);
+            r
+        }
+    }
+
+    impl AsyncWrite for Tap {
+        fn poll_write(
+            self: Pin<&mut Self>,
+            cx: &mut Context<'_>,
+            buf: &[u8],
+        ) -> Poll<io::Result<usize>> {
+            Pin::new(&mut self.get_mut().inner).poll_write(cx, buf)
+        }
+
+        fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+            Pin::new(&mut self.get_mut().inner).poll_flush(cx)
+        }
+
+        fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+            Pin::new(&mut self.get_mut().inner).poll_shutdown(cx)
+        }
+    }
+
+    /// The lengths of the records in `wire`, headers included.
+    fn record_lengths(wire: &[u8]) -> Vec<usize> {
+        let mut out = Vec::new();
+        let mut pos = 0;
+        while pos + 5 <= wire.len() {
+            let len = 5 + u16::from_be_bytes([wire[pos + 3], wire[pos + 4]]) as usize;
+            out.push(len);
+            pos += len;
+        }
+        out
+    }
+
+    /// Connects to `port` as sail's REALITY client, sending the ClientHello
+    /// `chunk` bytes at a time, and completes the handshake. Returns the
+    /// stream and what the server sent up to then.
+    async fn connect(
+        port: u16,
+        fingerprint: Fingerprint,
+        chunk: usize,
+    ) -> io::Result<(TlsStream<BoringConnection, Tap>, Vec<u8>)> {
+        let mut conn = client(fingerprint, "ab12", "www.example.com");
+        let hello = written(&mut conn);
+        let mut tcp = TcpStream::connect(("127.0.0.1", port)).await?;
+        tcp.set_nodelay(true)?;
+        for piece in hello.chunks(chunk) {
+            tcp.write_all(piece).await?;
+            if chunk < hello.len() {
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            }
+        }
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let mut stream = TlsStream::new(
+            conn,
+            Tap {
+                inner: tcp,
+                seen: seen.clone(),
+            },
+            None,
+        );
+        tokio::time::timeout(Duration::from_secs(10), stream.handshake())
+            .await
+            .map_err(|_| io::Error::other("client handshake timed out"))??;
+        let seen = seen.lock().unwrap().clone();
+        Ok((stream, seen))
+    }
+
+    #[tokio::test]
+    async fn test_flight_has_the_handshake_servers_shape() {
+        for (chunk, fingerprint, suite, group, lengths) in [
+            (1, Fingerprint::Chrome, 0x1301, X25519, vec![3000]),
+            (
+                7,
+                Fingerprint::Chrome,
+                0x1302,
+                X25519_MLKEM768,
+                vec![40, 2500, 300, 74],
+            ),
+            (
+                usize::MAX,
+                Fingerprint::Firefox,
+                0x1303,
+                X25519,
+                vec![60, 1800, 290, 58],
+            ),
+        ] {
+            let expected = lengths.clone();
+            let (target_port, target) =
+                handshake_server(move |sid| fake::reply(sid, suite, group, &lengths)).await;
+            let (port, served) = serve(Arc::new(server_to(None, target_port))).await;
+            // The ClientHello split across many reads, down to a byte each.
+            let (mut stream, seen) = connect(port, fingerprint, chunk).await.unwrap();
+            let got = record_lengths(&seen);
+            let server_hello = fake::server_hello(&[0; 32], suite, group).len();
+            assert_eq!(got[0], server_hello, "{:#x}", suite);
+            assert_eq!(got[1], 6);
+            assert_eq!(&got[2..2 + expected.len()], &expected[..], "{:#x}", suite);
+            let hello = &seen[5..got[0]];
+            assert_eq!(
+                crate::transport::reality::shape::parse_server_hello(hello),
+                Some((suite, group))
+            );
+
+            stream.write_all(b"ping").await.unwrap();
+            stream.flush().await.unwrap();
+            let mut echo = [0u8; 4];
+            stream.read_exact(&mut echo).await.unwrap();
+            assert_eq!(&echo, b"ping");
+            served.await.unwrap().unwrap();
+            drop(stream);
+            // The handshake server saw the ClientHello and nothing after.
+            let received = target.await.unwrap();
+            assert!(matches!(scan_client_hello(&received), Scan::Hello(_)));
+            let whole = record_lengths(&received).iter().sum::<usize>();
+            assert_eq!(whole, received.len());
+        }
+    }
+
+    #[tokio::test]
+    async fn test_not_tls13_relays_our_client() {
+        let answer = |sid: &[u8]| {
+            let mut reply = fake::reply(sid, 0x1301, X25519, &[3000]);
+            // supported_versions says TLS 1.2.
+            let at = reply
+                .windows(6)
+                .position(|w| w == [0, 43, 0, 2, 3, 4])
+                .unwrap();
+            reply[at + 5] = 3;
+            reply
+        };
+        let expected = answer(&[7; 32]).len();
+        let (target_port, _target) = handshake_server(answer).await;
+        let (port, served) = serve(Arc::new(server_to(None, target_port))).await;
+        let mut conn = client(Fingerprint::Chrome, "ab12", "www.example.com");
+        let mut tcp = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+        tcp.write_all(&written(&mut conn)).await.unwrap();
+        // What the handshake server said, as it said it.
+        let mut got = vec![0u8; expected];
+        tokio::time::timeout(Duration::from_secs(5), tcp.read_exact(&mut got))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(got[0], 0x16);
+        assert!(served.await.unwrap().is_err());
+    }
+
+    #[tokio::test]
+    async fn test_slow_hello_is_relayed() {
+        let (target_port, target) =
+            handshake_server(|sid| fake::reply(sid, 0x1301, X25519, &[3000])).await;
+        let mut server = server_to(None, target_port);
+        server.timeouts.hello = Duration::from_millis(300);
+        let (port, served) = serve(Arc::new(server)).await;
+        let mut conn = client(Fingerprint::Chrome, "ab12", "www.example.com");
+        let hello = written(&mut conn);
+        let mut tcp = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+        // Half a ClientHello, then nothing for longer than the server waits.
+        tcp.write_all(&hello[..hello.len() / 2]).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(600)).await;
+        assert!(served.is_finished(), "still waiting for the ClientHello");
+        assert!(served.await.unwrap().is_err());
+        // From then on a relay: the rest reaches the handshake server, and
+        // its answer, in full, the client -- though the client is ours.
+        tcp.write_all(&hello[hello.len() / 2..]).await.unwrap();
+        let expected = fake::reply(&[0; 32], 0x1301, X25519, &[3000]).len();
+        let mut got = vec![0u8; expected];
+        tokio::time::timeout(Duration::from_secs(5), tcp.read_exact(&mut got))
+            .await
+            .unwrap()
+            .unwrap();
+        drop(tcp);
+        assert_eq!(target.await.unwrap(), hello);
+    }
+
+    #[tokio::test]
+    async fn test_handshake_server_speaking_first_is_relayed() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let target_port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            let (mut tcp, _) = listener.accept().await.unwrap();
+            tcp.write_all(b"SSH-2.0-banner\r\n").await.unwrap();
+            let mut buf = [0u8; 64];
+            while matches!(tcp.read(&mut buf).await, Ok(n) if n > 0) {}
+        });
+        let (port, served) = serve(Arc::new(server_to(None, target_port))).await;
+        let mut tcp = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+        tcp.write_all(&[0x16, 3, 1]).await.unwrap();
+        let mut got = [0u8; 16];
+        tokio::time::timeout(Duration::from_secs(5), tcp.read_exact(&mut got))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(&got, b"SSH-2.0-banner\r\n");
+        assert!(served.await.unwrap().is_err());
+    }
+
+    #[tokio::test]
+    async fn test_quiet_handshake_server_with_fewer_records() {
+        // Three encrypted records and no more: taken after the quiet time.
+        let (target_port, _target) =
+            handshake_server(|sid| fake::reply(sid, 0x1301, X25519, &[60, 2000, 400])).await;
+        let mut server = server_to(None, target_port);
+        server.timeouts.quiet = Duration::from_millis(100);
+        let (port, _served) = serve(Arc::new(server)).await;
+        let (_stream, seen) = connect(port, Fingerprint::Chrome, usize::MAX)
+            .await
+            .unwrap();
+        assert_eq!(&record_lengths(&seen)[2..5], &[60, 2000, 400]);
+    }
+
+    #[tokio::test]
+    async fn test_flight_too_small_to_hide_ours_fails() {
+        let (target_port, _target) =
+            handshake_server(|sid| fake::reply(sid, 0x1301, X25519, &[40, 60, 60, 40])).await;
+        let (port, served) = serve(Arc::new(server_to(None, target_port))).await;
+        assert!(connect(port, Fingerprint::Chrome, usize::MAX)
+            .await
+            .is_err());
+        assert!(served.await.unwrap().is_err());
     }
 }

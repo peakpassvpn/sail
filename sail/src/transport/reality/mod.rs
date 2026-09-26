@@ -5,6 +5,8 @@
 pub mod inbound;
 #[cfg(feature = "outbound-reality")]
 pub mod outbound;
+#[cfg(feature = "inbound-reality")]
+mod shape;
 
 #[cfg(feature = "outbound-reality")]
 pub use outbound::Handler as StreamHandler;
