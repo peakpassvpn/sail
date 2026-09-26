@@ -22,10 +22,11 @@ use tracing::{debug, trace, warn};
 
 use crate::adapter::*;
 use crate::session::{DatagramSource, Network, Session, SocksAddr, StreamId};
+use crate::transport::quic::{endpoint, server_config, Side};
 
 use super::super::common::{
-    alpn_protocols, heartbeat, send_packet, token, tokens_equal, transport_config, ActiveGuard,
-    Activity, CongestionControl, QuicStream, UdpRelayMode, ASSOCIATION_QUEUE, FRAGMENT_TIMEOUT,
+    heartbeat, send_packet, token, tokens_equal, transport_config, ActiveGuard, Activity,
+    CongestionControl, QuicStream, UdpRelayMode, ASSOCIATION_QUEUE, FRAGMENT_TIMEOUT,
     MAX_PENDING_PACKETS, UNI_STREAM_TIMEOUT,
 };
 use super::super::frag::Reassembler;
@@ -64,47 +65,22 @@ pub struct Server {
 }
 
 impl Server {
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         users: HashMap<[u8; 16], User>,
-        certificate: String,
-        key: String,
-        alpn: Option<Vec<String>>,
+        mut crypto: quinn_btls::ServerConfig,
         congestion: CongestionControl,
         auth_timeout: Duration,
         zero_rtt: bool,
         heartbeat: Duration,
         tuning: &crate::runtime::options::Quic,
     ) -> Result<Self> {
-        use crate::transport::tls::client::{load_certificates, load_private_key};
         use quinn_btls::QuicSslContext;
-        let mut certs = load_certificates(&certificate)?.into_iter();
-        let key = load_private_key(&key)?;
-
-        let mut crypto =
-            quinn_btls::ServerConfig::new().map_err(|e| anyhow!("quic server config: {}", e))?;
-        let ctx = crypto.ctx_mut();
-        let leaf = certs
-            .next()
-            .ok_or_else(|| anyhow!("no certificate found"))?;
-        ctx.set_certificate(leaf)?;
-        for cert in certs {
-            ctx.add_to_cert_chain(cert)?;
-        }
-        ctx.set_private_key(key)?;
-        ctx.check_private_key()
-            .map_err(|e| anyhow!("private key does not match the certificate: {}", e))?;
-        ctx.enable_early_data(zero_rtt);
-        crypto
-            .set_alpn(&alpn_protocols(alpn))
-            .map_err(|e| anyhow!("quic alpn: {}", e))?;
-
-        let mut server_config = quinn_btls::helpers::server_config(Arc::new(crypto))
-            .map_err(|e| anyhow!("quic server config: {}", e))?;
+        crypto.ctx_mut().enable_early_data(zero_rtt);
+        let mut server_config = server_config(crypto)?;
         server_config.transport_config(Arc::new(transport_config(
             congestion,
             tuning,
-            tuning.server_idle_timeout,
+            Side::Server,
         )));
         Ok(Self {
             server_config,
@@ -123,12 +99,7 @@ impl InboundDatagramHandler for Server {
     async fn handle<'a>(&'a self, socket: AnyInboundDatagram) -> io::Result<AnyInboundTransport> {
         let socket = socket.into_std()?;
         let local_addr = socket.local_addr()?;
-        let endpoint = quinn::Endpoint::new(
-            quinn_btls::helpers::default_endpoint_config(),
-            Some(self.server_config.clone()),
-            socket,
-            Arc::new(quinn::TokioRuntime),
-        )?;
+        let endpoint = endpoint(socket, Some(self.server_config.clone()))?;
         let (accepted, accepted_rx) = mpsc::channel(ACCEPT_CHANNEL_SIZE);
         let settings = self.settings.clone();
         tokio::spawn(async move {
@@ -383,11 +354,7 @@ impl Conn {
             stream_id: Some(StreamId::U64(send.id().index())),
             ..Default::default()
         };
-        let stream = QuicStream {
-            send,
-            recv,
-            _active: self.activity.start(),
-        };
+        let stream = QuicStream::guarded(send, recv, self.activity.start());
         self.hand_on(BaseInboundTransport::Stream(Box::new(stream), sess))
             .await
     }

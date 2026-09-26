@@ -7,9 +7,10 @@ use serde_derive::Deserialize;
 use crate::adapter::outbound::HandlerBuilder;
 use crate::adapter::registry::{OutboundContext, OutboundFactory, OutboundRegistry};
 use crate::adapter::AnyOutboundHandler;
-use crate::transport::layers::{Blocks, Listable, OutboundTls};
+use crate::transport::layers::{Blocks, OutboundTls};
+use crate::transport::quic::{unsupported, ClientTls};
 
-use super::common::{parse_uuid, CongestionControl, UdpRelayMode, DEFAULT_HEARTBEAT};
+use super::common::{parse_uuid, CongestionControl, UdpRelayMode, DEFAULT_ALPN, DEFAULT_HEARTBEAT};
 
 mod client;
 
@@ -77,43 +78,29 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
     if !tls.enabled {
         return Err(anyhow!("[{}] outbound: tls: TUIC needs TLS enabled", tag));
     }
-    let unsupported = [
-        ("ech", tls.ech.as_ref().is_some_and(|e| e.enabled)),
-        ("reality", tls.reality.as_ref().is_some_and(|r| r.enabled)),
-        ("utls", tls.utls.as_ref().is_some_and(|u| u.enabled)),
-    ];
-    if let Some((field, _)) = unsupported.iter().find(|(_, on)| *on) {
+    if let Some(field) = unsupported(tls) {
         return Err(anyhow!(
             "[{}] outbound: tls.{}: not supported with TUIC",
             tag,
             field
         ));
     }
-    let certificate = match (&tls.certificate, &tls.certificate_path) {
-        (Some(inline), _) => Some(inline.clone().joined()),
-        (None, Some(path)) => Some(ctx.env.data_path(path)),
-        (None, None) => None,
-    };
-    let client = Arc::new(
-        Client::new(ClientOptions {
-            server: options.server.clone(),
-            port: options.server_port,
-            server_name: tls.server_name.clone().unwrap_or(options.server),
-            insecure: tls.insecure,
-            certificate,
-            alpn: tls.alpn.clone().map(Listable::into_vec),
-            uuid,
-            password: options.password.into_bytes(),
-            congestion: options.congestion_control,
-            udp_relay_mode: options.udp_relay_mode.unwrap_or_default(),
-            zero_rtt: options.zero_rtt_handshake,
-            heartbeat: options.heartbeat.unwrap_or(DEFAULT_HEARTBEAT),
-            dns_client: ctx.dns_client.clone(),
-            dial: ctx.dial.clone(),
-            tuning: &ctx.env.options.quic,
-        })
-        .map_err(|e| anyhow!("[{}] outbound: tls: {}", tag, e))?,
-    );
+    let client_tls = ClientTls::new(tls, &options.server, DEFAULT_ALPN, ctx.env)
+        .map_err(|e| anyhow!("[{}] outbound: tls: {}", tag, e))?;
+    let client = Arc::new(Client::new(ClientOptions {
+        server: options.server,
+        port: options.server_port,
+        tls: client_tls,
+        uuid,
+        password: options.password.into_bytes(),
+        congestion: options.congestion_control,
+        udp_relay_mode: options.udp_relay_mode.unwrap_or_default(),
+        zero_rtt: options.zero_rtt_handshake,
+        heartbeat: options.heartbeat.unwrap_or(DEFAULT_HEARTBEAT),
+        dns_client: ctx.dns_client.clone(),
+        dial: ctx.dial.clone(),
+        tuning: &ctx.env.options.quic,
+    }));
     let mut builder = HandlerBuilder::default().tag(tag.to_owned());
     if options.network != Some(Network::Udp) {
         builder = builder.stream_handler(Arc::new(StreamHandler(client.clone())));

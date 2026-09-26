@@ -3,11 +3,10 @@
 
 use std::collections::HashMap;
 use std::io;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use bytes::Bytes;
 use tokio::sync::mpsc;
@@ -16,13 +15,14 @@ use tracing::{debug, trace};
 
 use crate::adapter::*;
 use crate::app::SyncDnsClient;
-use crate::net::{peek_tcp_one_off, DialOptions, UdpConnector};
+use crate::net::{peek_tcp_one_off, DialOptions};
 use crate::session::{Session, SocksAddr};
+use crate::transport::quic::{bind, endpoint, ClientTls, Side};
 
 use super::super::common::{
-    alpn_protocols, heartbeat, send_packet, token, transport_config, ActiveGuard, Activity,
-    CongestionControl, QuicStream, UdpRelayMode, ASSOCIATION_QUEUE, FRAGMENT_TIMEOUT,
-    MAX_PENDING_PACKETS, UNI_STREAM_TIMEOUT,
+    heartbeat, send_packet, token, transport_config, ActiveGuard, Activity, CongestionControl,
+    QuicStream, UdpRelayMode, ASSOCIATION_QUEUE, FRAGMENT_TIMEOUT, MAX_PENDING_PACKETS,
+    UNI_STREAM_TIMEOUT,
 };
 use super::super::frag::Reassembler;
 use super::super::proto::{
@@ -36,11 +36,7 @@ const MAX_ASSOCIATIONS: usize = 1024;
 pub struct ClientOptions<'a> {
     pub server: String,
     pub port: u16,
-    pub server_name: String,
-    pub insecure: bool,
-    /// Inline PEM or a path; replaces the bundled roots.
-    pub certificate: Option<String>,
-    pub alpn: Option<Vec<String>>,
+    pub tls: ClientTls,
     pub uuid: [u8; 16],
     pub password: Vec<u8>,
     pub congestion: CongestionControl,
@@ -69,39 +65,18 @@ pub struct Client {
     conn: tokio::sync::Mutex<Option<Arc<ClientConn>>>,
 }
 
-impl UdpConnector for Client {}
-
 impl Client {
-    pub fn new(options: ClientOptions<'_>) -> Result<Self> {
-        use quinn_btls::QuicSslContext;
-        let mut crypto =
-            quinn_btls::ClientConfig::new().map_err(|e| anyhow!("quic client config: {}", e))?;
-        if options.insecure {
-            crypto.verify_peer(false);
-        } else {
-            // `certificate` replaces the bundled roots, as for TLS.
-            let certs = match options.certificate.as_deref() {
-                Some(certificate) => crate::transport::tls::client::load_certificates(certificate)?,
-                None => crate::transport::tls::client::bundled_root_certs()?.to_vec(),
-            };
-            let store = crypto.ctx_mut().cert_store_mut();
-            for cert in certs {
-                store.add_cert(cert)?;
-            }
-        }
-        crypto
-            .set_alpn(&alpn_protocols(options.alpn))
-            .map_err(|e| anyhow!("quic alpn: {}", e))?;
-        let mut client_config = quinn::ClientConfig::new(Arc::new(crypto));
+    pub fn new(options: ClientOptions<'_>) -> Self {
+        let mut client_config = quinn::ClientConfig::new(Arc::new(options.tls.crypto));
         client_config.transport_config(Arc::new(transport_config(
             options.congestion,
             options.tuning,
-            options.tuning.client_idle_timeout,
+            Side::Client,
         )));
-        Ok(Self {
+        Self {
             server: options.server,
             port: options.port,
-            server_name: options.server_name,
+            server_name: options.tls.server_name,
             uuid: options.uuid,
             password: options.password,
             udp_relay_mode: options.udp_relay_mode,
@@ -111,7 +86,7 @@ impl Client {
             dial: options.dial,
             client_config,
             conn: tokio::sync::Mutex::new(None),
-        })
+        }
     }
 
     /// The connection in use, or a new one if it has closed.
@@ -149,17 +124,7 @@ impl Client {
     }
 
     async fn connect_to(&self, server: SocketAddr) -> io::Result<Arc<ClientConn>> {
-        let unspecified = match server.ip() {
-            IpAddr::V4(_) => SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), 0),
-            IpAddr::V6(_) => SocketAddr::new(Ipv6Addr::UNSPECIFIED.into(), 0),
-        };
-        let socket = self.new_udp_socket(&unspecified, &self.dial).await?;
-        let endpoint = quinn::Endpoint::new(
-            quinn_btls::helpers::default_endpoint_config(),
-            None,
-            socket.into_std()?,
-            Arc::new(quinn::TokioRuntime),
-        )?;
+        let endpoint = endpoint(bind(server.ip(), &self.dial).await?, None)?;
         let connecting = endpoint
             .connect_with(self.client_config.clone(), server, &self.server_name)
             .map_err(io::Error::other)?;
@@ -343,11 +308,11 @@ impl OutboundStreamHandler for StreamHandler {
         let payload = peek_tcp_one_off(lhs).await;
         send.write_all(&encode_connect(&sess.destination, &payload)?)
             .await?;
-        Ok(Box::new(QuicStream {
+        Ok(Box::new(QuicStream::guarded(
             send,
             recv,
-            _active: conn.activity.start(),
-        }))
+            conn.activity.start(),
+        )))
     }
 }
 
