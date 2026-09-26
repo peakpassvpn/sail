@@ -70,6 +70,10 @@ pub struct HopSocket {
     /// The address quinn talks to.
     virtual_addr: SocketAddr,
     state: RwLock<State>,
+    /// The task receiving: a hop wakes it, for it waits on the sockets it
+    /// saw and would otherwise not learn of the new one until the old one
+    /// happens to receive.
+    recv_waker: futures::task::AtomicWaker,
 }
 
 impl fmt::Debug for HopSocket {
@@ -94,6 +98,7 @@ impl HopSocket {
                 current: socket,
                 previous: None,
             }),
+            recv_waker: futures::task::AtomicWaker::new(),
         }
     }
 
@@ -109,6 +114,8 @@ impl HopSocket {
         state.previous = Some(previous);
         state.port = port;
         state.generation += 1;
+        drop(state);
+        self.recv_waker.wake();
     }
 
     /// The state as it is, not held locked.
@@ -186,6 +193,9 @@ impl AsyncUdpSocket for HopSocket {
         bufs: &mut [IoSliceMut<'_>],
         meta: &mut [RecvMeta],
     ) -> Poll<io::Result<usize>> {
+        // Registered before the sockets are read, so a hop in between is
+        // not missed.
+        self.recv_waker.register(cx.waker());
         let Snapshot {
             current, previous, ..
         } = self.sockets();
