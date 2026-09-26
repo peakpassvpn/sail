@@ -329,7 +329,9 @@ impl<S: AsyncRead + AsyncWrite + Unpin> VlessStream<S> {
 
     fn poll_write_pending(&mut self, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
         while self.pending_pos < self.pending.len() {
-            let n = ready!(Pin::new(&mut self.stream).poll_write(cx, &self.pending[self.pending_pos..]))?;
+            let n = ready!(
+                Pin::new(&mut self.stream).poll_write(cx, &self.pending[self.pending_pos..])
+            )?;
             if n == 0 {
                 return Poll::Ready(Err(std::io::Error::new(
                     std::io::ErrorKind::WriteZero,
@@ -461,28 +463,29 @@ impl<S: AsyncRead + AsyncWrite + Unpin> AsyncWrite for VlessStream<S> {
         let chunk = &buf[..n];
         this.tls_filter.filter(chunk);
         let filter = &this.tls_filter;
-        let command = if filter.is_tls
-            && chunk.len() > 6
-            && chunk.starts_with(&TLS_APPLICATION_DATA_START)
-        {
-            // Inner TLS reached application data: stop padding, and with
-            // inner TLS 1.3 over a transport that can go raw, switch the
-            // uplink to direct copy.
-            this.write_padding = false;
-            let raw_capable = this.vision_state.as_ref().is_some_and(|v| v.is_raw_capable());
-            if filter.enable_xtls && raw_capable {
-                this.direct_after_pending = true;
-                COMMAND_PADDING_DIRECT
-            } else {
+        let command =
+            if filter.is_tls && chunk.len() > 6 && chunk.starts_with(&TLS_APPLICATION_DATA_START) {
+                // Inner TLS reached application data: stop padding, and with
+                // inner TLS 1.3 over a transport that can go raw, switch the
+                // uplink to direct copy.
+                this.write_padding = false;
+                let raw_capable = this
+                    .vision_state
+                    .as_ref()
+                    .is_some_and(|v| v.is_raw_capable());
+                if filter.enable_xtls && raw_capable {
+                    this.direct_after_pending = true;
+                    COMMAND_PADDING_DIRECT
+                } else {
+                    COMMAND_PADDING_END
+                }
+            } else if !filter.is_tls12_or_above && filter.packets_left <= 1 {
+                // Not TLS 1.2+: stop padding; the rest stays in the outer TLS.
+                this.write_padding = false;
                 COMMAND_PADDING_END
-            }
-        } else if !filter.is_tls12_or_above && filter.packets_left <= 1 {
-            // Not TLS 1.2+: stop padding; the rest stays in the outer TLS.
-            this.write_padding = false;
-            COMMAND_PADDING_END
-        } else {
-            COMMAND_PADDING_CONTINUE
-        };
+            } else {
+                COMMAND_PADDING_CONTINUE
+            };
         let uuid = std::mem::take(&mut this.write_uuid).then_some(&this.uuid);
         write_padding_frame(&mut this.pending, chunk, command, uuid, filter.is_tls);
 
@@ -523,7 +526,13 @@ mod tests {
     #[test]
     fn test_padding_frame_layout() {
         let mut out = vec![];
-        write_padding_frame(&mut out, b"hello", COMMAND_PADDING_CONTINUE, Some(&UUID), true);
+        write_padding_frame(
+            &mut out,
+            b"hello",
+            COMMAND_PADDING_CONTINUE,
+            Some(&UUID),
+            true,
+        );
         assert_eq!(&out[..16], &UUID);
         assert_eq!(out[16], COMMAND_PADDING_CONTINUE);
         assert_eq!(u16::from_be_bytes([out[17], out[18]]), 5);
@@ -589,9 +598,9 @@ mod tests {
     #[tokio::test]
     async fn test_vision_write_tls_round_trip() {
         let writes = vec![
-            tls_record(0x16, 1, 500),                 // ClientHello
-            tls_record(0x14, 1, 1),                   // ChangeCipherSpec
-            tls_record(0x17, 0, 20000),               // application data
+            tls_record(0x16, 1, 500),   // ClientHello
+            tls_record(0x14, 1, 1),     // ChangeCipherSpec
+            tls_record(0x17, 0, 20000), // application data
             b"after padding ends".to_vec(),
         ];
         let (out, parser) = round_trip(&writes).await;
@@ -640,7 +649,10 @@ mod tests {
         let mut parser = VisionParser::new(UUID);
         let out = parser.parse(&wire);
         assert!(parser.v_direct_copy_rx);
-        assert_eq!(out, [tls_record(0x16, 1, 300), app_data, b"raw".to_vec()].concat());
+        assert_eq!(
+            out,
+            [tls_record(0x16, 1, 300), app_data, b"raw".to_vec()].concat()
+        );
     }
 
     #[tokio::test]
