@@ -436,18 +436,21 @@ async fn upstreams_are_reached_through_the_dispatcher() {
 }
 
 /// Public resolvers, over the internet: `cargo test -p sail --test
-/// test_dns_upstreams -- --ignored public`.
+/// test_dns_upstreams -- --ignored public`. It depends on the network: a
+/// proxy that refuses QUIC it can read the ClientHello of, or UDP 443, fails
+/// it for reasons of its own.
 #[tokio::test(flavor = "multi_thread")]
 #[ignore]
 async fn public_resolvers() {
     let mut failed = Vec::new();
     for server in [
+        // Bootstrap addresses given, so a system resolver that hands out
+        // fake IPs (a TUN proxy's) does not decide the result.
         "direct:tls://1.1.1.1",
-        "direct:tls://dns.google",
-        "direct:quic://dns.adguard-dns.com",
+        "direct:tls://dns.google@8.8.8.8",
         "direct:quic://dns.adguard-dns.com@94.140.14.14",
-        "direct:h3://cloudflare-dns.com",
-        "direct:h3://dns.google/dns-query@8.8.8.8",
+        "direct:quic://dns.nextdns.io@45.90.28.0",
+        "direct:h3://dns.alidns.com@223.5.5.5",
     ] {
         let client = client(&[server], None);
         match lookup(&client, "example.com").await {
