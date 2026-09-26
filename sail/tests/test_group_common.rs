@@ -71,14 +71,14 @@ pub const UNSERVED: u16 = 9;
 /// Serves HTTP on a port of its own, which it returns: every request is
 /// answered, after `delay`, with a 204 naming `name`. Stops, closing the
 /// port, when the handle is aborted.
-pub async fn serve(name: &str, delay: Duration) -> (AbortHandle, u16) {
+pub async fn serve(name: &str, delay: Duration) -> (Server, u16) {
     let (handle, _, port) = serve_adjustable(name, delay).await;
     (handle, port)
 }
 
 /// Like `serve`, with a delay that can be changed as it runs, in
 /// milliseconds.
-pub async fn serve_adjustable(name: &str, delay: Duration) -> (AbortHandle, Arc<AtomicU64>, u16) {
+pub async fn serve_adjustable(name: &str, delay: Duration) -> (Server, Arc<AtomicU64>, u16) {
     let (handle, delay, port, _) = serve_counted(name, delay).await;
     (handle, delay, port)
 }
@@ -87,7 +87,7 @@ pub async fn serve_adjustable(name: &str, delay: Duration) -> (AbortHandle, Arc<
 pub async fn serve_counted(
     name: &str,
     delay: Duration,
-) -> (AbortHandle, Arc<AtomicU64>, u16, Arc<AtomicU64>) {
+) -> (Server, Arc<AtomicU64>, u16, Arc<AtomicU64>) {
     let delay = Arc::new(AtomicU64::new(delay.as_millis() as u64));
     let delay_ms = delay.clone();
     let requests = Arc::new(AtomicU64::new(0));
@@ -135,10 +135,36 @@ pub async fn serve_counted(
             conns.0.push(conn_handle);
         }
     });
+    let (stopped_tx, stopped) = tokio::sync::oneshot::channel();
     tokio::spawn(async move {
+        // The server, its listener with it, is dropped by the time the
+        // await is done.
         let _ = task.await;
+        let _ = stopped_tx.send(());
     });
-    (handle, delay, port, requests)
+    let server = Server {
+        handle,
+        stopped: tokio::sync::Mutex::new(Some(stopped)),
+    };
+    (server, delay, port, requests)
+}
+
+/// A member's server, as `serve` runs it.
+pub struct Server {
+    handle: AbortHandle,
+    stopped: tokio::sync::Mutex<Option<tokio::sync::oneshot::Receiver<()>>>,
+}
+
+impl Server {
+    /// Stops it, and returns once its listener is closed: from then on a
+    /// connection to its port is refused rather than, for a moment,
+    /// accepted into a backlog nothing reads.
+    pub async fn stop(&self) {
+        self.handle.abort();
+        if let Some(stopped) = self.stopped.lock().await.take() {
+            let _ = stopped.await;
+        }
+    }
 }
 
 /// Aborts its tasks when dropped, as a server's task is when it stops.

@@ -103,7 +103,7 @@ fn a_member_that_dies_is_left() {
         assert!(eventually(Duration::from_secs(5), || tested(&m)).await);
         assert_eq!(selected(&m, "auto"), "a");
 
-        a.abort();
+        a.stop().await;
         assert!(
             eventually(Duration::from_secs(5), || selected(&m, "auto") == "b").await,
             "{:?}",

@@ -125,7 +125,7 @@ fn a_member_that_fails_its_test_is_skipped() {
             &env("lb-skip"),
         )
         .unwrap();
-        a.abort();
+        a.stop().await;
         // Once tested, every connection goes to the member left.
         tokio::time::sleep(Duration::from_millis(800)).await;
         let sess = session("10.0.0.1", "example.com");

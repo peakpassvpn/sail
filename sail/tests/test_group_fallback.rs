@@ -71,7 +71,7 @@ fn it_moves_on_when_the_first_member_dies() {
         assert!(eventually(Duration::from_secs(5), || tested(&m)).await);
         assert_eq!(selected(&m, "fb"), "a");
 
-        a.abort();
+        a.stop().await;
         assert!(
             eventually(Duration::from_secs(5), || selected(&m, "fb") == "b").await,
             "{:?}",
@@ -121,7 +121,7 @@ fn a_connection_that_fails_is_tried_through_the_next_member() {
         assert_eq!(selected(&m, "fb"), "a");
 
         // The member dies between tests: the connection falls back.
-        a.abort();
+        a.stop().await;
         let sess = session("10.0.0.1", "example.com");
         assert_eq!(reached(&m, "fb", &sess).await.unwrap(), "b");
         // And the failure has the members tested again, well before the
@@ -151,9 +151,9 @@ fn a_connection_is_tried_through_a_few_members_at_most() {
         .unwrap();
         assert!(eventually(Duration::from_secs(5), || tested(&m)).await);
 
-        a.abort();
-        b.abort();
-        c.abort();
+        a.stop().await;
+        b.stop().await;
+        c.stop().await;
         // Three attempts, all failed: the fourth member is not tried.
         let sess = session("10.0.0.1", "example.com");
         assert!(connect(&m, "fb", &sess).await.is_err());
