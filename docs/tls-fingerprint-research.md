@@ -235,6 +235,13 @@ quinn-btls（核实于 2026-09-25）：作者与 btls 相同；依赖 btls 0.5.5
   - fixture 为 `android-okhttp4.hello`。
 - **Chrome Android 尚未抓到。** APKPure 上的 Chrome 153 只有 32 位 ARM 的通用包，x86 模拟器上翻译运行时原生代码崩溃（SIGSEGV）。按用户的决定，抓到后先与桌面 Chrome 对比：一致就并入 chrome，不一致才单独做 `chrome-android`。
 
+**Chrome Android（2026-09-27）：** 在 Android 11 模拟器上抓了 Chrome 154.0.8037.57。APK 是用户从 APKMirror 下载的 x86 独立包，签名证书与 Google Chrome 的一致，不需要 Trichrome。同时抓了同版本的桌面 Chrome for Testing 154 作为对照。
+- **与桌面 Chrome 154 对比：** Android 比桌面少一个扩展 `0x12e0`（载荷 `0000`），其余全部相同。
+  - `0x12e0` 被第三方称为 server_padding，是仍在按渠道或实验分组放量的扩展。正式版 Chrome 153 的桌面抓包里没有它，所以这一项不能算作平台差异。
+- **结论：** Chrome Android 与桌面 Chrome 一致，按用户的规则**并入 chrome**，不单独做 `chrome-android`。
+- **版本变化：** 从 154 起，Trust Anchor IDs 改为排序后的顺序（同一组 28 个）。现在的 chrome profile 按 153 做，升级到 154 时要改这个顺序，并按届时正式版的抓包决定是否加入 `0x12e0`。BoringSSL 不支持任意扩展，加入它需要补丁。
+- 参考 fixture：`chrome-android-154.hello`、`chrome-cft-154.hello`。
+
 **btls fork 的维护方式（2026-09-26）：** 工作分支为 `sail`；最初基于 v0.5.6 的分支保留为 `sail-0.5.6`，因为较早的提交按 rev 固定在它上面。上游 PR（#205–#208）都被维护者直接关闭，没有留言，因此不再向上游提 PR，改为不定期把上游 main 合进 `sail` 分支。
 
 **1.1e 的实施记录（2026-09-26）：**
