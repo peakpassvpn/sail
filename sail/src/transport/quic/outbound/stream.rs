@@ -75,7 +75,7 @@ impl Manager {
             self.dns_client
                 .load_full()
                 .direct_lookup(&self.address)
-                .map_err(|e| io::Error::other(format!("lookup {} failed: {}", &self.address, e)))
+                .map_err(|e| io::Error::other(format!("lookup {} failed: {}", self.address, e)))
                 .instrument(tracing::Span::current())
                 .await?
         };
