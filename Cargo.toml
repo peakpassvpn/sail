@@ -13,6 +13,7 @@ resolver = "2"
 [patch.crates-io]
 btls = { git = "https://github.com/peakpassvpn/btls.git", rev = "4123de36dc5ac86914c8a744f958025e598aa712" }
 btls-sys = { git = "https://github.com/peakpassvpn/btls.git", rev = "4123de36dc5ac86914c8a744f958025e598aa712" }
+quinn-proto = { git = "https://github.com/peakpassvpn/quinn.git", rev = "6d1e2b9e29895c1707a83167fb482348a70ac65c" }
 
 [profile.release]
 opt-level = 3
