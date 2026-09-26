@@ -33,7 +33,8 @@ unsafe impl Sync for Protector {}
 static PROTECTOR: RwLock<Option<Protector>> = RwLock::new(None);
 
 pub fn set_protector(callback: Option<ProtectSocketCallback>, context: *mut c_void) {
-    *PROTECTOR.write().unwrap() = callback.map(|callback| Protector { callback, context });
+    *PROTECTOR.write().unwrap_or_else(|e| e.into_inner()) =
+        callback.map(|callback| Protector { callback, context });
 }
 
 pub struct FfiPlatform;
@@ -44,11 +45,14 @@ impl sail::runtime::Platform for FfiPlatform {
     }
 
     fn protects_sockets(&self) -> bool {
-        PROTECTOR.read().unwrap().is_some()
+        PROTECTOR
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_some()
     }
 
     fn protect_socket(&self, fd: i32) -> std::io::Result<()> {
-        match PROTECTOR.read().unwrap().as_ref() {
+        match PROTECTOR.read().unwrap_or_else(|e| e.into_inner()).as_ref() {
             Some(p) if (p.callback)(fd, p.context) => Ok(()),
             Some(_) => Err(std::io::Error::other("the host did not protect the socket")),
             None => Ok(()),

@@ -117,11 +117,23 @@ fn main() {
     }
 
     if let Some(tag) = args.test_outbound {
-        let config = sail::config::from_file(&args.config).unwrap();
-        let rt = tokio::runtime::Builder::new_current_thread()
+        let config = match sail::config::from_file(&args.config) {
+            Ok(config) => config,
+            Err(e) => {
+                println!("{}", e);
+                exit(1);
+            }
+        };
+        let rt = match tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
-            .unwrap();
+        {
+            Ok(rt) => rt,
+            Err(e) => {
+                println!("cannot start a runtime: {}", e);
+                exit(1);
+            }
+        };
         match rt.block_on(sail::util::test_outbound(
             &tag,
             &config,
