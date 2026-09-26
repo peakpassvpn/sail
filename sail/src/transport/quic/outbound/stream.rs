@@ -9,14 +9,16 @@ use tokio::sync::RwLock;
 use tokio::time::timeout;
 use tracing::{debug, trace, Instrument};
 
+use crate::runtime::RuntimeEnv;
+use crate::transport::layers::OutboundTls;
 use crate::{adapter::*, app::SyncDnsClient, net::*, session::Session};
 
-use super::QuicProxyStream;
+use super::super::{endpoint, transport_config, ClientTls, CongestionControl, QuicStream, Side};
 
 struct Manager {
     address: String,
     port: u16,
-    server_name: Option<String>,
+    server_name: String,
     dns_client: SyncDnsClient,
     dial: Arc<crate::net::DialOptions>,
     client_config: quinn::ClientConfig,
@@ -24,66 +26,7 @@ struct Manager {
 }
 
 impl Manager {
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        address: String,
-        port: u16,
-        server_name: Option<String>,
-        alpns: Vec<String>,
-        certificate: Option<String>,
-        dns_client: SyncDnsClient,
-        dial: Arc<crate::net::DialOptions>,
-        tuning: &crate::runtime::options::Quic,
-    ) -> Result<Self> {
-        use quinn_btls::QuicSslContext;
-        let mut crypto =
-            quinn_btls::ClientConfig::new().map_err(|e| anyhow!("quic client config: {}", e))?;
-        // `certificate` replaces the bundled roots, as for TLS.
-        let certs = match certificate.as_deref() {
-            Some(certificate) => crate::transport::tls::client::load_certificates(certificate)?,
-            None => crate::transport::tls::client::bundled_root_certs()?.to_vec(),
-        };
-        let store = crypto.ctx_mut().cert_store_mut();
-        for cert in certs {
-            store.add_cert(cert)?;
-        }
-        if !alpns.is_empty() {
-            let alpns: Vec<Vec<u8>> = alpns.into_iter().map(String::into_bytes).collect();
-            crypto
-                .set_alpn(&alpns)
-                .map_err(|e| anyhow!("quic alpn: {}", e))?;
-        }
-
-        let mut client_config = quinn::ClientConfig::new(Arc::new(crypto));
-        let mut transport_config = quinn::TransportConfig::default();
-        transport_config
-            .max_concurrent_bidi_streams(quinn::VarInt::from_u32(tuning.max_concurrent_streams));
-        transport_config
-            .max_idle_timeout(quinn::IdleTimeout::try_from(tuning.client_idle_timeout).ok());
-        transport_config.keep_alive_interval(
-            (!tuning.client_keep_alive_interval.is_zero())
-                .then_some(tuning.client_keep_alive_interval),
-        );
-        transport_config
-            .congestion_controller_factory(Arc::new(quinn::congestion::BbrConfig::default()));
-        client_config.transport_config(Arc::new(transport_config));
-
-        Ok(Manager {
-            address,
-            port,
-            server_name,
-            dns_client,
-            dial,
-            client_config,
-            connections: RwLock::new(Vec::new()),
-        })
-    }
-}
-
-impl Manager {
-    pub async fn new_stream(
-        &self,
-    ) -> Result<QuicProxyStream<quinn::RecvStream, quinn::SendStream>> {
+    pub async fn new_stream(&self) -> Result<QuicStream> {
         let dial_timeout = self.dial.connect_timeout;
         let start = std::time::Instant::now();
         loop {
@@ -110,7 +53,7 @@ impl Manager {
                         rtt.as_millis(),
                         start.elapsed().as_millis(),
                     );
-                    return Ok(QuicProxyStream { recv, send });
+                    return Ok(QuicStream::new(send, recv));
                 }
                 Ok(Err(e)) => {
                     debug!("open stream failed: {}", e);
@@ -126,12 +69,7 @@ impl Manager {
             .new_udp_socket(&self.dial.unspecified(), &self.dial)
             .instrument(tracing::Span::current())
             .await?;
-        let mut endpoint = quinn::Endpoint::new(
-            quinn_btls::helpers::default_endpoint_config(),
-            None,
-            socket.into_std()?,
-            Arc::new(quinn::TokioRuntime),
-        )?;
+        let mut endpoint = endpoint(socket.into_std()?, None)?;
         endpoint.set_default_client_config(self.client_config.clone());
         let ips = {
             self.dns_client
@@ -144,11 +82,10 @@ impl Manager {
         if ips.is_empty() {
             return Err(anyhow!("could not resolve to any address",));
         }
-        let server_name = self.server_name.as_ref().unwrap_or(&self.address);
         let mut last_err: Option<anyhow::Error> = None;
         for ip in ips {
             let connect_addr = SocketAddr::new(ip, self.port);
-            let connecting = match endpoint.connect(connect_addr, server_name) {
+            let connecting = match endpoint.connect(connect_addr, &self.server_name) {
                 Ok(c) => c,
                 Err(e) => {
                     last_err = Some(e.into());
@@ -186,7 +123,7 @@ impl Manager {
 
             trace!("opened quic stream on new connection",);
 
-            return Ok(QuicProxyStream { recv, send });
+            return Ok(QuicStream::new(send, recv));
         }
 
         Err(last_err.unwrap_or_else(|| anyhow!("connect quic failed")))
@@ -201,32 +138,36 @@ pub struct Handler {
 
 impl Handler {
     pub fn new(
+        tls: &OutboundTls,
         address: String,
         port: u16,
-        server_name: Option<String>,
-        alpns: Vec<String>,
-        certificate: Option<String>,
         dns_client: SyncDnsClient,
         dial: Arc<crate::net::DialOptions>,
-        tuning: &crate::runtime::options::Quic,
+        env: &RuntimeEnv,
     ) -> Result<Self> {
+        // As the tls transport: `certificate` replaces the bundled roots,
+        // and no ALPN is offered unless set.
+        let tls = ClientTls::new(tls, &address, &[], env)?;
+        let mut client_config = quinn::ClientConfig::new(Arc::new(tls.crypto));
+        client_config.transport_config(Arc::new(transport_config(
+            &env.options.quic,
+            Side::Client,
+            CongestionControl::Bbr.factory(),
+        )));
         Ok(Self {
-            manager: Manager::new(
+            manager: Manager {
                 address,
                 port,
-                server_name,
-                alpns,
-                certificate,
+                server_name: tls.server_name,
                 dns_client,
                 dial,
-                tuning,
-            )?,
+                client_config,
+                connections: RwLock::new(Vec::new()),
+            },
         })
     }
 
-    pub async fn new_stream(
-        &self,
-    ) -> io::Result<QuicProxyStream<quinn::RecvStream, quinn::SendStream>> {
+    pub async fn new_stream(&self) -> io::Result<QuicStream> {
         self.manager
             .new_stream()
             .await

@@ -11,9 +11,14 @@ use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::time::{timeout, Duration};
 use tracing::{debug, trace, warn};
 
+use crate::runtime::RuntimeEnv;
+use crate::transport::layers::InboundTls;
 use crate::{adapter::*, session::Session, session::StreamId};
 
-use super::QuicProxyStream;
+use super::super::{
+    alpn_protocols, endpoint, inbound_crypto, server_config, transport_config, CongestionControl,
+    QuicStream, Side,
+};
 
 struct Incoming {
     stream_rx: Receiver<(SocketAddr, (SendStream, RecvStream))>,
@@ -31,7 +36,7 @@ impl Stream for Incoming {
                 };
                 sess.stream_id = Some(StreamId::U64(send.id().index()));
                 Poll::Ready(Some(AnyBaseInboundTransport::Stream(
-                    Box::new(QuicProxyStream { recv, send }),
+                    Box::new(QuicStream::new(send, recv)),
                     sess,
                 )))
             }
@@ -39,13 +44,6 @@ impl Stream for Incoming {
             Poll::Pending => Poll::Pending,
         }
     }
-}
-
-fn quic_err<E>(error: E) -> io::Error
-where
-    E: Into<Box<dyn std::error::Error + Send + Sync>>,
-{
-    io::Error::other(error)
 }
 
 /// Streams accepted and not yet handed on.
@@ -58,49 +56,21 @@ pub struct Handler {
 }
 
 impl Handler {
-    pub fn new(
-        certificate: String,
-        certificate_key: String,
-        alpns: Vec<String>,
-        tuning: &crate::runtime::options::Quic,
-    ) -> Result<Self> {
-        use crate::transport::tls::client::{load_certificates, load_private_key};
-        use quinn_btls::QuicSslContext;
-        let mut certs = load_certificates(&certificate)?.into_iter();
-        let key = load_private_key(&certificate_key)?;
-
-        let mut crypto =
-            quinn_btls::ServerConfig::new().map_err(|e| anyhow!("quic server config: {}", e))?;
-        let ctx = crypto.ctx_mut();
-        ctx.set_certificate(certs.next().expect("load_certificates returns one or more"))?;
-        for cert in certs {
-            ctx.add_to_cert_chain(cert)?;
+    pub fn new(tag: &str, tls: &InboundTls, env: &RuntimeEnv) -> Result<Self> {
+        // tls_inbound serves REALITY without a certificate; this cannot.
+        if tls.reality.as_ref().is_some_and(|r| r.enabled) {
+            return Err(anyhow!(
+                "[{}] inbound: tls.reality: not supported with the quic transport",
+                tag
+            ));
         }
-        ctx.set_private_key(key)?;
-        ctx.check_private_key()
-            .map_err(|e| anyhow!("private key does not match the certificate: {}", e))?;
-        if !alpns.is_empty() {
-            let alpns: Vec<Vec<u8>> = alpns.into_iter().map(String::into_bytes).collect();
-            crypto
-                .set_alpn(&alpns)
-                .map_err(|e| anyhow!("quic alpn: {}", e))?;
-        }
-
-        let mut server_config = quinn_btls::helpers::server_config(Arc::new(crypto))
-            .map_err(|e| anyhow!("quic server config: {}", e))?;
-        let mut transport_config = quinn::TransportConfig::default();
-        transport_config
-            .max_concurrent_bidi_streams(quinn::VarInt::from_u32(tuning.max_concurrent_streams));
-        transport_config
-            .max_idle_timeout(quinn::IdleTimeout::try_from(tuning.server_idle_timeout).ok());
-        transport_config.keep_alive_interval(
-            (!tuning.server_keep_alive_interval.is_zero())
-                .then_some(tuning.server_keep_alive_interval),
-        );
-        transport_config
-            .congestion_controller_factory(Arc::new(quinn::congestion::BbrConfig::default()));
-        server_config.transport_config(Arc::new(transport_config));
-
+        let crypto = inbound_crypto(tag, tls, env, &alpn_protocols(tls.alpn.as_ref(), &[]))?;
+        let mut server_config = server_config(crypto)?;
+        server_config.transport_config(Arc::new(transport_config(
+            &env.options.quic,
+            Side::Server,
+            CongestionControl::Bbr.factory(),
+        )));
         Ok(Self { server_config })
     }
 }
@@ -139,13 +109,7 @@ impl InboundDatagramHandler for Handler {
     async fn handle<'a>(&'a self, socket: AnyInboundDatagram) -> io::Result<AnyInboundTransport> {
         tracing::trace!("handling inbound datagram");
         let (stream_tx, stream_rx) = channel(ACCEPT_CHANNEL_SIZE);
-        let endpoint = quinn::Endpoint::new(
-            quinn_btls::helpers::default_endpoint_config(),
-            Some(self.server_config.clone()),
-            socket.into_std()?,
-            Arc::new(quinn::TokioRuntime),
-        )
-        .map_err(quic_err)?;
+        let endpoint = endpoint(socket.into_std()?, Some(self.server_config.clone()))?;
         tokio::spawn(async move {
             while let Some(incoming) = endpoint.accept().await {
                 let stream_tx_c = stream_tx.clone();
