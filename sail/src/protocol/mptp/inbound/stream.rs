@@ -64,10 +64,13 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for PrefixedStream<S> {
     }
 }
 
+/// The live sessions by connection ID, each with where its sub-connections go.
+type Sessions<S> = Arc<RwLock<HashMap<Uuid, UnboundedSender<(S, Option<Uuid>)>>>>;
+
 struct TrackedMptpStream<S> {
     inner: MptpStream<S>,
     cid: Uuid,
-    sessions: Arc<RwLock<HashMap<Uuid, UnboundedSender<(S, Option<Uuid>)>>>>,
+    sessions: Sessions<S>,
 }
 
 impl<S: AsyncRead + AsyncWrite + Unpin> AsyncRead for TrackedMptpStream<S> {
@@ -108,8 +111,13 @@ impl<S> Drop for TrackedMptpStream<S> {
 }
 
 pub struct Handler {
-    sessions:
-        Arc<RwLock<HashMap<Uuid, UnboundedSender<(PrefixedStream<AnyStream>, Option<Uuid>)>>>>,
+    sessions: Sessions<PrefixedStream<AnyStream>>,
+}
+
+impl Default for Handler {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Handler {
@@ -159,12 +167,12 @@ impl InboundStreamHandler for Handler {
                     let mut sessions = self
                         .sessions
                         .write()
-                        .map_err(|_| io::Error::new(io::ErrorKind::Other, "Lock poisoned"))?;
+                        .map_err(|_| io::Error::other("Lock poisoned"))?;
 
                     if let Some(tx) = sessions.get(&req.cid).cloned() {
                         drop(sessions);
                         tracing::debug!("Joining existing MPTP session: {}", req.cid);
-                        if let Err(_) = tx.send((prefixed_stream, Some(req.cid))) {
+                        if tx.send((prefixed_stream, Some(req.cid))).is_err() {
                             tracing::warn!("MPTP session {} channel closed", req.cid);
                             return Err(io::Error::new(
                                 io::ErrorKind::ConnectionAborted,

@@ -18,12 +18,11 @@ pub struct Handler {
 impl OutboundDatagramHandler for Handler {
     fn connect_addr(&self) -> OutboundConnect {
         let a = &self.actors[self.selected.get()];
-        match a.datagram() {
-            Ok(h) => return h.connect_addr(),
-            _ => match a.stream() {
-                Ok(h) => return h.connect_addr(),
-                _ => (),
-            },
+        if let Ok(h) = a.datagram() {
+            return h.connect_addr();
+        }
+        if let Ok(h) = a.stream() {
+            return h.connect_addr();
         }
         OutboundConnect::Unknown
     }

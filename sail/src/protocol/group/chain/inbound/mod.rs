@@ -178,10 +178,14 @@ mod tests {
         let (stream1, _) = duplex(64);
         let (stream2, _) = duplex(64);
 
-        let mut sess1 = Session::default();
-        sess1.stream_id = Some(StreamId::U64(1));
-        let mut sess2 = Session::default();
-        sess2.stream_id = Some(StreamId::U64(2));
+        let sess1 = Session {
+            stream_id: Some(StreamId::U64(1)),
+            ..Default::default()
+        };
+        let sess2 = Session {
+            stream_id: Some(StreamId::U64(2)),
+            ..Default::default()
+        };
 
         let incoming = futures::stream::iter(vec![
             AnyBaseInboundTransport::Stream(Box::new(stream1), sess1),

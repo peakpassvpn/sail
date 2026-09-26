@@ -22,6 +22,9 @@ use tracing::warn;
 use crate::adapter::*;
 
 /// Where a fold stopped.
+// Short-lived and matched by value right away; boxing would cost an
+// allocation per fold for nothing.
+#[allow(clippy::large_enum_variant)]
 pub(super) enum Folded {
     /// Every actor ran.
     Done(AnyBaseInboundTransport),

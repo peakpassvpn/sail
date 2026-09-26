@@ -60,9 +60,6 @@ impl Handler {
             let dns_client = self.dns_client.clone();
             let tx = tx.clone();
             let target_addr = target_addr.clone();
-            let cid = cid;
-            let cmd = cmd;
-            let target_port = target_port;
 
             debug!("new sub-conn idx={} actor={}", i, &actor.tag());
 
@@ -136,10 +133,7 @@ impl Handler {
                 rx,
             ))
         } else {
-            Err(io::Error::new(
-                io::ErrorKind::Other,
-                "No available sub-connections",
-            ))
+            Err(io::Error::other("No available sub-connections"))
         }
     }
 }

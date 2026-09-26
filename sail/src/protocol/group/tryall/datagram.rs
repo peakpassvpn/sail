@@ -51,7 +51,7 @@ impl OutboundDatagramHandler for Handler {
             };
             tasks.push(Box::pin(t));
         }
-        match select_ok(tasks.into_iter()).await {
+        match select_ok(tasks).await {
             Ok(v) => {
                 debug!(
                     "tryall handles [{}:{}] to [{}]",

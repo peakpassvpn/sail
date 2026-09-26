@@ -104,13 +104,13 @@ where
         // domain address instead of the real source address. That also
         // means we assume all received packets are comming from a same
         // address.
-        if self.1.is_some() {
+        if let Some(dest) = &self.1 {
             trace!(
                 "trojan outbound received UDP {} bytes from {}",
                 payload_len,
-                self.1.as_ref().unwrap()
+                dest
             );
-            Ok((payload_len, self.1.as_ref().unwrap().clone()))
+            Ok((payload_len, dest.clone()))
         } else {
             trace!(
                 "trojan outbound received UDP {} bytes from {}",
