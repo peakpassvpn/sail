@@ -22,7 +22,7 @@ impl InboundStreamHandler for Handler {
     ) -> std::io::Result<AnyInboundTransport> {
         tracing::trace!("handling inbound stream");
         let (remote_addr, process_name) =
-            if let Some(info) = super::TCP_INFO.lock().unwrap().remove(&sess.source.port()) {
+            if let Some(info) = super::TCP_INFO.lock().remove(&sess.source.port()) {
                 (info.remote_addr, info.process_name)
             } else {
                 return Err(std::io::Error::other(format!(

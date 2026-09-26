@@ -12,7 +12,6 @@ use std::ptr::{addr_of, addr_of_mut};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::sync::LazyLock;
-use std::sync::Mutex;
 use std::thread;
 
 mod datagram;
@@ -23,7 +22,7 @@ pub use stream::Handler as StreamHandler;
 
 use anyhow::{anyhow, Result};
 use bytes::{BufMut, BytesMut};
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use tracing::{debug, trace, warn};
 
 use packed::{SOCKADDR, SOCKADDR_IN, SOCKADDR_IN6};
@@ -132,6 +131,11 @@ static mut NF_ADJUST_PROCESS_PRIVILEDGES: Option<NfAdjustProcessPriviledgesFn> =
 static mut NF_GET_UDP_CONN_INFO: Option<NfGetUdpConnInfoFn> = None;
 static mut NF_GET_PROCESS_NAME: Option<NfGetProcessNameFn> = None;
 static mut NF_GET_PROCESS_NAME_FROM_KERNEL: Option<NfGetProcessNameFromKernelFn> = None;
+
+/// Why the driver's functions are set when a callback calls them: the
+/// callbacks start with `nf_init`, which runs after `init_nf_fns` set them
+/// all.
+const NF_FN_SET: &str = "init_nf_fns sets the nf functions before nf_init";
 
 static mut TX: Option<std::sync::mpsc::Sender<bool>> = None;
 static UDP_SEND_SOCKET: RwLock<Option<std::net::UdpSocket>> = RwLock::new(None);
@@ -313,7 +317,6 @@ unsafe extern "C" fn tcpConnectRequest(id: EndpointId, conn_info: *mut NfTcpConn
     // TODO Remove timeout items.
     if TCP_INFO
         .lock()
-        .unwrap()
         .insert(
             local_addr.port(),
             ConnInfo {
@@ -354,7 +357,7 @@ unsafe extern "C" fn tcpConnectRequest(id: EndpointId, conn_info: *mut NfTcpConn
         }
     }
 
-    NF_TCP_DISABLE_FILTERING.unwrap()(id);
+    NF_TCP_DISABLE_FILTERING.expect(NF_FN_SET)(id);
 }
 
 unsafe extern "C" fn tcpConnected(id: EndpointId, _conn_info: *mut NfTcpConnInfo) {
@@ -372,7 +375,7 @@ unsafe extern "C" fn tcpReceive(id: EndpointId, buf: *const u8, len: i32) {
         id,
         len
     );
-    NF_TCP_POST_RECEIVE.unwrap()(id, buf, len);
+    NF_TCP_POST_RECEIVE.expect(NF_FN_SET)(id, buf, len);
 }
 
 unsafe extern "C" fn tcpSend(id: EndpointId, _buf: *const u8, len: i32) {
@@ -414,14 +417,14 @@ unsafe extern "C" fn udpCreated(id: EndpointId, conn_info: *mut NfUdpConnInfo) {
     );
 
     // The local address here can be 0.0.0.0:0, we will check and override in udpSend.
-    UDP_LOCAL_INFO.lock().unwrap().insert(
+    UDP_LOCAL_INFO.lock().insert(
         id,
         UdpLocalInfo {
             local_address,
             process_name,
         },
     );
-    UDP_ENDPOINT.lock().unwrap().insert(local_address, id);
+    UDP_ENDPOINT.lock().insert(local_address, id);
 }
 
 unsafe extern "C" fn udpConnectRequest(id: EndpointId, _conn_req: *mut NfUdpConnRequest) {
@@ -429,9 +432,9 @@ unsafe extern "C" fn udpConnectRequest(id: EndpointId, _conn_req: *mut NfUdpConn
 }
 
 unsafe extern "C" fn udpClosed(id: EndpointId, _conn_info: *mut NfUdpConnInfo) {
-    UDP_OPTIONS.lock().unwrap().remove(&id);
-    if let Some(info) = UDP_LOCAL_INFO.lock().unwrap().remove(&id) {
-        UDP_ENDPOINT.lock().unwrap().remove(&info.local_address);
+    UDP_OPTIONS.lock().remove(&id);
+    if let Some(info) = UDP_LOCAL_INFO.lock().remove(&id) {
+        UDP_ENDPOINT.lock().remove(&info.local_address);
     }
 }
 
@@ -443,7 +446,7 @@ unsafe extern "C" fn udpReceive(
     options: *mut NfUdpOptions,
 ) {
     trace!("udpReceive id={}", id);
-    NF_UDP_POST_RECEIVE.unwrap()(id, remote_address, buf, len, options);
+    NF_UDP_POST_RECEIVE.expect(NF_FN_SET)(id, remote_address, buf, len, options);
 }
 
 unsafe extern "C" fn udpSend(
@@ -465,7 +468,7 @@ unsafe extern "C" fn udpSend(
     // Drop IPv6
     if remote_addr.is_ipv6() {
         trace!("Pass IPv6");
-        let status = NF_UDP_POST_SEND.unwrap()(id, remote_address, buf, len, options);
+        let status = NF_UDP_POST_SEND.expect(NF_FN_SET)(id, remote_address, buf, len, options);
         if status != NF_STATUS_SUCCESS {
             debug!("send to local failed, status={}", status);
         }
@@ -473,12 +476,12 @@ unsafe extern "C" fn udpSend(
     }
 
     if remote_addr.ip().is_loopback() {
-        NF_UDP_DISABLE_FILTERING.unwrap()(id);
+        NF_UDP_DISABLE_FILTERING.expect(NF_FN_SET)(id);
         return;
     }
 
     let mut conn_info = NfUdpConnInfo::default();
-    let status = NF_GET_UDP_CONN_INFO.unwrap()(id, &mut conn_info as *mut _);
+    let status = NF_GET_UDP_CONN_INFO.expect(NF_FN_SET)(id, &mut conn_info as *mut _);
     if status != NF_STATUS_SUCCESS {
         debug!("get udp conn info failed id={} status={}", id, status);
         return;
@@ -489,14 +492,14 @@ unsafe extern "C" fn udpSend(
         return;
     };
 
-    UDP_LOCAL_INFO.lock().unwrap().entry(id).and_modify(|x| {
+    UDP_LOCAL_INFO.lock().entry(id).and_modify(|x| {
         if x.local_address.port() == 0 {
             x.local_address = local_address;
-            UDP_ENDPOINT.lock().unwrap().insert(local_address, id);
+            UDP_ENDPOINT.lock().insert(local_address, id);
         }
     });
 
-    UDP_OPTIONS.lock().unwrap().entry(id).or_insert_with(|| {
+    UDP_OPTIONS.lock().entry(id).or_insert_with(|| {
         let opts_len = (*options).optionsLength;
         let opts_data_len = std::mem::size_of::<NfUdpOptions>() - 1 + opts_len as usize;
         let mut opts_buf = vec![0u8; opts_data_len];
@@ -529,12 +532,13 @@ unsafe extern "C" fn udpSend(
         return;
     };
 
-    if let Err(e) = UDP_SEND_SOCKET
-        .read()
-        .as_ref()
-        .unwrap()
-        .send_to(&new_buf, new_remote_addr)
-    {
+    // Set only after nf_init, so a datagram can come first.
+    let socket = UDP_SEND_SOCKET.read();
+    let Some(socket) = socket.as_ref() else {
+        debug!("udp send socket not ready id={}", id);
+        return;
+    };
+    if let Err(e) = socket.send_to(&new_buf, new_remote_addr) {
         debug!("send to local failed: {}", e);
     }
 }
@@ -825,7 +829,7 @@ unsafe fn init_nf<P: AsRef<OsStr>>(
 ) -> Result<()> {
     init_nf_fns(nfapi)?;
 
-    NF_ADJUST_PROCESS_PRIVILEDGES.unwrap()();
+    NF_ADJUST_PROCESS_PRIVILEDGES.expect("init_nf_fns set it")();
 
     let eh = NfEventHandler {
         threadStart,
@@ -846,11 +850,10 @@ unsafe fn init_nf<P: AsRef<OsStr>>(
         udpCanSend,
     };
 
-    let status = NF_INIT.unwrap()(
-        CString::new(driver_name)
-            .unwrap()
-            .as_bytes_with_nul()
-            .as_ptr(),
+    let driver_name =
+        CString::new(driver_name).map_err(|_| anyhow!("driver_name: contains a NUL character"))?;
+    let status = NF_INIT.expect("init_nf_fns set it")(
+        driver_name.as_bytes_with_nul().as_ptr(),
         &eh as *const _,
     );
     if status != NF_STATUS_SUCCESS {
@@ -864,7 +867,7 @@ unsafe fn init_nf<P: AsRef<OsStr>>(
         filteringFlag: NfFilteringFlag::NfIndicateConnectRequests.value(),
         ..Default::default()
     };
-    let status = NF_ADD_RULE.unwrap()(&rule as *const _, 0);
+    let status = NF_ADD_RULE.expect("init_nf_fns set it")(&rule as *const _, 0);
     if status != NF_STATUS_SUCCESS {
         return Err(anyhow!("adding rule failed: {}", status));
     }
@@ -873,7 +876,7 @@ unsafe fn init_nf<P: AsRef<OsStr>>(
         filteringFlag: NfFilteringFlag::NfFilter.value(),
         ..Default::default()
     };
-    let status = NF_ADD_RULE.unwrap()(&rule as *const _, 0);
+    let status = NF_ADD_RULE.expect("init_nf_fns set it")(&rule as *const _, 0);
     if status != NF_STATUS_SUCCESS {
         return Err(anyhow!("adding rule failed: {}", status));
     }
@@ -915,14 +918,21 @@ static IS_NF_INITIALIZED: AtomicBool = AtomicBool::new(false);
 
 fn init<P: AsRef<OsStr>>(driver_name: String, nfapi: P) -> Result<()> {
     if !IS_NF_INITIALIZED.swap(true, Ordering::Relaxed) {
-        init_if_needed(driver_name, nfapi)?;
+        if let Err(e) = init_if_needed(driver_name, nfapi) {
+            // Not initialized: a later start tries again, and uninit has
+            // nothing to free.
+            IS_NF_INITIALIZED.store(false, Ordering::Relaxed);
+            return Err(e);
+        }
     }
     Ok(())
 }
 
 unsafe fn uninit_nf() {
     if IS_NF_INITIALIZED.swap(false, Ordering::Relaxed) {
-        NF_FREE.unwrap()();
+        if let Some(nf_free) = NF_FREE {
+            nf_free();
+        }
         if let Some(nfapi) = NFAPI.write().take() {
             if let Err(e) = nfapi.close() {
                 debug!("close nf failed: {}", e);
@@ -939,11 +949,13 @@ pub fn uninit() {
 pub unsafe fn get_process_name(pid: u32) -> Result<String> {
     let mut process_name_buf = vec![0u16; MAX_PATH];
     let process_name_len = process_name_buf.len() as u32;
-    if !NF_GET_PROCESS_NAME_FROM_KERNEL.unwrap()(
-        pid,
-        process_name_buf.as_mut_ptr() as _,
-        process_name_len,
-    ) && !NF_GET_PROCESS_NAME.unwrap()(pid, process_name_buf.as_mut_ptr() as _, process_name_len)
+    let (Some(from_kernel), Some(get_process_name)) =
+        (NF_GET_PROCESS_NAME_FROM_KERNEL, NF_GET_PROCESS_NAME)
+    else {
+        return Err(anyhow!("nf is not initialized"));
+    };
+    if !from_kernel(pid, process_name_buf.as_mut_ptr() as _, process_name_len)
+        && !get_process_name(pid, process_name_buf.as_mut_ptr() as _, process_name_len)
     {
         return Err(anyhow!("Unable to get process name pid={}", pid));
     }

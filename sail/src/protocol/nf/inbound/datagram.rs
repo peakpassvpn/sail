@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use anyhow::anyhow;
 use async_trait::async_trait;
-use tracing::warn;
+use tracing::{debug, warn};
 
 use crate::{
     adapter::*,
@@ -68,28 +68,32 @@ impl InboundDatagramRecvHalf for DatagramRecvHalf {
     ) -> ProxyResult<(usize, DatagramSource, SocksAddr)> {
         let mut recv_buf = vec![0u8; buf.len()];
         let (n, mut src_addr, _) = self.0.recv_from(&mut recv_buf).await?;
-        let dst_addr = SocksAddr::try_from((&recv_buf[0..], SocksAddrWireType::PortLast))
+        // Any local process can send here, not only udpSend.
+        let recv_buf = &recv_buf[..n];
+        let dst_addr = SocksAddr::try_from((recv_buf, SocksAddrWireType::PortLast))
             .map_err(|e| ProxyError::DatagramWarn(anyhow!("parse target address failed: {}", e)))?;
-        let id = u64::from_be_bytes(
-            recv_buf[dst_addr.size()..dst_addr.size() + 8]
-                .try_into()
-                .unwrap(),
-        );
-
         let header_size = dst_addr.size() + 8;
-        let payload_size = n - header_size;
-        assert!(buf.len() >= payload_size);
-        let real_payload = &recv_buf[header_size..header_size + payload_size];
+        let Some(id) = recv_buf
+            .get(dst_addr.size()..header_size)
+            .and_then(|id| <[u8; 8]>::try_from(id).ok())
+            .map(u64::from_be_bytes)
+        else {
+            return Err(ProxyError::DatagramWarn(anyhow!("short nf datagram")));
+        };
+        let real_payload = &recv_buf[header_size..];
+        let payload_size = real_payload.len();
+        if buf.len() < payload_size {
+            return Err(ProxyError::DatagramWarn(anyhow!("nf datagram too large")));
+        }
 
-        let (local_addr, process_name) =
-            if let Some(info) = super::UDP_LOCAL_INFO.lock().unwrap().get(&id) {
-                (info.local_address.clone(), info.process_name.clone())
-            } else {
-                return Err(ProxyError::DatagramWarn(anyhow!(format!(
-                    "local socket not found id={}",
-                    id
-                ))));
-            };
+        let (local_addr, process_name) = if let Some(info) = super::UDP_LOCAL_INFO.lock().get(&id) {
+            (info.local_address.clone(), info.process_name.clone())
+        } else {
+            return Err(ProxyError::DatagramWarn(anyhow!(format!(
+                "local socket not found id={}",
+                id
+            ))));
+        };
 
         // Override with real source address and process name.
         src_addr.address = local_addr;
@@ -147,14 +151,14 @@ fn udp_post_receive(
     src_addr: SocketAddr,
     buf: &[u8],
 ) -> io::Result<usize> {
-    if let Some(id) = super::UDP_ENDPOINT.lock().unwrap().get(local_addr) {
-        if let Some(options) = super::UDP_OPTIONS.lock().unwrap().get(id) {
+    if let Some(id) = super::UDP_ENDPOINT.lock().get(local_addr) {
+        if let Some(options) = super::UDP_OPTIONS.lock().get(id) {
             let status = unsafe {
                 match src_addr {
                     SocketAddr::V4(addr) => {
                         let addr: SOCKADDR_IN = addr.into();
                         let addr = &addr as *const SOCKADDR_IN as *const u8;
-                        super::NF_UDP_POST_RECEIVE.unwrap()(
+                        super::NF_UDP_POST_RECEIVE.expect(super::NF_FN_SET)(
                             *id,
                             addr,
                             buf.as_ptr(),
@@ -165,7 +169,7 @@ fn udp_post_receive(
                     SocketAddr::V6(addr) => {
                         let addr: SOCKADDR_IN6 = addr.into();
                         let addr = &addr as *const SOCKADDR_IN6 as *const u8;
-                        super::NF_UDP_POST_RECEIVE.unwrap()(
+                        super::NF_UDP_POST_RECEIVE.expect(super::NF_FN_SET)(
                             *id,
                             addr,
                             buf.as_ptr(),
