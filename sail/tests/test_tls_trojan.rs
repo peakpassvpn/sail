@@ -14,6 +14,8 @@ mod common;
 ))]
 #[test]
 fn test_tls_trojan() -> anyhow::Result<()> {
+    // The certificate and key, as files of this test's own.
+    let dir = common::TempDir::new("tls-trojan")?;
     // A client with a socks inbound on `socks_port` and a trojan outbound
     // to `trojan_port`.
     let client = |socks_port: u16, trojan_port: u16| {
@@ -35,7 +37,7 @@ fn test_tls_trojan() -> anyhow::Result<()> {
                     "tls": {
                         "enabled": true,
                         "server_name": "localhost",
-                        "certificate_path": "cert.pem"
+                        "certificate_path": dir.join("cert.pem")
                     }
                 }
             ]
@@ -58,8 +60,8 @@ fn test_tls_trojan() -> anyhow::Result<()> {
                     ],
                     "tls": {
                         "enabled": true,
-                        "certificate_path": "cert.pem",
-                        "key_path": "key.pem"
+                        "certificate_path": dir.join("cert.pem"),
+                        "key_path": dir.join("key.pem")
                     }
                 }
             ],
@@ -72,19 +74,16 @@ fn test_tls_trojan() -> anyhow::Result<()> {
         .to_string()
     };
 
-    let mut path =
-        std::env::current_exe().map_err(|e| anyhow::anyhow!("current exe failed: {}", e))?;
-    path.pop();
     let rcgen::CertifiedKey { cert, key_pair } =
         rcgen::generate_simple_self_signed(vec!["localhost".into()])
             .map_err(|e| anyhow::anyhow!("generate cert failed: {}", e))?;
-    std::fs::write(path.join("key.der"), key_pair.serialize_der())
+    std::fs::write(dir.join("key.der"), key_pair.serialize_der())
         .map_err(|e| anyhow::anyhow!("write key.der failed: {}", e))?;
-    std::fs::write(path.join("cert.der"), cert.der())
+    std::fs::write(dir.join("cert.der"), cert.der())
         .map_err(|e| anyhow::anyhow!("write cert.der failed: {}", e))?;
-    std::fs::write(path.join("key.pem"), key_pair.serialize_pem())
+    std::fs::write(dir.join("key.pem"), key_pair.serialize_pem())
         .map_err(|e| anyhow::anyhow!("write key.pem failed: {}", e))?;
-    std::fs::write(path.join("cert.pem"), cert.pem())
+    std::fs::write(dir.join("cert.pem"), cert.pem())
         .map_err(|e| anyhow::anyhow!("write cert.pem failed: {}", e))?;
     let cert_pem = cert.pem();
     common::retry_port_clash(|| {

@@ -45,8 +45,7 @@ fn a_failed_reload_changes_nothing_on(port: u16) -> anyhow::Result<()> {
         )
     };
     let config = |rules: &str| config_with("", rules);
-    let dir = std::env::temp_dir().join(format!("sail-test-reload-{}", std::process::id()));
-    std::fs::create_dir_all(&dir)?;
+    let dir = common::TempDir::new("reload")?;
     let path = dir.join("config.json");
     std::fs::write(&path, config("[]"))?;
 
@@ -118,6 +117,5 @@ fn a_failed_reload_changes_nothing_on(port: u16) -> anyhow::Result<()> {
         anyhow::Ok(())
     });
     assert!(sail::shutdown(id));
-    let _ = std::fs::remove_dir_all(&dir);
     result
 }

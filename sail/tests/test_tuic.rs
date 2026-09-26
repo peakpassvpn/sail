@@ -17,7 +17,6 @@ mod common;
 ))]
 mod tuic {
     use std::net::SocketAddr;
-    use std::path::PathBuf;
     use std::time::Duration;
 
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -32,19 +31,14 @@ mod tuic {
     struct Cert {
         pem: String,
         key_pem: String,
-        dir: PathBuf,
+        dir: common::TempDir,
     }
 
     impl Cert {
         fn new(name: &str) -> anyhow::Result<Self> {
             let rcgen::CertifiedKey { cert, key_pair } =
                 rcgen::generate_simple_self_signed(vec!["localhost".into()])?;
-            let dir = std::env::temp_dir().join(format!(
-                "sail-test-tuic-{}-{}",
-                name,
-                std::process::id()
-            ));
-            std::fs::create_dir_all(&dir)?;
+            let dir = common::TempDir::new(&format!("tuic-{}", name))?;
             std::fs::write(dir.join("cert.pem"), cert.pem())?;
             std::fs::write(dir.join("key.pem"), key_pair.serialize_pem())?;
             Ok(Self {
@@ -60,12 +54,6 @@ mod tuic {
 
         fn key_path(&self) -> String {
             self.dir.join("key.pem").to_string_lossy().into_owned()
-        }
-    }
-
-    impl Drop for Cert {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.dir);
         }
     }
 
@@ -299,7 +287,7 @@ mod tuic {
         common::retry_port_clash(|| {
             let [server_port, native_port, quic_port] = common::free_ports();
             let _server = common::Daemon::sing_box(
-                &cert.dir,
+                cert.dir.path(),
                 "server",
                 sing_box_server(server_port, &cert, "cubic"),
             )?;
@@ -333,7 +321,7 @@ mod tuic {
                 // times out: a fresh sing-box for each.
                 let client = |name: &str| {
                     common::Daemon::sing_box(
-                        &cert.dir,
+                        cert.dir.path(),
                         &format!("client-{}-{}", mode, name),
                         sing_box_client(socks_port, server_port, &cert, mode),
                     )

@@ -41,16 +41,14 @@ const PASSWORD: &str = "transport-password";
 struct Cert {
     cert_pem: String,
     key_pem: String,
-    dir: PathBuf,
+    dir: common::TempDir,
 }
 
 impl Cert {
     fn new(name: &str) -> anyhow::Result<Self> {
         let rcgen::CertifiedKey { cert, key_pair } =
             rcgen::generate_simple_self_signed(vec!["localhost".into()])?;
-        let dir =
-            std::env::temp_dir().join(format!("sail-transport-{}-{}", name, std::process::id()));
-        std::fs::create_dir_all(&dir)?;
+        let dir = common::TempDir::new(&format!("transport-{}", name))?;
         let cert = Cert {
             cert_pem: cert.pem(),
             key_pem: key_pair.serialize_pem(),
@@ -67,12 +65,6 @@ impl Cert {
 
     fn key_path(&self) -> PathBuf {
         self.dir.join("key.pem")
-    }
-}
-
-impl Drop for Cert {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.dir);
     }
 }
 
@@ -281,7 +273,7 @@ fn sail_to_sing_box(name: &str, carriage: Carriage) -> anyhow::Result<()> {
         let [socks_port, server_port] = common::free_ports();
         let cert = Cert::new(name)?;
         let _server = common::Daemon::sing_box(
-            &cert.dir,
+            cert.dir.path(),
             "server",
             server(true, &cert, &carriage, server_port),
         )?;
@@ -301,7 +293,7 @@ fn sing_box_to_sail(name: &str, carriage: Carriage) -> anyhow::Result<()> {
         // and each common test runs sail anew: a fresh client each.
         let client = || {
             common::Daemon::sing_box(
-                &cert.dir,
+                cert.dir.path(),
                 "client",
                 client(true, &cert, &carriage, socks_port, server_port),
             )

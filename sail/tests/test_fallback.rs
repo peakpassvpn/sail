@@ -36,16 +36,14 @@ const HEADER_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// A self-signed certificate for localhost, as files.
 struct Cert {
-    dir: PathBuf,
+    dir: common::TempDir,
 }
 
 impl Cert {
     fn new(name: &str) -> anyhow::Result<Self> {
         let rcgen::CertifiedKey { cert, key_pair } =
             rcgen::generate_simple_self_signed(vec!["localhost".into()])?;
-        let dir =
-            std::env::temp_dir().join(format!("sail-fallback-{}-{}", name, std::process::id()));
-        std::fs::create_dir_all(&dir)?;
+        let dir = common::TempDir::new(&format!("fallback-{}", name))?;
         let cert_files = Cert { dir };
         std::fs::write(cert_files.cert_path(), cert.pem())?;
         std::fs::write(cert_files.key_path(), key_pair.serialize_pem())?;
@@ -58,12 +56,6 @@ impl Cert {
 
     fn key_path(&self) -> PathBuf {
         self.dir.join("key.pem")
-    }
-}
-
-impl Drop for Cert {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.dir);
     }
 }
 
@@ -486,7 +478,7 @@ fn test_trojan_fallback_sing_box_client() -> anyhow::Result<()> {
         for (alpn, socks) in [("h2", socks_h2), ("http/1.1", socks_http1)] {
             let config = sing_box_client(trojan_outbound(&cert, port, alpn), socks);
             sing_box.push(common::Daemon::sing_box(
-                &cert.dir,
+                cert.dir.path(),
                 &format!("client-{}", socks),
                 config,
             )?);
@@ -513,7 +505,7 @@ fn test_vless_fallback_sing_box_client() -> anyhow::Result<()> {
         for (alpn, socks) in [("h2", socks_h2), ("http/1.1", socks_http1)] {
             let config = sing_box_client(vless_outbound(&cert, port, alpn), socks);
             sing_box.push(common::Daemon::sing_box(
-                &cert.dir,
+                cert.dir.path(),
                 &format!("client-{}", socks),
                 config,
             )?);

@@ -30,15 +30,14 @@ const UUID: &str = "b831381d-6324-4d53-ad4f-8cda48b30811";
 struct Cert {
     cert_pem: String,
     key_pem: String,
-    dir: PathBuf,
+    dir: common::TempDir,
 }
 
 impl Cert {
     fn new(name: &str) -> anyhow::Result<Self> {
         let rcgen::CertifiedKey { cert, key_pair } =
             rcgen::generate_simple_self_signed(vec!["localhost".into()])?;
-        let dir = std::env::temp_dir().join(format!("sail-vmess-{}-{}", name, std::process::id()));
-        std::fs::create_dir_all(&dir)?;
+        let dir = common::TempDir::new(&format!("vmess-{}", name))?;
         let cert = Cert {
             cert_pem: cert.pem(),
             key_pem: key_pair.serialize_pem(),
@@ -55,12 +54,6 @@ impl Cert {
 
     fn key_path(&self) -> PathBuf {
         self.dir.join("key.pem")
-    }
-}
-
-impl Drop for Cert {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.dir);
     }
 }
 
@@ -429,7 +422,7 @@ fn sail_to_sing_box(name: &str, setup: Setup) -> anyhow::Result<()> {
         let [socks_port, server_port] = common::free_ports();
         let cert = Cert::new(name)?;
         let _server = common::Daemon::sing_box(
-            &cert.dir,
+            cert.dir.path(),
             "server",
             prune(sing_box_server(&cert, setup, server_port)),
         )?;
@@ -446,7 +439,7 @@ fn sing_box_to_sail(name: &str, setup: Setup) -> anyhow::Result<()> {
         let cert = Cert::new(name)?;
         let configs = vec![sail_server(&cert, setup, server_port)];
         let _client = common::Daemon::sing_box(
-            &cert.dir,
+            cert.dir.path(),
             "client",
             prune(sing_box_client(&cert, setup, socks_port, server_port)),
         )?;
@@ -569,7 +562,7 @@ fn test_vmess_xudp_full_cone_sing_box() -> anyhow::Result<()> {
     common::retry_port_clash(|| {
         let [socks_port, server_port] = common::free_ports();
         let _server = common::Daemon::sing_box(
-            &cert.dir,
+            cert.dir.path(),
             "server",
             prune(sing_box_server(&cert, setup, server_port)),
         )?;
@@ -581,7 +574,7 @@ fn test_vmess_xudp_full_cone_sing_box() -> anyhow::Result<()> {
     common::retry_port_clash(|| {
         let [socks_port, server_port] = common::free_ports();
         let _client = common::Daemon::sing_box(
-            &cert.dir,
+            cert.dir.path(),
             "client",
             prune(sing_box_client(&cert, setup, socks_port, server_port)),
         )?;
