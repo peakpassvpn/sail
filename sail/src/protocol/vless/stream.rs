@@ -281,6 +281,32 @@ fn padded_chunk_len(data: &[u8]) -> usize {
         .unwrap_or(8192 / 2)
 }
 
+/// How much of `data` goes into the next padded frame once the uplink is
+/// headed for direct copy: up to the end of the inner TLS record `records` is
+/// in, so the raw data after PaddingDirect starts with a record header, or as
+/// much as fits a frame.
+///
+/// The peer may read past the frame on the outer TLS connection: Go's
+/// crypto/tls, reading the record that ends the frame, peeks at the next
+/// byte and takes an alert record (0x15) that follows right away, so raw
+/// bytes that begin in the middle of an inner record break the connection
+/// whenever they begin with that byte.
+fn direct_chunk_len(records: &RecordTracker, data: &[u8]) -> usize {
+    let max = data.len().min(MAX_PADDED_CONTENT);
+    let mut records = records.clone();
+    let mut pos = 0;
+    while pos < max {
+        let n = records.limit().min(max - pos);
+        records.consume(&data[pos..pos + n]);
+        pos += n;
+        if records.at_record_end() {
+            break;
+        }
+    }
+    pos
+}
+
+use crate::transport::tls_stream::RecordTracker;
 use crate::transport::vision::VisionState;
 use futures::ready;
 use std::pin::Pin;
@@ -303,6 +329,9 @@ pub struct VlessStream<S> {
     // A padded frame accepted from the caller but not fully written yet.
     pending: Vec<u8>,
     pending_pos: usize,
+    // The uplink goes to direct copy at the end of the inner TLS record it
+    // is in: this follows the inner records until then.
+    direct_records: Option<RecordTracker>,
     // The pending frame carries PaddingDirect: switch writes to the raw
     // transport once it is written.
     direct_after_pending: bool,
@@ -323,6 +352,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> VlessStream<S> {
             write_uuid: true,
             pending: Vec::new(),
             pending_pos: 0,
+            direct_records: None,
             direct_after_pending: false,
         }
     }
@@ -459,33 +489,48 @@ impl<S: AsyncRead + AsyncWrite + Unpin> AsyncWrite for VlessStream<S> {
             return Pin::new(&mut this.stream).poll_write(cx, buf);
         }
 
-        let n = padded_chunk_len(buf);
+        let app_data =
+            this.tls_filter.is_tls && buf.len() > 6 && buf.starts_with(&TLS_APPLICATION_DATA_START);
+        let raw_capable = this
+            .vision_state
+            .as_ref()
+            .is_some_and(|v| v.is_raw_capable());
+        if app_data && this.tls_filter.enable_xtls && raw_capable {
+            // Inner TLS 1.3 reached application data over a transport that
+            // can go raw: switch the uplink to direct copy at the end of this
+            // record.
+            this.direct_records
+                .get_or_insert_with(RecordTracker::default);
+        }
+        let n = match &this.direct_records {
+            Some(records) => direct_chunk_len(records, buf),
+            None => padded_chunk_len(buf),
+        };
         let chunk = &buf[..n];
         this.tls_filter.filter(chunk);
         let filter = &this.tls_filter;
-        let command =
-            if filter.is_tls && chunk.len() > 6 && chunk.starts_with(&TLS_APPLICATION_DATA_START) {
-                // Inner TLS reached application data: stop padding, and with
-                // inner TLS 1.3 over a transport that can go raw, switch the
-                // uplink to direct copy.
+        let command = if let Some(records) = &mut this.direct_records {
+            records.consume(chunk);
+            if records.at_record_end() {
                 this.write_padding = false;
-                let raw_capable = this
-                    .vision_state
-                    .as_ref()
-                    .is_some_and(|v| v.is_raw_capable());
-                if filter.enable_xtls && raw_capable {
-                    this.direct_after_pending = true;
-                    COMMAND_PADDING_DIRECT
-                } else {
-                    COMMAND_PADDING_END
-                }
-            } else if !filter.is_tls12_or_above && filter.packets_left <= 1 {
-                // Not TLS 1.2+: stop padding; the rest stays in the outer TLS.
-                this.write_padding = false;
-                COMMAND_PADDING_END
+                this.direct_after_pending = true;
+                COMMAND_PADDING_DIRECT
             } else {
+                // The record goes on past this frame: keep padding.
                 COMMAND_PADDING_CONTINUE
-            };
+            }
+        } else if app_data {
+            // Inner TLS reached application data: stop padding; the rest
+            // stays in the outer TLS.
+            this.write_padding = false;
+            COMMAND_PADDING_END
+        } else if !filter.is_tls12_or_above && filter.packets_left <= 1 {
+            // Not TLS 1.2+: stop padding; the rest stays in the outer TLS.
+            this.write_padding = false;
+            COMMAND_PADDING_END
+        } else {
+            COMMAND_PADDING_CONTINUE
+        };
         let uuid = std::mem::take(&mut this.write_uuid).then_some(&this.uuid);
         write_padding_frame(&mut this.pending, chunk, command, uuid, filter.is_tls);
 
@@ -653,6 +698,70 @@ mod tests {
             out,
             [tls_record(0x16, 1, 300), app_data, b"raw".to_vec()].concat()
         );
+    }
+
+    /// Splits what a Vision client wrote into the content of its padded
+    /// frames up to PaddingDirect, and the raw bytes after it.
+    fn split_direct(wire: &[u8]) -> (Vec<u8>, Vec<u8>) {
+        assert_eq!(&wire[..16], &UUID);
+        let mut pos = 16;
+        let mut content = vec![];
+        loop {
+            let command = wire[pos];
+            let len = u16::from_be_bytes([wire[pos + 1], wire[pos + 2]]) as usize;
+            let padding = u16::from_be_bytes([wire[pos + 3], wire[pos + 4]]) as usize;
+            pos += 5;
+            content.extend_from_slice(&wire[pos..pos + len]);
+            pos += len + padding;
+            match command {
+                COMMAND_PADDING_CONTINUE => continue,
+                COMMAND_PADDING_DIRECT => return (content, wire[pos..].to_vec()),
+                c => panic!("unexpected command {c}"),
+            }
+        }
+    }
+
+    /// Writes `writes` through a Vision client that goes direct, and returns
+    /// the padded content and the raw bytes.
+    async fn write_direct(writes: &[&[u8]]) -> (Vec<u8>, Vec<u8>) {
+        let (client, mut server) = tokio::io::duplex(1 << 20);
+        let vision = VisionState::default();
+        vision.set_raw_capable();
+        let mut stream = VlessStream::new(client, UUID, Some(vision.clone()));
+        stream.tls_filter.filter(&tls13_server_hello(0x1301));
+        for w in writes {
+            stream.write_all(w).await.unwrap();
+        }
+        assert!(vision.is_write_direct());
+        stream.shutdown().await.unwrap();
+        drop(stream);
+        let mut wire = vec![];
+        server.read_to_end(&mut wire).await.unwrap();
+        split_direct(&wire)
+    }
+
+    // The raw bytes after PaddingDirect start at an inner record boundary,
+    // even when a write ends in the middle of a record: a Go server reading
+    // the frame takes a raw 0x15 right behind it for an outer TLS alert.
+    #[tokio::test]
+    async fn test_vision_direct_starts_at_record_boundary() {
+        let hello = tls_record(0x16, 1, 300);
+        let finished = tls_record(0x17, 0, 53);
+        let mut app = tls_record(0x17, 0, 16384);
+        app[3000] = 0x15;
+        // Finished and the head of the first application data record in one
+        // write, the rest of that record in the next.
+        let first = [finished.clone(), app[..3000].to_vec()].concat();
+        let (content, raw) = write_direct(&[&hello, &first, &app[3000..]]).await;
+        assert_eq!(content, [hello.clone(), finished].concat());
+        assert_eq!(raw, app);
+
+        // A record longer than one write, or one frame, is padded to its end.
+        let next = tls_record(0x17, 0, 100);
+        let rest = [app[12000..].to_vec(), next.clone()].concat();
+        let (content, raw) = write_direct(&[&hello, &app[..6000], &app[6000..12000], &rest]).await;
+        assert_eq!(content, [hello, app].concat());
+        assert_eq!(raw, next);
     }
 
     #[tokio::test]

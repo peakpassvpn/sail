@@ -79,8 +79,8 @@ enum Side {
 /// Follows TLS record boundaries in the bytes read from the transport, so
 /// reads can stop exactly at the end of a record: first the 5-byte header,
 /// then the body length it announces.
-#[derive(Default)]
-struct RecordTracker {
+#[derive(Clone, Default)]
+pub(crate) struct RecordTracker {
     header: [u8; 5],
     header_len: usize,
     body_left: usize,
@@ -88,7 +88,7 @@ struct RecordTracker {
 
 impl RecordTracker {
     /// Most bytes that can be read without crossing a record boundary.
-    fn limit(&self) -> usize {
+    pub(crate) fn limit(&self) -> usize {
         if self.body_left > 0 {
             self.body_left
         } else {
@@ -96,7 +96,12 @@ impl RecordTracker {
         }
     }
 
-    fn consume(&mut self, mut data: &[u8]) {
+    /// Between two records: the last one ended and the next has not begun.
+    pub(crate) fn at_record_end(&self) -> bool {
+        self.header_len == 0 && self.body_left == 0
+    }
+
+    pub(crate) fn consume(&mut self, mut data: &[u8]) {
         while !data.is_empty() {
             if self.body_left > 0 {
                 let n = self.body_left.min(data.len());
