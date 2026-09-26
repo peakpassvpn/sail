@@ -1168,11 +1168,12 @@ pub fn to_config(conf: &Config) -> Result<model::Config> {
                 "tryall",
                 json!({ "outbounds": members, "delay_base": params.number("delay-base")? }),
             ),
-            "static" => outbound(
-                tag,
-                "static",
-                json!({ "outbounds": members, "method": params.take("method") }),
-            ),
+            "static" => {
+                return Err(anyhow!(
+                    "[Proxy Group] {}: there is no static group; use load-balance",
+                    tag
+                ))
+            }
             "select" => outbound(tag, "selector", json!({ "outbounds": members })),
             "url-test" => outbound(
                 tag,
@@ -1734,6 +1735,8 @@ Pick = select, A, B
         assert!(err.contains("lazy"), "{}", err);
         let err = load_err("[Proxy Group]\nG = failover, A, B\n");
         assert!(err.contains("unsupported group type"), "{}", err);
+        let err = load_err("[Proxy Group]\nG = static, A, B, method=random\n");
+        assert!(err.contains("load-balance"), "{}", err);
     }
 
     #[test]

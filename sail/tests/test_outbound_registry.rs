@@ -375,18 +375,6 @@ fn an_outbound_dials_with_its_own_options_over_the_defaults() {
 
 #[cfg(not(windows))]
 #[test]
-fn a_group_passes_its_members_dial_options_on() {
-    let m = manager(&[
-        outbound("static", "static", json!({ "outbounds": ["member"] })),
-        ss("member", json!({ "bind_interface": LOOPBACK })),
-    ])
-    .unwrap();
-    let (_, dial) = dial_of(&m, "static");
-    assert_eq!(dial.bind_interface.as_deref(), Some(LOOPBACK));
-}
-
-#[cfg(not(windows))]
-#[test]
 fn an_outbound_through_a_detour_is_dialled_as_the_detour_says() {
     let m = manager(&[
         ss("via", json!({ "server_port": 9000, "detour": "hop" })),
@@ -452,7 +440,7 @@ fn a_bad_dial_field_names_itself() {
     let err = manager(&[
         outbound(
             "g",
-            "static",
+            "tryall",
             json!({ "outbounds": ["ss"], "bind_interface": "x" }),
         ),
         ss("ss", json!({})),

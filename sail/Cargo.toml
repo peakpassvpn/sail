@@ -65,7 +65,6 @@ all-endpoints = [
     "mux",
     "outbound-quic",
     "outbound-fallback",
-    "outbound-static",
     "outbound-tryall",
     "outbound-chain",
     "outbound-vless",
@@ -111,7 +110,6 @@ outbound-tls = ["tls"]
 outbound-ws = ["tungstenite", "tokio-tungstenite", "http", "httparse", "base64"]
 outbound-httpupgrade = ["http", "httparse"]
 outbound-grpc = ["h2", "http"]
-outbound-static= []
 outbound-tryall = []
 outbound-chain = []
 outbound-vless = []
