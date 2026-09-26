@@ -31,12 +31,12 @@ fn load_balance(members: &[(&str, u16)], extra: serde_json::Value) -> serde_json
 #[test]
 fn round_robin_spreads_connections_over_every_member() {
     rt().block_on(async {
-        let _a = serve(33140, "a", Duration::ZERO).await;
-        let _b = serve(33141, "b", Duration::ZERO).await;
-        let _c = serve(33142, "c", Duration::ZERO).await;
+        let (_a, p_a) = serve("a", Duration::ZERO).await;
+        let (_b, p_b) = serve("b", Duration::ZERO).await;
+        let (_c, p_c) = serve("c", Duration::ZERO).await;
         let m = manager(
             load_balance(
-                &[("a", 33140), ("b", 33141), ("c", 33142)],
+                &[("a", p_a), ("b", p_b), ("c", p_c)],
                 json!({ "strategy": "round-robin" }),
             ),
             &env("lb-round-robin"),
@@ -57,11 +57,11 @@ fn round_robin_spreads_connections_over_every_member() {
 #[test]
 fn consistent_hashing_keeps_a_site_on_one_member() {
     rt().block_on(async {
-        let _a = serve(33143, "a", Duration::ZERO).await;
-        let _b = serve(33144, "b", Duration::ZERO).await;
-        let _c = serve(33145, "c", Duration::ZERO).await;
+        let (_a, p_a) = serve("a", Duration::ZERO).await;
+        let (_b, p_b) = serve("b", Duration::ZERO).await;
+        let (_c, p_c) = serve("c", Duration::ZERO).await;
         let m = manager(
-            load_balance(&[("a", 33143), ("b", 33144), ("c", 33145)], json!({})),
+            load_balance(&[("a", p_a), ("b", p_b), ("c", p_c)], json!({})),
             &env("lb-consistent"),
         )
         .unwrap();
@@ -93,12 +93,12 @@ fn consistent_hashing_keeps_a_site_on_one_member() {
 #[test]
 fn sticky_sessions_keep_a_pair_on_one_member() {
     rt().block_on(async {
-        let _a = serve(33146, "a", Duration::ZERO).await;
-        let _b = serve(33147, "b", Duration::ZERO).await;
-        let _c = serve(33148, "c", Duration::ZERO).await;
+        let (_a, p_a) = serve("a", Duration::ZERO).await;
+        let (_b, p_b) = serve("b", Duration::ZERO).await;
+        let (_c, p_c) = serve("c", Duration::ZERO).await;
         let m = manager(
             load_balance(
-                &[("a", 33146), ("b", 33147), ("c", 33148)],
+                &[("a", p_a), ("b", p_b), ("c", p_c)],
                 json!({ "strategy": "sticky-sessions" }),
             ),
             &env("lb-sticky"),
@@ -115,11 +115,11 @@ fn sticky_sessions_keep_a_pair_on_one_member() {
 #[test]
 fn a_member_that_fails_its_test_is_skipped() {
     rt().block_on(async {
-        let a = serve(33149, "a", Duration::ZERO).await;
-        let _b = serve(33150, "b", Duration::ZERO).await;
+        let (a, p_a) = serve("a", Duration::ZERO).await;
+        let (_b, p_b) = serve("b", Duration::ZERO).await;
         let m = manager(
             load_balance(
-                &[("a", 33149), ("b", 33150)],
+                &[("a", p_a), ("b", p_b)],
                 json!({ "strategy": "round-robin", "lazy": false }),
             ),
             &env("lb-skip"),
@@ -147,26 +147,29 @@ fn configuration_mistakes_are_errors() {
     assert!(msg.contains("[lb]"), "{}", msg);
     let msg = error(json!([
         { "type": "load-balance", "tag": "lb", "outbounds": ["a", "nope"] },
-        member("a", 33151),
+        member("a", UNSERVED),
     ]));
     assert!(msg.contains("nope"), "{}", msg);
     let msg = error(load_balance(
-        &[("a", 33151)],
+        &[("a", UNSERVED)],
         json!({ "strategy": "random" }),
     ));
     assert!(msg.contains("strategy"), "{}", msg);
     let msg = error(load_balance(
-        &[("a", 33151)],
+        &[("a", UNSERVED)],
         json!({ "strategy": "round_robin" }),
     ));
     assert!(msg.contains("strategy"), "{}", msg);
     let msg = error(load_balance(
-        &[("a", 33151)],
+        &[("a", UNSERVED)],
         json!({ "url": "gopher://x" }),
     ));
     assert!(msg.contains("url"), "{}", msg);
-    let msg = error(load_balance(&[("a", 33151)], json!({ "interval": "0ms" })));
+    let msg = error(load_balance(
+        &[("a", UNSERVED)],
+        json!({ "interval": "0ms" }),
+    ));
     assert!(msg.contains("interval"), "{}", msg);
-    let msg = error(load_balance(&[("a", 33151)], json!({ "tolerance": 50 })));
+    let msg = error(load_balance(&[("a", UNSERVED)], json!({ "tolerance": 50 })));
     assert!(msg.contains("tolerance"), "{}", msg);
 }

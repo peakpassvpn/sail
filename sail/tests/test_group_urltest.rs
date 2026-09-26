@@ -37,11 +37,11 @@ fn tested(m: &sail::app::outbound::manager::OutboundManager) -> bool {
 #[test]
 fn the_fastest_member_is_selected_and_latencies_are_kept() {
     rt().block_on(async {
-        let _a = serve(33110, "a", Duration::from_millis(300)).await;
-        let _b = serve(33111, "b", Duration::ZERO).await;
-        let _c = serve(33112, "c", Duration::from_millis(120)).await;
+        let (_a, p_a) = serve("a", Duration::from_millis(300)).await;
+        let (_b, p_b) = serve("b", Duration::ZERO).await;
+        let (_c, p_c) = serve("c", Duration::from_millis(120)).await;
         let m = manager(
-            urltest(&[("a", 33110), ("b", 33111), ("c", 33112)], json!({})),
+            urltest(&[("a", p_a), ("b", p_b), ("c", p_c)], json!({})),
             &env("urltest-fastest"),
         )
         .unwrap();
@@ -63,10 +63,10 @@ fn the_fastest_member_is_selected_and_latencies_are_kept() {
 #[test]
 fn a_faster_member_within_the_tolerance_does_not_make_it_switch() {
     rt().block_on(async {
-        let _a = serve(33113, "a", Duration::from_millis(100)).await;
-        let _b = serve(33114, "b", Duration::ZERO).await;
+        let (_a, p_a) = serve("a", Duration::from_millis(100)).await;
+        let (_b, p_b) = serve("b", Duration::ZERO).await;
         let m = manager(
-            urltest(&[("a", 33113), ("b", 33114)], json!({ "tolerance": 1000 })),
+            urltest(&[("a", p_a), ("b", p_b)], json!({ "tolerance": 1000 })),
             &env("urltest-tolerant"),
         )
         .unwrap();
@@ -78,10 +78,10 @@ fn a_faster_member_within_the_tolerance_does_not_make_it_switch() {
 #[test]
 fn a_faster_member_beyond_the_tolerance_makes_it_switch() {
     rt().block_on(async {
-        let _a = serve(33115, "a", Duration::from_millis(200)).await;
-        let _b = serve(33116, "b", Duration::ZERO).await;
+        let (_a, p_a) = serve("a", Duration::from_millis(200)).await;
+        let (_b, p_b) = serve("b", Duration::ZERO).await;
         let m = manager(
-            urltest(&[("a", 33115), ("b", 33116)], json!({ "tolerance": 20 })),
+            urltest(&[("a", p_a), ("b", p_b)], json!({ "tolerance": 20 })),
             &env("urltest-intolerant"),
         )
         .unwrap();
@@ -93,13 +93,10 @@ fn a_faster_member_beyond_the_tolerance_makes_it_switch() {
 #[test]
 fn a_member_that_dies_is_left() {
     rt().block_on(async {
-        let a = serve(33117, "a", Duration::ZERO).await;
-        let _b = serve(33118, "b", Duration::from_millis(100)).await;
+        let (a, p_a) = serve("a", Duration::ZERO).await;
+        let (_b, p_b) = serve("b", Duration::from_millis(100)).await;
         let m = manager(
-            urltest(
-                &[("a", 33117), ("b", 33118)],
-                json!({ "interval": "300ms" }),
-            ),
+            urltest(&[("a", p_a), ("b", p_b)], json!({ "interval": "300ms" })),
             &env("urltest-dies"),
         )
         .unwrap();
@@ -121,11 +118,11 @@ fn a_member_that_dies_is_left() {
 #[test]
 fn a_switch_interrupts_connections_when_asked_to() {
     rt().block_on(async {
-        let (_a, a_delay) = serve_adjustable(33119, "a", Duration::ZERO).await;
-        let _b = serve(33120, "b", Duration::from_millis(100)).await;
+        let (_a, a_delay, p_a) = serve_adjustable("a", Duration::ZERO).await;
+        let (_b, p_b) = serve("b", Duration::from_millis(100)).await;
         let m = manager(
             urltest(
-                &[("a", 33119), ("b", 33120)],
+                &[("a", p_a), ("b", p_b)],
                 json!({ "interval": "300ms", "interrupt_exist_connections": true }),
             ),
             &env("urltest-interrupt"),
@@ -146,7 +143,7 @@ fn a_switch_interrupts_connections_when_asked_to() {
 #[test]
 fn it_is_not_selected_by_hand() {
     let m = manager(
-        urltest(&[("a", 33121), ("b", 33122)], json!({})),
+        urltest(&[("a", UNSERVED), ("b", UNSERVED)], json!({})),
         &env("urltest-by-hand"),
     )
     .unwrap();
@@ -169,15 +166,15 @@ fn configuration_mistakes_are_errors() {
     assert!(msg.contains("[auto]"), "{}", msg);
     let msg = error(json!([
         { "type": "urltest", "tag": "auto", "outbounds": ["a", "nope"] },
-        member("a", 33121),
+        member("a", UNSERVED),
     ]));
     assert!(msg.contains("nope"), "{}", msg);
-    let msg = error(urltest(&[("a", 33121)], json!({ "url": "ftp://x/" })));
+    let msg = error(urltest(&[("a", UNSERVED)], json!({ "url": "ftp://x/" })));
     assert!(msg.contains("url"), "{}", msg);
-    let msg = error(urltest(&[("a", 33121)], json!({ "interval": "0s" })));
+    let msg = error(urltest(&[("a", UNSERVED)], json!({ "interval": "0s" })));
     assert!(msg.contains("interval"), "{}", msg);
-    let msg = error(urltest(&[("a", 33121)], json!({ "interval": "soon" })));
+    let msg = error(urltest(&[("a", UNSERVED)], json!({ "interval": "soon" })));
     assert!(msg.contains("interval"), "{}", msg);
-    let msg = error(urltest(&[("a", 33121)], json!({ "default": "a" })));
+    let msg = error(urltest(&[("a", UNSERVED)], json!({ "default": "a" })));
     assert!(msg.contains("default"), "{}", msg);
 }
