@@ -41,11 +41,11 @@ const PASSWORD: &str = "anytls-password";
 struct Certs {
     cert: String,
     key: String,
+    _dir: common::TempDir,
 }
 
 fn certs(name: &str) -> anyhow::Result<Certs> {
-    let dir = std::env::temp_dir().join(format!("sail-anytls-{}-{}", name, std::process::id()));
-    std::fs::create_dir_all(&dir)?;
+    let dir = common::TempDir::new(&format!("anytls-{}", name))?;
     let rcgen::CertifiedKey { cert, key_pair } =
         rcgen::generate_simple_self_signed(vec!["localhost".into()])?;
     let cert_path = dir.join("cert.pem");
@@ -55,6 +55,7 @@ fn certs(name: &str) -> anyhow::Result<Certs> {
     Ok(Certs {
         cert: cert_path.to_string_lossy().into_owned(),
         key: key_path.to_string_lossy().into_owned(),
+        _dir: dir,
     })
 }
 

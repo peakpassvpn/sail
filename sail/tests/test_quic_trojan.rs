@@ -14,19 +14,18 @@ mod common;
 ))]
 #[test]
 fn test_quic_trojan() -> anyhow::Result<()> {
-    let mut path =
-        std::env::current_exe().map_err(|e| anyhow::anyhow!("current exe failed: {}", e))?;
-    path.pop();
+    // The certificate and key, as files of this test's own.
+    let dir = common::TempDir::new("quic-trojan")?;
     let rcgen::CertifiedKey { cert, key_pair } =
         rcgen::generate_simple_self_signed(vec!["localhost".into()])
             .map_err(|e| anyhow::anyhow!("generate cert failed: {}", e))?;
-    std::fs::write(&path.join("key.der"), &key_pair.serialize_der())
+    std::fs::write(dir.join("key.der"), &key_pair.serialize_der())
         .map_err(|e| anyhow::anyhow!("write key.der failed: {}", e))?;
-    std::fs::write(&path.join("cert.der"), &cert.der().to_vec())
+    std::fs::write(dir.join("cert.der"), &cert.der().to_vec())
         .map_err(|e| anyhow::anyhow!("write cert.der failed: {}", e))?;
-    std::fs::write(&path.join("key.pem"), &key_pair.serialize_pem())
+    std::fs::write(dir.join("key.pem"), &key_pair.serialize_pem())
         .map_err(|e| anyhow::anyhow!("write key.pem failed: {}", e))?;
-    std::fs::write(&path.join("cert.pem"), &cert.pem())
+    std::fs::write(dir.join("cert.pem"), &cert.pem())
         .map_err(|e| anyhow::anyhow!("write cert.pem failed: {}", e))?;
     let cert_pem = cert.pem();
 
@@ -57,7 +56,7 @@ fn test_quic_trojan() -> anyhow::Result<()> {
                             "http/1.1",
                             "trojan"
                         ],
-                        "certificate_path": "cert.der"
+                        "certificate_path": dir.join("cert.der")
                     }
                 }
             ]
@@ -80,8 +79,8 @@ fn test_quic_trojan() -> anyhow::Result<()> {
                     },
                     "tls": {
                         "enabled": true,
-                        "certificate_path": "cert.der",
-                        "key_path": "key.der",
+                        "certificate_path": dir.join("cert.der"),
+                        "key_path": dir.join("key.der"),
                         "alpn": [
                             "http/1.1",
                             "trojan"
@@ -125,7 +124,7 @@ fn test_quic_trojan() -> anyhow::Result<()> {
                     "tls": {
                         "enabled": true,
                         "server_name": "localhost",
-                        "certificate_path": "cert.pem"
+                        "certificate_path": dir.join("cert.pem")
                     }
                 }
             ]
@@ -148,8 +147,8 @@ fn test_quic_trojan() -> anyhow::Result<()> {
                     },
                     "tls": {
                         "enabled": true,
-                        "certificate_path": "cert.pem",
-                        "key_path": "key.pem"
+                        "certificate_path": dir.join("cert.pem"),
+                        "key_path": dir.join("key.pem")
                     }
                 }
             ],
@@ -197,8 +196,8 @@ FINAL,Proxy
                     },
                     "tls": {
                         "enabled": true,
-                        "certificate_path": "cert.pem",
-                        "key_path": "key.pem",
+                        "certificate_path": dir.join("cert.pem"),
+                        "key_path": dir.join("key.pem"),
                         "alpn": [
                             "http/1.1"
                         ]

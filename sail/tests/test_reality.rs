@@ -39,7 +39,7 @@ const SITE_GREETING: &[u8] = b"the real site\n";
 struct Cert {
     cert_pem: String,
     key_pem: String,
-    dir: PathBuf,
+    dir: common::TempDir,
 }
 
 impl Cert {
@@ -51,9 +51,7 @@ impl Cert {
         let mut names = vec!["localhost".to_string()];
         names.extend((0..16).map(|i| format!("host-{}.sail.example", i)));
         let rcgen::CertifiedKey { cert, key_pair } = rcgen::generate_simple_self_signed(names)?;
-        let dir =
-            std::env::temp_dir().join(format!("sail-reality-{}-{}", name, std::process::id()));
-        std::fs::create_dir_all(&dir)?;
+        let dir = common::TempDir::new(&format!("reality-{}", name))?;
         let cert = Cert {
             cert_pem: cert.pem(),
             key_pem: key_pair.serialize_pem(),
@@ -70,12 +68,6 @@ impl Cert {
 
     fn key_path(&self) -> PathBuf {
         self.dir.join("key.pem")
-    }
-}
-
-impl Drop for Cert {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.dir);
     }
 }
 
@@ -651,7 +643,7 @@ fn test_reality_sail_to_sing_box() -> anyhow::Result<()> {
     common::retry_port_clash(|| {
         let [socks_port, server_port] = common::free_ports();
         let _server = common::Daemon::sing_box(
-            &cert.dir,
+            cert.dir.path(),
             "server",
             prune(sing_box_server(&keys, &site, server_port)),
         )?;
@@ -671,7 +663,7 @@ fn test_reality_sing_box_to_sail() -> anyhow::Result<()> {
         let [socks_port, server_port] = common::free_ports();
         let configs = vec![sail_server(&keys, &site, server_port)];
         let _client = common::Daemon::sing_box(
-            &cert.dir,
+            cert.dir.path(),
             "client",
             prune(sing_box_client(&keys, socks_port, server_port)),
         )?;
@@ -735,7 +727,7 @@ fn test_reality_xray_to_sail() -> anyhow::Result<()> {
                 },
             }],
         });
-        let _client = xray(&cert.dir, "client", client)?;
+        let _client = xray(cert.dir.path(), "client", client)?;
         common::test_configs(configs.clone(), "127.0.0.1", socks_port)?;
         transfer(configs, socks_port, true)
     })
@@ -787,7 +779,7 @@ fn test_reality_flight_shape_as_xray() -> anyhow::Result<()> {
             }],
             "outbounds": [{ "protocol": "freedom" }],
         });
-        let _server = xray(&cert.dir, "server", server)?;
+        let _server = xray(cert.dir.path(), "server", server)?;
         // Connections Xray may make to the site by itself, as it learns what
         // the site sends after a handshake, have no counterpart.
         std::thread::sleep(Duration::from_millis(500));
@@ -901,7 +893,7 @@ fn test_reality_sing_box_to_sail_four_records() -> anyhow::Result<()> {
         let [socks_port, server_port] = common::free_ports();
         let configs = vec![sail_server(&keys, &site, server_port)];
         let _client = common::Daemon::sing_box(
-            &cert.dir,
+            cert.dir.path(),
             "client",
             prune(sing_box_client(&keys, socks_port, server_port)),
         )?;

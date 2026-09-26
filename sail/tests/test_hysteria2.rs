@@ -27,16 +27,14 @@ const OBFS_PASSWORD: &str = "salamander-password";
 struct Cert {
     cert_pem: String,
     key_pem: String,
-    dir: PathBuf,
+    dir: common::TempDir,
 }
 
 impl Cert {
     fn new(name: &str) -> anyhow::Result<Self> {
         let rcgen::CertifiedKey { cert, key_pair } =
             rcgen::generate_simple_self_signed(vec!["localhost".into()])?;
-        let dir =
-            std::env::temp_dir().join(format!("sail-hysteria2-{}-{}", name, std::process::id()));
-        std::fs::create_dir_all(&dir)?;
+        let dir = common::TempDir::new(&format!("hysteria2-{}", name))?;
         let cert = Cert {
             cert_pem: cert.pem(),
             key_pem: key_pair.serialize_pem(),
@@ -53,12 +51,6 @@ impl Cert {
 
     fn key_path(&self) -> PathBuf {
         self.dir.join("key.pem")
-    }
-}
-
-impl Drop for Cert {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.dir);
     }
 }
 
@@ -260,7 +252,7 @@ fn sail_to_sing_box(name: &str, salamander: bool, bandwidth: bool) -> anyhow::Re
     common::retry_port_clash(|| {
         let [socks_port, server_port] = common::free_ports();
         let _server = common::Daemon::sing_box(
-            &cert.dir,
+            cert.dir.path(),
             "server",
             prune(sing_box_server(&cert, server_port, salamander, bandwidth)),
         )?;
@@ -287,7 +279,7 @@ fn sing_box_to_sail(name: &str, salamander: bool, bandwidth: bool) -> anyhow::Re
         // client each.
         let client = || {
             common::Daemon::sing_box(
-                &cert.dir,
+                cert.dir.path(),
                 "client",
                 prune(sing_box_client(
                     &cert,
