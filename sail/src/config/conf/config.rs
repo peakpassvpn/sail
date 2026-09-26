@@ -208,7 +208,7 @@ fn get_section(text: &str) -> Option<&str> {
 }
 
 fn normalize_section(s: &str) -> String {
-    s.to_lowercase().replace(' ', "").replace('_', "")
+    s.to_lowercase().replace([' ', '_'], "")
 }
 
 fn get_certificate_sections<'a, I>(lines: I) -> HashMap<String, String>
@@ -452,7 +452,7 @@ pub fn from_lines(lines: Vec<io::Result<String>>) -> Result<Config> {
             }
             "tun" => {
                 if let Some(items) = get_char_sep_slice(parts[1], ',') {
-                    if items.len() >= 1 && items[0] == "auto" {
+                    if !items.is_empty() && items[0] == "auto" {
                         general.tun_auto = Some(true);
                         continue;
                     }
@@ -1486,6 +1486,15 @@ fn utls(fingerprint: &Option<String>) -> Option<serde_json::Value> {
         Some(name) => Some(json!({ "fingerprint": name })),
     }
 }
+
+pub fn from_file<P>(path: P) -> Result<model::Config>
+where
+    P: AsRef<Path>,
+{
+    let lines = read_lines(path)?.collect();
+    let config = from_lines(lines)?;
+    to_config(&config)
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1946,13 +1955,4 @@ CERT4
         assert_eq!(certs.get("MyThirdCert").unwrap(), "CERT3\n");
         assert_eq!(certs.get("NoSpaceCert").unwrap(), "CERT4\n");
     }
-}
-
-pub fn from_file<P>(path: P) -> Result<model::Config>
-where
-    P: AsRef<Path>,
-{
-    let lines = read_lines(path)?.collect();
-    let config = from_lines(lines)?;
-    to_config(&config)
 }

@@ -14,33 +14,7 @@ use crate::{
     session::*,
 };
 
-fn get_start_options(
-    config_path: String,
-    #[cfg(feature = "auto-reload")] auto_reload: bool,
-    multi_thread: bool,
-    auto_threads: bool,
-    threads: usize,
-    stack_size: usize,
-    runtime: crate::runtime::RuntimeOptions,
-    host: crate::runtime::Host,
-) -> crate::StartOptions {
-    let runtime_opt = if !multi_thread {
-        crate::RuntimeOption::SingleThread
-    } else if auto_threads {
-        crate::RuntimeOption::MultiThreadAuto(stack_size)
-    } else {
-        crate::RuntimeOption::MultiThread(threads, stack_size)
-    };
-    crate::StartOptions {
-        config: crate::Config::File(config_path),
-        #[cfg(feature = "auto-reload")]
-        auto_reload,
-        runtime_opt,
-        runtime,
-        host,
-    }
-}
-
+// The flat entry point the CLI and FFI call with their own flags.
 #[allow(clippy::too_many_arguments)]
 pub fn run_with_options(
     rt_id: crate::RuntimeId,
@@ -53,17 +27,21 @@ pub fn run_with_options(
     runtime: crate::runtime::RuntimeOptions,
     host: crate::runtime::Host,
 ) -> Result<(), crate::Error> {
-    let opts = get_start_options(
-        config_path,
+    let runtime_opt = if !multi_thread {
+        crate::RuntimeOption::SingleThread
+    } else if auto_threads {
+        crate::RuntimeOption::MultiThreadAuto(stack_size)
+    } else {
+        crate::RuntimeOption::MultiThread(threads, stack_size)
+    };
+    let opts = crate::StartOptions {
+        config: crate::Config::File(config_path),
         #[cfg(feature = "auto-reload")]
         auto_reload,
-        multi_thread,
-        auto_threads,
-        threads,
-        stack_size,
+        runtime_opt,
         runtime,
         host,
-    );
+    };
     crate::start(rt_id, opts)
 }
 

@@ -34,7 +34,7 @@ pub fn get_selected_from_cache(cache_file: &Path, id: &str) -> Result<Option<Str
     }
     let content = std::fs::read(cache_file)?;
     let cache = super::selector_cache::SelectorCache::parse_from_bytes(&content)?;
-    Ok(cache.items.get(id).map(Clone::clone))
+    Ok(cache.items.get(id).cloned())
 }
 
 pub fn persist_selected_to_cache(cache_file: &Path, id: String, selected: String) -> Result<()> {

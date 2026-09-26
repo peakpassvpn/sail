@@ -56,20 +56,20 @@ async fn protect_socket(fd: RawFd, dial: &DialOptions) -> io::Result<()> {
         }
         Some(dial::SocketProtect::Tcp(addr)) => {
             let mut stream = TcpStream::connect(addr).await?;
-            stream.write_i32(fd as i32).await?;
+            stream.write_i32(fd).await?;
             stream.read_i32().await?
         }
         Some(dial::SocketProtect::Unix(path)) => {
             let mut stream = UnixStream::connect(path).await?;
-            stream.write_i32(fd as i32).await?;
+            stream.write_i32(fd).await?;
             stream.read_i32().await?
         }
     };
     if answer != 0 {
-        return Err(io::Error::new(
-            io::ErrorKind::Other,
-            format!("failed to protect outbound socket {}", fd),
-        ));
+        return Err(io::Error::other(format!(
+            "failed to protect outbound socket {}",
+            fd
+        )));
     }
     Ok(())
 }

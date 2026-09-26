@@ -1504,7 +1504,7 @@ impl DnsClient {
                     };
                     tasks.push(Box::pin(t));
                 }
-                match select_ok(tasks.into_iter()).await {
+                match select_ok(tasks).await {
                     Ok(((idx, entry), _)) => {
                         self.switch_primary_server(servers[idx]);
                         return Ok(entry);

@@ -665,7 +665,7 @@ pub enum RuntimeOption {
 pub enum Config {
     File(String),
     Str(String),
-    Internal(config::Config),
+    Internal(Box<config::Config>),
 }
 
 #[derive(Debug)]
@@ -697,7 +697,7 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
     let config = match opts.config {
         Config::File(p) => config::from_file(&p).map_err(Error::Config)?,
         Config::Str(s) => config::from_string(&s).map_err(Error::Config)?,
-        Config::Internal(c) => c,
+        Config::Internal(c) => *c,
     };
 
     let env = Arc::new(runtime::RuntimeEnv {

@@ -16,6 +16,12 @@ pub struct DnsSniffer {
     cache: Arc<RwLock<LruCache<IpAddr, String>>>,
 }
 
+impl Default for DnsSniffer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DnsSniffer {
     pub fn new() -> Self {
         let cap = NonZeroUsize::new(2048).unwrap();

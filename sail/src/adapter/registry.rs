@@ -179,7 +179,7 @@ impl OutboundContext<'_> {
     /// The outbound `tag`, which must be one of this outbound's
     /// dependencies.
     pub fn handler(&self, tag: &str) -> Result<AnyOutboundHandler> {
-        dependency(&self.handlers, "outbound", self.tag, tag)
+        dependency(self.handlers, "outbound", self.tag, tag)
     }
 
     /// The outbounds `tags`, which must be among this outbound's
@@ -734,7 +734,7 @@ mod tests {
         let env = RuntimeEnv::default();
         build_inbounds(
             &registry,
-            &[listener.clone()],
+            std::slice::from_ref(&listener),
             &["tun"],
             &env,
             &mut handlers,

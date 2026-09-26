@@ -619,12 +619,10 @@ pub fn outbound(
                 actors.extend(under_mux);
             }
             Some(mux) => {
-                let (address, port) = server(tag, layering.options)?;
                 actors.push(amux_outbound(
                     tag,
                     mux,
-                    address,
-                    port,
+                    server(tag, layering.options)?,
                     under_mux,
                     layering.dns_client,
                     &dial,
@@ -1021,8 +1019,7 @@ fn quic_outbound(
 fn amux_outbound(
     tag: &str,
     mux: &OutboundMultiplex,
-    address: String,
-    port: u16,
+    (address, port): (String, u16),
     actors: Vec<AnyOutboundHandler>,
     dns_client: &SyncDnsClient,
     dial: &Arc<DialOptions>,
