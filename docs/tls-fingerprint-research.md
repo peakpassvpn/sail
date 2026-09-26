@@ -226,6 +226,8 @@ quinn-btls（核实于 2026-09-25）：作者与 btls 相同；依赖 btls 0.5.5
 - **iOS 最低版本：** 提高到 13（BoringSSL 需要 `___chkstk_darwin`）。
 - **已验证的平台：** macOS 测试、aarch64-apple-ios（sail-ffi）、aarch64-unknown-linux-musl（容器内构建）。Android 在本机没有 NDK，只能依赖 CI。
 
+**btls fork 的维护方式（2026-09-26）：** 工作分支为 `sail`；最初基于 v0.5.6 的分支保留为 `sail-0.5.6`，因为较早的提交按 rev 固定在它上面。上游 PR（#205–#208）都被维护者直接关闭，没有留言，因此不再向上游提 PR，改为不定期把上游 main 合进 `sail` 分支。
+
 **1.1e 的实施记录（2026-09-26）：**
 
 - **fixture：**
@@ -271,7 +273,7 @@ quinn-btls（核实于 2026-09-25）：作者与 btls 相同；依赖 btls 0.5.5
   - 签名算法开头是一个 GREASE 值，接着是 ML-DSA-44/65/87（0x0904–0x0906），然后才是常见的 8 个；
   - 多了 Trust Anchor IDs 扩展（0xca34），内容是固定的 184 字节；
   - ALPS 使用新码点 17613。
-- **btls 版本：** v0.5.6 缺 GREASE 签名算法、trust anchors 的 API，BoringSSL 也不支持 ML-DSA 签名算法。因此 fork 的 `leaf` 分支改为基于 btls main，Reality 补丁在 main 的补丁集上重新生成（打在最后，并在带 PSK 的连接上报错）。
+- **btls 版本：** v0.5.6 缺 GREASE 签名算法、trust anchors 的 API，BoringSSL 也不支持 ML-DSA 签名算法。因此 fork 的工作分支（当时名为 `leaf`，现为 `sail`）改为基于 btls main，Reality 补丁在 main 的补丁集上重新生成（打在最后，并在带 PSK 的连接上报错）。
 - **实现：** `transport/tls/fingerprint.rs`。配置为 `tls.utls: { enabled, fingerprint }`，不写时默认 chrome，`edge` 是 chrome 的别名。Reality 固定使用浏览器指纹，关闭 utls 是配置错误。DoH 和 failover 健康检查也使用 Chrome 指纹。
 - **验证：**
   - 单元测试把生成的 ClientHello 与 fixture 逐项比较：JA4、密码套件、扩展集合、groups、签名算法、versions、key share，以及其余每个扩展的原始字节。普通 TLS 和 Reality 都做了比较，普通 TLS 连续生成 8 次，覆盖 GREASE 和扩展顺序的随机化。另用独立的 Python 解析脚本核对过一次。
@@ -284,7 +286,7 @@ quinn-btls（核实于 2026-09-25）：作者与 btls 相同；依赖 btls 0.5.5
 
 **1.1c 的实施记录（2026-09-26）：**
 
-- **BoringSSL 补丁：** 在 peakpassvpn/btls 的 `leaf` 分支上，新增 `btls-sys/patches/reality.patch`，提供两个通用钩子：
+- **BoringSSL 补丁：** 在 peakpassvpn/btls 的工作分支（现为 `sail`）上，新增 `btls-sys/patches/reality.patch`，提供两个通用钩子：
   - `SSL_set_client_hello_finalize_cb`：在 ClientHello 编码完成、加入 transcript 之前调用，传入 hello（session_id 已置零）、client random 和 X25519 私钥，由回调写回 session_id。X25519 私钥优先取单独的 X25519 share，没有时取 X25519MLKEM768 中的 X25519 部分，和 Xray 服务端的选择一致。
   - `SSL_set_extra_peer_verify_algorithms`：额外接受对端使用 ClientHello 中未声明的签名算法。Xray 在认证成功后会用 Ed25519 签名，而浏览器的 ClientHello 不声明 Ed25519；Go 的 TLS 客户端本来就接受它。
 - **证书校验：** 只接受用会话密钥 HMAC 签名的 Ed25519 证书。如果收到的是真实网站的证书，直接报错。原来的 reality-rs 会退回普通证书校验并继续连接，导致 VLESS 请求被发给真实网站。
