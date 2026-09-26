@@ -51,8 +51,8 @@ pub(crate) static OUTBOUNDS: LazyLock<OutboundRegistry> = LazyLock::new(|| {
     #[cfg(feature = "outbound-anytls")]
     crate::protocol::anytls::outbound::register(&mut registry);
 
-    #[cfg(feature = "outbound-failover")]
-    crate::protocol::group::failover::register(&mut registry);
+    #[cfg(feature = "outbound-fallback")]
+    crate::protocol::group::fallback::register(&mut registry);
     #[cfg(feature = "outbound-load-balance")]
     crate::protocol::group::load_balance::register(&mut registry);
     #[cfg(feature = "outbound-select")]

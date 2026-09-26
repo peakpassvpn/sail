@@ -23,7 +23,7 @@ async fn relayed(sess: &sail::session::Session) -> anyhow::Result<bool> {
     feature = "inbound-socks",
     feature = "outbound-socks",
     feature = "outbound-direct",
-    feature = "outbound-failover"
+    feature = "outbound-fallback"
 ))]
 #[test]
 fn a_failed_reload_changes_nothing() -> anyhow::Result<()> {
@@ -82,7 +82,7 @@ fn a_failed_reload_changes_nothing() -> anyhow::Result<()> {
         std::fs::write(
             &path,
             config_with(
-                r#", { "type": "failover", "tag": "pick", "outbounds": ["missing"] }"#,
+                r#", { "type": "fallback", "tag": "pick", "outbounds": ["missing"] }"#,
                 "[]",
             ),
         )?;

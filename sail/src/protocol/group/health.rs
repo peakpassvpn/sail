@@ -1,6 +1,6 @@
-//! The URL tests `urltest` and `load-balance` check their members with:
-//! every member at once, through it, every `interval`, while the group is
-//! in use.
+//! The URL tests `urltest`, `load-balance` and `fallback` check their
+//! members with: every member at once, through it, every `interval`, while
+//! the group is in use.
 
 use std::sync::{Arc, Mutex, RwLock, Weak};
 use std::time::Duration;
@@ -16,8 +16,9 @@ use crate::app::healthcheck::HttpProbe;
 use crate::app::outbound::selector::MemberLatencies;
 use crate::app::SyncDnsClient;
 
-/// How long one test may take before its member counts as failed.
-const TEST_TIMEOUT: Duration = Duration::from_secs(5);
+/// How long one test may take, by default, before its member counts as
+/// failed.
+pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// A failed connection asks for the members to be tested again, but not
 /// more often than this.
@@ -35,6 +36,8 @@ pub struct Checker {
     probe: HttpProbe,
     dns_client: SyncDnsClient,
     interval: Duration,
+    /// How long one test may take before its member counts as failed.
+    timeout: Duration,
     /// Tests pause once the group has not been used for this long, and
     /// resume, at once, when it is used again.
     idle: Option<Duration>,
@@ -58,6 +61,7 @@ impl Checker {
         probe: HttpProbe,
         dns_client: SyncDnsClient,
         interval: Duration,
+        timeout: Duration,
         idle: Option<Duration>,
         on_tested: OnTested,
     ) -> (Arc<Self>, AbortHandle) {
@@ -68,6 +72,7 @@ impl Checker {
             probe,
             dns_client,
             interval,
+            timeout,
             idle,
             latencies: Arc::new(RwLock::new(vec![None; n])),
             tested: Default::default(),
@@ -151,7 +156,7 @@ impl Checker {
     async fn test_all(&self) {
         let tests = self.members.iter().map(|member| async move {
             match tokio::time::timeout(
-                TEST_TIMEOUT,
+                self.timeout,
                 self.probe.run(self.dns_client.clone(), member),
             )
             .await

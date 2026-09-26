@@ -34,7 +34,7 @@ async fn relayed(port: u16, sess: &sail::session::Session) -> bool {
     feature = "inbound-socks",
     feature = "outbound-socks",
     feature = "outbound-direct",
-    feature = "outbound-failover"
+    feature = "outbound-tryall"
 ))]
 #[test]
 fn components_are_added_and_removed_while_running() -> anyhow::Result<()> {
@@ -90,7 +90,7 @@ fn components_are_added_and_removed_while_running() -> anyhow::Result<()> {
         // Outbounds.
         manager
             .add_outbound(outbound(serde_json::json!({
-                "type": "failover", "tag": "group", "outbounds": ["direct"]
+                "type": "tryall", "tag": "group", "outbounds": ["direct"]
             })))
             .await?;
         let err = manager.remove_outbound("direct").await.unwrap_err();

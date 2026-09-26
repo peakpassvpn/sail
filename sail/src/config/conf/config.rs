@@ -153,69 +153,15 @@ impl Default for Proxy {
         }
     }
 }
-#[derive(Debug)]
+/// A `[Proxy Group]` line: `Tag = type, member, ..., key=value, ...`.
+#[derive(Debug, Default)]
 pub struct ProxyGroup {
     pub tag: String,
     pub protocol: String,
     pub actors: Option<Vec<String>>,
-
-    // common
-    pub address: Option<String>,
-    pub port: Option<u16>,
-
-    // failover
-    pub health_check: Option<bool>,
-    pub check_interval: Option<u32>,
-    pub fail_timeout: Option<u32>,
-    pub failover: Option<bool>,
-    pub fallback_cache: Option<bool>,
-    pub cache_size: Option<u32>,
-    pub cache_timeout: Option<u32>,
-    pub last_resort: Option<String>,
-    pub health_check_timeout: Option<u32>,
-    pub health_check_delay: Option<u32>,
-    pub health_check_active: Option<u32>,
-    pub health_check_prefers: Option<Vec<String>>,
-    pub health_check_on_start: Option<bool>,
-    pub health_check_wait: Option<bool>,
-    pub health_check_attempts: Option<u32>,
-    pub health_check_success_percentage: Option<u32>,
-
-    // tryall
-    pub delay_base: Option<u32>,
-
-    // static
-    pub method: Option<String>,
-}
-
-impl Default for ProxyGroup {
-    fn default() -> Self {
-        ProxyGroup {
-            tag: "".to_string(),
-            protocol: "".to_string(),
-            actors: None,
-            address: None,
-            port: None,
-            health_check: None,
-            check_interval: None,
-            fail_timeout: None,
-            failover: None,
-            fallback_cache: None,
-            cache_size: None,
-            cache_timeout: None,
-            last_resort: None,
-            health_check_timeout: None,
-            health_check_delay: None,
-            health_check_active: None,
-            health_check_prefers: None,
-            health_check_on_start: None,
-            health_check_wait: None,
-            health_check_attempts: None,
-            health_check_success_percentage: None,
-            delay_base: None,
-            method: None,
-        }
-    }
+    /// The `key=value` parameters, in order; which are known depends on
+    /// the type, see `to_config`.
+    pub params: Vec<(String, String)>,
 }
 
 #[derive(Debug, Default)]
@@ -827,120 +773,12 @@ pub fn from_lines(lines: Vec<io::Result<String>>) -> Result<Config> {
         group.actors = Some(actors);
 
         for param in params {
-            if param.contains('=') {
-                let parts: Vec<&str> = param.split('=').map(str::trim).collect();
-                if parts.len() != 2 {
-                    continue;
-                }
-                let k = parts[0];
-                let v = parts[1];
-                if k.is_empty() || v.is_empty() {
-                    continue;
-                }
-                match k {
-                    "address" => {
-                        group.address = Some(v.to_string());
-                    }
-                    "port" => {
-                        group.port = v.parse().ok();
-                    }
-                    "health-check" => {
-                        group.health_check = if v == "true" { Some(true) } else { Some(false) };
-                    }
-                    "check-interval" => {
-                        let i = v.parse().ok();
-                        group.check_interval = i;
-                    }
-                    "fail-timeout" => {
-                        let i = v.parse().ok();
-                        group.fail_timeout = i;
-                    }
-                    "failover" => {
-                        group.failover = if v == "true" { Some(true) } else { Some(false) };
-                    }
-                    "fallback-cache" => {
-                        group.fallback_cache = if v == "true" { Some(true) } else { Some(false) };
-                    }
-                    "cache-size" => {
-                        let i = v.parse().ok();
-                        group.cache_size = i;
-                    }
-                    "cache-timeout" => {
-                        let i = v.parse().ok();
-                        group.cache_timeout = i;
-                    }
-                    "last-resort" => {
-                        group.last_resort = if !v.is_empty() {
-                            Some(v.to_owned())
-                        } else {
-                            None
-                        };
-                    }
-                    "health-check-timeout" => {
-                        let i = v.parse().ok();
-                        group.health_check_timeout = i;
-                    }
-                    "health-check-delay" => {
-                        let i = v.parse().ok();
-                        group.health_check_delay = i;
-                    }
-                    "health-check-active" => {
-                        let i = v.parse().ok();
-                        group.health_check_active = i;
-                    }
-                    "health-check-prefers" => {
-                        let i = v
-                            .split(":")
-                            .map(str::trim)
-                            .map(|x| x.to_owned())
-                            .collect::<Vec<_>>();
-                        let i = if !i.is_empty() { Some(i) } else { None };
-                        group.health_check_prefers = i;
-                    }
-                    "health-check-on-start" => {
-                        group.health_check_on_start =
-                            if v == "true" { Some(true) } else { Some(false) };
-                    }
-                    "health-check-wait" => {
-                        group.health_check_wait =
-                            if v == "true" { Some(true) } else { Some(false) };
-                    }
-                    "health-check-attempts" => {
-                        let i = v.parse().ok();
-                        group.health_check_attempts = i;
-                    }
-                    "health-check-success-percentage" => {
-                        let i = v.parse().ok();
-                        group.health_check_success_percentage = i;
-                    }
-                    "delay-base" => {
-                        let i = v.parse().ok();
-                        group.delay_base = i;
-                    }
-                    "method" => {
-                        group.method = if !v.is_empty() {
-                            Some(v.to_owned())
-                        } else {
-                            None
-                        };
-                    }
-                    _ => {}
+            if let Some((k, v)) = param.split_once('=') {
+                let (k, v) = (k.trim(), v.trim());
+                if !k.is_empty() && !v.is_empty() {
+                    group.params.push((k.to_string(), v.to_string()));
                 }
             }
-        }
-
-        // compat
-        match group.protocol.as_str() {
-            // url-test group is just failover without failover
-            "url-test" => {
-                group.protocol = "failover".to_string();
-                group.failover = Some(false);
-            }
-            // fallback group is just failover
-            "fallback" => {
-                group.protocol = "failover".to_string();
-            }
-            _ => {}
         }
 
         proxy_groups.push(group);
@@ -1279,6 +1117,7 @@ pub fn to_config(conf: &Config) -> Result<model::Config> {
     for ext_proxy_group in conf.proxy_group.iter().flatten() {
         let tag = ext_proxy_group.tag.as_str();
         let members = &ext_proxy_group.actors;
+        let mut params = GroupParams::new(ext_proxy_group);
         let group = match ext_proxy_group.protocol.as_str() {
             "chain" => {
                 // Each hop after the first is a copy of its proxy that dials
@@ -1321,48 +1160,62 @@ pub fn to_config(conf: &Config) -> Result<model::Config> {
                     previous = copy.tag.clone();
                     config.outbounds.push(copy);
                 }
+                params.finish()?;
                 continue;
             }
             "tryall" => outbound(
                 tag,
                 "tryall",
-                json!({ "outbounds": members, "delay_base": ext_proxy_group.delay_base }),
+                json!({ "outbounds": members, "delay_base": params.number("delay-base")? }),
             ),
             "static" => outbound(
                 tag,
                 "static",
-                json!({ "outbounds": members, "method": ext_proxy_group.method }),
-            ),
-            "failover" => outbound(
-                tag,
-                "failover",
-                json!({
-                    "outbounds": members,
-                    "fail_timeout": ext_proxy_group.fail_timeout,
-                    "health_check": ext_proxy_group.health_check,
-                    "health_check_timeout": ext_proxy_group.health_check_timeout,
-                    "health_check_delay": ext_proxy_group.health_check_delay,
-                    "health_check_active": ext_proxy_group.health_check_active,
-                    "health_check_prefers": ext_proxy_group.health_check_prefers,
-                    "check_interval": ext_proxy_group.check_interval,
-                    "health_check_on_start": ext_proxy_group.health_check_on_start,
-                    "health_check_wait": ext_proxy_group.health_check_wait,
-                    "health_check_attempts": ext_proxy_group.health_check_attempts,
-                    "health_check_success_percentage": ext_proxy_group.health_check_success_percentage,
-                    "failover": ext_proxy_group.failover,
-                    "fallback_cache": ext_proxy_group.fallback_cache,
-                    "cache_size": ext_proxy_group.cache_size,
-                    "cache_timeout": ext_proxy_group.cache_timeout,
-                }),
+                json!({ "outbounds": members, "method": params.take("method") }),
             ),
             "select" => outbound(tag, "selector", json!({ "outbounds": members })),
+            "url-test" => outbound(
+                tag,
+                "urltest",
+                json!({
+                    "outbounds": members,
+                    "url": params.take("url"),
+                    "interval": params.seconds("interval"),
+                    "tolerance": params.number("tolerance")?,
+                    "idle_timeout": params.seconds("idle-timeout"),
+                    "interrupt_exist_connections": params.flag("interrupt-exist-connections")?,
+                }),
+            ),
+            "fallback" => outbound(
+                tag,
+                "fallback",
+                json!({
+                    "outbounds": members,
+                    "url": params.take("url"),
+                    "interval": params.seconds("interval"),
+                    "timeout": params.seconds("timeout"),
+                    "lazy": params.flag("lazy")?,
+                    "interrupt_exist_connections": params.flag("interrupt-exist-connections")?,
+                }),
+            ),
+            "load-balance" => outbound(
+                tag,
+                "load-balance",
+                json!({
+                    "outbounds": members,
+                    "strategy": params.take("strategy"),
+                    "url": params.take("url"),
+                    "interval": params.seconds("interval"),
+                    "lazy": params.flag("lazy")?,
+                }),
+            ),
             "mptp" => outbound(
                 tag,
                 "mptp",
                 json!({
                     "outbounds": members,
-                    "server": ext_proxy_group.address,
-                    "server_port": ext_proxy_group.port,
+                    "server": params.take("address"),
+                    "server_port": params.number("port")?,
                 }),
             ),
             other => {
@@ -1373,6 +1226,7 @@ pub fn to_config(conf: &Config) -> Result<model::Config> {
                 ))
             }
         };
+        params.finish()?;
         config.outbounds.push(group);
     }
 
@@ -1528,6 +1382,76 @@ fn inbound(
         listen_port: listen.map(|(_, port)| port),
         udp_timeout: None,
         options: options(value),
+    }
+}
+
+/// The `key=value` parameters of a `[Proxy Group]` line, taken one by
+/// one by what its type knows: any left over is a mistake.
+struct GroupParams<'a> {
+    tag: &'a str,
+    params: Vec<(&'a str, &'a str)>,
+}
+
+impl<'a> GroupParams<'a> {
+    fn new(group: &'a ProxyGroup) -> Self {
+        Self {
+            tag: &group.tag,
+            params: group
+                .params
+                .iter()
+                .map(|(k, v)| (k.as_str(), v.as_str()))
+                .collect(),
+        }
+    }
+
+    fn take(&mut self, key: &str) -> Option<&'a str> {
+        let i = self.params.iter().position(|(k, _)| *k == key)?;
+        Some(self.params.remove(i).1)
+    }
+
+    fn number(&mut self, key: &str) -> Result<Option<u64>> {
+        self.take(key)
+            .map(|v| {
+                v.parse().map_err(|_| {
+                    anyhow!("[Proxy Group] {}: {}: not a number: {}", self.tag, key, v)
+                })
+            })
+            .transpose()
+    }
+
+    fn flag(&mut self, key: &str) -> Result<Option<bool>> {
+        self.take(key)
+            .map(|v| match v {
+                "true" => Ok(true),
+                "false" => Ok(false),
+                _ => Err(anyhow!(
+                    "[Proxy Group] {}: {}: expected true or false: {}",
+                    self.tag,
+                    key,
+                    v
+                )),
+            })
+            .transpose()
+    }
+
+    /// A duration: a bare number is seconds, as Surge writes them; one
+    /// with a unit (`500ms`) is passed on as it is.
+    fn seconds(&mut self, key: &str) -> Option<String> {
+        self.take(key).map(|v| match v.parse::<u64>() {
+            Ok(n) => format!("{}s", n),
+            Err(_) => v.to_string(),
+        })
+    }
+
+    fn finish(self) -> Result<()> {
+        match self.params.first() {
+            Some((k, _)) => Err(anyhow!(
+                "[Proxy Group] {}: unknown parameter \"{}\"",
+                self.tag,
+                k
+            )),
+            None => Ok(()),
+        }
     }
 }
 
@@ -1755,6 +1679,61 @@ MptpOutTag = mptp, actor1, actor2, actor3, address=1.2.3.4, port=10000
         );
         assert_eq!(mptp.options["server"], "1.2.3.4");
         assert_eq!(mptp.options["server_port"], 10000);
+    }
+
+    #[test]
+    fn health_checked_groups_map_onto_their_outbounds() {
+        let config = load(
+            r#"
+[Proxy Group]
+Auto = url-test, A, B, url=http://example.com/204, interval=600, tolerance=100
+Backup = fallback, A, B, url=http://example.com/204, interval=300, timeout=3, lazy=false
+Spread = load-balance, A, B, strategy=round-robin, interval=500ms
+Pick = select, A, B
+"#,
+        );
+        let auto = outbound(&config, "Auto");
+        assert_eq!(auto.protocol, "urltest");
+        assert_eq!(
+            serde_json::Value::Object(auto.options.clone()),
+            json!({
+                "outbounds": ["A", "B"],
+                "url": "http://example.com/204",
+                "interval": "600s",
+                "tolerance": 100,
+            })
+        );
+        let backup = outbound(&config, "Backup");
+        assert_eq!(backup.protocol, "fallback");
+        assert_eq!(
+            serde_json::Value::Object(backup.options.clone()),
+            json!({
+                "outbounds": ["A", "B"],
+                "url": "http://example.com/204",
+                "interval": "300s",
+                "timeout": "3s",
+                "lazy": false,
+            })
+        );
+        let spread = outbound(&config, "Spread");
+        assert_eq!(spread.protocol, "load-balance");
+        assert_eq!(spread.options["strategy"], "round-robin");
+        assert_eq!(spread.options["interval"], "500ms");
+        assert_eq!(outbound(&config, "Pick").protocol, "selector");
+    }
+
+    #[test]
+    fn a_group_parameter_its_type_does_not_take_is_an_error() {
+        let err = load_err("[Proxy Group]\nG = fallback, A, B, fail-timeout=4\n");
+        assert!(err.contains("G") && err.contains("fail-timeout"), "{}", err);
+        let err = load_err("[Proxy Group]\nG = url-test, A, B, last-resort=A\n");
+        assert!(err.contains("last-resort"), "{}", err);
+        let err = load_err("[Proxy Group]\nG = select, A, B, url=http://x/\n");
+        assert!(err.contains("url"), "{}", err);
+        let err = load_err("[Proxy Group]\nG = fallback, A, B, lazy=maybe\n");
+        assert!(err.contains("lazy"), "{}", err);
+        let err = load_err("[Proxy Group]\nG = failover, A, B\n");
+        assert!(err.contains("unsupported group type"), "{}", err);
     }
 
     #[test]

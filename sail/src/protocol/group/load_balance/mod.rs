@@ -106,6 +106,7 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
         probe,
         ctx.dns_client.clone(),
         interval,
+        health::DEFAULT_TIMEOUT,
         options.lazy.then_some(interval),
         Box::new(|_| ()),
     );
