@@ -8,7 +8,10 @@ use bytes::{BufMut, BytesMut};
 use futures::TryFutureExt;
 use sha2::{Digest, Sha224};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::time::timeout;
 use tracing::trace;
+
+use crate::protocol::fallback::{Fallback, HEADER_TIMEOUT};
 
 use crate::{
     adapter::*,
@@ -113,21 +116,39 @@ where
     }
 }
 
+/// The first bytes of a Trojan request: the password's SHA-224 in lowercase
+/// hex, then CRLF.
+const KEY_LEN: usize = 56;
+const AUTH_LEN: usize = KEY_LEN + 2;
+
+/// Whether `buf`, the first bytes of a connection, can still be the start of
+/// a Trojan request. Checked as bytes arrive, so that a connection that is
+/// plainly something else goes to the fallback without waiting for more.
+fn could_be_auth(buf: &[u8]) -> bool {
+    buf.iter().enumerate().all(|(i, &b)| match i {
+        i if i < KEY_LEN => b.is_ascii_digit() || (b'a'..=b'f').contains(&b),
+        KEY_LEN => b == b'\r',
+        _ => b == b'\n',
+    })
+}
+
 pub struct Handler {
     /// The users by the key their password makes, with their names.
     keys: HashMap<Vec<u8>, Option<std::sync::Arc<str>>>,
+    /// Where what fails to authenticate goes; closed without one.
+    fallback: Option<Fallback>,
 }
 
 impl Handler {
     /// Takes the users as their passwords and names.
-    pub fn new(users: Vec<(String, Option<String>)>) -> Self {
+    pub fn new(users: Vec<(String, Option<String>)>, fallback: Option<Fallback>) -> Self {
         let mut keys = HashMap::new();
         for (pass, name) in users {
             let key = Sha224::digest(pass.as_bytes());
             let key = hex::encode(&key[..]);
             keys.insert(key.as_bytes().to_vec(), name.map(Into::into));
         }
-        Handler { keys }
+        Handler { keys, fallback }
     }
 }
 
@@ -139,22 +160,52 @@ impl InboundStreamHandler for Handler {
         mut stream: AnyStream,
     ) -> std::io::Result<AnyInboundTransport> {
         tracing::trace!("handling inbound stream");
-        let mut buf = [0; 56];
-        // read key
-        stream.read_exact(&mut buf[..56]).await?;
-        let Some(user) = self.keys.get(&buf[..]) else {
-            return Err(io::Error::other("invalid key"));
+        // The key and its CRLF, and no more: what is read here is what the
+        // fallback is given if the key is not a user's.
+        let mut auth = [0u8; AUTH_LEN];
+        let mut read = 0;
+        let reading = async {
+            while read < AUTH_LEN {
+                let n = stream.read(&mut auth[read..]).await?;
+                if n == 0 {
+                    return Ok(false);
+                }
+                read += n;
+                if !could_be_auth(&auth[..read]) {
+                    return Ok(false);
+                }
+            }
+            Ok::<_, io::Error>(true)
+        };
+        let complete = match self.fallback {
+            // A peer that sends part of a key and waits is not a client.
+            Some(_) => timeout(HEADER_TIMEOUT, reading)
+                .await
+                .unwrap_or(Ok(false))?,
+            None => reading.await?,
+        };
+        let user = match complete {
+            true => self.keys.get(&auth[..KEY_LEN]).ok_or("unknown password"),
+            false => Err("not a Trojan request"),
+        };
+        let user = match user {
+            Ok(user) => user,
+            Err(why) => {
+                return Err(match &self.fallback {
+                    Some(fallback) => fallback.relay(&sess, stream, auth[..read].to_vec(), why),
+                    None => io::Error::new(io::ErrorKind::PermissionDenied, why),
+                })
+            }
         };
         sess.user = user.clone();
-        // read crlf and cmd
-        stream.read_exact(&mut buf[..3]).await?;
-        // TODO Check CRLF?
-        let cmd = buf[2];
-        // read addr
+        let cmd = stream.read_u8().await?;
         let dst_addr = SocksAddr::read_from(&mut stream, SocksAddrWireType::PortLast).await?;
         sess.destination = dst_addr;
-        // read crlf
-        stream.read_exact(&mut buf[..2]).await?;
+        let mut crlf = [0u8; 2];
+        stream.read_exact(&mut crlf).await?;
+        if crlf != *b"\r\n" {
+            return Err(io::Error::other("invalid request"));
+        }
         match cmd {
             // tcp
             0x01 => Ok(InboundTransport::Stream(stream, sess)),
@@ -171,5 +222,25 @@ impl InboundStreamHandler for Handler {
             }
             _ => Err(io::Error::other("invalid command")),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_could_be_auth() {
+        let key = hex::encode(Sha224::digest(b"password"));
+        let mut auth = key.clone().into_bytes();
+        auth.extend_from_slice(b"\r\n");
+        assert!(could_be_auth(&auth));
+        assert!(could_be_auth(&auth[..10]));
+        assert!(could_be_auth(b""));
+        assert!(!could_be_auth(b"GET / HTTP/1.1\r\n"));
+        assert!(!could_be_auth(key.to_uppercase().as_bytes()));
+        let mut bad_crlf = key.into_bytes();
+        bad_crlf.extend_from_slice(b"\n\r");
+        assert!(!could_be_auth(&bad_crlf));
     }
 }

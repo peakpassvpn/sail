@@ -170,6 +170,9 @@ pub struct Session {
     pub user: Option<std::sync::Arc<str>>,
     /// Skip domain resolution during routing.
     pub skip_resolve: bool,
+    /// The application protocol the inbound TLS negotiated with the peer,
+    /// if any: an inbound's fallback is chosen by it.
+    pub tls_alpn: Option<String>,
 }
 
 impl Clone for Session {
@@ -191,6 +194,7 @@ impl Clone for Session {
             inbound_type: self.inbound_type,
             user: self.user.clone(),
             skip_resolve: self.skip_resolve,
+            tls_alpn: self.tls_alpn.clone(),
         }
     }
 }
@@ -217,6 +221,7 @@ impl Default for Session {
             inbound_type: "",
             user: None,
             skip_resolve: false,
+            tls_alpn: None,
         }
     }
 }

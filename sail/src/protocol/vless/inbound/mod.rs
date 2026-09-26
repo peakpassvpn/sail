@@ -11,7 +11,11 @@ use serde_derive::Deserialize;
 
 use super::request::{Flow, FLOW_VISION};
 
+// Fallback as the Trojan inbound has it, which sing-box's VLESS lacks: the
+// same fields, the same code.
 mod stream;
+
+use crate::protocol::fallback::{self, FallbackServer};
 
 pub use stream::{Handler as StreamHandler, User};
 
@@ -54,6 +58,13 @@ fn check(tag: &str, options: &Options, blocks: &InboundBlocks) -> Result<()> {
 #[serde(deny_unknown_fields)]
 struct VlessInboundOptions {
     users: Vec<VlessUser>,
+    /// Where a connection that fails to authenticate is relayed.
+    #[serde(default)]
+    fallback: Option<FallbackServer>,
+    /// The same, by the ALPN the connection's TLS negotiated; the ones it
+    /// does not name go to `fallback`.
+    #[serde(default)]
+    fallback_for_alpn: HashMap<String, FallbackServer>,
 }
 
 #[derive(Deserialize)]
@@ -92,7 +103,8 @@ fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
             ));
         }
     }
-    let stream = Arc::new(StreamHandler::new(users));
+    let fallback = fallback::Fallback::new(ctx.tag, options.fallback, options.fallback_for_alpn)?;
+    let stream = Arc::new(StreamHandler::new(users, fallback));
     Ok(Arc::new(Handler::new(
         ctx.tag.to_owned(),
         Some(stream),

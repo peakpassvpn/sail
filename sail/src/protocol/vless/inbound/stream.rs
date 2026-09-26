@@ -1,16 +1,20 @@
 use std::collections::HashMap;
 use std::io;
 use std::net::SocketAddr;
+use std::pin::Pin;
 use std::sync::Arc;
+use std::task::{ready, Context, Poll};
 
 use async_trait::async_trait;
-use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, ReadHalf, WriteHalf};
+use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, ReadBuf, ReadHalf, WriteHalf};
+use tokio::time::timeout;
 
 use super::super::request::{
-    read_packet, read_request, write_packet, Flow, ServerStream, COMMAND_MUX, COMMAND_TCP,
+    read_packet, read_request, write_packet, Flow, Request, ServerStream, COMMAND_MUX, COMMAND_TCP,
     COMMAND_UDP,
 };
 use super::super::stream::VlessStream;
+use crate::protocol::fallback::{Fallback, HEADER_TIMEOUT};
 use crate::protocol::vmess::xudp;
 use crate::transport::vision::VisionState;
 use crate::{
@@ -26,17 +30,64 @@ pub struct User {
 
 pub struct Handler {
     users: HashMap<[u8; 16], User>,
+    /// Where what fails to authenticate goes; closed without one.
+    fallback: Option<Fallback>,
 }
 
 impl Handler {
     /// Takes the users by UUID.
-    pub fn new(users: HashMap<[u8; 16], User>) -> Self {
-        Handler { users }
+    pub fn new(users: HashMap<[u8; 16], User>, fallback: Option<Fallback>) -> Self {
+        Handler { users, fallback }
+    }
+
+    /// The user of `request` and the flow it asks for, or why it is refused.
+    fn authorize(&self, request: &Request) -> Result<(&User, Flow), String> {
+        let user = self
+            .users
+            .get(&request.uuid)
+            .ok_or_else(|| "unknown user".to_string())?;
+        let flow = Flow::parse(&request.flow)?;
+        // As Xray has it: a Vision user may leave the flow out only for UDP,
+        // which Vision cannot carry itself.
+        match (flow, user.flow) {
+            (Flow::Vision, Flow::Vision) if request.command == COMMAND_UDP => {
+                Err("xtls-rprx-vision does not carry UDP; use xudp".to_string())
+            }
+            (Flow::Vision, Flow::Vision) | (Flow::None, Flow::None) => Ok((user, flow)),
+            (Flow::None, Flow::Vision) if request.command != COMMAND_TCP => Ok((user, flow)),
+            (flow, expected) => Err(format!(
+                "flow mismatch: the user has \"{}\", the request \"{}\"",
+                expected.as_str(),
+                flow.as_str()
+            )),
+        }
     }
 }
 
 fn refused(what: String) -> io::Error {
     io::Error::new(io::ErrorKind::PermissionDenied, what)
+}
+
+/// A reader that keeps what is read through it: the bytes the fallback is
+/// given. It holds no more than the request header, which is all that is
+/// read through it and is bounded by its format.
+struct Recording<'a> {
+    inner: &'a mut AnyStream,
+    seen: Vec<u8>,
+}
+
+impl AsyncRead for Recording<'_> {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        let this = self.get_mut();
+        let before = buf.filled().len();
+        ready!(Pin::new(&mut *this.inner).poll_read(cx, buf))?;
+        this.seen.extend_from_slice(&buf.filled()[before..]);
+        Poll::Ready(Ok(()))
+    }
 }
 
 #[async_trait]
@@ -47,31 +98,45 @@ impl InboundStreamHandler for Handler {
         mut stream: AnyStream,
     ) -> io::Result<AnyInboundTransport> {
         tracing::trace!("handling inbound stream");
-        let request = read_request(&mut stream, |uuid| self.users.contains_key(uuid)).await?;
-        let user = self
-            .users
-            .get(&request.uuid)
-            .ok_or_else(|| refused("unknown user".to_string()))?;
-        sess.user = user.name.clone();
-        let flow = Flow::parse(&request.flow).map_err(refused)?;
-        // As Xray has it: a Vision user may leave the flow out only for UDP,
-        // which Vision cannot carry itself.
-        match (flow, user.flow) {
-            (Flow::Vision, Flow::Vision) if request.command == COMMAND_UDP => {
-                return Err(refused(
-                    "xtls-rprx-vision does not carry UDP; use xudp".to_string(),
+        let mut recording = Recording {
+            inner: &mut stream,
+            seen: Vec::new(),
+        };
+        let reading = read_request(&mut recording, |uuid| self.users.contains_key(uuid));
+        let request = match self.fallback {
+            // A peer that sends part of a header and waits is not a client.
+            Some(_) => timeout(HEADER_TIMEOUT, reading).await.unwrap_or_else(|_| {
+                Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "no request header in time",
                 ))
+            }),
+            None => reading.await,
+        };
+        let consumed = recording.seen;
+        let authorized = match request {
+            Ok(request) => self
+                .authorize(&request)
+                .map(|(user, flow)| (request, user, flow)),
+            // What is not a VLESS request from a user; the other errors are
+            // the connection failing, and there is nothing to relay.
+            Err(e) => match e.kind() {
+                io::ErrorKind::InvalidData
+                | io::ErrorKind::UnexpectedEof
+                | io::ErrorKind::TimedOut => Err(e.to_string()),
+                _ => return Err(e),
+            },
+        };
+        let (request, user, flow) = match authorized {
+            Ok(authorized) => authorized,
+            Err(why) => {
+                return Err(match &self.fallback {
+                    Some(fallback) => fallback.relay(&sess, stream, consumed, &why),
+                    None => refused(why),
+                })
             }
-            (Flow::Vision, Flow::Vision) | (Flow::None, Flow::None) => {}
-            (Flow::None, Flow::Vision) if request.command != COMMAND_TCP => {}
-            (flow, expected) => {
-                return Err(refused(format!(
-                    "flow mismatch: the user has \"{}\", the request \"{}\"",
-                    expected.as_str(),
-                    flow.as_str()
-                )))
-            }
-        }
+        };
+        sess.user = user.name.clone();
 
         let stream: AnyStream = Box::new(ServerStream::new(stream));
         let stream: AnyStream = match flow {

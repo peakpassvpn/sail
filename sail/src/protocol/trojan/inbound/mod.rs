@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -8,7 +9,10 @@ use crate::adapter::AnyInboundHandler;
 use crate::transport::layers::Blocks;
 use serde_derive::Deserialize;
 
+// The VLESS inbound compiles it too.
 mod stream;
+
+use crate::protocol::fallback::{self, FallbackServer};
 
 pub use stream::Handler as StreamHandler;
 
@@ -28,6 +32,13 @@ pub(crate) fn register(registry: &mut InboundRegistry) {
 #[serde(deny_unknown_fields)]
 struct TrojanInboundOptions {
     users: Vec<TrojanUser>,
+    /// Where a connection that fails to authenticate is relayed.
+    #[serde(default)]
+    fallback: Option<FallbackServer>,
+    /// The same, by the ALPN the connection's TLS negotiated; the ones it
+    /// does not name go to `fallback`.
+    #[serde(default)]
+    fallback_for_alpn: HashMap<String, FallbackServer>,
 }
 
 #[derive(Deserialize)]
@@ -41,12 +52,13 @@ struct TrojanUser {
 
 fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
     let options: TrojanInboundOptions = ctx.options()?;
+    let fallback = fallback::Fallback::new(ctx.tag, options.fallback, options.fallback_for_alpn)?;
     let users = options
         .users
         .into_iter()
         .map(|u| (u.password, u.name))
         .collect();
-    let stream = Arc::new(StreamHandler::new(users));
+    let stream = Arc::new(StreamHandler::new(users, fallback));
     Ok(Arc::new(Handler::new(
         ctx.tag.to_owned(),
         Some(stream),

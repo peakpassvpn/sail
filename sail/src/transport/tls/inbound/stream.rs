@@ -63,7 +63,7 @@ fn select_alpn<'a>(server: &[String], client: &'a [u8]) -> Option<&'a [u8]> {
 impl InboundStreamHandler for Handler {
     async fn handle<'a>(
         &'a self,
-        sess: Session,
+        mut sess: Session,
         stream: AnyStream,
     ) -> std::io::Result<AnyInboundTransport> {
         tracing::trace!("handling inbound stream");
@@ -72,6 +72,12 @@ impl InboundStreamHandler for Handler {
         let vision = VisionState::of(&sess);
         let mut stream = TlsStream::new(BoringConnection::server(ssl)?, stream, Some(vision));
         stream.handshake().await?;
+        // For the protocol above, whose fallback is chosen by it.
+        sess.tls_alpn = stream
+            .conn()
+            .ssl()
+            .selected_alpn_protocol()
+            .map(|p| String::from_utf8_lossy(p).into_owned());
         Ok(InboundTransport::Stream(Box::new(stream), sess))
     }
 }
