@@ -235,6 +235,11 @@ quinn-btls（核实于 2026-09-25）：作者与 btls 相同；依赖 btls 0.5.5
   - fixture 为 `android-okhttp4.hello`。
 - **Chrome Android 尚未抓到。** APKPure 上的 Chrome 153 只有 32 位 ARM 的通用包，x86 模拟器上翻译运行时原生代码崩溃（SIGSEGV）。按用户的决定，抓到后先与桌面 Chrome 对比：一致就并入 chrome，不一致才单独做 `chrome-android`。
 
+**Chrome 154（2026-09-27）：** chrome profile 升级到 154。用官方 stable dmg 里的 Chrome 154.0.8037.58 抓包，从 dmg 复制出来后运行，并加 `--use-mock-keychain`，避免钥匙串授权对话框卡住它。
+- 与 Android 154 完全一致，也没有 `0x12e0`。这说明 `0x12e0` 只出现在 Chrome for Testing 上，大概是 CfT 不算 Google 品牌构建，会启用内置的实验测试配置。
+- 与 153 相比只有 Trust Anchor IDs 的顺序不同，JA4 不变。
+- fixture 换成 `chrome-154.hello`，测试同时对照 `chrome-android-154.hello`；删除 `chrome-153.hello` 和 `chrome-cft-154.hello`。
+
 **Chrome Android（2026-09-27）：** 在 Android 11 模拟器上抓了 Chrome 154.0.8037.57。APK 是用户从 APKMirror 下载的 x86 独立包，签名证书与 Google Chrome 的一致，不需要 Trichrome。同时抓了同版本的桌面 Chrome for Testing 154 作为对照。
 - **与桌面 Chrome 154 对比：** Android 比桌面少一个扩展 `0x12e0`（载荷 `0000`），其余全部相同。
   - `0x12e0` 被第三方称为 server_padding，是仍在按渠道或实验分组放量的扩展。正式版 Chrome 153 的桌面抓包里没有它，所以这一项不能算作平台差异。

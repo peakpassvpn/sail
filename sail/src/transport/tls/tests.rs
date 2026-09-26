@@ -167,12 +167,16 @@ pub(crate) fn first_hello(conn: &mut BoringConnection) -> super::hello::ClientHe
 fn test_chrome_client_hello_matches_capture() {
     use super::hello::{assert_same_hello, fixture};
     use super::Fingerprint;
-    let chrome = fixture("chrome-153");
+    let chrome = fixture("chrome-154");
+    let android = fixture("chrome-android-154");
     let client = TlsClient::new(&[], None, false, Some(Fingerprint::Chrome)).unwrap();
     // Several connections: GREASE and the extension order change each time.
     for _ in 0..8 {
         let mut conn = client.connection("localhost", None).unwrap();
-        assert_same_hello(&first_hello(&mut conn), &chrome);
+        let hello = first_hello(&mut conn);
+        assert_same_hello(&hello, &chrome);
+        // Chrome on Android sends the same.
+        assert_same_hello(&hello, &android);
     }
 }
 
@@ -269,7 +273,7 @@ fn test_no_fingerprint_is_not_chrome() {
     use super::hello::fixture;
     let client = TlsClient::new(&[], None, false, None).unwrap();
     let mut conn = client.connection("localhost", None).unwrap();
-    assert_ne!(first_hello(&mut conn).ja4(), fixture("chrome-153").ja4());
+    assert_ne!(first_hello(&mut conn).ja4(), fixture("chrome-154").ja4());
 }
 
 // The fingerprint survives a configured ALPN: Chrome's own is h2 then

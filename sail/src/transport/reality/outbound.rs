@@ -257,7 +257,7 @@ mod tests {
     fn test_client_hello_is_the_browsers() {
         use crate::transport::tls::hello::{assert_same_hello, fixture};
         for (fingerprint, capture) in [
-            (Fingerprint::Chrome, "chrome-153"),
+            (Fingerprint::Chrome, "chrome-154"),
             (Fingerprint::Firefox, "firefox-156"),
             (Fingerprint::Safari, "safari-26"),
         ] {

@@ -308,7 +308,7 @@ pub fn fixture(name: &str) -> ClientHello {
 fn test_ja4_of_chrome_capture() {
     // As computed independently from the same capture.
     assert_eq!(
-        fixture("chrome-153").ja4(),
+        fixture("chrome-154").ja4(),
         "t13d1517h2_8daaf6152771_cb7bf5808d99"
     );
 }
