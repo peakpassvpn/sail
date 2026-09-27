@@ -16,6 +16,17 @@ pub(crate) mod rule_set {
     #[derive(Default, Clone)]
     pub(crate) struct RuleSets;
 
+    /// The domain matcher of binary rule-sets, of which there are none.
+    pub(crate) mod succinct {
+        pub(crate) enum Succinct {}
+
+        impl Succinct {
+            pub(crate) fn matches(&self, _domain: &str) -> bool {
+                match *self {}
+            }
+        }
+    }
+
     impl RuleSets {
         pub(crate) fn load(
             configs: &[crate::config::rule_set::RuleSet],
@@ -118,15 +129,16 @@ struct Rule {
 impl Rule {
     fn new(
         rule: &model::Rule,
+        path: &str,
         readers: &mut Readers,
         env: &RuntimeEnv,
         rule_sets: &rule_set::RuleSets,
     ) -> Result<Self> {
-        let action = match rule.action {
+        let action = match rule.action() {
             RuleAction::Route => Action::Route(
                 rule.outbound
                     .clone()
-                    .ok_or_else(|| anyhow!("outbound: a route rule needs one"))?,
+                    .ok_or_else(|| anyhow!("{}: outbound: a route rule needs one", path))?,
             ),
             RuleAction::Reject => Action::Reject,
             RuleAction::Resolve => Action::Resolve(rule.server.clone(), rule.strategy),
@@ -138,9 +150,16 @@ impl Rule {
                     override_destination: rule.override_destination,
                 })
             }
+            action @ (RuleAction::RouteOptions | RuleAction::HijackDns) => {
+                return Err(anyhow!(
+                    "{}.action: sail does not implement \"{}\" yet",
+                    path,
+                    action.name()
+                ))
+            }
         };
         Ok(Rule {
-            matcher: Matcher::new(rule, readers, env, rule_sets)?,
+            matcher: Matcher::at(rule, path, readers, env, rule_sets)?,
             action,
         })
     }
@@ -164,8 +183,13 @@ impl Router {
             .iter()
             .enumerate()
             .map(|(i, rule)| {
-                Rule::new(rule, &mut readers, env, rule_sets)
-                    .map_err(|e| anyhow!("route.rules[{}]: {}", i, e))
+                Rule::new(
+                    rule,
+                    &format!("route.rules[{}]", i),
+                    &mut readers,
+                    env,
+                    rule_sets,
+                )
             })
             .collect()
     }

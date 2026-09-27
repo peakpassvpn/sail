@@ -456,17 +456,38 @@ impl<'de> serde::Deserialize<'de> for DomainResolver {
     }
 }
 
-/// A routing rule, matched in order. As in sing-box, the destination
-/// conditions (`domain*`, `geosite`, `ip_cidr`, `geoip`, `external`) match
-/// when any of them does; the rule matches when that and every other
-/// condition it sets match, and a condition listing several values matches
-/// when any of them does.
+/// A routing rule, matched in order, as sing-box has it. A default rule
+/// sets conditions on the things a connection is known by: of the
+/// conditions on one thing (the source's address, its port, the
+/// destination's address, its port) any matching will do, and the rule
+/// matches when each thing it has conditions on matches and every other
+/// condition does. A condition listing several values matches when any of
+/// them does. A logical rule (`type: logical`) combines the rules in
+/// `rules`, all of them (`mode: and`) or any (`mode: or`); `invert` turns
+/// either kind's result around.
 ///
-/// `route` and `reject` end the matching. `sniff` and `resolve` learn more
-/// about the connection and matching goes on with the next rule.
+/// `route`, `reject` and `hijack-dns` end the matching. `route-options`,
+/// `sniff` and `resolve` learn more about the connection or say how it is
+/// to be carried, and matching goes on with the next rule.
 #[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Rule {
+    /// `default`, or `logical`.
+    #[serde(rename = "type", default, skip_serializing_if = "RuleType::is_default")]
+    pub kind: RuleType,
+
+    /// Tags of the inbounds a connection came in through.
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub inbound: Vec<String>,
+    /// 4 or 6: the family of the destination address.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ip_version: Option<u8>,
+    /// `tcp`, `udp`.
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub network: Vec<String>,
+    /// Names of the users an inbound authenticated.
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub auth_user: Vec<String>,
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
     pub domain: Vec<String>,
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
@@ -474,52 +495,119 @@ pub struct Rule {
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
     pub domain_keyword: Vec<String>,
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
-    pub ip_cidr: Vec<String>,
-    /// Country codes, looked up in `geo.mmdb` in the asset directory. A sail
+    pub domain_regex: Vec<String>,
+    /// Site groups, looked up in `site.dat` in the asset directory. A sail
     /// extension: sing-box has dropped its GeoIP and GeoSite databases.
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
-    pub geoip: Vec<String>,
-    /// Site groups, looked up in `site.dat` in the asset directory.
-    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
     pub geosite: Vec<String>,
+    /// Country codes, looked up in `geo.mmdb` in the asset directory; a
+    /// sail extension, as `geosite` is.
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub geoip: Vec<String>,
     /// A sail extension: `mmdb:<file>:<code>` or `site:<file>:<code>`, for
     /// data files other than the default ones.
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
     pub external: Vec<String>,
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub source_ip_cidr: Vec<String>,
+    /// The source address is not a public one.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub source_ip_is_private: bool,
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub ip_cidr: Vec<String>,
+    /// The destination address, or one the domain resolved to, is not a
+    /// public one.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub ip_is_private: bool,
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub source_port: Vec<u16>,
+    /// Inclusive port ranges, as `port_range` writes them.
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub source_port_range: Vec<String>,
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
     pub port: Vec<u16>,
     /// Inclusive port ranges, as sing-box writes them: `1000:2000`, `:1024`,
     /// `8000:`.
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
     pub port_range: Vec<String>,
-    /// `tcp`, `udp`.
-    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
-    pub network: Vec<String>,
-    /// Tags of the inbounds a connection came in through.
-    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
-    pub inbound: Vec<String>,
+    /// The name of the program a connection comes from, its path's last
+    /// part.
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
     pub process_name: Vec<String>,
-    /// Names of the users an inbound authenticated.
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
-    pub auth_user: Vec<String>,
+    pub process_path: Vec<String>,
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub process_path_regex: Vec<String>,
+    /// Android packages; no platform sail runs on tells them yet.
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub package_name: Vec<String>,
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub package_name_regex: Vec<String>,
+    /// The user a connection's process runs as, by name and by id; no
+    /// platform sail runs on tells them yet.
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub user: Vec<String>,
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub user_id: Vec<i32>,
     /// Tags of rule-sets, any of whose rules matching matches.
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
     pub rule_set: Vec<String>,
     /// The rule-sets' `ip_cidr` match the source address, not the
     /// destination.
-    #[serde(
-        default,
-        alias = "rule_set_ipcidr_match_source",
-        skip_serializing_if = "std::ops::Not::not"
-    )]
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub rule_set_ip_cidr_match_source: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub invert: bool,
+    /// `logical`: `and` or `or`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<LogicalMode>,
+    /// `logical`: the rules combined. They take no action of their own.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rules: Vec<Rule>,
 
-    #[serde(default)]
-    pub action: RuleAction,
+    /// `route` when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub action: Option<RuleAction>,
     /// `route`: where a matching connection goes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub outbound: Option<String>,
+    /// `route`, `route-options`: connects to this address, an IP or a
+    /// domain, instead of the one asked for, on the same port.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub override_address: Option<String>,
+    /// `route`, `route-options`: connects to this port instead.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub override_port: Option<u16>,
+    /// `route`, `route-options`: answers to UDP sent to a domain come back
+    /// from the address it resolved to, not from the domain.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub udp_disable_domain_unmapping: bool,
+    /// `route`, `route-options`: a direct outbound sends UDP from a
+    /// connected socket.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub udp_connect: bool,
+    /// `route`, `route-options`: how long a UDP session lasts idle,
+    /// instead of its inbound's `udp_timeout`.
+    #[serde(default, with = "duration", skip_serializing_if = "Option::is_none")]
+    pub udp_timeout: Option<std::time::Duration>,
+    /// `route`, `route-options`: sends the TLS ClientHello in pieces, cut
+    /// in the server name, each in a TCP segment of its own.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub tls_fragment: bool,
+    /// `route`, `route-options`: how long to wait between the pieces;
+    /// 500ms when unset.
+    #[serde(default, with = "duration", skip_serializing_if = "Option::is_none")]
+    pub tls_fragment_fallback_delay: Option<std::time::Duration>,
+    /// `route`, `route-options`: sends the TLS ClientHello as several TLS
+    /// records, cut in the server name.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub tls_record_fragment: bool,
+    /// `reject`: how.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub method: Option<RejectMethod>,
+    /// `reject`: never drops, however many connections the rule rejects.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub no_drop: bool,
     /// `resolve`: the DNS server to ask, rather than the one the DNS rules
     /// pick.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -531,6 +619,8 @@ pub struct Rule {
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
     pub sniffer: Vec<Sniffer>,
     /// `sniff`: how long to wait for the first bytes; 300ms when unset.
+    /// `resolve`: how long to wait for the answer; `dns.timeout` when
+    /// unset.
     #[serde(default, with = "duration", skip_serializing_if = "Option::is_none")]
     pub timeout: Option<std::time::Duration>,
     /// `sniff`, a sail extension: connects to the sniffed domain rather than
@@ -539,20 +629,66 @@ pub struct Rule {
     pub override_destination: bool,
 }
 
-/// What a matching rule does.
+/// A rule's kind.
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
+pub enum RuleType {
+    /// Conditions of its own.
+    #[default]
+    Default,
+    /// Other rules, combined.
+    Logical,
+}
+
+impl RuleType {
+    fn is_default(&self) -> bool {
+        *self == RuleType::Default
+    }
+}
+
+/// How a logical rule combines its rules.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum LogicalMode {
+    /// All of them match.
+    And,
+    /// Any of them does.
+    Or,
+}
+
+/// What a matching rule does.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
 pub enum RuleAction {
     /// Sends the connection to `outbound`.
     #[default]
     Route,
+    /// Sets how the connection is carried, and lets the next rules decide
+    /// where it goes.
+    RouteOptions,
     /// Closes the connection.
     Reject,
+    /// Answers the DNS queries the connection carries.
+    HijackDns,
     /// Reads the domain from the first bytes of a TCP connection (TLS SNI,
     /// HTTP Host), so that later rules match it.
     Sniff,
     /// Resolves the domain, so that later rules match its addresses.
     Resolve,
+}
+
+/// How a `reject` rule closes a connection.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum RejectMethod {
+    /// At once; dropped instead when the rule rejects more than 50
+    /// connections in 30 seconds, unless `no_drop`.
+    #[default]
+    Default,
+    /// Left unanswered.
+    Drop,
+    /// With an ICMP message, for ICMP; sail routes none.
+    Reply,
 }
 
 /// A protocol a `sniff` rule looks for, by sing-box's name. TLS, HTTP and
@@ -571,63 +707,270 @@ pub enum Sniffer {
 }
 
 impl Rule {
+    /// What the rule does.
+    pub fn action(&self) -> RuleAction {
+        self.action.unwrap_or_default()
+    }
+
+    /// The first condition of a default rule the rule sets, by name.
+    pub fn first_condition(&self) -> Option<&'static str> {
+        [
+            ("inbound", !self.inbound.is_empty()),
+            ("ip_version", self.ip_version.is_some()),
+            ("network", !self.network.is_empty()),
+            ("auth_user", !self.auth_user.is_empty()),
+            ("domain", !self.domain.is_empty()),
+            ("domain_suffix", !self.domain_suffix.is_empty()),
+            ("domain_keyword", !self.domain_keyword.is_empty()),
+            ("domain_regex", !self.domain_regex.is_empty()),
+            ("geosite", !self.geosite.is_empty()),
+            ("geoip", !self.geoip.is_empty()),
+            ("external", !self.external.is_empty()),
+            ("source_ip_cidr", !self.source_ip_cidr.is_empty()),
+            ("source_ip_is_private", self.source_ip_is_private),
+            ("ip_cidr", !self.ip_cidr.is_empty()),
+            ("ip_is_private", self.ip_is_private),
+            ("source_port", !self.source_port.is_empty()),
+            ("source_port_range", !self.source_port_range.is_empty()),
+            ("port", !self.port.is_empty()),
+            ("port_range", !self.port_range.is_empty()),
+            ("process_name", !self.process_name.is_empty()),
+            ("process_path", !self.process_path.is_empty()),
+            ("process_path_regex", !self.process_path_regex.is_empty()),
+            ("package_name", !self.package_name.is_empty()),
+            ("package_name_regex", !self.package_name_regex.is_empty()),
+            ("user", !self.user.is_empty()),
+            ("user_id", !self.user_id.is_empty()),
+            ("rule_set", !self.rule_set.is_empty()),
+            (
+                "rule_set_ip_cidr_match_source",
+                self.rule_set_ip_cidr_match_source,
+            ),
+        ]
+        .into_iter()
+        .find(|(_, set)| *set)
+        .map(|(field, _)| field)
+    }
+
     /// Whether the rule sets any condition; one that sets none matches
     /// every connection.
     pub fn has_conditions(&self) -> bool {
-        !(self.domain.is_empty()
-            && self.domain_suffix.is_empty()
-            && self.domain_keyword.is_empty()
-            && self.ip_cidr.is_empty()
-            && self.geoip.is_empty()
-            && self.geosite.is_empty()
-            && self.external.is_empty()
-            && self.port.is_empty()
-            && self.port_range.is_empty()
-            && self.network.is_empty()
-            && self.inbound.is_empty()
-            && self.process_name.is_empty()
-            && self.auth_user.is_empty()
-            && self.rule_set.is_empty())
+        match self.kind {
+            RuleType::Default => self.first_condition().is_some(),
+            RuleType::Logical => !self.rules.is_empty(),
+        }
     }
 
-    /// The configuration mistakes one rule can make on its own.
-    fn check(&self, outbounds: &HashSet<&str>) -> Result<()> {
-        let sniff_fields =
-            !self.sniffer.is_empty() || self.timeout.is_some() || self.override_destination;
-        match self.action {
+    /// The action fields the rule sets, by name, with the actions each
+    /// belongs to.
+    fn action_fields(&self) -> Vec<(&'static str, &'static [RuleAction])> {
+        use RuleAction::*;
+        const ROUTE: &[RuleAction] = &[Route, RouteOptions];
+        [
+            ("action", self.action.is_some(), &[] as &[RuleAction]),
+            ("outbound", self.outbound.is_some(), &[Route]),
+            ("override_address", self.override_address.is_some(), ROUTE),
+            ("override_port", self.override_port.is_some(), ROUTE),
+            (
+                "udp_disable_domain_unmapping",
+                self.udp_disable_domain_unmapping,
+                ROUTE,
+            ),
+            ("udp_connect", self.udp_connect, ROUTE),
+            ("udp_timeout", self.udp_timeout.is_some(), ROUTE),
+            ("tls_fragment", self.tls_fragment, ROUTE),
+            (
+                "tls_fragment_fallback_delay",
+                self.tls_fragment_fallback_delay.is_some(),
+                ROUTE,
+            ),
+            ("tls_record_fragment", self.tls_record_fragment, ROUTE),
+            ("method", self.method.is_some(), &[Reject]),
+            ("no_drop", self.no_drop, &[Reject]),
+            ("server", self.server.is_some(), &[Resolve]),
+            ("strategy", self.strategy.is_some(), &[Resolve]),
+            ("sniffer", !self.sniffer.is_empty(), &[Sniff]),
+            ("timeout", self.timeout.is_some(), &[Sniff, Resolve]),
+            ("override_destination", self.override_destination, &[Sniff]),
+        ]
+        .into_iter()
+        .filter(|(_, set, _)| *set)
+        .map(|(field, _, actions)| (field, actions))
+        .collect()
+    }
+
+    /// The configuration mistakes one rule, at `path`, can make on its
+    /// own.
+    fn check(&self, path: &str, outbounds: &HashSet<&str>) -> Result<()> {
+        self.check_conditions(path, 0)?;
+        let action = self.action();
+        for (field, actions) in self.action_fields() {
+            if !actions.is_empty() && !actions.contains(&action) {
+                return Err(anyhow!(
+                    "{}.{}: not for a {} rule",
+                    path,
+                    field,
+                    action.name()
+                ));
+            }
+        }
+        match action {
             RuleAction::Route => {
                 let tag = self
                     .outbound
                     .as_ref()
-                    .ok_or_else(|| anyhow!("outbound: a route rule needs one"))?;
+                    .ok_or_else(|| anyhow!("{}: outbound: a route rule needs one", path))?;
                 if !outbounds.contains(tag.as_str()) {
-                    return Err(anyhow!("outbound [{}] does not exist", tag));
+                    return Err(anyhow!("{}: outbound [{}] does not exist", path, tag));
                 }
             }
-            _ if self.outbound.is_some() => {
-                return Err(anyhow!("outbound: only a route rule has one"));
+            RuleAction::RouteOptions => {
+                if self.action_fields().len() == 1 {
+                    return Err(anyhow!(
+                        "{}: a route-options rule needs an option to set",
+                        path
+                    ));
+                }
             }
-            _ => {}
+            RuleAction::Reject => match self.method.unwrap_or_default() {
+                RejectMethod::Reply => {
+                    return Err(anyhow!(
+                        "{}.method: reply answers ICMP, which sail does not route",
+                        path
+                    ))
+                }
+                RejectMethod::Drop if self.no_drop => {
+                    return Err(anyhow!("{}.no_drop: not with method drop", path))
+                }
+                _ => {}
+            },
+            RuleAction::HijackDns | RuleAction::Sniff | RuleAction::Resolve => {}
         }
-        if (self.server.is_some() || self.strategy.is_some()) && self.action != RuleAction::Resolve
-        {
-            return Err(anyhow!("server and strategy are for resolve rules"));
-        }
-        if sniff_fields && self.action != RuleAction::Sniff {
+        if self.tls_fragment && self.tls_record_fragment {
             return Err(anyhow!(
-                "sniffer, timeout and override_destination are for sniff rules"
+                "{}: tls_fragment and tls_record_fragment are exclusive",
+                path
             ));
         }
-        if self.timeout == Some(std::time::Duration::ZERO) {
-            return Err(anyhow!("timeout: must be more than 0"));
+        if self.tls_fragment_fallback_delay.is_some() && !self.tls_fragment {
+            return Err(anyhow!(
+                "{}.tls_fragment_fallback_delay: only with tls_fragment",
+                path
+            ));
+        }
+        for (field, value) in [
+            ("timeout", self.timeout),
+            ("udp_timeout", self.udp_timeout),
+            (
+                "tls_fragment_fallback_delay",
+                self.tls_fragment_fallback_delay,
+            ),
+        ] {
+            if value == Some(std::time::Duration::ZERO) {
+                return Err(anyhow!("{}.{}: must be more than 0", path, field));
+            }
+        }
+        if matches!(self.override_address.as_deref(), Some("")) {
+            return Err(anyhow!("{}.override_address: empty", path));
+        }
+        if self.override_port == Some(0) {
+            return Err(anyhow!("{}.override_port: must be more than 0", path));
         }
         // A rule that ends the matching for every connection is `final`.
-        if matches!(self.action, RuleAction::Route | RuleAction::Reject) && !self.has_conditions() {
+        if matches!(action, RuleAction::Route | RuleAction::Reject) && !self.has_conditions() {
             return Err(anyhow!(
-                "the rule has no conditions; route.final is where everything else goes"
+                "{}: the rule has no conditions; route.final is where everything else goes",
+                path
             ));
         }
         Ok(())
+    }
+
+    /// The mistakes of a rule's conditions, and of the rules nested in it,
+    /// which take no action.
+    fn check_conditions(&self, path: &str, depth: usize) -> Result<()> {
+        /// Rules nested deeper than this are refused.
+        const MAX_DEPTH: usize = 100;
+        if depth > MAX_DEPTH {
+            return Err(anyhow!("{}: logical rules nested too deep", path));
+        }
+        if depth > 0 {
+            if let Some((field, _)) = self.action_fields().first() {
+                return Err(anyhow!(
+                    "{}.{}: a nested rule takes no action; the rule it is in acts",
+                    path,
+                    field
+                ));
+            }
+        }
+        match self.kind {
+            RuleType::Default => {
+                if self.mode.is_some() {
+                    return Err(anyhow!("{}.mode: only a logical rule has one", path));
+                }
+                if !self.rules.is_empty() {
+                    return Err(anyhow!("{}.rules: only a logical rule has them", path));
+                }
+                if depth > 0 && !self.has_conditions() {
+                    return Err(anyhow!("{}: the rule has no conditions", path));
+                }
+                if self.rule_set_ip_cidr_match_source && self.rule_set.is_empty() {
+                    return Err(anyhow!(
+                        "{}.rule_set_ip_cidr_match_source: only with rule_set",
+                        path
+                    ));
+                }
+                if let Some(version) = self.ip_version {
+                    if version != 4 && version != 6 {
+                        return Err(anyhow!("{}.ip_version: 4 or 6, not {}", path, version));
+                    }
+                }
+            }
+            RuleType::Logical => {
+                if let Some(field) = self.first_condition() {
+                    return Err(anyhow!(
+                        "{}.{}: a logical rule's conditions are its rules",
+                        path,
+                        field
+                    ));
+                }
+                if self.mode.is_none() {
+                    return Err(anyhow!("{}.mode: a logical rule needs and or or", path));
+                }
+                if self.rules.is_empty() {
+                    return Err(anyhow!("{}.rules: a logical rule needs some", path));
+                }
+                for (i, rule) in self.rules.iter().enumerate() {
+                    rule.check_conditions(&format!("{}.rules[{}]", path, i), depth + 1)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// The rule-sets the rule and the rules nested in it name, each with
+    /// where.
+    fn rule_sets<'a>(&'a self, path: &str, found: &mut Vec<(String, &'a String)>) {
+        for tag in &self.rule_set {
+            found.push((path.to_string(), tag));
+        }
+        for (i, rule) in self.rules.iter().enumerate() {
+            rule.rule_sets(&format!("{}.rules[{}]", path, i), found);
+        }
+    }
+}
+
+impl RuleAction {
+    /// As the configuration writes it.
+    pub fn name(self) -> &'static str {
+        match self {
+            RuleAction::Route => "route",
+            RuleAction::RouteOptions => "route-options",
+            RuleAction::Reject => "reject",
+            RuleAction::HijackDns => "hijack-dns",
+            RuleAction::Sniff => "sniff",
+            RuleAction::Resolve => "resolve",
+        }
     }
 }
 
@@ -776,8 +1119,7 @@ impl Config {
             }
         }
         for (i, rule) in self.route.rules.iter().enumerate() {
-            rule.check(&outbounds)
-                .map_err(|e| anyhow!("route.rules[{}]: {}", i, e))?;
+            rule.check(&format!("route.rules[{}]", i), &outbounds)?;
         }
 
         let mut rule_sets = HashSet::new();
@@ -804,16 +1146,12 @@ impl Config {
                 }
             }
         }
-        let named = self
-            .route
-            .rules
-            .iter()
-            .enumerate()
-            .flat_map(|(i, r)| {
-                r.rule_set
-                    .iter()
-                    .map(move |t| (format!("route.rules[{}]", i), t))
-            })
+        let mut in_route = Vec::new();
+        for (i, rule) in self.route.rules.iter().enumerate() {
+            rule.rule_sets(&format!("route.rules[{}]", i), &mut in_route);
+        }
+        let named = in_route
+            .into_iter()
             .chain(self.dns.rules.iter().enumerate().flat_map(|(i, r)| {
                 r.rule_set
                     .iter()
@@ -1021,23 +1359,139 @@ mod tests {
                 { "ip_cidr": ["10.0.0.0/8"], "outbound": "direct" }]"#,
         )
         .unwrap();
-        assert_eq!(ok.route.rules[0].action, RuleAction::Sniff);
+        assert_eq!(ok.route.rules[0].action(), RuleAction::Sniff);
         assert_eq!(ok.route.rules[0].sniffer, [Sniffer::Tls]);
-        assert_eq!(ok.route.rules[3].action, RuleAction::Route);
+        assert_eq!(ok.route.rules[3].action(), RuleAction::Route);
 
         for (rules, message) in [
             (r#"[{ "domain": ["a"] }]"#, "a route rule needs one"),
             (
                 r#"[{ "action": "sniff", "outbound": "direct" }]"#,
-                "only a route rule",
+                "route.rules[0].outbound: not for a sniff rule",
             ),
             (
                 r#"[{ "domain": ["a"], "action": "reject", "sniffer": ["tls"] }]"#,
-                "are for sniff rules",
+                "route.rules[0].sniffer: not for a reject rule",
             ),
             (r#"[{ "outbound": "direct" }]"#, "route.final"),
             (r#"[{ "action": "reject" }]"#, "route.final"),
             (r#"[{ "action": "sniff", "sniffer": ["ssh"] }]"#, "ssh"),
+            (
+                r#"[{ "action": "route-options" }]"#,
+                "route.rules[0]: a route-options rule needs an option",
+            ),
+            (
+                r#"[{ "action": "hijack-dns", "port": 53, "sniffer": "tls" }]"#,
+                "route.rules[0].sniffer: not for a hijack-dns rule",
+            ),
+            (
+                r#"[{ "action": "reject", "port": 1, "method": "reply" }]"#,
+                "route.rules[0].method: reply",
+            ),
+            (
+                r#"[{ "action": "reject", "port": 1, "method": "drop", "no_drop": true }]"#,
+                "route.rules[0].no_drop",
+            ),
+            (
+                r#"[{ "action": "reject", "port": 1, "method": "other" }]"#,
+                "route.rules[0].method",
+            ),
+            (
+                r#"[{ "action": "route-options", "tls_fragment": true, "tls_record_fragment": true }]"#,
+                "exclusive",
+            ),
+            (
+                r#"[{ "action": "route-options", "tls_fragment_fallback_delay": "1s" }]"#,
+                "route.rules[0].tls_fragment_fallback_delay: only with tls_fragment",
+            ),
+            (
+                r#"[{ "action": "route-options", "udp_timeout": "0s" }]"#,
+                "route.rules[0].udp_timeout: must be more than 0",
+            ),
+            (
+                r#"[{ "action": "resolve", "override_port": 53 }]"#,
+                "route.rules[0].override_port: not for a resolve rule",
+            ),
+            (
+                r#"[{ "port": 1, "ip_version": 5, "outbound": "direct" }]"#,
+                "route.rules[0].ip_version: 4 or 6",
+            ),
+            (r#"[{ "action": "bypass" }]"#, "bypass"),
+        ] {
+            let err = config(rules).unwrap_err().to_string();
+            assert!(err.contains(message), "{}: {}", rules, err);
+        }
+    }
+
+    /// As sing-box has it: a logical rule's conditions are its rules, and
+    /// the rules nested in it take no action; a mistake names its full
+    /// path.
+    #[test]
+    fn logical_rules_and_their_mistakes() {
+        let config = |rules: &str| {
+            Config::from_json(&format!(
+                r#"{{ "outbounds": [{{ "type": "direct" }}], "route": {{ "rules": {} }} }}"#,
+                rules
+            ))
+        };
+        let ok = config(
+            r#"[{ "type": "logical", "mode": "and", "outbound": "direct", "rules": [
+                    { "port": 443 },
+                    { "type": "logical", "mode": "or", "invert": true, "rules": [
+                        { "domain": "a" }, { "network": "udp", "invert": true }
+                    ] }
+                ] }]"#,
+        )
+        .unwrap();
+        assert_eq!(ok.route.rules[0].kind, RuleType::Logical);
+        assert_eq!(ok.route.rules[0].rules[1].mode, Some(LogicalMode::Or));
+
+        for (rules, message) in [
+            (
+                r#"[{ "port": 1, "outbound": "direct" }, { "type": "logical", "mode": "and", "outbound": "direct",
+                     "rules": [{ "port": 1 }, { "port": 2, "outbound": "direct" }] }]"#,
+                "route.rules[1].rules[1].outbound: a nested rule takes no action",
+            ),
+            (
+                r#"[{ "type": "logical", "mode": "and", "outbound": "direct",
+                     "rules": [{ "port": 1, "action": "route" }] }]"#,
+                "route.rules[0].rules[0].action: a nested rule takes no action",
+            ),
+            (
+                r#"[{ "type": "logical", "mode": "and", "outbound": "direct",
+                     "rules": [{ "type": "logical", "mode": "or", "rules": [{ "invert": true }] }] }]"#,
+                "route.rules[0].rules[0].rules[0]: the rule has no conditions",
+            ),
+            (
+                r#"[{ "type": "logical", "mode": "and", "port": 1, "outbound": "direct",
+                     "rules": [{ "port": 1 }] }]"#,
+                "route.rules[0].port: a logical rule's conditions are its rules",
+            ),
+            (
+                r#"[{ "type": "logical", "outbound": "direct", "rules": [{ "port": 1 }] }]"#,
+                "route.rules[0].mode",
+            ),
+            (
+                r#"[{ "type": "logical", "mode": "xor", "outbound": "direct", "rules": [{ "port": 1 }] }]"#,
+                "mode",
+            ),
+            (
+                r#"[{ "type": "logical", "mode": "or", "outbound": "direct", "rules": [] }]"#,
+                "route.rules[0].rules: a logical rule needs some",
+            ),
+            (
+                r#"[{ "mode": "or", "port": 1, "outbound": "direct" }]"#,
+                "route.rules[0].mode: only a logical rule has one",
+            ),
+            (
+                r#"[{ "type": "logical", "mode": "or", "outbound": "direct",
+                     "rules": [{ "rule_set": "missing" }] }]"#,
+                "route.rules[0].rules[0].rule_set: rule-set [missing] does not exist",
+            ),
+            (
+                r#"[{ "type": "nested", "port": 1, "outbound": "direct" }]"#,
+                "route.rules[0]",
+            ),
         ] {
             let err = config(rules).unwrap_err().to_string();
             assert!(err.contains(message), "{}: {}", rules, err);

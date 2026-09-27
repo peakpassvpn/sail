@@ -202,16 +202,18 @@ pub struct HeadlessRule {
     pub port_range: Vec<String>,
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
     pub process_name: Vec<String>,
-    /// Conditions sail does not match yet; a rule that sets one is refused
-    /// when the rule-set is read.
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
     pub process_path: Vec<String>,
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
     pub process_path_regex: Vec<String>,
+    /// Refused as a routing rule's is: no platform sail runs on tells
+    /// them yet.
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
     pub package_name: Vec<String>,
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
     pub package_name_regex: Vec<String>,
+    /// Conditions sail does not match yet; a rule that sets one is refused
+    /// when the rule-set is read.
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
     pub network_type: Vec<serde_json::Value>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -241,10 +243,6 @@ impl HeadlessRule {
     /// The first condition set that sail does not match yet.
     pub fn unsupported(&self) -> Option<&'static str> {
         [
-            ("process_path", !self.process_path.is_empty()),
-            ("process_path_regex", !self.process_path_regex.is_empty()),
-            ("package_name", !self.package_name.is_empty()),
-            ("package_name_regex", !self.package_name_regex.is_empty()),
             ("network_type", !self.network_type.is_empty()),
             ("network_is_expensive", self.network_is_expensive),
             ("network_is_constrained", self.network_is_constrained),

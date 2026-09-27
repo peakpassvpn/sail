@@ -9,7 +9,7 @@ use anyhow::{anyhow, Context, Result};
 use arc_swap::ArcSwap;
 
 use crate::app::dispatcher::Dispatcher;
-use crate::app::router::matcher::{Facts, Groups};
+use crate::app::router::matcher::{Condition, Facts, Groups};
 use crate::config::rule_set::{self as config, RuleSetFormat, RuleSetKind, MAX_VERSION};
 use crate::runtime::RuntimeEnv;
 
@@ -18,13 +18,11 @@ mod reader;
 mod remote;
 pub(crate) mod rule;
 mod srs;
-mod succinct;
-
-use rule::Rule;
+pub(crate) mod succinct;
 
 /// The rules of one rule-set.
 pub(crate) struct RuleSet {
-    rules: Vec<Rule>,
+    rules: Vec<Condition>,
 }
 
 impl RuleSet {
@@ -32,7 +30,7 @@ impl RuleSet {
         let rules = rules
             .iter()
             .enumerate()
-            .map(|(i, r)| Rule::from_source(r).map_err(|e| anyhow!("rules[{}]: {}", i, e)))
+            .map(|(i, r)| rule::from_source(r, &format!("rules[{}]", i)))
             .collect::<Result<_>>()?;
         Ok(Self { rules })
     }
@@ -69,8 +67,8 @@ impl RuleSet {
     /// any other must match itself, and the outer conditions too.
     pub(crate) fn matches_with(&self, outer: Groups, facts: &Facts, ip_match_source: bool) -> bool {
         if let [rule] = &self.rules[..] {
-            if let Some(plain) = rule.mergeable() {
-                return plain
+            if let Some(conditions) = rule.mergeable() {
+                return conditions
                     .evaluate(facts, ip_match_source)
                     .is_some_and(|groups| outer.merge(groups).done());
             }

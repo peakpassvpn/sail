@@ -190,13 +190,13 @@ mod tests {
         let err = parse(
             r#"{
                 "outbounds": [{ "type": "direct" }],
-                "route": { "rules": [{ "domain_regex": "^a", "outbound": "direct" }] }
+                "route": { "rules": [{ "wifi_ssid": "home", "outbound": "direct" }] }
             }"#,
         )
         .unwrap_err();
         assert_eq!(
             err.to_string(),
-            "route.rules[0].domain_regex: sail does not implement this field yet"
+            "route.rules[0].wifi_ssid: sail does not implement this field yet"
         );
     }
 
@@ -204,8 +204,8 @@ mod tests {
     fn a_value_sail_lacks_is_an_error() {
         for (rule, message) in [
             (
-                r#"{ "action": "hijack-dns", "port": 53 }"#,
-                r#"route.rules[0].action: sail does not implement "hijack-dns" yet"#,
+                r#"{ "action": "bypass", "port": 53 }"#,
+                r#"route.rules[0].action: sail does not implement "bypass" yet"#,
             ),
             (
                 r#"{ "action": "sniff", "sniffer": ["tls", "ssh"] }"#,

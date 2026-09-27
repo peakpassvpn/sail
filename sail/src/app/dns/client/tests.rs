@@ -473,7 +473,7 @@ mod tests {
             (
                 serde_json::json!({ "outbounds": [{ "type": "direct" }], "route": { "rules": [
                     { "domain": "a", "outbound": "direct", "server": "local" }] } }),
-                "server and strategy are for resolve rules",
+                "route.rules[0].server: not for a route rule",
             ),
         ] {
             let err = crate::config::Config::from_json(&config.to_string())

@@ -7,8 +7,9 @@ use std::net::IpAddr;
 use anyhow::{anyhow, Context, Result};
 
 use super::reader::Reader;
-use super::rule::{Parts, Plain, Rule};
+use super::rule::Parts;
 use super::succinct::Succinct;
+use crate::app::router::matcher::Condition;
 use crate::config::rule_set::MAX_VERSION;
 
 const MAGIC: &[u8; 3] = b"SRS";
@@ -30,28 +31,28 @@ const SOURCE_PORT_RANGE: u8 = 8;
 const PORT: u8 = 9;
 const PORT_RANGE: u8 = 10;
 const PROCESS_NAME: u8 = 11;
+const PROCESS_PATH: u8 = 12;
+const PACKAGE_NAME: u8 = 13;
+const PROCESS_PATH_REGEX: u8 = 17;
+const PACKAGE_NAME_REGEX: u8 = 23;
 const FINAL: u8 = 0xff;
 
 /// The names of the item types sail does not match yet, by type.
 fn unsupported(item: u8) -> Option<&'static str> {
     Some(match item {
-        12 => "process_path",
-        13 => "package_name",
         14 => "wifi_ssid",
         15 => "wifi_bssid",
         16 => "adguard_domain",
-        17 => "process_path_regex",
         18 => "network_type",
         19 => "network_is_expensive",
         20 => "network_is_constrained",
         21 => "network_interface_address",
         22 => "default_interface_address",
-        23 => "package_name_regex",
         _ => return None,
     })
 }
 
-pub(crate) fn read(data: &[u8]) -> Result<Vec<Rule>> {
+pub(crate) fn read(data: &[u8]) -> Result<Vec<Condition>> {
     let rest = data
         .strip_prefix(MAGIC.as_slice())
         .ok_or_else(|| anyhow!("not a sing-box binary rule-set"))?;
@@ -75,30 +76,30 @@ pub(crate) fn read(data: &[u8]) -> Result<Vec<Rule>> {
     let mut reader = Reader::new(&inflated);
     let count = reader.count(1)?;
     (0..count)
-        .map(|i| read_rule(&mut reader, 0).with_context(|| format!("rules[{}]", i)))
+        .map(|i| read_rule(&mut reader, &format!("rules[{}]", i), 0))
         .collect()
 }
 
-fn read_rule(reader: &mut Reader, depth: usize) -> Result<Rule> {
+fn read_rule(reader: &mut Reader, path: &str, depth: usize) -> Result<Condition> {
     if depth > MAX_DEPTH {
-        return Err(anyhow!("logical rules nested too deep"));
+        return Err(anyhow!("{}: logical rules nested too deep", path));
     }
-    match reader.u8()? {
-        0 => Ok(Rule::Plain(Box::new(Plain::compile(read_plain(reader)?)?))),
+    match reader.u8().with_context(|| path.to_string())? {
+        0 => super::rule::default(read_plain(reader).with_context(|| path.to_string())?, path),
         1 => {
             let all = match reader.u8()? {
                 0 => true,
                 1 => false,
-                mode => return Err(anyhow!("unknown logical mode {}", mode)),
+                mode => return Err(anyhow!("{}: unknown logical mode {}", path, mode)),
             };
             let count = reader.count(1)?;
             let rules = (0..count)
-                .map(|i| read_rule(reader, depth + 1).with_context(|| format!("rules[{}]", i)))
+                .map(|i| read_rule(reader, &format!("{}.rules[{}]", path, i), depth + 1))
                 .collect::<Result<_>>()?;
             let invert = reader.bool()?;
-            Ok(Rule::Logical { all, rules, invert })
+            Ok(Condition::Logical { all, rules, invert })
         }
-        kind => Err(anyhow!("unknown rule type {}", kind)),
+        kind => Err(anyhow!("{}: unknown rule type {}", path, kind)),
     }
 }
 
@@ -120,6 +121,10 @@ fn read_plain(reader: &mut Reader) -> Result<Parts> {
             PORT => rule.port = reader.u16_slice()?,
             PORT_RANGE => rule.port_range = reader.strings()?,
             PROCESS_NAME => rule.process_name = reader.strings()?,
+            PROCESS_PATH => rule.process_path = reader.strings()?,
+            PACKAGE_NAME => rule.package_name = reader.strings()?,
+            PROCESS_PATH_REGEX => rule.process_path_regex = reader.strings()?,
+            PACKAGE_NAME_REGEX => rule.package_name_regex = reader.strings()?,
             FINAL => {
                 rule.invert = reader.bool()?;
                 return Ok(parts);
