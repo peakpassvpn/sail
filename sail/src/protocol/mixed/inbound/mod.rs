@@ -67,11 +67,16 @@ fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
             })
             .collect(),
     )?;
+    // UDP ASSOCIATE asks on the TCP side for what the UDP side serves.
+    let associations = Arc::new(socks::inbound::Associations::default());
+    let datagram = Arc::new(socks::inbound::DatagramHandler::new(
+        associations.clone(),
+        !socks_users.is_empty(),
+    ));
     let stream = Arc::new(StreamHandler {
         http: http::inbound::StreamHandler::new(http_users),
-        socks: socks::inbound::StreamHandler::new(socks_users),
+        socks: socks::inbound::StreamHandler::new(socks_users, associations),
     });
-    let datagram = Arc::new(socks::inbound::DatagramHandler);
     Ok(Arc::new(Handler::new(
         ctx.tag.to_owned(),
         Some(stream),

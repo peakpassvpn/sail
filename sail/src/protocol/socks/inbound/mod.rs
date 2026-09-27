@@ -8,9 +8,11 @@ use crate::adapter::registry::{InboundContext, InboundFactory, InboundRegistry};
 use crate::adapter::AnyInboundHandler;
 use serde_derive::Deserialize;
 
+mod association;
 mod datagram;
 mod stream;
 
+pub use association::Associations;
 pub use datagram::Handler as DatagramHandler;
 pub use stream::Handler as StreamHandler;
 
@@ -71,8 +73,12 @@ pub(crate) fn users_by_name(tag: &str, users: Vec<SocksUser>) -> Result<HashMap<
 fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
     let options: SocksInboundOptions = ctx.options()?;
     let users = users_by_name(ctx.tag, options.users)?;
-    let stream = Arc::new(StreamHandler::new(users));
-    let datagram = Arc::new(DatagramHandler);
+    let associations = Arc::new(Associations::default());
+    let datagram = Arc::new(DatagramHandler::new(
+        associations.clone(),
+        !users.is_empty(),
+    ));
+    let stream = Arc::new(StreamHandler::new(users, associations));
     Ok(Arc::new(Handler::new(
         ctx.tag.to_owned(),
         Some(stream),

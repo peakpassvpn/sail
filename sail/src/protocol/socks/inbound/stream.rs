@@ -7,6 +7,7 @@ use bytes::{BufMut, BytesMut};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tracing::{debug, Instrument};
 
+use super::association::{Associations, Found};
 use crate::{
     adapter::*,
     session::{Session, SocksAddr, SocksAddrWireType},
@@ -43,12 +44,16 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 pub struct Handler {
     /// Passwords by username. Empty lets anyone in.
     users: Arc<HashMap<String, String>>,
+    /// The UDP associations clients ask for, which the datagram side
+    /// serves.
+    associations: Arc<Associations>,
 }
 
 impl Handler {
-    pub fn new(users: HashMap<String, String>) -> Self {
+    pub fn new(users: HashMap<String, String>, associations: Arc<Associations>) -> Self {
         Handler {
             users: Arc::new(users),
+            associations,
         }
     }
 
@@ -243,6 +248,22 @@ impl Handler {
                 Ok(InboundTransport::Stream(stream, sess))
             }
             0x03 => {
+                // In the table before the client hears back, so that its
+                // first datagram finds it.
+                let found = Found {
+                    user: sess.user.clone(),
+                };
+                let Some(registration) =
+                    self.associations.register(sess.source, &destination, found)
+                else {
+                    // General SOCKS server failure.
+                    stream
+                        .write_all(&[0x05, 0x01, 0x00, 0x01, 0, 0, 0, 0, 0, 0])
+                        .await?;
+                    return Err(io::Error::other(
+                        "udp associate refused: too many associations",
+                    ));
+                };
                 buf.clear();
                 buf.put_u8(0x05); // version 5
                 buf.put_u8(0x0); // succeeded
@@ -250,18 +271,25 @@ impl Handler {
                 let relay_addr = SocksAddr::from(sess.local_addr);
                 relay_addr.write_buf(&mut buf, SocksAddrWireType::PortLast);
                 stream.write_all(&buf[..]).await?;
+                // The association lasts as long as the connection (RFC 1928);
+                // anything the client sends on it meanwhile means nothing.
                 tokio::spawn(
                     async move {
-                        let mut buf = [0u8; 1];
-                        // TODO explicitly drop resources allocated above before waiting?
-                        // if stream.read_exact(&mut buf).await.is_err() {
-                        //     // perhaps explicitly notifies the NAT manager?
-                        //     debug!("udp association end");
-                        // }
-                        if let Err(e) = stream.read_exact(&mut buf).await {
-                            // perhaps explicitly notifies the NAT manager?
-                            debug!("udp association end: {}", e);
+                        let mut buf = [0u8; 512];
+                        loop {
+                            match stream.read(&mut buf).await {
+                                Ok(0) => {
+                                    debug!("udp association end");
+                                    break;
+                                }
+                                Ok(_) => continue,
+                                Err(e) => {
+                                    debug!("udp association end: {}", e);
+                                    break;
+                                }
+                            }
                         }
+                        drop(registration);
                     }
                     .instrument(sess.span()),
                 );
@@ -291,10 +319,13 @@ mod tests {
     use super::*;
 
     fn handler() -> Handler {
-        Handler::new(HashMap::from([
-            ("alice".to_string(), "apass".to_string()),
-            ("bob".to_string(), "bpass".to_string()),
-        ]))
+        Handler::new(
+            HashMap::from([
+                ("alice".to_string(), "apass".to_string()),
+                ("bob".to_string(), "bpass".to_string()),
+            ]),
+            Default::default(),
+        )
     }
 
     /// Runs `request` through the handler, returning its result and what it
@@ -351,7 +382,8 @@ mod tests {
         assert!(result.is_err());
         assert_eq!(answer[1], 91);
 
-        let (result, answer) = run(Handler::new(HashMap::new()), &request).await;
+        let (result, answer) =
+            run(Handler::new(HashMap::new(), Default::default()), &request).await;
         assert!(result.unwrap().is_some());
         assert_eq!(answer[1], 90);
     }
@@ -360,7 +392,7 @@ mod tests {
     async fn socks4_fields_are_bounded() {
         let mut request = vec![0x04, 0x01, 0, 80, 127, 0, 0, 1];
         request.resize(request.len() + MAX_SOCKS4_FIELD + 10, b'a');
-        let (result, _) = run(Handler::new(HashMap::new()), &request).await;
+        let (result, _) = run(Handler::new(HashMap::new(), Default::default()), &request).await;
         assert!(result.is_err());
     }
 }

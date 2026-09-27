@@ -1,24 +1,46 @@
 use std::convert::TryFrom;
 use std::io;
 use std::net::SocketAddr;
+use std::sync::Arc;
 
 use anyhow::anyhow;
 use async_trait::async_trait;
 use bytes::{BufMut, BytesMut};
 
+use super::association::Associations;
 use crate::{
     adapter::*,
     session::{DatagramSource, SocksAddr, SocksAddrWireType},
 };
 
-pub struct Handler;
+pub struct Handler {
+    associations: Arc<Associations>,
+    /// Whether clients authenticate, so that a datagram outside any
+    /// association is nobody's to take.
+    authenticated: bool,
+}
+
+impl Handler {
+    /// Serves the datagrams of `associations`. When `authenticated`, those
+    /// of no association are dropped.
+    pub fn new(associations: Arc<Associations>, authenticated: bool) -> Self {
+        Handler {
+            associations,
+            authenticated,
+        }
+    }
+}
 
 #[async_trait]
 impl InboundDatagramHandler for Handler {
     async fn handle<'a>(&'a self, socket: AnyInboundDatagram) -> io::Result<AnyInboundTransport> {
         tracing::trace!("handling inbound datagram");
         Ok(InboundTransport::Datagram(
-            Box::new(Datagram { socket }),
+            Box::new(Datagram {
+                socket,
+                associations: self.associations.clone(),
+                authenticated: self.authenticated,
+            }),
             None,
         ))
     }
@@ -26,6 +48,8 @@ impl InboundDatagramHandler for Handler {
 
 pub struct Datagram {
     socket: Box<dyn InboundDatagram>,
+    associations: Arc<Associations>,
+    authenticated: bool,
 }
 
 impl InboundDatagram for Datagram {
@@ -37,7 +61,11 @@ impl InboundDatagram for Datagram {
     ) {
         let (rh, sh) = self.socket.split();
         (
-            Box::new(DatagramRecvHalf(rh)),
+            Box::new(DatagramRecvHalf {
+                socket: rh,
+                associations: self.associations,
+                authenticated: self.authenticated,
+            }),
             Box::new(DatagramSendHalf(sh)),
         )
     }
@@ -47,7 +75,11 @@ impl InboundDatagram for Datagram {
     }
 }
 
-pub struct DatagramRecvHalf(Box<dyn InboundDatagramRecvHalf>);
+pub struct DatagramRecvHalf {
+    socket: Box<dyn InboundDatagramRecvHalf>,
+    associations: Arc<Associations>,
+    authenticated: bool,
+}
 
 #[async_trait]
 impl InboundDatagramRecvHalf for DatagramRecvHalf {
@@ -56,7 +88,7 @@ impl InboundDatagramRecvHalf for DatagramRecvHalf {
         buf: &mut [u8],
     ) -> ProxyResult<(usize, DatagramSource, SocksAddr)> {
         let mut recv_buf = vec![0u8; buf.len() + 512];
-        let (n, src_addr, _) = self.0.recv_from(&mut recv_buf).await?;
+        let (n, src, _) = self.socket.recv_from(&mut recv_buf).await?;
         if n < 3 {
             return Err(ProxyError::DatagramWarn(anyhow!("Short message")));
         }
@@ -79,8 +111,18 @@ impl InboundDatagramRecvHalf for DatagramRecvHalf {
                 buf.len()
             )));
         }
+        let src = match self.associations.find(src.address) {
+            Some(found) => src.with_user(found.user),
+            None if self.authenticated => {
+                return Err(ProxyError::DatagramWarn(anyhow!(
+                    "Datagram from {} of no association dropped",
+                    src.address
+                )));
+            }
+            None => src,
+        };
         buf[..payload_size].copy_from_slice(&recv_buf[header_size..header_size + payload_size]);
-        Ok((payload_size, src_addr, dst_addr))
+        Ok((payload_size, src, dst_addr))
     }
 }
 
@@ -134,7 +176,11 @@ mod tests {
     }
 
     async fn recv(packet: Vec<u8>, buf_len: usize) -> ProxyResult<usize> {
-        let mut half = DatagramRecvHalf(Box::new(OnePacket(packet)));
+        let mut half = DatagramRecvHalf {
+            socket: Box::new(OnePacket(packet)),
+            associations: Default::default(),
+            authenticated: false,
+        };
         let mut buf = vec![0u8; buf_len];
         half.recv_from(&mut buf).await.map(|(n, _, _)| n)
     }
