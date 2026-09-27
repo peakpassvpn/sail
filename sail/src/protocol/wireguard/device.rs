@@ -72,7 +72,8 @@ pub struct PeerConfig {
     pub allowed_ips: Vec<(IpAddr, u8)>,
     pub persistent_keepalive: Option<Duration>,
     /// The three bytes after the type of every message sent to this peer.
-    /// Zero for WireGuard; Cloudflare WARP's client identifier.
+    /// Zero for WireGuard; Cloudflare WARP's client identifier. Handshake
+    /// MACs are computed over zeros, and they are written after.
     pub reserved: [u8; 3],
 }
 
@@ -311,14 +312,17 @@ impl Peer {
             timestamp,
             crypto::generate_private_key(),
         );
-        let Some(mut init) = init else {
+        let Some(init) = init else {
             s.release(index);
             self.handshake.local_index = None;
             return;
         };
-        init.reserved = self.reserved;
+        // The MACs cover the reserved bytes as zero, and the bytes are
+        // written after, as WARP and sing-box's wireguard-go do; a peer
+        // zeroes them before checking.
         let mut bytes = init.to_bytes();
         self.cookie.add_macs(&mut bytes, now);
+        bytes[1..4].copy_from_slice(&self.reserved);
         self.timers_any_authenticated_packet_traversal(now);
         self.timers_any_authenticated_packet_sent();
         self.last_sent_handshake = Some(now);
@@ -784,6 +788,18 @@ impl Device {
 
     /// Takes a datagram from `src`.
     pub fn handle_incoming(&mut self, now: Instant, src: SocketAddr, datagram: &[u8]) -> Incoming {
+        // A peer with reserved bytes (WARP) sends them in every message, over
+        // MACs computed as if they were zero: they are zeroed here, as
+        // sing-box's wireguard-go does. WireGuard itself sends zeros.
+        let zeroed;
+        let datagram = if datagram.len() >= 4 && datagram[1..4] != [0; 3] {
+            let mut copy = datagram.to_vec();
+            copy[1..4].fill(0);
+            zeroed = copy;
+            &zeroed[..]
+        } else {
+            datagram
+        };
         match datagram.first() {
             Some(&TYPE_INITIATION) if datagram.len() == INITIATION_LEN => {
                 self.handle_handshake(now, src, datagram)
@@ -885,14 +901,14 @@ impl Device {
             index,
             crypto::generate_private_key(),
         );
-        let Some(mut resp) = resp else {
+        let Some(resp) = resp else {
             self.s.release(index);
             peer.handshake.zero();
             return None;
         };
-        resp.reserved = peer.reserved;
         let mut bytes = resp.to_bytes();
         peer.cookie.add_macs(&mut bytes, now);
+        bytes[1..4].copy_from_slice(&peer.reserved);
         let keys = noise::begin_session(&mut peer.handshake)?;
         let kp = Keypair::new(&keys, now);
         peer.install(&mut self.s, kp);
