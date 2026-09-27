@@ -393,6 +393,13 @@ pub fn over_stream(handler: AnyOutboundHandler) -> io::Result<AnyOutboundHandler
         .build())
 }
 
+/// A datagram handler carrying UDP over `stream`, for a protocol whose
+/// UDP goes over its streams only when asked to, such as TUIC's
+/// `udp_over_stream`.
+pub fn datagram_handler(stream: AnyOutboundStreamHandler) -> AnyOutboundDatagramHandler {
+    Arc::new(DatagramHandler { stream })
+}
+
 /// UDP through a stream handler.
 struct DatagramHandler {
     stream: AnyOutboundStreamHandler,

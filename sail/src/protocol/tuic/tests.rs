@@ -210,3 +210,45 @@ async fn zero_rtt_is_not_tried_unless_enabled() {
     f.round_trip(3).await;
     assert_eq!(f.client.zero_rtt_accepted().await, None);
 }
+
+/// With `udp_over_stream`, a UDP session is a `Connect` stream to UoT's
+/// magic address, speaking UoT v2, which the server hands on as a stream
+/// like any other (dispatch serves it as UDP).
+#[tokio::test]
+async fn udp_over_stream_is_a_uot_stream() {
+    use crate::transport::uot;
+
+    let mut f = fixture(false, false).await;
+    let handler = uot::datagram_handler(Arc::new(StreamHandler(f.client.clone())));
+    let target = SocksAddr::from((std::net::Ipv4Addr::new(1, 2, 3, 4), 53));
+    let sess = Session {
+        network: crate::session::Network::Udp,
+        destination: target.clone(),
+        ..Default::default()
+    };
+    let datagram = handler.handle(&sess, None).await.unwrap();
+    let (mut recv, mut send) = datagram.split();
+    send.send_to(b"query", &target).await.unwrap();
+
+    let accepted = timeout(Duration::from_secs(5), f.incoming.next())
+        .await
+        .expect("no stream within 5s")
+        .expect("server gone");
+    let BaseInboundTransport::Stream(mut served, served_sess) = accepted else {
+        panic!("not a stream");
+    };
+    assert_eq!(uot::version(&served_sess.destination), Some(2));
+    assert_eq!(
+        uot::read_request(&mut served).await.unwrap(),
+        (false, target.clone())
+    );
+    assert_eq!(uot::read_addr(&mut served).await.unwrap(), target);
+    let mut buf = [0; 64];
+    let n = uot::read_payload(&mut served, &mut buf).await.unwrap();
+    assert_eq!(&buf[..n.unwrap()], b"query");
+
+    let reply = uot::encode_packet(Some(&target), b"answer").unwrap();
+    served.write_all(&reply).await.unwrap();
+    let (n, from) = recv.recv_from(&mut buf).await.unwrap();
+    assert_eq!((&buf[..n], from), (&b"answer"[..], target));
+}

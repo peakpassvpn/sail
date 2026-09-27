@@ -6,9 +6,10 @@ use serde_derive::Deserialize;
 
 use crate::adapter::outbound::HandlerBuilder;
 use crate::adapter::registry::{OutboundContext, OutboundFactory, OutboundRegistry};
-use crate::adapter::AnyOutboundHandler;
+use crate::adapter::{AnyOutboundDatagramHandler, AnyOutboundHandler, AnyOutboundStreamHandler};
 use crate::transport::layers::{Blocks, OutboundTls};
 use crate::transport::quic::{unsupported, ClientTls};
+use crate::transport::uot;
 
 use super::common::{parse_uuid, CongestionControl, UdpRelayMode, DEFAULT_ALPN, DEFAULT_HEARTBEAT};
 
@@ -37,8 +38,8 @@ struct TuicOutboundOptions {
     congestion_control: CongestionControl,
     #[serde(default)]
     udp_relay_mode: Option<UdpRelayMode>,
-    /// sing-box's UDP over TCP (v2) in a `Connect` stream. Not supported
-    /// yet.
+    /// UDP over TCP (v2), as sing-box has it: each UDP session a `Connect`
+    /// stream to `sp.v2.udp-over-tcp.arpa`, instead of TUIC's own relay.
     #[serde(default)]
     udp_over_stream: bool,
     #[serde(default)]
@@ -62,15 +63,9 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
     let tag = ctx.tag;
     let options: TuicOutboundOptions = ctx.options()?;
     let uuid = parse_uuid("outbound", tag, "uuid", &options.uuid)?;
-    if options.udp_over_stream {
-        if options.udp_relay_mode.is_some() {
-            return Err(anyhow!(
-                "[{}] outbound: udp_over_stream: cannot be set with udp_relay_mode",
-                tag
-            ));
-        }
+    if options.udp_over_stream && options.udp_relay_mode.is_some() {
         return Err(anyhow!(
-            "[{}] outbound: udp_over_stream: not supported yet",
+            "[{}] outbound: udp_over_stream: cannot be set with udp_relay_mode",
             tag
         ));
     }
@@ -101,12 +96,18 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
         dial: ctx.dial.clone(),
         tuning: &ctx.env.options.quic,
     }));
+    let stream: AnyOutboundStreamHandler = Arc::new(StreamHandler(client.clone()));
     let mut builder = HandlerBuilder::default().tag(tag.to_owned());
     if options.network != Some(Network::Udp) {
-        builder = builder.stream_handler(Arc::new(StreamHandler(client.clone())));
+        builder = builder.stream_handler(stream.clone());
     }
     if options.network != Some(Network::Tcp) {
-        builder = builder.datagram_handler(Arc::new(DatagramHandler(client)));
+        let datagram: AnyOutboundDatagramHandler = if options.udp_over_stream {
+            uot::datagram_handler(stream)
+        } else {
+            Arc::new(DatagramHandler(client))
+        };
+        builder = builder.datagram_handler(datagram);
     }
     Ok(builder.build())
 }
