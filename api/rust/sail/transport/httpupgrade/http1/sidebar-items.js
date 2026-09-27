@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"constant":["MAX_HEAD"],"fn":["config_headers","parse_request","parse_response","read_head","refuse","switching_protocols","upgrade_request","upgrades_to_websocket"],"struct":["Prefixed","RequestHead","ResponseHead"]};

@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"constant":["LEGACY_MAGIC_ADDRESS","MAGIC_ADDRESS"],"enum":["UdpOverTcpOptions"],"fn":["datagram_handler","encode_packet","magic_destination","over_stream","put_addr","put_request","read_addr","read_payload","read_request","version"],"struct":["InboundDatagram","OutboundDatagram","UdpOverTcpFields"]};

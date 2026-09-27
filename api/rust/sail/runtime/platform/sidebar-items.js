@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"struct":["PlatformRef"],"trait":["Platform"]};

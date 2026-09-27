@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["copy_buf_bidirectional_with_timeout"],"struct":["CopyBuffer"]};

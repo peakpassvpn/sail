@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"enum":["EnqueueError","Route","RunnerError","RunnerState","ShardQueueError","ShardRouterError","ShardedPacketIoError","WorkClass"],"fn":["classify_packet"],"struct":["RoundStats","RunnerConfig","Scheduler","SchedulerConfig","SchedulerSnapshot","ShardRouter","ShardRouterStats","ShardedPacketIo","ShardedPacketIoControl","SingleShardRunner","StepOutcome"]};

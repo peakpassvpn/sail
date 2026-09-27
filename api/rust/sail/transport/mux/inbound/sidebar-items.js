@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"enum":["Policy"],"fn":["with_policy"]};

@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["add_default_ipv4_route","add_default_ipv6_route","add_interface_ipv4_address","add_interface_ipv6_address","delete_default_ipv4_route","delete_default_ipv6_route","get_default_interface","get_default_ipv4_gateway","get_default_ipv6_gateway","get_ipv4_forwarding","get_ipv6_forwarding","set_ipv4_forwarding","set_ipv6_forwarding"]};

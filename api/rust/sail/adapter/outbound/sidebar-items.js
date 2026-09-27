@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["with_dial"],"struct":["Handler","HandlerBuilder"]};

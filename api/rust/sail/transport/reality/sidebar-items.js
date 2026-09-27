@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"constant":["CLIENT_VERSION"],"fn":["parse_key","parse_short_id"],"mod":["inbound","outbound"]};

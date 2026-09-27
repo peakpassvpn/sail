@@ -1,0 +1,941 @@
+<!DOCTYPE html><html lang="en" dir="ltr" data-theme="dark" data-has-toc data-has-sidebar class="astro-g5ptsecz"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><title>Inbound configuration | Sail</title><link rel="canonical" href="https://peakpassvpn.github.io/sail/reference/inbounds/"/><link rel="alternate" hreflang="en" href="https://peakpassvpn.github.io/sail/reference/inbounds/"/><link rel="alternate" hreflang="zh-CN" href="https://peakpassvpn.github.io/sail/zh/reference/inbounds/"/><link rel="alternate" hreflang="x-default" href="https://peakpassvpn.github.io/sail/reference/inbounds/"/><link rel="sitemap" href="/sail/sitemap-index.xml"/><link rel="shortcut icon" href="/sail/favicon.svg" type="image/svg+xml"/><meta name="generator" content="Astro v7.3.5"/><meta name="generator" content="Starlight v0.42.4"/><meta property="og:title" content="Inbound configuration"/><meta property="og:type" content="article"/><meta property="og:url" content="https://peakpassvpn.github.io/sail/reference/inbounds/"/><meta property="og:locale" content="en"/><meta property="og:description" content="Fields, types and serialization rules extracted from Sail configuration source."/><meta property="og:site_name" content="Sail"/><meta name="description" content="Fields, types and serialization rules extracted from Sail configuration source."/><meta name="robots" content="index, follow, max-image-preview:large"/><meta name="keywords" content="Rust proxy platform, Clash, sing-box, Surge, unified proxy core, VPN core"/><meta name="twitter:card" content="summary_large_image"/><meta property="og:image" content="https://peakpassvpn.github.io/sail/hero-network.png"/><meta name="twitter:image" content="https://peakpassvpn.github.io/sail/hero-network.png"/><script>
+	window.StarlightThemeProvider = (() => {
+		const storedTheme =
+			typeof localStorage !== 'undefined' && localStorage.getItem('starlight-theme');
+		const theme =
+			storedTheme ||
+			(window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+		document.documentElement.dataset.theme = theme === 'light' ? 'light' : 'dark';
+		return {
+			updatePickers(theme = storedTheme || 'auto') {
+				document.querySelectorAll('starlight-theme-select').forEach((picker) => {
+					const select = picker.querySelector('select');
+					if (select) select.value = theme;
+					/** @type {HTMLTemplateElement | null} */
+					const tmpl = document.querySelector(`#theme-icons`);
+					const newIcon = tmpl && tmpl.content.querySelector('.' + theme);
+					if (newIcon) {
+						const oldIcon = picker.querySelector('svg.label-icon');
+						if (oldIcon) {
+							oldIcon.replaceChildren(...newIcon.cloneNode(true).childNodes);
+						}
+					}
+				});
+			},
+		};
+	})();
+</script><template id="theme-icons"><svg aria-hidden="true" class="light astro-hkc32dio" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;"><path d="M5 12a1 1 0 0 0-1-1H3a1 1 0 0 0 0 2h1a1 1 0 0 0 1-1Zm.64 5-.71.71a1 1 0 0 0 0 1.41 1 1 0 0 0 1.41 0l.71-.71A1 1 0 0 0 5.64 17ZM12 5a1 1 0 0 0 1-1V3a1 1 0 0 0-2 0v1a1 1 0 0 0 1 1Zm5.66 2.34a1 1 0 0 0 .7-.29l.71-.71a1 1 0 1 0-1.41-1.41l-.66.71a1 1 0 0 0 0 1.41 1 1 0 0 0 .66.29Zm-12-.29a1 1 0 0 0 1.41 0 1 1 0 0 0 0-1.41l-.71-.71a1.004 1.004 0 1 0-1.43 1.41l.73.71ZM21 11h-1a1 1 0 0 0 0 2h1a1 1 0 0 0 0-2Zm-2.64 6A1 1 0 0 0 17 18.36l.71.71a1 1 0 0 0 1.41 0 1 1 0 0 0 0-1.41l-.76-.66ZM12 6.5a5.5 5.5 0 1 0 5.5 5.5A5.51 5.51 0 0 0 12 6.5Zm0 9a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7Zm0 3.5a1 1 0 0 0-1 1v1a1 1 0 0 0 2 0v-1a1 1 0 0 0-1-1Z"/></svg><svg aria-hidden="true" class="dark astro-hkc32dio" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;"><path d="M21.64 13a1 1 0 0 0-1.05-.14 8.049 8.049 0 0 1-3.37.73 8.15 8.15 0 0 1-8.14-8.1 8.59 8.59 0 0 1 .25-2A1 1 0 0 0 8 2.36a10.14 10.14 0 1 0 14 11.69 1 1 0 0 0-.36-1.05Zm-9.5 6.69A8.14 8.14 0 0 1 7.08 5.22v.27a10.15 10.15 0 0 0 10.14 10.14 9.784 9.784 0 0 0 2.1-.22 8.11 8.11 0 0 1-7.18 4.32v-.04Z"/></svg><svg aria-hidden="true" class="auto astro-hkc32dio" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;"><path d="M21 14h-1V7a3 3 0 0 0-3-3H7a3 3 0 0 0-3 3v7H3a1 1 0 0 0-1 1v2a3 3 0 0 0 3 3h14a3 3 0 0 0 3-3v-2a1 1 0 0 0-1-1ZM6 7a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v7H6V7Zm14 10a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-1h16v1Z"/></svg></template><link rel="stylesheet" href="/sail/_astro/print.ehPL0gv-.css" media="print"><link rel="stylesheet" href="/sail/_astro/common.D0xpBr2z.css"><script type="module" src="/sail/_astro/page.DEvWzHrY.js"></script></head><body class="astro-g5ptsecz"><a class="sl-skip-link astro-qb7clj6f" href="#_top">Skip to content</a><div class="page sl-flex astro-yntsjkba"><header class="header astro-yntsjkba"><div class="header astro-by6fddyj"><div class="title-wrapper sl-flex astro-by6fddyj"><a href="/sail/" class="site-title sl-flex astro-6rvad3va"><img class="astro-6rvad3va" alt src="/sail/_astro/sail-mark.BBlhvJ0r.svg" width="64" height="64"><span class="astro-6rvad3va" translate="no">Sail</span></a></div><div class="sl-flex print:hidden astro-by6fddyj"><site-search class="astro-by6fddyj astro-b5kgnn7o" data-translations="{&quot;placeholder&quot;:&quot;Search&quot;}"><button data-open-modal disabled aria-label="Search" aria-keyshortcuts="Control+K" class="astro-b5kgnn7o"><svg aria-hidden="true" class="astro-b5kgnn7o astro-hkc32dio" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;"><path d="M21.71 20.29 18 16.61A9 9 0 1 0 16.61 18l3.68 3.68a.999.999 0 0 0 1.42 0 1 1 0 0 0 0-1.39ZM11 18a7 7 0 1 1 0-14 7 7 0 0 1 0 14Z"/></svg><span class="sl-hidden md:sl-block astro-b5kgnn7o" aria-hidden="true">Search</span><kbd class="sl-hidden md:sl-flex astro-b5kgnn7o" style="display: none;"><kbd class="astro-b5kgnn7o">Ctrl</kbd><kbd class="astro-b5kgnn7o">K</kbd></kbd></button><dialog style="padding:0" aria-label="Search" class="astro-b5kgnn7o"><div class="dialog-frame sl-flex astro-b5kgnn7o"><button data-close-modal class="sl-flex md:sl-hidden astro-b5kgnn7o">Cancel</button><div class="search-container astro-b5kgnn7o"><div id="starlight__search" class="astro-b5kgnn7o"></div></div></div></dialog></site-search><script>
+	(() => {
+		const openBtn = document.querySelector('button[data-open-modal]');
+		const shortcut = openBtn?.querySelector('kbd');
+		if (!openBtn || !(shortcut instanceof HTMLElement)) return;
+		const platformKey = shortcut.querySelector('kbd');
+		if (platformKey && /(Mac|iPhone|iPod|iPad)/i.test(navigator.platform)) {
+			platformKey.textContent = '⌘';
+			openBtn.setAttribute('aria-keyshortcuts', 'Meta+K');
+		}
+		shortcut.style.display = '';
+	})();
+</script><script type="module" src="/sail/_astro/Search.astro_astro_type_script_index_0_lang.BZXSbAZB.js"></script></div><div class="sl-hidden md:sl-flex print:hidden right-group astro-by6fddyj"><div class="sl-flex social-icons astro-by6fddyj"><a href="https://github.com/peakpassvpn/sail" rel="me" class="sl-flex astro-n2mnl6yq"><span class="sr-only astro-n2mnl6yq">GitHub</span><svg aria-hidden="true" class="astro-n2mnl6yq astro-hkc32dio" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;"><path d="M12 .3a12 12 0 0 0-3.8 23.38c.6.12.83-.26.83-.57L9 21.07c-3.34.72-4.04-1.61-4.04-1.61-.55-1.39-1.34-1.76-1.34-1.76-1.08-.74.09-.73.09-.73 1.2.09 1.83 1.24 1.83 1.24 1.08 1.83 2.81 1.3 3.5 1 .1-.78.42-1.31.76-1.61-2.67-.3-5.47-1.33-5.47-5.93 0-1.31.47-2.38 1.24-3.22-.14-.3-.54-1.52.1-3.18 0 0 1-.32 3.3 1.23a11.5 11.5 0 0 1 6 0c2.28-1.55 3.29-1.23 3.29-1.23.64 1.66.24 2.88.12 3.18a4.65 4.65 0 0 1 1.23 3.22c0 4.61-2.8 5.63-5.48 5.92.42.36.81 1.1.81 2.22l-.01 3.29c0 .31.2.69.82.57A12 12 0 0 0 12 .3Z"/></svg></a></div><starlight-theme-switcher class="astro-hds7qqbe"><div class="theme-switcher astro-hds7qqbe" role="group" aria-label="Select color theme"><button type="button" data-theme-choice="light" aria-label="Use light theme" title="Light" class="astro-hds7qqbe"><svg viewBox="0 0 24 24" aria-hidden="true" class="astro-hds7qqbe"><circle cx="12" cy="12" r="3.5" class="astro-hds7qqbe"></circle><path d="M12 2v2.2M12 19.8V22M4.93 4.93l1.56 1.56M17.51 17.51l1.56 1.56M2 12h2.2M19.8 12H22M4.93 19.07l1.56-1.56M17.51 6.49l1.56-1.56" class="astro-hds7qqbe"></path></svg></button><button type="button" data-theme-choice="dark" aria-label="Use dark theme" title="Dark" class="astro-hds7qqbe"><svg viewBox="0 0 24 24" aria-hidden="true" class="astro-hds7qqbe"><path d="M20.2 15.1A8.4 8.4 0 0 1 8.9 3.8 8.5 8.5 0 1 0 20.2 15.1Z" class="astro-hds7qqbe"></path></svg></button><button type="button" data-theme-choice="auto" aria-label="Follow system theme" title="System" class="astro-hds7qqbe"><svg viewBox="0 0 24 24" aria-hidden="true" class="astro-hds7qqbe"><rect x="3" y="4.5" width="18" height="13" rx="2" class="astro-hds7qqbe"></rect><path d="M8 21h8M12 17.5V21" class="astro-hds7qqbe"></path></svg></button></div></starlight-theme-switcher><script type="module">var e=`starlight-theme`,t=()=>matchMedia(`(prefers-color-scheme: light)`).matches?`light`:`dark`,n=()=>{let t=localStorage.getItem(e);return t===`light`||t===`dark`?t:`auto`},r=class extends HTMLElement{#e=n();#t=matchMedia(`(prefers-color-scheme: light)`);connectedCallback(){this.querySelectorAll(`[data-theme-choice]`).forEach(e=>{e.addEventListener(`click`,()=>this.#r(e.dataset.themeChoice))}),this.#t.addEventListener(`change`,this.#n),this.#r(this.#e)}disconnectedCallback(){this.#t.removeEventListener(`change`,this.#n)}#n=()=>{this.#e===`auto`&&this.#r(`auto`)};#r(n){this.#e=n,document.documentElement.dataset.theme=n===`auto`?t():n,localStorage.setItem(e,n===`auto`?``:n),this.querySelectorAll(`[data-theme-choice]`).forEach(e=>{let t=e.dataset.themeChoice===n;e.toggleAttribute(`data-active`,t),e.setAttribute(`aria-pressed`,String(t))})}};customElements.get(`starlight-theme-switcher`)||customElements.define(`starlight-theme-switcher`,r);</script><nav class="language-switcher astro-34uxj53s" aria-label="Select language"><a href="/sail/reference/inbounds/" lang="en" title="English" aria-current="page" class="astro-34uxj53s">EN</a><a href="/sail/zh/reference/inbounds/" lang="zh-CN" title="简体中文" class="astro-34uxj53s">中文</a></nav></div></div></header><nav class="sidebar print:hidden astro-yntsjkba" aria-label="Main"><button popovertarget="starlight__sidebar" class="sl-menu-button sl-flex md:sl-hidden print:hidden astro-r2osgdlg"><svg aria-hidden="true" class="open-menu astro-r2osgdlg astro-hkc32dio" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;"><path d="M3 8h18a1 1 0 1 0 0-2H3a1 1 0 0 0 0 2Zm18 8H3a1 1 0 0 0 0 2h18a1 1 0 0 0 0-2Zm0-5H3a1 1 0 0 0 0 2h18a1 1 0 0 0 0-2Z"/></svg><svg aria-hidden="true" class="close-menu astro-r2osgdlg astro-hkc32dio" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;"><path d="m13.41 12 6.3-6.29a1.004 1.004 0 1 0-1.42-1.42L12 10.59l-6.29-6.3a1.004 1.004 0 0 0-1.42 1.42l6.3 6.29-6.3 6.29a1 1 0 0 0 0 1.42.998.998 0 0 0 1.42 0l6.29-6.3 6.29 6.3a.999.999 0 0 0 1.42 0 1 1 0 0 0 0-1.42L13.41 12Z"/></svg><span class="sr-only astro-r2osgdlg">Menu</span></button><script type="module">var e=class extends HTMLElement{constructor(){super();let e=matchMedia(`(min-width: 50em)`),t=()=>{this.popover=e.matches?null:`auto`};t(),e.addEventListener(`change`,()=>t()),this.addEventListener(`toggle`,({newState:e})=>this.trapFocus(e===`open`))}trapFocus(e){document.querySelectorAll(`.main-frame, .sl-skip-link`).forEach(t=>{t.toggleAttribute(`inert`,e)})}};customElements.define(`sl-sidebar-pane`,e);</script><sl-sidebar-pane popover id="starlight__sidebar" class="sidebar-pane astro-yntsjkba"><div class="sidebar-content sl-flex astro-yntsjkba"><sl-sidebar-state-persist data-hash="1g4s8m9" class="astro-ipdry5cl"><script aria-hidden="true">
+		(() => {
+			try {
+				if (!matchMedia('(min-width: 50em)').matches) return;
+				/** @type {HTMLElement | null} */
+				const target = document.querySelector('sl-sidebar-state-persist');
+				const state = JSON.parse(sessionStorage.getItem('sl-sidebar-state') || '0');
+				if (!target || !state || target.dataset.hash !== state.hash) return;
+				window._starlightScrollRestore = state.scroll;
+				customElements.define(
+					'sl-sidebar-restore',
+					class SidebarRestore extends HTMLElement {
+						connectedCallback() {
+							try {
+								const idx = parseInt(this.dataset.index || '');
+								const details = this.closest('details');
+								if (details && typeof state.open[idx] === 'boolean') details.open = state.open[idx];
+							} catch {}
+						}
+					}
+				);
+			} catch {}
+		})();
+	</script><ul class="top-level astro-rmhv4bp6"><li class="astro-rmhv4bp6"><details open class="astro-rmhv4bp6"><summary class="astro-rmhv4bp6"><span class="group-label astro-rmhv4bp6"><span class="large astro-rmhv4bp6">Start here</span></span><svg aria-hidden="true" class="caret astro-rmhv4bp6 astro-hkc32dio" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1.25rem;"><path d="m14.83 11.29-4.24-4.24a1 1 0 1 0-1.42 1.41L12.71 12l-3.54 3.54a1 1 0 0 0 0 1.41 1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.24-4.24a1.002 1.002 0 0 0 0-1.42Z"/></svg></summary><sl-sidebar-restore data-index="0"></sl-sidebar-restore><ul class="astro-rmhv4bp6"><li class="astro-rmhv4bp6"><a href="/sail/getting-started/" class="astro-rmhv4bp6"><span class="astro-rmhv4bp6">Getting started</span></a></li><li class="astro-rmhv4bp6"><a href="/sail/installation/" class="astro-rmhv4bp6"><span class="astro-rmhv4bp6">Installation</span></a></li><li class="astro-rmhv4bp6"><a href="/sail/cli/" class="astro-rmhv4bp6"><span class="astro-rmhv4bp6">CLI reference</span></a></li></ul></details></li><li class="astro-rmhv4bp6"><details open class="astro-rmhv4bp6"><summary class="astro-rmhv4bp6"><span class="group-label astro-rmhv4bp6"><span class="large astro-rmhv4bp6">Core guides</span></span><svg aria-hidden="true" class="caret astro-rmhv4bp6 astro-hkc32dio" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1.25rem;"><path d="m14.83 11.29-4.24-4.24a1 1 0 1 0-1.42 1.41L12.71 12l-3.54 3.54a1 1 0 0 0 0 1.41 1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.24-4.24a1.002 1.002 0 0 0 0-1.42Z"/></svg></summary><sl-sidebar-restore data-index="1"></sl-sidebar-restore><ul class="astro-rmhv4bp6"><li class="astro-rmhv4bp6"><a href="/sail/configuration/" class="astro-rmhv4bp6"><span class="astro-rmhv4bp6">Configuration</span></a></li><li class="astro-rmhv4bp6"><a href="/sail/routing/" class="astro-rmhv4bp6"><span class="astro-rmhv4bp6">Routing</span></a></li><li class="astro-rmhv4bp6"><a href="/sail/tls-fingerprints/" class="astro-rmhv4bp6"><span class="astro-rmhv4bp6">TLS and fingerprints</span></a></li><li class="astro-rmhv4bp6"><a href="/sail/mptp/" class="astro-rmhv4bp6"><span class="astro-rmhv4bp6">MPTP</span></a></li></ul></details></li><li class="astro-rmhv4bp6"><details open class="astro-rmhv4bp6"><summary class="astro-rmhv4bp6"><span class="group-label astro-rmhv4bp6"><span class="large astro-rmhv4bp6">Build and integrate</span></span><svg aria-hidden="true" class="caret astro-rmhv4bp6 astro-hkc32dio" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1.25rem;"><path d="m14.83 11.29-4.24-4.24a1 1 0 1 0-1.42 1.41L12.71 12l-3.54 3.54a1 1 0 0 0 0 1.41 1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.24-4.24a1.002 1.002 0 0 0 0-1.42Z"/></svg></summary><sl-sidebar-restore data-index="2"></sl-sidebar-restore><ul class="astro-rmhv4bp6"><li class="astro-rmhv4bp6"><a href="/sail/protocols/" class="astro-rmhv4bp6"><span class="astro-rmhv4bp6">Protocols</span></a></li><li class="astro-rmhv4bp6"><a href="/sail/platform-integration/" class="astro-rmhv4bp6"><span class="astro-rmhv4bp6">Platform integration</span></a></li><li class="astro-rmhv4bp6"><a href="/sail/architecture/" class="astro-rmhv4bp6"><span class="astro-rmhv4bp6">Architecture</span></a></li></ul></details></li><li class="astro-rmhv4bp6"><details open class="astro-rmhv4bp6"><summary class="astro-rmhv4bp6"><span class="group-label astro-rmhv4bp6"><span class="large astro-rmhv4bp6">Configuration reference</span></span><svg aria-hidden="true" class="caret astro-rmhv4bp6 astro-hkc32dio" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1.25rem;"><path d="m14.83 11.29-4.24-4.24a1 1 0 1 0-1.42 1.41L12.71 12l-3.54 3.54a1 1 0 0 0 0 1.41 1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.24-4.24a1.002 1.002 0 0 0 0-1.42Z"/></svg></summary><sl-sidebar-restore data-index="3"></sl-sidebar-restore><ul class="astro-rmhv4bp6"><li class="astro-rmhv4bp6"><a href="/sail/reference/common/" class="astro-rmhv4bp6"><span class="astro-rmhv4bp6">Common configuration</span></a></li><li class="astro-rmhv4bp6"><a href="/sail/reference/inbounds/" aria-current="page" class="astro-rmhv4bp6"><span class="astro-rmhv4bp6">Inbound configuration</span></a></li><li class="astro-rmhv4bp6"><a href="/sail/reference/outbounds/" class="astro-rmhv4bp6"><span class="astro-rmhv4bp6">Outbounds and groups</span></a></li><li class="astro-rmhv4bp6"><a href="/sail/reference/transport/" class="astro-rmhv4bp6"><span class="astro-rmhv4bp6">Transport configuration</span></a></li></ul></details></li><li class="astro-rmhv4bp6"><details open class="astro-rmhv4bp6"><summary class="astro-rmhv4bp6"><span class="group-label astro-rmhv4bp6"><span class="large astro-rmhv4bp6">Help</span></span><svg aria-hidden="true" class="caret astro-rmhv4bp6 astro-hkc32dio" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1.25rem;"><path d="m14.83 11.29-4.24-4.24a1 1 0 1 0-1.42 1.41L12.71 12l-3.54 3.54a1 1 0 0 0 0 1.41 1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.24-4.24a1.002 1.002 0 0 0 0-1.42Z"/></svg></summary><sl-sidebar-restore data-index="4"></sl-sidebar-restore><ul class="astro-rmhv4bp6"><li class="astro-rmhv4bp6"><a href="/sail/troubleshooting/" class="astro-rmhv4bp6"><span class="astro-rmhv4bp6">Troubleshooting</span></a></li></ul></details></li></ul><script aria-hidden="true">
+		(() => {
+			const scroller = document.getElementById('starlight__sidebar');
+			if (!window._starlightScrollRestore || !scroller) return;
+			scroller.scrollTop = window._starlightScrollRestore;
+			delete window._starlightScrollRestore;
+		})();
+	</script></sl-sidebar-state-persist><div class="md:sl-hidden"><div class="mobile-preferences sl-flex astro-p4azlveh"><div class="social-icons astro-p4azlveh"><a href="https://github.com/peakpassvpn/sail" rel="me" class="sl-flex astro-n2mnl6yq"><span class="sr-only astro-n2mnl6yq">GitHub</span><svg aria-hidden="true" class="astro-n2mnl6yq astro-hkc32dio" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;"><path d="M12 .3a12 12 0 0 0-3.8 23.38c.6.12.83-.26.83-.57L9 21.07c-3.34.72-4.04-1.61-4.04-1.61-.55-1.39-1.34-1.76-1.34-1.76-1.08-.74.09-.73.09-.73 1.2.09 1.83 1.24 1.83 1.24 1.08 1.83 2.81 1.3 3.5 1 .1-.78.42-1.31.76-1.61-2.67-.3-5.47-1.33-5.47-5.93 0-1.31.47-2.38 1.24-3.22-.14-.3-.54-1.52.1-3.18 0 0 1-.32 3.3 1.23a11.5 11.5 0 0 1 6 0c2.28-1.55 3.29-1.23 3.29-1.23.64 1.66.24 2.88.12 3.18a4.65 4.65 0 0 1 1.23 3.22c0 4.61-2.8 5.63-5.48 5.92.42.36.81 1.1.81 2.22l-.01 3.29c0 .31.2.69.82.57A12 12 0 0 0 12 .3Z"/></svg></a></div><starlight-theme-switcher class="astro-hds7qqbe"><div class="theme-switcher astro-hds7qqbe" role="group" aria-label="Select color theme"><button type="button" data-theme-choice="light" aria-label="Use light theme" title="Light" class="astro-hds7qqbe"><svg viewBox="0 0 24 24" aria-hidden="true" class="astro-hds7qqbe"><circle cx="12" cy="12" r="3.5" class="astro-hds7qqbe"></circle><path d="M12 2v2.2M12 19.8V22M4.93 4.93l1.56 1.56M17.51 17.51l1.56 1.56M2 12h2.2M19.8 12H22M4.93 19.07l1.56-1.56M17.51 6.49l1.56-1.56" class="astro-hds7qqbe"></path></svg></button><button type="button" data-theme-choice="dark" aria-label="Use dark theme" title="Dark" class="astro-hds7qqbe"><svg viewBox="0 0 24 24" aria-hidden="true" class="astro-hds7qqbe"><path d="M20.2 15.1A8.4 8.4 0 0 1 8.9 3.8 8.5 8.5 0 1 0 20.2 15.1Z" class="astro-hds7qqbe"></path></svg></button><button type="button" data-theme-choice="auto" aria-label="Follow system theme" title="System" class="astro-hds7qqbe"><svg viewBox="0 0 24 24" aria-hidden="true" class="astro-hds7qqbe"><rect x="3" y="4.5" width="18" height="13" rx="2" class="astro-hds7qqbe"></rect><path d="M8 21h8M12 17.5V21" class="astro-hds7qqbe"></path></svg></button></div></starlight-theme-switcher><nav class="language-switcher astro-34uxj53s" aria-label="Select language"><a href="/sail/reference/inbounds/" lang="en" title="English" aria-current="page" class="astro-34uxj53s">EN</a><a href="/sail/zh/reference/inbounds/" lang="zh-CN" title="简体中文" class="astro-34uxj53s">中文</a></nav></div></div></div></sl-sidebar-pane></nav><div class="main-frame astro-yntsjkba"><script type="module">var e=document.getElementById(`starlight__sidebar`),t=e?.querySelector(`sl-sidebar-state-persist`),n=`sl-sidebar-state`,r=()=>{let r=[],i=t?.dataset.hash||``;try{let e=sessionStorage.getItem(n),t=JSON.parse(e||`{}`);Array.isArray(t.open)&&t.hash===i&&(r=t.open)}catch{}return{hash:i,open:r,scroll:e?.scrollTop||0}},i=e=>{try{sessionStorage.setItem(n,JSON.stringify(e))}catch{}},a=()=>i(r()),o=(e,t)=>{let n=r();n.open[t]=e,i(n)};t?.addEventListener(`click`,e=>{if(!(e.target instanceof Element))return;let t=e.target.closest(`summary`)?.closest(`details`);if(!t)return;let n=t.querySelector(`sl-sidebar-restore`),r=parseInt(n?.dataset.index||``);isNaN(r)||o(!t.open,r)}),addEventListener(`visibilitychange`,()=>{document.visibilityState===`hidden`&&a()});</script><div class="lg:sl-flex astro-lrzkfocr"><aside class="right-sidebar-container print:hidden astro-lrzkfocr"><div class="right-sidebar astro-lrzkfocr"><div class="lg:sl-hidden astro-qok35upx"><mobile-starlight-toc data-min-h="2" data-max-h="3" class="astro-66cqc7ze"><nav aria-labelledby="starlight__on-this-page--mobile" class="astro-66cqc7ze"><details id="starlight__mobile-toc" class="astro-66cqc7ze"><summary id="starlight__on-this-page--mobile" class="sl-flex astro-66cqc7ze"><span class="toggle sl-flex astro-66cqc7ze">On this page<svg aria-hidden="true" class="caret astro-66cqc7ze astro-hkc32dio" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1rem;"><path d="m14.83 11.29-4.24-4.24a1 1 0 1 0-1.42 1.41L12.71 12l-3.54 3.54a1 1 0 0 0 0 1.41 1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.24-4.24a1.002 1.002 0 0 0 0-1.42Z"/></svg></span><span class="display-current astro-66cqc7ze"></span></summary><div class="dropdown astro-66cqc7ze"><ul class="isMobile astro-jugkfwgx" style="--depth: 0;"><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#_top" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">Overview</span></a></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#anytlsinboundoptions" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">AnyTlsInboundOptions</span></a></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#anytlsuser" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">AnyTlsUser</span></a></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#hcinboundoptions" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">HcInboundOptions</span></a></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#httpinboundoptions" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">HttpInboundOptions</span></a></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#httpuser" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">HttpUser</span></a></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#masqueradeoptions" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">MasqueradeOptions</span></a></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#masqueradeobject" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">MasqueradeObject</span></a></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#hysteria2inboundoptions" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">Hysteria2InboundOptions</span></a></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#user" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">User</span></a></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#mixedinboundoptions" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">MixedInboundOptions</span></a></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#mixeduser" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">MixedUser</span></a></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#mptpinboundoptions" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">MptpInboundOptions</span></a></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#nfinboundoptions" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">NfInboundOptions</span></a></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#redirectinboundoptions" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">RedirectInboundOptions</span></a></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#shadowsocksinboundoptions" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">ShadowsocksInboundOptions</span></a></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#shadowsocksuser" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">ShadowsocksUser</span></a></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#socksinboundoptions" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">SocksInboundOptions</span></a></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#socksuser" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">SocksUser</span></a></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#tproxyinboundoptions" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">TproxyInboundOptions</span></a></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#trojaninboundoptions" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">TrojanInboundOptions</span></a></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#trojanuser" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">TrojanUser</span></a></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#tuicinboundoptions" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">TuicInboundOptions</span></a></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#tuicuser" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">TuicUser</span></a></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#tuninboundoptions" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">TunInboundOptions</span></a></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#vlessinboundoptions" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">VlessInboundOptions</span></a></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#vlessuser" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">VlessUser</span></a></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#vmessinboundoptions" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">VMessInboundOptions</span></a></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#vmessuser" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">VMessUser</span></a></li></ul></div></details></nav></mobile-starlight-toc><script type="module" src="/sail/_astro/MobileTableOfContents.astro_astro_type_script_index_0_lang.C3fM4Kra.js"></script></div><div class="right-sidebar-panel sl-hidden lg:sl-block astro-qok35upx"><div class="sl-container astro-qok35upx"><starlight-toc data-min-h="2" data-max-h="3"><nav aria-labelledby="starlight__on-this-page"><h2 id="starlight__on-this-page">On this page</h2><ul class="astro-jugkfwgx" style="--depth: 0;"><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#_top" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">Overview</span></a></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#anytlsinboundoptions" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">AnyTlsInboundOptions</span></a></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#anytlsuser" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">AnyTlsUser</span></a></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#hcinboundoptions" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">HcInboundOptions</span></a></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#httpinboundoptions" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">HttpInboundOptions</span></a></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#httpuser" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">HttpUser</span></a></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#masqueradeoptions" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">MasqueradeOptions</span></a></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#masqueradeobject" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">MasqueradeObject</span></a></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#hysteria2inboundoptions" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">Hysteria2InboundOptions</span></a></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#user" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">User</span></a></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#mixedinboundoptions" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">MixedInboundOptions</span></a></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#mixeduser" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">MixedUser</span></a></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#mptpinboundoptions" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">MptpInboundOptions</span></a></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#nfinboundoptions" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">NfInboundOptions</span></a></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#redirectinboundoptions" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">RedirectInboundOptions</span></a></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#shadowsocksinboundoptions" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">ShadowsocksInboundOptions</span></a></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#shadowsocksuser" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">ShadowsocksUser</span></a></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#socksinboundoptions" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">SocksInboundOptions</span></a></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#socksuser" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">SocksUser</span></a></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#tproxyinboundoptions" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">TproxyInboundOptions</span></a></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#trojaninboundoptions" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">TrojanInboundOptions</span></a></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#trojanuser" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">TrojanUser</span></a></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#tuicinboundoptions" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">TuicInboundOptions</span></a></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#tuicuser" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">TuicUser</span></a></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#tuninboundoptions" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">TunInboundOptions</span></a></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#vlessinboundoptions" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">VlessInboundOptions</span></a></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#vlessuser" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">VlessUser</span></a></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#vmessinboundoptions" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">VMessInboundOptions</span></a></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#vmessuser" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">VMessUser</span></a></li></ul></nav></starlight-toc><script type="module" src="/sail/_astro/TableOfContents.astro_astro_type_script_index_0_lang.BpJaGz7G.js"></script></div></div></div></aside><div class="main-pane astro-lrzkfocr"><main data-pagefind-body class="astro-g5ptsecz" lang="en" dir="ltr"><div class="content-panel astro-a7po4psb"><div class="sl-container astro-a7po4psb"><h1 id="_top" class="astro-bebwqqxs">Inbound configuration</h1></div></div><div class="content-panel astro-a7po4psb"><div class="sl-container astro-a7po4psb"><div class="sl-markdown-content"><p>Generated from the Rust syntax tree. Update source comments and rebuild to change this page. <code dir="auto">Option&lt;T&gt;</code> is optional; <code dir="auto">Vec&lt;T&gt;</code> is an array. Comments retain their source language.</p>
+<p>These declarations are not a complete runtime validation schema. Features and platform gates affect availability. Consult the <a href="/sail/configuration/">configuration guide</a> and linked source for computed defaults, supported combinations and cross-field constraints; validate with <code dir="auto">sail -c config.json -T</code>.</p>
+<div class="sl-heading-wrapper level-h2"><h2 id="anytlsinboundoptions">AnyTlsInboundOptions</h2><a class="sl-anchor-link" href="#anytlsinboundoptions"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “AnyTlsInboundOptions”</span></a></div>
+<p><a href="https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/anytls/inbound/mod.rs">Configuration source</a></p>
+<p>Serde: <code dir="auto">serde (deny_unknown_fields)</code></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Omission / flattening</th>
+<th>Source notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code dir="auto">users</code></td>
+<td><code dir="auto">Vec &lt; AnyTlsUser &gt;</code></td>
+<td>Required</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code dir="auto">padding_scheme</code></td>
+<td><code dir="auto">Option &lt; Listable &gt;</code></td>
+<td>Default::default()</td>
+<td>The padding scheme, as lines. Unset, the default.<br/><code dir="auto">serde (default)</code></td>
+</tr>
+<tr>
+<td><code dir="auto">fallback</code></td>
+<td><code dir="auto">Option &lt; FallbackServer &gt;</code></td>
+<td>Default::default()</td>
+<td>Where a connection that fails to authenticate is relayed.<br/><code dir="auto">serde (default)</code></td>
+</tr>
+<tr>
+<td><code dir="auto">fallback_for_alpn</code></td>
+<td><code dir="auto">HashMap &lt; String , FallbackServer &gt;</code></td>
+<td>Default::default()</td>
+<td>The same, by the ALPN the connection’s TLS negotiated; the ones it does not name go to <code dir="auto">fallback</code>.<br/><code dir="auto">serde (default)</code></td>
+</tr>
+</tbody>
+</table>
+<div class="sl-heading-wrapper level-h2"><h2 id="anytlsuser">AnyTlsUser</h2><a class="sl-anchor-link" href="#anytlsuser"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “AnyTlsUser”</span></a></div>
+<p><a href="https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/anytls/inbound/mod.rs">Configuration source</a></p>
+<p>Serde: <code dir="auto">serde (deny_unknown_fields)</code></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Omission / flattening</th>
+<th>Source notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code dir="auto">name</code></td>
+<td><code dir="auto">Option &lt; String &gt;</code></td>
+<td>Default::default()</td>
+<td>Who the user is to routing (<code dir="auto">auth_user</code>), statistics and logs.<br/><code dir="auto">serde (default)</code></td>
+</tr>
+<tr>
+<td><code dir="auto">password</code></td>
+<td><code dir="auto">String</code></td>
+<td>Required</td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<div class="sl-heading-wrapper level-h2"><h2 id="hcinboundoptions">HcInboundOptions</h2><a class="sl-anchor-link" href="#hcinboundoptions"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “HcInboundOptions”</span></a></div>
+<p><a href="https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/hc/inbound/mod.rs">Configuration source</a></p>
+<p>Answers health checks: <code dir="auto">request</code> on <code dir="auto">path</code> gets <code dir="auto">response</code>.</p>
+<p>Serde: <code dir="auto">serde (deny_unknown_fields)</code></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Omission / flattening</th>
+<th>Source notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code dir="auto">path</code></td>
+<td><code dir="auto">String</code></td>
+<td>Required</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code dir="auto">request</code></td>
+<td><code dir="auto">String</code></td>
+<td>Default::default()</td>
+<td>—<br/><code dir="auto">serde (default)</code></td>
+</tr>
+<tr>
+<td><code dir="auto">response</code></td>
+<td><code dir="auto">String</code></td>
+<td>Required</td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<div class="sl-heading-wrapper level-h2"><h2 id="httpinboundoptions">HttpInboundOptions</h2><a class="sl-anchor-link" href="#httpinboundoptions"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “HttpInboundOptions”</span></a></div>
+<p><a href="https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/http/inbound/mod.rs">Configuration source</a></p>
+<p>Serde: <code dir="auto">serde (deny_unknown_fields)</code></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Omission / flattening</th>
+<th>Source notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code dir="auto">users</code></td>
+<td><code dir="auto">Vec &lt; HttpUser &gt;</code></td>
+<td>Default::default()</td>
+<td>Clients must authenticate as one of these with <code dir="auto">Proxy-Authorization: Basic</code>; anyone may connect when there are none.<br/><code dir="auto">serde (default)</code></td>
+</tr>
+</tbody>
+</table>
+<div class="sl-heading-wrapper level-h2"><h2 id="httpuser">HttpUser</h2><a class="sl-anchor-link" href="#httpuser"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “HttpUser”</span></a></div>
+<p><a href="https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/http/inbound/mod.rs">Configuration source</a></p>
+<p>Serde: <code dir="auto">serde (deny_unknown_fields)</code></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Omission / flattening</th>
+<th>Source notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code dir="auto">username</code></td>
+<td><code dir="auto">String</code></td>
+<td>Required</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code dir="auto">password</code></td>
+<td><code dir="auto">String</code></td>
+<td>Required</td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<div class="sl-heading-wrapper level-h2"><h2 id="masqueradeoptions">MasqueradeOptions</h2><a class="sl-anchor-link" href="#masqueradeoptions"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “MasqueradeOptions”</span></a></div>
+<p><a href="https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/hysteria2/inbound/masquerade.rs">Configuration source</a></p>
+<p>The <code dir="auto">masquerade</code> field, as sing-box takes it: an <code dir="auto">http://</code> URL to proxy to, or an object.</p>
+<p>Serde: <code dir="auto">serde (untagged)</code></p>
+<table>
+<thead>
+<tr>
+<th>Value / shape</th>
+<th>Source notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code dir="auto">(String)</code></td>
+<td>—</td>
+</tr>
+<tr>
+<td><code dir="auto">(MasqueradeObject)</code></td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<div class="sl-heading-wrapper level-h2"><h2 id="masqueradeobject">MasqueradeObject</h2><a class="sl-anchor-link" href="#masqueradeobject"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “MasqueradeObject”</span></a></div>
+<p><a href="https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/hysteria2/inbound/masquerade.rs">Configuration source</a></p>
+<p>Serde: <code dir="auto">serde (tag = "type" , rename_all = "lowercase" , deny_unknown_fields)</code></p>
+<table>
+<thead>
+<tr>
+<th>Value / shape</th>
+<th>Source notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code dir="auto">proxy { url : String , # [doc = " Sends the site's own host instead of the one asked for."] # [serde (default)] rewrite_host : bool , }</code></td>
+<td>—</td>
+</tr>
+<tr>
+<td><code dir="auto">string { # [serde (default)] status_code : Option &lt; u16 &gt; , # [serde (default)] headers : HashMap &lt; String , String &gt; , content : String , }</code></td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<div class="sl-heading-wrapper level-h2"><h2 id="hysteria2inboundoptions">Hysteria2InboundOptions</h2><a class="sl-anchor-link" href="#hysteria2inboundoptions"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “Hysteria2InboundOptions”</span></a></div>
+<p><a href="https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/hysteria2/inbound/mod.rs">Configuration source</a></p>
+<p>Serde: <code dir="auto">serde (deny_unknown_fields)</code></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Omission / flattening</th>
+<th>Source notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code dir="auto">up_mbps</code></td>
+<td><code dir="auto">Option &lt; u64 &gt;</code></td>
+<td>Default::default()</td>
+<td>What the server may send at, at most, to each client.<br/><code dir="auto">serde (default)</code></td>
+</tr>
+<tr>
+<td><code dir="auto">down_mbps</code></td>
+<td><code dir="auto">Option &lt; u64 &gt;</code></td>
+<td>Default::default()</td>
+<td>What the server can receive at, told to clients.<br/><code dir="auto">serde (default)</code></td>
+</tr>
+<tr>
+<td><code dir="auto">obfs</code></td>
+<td><code dir="auto">Option &lt; Obfs &gt;</code></td>
+<td>Default::default()</td>
+<td>—<br/><code dir="auto">serde (default)</code></td>
+</tr>
+<tr>
+<td><code dir="auto">users</code></td>
+<td><code dir="auto">Vec &lt; User &gt;</code></td>
+<td>Required</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code dir="auto">ignore_client_bandwidth</code></td>
+<td><code dir="auto">bool</code></td>
+<td>Default::default()</td>
+<td>Ignores the rate clients say they receive at, and has them find their own: BBR both ways.<br/><code dir="auto">serde (default)</code></td>
+</tr>
+<tr>
+<td><code dir="auto">tls</code></td>
+<td><code dir="auto">InboundTls</code></td>
+<td>Required</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code dir="auto">masquerade</code></td>
+<td><code dir="auto">Option &lt; MasqueradeOptions &gt;</code></td>
+<td>Default::default()</td>
+<td>What anyone without a password is served.<br/><code dir="auto">serde (default)</code></td>
+</tr>
+</tbody>
+</table>
+<div class="sl-heading-wrapper level-h2"><h2 id="user">User</h2><a class="sl-anchor-link" href="#user"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “User”</span></a></div>
+<p><a href="https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/hysteria2/inbound/mod.rs">Configuration source</a></p>
+<p>Serde: <code dir="auto">serde (deny_unknown_fields)</code></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Omission / flattening</th>
+<th>Source notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code dir="auto">name</code></td>
+<td><code dir="auto">Option &lt; String &gt;</code></td>
+<td>Default::default()</td>
+<td>Who the user is to routing (<code dir="auto">auth_user</code>), statistics and logs.<br/><code dir="auto">serde (default)</code></td>
+</tr>
+<tr>
+<td><code dir="auto">password</code></td>
+<td><code dir="auto">String</code></td>
+<td>Required</td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<div class="sl-heading-wrapper level-h2"><h2 id="mixedinboundoptions">MixedInboundOptions</h2><a class="sl-anchor-link" href="#mixedinboundoptions"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “MixedInboundOptions”</span></a></div>
+<p><a href="https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/mixed/inbound/mod.rs">Configuration source</a></p>
+<p>Serde: <code dir="auto">serde (deny_unknown_fields)</code></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Omission / flattening</th>
+<th>Source notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code dir="auto">users</code></td>
+<td><code dir="auto">Vec &lt; MixedUser &gt;</code></td>
+<td>Default::default()</td>
+<td>Clients must authenticate as one of these, by SOCKS5 username/password or HTTP Basic; anyone may connect when there are none.<br/><code dir="auto">serde (default)</code></td>
+</tr>
+</tbody>
+</table>
+<div class="sl-heading-wrapper level-h2"><h2 id="mixeduser">MixedUser</h2><a class="sl-anchor-link" href="#mixeduser"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “MixedUser”</span></a></div>
+<p><a href="https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/mixed/inbound/mod.rs">Configuration source</a></p>
+<p>Serde: <code dir="auto">serde (deny_unknown_fields)</code></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Omission / flattening</th>
+<th>Source notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code dir="auto">username</code></td>
+<td><code dir="auto">String</code></td>
+<td>Required</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code dir="auto">password</code></td>
+<td><code dir="auto">String</code></td>
+<td>Required</td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<div class="sl-heading-wrapper level-h2"><h2 id="mptpinboundoptions">MptpInboundOptions</h2><a class="sl-anchor-link" href="#mptpinboundoptions"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “MptpInboundOptions”</span></a></div>
+<p><a href="https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/mptp/inbound/mod.rs">Configuration source</a></p>
+<p>Serde: <code dir="auto">serde (deny_unknown_fields)</code></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Omission / flattening</th>
+<th>Source notes</th>
+</tr>
+</thead>
+</table>
+<div class="sl-heading-wrapper level-h2"><h2 id="nfinboundoptions">NfInboundOptions</h2><a class="sl-anchor-link" href="#nfinboundoptions"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “NfInboundOptions”</span></a></div>
+<p><a href="https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/nf/inbound/mod.rs">Configuration source</a></p>
+<p>Serde: <code dir="auto">serde (deny_unknown_fields)</code></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Omission / flattening</th>
+<th>Source notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code dir="auto">driver_name</code></td>
+<td><code dir="auto">String</code></td>
+<td>Required</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code dir="auto">nfapi</code></td>
+<td><code dir="auto">String</code></td>
+<td>default: default_nfapi()</td>
+<td>—<br/><code dir="auto">serde (default = "default_nfapi")</code></td>
+</tr>
+<tr>
+<td><code dir="auto">fake_dns_exclude</code></td>
+<td><code dir="auto">Vec &lt; String &gt;</code></td>
+<td>Default::default()</td>
+<td>—<br/><code dir="auto">serde (default)</code></td>
+</tr>
+<tr>
+<td><code dir="auto">fake_dns_include</code></td>
+<td><code dir="auto">Vec &lt; String &gt;</code></td>
+<td>Default::default()</td>
+<td>—<br/><code dir="auto">serde (default)</code></td>
+</tr>
+</tbody>
+</table>
+<div class="sl-heading-wrapper level-h2"><h2 id="redirectinboundoptions">RedirectInboundOptions</h2><a class="sl-anchor-link" href="#redirectinboundoptions"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “RedirectInboundOptions”</span></a></div>
+<p><a href="https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/redirect/inbound/mod.rs">Configuration source</a></p>
+<p>It has nothing of its own to configure: the listen fields are common to every inbound.</p>
+<p>Serde: <code dir="auto">serde (deny_unknown_fields)</code></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Omission / flattening</th>
+<th>Source notes</th>
+</tr>
+</thead>
+</table>
+<div class="sl-heading-wrapper level-h2"><h2 id="shadowsocksinboundoptions">ShadowsocksInboundOptions</h2><a class="sl-anchor-link" href="#shadowsocksinboundoptions"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “ShadowsocksInboundOptions”</span></a></div>
+<p><a href="https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/shadowsocks/inbound/mod.rs">Configuration source</a></p>
+<p>Serde: <code dir="auto">serde (deny_unknown_fields)</code></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Omission / flattening</th>
+<th>Source notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code dir="auto">method</code></td>
+<td><code dir="auto">String</code></td>
+<td>Required</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code dir="auto">password</code></td>
+<td><code dir="auto">String</code></td>
+<td>Required</td>
+<td>The PSK with a 2022 method; with <code dir="auto">users</code>, the server’s identity PSK.</td>
+</tr>
+<tr>
+<td><code dir="auto">users</code></td>
+<td><code dir="auto">Option &lt; Vec &lt; ShadowsocksUser &gt; &gt;</code></td>
+<td>Default::default()</td>
+<td>Shadowsocks 2022 users, told apart by identity headers.<br/><code dir="auto">serde (default)</code></td>
+</tr>
+</tbody>
+</table>
+<div class="sl-heading-wrapper level-h2"><h2 id="shadowsocksuser">ShadowsocksUser</h2><a class="sl-anchor-link" href="#shadowsocksuser"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “ShadowsocksUser”</span></a></div>
+<p><a href="https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/shadowsocks/inbound/mod.rs">Configuration source</a></p>
+<p>Serde: <code dir="auto">serde (deny_unknown_fields)</code></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Omission / flattening</th>
+<th>Source notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code dir="auto">name</code></td>
+<td><code dir="auto">Option &lt; String &gt;</code></td>
+<td>Default::default()</td>
+<td>Who the user is to routing (<code dir="auto">auth_user</code>), statistics and logs.<br/><code dir="auto">serde (default)</code></td>
+</tr>
+<tr>
+<td><code dir="auto">password</code></td>
+<td><code dir="auto">String</code></td>
+<td>Required</td>
+<td>The user’s base64 PSK.</td>
+</tr>
+</tbody>
+</table>
+<div class="sl-heading-wrapper level-h2"><h2 id="socksinboundoptions">SocksInboundOptions</h2><a class="sl-anchor-link" href="#socksinboundoptions"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “SocksInboundOptions”</span></a></div>
+<p><a href="https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/socks/inbound/mod.rs">Configuration source</a></p>
+<p>Serde: <code dir="auto">serde (deny_unknown_fields)</code></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Omission / flattening</th>
+<th>Source notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code dir="auto">users</code></td>
+<td><code dir="auto">Vec &lt; SocksUser &gt;</code></td>
+<td>Default::default()</td>
+<td>Clients must authenticate as one of these; anyone may connect when there are none.<br/><code dir="auto">serde (default)</code></td>
+</tr>
+</tbody>
+</table>
+<div class="sl-heading-wrapper level-h2"><h2 id="socksuser">SocksUser</h2><a class="sl-anchor-link" href="#socksuser"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “SocksUser”</span></a></div>
+<p><a href="https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/socks/inbound/mod.rs">Configuration source</a></p>
+<p>Serde: <code dir="auto">serde (deny_unknown_fields)</code></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Omission / flattening</th>
+<th>Source notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code dir="auto">username</code></td>
+<td><code dir="auto">String</code></td>
+<td>Required</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code dir="auto">password</code></td>
+<td><code dir="auto">String</code></td>
+<td>Required</td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<div class="sl-heading-wrapper level-h2"><h2 id="tproxyinboundoptions">TproxyInboundOptions</h2><a class="sl-anchor-link" href="#tproxyinboundoptions"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “TproxyInboundOptions”</span></a></div>
+<p><a href="https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/tproxy/mod.rs">Configuration source</a></p>
+<p>Serde: <code dir="auto">serde (deny_unknown_fields)</code></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Omission / flattening</th>
+<th>Source notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code dir="auto">network</code></td>
+<td><code dir="auto">Option &lt; TproxyNetwork &gt;</code></td>
+<td>Default::default()</td>
+<td>Only <code dir="auto">tcp</code>, or only <code dir="auto">udp</code>; both when unset.<br/><code dir="auto">serde (default)</code></td>
+</tr>
+</tbody>
+</table>
+<div class="sl-heading-wrapper level-h2"><h2 id="trojaninboundoptions">TrojanInboundOptions</h2><a class="sl-anchor-link" href="#trojaninboundoptions"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “TrojanInboundOptions”</span></a></div>
+<p><a href="https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/trojan/inbound/mod.rs">Configuration source</a></p>
+<p>Serde: <code dir="auto">serde (deny_unknown_fields)</code></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Omission / flattening</th>
+<th>Source notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code dir="auto">users</code></td>
+<td><code dir="auto">Vec &lt; TrojanUser &gt;</code></td>
+<td>Required</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code dir="auto">fallback</code></td>
+<td><code dir="auto">Option &lt; FallbackServer &gt;</code></td>
+<td>Default::default()</td>
+<td>Where a connection that fails to authenticate is relayed.<br/><code dir="auto">serde (default)</code></td>
+</tr>
+<tr>
+<td><code dir="auto">fallback_for_alpn</code></td>
+<td><code dir="auto">HashMap &lt; String , FallbackServer &gt;</code></td>
+<td>Default::default()</td>
+<td>The same, by the ALPN the connection’s TLS negotiated; the ones it does not name go to <code dir="auto">fallback</code>.<br/><code dir="auto">serde (default)</code></td>
+</tr>
+</tbody>
+</table>
+<div class="sl-heading-wrapper level-h2"><h2 id="trojanuser">TrojanUser</h2><a class="sl-anchor-link" href="#trojanuser"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “TrojanUser”</span></a></div>
+<p><a href="https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/trojan/inbound/mod.rs">Configuration source</a></p>
+<p>Serde: <code dir="auto">serde (deny_unknown_fields)</code></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Omission / flattening</th>
+<th>Source notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code dir="auto">name</code></td>
+<td><code dir="auto">Option &lt; String &gt;</code></td>
+<td>Default::default()</td>
+<td>Who the user is to routing (<code dir="auto">auth_user</code>), statistics and logs.<br/><code dir="auto">serde (default)</code></td>
+</tr>
+<tr>
+<td><code dir="auto">password</code></td>
+<td><code dir="auto">String</code></td>
+<td>Required</td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<div class="sl-heading-wrapper level-h2"><h2 id="tuicinboundoptions">TuicInboundOptions</h2><a class="sl-anchor-link" href="#tuicinboundoptions"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “TuicInboundOptions”</span></a></div>
+<p><a href="https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/tuic/inbound/mod.rs">Configuration source</a></p>
+<p>Serde: <code dir="auto">serde (deny_unknown_fields)</code></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Omission / flattening</th>
+<th>Source notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code dir="auto">users</code></td>
+<td><code dir="auto">Vec &lt; TuicUser &gt;</code></td>
+<td>Required</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code dir="auto">congestion_control</code></td>
+<td><code dir="auto">CongestionControl</code></td>
+<td>Default::default()</td>
+<td>—<br/><code dir="auto">serde (default)</code></td>
+</tr>
+<tr>
+<td><code dir="auto">auth_timeout</code></td>
+<td><code dir="auto">Option &lt; Duration &gt;</code></td>
+<td>Default::default()</td>
+<td>How long a connection may go without authenticating. 3s, as in sing-box, when not set.<br/><code dir="auto">serde (default , with = "crate::config::model::duration")</code></td>
+</tr>
+<tr>
+<td><code dir="auto">zero_rtt_handshake</code></td>
+<td><code dir="auto">bool</code></td>
+<td>Default::default()</td>
+<td>—<br/><code dir="auto">serde (default)</code></td>
+</tr>
+<tr>
+<td><code dir="auto">heartbeat</code></td>
+<td><code dir="auto">Option &lt; Duration &gt;</code></td>
+<td>Default::default()</td>
+<td>—<br/><code dir="auto">serde (default , with = "crate::config::model::duration")</code></td>
+</tr>
+<tr>
+<td><code dir="auto">tls</code></td>
+<td><code dir="auto">InboundTls</code></td>
+<td>Required</td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<div class="sl-heading-wrapper level-h2"><h2 id="tuicuser">TuicUser</h2><a class="sl-anchor-link" href="#tuicuser"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “TuicUser”</span></a></div>
+<p><a href="https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/tuic/inbound/mod.rs">Configuration source</a></p>
+<p>Serde: <code dir="auto">serde (deny_unknown_fields)</code></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Omission / flattening</th>
+<th>Source notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code dir="auto">name</code></td>
+<td><code dir="auto">Option &lt; String &gt;</code></td>
+<td>Default::default()</td>
+<td>Who the user is to routing (<code dir="auto">auth_user</code>), statistics and logs.<br/><code dir="auto">serde (default)</code></td>
+</tr>
+<tr>
+<td><code dir="auto">uuid</code></td>
+<td><code dir="auto">String</code></td>
+<td>Required</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code dir="auto">password</code></td>
+<td><code dir="auto">String</code></td>
+<td>Default::default()</td>
+<td>—<br/><code dir="auto">serde (default)</code></td>
+</tr>
+</tbody>
+</table>
+<div class="sl-heading-wrapper level-h2"><h2 id="tuninboundoptions">TunInboundOptions</h2><a class="sl-anchor-link" href="#tuninboundoptions"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “TunInboundOptions”</span></a></div>
+<p><a href="https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/tun/inbound.rs">Configuration source</a></p>
+<p>The options of a TUN inbound.</p>
+<p>Serde: <code dir="auto">serde (deny_unknown_fields)</code></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Omission / flattening</th>
+<th>Source notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code dir="auto">fd</code></td>
+<td><code dir="auto">i32</code></td>
+<td>default: no_fd()</td>
+<td>An already open TUN device; everything but the fake DNS options is ignored when it is set.<br/><code dir="auto">serde (default = "no_fd")</code></td>
+</tr>
+<tr>
+<td><code dir="auto">auto</code></td>
+<td><code dir="auto">bool</code></td>
+<td>Default::default()</td>
+<td>Routes all traffic into the device.<br/><code dir="auto">serde (default)</code></td>
+</tr>
+<tr>
+<td><code dir="auto">name</code></td>
+<td><code dir="auto">Option &lt; String &gt;</code></td>
+<td>Default::default()</td>
+<td>—<br/><code dir="auto">serde (default)</code></td>
+</tr>
+<tr>
+<td><code dir="auto">address</code></td>
+<td><code dir="auto">Option &lt; String &gt;</code></td>
+<td>Default::default()</td>
+<td>—<br/><code dir="auto">serde (default)</code></td>
+</tr>
+<tr>
+<td><code dir="auto">gateway</code></td>
+<td><code dir="auto">Option &lt; String &gt;</code></td>
+<td>Default::default()</td>
+<td>—<br/><code dir="auto">serde (default)</code></td>
+</tr>
+<tr>
+<td><code dir="auto">netmask</code></td>
+<td><code dir="auto">Option &lt; String &gt;</code></td>
+<td>Default::default()</td>
+<td>—<br/><code dir="auto">serde (default)</code></td>
+</tr>
+<tr>
+<td><code dir="auto">gateway_mode</code></td>
+<td><code dir="auto">bool</code></td>
+<td>Default::default()</td>
+<td>With <code dir="auto">auto</code>, forwards the traffic of other hosts, which use this one as their gateway.<br/><code dir="auto">serde (default)</code></td>
+</tr>
+<tr>
+<td><code dir="auto">mtu</code></td>
+<td><code dir="auto">i32</code></td>
+<td>default: default_mtu()</td>
+<td>—<br/><code dir="auto">serde (default = "default_mtu")</code></td>
+</tr>
+<tr>
+<td><code dir="auto">fake_dns_exclude</code></td>
+<td><code dir="auto">Vec &lt; String &gt;</code></td>
+<td>Default::default()</td>
+<td>—<br/><code dir="auto">serde (default)</code></td>
+</tr>
+<tr>
+<td><code dir="auto">fake_dns_include</code></td>
+<td><code dir="auto">Vec &lt; String &gt;</code></td>
+<td>Default::default()</td>
+<td>—<br/><code dir="auto">serde (default)</code></td>
+</tr>
+<tr>
+<td><code dir="auto">wintun</code></td>
+<td><code dir="auto">Option &lt; String &gt;</code></td>
+<td>Default::default()</td>
+<td>Windows only.<br/><code dir="auto">serde (default)</code></td>
+</tr>
+<tr>
+<td><code dir="auto">dns_servers</code></td>
+<td><code dir="auto">Vec &lt; String &gt;</code></td>
+<td>Default::default()</td>
+<td>Windows only.<br/><code dir="auto">serde (default)</code></td>
+</tr>
+</tbody>
+</table>
+<div class="sl-heading-wrapper level-h2"><h2 id="vlessinboundoptions">VlessInboundOptions</h2><a class="sl-anchor-link" href="#vlessinboundoptions"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “VlessInboundOptions”</span></a></div>
+<p><a href="https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/vless/inbound/mod.rs">Configuration source</a></p>
+<p>Serde: <code dir="auto">serde (deny_unknown_fields)</code></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Omission / flattening</th>
+<th>Source notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code dir="auto">users</code></td>
+<td><code dir="auto">Vec &lt; VlessUser &gt;</code></td>
+<td>Required</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code dir="auto">fallback</code></td>
+<td><code dir="auto">Option &lt; FallbackServer &gt;</code></td>
+<td>Default::default()</td>
+<td>Where a connection that fails to authenticate is relayed.<br/><code dir="auto">serde (default)</code></td>
+</tr>
+<tr>
+<td><code dir="auto">fallback_for_alpn</code></td>
+<td><code dir="auto">HashMap &lt; String , FallbackServer &gt;</code></td>
+<td>Default::default()</td>
+<td>The same, by the ALPN the connection’s TLS negotiated; the ones it does not name go to <code dir="auto">fallback</code>.<br/><code dir="auto">serde (default)</code></td>
+</tr>
+</tbody>
+</table>
+<div class="sl-heading-wrapper level-h2"><h2 id="vlessuser">VlessUser</h2><a class="sl-anchor-link" href="#vlessuser"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “VlessUser”</span></a></div>
+<p><a href="https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/vless/inbound/mod.rs">Configuration source</a></p>
+<p>Serde: <code dir="auto">serde (deny_unknown_fields)</code></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Omission / flattening</th>
+<th>Source notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code dir="auto">name</code></td>
+<td><code dir="auto">Option &lt; String &gt;</code></td>
+<td>Default::default()</td>
+<td>Who the user is to routing (<code dir="auto">auth_user</code>), statistics and logs.<br/><code dir="auto">serde (default)</code></td>
+</tr>
+<tr>
+<td><code dir="auto">uuid</code></td>
+<td><code dir="auto">String</code></td>
+<td>Required</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code dir="auto">flow</code></td>
+<td><code dir="auto">String</code></td>
+<td>Default::default()</td>
+<td><code dir="auto">""</code> or <code dir="auto">xtls-rprx-vision</code>.<br/><code dir="auto">serde (default)</code></td>
+</tr>
+</tbody>
+</table>
+<div class="sl-heading-wrapper level-h2"><h2 id="vmessinboundoptions">VMessInboundOptions</h2><a class="sl-anchor-link" href="#vmessinboundoptions"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “VMessInboundOptions”</span></a></div>
+<p><a href="https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/vmess/inbound/mod.rs">Configuration source</a></p>
+<p>Serde: <code dir="auto">serde (deny_unknown_fields)</code></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Omission / flattening</th>
+<th>Source notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code dir="auto">users</code></td>
+<td><code dir="auto">Vec &lt; VMessUser &gt;</code></td>
+<td>Required</td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<div class="sl-heading-wrapper level-h2"><h2 id="vmessuser">VMessUser</h2><a class="sl-anchor-link" href="#vmessuser"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “VMessUser”</span></a></div>
+<p><a href="https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/vmess/inbound/mod.rs">Configuration source</a></p>
+<p>Serde: <code dir="auto">serde (deny_unknown_fields)</code></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Omission / flattening</th>
+<th>Source notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code dir="auto">name</code></td>
+<td><code dir="auto">Option &lt; String &gt;</code></td>
+<td>Default::default()</td>
+<td>Who the user is to routing (<code dir="auto">auth_user</code>), statistics and logs.<br/><code dir="auto">serde (default)</code></td>
+</tr>
+<tr>
+<td><code dir="auto">uuid</code></td>
+<td><code dir="auto">String</code></td>
+<td>Required</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code dir="auto">alterId</code></td>
+<td><code dir="auto">u32</code></td>
+<td>Default::default()</td>
+<td>Only 0: AEAD headers. Legacy VMess is not served.<br/><code dir="auto">serde (default , rename = "alterId")</code></td>
+</tr>
+</tbody>
+</table>
+</div><footer class="sl-flex astro-ddtxxk7k"><div class="meta sl-flex astro-ddtxxk7k"></div><div class="pagination-links print:hidden astro-b5raizh3" dir="ltr"><a href="/sail/reference/common/" rel="prev" class="astro-b5raizh3"><svg aria-hidden="true" class="astro-b5raizh3 astro-hkc32dio" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1.5rem;"><path d="M17 11H9.41l3.3-3.29a1.004 1.004 0 1 0-1.42-1.42l-5 5a1 1 0 0 0-.21.33 1 1 0 0 0 0 .76 1 1 0 0 0 .21.33l5 5a1.002 1.002 0 0 0 1.639-.325 1 1 0 0 0-.219-1.095L9.41 13H17a1 1 0 0 0 0-2Z"/></svg><span class="astro-b5raizh3">Previous<br class="astro-b5raizh3"><span class="link-title astro-b5raizh3">Common configuration</span></span></a><a href="/sail/reference/outbounds/" rel="next" class="astro-b5raizh3"><svg aria-hidden="true" class="astro-b5raizh3 astro-hkc32dio" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1.5rem;"><path d="M17.92 11.62a1.001 1.001 0 0 0-.21-.33l-5-5a1.003 1.003 0 1 0-1.42 1.42l3.3 3.29H7a1 1 0 0 0 0 2h7.59l-3.3 3.29a1.002 1.002 0 0 0 .325 1.639 1 1 0 0 0 1.095-.219l5-5a1 1 0 0 0 .21-.33 1 1 0 0 0 0-.76Z"/></svg><span class="astro-b5raizh3">Next<br class="astro-b5raizh3"><span class="link-title astro-b5raizh3">Outbounds and groups</span></span></a></div></footer></div></div></main></div></div></div></div></body></html>

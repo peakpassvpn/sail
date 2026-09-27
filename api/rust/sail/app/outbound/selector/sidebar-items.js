@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"enum":["SelectedBy"],"fn":["cache_file","get_selected_from_cache","persist_selected_to_cache"],"struct":["OutboundSelector","Selection"],"type":["MemberLatencies"]};

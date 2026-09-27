@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"enum":["FlowDecision","TransportProtocol"],"struct":["ChecksumCapabilities","FlowId","FlowKey","GsoCapabilities","IpEndpoint","NetworkGeneration","Packet","PacketBatch","PacketCapabilities","PacketToken","ShardId","TcpFlowToken","UdpFlowToken"],"trait":["PacketIo"]};

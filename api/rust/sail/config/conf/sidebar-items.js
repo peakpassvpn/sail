@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["from_file","from_lines","from_string","to_config"],"struct":["Config","General","Nf","Proxy","ProxyGroup","Rule","Tun"]};

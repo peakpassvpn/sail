@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"enum":["Side"],"fn":["encode_hunk"],"struct":["Decoder","GunStream"]};

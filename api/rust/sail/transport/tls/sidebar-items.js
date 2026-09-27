@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"mod":["client","fingerprint","inbound","outbound"],"struct":["BoringConnection"]};

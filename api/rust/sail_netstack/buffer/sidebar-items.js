@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"enum":["BudgetError","BudgetProfile","PressureLevel","ResourceKind","SlabClass"],"struct":["ArenaPacket","BudgetLease","BudgetSnapshot","PacketArena","ResourceBudget","ResourceLedger","SlabChain"]};

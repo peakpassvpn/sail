@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"mod":["api","dispatcher","dns","dns_client","fake_dns","healthcheck","inbound","instance","logger","nat_manager","outbound","router","stat_manager"],"type":["SyncDnsClient","SyncOutboundManager","SyncRouter","SyncStatManager"]};

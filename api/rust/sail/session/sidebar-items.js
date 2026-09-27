@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"enum":["Network","SniffedFrom","SocksAddr","SocksAddrWireType","StreamId"],"struct":["ConnectionState","DatagramSource","Session","UdpAssociation","UdpAssociationOwner"]};

@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"constant":["HEADER_TIMEOUT"],"struct":["Fallback","FallbackServer"]};

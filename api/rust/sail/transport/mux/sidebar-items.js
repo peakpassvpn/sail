@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"constant":["MAGIC_DOMAIN","MAGIC_PORT","STATUS_ERROR","STATUS_SUCCESS"],"enum":["Protocol","StreamRequest"],"fn":["encode_request","is_magic","read_request","read_status"],"mod":["client","inbound","packet","server"]};

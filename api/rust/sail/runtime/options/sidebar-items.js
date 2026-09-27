@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"enum":["NetstackBudget","Profile"],"struct":["Dns","Inbound","Netstack","Quic","Relay","RuntimeOptions","Stats","Udp","Ws"]};
