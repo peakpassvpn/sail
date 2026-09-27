@@ -3,6 +3,7 @@
 - 基线：eycorsican/leaf `5e8d947`（2026-09-10）
 - 定位：**统一代理平台**。客户端（iOS / Android / 桌面）、服务端和路由器共用同一个内核，由不同宿主接入
 - 对标：sing-box（平台能力与扩展性）、Mihomo（客户端生态）
+- 配置：运行时直接读取 sing-box JSON、Clash / Mihomo YAML、Surge 配置，用户不需要转换（见「PC 配置兼容」）
 - 架构调研与目标结构：[`architecture-research.md`](architecture-research.md)
 
 ## 原则
@@ -12,7 +13,7 @@
 - **扩展只加不改**：新增协议、传输层、规则条件、DNS 上游或服务时，只新增模块并在注册表登记，不修改核心文件。
 - **协议对称**：主流协议同时提供入站和出站，Sail 自身可以作为这些协议的服务端。
 - **性能与功能同时验收**：新协议和新传输层不仅验证连通性，还要验证吞吐、CPU、并发内存和长稳表现。
-- **单一配置与接口契约**：每个组件的 options 只有一个强类型定义；其他格式（`.conf`、Clash、分享链接）一律作为导入器。破坏性变更一次性迁移，能力差异通过 capability 查询显式暴露。
+- **三种配置格式，一个运行时模型**：sing-box JSON、Clash / Mihomo YAML、Surge 配置都是一等输入，运行时直接读取、可热重载；sing-box JSON 就是原生格式，不再另设 sail JSON。每种格式由一个前端按上游 schema 强类型解析，再降级到同一个内部模型，路由、出站和重载只实现一套。分享链接仍然只是导入器。破坏性变更一次性迁移，能力差异通过 capability 查询显式暴露。
 - **按真实需求排优先级**：客户端协议以脱敏订阅样本统计排序，服务端能力以实际部署需求排序，不机械复制 sing-box / Mihomo 的全部功能。
 
 ## 总览
@@ -22,6 +23,7 @@
 | P0 | 性能基线与平台架构 | 消除转发缓冲区瓶颈；建立注册表、分层和生命周期，让后续扩展只加不改 | 缓冲池 1–2 周；架构重构 6–10 周 |
 | P1 | 协议与传输 | 主流协议入站、出站双向可用，与 Xray / sing-box 互通 | 8–12 周 |
 | P2 | DNS、路由与网络 | DNS 不污染、规则准确、IPv4 / IPv6 和网络切换可靠 | 6–10 周 |
+| PC | 配置兼容 | 运行时直接读取 sing-box、Clash / Mihomo、Surge 的真实配置 | 8–12 周（依赖 P2 的 DNS 与规则集） |
 | P3 | 服务端与多用户 | 多用户、按用户统计与限速、在线增删用户和入站、管理 API | 4–6 周 |
 | P4 | 宿主集成与生态 | 移动端 FFI、服务端守护进程、路由器打包、Clash 面板生态 | 4–6 周 |
 | P5 | 工程质量与发布 | 异常输入不崩溃，有跨平台测试、性能回归和可重复发布 | 持续进行 |
@@ -69,7 +71,7 @@ Sail 与 sing-box 的对比已经完成。当前结果表明：
 | # | 任务 | 内容 | 验收标准 |
 | --- | --- | --- | --- |
 | 0.2.1 | 扩展点与注册表 | 建 `adapter/`（Inbound / Outbound / Dialer / Service / DnsTransport trait、Registry、Lifecycle、Context）和 `include.rs`；现有协议逐个迁到 `protocol/<name>/`，入站和出站放在一起；`protocol/group/` 放 select / failover / tryall / static / chain | 新增一个协议只需新目录 + options 类型 + `include.rs` 一行；manager 中不再有按协议匹配的分支；现有集成测试全部通过 |
-| 0.2.2 | 单一配置契约 | 按 D1 的结论实现强类型 options，JSON 字段对齐 sing-box，共享的 Dial / Listen / TLS / Transport / Mux 选项可复用；`.conf`（兼容 Surge）和 Clash YAML 作为输入格式转换到同一模型 | 每个字段只定义一次；配置检查能指出错误字段的完整路径 |
+| 0.2.2 | 单一配置契约 | 按 D1 的结论实现强类型 options，JSON 字段对齐 sing-box，共享的 Dial / Listen / TLS / Transport / Mux 选项可复用；`.conf`（兼容 Surge）和 Clash YAML 作为输入格式转换到同一模型（格式部分已由「PC 配置兼容」取代：三种格式运行时直读） | 每个字段只定义一次；配置检查能指出错误字段的完整路径 |
 | 0.2.3 | 统一拨号与监听 | 建 `net/`：dialer、listener、socket 选项、Android protect、转发与缓冲池；绑定接口等选项可按出站配置；`option/` 全局变量收敛为按实例的 `RuntimeOptions` | 同一进程内两个实例可使用不同的绑定接口和资源预算；数据通路性能不低于 P0.1 基线 |
 | 0.2.4 | 路由骨架 | 建 `route/`：规则按条件拆成独立模块并编译为索引（域名哈希 / 后缀、关键字自动机、CIDR 前缀树）；路由结果从 tag 改为动作；嗅探从 dispatcher 移到 `sniff/`，由动作驱动 | 大规则集下单次匹配不随规则数线性增长、不分配内存；dispatcher 中不再有写死的嗅探逻辑 |
 | 0.2.5 | 运行时与生命周期 | 建 `runtime/`：分阶段启动；出站声明依赖并检测环路；入站和出站支持按组件增删；路由表和出站表改为无锁快照 | 重载期间已有连接不中断、新连接不阻塞；修改入站端口无需重启进程 |
@@ -207,6 +209,32 @@ Sail 与 sing-box 的对比已经完成。当前结果表明：
 
 ---
 
+## PC 配置兼容（运行时直读）
+
+2026-09-27 决定：用户现有的 sing-box、Clash / Mihomo、Surge 配置不经转换直接运行，包括订阅和热重载。对照版本为 sing-box 1.14.x、Mihomo 1.19.x、Surge 5。
+
+**结构：**
+- `config/singbox/`、`config/clash/`、`config/surge/` 各为一个前端：先按上游 schema 强类型解析（字段名、默认值、别名、废弃字段与上游一致），再降级到内部模型。
+- 解析和降级的错误都指向原格式里的完整路径，例如 `proxy-groups[3].use`、`[Rule] 第 12 行`。
+- 格式识别：`.json` 为 sing-box，`.yaml` / `.yml` 为 Clash，`.conf` 或含 `[General]` 的文本为 Surge。CLI、FFI 和热重载共用同一个入口。
+- 宿主参数（如 TUN fd）通过 API 传入，不写进配置。
+
+**上游合法但 Sail 未实现的字段（分级处理）：**
+- 上游本身也不认识的字段：报错，视为写错。
+- 忽略后会改变路由或安全语义的（未实现的代理类型或规则类型、被分组引用的未实现出站等）：报错。
+- 只影响体验的（Surge `[MITM]` / `[Script]` / `[URL Rewrite]`、sing-box `experimental.cache_file` 等）：启动时逐条警告后忽略，并能通过 capability 查询得到清单。
+
+| # | 任务 | 涉及位置 | 验收标准 |
+| --- | --- | --- | --- |
+| C.1 | 前端框架与格式识别；现有 sing-box 风格 JSON 迁为 `singbox/` 前端，sail 独有能力改为明确命名的扩展字段；删除 leaf 遗留的类 Surge `.conf` | `config/` | 三种格式走同一个加载与重载入口；未实现字段按上面的分级处理，且有测试 |
+| C.2 | 内部模型补齐三家的并集：依赖 P2 的 2.1（结构化 DNS）、2.6 / 2.7（rule-set）、2.8（逻辑规则与条件）、2.9（路由动作）和 4.8（provider） | `config/model`、`dns/`、`route/` | 三个前端都能无损降级到内部模型，不需要格式专属的运行时分支 |
+| C.3 | sing-box：`log`、`dns`（servers / rules / fakeip）、`inbounds`、`outbounds`、`endpoints`（WireGuard）、`route`（rules / rule_set / final / 自动检测接口）、`experimental`（clash_api） | `config/singbox/` | sing-box 官方文档示例与脱敏真实配置语料全部可加载；与 sing-box 同配置下路由结果一致 |
+| C.4 | Clash / Mihomo：通用字段、`proxies`、`proxy-groups`、`proxy-providers`、`rules`（含 AND / OR / NOT、SUB-RULE、RULE-SET）、`rule-providers`、`dns`（nameserver-policy、fake-ip-filter）、`hosts`、`tun`、`sniffer`、`external-controller`；依赖 4.5 / 4.6 的 Clash API | `config/clash/` | 主流机场订阅与 Mihomo 示例配置可直接运行；yacd / metacubexd 端到端可用；与 Mihomo 同配置下路由结果一致 |
+| C.5 | Surge 5：`[General]`、`[Proxy]`、`[Proxy Group]`（select / url-test / fallback / load-balance、policy-path）、`[Rule]`（含 RULE-SET、DOMAIN-SET、IP-CIDR6、逻辑规则）、`[Host]`；Surge 的 ruleset 与 domain-set 文件格式 | `config/surge/` | Surge 官方手册示例与脱敏真实配置可加载；未实现段落按分级逐条警告 |
+| C.6 | 兼容性语料与报告：三种格式各有脱敏真实配置语料和上游示例；每种格式生成一张字段级支持表 | `sail/tests/`、`docs/` | 语料作为回归测试；支持表由前端 schema 生成，不手写 |
+
+---
+
 ## P3 服务端与多用户
 
 | # | 任务 | 涉及位置 | 验收标准 |
@@ -258,7 +286,7 @@ Sail 与 sing-box 的对比已经完成。当前结果表明：
 | 5.4 | 性能回归 CI | 目前为手动 benchmark | 移动端、桌面、服务端、路由器四种预算都有可比较基线；吞吐、CPU、内存或分配次数超阈值即告警 |
 | 5.5 | 长稳与弱网测试 | 无 | 24 小时运行，以及延迟、丢包、乱序、断网重连、高并发和半关闭场景通过 |
 | 5.6 | 安全 | 无统一检查 | 依赖漏洞/许可证检查；入站抗探测和资源耗尽防护；订阅和规则下载有限流、大小限制、超时、路径约束；日志脱敏 |
-| 5.7 | 配置参考文档 | 只有 README 和 MPTP 文档 | 单一配置契约有逐字段文档、示例和 schema，由 options 类型生成；变更采用一次性迁移，不保留并行版本 |
+| 5.7 | 配置参考文档 | 只有 README 和 MPTP 文档 | 原生格式（sing-box JSON 及 sail 扩展字段）有逐字段文档、示例和 schema，由 options 类型生成；Clash 与 Surge 用 C.6 生成的支持表；变更采用一次性迁移，不保留并行版本 |
 | 5.8 | 跨平台发布 | 已有部分 Apple/Android 构建脚本 | 自动产出 XCFramework、AAR、桌面、服务端和路由器二进制；记录符号、包体积、依赖和可重复构建信息 |
 | 5.9 | 处理 TODO / FIXME | 49 处 | 逐项处理，或转成带优先级的 issue |
 | 5.10 | 与上游的关系 | 已同步到 `5e8d947` | 按 D5 的结论执行；P0.2 之后文件结构与上游不再对应，上游修复按需人工移植并跑回归矩阵 |
@@ -278,7 +306,7 @@ Sail 与 sing-box 的对比已经完成。当前结果表明：
 
 - 不为了数字上的功能齐全而复制 sing-box / Mihomo 的全部协议；范围以 P1「支持分级」为准。
 - 不长期维护多套配置、FFI 或缓存格式。
-- 不承诺完全兼容任意 Clash 配置；Clash 只作为导入格式，优先支持实际需要的订阅、规则和 API 子集。
+- 不实现 Surge 的 MITM、Script、URL Rewrite 等体验类功能；这些配置按 PC 的分级规则警告后忽略。
 - 不用单一 microbenchmark 代表真机、路由器或服务端的最终表现。
 
 ## 优先级说明
@@ -287,6 +315,7 @@ Sail 与 sing-box 的对比已经完成。当前结果表明：
 - P0.2 决定后续所有扩展是只加不改，还是每次都要修改核心；必须先于 P1 的新协议开发。
 - P1 决定协议能不能双向连通，Sail 能不能同时作为客户端和服务端。
 - P2 决定流量是否被正确、稳定且无泄漏地转发。
+- PC 决定用户能否不做转换，直接用现有的 sing-box、Clash / Mihomo、Surge 配置和订阅。
 - P3 决定 Sail 能否作为可运营的服务端。
 - P4 决定各类宿主和现有生态能否可靠控制内核。
 - P5 贯穿所有阶段；每项新功能合并前必须带互操作、异常路径和适当的性能测试。
