@@ -1,0 +1,60 @@
+---
+const pathname = Astro.url.pathname;
+const isZh = pathname.startsWith('/sail/zh/');
+const englishPath = isZh ? pathname.replace('/sail/zh/', '/sail/') : pathname;
+const chinesePath = isZh ? pathname : pathname.replace('/sail/', '/sail/zh/');
+---
+
+<nav class="language-switcher" aria-label={isZh ? '选择语言' : 'Select language'}>
+  <a href={englishPath} lang="en" title="English" aria-current={!isZh ? 'page' : undefined}>EN</a>
+  <a href={chinesePath} lang="zh-CN" title="简体中文" aria-current={isZh ? 'page' : undefined}>中文</a>
+</nav>
+
+<style>
+  .language-switcher {
+    display: grid;
+    grid-template-columns: repeat(2, max-content);
+    gap: .2rem;
+    width: max-content;
+    height: 2.625rem;
+    align-self: center;
+    flex: none;
+    padding: .25rem;
+    border: 1px solid var(--sl-color-hairline-shade);
+    border-radius: .8rem;
+    background: color-mix(in srgb, var(--sl-color-bg) 88%, var(--sl-color-bg-nav));
+    box-shadow: 0 6px 22px rgb(8 31 73 / 6%);
+  }
+
+  a {
+    min-width: 2.45rem;
+    height: 2rem;
+    display: grid;
+    place-items: center;
+    padding-inline: .55rem;
+    border-radius: .55rem;
+    color: var(--sl-color-gray-3);
+    font-size: .78rem;
+    font-weight: 720;
+    line-height: 1;
+    text-decoration: none;
+    letter-spacing: 0;
+    transition: color 140ms ease, background-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+  }
+
+  a:hover {
+    color: var(--sl-color-text-accent);
+    transform: translateY(-1px);
+  }
+
+  a[aria-current='page'] {
+    color: var(--sl-color-text-invert);
+    background: var(--sl-color-bg-accent);
+    box-shadow: 0 5px 14px rgb(7 92 255 / 20%);
+  }
+
+  a:focus-visible {
+    outline: 2px solid var(--sl-color-accent);
+    outline-offset: 2px;
+  }
+</style>

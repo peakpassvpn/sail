@@ -1,0 +1,205 @@
+---
+import sailMark from '../assets/sail-mark.svg';
+import '../styles/global.css';
+
+interface Props {
+  locale: 'en' | 'zh';
+}
+
+const { locale } = Astro.props;
+const isZh = locale === 'zh';
+const base = `${import.meta.env.BASE_URL.replace(/\/$/, '')}/`;
+const localeBase = isZh ? `${base}zh/` : base;
+const docsUrl = `${localeBase}getting-started/`;
+const githubUrl = 'https://github.com/peakpassvpn/sail';
+const canonical = `https://peakpassvpn.github.io${localeBase}`;
+const englishUrl = 'https://peakpassvpn.github.io/sail/';
+const chineseUrl = 'https://peakpassvpn.github.io/sail/zh/';
+
+const copy = isZh
+  ? {
+      title: 'Sail — 面向 Clash、sing-box 与 Surge 生态的 Rust 统一代理平台',
+      description: 'Sail 是一个 Rust 统一代理平台，面向 Clash、sing-box、Surge 等主流配置生态，为客户端、服务端和中继提供同一套核心。',
+      nav: ['概览', '协议', '架构', '文档'],
+      hero: ['一个核心。', '连接每条路径。'],
+      lead: '面向客户端、服务端和中继的 Rust 代理平台，致力于统一 Clash、sing-box 与 Surge 配置生态。',
+      readDocs: '阅读文档',
+      viewGithub: '前往 GitHub',
+      protocolsTitle: '熟悉的生态，统一的核心。',
+      protocolsText: '使用一致的路由与运行时模型承接主流配置概念，同时保留明确的校验边界。',
+      protocolsLink: '查看协议与兼容方向',
+      architectureTitle: '一个核心，运行于每种宿主。',
+      architectureText: '移动端、桌面、服务器与路由器共享相同的路由、传输和用户态网络栈。',
+      architectureLink: '了解架构',
+      docsTitle: '构建你需要的代理路径。',
+      docsOpen: '打开中文文档',
+      primaryNav: '主导航',
+      openNav: '打开导航',
+      ecosystems: '配置生态与核心能力',
+      platforms: '支持的平台',
+      home: 'Sail 中文首页',
+      docs: '文档',
+      license: '许可证',
+    }
+  : {
+      title: 'Sail — Unified Rust Proxy Platform for Clash, sing-box and Surge',
+      description: 'Sail is a unified Rust proxy platform for Clash, sing-box and Surge configuration ecosystems, with one core for clients, servers and relays.',
+      nav: ['Overview', 'Protocols', 'Architecture', 'Docs'],
+      hero: ['One core.', 'Every route.'],
+      lead: 'A Rust proxy platform for clients, servers and relays—designed to unify Clash, sing-box and Surge configuration ecosystems.',
+      readDocs: 'Read the docs',
+      viewGithub: 'View on GitHub',
+      protocolsTitle: 'Familiar ecosystems. One core.',
+      protocolsText: 'Bring mainstream configuration concepts into one validated routing and runtime model.',
+      protocolsLink: 'Explore protocols and compatibility',
+      architectureTitle: 'One core, every host.',
+      architectureText: 'Mobile, desktop, server and router builds share the same routing, transport and userspace network stack.',
+      architectureLink: 'See the architecture',
+      docsTitle: 'Build the route you need.',
+      docsOpen: 'Open documentation',
+      primaryNav: 'Primary navigation',
+      openNav: 'Open navigation',
+      ecosystems: 'Configuration ecosystems and core capabilities',
+      platforms: 'Supported platforms',
+      home: 'Sail home',
+      docs: 'Docs',
+      license: 'License',
+    };
+
+const structuredData = {
+  '@context': 'https://schema.org',
+  '@type': 'SoftwareApplication',
+  name: 'Sail',
+  applicationCategory: 'DeveloperApplication',
+  operatingSystem: 'Linux, Windows, macOS, iOS, Android',
+  description: copy.description,
+  url: canonical,
+  codeRepository: githubUrl,
+  license: `${githubUrl}/blob/main/LICENSE`,
+  programmingLanguage: 'Rust',
+  keywords: ['Rust proxy', 'Clash', 'sing-box', 'Surge', 'proxy platform', 'VPN core'],
+  isAccessibleForFree: true,
+};
+---
+
+<!doctype html>
+<html lang={isZh ? 'zh-CN' : 'en'}>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width" />
+    <title>{copy.title}</title>
+    <meta name="description" content={copy.description} />
+    <meta name="keywords" content={isZh ? 'Rust 代理平台, Clash 兼容, sing-box 兼容, Surge 兼容, 统一代理核心, VPN 核心' : 'Rust proxy platform, Clash compatible, sing-box compatible, Surge compatible, unified proxy core, VPN core'} />
+    <meta name="robots" content="index, follow, max-image-preview:large" />
+    <meta name="theme-color" content="#ffffff" />
+    <link rel="canonical" href={canonical} />
+    <link rel="alternate" hreflang="en" href={englishUrl} />
+    <link rel="alternate" hreflang="zh-CN" href={chineseUrl} />
+    <link rel="alternate" hreflang="x-default" href={englishUrl} />
+    <link rel="sitemap" type="application/xml" href={`${base}sitemap-index.xml`} />
+    <link rel="icon" href={`${base}favicon.svg`} />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Sail" />
+    <meta property="og:title" content={copy.title} />
+    <meta property="og:description" content={copy.description} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:image" content="https://peakpassvpn.github.io/sail/hero-network.png" />
+    <meta property="og:locale" content={isZh ? 'zh_CN' : 'en_US'} />
+    <meta property="og:locale:alternate" content={isZh ? 'en_US' : 'zh_CN'} />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={copy.title} />
+    <meta name="twitter:description" content={copy.description} />
+    <meta name="twitter:image" content="https://peakpassvpn.github.io/sail/hero-network.png" />
+    <script type="application/ld+json" set:html={JSON.stringify(structuredData)} />
+  </head>
+  <body>
+    <header class="site-header page-shell">
+      <a class="brand" href={localeBase} aria-label={copy.home}>
+        <img src={sailMark.src} alt="" />
+        <span>Sail</span>
+      </a>
+      <nav aria-label={copy.primaryNav}>
+        <a href="#overview">{copy.nav[0]}</a>
+        <a href="#protocols">{copy.nav[1]}</a>
+        <a href="#architecture">{copy.nav[2]}</a>
+        <a href={docsUrl}>{copy.nav[3]}</a>
+      </nav>
+      <div class="header-actions">
+        <div class="language-switch" aria-label="Language">
+          <a href={base} lang="en" aria-current={isZh ? undefined : 'page'}>EN</a>
+          <a href={`${base}zh/`} lang="zh-CN" aria-current={isZh ? 'page' : undefined}>中文</a>
+        </div>
+        <a class="github-link" href={githubUrl}>GitHub</a>
+      </div>
+      <details class="mobile-menu">
+        <summary aria-label={copy.openNav}><span></span><span></span><span></span></summary>
+        <nav class="mobile-nav" aria-label={copy.primaryNav}>
+          <a href="#overview">{copy.nav[0]}</a>
+          <a href="#protocols">{copy.nav[1]}</a>
+          <a href="#architecture">{copy.nav[2]}</a>
+          <a href={docsUrl}>{copy.nav[3]}</a>
+          <a href={isZh ? base : `${base}zh/`}>{isZh ? 'English' : '中文'}</a>
+          <a href={githubUrl}>GitHub</a>
+        </nav>
+      </details>
+    </header>
+
+    <main>
+      <section class="hero page-shell" id="overview">
+        <div class="hero-copy">
+          <h1>{copy.hero[0]}<br />{copy.hero[1]}</h1>
+          <p>{copy.lead}</p>
+          <div class="hero-actions">
+            <a class="button button-primary" href={docsUrl}>{copy.readDocs}<span aria-hidden="true">→</span></a>
+            <a class="button button-quiet" href={githubUrl}>{copy.viewGithub}<span aria-hidden="true">↗</span></a>
+          </div>
+        </div>
+        <div class="hero-art">
+          <img src={`${base}hero-network.png`} alt={isZh ? '笔记本与无线中继通过 Sail 核心连接服务器' : 'A laptop and wireless relay routing through the Sail core to a server'} />
+        </div>
+      </section>
+
+      <section class="protocol-section page-shell" id="protocols">
+        <div class="section-copy">
+          <h2>{copy.protocolsTitle}</h2>
+          <p>{copy.protocolsText}</p>
+          <a href={`${localeBase}protocols/`}>{copy.protocolsLink} <span aria-hidden="true">→</span></a>
+        </div>
+        <div class="protocol-list" aria-label={copy.ecosystems}>
+          <span>Clash</span><span>sing-box</span><span>Surge</span>
+          <span>Shadowsocks</span><span>VLESS</span><span>Hysteria2</span>
+        </div>
+      </section>
+
+      <section class="architecture-section page-shell" id="architecture">
+        <div class="architecture-visual" aria-hidden="true">
+          <span class="layer layer-one"></span><span class="layer layer-two"></span><span class="layer layer-three"></span>
+          <img src={sailMark.src} alt="" />
+        </div>
+        <div class="architecture-copy">
+          <h2>{copy.architectureTitle}</h2>
+          <p>{copy.architectureText}</p>
+          <div class="platforms" aria-label={copy.platforms}>
+            <span>iOS</span><span>Android</span><span>macOS</span><span>Windows</span><span>Linux</span>
+          </div>
+          <a href={`${localeBase}architecture/`}>{copy.architectureLink} <span aria-hidden="true">→</span></a>
+        </div>
+      </section>
+
+      <section class="docs-section page-shell">
+        <div>
+          <h2>{copy.docsTitle}</h2>
+          <a class="button button-primary" href={docsUrl}>{copy.docsOpen} <span aria-hidden="true">→</span></a>
+        </div>
+        <pre aria-label="Build commands"><code>cargo build -p sail-cli --release
+./target/release/sail --help</code></pre>
+      </section>
+    </main>
+
+    <footer class="site-footer page-shell">
+      <a class="brand" href={localeBase} aria-label={copy.home}><img src={sailMark.src} alt="" /><span>Sail</span></a>
+      <div class="footer-links"><a href={docsUrl}>{copy.docs}</a><a href={githubUrl}>GitHub</a><a href={`${githubUrl}/blob/main/LICENSE`}>{copy.license}</a></div>
+      <span>Apache License 2.0</span>
+    </footer>
+  </body>
+</html>

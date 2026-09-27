@@ -1,0 +1,20 @@
+{
+  "name": "sail-website",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "docs:config": "node scripts/build-config.mjs",
+    "build:full": "npm run build",
+    "dev": "npm run docs:config && astro dev",
+    "build": "npm run docs:config && astro check && astro build",
+    "preview": "astro preview",
+    "check": "astro check"
+  },
+  "dependencies": {
+    "@astrojs/check": "latest",
+    "@astrojs/starlight": "latest",
+    "astro": "latest",
+    "astro-mermaid": "^2.1.0",
+    "typescript": "^6.0.3"
+  }
+}
