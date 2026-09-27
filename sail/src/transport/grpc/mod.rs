@@ -3,8 +3,9 @@
 //! its bytes gRPC messages each way. See `gun`.
 //!
 //! The inbound serves every call a connection carries, as many as the client
-//! multiplexes onto it. The outbound opens a connection for each stream,
-//! over the layers under it; see `outbound`.
+//! multiplexes onto it. The outbound multiplexes likewise: it keeps a pool
+//! of connections to its server, dialled through the layers under it, and
+//! makes each stream a call on one of them; see `outbound`.
 
 pub mod gun;
 #[cfg(feature = "inbound-grpc")]
@@ -50,7 +51,9 @@ pub fn service_path(service_name: &str) -> anyhow::Result<String> {
 pub const DEFAULT_PING_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// Keepalive: every `interval`, a ping, which must be answered within
-/// `timeout` or the connection is given up with `abort`.
+/// `timeout` or the connection is given up with `abort`. A round in which
+/// `wanted` says no is skipped: a client pings a connection with no calls
+/// open only if `permit_without_stream`.
 ///
 /// sing-box pings after `idle_timeout` without a frame received; h2 does not
 /// say when one last was, so here the ping goes out every `idle_timeout`
@@ -59,11 +62,15 @@ fn keepalive(
     mut ping_pong: h2::PingPong,
     interval: Duration,
     timeout: Duration,
+    wanted: impl Fn() -> bool + Send + 'static,
     abort: futures::future::AbortHandle,
 ) {
     tokio::spawn(async move {
         loop {
             tokio::time::sleep(interval).await;
+            if !wanted() {
+                continue;
+            }
             match tokio::time::timeout(timeout, ping_pong.ping(h2::Ping::opaque())).await {
                 Ok(Ok(_)) => continue,
                 // The connection is gone already.

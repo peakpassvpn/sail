@@ -273,8 +273,7 @@ pub enum OutboundTransport {
         idle_timeout: Option<std::time::Duration>,
         #[serde(default, with = "crate::config::model::duration")]
         ping_timeout: Option<std::time::Duration>,
-        /// sing-box's; no effect here, where a connection carries one call
-        /// and is closed when that ends.
+        /// Whether a connection carrying no calls is pinged too.
         #[serde(default)]
         permit_without_stream: bool,
     },
@@ -524,27 +523,61 @@ pub fn outbound(
     blocks: &OutboundBlocks,
     layering: OutboundLayering<'_>,
 ) -> Result<AnyOutboundHandler> {
-    let tag = layering.tag;
-    let dial = layering.dial;
-    let mut actors: Vec<AnyOutboundHandler> = Vec::new();
-    // sing-mux runs above everything else, over connections of the whole.
-    let mut sing_mux = None;
+    layered(core, blocks, layering, true)
+}
 
-    if let Some(OutboundTransport::Http(_)) = &blocks.transport {
+/// `outbound`, or without the transport block when not `with_transport`:
+/// the layers beneath the transport, for a transport that dials through
+/// them itself.
+fn layered(
+    core: AnyOutboundHandler,
+    blocks: &OutboundBlocks,
+    layering: OutboundLayering<'_>,
+    with_transport: bool,
+) -> Result<AnyOutboundHandler> {
+    let tag = layering.tag;
+    let transport = blocks.transport.as_ref().filter(|_| with_transport);
+
+    if let Some(OutboundTransport::Http(_)) = transport {
         return Err(anyhow!(
             "[{}] outbound: transport: type http (HTTP/2) is not supported; grpc is",
             tag
         ));
     }
-    if matches!(blocks.transport, Some(OutboundTransport::Grpc { .. }))
-        && blocks.multiplex().is_some()
+    // gRPC multiplexes its streams over connections it keeps, and so is not
+    // a layer dialled anew for every stream: it holds a `Connector` over
+    // the layers beneath it -- dial fields, detour, tls -- and comes first
+    // in the chain, asking for nothing to be dialled.
+    if let Some(OutboundTransport::Grpc {
+        service_name,
+        idle_timeout,
+        ping_timeout,
+        permit_without_stream,
+    }) = transport
     {
-        return Err(anyhow!(
-            "[{}] outbound: multiplex: not supported over the grpc transport",
-            tag
-        ));
+        if blocks.multiplex().is_some() {
+            return Err(anyhow!(
+                "[{}] outbound: multiplex: not supported over the grpc transport",
+                tag
+            ));
+        }
+        let connector = Connector::build(blocks, layering, false)?;
+        let grpc = grpc_outbound(
+            tag,
+            service_name,
+            connector,
+            *idle_timeout,
+            *ping_timeout,
+            *permit_without_stream,
+        )?;
+        return chain_outbound(tag, vec![grpc, core]);
     }
-    let quic = matches!(blocks.transport, Some(OutboundTransport::Quic {}));
+
+    let dial = layering.dial;
+    let mut actors: Vec<AnyOutboundHandler> = Vec::new();
+    // sing-mux runs above everything else, over connections of the whole.
+    let mut sing_mux = None;
+    let quic = matches!(transport, Some(OutboundTransport::Quic {}));
     if quic {
         if blocks.multiplex().is_some() {
             return Err(anyhow!(
@@ -578,7 +611,7 @@ pub fn outbound(
             headers,
             max_early_data,
             early_data_header_name,
-        }) = &blocks.transport
+        }) = transport
         {
             under_mux.push(ws_outbound(
                 tag,
@@ -593,24 +626,9 @@ pub fn outbound(
             host,
             path,
             headers,
-        }) = &blocks.transport
+        }) = transport
         {
             under_mux.push(httpupgrade_outbound(tag, host, path, headers)?);
-        }
-        if let Some(OutboundTransport::Grpc {
-            service_name,
-            idle_timeout,
-            ping_timeout,
-            permit_without_stream: _,
-        }) = &blocks.transport
-        {
-            under_mux.push(grpc_outbound(
-                tag,
-                service_name,
-                blocks.tls().is_some(),
-                *idle_timeout,
-                *ping_timeout,
-            )?);
         }
         match blocks.multiplex() {
             None => actors.extend(under_mux),
@@ -694,6 +712,16 @@ pub struct Connector {
 
 impl Connector {
     pub fn new(blocks: &OutboundBlocks, layering: OutboundLayering<'_>) -> Result<Self> {
+        Self::build(blocks, layering, true)
+    }
+
+    /// Through the layers `blocks` configure, the transport too unless not
+    /// `with_transport`.
+    fn build(
+        blocks: &OutboundBlocks,
+        layering: OutboundLayering<'_>,
+        with_transport: bool,
+    ) -> Result<Self> {
         let (server, port) = server(layering.tag, layering.options)?;
         let dns_client = layering.dns_client.clone();
         let handover = crate::adapter::outbound::HandlerBuilder::default()
@@ -701,7 +729,7 @@ impl Connector {
             .stream_handler(Arc::new(Handover { server, port }))
             .build();
         Ok(Connector {
-            layers: outbound(handover, blocks, layering)?,
+            layers: layered(handover, blocks, layering, with_transport)?,
             dns_client,
             tls: blocks.tls().is_some(),
         })
@@ -954,17 +982,22 @@ fn httpupgrade_outbound(
 fn grpc_outbound(
     tag: &str,
     service_name: &str,
-    tls: bool,
+    connector: Connector,
     idle_timeout: Option<std::time::Duration>,
     ping_timeout: Option<std::time::Duration>,
+    permit_without_stream: bool,
 ) -> Result<AnyOutboundHandler> {
     #[cfg(feature = "outbound-grpc")]
     {
+        use crate::transport::grpc::{outbound::Keepalive, DEFAULT_PING_TIMEOUT};
         let handler = crate::transport::grpc::outbound::StreamHandler::new(
             service_name,
-            tls,
-            idle_timeout,
-            ping_timeout,
+            connector,
+            Keepalive {
+                idle_timeout: idle_timeout.filter(|d| !d.is_zero()),
+                ping_timeout: ping_timeout.unwrap_or(DEFAULT_PING_TIMEOUT),
+                permit_without_stream,
+            },
         )
         .map_err(|e| anyhow!("[{}] outbound: transport: {}", tag, e))?;
         Ok(crate::adapter::outbound::HandlerBuilder::default()

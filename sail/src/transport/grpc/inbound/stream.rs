@@ -168,7 +168,7 @@ impl InboundStreamHandler for Handler {
         });
         tokio::spawn(serving);
         if let (Some(interval), Some(ping_pong)) = (self.idle_timeout, ping_pong) {
-            super::super::keepalive(ping_pong, interval, self.ping_timeout, abort);
+            super::super::keepalive(ping_pong, interval, self.ping_timeout, || true, abort);
         }
         Ok(InboundTransport::Incoming(Box::new(Incoming {
             sess,
