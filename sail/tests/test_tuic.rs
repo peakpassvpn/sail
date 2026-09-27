@@ -112,9 +112,9 @@ mod tuic {
         }))
     }
 
-    /// UDP packets up to the 2 KiB sail relays by default, larger than a
-    /// QUIC datagram, which `native` mode must fragment, and a TCP transfer of some size, through the socks inbound
-    /// at `socks_port`. The instances in `configs` run meanwhile.
+    /// UDP packets larger than a QUIC datagram, which `native` mode must
+    /// fragment, and a TCP transfer of some size, through the socks inbound
+    /// at `socks_port`; `test_udp_large` takes one up to 60 KB. The instances in `configs` run meanwhile.
     fn check_large_transfers(configs: Vec<String>, socks_port: u16) -> anyhow::Result<()> {
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()

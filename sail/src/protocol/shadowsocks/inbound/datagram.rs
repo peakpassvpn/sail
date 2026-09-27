@@ -47,7 +47,7 @@ impl InboundDatagram for Datagram {
         let dgram = Arc::new(self.dgram);
         let (rh, sh) = self.socket.split();
         (
-            Box::new(DatagramRecvHalf(dgram.clone(), rh)),
+            Box::new(DatagramRecvHalf(dgram.clone(), rh, Vec::new())),
             Box::new(DatagramSendHalf(dgram, sh)),
         )
     }
@@ -57,7 +57,12 @@ impl InboundDatagram for Datagram {
     }
 }
 
-pub struct DatagramRecvHalf(Arc<ShadowedDatagram>, Box<dyn InboundDatagramRecvHalf>);
+/// The last field is the buffer a packet is read into, reused.
+pub struct DatagramRecvHalf(
+    Arc<ShadowedDatagram>,
+    Box<dyn InboundDatagramRecvHalf>,
+    Vec<u8>,
+);
 
 #[async_trait]
 impl InboundDatagramRecvHalf for DatagramRecvHalf {
@@ -65,10 +70,9 @@ impl InboundDatagramRecvHalf for DatagramRecvHalf {
         &mut self,
         buf: &mut [u8],
     ) -> ProxyResult<(usize, DatagramSource, SocksAddr)> {
-        let mut recv_buf = BytesMut::new();
-        recv_buf.resize(buf.len(), 0);
-        let (n, src_addr, _) = self.1.recv_from(&mut recv_buf).await?;
-        recv_buf.resize(n, 0);
+        self.2.resize(buf.len(), 0);
+        let (n, src_addr, _) = self.1.recv_from(&mut self.2).await?;
+        let recv_buf = BytesMut::from(&self.2[..n]);
         let plaintext = self
             .0
             .decrypt(recv_buf)

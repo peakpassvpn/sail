@@ -342,6 +342,7 @@ impl NetworkInboundListener {
             let socket = std::net::UdpSocket::bind(listen_addr)
                 .and_then(|socket| {
                     socket.set_nonblocking(true)?;
+                    crate::net::fit_largest_datagram(socket2::SockRef::from(&socket))?;
                     UdpSocket::from_std(socket)
                 })
                 .map_err(|e| bind_failed("udp", e))?;

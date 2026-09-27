@@ -48,7 +48,7 @@ impl InboundDatagram for Datagram {
     ) {
         let (rh, sh) = self.socket.split();
         (
-            Box::new(DatagramRecvHalf(rh, self.fake_dns.clone())),
+            Box::new(DatagramRecvHalf(rh, self.fake_dns.clone(), Vec::new())),
             Box::new(DatagramSendHalf(sh, self.fake_dns)),
         )
     }
@@ -58,7 +58,8 @@ impl InboundDatagram for Datagram {
     }
 }
 
-pub struct DatagramRecvHalf(Box<dyn InboundDatagramRecvHalf>, Arc<FakeDns>);
+/// The last field is the buffer a packet is read into, reused.
+pub struct DatagramRecvHalf(Box<dyn InboundDatagramRecvHalf>, Arc<FakeDns>, Vec<u8>);
 
 #[async_trait]
 impl InboundDatagramRecvHalf for DatagramRecvHalf {
@@ -66,10 +67,10 @@ impl InboundDatagramRecvHalf for DatagramRecvHalf {
         &mut self,
         buf: &mut [u8],
     ) -> ProxyResult<(usize, DatagramSource, SocksAddr)> {
-        let mut recv_buf = vec![0u8; buf.len()];
-        let (n, mut src_addr, _) = self.0.recv_from(&mut recv_buf).await?;
+        self.2.resize(buf.len(), 0);
+        let (n, mut src_addr, _) = self.0.recv_from(&mut self.2).await?;
         // Any local process can send here, not only udpSend.
-        let recv_buf = &recv_buf[..n];
+        let recv_buf = &self.2[..n];
         let dst_addr = SocksAddr::try_from((recv_buf, SocksAddrWireType::PortLast))
             .map_err(|e| ProxyError::DatagramWarn(anyhow!("parse target address failed: {}", e)))?;
         let header_size = dst_addr.size() + 8;

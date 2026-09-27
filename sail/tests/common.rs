@@ -311,11 +311,13 @@ pub async fn run_udp_echo_server(
     let socket = UdpSocket::bind(addr)
         .await
         .map_err(|e| anyhow::anyhow!("bind udp failed: {}", e))?;
+    sail::net::fit_largest_datagram(socket2::SockRef::from(&socket))?;
     let local_addr = socket
         .local_addr()
         .map_err(|e| anyhow::anyhow!("get local addr failed: {}", e))?;
     let fut = async move {
-        let mut buf = vec![0u8; 2 * 1024];
+        // Holds any UDP payload.
+        let mut buf = vec![0u8; 65536];
         loop {
             let (n, raddr) = socket
                 .recv_from(&mut buf)

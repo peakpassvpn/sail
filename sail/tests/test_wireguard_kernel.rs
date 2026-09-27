@@ -474,8 +474,7 @@ async fn udp_echo(socks: u16, target: &str) -> anyhow::Result<()> {
     let datagram = common::new_socks_datagram("127.0.0.1", socks, &sess, None, None).await?;
     let (mut r, mut s) = datagram.split();
     for i in 0..20u8 {
-        // Past the tunnel's MTU, fragmented, but within the 2 KiB the SOCKS
-        // inbound relays.
+        // Past the tunnel's MTU, fragmented.
         let msg = pattern(1 + i as usize * 100, i);
         let mut buf = vec![0u8; 8192];
         let mut answered = false;
@@ -571,8 +570,7 @@ fn test_wireguard_kernel_inbound() -> anyhow::Result<()> {
             let udp = tokio::net::UdpSocket::from_std(udp)?;
             let mut buf = vec![0u8; 8192];
             for i in 0..20u8 {
-                // Past the tunnel's MTU, fragmented, but within the 2 KiB
-                // sail's UDP relays.
+                // Past the tunnel's MTU, fragmented.
                 let msg = pattern(1 + i as usize * 100, i);
                 let mut answered = false;
                 'send: for _ in 0..5 {

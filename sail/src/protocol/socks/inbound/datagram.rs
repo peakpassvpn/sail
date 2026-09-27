@@ -24,6 +24,7 @@ use crate::{
 pub fn bind(ip: IpAddr) -> io::Result<UdpSocket> {
     let socket = std::net::UdpSocket::bind(SocketAddr::new(ip, 0))?;
     socket.set_nonblocking(true)?;
+    crate::net::fit_largest_datagram(socket2::SockRef::from(&socket))?;
     UdpSocket::from_std(socket)
 }
 

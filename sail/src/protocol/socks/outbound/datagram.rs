@@ -195,6 +195,7 @@ impl OutboundDatagram for Datagram {
             Box::new(DatagramRecvHalf {
                 socket: self.socket.clone(),
                 control: control_read,
+                packet: Vec::new(),
             }),
             Box::new(DatagramSendHalf {
                 socket: self.socket,
@@ -207,16 +208,23 @@ impl OutboundDatagram for Datagram {
 pub struct DatagramRecvHalf {
     socket: Arc<UdpSocket>,
     control: tokio::io::ReadHalf<AnyStream>,
+    /// A reply is read into this, reused from one to the next.
+    packet: Vec<u8>,
 }
 
 #[async_trait]
 impl OutboundDatagramRecvHalf for DatagramRecvHalf {
     async fn recv_from(&mut self, buf: &mut [u8]) -> io::Result<(usize, SocksAddr)> {
-        let mut packet = vec![0u8; buf.len() + 512];
+        let Self {
+            socket,
+            control,
+            packet,
+        } = self;
+        packet.resize(buf.len() + 512, 0);
         let mut ignored = [0u8; 64];
         loop {
             tokio::select! {
-                received = self.socket.recv(&mut packet) => {
+                received = socket.recv(packet) => {
                     let n = received?;
                     match unwrap(&packet[..n], buf) {
                         Some(r) => return Ok(r),
@@ -226,7 +234,7 @@ impl OutboundDatagramRecvHalf for DatagramRecvHalf {
                         }
                     }
                 }
-                read = self.control.read(&mut ignored) => match read {
+                read = control.read(&mut ignored) => match read {
                     Ok(n) if n > 0 => continue,
                     _ => return Err(io::Error::new(
                         io::ErrorKind::ConnectionAborted,

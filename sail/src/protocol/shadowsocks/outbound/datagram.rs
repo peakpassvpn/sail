@@ -74,7 +74,12 @@ impl OutboundDatagram for Datagram {
         let dgram = Arc::new(self.dgram);
         let (r, s) = self.socket.split();
         (
-            Box::new(DatagramRecvHalf(dgram.clone(), r, self.destination)),
+            Box::new(DatagramRecvHalf(
+                dgram.clone(),
+                r,
+                self.destination,
+                Vec::new(),
+            )),
             Box::new(DatagramSendHalf {
                 dgram,
                 send_half: s,
@@ -84,19 +89,20 @@ impl OutboundDatagram for Datagram {
     }
 }
 
+/// The last field is the buffer a packet is read into, reused.
 pub struct DatagramRecvHalf(
     Arc<ShadowedDatagram>,
     Box<dyn OutboundDatagramRecvHalf>,
     Option<SocksAddr>,
+    Vec<u8>,
 );
 
 #[async_trait]
 impl OutboundDatagramRecvHalf for DatagramRecvHalf {
     async fn recv_from(&mut self, buf: &mut [u8]) -> io::Result<(usize, SocksAddr)> {
-        let mut recv_buf = BytesMut::new();
-        recv_buf.resize(buf.len(), 0);
-        let (n, _) = self.1.recv_from(&mut recv_buf).await?;
-        recv_buf.resize(n, 0);
+        self.3.resize(buf.len(), 0);
+        let (n, _) = self.1.recv_from(&mut self.3).await?;
+        let recv_buf = BytesMut::from(&self.3[..n]);
         let plaintext = self.0.decrypt(recv_buf).map_err(|_| shadow::crypto_err())?;
         let src_addr = SocksAddr::try_from((&plaintext[..], SocksAddrWireType::PortLast))?;
         let payload_len = plaintext.len() - src_addr.size();

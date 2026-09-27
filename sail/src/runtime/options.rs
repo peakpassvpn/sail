@@ -73,7 +73,9 @@ pub struct Relay {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Udp {
-    /// The buffer a datagram is read into, in KiB.
+    /// The buffer a datagram is read into, in KiB: 64 holds the largest
+    /// UDP payload (65535 bytes), and a smaller one drops bigger datagrams.
+    /// One per UDP session and one per inbound datagram, reused.
     pub datagram_buffer_size: usize,
     /// Datagrams queued towards outbounds.
     pub uplink_channel_size: usize,
@@ -246,7 +248,7 @@ impl RuntimeOptions {
                 downlink_timeout: Duration::from_secs(10),
             },
             udp: Udp {
-                datagram_buffer_size: 2,
+                datagram_buffer_size: 64,
                 uplink_channel_size: 256,
                 downlink_channel_size: 256,
                 session_check_interval: Duration::from_secs(10),

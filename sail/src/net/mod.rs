@@ -128,11 +128,26 @@ impl TcpListener {
     }
 }
 
+/// The largest UDP payload: what a socket must be able to send.
+pub const MAX_DATAGRAM: usize = 65535;
+
+/// Lets `socket` send a datagram of [`MAX_DATAGRAM`] bytes. macOS caps a
+/// datagram at the send buffer, which starts at 9 KiB
+/// (`net.inet.udp.maxdgram`), and fails a larger one with EMSGSIZE; other
+/// systems start above it, and this leaves them alone.
+pub fn fit_largest_datagram(socket: SockRef) -> io::Result<()> {
+    if socket.send_buffer_size()? < MAX_DATAGRAM + 1 {
+        socket.set_send_buffer_size(MAX_DATAGRAM + 1)?;
+    }
+    Ok(())
+}
+
 /// A UDP socket for talking to `indicator`'s address family, opened as
 /// `dial` says.
 pub async fn new_udp_socket(indicator: &SocketAddr, dial: &DialOptions) -> io::Result<UdpSocket> {
     let socket = Socket::new(Domain::for_address(*indicator), Type::DGRAM, None)?;
     socket.set_nonblocking(true)?;
+    fit_largest_datagram(SockRef::from(&socket))?;
     let bound = dial::bind(&socket, indicator, dial)?;
     if !bound && indicator.ip().is_unspecified() {
         socket.bind(&(*indicator).into())?;

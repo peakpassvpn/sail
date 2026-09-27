@@ -350,7 +350,8 @@ fn transfer(configs: Vec<String>, socks_port: u16) -> anyhow::Result<()> {
         sess.destination = SocksAddr::Ip(udp_addr);
         let dgram = common::new_socks_datagram("127.0.0.1", socks_port, &sess, None, None).await?;
         let (mut r, mut w) = dgram.split();
-        // Above a QUIC datagram, below sail's 2 KiB datagram buffer.
+        // Above a QUIC datagram, fragmented; `test_udp_large` takes one up
+        // to 60 KB.
         for size in [100usize, 1500, 2000] {
             let mut packet = vec![0u8; size];
             rand::thread_rng().fill_bytes(&mut packet);
