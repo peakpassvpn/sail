@@ -334,4 +334,66 @@ mod tests {
         assert_eq!(parse("cubic").unwrap(), CongestionControl::Cubic);
         assert!(parse("reno").is_err());
     }
+
+    /// A server whose certificate has only the IP SAN 127.0.0.1, and a
+    /// client trusting that certificate.
+    fn ip_san_pair() -> (quinn::Endpoint, quinn_btls::ClientConfig) {
+        let cert = rcgen::generate_simple_self_signed(vec!["127.0.0.1".into()]).unwrap();
+        let pem = cert.cert.pem();
+        let server = server_crypto(&pem, &cert.key_pair.serialize_pem(), &[]).unwrap();
+        let server = endpoint(
+            std::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap(),
+            Some(server_config(server).unwrap()),
+        )
+        .unwrap();
+        (server, client_crypto(Some(&pem), false, &[]).unwrap())
+    }
+
+    /// Dials `server` as `server_name`: the SNI the server saw, if the
+    /// handshake succeeds.
+    async fn dial(
+        server: &quinn::Endpoint,
+        crypto: quinn_btls::ClientConfig,
+        server_name: &str,
+    ) -> Result<Option<String>> {
+        let client = endpoint(
+            std::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap(),
+            None,
+        )
+        .unwrap();
+        let config = quinn::ClientConfig::new(Arc::new(crypto));
+        let accept = async {
+            let conn = server.accept().await.unwrap().await?;
+            let data = conn.handshake_data().unwrap();
+            let data = data.downcast::<quinn_btls::HandshakeData>().unwrap();
+            Ok::<_, quinn::ConnectionError>(data.server_name)
+        };
+        let connect = async {
+            let connecting =
+                client.connect_with(config, server.local_addr().unwrap(), server_name)?;
+            Ok::<_, anyhow::Error>(connecting.await?)
+        };
+        let (sni, conn) = tokio::join!(accept, connect);
+        conn?;
+        Ok(sni?)
+    }
+
+    #[tokio::test]
+    async fn ip_server_name_sends_no_sni_and_verifies_ip_san() {
+        let (server, crypto) = ip_san_pair();
+        // RFC 6066 forbids IP literals in SNI.
+        assert_eq!(dial(&server, crypto, "127.0.0.1").await.unwrap(), None);
+    }
+
+    #[tokio::test]
+    async fn ip_server_name_not_in_certificate_fails() {
+        let (server, crypto) = ip_san_pair();
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            dial(&server, crypto, "127.0.0.2"),
+        )
+        .await
+        .expect("the handshake fails, not hangs");
+        assert!(result.is_err(), "{:?}", result);
+    }
 }
