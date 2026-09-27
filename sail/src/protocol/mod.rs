@@ -37,6 +37,8 @@ pub mod tuic;
 pub mod tun;
 #[cfg(any(feature = "inbound-vless", feature = "outbound-vless"))]
 pub mod vless;
+#[cfg(feature = "wireguard")]
+pub mod wireguard;
 // XUDP lives with VMess and serves VLESS too.
 #[cfg(any(
     feature = "inbound-vless",

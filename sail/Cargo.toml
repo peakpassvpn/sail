@@ -161,6 +161,9 @@ inbound-nf = ["libloading"]
 inbound-redirect = []
 inbound-tproxy = []
 
+# WireGuard: the protocol core, not yet an endpoint.
+wireguard = ["btls", "btls-sys", "blake2"]
+
 # sing-box's multiplex (sing-mux): smux, yamux, and h2mux over HTTP/2.
 mux = ["h2", "http"]
 
