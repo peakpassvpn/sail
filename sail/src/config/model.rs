@@ -677,7 +677,8 @@ pub enum RuleAction {
     /// Reads the domain from the first bytes of a TCP connection (TLS SNI,
     /// HTTP Host), so that later rules match it.
     Sniff,
-    /// Resolves the domain, so that later rules match its addresses.
+    /// Resolves the domain, so that later rules match its addresses; a
+    /// domain that does not resolve fails the connection.
     Resolve,
 }
 

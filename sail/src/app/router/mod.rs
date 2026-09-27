@@ -410,7 +410,8 @@ impl Router {
                         if let Some(domain) = facts.domain().map(str::to_string) {
                             resolved = self
                                 .resolve(&domain, sess, server.as_deref(), *strategy, *timeout)
-                                .await;
+                                .await
+                                .map_err(|e| anyhow!("resolve {}: {}", domain, e))?;
                         }
                     }
                 }
@@ -420,8 +421,9 @@ impl Router {
         Ok(Decision::Route(self.final_outbound.clone()))
     }
 
-    /// The addresses of `domain`, or none when it does not resolve in
-    /// time: the rules after a `resolve` then match without them.
+    /// The addresses of `domain`. As in sing-box, a domain that does not
+    /// resolve in time fails the connection rather than going on to rules
+    /// that would match it without its addresses.
     async fn resolve(
         &self,
         domain: &str,
@@ -429,7 +431,7 @@ impl Router {
         server: Option<&str>,
         strategy: Option<model::DnsStrategy>,
         timeout: Option<Duration>,
-    ) -> Vec<IpAddr> {
+    ) -> Result<Vec<IpAddr>> {
         let dns = self.dns_client.load_full();
         let lookup = async {
             match server {
@@ -451,16 +453,9 @@ impl Router {
                 .unwrap_or_else(|_| Err(anyhow!("timed out after {:?}", timeout))),
             None => lookup.await,
         };
-        match result {
-            Ok(ips) => {
-                debug!("resolved {} to {:?} for routing", domain, ips);
-                ips
-            }
-            Err(e) => {
-                debug!("resolving {} for routing failed: {}", domain, e);
-                Vec::new()
-            }
-        }
+        let ips = result?;
+        debug!("resolved {} to {:?} for routing", domain, ips);
+        Ok(ips)
     }
 }
 
@@ -742,17 +737,18 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_resolve_rule_gives_up_at_its_timeout() {
+    async fn a_resolve_rule_fails_the_connection_at_its_timeout() {
         let router = router(serde_json::json!([
             { "action": "resolve", "timeout": "1ms", "server": "slow" },
             { "ip_cidr": ["192.0.2.0/24"], "outbound": "a" },
         ]));
         let mut sess = to("test.sail:80");
         let start = std::time::Instant::now();
-        assert_eq!(
-            pick(&router, &mut sess).await,
-            Decision::Route(Some("b".into()))
-        );
+        let err = router
+            .pick_route(&mut sess, &mut NoSniffer)
+            .await
+            .unwrap_err();
+        assert!(err.to_string().starts_with("resolve test.sail:"), "{}", err);
         assert!(start.elapsed() < Duration::from_secs(2));
     }
 
