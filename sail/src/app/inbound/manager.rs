@@ -30,6 +30,7 @@ use super::cat_listener::CatInboundListener;
 use super::tun_listener::TunInboundListener;
 
 pub struct InboundManager {
+    states: HashMap<String, Arc<registry::InboundState>>,
     configs: HashMap<String, config::Inbound>,
     resources: HashMap<String, StreamResource>,
     /// Every inbound's handler, for inbounds built on others.
@@ -96,6 +97,7 @@ impl InboundManager {
     ) -> Result<Self> {
         let mut handlers: HashMap<String, AnyInboundHandler> = HashMap::new();
         let mut dependencies = HashMap::new();
+        let mut states = HashMap::new();
         registry::build_inbounds(
             &include::INBOUNDS,
             inbounds,
@@ -103,6 +105,7 @@ impl InboundManager {
             env,
             &mut handlers,
             &mut dependencies,
+            &mut states,
         )?;
 
         let mut resources = HashMap::new();
@@ -164,6 +167,7 @@ impl InboundManager {
         }
 
         Ok(InboundManager {
+            states,
             configs: inbounds
                 .iter()
                 .map(|i| (i.tag.clone(), i.clone()))
@@ -250,6 +254,7 @@ impl InboundManager {
             ));
         }
         let mut updates = Vec::new();
+        let mut states = self.states.clone();
         for inbound in inbounds {
             if selected.is_some_and(|tag| tag != inbound.tag) {
                 continue;
@@ -266,6 +271,7 @@ impl InboundManager {
                 self.dispatcher.env(),
                 &mut handlers,
                 &mut dependencies,
+                &mut states,
             )?;
             updates.push((
                 resource.clone(),
@@ -323,6 +329,7 @@ impl InboundManager {
         }
         let mut handlers = self.handlers.clone();
         let mut dependencies = self.dependencies.clone();
+        let mut states = self.states.clone();
         registry::build_inbounds(
             &include::INBOUNDS,
             std::slice::from_ref(inbound),
@@ -330,6 +337,7 @@ impl InboundManager {
             self.dispatcher.env(),
             &mut handlers,
             &mut dependencies,
+            &mut states,
         )?;
         let resource = if resource::supported(inbound) {
             Some(resource::wrap(handlers.get_mut(&inbound.tag).unwrap())?)
@@ -349,6 +357,7 @@ impl InboundManager {
             self.run(inbound.tag.clone(), runners);
         }
         self.handlers = handlers;
+        self.states = states;
         self.dependencies = dependencies;
         self.configs.insert(inbound.tag.clone(), inbound.clone());
         if let Some(resource) = resource {
@@ -380,6 +389,7 @@ impl InboundManager {
         self.dependencies.remove(tag);
         self.configs.remove(tag);
         self.resources.remove(tag);
+        self.states.remove(tag);
         self.dispatcher.set_inbound_type(tag, None);
         Ok(())
     }
@@ -482,6 +492,82 @@ pub(crate) fn plan_listeners<'a>(
 mod tests {
     use super::*;
 
+    #[cfg(all(feature = "inbound-vmess", feature = "outbound-direct"))]
+    #[tokio::test]
+    async fn vmess_manager_preserves_replay_state_until_inbound_removal() {
+        use crate::adapter::InboundTransport;
+        use crate::protocol::vmess::header::*;
+        use crate::session::{Session, SocksAddr};
+        use serde_json::json;
+        use tokio::io::AsyncWriteExt;
+
+        async fn accepted(handler: &AnyInboundHandler, wire: &[u8]) -> bool {
+            let (mut client, server) = tokio::io::duplex(4096);
+            client.write_all(wire).await.unwrap();
+            client.shutdown().await.unwrap();
+            matches!(
+                handler
+                    .stream()
+                    .unwrap()
+                    .handle(Session::default(), Box::new(server))
+                    .await,
+                Ok(InboundTransport::Stream(_, _))
+            )
+        }
+        let uuid = uuid::Uuid::from_bytes([42; 16]);
+        let config = config::Config::from_json(
+            &json!({
+                "inbounds":[{"type":"vmess", "tag":"v", "users":[{"uuid":uuid.to_string()}]}],
+                "outbounds":[{"type":"direct"}]
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let instance =
+            crate::app::instance::Instance::build(&config, Arc::default(), Arc::default()).unwrap();
+        let live = instance.inbound_manager.lock().unwrap().handlers["v"].clone();
+        let request = RequestHeader::new(
+            OPTION_CHUNK_STREAM,
+            SECURITY_AES128_GCM,
+            COMMAND_TCP,
+            Some(SocksAddr::try_from(("example.com", 443)).unwrap()),
+        );
+        let wire = request.seal(&cmd_key(uuid.as_bytes())).unwrap();
+        assert!(accepted(&live, &wire).await);
+        {
+            let mut manager = instance.inbound_manager.lock().unwrap();
+            let prepared = manager.prepare_resources(&config.inbounds).unwrap();
+            manager.publish_resources(prepared);
+        }
+        assert!(!accepted(&live, &wire).await);
+        {
+            let mut manager = instance.inbound_manager.lock().unwrap();
+            let mut empty = config.inbounds[0].clone();
+            empty.options.insert("users".into(), json!([]));
+            let prepared = manager.prepare_update_resources(&empty).unwrap();
+            manager.publish_resources(prepared);
+            let prepared = manager
+                .prepare_update_resources(&config.inbounds[0])
+                .unwrap();
+            manager.publish_resources(prepared);
+            let mut invalid = empty;
+            invalid
+                .options
+                .insert("users".into(), json!([{"uuid":"invalid"}]));
+            assert!(manager.prepare_update_resources(&invalid).is_err());
+        }
+        assert!(!accepted(&live, &wire).await);
+        assert!(accepted(&live, &request.seal(&cmd_key(uuid.as_bytes())).unwrap()).await);
+        let recreated = {
+            let mut manager = instance.inbound_manager.lock().unwrap();
+            manager.remove("v").unwrap();
+            manager.add(&config.inbounds[0]).unwrap();
+            manager.handlers["v"].clone()
+        };
+        assert!(accepted(&recreated, &wire).await);
+        assert!(!accepted(&live, &wire).await); // Old lifetime is still held by this connection.
+    }
+
     fn plan(json: &str) -> Result<Vec<(String, SocketAddr)>> {
         let config = config::Config::from_json(json)?;
         let mut handlers = HashMap::new();
@@ -491,6 +577,7 @@ mod tests {
             include::LISTENER_INBOUNDS,
             &crate::runtime::RuntimeEnv::default(),
             &mut handlers,
+            &mut HashMap::new(),
             &mut HashMap::new(),
         )?;
         Ok(plan_listeners(&config.inbounds, &handlers)?

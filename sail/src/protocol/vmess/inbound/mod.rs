@@ -8,6 +8,7 @@ use crate::adapter::AnyInboundHandler;
 use crate::transport::layers::Blocks;
 use serde_derive::Deserialize;
 
+pub(crate) use super::header::ReplayFilter;
 use super::header::User;
 
 mod stream;
@@ -46,9 +47,6 @@ struct VMessUser {
 
 fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
     let options: VMessInboundOptions = ctx.options()?;
-    if options.users.is_empty() {
-        return Err(anyhow!("[{}] inbound: users: cannot be empty", ctx.tag));
-    }
     let mut users = Vec::new();
     let mut seen = std::collections::HashSet::new();
     for (i, user) in options.users.into_iter().enumerate() {
@@ -71,7 +69,8 @@ fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
         }
         users.push(User::new(&uuid, user.name.map(Into::into)));
     }
-    let stream = Arc::new(StreamHandler::new(users));
+    let replay = ctx.state.vmess_replay.get_or_init(Arc::default).clone();
+    let stream = Arc::new(StreamHandler::with_replay(users, replay));
     Ok(Arc::new(Handler::new(
         ctx.tag.to_owned(),
         Some(stream),

@@ -540,7 +540,18 @@ pub struct InboundContext<'a> {
     pub options: &'a Options,
     /// The instance's tuning and host.
     pub env: &'a RuntimeEnv,
+    #[cfg_attr(not(feature = "inbound-vmess"), allow(dead_code))]
+    pub(crate) state: &'a InboundState,
     handlers: &'a Handlers<AnyInboundHandler>,
+}
+
+/// Listener-lifetime protocol state, separate from replaceable credentials.
+/// Candidates borrow the same state without resetting or consuming it.
+#[derive(Default)]
+pub(crate) struct InboundState {
+    #[cfg(feature = "inbound-vmess")]
+    pub(crate) vmess_replay:
+        std::sync::OnceLock<std::sync::Arc<crate::protocol::vmess::inbound::ReplayFilter>>,
 }
 
 impl InboundContext<'_> {
@@ -569,13 +580,14 @@ impl InboundContext<'_> {
 /// Builds every inbound in `inbounds` whose protocol makes a handler, each
 /// after the ones it is built on. Protocols in `listeners` are served by a
 /// listener of their own rather than a handler, and are skipped.
-pub fn build_inbounds(
+pub(crate) fn build_inbounds(
     registry: &InboundRegistry,
     inbounds: &[crate::config::model::Inbound],
     listeners: &[&str],
     env: &RuntimeEnv,
     handlers: &mut Handlers<AnyInboundHandler>,
     dependencies: &mut HashMap<String, Vec<String>>,
+    states: &mut HashMap<String, std::sync::Arc<InboundState>>,
 ) -> Result<()> {
     let nodes = inbounds
         .iter()
@@ -605,6 +617,7 @@ pub fn build_inbounds(
                 tag: &inbound.tag,
                 options: &options,
                 env,
+                state: states.entry(inbound.tag.clone()).or_default(),
                 handlers,
             };
             let core = (factory.build)(&ctx)?;
@@ -881,6 +894,7 @@ mod tests {
             &env,
             &mut handlers,
             &mut HashMap::new(),
+            &mut HashMap::new(),
         )
         .unwrap();
         let err = build_inbounds(
@@ -889,6 +903,7 @@ mod tests {
             &["tun"],
             &env,
             &mut handlers,
+            &mut HashMap::new(),
             &mut HashMap::new(),
         )
         .err()

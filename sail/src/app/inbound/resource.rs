@@ -1,6 +1,6 @@
 //! Snapshot the complete stream pipeline before TLS and authentication:
 //! a connection's certificate and users belong to the same generation.
-//! Only stateless TCP pipelines can be rebuilt this way. VMess/SS replay
+//! VMess shares listener-lifetime replay state across generations. SS replay
 //! caches, QUIC endpoints and REALITY need state-preserving updates instead.
 
 use crate::adapter::*;
@@ -39,13 +39,15 @@ pub(super) fn files(
 }
 
 pub(super) fn supported(inbound: &Inbound) -> bool {
-    matches!(inbound.protocol.as_str(), "trojan" | "vless" | "anytls")
-        && inbound
-            .options
-            .get("transport")
-            .and_then(|v| v.get("type"))
-            .and_then(|v| v.as_str())
-            != Some("quic")
+    matches!(
+        inbound.protocol.as_str(),
+        "trojan" | "vless" | "anytls" | "vmess"
+    ) && inbound
+        .options
+        .get("transport")
+        .and_then(|v| v.get("type"))
+        .and_then(|v| v.as_str())
+        != Some("quic")
         && inbound
             .options
             .get("tls")
@@ -177,7 +179,7 @@ mod tests {
         assert!(check_change(&old, &new).is_ok());
         new.listen_port = Some(4321);
         assert!(check_change(&old, &new).is_err());
-        for protocol in ["vmess", "shadowsocks", "hysteria2", "tuic", "tun", "nf"] {
+        for protocol in ["shadowsocks", "hysteria2", "tuic", "tun", "nf"] {
             let mut old = old.clone();
             old.protocol = protocol.into();
             let mut new = old.clone();
@@ -301,5 +303,114 @@ mod tests {
                 .await;
             assert_eq!(result.is_ok(), allowed);
         }
+    }
+
+    #[cfg(feature = "inbound-vmess")]
+    #[tokio::test]
+    async fn vmess_generations_share_replay_history_but_not_credentials() {
+        use crate::adapter::registry;
+        use crate::protocol::vmess::header::*;
+        use std::collections::HashMap;
+        use tokio::io::AsyncWriteExt;
+
+        fn build(
+            tag: &str,
+            users: serde_json::Value,
+            states: &mut HashMap<String, Arc<registry::InboundState>>,
+        ) -> Result<AnyInboundHandler> {
+            let inbound = serde_json::from_value(json!({
+                "type":"vmess", "tag":tag, "users":users
+            }))?;
+            let mut handlers = HashMap::new();
+            registry::build_inbounds(
+                &crate::include::INBOUNDS,
+                &[inbound],
+                crate::include::LISTENER_INBOUNDS,
+                &Default::default(),
+                &mut handlers,
+                &mut HashMap::new(),
+                states,
+            )?;
+            Ok(handlers.remove(tag).unwrap())
+        }
+        fn users(id: u8, name: &str) -> serde_json::Value {
+            json!([{"uuid":uuid::Uuid::from_bytes([id;16]).to_string(),"name":name}])
+        }
+        fn wire(id: u8) -> Vec<u8> {
+            RequestHeader::new(
+                OPTION_CHUNK_STREAM,
+                SECURITY_AES128_GCM,
+                COMMAND_TCP,
+                Some(crate::session::SocksAddr::try_from(("example.com", 443)).unwrap()),
+            )
+            .seal(&cmd_key(&[id; 16]))
+            .unwrap()
+        }
+        async fn authenticate(handler: &AnyInboundHandler, wire: &[u8]) -> std::io::Result<String> {
+            let (mut client, server) = tokio::io::duplex(4096);
+            client.write_all(wire).await?;
+            client.shutdown().await?; // A refusal can drain to EOF without random delay.
+            match handler
+                .stream()?
+                .handle(Session::default(), Box::new(server))
+                .await?
+            {
+                InboundTransport::Stream(_, sess) => Ok(sess.user.unwrap().to_string()),
+                _ => panic!("expected TCP"),
+            }
+        }
+
+        let mut states = HashMap::new();
+        let mut live = build("v", users(1, "alice"), &mut states).unwrap();
+        let resource = wrap(&mut live).unwrap();
+        let first = wire(1);
+        assert_eq!(authenticate(&live, &first).await.unwrap(), "alice");
+        let renamed = build("v", users(1, "renamed"), &mut states).unwrap();
+        resource.publish(generation(&renamed).unwrap());
+        assert!(authenticate(&live, &first)
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("Replayed"));
+        assert_eq!(authenticate(&live, &wire(1)).await.unwrap(), "renamed");
+
+        let (mut client, server) = tokio::io::duplex(4096);
+        let mut pending = live
+            .stream()
+            .unwrap()
+            .handle(Session::default(), Box::new(server));
+        assert!(futures::poll!(&mut pending).is_pending());
+        let bob = build("v", users(2, "bob"), &mut states).unwrap();
+        resource.publish(generation(&bob).unwrap());
+        let inflight = wire(1);
+        client.write_all(&inflight).await.unwrap();
+        match pending.await.unwrap() {
+            InboundTransport::Stream(_, sess) => assert_eq!(sess.user.as_deref(), Some("renamed")),
+            _ => panic!("expected TCP"),
+        }
+        assert!(authenticate(&live, &wire(1))
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("UnknownUser"));
+        assert_eq!(authenticate(&live, &wire(2)).await.unwrap(), "bob");
+        assert!(build("v", json!([{"uuid":"invalid"}]), &mut states).is_err());
+        assert_eq!(authenticate(&live, &wire(2)).await.unwrap(), "bob");
+
+        let empty = build("v", json!([]), &mut states).unwrap();
+        resource.publish(generation(&empty).unwrap());
+        assert!(authenticate(&live, &wire(2)).await.is_err());
+        let restored = build("v", users(1, "returned"), &mut states).unwrap();
+        resource.publish(generation(&restored).unwrap());
+        for replay in [&first, &inflight] {
+            assert!(authenticate(&live, replay)
+                .await
+                .unwrap_err()
+                .to_string()
+                .contains("Replayed"));
+        }
+        assert_eq!(authenticate(&live, &wire(1)).await.unwrap(), "returned");
+        let separate = build("other", users(1, "isolated"), &mut states).unwrap();
+        assert_eq!(authenticate(&separate, &first).await.unwrap(), "isolated");
     }
 }

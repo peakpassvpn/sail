@@ -387,7 +387,7 @@ impl<T> User<T> {
 /// used.
 pub struct Authenticator<T> {
     users: Vec<User<T>>,
-    replay: ReplayFilter,
+    replay: std::sync::Arc<ReplayFilter>,
 }
 
 /// Why a request was refused.
@@ -399,11 +399,13 @@ pub enum AuthError {
 }
 
 impl<T> Authenticator<T> {
+    #[cfg(test)]
     pub fn new(users: Vec<User<T>>) -> Self {
-        Authenticator {
-            users,
-            replay: ReplayFilter::default(),
-        }
+        Self::with_replay(users, std::sync::Arc::default())
+    }
+
+    pub fn with_replay(users: Vec<User<T>>, replay: std::sync::Arc<ReplayFilter>) -> Self {
+        Authenticator { users, replay }
     }
 
     /// The user an auth ID is from, if it is theirs, current and new.
@@ -553,6 +555,36 @@ mod tests {
         // Twice, it is gone.
         filter.inner.lock().since -= REPLAY_WINDOW * 2;
         assert!(filter.check(&[1; 16]));
+    }
+
+    #[test]
+    fn concurrent_generations_accept_an_auth_id_only_once() {
+        let replay: std::sync::Arc<ReplayFilter> = std::sync::Arc::default();
+        let old = Authenticator::with_replay(vec![User::new(&UUID, ())], replay.clone());
+        let new = Authenticator::with_replay(vec![User::new(&UUID, ())], replay);
+        let now = now();
+        let id = auth_id(&cmd_key(&UUID), now);
+        let barrier = std::sync::Barrier::new(16);
+        std::thread::scope(|scope| {
+            let joins: Vec<_> = (0..16)
+                .map(|n| {
+                    let auth = if n % 2 == 0 { &old } else { &new };
+                    let barrier = &barrier;
+                    scope.spawn(move || {
+                        barrier.wait();
+                        match auth.authenticate(&id, now) {
+                            Ok(_) => 1,
+                            Err(AuthError::Replayed) => 0,
+                            Err(err) => panic!("unexpected refusal: {err:?}"),
+                        }
+                    })
+                })
+                .collect();
+            assert_eq!(
+                joins.into_iter().map(|j| j.join().unwrap()).sum::<usize>(),
+                1
+            );
+        });
     }
 
     #[tokio::test]

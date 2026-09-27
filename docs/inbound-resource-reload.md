@@ -1,6 +1,6 @@
 # Inbound users and certificate reload
 
-The first part of roadmap 3.4 supports **Trojan, VLESS and AnyTLS over
+The first part of roadmap 3.4 supports **Trojan, VLESS, AnyTLS and VMess over
 TCP**, including ordinary TLS, WebSocket, HTTPUpgrade, gRPC and sing-mux
 where the protocol supports those layers. It does not rebind listeners.
 
@@ -44,6 +44,14 @@ An empty user table authenticates nobody new (configured fallback behavior
 is retained). Duplicate Trojan passwords are rejected rather than silently
 overwriting one user's identity.
 
+VMess generations share one listener-lifetime auth-ID replay filter, including
+handshakes still using old users. Renaming, removing and re-adding a user,
+emptying the table, or replacing certificates does not erase replay history.
+Different inbounds have separate filters. Explicitly removing/recreating an
+inbound creates a new listener lifetime; history is not persisted across that
+operation or process restarts. VMess UDP/XUDP carried inside TCP keeps its
+existing connection; this does not add native UDP listener reload support.
+
 Publication is atomic **per inbound**, not a global transaction across
 every listener, DNS and router. All candidates are validated first, but
 independent connections can observe different inbounds during publication.
@@ -56,7 +64,7 @@ Socket preparation/acceptance hooks, including TCP Brutal, are retained.
   Unsupported edits return an error; use the existing add/remove API or
   restart for structural changes. Inbound additions/removals in a file
   reload are also rejected rather than silently ignored.
-- VMess and Shadowsocks have replay state; Hysteria2, TUIC and QUIC
+- Shadowsocks has replay state; Hysteria2, TUIC and QUIC
   transports have long-lived endpoint state. They are not rebuilt.
   REALITY, AMUX, and initially dependent inbound graphs are not supported
   by this first implementation either. They need state-preserving,
@@ -75,3 +83,6 @@ in-flight handshakes, invalid UUID/key rollback, empty tables, the host
 entry point, unchanged PEM paths, and repeated atomic replacement of both
 certificate files and the configuration file. Unit tests cover VLESS and
 AnyTLS authentication snapshots, unsupported edits and watcher filtering.
+VMess tests cover shared replay history across generations, identity changes,
+in-flight old authentication, invalid candidates, empty tables, user removal
+and re-addition, and isolation between inbounds.
