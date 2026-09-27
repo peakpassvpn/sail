@@ -6,7 +6,7 @@
 // The stack serves the protocols that carry IP packets; built without any
 // of them, as `netstack` alone, it has no user.
 #![cfg_attr(
-    not(feature = "inbound-tun"),
+    not(any(feature = "inbound-tun", feature = "wireguard")),
     allow(
         dead_code,
         unused_imports,
@@ -20,11 +20,14 @@ mod stream;
 #[cfg(test)]
 pub(crate) mod testing;
 
-#[expect(unused_imports, reason = "the WireGuard outbound is its first user")]
+#[cfg_attr(
+    not(feature = "wireguard"),
+    expect(unused_imports, reason = "the WireGuard endpoint is its user")
+)]
 pub(crate) use channel::ChannelPacketIo;
 #[cfg_attr(
     not(all(test, target_os = "linux")),
-    expect(unused_imports, reason = "the WireGuard outbound is its first user")
+    expect(unused_imports, reason = "only tests name it")
 )]
 pub(crate) use runtime::NativeConnection;
 pub(crate) use runtime::{

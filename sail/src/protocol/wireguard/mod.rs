@@ -5,12 +5,15 @@
 //!
 //! [`Device`] is the sans-IO core: IP packets in and out on one side, UDP
 //! datagrams on the other, time passed in. [`shell::WireGuard`] runs a
-//! device over a [`shell::Transport`] with a tokio timer.
+//! device over a [`shell::Transport`] with a tokio timer. [`endpoint`] is
+//! the endpoint a configuration names: the device carrying the userspace
+//! TCP/IP stack, as an outbound and an inbound.
 
 pub mod allowed_ips;
 pub mod cookie;
 pub mod crypto;
 pub mod device;
+pub mod endpoint;
 pub mod keypair;
 pub mod messages;
 pub mod noise;

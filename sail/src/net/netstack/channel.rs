@@ -21,11 +21,8 @@ pub(crate) struct ChannelPacketIo {
 }
 
 #[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the WireGuard outbound is its first user outside tests"
-    )
+    not(any(test, feature = "wireguard")),
+    expect(dead_code, reason = "the WireGuard endpoint is its user outside tests")
 )]
 impl ChannelPacketIo {
     /// Packets sent on `inbound` enter the stack, and packets the stack emits

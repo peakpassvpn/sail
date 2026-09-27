@@ -170,8 +170,8 @@ impl NativeRuntimeControl {
     /// completes. Port 0 in `local` picks an ephemeral port. Dropping the
     /// future abandons the connection.
     #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the WireGuard outbound is its first user")
+        not(any(test, feature = "wireguard")),
+        expect(dead_code, reason = "the WireGuard endpoint is its user")
     )]
     pub(crate) async fn connect(
         &mut self,
@@ -198,8 +198,8 @@ impl NativeRuntimeControl {
     /// an ephemeral port. The remote end's datagrams to that address arrive
     /// with the other datagrams the runtime delivers, under the same token.
     #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the WireGuard outbound is its first user")
+        not(any(test, feature = "wireguard")),
+        expect(dead_code, reason = "the WireGuard endpoint is its user")
     )]
     pub(crate) async fn send_udp(
         &mut self,

@@ -31,6 +31,8 @@ pub struct Instance {
     pub stat_manager: SyncStatManager,
     pub dispatcher: Arc<Dispatcher>,
     pub inbound_manager: Arc<std::sync::Mutex<InboundManager>>,
+    /// Serves the UDP of the inbounds, and of the endpoints once started.
+    nat_manager: Arc<NatManager>,
     /// The routes a TUN with `auto` takes, and once started, what they
     /// replaced.
     #[cfg(all(feature = "inbound-tun", any(target_os = "macos", target_os = "linux")))]
@@ -44,7 +46,7 @@ pub struct Instance {
 
 impl Instance {
     /// Builds what `config` describes, each component after those it uses:
-    /// DNS, outbounds, routing, statistics, the dispatcher, NAT, inbounds.
+    /// DNS, outbounds and endpoints, routing, statistics, the dispatcher, NAT, inbounds.
     /// Nothing listens, connects or changes on the system yet, so a
     /// configuration that cannot run fails here and leaves no trace.
     ///
@@ -57,9 +59,14 @@ impl Instance {
         let dns_client =
             DnsClient::new(&config.dns, dial_defaults.clone(), env.options.dns.clone())?
                 .into_shared();
-        let outbound_manager: SyncOutboundManager = Arc::new(ArcSwap::from_pointee(
-            OutboundManager::new(&config.outbounds, &dial_defaults, &env, dns_client.clone())?,
-        ));
+        let outbound_manager: SyncOutboundManager =
+            Arc::new(ArcSwap::from_pointee(OutboundManager::with_endpoints(
+                &config.outbounds,
+                &config.endpoints,
+                &dial_defaults,
+                &env,
+                dns_client.clone(),
+            )?));
         let router: SyncRouter = Arc::new(ArcSwap::from_pointee(Router::new(
             &config.route,
             dns_client.clone(),
@@ -79,15 +86,22 @@ impl Instance {
         dns_client
             .load()
             .set_dispatcher(Arc::downgrade(&dispatcher));
-        for inbound in &config.inbounds {
+        // An endpoint is an inbound too.
+        let inbounds: Vec<crate::config::Inbound> = config
+            .inbounds
+            .iter()
+            .cloned()
+            .chain(config.endpoints.iter().map(|e| e.as_inbound()))
+            .collect();
+        for inbound in &inbounds {
             dispatcher.set_inbound_type(&inbound.tag, Some(&inbound.protocol));
         }
-        let nat_manager = Arc::new(NatManager::new(dispatcher.clone(), &config.inbounds));
+        let nat_manager = Arc::new(NatManager::new(dispatcher.clone(), &inbounds));
         let inbound_manager = Arc::new(std::sync::Mutex::new(InboundManager::new(
             &config.inbounds,
             &env,
             dispatcher.clone(),
-            nat_manager,
+            nat_manager.clone(),
         )?));
         #[cfg(all(feature = "inbound-tun", any(target_os = "macos", target_os = "linux")))]
         let tun_route = tun_setup::TunRoute::from_config(config)?;
@@ -99,6 +113,7 @@ impl Instance {
             stat_manager,
             dispatcher,
             inbound_manager,
+            nat_manager,
             #[cfg(all(feature = "inbound-tun", any(target_os = "macos", target_os = "linux")))]
             tun_route,
             #[cfg(all(feature = "inbound-tun", any(target_os = "macos", target_os = "linux")))]
@@ -112,15 +127,16 @@ impl Instance {
     /// start before the system is touched; then the TUN device, and the
     /// routes into it. Returns what runs the instance.
     pub fn start(&mut self) -> Result<Vec<Runner>> {
-        // Only the TUN and cat inbounds add to them.
-        #[cfg_attr(
-            not(any(feature = "inbound-tun", feature = "inbound-cat")),
-            allow(unused_mut)
-        )]
         let mut runners = vec![StatManager::cleanup_task(self.stat_manager.clone())];
         let inbound_manager = self.inbound_manager.clone();
         let mut inbounds = inbound_manager.lock().unwrap_or_else(|e| e.into_inner());
         inbounds.start_network_listeners()?;
+        for (tag, server) in self.outbound_manager.load().endpoint_servers() {
+            let runner = server
+                .start(self.dispatcher.clone(), self.nat_manager.clone())
+                .map_err(|e| anyhow::anyhow!("[{}] endpoint: {}", tag, e))?;
+            runners.push(runner);
+        }
 
         // What the routes replace is read before the device takes them.
         #[cfg(all(feature = "inbound-tun", any(target_os = "macos", target_os = "linux")))]

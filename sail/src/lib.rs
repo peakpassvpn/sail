@@ -256,8 +256,10 @@ impl RuntimeManager {
             .map_err(Error::Config)?;
         // Outbounds and routing reach the DNS client through the shared
         // cell, and so find the new one once it is stored.
-        let outbound_manager = OutboundManager::new(
+        let outbound_manager = OutboundManager::reloaded(
+            &self.outbound_manager.load(),
             &config.outbounds,
+            &config.endpoints,
             &dial_defaults,
             &self.env,
             self.dns_client.clone(),
@@ -275,7 +277,7 @@ impl RuntimeManager {
         let replaced = self.outbound_manager.swap(Arc::new(outbound_manager));
         self.router.store(Arc::new(router));
         self.dial_defaults.store(dial_defaults);
-        replaced.abort_tasks();
+        replaced.abort_tasks_replaced_by(&self.outbound_manager.load());
         info!("reloaded from config file: {}", config_path);
         Ok(())
     }

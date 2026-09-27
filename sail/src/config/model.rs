@@ -28,6 +28,11 @@ pub struct Config {
     pub inbounds: Vec<Inbound>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub outbounds: Vec<Outbound>,
+    /// Both an inbound and an outbound under one tag, as sing-box's
+    /// endpoints: connections routed to the tag go out through it, and
+    /// what comes in through it is routed with the tag as its inbound.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub endpoints: Vec<Endpoint>,
     #[serde(default)]
     pub route: Route,
     #[serde(default, skip_serializing_if = "Api::is_default")]
@@ -193,6 +198,37 @@ pub struct Outbound {
     pub tag: String,
     #[serde(flatten)]
     pub options: Options,
+}
+
+/// An endpoint: an outbound, and an inbound, under one tag. Like an
+/// outbound's, its options belong to its protocol.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct Endpoint {
+    #[serde(rename = "type")]
+    pub protocol: String,
+    /// Defaults to the type.
+    #[serde(default)]
+    pub tag: String,
+    /// How long a UDP session coming in through this endpoint lives
+    /// without traffic; 30s when unset, as for an inbound.
+    #[serde(default, with = "duration", skip_serializing_if = "Option::is_none")]
+    pub udp_timeout: Option<std::time::Duration>,
+    #[serde(flatten)]
+    pub options: Options,
+}
+
+impl Endpoint {
+    /// The endpoint as the inbound it also is, for what serves inbounds.
+    pub fn as_inbound(&self) -> Inbound {
+        Inbound {
+            protocol: self.protocol.clone(),
+            tag: self.tag.clone(),
+            listen: None,
+            listen_port: None,
+            udp_timeout: self.udp_timeout,
+            options: Options::new(),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
@@ -383,6 +419,46 @@ impl Config {
                 outbound.tag = outbound.protocol.clone();
             }
         }
+        for endpoint in &mut self.endpoints {
+            if endpoint.tag.is_empty() {
+                endpoint.tag = endpoint.protocol.clone();
+            }
+            if endpoint.udp_timeout == Some(std::time::Duration::ZERO) {
+                return Err(anyhow!(
+                    "[{}] endpoint: udp_timeout: must be more than 0",
+                    endpoint.tag
+                ));
+            }
+        }
+        // An endpoint is an inbound and an outbound: its tag is taken in
+        // both.
+        {
+            let mut tags: HashMap<&str, &str> = HashMap::new();
+            for (kind, tag) in self
+                .inbounds
+                .iter()
+                .map(|i| ("inbound", i.tag.as_str()))
+                .chain(self.endpoints.iter().map(|e| ("endpoint", e.tag.as_str())))
+            {
+                if let Some(other) = tags.insert(tag, kind) {
+                    if kind == "endpoint" {
+                        return Err(anyhow!(
+                            "[{}] endpoint: the tag is taken by an {}",
+                            tag,
+                            other
+                        ));
+                    }
+                }
+            }
+            for outbound in &self.outbounds {
+                if tags.get(outbound.tag.as_str()) == Some(&"endpoint") {
+                    return Err(anyhow!(
+                        "[{}] endpoint: the tag is taken by an outbound",
+                        outbound.tag
+                    ));
+                }
+            }
+        }
 
         if self.route.auto_detect_interface && self.route.default_interface.is_some() {
             return Err(anyhow!(
@@ -404,7 +480,12 @@ impl Config {
             }
         }
 
-        let outbounds: HashSet<&str> = self.outbounds.iter().map(|o| o.tag.as_str()).collect();
+        let outbounds: HashSet<&str> = self
+            .outbounds
+            .iter()
+            .map(|o| o.tag.as_str())
+            .chain(self.endpoints.iter().map(|e| e.tag.as_str()))
+            .collect();
         if let Some(tag) = &self.route.final_outbound {
             if !outbounds.contains(tag.as_str()) {
                 return Err(anyhow!("route.final: outbound [{}] does not exist", tag));
@@ -679,6 +760,54 @@ mod tests {
         assert_eq!(defaults.dns.strategy, DnsStrategy::Ipv4Only);
         assert_eq!(defaults.dns.timeout(), std::time::Duration::from_secs(4));
         assert_eq!(defaults.api.listen, None);
+    }
+
+    #[test]
+    fn endpoints_take_their_tags_as_inbounds_and_outbounds() {
+        let config = Config::from_json(
+            r#"{
+                "endpoints": [{ "type": "wireguard", "udp_timeout": "2m", "mtu": 1400 }],
+                "route": { "final": "wireguard", "rules": [
+                    { "inbound": ["wireguard"], "outbound": "wireguard" }
+                ] }
+            }"#,
+        )
+        .unwrap();
+        let endpoint = &config.endpoints[0];
+        assert_eq!(endpoint.tag, "wireguard");
+        assert_eq!(endpoint.options["mtu"], 1400);
+        assert!(!endpoint.options.contains_key("udp_timeout"));
+        let inbound = endpoint.as_inbound();
+        assert_eq!(inbound.udp_timeout(), std::time::Duration::from_secs(120));
+        assert_eq!(inbound.protocol, "wireguard");
+
+        for (json, message) in [
+            (
+                r#"{ "inbounds": [{ "type": "socks", "tag": "wg" }],
+                     "endpoints": [{ "type": "wireguard", "tag": "wg" }] }"#,
+                "[wg] endpoint: the tag is taken by an inbound",
+            ),
+            (
+                r#"{ "outbounds": [{ "type": "direct", "tag": "wg" }],
+                     "endpoints": [{ "type": "wireguard", "tag": "wg" }] }"#,
+                "[wg] endpoint: the tag is taken by an outbound",
+            ),
+            (
+                r#"{ "endpoints": [{ "type": "wireguard" }, { "type": "wireguard" }] }"#,
+                "[wireguard] endpoint: the tag is taken by an endpoint",
+            ),
+            (
+                r#"{ "endpoints": [{ "type": "wireguard", "udp_timeout": "0s" }] }"#,
+                "[wireguard] endpoint: udp_timeout: must be more than 0",
+            ),
+            (
+                r#"{ "endpoints": [{ "type": "wireguard" }], "route": { "final": "wg" } }"#,
+                "route.final: outbound [wg] does not exist",
+            ),
+        ] {
+            let err = Config::from_json(json).unwrap_err();
+            assert_eq!(err.to_string(), message, "{}", json);
+        }
     }
 
     #[test]

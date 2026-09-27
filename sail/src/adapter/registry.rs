@@ -166,6 +166,10 @@ pub struct OutboundContext<'a> {
     pub selectors: &'a mut crate::app::outbound::Selectors,
     #[cfg(feature = "plugin")]
     pub external_handlers: &'a mut crate::app::outbound::plugin::ExternalHandlers,
+    /// For an endpoint, the outbound its `detour` names: what it sends
+    /// its own traffic through. An outbound's detour is applied around it
+    /// instead, and is not here.
+    pub detour: Option<AnyOutboundHandler>,
     handlers: &'a Handlers<AnyOutboundHandler>,
     connector: Option<layers::Connector>,
 }
@@ -217,35 +221,57 @@ pub struct OutboundBuildState<'a> {
     pub abort_handles: &'a mut HashMap<String, Vec<AbortHandle>>,
     /// The outbounds each outbound is built on.
     pub dependencies: &'a mut HashMap<String, Vec<String>>,
+    /// The endpoints built, besides their outbounds in `handlers`.
+    pub endpoints: &'a mut HashMap<String, EndpointEntry>,
     #[cfg(feature = "outbound-select")]
     pub selectors: &'a mut crate::app::outbound::Selectors,
     #[cfg(feature = "plugin")]
     pub external_handlers: &'a mut crate::app::outbound::plugin::ExternalHandlers,
 }
 
-/// Builds every outbound in `outbounds`, each after the ones it is built
-/// on, into `state`, where they may be built on the outbounds already
-/// there.
+/// What `build_outbounds` builds one of.
+enum Buildable<'a> {
+    Outbound(&'a crate::config::model::Outbound, &'a OutboundFactory),
+    Endpoint(&'a crate::config::model::Endpoint, &'a EndpointFactory),
+}
+
+/// Builds every outbound in `outbounds` and every endpoint in
+/// `endpoints`, each after the ones it is built on, into `state`, where
+/// they may be built on the outbounds already there.
 pub fn build_outbounds(
     registry: &OutboundRegistry,
+    endpoint_registry: &EndpointRegistry,
     outbounds: &[crate::config::model::Outbound],
+    endpoints: &[crate::config::model::Endpoint],
     state: OutboundBuildState<'_>,
 ) -> Result<()> {
-    let nodes = outbounds
-        .iter()
-        .map(|o| {
-            let factory = registry.require(&o.tag, &o.protocol)?;
-            let (options, blocks) = factory.blocks.split(&o.options);
-            let blocks = OutboundBlocks::parse(&o.tag, &blocks)?;
-            (factory.check)(&o.tag, &options, &blocks)?;
-            let mut dependencies = (factory.dependencies)(&o.tag, &options)?;
-            dependencies.extend(blocks.detour.clone());
-            Ok(Node {
-                tag: &o.tag,
-                dependencies,
-                item: (o, factory, options, blocks),
-            })
+    let outbound_nodes = outbounds.iter().map(|o| {
+        let factory = registry.require(&o.tag, &o.protocol)?;
+        let (options, blocks) = factory.blocks.split(&o.options);
+        let blocks = OutboundBlocks::parse(&o.tag, &blocks)?;
+        (factory.check)(&o.tag, &options, &blocks)?;
+        let mut dependencies = (factory.dependencies)(&o.tag, &options)?;
+        dependencies.extend(blocks.detour.clone());
+        Ok(Node {
+            tag: &o.tag,
+            dependencies,
+            item: (Buildable::Outbound(o, factory), options, blocks),
         })
+    });
+    let endpoint_nodes = endpoints.iter().map(|e| {
+        let factory = endpoint_registry.require(&e.tag, &e.protocol)?;
+        let (options, blocks) = factory.blocks.split(&e.options);
+        let blocks = OutboundBlocks::parse(&e.tag, &blocks)?;
+        let mut dependencies = (factory.dependencies)(&e.tag, &options)?;
+        dependencies.extend(blocks.detour.clone());
+        Ok(Node {
+            tag: &e.tag,
+            dependencies,
+            item: (Buildable::Endpoint(e, factory), options, blocks),
+        })
+    });
+    let nodes = outbound_nodes
+        .chain(endpoint_nodes)
         .collect::<Result<Vec<_>>>()?;
 
     // Outbounds with identical options share a handler, see
@@ -257,7 +283,51 @@ pub fn build_outbounds(
         "outbound",
         nodes,
         &existing,
-        |(outbound, factory, options, blocks), dependencies| {
+        |(buildable, options, blocks), dependencies| {
+            let (outbound, factory) = match buildable {
+                Buildable::Outbound(outbound, factory) => (outbound, factory),
+                Buildable::Endpoint(endpoint, factory) => {
+                    state
+                        .dependencies
+                        .insert(endpoint.tag.clone(), dependencies);
+                    let mut tasks = Vec::new();
+                    let detour = match &blocks.detour {
+                        Some(detour) => Some(dependency(
+                            state.handlers,
+                            "endpoint",
+                            &endpoint.tag,
+                            detour,
+                        )?),
+                        None => None,
+                    };
+                    let mut ctx = OutboundContext {
+                        tag: &endpoint.tag,
+                        detour,
+                        options: &options,
+                        dns_client: state.dns_client,
+                        dial: Arc::new(blocks.dial(&endpoint.tag)?.or(state.dial_defaults)),
+                        env: state.env,
+                        abort_handles: &mut tasks,
+                        #[cfg(feature = "outbound-select")]
+                        selectors: state.selectors,
+                        #[cfg(feature = "plugin")]
+                        external_handlers: state.external_handlers,
+                        handlers: state.handlers,
+                        connector: None,
+                    };
+                    let built = (factory.build)(&mut ctx)?;
+                    state.handlers.insert(endpoint.tag.clone(), built.outbound);
+                    state.abort_handles.insert(endpoint.tag.clone(), tasks);
+                    state.endpoints.insert(
+                        endpoint.tag.clone(),
+                        EndpointEntry {
+                            config: endpoint.clone(),
+                            server: built.server,
+                        },
+                    );
+                    return Ok(());
+                }
+            };
             state
                 .dependencies
                 .insert(outbound.tag.clone(), dependencies);
@@ -308,6 +378,7 @@ pub fn build_outbounds(
                 selectors: state.selectors,
                 #[cfg(feature = "plugin")]
                 external_handlers: state.external_handlers,
+                detour: None,
                 handlers: state.handlers,
                 connector,
             };
@@ -337,6 +408,74 @@ pub fn build_outbounds(
             Ok(())
         },
     )
+}
+
+// ---------------------------------------------------------------------------
+// Endpoints
+// ---------------------------------------------------------------------------
+
+pub type EndpointRegistry = Registry<EndpointFactory>;
+
+/// Builds one endpoint protocol: an outbound and an inbound under one tag.
+///
+/// It is built with the outbounds, in one dependency order with them, for
+/// outbounds may be built on it and it on them (`detour`). Its inbound
+/// side is started with the instance, once there is a dispatcher to
+/// route what comes in.
+pub struct EndpointFactory {
+    /// Tags of the outbounds this one is built on.
+    pub dependencies: fn(&str, &Options) -> Result<Vec<String>>,
+    pub build: fn(&mut OutboundContext<'_>) -> Result<BuiltEndpoint>,
+    /// The shared blocks it can be configured with; see
+    /// `OutboundFactory::blocks`. They are handed to `build`, not applied
+    /// around what it returns.
+    pub blocks: Blocks,
+}
+
+impl EndpointFactory {
+    pub fn new(
+        dependencies: fn(&str, &Options) -> Result<Vec<String>>,
+        build: fn(&mut OutboundContext<'_>) -> Result<BuiltEndpoint>,
+    ) -> Self {
+        Self {
+            dependencies,
+            build,
+            blocks: Blocks::NONE,
+        }
+    }
+
+    pub fn with_blocks(mut self, blocks: Blocks) -> Self {
+        self.blocks = blocks;
+        self
+    }
+}
+
+/// What an endpoint factory builds.
+pub struct BuiltEndpoint {
+    pub outbound: AnyOutboundHandler,
+    pub server: AnyEndpointServer,
+}
+
+/// An endpoint's running side: the inbound half, and whatever it shares
+/// with the outbound half.
+pub trait EndpointServer: Send + Sync {
+    /// Starts the endpoint, routing what comes in through `dispatcher`. It
+    /// runs until the returned future is dropped. Called once.
+    fn start(
+        &self,
+        dispatcher: Arc<crate::app::dispatcher::Dispatcher>,
+        nat_manager: Arc<crate::app::nat_manager::NatManager>,
+    ) -> Result<crate::Runner>;
+}
+
+pub type AnyEndpointServer = Arc<dyn EndpointServer>;
+
+/// A built endpoint, as the outbound manager keeps it: its configuration,
+/// to tell whether a reload changed it, and its running side.
+#[derive(Clone)]
+pub struct EndpointEntry {
+    pub config: crate::config::model::Endpoint,
+    pub server: AnyEndpointServer,
 }
 
 // ---------------------------------------------------------------------------

@@ -1,4 +1,4 @@
-//! Which inbound and outbound protocols this build has.
+//! Which inbound, outbound and endpoint protocols this build has.
 //!
 //! This is the one list of them. A protocol registers itself from its own
 //! directory; adding one means adding its line here, under its feature.
@@ -9,7 +9,7 @@
 
 use std::sync::LazyLock;
 
-use crate::adapter::registry::{InboundRegistry, OutboundRegistry, Registry};
+use crate::adapter::registry::{EndpointRegistry, InboundRegistry, OutboundRegistry, Registry};
 
 /// Inbound protocols served by a listener of their own rather than by a
 /// handler behind a network listener.
@@ -106,10 +106,22 @@ pub(crate) static INBOUNDS: LazyLock<InboundRegistry> = LazyLock::new(|| {
     registry
 });
 
-/// The inbound protocol `protocol`, as registered, or as a listener
-/// inbound, if it is either.
+/// Endpoints: an outbound and an inbound under one tag.
+pub(crate) static ENDPOINTS: LazyLock<EndpointRegistry> = LazyLock::new(|| {
+    #[allow(unused_mut)]
+    let mut registry = Registry::new("endpoint");
+
+    #[cfg(feature = "wireguard")]
+    crate::protocol::wireguard::endpoint::register(&mut registry);
+
+    registry
+});
+
+/// The inbound protocol `protocol`, as registered, as a listener inbound,
+/// or as an endpoint, if it is any.
 pub(crate) fn inbound_protocol(protocol: &str) -> Option<&'static str> {
     INBOUNDS
         .name(protocol)
         .or_else(|| LISTENER_INBOUNDS.iter().copied().find(|p| *p == protocol))
+        .or_else(|| ENDPOINTS.name(protocol))
 }
