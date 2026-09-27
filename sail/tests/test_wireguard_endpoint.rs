@@ -161,7 +161,9 @@ async fn udp_echo(socks_port: u16, target: &str) -> anyhow::Result<()> {
     let datagram = common::new_socks_datagram("127.0.0.1", socks_port, &sess, None, None).await?;
     let (mut r, mut s) = datagram.split();
     for i in 0..20u32 {
-        let msg = pattern(100 + i as usize * 50, i as u8);
+        // Past the tunnel's MTU, fragmented, but within the 2 KiB the SOCKS
+        // inbound relays.
+        let msg = pattern(1 + i as usize * 100, i as u8);
         let mut buf = vec![0u8; 4096];
         // UDP may be lost before the handshake completes: try a few times.
         let mut answered = false;

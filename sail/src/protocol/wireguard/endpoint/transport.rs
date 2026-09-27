@@ -17,6 +17,9 @@ use crate::net::DialOptions;
 use crate::protocol::wireguard::Transport;
 use crate::session::{Network, Session, SocksAddr};
 
+/// The socket buffers asked for, each way.
+const SOCKET_BUFFER: usize = 7 << 20;
+
 /// A UDP socket. Bound to IPv6 it takes IPv4 peers too, as IPv4-mapped
 /// addresses, which it maps back so that peers are known by one address.
 pub struct SocketTransport {
@@ -33,12 +36,50 @@ impl SocketTransport {
             std::net::Ipv4Addr::UNSPECIFIED.into()
         };
         let socket = crate::net::new_udp_socket(&SocketAddr::new(ip, port), dial).await?;
+        set_buffers(&socket);
         let v6 = socket.local_addr()?.is_ipv6();
         Ok(SocketTransport { socket, v6 })
     }
 
     pub fn local_addr(&self) -> io::Result<SocketAddr> {
         self.socket.local_addr()
+    }
+}
+
+/// Room for a burst of the tunnel's packets, as wireguard-go asks for:
+/// beyond `net.core.rmem_max` where the process may (Linux, with
+/// CAP_NET_ADMIN), else what the system grants.
+fn set_buffers(socket: &UdpSocket) {
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::fd::AsRawFd;
+        let size = SOCKET_BUFFER as libc::c_int;
+        let mut forced = true;
+        for option in [libc::SO_RCVBUFFORCE, libc::SO_SNDBUFFORCE] {
+            // SAFETY: setsockopt with an int option on a socket we own.
+            let r = unsafe {
+                libc::setsockopt(
+                    socket.as_raw_fd(),
+                    libc::SOL_SOCKET,
+                    option,
+                    &size as *const libc::c_int as *const libc::c_void,
+                    std::mem::size_of::<libc::c_int>() as libc::socklen_t,
+                )
+            };
+            forced &= r == 0;
+        }
+        if forced {
+            return;
+        }
+    }
+    let sock = socket2::SockRef::from(socket);
+    for result in [
+        sock.set_recv_buffer_size(SOCKET_BUFFER),
+        sock.set_send_buffer_size(SOCKET_BUFFER),
+    ] {
+        if let Err(e) = result {
+            debug!("wireguard: setting a socket buffer size failed: {}", e);
+        }
     }
 }
 

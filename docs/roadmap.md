@@ -103,7 +103,8 @@ Sail 与 sing-box 的对比已经完成。当前结果表明：
 
 | 优先级 | 项目 |
 | --- | --- |
-| 高 | HTTP；Shadowsocks 2022；Hysteria2；TUIC v5；AnyTLS；WireGuard；VLESS 补齐 XUDP / packetaddr；VMess 补齐 `auto` / `none` / `zero` 与 XUDP |
+| 高 | HTTP；Shadowsocks 2022；Hysteria2；TUIC v5；AnyTLS；VLESS 补齐 XUDP / packetaddr；VMess 补齐 `auto` / `none` / `zero` 与 XUDP |
+| 已完成 | WireGuard（端点，出站和入站一体，1.13） |
 | 中 | ShadowTLS v3；VLESS encryption（ML-KEM）；NaiveProxy；SSH；Mieru、Sudoku、TrustTunnel、MASQUE、ShadowQUIC（观察） |
 | 低 | Snell；Tailscale、ZeroTier、EasyTier、OpenVPN、OpenConnect、Tor |
 | 不支持 | ShadowsocksR；Shadowsocks 流加密；VMess legacy（alterId > 0）；Hysteria v1；gost-relay |
@@ -171,6 +172,7 @@ Sail 与 sing-box 的对比已经完成。当前结果表明：
 | 1.10 | 统一拨号选项：IP 策略、接口绑定、detour、连接/空闲超时、TCP Fast Open、MPTCP、UDP over TCP | `net/`、共享 Dial options | 各协议共享同一实现，按出站配置，不重复实现 socket 与网络选择逻辑 |
 | 1.11 | **已完成（2026-09-26）** 入站防探测与回落：Trojan / VLESS fallback，鉴权失败时的行为可配置（字段对齐 sing-box `fallback` / `fallback_for_alpn`） | `protocol/trojan/`、`protocol/vless/` | 未通过鉴权的连接可回落到指定目标；主动探测下行为与主流实现一致 |
 | 1.12 | 分享链接导入：`ss://`、`trojan://`、`vless://`、`vmess://`、`hy2://`、`tuic://` | `config/` | 真实节点语料可导入；错误字段有可诊断提示；敏感信息不进入日志 |
+| 1.13 | **已完成（2026-09-27）** WireGuard 端点：sing-box 式 `endpoints`，同一个 tag 既是出站也是入站（服务端）；协议核心自研（BoringSSL + blake2），TCP/IP 走 sail-netstack；支持 WARP `reserved`、`detour`（WG 自身的 UDP 走其他出站）和 `.conf`（Surge `[WireGuard <name>]`，`client-id` 即 reserved） | `protocol/wireguard/`、`config/` | 与 Linux 内核 wg（出站、入站、detour、重新握手、64 并发）和 sing-box（双向，含 reserved）互通；sail↔sail TCP、UDP、IPv6 |
 
 所有协议任务都必须加入统一性能场景，入站和出站分别测试，避免新增协议重新引入连接级常驻大缓冲或无上限缓存。
 

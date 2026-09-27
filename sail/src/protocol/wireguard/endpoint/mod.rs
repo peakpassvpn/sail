@@ -53,6 +53,7 @@ use crate::transport::layers::Blocks;
 use super::allowed_ips::AllowedIps;
 use super::{Device, DeviceConfig, Transport, WireGuard};
 
+mod fragment;
 mod options;
 mod outbound;
 mod transport;
@@ -260,13 +261,13 @@ impl Shared {
         let mut config = RunnerConfig::default();
         config.mtu = mtu;
         config.max_packet_size = config.max_packet_size.max(mtu);
-        // Room for the largest IPv6 and TCP headers with options.
-        config.tcp.max_segment_payload_bytes = config
-            .tcp
-            .max_segment_payload_bytes
-            .min(mtu.saturating_sub(84));
+        // Segments that fit the endpoint's MTU with the largest IPv6 and TCP
+        // headers and options (60 + 40).
+        config.tcp.max_segment_payload_bytes = mtu.saturating_sub(100);
         config.tcp.keepalive_idle_ms = Some(2 * 60 * 60 * 1_000);
-        config.tcp.nagle_enabled = true;
+        config.tcp.nagle_enabled = false;
+        // The tunnel's MTU is known: no path in it silently drops what fits.
+        config.tcp.black_hole_rto_threshold = None;
         config.udp_idle_timeout_ms = STACK_UDP_IDLE.as_millis() as u64;
         config
     }
@@ -326,11 +327,17 @@ impl Shared {
         self.running_tx.send_replace(Some(running.clone()));
         info!("wireguard [{}]: started", self.tag);
 
-        // Out of the tunnel, into the stack.
+        // Out of the tunnel, into the stack. A peer with a larger MTU (a
+        // kernel peer at 1420, to an endpoint at 1408) sends packets the
+        // stack does not take: they are fragmented to fit.
+        let mtu = self.settings.mtu;
         let pump_in = async move {
+            let mut identification = rand::random::<u32>();
             while let Some(packet) = from_tunnel.recv().await {
-                if stack_in_tx.send(packet.packet).await.is_err() {
-                    return;
+                for packet in fragment::fit(packet.packet, mtu, &mut identification) {
+                    if stack_in_tx.send(packet).await.is_err() {
+                        return;
+                    }
                 }
             }
         };
@@ -401,6 +408,18 @@ impl Shared {
             datagram_loop.await;
             "datagrams"
         });
+        if tracing::enabled!(tracing::Level::DEBUG) {
+            let mut control = control.clone();
+            let tag = self.tag.clone();
+            tasks.spawn(async move {
+                loop {
+                    tokio::time::sleep(Duration::from_secs(5)).await;
+                    if let Ok(s) = control.stats_snapshot().await {
+                        debug!("wireguard [{}]: stack {:?}", tag, s.stack);
+                    }
+                }
+            });
+        }
         let stopped = tasks.join_next().await;
         self.running_tx.send_replace(None);
         if let Some(Ok(what)) = stopped {

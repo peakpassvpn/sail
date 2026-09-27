@@ -105,7 +105,10 @@ impl Inner {
                 Incoming::WriteBack(t) => self.transmit(t).await,
                 Incoming::Deliver { peer, packet } => {
                     match tx.try_send(InboundPacket { peer, packet }) {
-                        Ok(()) | Err(mpsc::error::TrySendError::Full(_)) => {}
+                        Ok(()) => {}
+                        Err(mpsc::error::TrySendError::Full(_)) => {
+                            tracing::debug!("wireguard: the inbound queue is full; a packet drops");
+                        }
                         Err(mpsc::error::TrySendError::Closed(_)) => return,
                     }
                 }
