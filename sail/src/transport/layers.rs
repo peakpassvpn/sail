@@ -676,6 +676,8 @@ fn layered(
 }
 
 #[allow(unused_variables)]
+// Without `mux` nothing is pushed onto the handles.
+#[cfg_attr(not(feature = "mux"), allow(clippy::ptr_arg))]
 fn sing_mux_outbound(
     tag: &str,
     whole: AnyOutboundHandler,
@@ -1049,6 +1051,8 @@ fn quic_outbound(
 }
 
 #[allow(unused_variables)]
+// Without `outbound-amux` nothing is pushed onto the handles.
+#[cfg_attr(not(feature = "outbound-amux"), allow(clippy::ptr_arg))]
 fn amux_outbound(
     tag: &str,
     mux: &OutboundMultiplex,
