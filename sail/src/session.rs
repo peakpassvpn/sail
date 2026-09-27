@@ -463,28 +463,27 @@ impl SocksAddr {
                 }
                 _ => Err(invalid_addr_type()),
             },
-            SocksAddrWireType::PortFirst => match r.read_u8().await? {
-                SocksAddrPortFirstType::V4 => {
-                    let port = r.read_u16().await?;
-                    let ip = Ipv4Addr::from(r.read_u32().await?);
-                    Ok(Self::Ip((ip, port).into()))
+            SocksAddrWireType::PortFirst => {
+                let port = r.read_u16().await?;
+                match r.read_u8().await? {
+                    SocksAddrPortFirstType::V4 => {
+                        let ip = Ipv4Addr::from(r.read_u32().await?);
+                        Ok(Self::Ip((ip, port).into()))
+                    }
+                    SocksAddrPortFirstType::V6 => {
+                        let ip = Ipv6Addr::from(r.read_u128().await?);
+                        Ok(Self::Ip((ip, port).into()))
+                    }
+                    SocksAddrPortFirstType::DOMAIN => {
+                        let domain_len = r.read_u8().await? as usize;
+                        let mut buf = vec![0u8; domain_len];
+                        r.read_exact(&mut buf).await?;
+                        let domain = String::from_utf8(buf).map_err(|_| invalid_domain())?;
+                        Ok(Self::Domain(domain, port))
+                    }
+                    _ => Err(invalid_addr_type()),
                 }
-                SocksAddrPortFirstType::V6 => {
-                    let port = r.read_u16().await?;
-                    let ip = Ipv6Addr::from(r.read_u128().await?);
-                    Ok(Self::Ip((ip, port).into()))
-                }
-                SocksAddrPortFirstType::DOMAIN => {
-                    let port = r.read_u16().await?;
-                    let domain_len = r.read_u8().await? as usize;
-                    let mut buf = vec![0u8; domain_len];
-                    let n = r.read_exact(&mut buf).await?;
-                    debug_assert_eq!(domain_len, n);
-                    let domain = String::from_utf8(buf).map_err(|_| invalid_domain())?;
-                    Ok(Self::Domain(domain, port))
-                }
-                _ => Err(invalid_addr_type()),
-            },
+            }
         }
     }
 }
@@ -632,49 +631,40 @@ impl TryFrom<(&[u8], SocksAddrWireType)> for SocksAddr {
                 }
                 _ => Err(io::Error::other("invalid address type")),
             },
-            SocksAddrWireType::PortFirst => match buf[0] {
-                SocksAddrPortFirstType::V4 => {
-                    let buf = &buf[1..];
-                    if buf.len() < 4 + 2 {
-                        return Err(insuff_bytes());
-                    }
-                    let port = u16::from_be_bytes([buf[0], buf[1]]);
-                    let buf = &buf[2..];
-                    let mut ip_bytes = [0u8; 4];
-                    ip_bytes.copy_from_slice(&buf[..4]);
-                    let ip = Ipv4Addr::from(ip_bytes);
-                    Ok(Self::Ip((ip, port).into()))
+            // Port, type, address: Xray's PortThenAddress, as XUDP uses.
+            SocksAddrWireType::PortFirst => {
+                if buf.len() < 3 {
+                    return Err(insuff_bytes());
                 }
-                SocksAddrPortFirstType::V6 => {
-                    let buf = &buf[1..];
-                    if buf.len() < 16 + 2 {
-                        return Err(insuff_bytes());
+                let port = u16::from_be_bytes([buf[0], buf[1]]);
+                let addr = &buf[3..];
+                match buf[2] {
+                    SocksAddrPortFirstType::V4 => {
+                        let ip: [u8; 4] = addr
+                            .get(..4)
+                            .ok_or_else(insuff_bytes)?
+                            .try_into()
+                            .map_err(|_| insuff_bytes())?;
+                        Ok(Self::Ip((Ipv4Addr::from(ip), port).into()))
                     }
-                    let port = u16::from_be_bytes([buf[0], buf[1]]);
-                    let buf = &buf[2..];
-                    let mut ip_bytes = [0u8; 16];
-                    ip_bytes.copy_from_slice(&buf[..16]);
-                    let ip = Ipv6Addr::from(ip_bytes);
-                    Ok(Self::Ip((ip, port).into()))
+                    SocksAddrPortFirstType::V6 => {
+                        let ip: [u8; 16] = addr
+                            .get(..16)
+                            .ok_or_else(insuff_bytes)?
+                            .try_into()
+                            .map_err(|_| insuff_bytes())?;
+                        Ok(Self::Ip((Ipv6Addr::from(ip), port).into()))
+                    }
+                    SocksAddrPortFirstType::DOMAIN => {
+                        let domain_len = *addr.first().ok_or_else(insuff_bytes)? as usize;
+                        let domain = addr.get(1..1 + domain_len).ok_or_else(insuff_bytes)?;
+                        let domain = String::from_utf8(domain.to_vec())
+                            .map_err(|e| io::Error::other(format!("invalid domain: {}", e)))?;
+                        Ok(Self::Domain(domain, port))
+                    }
+                    _ => Err(io::Error::other("invalid address type")),
                 }
-                SocksAddrPortFirstType::DOMAIN => {
-                    let buf = &buf[1..];
-                    if buf.len() < 3 {
-                        return Err(insuff_bytes());
-                    }
-                    let port = u16::from_be_bytes([buf[0], buf[1]]);
-                    let buf = &buf[2..];
-                    let domain_len = buf[0] as usize;
-                    let buf = &buf[1..];
-                    if buf.len() < domain_len {
-                        return Err(insuff_bytes());
-                    }
-                    let domain = String::from_utf8(buf[..domain_len].to_vec())
-                        .map_err(|e| io::Error::other(format!("invalid domain: {}", e)))?;
-                    Ok(Self::Domain(domain, port))
-                }
-                _ => Err(io::Error::other("invalid address type")),
-            },
+            }
         }
     }
 }
@@ -701,22 +691,60 @@ mod tests {
         assert!(parse(&[0x03, 3, b'a', b'b', b'c', 0], SocksAddrWireType::PortLast).is_err());
         assert!(parse(&[0x03, 3, b'a', b'b', b'c'], SocksAddrWireType::PortLast).is_err());
         assert!(parse(&[0x03, 200, 1, 2], SocksAddrWireType::PortLast).is_err());
-        // The PortFirst parser reads type, port, len, name.
-        assert!(parse(&[0x02, 0, 80, 4, b'a'], SocksAddrWireType::PortFirst).is_err());
+        // PortFirst domain: port, type, len, name.
+        assert!(parse(&[0, 80, 0x02, 4, b'a'], SocksAddrWireType::PortFirst).is_err());
+        assert!(parse(&[0, 80, 0x01, 1, 2, 3], SocksAddrWireType::PortFirst).is_err());
+        assert!(parse(&[0, 80, 0x09, 1, 2, 3, 4], SocksAddrWireType::PortFirst).is_err());
         assert!(parse(&[0xff], SocksAddrWireType::PortLast).is_err());
     }
 
-    #[test]
-    fn addresses_round_trip() {
+    #[tokio::test]
+    async fn addresses_round_trip() {
         let addrs = [
             SocksAddr::from(SocketAddr::from(([1, 2, 3, 4], 80))),
             SocksAddr::from(SocketAddr::from((Ipv6Addr::LOCALHOST, 443))),
             SocksAddr::try_from(("example.com".to_string(), 8080)).unwrap(),
         ];
-        for addr in &addrs {
+        for ty in [SocksAddrWireType::PortLast, SocksAddrWireType::PortFirst] {
+            for addr in &addrs {
+                let mut buf = Vec::new();
+                addr.write_buf(&mut buf, ty);
+                assert_eq!(buf.len(), addr.size());
+                assert_eq!(&parse(&buf, ty).unwrap(), addr);
+                let mut r = &buf[..];
+                assert_eq!(&SocksAddr::read_from(&mut r, ty).await.unwrap(), addr);
+                assert!(r.is_empty());
+                for cut in 0..buf.len() {
+                    assert!(parse(&buf[..cut], ty).is_err());
+                    let mut r = &buf[..cut];
+                    assert!(SocksAddr::read_from(&mut r, ty).await.is_err());
+                }
+            }
+        }
+    }
+
+    /// Port first is Xray's PortThenAddress: port, then the type (1 IPv4,
+    /// 2 domain, 3 IPv6), then the address, as XUDP and Mux.Cool carry it.
+    #[test]
+    fn port_first_is_port_then_address() {
+        let wire = |addr: SocksAddr| {
             let mut buf = Vec::new();
-            addr.write_buf(&mut buf, SocksAddrWireType::PortLast);
-            assert_eq!(&parse(&buf, SocksAddrWireType::PortLast).unwrap(), addr);
+            addr.write_buf(&mut buf, SocksAddrWireType::PortFirst);
+            buf
+        };
+        let v4 = SocksAddr::from(SocketAddr::from(([1, 2, 3, 4], 80)));
+        assert_eq!(wire(v4.clone()), [0, 80, 1, 1, 2, 3, 4]);
+        let domain = SocksAddr::try_from(("a.b".to_string(), 443)).unwrap();
+        assert_eq!(wire(domain.clone()), [1, 187, 2, 3, b'a', b'.', b'b']);
+        let v6 = SocksAddr::from(SocketAddr::from((Ipv6Addr::LOCALHOST, 53)));
+        let mut expect = vec![0, 53, 3];
+        expect.extend_from_slice(&Ipv6Addr::LOCALHOST.octets());
+        assert_eq!(wire(v6.clone()), expect);
+        #[cfg(any(feature = "inbound-vmess", feature = "outbound-vmess"))]
+        for addr in [v4, domain, v6] {
+            let buf = wire(addr.clone());
+            let parsed = crate::protocol::vmess::xudp::parse_addr_port(&buf).unwrap();
+            assert_eq!(parsed, (addr, buf.len()));
         }
     }
 
