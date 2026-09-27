@@ -488,6 +488,174 @@ mod tests {
         .unwrap();
     }
 
+    use hickory_proto::op::{Message, ResponseCode};
+    use hickory_proto::rr::{Name, RData, RecordType};
+
+    fn query(name: &str, ty: RecordType) -> Vec<u8> {
+        DnsClient::new_query(Name::from_ascii(format!("{}.", name)).unwrap(), ty)
+            .to_vec()
+            .unwrap()
+    }
+
+    fn answer_ips(message: &Message) -> Vec<IpAddr> {
+        message
+            .answers()
+            .iter()
+            .filter_map(|r| match r.data() {
+                Some(RData::A(a)) => Some(IpAddr::V4(**a)),
+                Some(RData::AAAA(a)) => Some(IpAddr::V6(**a)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    async fn exchange(client: &DnsClient, name: &str, ty: RecordType) -> Message {
+        let request = query(name, ty);
+        let response = client
+            .exchange(&request, &super::LookupContext::default())
+            .await
+            .unwrap();
+        let response = Message::from_vec(&response).unwrap();
+        assert_eq!(response.id(), Message::from_vec(&request).unwrap().id());
+        response
+    }
+
+    fn fake_ip_client() -> DnsClient {
+        let config = crate::config::Config::from_json(
+            &serde_json::json!({ "dns": {
+                "servers": [
+                    { "type": "hosts", "tag": "hosts",
+                      "predefined": { "lan.example": "192.168.1.9" } },
+                    { "type": "fakeip", "tag": "fake", "inet4_range": "198.18.0.0/15" }
+                ],
+                "rules": [
+                    { "domain": "blocked.example", "action": "reject" },
+                    { "domain": "v4only.example", "query_type": "AAAA",
+                      "server": "fake", "strategy": "ipv4_only" },
+                    { "domain_suffix": "lan.example", "server": "hosts" },
+                    { "query_type": ["A", "AAAA"], "server": "fake" }
+                ],
+                "final": "hosts"
+            } })
+            .to_string(),
+        )
+        .unwrap();
+        DnsClient::new(&config.dns, Default::default(), &Default::default()).unwrap()
+    }
+
+    #[tokio::test]
+    async fn clients_queries_are_answered_as_the_rules_say() {
+        let client = fake_ip_client();
+        // Fake IPs, in turn, for as long as the domain has one.
+        let a = exchange(&client, "a.example", RecordType::A).await;
+        assert_eq!(answer_ips(&a), ips(&["198.18.0.2"]));
+        assert_eq!(a.answers()[0].ttl(), 600);
+        let b = exchange(&client, "b.example", RecordType::A).await;
+        assert_eq!(answer_ips(&b), ips(&["198.18.0.3"]));
+        let again = exchange(&client, "a.example", RecordType::A).await;
+        assert_eq!(answer_ips(&again), ips(&["198.18.0.2"]));
+        // No inet6_range: no records, and no error.
+        let aaaa = exchange(&client, "a.example", RecordType::AAAA).await;
+        assert_eq!(aaaa.response_code(), ResponseCode::NoError);
+        assert!(aaaa.answers().is_empty());
+        // What connections to them become.
+        assert_eq!(
+            client.fake_ip("198.18.0.2".parse().unwrap()),
+            super::FakeIp::Domain("a.example".into())
+        );
+        assert_eq!(
+            client.fake_ip("198.18.0.99".parse().unwrap()),
+            super::FakeIp::Unknown
+        );
+        assert_eq!(
+            client.fake_ip("10.0.0.1".parse().unwrap()),
+            super::FakeIp::NotFake
+        );
+        assert_eq!(
+            client.fake_ip_of("b.example", false),
+            Some("198.18.0.3".parse().unwrap())
+        );
+
+        let refused = exchange(&client, "blocked.example", RecordType::A).await;
+        assert_eq!(refused.response_code(), ResponseCode::Refused);
+        let v4only = exchange(&client, "v4only.example", RecordType::AAAA).await;
+        assert!(v4only.answers().is_empty());
+        let lan = exchange(&client, "lan.example", RecordType::A).await;
+        assert_eq!(answer_ips(&lan), ips(&["192.168.1.9"]));
+        // Another type than the fakeip server answers: SERVFAIL.
+        let mx = exchange(&client, "lan.example", RecordType::MX).await;
+        assert_eq!(mx.response_code(), ResponseCode::ServFail);
+    }
+
+    #[tokio::test]
+    async fn a_reload_keeps_the_fake_ips_handed_out() {
+        let client = fake_ip_client();
+        exchange(&client, "a.example", RecordType::A).await;
+        let config = crate::config::Config::from_json(
+            &serde_json::json!({ "dns": { "servers": [
+                { "type": "fakeip", "inet4_range": "198.18.0.0/15" }
+            ] } })
+            .to_string(),
+        )
+        .unwrap();
+        let reloaded = client
+            .reloaded(&config.dns, Default::default(), &Default::default(), &Default::default())
+            .unwrap();
+        assert_eq!(
+            reloaded.fake_ip("198.18.0.2".parse().unwrap()),
+            super::FakeIp::Domain("a.example".into())
+        );
+        // Other ranges: a store of their own.
+        let config = crate::config::Config::from_json(
+            &serde_json::json!({ "dns": { "servers": [
+                { "type": "fakeip", "inet4_range": "198.20.0.0/16" }
+            ] } })
+            .to_string(),
+        )
+        .unwrap();
+        let other = client
+            .reloaded(&config.dns, Default::default(), &Default::default(), &Default::default())
+            .unwrap();
+        assert_eq!(
+            other.fake_ip("198.18.0.2".parse().unwrap()),
+            super::FakeIp::NotFake
+        );
+    }
+
+    /// A UDP server answering every A query with 10.0.0.7, TTL 300, and
+    /// counting them.
+    async fn udp_server() -> (u16, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+        let socket = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let port = socket.local_addr().unwrap().port();
+        let count = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counter = count.clone();
+        tokio::spawn(async move {
+            let mut buf = [0u8; 1500];
+            while let Ok((n, peer)) = socket.recv_from(&mut buf).await {
+                counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                let request = Message::from_vec(&buf[..n]).unwrap();
+                let reply = DnsClient::reply(&request, &ips(&["10.0.0.7"]), 300);
+                let _ = socket.send_to(&reply.to_vec().unwrap(), peer).await;
+            }
+        });
+        (port, count)
+    }
+
+    #[tokio::test]
+    async fn a_forwarded_query_keeps_its_id_and_its_answer_is_kept() {
+        let (port, count) = udp_server().await;
+        let client = client(serde_json::json!([
+            { "type": "udp", "server": "127.0.0.1", "server_port": port }
+        ]))
+        .unwrap();
+        let first = exchange(&client, "a.example", RecordType::A).await;
+        assert_eq!(answer_ips(&first), ips(&["10.0.0.7"]));
+        let second = exchange(&client, "a.example", RecordType::A).await;
+        assert_eq!(answer_ips(&second), ips(&["10.0.0.7"]));
+        assert!(second.answers()[0].ttl() <= 300);
+        assert_eq!(count.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
     fn tags(tags: &[&str]) -> Vec<String> {
         tags.iter().map(|t| t.to_string()).collect()
     }

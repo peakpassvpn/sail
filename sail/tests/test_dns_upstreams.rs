@@ -749,7 +749,7 @@ mod doh {
             let client = client(&[server], Some(&cert));
             let err = lookup(&client, "missing.example").await.unwrap_err();
             assert!(
-                err.to_string().contains("Non-Existent Domain"),
+                err.to_string().contains("missing.example does not exist"),
                 "{:?}: {}",
                 alpn,
                 err

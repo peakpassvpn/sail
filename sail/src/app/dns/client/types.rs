@@ -205,6 +205,9 @@ enum Pick {
     Reject,
 }
 
+/// Answers by question (name, record type), with when each expires.
+type AnswerCache = LruCache<(String, u16), (Message, Instant)>;
+
 pub struct DnsClient {
     /// Set once the dispatcher exists, and kept across reloads.
     dispatcher: Arc<std::sync::OnceLock<Weak<Dispatcher>>>,
@@ -218,6 +221,10 @@ pub struct DnsClient {
     ipv6_cache: Arc<TokioMutex<LruCache<String, CacheEntry>>>,
     ech_cache: Arc<TokioMutex<LruCache<String, EchCacheEntry>>>,
     ech_query_locks: Arc<TokioMutex<HashMap<String, Arc<TokioMutex<()>>>>>,
+    /// The answers `exchange` gave, by question, until they expire.
+    answers: Arc<std::sync::Mutex<AnswerCache>>,
+    /// The fakeip server's store, when there is one.
+    fake_ips: Option<Arc<fakeip::FakeIpStore>>,
     tuning: crate::runtime::options::Dns,
     /// `dns.strategy`.
     strategy: crate::config::model::DnsStrategy,

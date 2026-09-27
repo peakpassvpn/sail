@@ -12,7 +12,7 @@ use hickory_proto::{
     op::{
         header::MessageType, op_code::OpCode, query::Query, response_code::ResponseCode, Message,
     },
-    rr::{record_data::RData, record_type::RecordType, Name},
+    rr::{record_data::RData, record_type::RecordType, resource::Record, Name},
 };
 use lru::LruCache;
 use rand::{rngs::StdRng, Rng, SeedableRng};
@@ -25,14 +25,19 @@ use crate::{
 };
 include!("client/types.rs");
 
+mod fakeip;
 mod server;
 mod upstream;
+
+pub use fakeip::FakeIp;
 
 use server::{Address, Dialer, Kind, Server};
 
 /// How long the system resolver's and a hosts server's answers are kept:
 /// they carry no TTL.
 const LOCAL_TTL: Duration = Duration::from_secs(60);
+/// The TTL of a fake IP's answer: sing-box's.
+const FAKE_IP_TTL: u32 = 600;
 
 impl DnsClient {
     pub fn new(
@@ -50,6 +55,16 @@ impl DnsClient {
         env: &crate::runtime::RuntimeEnv,
         rule_sets: &crate::app::router::rule_set::RuleSets,
     ) -> Result<Self> {
+        Self::build(dns, dial, env, rule_sets, None)
+    }
+
+    fn build(
+        dns: &crate::config::Dns,
+        dial: Arc<crate::net::DialOptions>,
+        env: &crate::runtime::RuntimeEnv,
+        rule_sets: &crate::app::router::rule_set::RuleSets,
+        fake_ips: Option<&Arc<fakeip::FakeIpStore>>,
+    ) -> Result<Self> {
         let tuning = env.options.dns.clone();
         let local = crate::config::model::DnsServer {
             kind: "local".into(),
@@ -62,8 +77,17 @@ impl DnsClient {
             &dns.servers[..]
         };
         let mut servers = HashMap::new();
+        let mut fake_ip_store = None;
         for config in configs {
-            let server = Server::new(config, &dial, env, &tuning)?;
+            let server = Server::new(config, &dial, env, &tuning, fake_ips)?;
+            if let Kind::FakeIp(store) = &server.kind {
+                if fake_ip_store.replace(store.clone()).is_some() {
+                    return Err(anyhow!(
+                        "dns.servers[{}]: one fakeip server is all there can be",
+                        config.tag
+                    ));
+                }
+            }
             debug!("dns server {}", server);
             servers.insert(config.tag.clone(), Arc::new(server));
         }
@@ -84,6 +108,8 @@ impl DnsClient {
             ipv6_cache: Arc::new(TokioMutex::new(LruCache::new(capacity))),
             ech_cache: Arc::new(TokioMutex::new(LruCache::new(capacity))),
             ech_query_locks: Arc::new(TokioMutex::new(HashMap::new())),
+            answers: Arc::new(std::sync::Mutex::new(LruCache::new(capacity))),
+            fake_ips: fake_ip_store,
             tuning,
             strategy: dns.strategy,
             timeout: dns.timeout(),
@@ -112,7 +138,8 @@ impl DnsClient {
         env: &crate::runtime::RuntimeEnv,
         rule_sets: &crate::app::router::rule_set::RuleSets,
     ) -> Result<Self> {
-        let mut client = Self::with_rule_sets(dns, dial, env, rule_sets)?;
+        // The fake IPs handed out stay theirs, as long as the ranges do.
+        let mut client = Self::build(dns, dial, env, rule_sets, self.fake_ips.as_ref())?;
         client.dispatcher = self.dispatcher.clone();
         Ok(client)
     }
@@ -451,17 +478,26 @@ impl DnsClient {
 
     // -- Asking servers --------------------------------------------------
 
-    /// Asks `server` about `name`, within the query's time; a smart_select
+    /// Asks `server` `request`, within the query's time; a smart_select
     /// asks its members, as they have fared.
     #[async_recursion]
-    async fn query(&self, server: &Server, name: &Name, ty: RecordType) -> Result<Answer> {
+    async fn query(&self, server: &Server, request: &Message) -> Result<Answer> {
         if let Kind::SmartSelect { members, state } = &server.kind {
-            return self.query_selected(members, state, name, ty).await;
+            return self.query_selected(members, state, request).await;
         }
-        match timeout(self.timeout, self.ask(server, name, ty)).await {
+        match timeout(self.timeout, self.ask(server, request)).await {
             Ok(res) => res,
-            Err(_) => Err(anyhow!("{} {} {}: timeout", server, name, ty)),
+            Err(_) => Err(anyhow!("{} {}: timeout", server, Self::question(request))),
         }
+    }
+
+    /// The question of a query, as logs name it.
+    fn question(request: &Message) -> String {
+        request
+            .queries()
+            .first()
+            .map(|q| format!("{} {}", q.name(), q.query_type()))
+            .unwrap_or_default()
     }
 
     /// Asks the member that fares best, then the others, as many at once
@@ -470,8 +506,7 @@ impl DnsClient {
         &self,
         members: &[String],
         state: &std::sync::Mutex<ServerSelectorState>,
-        name: &Name,
-        ty: RecordType,
+        request: &Message,
     ) -> Result<Answer> {
         let lock = || state.lock().unwrap_or_else(|e| e.into_inner());
         let ask = |idx: usize| {
@@ -479,7 +514,7 @@ impl DnsClient {
             async move {
                 let server = self.server(tag)?;
                 let start = tokio::time::Instant::now();
-                match self.query(server, name, ty).await {
+                match self.query(server, request).await {
                     Ok(answer) => {
                         lock().mark_success(tag, start.elapsed());
                         Ok((idx, answer))
@@ -487,7 +522,7 @@ impl DnsClient {
                     Err(e) => {
                         let is_timeout = e.to_string().contains("timeout");
                         lock().mark_failure(tag, is_timeout);
-                        debug!("{} {} failed with [{}]: {}", name, ty, tag, e);
+                        debug!("{} failed with [{}]: {}", Self::question(request), tag, e);
                         Err(anyhow!("[{}]: {}", tag, e))
                     }
                 }
@@ -515,9 +550,15 @@ impl DnsClient {
     }
 
     /// Asks one server that is not a smart_select.
-    async fn ask(&self, server: &Server, name: &Name, ty: RecordType) -> Result<Answer> {
+    async fn ask(&self, server: &Server, request: &Message) -> Result<Answer> {
+        let query = request
+            .queries()
+            .first()
+            .ok_or_else(|| anyhow!("a query without a question"))?;
+        let (name, ty) = (query.name(), query.query_type());
         let host = name.to_utf8();
-        let host = host.trim_end_matches('.');
+        let host = host.trim_end_matches('.').to_ascii_lowercase();
+        let host = host.as_str();
         match &server.kind {
             Kind::Local => {
                 let family = match ty {
@@ -543,12 +584,25 @@ impl DnsClient {
                     _ => return Err(anyhow!("a hosts server answers no {} query", ty)),
                 };
                 let ips = hosts
-                    .get(&host.to_ascii_lowercase())
+                    .get(host)
                     .ok_or_else(|| anyhow!("{}: no such name in {}", host, server))?;
                 Ok(Answer::Ips(ips.iter().copied().filter(family).collect()))
             }
+            Kind::FakeIp(store) => {
+                let v6 = match ty {
+                    RecordType::A => false,
+                    RecordType::AAAA => true,
+                    _ => return Err(anyhow!("a fakeip server answers no {} query", ty)),
+                };
+                // A family without a range: no address, and no error.
+                let ips = match store.serves(v6) {
+                    true => vec![store.create(host, v6)?],
+                    false => Vec::new(),
+                };
+                Ok(Answer::Message(Self::reply(request, &ips, FAKE_IP_TTL)))
+            }
             Kind::Udp { address, dialer } => {
-                let request = Self::new_query(name.clone(), ty).to_vec()?;
+                let request = request.to_vec()?;
                 let addr = self.server_addr(address).await?;
                 let socket = self.dial_datagram(dialer, addr).await?;
                 self.exchange_udp(socket, &request, addr, server)
@@ -560,7 +614,7 @@ impl DnsClient {
                 dialer,
                 pool,
             } => {
-                let request = Self::new_query(name.clone(), ty).to_vec()?;
+                let request = request.to_vec()?;
                 let addr = self.server_addr(address).await?;
                 let response = match pool.take() {
                     Some(mut stream) => {
@@ -580,7 +634,7 @@ impl DnsClient {
                 Self::parse(&response, &request, server).map(Answer::Message)
             }
             Kind::Upstream(upstream) => {
-                let request = Self::new_query(name.clone(), ty).to_vec()?;
+                let request = request.to_vec()?;
                 let mut last_err = None;
                 for _ in 0..self.tuning.max_retries.max(1) {
                     match self.exchange_upstream(upstream, &request).await {
@@ -649,17 +703,40 @@ impl DnsClient {
         Ok(response)
     }
 
-    /// An answer to `request`, and not an error.
+    /// An answer to `request`: that the name has records, or that it does
+    /// not exist. A server that fails to answer, or refuses to, has not.
     fn parse(response: &[u8], request: &[u8], server: &Server) -> Result<Message> {
         if response.get(..2) != request.get(..2) {
             return Err(anyhow!("{}: an answer to another query", server));
         }
         let message = Message::from_vec(response)
             .map_err(|e| anyhow!("{}: invalid answer: {}", server, e))?;
-        if message.response_code() != ResponseCode::NoError {
-            return Err(anyhow!("{}: {}", server, message.response_code()));
+        match message.response_code() {
+            ResponseCode::NoError | ResponseCode::NXDomain => Ok(message),
+            code => Err(anyhow!("{}: {}", server, code)),
         }
-        Ok(message)
+    }
+
+    /// An answer to `request` made here: `ips` of the family asked for.
+    fn reply(request: &Message, ips: &[IpAddr], ttl: u32) -> Message {
+        let mut reply = Message::new();
+        reply.set_id(request.id());
+        reply.set_message_type(MessageType::Response);
+        reply.set_op_code(OpCode::Query);
+        reply.set_recursion_desired(request.recursion_desired());
+        reply.set_recursion_available(true);
+        reply.set_response_code(ResponseCode::NoError);
+        if let Some(query) = request.queries().first() {
+            reply.add_query(query.clone());
+            for ip in ips {
+                let data = match ip {
+                    IpAddr::V4(v4) => RData::A((*v4).into()),
+                    IpAddr::V6(v6) => RData::AAAA((*v6).into()),
+                };
+                reply.add_answer(Record::from_rdata(query.name().clone(), ttl, data));
+            }
+        }
+        reply
     }
 
     // -- Reading answers -------------------------------------------------
@@ -668,6 +745,9 @@ impl DnsClient {
     fn answer_entry(answer: Answer, host: &str, server: &Server) -> Result<CacheEntry> {
         let (ips, ttl) = match answer {
             Answer::Ips(ips) => (ips, LOCAL_TTL),
+            Answer::Message(message) if message.response_code() == ResponseCode::NXDomain => {
+                return Err(anyhow!("{}: {} does not exist", server, host));
+            }
             Answer::Message(message) => {
                 let mut ips = Vec::new();
                 for ans in message.answers() {
@@ -765,6 +845,126 @@ impl DnsClient {
         msg.set_message_type(MessageType::Query);
         msg.set_recursion_desired(true);
         msg
+    }
+
+    // -- Clients' queries ------------------------------------------------
+
+    /// What `ip` is to the fakeip server: a connection to it goes to the
+    /// domain it was handed out for.
+    pub fn fake_ip(&self, ip: IpAddr) -> FakeIp {
+        self.fake_ips
+            .as_ref()
+            .map_or(FakeIp::NotFake, |store| store.lookup(ip))
+    }
+
+    /// The fake IP handed out for `domain`, of the family asked for.
+    pub fn fake_ip_of(&self, domain: &str, ipv6: bool) -> Option<IpAddr> {
+        self.fake_ips
+            .as_ref()
+            .and_then(|store| store.address_of(domain, ipv6))
+    }
+
+    /// Answers a client's DNS query from the server the rules pick for it:
+    /// what the server answered, with the query's ID, or REFUSED for a
+    /// rule that rejects it, or SERVFAIL when the server did not answer.
+    /// An error only when `query` is not a DNS message.
+    pub async fn exchange(&self, query: &[u8], ctx: &LookupContext) -> Result<Vec<u8>> {
+        let request = Message::from_vec(query).map_err(|e| anyhow!("not a dns message: {}", e))?;
+        let response = self.answer(&request, ctx).await;
+        Ok(response.to_vec()?)
+    }
+
+    async fn answer(&self, request: &Message, ctx: &LookupContext) -> Message {
+        let Some(query) = request.queries().first() else {
+            return Self::status(request, ResponseCode::FormErr);
+        };
+        if request.message_type() != MessageType::Query || request.op_code() != OpCode::Query {
+            return Self::status(request, ResponseCode::NotImp);
+        }
+        let ty = query.query_type();
+        let host = query.name().to_utf8();
+        let host = host.trim_end_matches('.').to_ascii_lowercase();
+        let (tag, strategy) = match self.pick(&host, ty, ctx) {
+            Pick::Reject => return Self::status(request, ResponseCode::Refused),
+            Pick::Server(tag, strategy) => (tag, strategy),
+        };
+        // A family the strategy leaves out has no records.
+        if (ty == RecordType::AAAA && strategy == DnsStrategy::Ipv4Only)
+            || (ty == RecordType::A && strategy == DnsStrategy::Ipv6Only)
+        {
+            return Self::reply(request, &[], LOCAL_TTL.as_secs() as u32);
+        }
+        let key = (host, u16::from(ty));
+        if let Some(cached) = self.cached_answer(&key, request.id()) {
+            return cached;
+        }
+        let server = match self.server(&tag) {
+            Ok(server) => server.clone(),
+            Err(e) => {
+                debug!("{}", e);
+                return Self::status(request, ResponseCode::ServFail);
+            }
+        };
+        match self.query(&server, request).await {
+            Ok(Answer::Message(mut message)) => {
+                message.set_id(request.id());
+                // A fake IP comes from its store, which may have handed its
+                // address to another domain by the time a cache would.
+                if !matches!(server.kind, Kind::FakeIp(_)) {
+                    self.cache_answer(key, &message);
+                }
+                message
+            }
+            Ok(Answer::Ips(ips)) => Self::reply(request, &ips, LOCAL_TTL.as_secs() as u32),
+            Err(e) => {
+                debug!("{} from {}: {}", Self::question(request), server, e);
+                Self::status(request, ResponseCode::ServFail)
+            }
+        }
+    }
+
+    /// An answer to `request` with no records, and `code`.
+    fn status(request: &Message, code: ResponseCode) -> Message {
+        let mut status = Self::reply(request, &[], 0);
+        status.set_response_code(code);
+        status
+    }
+
+    /// The answer cached for `key`, with `id` and what is left of its TTLs.
+    fn cached_answer(&self, key: &(String, u16), id: u16) -> Option<Message> {
+        let mut answers = self.answers.lock().unwrap_or_else(|e| e.into_inner());
+        let (message, expires) = answers.get(key)?;
+        let now = Instant::now();
+        if *expires <= now {
+            answers.pop(key);
+            return None;
+        }
+        let left = (*expires - now).as_secs().max(1) as u32;
+        let mut message = message.clone();
+        message.set_id(id);
+        for record in message.answers_mut() {
+            record.set_ttl(record.ttl().min(left));
+        }
+        Some(message)
+    }
+
+    /// Keeps `message` for its shortest TTL; one with no records, a
+    /// minute.
+    fn cache_answer(&self, key: (String, u16), message: &Message) {
+        let ttl = message
+            .answers()
+            .iter()
+            .map(|r| r.ttl())
+            .min()
+            .unwrap_or(LOCAL_TTL.as_secs() as u32);
+        if ttl == 0 {
+            return;
+        }
+        let expires = Instant::now() + Duration::from_secs(ttl.into());
+        self.answers
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .put(key, (message.clone(), expires));
     }
 
     // -- The caches ------------------------------------------------------
@@ -951,7 +1151,7 @@ impl DnsClient {
             async move {
                 let tag = tag.ok_or_else(|| anyhow!("{} {}: rejected by a dns rule", host, ty))?;
                 let server = self.server(&tag)?.clone();
-                let answer = self.query(&server, &name, ty).await?;
+                let answer = self.query(&server, &Self::new_query(name, ty)).await?;
                 Self::answer_entry(answer, host, &server)
             }
         };
@@ -1090,7 +1290,10 @@ impl DnsClient {
                     continue;
                 }
             };
-            match self.query(&server, &name, ty).await {
+            match self
+                .query(&server, &Self::new_query(name.clone(), ty))
+                .await
+            {
                 Ok(answer) => match Self::ech_entry(answer, host, &server, ty) {
                     Ok(entry) => return Ok(entry),
                     Err(e) => errors.push(format!("{}: {}", ty, e)),

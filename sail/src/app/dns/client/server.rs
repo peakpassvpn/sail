@@ -39,6 +39,8 @@ pub(super) enum Kind {
     /// Addresses given for names: files in the hosts format, and names
     /// given in place.
     Hosts(HashMap<String, Vec<IpAddr>>),
+    /// Fake IPs, which the connections to come back as their domains.
+    FakeIp(Arc<super::fakeip::FakeIpStore>),
     /// A sail extension: the member that answers best, chosen again as they
     /// fare.
     SmartSelect {
@@ -130,6 +132,15 @@ struct HostsOptions {
 
 #[derive(Deserialize, Debug)]
 #[serde(deny_unknown_fields)]
+struct FakeIpOptions {
+    #[serde(default)]
+    inet4_range: Option<String>,
+    #[serde(default)]
+    inet6_range: Option<String>,
+}
+
+#[derive(Deserialize, Debug)]
+#[serde(deny_unknown_fields)]
 struct SmartSelectOptions {
     #[serde(with = "listable")]
     servers: Vec<String>,
@@ -141,11 +152,14 @@ struct LocalOptions {}
 
 impl Server {
     /// Builds `config`; `defaults` are the instance's dial options.
+    /// Builds `config`; `defaults` are the instance's dial options. A
+    /// fakeip server with the ranges of `fake_ips` takes it over.
     pub fn new(
         config: &DnsServer,
         defaults: &DialOptions,
         env: &RuntimeEnv,
         tuning: &crate::runtime::options::Dns,
+        fake_ips: Option<&Arc<super::fakeip::FakeIpStore>>,
     ) -> Result<Self> {
         let tag = &config.tag;
         let err = |e: anyhow::Error| anyhow!("dns.servers[{}]: {}", tag, e);
@@ -189,6 +203,21 @@ impl Server {
                 let o: HostsOptions = parse_options("dns server", tag, &config.options)?;
                 Kind::Hosts(hosts(o, env).map_err(err)?)
             }
+            "fakeip" => {
+                let o: FakeIpOptions = parse_options("dns server", tag, &config.options)?;
+                let ranges = (o.inet4_range.clone(), o.inet6_range.clone());
+                let store = match fake_ips.filter(|s| s.ranges == ranges) {
+                    Some(store) => store.clone(),
+                    None => Arc::new(
+                        super::fakeip::FakeIpStore::new(
+                            o.inet4_range.as_deref(),
+                            o.inet6_range.as_deref(),
+                        )
+                        .map_err(err)?,
+                    ),
+                };
+                Kind::FakeIp(store)
+            }
             "smart_select" => {
                 let o: SmartSelectOptions = parse_options("dns server", tag, &config.options)?;
                 if o.servers.len() < 2 {
@@ -230,7 +259,7 @@ impl Server {
                 .map(|r| r.server.as_str())
                 .collect(),
             Kind::SmartSelect { members, .. } => members.iter().map(String::as_str).collect(),
-            Kind::Local | Kind::Hosts(_) => vec![],
+            Kind::Local | Kind::Hosts(_) | Kind::FakeIp(_) => vec![],
         }
     }
 }

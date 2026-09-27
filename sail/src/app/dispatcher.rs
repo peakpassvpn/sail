@@ -1,5 +1,6 @@
 use std::io::{self};
 
+use crate::app::dns::FakeIp;
 use async_recursion::async_recursion;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tracing::{debug, info, warn, Instrument};
@@ -609,6 +610,10 @@ impl Dispatcher {
         }
 
         self.identify_inbound(&mut sess);
+        if let Err(e) = self.restore_fake_ip(&mut sess.destination) {
+            debug!("src={}: {}", &sess.source, e);
+            return None;
+        }
         self.reverse_map(&mut sess).await;
         let mut sniffer = StreamSniffer::new(lhs);
         match self.route(&mut sess, &mut sniffer).await {
@@ -620,6 +625,28 @@ impl Dispatcher {
                 );
                 None
             }
+        }
+    }
+
+    /// A destination that is a fake IP becomes the domain it was handed out
+    /// for, as sing-box's router has it. One the fakeip server does not
+    /// know, handed out before a restart say, is an error: it cannot go
+    /// where it was meant to.
+    pub fn restore_fake_ip(&self, destination: &mut SocksAddr) -> io::Result<()> {
+        let Some(ip) = destination.ip() else {
+            return Ok(());
+        };
+        match self.dns_client.load().fake_ip(ip) {
+            FakeIp::NotFake => Ok(()),
+            FakeIp::Domain(domain) => {
+                debug!("fake ip {} is {}", ip, domain);
+                *destination = SocksAddr::Domain(domain, destination.port());
+                Ok(())
+            }
+            FakeIp::Unknown => Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("missing fakeip record for {}", ip),
+            )),
         }
     }
 

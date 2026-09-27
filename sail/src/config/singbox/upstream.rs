@@ -344,7 +344,6 @@ pub const VALUES: &[(&str, &[&str])] = &[
     (
         "dns.servers.*.type",
         &[
-            "fakeip",
             "dhcp",
             "mdns",
             "tailscale",

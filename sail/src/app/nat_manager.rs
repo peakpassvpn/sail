@@ -221,8 +221,14 @@ impl NatManager {
         dgram_src: &DatagramSource,
         inbound_tag: &str,
         client_ch_tx: &Sender<UdpPacket>,
-        pkt: UdpPacket,
+        mut pkt: UdpPacket,
     ) {
+        // Each datagram names its own destination: a fake IP becomes its
+        // domain on each, not only on the session's first.
+        if let Err(e) = self.dispatcher.restore_fake_ip(&mut pkt.dst_addr) {
+            debug!("drop udp packet from {}: {}", dgram_src, e);
+            return;
+        }
         let key = NatKey::new(inbound_tag, dgram_src);
         let mut guard = self.sessions.lock().await;
 
