@@ -8,6 +8,10 @@
 //! and no more to dial, the call waits in h2 for a stream on the least busy
 //! one to end.
 //!
+//! Until a new connection has the server's settings, h2 assumes it allows
+//! 100 streams. Calls put on it past what the server then says wait in h2,
+//! which never exceeds the server's limit.
+//!
 //! A connection that ends -- closed, cut, or given up by the keepalive -- is
 //! dropped from the pool, and the next call dials a new one.
 
@@ -260,5 +264,131 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for Pooled<S> {
 
     fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         Pin::new(&mut self.inner).poll_shutdown(cx)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    use async_trait::async_trait;
+    use tokio::net::TcpListener;
+
+    use super::*;
+    use crate::adapter::{AnyStream, OutboundConnect, OutboundStreamHandler};
+    use crate::app::dns::DnsClient;
+    use crate::session::{Network, SocksAddr};
+
+    /// Hands over the connection dialled to `port`.
+    struct Direct(u16);
+
+    #[async_trait]
+    impl OutboundStreamHandler for Direct {
+        fn connect_addr(&self) -> OutboundConnect {
+            OutboundConnect::Proxy(Network::Tcp, "127.0.0.1".to_string(), self.0)
+        }
+
+        async fn handle<'a>(
+            &'a self,
+            _sess: &'a Session,
+            _lhs: Option<&mut AnyStream>,
+            stream: Option<AnyStream>,
+        ) -> io::Result<AnyStream> {
+            stream.ok_or_else(|| io::Error::other("nothing dialled"))
+        }
+    }
+
+    /// An h2 server allowing `max_streams` streams a connection, which
+    /// answers every request and keeps it open; and the connections it took.
+    async fn server(max_streams: u32) -> (u16, Arc<AtomicUsize>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let connections = Arc::new(AtomicUsize::new(0));
+        let counted = connections.clone();
+        tokio::spawn(async move {
+            while let Ok((tcp, _)) = listener.accept().await {
+                counted.fetch_add(1, Ordering::SeqCst);
+                tokio::spawn(async move {
+                    let mut connection = h2::server::Builder::new()
+                        .max_concurrent_streams(max_streams)
+                        .handshake::<_, Bytes>(tcp)
+                        .await
+                        .unwrap();
+                    let mut open = Vec::new();
+                    while let Some(Ok((request, mut respond))) = connection.accept().await {
+                        let send = respond
+                            .send_response(http::Response::new(()), false)
+                            .unwrap();
+                        open.push((request, send));
+                    }
+                });
+            }
+        });
+        (port, connections)
+    }
+
+    fn pool(port: u16) -> Pool {
+        let dns = DnsClient::new(&Default::default(), Default::default(), Default::default())
+            .unwrap()
+            .into_shared();
+        let handler = crate::adapter::outbound::HandlerBuilder::default()
+            .tag("test".to_owned())
+            .stream_handler(Arc::new(Direct(port)))
+            .build();
+        Pool::new(
+            Connector::around(handler, dns),
+            Keepalive {
+                idle_timeout: None,
+                ping_timeout: Duration::from_secs(15),
+                permit_without_stream: false,
+            },
+        )
+    }
+
+    fn request() -> io::Result<Request<()>> {
+        Request::post("http://localhost/Test/Tun")
+            .body(())
+            .map_err(io::Error::other)
+    }
+
+    /// A call, open once the server has answered it: its connection has the
+    /// server's settings by then.
+    async fn answered(pool: &Pool, sess: &Session) -> Call {
+        let mut call = pool.call(sess, request).await.unwrap();
+        let response = (&mut call.response).await.unwrap();
+        assert_eq!(response.status(), http::StatusCode::OK);
+        call
+    }
+
+    #[tokio::test]
+    async fn test_streams_share_a_connection_up_to_the_peers_limit() {
+        let (port, connections) = server(2).await;
+        let pool = pool(port);
+        let sess = Session {
+            destination: SocksAddr::try_from(("127.0.0.1", port)).unwrap(),
+            ..Default::default()
+        };
+
+        // One after another: one connection.
+        for _ in 0..3 {
+            drop(answered(&pool, &sess).await);
+        }
+        assert_eq!(connections.load(Ordering::SeqCst), 1);
+
+        // Five open at once, two a connection as the server allows.
+        let mut open = Vec::new();
+        for _ in 0..5 {
+            open.push(answered(&pool, &sess).await);
+        }
+        assert_eq!(connections.load(Ordering::SeqCst), 3);
+        assert_eq!(pool.live(), 3);
+
+        // Room again once they end, on the connections there are.
+        drop(open);
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let open: Vec<_> = futures::future::join_all((0..6).map(|_| answered(&pool, &sess))).await;
+        assert_eq!(connections.load(Ordering::SeqCst), 3);
+        drop(open);
     }
 }
