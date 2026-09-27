@@ -1,5 +1,5 @@
-//! The encrypted DNS upstreams, `tls://`, `https://`, `quic://` and
-//! `h3://`, against servers started here.
+//! The encrypted DNS servers, `tls`, `https`, `quic` and `h3`, against
+//! servers started here.
 
 #![cfg(all(feature = "tls", feature = "quic", feature = "dns-h3"))]
 
@@ -252,30 +252,56 @@ fn start_h3_server(cert: &Cert, path: &'static str) -> (u16, Arc<Counters>) {
     (port, counters)
 }
 
-fn client(servers: &[&str], cert: Option<&Cert>) -> DnsClient {
-    let dns = config::Dns {
-        servers: servers.iter().map(|s| s.to_string()).collect(),
-        timeout: Some(Duration::from_secs(3)),
-        ..Default::default()
-    };
-    let client =
-        DnsClient::new(&dns, Arc::new(DialOptions::default()), Default::default()).unwrap();
-    match cert {
-        Some(cert) => client.with_upstream_certificate(&cert.cert_pem).unwrap(),
-        None => client,
+/// A server of type `kind` on 127.0.0.1, whose certificate is checked
+/// against `localhost`.
+fn server(kind: &str, port: u16, path: Option<&str>) -> serde_json::Value {
+    let mut server = serde_json::json!({
+        "type": kind,
+        "server": "127.0.0.1",
+        "server_port": port,
+        "tls": { "server_name": "localhost" },
+    });
+    if let Some(path) = path {
+        server["path"] = path.into();
     }
+    server
+}
+
+/// A client of `servers`, which trust `cert` when it is given.
+fn client(servers: &[serde_json::Value], cert: Option<&Cert>) -> DnsClient {
+    let mut servers = servers.to_vec();
+    for (i, server) in servers.iter_mut().enumerate() {
+        server["tag"] = format!("s{}", i).into();
+        if let Some(cert) = cert {
+            server["tls"]["certificate"] = cert.cert_pem.clone().into();
+        }
+    }
+    let config = config::Config::from_json(
+        // A queries alone, which the servers here count.
+        &serde_json::json!({
+            "dns": { "servers": servers, "timeout": "3s", "strategy": "ipv4_only" }
+        })
+        .to_string(),
+    )
+    .unwrap();
+    DnsClient::new(
+        &config.dns,
+        Arc::new(DialOptions::default()),
+        &Default::default(),
+    )
+    .unwrap()
 }
 
 async fn lookup(client: &DnsClient, host: &str) -> anyhow::Result<Vec<IpAddr>> {
-    client.direct_lookup(&host.to_string()).await
+    client.lookup(host).await
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn dot_answers_and_keeps_its_connection() {
     let cert = cert();
     let (port, counters) = start_dot_server(&cert, false);
-    let server = format!("direct:tls://localhost:{}@127.0.0.1", port);
-    let client = client(&[&server], Some(&cert));
+    let server = server("tls", port, None);
+    let client = client(&[server], Some(&cert));
     for host in ["a.example", "b.example", "c.example"] {
         assert_eq!(
             lookup(&client, host).await.unwrap(),
@@ -290,8 +316,8 @@ async fn dot_answers_and_keeps_its_connection() {
 async fn dot_connects_again_when_the_server_closed_the_kept_connection() {
     let cert = cert();
     let (port, counters) = start_dot_server(&cert, true);
-    let server = format!("direct:tls://localhost:{}@127.0.0.1", port);
-    let client = client(&[&server], Some(&cert));
+    let server = server("tls", port, None);
+    let client = client(&[server], Some(&cert));
     for host in ["a.example", "b.example"] {
         // Lets the close reach the client before the next query.
         tokio::time::sleep(Duration::from_millis(100)).await;
@@ -309,8 +335,8 @@ async fn dot_rejects_an_untrusted_certificate() {
     let cert = cert();
     let (port, counters) = start_dot_server(&cert, false);
     // The bundled roots do not know the test certificate.
-    let server = format!("direct:tls://localhost:{}@127.0.0.1", port);
-    let client = client(&[&server], None);
+    let server = server("tls", port, None);
+    let client = client(&[server], None);
     assert!(lookup(&client, "a.example").await.is_err());
     assert_eq!(counters.queries.load(Ordering::SeqCst), 0);
 }
@@ -320,8 +346,9 @@ async fn dot_rejects_a_certificate_for_another_name() {
     let cert = cert();
     let (port, counters) = start_dot_server(&cert, false);
     // The certificate is for localhost, not 127.0.0.1.
-    let server = format!("direct:tls://127.0.0.1:{}", port);
-    let client = client(&[&server], Some(&cert));
+    let mut server = server("tls", port, None);
+    server["tls"]["server_name"] = "127.0.0.1".into();
+    let client = client(&[server], Some(&cert));
     assert!(lookup(&client, "a.example").await.is_err());
     assert_eq!(counters.queries.load(Ordering::SeqCst), 0);
 }
@@ -330,8 +357,8 @@ async fn dot_rejects_a_certificate_for_another_name() {
 async fn doq_answers_on_one_connection_with_a_stream_per_query() {
     let cert = cert();
     let (port, counters) = start_doq_server(&cert);
-    let server = format!("direct:quic://localhost:{}@127.0.0.1", port);
-    let client = client(&[&server], Some(&cert));
+    let server = server("quic", port, None);
+    let client = client(&[server], Some(&cert));
     for host in ["a.example", "b.example", "c.example"] {
         assert_eq!(
             lookup(&client, host).await.unwrap(),
@@ -347,8 +374,8 @@ async fn doq_answers_on_one_connection_with_a_stream_per_query() {
 async fn doq_rejects_an_untrusted_certificate() {
     let cert = cert();
     let (port, counters) = start_doq_server(&cert);
-    let server = format!("direct:quic://localhost:{}@127.0.0.1", port);
-    let client = client(&[&server], None);
+    let server = server("quic", port, None);
+    let client = client(&[server], None);
     let err = lookup(&client, "a.example").await.unwrap_err();
     println!("{}", err);
     assert_eq!(counters.queries.load(Ordering::SeqCst), 0);
@@ -358,8 +385,8 @@ async fn doq_rejects_an_untrusted_certificate() {
 async fn doh3_answers_on_one_connection() {
     let cert = cert();
     let (port, counters) = start_h3_server(&cert, "/custom-path");
-    let server = format!("direct:h3://localhost:{}/custom-path@127.0.0.1", port);
-    let client = client(&[&server], Some(&cert));
+    let server = server("h3", port, Some("/custom-path"));
+    let client = client(&[server], Some(&cert));
     for host in ["a.example", "b.example", "c.example"] {
         assert_eq!(
             lookup(&client, host).await.unwrap(),
@@ -376,19 +403,18 @@ async fn doh3_fails_on_an_http_error() {
     let cert = cert();
     let (port, counters) = start_h3_server(&cert, "/dns-query");
     // The server answers 400 on any other path.
-    let server = format!("direct:h3://localhost:{}/wrong@127.0.0.1", port);
-    let client = client(&[&server], Some(&cert));
+    let server = server("h3", port, Some("/wrong"));
+    let client = client(&[server], Some(&cert));
     let err = lookup(&client, "a.example").await.unwrap_err();
     assert!(err.to_string().contains("http status 400"), "{}", err);
     assert_eq!(counters.queries.load(Ordering::SeqCst), 0);
 }
 
-/// The servers without `direct:`, reached through the outbound the router
-/// picks: a direct outbound, which carries DoT as a stream and DoQ and
-/// DoH3 as datagrams.
+/// Servers with a `detour`, reached through that outbound: a direct one,
+/// which carries DoT and DoH as streams and DoQ and DoH3 as datagrams.
 #[cfg(feature = "outbound-direct")]
 #[tokio::test(flavor = "multi_thread")]
-async fn upstreams_are_reached_through_the_dispatcher() {
+async fn servers_are_reached_through_their_detour() {
     use sail::app::dispatcher::Dispatcher;
     use sail::app::outbound::manager::OutboundManager;
     use sail::app::router::Router;
@@ -401,19 +427,21 @@ async fn upstreams_are_reached_through_the_dispatcher() {
 
     #[allow(unused_mut)]
     let mut servers = vec![
-        (format!("tls://localhost:{}@127.0.0.1", dot_port), dot),
-        (format!("quic://localhost:{}@127.0.0.1", doq_port), doq),
-        (format!("h3://localhost:{}@127.0.0.1", h3_port), h3),
+        (server("tls", dot_port, None), dot),
+        (server("quic", doq_port, None), doq),
+        (server("h3", h3_port, None), h3),
     ];
     #[cfg(feature = "dns-doh")]
     {
         let (doh_port, doh) = doh::start_server(&cert, &["h2", "http/1.1"], doh::Reply::Answer);
-        servers.push((format!("https://localhost:{}@127.0.0.1", doh_port), doh));
+        servers.push((server("https", doh_port, None), doh));
     }
     for (server, counters) in &servers {
         let dial = Arc::new(DialOptions::default());
         let env = Arc::new(sail::runtime::RuntimeEnv::default());
-        let dns_client = client(&[server.as_str()], Some(&cert)).into_shared();
+        let mut server = server.clone();
+        server["detour"] = "direct".into();
+        let dns_client = client(&[server.clone()], Some(&cert)).into_shared();
         let outbounds = vec![config::Outbound {
             protocol: "direct".to_string(),
             tag: "direct".to_string(),
@@ -440,7 +468,7 @@ async fn upstreams_are_reached_through_the_dispatcher() {
         for host in ["a.example", "b.example"] {
             let ips = dns_client
                 .load()
-                .lookup(&host.to_string())
+                .lookup(host)
                 .await
                 .unwrap_or_else(|e| panic!("{}: {}", server, e));
             assert_eq!(ips, vec![IpAddr::V4(ANSWER)], "{}", server);
@@ -458,21 +486,24 @@ async fn upstreams_are_reached_through_the_dispatcher() {
 #[ignore]
 async fn public_resolvers() {
     let mut failed = Vec::new();
-    for server in [
-        // Bootstrap addresses given, so a system resolver that hands out
-        // fake IPs (a TUN proxy's) does not decide the result.
-        "direct:tls://1.1.1.1",
-        "direct:tls://dns.google@8.8.8.8",
-        "direct:quic://dns.adguard-dns.com@94.140.14.14",
-        "direct:quic://dns.nextdns.io@45.90.28.0",
-        "direct:h3://dns.alidns.com@223.5.5.5",
+    for (kind, address, name) in [
+        // Addresses given, so a system resolver that hands out fake IPs (a
+        // TUN proxy's) does not decide the result.
+        ("tls", "1.1.1.1", "1.1.1.1"),
+        ("tls", "8.8.8.8", "dns.google"),
+        ("quic", "94.140.14.14", "dns.adguard-dns.com"),
+        ("quic", "45.90.28.0", "dns.nextdns.io"),
+        ("h3", "223.5.5.5", "dns.alidns.com"),
     ] {
+        let server = serde_json::json!({
+            "type": kind, "server": address, "tls": { "server_name": name }
+        });
         let client = client(&[server], None);
         match lookup(&client, "example.com").await {
-            Ok(ips) => println!("{}: {:?}", server, ips),
+            Ok(ips) => println!("{} {}: {:?}", kind, name, ips),
             Err(e) => {
-                println!("{}: {}", server, e);
-                failed.push(server);
+                println!("{} {}: {}", kind, name, e);
+                failed.push(name);
             }
         }
     }
@@ -663,8 +694,8 @@ mod doh {
     async fn answers_on_one_connection(alpn: &[&str]) {
         let cert = cert();
         let (port, counters) = start_server(&cert, alpn, Reply::Answer);
-        let server = format!("direct:https://localhost:{}@127.0.0.1", port);
-        let client = client(&[&server], Some(&cert));
+        let server = server("https", port, None);
+        let client = client(&[server], Some(&cert));
         for host in ["a.example", "b.example", "c.example"] {
             assert_eq!(
                 lookup(&client, host).await.unwrap(),
@@ -694,8 +725,8 @@ mod doh {
     async fn doh_queries_at_once_share_one_http2_connection() {
         let cert = cert();
         let (port, counters) = start_server(&cert, &["h2"], Reply::Answer);
-        let server = format!("direct:https://localhost:{}@127.0.0.1", port);
-        let client = Arc::new(client(&[&server], Some(&cert)));
+        let server = server("https", port, None);
+        let client = Arc::new(client(&[server], Some(&cert)));
         let tasks: Vec<_> = (0..8)
             .map(|i| {
                 let client = client.clone();
@@ -714,8 +745,8 @@ mod doh {
         for alpn in [&["h2"][..], &["http/1.1"][..]] {
             let cert = cert();
             let (port, counters) = start_server(&cert, alpn, Reply::NxDomain);
-            let server = format!("direct:https://localhost:{}@127.0.0.1", port);
-            let client = client(&[&server], Some(&cert));
+            let server = server("https", port, None);
+            let client = client(&[server], Some(&cert));
             let err = lookup(&client, "missing.example").await.unwrap_err();
             assert!(
                 err.to_string().contains("Non-Existent Domain"),
@@ -732,8 +763,8 @@ mod doh {
         for alpn in [&["h2"][..], &["http/1.1"][..]] {
             let cert = cert();
             let (port, counters) = start_server(&cert, alpn, Reply::Oversized);
-            let server = format!("direct:https://localhost:{}@127.0.0.1", port);
-            let client = client(&[&server], Some(&cert));
+            let server = server("https", port, None);
+            let client = client(&[server], Some(&cert));
             let err = lookup(&client, "a.example").await.unwrap_err();
             assert!(err.to_string().contains("too long"), "{:?}: {}", alpn, err);
             assert!(counters.queries.load(Ordering::SeqCst) >= 1, "{:?}", alpn);
@@ -745,36 +776,21 @@ mod doh {
         let cert = cert();
         let (port, counters) = start_server(&cert, &["h2"], Reply::Answer);
         // The server answers 400 on any other path.
-        let server = format!("direct:https://localhost:{}/wrong@127.0.0.1", port);
-        let client = client(&[&server], Some(&cert));
+        let server = server("https", port, Some("/wrong"));
+        let client = client(&[server], Some(&cert));
         let err = lookup(&client, "a.example").await.unwrap_err();
         assert!(err.to_string().contains("http status 400"), "{}", err);
         assert_eq!(counters.queries.load(Ordering::SeqCst), 0);
     }
 
-    /// `doh:` is `https://`.
+    /// A server without a detour is dialled directly: there is no
+    /// dispatcher here at all.
     #[tokio::test(flavor = "multi_thread")]
-    async fn doh_short_form() {
+    async fn doh_without_a_detour_does_not_go_through_the_dispatcher() {
         let cert = cert();
         let (port, counters) = start_server(&cert, &["h2"], Reply::Answer);
-        let server = format!("direct:doh:localhost:{}@127.0.0.1", port);
-        let client = client(&[&server], Some(&cert));
-        assert_eq!(
-            lookup(&client, "a.example").await.unwrap(),
-            vec![IpAddr::V4(ANSWER)]
-        );
-        assert_eq!(counters.queries.load(Ordering::SeqCst), 1);
-    }
-
-    /// A direct lookup dials the server itself, even one not marked
-    /// `direct:`: through the dispatcher, a lookup the dispatcher itself
-    /// asked for could come back to it. Here there is no dispatcher at all.
-    #[tokio::test(flavor = "multi_thread")]
-    async fn doh_direct_lookup_does_not_go_through_the_dispatcher() {
-        let cert = cert();
-        let (port, counters) = start_server(&cert, &["h2"], Reply::Answer);
-        let server = format!("https://localhost:{}@127.0.0.1", port);
-        let client = client(&[&server], Some(&cert));
+        let server = server("https", port, None);
+        let client = client(&[server], Some(&cert));
         assert_eq!(
             lookup(&client, "a.example").await.unwrap(),
             vec![IpAddr::V4(ANSWER)]

@@ -152,10 +152,12 @@ pub struct Ws {
     pub half_close: bool,
 }
 
-/// Choosing and retrying DNS servers.
+/// Retrying DNS servers, and how a `smart_select` chooses among its
+/// members.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Dns {
+    /// Attempts per query to one server.
     pub max_retries: usize,
     /// How often the preferred server is chosen again.
     #[serde(with = "duration")]

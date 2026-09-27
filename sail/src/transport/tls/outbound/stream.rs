@@ -309,7 +309,7 @@ mod tests {
 
     fn new_test_dns_client() -> SyncDnsClient {
         let dns = crate::config::Dns::default();
-        DnsClient::new(&dns, Default::default(), Default::default())
+        DnsClient::new(&dns, Default::default(), &Default::default())
             .unwrap()
             .into_shared()
     }

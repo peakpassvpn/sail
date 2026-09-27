@@ -47,7 +47,7 @@ fn manager_with(
     let dns_client = DnsClient::new(
         &config::Dns::default(),
         Arc::new(dial_defaults.clone()),
-        Default::default(),
+        &Default::default(),
     )?
     .into_shared();
     OutboundManager::new(

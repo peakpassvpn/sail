@@ -31,7 +31,7 @@ pub(super) struct Pool {
     /// when the server speaks HTTP/2.
     h2: TokioMutex<Option<H2>>,
     /// Idle HTTP/1.1 connections, for a server that does not speak HTTP/2.
-    http1: super::dot::Pool,
+    http1: super::StreamPool,
 }
 
 /// An HTTP/2 connection.
@@ -91,7 +91,6 @@ impl DnsClient {
         upstream: &Upstream,
         pool: &Pool,
         addr: SocketAddr,
-        is_direct: bool,
         request: &[u8],
     ) -> Result<Vec<u8>> {
         // RFC 8484 §4.1 asks for ID 0, so that answers can be cached. The
@@ -101,7 +100,7 @@ impl DnsClient {
         let mut zeroed = request.to_vec();
         zeroed[..2].copy_from_slice(&[0, 0]);
         let mut response = self
-            .exchange_doh_zero_id(upstream, pool, addr, is_direct, Bytes::from(zeroed))
+            .exchange_doh_zero_id(upstream, pool, addr, Bytes::from(zeroed))
             .await?;
         if response.len() < 2 || response[..2] != [0, 0] {
             return Err(anyhow!("dns response with a non-zero id"));
@@ -115,7 +114,6 @@ impl DnsClient {
         upstream: &Upstream,
         pool: &Pool,
         addr: SocketAddr,
-        is_direct: bool,
         request: Bytes,
     ) -> Result<Vec<u8>> {
         // On a kept connection first, which may have died without a word:
@@ -168,7 +166,7 @@ impl DnsClient {
                 .await
                 .map_err(Failure::into_inner);
         }
-        match self.connect_doh(upstream, addr, is_direct).await? {
+        match self.connect_doh(upstream, addr).await? {
             Connection::H2(mut l) => {
                 let send_request = l.take();
                 *h2 = Some(l);
@@ -192,16 +190,11 @@ impl DnsClient {
         }
     }
 
-    async fn connect_doh(
-        &self,
-        upstream: &Upstream,
-        addr: SocketAddr,
-        is_direct: bool,
-    ) -> Result<Connection> {
-        let stream = self.dial_stream(is_direct, addr).await?;
-        let tls = self
-            .doh_tls_client()?
-            .connect(&upstream.host, stream, None, None)
+    async fn connect_doh(&self, upstream: &Upstream, addr: SocketAddr) -> Result<Connection> {
+        let stream = self.dial_stream(&upstream.dialer, addr).await?;
+        let tls = upstream
+            .tls_client()?
+            .connect(&upstream.server_name, stream, None, None)
             .await
             .map_err(|e| anyhow!("tls handshake failed: {}", e))?;
         let is_h2 = tls.conn().ssl().selected_alpn_protocol() == Some(b"h2");
@@ -227,24 +220,6 @@ impl DnsClient {
             driver,
             used: Instant::now(),
         }))
-    }
-
-    /// The TLS client of the DoH servers: Chrome's ClientHello, and the
-    /// bundled roots or the upstream certificate.
-    fn doh_tls_client(&self) -> Result<&crate::transport::tls::TlsClient> {
-        use crate::transport::tls::{Fingerprint, TlsClient};
-        self.doh_tls
-            .get_or_init(|| {
-                TlsClient::new(
-                    &[],
-                    self.upstream_certificate.as_deref(),
-                    false,
-                    Some(Fingerprint::Chrome),
-                )
-                .map_err(|e| e.to_string())
-            })
-            .as_ref()
-            .map_err(|e| anyhow!("tls client: {}", e))
     }
 }
 

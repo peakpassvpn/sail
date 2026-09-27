@@ -1,22 +1,25 @@
-//! Encrypted DNS upstreams given as URLs in `dns.servers`: DNS over TLS
-//! (`tls://`, RFC 7858), over HTTPS (`https://`, or `doh:` for short,
-//! RFC 8484), over QUIC (`quic://`, RFC 9250) and over HTTP/3 (`h3://`,
-//! RFC 8484 on HTTP/3).
+//! Encrypted DNS servers: DNS over TLS (`tls`, RFC 7858), over HTTPS
+//! (`https`, RFC 8484), over QUIC (`quic`, RFC 9250) and over HTTP/3
+//! (`h3`, RFC 8484 on HTTP/3).
 //!
-//! Each upstream keeps its connections for the next query, so that the
+//! Each server keeps its connections for the next query, so that the
 //! handshake is paid once, not per query: DoT keeps idle connections to
 //! take again, DoH keeps one HTTP/2 connection, or idle HTTP/1.1 ones when
 //! the server does not speak HTTP/2, and DoQ and DoH3 keep one QUIC
 //! connection and open a stream per query on it.
 
 use std::fmt;
-use std::net::IpAddr;
-use std::str::FromStr;
 #[cfg(feature = "tls")]
 use std::time::Duration;
+use std::time::Instant;
 
 use anyhow::{anyhow, Result};
-use hickory_proto::rr::Name;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+use super::server::{Address, Dialer};
+use crate::adapter::AnyStream;
+use crate::runtime::RuntimeEnv;
+use crate::transport::layers::OutboundTls;
 
 #[cfg(feature = "dns-doh")]
 mod doh;
@@ -32,6 +35,54 @@ mod socket;
 #[cfg(any(feature = "quic", feature = "dns-doh"))]
 const MAX_MESSAGE_LEN: usize = u16::MAX as usize;
 
+/// Idle connections kept per server: as many as queries that ran at once,
+/// up to this.
+const MAX_IDLE: usize = 4;
+/// How long a connection is kept idle. Servers close theirs after some
+/// seconds (RFC 7766 §6.2.3 suggests 10), and a connection they closed
+/// costs a failed query before a new one.
+const IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// The idle connections of a server that sends its messages on a stream:
+/// TCP, DoT, and DoH on HTTP/1.1.
+#[derive(Default)]
+pub(super) struct StreamPool {
+    idle: std::sync::Mutex<Vec<(AnyStream, Instant)>>,
+}
+
+impl StreamPool {
+    /// The connection idle for the least time, if one is still fresh.
+    pub(super) fn take(&self) -> Option<AnyStream> {
+        let mut idle = self.idle.lock().unwrap_or_else(|e| e.into_inner());
+        let now = Instant::now();
+        idle.retain(|(_, since)| now.saturating_duration_since(*since) < IDLE_TIMEOUT);
+        idle.pop().map(|(stream, _)| stream)
+    }
+
+    pub(super) fn put(&self, stream: AnyStream) {
+        let mut idle = self.idle.lock().unwrap_or_else(|e| e.into_inner());
+        if idle.len() >= MAX_IDLE {
+            idle.remove(0);
+        }
+        idle.push((stream, Instant::now()));
+    }
+}
+
+/// Writes `request` and reads the answer that follows, each prefixed with
+/// its length (RFC 1035 §4.2.2).
+pub(super) async fn exchange_framed(stream: &mut AnyStream, request: &[u8]) -> Result<Vec<u8>> {
+    let len = u16::try_from(request.len()).map_err(|_| anyhow!("dns query too long"))?;
+    let mut buf = Vec::with_capacity(2 + request.len());
+    buf.extend_from_slice(&len.to_be_bytes());
+    buf.extend_from_slice(request);
+    stream.write_all(&buf).await?;
+    stream.flush().await?;
+    let len = stream.read_u16().await? as usize;
+    let mut response = vec![0u8; len];
+    stream.read_exact(&mut response).await?;
+    Ok(response)
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Protocol {
     /// DNS over TLS.
@@ -45,6 +96,16 @@ pub(super) enum Protocol {
 }
 
 impl Protocol {
+    /// The protocol of a server type, which the caller has matched.
+    pub fn of(kind: &str) -> Self {
+        match kind {
+            "tls" => Self::Tls,
+            "https" => Self::Https,
+            "quic" => Self::Quic,
+            _ => Self::H3,
+        }
+    }
+
     fn scheme(self) -> &'static str {
         match self {
             Self::Tls => "tls",
@@ -54,7 +115,7 @@ impl Protocol {
         }
     }
 
-    fn default_port(self) -> u16 {
+    pub fn default_port(self) -> u16 {
         match self {
             Self::Tls | Self::Quic => 853,
             Self::Https | Self::H3 => 443,
@@ -62,28 +123,37 @@ impl Protocol {
     }
 }
 
-/// One encrypted upstream, and the connections it keeps.
+/// One encrypted server, and the connections it keeps.
 pub(super) struct Upstream {
     pub protocol: Protocol,
+    pub address: Address,
     /// The name the server's certificate is checked against, and sent as
-    /// SNI: a domain, or an IP address.
-    pub host: String,
-    pub port: u16,
+    /// SNI: `tls.server_name`, or else the server's address.
+    pub server_name: String,
     /// The request path, for DoH and DoH3.
     pub path: String,
-    /// Where to connect, instead of resolving `host` with the system
-    /// resolver.
-    pub bootstrap_ip: Option<IpAddr>,
-    /// Whether it is reached directly rather than through the outbound the
-    /// router picks.
-    pub is_direct: bool,
+    #[cfg_attr(not(any(feature = "tls", feature = "quic")), allow(dead_code))]
+    pub dialer: Dialer,
+    /// The certificates trusted instead of the bundled roots: inline PEM,
+    /// or a path.
+    #[cfg_attr(not(any(feature = "tls", feature = "quic")), allow(dead_code))]
+    pub(super) certificate: Option<String>,
+    #[cfg_attr(not(any(feature = "tls", feature = "quic")), allow(dead_code))]
+    pub(super) insecure: bool,
+    /// The ClientHello of DoT and DoH, `tls.utls`: none for DoT and Chrome's
+    /// for DoH when unset.
+    #[cfg(feature = "tls")]
+    fingerprint: Option<crate::transport::tls::Fingerprint>,
+    /// The TLS client of DoT and DoH, built on first use.
+    #[cfg(feature = "tls")]
+    tls_client: std::sync::OnceLock<std::result::Result<crate::transport::tls::TlsClient, String>>,
     state: State,
 }
 
 /// The connections an upstream keeps between queries.
 enum State {
     #[cfg(feature = "tls")]
-    Tls(dot::Pool),
+    Tls(StreamPool),
     #[cfg(feature = "dns-doh")]
     Https(doh::Pool),
     #[cfg(feature = "quic")]
@@ -100,138 +170,109 @@ impl fmt::Debug for Upstream {
 
 impl fmt::Display for Upstream {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.is_direct {
-            write!(f, "direct:")?;
-        }
-        write!(f, "{}://", self.protocol.scheme())?;
-        match self.host.parse::<IpAddr>() {
-            Ok(IpAddr::V6(ip)) => write!(f, "[{}]", ip)?,
-            _ => write!(f, "{}", self.host)?,
-        }
-        write!(f, ":{}", self.port)?;
+        write!(f, "{}://{}", self.protocol.scheme(), self.address)?;
         if self.has_path() {
             write!(f, "{}", self.path)?;
         }
-        if let Some(ip) = self.bootstrap_ip {
-            write!(f, "@{}", ip)?;
+        if self.server_name != self.address.host {
+            write!(f, " ({})", self.server_name)?;
         }
         Ok(())
     }
 }
 
 impl Upstream {
-    /// `server` without its `direct:` prefix, when it has a scheme this
-    /// module knows; `None` otherwise. `doh:x` is `https://x`.
-    pub fn parse(server: &str, is_direct: bool) -> Option<Result<Self>> {
-        if server
-            .get(..4)
-            .is_some_and(|s| s.eq_ignore_ascii_case("doh:"))
-        {
-            return Some(Self::parse_rest(Protocol::Https, &server[4..], is_direct));
+    pub fn new(
+        protocol: Protocol,
+        address: Address,
+        dialer: Dialer,
+        path: Option<String>,
+        tls: Option<&OutboundTls>,
+        env: &RuntimeEnv,
+    ) -> Result<Self> {
+        let path = match path {
+            Some(path) => {
+                Self::check_path(&path)?;
+                path
+            }
+            None if matches!(protocol, Protocol::Https | Protocol::H3) => "/dns-query".into(),
+            None => String::new(),
+        };
+        let mut server_name = address.host.clone();
+        let mut certificate = None;
+        let mut insecure = false;
+        #[allow(unused_mut)]
+        let mut utls = None;
+        if let Some(tls) = tls {
+            if tls.reality.is_some() {
+                return Err(anyhow!("tls.reality: not for a dns server"));
+            }
+            if tls.ech.is_some() {
+                return Err(anyhow!("tls.ech: not for a dns server"));
+            }
+            if tls.alpn.is_some() {
+                return Err(anyhow!(
+                    "tls.alpn: a {} server offers its own",
+                    protocol.scheme()
+                ));
+            }
+            if let Some(name) = tls.server_name.as_ref().filter(|n| !n.is_empty()) {
+                server_name = name.clone();
+            }
+            certificate = crate::transport::layers::trusted_certificate(tls, env);
+            insecure = tls.insecure;
+            utls = tls.utls.as_ref();
         }
-        let (scheme, rest) = server.split_once("://")?;
-        let protocol = match scheme.to_ascii_lowercase().as_str() {
-            "tls" => Protocol::Tls,
-            "https" => Protocol::Https,
-            "quic" => Protocol::Quic,
-            "h3" => Protocol::H3,
-            _ => return None,
+        if matches!(protocol, Protocol::Quic | Protocol::H3) && utls.is_some() {
+            return Err(anyhow!("tls.utls: not for a {} server", protocol.scheme()));
+        }
+        #[cfg(feature = "tls")]
+        let fingerprint = match utls {
+            Some(utls) if !utls.enabled => None,
+            Some(utls) => Some(
+                crate::transport::tls::Fingerprint::from_name(&utls.fingerprint)
+                    .map_err(|e| anyhow!("tls.utls.fingerprint: {}", e))?,
+            ),
+            None if protocol == Protocol::Https => Some(crate::transport::tls::Fingerprint::Chrome),
+            None => None,
         };
-        Some(Self::parse_rest(protocol, rest, is_direct))
-    }
-
-    /// `host[:port][/path][@bootstrap_ip]`, the path for DoH and DoH3 only.
-    /// The bootstrap address comes last, so a path cannot contain `@`.
-    fn parse_rest(protocol: Protocol, rest: &str, is_direct: bool) -> Result<Self> {
-        let (rest, bootstrap_ip) = match rest.rsplit_once('@') {
-            Some((rest, ip)) => {
-                if ip.is_empty() {
-                    return Err(anyhow!("empty bootstrap ip"));
-                }
-                let ip = ip
-                    .parse::<IpAddr>()
-                    .map_err(|e| anyhow!("invalid bootstrap ip {:?}: {}", ip, e))?;
-                (rest, Some(ip))
-            }
-            None => (rest, None),
-        };
-        let (authority, path) = match rest.find('/') {
-            Some(i) => (&rest[..i], &rest[i..]),
-            None => (rest, ""),
-        };
-        let path = match protocol {
-            Protocol::Https | Protocol::H3 if path.is_empty() => "/dns-query".to_string(),
-            Protocol::Https | Protocol::H3 => {
-                Self::check_path(path)?;
-                path.to_string()
-            }
-            _ if path.is_empty() => String::new(),
-            _ => return Err(anyhow!("{}:// takes no path", protocol.scheme())),
-        };
-        let (host, port) = Self::parse_authority(authority, protocol.default_port())?;
+        #[cfg(feature = "tls")]
+        if let Some(certificate) = &certificate {
+            crate::transport::tls::client::load_certificates(certificate)
+                .map_err(|e| anyhow!("tls.certificate: {}", e))?;
+        }
         let state = State::new(protocol)?;
         Ok(Self {
             protocol,
-            host,
-            port,
+            address,
+            server_name,
             path,
-            bootstrap_ip,
-            is_direct,
+            dialer,
+            certificate,
+            insecure,
+            #[cfg(feature = "tls")]
+            fingerprint,
+            #[cfg(feature = "tls")]
+            tls_client: Default::default(),
             state,
         })
     }
 
-    /// `host`, `host:port`, `[v6]` or `[v6]:port`.
-    fn parse_authority(authority: &str, default_port: u16) -> Result<(String, u16)> {
-        if authority.is_empty() {
-            return Err(anyhow!("empty host"));
-        }
-        let (host, port) = if let Some(rest) = authority.strip_prefix('[') {
-            let (ip, after) = rest
-                .split_once(']')
-                .ok_or_else(|| anyhow!("unclosed [ in host"))?;
-            let ip = ip
-                .parse::<std::net::Ipv6Addr>()
-                .map_err(|e| anyhow!("invalid ipv6 host {:?}: {}", ip, e))?;
-            let port = match after {
-                "" => None,
-                _ => Some(
-                    after
-                        .strip_prefix(':')
-                        .ok_or_else(|| anyhow!("unexpected {:?} after host", after))?,
-                ),
-            };
-            (ip.to_string(), port)
-        } else {
-            match authority.split_once(':') {
-                Some((host, port)) => (host.to_string(), Some(port)),
-                None => (authority.to_string(), None),
-            }
-        };
-        let port = match port {
-            None => default_port,
-            Some(port) => port
-                .parse::<u16>()
-                .ok()
-                .filter(|port| *port != 0)
-                .ok_or_else(|| anyhow!("invalid port {:?}", port))?,
-        };
-        if host.parse::<IpAddr>().is_err() {
-            if host.is_empty() {
-                return Err(anyhow!("empty host"));
-            }
-            // The same check as for a DoH domain, and no more than a
-            // hostname allows.
-            if !host
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'.')
-            {
-                return Err(anyhow!("invalid host {:?}", host));
-            }
-            Name::from_str(&format!("{}.", host))
-                .map_err(|e| anyhow!("invalid host {:?}: {}", host, e))?;
-        }
-        Ok((host.to_ascii_lowercase(), port))
+    /// The TLS client of DoT and DoH.
+    #[cfg(feature = "tls")]
+    fn tls_client(&self) -> Result<&crate::transport::tls::TlsClient> {
+        self.tls_client
+            .get_or_init(|| {
+                crate::transport::tls::TlsClient::new(
+                    &[],
+                    self.certificate.as_deref(),
+                    self.insecure,
+                    self.fingerprint,
+                )
+                .map_err(|e| e.to_string())
+            })
+            .as_ref()
+            .map_err(|e| anyhow!("tls client: {}", e))
     }
 
     fn has_path(&self) -> bool {
@@ -248,14 +289,14 @@ impl Upstream {
     /// when it is not 443.
     #[cfg(any(feature = "dns-doh", feature = "dns-h3"))]
     fn authority(&self) -> String {
-        let host = match self.host.parse::<IpAddr>() {
-            Ok(IpAddr::V6(ip)) => format!("[{}]", ip),
-            _ => self.host.clone(),
+        let host = match self.server_name.parse::<std::net::IpAddr>() {
+            Ok(std::net::IpAddr::V6(ip)) => format!("[{}]", ip),
+            _ => self.server_name.clone(),
         };
-        if self.port == 443 {
+        if self.address.port == 443 {
             host
         } else {
-            format!("{}:{}", host, self.port)
+            format!("{}:{}", host, self.address.port)
         }
     }
 
@@ -285,7 +326,7 @@ impl State {
     fn new(protocol: Protocol) -> Result<Self> {
         match protocol {
             #[cfg(feature = "tls")]
-            Protocol::Tls => Ok(Self::Tls(dot::Pool::default())),
+            Protocol::Tls => Ok(Self::Tls(StreamPool::default())),
             #[cfg(feature = "dns-doh")]
             Protocol::Https => Ok(Self::Https(doh::Pool::default())),
             #[cfg(feature = "quic")]
@@ -294,7 +335,7 @@ impl State {
             Protocol::H3 => Ok(Self::H3(quic::Pool::new(quic::Kind::H3))),
             #[allow(unreachable_patterns)]
             _ => Err(anyhow!(
-                "{}:// is not supported by this build",
+                "a {} server is not supported by this build",
                 protocol.scheme()
             )),
         }
@@ -309,34 +350,18 @@ impl super::DnsClient {
         &self,
         upstream: &Upstream,
         request: &[u8],
-        is_direct: bool,
     ) -> Result<Vec<u8>> {
         let id = Upstream::message_id(request)?;
-        let is_direct = is_direct || upstream.is_direct;
-        let addr = self
-            .resolve_bootstrap_addr(&upstream.host, upstream.port, upstream.bootstrap_ip)
-            .await?;
+        let addr = self.server_addr(&upstream.address).await?;
         let response: Vec<u8> = match &upstream.state {
             #[cfg(feature = "tls")]
-            State::Tls(pool) => {
-                self.exchange_dot(upstream, pool, addr, is_direct, request)
-                    .await?
-            }
+            State::Tls(pool) => self.exchange_dot(upstream, pool, addr, request).await?,
             #[cfg(feature = "dns-doh")]
-            State::Https(pool) => {
-                self.exchange_doh(upstream, pool, addr, is_direct, request)
-                    .await?
-            }
+            State::Https(pool) => self.exchange_doh(upstream, pool, addr, request).await?,
             #[cfg(feature = "quic")]
-            State::Quic(pool) => {
-                self.exchange_quic(upstream, pool, addr, is_direct, request)
-                    .await?
-            }
+            State::Quic(pool) => self.exchange_quic(upstream, pool, addr, request).await?,
             #[cfg(feature = "dns-h3")]
-            State::H3(pool) => {
-                self.exchange_quic(upstream, pool, addr, is_direct, request)
-                    .await?
-            }
+            State::H3(pool) => self.exchange_quic(upstream, pool, addr, request).await?,
         };
         if response.len() < 12 {
             return Err(anyhow!("dns response too short"));
@@ -347,14 +372,13 @@ impl super::DnsClient {
         Ok(response)
     }
 
-    /// Without the tls and quic features no upstream parses, so there is
-    /// never one to send to.
+    /// Without the tls and quic features no encrypted server builds, so
+    /// there is never one to send to.
     #[cfg(not(any(feature = "tls", feature = "quic", feature = "dns-h3")))]
     pub(super) async fn exchange_upstream(
         &self,
         upstream: &Upstream,
         _request: &[u8],
-        _is_direct: bool,
     ) -> Result<Vec<u8>> {
         match upstream.state {}
     }

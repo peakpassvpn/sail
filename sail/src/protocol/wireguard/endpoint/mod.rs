@@ -203,7 +203,7 @@ impl Shared {
             };
             let mut delay = Duration::from_secs(1);
             let addr = loop {
-                match self.dns_client.load_full().direct_lookup(host).await {
+                match self.dns_client.load_full().lookup(host).await {
                     Ok(ips) if !ips.is_empty() => {
                         // IPv4 first, unless IPv6 is all there is.
                         let ip = ips

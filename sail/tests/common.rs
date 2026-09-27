@@ -414,7 +414,7 @@ fn new_socks_outbound(
     let dns_client = sail::app::dns_client::DnsClient::new(
         &config.dns,
         Arc::new(dial_defaults.clone()),
-        Default::default(),
+        &Default::default(),
     )?
     .into_shared();
     let outbound_manager = sail::app::outbound::manager::OutboundManager::new(

@@ -10,12 +10,13 @@ pub struct EchCacheEntry {
     pub deadline: Instant,
 }
 
-#[derive(Clone, Debug)]
-enum Resolver {
-    Server(SocketAddr, bool),
-    /// `tls://`, `https://` (or `doh:`), `quic://` or `h3://`.
-    Upstream(Arc<upstream::Upstream>),
-    System(bool),
+/// What a server answered.
+enum Answer {
+    /// A DNS message, from a server asked over the wire.
+    Message(Message),
+    /// Addresses, from the system's resolver or a hosts server, which have
+    /// no message and no TTL of their own.
+    Ips(Vec<IpAddr>),
 }
 
 #[derive(Clone, Debug, Default)]
@@ -29,34 +30,14 @@ struct ServerRuntimeStats {
     consecutive_failures: u32,
 }
 
+/// How the members of a smart_select have fared, by tag, and which one is
+/// asked first.
 #[derive(Clone, Debug, Default)]
 struct ServerSelectorState {
     primary_server: Option<String>,
     stats: HashMap<String, ServerRuntimeStats>,
     last_reselect_at: Option<Instant>,
     tuning: crate::runtime::options::Dns,
-}
-
-impl fmt::Display for Resolver {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Server(addr, direct) => {
-                if *direct {
-                    write!(f, "direct:{}", addr)
-                } else {
-                    write!(f, "{}", addr)
-                }
-            }
-            Self::Upstream(upstream) => write!(f, "{}", upstream),
-            Self::System(direct) => {
-                if *direct {
-                    write!(f, "direct:system")
-                } else {
-                    write!(f, "system")
-                }
-            }
-        }
-    }
 }
 
 impl ServerSelectorState {
@@ -91,20 +72,16 @@ impl ServerSelectorState {
         }
     }
 
-    fn ensure_candidates(&mut self, servers: &[&Resolver]) {
-        for server in servers {
-            self.stats.entry(server.to_string()).or_default();
-        }
-    }
-
-    fn select_primary_index(&mut self, servers: &[&Resolver]) -> usize {
+    fn select_primary_index(&mut self, servers: &[String]) -> usize {
         if servers.len() <= 1 {
             if let Some(server) = servers.first() {
-                self.primary_server = Some(server.to_string());
+                self.primary_server = Some(server.clone());
             }
             return 0;
         }
-        self.ensure_candidates(servers);
+        for server in servers {
+            self.stats.entry(server.clone()).or_default();
+        }
         let now = Instant::now();
         let reselect_interval = self.tuning.reselect_interval.max(Duration::from_secs(1));
         let should_reselect = self
@@ -112,14 +89,12 @@ impl ServerSelectorState {
             .map(|last| now.saturating_duration_since(last) >= reselect_interval)
             .unwrap_or(true);
 
-        let current_idx = self.primary_server.as_ref().and_then(|primary| {
-            servers
-                .iter()
-                .position(|server| server.to_string() == *primary)
-        });
+        let current_idx = self
+            .primary_server
+            .as_ref()
+            .and_then(|primary| servers.iter().position(|server| server == primary));
         if let Some(idx) = current_idx {
-            let current_key = servers[idx].to_string();
-            if !should_reselect && !self.is_degraded(&current_key) {
+            if !should_reselect && !self.is_degraded(&servers[idx]) {
                 return idx;
             }
         }
@@ -127,24 +102,24 @@ impl ServerSelectorState {
         let mut best_idx = 0usize;
         let mut best_score = f64::MAX;
         for (idx, server) in servers.iter().enumerate() {
-            let score = self.score_of(&server.to_string());
+            let score = self.score_of(server);
             if score < best_score {
                 best_score = score;
                 best_idx = idx;
             }
         }
-        self.primary_server = Some(servers[best_idx].to_string());
+        self.primary_server = Some(servers[best_idx].clone());
         self.last_reselect_at = Some(now);
         best_idx
     }
 
-    fn fallback_indices(&self, servers: &[&Resolver], preferred_idx: usize) -> Vec<usize> {
+    fn fallback_indices(&self, servers: &[String], preferred_idx: usize) -> Vec<usize> {
         let mut candidates: Vec<usize> = (0..servers.len())
             .filter(|idx| *idx != preferred_idx)
             .collect();
         candidates.sort_by(|a, b| {
-            let sa = self.score_of(&servers[*a].to_string());
-            let sb = self.score_of(&servers[*b].to_string());
+            let sa = self.score_of(&servers[*a]);
+            let sb = self.score_of(&servers[*b]);
             sa.partial_cmp(&sb).unwrap_or(std::cmp::Ordering::Equal)
         });
         candidates
@@ -196,15 +171,14 @@ impl ServerSelectorState {
 pub struct DnsClient {
     /// Set once the dispatcher exists, and kept across reloads.
     dispatcher: Arc<std::sync::OnceLock<Weak<Dispatcher>>>,
-    servers: Vec<Resolver>,
-    hosts: HashMap<String, Vec<IpAddr>>,
+    /// `dns.servers`, by tag.
+    servers: HashMap<String, Arc<server::Server>>,
+    /// `dns.final`.
+    final_server: String,
     ipv4_cache: Arc<TokioMutex<LruCache<String, CacheEntry>>>,
     ipv6_cache: Arc<TokioMutex<LruCache<String, CacheEntry>>>,
     ech_cache: Arc<TokioMutex<LruCache<String, EchCacheEntry>>>,
     ech_query_locks: Arc<TokioMutex<HashMap<String, Arc<TokioMutex<()>>>>>,
-    selector_state: Arc<Mutex<ServerSelectorState>>,
-    /// How its own sockets are opened: the instance's dial defaults.
-    dial: Arc<crate::net::DialOptions>,
     tuning: crate::runtime::options::Dns,
     /// `dns.strategy`.
     strategy: crate::config::model::DnsStrategy,
@@ -212,15 +186,4 @@ pub struct DnsClient {
     timeout: Duration,
     /// `dns.reverse_mapping`.
     reverse_mapping: bool,
-    /// The certificates `tls://`, `https://`, `quic://` and `h3://` servers are checked
-    /// against, instead of the bundled roots.
-    upstream_certificate: Option<String>,
-    /// The TLS client of the `tls://` servers, built on first use.
-    #[cfg(feature = "tls")]
-    upstream_tls:
-        std::sync::OnceLock<std::result::Result<crate::transport::tls::TlsClient, String>>,
-    /// The TLS client of the `https://` servers, built on first use.
-    #[cfg(feature = "dns-doh")]
-    doh_tls:
-        std::sync::OnceLock<std::result::Result<crate::transport::tls::TlsClient, String>>,
 }

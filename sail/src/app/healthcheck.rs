@@ -231,7 +231,7 @@ mod tests {
         crate::app::dns_client::DnsClient::new(
             &Default::default(),
             std::sync::Arc::new(crate::net::DialOptions::default()),
-            Default::default(),
+            &Default::default(),
         )
         .unwrap()
         .into_shared()

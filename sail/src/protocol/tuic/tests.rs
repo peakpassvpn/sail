@@ -66,7 +66,7 @@ async fn fixture(server_zero_rtt: bool, client_zero_rtt: bool) -> Fixture {
     let dns = DnsClient::new(
         &crate::config::Dns::default(),
         Default::default(),
-        Default::default(),
+        &Default::default(),
     )
     .unwrap()
     .into_shared();

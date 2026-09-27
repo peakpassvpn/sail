@@ -364,18 +364,39 @@ impl Dispatcher {
 
     pub async fn dispatch_stream_outbound(&self, mut sess: Session) -> io::Result<AnyStream> {
         let outbound = self.route(&mut sess, &mut NoSniffer).await?;
+        self.stream_via(&outbound, sess).await
+    }
 
-        sess.outbound_tag = outbound.clone();
-
-        let h = if let Some(h) = self.outbound_manager.load().get(&outbound) {
-            h
-        } else {
-            return Err(io::Error::other("handler not found"));
-        };
-
+    /// A stream to the session's destination through the outbound `tag`,
+    /// whatever the rules say: for a DNS server's `detour`.
+    pub async fn stream_via(&self, tag: &str, mut sess: Session) -> io::Result<AnyStream> {
+        sess.outbound_tag = tag.to_string();
+        let h = self
+            .outbound_manager
+            .load()
+            .get(tag)
+            .ok_or_else(|| io::Error::other(format!("outbound [{}] not found", tag)))?;
         let stream =
             crate::net::connect_stream_outbound(&sess, self.dns_client.clone(), &h).await?;
         h.stream()?.handle(&sess, None, stream).await
+    }
+
+    /// Datagrams to the session's destination through the outbound `tag`,
+    /// whatever the rules say: for a DNS server's `detour`.
+    pub async fn datagram_via(
+        &self,
+        tag: &str,
+        mut sess: Session,
+    ) -> io::Result<Box<dyn OutboundDatagram>> {
+        sess.outbound_tag = tag.to_string();
+        let h = self
+            .outbound_manager
+            .load()
+            .get(tag)
+            .ok_or_else(|| io::Error::other(format!("outbound [{}] not found", tag)))?;
+        let transport =
+            crate::net::connect_datagram_outbound(&sess, self.dns_client.clone(), &h).await?;
+        h.datagram()?.handle(&sess, transport).await
     }
 
     #[async_recursion]

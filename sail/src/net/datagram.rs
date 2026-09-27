@@ -125,7 +125,7 @@ impl OutboundDatagramSendHalf for DomainResolveOutboundDatagramSendHalf {
                 let ips = self
                     .1
                     .load_full()
-                    .direct_lookup(domain)
+                    .lookup(domain)
                     .map_err(|e| io::Error::other(format!("lookup {} failed: {}", domain, e)))
                     .await?;
                 let ip = ips.first().ok_or_else(|| io::Error::other("no results"))?;
@@ -264,7 +264,7 @@ impl OutboundDatagramSendHalf for DomainAssociatedOutboundDatagramSendHalf {
                 let ips = {
                     self.2
                         .load_full()
-                        .direct_lookup(domain)
+                        .lookup(domain)
                         .map_err(|e| io::Error::other(format!("lookup {} failed: {}", domain, e)))
                         .await?
                 };

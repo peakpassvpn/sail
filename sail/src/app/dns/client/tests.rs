@@ -1,285 +1,236 @@
 #[cfg(test)]
 mod tests {
-    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+    use std::net::IpAddr;
     use std::time::Duration;
 
-    use super::{DnsClient, Resolver, ServerSelectorState};
+    use super::{DnsClient, Kind, ServerSelectorState};
 
-    fn new_client(servers: Vec<&str>) -> DnsClient {
-        let dns = crate::config::Dns {
-            servers: servers.into_iter().map(|s| s.to_string()).collect(),
-            ..Default::default()
-        };
-        DnsClient::new(&dns, Default::default(), Default::default()).unwrap()
+    fn dns(servers: serde_json::Value) -> crate::config::Dns {
+        let mut config = crate::config::Config::from_json(
+            &serde_json::json!({ "dns": { "servers": servers } }).to_string(),
+        )
+        .unwrap();
+        std::mem::take(&mut config.dns)
     }
 
-    fn collect_server_strings(client: &DnsClient, is_direct_outbound: bool) -> Vec<String> {
-        client
-            .collect_servers(is_direct_outbound)
-            .into_iter()
-            .map(|server| server.to_string())
-            .collect()
+    fn client(servers: serde_json::Value) -> anyhow::Result<DnsClient> {
+        DnsClient::new(&dns(servers), Default::default(), &Default::default())
+    }
+
+    fn error(servers: serde_json::Value) -> String {
+        client(servers).err().unwrap().to_string()
     }
 
     #[test]
-    fn load_servers_supports_legacy_and_doh_with_ip() {
-        let dns = crate::config::Dns {
-            servers: vec![
-                "1.1.1.1".to_string(),
-                "direct:system".to_string(),
-                "doh:example.com@9.9.9.9".to_string(),
-                "direct:doh:example.com@8.8.8.8".to_string(),
-                "doh:example.net".to_string(),
-            ],
-            ..Default::default()
-        };
-        let servers = DnsClient::load_servers(&dns).unwrap();
-
-        match &servers[0] {
-            Resolver::Server(addr, false) => assert_eq!(
-                *addr,
-                SocketAddr::new(IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1)), 53)
-            ),
-            _ => panic!("unexpected resolver"),
-        }
-        match &servers[1] {
-            Resolver::System(true) => {}
-            _ => panic!("unexpected resolver"),
-        }
-        // `doh:x` is `https://x`.
-        let expected = [
-            ("example.com", Some(IpAddr::V4(Ipv4Addr::new(9, 9, 9, 9))), false),
-            ("example.com", Some(IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8))), true),
-            ("example.net", None, false),
+    fn every_type_builds() {
+        #[allow(unused_mut)]
+        let mut servers = vec![
+            serde_json::json!({ "type": "udp", "tag": "udp", "server": "1.1.1.1" }),
+            serde_json::json!({ "type": "tcp", "tag": "tcp", "server": "::1", "server_port": 5353 }),
+            serde_json::json!({ "type": "local", "tag": "local" }),
+            serde_json::json!({ "type": "hosts", "tag": "hosts",
+                                "predefined": { "a.example": ["10.0.0.1", "::1"] } }),
+            serde_json::json!({ "type": "smart_select", "tag": "best", "servers": ["udp", "tcp"] }),
         ];
-        for (server, (host, bootstrap_ip, is_direct)) in servers[2..].iter().zip(expected) {
-            match server {
-                Resolver::Upstream(upstream) => {
-                    assert_eq!(upstream.protocol, super::upstream::Protocol::Https);
-                    assert_eq!(upstream.host, host);
-                    assert_eq!(upstream.port, 443);
-                    assert_eq!(upstream.path, "/dns-query");
-                    assert_eq!(upstream.bootstrap_ip, bootstrap_ip);
-                    assert_eq!(upstream.is_direct, is_direct);
-                }
-                _ => panic!("unexpected resolver"),
+        #[cfg(feature = "tls")]
+        servers.push(serde_json::json!({
+            "type": "tls", "tag": "dot", "server": "1.1.1.1",
+            "tls": { "server_name": "one.one.one.one" }
+        }));
+        #[cfg(feature = "dns-doh")]
+        servers.push(serde_json::json!({
+            "type": "https", "tag": "doh", "server": "dns.google",
+            "domain_resolver": "udp", "path": "/resolve"
+        }));
+        #[cfg(feature = "quic")]
+        servers.push(serde_json::json!({ "type": "quic", "tag": "doq", "server": "94.140.14.14" }));
+        #[cfg(feature = "dns-h3")]
+        servers.push(serde_json::json!({ "type": "h3", "tag": "doh3", "server": "223.5.5.5" }));
+        let client = client(serde_json::Value::Array(servers)).unwrap();
+        assert_eq!(client.final_server, "udp");
+        assert!(matches!(
+            client.servers["best"].kind,
+            Kind::SmartSelect { .. }
+        ));
+        #[cfg(feature = "dns-doh")]
+        match &client.servers["doh"].kind {
+            Kind::Upstream(u) => {
+                assert_eq!(u.to_string(), "https://dns.google:443/resolve");
+                assert_eq!(u.address.resolver.as_ref().unwrap().server, "udp");
             }
+            _ => panic!("not an upstream"),
+        }
+        #[cfg(feature = "tls")]
+        match &client.servers["dot"].kind {
+            Kind::Upstream(u) => assert_eq!(u.server_name, "one.one.one.one"),
+            _ => panic!("not an upstream"),
         }
     }
 
     #[test]
-    fn an_invalid_server_is_an_error_that_names_it() {
-        for invalid in [
-            "doh:@1.1.1.1",
-            "direct:doh:example.com@not-an-ip",
-            "doh:example.com#8.8.8.8",
+    fn no_servers_is_the_system_resolver() {
+        let client = client(serde_json::json!([])).unwrap();
+        assert_eq!(client.final_server, "local");
+        assert!(matches!(client.servers["local"].kind, Kind::Local));
+    }
+
+    #[test]
+    fn mistakes_name_the_server() {
+        for (servers, message) in [
+            (
+                serde_json::json!([{ "type": "dohh", "tag": "d" }]),
+                "dns.servers[d]: unknown server type \"dohh\"",
+            ),
+            (
+                serde_json::json!([{ "type": "udp", "tag": "u" }]),
+                "dns.servers[u]: server: missing",
+            ),
+            (
+                serde_json::json!([{ "type": "udp", "tag": "u", "server": "dns.google" }]),
+                "is a domain; set domain_resolver",
+            ),
+            (
+                serde_json::json!([{ "type": "udp", "tag": "u", "server": "1.1.1.1",
+                                     "domain_resolver": "u" }]),
+                "the server is an address",
+            ),
+            (
+                serde_json::json!([{ "type": "udp", "tag": "u", "server": "a.example",
+                                     "domain_resolver": "nowhere" }]),
+                "server [nowhere] does not exist",
+            ),
+            (
+                serde_json::json!([{ "type": "udp", "tag": "u", "server": "1.1.1.1",
+                                     "path": "/x" }]),
+                "path: a udp server takes none",
+            ),
+            (
+                serde_json::json!([{ "type": "udp", "tag": "u", "server": "1.1.1.1",
+                                     "detour": "proxy", "bind_interface": "en0" }]),
+                "no effect with a detour",
+            ),
+            (
+                serde_json::json!([{ "type": "udp", "tag": "u", "server": "1.1.1.1",
+                                     "sever_port": 53 }]),
+                "sever_port",
+            ),
+            (
+                serde_json::json!([
+                    { "type": "udp", "tag": "a", "server": "a.example", "domain_resolver": "b" },
+                    { "type": "udp", "tag": "b", "server": "b.example", "domain_resolver": "a" }
+                ]),
+                "[a] -> [b] -> [a] need each other",
+            ),
+            (
+                serde_json::json!([
+                    { "type": "local", "tag": "l" },
+                    { "type": "smart_select", "tag": "s1", "servers": ["l", "s2"] },
+                    { "type": "smart_select", "tag": "s2", "servers": ["l", "l"] }
+                ]),
+                "[s2] is a smart_select too",
+            ),
+            (
+                serde_json::json!([{ "type": "smart_select", "tag": "s", "servers": ["x"] }]),
+                "a smart_select takes two or more",
+            ),
         ] {
-            let dns = crate::config::Dns {
-                servers: vec!["1.1.1.1".to_string(), invalid.to_string()],
-                ..Default::default()
-            };
-            let err = DnsClient::load_servers(&dns).unwrap_err();
-            assert!(
-                err.to_string()
-                    .starts_with(&format!("dns.servers: invalid server \"{}\"", invalid)),
-                "{}",
-                err
-            );
+            let err = error(servers.clone());
+            assert!(err.contains(message), "{}: {}", servers, err);
         }
     }
 
     #[test]
-    fn load_servers_supports_encrypted_upstreams() {
-        let dns = crate::config::Dns {
-            servers: vec![
-                "tls://dns.google".to_string(),
-                "direct:tls://dns.google:8853@8.8.8.8".to_string(),
-                "tls://1.1.1.1".to_string(),
-                "quic://dns.adguard-dns.com".to_string(),
-                "QUIC://[2606:4700::1111]:784".to_string(),
-                "h3://dns.google".to_string(),
-                "direct:h3://cloudflare-dns.com:8443/custom/path@1.1.1.1".to_string(),
-                "h3://[::1]/q@::1".to_string(),
-            ],
-            ..Default::default()
-        };
-        let servers: Vec<String> = DnsClient::load_servers(&dns)
-            .unwrap()
-            .iter()
-            .map(|s| s.to_string())
-            .collect();
-        assert_eq!(
-            servers,
-            vec![
-                "tls://dns.google:853",
-                "direct:tls://dns.google:8853@8.8.8.8",
-                "tls://1.1.1.1:853",
-                "quic://dns.adguard-dns.com:853",
-                "quic://[2606:4700::1111]:784",
-                "h3://dns.google:443/dns-query",
-                "direct:h3://cloudflare-dns.com:8443/custom/path@1.1.1.1",
-                "h3://[::1]:443/q@::1",
-            ]
-        );
-        let servers = DnsClient::load_servers(&dns).unwrap();
-        match &servers[1] {
-            Resolver::Upstream(upstream) => {
-                assert_eq!(upstream.host, "dns.google");
-                assert_eq!(upstream.port, 8853);
-                assert_eq!(
-                    upstream.bootstrap_ip,
-                    Some(IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)))
-                );
-                assert!(upstream.is_direct);
-            }
-            _ => panic!("unexpected resolver"),
-        }
-        match &servers[4] {
-            Resolver::Upstream(upstream) => {
-                assert_eq!(upstream.host, "2606:4700::1111");
-                assert_eq!(upstream.bootstrap_ip, None);
-                assert!(!upstream.is_direct);
-            }
-            _ => panic!("unexpected resolver"),
-        }
-    }
-
-    #[test]
-    fn an_invalid_encrypted_upstream_is_an_error_that_names_it() {
-        for invalid in [
-            "tls://",
-            "tls://:853",
-            "tls://dns.google:",
-            "tls://dns.google:0",
-            "tls://dns.google:65536",
-            "tls://dns.google:port",
-            "tls://dns.google/dns-query",
-            "quic://dns.google/",
-            "tls://dns.google@",
-            "tls://dns.google@not-an-ip",
-            "quic://dns_google",
-            "quic://dns.google#8.8.8.8",
-            "quic://[::1",
-            "quic://[not-v6]:853",
-            "quic://[::1]x",
-            "h3://dns.google/dns-query?dns=x",
-            "h3://dns.google/a b",
-            "h3://dns.google/user@example",
-            "https://dns.google/dns-query?dns=x",
-            "udp://8.8.8.8",
+    fn tags_are_unique_and_final_names_one() {
+        for (dns, message) in [
+            (
+                serde_json::json!({ "servers": [{ "type": "local" }, { "type": "local" }] }),
+                "another server is tagged [local]",
+            ),
+            (
+                serde_json::json!({ "servers": [{ "type": "local" }], "final": "x" }),
+                "dns.final: server [x] does not exist",
+            ),
         ] {
-            let dns = crate::config::Dns {
-                servers: vec!["1.1.1.1".to_string(), invalid.to_string()],
-                ..Default::default()
-            };
-            let err = DnsClient::load_servers(&dns).unwrap_err();
-            assert!(
-                err.to_string()
-                    .starts_with(&format!("dns.servers: invalid server \"{}\"", invalid)),
-                "{}",
-                err
-            );
+            let err =
+                crate::config::Config::from_json(&serde_json::json!({ "dns": dns }).to_string())
+                    .unwrap_err()
+                    .to_string();
+            assert!(err.contains(message), "{}: {}", dns, err);
         }
     }
 
-    #[test]
-    fn collect_servers_keeps_encrypted_upstreams_by_directness() {
-        let client = new_client(vec![
-            "tls://proxied.example",
-            "direct:quic://direct.example@8.8.8.8",
-            "h3://proxied.example",
-        ]);
+    #[tokio::test]
+    async fn a_hosts_server_answers_for_its_names_alone() {
+        let client = client(serde_json::json!([{
+            "type": "hosts",
+            "predefined": { "A.example": ["10.0.0.1", "::1"], "b.example": "10.0.0.2" }
+        }]))
+        .unwrap();
+        let ips = client.lookup("a.example").await.unwrap();
         assert_eq!(
-            collect_server_strings(&client, true),
-            vec!["direct:quic://direct.example:853@8.8.8.8"]
-        );
-        assert_eq!(
-            collect_server_strings(&client, false),
-            vec![
-                "tls://proxied.example:853",
-                "h3://proxied.example:443/dns-query"
+            ips,
+            [
+                "10.0.0.1".parse::<IpAddr>().unwrap(),
+                "::1".parse().unwrap()
             ]
         );
-    }
-
-    #[test]
-    fn no_servers_is_an_error() {
-        let dns = crate::config::Dns {
-            servers: Vec::new(),
-            ..Default::default()
-        };
-        let err = DnsClient::load_servers(&dns).unwrap_err();
-        assert!(err.to_string().contains("no dns servers"));
-    }
-
-    #[test]
-    fn collect_servers_includes_direct_doh_for_direct_outbound() {
-        let client = new_client(vec![
-            "1.1.1.1",
-            "doh:normal.example",
-            "direct:doh:direct.example@8.8.8.8",
-        ]);
-        let selected = collect_server_strings(&client, true);
         assert_eq!(
-            selected,
-            vec!["direct:https://direct.example:443/dns-query@8.8.8.8"]
+            client.lookup("b.example").await.unwrap(),
+            ["10.0.0.2".parse::<IpAddr>().unwrap()]
+        );
+        assert!(client.lookup("c.example").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn a_smart_select_falls_back_to_a_member_that_answers() {
+        let client = client(serde_json::json!([
+            { "type": "smart_select", "tag": "best", "servers": ["empty", "hosts"] },
+            { "type": "hosts", "tag": "empty", "predefined": { "other.example": "10.0.0.9" } },
+            { "type": "hosts", "tag": "hosts", "predefined": { "a.example": "10.0.0.1" } }
+        ]))
+        .unwrap();
+        assert_eq!(client.final_server, "best");
+        assert_eq!(
+            client.lookup("a.example").await.unwrap(),
+            ["10.0.0.1".parse::<IpAddr>().unwrap()]
         );
     }
 
-    #[test]
-    fn collect_servers_fallback_to_normal_keeps_non_direct_doh() {
-        let client = new_client(vec!["doh:normal.example", "1.1.1.1", "system"]);
-        let selected = collect_server_strings(&client, true);
-        assert_eq!(
-            selected,
-            vec![
-                "https://normal.example:443/dns-query".to_string(),
-                "1.1.1.1:53".to_string(),
-                "system".to_string()
-            ]
-        );
+    fn tags(tags: &[&str]) -> Vec<String> {
+        tags.iter().map(|t| t.to_string()).collect()
     }
 
     #[test]
     fn selector_primary_switches_after_consecutive_failures() {
-        let s1 = DnsClient::parse_server("1.1.1.1").unwrap();
-        let s2 = DnsClient::parse_server("8.8.8.8").unwrap();
-        let servers = vec![&s1, &s2];
+        let servers = tags(&["a", "b"]);
         let mut selector = ServerSelectorState::default();
-        let initial = selector.select_primary_index(&servers);
-        assert_eq!(initial, 0);
-        let key = s1.to_string();
-        let threshold = crate::runtime::options::Dns::default().switch_threshold.max(1);
+        assert_eq!(selector.select_primary_index(&servers), 0);
+        let threshold = crate::runtime::options::Dns::default()
+            .switch_threshold
+            .max(1);
         for _ in 0..threshold {
-            selector.mark_failure(&key, true);
+            selector.mark_failure("a", true);
         }
-        let selected = selector.select_primary_index(&servers);
-        assert_eq!(selected, 1);
+        assert_eq!(selector.select_primary_index(&servers), 1);
     }
 
     #[test]
     fn selector_prefers_lower_latency_in_fallback_order() {
-        let s1 = DnsClient::parse_server("1.1.1.1").unwrap();
-        let s2 = DnsClient::parse_server("8.8.8.8").unwrap();
-        let s3 = DnsClient::parse_server("9.9.9.9").unwrap();
-        let servers = vec![&s1, &s2, &s3];
+        let servers = tags(&["a", "b", "c"]);
         let mut selector = ServerSelectorState::default();
-        selector.mark_success(&s2.to_string(), Duration::from_millis(30));
-        selector.mark_success(&s3.to_string(), Duration::from_millis(450));
-        let order = selector.fallback_indices(&servers, 0);
-        assert_eq!(order, vec![1, 2]);
+        selector.mark_success("b", Duration::from_millis(30));
+        selector.mark_success("c", Duration::from_millis(450));
+        assert_eq!(selector.fallback_indices(&servers, 0), vec![1, 2]);
     }
 
     #[test]
     fn selector_marks_slow_server_as_degraded() {
-        let server = DnsClient::parse_server("1.1.1.1").unwrap();
         let mut selector = ServerSelectorState::default();
-        let key = server.to_string();
-        let threshold = crate::runtime::options::Dns::default().switch_threshold.max(1);
-        let slow_elapsed = crate::runtime::options::Dns::default().slow_response + Duration::from_millis(50);
-        for _ in 0..threshold {
-            selector.mark_success(&key, slow_elapsed);
+        let tuning = crate::runtime::options::Dns::default();
+        let slow = tuning.slow_response + Duration::from_millis(50);
+        for _ in 0..tuning.switch_threshold.max(1) {
+            selector.mark_success("a", slow);
         }
-        assert!(selector.is_degraded(&key));
+        assert!(selector.is_degraded("a"));
     }
 }

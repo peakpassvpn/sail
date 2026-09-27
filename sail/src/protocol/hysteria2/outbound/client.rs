@@ -128,7 +128,7 @@ impl Client {
         let ips = o
             .dns_client
             .load_full()
-            .direct_lookup(&o.server)
+            .lookup(&o.server)
             .await
             .with_context(|| format!("lookup {}", o.server))?;
         let mut last_err = anyhow!("could not resolve {} to any address", o.server);

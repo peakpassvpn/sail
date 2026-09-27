@@ -99,21 +99,22 @@ pub struct Log {
     pub format: LogFormat,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Dns {
-    #[serde(default = "default_dns_servers")]
-    pub servers: Vec<String>,
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub hosts: HashMap<String, Vec<String>>,
+    /// The servers, each by its tag. None is the system's resolver alone.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub servers: Vec<DnsServer>,
+    /// The server a query goes to; the first one when unset.
+    #[serde(rename = "final", default, skip_serializing_if = "Option::is_none")]
+    pub final_server: Option<String>,
     /// Which address families names resolve to, and in what order.
     #[serde(default)]
     pub strategy: DnsStrategy,
     /// Answers kept per address family; 512, or 64 on iOS, when unset.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cache_capacity: Option<usize>,
-    /// How long one query to one server may take; 4s when unset. A sail
-    /// extension.
+    /// How long one query to one server may take; 4s when unset.
     #[serde(default, with = "duration", skip_serializing_if = "Option::is_none")]
     pub timeout: Option<std::time::Duration>,
     /// Remembers the domain of each address the DNS answers that pass
@@ -123,42 +124,40 @@ pub struct Dns {
     pub reverse_mapping: bool,
 }
 
+/// A DNS server. What it takes beyond its type and tag belongs to its type,
+/// and is read when the DNS client is built, as an outbound's options are.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct DnsServer {
+    /// `udp`, `tcp`, `tls`, `https`, `quic`, `h3`, `local`, `hosts`, or
+    /// sail's `smart_select`.
+    #[serde(rename = "type")]
+    pub kind: String,
+    /// Defaults to the type.
+    #[serde(default)]
+    pub tag: String,
+    #[serde(flatten)]
+    pub options: Options,
+}
+
 /// Which address families names resolve to, as sing-box names them.
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum DnsStrategy {
-    /// IPv4 addresses only.
+    /// Both, IPv4 first: sing-box's default.
     #[default]
-    Ipv4Only,
-    /// IPv6 addresses only.
-    Ipv6Only,
-    /// Both, IPv4 first.
     PreferIpv4,
     /// Both, IPv6 first.
     PreferIpv6,
+    /// IPv4 addresses only.
+    Ipv4Only,
+    /// IPv6 addresses only.
+    Ipv6Only,
 }
 
 impl DnsStrategy {
     /// Whether IPv6 destinations are used at all.
     pub fn ipv6(self) -> bool {
         self != DnsStrategy::Ipv4Only
-    }
-}
-
-fn default_dns_servers() -> Vec<String> {
-    vec!["1.1.1.1".to_string()]
-}
-
-impl Default for Dns {
-    fn default() -> Self {
-        Self {
-            servers: default_dns_servers(),
-            hosts: HashMap::new(),
-            strategy: DnsStrategy::default(),
-            cache_capacity: None,
-            timeout: None,
-            reverse_mapping: false,
-        }
     }
 }
 
@@ -170,6 +169,30 @@ impl Dns {
 
     pub fn timeout(&self) -> std::time::Duration {
         self.timeout.unwrap_or(std::time::Duration::from_secs(4))
+    }
+
+    /// Fills in the tags left to defaults, and checks that tags are unique
+    /// and `final` names a server.
+    fn validate(&mut self) -> Result<()> {
+        let mut tags = HashSet::new();
+        for (i, server) in self.servers.iter_mut().enumerate() {
+            if server.tag.is_empty() {
+                server.tag = server.kind.clone();
+            }
+            if !tags.insert(server.tag.clone()) {
+                return Err(anyhow!(
+                    "dns.servers[{}]: another server is tagged [{}]",
+                    i,
+                    server.tag
+                ));
+            }
+        }
+        if let Some(tag) = &self.final_server {
+            if !tags.contains(tag) {
+                return Err(anyhow!("dns.final: server [{}] does not exist", tag));
+            }
+        }
+        Ok(())
     }
 }
 
@@ -426,6 +449,7 @@ impl Config {
                 ));
             }
         }
+        self.dns.validate()?;
         if self.dns.timeout == Some(std::time::Duration::ZERO) {
             return Err(anyhow!("dns.timeout: must be more than 0"));
         }
@@ -655,7 +679,7 @@ mod tests {
         assert_eq!(config.inbounds[0].listen_port, Some(1080));
         assert!(config.inbounds[0].options.contains_key("users"));
         assert_eq!(config.outbounds[0].options["server"], "a");
-        assert_eq!(config.dns.servers, ["1.1.1.1"]);
+        assert!(config.dns.servers.is_empty());
     }
 
     #[test]
@@ -810,7 +834,7 @@ mod tests {
         );
 
         let defaults = Config::from_json("{}").unwrap();
-        assert_eq!(defaults.dns.strategy, DnsStrategy::Ipv4Only);
+        assert_eq!(defaults.dns.strategy, DnsStrategy::PreferIpv4);
         assert_eq!(defaults.dns.timeout(), std::time::Duration::from_secs(4));
         assert_eq!(defaults.api.listen, None);
     }

@@ -360,7 +360,7 @@ mod tests {
         let dns = crate::app::dns::DnsClient::new(
             &config.dns,
             Arc::new(dial.clone()),
-            Default::default(),
+            &Default::default(),
         )?
         .into_shared();
         let env = RuntimeEnv::default();

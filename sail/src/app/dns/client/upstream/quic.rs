@@ -85,18 +85,27 @@ impl Pool {
         }
     }
 
-    fn client_config(&self, certificate: Option<&str>) -> Result<quinn::ClientConfig> {
+    fn client_config(
+        &self,
+        certificate: Option<&str>,
+        insecure: bool,
+    ) -> Result<quinn::ClientConfig> {
         self.client_config
-            .get_or_init(|| build_client_config(self.kind, certificate).map_err(|e| e.to_string()))
+            .get_or_init(|| {
+                build_client_config(self.kind, certificate, insecure).map_err(|e| e.to_string())
+            })
             .clone()
             .map_err(|e| anyhow!("quic client config: {}", e))
     }
 }
 
-fn build_client_config(kind: Kind, certificate: Option<&str>) -> Result<quinn::ClientConfig> {
-    // As for TLS: the bundled roots, or `certificate` instead, and the
-    // server verified.
-    let crypto = client_crypto(certificate, false, &[kind.alpn().to_vec()])?;
+fn build_client_config(
+    kind: Kind,
+    certificate: Option<&str>,
+    insecure: bool,
+) -> Result<quinn::ClientConfig> {
+    // As for TLS: the bundled roots, or `certificate` instead.
+    let crypto = client_crypto(certificate, insecure, &[kind.alpn().to_vec()])?;
     let mut client_config = quinn::ClientConfig::new(Arc::new(crypto));
     let mut transport = quinn::TransportConfig::default();
     transport.max_idle_timeout(quinn::IdleTimeout::try_from(IDLE_TIMEOUT).ok());
@@ -111,7 +120,6 @@ impl DnsClient {
         upstream: &Upstream,
         pool: &Pool,
         addr: SocketAddr,
-        is_direct: bool,
         request: &[u8],
     ) -> Result<Vec<u8>> {
         // DoQ requires ID 0 (RFC 9250 §4.2.1), and DoH asks for it so that
@@ -125,9 +133,7 @@ impl DnsClient {
         // Once on the kept connection, which may be dead without being
         // known to be, then once on a new one.
         for fresh in [false, true] {
-            let live = self
-                .quic_connection(upstream, pool, addr, is_direct, fresh)
-                .await?;
+            let live = self.quic_connection(upstream, pool, addr, fresh).await?;
             let res = match pool.kind {
                 Kind::Doq => exchange_doq(&live.conn, &request).await,
                 #[cfg(feature = "dns-h3")]
@@ -166,7 +172,6 @@ impl DnsClient {
         upstream: &Upstream,
         pool: &Pool,
         addr: SocketAddr,
-        is_direct: bool,
         fresh: bool,
     ) -> Result<Handle> {
         let mut live = pool.live.lock().await;
@@ -176,7 +181,7 @@ impl DnsClient {
             }
         }
         *live = None;
-        let l = self.connect_quic(upstream, pool, addr, is_direct).await?;
+        let l = self.connect_quic(upstream, pool, addr).await?;
         let handle = Handle::of(&l, false);
         *live = Some(l);
         Ok(handle)
@@ -187,14 +192,15 @@ impl DnsClient {
         upstream: &Upstream,
         pool: &Pool,
         addr: SocketAddr,
-        is_direct: bool,
     ) -> Result<Live> {
-        let client_config = pool.client_config(self.upstream_certificate.as_deref())?;
-        let mut endpoint = if is_direct {
-            endpoint(bind(addr.ip(), &self.dial).await?, None)?
+        let client_config =
+            pool.client_config(upstream.certificate.as_deref(), upstream.insecure)?;
+        let dialer = &upstream.dialer;
+        let mut endpoint = if dialer.detour.is_none() {
+            endpoint(bind(addr.ip(), &dialer.dial).await?, None)?
         } else {
-            // QUIC over the datagrams of the outbound the router picks.
-            let datagram = self.dial_datagram(addr).await?;
+            // QUIC over the datagrams of the detour.
+            let datagram = self.dial_datagram(dialer, addr).await?;
             endpoint_on(
                 Arc::new(super::socket::DatagramSocket::new(datagram, addr)),
                 None,
@@ -202,9 +208,9 @@ impl DnsClient {
         };
         endpoint.set_default_client_config(client_config);
         let connecting = endpoint
-            .connect(addr, &upstream.host)
+            .connect(addr, &upstream.server_name)
             .map_err(|e| anyhow!("connect quic failed: {}", e))?;
-        let conn = timeout(self.dial.connect_timeout, connecting)
+        let conn = timeout(dialer.dial.connect_timeout, connecting)
             .await
             .map_err(|_| anyhow!("quic handshake timed out"))?
             .map_err(|e| anyhow!("quic handshake failed: {}", e))?;

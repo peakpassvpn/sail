@@ -49,7 +49,7 @@ pub fn manager(
     let dns_client = sail::app::dns_client::DnsClient::new(
         &config.dns,
         Arc::new(dial_defaults.clone()),
-        Default::default(),
+        &Default::default(),
     )?
     .into_shared();
     OutboundManager::new(&config.outbounds, &dial_defaults, env, dns_client)
@@ -209,7 +209,7 @@ pub async fn connect(m: &OutboundManager, tag: &str, sess: &Session) -> Result<A
     let dns_client = sail::app::dns_client::DnsClient::new(
         &Default::default(),
         Arc::new(sail::net::DialOptions::default()),
-        Default::default(),
+        &Default::default(),
     )?
     .into_shared();
     let stream = sail::net::connect_stream_outbound(sess, dns_client, &handler).await?;

@@ -329,7 +329,7 @@ mod tests {
     }
 
     fn pool(port: u16) -> Pool {
-        let dns = DnsClient::new(&Default::default(), Default::default(), Default::default())
+        let dns = DnsClient::new(&Default::default(), Default::default(), &Default::default())
             .unwrap()
             .into_shared();
         let handler = crate::adapter::outbound::HandlerBuilder::default()

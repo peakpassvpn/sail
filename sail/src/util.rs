@@ -125,8 +125,7 @@ pub async fn test_outbound(
 ) -> Result<(Result<Duration>, Result<Duration>)> {
     let to = to.unwrap_or(Duration::from_secs(4));
     let dial_defaults = crate::dial_defaults(config, env)?;
-    let dns_client =
-        DnsClient::new(&config.dns, dial_defaults.clone(), env.options.dns.clone())?.into_shared();
+    let dns_client = DnsClient::new(&config.dns, dial_defaults.clone(), env)?.into_shared();
     let outbound_manager =
         OutboundManager::new(&config.outbounds, &dial_defaults, env, dns_client.clone())?;
     let handler = outbound_manager
@@ -162,8 +161,7 @@ pub async fn test_outbounds(
 ) -> Result<HashMap<String, (Result<Duration>, Result<Duration>)>> {
     let to = to.unwrap_or(Duration::from_secs(4));
     let dial_defaults = crate::dial_defaults(config, env)?;
-    let dns_client =
-        DnsClient::new(&config.dns, dial_defaults.clone(), env.options.dns.clone())?.into_shared();
+    let dns_client = DnsClient::new(&config.dns, dial_defaults.clone(), env)?.into_shared();
     let outbound_manager =
         OutboundManager::new(&config.outbounds, &dial_defaults, env, dns_client.clone())?;
 
@@ -211,8 +209,7 @@ pub async fn stream_outbounds_tests(
 ) -> Result<impl futures::Stream<Item = (String, (Result<Duration>, Result<Duration>))>> {
     let to = to.unwrap_or(Duration::from_secs(4));
     let dial_defaults = crate::dial_defaults(config, env)?;
-    let dns_client =
-        DnsClient::new(&config.dns, dial_defaults.clone(), env.options.dns.clone())?.into_shared();
+    let dns_client = DnsClient::new(&config.dns, dial_defaults.clone(), env)?.into_shared();
     let outbound_manager =
         OutboundManager::new(&config.outbounds, &dial_defaults, env, dns_client.clone())?;
 
@@ -251,8 +248,7 @@ pub async fn health_check_outbound(
 ) -> Result<(Result<Duration>, Result<Duration>)> {
     let to = to.unwrap_or(Duration::from_secs(4));
     let dial_defaults = crate::dial_defaults(config, env)?;
-    let dns_client =
-        DnsClient::new(&config.dns, dial_defaults.clone(), env.options.dns.clone())?.into_shared();
+    let dns_client = DnsClient::new(&config.dns, dial_defaults.clone(), env)?.into_shared();
     let outbound_manager =
         OutboundManager::new(&config.outbounds, &dial_defaults, env, dns_client.clone())?;
     let handler = outbound_manager

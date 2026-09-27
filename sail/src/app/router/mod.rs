@@ -182,12 +182,7 @@ impl Router {
     /// The addresses of `domain`, or none when it does not resolve: the
     /// rules after a `resolve` then match without them.
     async fn resolve(&self, domain: &str) -> Vec<IpAddr> {
-        match self
-            .dns_client
-            .load_full()
-            .lookup(&domain.to_string())
-            .await
-        {
+        match self.dns_client.load_full().lookup(domain).await {
             Ok(ips) => {
                 debug!("resolved {} to {:?} for routing", domain, ips);
                 ips
@@ -209,14 +204,14 @@ mod tests {
     fn router(rules: serde_json::Value) -> Router {
         let config = crate::config::Config::from_json(
             &serde_json::json!({
-                "dns": { "hosts": { "test.sail": ["127.0.0.1"] } },
+                "dns": { "servers": [{ "type": "hosts", "predefined": { "test.sail": "127.0.0.1" } }] },
                 "outbounds": [{ "type": "direct", "tag": "a" }, { "type": "direct", "tag": "b" }],
                 "route": { "rules": rules, "final": "b" },
             })
             .to_string(),
         )
         .unwrap();
-        let dns = DnsClient::new(&config.dns, Default::default(), Default::default())
+        let dns = DnsClient::new(&config.dns, Default::default(), &Default::default())
             .unwrap()
             .into_shared();
         Router::new(&config.route, dns, &RuntimeEnv::default()).unwrap()

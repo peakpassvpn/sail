@@ -252,7 +252,7 @@ impl RuntimeManager {
         let dns_client = self
             .dns_client
             .load()
-            .reloaded(&config.dns, dial_defaults.clone())
+            .reloaded(&config.dns, dial_defaults.clone(), &self.env)
             .map_err(Error::Config)?;
         // Outbounds and routing reach the DNS client through the shared
         // cell, and so find the new one once it is stored.
