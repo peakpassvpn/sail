@@ -126,6 +126,10 @@ outbound-select = ["axum?/query"]
 # Exposes its selection and latencies the way a selector does.
 outbound-urltest = ["outbound-select"]
 outbound-load-balance = ["lru_time_cache"]
+# load-balance's consistent hashing by the public suffix list, instead of
+# an approximation of it. The list, compiled in, adds about 900 KB to a
+# release binary, so it is left out by default.
+load-balance-psl = ["outbound-load-balance", "psl"]
 # Exposes its selection and latencies the way a selector does.
 outbound-fallback = ["outbound-select"]
 outbound-vmess = ["aead", "hmac", "sha2", "aes", "sha3", "md-5", "crc32fast"]
@@ -257,6 +261,9 @@ crc32fast = { version = "1", optional = true }
 
 # load-balance: sticky sessions
 lru_time_cache = { version = "0.11", optional = true }
+# load-balance: consistent hashing by registrable domain, from the public
+# suffix list compiled in
+psl = { version = "2", optional = true }
 
 # amux
 tokio-util = { version = "0.7", default-features = false, features = ["io", "codec", "compat"], optional = true }
