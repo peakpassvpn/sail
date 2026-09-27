@@ -259,9 +259,6 @@ impl RuntimeManager {
             .prepare_resources(&config.inbounds)
             .map_err(Error::Config)?;
         let dial_defaults = dial_defaults(&config, &self.env).map_err(Error::Config)?;
-        self.env
-            .clash_mode
-            .configure(config.experimental.clash_api.as_ref());
         let rule_sets = app::router::rule_set::RuleSets::load(&config.route.rule_set, &self.env)
             .map_err(Error::Config)?;
         if let Some(dispatcher) = self.dispatcher.upgrade() {
@@ -314,6 +311,9 @@ impl RuntimeManager {
             .map_err(|_| Error::RuntimeManager)?;
         #[cfg(feature = "auto-reload")]
         let watcher = self.prepare_watcher(inbounds.prepared_resource_files(&inbound_resources))?;
+        self.env
+            .clash_mode
+            .configure(config.experimental.clash_api.as_ref());
         inbounds.publish_resources(inbound_resources);
         #[cfg(feature = "auto-reload")]
         {

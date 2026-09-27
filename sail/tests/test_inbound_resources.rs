@@ -120,7 +120,12 @@ fn exercise(port: u16) -> Result<()> {
                  "tls":{"enabled":true,"certificate_path":cert_path,"key_path":key_path}},
                 {"type":"vless", "tag":"guard", "users":[{"name":"guard","uuid":UUID}]}
             ],
-            "outbounds":[{"type":"direct"}]
+        "outbounds":[{"type":"direct"}],
+        "experimental":{"clash_api":{"default_mode":"Rule"}},
+        "route":{"rules":[
+            {"clash_mode":"Rule","action":"route","outbound":"direct"},
+            {"inbound":["server"],"action":"reject"}
+        ]}
         })
     };
     let save = |value: &Value| -> Result<()> {
@@ -174,10 +179,16 @@ fn exercise(port: u16) -> Result<()> {
     ping(&mut unchanged)?;
     // Mismatched certificate/key: no user, certificate or route changes.
     bad = config("charlie");
-    bad["route"] = json!({"rules":[{"action":"reject"}]});
+    bad["route"] = json!({"rules":[{"inbound":["server"],"action":"reject"}]});
     save(&bad)?;
     std::fs::write(&key_path, first.key_pair.serialize_pem())?;
-    ensure!(sail::reload(ID).is_err(), "mismatched key accepted");
+    let error = sail::reload(ID)
+        .expect_err("mismatched key accepted")
+        .to_string();
+    ensure!(
+        error.contains("tls"),
+        "expected TLS validation failure, got: {error}"
+    );
     let mut unchanged = connect(port)?;
     ensure!(
         peer(&unchanged)? == new_cert,
@@ -191,8 +202,17 @@ fn exercise(port: u16) -> Result<()> {
     // Nothing from the staged inbound generation may leak through.
     bad = config("charlie");
     bad["outbounds"][0]["not_a_field"] = json!(true);
+    // Removing the API would also clear the mode; that must wait until
+    // validation succeeds, otherwise the live router starts rejecting.
+    bad.as_object_mut().unwrap().remove("experimental");
     save(&bad)?;
-    ensure!(sail::reload(ID).is_err(), "invalid outbound accepted");
+    let error = sail::reload(ID)
+        .expect_err("invalid outbound accepted")
+        .to_string();
+    ensure!(
+        error.contains("not_a_field"),
+        "expected outbound validation failure, got: {error}"
+    );
     let mut unchanged = connect(port)?;
     authenticate(&mut unchanged, "bob", destination)?;
     ping(&mut unchanged)?;
