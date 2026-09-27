@@ -828,7 +828,25 @@ those cross-target library checks need to be rerun.
   datagrams) and passed 10 of 10 runs in about one second each after the
   contract, adapter, wrapper, and UDP endpoint fixes. The wrapper's delay is
   now a deadline rechecked on retry rather than an await.
-- `cargo test -p sail-netstack` currently runs 258 deterministic contract,
+- Active open, step 1 of the WireGuard work (the control block): `TcpTcb::connect`
+  sends a SYN and waits in SYN-SENT, retransmitting it with RTO backoff. It
+  follows RFC 9293 3.10.7.3: an ACK other than ISS+1 draws a reset (unless it
+  is a reset), a reset counts only when it acknowledges the SYN, and a
+  SYN-ACK opens the connection and is acknowledged. Data and FIN on the
+  SYN-ACK are not taken, so the peer resends them. A crossing SYN without
+  ACK moves to SYN-RECEIVED for a simultaneous open, which completes on
+  either the peer's SYN-ACK or its plain ACK (figure 8). Completion reports
+  `Connected`, not `Accepted`. Close or abort in SYN-SENT sends nothing.
+  SYN and SYN-ACK windows are no longer scaled (RFC 7323 2.2); the passive
+  SYN-ACK used to shift its window, which understated larger credits. The
+  `tcp_state` fuzz target now also starts from an active open, with operations
+  that can aim the ACK and sequence at the current edges, and checks that
+  only the SYN is outstanding in SYN-SENT. A 20-minute, 6-worker campaign ran
+  about 25 million executions and raised coverage from 711 to 815 edges
+  without a failure, and every earlier `tcp_state` artifact still replays
+  cleanly. The flow table, UDP originate, and the runtime API follow in the
+  next steps.
+- `cargo test -p sail-netstack` currently runs 271 deterministic contract,
   randomized-model, scheduler, timer, wire, and UDP lifecycle tests. Strict
   `cargo clippy -p sail-netstack --all-targets -- -D warnings` is clean. Both
   are required by the macOS/Linux CI matrix.
@@ -851,10 +869,10 @@ those cross-target library checks need to be rerun.
   unconditional 64-bit atomic in `sail-netstack`: the denial counter now uses
   a saturating `AtomicUsize` while preserving the public `u64` snapshot field.
   `cargo check -p sail-netstack --locked -Z build-std=std,panic_abort --target
-  mips-unknown-linux-musl` passes without warnings. The current 258-test
+  mips-unknown-linux-musl` passes without warnings. The current 271-test
   library and integration suite, including the wire-validation and legacy
   zero-MTU PMTU cases, passes under the image's MIPS32 big-endian QEMU runner
-  (latest run 258 of 258, including every fix in this revision).
+  (latest run 271 of 271, including every fix in this revision).
   Protocol tests use a relaxed test-only scheduler time ceiling so emulation
   speed cannot masquerade as a packet/state failure; the production 2 ms
   ceiling and its dedicated scheduler test are unchanged. This proves the
@@ -1018,11 +1036,11 @@ macOS kernel path has passed yet.
 
 | Area | RFC / behavior | Status | Test oracle |
 | --- | --- | --- | --- |
-| TCP base | RFC 9293 | partial: passive flow table, handshake/receive/close/credit core, queued initial controls, bidirectional receive-window trimming, ordered FIN promotion | deterministic state/table model + independent smoltcp peer + Linux kernel peer |
+| TCP base | RFC 9293 | partial: passive flow table, handshake/receive/close/credit core, queued initial controls, bidirectional receive-window trimming, ordered FIN promotion; control-block active open (SYN-SENT, 3.10.7.3 checks, simultaneous open) | deterministic state/table model + independent smoltcp peer + Linux kernel peer |
 | RTO | RFC 6298 | partial: estimator/backoff, timestamp RTTM, plain-TCP sequence probe, Karn ambiguity suppression | virtual clock and loss traces + deliberately dropped segment against Linux kernel peer |
 | NewReno | RFC 5681, 6582 | partial: IW, slow start/CA, fast retransmit, partial/full ACK recovery, RTO collapse | state model + packet impairment model |
 | SACK | RFC 2018, 6675 | implemented core: negotiated scoreboard, loss inference, Pipe/NextSeg hole scheduling, bounded rescue; independent and impaired Linux peers pass | scoreboard model + smoltcp peer + Linux peer |
-| scaling/time | RFC 7323 | partial: negotiated scaling/timestamps, RTTM, PAWS sequence-space update rule and 24-day aging | option vectors, pure-ACK/data ordering, aging, RTTM and PAWS model |
+| scaling/time | RFC 7323 | partial: negotiated scaling/timestamps, RTTM, PAWS sequence-space update rule and 24-day aging, unscaled SYN and SYN-ACK windows | option vectors, pure-ACK/data ordering, aging, RTTM and PAWS model |
 | delayed ACK | RFC 9293 | implemented: first segment timer, second-segment/FIN/window-update cancellation | virtual timer and two-segment model |
 | reset safety | RFC 5961 | partial: exact RST acceptance, in-window challenge, out-of-window silent drop, independent rate limit | three-way RST classification vectors and virtual-time limiter |
 | ISN | RFC 6528 | keyed tuple/generation hash plus wrapping 4-microsecond monotonic component | reconnect/time vectors |

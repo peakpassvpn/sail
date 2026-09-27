@@ -1,6 +1,6 @@
 use sail_netstack::{
-    AppEvent, NewReno, RtoEstimator, SeqNumber, TcpAction, TcpError, TcpFlags, TcpSegmentMeta,
-    TcpState, TcpTcb, TimerEvent,
+    AppEvent, NewReno, RtoEstimator, SendControl, SeqNumber, TcpAction, TcpError, TcpFlags,
+    TcpSegmentMeta, TcpState, TcpTcb, TimerEvent,
 };
 
 fn segment(
@@ -637,4 +637,278 @@ fn rto_estimator_clamps_and_backs_off() {
         rto.backoff();
     }
     assert_eq!(rto.rto_ms(), 60_000);
+}
+
+fn sent_control(actions: &[TcpAction]) -> SendControl {
+    actions
+        .iter()
+        .find_map(|action| match action {
+            TcpAction::Send(control) => Some(*control),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("no control segment in {actions:?}"))
+}
+
+/// An active open whose SYN (ISS 1000) was answered by the peer's SYN-ACK
+/// (IRS 5000, window 8192), so both directions are open.
+fn connected(capacity: usize) -> TcpTcb {
+    let (mut tcb, _) = TcpTcb::connect(SeqNumber::new(1_000), capacity, 1_000, 0);
+    let actions = tcb
+        .on_segment(segment_with_window(
+            5_000,
+            Some(1_001),
+            TcpFlags::SYN.union(TcpFlags::ACK),
+            8_192,
+            0,
+        ))
+        .unwrap();
+    assert!(actions.contains(&TcpAction::Connected));
+    tcb
+}
+
+#[test]
+fn connect_sends_an_unscaled_syn_and_waits_in_syn_sent() {
+    let (tcb, actions) = TcpTcb::connect(SeqNumber::new(1_000), 256 * 1024, 1_000, 3);
+    assert_eq!(tcb.state(), TcpState::SynSent);
+    assert!(tcb.is_active_open());
+    let syn = sent_control(&actions);
+    assert_eq!(syn.flags, TcpFlags::SYN);
+    assert_eq!(syn.sequence, SeqNumber::new(1_000));
+    // RFC 7323 2.2: the window of a SYN is never scaled.
+    assert_eq!(syn.window, u16::MAX);
+    assert!(actions.contains(&TcpAction::ArmRetransmission { after_ms: 1_000 }));
+    assert_eq!(tcb.send_unacked(), SeqNumber::new(1_000));
+    assert_eq!(tcb.send_next(), SeqNumber::new(1_001));
+}
+
+#[test]
+fn syn_ack_completes_an_active_open_and_opens_both_directions() {
+    let mut tcb = connected(4_096);
+    assert_eq!(tcb.state(), TcpState::Established);
+    assert_eq!(tcb.recv_next(), SeqNumber::new(5_001));
+    assert_eq!(tcb.send_unacked(), SeqNumber::new(1_001));
+    assert_eq!(tcb.peer_window(), 8_192);
+
+    let sent = tcb.on_app_event(AppEvent::Send(100)).unwrap();
+    assert!(sent.iter().any(|action| matches!(
+        action,
+        TcpAction::SendPayload(control) if control.sequence == SeqNumber::new(1_001)
+    )));
+    let received = tcb
+        .on_segment(segment(5_001, Some(1_101), TcpFlags::ACK, 10))
+        .unwrap();
+    assert!(received.contains(&TcpAction::DeliverPayload { len: 10 }));
+    assert_eq!(tcb.send_unacked(), SeqNumber::new(1_101));
+    assert_eq!(tcb.recv_next(), SeqNumber::new(5_011));
+}
+
+#[test]
+fn syn_ack_confirmation_acknowledges_the_peer_syn() {
+    let (mut tcb, _) = TcpTcb::connect(SeqNumber::new(1_000), 4_096, 1_000, 0);
+    let actions = tcb
+        .on_segment(segment(
+            5_000,
+            Some(1_001),
+            TcpFlags::SYN.union(TcpFlags::ACK),
+            0,
+        ))
+        .unwrap();
+    let ack = sent_control(&actions);
+    assert_eq!(ack.flags, TcpFlags::ACK);
+    assert_eq!(ack.sequence, SeqNumber::new(1_001));
+    assert_eq!(ack.acknowledgment, SeqNumber::new(5_001));
+    assert!(actions.contains(&TcpAction::DisarmRetransmission));
+}
+
+#[test]
+fn syn_sent_resets_an_unacceptable_ack_without_changing_state() {
+    let (mut tcb, _) = TcpTcb::connect(SeqNumber::new(1_000), 4_096, 1_000, 0);
+    for bad_ack in [1_000, 1_002, 999] {
+        let actions = tcb
+            .on_segment(segment(
+                5_000,
+                Some(bad_ack),
+                TcpFlags::SYN.union(TcpFlags::ACK),
+                0,
+            ))
+            .unwrap();
+        let reset = sent_control(&actions);
+        assert_eq!(reset.flags, TcpFlags::RST);
+        assert_eq!(reset.sequence, SeqNumber::new(bad_ack));
+        assert_eq!(tcb.state(), TcpState::SynSent);
+    }
+    // A reset is never answered with a reset.
+    assert!(tcb
+        .on_segment(segment(
+            5_000,
+            Some(1_002),
+            TcpFlags::RST.union(TcpFlags::ACK),
+            0
+        ))
+        .unwrap()
+        .is_empty());
+    assert_eq!(tcb.state(), TcpState::SynSent);
+}
+
+#[test]
+fn syn_sent_takes_only_a_reset_that_acknowledges_the_syn() {
+    let (mut tcb, _) = TcpTcb::connect(SeqNumber::new(1_000), 4_096, 1_000, 0);
+    // Without an ACK a reset cannot be told from a forgery.
+    assert!(tcb
+        .on_segment(segment(5_000, None, TcpFlags::RST, 0))
+        .unwrap()
+        .is_empty());
+    assert_eq!(tcb.state(), TcpState::SynSent);
+
+    let refused = tcb
+        .on_segment(segment(
+            0,
+            Some(1_001),
+            TcpFlags::RST.union(TcpFlags::ACK),
+            0,
+        ))
+        .unwrap();
+    assert!(refused.contains(&TcpAction::Closed));
+    assert_eq!(tcb.state(), TcpState::Closed);
+}
+
+#[test]
+fn syn_sent_ignores_segments_without_syn_or_reset() {
+    let (mut tcb, _) = TcpTcb::connect(SeqNumber::new(1_000), 4_096, 1_000, 0);
+    for flags in [TcpFlags::ACK, TcpFlags::ACK.union(TcpFlags::FIN)] {
+        assert!(tcb
+            .on_segment(segment(5_000, Some(1_001), flags, 10))
+            .unwrap()
+            .is_empty());
+    }
+    assert!(tcb
+        .on_segment(segment(5_000, None, TcpFlags::default(), 10))
+        .unwrap()
+        .is_empty());
+    assert_eq!(tcb.state(), TcpState::SynSent);
+}
+
+#[test]
+fn syn_sent_retransmits_the_syn_with_backoff() {
+    let (mut tcb, _) = TcpTcb::connect(SeqNumber::new(1_000), 4_096, 1_000, 0);
+    let first = tcb.on_timer(TimerEvent::Retransmission).unwrap();
+    let syn = sent_control(&first);
+    assert_eq!(syn.flags, TcpFlags::SYN);
+    assert_eq!(syn.sequence, SeqNumber::new(1_000));
+    assert!(first.contains(&TcpAction::ArmRetransmission { after_ms: 2_000 }));
+    let second = tcb.on_timer(TimerEvent::Retransmission).unwrap();
+    assert!(second.contains(&TcpAction::ArmRetransmission { after_ms: 4_000 }));
+    assert_eq!(tcb.state(), TcpState::SynSent);
+}
+
+#[test]
+fn closing_or_aborting_in_syn_sent_sends_nothing() {
+    for event in [AppEvent::Close, AppEvent::Abort] {
+        let (mut tcb, _) = TcpTcb::connect(SeqNumber::new(1_000), 4_096, 1_000, 0);
+        let actions = tcb.on_app_event(event).unwrap();
+        assert!(actions.contains(&TcpAction::Closed));
+        assert!(!actions
+            .iter()
+            .any(|action| matches!(action, TcpAction::Send(_))));
+        assert_eq!(tcb.state(), TcpState::Closed);
+    }
+    let (mut tcb, _) = TcpTcb::connect(SeqNumber::new(1_000), 4_096, 1_000, 0);
+    assert_eq!(
+        tcb.on_app_event(AppEvent::Send(1)),
+        Err(TcpError::InvalidSendState)
+    );
+}
+
+#[test]
+fn simultaneous_open_completes_on_the_peer_syn_ack() {
+    let (mut tcb, _) = TcpTcb::connect(SeqNumber::new(1_000), 4_096, 1_000, 0);
+    // The peer's own SYN crosses ours.
+    let crossed = tcb
+        .on_segment(segment(5_000, None, TcpFlags::SYN, 0))
+        .unwrap();
+    assert_eq!(tcb.state(), TcpState::SynReceived);
+    let syn_ack = sent_control(&crossed);
+    assert_eq!(syn_ack.flags, TcpFlags::SYN.union(TcpFlags::ACK));
+    assert_eq!(syn_ack.sequence, SeqNumber::new(1_000));
+    assert_eq!(syn_ack.acknowledgment, SeqNumber::new(5_001));
+
+    // The peer answered our SYN from its SYN-RECEIVED (RFC 9293 figure 8).
+    let completed = tcb
+        .on_segment(segment(
+            5_000,
+            Some(1_001),
+            TcpFlags::SYN.union(TcpFlags::ACK),
+            0,
+        ))
+        .unwrap();
+    assert!(completed.contains(&TcpAction::Connected));
+    assert!(!completed.contains(&TcpAction::Accepted));
+    assert_eq!(tcb.state(), TcpState::Established);
+    assert_eq!(tcb.recv_next(), SeqNumber::new(5_001));
+    assert_eq!(tcb.send_unacked(), SeqNumber::new(1_001));
+}
+
+#[test]
+fn simultaneous_open_also_completes_on_a_plain_ack() {
+    let (mut tcb, _) = TcpTcb::connect(SeqNumber::new(1_000), 4_096, 1_000, 0);
+    tcb.on_segment(segment(5_000, None, TcpFlags::SYN, 0))
+        .unwrap();
+    let completed = tcb
+        .on_segment(segment(5_001, Some(1_001), TcpFlags::ACK, 0))
+        .unwrap();
+    assert!(completed.contains(&TcpAction::Connected));
+    assert_eq!(tcb.state(), TcpState::Established);
+}
+
+#[test]
+fn simultaneous_open_retransmits_its_syn_ack() {
+    let (mut tcb, _) = TcpTcb::connect(SeqNumber::new(1_000), 4_096, 1_000, 0);
+    tcb.on_segment(segment(5_000, None, TcpFlags::SYN, 0))
+        .unwrap();
+    let retransmitted = tcb.on_timer(TimerEvent::Retransmission).unwrap();
+    let syn_ack = sent_control(&retransmitted);
+    assert_eq!(syn_ack.flags, TcpFlags::SYN.union(TcpFlags::ACK));
+    assert_eq!(syn_ack.sequence, SeqNumber::new(1_000));
+}
+
+#[test]
+fn active_open_sequence_numbers_wrap() {
+    let (mut tcb, _) = TcpTcb::connect(SeqNumber::new(u32::MAX), 4_096, 1_000, 0);
+    assert_eq!(tcb.send_next(), SeqNumber::new(0));
+    let actions = tcb
+        .on_segment(segment(
+            u32::MAX,
+            Some(0),
+            TcpFlags::SYN.union(TcpFlags::ACK),
+            0,
+        ))
+        .unwrap();
+    assert!(actions.contains(&TcpAction::Connected));
+    assert_eq!(tcb.recv_next(), SeqNumber::new(0));
+    assert_eq!(sent_control(&actions).acknowledgment, SeqNumber::new(0));
+}
+
+#[test]
+fn syn_ack_data_and_fin_wait_for_the_peer_to_resend_them() {
+    let (mut tcb, _) = TcpTcb::connect(SeqNumber::new(1_000), 4_096, 1_000, 0);
+    let actions = tcb
+        .on_segment(segment(
+            5_000,
+            Some(1_001),
+            TcpFlags::SYN.union(TcpFlags::ACK).union(TcpFlags::FIN),
+            20,
+        ))
+        .unwrap();
+    assert!(actions.contains(&TcpAction::Connected));
+    assert!(!actions
+        .iter()
+        .any(|action| matches!(action, TcpAction::DeliverPayload { .. })));
+    assert!(!actions.contains(&TcpAction::PeerHalfClosed));
+    // Only the SYN is acknowledged, so the peer sends the rest again.
+    assert_eq!(sent_control(&actions).acknowledgment, SeqNumber::new(5_001));
+    assert_eq!(tcb.state(), TcpState::Established);
+    let resent = tcb
+        .on_segment(segment(5_001, Some(1_001), TcpFlags::ACK, 20))
+        .unwrap();
+    assert!(resent.contains(&TcpAction::DeliverPayload { len: 20 }));
 }

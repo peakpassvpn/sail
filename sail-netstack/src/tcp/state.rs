@@ -97,6 +97,8 @@ pub enum TimerEvent {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TcpState {
+    /// Active open: our SYN is out, no SYN from the peer yet.
+    SynSent,
     SynReceived,
     Established,
     FinWait1,
@@ -122,10 +124,17 @@ pub enum TcpAction {
     DefensiveAck(SendControl),
     SendPayload(SendControl),
     RetransmitPayload(SendControl),
-    DeliverPayload { len: usize },
+    DeliverPayload {
+        len: usize,
+    },
+    /// A passive open completed its handshake.
     Accepted,
+    /// An active open completed its handshake.
+    Connected,
     PeerHalfClosed,
-    ArmRetransmission { after_ms: u64 },
+    ArmRetransmission {
+        after_ms: u64,
+    },
     DisarmRetransmission,
     ArmDelayedAck,
     DisarmDelayedAck,
@@ -188,6 +197,23 @@ pub struct TcpTcb {
     delayed_ack_pending: bool,
     pending_initial_payload_len: usize,
     pending_initial_fin: bool,
+    /// Opened by `connect`, so completion is `Connected`, not `Accepted`.
+    active_open: bool,
+}
+
+fn window_update_threshold(
+    maximum_segment_size: usize,
+    reserved_receive_capacity: usize,
+    receive_window_scale: u8,
+) -> usize {
+    let scale_quantum = 1_usize
+        .checked_shl(u32::from(receive_window_scale))
+        .unwrap_or(usize::MAX);
+    maximum_segment_size
+        .max(1)
+        .min(reserved_receive_capacity.div_ceil(2).max(1))
+        .max(scale_quantum)
+        .min(reserved_receive_capacity.max(1))
 }
 
 impl TcpTcb {
@@ -255,9 +281,6 @@ impl TcpTcb {
         let recv_next = segment.sequence.wrapping_add(1);
         let send_next = initial_send_sequence.wrapping_add(1);
         let receive_window_scale = receive_window_scale.min(14);
-        let scale_quantum = 1_usize
-            .checked_shl(u32::from(receive_window_scale))
-            .unwrap_or(usize::MAX);
         // Initial payload is admitted from reserved credit before any window
         // was advertised, so window-scale quantization may round the window
         // below it. The right edge must still cover that payload, or it would
@@ -268,11 +291,11 @@ impl TcpTcb {
                 .max(segment.payload_len);
         let pending_initial_fin =
             segment.flags.contains(TcpFlags::FIN) && segment.payload_len < advertised_capacity;
-        let window_update_threshold = maximum_segment_size
-            .max(1)
-            .min(reserved_receive_capacity.div_ceil(2).max(1))
-            .max(scale_quantum)
-            .min(reserved_receive_capacity.max(1));
+        let window_update_threshold = window_update_threshold(
+            maximum_segment_size,
+            reserved_receive_capacity,
+            receive_window_scale,
+        );
         let tcb = Self {
             state: TcpState::SynReceived,
             recv_next,
@@ -291,6 +314,7 @@ impl TcpTcb {
             delayed_ack_pending: false,
             pending_initial_payload_len: segment.payload_len,
             pending_initial_fin,
+            active_open: false,
         };
         let actions = vec![
             TcpAction::Send(tcb.control(TcpFlags::SYN.union(TcpFlags::ACK), initial_send_sequence)),
@@ -299,6 +323,60 @@ impl TcpTcb {
             },
         ];
         Ok((tcb, actions))
+    }
+
+    /// Creates client-side state for an active open after receive capacity
+    /// has been reserved, and the SYN that starts it (RFC 9293 3.10.1).
+    /// `receive_window_scale` is the shift offered in the SYN; the peer's
+    /// sequence space is unknown until its SYN arrives.
+    #[must_use]
+    pub fn connect(
+        initial_send_sequence: SeqNumber,
+        reserved_receive_capacity: usize,
+        maximum_segment_size: usize,
+        receive_window_scale: u8,
+    ) -> (Self, Vec<TcpAction>) {
+        let receive_window_scale = receive_window_scale.min(14);
+        let recv_next = SeqNumber::new(0);
+        let tcb = Self {
+            state: TcpState::SynSent,
+            recv_next,
+            send_unacked: initial_send_sequence,
+            send_next: initial_send_sequence.wrapping_add(1),
+            recv_capacity: reserved_receive_capacity,
+            recv_buffered: 0,
+            advertised_right_edge: recv_next.wrapping_add(advertisable_receive_capacity(
+                reserved_receive_capacity,
+                receive_window_scale,
+            )),
+            window_update_threshold: window_update_threshold(
+                maximum_segment_size,
+                reserved_receive_capacity,
+                receive_window_scale,
+            ),
+            peer_window: 0,
+            send_window_last_seq: SeqNumber::new(0),
+            send_window_last_ack: SeqNumber::new(0),
+            receive_window_scale,
+            rto: RtoEstimator::default(),
+            congestion: NewReno::new(maximum_segment_size),
+            delayed_ack_pending: false,
+            pending_initial_payload_len: 0,
+            pending_initial_fin: false,
+            active_open: true,
+        };
+        let actions = vec![
+            TcpAction::Send(tcb.control(TcpFlags::SYN, initial_send_sequence)),
+            TcpAction::ArmRetransmission {
+                after_ms: tcb.rto.rto_ms(),
+            },
+        ];
+        (tcb, actions)
+    }
+
+    #[must_use]
+    pub const fn is_active_open(&self) -> bool {
+        self.active_open
     }
 
     #[must_use]
@@ -496,6 +574,12 @@ impl TcpTcb {
         if self.state == TcpState::Closed {
             return Err(TcpError::Closed);
         }
+        if self.state == TcpState::SynSent {
+            return Ok(self.on_syn_sent_segment(segment));
+        }
+        if self.active_open && self.state == TcpState::SynReceived {
+            segment = self.simultaneous_open_completion(segment);
+        }
         if segment.flags.contains(TcpFlags::RST) {
             if segment.sequence == self.recv_next {
                 self.state = TcpState::Closed;
@@ -592,6 +676,88 @@ impl TcpTcb {
         Ok(actions)
     }
 
+    /// RFC 9293 3.10.7.3: the SYN-SENT state accepts only an ACK of our SYN,
+    /// a reset carrying that ACK, or the peer's SYN.
+    fn on_syn_sent_segment(&mut self, segment: TcpSegmentMeta) -> Vec<TcpAction> {
+        let is_reset = segment.flags.contains(TcpFlags::RST);
+        let acknowledgment = if segment.flags.contains(TcpFlags::ACK) {
+            match segment.acknowledgment {
+                // Only the SYN is outstanding, so only its ACK is acceptable.
+                Some(acknowledgment) if acknowledgment == self.send_next => Some(acknowledgment),
+                Some(acknowledgment) if !is_reset => {
+                    return vec![TcpAction::Send(SendControl {
+                        sequence: acknowledgment,
+                        acknowledgment: SeqNumber::new(0),
+                        flags: TcpFlags::RST,
+                        window: 0,
+                    })];
+                }
+                _ => return Vec::new(),
+            }
+        } else {
+            None
+        };
+        if is_reset {
+            // Without an acceptable ACK a reset cannot be told from a forgery.
+            if acknowledgment.is_none() {
+                return Vec::new();
+            }
+            self.state = TcpState::Closed;
+            return vec![TcpAction::DisarmRetransmission, TcpAction::Closed];
+        }
+        if !segment.flags.contains(TcpFlags::SYN) {
+            return Vec::new();
+        }
+        // Data and FIN on the SYN are not taken; acknowledging only the SYN
+        // makes the peer send them again once the connection is open.
+        self.recv_next = segment.sequence.wrapping_add(1);
+        self.advertised_right_edge = self.recv_next.wrapping_add(advertisable_receive_capacity(
+            self.recv_capacity,
+            self.receive_window_scale,
+        ));
+        self.peer_window = usize::try_from(segment.window).unwrap_or(usize::MAX);
+        self.send_window_last_seq = segment.sequence;
+        let Some(acknowledgment) = acknowledgment else {
+            // Simultaneous open: answer the peer's SYN from SYN-RECEIVED.
+            self.state = TcpState::SynReceived;
+            return vec![
+                TcpAction::Send(
+                    self.control(TcpFlags::SYN.union(TcpFlags::ACK), self.send_unacked),
+                ),
+                TcpAction::ArmRetransmission {
+                    after_ms: self.rto.rto_ms(),
+                },
+            ];
+        };
+        self.send_window_last_ack = acknowledgment;
+        self.send_unacked = acknowledgment;
+        self.state = TcpState::Established;
+        vec![
+            TcpAction::DisarmRetransmission,
+            TcpAction::Connected,
+            TcpAction::Send(self.control(TcpFlags::ACK, self.send_next)),
+        ]
+    }
+
+    /// After a simultaneous open each side answers the other's SYN with a
+    /// SYN-ACK, and receiving that SYN-ACK in SYN-RECEIVED completes the
+    /// handshake (RFC 9293 figure 8). Its SYN occupies the sequence number
+    /// before `recv_next`, so it is taken as the final ACK it carries.
+    fn simultaneous_open_completion(&self, mut segment: TcpSegmentMeta) -> TcpSegmentMeta {
+        let peer_syn = SeqNumber::new(self.recv_next.get().wrapping_sub(1));
+        if segment.flags.contains(TcpFlags::SYN)
+            && segment.flags.contains(TcpFlags::ACK)
+            && !segment.flags.contains(TcpFlags::RST)
+            && segment.sequence == peer_syn
+            && segment.acknowledgment == Some(self.send_next)
+        {
+            segment.sequence = self.recv_next;
+            segment.flags = TcpFlags::ACK;
+            segment.payload_len = 0;
+        }
+        segment
+    }
+
     fn complete_passive_handshake(
         &mut self,
         segment: TcpSegmentMeta,
@@ -624,7 +790,11 @@ impl TcpTcb {
 
         self.send_unacked = self.send_next;
         self.state = TcpState::Established;
-        actions.push(TcpAction::Accepted);
+        actions.push(if self.active_open {
+            TcpAction::Connected
+        } else {
+            TcpAction::Accepted
+        });
         actions.push(TcpAction::DisarmRetransmission);
         if self.pending_initial_payload_len > 0 {
             let amount = self.pending_initial_payload_len;
@@ -702,6 +872,11 @@ impl TcpTcb {
                 }
                 Ok(actions)
             }
+            AppEvent::Close | AppEvent::Abort if self.state == TcpState::SynSent => {
+                // Nothing reached the peer that a FIN or reset could refer to.
+                self.state = TcpState::Closed;
+                Ok(vec![TcpAction::DisarmRetransmission, TcpAction::Closed])
+            }
             AppEvent::Close => {
                 let mut actions = Vec::new();
                 self.cancel_delayed_ack(&mut actions);
@@ -740,6 +915,9 @@ impl TcpTcb {
                 self.congestion.on_timeout(flight_size);
                 self.rto.backoff();
                 let action = match self.state {
+                    TcpState::SynSent => {
+                        TcpAction::Send(self.control(TcpFlags::SYN, self.send_unacked))
+                    }
                     TcpState::SynReceived => TcpAction::Send(
                         self.control(TcpFlags::SYN.union(TcpFlags::ACK), self.send_unacked),
                     ),
@@ -951,11 +1129,18 @@ impl TcpTcb {
     }
 
     fn control(&self, flags: TcpFlags, sequence: SeqNumber) -> SendControl {
+        // RFC 7323 2.2: the window in a SYN or SYN-ACK is never scaled.
+        let window = if flags.contains(TcpFlags::SYN) {
+            u16::try_from(self.advertised_right_edge.distance_from(self.recv_next))
+                .unwrap_or(u16::MAX)
+        } else {
+            self.advertised_window()
+        };
         SendControl {
             sequence,
             acknowledgment: self.recv_next,
             flags,
-            window: self.advertised_window(),
+            window,
         }
     }
 }

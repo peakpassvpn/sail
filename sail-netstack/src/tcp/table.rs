@@ -1537,6 +1537,9 @@ impl TcpTable {
                         .ok_or(TcpTableError::UnknownFlow)?
                         .max_send_segment_bytes,
                 })),
+                // The table has no active opens yet; `TcpTable::connect` will
+                // report this as the connection's event.
+                TcpAction::Connected => {}
                 TcpAction::PeerHalfClosed => {
                     output.events.push(TcpEvent::PeerHalfClosed(token));
                 }

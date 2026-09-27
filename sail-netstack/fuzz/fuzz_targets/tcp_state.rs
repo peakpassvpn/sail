@@ -28,6 +28,10 @@ fn assert_invariants(tcb: &TcpTcb, receive_capacity: usize, previous_right_edge:
     );
     assert!(!tcb.advertised_right_edge().before(previous_right_edge));
     assert!(!tcb.send_next().before(tcb.send_unacked()));
+    if tcb.state() == TcpState::SynSent {
+        // Only the SYN is outstanding.
+        assert_eq!(tcb.send_next(), tcb.send_unacked().wrapping_add(1));
+    }
 }
 
 fuzz_target!(|input: &[u8]| {
@@ -51,27 +55,52 @@ fuzz_target!(|input: &[u8]| {
         window: u32::from(u16_at(data, 12)),
         payload_len: initial_payload,
     };
-    let Ok((mut tcb, _)) = TcpTcb::from_syn_with_options(
-        initial,
-        server_sequence,
-        receive_capacity,
-        usize::from(data[14]).max(1),
-        data[15] % 15,
-    ) else {
-        return;
+    // The low window bit selects an active open, whose initial window is
+    // never used.
+    let (mut tcb, _) = if data[12] & 1 == 0 {
+        let Ok(passive) = TcpTcb::from_syn_with_options(
+            initial,
+            server_sequence,
+            receive_capacity,
+            usize::from(data[14]).max(1),
+            data[15] % 15,
+        ) else {
+            return;
+        };
+        passive
+    } else {
+        TcpTcb::connect(
+            server_sequence,
+            receive_capacity,
+            usize::from(data[14]).max(1),
+            data[15] % 15,
+        )
     };
 
     let mut previous_right_edge = tcb.advertised_right_edge();
     assert_invariants(&tcb, receive_capacity, previous_right_edge);
     for operation in data[OPERATION_BYTES..].as_chunks::<OPERATION_BYTES>().0 {
+        let was_syn_sent = tcb.state() == TcpState::SynSent;
         let selector = operation[0] % 13;
         match selector {
             0..=4 => {
                 let flags = TcpFlags::from_bits(operation[1]);
-                let acknowledgment =
-                    (operation[2] & 1 != 0).then(|| SeqNumber::new(u32_at(operation, 7)));
+                // Bits 1 and 2 aim the ACK and sequence at the current edges,
+                // so the handshakes and data paths are reached.
+                let acknowledgment = (operation[2] & 1 != 0).then(|| {
+                    if operation[2] & 2 == 0 {
+                        SeqNumber::new(u32_at(operation, 7))
+                    } else {
+                        tcb.send_next()
+                    }
+                });
+                let sequence = if operation[2] & 4 == 0 {
+                    SeqNumber::new(u32_at(operation, 3))
+                } else {
+                    tcb.recv_next()
+                };
                 let segment = TcpSegmentMeta {
-                    sequence: SeqNumber::new(u32_at(operation, 3)),
+                    sequence,
                     acknowledgment,
                     flags,
                     window: u32_at(operation, 11),
@@ -111,6 +140,11 @@ fuzz_target!(|input: &[u8]| {
             _ => {
                 let _ = tcb.force_ack();
             }
+        }
+        // The receive sequence space starts at the peer's SYN, so the right
+        // edge is only monotonic from the moment SYN-SENT is left.
+        if was_syn_sent {
+            previous_right_edge = tcb.advertised_right_edge();
         }
         assert_invariants(&tcb, receive_capacity, previous_right_edge);
         previous_right_edge = tcb.advertised_right_edge();

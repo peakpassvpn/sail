@@ -3516,7 +3516,9 @@ fn negotiated_window_scaling_applies_in_both_directions() {
         parse_tcp_segment(parse_ip_packet(&syn_ack.outgoing[0], true).unwrap(), true).unwrap();
     assert_eq!(syn_ack.options.maximum_segment_size, Some(1_000));
     assert_eq!(syn_ack.options.window_scale, Some(3));
-    assert_eq!(syn_ack.meta.window, 32_768);
+    // RFC 7323 2.2: the SYN-ACK window is never scaled, so 256 KiB of credit
+    // is offered as the largest unscaled value.
+    assert_eq!(syn_ack.meta.window, u32::from(u16::MAX));
 
     let ack = emit_tcp_segment(
         source,
@@ -3558,7 +3560,8 @@ fn scaled_receive_window_never_accepts_unadvertised_remainder() {
     let syn_ack =
         parse_tcp_segment(parse_ip_packet(&syn_ack.outgoing[0], true).unwrap(), true).unwrap();
     assert_eq!(syn_ack.options.window_scale, Some(1));
-    assert_eq!(syn_ack.meta.window, 32_768);
+    // Unscaled in the SYN-ACK (RFC 7323 2.2), capped at 16 bits.
+    assert_eq!(syn_ack.meta.window, u32::from(u16::MAX));
     let server_next = syn_ack.meta.sequence.wrapping_add(1).get();
 
     let ack = packet(source, destination, 101, server_next, TcpFlags::ACK, &[]);
