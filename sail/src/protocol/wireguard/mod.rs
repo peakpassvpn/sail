@@ -7,15 +7,18 @@
 //! datagrams on the other, time passed in. [`shell::WireGuard`] runs a
 //! device over a [`shell::Transport`] with a tokio timer.
 
-
-pub mod crypto;
-pub mod tai64n;
-pub mod messages;
-pub mod replay;
-pub mod timers;
-pub mod noise;
-pub mod cookie;
-pub mod keypair;
-pub mod ratelimiter;
 pub mod allowed_ips;
+pub mod cookie;
+pub mod crypto;
 pub mod device;
+pub mod keypair;
+pub mod messages;
+pub mod noise;
+pub mod ratelimiter;
+pub mod replay;
+pub mod shell;
+pub mod tai64n;
+pub mod timers;
+
+pub use device::{Device, DeviceConfig, Error, Incoming, PeerConfig, PeerId, PeerStats, Transmit};
+pub use shell::{Transport, WireGuard};
