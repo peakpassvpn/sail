@@ -56,7 +56,14 @@ impl Instance {
         env: SyncRuntimeEnv,
         dial_defaults: Arc<DialOptions>,
     ) -> Result<Self> {
-        config.check_tun_route(env.host.platform.is_some())?;
+        // Only a host that opens the TUN routes it; another platform (a
+        // desktop app through the FFI, say) leaves the routes to the instance.
+        let host_routes = env
+            .host
+            .platform
+            .as_ref()
+            .is_some_and(|platform| platform.opens_tun());
+        config.check_tun_route(host_routes)?;
         let dns_client = DnsClient::new(&config.dns, dial_defaults.clone(), &env)?;
         dns_client.check_loops(
             &config.outbounds,
