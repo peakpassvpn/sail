@@ -38,6 +38,8 @@ use server::{Address, Dialer, Kind, Server};
 const LOCAL_TTL: Duration = Duration::from_secs(60);
 /// The TTL of a fake IP's answer: sing-box's.
 const FAKE_IP_TTL: u32 = 600;
+/// The TTL of a hosts server's answer: sing-box's.
+const HOSTS_TTL: u32 = 600;
 
 impl DnsClient {
     pub fn new(
@@ -577,16 +579,21 @@ impl DnsClient {
                 .map_err(|e| anyhow!("system resolver failed: {}", e))?;
                 Ok(Answer::Ips(ips.into_iter().filter(family).collect()))
             }
+            // As sing-box: the addresses of a name it has, and NXDOMAIN for
+            // a name it has not, or any other query.
             Kind::Hosts(hosts) => {
                 let family = match ty {
-                    RecordType::A => IpAddr::is_ipv4,
-                    RecordType::AAAA => IpAddr::is_ipv6,
-                    _ => return Err(anyhow!("a hosts server answers no {} query", ty)),
+                    RecordType::A => Some(IpAddr::is_ipv4 as fn(&IpAddr) -> bool),
+                    RecordType::AAAA => Some(IpAddr::is_ipv6 as fn(&IpAddr) -> bool),
+                    _ => None,
                 };
-                let ips = hosts
-                    .get(host)
-                    .ok_or_else(|| anyhow!("{}: no such name in {}", host, server))?;
-                Ok(Answer::Ips(ips.iter().copied().filter(family).collect()))
+                Ok(Answer::Message(match (family, hosts.get(host)) {
+                    (Some(family), Some(ips)) => {
+                        let ips: Vec<IpAddr> = ips.iter().copied().filter(family).collect();
+                        Self::reply(request, &ips, HOSTS_TTL)
+                    }
+                    _ => Self::status(request, ResponseCode::NXDomain),
+                }))
             }
             Kind::FakeIp(store) => {
                 let v6 = match ty {

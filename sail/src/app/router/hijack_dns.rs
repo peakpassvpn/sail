@@ -209,13 +209,14 @@ mod tests {
         let missing = answer(&dns, &query("nowhere.sail.", RecordType::A), &sess)
             .await
             .unwrap();
-        assert_eq!(addresses(&missing).0, ResponseCode::ServFail);
-        // Any other type is answered too, by the server the rules pick;
-        // hosts has no MX record.
+        // A hosts server has no such name: NXDOMAIN, as in sing-box.
+        assert_eq!(addresses(&missing).0, ResponseCode::NXDomain);
+        // Any other type is answered too, by the server the rules pick; a
+        // hosts server answers only addresses, and NXDOMAIN to the rest.
         let mx = answer(&dns, &query("test.sail.", RecordType::MX), &sess)
             .await
             .unwrap();
-        assert!(addresses(&mx).1.is_empty());
+        assert_eq!(addresses(&mx), (ResponseCode::NXDomain, vec![]));
         assert!(answer(&dns, b"not dns", &sess).await.is_none());
     }
 

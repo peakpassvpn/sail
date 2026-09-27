@@ -183,12 +183,21 @@ mod tests {
 
     #[tokio::test]
     async fn a_smart_select_falls_back_to_a_member_that_answers() {
-        let client = client(serde_json::json!([
-            { "type": "smart_select", "tag": "best", "servers": ["empty", "hosts"] },
-            { "type": "hosts", "tag": "empty", "predefined": { "other.example": "10.0.0.9" } },
-            { "type": "hosts", "tag": "hosts", "predefined": { "a.example": "10.0.0.1" } }
-        ]))
+        // A port nothing listens on: no answer comes.
+        let dead = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let dead_port = dead.local_addr().unwrap().port();
+        drop(dead);
+        let config = crate::config::Config::from_json(
+            &serde_json::json!({ "dns": { "timeout": "200ms", "servers": [
+                { "type": "smart_select", "tag": "best", "servers": ["dead", "hosts"] },
+                { "type": "udp", "tag": "dead", "server": "127.0.0.1", "server_port": dead_port },
+                { "type": "hosts", "tag": "hosts", "predefined": { "a.example": "10.0.0.1" } }
+            ] } })
+            .to_string(),
+        )
         .unwrap();
+        let client =
+            DnsClient::new(&config.dns, Default::default(), &Default::default()).unwrap();
         assert_eq!(client.final_server, "best");
         assert_eq!(
             client.lookup("a.example").await.unwrap(),
@@ -582,9 +591,10 @@ mod tests {
         assert!(v4only.answers().is_empty());
         let lan = exchange(&client, "lan.example", RecordType::A).await;
         assert_eq!(answer_ips(&lan), ips(&["192.168.1.9"]));
-        // Another type than the fakeip server answers: SERVFAIL.
+        // A hosts server answers addresses only; NXDOMAIN to the rest, as
+        // sing-box's does.
         let mx = exchange(&client, "lan.example", RecordType::MX).await;
-        assert_eq!(mx.response_code(), ResponseCode::ServFail);
+        assert_eq!(mx.response_code(), ResponseCode::NXDomain);
     }
 
     #[tokio::test]
