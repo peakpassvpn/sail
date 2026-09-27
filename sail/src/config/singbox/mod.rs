@@ -222,6 +222,22 @@ mod tests {
     }
 
     #[test]
+    fn dial_fields_sail_implements_pass_through() {
+        let config = parse(
+            r#"{ "outbounds": [{ "type": "direct", "inet4_bind_address": "192.0.2.1",
+                 "inet6_bind_address": "2001:db8::1" }] }"#,
+        )
+        .unwrap();
+        assert!(config.warnings.is_empty());
+        assert!(config.outbounds[0]
+            .options
+            .contains_key("inet4_bind_address"));
+        assert!(config.outbounds[0]
+            .options
+            .contains_key("inet6_bind_address"));
+    }
+
+    #[test]
     fn a_field_sing_box_does_not_know_is_a_mistake() {
         let err = parse(r#"{ "outbounds": [{ "type": "direct" }], "dsn": {} }"#).unwrap_err();
         assert!(err.to_string().contains("dsn"), "{}", err);

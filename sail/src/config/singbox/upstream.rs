@@ -136,8 +136,6 @@ pub const FIELDS: &[Field] = &[
     f("inbounds.*.tcp_multi_path", Ignored),
     f("inbounds.*.udp_fragment", Ignored),
     // Dial fields.
-    f("outbounds.*.inet4_bind_address", Unsupported),
-    f("outbounds.*.inet6_bind_address", Unsupported),
     f("outbounds.*.protect_path", Unsupported),
     f("outbounds.*.netns", Unsupported),
     f("outbounds.*.domain_resolver", Unsupported),
