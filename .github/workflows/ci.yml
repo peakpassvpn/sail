@@ -136,6 +136,11 @@ jobs:
         if: ${{ matrix.run == 'smoke' }}
         run: scripts/cross.sh ${{ matrix.target }} run -p sail-cli -- --version
 
+      # test_tls_split pushes 32 MiB each way within a 20 s deadline. Its
+      # tests run one at a time here: side by side under qemu-user they
+      # miss it on throughput alone, though each passes on its own.
       - name: test sail
         if: ${{ matrix.run == 'test' }}
-        run: scripts/cross.sh ${{ matrix.target }} test -p sail
+        run: |
+          scripts/cross.sh ${{ matrix.target }} test -p sail -- --skip test_tls_split_
+          scripts/cross.sh ${{ matrix.target }} test -p sail --test test_tls_split -- --test-threads=1
