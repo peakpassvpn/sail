@@ -510,6 +510,8 @@ impl Condition {
 /// and every other condition does.
 #[derive(Default)]
 pub(crate) struct Conditions {
+    /// The mode wanted, and the instance's.
+    clash_mode: Option<(String, crate::app::clash_mode::ClashMode)>,
     inbounds: Vec<String>,
     ip_version: Option<u8>,
     networks: Vec<Network>,
@@ -710,6 +712,10 @@ impl Conditions {
             process_names: rule.process_name.clone(),
             process_paths: rule.process_path.clone(),
             process_path_regex: patterns(&field("process_path_regex"), &rule.process_path_regex)?,
+            clash_mode: rule
+                .clash_mode
+                .clone()
+                .map(|mode| (mode, ctx.env.clash_mode.clone())),
             query_types: if extras.query_types.is_empty() {
                 rule.query_type
                     .iter()
@@ -748,6 +754,7 @@ impl Conditions {
             && self.process_paths.is_empty()
             && self.process_path_regex.is_empty()
             && self.query_types.is_empty()
+            && self.clash_mode.is_none()
             && !self.has_rule_sets()
     }
 
@@ -851,7 +858,11 @@ impl Conditions {
             && (self.query_types.is_empty()
                 || facts
                     .query_type()
-                    .is_some_and(|t| self.query_types.contains(&t)));
+                    .is_some_and(|t| self.query_types.contains(&t)))
+            && self
+                .clash_mode
+                .as_ref()
+                .is_none_or(|(wanted, mode)| mode.is(wanted));
         holds.then_some(groups)
     }
 

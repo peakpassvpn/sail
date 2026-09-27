@@ -30,7 +30,7 @@ pub const SILENT: &[&str] = &["$schema"];
 
 /// Objects sail has no counterpart for, dropped once the fields they held
 /// are.
-pub const EMPTIED: &[&str] = &["experimental"];
+pub const EMPTIED: &[&str] = &["experimental.clash_api", "experimental"];
 
 pub const FIELDS: &[Field] = &[
     // Top level.
@@ -41,7 +41,23 @@ pub const FIELDS: &[Field] = &[
     f("network_namespaces", Unsupported),
     f("services", Unsupported),
     f("experimental.cache_file", Ignored),
-    f("experimental.clash_api", Ignored),
+    // The Clash API is not served yet; its mode is kept.
+    f("experimental.clash_api.external_controller", Ignored),
+    f("experimental.clash_api.external_ui", Ignored),
+    f("experimental.clash_api.external_ui_download_url", Ignored),
+    f(
+        "experimental.clash_api.external_ui_download_detour",
+        Ignored,
+    ),
+    f("experimental.clash_api.secret", Ignored),
+    f(
+        "experimental.clash_api.access_control_allow_origin",
+        Ignored,
+    ),
+    f(
+        "experimental.clash_api.access_control_allow_private_network",
+        Ignored,
+    ),
     f("experimental.v2ray_api", Ignored),
     f("experimental.debug", Ignored),
     // DNS.
@@ -88,7 +104,6 @@ pub const FIELDS: &[Field] = &[
     f("dns.rules.*.query_dnssec", Unsupported),
     f("dns.rules.*.source_geoip", Unsupported),
     f("dns.rules.*.geoip", Unsupported),
-    f("dns.rules.*.clash_mode", Unsupported),
     f("dns.rules.*.network_type", Unsupported),
     f("dns.rules.*.network_is_expensive", Unsupported),
     f("dns.rules.*.network_is_constrained", Unsupported),
@@ -171,7 +186,6 @@ pub const FIELDS: &[Field] = &[
     // Rule conditions.
     f("route.rules.*.client", Unsupported),
     f("route.rules.*.source_geoip", Unsupported),
-    f("route.rules.*.clash_mode", Unsupported),
     f("route.rules.*.network_type", Unsupported),
     f("route.rules.*.network_is_expensive", Unsupported),
     f("route.rules.*.network_is_constrained", Unsupported),

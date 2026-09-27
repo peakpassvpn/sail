@@ -104,6 +104,7 @@ fn main() {
     let env = sail::runtime::RuntimeEnv {
         options: runtime.clone(),
         host: host.clone(),
+        ..Default::default()
     };
 
     if args.test {

@@ -486,6 +486,53 @@ mod tests {
         Router::new(&config.route, dns, &RuntimeEnv::default()).unwrap()
     }
 
+    /// As in sing-box: no Clash API, no mode, and `clash_mode` never
+    /// matches; with one, the mode is its default_mode, and whatever it is
+    /// switched to.
+    #[tokio::test]
+    async fn clash_mode_matches_the_api_s_mode() {
+        let rules = serde_json::json!([{ "clash_mode": "direct", "outbound": "a" }]);
+        let route = |rules: &serde_json::Value, env: &RuntimeEnv| {
+            let config = crate::config::Config::from_json(
+                &serde_json::json!({
+                    "outbounds": [{ "type": "direct", "tag": "a" }, { "type": "direct", "tag": "b" }],
+                    "route": { "rules": rules, "final": "b" },
+                })
+                .to_string(),
+            )
+            .unwrap();
+            let dns = DnsClient::new(&config.dns, Default::default(), env)
+                .unwrap()
+                .into_shared();
+            Router::new(&config.route, dns, env).unwrap()
+        };
+        let pick = |router: Router| async move {
+            let mut sess = Session {
+                destination: SocksAddr::Domain("x.example".into(), 443),
+                ..Default::default()
+            };
+            router.pick_route(&mut sess, &mut NoSniffer).await.unwrap()
+        };
+        let env = RuntimeEnv::default();
+        assert_eq!(
+            pick(route(&rules, &env)).await,
+            Decision::Route(Some("b".into()))
+        );
+
+        env.clash_mode
+            .configure(Some(&crate::config::model::ClashApi {
+                default_mode: Some("Direct".into()),
+            }));
+        assert_eq!(
+            pick(route(&rules, &env)).await,
+            Decision::Route(Some("a".into()))
+        );
+        // Switched while running: the rules see it.
+        let router = route(&rules, &env);
+        env.clash_mode.set(Some("Global".into()));
+        assert_eq!(pick(router).await, Decision::Route(Some("b".into())));
+    }
+
     /// Plays a connection whose first bytes carry `domain`.
     struct FakeSniffer {
         domain: &'static str,

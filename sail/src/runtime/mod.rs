@@ -36,6 +36,9 @@ pub struct Host {
 pub struct RuntimeEnv {
     pub options: RuntimeOptions,
     pub host: Host,
+    /// The Clash API's mode, which rules can match: what the instance
+    /// runs in, not what it is configured with.
+    pub clash_mode: crate::app::clash_mode::ClashMode,
 }
 
 pub type SyncRuntimeEnv = Arc<RuntimeEnv>;

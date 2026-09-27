@@ -16,6 +16,7 @@ pub mod stat_manager;
 #[cfg(feature = "api")]
 pub mod api;
 
+pub mod clash_mode;
 pub mod fake_dns;
 
 pub mod dns_client {

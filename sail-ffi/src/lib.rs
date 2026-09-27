@@ -135,7 +135,11 @@ pub extern "C" fn sail_set_tun_opener(
 /// `start_settings` as the environment offline checks run with.
 unsafe fn start_env(settings: *const c_char) -> Result<sail::runtime::RuntimeEnv, i32> {
     let (options, host) = unsafe { start_settings(settings) }?;
-    Ok(sail::runtime::RuntimeEnv { options, host })
+    Ok(sail::runtime::RuntimeEnv {
+        options,
+        host,
+        ..Default::default()
+    })
 }
 
 fn to_errno(e: sail::Error) -> i32 {

@@ -344,6 +344,28 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn clash_mode_picks_the_server() {
+        let config = crate::config::Config::from_json(
+            &serde_json::json!({
+                "experimental": { "clash_api": { "default_mode": "Direct",
+                                                  "external_controller": "127.0.0.1:9090" } },
+                "dns": { "servers": [
+                    { "type": "hosts", "tag": "home", "predefined": { "a.example": "10.0.0.1" } },
+                    { "type": "hosts", "tag": "world", "predefined": { "a.example": "10.0.0.2" } }
+                ], "rules": [{ "clash_mode": "Direct", "server": "home" }], "final": "world" }
+            })
+            .to_string(),
+        )
+        .unwrap();
+        assert_eq!(config.experimental.clash_api.as_ref().unwrap().default_mode.as_deref(), Some("Direct"));
+        assert_eq!(config.warnings.len(), 1, "{:?}", config.warnings);
+        let env = crate::runtime::RuntimeEnv::default();
+        env.clash_mode.configure(config.experimental.clash_api.as_ref());
+        let client = DnsClient::new(&config.dns, Default::default(), &env).unwrap();
+        assert_eq!(client.lookup("a.example").await.unwrap(), ips(&["10.0.0.1"]));
+    }
+
     #[test]
     fn rule_mistakes_name_the_rule() {
         for (rules, message) in [

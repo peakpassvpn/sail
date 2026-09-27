@@ -67,6 +67,8 @@ impl Instance {
             .as_ref()
             .is_some_and(|platform| platform.opens_tun());
         config.check_tun_route(host_routes)?;
+        env.clash_mode
+            .configure(config.experimental.clash_api.as_ref());
         let rule_sets = RuleSets::load(&config.route.rule_set, &env)?;
         let dns_client =
             DnsClient::with_rule_sets(&config.dns, dial_defaults.clone(), &env, &rule_sets)?;

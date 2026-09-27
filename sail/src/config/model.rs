@@ -36,10 +36,35 @@ pub struct Config {
     pub route: Route,
     #[serde(default, skip_serializing_if = "Api::is_default")]
     pub api: Api,
+    #[serde(default, skip_serializing_if = "Experimental::is_default")]
+    pub experimental: Experimental,
     /// What the configuration sets that sail ignores, one line each; the
     /// start logs them.
     #[serde(skip)]
     pub warnings: Vec<String>,
+}
+
+/// sing-box's `experimental`: what sail takes of it.
+#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct Experimental {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub clash_api: Option<ClashApi>,
+}
+
+impl Experimental {
+    fn is_default(&self) -> bool {
+        *self == Experimental::default()
+    }
+}
+
+/// Clash's API: the mode rules match, `Rule` when unset. The API itself
+/// is not served yet.
+#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ClashApi {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_mode: Option<String>,
 }
 
 /// The control API; a sail extension.
@@ -159,6 +184,9 @@ pub struct DnsRule {
     /// through.
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
     pub inbound: Vec<String>,
+    /// The mode of Clash's API, as in a routing rule.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub clash_mode: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ip_version: Option<u8>,
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
@@ -261,6 +289,7 @@ impl DnsRule {
         Rule {
             kind: self.kind,
             query_type: self.query_type.clone(),
+            clash_mode: self.clash_mode.clone(),
             inbound: self.inbound.clone(),
             ip_version: self.ip_version,
             network: self.network.clone(),
@@ -580,6 +609,10 @@ pub struct Rule {
     /// query, and so never of a connection.
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
     pub query_type: Vec<serde_json::Value>,
+    /// The mode of Clash's API: matches while it is that, whatever the
+    /// case; never without an API.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub clash_mode: Option<String>,
     /// Tags of the inbounds a connection came in through.
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
     pub inbound: Vec<String>,
@@ -825,6 +858,7 @@ impl Rule {
     pub fn first_condition(&self) -> Option<&'static str> {
         [
             ("query_type", !self.query_type.is_empty()),
+            ("clash_mode", self.clash_mode.is_some()),
             ("inbound", !self.inbound.is_empty()),
             ("ip_version", self.ip_version.is_some()),
             ("network", !self.network.is_empty()),

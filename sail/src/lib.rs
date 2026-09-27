@@ -259,6 +259,9 @@ impl RuntimeManager {
         info!("reloading from config file: {}", config_path);
         let config = config::from_file(config_path).map_err(Error::Config)?;
         let dial_defaults = dial_defaults(&config, &self.env).map_err(Error::Config)?;
+        self.env
+            .clash_mode
+            .configure(config.experimental.clash_api.as_ref());
         let rule_sets = app::router::rule_set::RuleSets::load(&config.route.rule_set, &self.env)
             .map_err(Error::Config)?;
         if let Some(dispatcher) = self.dispatcher.upgrade() {
@@ -757,6 +760,7 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
     let env = Arc::new(runtime::RuntimeEnv {
         options: opts.runtime,
         host: opts.host,
+        ..Default::default()
     });
 
     app::logger::setup_logger(&config.log, &env.host)?;
