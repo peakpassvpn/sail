@@ -139,7 +139,8 @@ impl OutboundDatagramSendHalf for DomainResolveOutboundDatagramSendHalf {
                     .map_err(|e| io::Error::other(format!("lookup {} failed: {}", domain, e)))
                     .await?;
                 let ip = ips.first().ok_or_else(|| io::Error::other("no results"))?;
-                self.0.send_to(buf, SocketAddr::new(*ip, *port)).await
+                let addr = for_socket(&self.0, SocketAddr::new(*ip, *port));
+                self.0.send_to(buf, addr).await
             }
             SocksAddr::Ip(addr) => self.0.send_to(buf, addr).await,
         }
@@ -153,7 +154,6 @@ impl OutboundDatagramSendHalf for DomainResolveOutboundDatagramSendHalf {
 /// An outbound datagram that sends to a domain target.
 pub struct DomainAssociatedOutboundDatagram {
     inner: UdpSocket,
-    source: SocketAddr,
     destination: SocksAddr,
     dns_client: SyncDnsClient,
     /// The outbound's, which say how its names resolve.
@@ -163,14 +163,12 @@ pub struct DomainAssociatedOutboundDatagram {
 impl DomainAssociatedOutboundDatagram {
     pub fn new(
         inner: UdpSocket,
-        source: SocketAddr,
         destination: SocksAddr,
         dns_client: SyncDnsClient,
         dial: Arc<DialOptions>,
     ) -> Self {
         DomainAssociatedOutboundDatagram {
             inner,
-            source,
             destination,
             dns_client,
             dial,
@@ -196,7 +194,6 @@ impl OutboundDatagram for DomainAssociatedOutboundDatagram {
             )),
             Box::new(DomainAssociatedOutboundDatagramSendHalf(
                 s,
-                self.source,
                 self.dns_client,
                 targets,
                 self.dial,
@@ -245,6 +242,17 @@ impl DomainTargetMap {
     }
 }
 
+/// `addr` as `socket` sends to it: an IPv4 address IPv4-mapped from an
+/// IPv6 socket, which fails to send to it as it is.
+fn for_socket(socket: &UdpSocket, addr: SocketAddr) -> SocketAddr {
+    match (socket.local_addr(), addr) {
+        (Ok(SocketAddr::V6(_)), SocketAddr::V4(v4)) => {
+            SocketAddr::new(IpAddr::V6(v4.ip().to_ipv6_mapped()), v4.port())
+        }
+        _ => addr,
+    }
+}
+
 fn unmapped_ipv4(addr: SocketAddr) -> SocketAddr {
     if let SocketAddr::V6(ref a) = addr {
         if let Some(a_v4) = a.ip().to_ipv4() {
@@ -266,7 +274,6 @@ impl OutboundDatagramRecvHalf for DomainAssociatedOutboundDatagramRecvHalf {
 
 pub struct DomainAssociatedOutboundDatagramSendHalf(
     Arc<UdpSocket>,
-    SocketAddr,
     SyncDnsClient,
     DomainTargetMap,
     Arc<DialOptions>,
@@ -278,19 +285,16 @@ impl OutboundDatagramSendHalf for DomainAssociatedOutboundDatagramSendHalf {
         let addr = match target {
             SocksAddr::Domain(domain, port) => {
                 let ips = {
-                    self.2
+                    self.1
                         .load_full()
-                        .lookup_dial(domain, &self.4)
+                        .lookup_dial(domain, &self.3)
                         .map_err(|e| io::Error::other(format!("lookup {} failed: {}", domain, e)))
                         .await?
                 };
-                // FIXME Since FakeDns returns IPv4 address only, it's always bound
-                // to IPv4 address if FakeDns is used.
-                //
-                // If the socket was bound to an IPv4 address, we need an IPv4
-                // address for sending, and vice versa for IPv6.
-                let needs_ipv4 = self.1.is_ipv4();
-                if let Some(ip) = ips.into_iter().find(|x| x.is_ipv4() == needs_ipv4) {
+                // An IPv4 socket sends to IPv4 addresses only; a dual-stack
+                // IPv6 one to either.
+                let dual_stack = self.0.local_addr()?.is_ipv6();
+                if let Some(ip) = ips.into_iter().find(|x| dual_stack || x.is_ipv4()) {
                     SocketAddr::new(ip, port.to_owned())
                 } else {
                     return Err(io::Error::new(
@@ -301,8 +305,8 @@ impl OutboundDatagramSendHalf for DomainAssociatedOutboundDatagramSendHalf {
             }
             SocksAddr::Ip(a) => a.to_owned(),
         };
-        self.3.record(addr, target.clone()).await;
-        self.0.send_to(buf, &addr).await
+        self.2.record(addr, target.clone()).await;
+        self.0.send_to(buf, for_socket(&self.0, addr)).await
     }
 
     async fn close(&mut self) -> io::Result<()> {
@@ -397,5 +401,22 @@ mod tests {
         assert_eq!(targets.target(second_address, &fallback).await, second);
         assert_eq!(targets.target(first_address, &fallback).await, first);
         assert_eq!(targets.target(unknown_address, &fallback).await, fallback);
+    }
+
+    #[tokio::test]
+    async fn a_dual_stack_socket_sends_to_an_ipv4_address() {
+        let peer = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let socket = UdpSocket::bind("[::]:0").await.unwrap();
+        let to = for_socket(&socket, peer.local_addr().unwrap());
+        assert!(to.is_ipv6());
+        socket.send_to(b"ping", to).await.unwrap();
+        let mut buf = [0u8; 4];
+        let (n, _) = peer.recv_from(&mut buf).await.unwrap();
+        assert_eq!(&buf[..n], b"ping");
+        let v4 = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        assert_eq!(
+            for_socket(&v4, peer.local_addr().unwrap()),
+            peer.local_addr().unwrap()
+        );
     }
 }

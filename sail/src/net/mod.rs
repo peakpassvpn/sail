@@ -273,7 +273,6 @@ pub async fn connect_datagram_outbound(
                 Ok(Some(OutboundTransport::Datagram(Box::new(
                     DomainAssociatedOutboundDatagram::new(
                         socket,
-                        sess.source,
                         SocksAddr::Domain(domain.to_owned(), *port),
                         dns_client.clone(),
                         dial.clone(),
