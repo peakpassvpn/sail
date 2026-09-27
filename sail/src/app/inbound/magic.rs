@@ -4,7 +4,9 @@
 //!
 //! - `sp.mux.sing-box.arpa`: a sing-mux connection. Each of its streams is
 //!   a session of its own, with the inbound tag and user of the connection
-//!   that carries it.
+//!   that carries it. Only an inbound whose `multiplex` block enables it
+//!   lets one through, padded only with `padding`, as sing-box's do; the
+//!   others refuse it before it gets here (`transport::mux::inbound`).
 //! - `sp.v2.udp-over-tcp.arpa`: UDP over TCP, version 2, a UDP session of
 //!   its own; on a mux stream too. Version 1 is refused.
 

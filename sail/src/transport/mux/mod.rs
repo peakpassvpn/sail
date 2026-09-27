@@ -18,7 +18,7 @@
 //! See <https://github.com/SagerNet/sing-mux>. What the server does with a
 //! stream is up to whoever serves it: an inbound connection to the magic
 //! destination is served in `app::inbound`, whatever inbound it came in
-//! through.
+//! through, when that inbound's `multiplex` block allows it (`inbound`).
 
 use std::io;
 
@@ -30,6 +30,7 @@ use crate::session::{SocksAddr, SocksAddrWireType};
 
 pub mod client;
 mod h2mux;
+pub mod inbound;
 pub mod packet;
 mod padding;
 pub mod server;

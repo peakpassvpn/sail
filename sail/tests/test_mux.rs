@@ -2,6 +2,8 @@
 //! padding, over Trojan (with TLS) and Shadowsocks 2022, TCP and UDP.
 //!
 //! Every case runs between sail instances, and against sing-box both ways.
+//! So do the connections an inbound's `multiplex` block refuses: all of
+//! them with no block, the unpadded ones with `padding`.
 //! A counting TCP forwarder in front of each server shows how many mux
 //! connections a client made. The sing-box tests need
 //! `/opt/homebrew/bin/sing-box` (or `SING_BOX`) and are ignored by default:
@@ -343,8 +345,8 @@ fn sail_client(ports: &Ports, certs: &Certs) -> String {
     .to_string()
 }
 
-/// Trojan and Shadowsocks servers, which serve sing-mux like any other
-/// inbound does.
+/// Trojan and Shadowsocks servers, which serve sing-mux as sing-box's do:
+/// with `multiplex` enabled, and on the padded ports only padded.
 fn sail_server(ports: &Ports, certs: &Certs) -> String {
     let inbounds: Vec<Value> = [false, true]
         .into_iter()
@@ -391,6 +393,7 @@ fn sail_server_inbounds(ports: &Ports, certs: &Certs, padding: bool) -> Vec<Valu
                     "certificate_path": certs.cert,
                     "key_path": certs.key,
                 },
+                "multiplex": { "enabled": true, "padding": padding },
             },
             {
                 "type": "shadowsocks",
@@ -399,6 +402,7 @@ fn sail_server_inbounds(ports: &Ports, certs: &Certs, padding: bool) -> Vec<Valu
                 "listen_port": shadowsocks,
                 "method": SS_METHOD,
                 "password": SS_KEY,
+                "multiplex": { "enabled": true, "padding": padding },
             },
         ]
     ))
@@ -573,4 +577,306 @@ fn test_mux_sing_box_to_sail() -> anyhow::Result<()> {
         common::shutdown_instances(&rt, ids);
         result
     })
+}
+
+// ---------------------------------------------------------------------------
+// What an inbound's multiplex block refuses
+// ---------------------------------------------------------------------------
+
+/// How a server inbound of the refusal tests serves sing-mux.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ServerMux {
+    /// No `multiplex` block: no sing-mux at all.
+    NoBlock,
+    /// `enabled`, but `padding` too: padded connections only.
+    Padded,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct Refusal {
+    client: Case,
+    server: ServerMux,
+    served: bool,
+}
+
+fn refusals() -> Vec<Refusal> {
+    let case = |carrier, protocol, padding| Case {
+        carrier,
+        protocol,
+        padding,
+    };
+    let refused = |client, server| Refusal {
+        client,
+        server,
+        served: false,
+    };
+    vec![
+        refused(case(Carrier::Trojan, "smux", false), ServerMux::NoBlock),
+        refused(case(Carrier::Trojan, "h2mux", true), ServerMux::NoBlock),
+        refused(
+            case(Carrier::Shadowsocks, "yamux", false),
+            ServerMux::NoBlock,
+        ),
+        refused(case(Carrier::Trojan, "smux", false), ServerMux::Padded),
+        refused(
+            case(Carrier::Shadowsocks, "h2mux", false),
+            ServerMux::Padded,
+        ),
+        Refusal {
+            client: case(Carrier::Trojan, "yamux", true),
+            server: ServerMux::Padded,
+            served: true,
+        },
+        Refusal {
+            client: case(Carrier::Shadowsocks, "smux", true),
+            server: ServerMux::Padded,
+            served: true,
+        },
+    ]
+}
+
+/// The servers' ports, by carrier and `ServerMux`, and a SOCKS port per
+/// refusal case.
+struct RefusalPorts {
+    servers: [u16; 4],
+    socks: Vec<u16>,
+}
+
+impl RefusalPorts {
+    fn new() -> Self {
+        RefusalPorts {
+            servers: common::free_ports(),
+            socks: (0..refusals().len()).map(|_| common::free_port()).collect(),
+        }
+    }
+
+    fn server(&self, carrier: Carrier, mux: ServerMux) -> u16 {
+        let i = match carrier {
+            Carrier::Trojan => 0,
+            Carrier::Shadowsocks => 2,
+        };
+        self.servers[i + (mux == ServerMux::Padded) as usize]
+    }
+}
+
+/// The same config for sail and sing-box: a Trojan and a Shadowsocks
+/// inbound for each `ServerMux`.
+fn refusal_server(ports: &RefusalPorts, certs: &Certs) -> Value {
+    let mut inbounds = Vec::new();
+    for mux in [ServerMux::NoBlock, ServerMux::Padded] {
+        let mut trojan = json!({
+            "type": "trojan",
+            "tag": format!("trojan-{:?}", mux),
+            "listen": "127.0.0.1",
+            "listen_port": ports.server(Carrier::Trojan, mux),
+            "users": [{ "name": "a", "password": PASSWORD }],
+            "tls": {
+                "enabled": true,
+                "certificate_path": certs.cert,
+                "key_path": certs.key,
+            },
+        });
+        let mut shadowsocks = json!({
+            "type": "shadowsocks",
+            "tag": format!("ss-{:?}", mux),
+            "listen": "127.0.0.1",
+            "listen_port": ports.server(Carrier::Shadowsocks, mux),
+            "method": SS_METHOD,
+            "password": SS_KEY,
+        });
+        if mux == ServerMux::Padded {
+            let multiplex = json!({ "enabled": true, "padding": true });
+            trojan["multiplex"] = multiplex.clone();
+            shadowsocks["multiplex"] = multiplex;
+        }
+        inbounds.push(trojan);
+        inbounds.push(shadowsocks);
+    }
+    json!({ "inbounds": inbounds, "outbounds": [{ "type": "direct" }] })
+}
+
+/// A client with a SOCKS (sail) or mixed (sing-box) inbound for each
+/// refusal case, and its mux outbound.
+fn refusal_client(ports: &RefusalPorts, certs: &Certs, sing_box: bool) -> Value {
+    let mut inbounds = Vec::new();
+    let mut outbounds = Vec::new();
+    let mut rules = Vec::new();
+    for (i, refusal) in refusals().iter().enumerate() {
+        let case = refusal.client;
+        inbounds.push(json!({
+            "type": if sing_box { "mixed" } else { "socks" },
+            "tag": format!("in-{}", i),
+            "listen": "127.0.0.1",
+            "listen_port": ports.socks[i],
+        }));
+        let multiplex = json!({
+            "enabled": true,
+            "protocol": case.protocol,
+            "padding": case.padding,
+        });
+        let server_port = ports.server(case.carrier, refusal.server);
+        outbounds.push(match case.carrier {
+            Carrier::Trojan => json!({
+                "type": "trojan",
+                "tag": format!("out-{}", i),
+                "server": "127.0.0.1",
+                "server_port": server_port,
+                "password": PASSWORD,
+                "tls": {
+                    "enabled": true,
+                    "server_name": "localhost",
+                    "certificate_path": certs.cert,
+                },
+                "multiplex": multiplex,
+            }),
+            Carrier::Shadowsocks => json!({
+                "type": "shadowsocks",
+                "tag": format!("out-{}", i),
+                "server": "127.0.0.1",
+                "server_port": server_port,
+                "method": SS_METHOD,
+                "password": SS_KEY,
+                "multiplex": multiplex,
+            }),
+        });
+        rules.push(json!({ "inbound": [format!("in-{}", i)], "outbound": format!("out-{}", i) }));
+    }
+    json!({
+        "inbounds": inbounds,
+        "outbounds": outbounds,
+        "route": { "rules": rules },
+    })
+}
+
+/// Echoes through every refusal case at once, and checks that the ones
+/// served echo and the others do not.
+fn run_refusals(rt: &tokio::runtime::Runtime, ports: &RefusalPorts) -> anyhow::Result<()> {
+    rt.block_on(async {
+        let (echo, server) = common::run_tcp_echo_server("127.0.0.1:0").await?;
+        let server = tokio::spawn(server);
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let tasks: Vec<_> = refusals()
+            .into_iter()
+            .enumerate()
+            .map(|(i, refusal)| {
+                let socks = ports.socks[i];
+                tokio::spawn(
+                    async move { (refusal, echo_stream(socks, echo, i as u8, 10_000).await) },
+                )
+            })
+            .collect();
+        let mut result = Ok(());
+        for task in tasks {
+            let (refusal, echoed) = task.await?;
+            match (refusal.served, echoed) {
+                (true, Err(e)) => {
+                    result = Err(anyhow::anyhow!("{:?}: not served: {}", refusal, e));
+                }
+                (false, Ok(())) => {
+                    result = Err(anyhow::anyhow!("{:?}: served", refusal));
+                }
+                _ => {}
+            }
+        }
+        server.abort();
+        result
+    })
+}
+
+// app(socks) -> sail(mux) -> sail(multiplex: none, or padding)
+#[test]
+fn test_mux_refused_sail_to_sail() -> anyhow::Result<()> {
+    let certs = certs("refused")?;
+    common::retry_port_clash(|| {
+        let ports = RefusalPorts::new();
+        let rt = runtime()?;
+        let ids = common::run_sail_instances(
+            &rt,
+            vec![
+                refusal_server(&ports, &certs).to_string(),
+                refusal_client(&ports, &certs, false).to_string(),
+            ],
+        )?;
+        let result = run_refusals(&rt, &ports);
+        common::shutdown_instances(&rt, ids);
+        result
+    })
+}
+
+// app(mixed) -> sing-box(mux) -> sail(multiplex: none, or padding)
+#[test]
+#[ignore = "needs sing-box"]
+fn test_mux_refused_sing_box_to_sail() -> anyhow::Result<()> {
+    let certs = certs("refused-from-sing-box")?;
+    common::retry_port_clash(|| {
+        let ports = RefusalPorts::new();
+        let dir = common::TempDir::new("mux-refused")?;
+        let rt = runtime()?;
+        let ids =
+            common::run_sail_instances(&rt, vec![refusal_server(&ports, &certs).to_string()])?;
+        let result = (|| {
+            let _sing_box = common::Daemon::sing_box(
+                dir.path(),
+                "client",
+                refusal_client(&ports, &certs, true),
+            )?;
+            run_refusals(&rt, &ports)
+        })();
+        common::shutdown_instances(&rt, ids);
+        result
+    })
+}
+
+// app(socks) -> sail(mux) -> sing-box(multiplex: none, or padding): the
+// same server config refuses the same connections there.
+#[test]
+#[ignore = "needs sing-box"]
+fn test_mux_refused_sail_to_sing_box() -> anyhow::Result<()> {
+    let certs = certs("refused-to-sing-box")?;
+    common::retry_port_clash(|| {
+        let ports = RefusalPorts::new();
+        let dir = common::TempDir::new("mux-refused")?;
+        let _sing_box =
+            common::Daemon::sing_box(dir.path(), "server", refusal_server(&ports, &certs))?;
+        let rt = runtime()?;
+        let ids = common::run_sail_instances(
+            &rt,
+            vec![refusal_client(&ports, &certs, false).to_string()],
+        )?;
+        let result = run_refusals(&rt, &ports);
+        common::shutdown_instances(&rt, ids);
+        result
+    })
+}
+
+/// The inbound `multiplex` block's mistakes are errors.
+#[test]
+fn test_mux_inbound_config_mistakes() -> anyhow::Result<()> {
+    let certs = certs("config")?;
+    let rt = runtime()?;
+    let starts = |multiplex: Value| -> bool {
+        let ports = RefusalPorts::new();
+        let mut config = refusal_server(&ports, &certs);
+        config["inbounds"][0]["multiplex"] = multiplex;
+        match common::run_sail_instances(&rt, vec![config.to_string()]) {
+            Ok(ids) => {
+                common::shutdown_instances(&rt, ids);
+                true
+            }
+            Err(_) => false,
+        }
+    };
+    let brutal = json!({ "enabled": true, "up_mbps": 100, "down_mbps": 100 });
+    anyhow::ensure!(!starts(json!({ "enabled": true, "brutal": brutal })));
+    anyhow::ensure!(!starts(
+        json!({ "enabled": true, "protocol": "amux", "padding": true })
+    ));
+    anyhow::ensure!(!starts(json!({ "enabled": true, "protocol": "smux" })));
+    anyhow::ensure!(!starts(json!({ "enabled": true, "max_connections": 4 })));
+    // A disabled Brutal is no mistake, nor is a disabled block.
+    anyhow::ensure!(starts(
+        json!({ "enabled": true, "brutal": { "enabled": false } })
+    ));
+    anyhow::ensure!(starts(json!({ "enabled": false, "padding": true })));
+    Ok(())
 }

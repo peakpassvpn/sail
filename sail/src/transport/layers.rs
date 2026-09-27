@@ -1234,13 +1234,87 @@ pub enum InboundTransport {
     Quic {},
 }
 
+/// An inbound's `multiplex` block: sing-box's, which configures its
+/// sing-mux server, or with `protocol: "amux"` the amux layer below the
+/// protocol.
+///
+/// sing-mux is served, as by sing-box, only where this block enables it:
+/// with no block, a connection to the magic destination is refused. amux
+/// takes the block's place, so an inbound with amux serves no sing-mux.
 #[derive(Deserialize, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct InboundMultiplex {
     #[serde(default)]
     pub enabled: bool,
-    /// Only `amux` for now.
-    pub protocol: String,
+    /// `amux`; unset, sing-mux, which sing-box's block has no field for:
+    /// its server takes smux, yamux and h2mux alike.
+    #[serde(default)]
+    pub protocol: Option<String>,
+    /// sing-mux: refuse connections that are not padded.
+    #[serde(default)]
+    pub padding: bool,
+    /// sing-box's TCP Brutal: not supported, and an error when enabled.
+    #[serde(default)]
+    pub brutal: Option<InboundBrutal>,
+}
+
+#[derive(Deserialize, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct InboundBrutal {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub up_mbps: u64,
+    #[serde(default)]
+    pub down_mbps: u64,
+}
+
+/// What an inbound's `multiplex` block asks for.
+enum InboundMux<'a> {
+    /// sing-mux, not served.
+    Off,
+    /// sing-mux, padded only or not.
+    SingMux {
+        padding: bool,
+    },
+    Amux(&'a InboundMultiplex),
+}
+
+impl InboundMultiplex {
+    /// What the block asks for, checked whether it is enabled or not.
+    fn mode(&self, tag: &str) -> Result<InboundMux<'_>> {
+        if self.brutal.as_ref().is_some_and(|b| b.enabled) {
+            return Err(anyhow!(
+                "[{}] inbound: multiplex.brutal: TCP Brutal is not supported",
+                tag
+            ));
+        }
+        match self.protocol.as_deref() {
+            None => {}
+            Some("amux") if self.padding => {
+                return Err(anyhow!(
+                    "[{}] inbound: multiplex.padding: only for sing-mux, not amux",
+                    tag
+                ));
+            }
+            Some("amux") => {}
+            Some(protocol) => {
+                return Err(anyhow!(
+                    "[{}] inbound: multiplex.protocol: unsupported protocol \"{}\"; \
+                     amux is, and unset is sing-mux",
+                    tag,
+                    protocol
+                ))
+            }
+        }
+        Ok(match (self.enabled, self.protocol.is_some()) {
+            (false, _) => InboundMux::Off,
+            (true, false) => InboundMux::SingMux {
+                padding: self.padding,
+            },
+            (true, true) => InboundMux::Amux(self),
+        })
+    }
 }
 
 impl InboundBlocks {
@@ -1289,7 +1363,19 @@ pub fn inbound(
     env: &RuntimeEnv,
 ) -> Result<AnyInboundHandler> {
     let tls = blocks.tls.as_ref().filter(|t| t.enabled);
-    let mux = blocks.multiplex.as_ref().filter(|m| m.enabled);
+    let mode = match &blocks.multiplex {
+        Some(multiplex) => multiplex.mode(tag)?,
+        None => InboundMux::Off,
+    };
+    let mux = match mode {
+        InboundMux::Amux(amux) => Some(amux),
+        _ => None,
+    };
+    let sing_mux = match mode {
+        InboundMux::Off => None,
+        InboundMux::SingMux { padding } => Some(padding),
+        InboundMux::Amux(_) => None,
+    };
     let mut actors: Vec<AnyInboundHandler> = Vec::new();
 
     if let Some(InboundTransport::Http(_)) = &blocks.transport {
@@ -1372,11 +1458,39 @@ pub fn inbound(
         }
     }
 
-    if actors.is_empty() {
-        return Ok(core);
+    let handler = if actors.is_empty() {
+        core
+    } else {
+        actors.push(core);
+        chain_inbound(tag, actors, env)?
+    };
+    sing_mux_inbound(tag, handler, sing_mux)
+}
+
+/// `handler`, serving sing-mux as `padding` says: not at all if `None`,
+/// else padded only or not.
+#[allow(unused_variables)]
+fn sing_mux_inbound(
+    tag: &str,
+    handler: AnyInboundHandler,
+    padding: Option<bool>,
+) -> Result<AnyInboundHandler> {
+    #[cfg(feature = "mux")]
+    {
+        use crate::transport::mux::inbound::{with_policy, Policy};
+        let policy = match padding {
+            None => Policy::Refuse,
+            Some(false) => Policy::Serve,
+            Some(true) => Policy::ServePadded,
+        };
+        Ok(with_policy(handler, policy))
     }
-    actors.push(core);
-    chain_inbound(tag, actors, env)
+    // Without the feature there is no sing-mux server to refuse.
+    #[cfg(not(feature = "mux"))]
+    match padding {
+        None => Ok(handler),
+        Some(_) => Err(not_compiled(tag, "inbound", "multiplex", "mux")),
+    }
 }
 
 #[allow(unused_variables)]
@@ -1632,13 +1746,6 @@ fn amux_inbound(
     mux: &InboundMultiplex,
     actors: Vec<AnyInboundHandler>,
 ) -> Result<AnyInboundHandler> {
-    if mux.protocol != "amux" {
-        return Err(anyhow!(
-            "[{}] inbound: multiplex.protocol: unsupported protocol \"{}\", only amux is",
-            tag,
-            mux.protocol
-        ));
-    }
     #[cfg(feature = "inbound-amux")]
     return Ok(Arc::new(crate::adapter::inbound::Handler::new(
         format!("{}/amux", tag),

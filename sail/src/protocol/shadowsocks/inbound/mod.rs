@@ -5,6 +5,7 @@ use anyhow::{anyhow, Result};
 use crate::adapter::inbound::Handler;
 use crate::adapter::registry::{InboundContext, InboundFactory, InboundRegistry};
 use crate::adapter::AnyInboundHandler;
+use crate::transport::layers::Blocks;
 use serde_derive::Deserialize;
 
 mod datagram;
@@ -18,7 +19,14 @@ use super::shadow;
 use super::sip022;
 
 pub(crate) fn register(registry: &mut InboundRegistry) {
-    registry.register("shadowsocks", InboundFactory::standalone(build));
+    // `multiplex`, to serve sing-mux as sing-box's does when it is enabled.
+    registry.register(
+        "shadowsocks",
+        InboundFactory::standalone(build).with_blocks(Blocks {
+            multiplex: true,
+            ..Blocks::NONE
+        }),
+    );
 }
 
 #[derive(Deserialize)]
