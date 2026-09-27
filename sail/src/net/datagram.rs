@@ -158,6 +158,8 @@ pub struct DomainAssociatedOutboundDatagram {
     dns_client: SyncDnsClient,
     /// The outbound's, which say how its names resolve.
     dial: Arc<DialOptions>,
+    /// Answers come as from the domain they were sent to.
+    unmap: bool,
 }
 
 impl DomainAssociatedOutboundDatagram {
@@ -172,7 +174,16 @@ impl DomainAssociatedOutboundDatagram {
             destination,
             dns_client,
             dial,
+            unmap: true,
         }
+    }
+
+    /// The same datagram, whose answers come as from the address a domain
+    /// resolved to, not from the domain, when `disabled`: a rule's
+    /// `udp_disable_domain_unmapping`.
+    pub fn without_unmapping(mut self, disabled: bool) -> Self {
+        self.unmap = !disabled;
+        self
     }
 }
 
@@ -190,7 +201,7 @@ impl OutboundDatagram for DomainAssociatedOutboundDatagram {
             Box::new(DomainAssociatedOutboundDatagramRecvHalf(
                 r,
                 self.destination,
-                targets.clone(),
+                self.unmap.then(|| targets.clone()),
             )),
             Box::new(DomainAssociatedOutboundDatagramSendHalf(
                 s,
@@ -262,13 +273,74 @@ fn unmapped_ipv4(addr: SocketAddr) -> SocketAddr {
     addr
 }
 
-pub struct DomainAssociatedOutboundDatagramRecvHalf(Arc<UdpSocket>, SocksAddr, DomainTargetMap);
+/// With the targets answers come as from, unless unmapping is off.
+pub struct DomainAssociatedOutboundDatagramRecvHalf(
+    Arc<UdpSocket>,
+    SocksAddr,
+    Option<DomainTargetMap>,
+);
 
 #[async_trait]
 impl OutboundDatagramRecvHalf for DomainAssociatedOutboundDatagramRecvHalf {
     async fn recv_from(&mut self, buf: &mut [u8]) -> io::Result<(usize, SocksAddr)> {
         let (n, address) = self.0.recv_from(buf).await?;
-        Ok((n, self.2.target(address, &self.1).await))
+        match &self.2 {
+            Some(targets) => Ok((n, targets.target(address, &self.1).await)),
+            None => Ok((n, SocksAddr::Ip(unmapped_ipv4(address)))),
+        }
+    }
+}
+
+/// A datagram of a connected socket, as a rule's `udp_connect` asks: it
+/// sends to the one address it is connected to, whatever the target, and
+/// hears from that one alone, reported as `from`.
+pub struct ConnectedOutboundDatagram {
+    inner: UdpSocket,
+    from: SocksAddr,
+}
+
+impl ConnectedOutboundDatagram {
+    pub fn new(inner: UdpSocket, from: SocksAddr) -> Self {
+        Self { inner, from }
+    }
+}
+
+impl OutboundDatagram for ConnectedOutboundDatagram {
+    fn split(
+        self: Box<Self>,
+    ) -> (
+        Box<dyn OutboundDatagramRecvHalf>,
+        Box<dyn OutboundDatagramSendHalf>,
+    ) {
+        let r = Arc::new(self.inner);
+        let s = r.clone();
+        (
+            Box::new(ConnectedRecvHalf(r, self.from)),
+            Box::new(ConnectedSendHalf(s)),
+        )
+    }
+}
+
+struct ConnectedRecvHalf(Arc<UdpSocket>, SocksAddr);
+
+#[async_trait]
+impl OutboundDatagramRecvHalf for ConnectedRecvHalf {
+    async fn recv_from(&mut self, buf: &mut [u8]) -> io::Result<(usize, SocksAddr)> {
+        let n = self.0.recv(buf).await?;
+        Ok((n, self.1.clone()))
+    }
+}
+
+struct ConnectedSendHalf(Arc<UdpSocket>);
+
+#[async_trait]
+impl OutboundDatagramSendHalf for ConnectedSendHalf {
+    async fn send_to(&mut self, buf: &[u8], _target: &SocksAddr) -> io::Result<usize> {
+        self.0.send(buf).await
+    }
+
+    async fn close(&mut self) -> io::Result<()> {
+        Ok(())
     }
 }
 

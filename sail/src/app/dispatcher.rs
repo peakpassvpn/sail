@@ -32,6 +32,20 @@ where
 use crate::app::SyncStatManager;
 
 use super::router::{Decision, NoSniffer, SniffAction, Sniffer};
+
+/// Where routing sends a connection.
+enum Routed {
+    /// Through this outbound.
+    Outbound(String),
+    /// To the DNS client, which answers the queries it carries.
+    HijackDns,
+    /// Nowhere, and it is left unanswered.
+    Drop,
+}
+
+/// How long a dropped connection is held unanswered at most: past it, any
+/// client has given up.
+const DROP_HOLD: std::time::Duration = std::time::Duration::from_secs(60);
 use super::{SyncOutboundManager, SyncRouter};
 
 /// Records on `sess` what a `sniff` rule found: the protocol, and the
@@ -366,9 +380,29 @@ impl Dispatcher {
         // Routing, which may sniff and resolve, runs in a future of its own
         // that is freed once it decides: the one relaying for the life of
         // the connection does not keep room for it.
-        let Some((mut sess, outbound, mut lhs)) = Box::pin(self.route_stream(sess, lhs)).await
-        else {
+        let Some((mut sess, routed, mut lhs)) = Box::pin(self.route_stream(sess, lhs)).await else {
             return;
+        };
+        let outbound = match routed {
+            Routed::Outbound(tag) => tag,
+            Routed::HijackDns => {
+                if let Err(e) =
+                    super::router::hijack_dns::serve_stream(&self.dns_client, lhs, &sess).await
+                {
+                    debug!("hijack-dns: {}", e);
+                }
+                return;
+            }
+            Routed::Drop => {
+                // Read and thrown away, and never answered, until the
+                // client gives up.
+                let _ = tokio::time::timeout(
+                    DROP_HOLD,
+                    tokio::io::copy(&mut lhs, &mut tokio::io::sink()),
+                )
+                .await;
+                return;
+            }
         };
 
         sess.outbound_tag = outbound.clone();
@@ -419,6 +453,9 @@ impl Dispatcher {
         };
         match th.handle(&sess, Some(&mut lhs), stream).await {
             Ok(mut rhs) => {
+                if let Some(how) = sess.route.tls_fragment {
+                    rhs = Box::new(super::router::fragment::FragmentStream::new(rhs, how));
+                }
                 let elapsed = tokio::time::Instant::now().duration_since(handshake_start);
 
                 log_request(&sess, h.tag(), Some(elapsed.as_millis()));
@@ -462,8 +499,13 @@ impl Dispatcher {
     }
 
     pub async fn dispatch_stream_outbound(&self, mut sess: Session) -> io::Result<AnyStream> {
-        let outbound = self.route(&mut sess, &mut NoSniffer).await?;
-        self.stream_via(&outbound, sess).await
+        match self.route(&mut sess, &mut NoSniffer).await? {
+            Routed::Outbound(outbound) => self.stream_via(&outbound, sess).await,
+            Routed::HijackDns | Routed::Drop => Err(io::Error::new(
+                io::ErrorKind::ConnectionRefused,
+                "not routed to an outbound",
+            )),
+        }
     }
 
     /// The outbound connections go to when nothing says otherwise.
@@ -504,13 +546,14 @@ impl Dispatcher {
     }
 
     /// Datagrams to where the rules send the UDP session `sess`, which
-    /// `sniffer` reads the first datagrams of for a `sniff` rule.
+    /// `sniffer` reads the first datagrams of for a `sniff` rule, and how
+    /// long the session lasts idle when a rule says.
     #[async_recursion]
     pub async fn dispatch_datagram(
         &self,
         mut sess: Session,
         sniffer: &mut dyn Sniffer,
-    ) -> io::Result<Box<dyn OutboundDatagram>> {
+    ) -> io::Result<(Box<dyn OutboundDatagram>, Option<std::time::Duration>)> {
         debug!(
             "dispatch proto={} in={} src={} dst={}",
             &sess.network, &sess.inbound_tag, &sess.source, &sess.destination
@@ -527,14 +570,27 @@ impl Dispatcher {
                     send: HealthcheckUdpSendHalf,
                 };
                 let d: Box<dyn OutboundDatagram> = Box::new(d);
-                return Ok(d);
+                return Ok((d, None));
             }
         }
 
         self.identify_inbound(&mut sess);
         let reverse_mapping = self.reverse_map(&mut sess).await;
         let origin = sess.destination.clone();
-        let outbound = self.route(&mut sess, sniffer).await?;
+        let outbound = match self.route(&mut sess, sniffer).await? {
+            Routed::Outbound(outbound) => outbound,
+            Routed::HijackDns => {
+                let udp_timeout = sess.route.udp_timeout;
+                let d = super::router::hijack_dns::Datagram::new(self.dns_client.clone(), sess);
+                return Ok((Box::new(d), udp_timeout));
+            }
+            Routed::Drop => {
+                return Err(io::Error::new(
+                    io::ErrorKind::ConnectionRefused,
+                    "dropped by a rule",
+                ))
+            }
+        };
 
         sess.outbound_tag = outbound.clone();
 
@@ -566,7 +622,8 @@ impl Dispatcher {
                 if reverse_mapping && sess.destination.port() == 53 {
                     d = Box::new(SniffingDatagram::new(d, self.dns_sniffer.clone()));
                 }
-
+                // A destination a sniff or a rule overrode answers as the
+                // one asked for.
                 if sess.destination != origin {
                     d = Box::new(sniff::OverriddenDatagram::new(
                         d,
@@ -575,7 +632,7 @@ impl Dispatcher {
                     ));
                 }
 
-                Ok(d)
+                Ok((d, sess.route.udp_timeout))
             }
             Err(e) => {
                 debug!("outbound handle err={}", e);
@@ -591,7 +648,7 @@ impl Dispatcher {
         &self,
         mut sess: Session,
         mut lhs: T,
-    ) -> Option<(Session, String, Box<dyn ProxyStream>)>
+    ) -> Option<(Session, Routed, Box<dyn ProxyStream>)>
     where
         T: 'static + AsyncRead + AsyncWrite + Unpin + Send + Sync,
     {
@@ -665,8 +722,9 @@ impl Dispatcher {
         true
     }
 
-    /// The outbound `sess` goes to, as the rules decide.
-    async fn route(&self, sess: &mut Session, sniffer: &mut dyn Sniffer) -> io::Result<String> {
+    /// Where `sess` goes, as the rules decide; an error when a rule rejects
+    /// it.
+    async fn route(&self, sess: &mut Session, sniffer: &mut dyn Sniffer) -> io::Result<Routed> {
         let decision = self
             .router
             .load_full()
@@ -680,18 +738,20 @@ impl Dispatcher {
                 .load()
                 .default_handler()
                 .ok_or_else(|| io::Error::other("no outbound found"))?,
-            Decision::Reject => {
+            Decision::Reject { drop: false } => {
                 return Err(io::Error::new(
                     io::ErrorKind::ConnectionRefused,
                     "rejected by a rule",
                 ))
             }
+            Decision::Reject { drop: true } => return Ok(Routed::Drop),
+            Decision::HijackDns => return Ok(Routed::HijackDns),
         };
         debug!(
             "picked route out={} src={} dst={}",
             tag, &sess.source, &sess.destination
         );
-        Ok(tag)
+        Ok(Routed::Outbound(tag))
     }
 
     pub async fn is_direct_outbound(&self, tag: &str) -> bool {

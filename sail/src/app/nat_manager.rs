@@ -344,7 +344,15 @@ impl NatManager {
                     .await;
                 let sniffed = sniffer.into_read();
                 let socket = match socket {
-                    Ok(s) => s,
+                    Ok((s, udp_timeout)) => {
+                        // A rule's udp_timeout, over the inbound's.
+                        if let Some(udp_timeout) = udp_timeout {
+                            if let Some(entry) = sessions.lock().await.get_mut(&key) {
+                                entry.3 = udp_timeout;
+                            }
+                        }
+                        s
+                    }
                     Err(e) => {
                         debug!("dispatch {} failed: {}", &raddr_cloned, e);
                         sessions.lock().await.remove(&key);

@@ -267,6 +267,35 @@ pub async fn connect_datagram_outbound(
                 Ok(Some(OutboundTransport::Stream(stream)))
             }
         },
+        OutboundConnect::Direct if sess.route.udp_connect => {
+            let addr = match &sess.destination {
+                SocksAddr::Ip(addr) => *addr,
+                SocksAddr::Domain(domain, port) => {
+                    let ips = dns_client
+                        .load_full()
+                        .lookup_dial(domain, &dial)
+                        .await
+                        .map_err(|e| {
+                            io::Error::other(format!("lookup {} failed: {}", domain, e))
+                        })?;
+                    let ip = ips.first().ok_or_else(|| {
+                        io::Error::other(format!("{} resolves to nothing", domain))
+                    })?;
+                    SocketAddr::new(*ip, *port)
+                }
+            };
+            let socket = new_udp_socket(&addr, &dial).await?;
+            socket.connect(addr).await?;
+            let from = match &sess.destination {
+                SocksAddr::Domain(..) if !sess.route.udp_disable_domain_unmapping => {
+                    sess.destination.clone()
+                }
+                _ => SocksAddr::Ip(addr),
+            };
+            Ok(Some(OutboundTransport::Datagram(Box::new(
+                ConnectedOutboundDatagram::new(socket, from),
+            ))))
+        }
         OutboundConnect::Direct => match &sess.destination {
             SocksAddr::Domain(domain, port) => {
                 let socket = new_udp_socket(&dial.unspecified(), &dial).await?;
@@ -276,7 +305,8 @@ pub async fn connect_datagram_outbound(
                         SocksAddr::Domain(domain.to_owned(), *port),
                         dns_client.clone(),
                         dial.clone(),
-                    ),
+                    )
+                    .without_unmapping(sess.route.udp_disable_domain_unmapping),
                 ))))
             }
             SocksAddr::Ip(addr) => {

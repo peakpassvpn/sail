@@ -60,18 +60,23 @@ pub(crate) mod rule_set {
     }
 }
 
+pub(crate) mod fragment;
+pub(crate) mod hijack_dns;
+
+use std::collections::VecDeque;
 use std::io;
 use std::net::IpAddr;
-use std::time::Duration;
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use tracing::debug;
 
 use crate::app::SyncDnsClient;
-use crate::config::model::{self, RuleAction};
+use crate::config::model::{self, RejectMethod, RuleAction};
 use crate::runtime::RuntimeEnv;
-use crate::session::Session;
+use crate::session::{Session, SocksAddr, TlsFragment};
 
 use matcher::{Facts, Matcher, Readers};
 
@@ -80,8 +85,10 @@ use matcher::{Facts, Matcher, Readers};
 pub enum Decision {
     /// To this outbound; to the default one when `None`.
     Route(Option<String>),
-    /// Nowhere: it is closed.
-    Reject,
+    /// Nowhere: it is closed at once, or left unanswered when `drop`.
+    Reject { drop: bool },
+    /// To sail's DNS client, which answers the queries it carries.
+    HijackDns,
 }
 
 /// What a `sniff` rule asks for.
@@ -112,13 +119,131 @@ impl Sniffer for NoSniffer {
     }
 }
 
+/// The route options of a `route` or `route-options` rule.
+#[derive(Default)]
+struct Options {
+    override_address: Option<SocksAddr>,
+    override_port: Option<u16>,
+    udp_disable_domain_unmapping: bool,
+    udp_connect: bool,
+    udp_timeout: Option<Duration>,
+    tls_fragment: Option<TlsFragment>,
+}
+
+/// How long apart the pieces of a fragmented ClientHello go when the rule
+/// does not say, as in sing-box.
+const TLS_FRAGMENT_DELAY: Duration = Duration::from_millis(500);
+
+impl Options {
+    fn new(rule: &model::Rule, path: &str) -> Result<Self> {
+        let override_address = match &rule.override_address {
+            None => None,
+            Some(address) if address.is_empty() || address.contains(char::is_whitespace) => {
+                return Err(anyhow!(
+                    "{}.override_address: \"{}\" is neither an address nor a domain",
+                    path,
+                    address
+                ))
+            }
+            Some(address) => Some(SocksAddr::try_from((address.as_str(), 0)).map_err(|e| {
+                anyhow!(
+                    "{}.override_address: \"{}\" is neither an address nor a domain: {}",
+                    path,
+                    address,
+                    e
+                )
+            })?),
+        };
+        let tls_fragment = if rule.tls_fragment {
+            Some(TlsFragment::Segments(
+                rule.tls_fragment_fallback_delay
+                    .unwrap_or(TLS_FRAGMENT_DELAY),
+            ))
+        } else if rule.tls_record_fragment {
+            Some(TlsFragment::Records)
+        } else {
+            None
+        };
+        Ok(Options {
+            override_address,
+            override_port: rule.override_port,
+            udp_disable_domain_unmapping: rule.udp_disable_domain_unmapping,
+            udp_connect: rule.udp_connect,
+            udp_timeout: rule.udp_timeout,
+            tls_fragment,
+        })
+    }
+
+    /// Sets the options in `sess`, as sing-box's `matchRule` does: an
+    /// override changes the destination the next rules match, and those
+    /// rules can set other options still.
+    fn apply(&self, sess: &mut Session) {
+        if self.override_address.is_some() || self.override_port.is_some() {
+            if sess.route.original_destination.is_none() {
+                sess.route.original_destination = Some(sess.destination.clone());
+            }
+            let port = self.override_port.unwrap_or(sess.destination.port());
+            sess.destination = match self.override_address.as_ref().unwrap_or(&sess.destination) {
+                SocksAddr::Ip(addr) => SocksAddr::Ip(std::net::SocketAddr::new(addr.ip(), port)),
+                SocksAddr::Domain(domain, _) => SocksAddr::Domain(domain.clone(), port),
+            };
+        }
+        let route = &mut sess.route;
+        route.udp_disable_domain_unmapping |= self.udp_disable_domain_unmapping;
+        route.udp_connect |= self.udp_connect;
+        if self.udp_timeout.is_some() {
+            route.udp_timeout = self.udp_timeout;
+        }
+        if self.tls_fragment.is_some() {
+            route.tls_fragment = self.tls_fragment;
+        }
+    }
+}
+
+/// A `reject` rule's way.
+struct Reject {
+    method: RejectMethod,
+    no_drop: bool,
+    /// When the rule last rejected, for the last 30 seconds.
+    recent: Mutex<VecDeque<Instant>>,
+}
+
+impl Reject {
+    /// Past this many rejections in 30 seconds, a rule drops those after,
+    /// as sing-box's does, unless `no_drop`.
+    const FLOOD: usize = 50;
+    const WINDOW: Duration = Duration::from_secs(30);
+
+    /// Whether this rejection drops the connection.
+    fn drops(&self) -> bool {
+        match self.method {
+            RejectMethod::Drop => true,
+            _ if self.no_drop => false,
+            _ => {
+                let now = Instant::now();
+                let mut recent = self.recent.lock().unwrap_or_else(|e| e.into_inner());
+                while recent
+                    .front()
+                    .is_some_and(|t| now.duration_since(*t) > Self::WINDOW)
+                {
+                    recent.pop_front();
+                }
+                recent.push_back(now);
+                recent.len() > Self::FLOOD
+            }
+        }
+    }
+}
+
 enum Action {
-    Route(String),
-    Reject,
+    Route(String, Options),
+    RouteOptions(Options),
+    Reject(Reject),
+    HijackDns,
     Sniff(SniffAction),
     /// With the DNS server to ask, when not the one the DNS rules pick,
-    /// and the families.
-    Resolve(Option<String>, Option<model::DnsStrategy>),
+    /// the families, and how long to wait.
+    Resolve(Option<String>, Option<model::DnsStrategy>, Option<Duration>),
 }
 
 struct Rule {
@@ -139,9 +264,27 @@ impl Rule {
                 rule.outbound
                     .clone()
                     .ok_or_else(|| anyhow!("{}: outbound: a route rule needs one", path))?,
+                Options::new(rule, path)?,
             ),
-            RuleAction::Reject => Action::Reject,
-            RuleAction::Resolve => Action::Resolve(rule.server.clone(), rule.strategy),
+            RuleAction::RouteOptions => Action::RouteOptions(Options::new(rule, path)?),
+            RuleAction::Reject => {
+                let method = rule.method.unwrap_or_default();
+                if method == RejectMethod::Reply {
+                    return Err(anyhow!(
+                        "{}.method: reply answers ICMP, which sail does not route",
+                        path
+                    ));
+                }
+                Action::Reject(Reject {
+                    method,
+                    no_drop: rule.no_drop,
+                    recent: Default::default(),
+                })
+            }
+            RuleAction::HijackDns => Action::HijackDns,
+            RuleAction::Resolve => {
+                Action::Resolve(rule.server.clone(), rule.strategy, rule.timeout)
+            }
             RuleAction::Sniff => {
                 let protocols = crate::sniff::Protocols::of(&rule.sniffer);
                 Action::Sniff(SniffAction {
@@ -149,13 +292,6 @@ impl Rule {
                     timeout: rule.timeout.unwrap_or(Duration::from_millis(300)),
                     override_destination: rule.override_destination,
                 })
-            }
-            action @ (RuleAction::RouteOptions | RuleAction::HijackDns) => {
-                return Err(anyhow!(
-                    "{}.action: sail does not implement \"{}\" yet",
-                    path,
-                    action.name()
-                ))
             }
         };
         Ok(Rule {
@@ -218,11 +354,12 @@ impl Router {
             || self
                 .rules
                 .iter()
-                .any(|rule| matches!(&rule.action, Action::Route(t) if t == tag))
+                .any(|rule| matches!(&rule.action, Action::Route(t, _) if t == tag))
     }
 
     /// Matches `sess` against the rules in order, sniffing through
-    /// `sniffer` and resolving as they say, until one decides.
+    /// `sniffer`, resolving and setting route options as they say, until
+    /// one decides.
     pub async fn pick_route(
         &self,
         sess: &mut Session,
@@ -235,13 +372,26 @@ impl Router {
                 continue;
             }
             match &rule.action {
-                Action::Route(tag) => {
+                Action::Route(tag, options) => {
                     debug!("rule {} routes to {}", i, tag);
+                    options.apply(sess);
                     return Ok(Decision::Route(Some(tag.clone())));
                 }
-                Action::Reject => {
-                    debug!("rule {} rejects", i);
-                    return Ok(Decision::Reject);
+                Action::RouteOptions(options) => {
+                    debug!("rule {} sets route options", i);
+                    if options.override_address.is_some() {
+                        resolved.clear();
+                    }
+                    options.apply(sess);
+                }
+                Action::Reject(reject) => {
+                    let drop = reject.drops();
+                    debug!("rule {} rejects{}", i, if drop { ", dropping" } else { "" });
+                    return Ok(Decision::Reject { drop });
+                }
+                Action::HijackDns => {
+                    debug!("rule {} hijacks dns", i);
+                    return Ok(Decision::HijackDns);
                 }
                 Action::Sniff(action) => {
                     sniffer
@@ -249,11 +399,11 @@ impl Router {
                         .await
                         .map_err(|e| anyhow!("sniff: {}", e))?;
                 }
-                Action::Resolve(server, strategy) => {
+                Action::Resolve(server, strategy, timeout) => {
                     if resolved.is_empty() && !sess.skip_resolve {
-                        if let Some(domain) = facts.domain() {
+                        if let Some(domain) = facts.domain().map(str::to_string) {
                             resolved = self
-                                .resolve(domain, sess, server.as_deref(), *strategy)
+                                .resolve(&domain, sess, server.as_deref(), *strategy, *timeout)
                                 .await;
                         }
                     }
@@ -264,27 +414,36 @@ impl Router {
         Ok(Decision::Route(self.final_outbound.clone()))
     }
 
-    /// The addresses of `domain`, or none when it does not resolve: the
-    /// rules after a `resolve` then match without them.
+    /// The addresses of `domain`, or none when it does not resolve in
+    /// time: the rules after a `resolve` then match without them.
     async fn resolve(
         &self,
         domain: &str,
         sess: &Session,
         server: Option<&str>,
         strategy: Option<model::DnsStrategy>,
+        timeout: Option<Duration>,
     ) -> Vec<IpAddr> {
         let dns = self.dns_client.load_full();
-        let result = match server {
-            Some(server) => dns.lookup_from(server, domain, strategy).await,
-            None => {
-                let ctx = crate::app::dns::LookupContext {
-                    inbound: Some(sess.inbound_tag.clone()),
-                    user: sess.user.clone(),
-                    outbound: None,
-                    strategy,
-                };
-                dns.lookup_in(domain, &ctx).await
+        let lookup = async {
+            match server {
+                Some(server) => dns.lookup_from(server, domain, strategy).await,
+                None => {
+                    let ctx = crate::app::dns::LookupContext {
+                        inbound: Some(sess.inbound_tag.clone()),
+                        user: sess.user.clone(),
+                        outbound: None,
+                        strategy,
+                    };
+                    dns.lookup_in(domain, &ctx).await
+                }
             }
+        };
+        let result = match timeout {
+            Some(timeout) => tokio::time::timeout(timeout, lookup)
+                .await
+                .unwrap_or_else(|_| Err(anyhow!("timed out after {:?}", timeout))),
+            None => lookup.await,
         };
         match result {
             Ok(ips) => {
@@ -310,7 +469,9 @@ mod tests {
             &serde_json::json!({
                 "dns": { "servers": [
                     { "type": "hosts", "predefined": { "test.sail": "127.0.0.1" } },
-                    { "type": "hosts", "tag": "lan", "predefined": { "test.sail": "10.0.0.1" } }
+                    { "type": "hosts", "tag": "lan", "predefined": { "test.sail": "10.0.0.1" } },
+                    // A server that never answers, in the documentation range.
+                    { "type": "udp", "tag": "slow", "server": "192.0.2.1" }
                 ] },
                 "outbounds": [{ "type": "direct", "tag": "a" }, { "type": "direct", "tag": "b" }],
                 "route": { "rules": rules, "final": "b" },
@@ -393,7 +554,7 @@ mod tests {
             .pick_route(&mut to_ip(), &mut NoSniffer)
             .await
             .unwrap();
-        assert_eq!(decision, Decision::Reject);
+        assert_eq!(decision, Decision::Reject { drop: false });
     }
 
     #[tokio::test]
@@ -427,5 +588,200 @@ mod tests {
         };
         let decision = router.pick_route(&mut sess, &mut NoSniffer).await.unwrap();
         assert_eq!(decision, Decision::Route(Some("a".into())));
+    }
+
+    fn to(destination: &str) -> Session {
+        Session {
+            destination: match destination.parse::<std::net::SocketAddr>() {
+                Ok(addr) => SocksAddr::Ip(addr),
+                Err(_) => {
+                    let (host, port) = destination.rsplit_once(':').unwrap();
+                    SocksAddr::Domain(host.into(), port.parse().unwrap())
+                }
+            },
+            ..Default::default()
+        }
+    }
+
+    async fn pick(router: &Router, sess: &mut Session) -> Decision {
+        router.pick_route(sess, &mut NoSniffer).await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn route_options_set_and_the_next_rules_decide() {
+        let router = router(serde_json::json!([
+            { "domain": "old.test", "action": "route-options",
+              "override_address": "10.9.9.9", "override_port": 8443,
+              "udp_timeout": "10s", "udp_connect": true },
+            // The rules after match the destination put in place.
+            { "ip_cidr": "10.9.9.9", "port": 8443, "outbound": "a",
+              "tls_record_fragment": true, "udp_disable_domain_unmapping": true },
+        ]));
+        let mut sess = to("old.test:443");
+        assert_eq!(
+            pick(&router, &mut sess).await,
+            Decision::Route(Some("a".into()))
+        );
+        assert_eq!(sess.destination, to("10.9.9.9:8443").destination);
+        let route = &sess.route;
+        assert_eq!(
+            route.original_destination,
+            Some(to("old.test:443").destination)
+        );
+        assert_eq!(route.udp_timeout, Some(Duration::from_secs(10)));
+        assert!(route.udp_connect && route.udp_disable_domain_unmapping);
+        assert_eq!(route.tls_fragment, Some(TlsFragment::Records));
+
+        // A port alone keeps the address; the first destination is kept.
+        let router = self::router(serde_json::json!([
+            { "port": 53, "action": "route-options", "override_port": 5353 },
+            { "port": 5353, "action": "route-options", "override_address": "dns.test",
+              "tls_fragment": true },
+        ]));
+        let mut sess = to("1.1.1.1:53");
+        assert_eq!(
+            pick(&router, &mut sess).await,
+            Decision::Route(Some("b".into()))
+        );
+        assert_eq!(sess.destination, to("dns.test:5353").destination);
+        assert_eq!(
+            sess.route.original_destination,
+            Some(to("1.1.1.1:53").destination)
+        );
+        assert_eq!(
+            sess.route.tls_fragment,
+            Some(TlsFragment::Segments(TLS_FRAGMENT_DELAY))
+        );
+    }
+
+    #[tokio::test]
+    async fn a_route_rule_sets_its_options_as_it_routes() {
+        let router = router(serde_json::json!([
+            { "port": 443, "outbound": "a", "override_address": "::1",
+              "tls_fragment": true, "tls_fragment_fallback_delay": "10ms" },
+        ]));
+        let mut sess = to("x.test:443");
+        assert_eq!(
+            pick(&router, &mut sess).await,
+            Decision::Route(Some("a".into()))
+        );
+        assert_eq!(sess.destination, to("[::1]:443").destination);
+        assert_eq!(
+            sess.route.tls_fragment,
+            Some(TlsFragment::Segments(Duration::from_millis(10)))
+        );
+    }
+
+    #[tokio::test]
+    async fn hijack_dns_ends_the_matching() {
+        let router = router(serde_json::json!([
+            { "port": 53, "action": "hijack-dns" },
+            { "port": 53, "outbound": "a" },
+        ]));
+        assert_eq!(
+            pick(&router, &mut to("8.8.8.8:53")).await,
+            Decision::HijackDns
+        );
+        assert_eq!(
+            pick(&router, &mut to("8.8.8.8:853")).await,
+            Decision::Route(Some("b".into()))
+        );
+    }
+
+    #[tokio::test]
+    async fn reject_drops_as_its_method_says_and_past_a_flood() {
+        let router = router(serde_json::json!([
+            { "port": 1, "action": "reject", "method": "drop" },
+            { "port": 2, "action": "reject" },
+            { "port": 3, "action": "reject", "no_drop": true },
+        ]));
+        assert_eq!(
+            pick(&router, &mut to("1.1.1.1:1")).await,
+            Decision::Reject { drop: true }
+        );
+        for i in 0..60 {
+            let expected = Decision::Reject {
+                drop: i >= Reject::FLOOD,
+            };
+            assert_eq!(pick(&router, &mut to("1.1.1.1:2")).await, expected, "{}", i);
+            assert_eq!(
+                pick(&router, &mut to("1.1.1.1:3")).await,
+                Decision::Reject { drop: false }
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn logical_and_inverted_rules_route() {
+        let router = router(serde_json::json!([
+            { "type": "logical", "mode": "and", "outbound": "a", "rules": [
+                { "domain_suffix": "example.com" },
+                { "port": 80, "invert": true }
+            ] },
+            { "ip_is_private": true, "invert": true, "action": "reject" },
+        ]));
+        assert_eq!(
+            pick(&router, &mut to("www.example.com:443")).await,
+            Decision::Route(Some("a".into()))
+        );
+        assert_eq!(
+            pick(&router, &mut to("www.example.com:80")).await,
+            Decision::Reject { drop: false }
+        );
+        assert_eq!(
+            pick(&router, &mut to("192.168.1.1:80")).await,
+            Decision::Route(Some("b".into()))
+        );
+    }
+
+    #[tokio::test]
+    async fn a_resolve_rule_gives_up_at_its_timeout() {
+        let router = router(serde_json::json!([
+            { "action": "resolve", "timeout": "1ms", "server": "slow" },
+            { "ip_cidr": ["192.0.2.0/24"], "outbound": "a" },
+        ]));
+        let mut sess = to("test.sail:80");
+        let start = std::time::Instant::now();
+        assert_eq!(
+            pick(&router, &mut sess).await,
+            Decision::Route(Some("b".into()))
+        );
+        assert!(start.elapsed() < Duration::from_secs(2));
+    }
+
+    #[test]
+    fn mistakes_name_their_path() {
+        let config = crate::config::Config::from_json(
+            &serde_json::json!({
+                "outbounds": [{ "type": "direct", "tag": "a" }],
+                "route": { "rules": [
+                    { "port": 1, "outbound": "a" },
+                    { "type": "logical", "mode": "or", "outbound": "a", "rules": [
+                        { "port": 2 }, { "port_range": "9:1" }
+                    ] },
+                ] },
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let dns = DnsClient::new(&config.dns, Default::default(), &Default::default())
+            .unwrap()
+            .into_shared();
+        let err = Router::new(&config.route, dns, &RuntimeEnv::default())
+            .err()
+            .unwrap()
+            .to_string();
+        assert!(
+            err.starts_with("route.rules[1].rules[1].port_range: invalid port range"),
+            "{}",
+            err
+        );
+        for bad in ["", "a b"] {
+            let rule: model::Rule = serde_json::from_value(
+                serde_json::json!({ "action": "route-options", "override_address": bad }),
+            )
+            .unwrap();
+            assert!(Options::new(&rule, "route.rules[0]").is_err(), "{:?}", bad);
+        }
     }
 }

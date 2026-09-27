@@ -318,6 +318,35 @@ pub struct Session {
     /// The application protocol the inbound TLS negotiated with the peer,
     /// if any: an inbound's fallback is chosen by it.
     pub tls_alpn: Option<String>,
+    /// How the routing rules said the connection is to be carried.
+    pub route: RouteOptions,
+}
+
+/// How the routing rules said a connection is to be carried: their route
+/// options.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RouteOptions {
+    /// The destination asked for, when a rule overrode it.
+    pub original_destination: Option<SocksAddr>,
+    /// Answers to UDP sent to a domain come from the address it resolved
+    /// to.
+    pub udp_disable_domain_unmapping: bool,
+    /// A direct outbound sends UDP from a connected socket.
+    pub udp_connect: bool,
+    /// How long the UDP session lasts idle, instead of its inbound's
+    /// `udp_timeout`.
+    pub udp_timeout: Option<std::time::Duration>,
+    /// Sends the TLS ClientHello in pieces.
+    pub tls_fragment: Option<TlsFragment>,
+}
+
+/// How a TLS ClientHello is cut, in its server name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TlsFragment {
+    /// Into TCP segments, this long apart.
+    Segments(std::time::Duration),
+    /// Into TLS records, sent at once.
+    Records,
 }
 
 impl Clone for Session {
@@ -341,6 +370,7 @@ impl Clone for Session {
             user: self.user.clone(),
             skip_resolve: self.skip_resolve,
             tls_alpn: self.tls_alpn.clone(),
+            route: self.route.clone(),
         }
     }
 }
@@ -369,6 +399,7 @@ impl Default for Session {
             user: None,
             skip_resolve: false,
             tls_alpn: None,
+            route: RouteOptions::default(),
         }
     }
 }
