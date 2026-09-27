@@ -9,7 +9,7 @@ use tokio::sync::{
 };
 use tracing::{debug, error, trace, Instrument};
 
-use crate::app::dispatcher::Dispatcher;
+use crate::app::dispatcher::{DatagramSniffer, Dispatcher};
 use crate::session::{DatagramSource, Network, Session, SocksAddr, UdpAssociation};
 
 #[derive(Debug)]
@@ -328,12 +328,16 @@ impl NatManager {
         let span = sess.span();
         tokio::spawn(
             async move {
-                // new socket to communicate with the target.
-                let socket = match dispatcher
-                    .dispatch_datagram(sess)
+                // new socket to communicate with the target. A sniff rule
+                // reads the first datagrams off the uplink while routing;
+                // they are sent before the rest.
+                let mut sniffer = DatagramSniffer::new(&mut target_ch_rx);
+                let socket = dispatcher
+                    .dispatch_datagram(sess, &mut sniffer)
                     .instrument(tracing::Span::current())
-                    .await
-                {
+                    .await;
+                let sniffed = sniffer.into_read();
+                let socket = match socket {
                     Ok(s) => s,
                     Err(e) => {
                         debug!("dispatch {} failed: {}", &raddr_cloned, e);
@@ -409,7 +413,15 @@ impl NatManager {
                 let raddr_uplink = raddr_cloned.clone();
                 tokio::spawn(
                     async move {
-                        while let Some(pkt) = target_ch_rx.recv().await {
+                        let mut sniffed = sniffed.into_iter();
+                        loop {
+                            let pkt = match sniffed.next() {
+                                Some(pkt) => pkt,
+                                None => match target_ch_rx.recv().await {
+                                    Some(pkt) => pkt,
+                                    None => break,
+                                },
+                            };
                             trace!(
                                 "outbound send udp packet dst={} len={}",
                                 &pkt.dst_addr,

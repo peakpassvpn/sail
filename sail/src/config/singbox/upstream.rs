@@ -365,17 +365,5 @@ pub const VALUES: &[(&str, &[&str])] = &[
             "predefined",
         ],
     ),
-    (
-        "route.rules.*.sniffer",
-        &[
-            "quic",
-            "dns",
-            "stun",
-            "bittorrent",
-            "dtls",
-            "ssh",
-            "rdp",
-            "ntp",
-        ],
-    ),
+    ("route.rules.*.sniffer", &["ssh", "rdp", "ntp"]),
 ];

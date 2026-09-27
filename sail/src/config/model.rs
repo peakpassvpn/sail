@@ -555,12 +555,19 @@ pub enum RuleAction {
     Resolve,
 }
 
-/// A protocol a `sniff` rule reads the domain from.
+/// A protocol a `sniff` rule looks for, by sing-box's name. TLS, HTTP and
+/// QUIC name the domain too (QUIC's needs the `btls` crypto compiled in);
+/// DNS, STUN, BitTorrent and DTLS are only recognized.
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum Sniffer {
     Tls,
     Http,
+    Quic,
+    Dns,
+    Stun,
+    Bittorrent,
+    Dtls,
 }
 
 impl Rule {
@@ -1030,7 +1037,7 @@ mod tests {
             ),
             (r#"[{ "outbound": "direct" }]"#, "route.final"),
             (r#"[{ "action": "reject" }]"#, "route.final"),
-            (r#"[{ "action": "sniff", "sniffer": ["quic"] }]"#, "quic"),
+            (r#"[{ "action": "sniff", "sniffer": ["ssh"] }]"#, "ssh"),
         ] {
             let err = config(rules).unwrap_err().to_string();
             assert!(err.contains(message), "{}: {}", rules, err);

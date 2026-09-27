@@ -287,7 +287,7 @@ impl Client {
         let mut sess = sess.clone();
         sess.network = Network::Tcp;
         sess.destination = SocksAddr::Domain(MAGIC_DOMAIN.to_string(), MAGIC_PORT);
-        sess.sniffed = None;
+        sess.forget_sniffed();
         let (mut conn, socket) = match self.options.brutal {
             Some(_) => {
                 self.connector

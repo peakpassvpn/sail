@@ -95,7 +95,7 @@ async fn serve_uot(
 fn stream_session(sess: &Session) -> Session {
     let mut sess = sess.clone();
     sess.new_span();
-    sess.sniffed = None;
+    sess.forget_sniffed();
     sess
 }
 

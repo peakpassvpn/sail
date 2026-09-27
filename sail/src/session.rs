@@ -192,8 +192,53 @@ pub enum SniffedFrom {
     Dns,
     /// The HTTP Host header.
     Http,
-    /// The TLS server name.
+    /// The TLS server name, over TCP or in QUIC's Initial packets.
     Tls,
+}
+
+/// The protocol sniffing recognized a connection by, as sing-box names it
+/// for a rule's `protocol`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SniffedProtocol {
+    Http,
+    Tls,
+    Quic,
+    Dns,
+    Stun,
+    Bittorrent,
+    Dtls,
+}
+
+impl SniffedProtocol {
+    /// Every protocol, in the order sniffing tries them.
+    pub const ALL: [SniffedProtocol; 7] = [
+        SniffedProtocol::Tls,
+        SniffedProtocol::Http,
+        SniffedProtocol::Quic,
+        SniffedProtocol::Dns,
+        SniffedProtocol::Stun,
+        SniffedProtocol::Bittorrent,
+        SniffedProtocol::Dtls,
+    ];
+
+    /// The name a rule's `protocol` and `sniffer` give it.
+    pub fn name(self) -> &'static str {
+        match self {
+            SniffedProtocol::Http => "http",
+            SniffedProtocol::Tls => "tls",
+            SniffedProtocol::Quic => "quic",
+            SniffedProtocol::Dns => "dns",
+            SniffedProtocol::Stun => "stun",
+            SniffedProtocol::Bittorrent => "bittorrent",
+            SniffedProtocol::Dtls => "dtls",
+        }
+    }
+}
+
+impl fmt::Display for SniffedProtocol {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.name())
+    }
 }
 
 /// State the layers of one connection share, by type: one layer sets it,
@@ -260,6 +305,8 @@ pub struct Session {
     /// The domain sniffing found, and where; only the one from the source
     /// that takes precedence is kept.
     pub sniffed: Option<(SniffedFrom, String)>,
+    /// The protocol sniffing recognized, which a rule's `protocol` matches.
+    pub sniffed_protocol: Option<SniffedProtocol>,
     /// State the layers of this connection share.
     pub state: ConnectionState,
     /// The protocol of the inbound this session came in through.
@@ -288,6 +335,7 @@ impl Clone for Session {
             process_name: self.process_name.clone(),
             new_conn_once: self.new_conn_once,
             sniffed: self.sniffed.clone(),
+            sniffed_protocol: self.sniffed_protocol,
             state: self.state.clone(),
             inbound_type: self.inbound_type,
             user: self.user.clone(),
@@ -315,6 +363,7 @@ impl Default for Session {
             process_name: None,
             new_conn_once: false,
             sniffed: None,
+            sniffed_protocol: None,
             state: ConnectionState::default(),
             inbound_type: "",
             user: None,
@@ -372,6 +421,13 @@ impl Session {
         {
             self.sniffed = Some((from, domain));
         }
+    }
+
+    /// Forgets what sniffing found, for a session of a connection of its
+    /// own that carries this one.
+    pub fn forget_sniffed(&mut self) {
+        self.sniffed = None;
+        self.sniffed_protocol = None;
     }
 }
 

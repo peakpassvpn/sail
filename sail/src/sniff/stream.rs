@@ -4,33 +4,46 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::Duration;
 
-use bytes::BytesMut;
+use bytes::{BufMut, BytesMut};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, ReadBuf};
 use tokio::time::{timeout_at, Instant};
 
-/// How much of a connection is read looking for a domain.
-const MAX_SNIFF_LEN: usize = 16 * 1024;
+use crate::session::SniffedProtocol;
 
-pub enum SniffKind {
-    Tls,
-    Http,
+use super::{dns, http, misc, tls, Protocols, Sniff, Sniffed, MAX_SNIFF_LEN};
+
+/// What the stream protocols among `protocols` make of the first bytes of a
+/// connection, `buf`.
+pub fn sniff_stream(protocols: Protocols, buf: &[u8]) -> Sniffed {
+    let mut more = false;
+    for protocol in protocols.stream().iter() {
+        let sniff = match protocol {
+            SniffedProtocol::Tls => tls::sniff(buf),
+            SniffedProtocol::Http => http::sniff(buf),
+            SniffedProtocol::Dns => dns::stream_query(buf),
+            SniffedProtocol::Bittorrent => misc::bittorrent_stream(buf),
+            _ => Sniff::NotMatch,
+        };
+        match sniff {
+            Sniff::Found(domain) => return Sniffed::Found(protocol, domain),
+            Sniff::NeedMore => more = true,
+            Sniff::NotMatch => {}
+        }
+    }
+    if more {
+        Sniffed::NeedMore
+    } else {
+        Sniffed::NotMatch
+    }
 }
 
+/// A stream whose first bytes are read looking for its protocol, and then
+/// read again by whoever reads the stream.
 pub struct SniffingStream<T> {
     inner: T,
     buf: BytesMut,
-}
-
-/// The big-endian `u16` `buf` starts with. The callers check that it holds
-/// two bytes.
-fn be_u16(buf: &[u8]) -> u16 {
-    u16::from_be_bytes([buf[0], buf[1]])
-}
-
-enum SniffResult {
-    NotMatch,
-    NotEnoughData,
-    Domain(String),
+    /// The peer has closed its side: nothing more will come to sniff.
+    eof: bool,
 }
 
 impl<T> SniffingStream<T>
@@ -41,187 +54,39 @@ where
         SniffingStream {
             inner,
             buf: BytesMut::with_capacity(2 * 1024),
+            eof: false,
         }
     }
 
-    fn sniff_http_host(&self, buf: &[u8]) -> SniffResult {
-        // Credits https://github.com/eycorsican/leaf/pull/288
-
-        let bytes_str = String::from_utf8_lossy(buf);
-        let parts: Vec<&str> = bytes_str.split("\r\n").collect();
-
-        if parts.is_empty() {
-            return SniffResult::NotMatch;
-        }
-
-        let http_methods = [
-            "get", "post", "head", "put", "delete", "options", "connect", "patch", "trace",
-        ];
-        let method_str = parts[0];
-
-        let matched_method = http_methods
-            .into_iter()
-            .filter(|item| method_str.to_lowercase().contains(item))
-            .count();
-
-        if matched_method == 0 {
-            return SniffResult::NotMatch;
-        }
-
-        for (idx, &el) in parts.iter().enumerate() {
-            if idx == 0 || el.is_empty() {
-                continue;
-            }
-            let inner_parts: Vec<&str> = el.split(":").collect();
-            if inner_parts.len() != 2 {
-                continue;
-            }
-            if inner_parts[0].to_lowercase() == "host" {
-                return SniffResult::Domain(inner_parts[1].trim().to_string());
-            }
-        }
-
-        SniffResult::NotMatch
-    }
-
-    fn sniff_tls_sni(&self, buf: &[u8]) -> SniffResult {
-        // https://tls.ulfheim.net/
-
-        let sbuf = buf;
-        if sbuf.len() < 5 {
-            return SniffResult::NotEnoughData;
-        }
-        // handshake record type
-        if sbuf[0] != 0x16 {
-            return SniffResult::NotMatch;
-        }
-        // protocol version
-        if sbuf[1] != 0x3 {
-            return SniffResult::NotMatch;
-        }
-        let header_len = be_u16(&sbuf[3..]) as usize;
-        if sbuf.len() < 5 + header_len {
-            return SniffResult::NotEnoughData;
-        }
-        let sbuf = &sbuf[5..5 + header_len];
-        // ?
-        if sbuf.len() < 42 {
-            return SniffResult::NotEnoughData;
-        }
-        let session_id_len = sbuf[38] as usize;
-        if session_id_len > 32 || sbuf.len() < 39 + session_id_len {
-            return SniffResult::NotEnoughData;
-        }
-        let sbuf = &sbuf[39 + session_id_len..];
-        if sbuf.len() < 2 {
-            return SniffResult::NotEnoughData;
-        }
-        let cipher_suite_bytes = be_u16(sbuf) as usize;
-        if sbuf.len() < 2 + cipher_suite_bytes {
-            return SniffResult::NotEnoughData;
-        }
-        let sbuf = &sbuf[2 + cipher_suite_bytes..];
-        if sbuf.is_empty() {
-            return SniffResult::NotEnoughData;
-        }
-        let compression_method_bytes = sbuf[0] as usize;
-        if sbuf.len() < 1 + compression_method_bytes {
-            return SniffResult::NotEnoughData;
-        }
-        let sbuf = &sbuf[1 + compression_method_bytes..];
-        if sbuf.len() < 2 {
-            return SniffResult::NotEnoughData;
-        }
-        let extensions_bytes = be_u16(sbuf) as usize;
-        if sbuf.len() < 2 + extensions_bytes {
-            return SniffResult::NotEnoughData;
-        }
-        let mut sbuf = &sbuf[2..2 + extensions_bytes];
-        while !sbuf.is_empty() {
-            // extension + extension-specific-len
-            if sbuf.len() < 4 {
-                return SniffResult::NotEnoughData;
-            }
-            let extension = be_u16(sbuf);
-            let extension_len = be_u16(&sbuf[2..]) as usize;
-            sbuf = &sbuf[4..];
-            if sbuf.len() < extension_len {
-                return SniffResult::NotEnoughData;
-            }
-            // extension "server name"
-            if extension == 0x0 {
-                let mut ebuf = &sbuf[..extension_len];
-                if ebuf.len() < 2 {
-                    return SniffResult::NotEnoughData;
-                }
-                let entry_len = be_u16(ebuf) as usize;
-                ebuf = &ebuf[2..];
-                if ebuf.len() < entry_len {
-                    return SniffResult::NotEnoughData;
-                }
-                // just make sure no oob
-                if ebuf.is_empty() {
-                    return SniffResult::NotEnoughData;
-                }
-                let entry_type = ebuf[0];
-                // type "DNS hostname"
-                if entry_type == 0x0 {
-                    ebuf = &ebuf[1..];
-                    // just make sure no oob
-                    if ebuf.len() < 2 {
-                        return SniffResult::NotEnoughData;
-                    }
-                    let hostname_len = be_u16(ebuf) as usize;
-                    ebuf = &ebuf[2..];
-                    if ebuf.len() < hostname_len {
-                        return SniffResult::NotEnoughData;
-                    }
-                    return SniffResult::Domain(
-                        String::from_utf8_lossy(&ebuf[..hostname_len]).into(),
-                    );
-                } else {
-                    // TODO
-                    // I assume there's only "DNS hostname" type
-                    // in the the "server name" extension, should
-                    // check if this is true later.
-                    //
-                    // I also assume there's only one entry in the
-                    // "server name" extension list.
-                    return SniffResult::NotMatch;
-                }
-            } else {
-                sbuf = &sbuf[extension_len..];
-            }
-        }
-        SniffResult::NotEnoughData
-    }
-
-    /// Reads the first bytes, for at most `wait`, and finds the domain in
-    /// them. What was read is still read by whoever reads this stream.
-    pub async fn sniff(&mut self, wait: Duration) -> io::Result<Option<(SniffKind, String)>> {
+    /// Looks for `protocols` in the first bytes, reading more for at most
+    /// `wait` while one of them may yet be found. A second sniff, for other
+    /// protocols, looks at what the first read before it reads more.
+    pub async fn sniff(
+        &mut self,
+        protocols: Protocols,
+        wait: Duration,
+    ) -> io::Result<Option<(SniffedProtocol, Option<String>)>> {
         let deadline = Instant::now() + wait;
-        while self.buf.len() < MAX_SNIFF_LEN {
-            let n = match timeout_at(deadline, self.inner.read_buf(&mut self.buf)).await {
-                Ok(read) => read?,
-                Err(_) => return Ok(None),
-            };
-            if n == 0 {
+        loop {
+            if !self.buf.is_empty() {
+                match sniff_stream(protocols, &self.buf) {
+                    Sniffed::Found(protocol, domain) => return Ok(Some((protocol, domain))),
+                    Sniffed::NotMatch => return Ok(None),
+                    Sniffed::NeedMore => {}
+                }
+            }
+            let room = MAX_SNIFF_LEN.saturating_sub(self.buf.len());
+            if self.eof || room == 0 {
                 return Ok(None);
             }
-            let tls = match self.sniff_tls_sni(&self.buf[..]) {
-                SniffResult::Domain(domain) => return Ok(Some((SniffKind::Tls, domain))),
-                other => other,
-            };
-            let http = match self.sniff_http_host(&self.buf[..]) {
-                SniffResult::Domain(domain) => return Ok(Some((SniffKind::Http, domain))),
-                other => other,
-            };
-            // Keeps reading only while one of them may yet find it.
-            if matches!(tls, SniffResult::NotMatch) && matches!(http, SniffResult::NotMatch) {
-                return Ok(None);
+            let mut room = (&mut self.buf).limit(room);
+            match timeout_at(deadline, self.inner.read_buf(&mut room)).await {
+                Ok(Ok(0)) => self.eof = true,
+                Ok(Ok(_)) => {}
+                Ok(Err(e)) => return Err(e),
+                Err(_) => return Ok(None),
             }
         }
-        Ok(None)
     }
 }
 
@@ -275,56 +140,67 @@ impl<T: AsyncWrite + Unpin> AsyncWrite for SniffingStream<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tokio::io::AsyncWriteExt;
 
-    /// A ClientHello record naming `host`.
-    fn client_hello(host: &str) -> Vec<u8> {
-        let mut sni = Vec::new();
-        sni.extend_from_slice(&((host.len() + 3) as u16).to_be_bytes());
-        sni.push(0);
-        sni.extend_from_slice(&(host.len() as u16).to_be_bytes());
-        sni.extend_from_slice(host.as_bytes());
-        let mut extensions = vec![0, 0];
-        extensions.extend_from_slice(&(sni.len() as u16).to_be_bytes());
-        extensions.extend_from_slice(&sni);
-
-        let mut body = vec![0x03, 0x03];
-        body.extend_from_slice(&[7; 32]);
-        body.push(32);
-        body.extend_from_slice(&[9; 32]);
-        body.extend_from_slice(&[0, 2, 0x13, 0x01]);
-        body.extend_from_slice(&[1, 0]);
-        body.extend_from_slice(&(extensions.len() as u16).to_be_bytes());
-        body.extend_from_slice(&extensions);
-
-        let mut handshake = vec![0x01, 0];
-        handshake.extend_from_slice(&(body.len() as u16).to_be_bytes());
-        handshake.extend_from_slice(&body);
-
-        let mut record = vec![0x16, 0x03, 0x01];
-        record.extend_from_slice(&(handshake.len() as u16).to_be_bytes());
-        record.extend_from_slice(&handshake);
-        record
+    #[tokio::test]
+    async fn what_was_read_is_read_again() {
+        let (mut client, server) = tokio::io::duplex(64 * 1024);
+        let request = b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n";
+        client.write_all(&request[..10]).await.unwrap();
+        let mut stream = SniffingStream::new(server);
+        let wait = Duration::from_millis(300);
+        let sniff = tokio::spawn(async move {
+            let found = stream.sniff(Protocols::ALL, wait).await.unwrap();
+            (found, stream)
+        });
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        client.write_all(&request[10..]).await.unwrap();
+        let (found, mut stream) = sniff.await.unwrap();
+        assert_eq!(
+            found,
+            Some((SniffedProtocol::Http, Some("example.com".into())))
+        );
+        client.shutdown().await.unwrap();
+        let mut read = Vec::new();
+        stream.read_to_end(&mut read).await.unwrap();
+        assert_eq!(read, request);
     }
 
-    #[test]
-    fn malformed_client_hellos_do_not_panic() {
-        let stream = SniffingStream::new(tokio::io::duplex(1).0);
-        let hello = client_hello("example.com");
-        assert!(matches!(
-            stream.sniff_tls_sni(&hello),
-            SniffResult::Domain(d) if d == "example.com"
-        ));
-        for len in 0..hello.len() {
-            let _ = stream.sniff_tls_sni(&hello[..len]);
-            let _ = stream.sniff_http_host(&hello[..len]);
-        }
-        for i in 0..hello.len() {
-            for byte in [0x00, 0x01, 0x7f, 0x80, 0xff] {
-                let mut bad = hello.clone();
-                bad[i] = byte;
-                let _ = stream.sniff_tls_sni(&bad);
-                let _ = stream.sniff_tls_sni(&bad[..i]);
-            }
-        }
+    #[tokio::test]
+    async fn a_second_sniff_looks_again() {
+        let (mut client, server) = tokio::io::duplex(64 * 1024);
+        client.write_all(b"\x13BitTorrent protocol").await.unwrap();
+        let mut stream = SniffingStream::new(server);
+        let wait = Duration::from_millis(50);
+        let tls = Protocols::NONE.with(SniffedProtocol::Tls);
+        assert_eq!(stream.sniff(tls, wait).await.unwrap(), None);
+        assert_eq!(
+            stream.sniff(Protocols::ALL, wait).await.unwrap(),
+            Some((SniffedProtocol::Bittorrent, None))
+        );
+    }
+
+    #[tokio::test]
+    async fn a_silent_client_is_waited_for_no_longer_than_the_timeout() {
+        let (mut client, server) = tokio::io::duplex(1024);
+        client.write_all(b"GET / HT").await.unwrap();
+        let mut stream = SniffingStream::new(server);
+        let start = Instant::now();
+        let wait = Duration::from_millis(100);
+        assert_eq!(stream.sniff(Protocols::ALL, wait).await.unwrap(), None);
+        assert!(start.elapsed() >= wait);
+        assert!(start.elapsed() < wait * 10);
+    }
+
+    #[tokio::test]
+    async fn no_more_than_the_limit_is_read() {
+        let (mut client, server) = tokio::io::duplex(64 * 1024);
+        let mut request = b"GET / HTTP/1.1\r\n".to_vec();
+        request.resize(MAX_SNIFF_LEN + 1000, b'a');
+        client.write_all(&request).await.unwrap();
+        let mut stream = SniffingStream::new(server);
+        let wait = Duration::from_secs(5);
+        assert_eq!(stream.sniff(Protocols::ALL, wait).await.unwrap(), None);
+        assert_eq!(stream.buf.len(), MAX_SNIFF_LEN);
     }
 }

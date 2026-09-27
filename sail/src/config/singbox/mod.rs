@@ -208,8 +208,8 @@ mod tests {
                 r#"route.rules[0].action: sail does not implement "hijack-dns" yet"#,
             ),
             (
-                r#"{ "action": "sniff", "sniffer": ["tls", "quic"] }"#,
-                r#"route.rules[0].sniffer: sail does not implement "quic" yet"#,
+                r#"{ "action": "sniff", "sniffer": ["tls", "ssh"] }"#,
+                r#"route.rules[0].sniffer: sail does not implement "ssh" yet"#,
             ),
         ] {
             let err = parse(&format!(

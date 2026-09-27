@@ -76,8 +76,8 @@ pub enum Decision {
 /// What a `sniff` rule asks for.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SniffAction {
-    pub tls: bool,
-    pub http: bool,
+    /// The protocols to look for.
+    pub protocols: crate::sniff::Protocols,
     /// How long to wait for the first bytes.
     pub timeout: Duration,
     /// Connects to the sniffed domain rather than to the address asked for.
@@ -91,7 +91,7 @@ pub trait Sniffer: Send {
     async fn sniff(&mut self, sess: &mut Session, action: &SniffAction) -> io::Result<()>;
 }
 
-/// For connections nothing can be read from, such as UDP.
+/// For connections nothing can be read from.
 pub struct NoSniffer;
 
 #[async_trait]
@@ -131,10 +131,9 @@ impl Rule {
             RuleAction::Reject => Action::Reject,
             RuleAction::Resolve => Action::Resolve(rule.server.clone(), rule.strategy),
             RuleAction::Sniff => {
-                let all = rule.sniffer.is_empty();
+                let protocols = crate::sniff::Protocols::of(&rule.sniffer);
                 Action::Sniff(SniffAction {
-                    tls: all || rule.sniffer.contains(&model::Sniffer::Tls),
-                    http: all || rule.sniffer.contains(&model::Sniffer::Http),
+                    protocols,
                     timeout: rule.timeout.unwrap_or(Duration::from_millis(300)),
                     override_destination: rule.override_destination,
                 })
@@ -311,7 +310,10 @@ mod tests {
     impl Sniffer for FakeSniffer {
         async fn sniff(&mut self, sess: &mut Session, action: &SniffAction) -> io::Result<()> {
             self.calls += 1;
-            if action.tls {
+            if action
+                .protocols
+                .contains(crate::session::SniffedProtocol::Tls)
+            {
                 sess.set_sniffed_domain(crate::session::SniffedFrom::Tls, self.domain.to_string());
             }
             Ok(())

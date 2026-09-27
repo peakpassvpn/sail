@@ -180,7 +180,7 @@ impl Client {
         let mut sess = sess.clone();
         sess.network = Network::Tcp;
         sess.destination = SocksAddr::try_from((&self.server, self.port))?;
-        sess.sniffed = None;
+        sess.forget_sniffed();
         let mut conn = self.connector.connect(&sess).await?;
         let padding = self
             .padding

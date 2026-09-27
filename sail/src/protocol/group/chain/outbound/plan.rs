@@ -56,7 +56,7 @@ impl Stage {
             sess.destination = next_hop.clone();
             // The sniffed domains describe the destination that has just been
             // replaced, so they no longer describe anything.
-            sess.sniffed = None;
+            sess.forget_sniffed();
         }
         sess
     }

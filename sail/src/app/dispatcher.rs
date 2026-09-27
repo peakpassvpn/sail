@@ -15,6 +15,8 @@ use crate::{
     },
 };
 
+use super::nat_manager::UdpPacket;
+
 use tokio::io::AsyncWriteExt;
 
 async fn healthcheck_respond_simple<T>(stream: &mut T) -> io::Result<()>
@@ -30,6 +32,44 @@ use crate::app::SyncStatManager;
 
 use super::router::{Decision, NoSniffer, SniffAction, Sniffer};
 use super::{SyncOutboundManager, SyncRouter};
+
+/// Records on `sess` what a `sniff` rule found: the protocol, and the
+/// domain a TLS ClientHello, over TCP or QUIC, or an HTTP request names. A
+/// DNS query's domain is not where it goes, and is left out.
+fn record_sniffed(
+    sess: &mut Session,
+    action: &SniffAction,
+    protocol: SniffedProtocol,
+    domain: Option<String>,
+) {
+    sess.sniffed_protocol = Some(protocol);
+    let from = match protocol {
+        SniffedProtocol::Tls | SniffedProtocol::Quic => SniffedFrom::Tls,
+        SniffedProtocol::Http => SniffedFrom::Http,
+        _ => {
+            debug!("sniffed protocol={}", protocol);
+            return;
+        }
+    };
+    let Some(domain) = domain else {
+        debug!("sniffed protocol={}", protocol);
+        return;
+    };
+    debug!("sniffed protocol={} domain={}", protocol, &domain);
+    if action.override_destination {
+        if let Ok(dest) = SocksAddr::try_from((domain.as_str(), sess.destination.port())) {
+            debug!("override destination with sniffed domain={}", dest);
+            sess.destination = dest;
+        }
+    }
+    sess.set_sniffed_domain(from, domain);
+}
+
+/// Whether a `sniff` rule has nothing to do for `sess`: its protocol is
+/// known already, or the server of its port speaks first.
+fn sniffed_already(sess: &Session) -> bool {
+    sess.sniffed_protocol.is_some() || sniff::skips_port(sess.destination.port())
+}
 
 /// Sniffs a TCP connection the first time a rule asks, and keeps what it
 /// read for whoever reads the connection next. A connection no rule sniffs
@@ -65,34 +105,92 @@ where
     T: 'static + AsyncRead + AsyncWrite + Unpin + Send + Sync,
 {
     async fn sniff(&mut self, sess: &mut Session, action: &SniffAction) -> io::Result<()> {
-        // A connection is sniffed once, and one to a domain not at all.
-        if self.sniffing.is_some() || sess.destination.is_domain() {
+        let protocols = action.protocols.stream();
+        if protocols.is_empty() || sniffed_already(sess) {
             return Ok(());
         }
-        let Some(stream) = self.stream.take() else {
-            return Ok(());
+        let sniffing = match self.sniffing.as_mut() {
+            Some(sniffing) => sniffing,
+            None => {
+                let Some(stream) = self.stream.take() else {
+                    return Ok(());
+                };
+                self.sniffing.insert(sniff::SniffingStream::new(stream))
+            }
         };
-        let sniffing = self.sniffing.insert(sniff::SniffingStream::new(stream));
-        let Some((kind, domain)) = sniffing.sniff(action.timeout).await? else {
-            return Ok(());
-        };
-        let wanted = match kind {
-            sniff::SniffKind::Tls => action.tls,
-            sniff::SniffKind::Http => action.http,
-        };
-        if !wanted {
+        if let Some((protocol, domain)) = sniffing.sniff(protocols, action.timeout).await? {
+            record_sniffed(sess, action, protocol, domain);
+        }
+        Ok(())
+    }
+}
+
+/// Sniffs a UDP session from the datagrams its client sends first, taken
+/// off the session's uplink while it is routed; they are sent on once it
+/// is.
+pub(crate) struct DatagramSniffer<'a> {
+    uplink: &'a mut tokio::sync::mpsc::Receiver<UdpPacket>,
+    /// The datagrams taken off the uplink, in order.
+    read: Vec<UdpPacket>,
+    /// The uplink has closed.
+    closed: bool,
+}
+
+impl<'a> DatagramSniffer<'a> {
+    pub(crate) fn new(uplink: &'a mut tokio::sync::mpsc::Receiver<UdpPacket>) -> Self {
+        DatagramSniffer {
+            uplink,
+            read: Vec::new(),
+            closed: false,
+        }
+    }
+
+    /// The datagrams sniffing took off the uplink, still to be sent.
+    pub(crate) fn into_read(self) -> Vec<UdpPacket> {
+        self.read
+    }
+}
+
+#[async_trait::async_trait]
+impl Sniffer for DatagramSniffer<'_> {
+    async fn sniff(&mut self, sess: &mut Session, action: &SniffAction) -> io::Result<()> {
+        let protocols = action.protocols.datagram();
+        if protocols.is_empty() || sniffed_already(sess) {
             return Ok(());
         }
-        debug!("sniffed domain={}", &domain);
-        if action.override_destination {
-            if let Ok(dest) = SocksAddr::try_from((domain.as_str(), sess.destination.port())) {
-                debug!("override destination with sniffed domain={}", dest);
-                sess.destination = dest;
+        let deadline = tokio::time::Instant::now() + action.timeout;
+        let mut sniff = sniff::DatagramSniff::new(protocols);
+        // Those read by an earlier sniff first, then more as they come. Only
+        // those to the session's destination are the client's first ones.
+        for next in 0.. {
+            if next == self.read.len() {
+                if self.closed || next >= sniff::MAX_SNIFF_DATAGRAMS {
+                    break;
+                }
+                match tokio::time::timeout_at(deadline, self.uplink.recv()).await {
+                    Ok(Some(packet)) => self.read.push(packet),
+                    Ok(None) => {
+                        self.closed = true;
+                        break;
+                    }
+                    Err(_) => break,
+                }
+            }
+            let packet = &self.read[next];
+            if packet.dst_addr != sess.destination {
+                continue;
+            }
+            match sniff.feed(&packet.data) {
+                sniff::Sniffed::Found(protocol, domain) => {
+                    record_sniffed(sess, action, protocol, domain);
+                    return Ok(());
+                }
+                sniff::Sniffed::NeedMore => {}
+                sniff::Sniffed::NotMatch => break,
             }
         }
-        match kind {
-            sniff::SniffKind::Tls => sess.set_sniffed_domain(SniffedFrom::Tls, domain),
-            sniff::SniffKind::Http => sess.set_sniffed_domain(SniffedFrom::Http, domain),
+        if let Some(protocol) = sniff.settle() {
+            record_sniffed(sess, action, protocol, None);
         }
         Ok(())
     }
@@ -404,10 +502,13 @@ impl Dispatcher {
         h.datagram()?.handle(&sess, transport).await
     }
 
+    /// Datagrams to where the rules send the UDP session `sess`, which
+    /// `sniffer` reads the first datagrams of for a `sniff` rule.
     #[async_recursion]
     pub async fn dispatch_datagram(
         &self,
         mut sess: Session,
+        sniffer: &mut dyn Sniffer,
     ) -> io::Result<Box<dyn OutboundDatagram>> {
         debug!(
             "dispatch proto={} in={} src={} dst={}",
@@ -431,7 +532,8 @@ impl Dispatcher {
 
         self.identify_inbound(&mut sess);
         let reverse_mapping = self.reverse_map(&mut sess).await;
-        let outbound = self.route(&mut sess, &mut NoSniffer).await?;
+        let origin = sess.destination.clone();
+        let outbound = self.route(&mut sess, sniffer).await?;
 
         sess.outbound_tag = outbound.clone();
 
@@ -462,6 +564,14 @@ impl Dispatcher {
 
                 if reverse_mapping && sess.destination.port() == 53 {
                     d = Box::new(SniffingDatagram::new(d, self.dns_sniffer.clone()));
+                }
+
+                if sess.destination != origin {
+                    d = Box::new(sniff::OverriddenDatagram::new(
+                        d,
+                        origin,
+                        sess.destination.clone(),
+                    ));
                 }
 
                 Ok(d)
@@ -563,5 +673,158 @@ impl Dispatcher {
         } else {
             false
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::net::IpAddr;
+    use std::time::Duration;
+
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    use super::*;
+    use crate::sniff::Protocols;
+
+    fn to_ip(network: Network) -> Session {
+        Session {
+            network,
+            destination: SocksAddr::from(("1.2.3.4".parse::<IpAddr>().unwrap(), 443)),
+            ..Default::default()
+        }
+    }
+
+    fn action(protocols: Protocols) -> SniffAction {
+        SniffAction {
+            protocols,
+            timeout: Duration::from_millis(300),
+            override_destination: true,
+        }
+    }
+
+    #[tokio::test]
+    async fn a_stream_is_sniffed_once_its_protocol_is_known() {
+        let (mut client, server) = tokio::io::duplex(4096);
+        let request = b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n";
+        client.write_all(request).await.unwrap();
+        let mut sess = to_ip(Network::Tcp);
+        let mut sniffer = StreamSniffer::new(server);
+        let action = action(Protocols::ALL);
+        sniffer.sniff(&mut sess, &action).await.unwrap();
+        assert_eq!(sess.sniffed_protocol, Some(SniffedProtocol::Http));
+        assert_eq!(
+            sess.sniffed_domain_from(SniffedFrom::Http),
+            Some("example.com")
+        );
+        assert_eq!(
+            sess.destination,
+            SocksAddr::Domain("example.com".into(), 443)
+        );
+        // Nothing more is read for a second rule.
+        sniffer.sniff(&mut sess, &action).await.unwrap();
+        let mut stream = sniffer.into_stream();
+        client.shutdown().await.unwrap();
+        let mut read = Vec::new();
+        stream.read_to_end(&mut read).await.unwrap();
+        assert_eq!(read, request);
+    }
+
+    #[tokio::test]
+    async fn a_server_first_port_is_not_waited_on() {
+        let (_client, server) = tokio::io::duplex(4096);
+        let mut sess = Session {
+            destination: SocksAddr::from(("1.2.3.4".parse::<IpAddr>().unwrap(), 25)),
+            ..Default::default()
+        };
+        let mut sniffer = StreamSniffer::new(server);
+        let action = SniffAction {
+            timeout: Duration::from_secs(30),
+            ..action(Protocols::ALL)
+        };
+        tokio::time::timeout(Duration::from_secs(1), sniffer.sniff(&mut sess, &action))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(sess.sniffed_protocol, None);
+    }
+
+    #[tokio::test]
+    async fn a_udp_session_is_sniffed_from_its_first_datagrams() {
+        let (tx, mut rx) = tokio::sync::mpsc::channel(8);
+        let source = SocksAddr::from(("10.0.0.1".parse::<IpAddr>().unwrap(), 5353));
+        let mut sess = to_ip(Network::Udp);
+        let mut query = vec![0, 7, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0];
+        query.extend_from_slice(b"\x07example\x03com\x00\x00\x01\x00\x01");
+        // A datagram to another destination is not the session's.
+        let other = SocksAddr::from(("5.6.7.8".parse::<IpAddr>().unwrap(), 443));
+        for (data, to) in [(vec![0xff; 40], other), (query, sess.destination.clone())] {
+            tx.send(UdpPacket::new(data, source.clone(), to))
+                .await
+                .unwrap();
+        }
+        let mut sniffer = DatagramSniffer::new(&mut rx);
+        sniffer
+            .sniff(&mut sess, &action(Protocols::ALL))
+            .await
+            .unwrap();
+        // DNS names no destination.
+        assert_eq!(sess.sniffed_protocol, Some(SniffedProtocol::Dns));
+        assert_eq!(sess.sniffed_domain(), None);
+        assert!(!sess.destination.is_domain());
+        assert_eq!(sniffer.into_read().len(), 2);
+    }
+
+    #[cfg(feature = "btls")]
+    #[tokio::test]
+    async fn quic_across_datagrams_overrides_the_destination() {
+        let (tx, mut rx) = tokio::sync::mpsc::channel(8);
+        let source = SocksAddr::from(("10.0.0.1".parse::<IpAddr>().unwrap(), 5353));
+        let mut sess = to_ip(Network::Udp);
+        let hello = crate::sniff::tls::tests::hello("example.com");
+        let half = hello.len() / 2;
+        // The second half first.
+        for (i, (offset, data)) in [(half, &hello[half..]), (0, &hello[..half])]
+            .into_iter()
+            .enumerate()
+        {
+            let mut frames = vec![0x06, 0x40 | (offset >> 8) as u8, offset as u8];
+            frames.extend_from_slice(&[0x40 | (data.len() >> 8) as u8, data.len() as u8]);
+            frames.extend_from_slice(data);
+            frames.resize(1100, 0);
+            let initial = crate::sniff::quic::protect(1, &[3; 8], i as u32, &frames).unwrap();
+            let packet = UdpPacket::new(initial, source.clone(), sess.destination.clone());
+            tx.send(packet).await.unwrap();
+        }
+        let mut sniffer = DatagramSniffer::new(&mut rx);
+        sniffer
+            .sniff(&mut sess, &action(Protocols::ALL))
+            .await
+            .unwrap();
+        assert_eq!(sess.sniffed_protocol, Some(SniffedProtocol::Quic));
+        assert_eq!(
+            sess.sniffed_domain_from(SniffedFrom::Tls),
+            Some("example.com")
+        );
+        assert_eq!(
+            sess.destination,
+            SocksAddr::Domain("example.com".into(), 443)
+        );
+        assert_eq!(sniffer.into_read().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn a_udp_sniff_waits_no_longer_than_the_timeout() {
+        let (_tx, mut rx) = tokio::sync::mpsc::channel(8);
+        let mut sess = to_ip(Network::Udp);
+        let mut sniffer = DatagramSniffer::new(&mut rx);
+        let action = SniffAction {
+            timeout: Duration::from_millis(50),
+            ..action(Protocols::ALL)
+        };
+        tokio::time::timeout(Duration::from_secs(1), sniffer.sniff(&mut sess, &action))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(sess.sniffed_protocol, None);
     }
 }
