@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::io;
+use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -7,7 +8,8 @@ use bytes::{BufMut, BytesMut};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tracing::{debug, Instrument};
 
-use super::association::Associations;
+use super::association::{Associations, ClientFilter};
+use super::datagram;
 use crate::{
     adapter::*,
     session::{Session, SocksAddr, SocksAddrWireType},
@@ -44,8 +46,8 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 pub struct Handler {
     /// Passwords by username. Empty lets anyone in.
     users: Arc<HashMap<String, String>>,
-    /// The UDP associations clients ask for, which the datagram side
-    /// serves.
+    /// The UDP associations clients ask for, each with a relay socket of
+    /// its own.
     associations: Arc<Associations>,
 }
 
@@ -248,51 +250,49 @@ impl Handler {
                 Ok(InboundTransport::Stream(stream, sess))
             }
             0x03 => {
-                // In the table before the client hears back, so that its
-                // first datagram finds it.
-                let Some(registration) =
-                    self.associations
-                        .register(sess.source, &destination, sess.user.clone())
-                else {
-                    // General SOCKS server failure.
-                    stream
-                        .write_all(&[0x05, 0x01, 0x00, 0x01, 0, 0, 0, 0, 0, 0])
-                        .await?;
+                // General SOCKS server failure.
+                const FAILURE: [u8; 10] = [0x05, 0x01, 0x00, 0x01, 0, 0, 0, 0, 0, 0];
+                let Some(slot) = self.associations.acquire() else {
+                    stream.write_all(&FAILURE).await?;
                     return Err(io::Error::other(
                         "udp associate refused: too many associations",
                     ));
                 };
+                // A relay of its own, on the address the client reached
+                // the inbound at, so that it can reach the relay too.
+                let local_ip = sess.local_addr.ip().to_canonical();
+                let socket = match datagram::bind(local_ip) {
+                    Ok(socket) => socket,
+                    Err(e) => {
+                        stream.write_all(&FAILURE).await?;
+                        return Err(io::Error::other(format!(
+                            "udp associate: bind relay on {}: {}",
+                            local_ip, e
+                        )));
+                    }
+                };
+                let relay_addr = socket.local_addr()?;
+                let filter = ClientFilter::new(sess.source, &destination);
                 buf.clear();
                 buf.put_u8(0x05); // version 5
                 buf.put_u8(0x0); // succeeded
                 buf.put_u8(0x0); // rsv
-                let relay_addr = SocksAddr::from(sess.local_addr);
-                relay_addr.write_buf(&mut buf, SocksAddrWireType::PortLast);
+                SocksAddr::from(relay_addr).write_buf(&mut buf, SocksAddrWireType::PortLast);
                 stream.write_all(&buf[..]).await?;
-                // The association lasts as long as the connection (RFC 1928),
-                // and its NAT sessions end with it; anything the client
-                // sends on it meanwhile means nothing.
-                tokio::spawn(
-                    async move {
-                        let mut buf = [0u8; 512];
-                        loop {
-                            match stream.read(&mut buf).await {
-                                Ok(0) => {
-                                    debug!("udp association end");
-                                    break;
-                                }
-                                Ok(_) => continue,
-                                Err(e) => {
-                                    debug!("udp association end: {}", e);
-                                    break;
-                                }
-                            }
-                        }
-                        drop(registration);
-                    }
-                    .instrument(sess.span()),
+                debug!(
+                    "udp association from {} relayed on {}",
+                    sess.source, relay_addr
                 );
-                Ok(InboundTransport::Empty)
+                // The datagrams' session: their source is the client's UDP
+                // address, which the NAT manager fills in from each.
+                let mut udp_sess = sess;
+                udp_sess.source = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), 0);
+                udp_sess.local_addr = relay_addr;
+                let user = udp_sess.user.clone();
+                // The association lasts as long as the connection (RFC
+                // 1928): the relay watches it, and ends with it.
+                let relay = datagram::Relay::new(socket, slot, stream, filter, user);
+                Ok(InboundTransport::Datagram(Box::new(relay), Some(udp_sess)))
             }
             _ => Err(io::Error::other("invalid cmd")),
         }

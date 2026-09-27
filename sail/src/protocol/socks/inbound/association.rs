@@ -1,214 +1,114 @@
-//! Which `UDP ASSOCIATE` a datagram belongs to.
+//! What a `UDP ASSOCIATE` keeps: its place among the inbound's
+//! associations, and which client its relay socket takes datagrams from.
 //!
-//! A SOCKS5 client authenticates on its TCP control connection, but its
-//! datagrams arrive on the inbound's one UDP socket, where nothing says who
-//! sent them. RFC 1928 has the client declare the address it will send
-//! from, zeros when it does not know it; the server may take datagrams only
-//! from there. So an association is known by:
+//! Each association has a UDP relay socket of its own (RFC 1928), bound when
+//! the client asks and closed when its control connection closes, so a
+//! datagram's association is the socket it arrived on: nothing is guessed.
+//! What is left to check is that the datagram came from the client:
 //!
-//! - the address the client declared, when it declared one: with the
-//!   control connection's IP for an unspecified IP, and
-//! - the control connection's IP, for datagrams from any port. When more
-//!   than one association shares the IP, a datagram from an unknown port
-//!   goes to the oldest one not yet sent from, preferring those that
-//!   declared no port, as clients send in the order they associate; else
-//!   to the newest. The port is then learned, so that later datagrams from
-//!   it stay with that association. Which of two such clients sent a
-//!   datagram cannot be known on one shared socket; clients that declare
-//!   their address are never guessed at.
-//!
-//! An association is in the table while its control connection is open,
-//! and the table holds at most [`MAX_ASSOCIATIONS`]. Its datagrams carry
-//! it, a [`UdpAssociation`], which ends as it leaves the table: the NAT
-//! manager then ends its sessions, as RFC 1928 ends an association with its
-//! control connection.
+//! - its IP must be the control connection's, and
+//! - its address the one the client declared, when it declared one; else
+//!   the address of its first datagram, which the association keeps.
 
-use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
-use crate::session::{SocksAddr, UdpAssociation, UdpAssociationOwner};
+use crate::session::SocksAddr;
 
-/// How many associations an inbound keeps at once. A client asking for
-/// one more is refused.
+/// How many associations, and so relay sockets, an inbound keeps at once.
+/// A client asking for one more is refused.
 pub const MAX_ASSOCIATIONS: usize = 4096;
 
-/// How many source addresses an association is known by, declared and
-/// learned. Datagrams from further ones are still matched by IP, just not
-/// remembered.
-const MAX_ADDRS: usize = 8;
-
-/// What a datagram's association tells of it.
-#[derive(Clone, Debug)]
-pub struct Found {
-    /// Who authenticated on the control connection.
-    pub user: Option<Arc<str>>,
-    /// The association, which ends when it leaves the table.
-    pub association: UdpAssociation,
-}
-
-struct Entry {
-    found: Found,
-    /// Keeps `found.association` alive while the entry is in the table.
-    _owner: UdpAssociationOwner,
-    peer_ip: IpAddr,
-    /// Addresses in `by_addr` that are this entry's.
-    addrs: Vec<SocketAddr>,
-    /// Whether a datagram has come from an address learned for it.
-    learned: bool,
-    /// Whether the client declared the port it sends from.
-    declared: bool,
-}
-
-#[derive(Default)]
-struct Table {
-    next_id: u64,
-    entries: HashMap<u64, Entry>,
-    by_addr: HashMap<SocketAddr, u64>,
-    /// Ids by control connection IP, oldest first.
-    by_ip: HashMap<IpAddr, Vec<u64>>,
-}
-
-/// The live associations of an inbound, shared by its TCP and UDP sides.
+/// The live associations of an inbound, counted.
 #[derive(Default)]
 pub struct Associations {
-    table: Mutex<Table>,
+    live: AtomicUsize,
 }
 
-/// An association in the table; dropping it takes it out.
-pub struct Registration {
-    associations: Arc<Associations>,
-    id: u64,
-}
+/// An association's place; dropping it frees the place.
+pub struct Slot(Arc<Associations>);
 
-impl Drop for Registration {
+impl Drop for Slot {
     fn drop(&mut self) {
-        self.associations.remove(self.id);
+        self.0.live.fetch_sub(1, Ordering::AcqRel);
     }
-}
-
-/// `addr` with an IPv4-mapped IPv6 address as the IPv4 one, as a dual-stack
-/// socket may report either.
-fn canonical(addr: SocketAddr) -> SocketAddr {
-    SocketAddr::new(addr.ip().to_canonical(), addr.port())
 }
 
 impl Associations {
-    fn lock(&self) -> std::sync::MutexGuard<'_, Table> {
-        self.table.lock().unwrap_or_else(|e| e.into_inner())
-    }
-
-    /// Enters the association the control connection from `peer` asked for,
-    /// declaring `declared`, for `user`. None when the table is full.
-    pub fn register(
-        self: &Arc<Self>,
-        peer: SocketAddr,
-        declared: &SocksAddr,
-        user: Option<Arc<str>>,
-    ) -> Option<Registration> {
-        let peer_ip = peer.ip().to_canonical();
-        // A domain says nothing of where datagrams come from; a zero port,
-        // that any may.
-        let declared = match declared {
-            SocksAddr::Ip(addr) if addr.port() != 0 => {
-                let ip = if addr.ip().is_unspecified() {
-                    peer_ip
-                } else {
-                    addr.ip().to_canonical()
-                };
-                Some(SocketAddr::new(ip, addr.port()))
-            }
-            _ => None,
-        };
-        let mut table = self.lock();
-        if table.entries.len() >= MAX_ASSOCIATIONS {
-            return None;
-        }
-        table.next_id += 1;
-        let id = table.next_id;
-        let mut addrs = Vec::new();
-        if let Some(addr) = declared {
-            // A newer claim on an address wins over an older one.
-            table.by_addr.insert(addr, id);
-            addrs.push(addr);
-        }
-        table.by_ip.entry(peer_ip).or_default().push(id);
-        let owner = UdpAssociationOwner::new();
-        table.entries.insert(
-            id,
-            Entry {
-                found: Found {
-                    user,
-                    association: owner.association().clone(),
-                },
-                _owner: owner,
-                peer_ip,
-                declared: !addrs.is_empty(),
-                addrs,
-                learned: false,
-            },
-        );
-        Some(Registration {
-            associations: self.clone(),
-            id,
-        })
-    }
-
-    /// The association a datagram from `src` belongs to, if any.
-    pub fn find(&self, src: SocketAddr) -> Option<Found> {
-        let src = canonical(src);
-        let mut guard = self.lock();
-        let table = &mut *guard;
-        if let Some(entry) = table.by_addr.get(&src).and_then(|id| table.entries.get(id)) {
-            return Some(entry.found.clone());
-        }
-        let ids = table.by_ip.get(&src.ip())?;
-        let unlearned = |declared: bool| {
-            ids.iter().find(|id| {
-                table
-                    .entries
-                    .get(id)
-                    .is_some_and(|e| !e.learned && e.declared == declared)
+    /// A place for one more association, unless all are taken.
+    pub fn acquire(self: &Arc<Self>) -> Option<Slot> {
+        self.live
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| {
+                (n < MAX_ASSOCIATIONS).then_some(n + 1)
             })
-        };
-        let id = unlearned(false)
-            .or_else(|| unlearned(true))
-            .or(ids.last())
-            .copied()?;
-        let entry = table.entries.get_mut(&id)?;
-        entry.learned = true;
-        let found = entry.found.clone();
-        if entry.addrs.len() < MAX_ADDRS {
-            entry.addrs.push(src);
-            table.by_addr.insert(src, id);
-        }
-        Some(found)
-    }
-
-    fn remove(&self, id: u64) {
-        let mut guard = self.lock();
-        let table = &mut *guard;
-        // Dropping the entry ends its association.
-        let Some(entry) = table.entries.remove(&id) else {
-            return;
-        };
-        for addr in &entry.addrs {
-            if table.by_addr.get(addr) == Some(&id) {
-                table.by_addr.remove(addr);
-            }
-        }
-        if let Some(ids) = table.by_ip.get_mut(&entry.peer_ip) {
-            ids.retain(|i| *i != id);
-            if ids.is_empty() {
-                table.by_ip.remove(&entry.peer_ip);
-            }
-        }
+            .ok()
+            .map(|_| Slot(self.clone()))
     }
 
     /// How many associations are live.
     #[cfg(test)]
     fn len(&self) -> usize {
-        self.lock().entries.len()
+        self.live.load(Ordering::Acquire)
+    }
+}
+
+/// `addr` with an IPv4-mapped IPv6 address as the IPv4 one, as a dual-stack
+/// socket may report either.
+pub fn canonical(addr: SocketAddr) -> SocketAddr {
+    SocketAddr::new(addr.ip().to_canonical(), addr.port())
+}
+
+/// Which source an association's relay socket takes datagrams from.
+#[derive(Debug)]
+pub struct ClientFilter {
+    /// The control connection's IP.
+    peer_ip: IpAddr,
+    /// The client's address: declared, or learned from its first datagram.
+    client: Option<SocketAddr>,
+}
+
+impl ClientFilter {
+    /// The filter of an association asked for from `peer`, declaring
+    /// `declared`.
+    ///
+    /// An unspecified IP with a port is the peer's IP with that port. A
+    /// zero port, a domain, or an IP other than the peer's declares
+    /// nothing: datagrams must come from the peer's IP in any case, and a
+    /// client behind NAT declares the address it has behind it, which the
+    /// server never sees.
+    pub fn new(peer: SocketAddr, declared: &SocksAddr) -> Self {
+        let peer_ip = peer.ip().to_canonical();
+        let client = match declared {
+            SocksAddr::Ip(addr) if addr.port() != 0 => {
+                let ip = addr.ip().to_canonical();
+                if ip.is_unspecified() {
+                    Some(SocketAddr::new(peer_ip, addr.port()))
+                } else if ip == peer_ip {
+                    Some(SocketAddr::new(ip, addr.port()))
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        };
+        ClientFilter { peer_ip, client }
+    }
+
+    /// Whether a datagram from `src` is the client's. The first from the
+    /// peer's IP pins the client's address when it declared none.
+    pub fn accept(&mut self, src: SocketAddr) -> bool {
+        let src = canonical(src);
+        if src.ip() != self.peer_ip {
+            return false;
+        }
+        match self.client {
+            Some(client) => client == src,
+            None => {
+                self.client = Some(src);
+                true
+            }
+        }
     }
 }
 
@@ -220,140 +120,59 @@ mod tests {
         s.parse().unwrap()
     }
 
-    fn found(user: &str) -> Option<Arc<str>> {
-        Some(user.into())
-    }
-
-    fn user_of(a: &Associations, src: &str) -> Option<String> {
-        a.find(addr(src))
-            .and_then(|f| f.user.map(|u| u.to_string()))
+    #[test]
+    fn a_declared_address_is_matched_exactly() {
+        let mut f = ClientFilter::new(
+            addr("10.0.0.1:4000"),
+            &SocksAddr::from(addr("10.0.0.1:5000")),
+        );
+        assert!(!f.accept(addr("10.0.0.1:5001")));
+        assert!(!f.accept(addr("10.0.0.2:5000")));
+        assert!(f.accept(addr("10.0.0.1:5000")));
+        assert!(f.accept(addr("[::ffff:10.0.0.1]:5000")));
     }
 
     #[test]
-    fn declared_address_is_matched_exactly() {
-        let a = Arc::new(Associations::default());
-        let _x = a
-            .register(
-                addr("10.0.0.1:4000"),
-                &SocksAddr::from(addr("10.0.0.1:5000")),
-                found("x"),
-            )
-            .unwrap();
-        let _y = a
-            .register(
-                addr("10.0.0.1:4001"),
-                &SocksAddr::from(addr("10.0.0.1:5001")),
-                found("y"),
-            )
-            .unwrap();
-        assert_eq!(user_of(&a, "10.0.0.1:5000").as_deref(), Some("x"));
-        assert_eq!(user_of(&a, "10.0.0.1:5001").as_deref(), Some("y"));
-        // Another host is nobody's.
-        assert_eq!(user_of(&a, "10.0.0.2:5000"), None);
+    fn an_unspecified_ip_is_the_peers() {
+        let mut f = ClientFilter::new(
+            addr("10.0.0.1:4000"),
+            &SocksAddr::from(addr("0.0.0.0:7000")),
+        );
+        assert!(!f.accept(addr("10.0.0.1:7001")));
+        assert!(f.accept(addr("10.0.0.1:7000")));
     }
 
     #[test]
-    fn unspecified_address_goes_by_the_peer_ip() {
-        let a = Arc::new(Associations::default());
-        let x = a
-            .register(addr("10.0.0.1:4000"), &SocksAddr::any(), found("x"))
-            .unwrap();
-        assert_eq!(user_of(&a, "10.0.0.1:6000").as_deref(), Some("x"));
-        // An unspecified IP with a port is the peer's IP with that port.
-        let _y = a
-            .register(
-                addr("10.0.0.1:4001"),
-                &SocksAddr::from(addr("0.0.0.0:7000")),
-                found("y"),
-            )
-            .unwrap();
-        assert_eq!(user_of(&a, "10.0.0.1:7000").as_deref(), Some("y"));
-        // The learned port stays with x.
-        assert_eq!(user_of(&a, "10.0.0.1:6000").as_deref(), Some("x"));
-        drop(x);
-        assert_eq!(user_of(&a, "10.0.0.1:6000").as_deref(), Some("y"));
+    fn without_a_declaration_the_first_datagram_pins_the_port() {
+        let mut f = ClientFilter::new(addr("10.0.0.1:4000"), &SocksAddr::any());
+        // Another host neither passes nor pins.
+        assert!(!f.accept(addr("10.0.0.2:6000")));
+        assert!(f.accept(addr("10.0.0.1:6000")));
+        assert!(!f.accept(addr("10.0.0.1:6001")));
+        assert!(f.accept(addr("10.0.0.1:6000")));
     }
 
     #[test]
-    fn a_new_port_goes_to_the_oldest_unused_association() {
-        let a = Arc::new(Associations::default());
-        // z declared a port it does not send from, as some clients do.
-        let _z = a
-            .register(
-                addr("10.0.0.1:3999"),
-                &SocksAddr::from(addr("10.0.0.1:1")),
-                found("z"),
-            )
-            .unwrap();
-        let _x = a
-            .register(addr("10.0.0.1:4000"), &SocksAddr::any(), found("x"))
-            .unwrap();
-        let _y = a
-            .register(addr("10.0.0.1:4001"), &SocksAddr::any(), found("y"))
-            .unwrap();
-        assert_eq!(user_of(&a, "10.0.0.1:6000").as_deref(), Some("x"));
-        assert_eq!(user_of(&a, "10.0.0.1:6001").as_deref(), Some("y"));
-        assert_eq!(user_of(&a, "10.0.0.1:6002").as_deref(), Some("z"));
-        assert_eq!(user_of(&a, "10.0.0.1:6000").as_deref(), Some("x"));
-        assert_eq!(user_of(&a, "10.0.0.1:6001").as_deref(), Some("y"));
-        assert_eq!(user_of(&a, "[::ffff:10.0.0.1]:6000").as_deref(), Some("x"));
-        // All sent from: the newest takes a new port.
-        assert_eq!(user_of(&a, "10.0.0.1:6003").as_deref(), Some("y"));
+    fn a_declaration_of_another_ip_is_no_declaration() {
+        // A client behind NAT declares its private address.
+        let mut f = ClientFilter::new(
+            addr("203.0.113.1:4000"),
+            &SocksAddr::from(addr("192.168.1.2:5000")),
+        );
+        assert!(!f.accept(addr("192.168.1.2:5000")));
+        assert!(f.accept(addr("203.0.113.1:61000")));
+        assert!(!f.accept(addr("203.0.113.1:61001")));
     }
 
     #[test]
-    fn closing_ends_the_association() {
-        let a = Arc::new(Associations::default());
-        let x = a
-            .register(addr("10.0.0.1:4000"), &SocksAddr::any(), found("x"))
-            .unwrap();
-        let association = a.find(addr("10.0.0.1:6000")).unwrap().association;
-        assert!(!association.has_ended());
-        drop(x);
-        assert!(association.has_ended());
-    }
-
-    #[test]
-    fn closing_takes_the_association_out() {
-        let a = Arc::new(Associations::default());
-        let x = a
-            .register(
-                addr("10.0.0.1:4000"),
-                &SocksAddr::from(addr("10.0.0.1:5000")),
-                found("x"),
-            )
-            .unwrap();
-        assert!(a.find(addr("10.0.0.1:5000")).is_some());
-        drop(x);
-        assert!(a.find(addr("10.0.0.1:5000")).is_none());
-        assert!(a.find(addr("10.0.0.1:6000")).is_none());
-        let table = a.lock();
-        assert!(table.by_addr.is_empty() && table.by_ip.is_empty());
-    }
-
-    #[test]
-    fn the_table_is_bounded() {
+    fn associations_are_bounded() {
         let a = Arc::new(Associations::default());
         let held: Vec<_> = (0..MAX_ASSOCIATIONS)
-            .map(|_| {
-                a.register(addr("10.0.0.1:4000"), &SocksAddr::any(), found("x"))
-                    .unwrap()
-            })
+            .map(|_| a.acquire().unwrap())
             .collect();
-        assert!(a
-            .register(addr("10.0.0.1:4000"), &SocksAddr::any(), found("x"))
-            .is_none());
+        assert!(a.acquire().is_none());
         drop(held);
         assert_eq!(a.len(), 0);
-        // Learned addresses per association are bounded too.
-        let _x = a
-            .register(addr("10.0.0.1:4000"), &SocksAddr::any(), found("x"))
-            .unwrap();
-        for port in 6000..6100 {
-            assert!(a
-                .find(SocketAddr::new([10, 0, 0, 1].into(), port))
-                .is_some());
-        }
-        assert_eq!(a.lock().by_addr.len(), MAX_ADDRS);
+        assert!(a.acquire().is_some());
     }
 }

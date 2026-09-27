@@ -13,7 +13,6 @@ mod datagram;
 mod stream;
 
 pub use association::Associations;
-pub use datagram::Handler as DatagramHandler;
 pub use stream::Handler as StreamHandler;
 
 pub(crate) fn register(registry: &mut InboundRegistry) {
@@ -73,15 +72,13 @@ pub(crate) fn users_by_name(tag: &str, users: Vec<SocksUser>) -> Result<HashMap<
 fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
     let options: SocksInboundOptions = ctx.options()?;
     let users = users_by_name(ctx.tag, options.users)?;
-    let associations = Arc::new(Associations::default());
-    let datagram = Arc::new(DatagramHandler::new(
-        associations.clone(),
-        !users.is_empty(),
-    ));
-    let stream = Arc::new(StreamHandler::new(users, associations));
+    let stream = Arc::new(StreamHandler::new(users, Arc::new(Associations::default())));
+    // No datagram handler: UDP ASSOCIATE binds a relay socket per
+    // association, as RFC 1928 and sing-box do, and nothing is served on
+    // the listen port's UDP.
     Ok(Arc::new(Handler::new(
         ctx.tag.to_owned(),
         Some(stream),
-        Some(datagram),
+        None,
     )))
 }

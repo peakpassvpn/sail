@@ -1,153 +1,216 @@
+//! An association's UDP relay: the socket bound for one `UDP ASSOCIATE`,
+//! taking the client's datagrams only, and ending with its control
+//! connection.
+
 use std::convert::TryFrom;
 use std::io;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 
 use anyhow::anyhow;
 use async_trait::async_trait;
 use bytes::{BufMut, BytesMut};
+use tokio::io::AsyncReadExt;
+use tokio::net::UdpSocket;
 
-use super::association::Associations;
+use super::association::{ClientFilter, Slot};
 use crate::{
     adapter::*,
-    session::{DatagramSource, SocksAddr, SocksAddrWireType},
+    session::{DatagramSource, SocksAddr, SocksAddrWireType, UdpAssociationOwner},
 };
 
-pub struct Handler {
-    associations: Arc<Associations>,
-    /// Whether clients authenticate, so that a datagram outside any
-    /// association is nobody's to take.
-    authenticated: bool,
+/// A relay socket on `ip`, on a port the system picks, bound as the
+/// inbound's listener binds its sockets.
+pub fn bind(ip: IpAddr) -> io::Result<UdpSocket> {
+    let socket = std::net::UdpSocket::bind(SocketAddr::new(ip, 0))?;
+    socket.set_nonblocking(true)?;
+    UdpSocket::from_std(socket)
 }
 
-impl Handler {
-    /// Serves the datagrams of `associations`. When `authenticated`, those
-    /// of no association are dropped.
-    pub fn new(associations: Arc<Associations>, authenticated: bool) -> Self {
-        Handler {
-            associations,
-            authenticated,
+/// The socket, and the association's place, which is free again once both
+/// halves have let the socket go.
+struct Shared {
+    socket: UdpSocket,
+    _slot: Slot,
+}
+
+/// One association's relay.
+pub struct Relay {
+    shared: Arc<Shared>,
+    control: AnyStream,
+    filter: ClientFilter,
+    user: Option<Arc<str>>,
+}
+
+impl Relay {
+    /// The relay of `socket`, for the client `filter` lets through, who
+    /// authenticated as `user` on `control`. The association lasts until
+    /// `control` closes.
+    pub fn new(
+        socket: UdpSocket,
+        slot: Slot,
+        control: AnyStream,
+        filter: ClientFilter,
+        user: Option<Arc<str>>,
+    ) -> Self {
+        Relay {
+            shared: Arc::new(Shared {
+                socket,
+                _slot: slot,
+            }),
+            control,
+            filter,
+            user,
         }
     }
 }
 
-#[async_trait]
-impl InboundDatagramHandler for Handler {
-    async fn handle<'a>(&'a self, socket: AnyInboundDatagram) -> io::Result<AnyInboundTransport> {
-        tracing::trace!("handling inbound datagram");
-        Ok(InboundTransport::Datagram(
-            Box::new(Datagram {
-                socket,
-                associations: self.associations.clone(),
-                authenticated: self.authenticated,
-            }),
-            None,
-        ))
-    }
-}
-
-pub struct Datagram {
-    socket: Box<dyn InboundDatagram>,
-    associations: Arc<Associations>,
-    authenticated: bool,
-}
-
-impl InboundDatagram for Datagram {
+impl InboundDatagram for Relay {
     fn split(
         self: Box<Self>,
     ) -> (
         Box<dyn InboundDatagramRecvHalf>,
         Box<dyn InboundDatagramSendHalf>,
     ) {
-        let (rh, sh) = self.socket.split();
         (
-            Box::new(DatagramRecvHalf {
-                socket: rh,
-                associations: self.associations,
-                authenticated: self.authenticated,
+            Box::new(RecvHalf {
+                shared: self.shared.clone(),
+                control: self.control,
+                filter: self.filter,
+                user: self.user,
+                owner: UdpAssociationOwner::new(),
+                packet: Vec::new(),
             }),
-            Box::new(DatagramSendHalf(sh)),
+            Box::new(SendHalf(self.shared)),
         )
     }
 
     fn into_std(self: Box<Self>) -> io::Result<std::net::UdpSocket> {
-        self.socket.into_std()
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "a socks udp relay is not a plain socket",
+        ))
     }
 }
 
-pub struct DatagramRecvHalf {
-    socket: Box<dyn InboundDatagramRecvHalf>,
-    associations: Arc<Associations>,
-    authenticated: bool,
+struct RecvHalf {
+    shared: Arc<Shared>,
+    control: AnyStream,
+    filter: ClientFilter,
+    user: Option<Arc<str>>,
+    /// Keeps the association alive; the NAT manager ends its sessions when
+    /// this half, and with it the owner, goes.
+    owner: UdpAssociationOwner,
+    packet: Vec<u8>,
 }
 
 #[async_trait]
-impl InboundDatagramRecvHalf for DatagramRecvHalf {
+impl InboundDatagramRecvHalf for RecvHalf {
     async fn recv_from(
         &mut self,
         buf: &mut [u8],
     ) -> ProxyResult<(usize, DatagramSource, SocksAddr)> {
-        let mut recv_buf = vec![0u8; buf.len() + 512];
-        let (n, src, _) = self.socket.recv_from(&mut recv_buf).await?;
-        if n < 3 {
-            return Err(ProxyError::DatagramWarn(anyhow!("Short message")));
-        }
-        // Fragments are not supported; RFC 1928 lets a server drop them.
-        if recv_buf[2] != 0 {
-            return Err(ProxyError::DatagramWarn(anyhow!(
-                "Fragmented datagram dropped"
-            )));
-        }
-        let dst_addr = SocksAddr::try_from((&recv_buf[3..n], SocksAddrWireType::PortLast))
-            .map_err(|e| ProxyError::DatagramWarn(anyhow!("Parse target address failed: {}", e)))?;
-        let header_size = 3 + dst_addr.size();
-        let payload_size = n
-            .checked_sub(header_size)
-            .ok_or_else(|| ProxyError::DatagramWarn(anyhow!("Short message")))?;
-        if payload_size > buf.len() {
-            return Err(ProxyError::DatagramWarn(anyhow!(
-                "Datagram of {} bytes exceeds the {}-byte buffer, dropped",
-                payload_size,
-                buf.len()
-            )));
-        }
-        let src = match self.associations.find(src.address) {
-            Some(found) => src
-                .with_user(found.user)
-                .with_association(Some(found.association)),
-            None if self.authenticated => {
-                return Err(ProxyError::DatagramWarn(anyhow!(
-                    "Datagram from {} of no association dropped",
-                    src.address
-                )));
+        let RecvHalf {
+            shared,
+            control,
+            filter,
+            user,
+            owner,
+            packet,
+        } = self;
+        packet.resize(buf.len() + 512, 0);
+        let mut ignored = [0u8; 512];
+        loop {
+            tokio::select! {
+                received = shared.socket.recv_from(packet) => {
+                    let (n, src) = match received {
+                        Ok(r) => r,
+                        // An unreachable client, as some systems report
+                        // on an unconnected socket.
+                        Err(e) if matches!(
+                            e.kind(),
+                            io::ErrorKind::ConnectionReset | io::ErrorKind::ConnectionRefused
+                        ) => {
+                            return Err(ProxyError::DatagramWarn(e.into()));
+                        }
+                        Err(e) => return Err(ProxyError::DatagramFatal(e.into())),
+                    };
+                    if !filter.accept(src) {
+                        return Err(ProxyError::DatagramWarn(anyhow!(
+                            "datagram from {} is not the client's, dropped",
+                            src
+                        )));
+                    }
+                    let (n, dst) = unwrap(&packet[..n], buf)?;
+                    let src = DatagramSource::new(src, None)
+                        .with_user(user.clone())
+                        .with_association(Some(owner.association().clone()));
+                    return Ok((n, src, dst));
+                }
+                read = control.read(&mut ignored) => match read {
+                    // What the client sends on it meanwhile means nothing.
+                    Ok(n) if n > 0 => continue,
+                    _ => {
+                        return Err(ProxyError::DatagramFatal(anyhow!(
+                            "udp association ended with its control connection"
+                        )));
+                    }
+                },
             }
-            None => src,
-        };
-        buf[..payload_size].copy_from_slice(&recv_buf[header_size..header_size + payload_size]);
-        Ok((payload_size, src, dst_addr))
+        }
     }
 }
 
-pub struct DatagramSendHalf(Box<dyn InboundDatagramSendHalf>);
+/// The payload of a SOCKS5 UDP request `packet`, copied into `buf`, and
+/// where it goes.
+fn unwrap(packet: &[u8], buf: &mut [u8]) -> ProxyResult<(usize, SocksAddr)> {
+    let n = packet.len();
+    if n < 3 {
+        return Err(ProxyError::DatagramWarn(anyhow!("Short message")));
+    }
+    // Fragments are not supported; RFC 1928 lets a server drop them.
+    if packet[2] != 0 {
+        return Err(ProxyError::DatagramWarn(anyhow!(
+            "Fragmented datagram dropped"
+        )));
+    }
+    let dst_addr = SocksAddr::try_from((&packet[3..n], SocksAddrWireType::PortLast))
+        .map_err(|e| ProxyError::DatagramWarn(anyhow!("Parse target address failed: {}", e)))?;
+    let header_size = 3 + dst_addr.size();
+    let payload_size = n
+        .checked_sub(header_size)
+        .ok_or_else(|| ProxyError::DatagramWarn(anyhow!("Short message")))?;
+    if payload_size > buf.len() {
+        return Err(ProxyError::DatagramWarn(anyhow!(
+            "Datagram of {} bytes exceeds the {}-byte buffer, dropped",
+            payload_size,
+            buf.len()
+        )));
+    }
+    buf[..payload_size].copy_from_slice(&packet[header_size..header_size + payload_size]);
+    Ok((payload_size, dst_addr))
+}
+
+struct SendHalf(Arc<Shared>);
 
 #[async_trait]
-impl InboundDatagramSendHalf for DatagramSendHalf {
+impl InboundDatagramSendHalf for SendHalf {
     async fn send_to(
         &mut self,
         buf: &[u8],
         src_addr: &SocksAddr,
         dst_addr: &SocketAddr,
     ) -> io::Result<usize> {
-        let mut send_buf = BytesMut::new();
+        let mut send_buf = BytesMut::with_capacity(3 + src_addr.size() + buf.len());
         send_buf.put_u16(0);
         send_buf.put_u8(0);
         src_addr.write_buf(&mut send_buf, SocksAddrWireType::PortLast);
         send_buf.put_slice(buf);
-        self.0.send_to(&send_buf[..], src_addr, dst_addr).await
+        self.0.socket.send_to(&send_buf[..], dst_addr).await
     }
 
     async fn close(&mut self) -> io::Result<()> {
-        self.0.close().await
+        Ok(())
     }
 }
 
@@ -155,61 +218,40 @@ impl InboundDatagramSendHalf for DatagramSendHalf {
 mod tests {
     use super::*;
 
-    /// Hands out one datagram, as a socket would.
-    struct OnePacket(Vec<u8>);
-
-    #[async_trait]
-    impl InboundDatagramRecvHalf for OnePacket {
-        async fn recv_from(
-            &mut self,
-            buf: &mut [u8],
-        ) -> ProxyResult<(usize, DatagramSource, SocksAddr)> {
-            let n = self.0.len().min(buf.len());
-            buf[..n].copy_from_slice(&self.0[..n]);
-            let src = DatagramSource::new("127.0.0.1:1".parse().unwrap(), None);
-            Ok((n, src, SocksAddr::any()))
-        }
-    }
-
     fn packet(frag: u8, payload: usize) -> Vec<u8> {
         let mut p = vec![0, 0, frag, 0x01, 1, 2, 3, 4, 0, 53];
         p.resize(p.len() + payload, 0xab);
         p
     }
 
-    async fn recv(packet: Vec<u8>, buf_len: usize) -> ProxyResult<usize> {
-        let mut half = DatagramRecvHalf {
-            socket: Box::new(OnePacket(packet)),
-            associations: Default::default(),
-            authenticated: false,
-        };
+    fn recv(packet: Vec<u8>, buf_len: usize) -> ProxyResult<usize> {
         let mut buf = vec![0u8; buf_len];
-        half.recv_from(&mut buf).await.map(|(n, _, _)| n)
+        unwrap(&packet, &mut buf).map(|(n, _)| n)
     }
 
-    #[tokio::test]
-    async fn payload_is_unwrapped() {
-        assert_eq!(recv(packet(0, 100), 2048).await.unwrap(), 100);
+    #[test]
+    fn payload_is_unwrapped() {
+        assert_eq!(recv(packet(0, 100), 2048).unwrap(), 100);
     }
 
-    #[tokio::test]
-    async fn oversized_payload_is_dropped_not_a_panic() {
+    #[test]
+    fn oversized_payload_is_dropped_not_a_panic() {
         assert!(matches!(
-            recv(packet(0, 3000), 2048).await,
+            recv(packet(0, 3000), 2048),
             Err(ProxyError::DatagramWarn(_))
         ));
     }
 
-    #[tokio::test]
-    async fn truncated_header_and_fragments_are_dropped() {
+    #[test]
+    fn truncated_header_and_fragments_are_dropped() {
         let mut short = packet(0, 0);
         short.truncate(7);
         assert!(matches!(
-            recv(short, 2048).await,
+            recv(short, 2048),
             Err(ProxyError::DatagramWarn(_))
         ));
         assert!(matches!(
-            recv(packet(1, 10), 2048).await,
+            recv(packet(1, 10), 2048),
             Err(ProxyError::DatagramWarn(_))
         ));
     }

@@ -2,7 +2,8 @@
 //!
 //! The first byte tells them apart: a SOCKS request starts with its version,
 //! 4 or 5, which no HTTP method does. UDP is SOCKS5's `UDP ASSOCIATE`, served
-//! on the same port as the socks inbound serves it.
+//! as the socks inbound serves it: on a relay socket per association, not on
+//! the listen port.
 //!
 //! sing-box's `set_system_proxy` is not taken: sail does not change the
 //! host's proxy settings, and the field is an unknown one.
@@ -67,20 +68,19 @@ fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
             })
             .collect(),
     )?;
-    // UDP ASSOCIATE asks on the TCP side for what the UDP side serves.
-    let associations = Arc::new(socks::inbound::Associations::default());
-    let datagram = Arc::new(socks::inbound::DatagramHandler::new(
-        associations.clone(),
-        !socks_users.is_empty(),
-    ));
     let stream = Arc::new(StreamHandler {
         http: http::inbound::StreamHandler::new(http_users),
-        socks: socks::inbound::StreamHandler::new(socks_users, associations),
+        socks: socks::inbound::StreamHandler::new(
+            socks_users,
+            Arc::new(socks::inbound::Associations::default()),
+        ),
     });
+    // UDP ASSOCIATE binds a relay socket per association, as the socks
+    // inbound does; nothing is served on the listen port's UDP.
     Ok(Arc::new(Handler::new(
         ctx.tag.to_owned(),
         Some(stream),
-        Some(datagram),
+        None,
     )))
 }
 
