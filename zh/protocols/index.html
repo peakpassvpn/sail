@@ -1,0 +1,285 @@
+<!DOCTYPE html><html lang="zh-CN" dir="ltr" data-theme="dark" data-has-toc data-has-sidebar class="astro-g5ptsecz"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><title>协议与兼容性 | Sail</title><link rel="canonical" href="https://peakpassvpn.github.io/sail/zh/protocols/"/><link rel="alternate" hreflang="en" href="https://peakpassvpn.github.io/sail/protocols/"/><link rel="alternate" hreflang="zh-CN" href="https://peakpassvpn.github.io/sail/zh/protocols/"/><link rel="alternate" hreflang="x-default" href="https://peakpassvpn.github.io/sail/protocols/"/><link rel="sitemap" href="/sail/sitemap-index.xml"/><link rel="shortcut icon" href="/sail/favicon.svg" type="image/svg+xml"/><meta name="generator" content="Astro v7.3.5"/><meta name="generator" content="Starlight v0.42.4"/><meta property="og:title" content="协议与兼容性"/><meta property="og:type" content="article"/><meta property="og:url" content="https://peakpassvpn.github.io/sail/zh/protocols/"/><meta property="og:locale" content="zh-CN"/><meta property="og:description" content="Sail 的代理协议、传输层、安全能力，以及 Clash、sing-box、Surge 配置生态兼容范围。"/><meta property="og:site_name" content="Sail"/><meta name="description" content="Sail 的代理协议、传输层、安全能力，以及 Clash、sing-box、Surge 配置生态兼容范围。"/><meta name="robots" content="index, follow, max-image-preview:large"/><meta name="keywords" content="Rust proxy platform, Clash, sing-box, Surge, unified proxy core, VPN core"/><meta name="twitter:card" content="summary_large_image"/><meta property="og:image" content="https://peakpassvpn.github.io/sail/hero-network.png"/><meta name="twitter:image" content="https://peakpassvpn.github.io/sail/hero-network.png"/><script>
+	window.StarlightThemeProvider = (() => {
+		const storedTheme =
+			typeof localStorage !== 'undefined' && localStorage.getItem('starlight-theme');
+		const theme =
+			storedTheme ||
+			(window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+		document.documentElement.dataset.theme = theme === 'light' ? 'light' : 'dark';
+		return {
+			updatePickers(theme = storedTheme || 'auto') {
+				document.querySelectorAll('starlight-theme-select').forEach((picker) => {
+					const select = picker.querySelector('select');
+					if (select) select.value = theme;
+					/** @type {HTMLTemplateElement | null} */
+					const tmpl = document.querySelector(`#theme-icons`);
+					const newIcon = tmpl && tmpl.content.querySelector('.' + theme);
+					if (newIcon) {
+						const oldIcon = picker.querySelector('svg.label-icon');
+						if (oldIcon) {
+							oldIcon.replaceChildren(...newIcon.cloneNode(true).childNodes);
+						}
+					}
+				});
+			},
+		};
+	})();
+</script><template id="theme-icons"><svg aria-hidden="true" class="light astro-hkc32dio" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;"><path d="M5 12a1 1 0 0 0-1-1H3a1 1 0 0 0 0 2h1a1 1 0 0 0 1-1Zm.64 5-.71.71a1 1 0 0 0 0 1.41 1 1 0 0 0 1.41 0l.71-.71A1 1 0 0 0 5.64 17ZM12 5a1 1 0 0 0 1-1V3a1 1 0 0 0-2 0v1a1 1 0 0 0 1 1Zm5.66 2.34a1 1 0 0 0 .7-.29l.71-.71a1 1 0 1 0-1.41-1.41l-.66.71a1 1 0 0 0 0 1.41 1 1 0 0 0 .66.29Zm-12-.29a1 1 0 0 0 1.41 0 1 1 0 0 0 0-1.41l-.71-.71a1.004 1.004 0 1 0-1.43 1.41l.73.71ZM21 11h-1a1 1 0 0 0 0 2h1a1 1 0 0 0 0-2Zm-2.64 6A1 1 0 0 0 17 18.36l.71.71a1 1 0 0 0 1.41 0 1 1 0 0 0 0-1.41l-.76-.66ZM12 6.5a5.5 5.5 0 1 0 5.5 5.5A5.51 5.51 0 0 0 12 6.5Zm0 9a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7Zm0 3.5a1 1 0 0 0-1 1v1a1 1 0 0 0 2 0v-1a1 1 0 0 0-1-1Z"/></svg><svg aria-hidden="true" class="dark astro-hkc32dio" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;"><path d="M21.64 13a1 1 0 0 0-1.05-.14 8.049 8.049 0 0 1-3.37.73 8.15 8.15 0 0 1-8.14-8.1 8.59 8.59 0 0 1 .25-2A1 1 0 0 0 8 2.36a10.14 10.14 0 1 0 14 11.69 1 1 0 0 0-.36-1.05Zm-9.5 6.69A8.14 8.14 0 0 1 7.08 5.22v.27a10.15 10.15 0 0 0 10.14 10.14 9.784 9.784 0 0 0 2.1-.22 8.11 8.11 0 0 1-7.18 4.32v-.04Z"/></svg><svg aria-hidden="true" class="auto astro-hkc32dio" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;"><path d="M21 14h-1V7a3 3 0 0 0-3-3H7a3 3 0 0 0-3 3v7H3a1 1 0 0 0-1 1v2a3 3 0 0 0 3 3h14a3 3 0 0 0 3-3v-2a1 1 0 0 0-1-1ZM6 7a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v7H6V7Zm14 10a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-1h16v1Z"/></svg></template><link rel="stylesheet" href="/sail/_astro/print.ehPL0gv-.css" media="print"><link rel="stylesheet" href="/sail/_astro/common.DML0jH4j.css"><script type="module" src="/sail/_astro/page.Dwipeu-R.js"></script></head><body class="astro-g5ptsecz"><a class="sl-skip-link astro-qb7clj6f" href="#_top">跳转到内容</a><div class="page sl-flex astro-yntsjkba"><header class="header astro-yntsjkba"><div class="header astro-by6fddyj"><div class="title-wrapper sl-flex astro-by6fddyj"><a href="/sail/zh" class="site-title sl-flex astro-6rvad3va"><img class="astro-6rvad3va" alt src="/sail/_astro/sail-mark.BBlhvJ0r.svg" width="64" height="64"><span class="astro-6rvad3va" translate="no">Sail</span></a></div><div class="sl-flex print:hidden astro-by6fddyj"><site-search class="astro-by6fddyj astro-b5kgnn7o" data-translations="{&quot;placeholder&quot;:&quot;搜索&quot;}"><button data-open-modal disabled aria-label="搜索" aria-keyshortcuts="Control+K" class="astro-b5kgnn7o"><svg aria-hidden="true" class="astro-b5kgnn7o astro-hkc32dio" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;"><path d="M21.71 20.29 18 16.61A9 9 0 1 0 16.61 18l3.68 3.68a.999.999 0 0 0 1.42 0 1 1 0 0 0 0-1.39ZM11 18a7 7 0 1 1 0-14 7 7 0 0 1 0 14Z"/></svg><span class="sl-hidden md:sl-block astro-b5kgnn7o" aria-hidden="true">搜索</span><kbd class="sl-hidden md:sl-flex astro-b5kgnn7o" style="display: none;"><kbd class="astro-b5kgnn7o">Ctrl</kbd><kbd class="astro-b5kgnn7o">K</kbd></kbd></button><dialog style="padding:0" aria-label="搜索" class="astro-b5kgnn7o"><div class="dialog-frame sl-flex astro-b5kgnn7o"><button data-close-modal class="sl-flex md:sl-hidden astro-b5kgnn7o">取消</button><div class="search-container astro-b5kgnn7o"><div id="starlight__search" class="astro-b5kgnn7o"></div></div></div></dialog></site-search><script>
+	(() => {
+		const openBtn = document.querySelector('button[data-open-modal]');
+		const shortcut = openBtn?.querySelector('kbd');
+		if (!openBtn || !(shortcut instanceof HTMLElement)) return;
+		const platformKey = shortcut.querySelector('kbd');
+		if (platformKey && /(Mac|iPhone|iPod|iPad)/i.test(navigator.platform)) {
+			platformKey.textContent = '⌘';
+			openBtn.setAttribute('aria-keyshortcuts', 'Meta+K');
+		}
+		shortcut.style.display = '';
+	})();
+</script><script type="module" src="/sail/_astro/Search.astro_astro_type_script_index_0_lang.Bi0UkZ9C.js"></script></div><div class="sl-hidden md:sl-flex print:hidden right-group astro-by6fddyj"><div class="sl-flex social-icons astro-by6fddyj"><a href="https://github.com/peakpassvpn/sail" rel="me" class="sl-flex astro-n2mnl6yq"><span class="sr-only astro-n2mnl6yq">GitHub</span><svg aria-hidden="true" class="astro-n2mnl6yq astro-hkc32dio" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;"><path d="M12 .3a12 12 0 0 0-3.8 23.38c.6.12.83-.26.83-.57L9 21.07c-3.34.72-4.04-1.61-4.04-1.61-.55-1.39-1.34-1.76-1.34-1.76-1.08-.74.09-.73.09-.73 1.2.09 1.83 1.24 1.83 1.24 1.08 1.83 2.81 1.3 3.5 1 .1-.78.42-1.31.76-1.61-2.67-.3-5.47-1.33-5.47-5.93 0-1.31.47-2.38 1.24-3.22-.14-.3-.54-1.52.1-3.18 0 0 1-.32 3.3 1.23a11.5 11.5 0 0 1 6 0c2.28-1.55 3.29-1.23 3.29-1.23.64 1.66.24 2.88.12 3.18a4.65 4.65 0 0 1 1.23 3.22c0 4.61-2.8 5.63-5.48 5.92.42.36.81 1.1.81 2.22l-.01 3.29c0 .31.2.69.82.57A12 12 0 0 0 12 .3Z"/></svg></a></div><starlight-theme-switcher class="astro-hds7qqbe"><div class="theme-switcher astro-hds7qqbe" role="group" aria-label="Select color theme"><button type="button" data-theme-choice="light" aria-label="Use light theme" title="Light" class="astro-hds7qqbe"><svg viewBox="0 0 24 24" aria-hidden="true" class="astro-hds7qqbe"><circle cx="12" cy="12" r="3.5" class="astro-hds7qqbe"></circle><path d="M12 2v2.2M12 19.8V22M4.93 4.93l1.56 1.56M17.51 17.51l1.56 1.56M2 12h2.2M19.8 12H22M4.93 19.07l1.56-1.56M17.51 6.49l1.56-1.56" class="astro-hds7qqbe"></path></svg></button><button type="button" data-theme-choice="dark" aria-label="Use dark theme" title="Dark" class="astro-hds7qqbe"><svg viewBox="0 0 24 24" aria-hidden="true" class="astro-hds7qqbe"><path d="M20.2 15.1A8.4 8.4 0 0 1 8.9 3.8 8.5 8.5 0 1 0 20.2 15.1Z" class="astro-hds7qqbe"></path></svg></button><button type="button" data-theme-choice="auto" aria-label="Follow system theme" title="System" class="astro-hds7qqbe"><svg viewBox="0 0 24 24" aria-hidden="true" class="astro-hds7qqbe"><rect x="3" y="4.5" width="18" height="13" rx="2" class="astro-hds7qqbe"></rect><path d="M8 21h8M12 17.5V21" class="astro-hds7qqbe"></path></svg></button></div></starlight-theme-switcher><script type="module">var e=`starlight-theme`,t=()=>matchMedia(`(prefers-color-scheme: light)`).matches?`light`:`dark`,n=()=>{let t=localStorage.getItem(e);return t===`light`||t===`dark`?t:`auto`},r=class extends HTMLElement{#e=n();#t=matchMedia(`(prefers-color-scheme: light)`);connectedCallback(){this.querySelectorAll(`[data-theme-choice]`).forEach(e=>{e.addEventListener(`click`,()=>this.#r(e.dataset.themeChoice))}),this.#t.addEventListener(`change`,this.#n),this.#r(this.#e)}disconnectedCallback(){this.#t.removeEventListener(`change`,this.#n)}#n=()=>{this.#e===`auto`&&this.#r(`auto`)};#r(n){this.#e=n,document.documentElement.dataset.theme=n===`auto`?t():n,localStorage.setItem(e,n===`auto`?``:n),this.querySelectorAll(`[data-theme-choice]`).forEach(e=>{let t=e.dataset.themeChoice===n;e.toggleAttribute(`data-active`,t),e.setAttribute(`aria-pressed`,String(t))})}};customElements.get(`starlight-theme-switcher`)||customElements.define(`starlight-theme-switcher`,r);</script><starlight-lang-select><label style="--sl-select-width: 7em" class="astro-2z5xp7gb"><span class="sr-only astro-2z5xp7gb">选择语言</span><svg aria-hidden="true" class="icon label-icon astro-2z5xp7gb astro-hkc32dio" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;"><path fill-rule="evenodd" d="M8.516 3a.94.94 0 0 0-.941.94v1.15H2.94a.94.94 0 1 0 0 1.882h7.362a7.422 7.422 0 0 1-1.787 3.958 7.42 7.42 0 0 1-1.422-2.425.94.94 0 1 0-1.774.627 9.303 9.303 0 0 0 1.785 3.043 7.422 7.422 0 0 1-4.164 1.278.94.94 0 1 0 0 1.881 9.303 9.303 0 0 0 5.575-1.855 9.303 9.303 0 0 0 4.11 1.74l-.763 1.525a.968.968 0 0 0-.016.034l-1.385 2.77a.94.94 0 1 0 1.683.841l1.133-2.267h5.806l1.134 2.267a.94.94 0 0 0 1.683-.841l-1.385-2.769a.95.95 0 0 0-.018-.036l-3.476-6.951a.94.94 0 0 0-1.682 0l-1.82 3.639a7.423 7.423 0 0 1-3.593-1.256 9.303 9.303 0 0 0 2.27-5.203h1.894a.94.94 0 0 0 0-1.881H9.456V3.94A.94.94 0 0 0 8.516 3Zm6.426 11.794a1.068 1.068 0 0 1-.02.039l-.703 1.407h3.924l-1.962-3.924-1.24 2.478Z" clip-rule="evenodd"/></svg><select autocomplete="off" class="astro-2z5xp7gb"><option value="/sail/protocols/" class="astro-2z5xp7gb">English</option><option value="/sail/zh/protocols/" selected class="astro-2z5xp7gb">简体中文</option></select><svg aria-hidden="true" class="icon caret astro-2z5xp7gb astro-hkc32dio" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;"><path d="M17 9.17a1 1 0 0 0-1.41 0L12 12.71 8.46 9.17a1 1 0 1 0-1.41 1.42l4.24 4.24a1.002 1.002 0 0 0 1.42 0L17 10.59a1.002 1.002 0 0 0 0-1.42Z"/></svg></label></starlight-lang-select><script type="module">var e=class extends HTMLElement{constructor(){super();let e=this.querySelector(`select`);e&&(e.addEventListener(`change`,e=>{e.currentTarget instanceof HTMLSelectElement&&(window.location.pathname=e.currentTarget.value)}),window.addEventListener(`pageshow`,t=>{if(!t.persisted)return;let n=e.querySelector(`option[selected]`)?.index;n!==e.selectedIndex&&(e.selectedIndex=n??0)}))}};customElements.define(`starlight-lang-select`,e);</script></div></div></header><nav class="sidebar print:hidden astro-yntsjkba" aria-label="主要"><button popovertarget="starlight__sidebar" class="sl-menu-button sl-flex md:sl-hidden print:hidden astro-r2osgdlg"><svg aria-hidden="true" class="open-menu astro-r2osgdlg astro-hkc32dio" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;"><path d="M3 8h18a1 1 0 1 0 0-2H3a1 1 0 0 0 0 2Zm18 8H3a1 1 0 0 0 0 2h18a1 1 0 0 0 0-2Zm0-5H3a1 1 0 0 0 0 2h18a1 1 0 0 0 0-2Z"/></svg><svg aria-hidden="true" class="close-menu astro-r2osgdlg astro-hkc32dio" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;"><path d="m13.41 12 6.3-6.29a1.004 1.004 0 1 0-1.42-1.42L12 10.59l-6.29-6.3a1.004 1.004 0 0 0-1.42 1.42l6.3 6.29-6.3 6.29a1 1 0 0 0 0 1.42.998.998 0 0 0 1.42 0l6.29-6.3 6.29 6.3a.999.999 0 0 0 1.42 0 1 1 0 0 0 0-1.42L13.41 12Z"/></svg><span class="sr-only astro-r2osgdlg">菜单</span></button><script type="module">var e=class extends HTMLElement{constructor(){super();let e=matchMedia(`(min-width: 50em)`),t=()=>{this.popover=e.matches?null:`auto`};t(),e.addEventListener(`change`,()=>t()),this.addEventListener(`toggle`,({newState:e})=>this.trapFocus(e===`open`))}trapFocus(e){document.querySelectorAll(`.main-frame, .sl-skip-link`).forEach(t=>{t.toggleAttribute(`inert`,e)})}};customElements.define(`sl-sidebar-pane`,e);</script><sl-sidebar-pane popover id="starlight__sidebar" class="sidebar-pane astro-yntsjkba"><div class="sidebar-content sl-flex astro-yntsjkba"><sl-sidebar-state-persist data-hash="0nfibs3" class="astro-ipdry5cl"><script aria-hidden="true">
+		(() => {
+			try {
+				if (!matchMedia('(min-width: 50em)').matches) return;
+				/** @type {HTMLElement | null} */
+				const target = document.querySelector('sl-sidebar-state-persist');
+				const state = JSON.parse(sessionStorage.getItem('sl-sidebar-state') || '0');
+				if (!target || !state || target.dataset.hash !== state.hash) return;
+				window._starlightScrollRestore = state.scroll;
+				customElements.define(
+					'sl-sidebar-restore',
+					class SidebarRestore extends HTMLElement {
+						connectedCallback() {
+							try {
+								const idx = parseInt(this.dataset.index || '');
+								const details = this.closest('details');
+								if (details && typeof state.open[idx] === 'boolean') details.open = state.open[idx];
+							} catch {}
+						}
+					}
+				);
+			} catch {}
+		})();
+	</script><ul class="top-level astro-rmhv4bp6"><li class="astro-rmhv4bp6"><details open class="astro-rmhv4bp6"><summary class="astro-rmhv4bp6"><span class="group-label astro-rmhv4bp6"><span class="large astro-rmhv4bp6">Start here</span></span><svg aria-hidden="true" class="caret astro-rmhv4bp6 astro-hkc32dio" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1.25rem;"><path d="m14.83 11.29-4.24-4.24a1 1 0 1 0-1.42 1.41L12.71 12l-3.54 3.54a1 1 0 0 0 0 1.41 1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.24-4.24a1.002 1.002 0 0 0 0-1.42Z"/></svg></summary><sl-sidebar-restore data-index="0"></sl-sidebar-restore><ul class="astro-rmhv4bp6"><li class="astro-rmhv4bp6"><a href="/sail/zh/getting-started/" class="astro-rmhv4bp6"><span class="astro-rmhv4bp6">Getting started</span></a></li><li class="astro-rmhv4bp6"><a href="/sail/zh/installation/" class="astro-rmhv4bp6"><span class="astro-rmhv4bp6">Installation</span></a></li><li class="astro-rmhv4bp6"><a href="/sail/zh/cli/" class="astro-rmhv4bp6"><span class="astro-rmhv4bp6">CLI reference</span></a></li></ul></details></li><li class="astro-rmhv4bp6"><details open class="astro-rmhv4bp6"><summary class="astro-rmhv4bp6"><span class="group-label astro-rmhv4bp6"><span class="large astro-rmhv4bp6">Core guides</span></span><svg aria-hidden="true" class="caret astro-rmhv4bp6 astro-hkc32dio" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1.25rem;"><path d="m14.83 11.29-4.24-4.24a1 1 0 1 0-1.42 1.41L12.71 12l-3.54 3.54a1 1 0 0 0 0 1.41 1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.24-4.24a1.002 1.002 0 0 0 0-1.42Z"/></svg></summary><sl-sidebar-restore data-index="1"></sl-sidebar-restore><ul class="astro-rmhv4bp6"><li class="astro-rmhv4bp6"><a href="/sail/zh/configuration/" class="astro-rmhv4bp6"><span class="astro-rmhv4bp6">Configuration</span></a></li><li class="astro-rmhv4bp6"><a href="/sail/zh/routing/" class="astro-rmhv4bp6"><span class="astro-rmhv4bp6">Routing</span></a></li><li class="astro-rmhv4bp6"><a href="/sail/zh/tls-fingerprints/" class="astro-rmhv4bp6"><span class="astro-rmhv4bp6">TLS and fingerprints</span></a></li><li class="astro-rmhv4bp6"><a href="/sail/zh/mptp/" class="astro-rmhv4bp6"><span class="astro-rmhv4bp6">MPTP</span></a></li></ul></details></li><li class="astro-rmhv4bp6"><details open class="astro-rmhv4bp6"><summary class="astro-rmhv4bp6"><span class="group-label astro-rmhv4bp6"><span class="large astro-rmhv4bp6">Build and integrate</span></span><svg aria-hidden="true" class="caret astro-rmhv4bp6 astro-hkc32dio" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1.25rem;"><path d="m14.83 11.29-4.24-4.24a1 1 0 1 0-1.42 1.41L12.71 12l-3.54 3.54a1 1 0 0 0 0 1.41 1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.24-4.24a1.002 1.002 0 0 0 0-1.42Z"/></svg></summary><sl-sidebar-restore data-index="2"></sl-sidebar-restore><ul class="astro-rmhv4bp6"><li class="astro-rmhv4bp6"><a href="/sail/zh/protocols/" aria-current="page" class="astro-rmhv4bp6"><span class="astro-rmhv4bp6">Protocols</span></a></li><li class="astro-rmhv4bp6"><a href="/sail/zh/platform-integration/" class="astro-rmhv4bp6"><span class="astro-rmhv4bp6">Platform integration</span></a></li><li class="astro-rmhv4bp6"><a href="/sail/zh/architecture/" class="astro-rmhv4bp6"><span class="astro-rmhv4bp6">Architecture</span></a></li></ul></details></li><li class="astro-rmhv4bp6"><details open class="astro-rmhv4bp6"><summary class="astro-rmhv4bp6"><span class="group-label astro-rmhv4bp6"><span class="large astro-rmhv4bp6">Help</span></span><svg aria-hidden="true" class="caret astro-rmhv4bp6 astro-hkc32dio" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1.25rem;"><path d="m14.83 11.29-4.24-4.24a1 1 0 1 0-1.42 1.41L12.71 12l-3.54 3.54a1 1 0 0 0 0 1.41 1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.24-4.24a1.002 1.002 0 0 0 0-1.42Z"/></svg></summary><sl-sidebar-restore data-index="3"></sl-sidebar-restore><ul class="astro-rmhv4bp6"><li class="astro-rmhv4bp6"><a href="/sail/zh/troubleshooting/" class="astro-rmhv4bp6"><span class="astro-rmhv4bp6">Troubleshooting</span></a></li></ul></details></li></ul><script aria-hidden="true">
+		(() => {
+			const scroller = document.getElementById('starlight__sidebar');
+			if (!window._starlightScrollRestore || !scroller) return;
+			scroller.scrollTop = window._starlightScrollRestore;
+			delete window._starlightScrollRestore;
+		})();
+	</script></sl-sidebar-state-persist><div class="md:sl-hidden"><div class="mobile-preferences sl-flex astro-p4azlveh"><div class="social-icons astro-p4azlveh"><a href="https://github.com/peakpassvpn/sail" rel="me" class="sl-flex astro-n2mnl6yq"><span class="sr-only astro-n2mnl6yq">GitHub</span><svg aria-hidden="true" class="astro-n2mnl6yq astro-hkc32dio" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;"><path d="M12 .3a12 12 0 0 0-3.8 23.38c.6.12.83-.26.83-.57L9 21.07c-3.34.72-4.04-1.61-4.04-1.61-.55-1.39-1.34-1.76-1.34-1.76-1.08-.74.09-.73.09-.73 1.2.09 1.83 1.24 1.83 1.24 1.08 1.83 2.81 1.3 3.5 1 .1-.78.42-1.31.76-1.61-2.67-.3-5.47-1.33-5.47-5.93 0-1.31.47-2.38 1.24-3.22-.14-.3-.54-1.52.1-3.18 0 0 1-.32 3.3 1.23a11.5 11.5 0 0 1 6 0c2.28-1.55 3.29-1.23 3.29-1.23.64 1.66.24 2.88.12 3.18a4.65 4.65 0 0 1 1.23 3.22c0 4.61-2.8 5.63-5.48 5.92.42.36.81 1.1.81 2.22l-.01 3.29c0 .31.2.69.82.57A12 12 0 0 0 12 .3Z"/></svg></a></div><starlight-theme-switcher class="astro-hds7qqbe"><div class="theme-switcher astro-hds7qqbe" role="group" aria-label="Select color theme"><button type="button" data-theme-choice="light" aria-label="Use light theme" title="Light" class="astro-hds7qqbe"><svg viewBox="0 0 24 24" aria-hidden="true" class="astro-hds7qqbe"><circle cx="12" cy="12" r="3.5" class="astro-hds7qqbe"></circle><path d="M12 2v2.2M12 19.8V22M4.93 4.93l1.56 1.56M17.51 17.51l1.56 1.56M2 12h2.2M19.8 12H22M4.93 19.07l1.56-1.56M17.51 6.49l1.56-1.56" class="astro-hds7qqbe"></path></svg></button><button type="button" data-theme-choice="dark" aria-label="Use dark theme" title="Dark" class="astro-hds7qqbe"><svg viewBox="0 0 24 24" aria-hidden="true" class="astro-hds7qqbe"><path d="M20.2 15.1A8.4 8.4 0 0 1 8.9 3.8 8.5 8.5 0 1 0 20.2 15.1Z" class="astro-hds7qqbe"></path></svg></button><button type="button" data-theme-choice="auto" aria-label="Follow system theme" title="System" class="astro-hds7qqbe"><svg viewBox="0 0 24 24" aria-hidden="true" class="astro-hds7qqbe"><rect x="3" y="4.5" width="18" height="13" rx="2" class="astro-hds7qqbe"></rect><path d="M8 21h8M12 17.5V21" class="astro-hds7qqbe"></path></svg></button></div></starlight-theme-switcher><starlight-lang-select><label style="--sl-select-width: 7em" class="astro-2z5xp7gb"><span class="sr-only astro-2z5xp7gb">选择语言</span><svg aria-hidden="true" class="icon label-icon astro-2z5xp7gb astro-hkc32dio" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;"><path fill-rule="evenodd" d="M8.516 3a.94.94 0 0 0-.941.94v1.15H2.94a.94.94 0 1 0 0 1.882h7.362a7.422 7.422 0 0 1-1.787 3.958 7.42 7.42 0 0 1-1.422-2.425.94.94 0 1 0-1.774.627 9.303 9.303 0 0 0 1.785 3.043 7.422 7.422 0 0 1-4.164 1.278.94.94 0 1 0 0 1.881 9.303 9.303 0 0 0 5.575-1.855 9.303 9.303 0 0 0 4.11 1.74l-.763 1.525a.968.968 0 0 0-.016.034l-1.385 2.77a.94.94 0 1 0 1.683.841l1.133-2.267h5.806l1.134 2.267a.94.94 0 0 0 1.683-.841l-1.385-2.769a.95.95 0 0 0-.018-.036l-3.476-6.951a.94.94 0 0 0-1.682 0l-1.82 3.639a7.423 7.423 0 0 1-3.593-1.256 9.303 9.303 0 0 0 2.27-5.203h1.894a.94.94 0 0 0 0-1.881H9.456V3.94A.94.94 0 0 0 8.516 3Zm6.426 11.794a1.068 1.068 0 0 1-.02.039l-.703 1.407h3.924l-1.962-3.924-1.24 2.478Z" clip-rule="evenodd"/></svg><select autocomplete="off" class="astro-2z5xp7gb"><option value="/sail/protocols/" class="astro-2z5xp7gb">English</option><option value="/sail/zh/protocols/" selected class="astro-2z5xp7gb">简体中文</option></select><svg aria-hidden="true" class="icon caret astro-2z5xp7gb astro-hkc32dio" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;"><path d="M17 9.17a1 1 0 0 0-1.41 0L12 12.71 8.46 9.17a1 1 0 1 0-1.41 1.42l4.24 4.24a1.002 1.002 0 0 0 1.42 0L17 10.59a1.002 1.002 0 0 0 0-1.42Z"/></svg></label></starlight-lang-select></div></div></div></sl-sidebar-pane></nav><div class="main-frame astro-yntsjkba"><script type="module">var e=document.getElementById(`starlight__sidebar`),t=e?.querySelector(`sl-sidebar-state-persist`),n=`sl-sidebar-state`,r=()=>{let r=[],i=t?.dataset.hash||``;try{let e=sessionStorage.getItem(n),t=JSON.parse(e||`{}`);Array.isArray(t.open)&&t.hash===i&&(r=t.open)}catch{}return{hash:i,open:r,scroll:e?.scrollTop||0}},i=e=>{try{sessionStorage.setItem(n,JSON.stringify(e))}catch{}},a=()=>i(r()),o=(e,t)=>{let n=r();n.open[t]=e,i(n)};t?.addEventListener(`click`,e=>{if(!(e.target instanceof Element))return;let t=e.target.closest(`summary`)?.closest(`details`);if(!t)return;let n=t.querySelector(`sl-sidebar-restore`),r=parseInt(n?.dataset.index||``);isNaN(r)||o(!t.open,r)}),addEventListener(`visibilitychange`,()=>{document.visibilityState===`hidden`&&a()});</script><div class="lg:sl-flex astro-lrzkfocr"><aside class="right-sidebar-container print:hidden astro-lrzkfocr"><div class="right-sidebar astro-lrzkfocr"><div class="lg:sl-hidden astro-qok35upx"><mobile-starlight-toc data-min-h="2" data-max-h="3" class="astro-66cqc7ze"><nav aria-labelledby="starlight__on-this-page--mobile" class="astro-66cqc7ze"><details id="starlight__mobile-toc" class="astro-66cqc7ze"><summary id="starlight__on-this-page--mobile" class="sl-flex astro-66cqc7ze"><span class="toggle sl-flex astro-66cqc7ze">本页内容<svg aria-hidden="true" class="caret astro-66cqc7ze astro-hkc32dio" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1rem;"><path d="m14.83 11.29-4.24-4.24a1 1 0 1 0-1.42 1.41L12.71 12l-3.54 3.54a1 1 0 0 0 0 1.41 1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.24-4.24a1.002 1.002 0 0 0 0-1.42Z"/></svg></span><span class="display-current astro-66cqc7ze"></span></summary><div class="dropdown astro-66cqc7ze"><ul class="isMobile astro-jugkfwgx" style="--depth: 0;"><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#_top" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">概述</span></a></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#clashsing-box-与-surge-配置生态" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">Clash、sing-box 与 Surge 配置生态</span></a></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#代理协议" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">代理协议</span></a></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#传输层与安全" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">传输层与安全</span></a></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#流量控制出站" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">流量控制出站</span></a></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#透明代理与虚拟网络" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">透明代理与虚拟网络</span></a></li></ul></div></details></nav></mobile-starlight-toc><script type="module" src="/sail/_astro/MobileTableOfContents.astro_astro_type_script_index_0_lang.C3fM4Kra.js"></script></div><div class="right-sidebar-panel sl-hidden lg:sl-block astro-qok35upx"><div class="sl-container astro-qok35upx"><starlight-toc data-min-h="2" data-max-h="3"><nav aria-labelledby="starlight__on-this-page"><h2 id="starlight__on-this-page">本页内容</h2><ul class="astro-jugkfwgx" style="--depth: 0;"><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#_top" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">概述</span></a></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#clashsing-box-与-surge-配置生态" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">Clash、sing-box 与 Surge 配置生态</span></a></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#代理协议" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">代理协议</span></a></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#传输层与安全" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">传输层与安全</span></a></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#流量控制出站" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">流量控制出站</span></a></li><li style="--depth: 0;" class="astro-jugkfwgx"><a href="#透明代理与虚拟网络" style="--depth: 0;" class="astro-jugkfwgx"><span style="--depth: 0;" class="astro-jugkfwgx">透明代理与虚拟网络</span></a></li></ul></nav></starlight-toc><script type="module" src="/sail/_astro/TableOfContents.astro_astro_type_script_index_0_lang.BpJaGz7G.js"></script></div></div></div></aside><div class="main-pane astro-lrzkfocr"><main data-pagefind-body class="astro-g5ptsecz" lang="zh-CN" dir="ltr"><div class="content-panel astro-a7po4psb"><div class="sl-container astro-a7po4psb"><h1 id="_top" class="astro-bebwqqxs">协议与兼容性</h1></div></div><div class="content-panel astro-a7po4psb"><div class="sl-container astro-a7po4psb"><div class="sl-markdown-content"><p>Sail 将端点协议与承载它们的传输层分离。例如 VLESS、Trojan 或 VMess 出站可以组合 TLS 与 WebSocket，无需为每种组合单独定义协议类型。</p>
+<div class="sl-heading-wrapper level-h2"><h2 id="clashsing-box-与-surge-配置生态">Clash、sing-box 与 Surge 配置生态</h2><a class="sl-anchor-link" href="#clashsing-box-与-surge-配置生态"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “Clash、sing-box 与 Surge 配置生态”</span></a></div>
+<p>Sail 的目标是一套 Rust 核心承载主流代理配置生态中的协议、路由和策略组能力。当前“兼容”重点是语义对齐与可迁移性，而不是承诺任意第三方配置文件都能原样加载。</p>
+<table>
+<thead>
+<tr>
+<th>生态</th>
+<th>当前关系</th>
+<th>建议接入方式</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>sing-box</td>
+<td>JSON 模型、协议命名和嵌套传输语义较接近，但字段与支持范围并非完全相同</td>
+<td>转换后用 <code dir="auto">sail -T</code> 验证</td>
+</tr>
+<tr>
+<td>Surge / leaf</td>
+<td>Sail 保留 <code dir="auto">[General]</code>、<code dir="auto">[Proxy]</code>、<code dir="auto">[Proxy Group]</code>、<code dir="auto">[Rule]</code>、<code dir="auto">[Host]</code> 等 <code dir="auto">.conf</code> 分段解析路径</td>
+<td>作为迁移入口，再逐步转为 JSON</td>
+</tr>
+<tr>
+<td>Clash / Mihomo</td>
+<td>协议、策略组与规则概念高度重合；目前不原生加载任意 Clash YAML</td>
+<td>通过转换器或宿主集成层生成 Sail JSON</td>
+</tr>
+</tbody>
+</table>
+<p>这一边界让 Sail 可以持续统一运行时能力，同时避免把不同项目中同名但语义不同的字段静默解释错误。有关顶层模型见<a href="/sail/zh/configuration/">配置模型</a>。</p>
+<div class="sl-heading-wrapper level-h2"><h2 id="代理协议">代理协议</h2><a class="sl-anchor-link" href="#代理协议"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “代理协议”</span></a></div>
+<table>
+<thead>
+<tr>
+<th>协议</th>
+<th style="text-align: center">入站</th>
+<th style="text-align: center">出站</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>HTTP</td>
+<td style="text-align: center">是</td>
+<td style="text-align: center">是</td>
+<td>支持基础认证</td>
+</tr>
+<tr>
+<td>SOCKS5</td>
+<td style="text-align: center">是</td>
+<td style="text-align: center">是</td>
+<td>TCP、UDP；入站可选用户认证</td>
+</tr>
+<tr>
+<td>Mixed</td>
+<td style="text-align: center">是</td>
+<td style="text-align: center">否</td>
+<td>同一监听同时提供 HTTP 与 SOCKS</td>
+</tr>
+<tr>
+<td>Shadowsocks</td>
+<td style="text-align: center">是</td>
+<td style="text-align: center">是</td>
+<td>Classic AEAD 与 2022</td>
+</tr>
+<tr>
+<td>Trojan</td>
+<td style="text-align: center">是</td>
+<td style="text-align: center">是</td>
+<td>TCP 与 UDP 中继</td>
+</tr>
+<tr>
+<td>VMess</td>
+<td style="text-align: center">是</td>
+<td style="text-align: center">是</td>
+<td>AEAD，支持 XUDP</td>
+</tr>
+<tr>
+<td>VLESS</td>
+<td style="text-align: center">是</td>
+<td style="text-align: center">是</td>
+<td>普通 UDP 或 XUDP；Vision flow</td>
+</tr>
+<tr>
+<td>AnyTLS</td>
+<td style="text-align: center">是</td>
+<td style="text-align: center">是</td>
+<td>共享认证 TLS 会话</td>
+</tr>
+<tr>
+<td>Hysteria2</td>
+<td style="text-align: center">是</td>
+<td style="text-align: center">是</td>
+<td>QUIC、UDP 与可选端口跳跃</td>
+</tr>
+<tr>
+<td>TUIC</td>
+<td style="text-align: center">是</td>
+<td style="text-align: center">是</td>
+<td>QUIC stream 与 datagram</td>
+</tr>
+<tr>
+<td>MPTP</td>
+<td style="text-align: center">是</td>
+<td style="text-align: center">是</td>
+<td>多路径聚合为逻辑隧道</td>
+</tr>
+</tbody>
+</table>
+<p>内部端点还包括 <code dir="auto">direct</code>、<code dir="auto">drop</code> 与供路由或平台集成使用的重定向处理器。</p>
+<div class="sl-heading-wrapper level-h2"><h2 id="传输层与安全">传输层与安全</h2><a class="sl-anchor-link" href="#传输层与安全"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “传输层与安全”</span></a></div>
+<table>
+<thead>
+<tr>
+<th>层</th>
+<th style="text-align: center">入站</th>
+<th style="text-align: center">出站</th>
+<th>用途</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>TLS</td>
+<td style="text-align: center">是</td>
+<td style="text-align: center">是</td>
+<td>基于 BoringSSL 的流安全</td>
+</tr>
+<tr>
+<td>REALITY</td>
+<td style="text-align: center">是</td>
+<td style="text-align: center">是</td>
+<td>TLS 层上的 REALITY 握手</td>
+</tr>
+<tr>
+<td>WebSocket</td>
+<td style="text-align: center">是</td>
+<td style="text-align: center">是</td>
+<td>HTTP Upgrade 兼容封装</td>
+</tr>
+<tr>
+<td>HTTP Upgrade</td>
+<td style="text-align: center">是</td>
+<td style="text-align: center">是</td>
+<td>显式 HTTP/1.1 Upgrade</td>
+</tr>
+<tr>
+<td>gRPC</td>
+<td style="text-align: center">是</td>
+<td style="text-align: center">是</td>
+<td>HTTP/2 流传输</td>
+</tr>
+<tr>
+<td>QUIC</td>
+<td style="text-align: center">是</td>
+<td style="text-align: center">是</td>
+<td>UDP 上的可靠流</td>
+</tr>
+<tr>
+<td>AMux</td>
+<td style="text-align: center">是</td>
+<td style="text-align: center">是</td>
+<td>leaf 兼容复用</td>
+</tr>
+<tr>
+<td>sing-mux</td>
+<td style="text-align: center">是</td>
+<td style="text-align: center">是</td>
+<td>smux、yamux 与 h2mux</td>
+</tr>
+<tr>
+<td>Obfs</td>
+<td style="text-align: center">否</td>
+<td style="text-align: center">是</td>
+<td>HTTP 或 TLS 形态混淆</td>
+</tr>
+</tbody>
+</table>
+<p>并非所有协议都接受所有层。Sail 会在端点工厂中验证组合，不支持的组合会携带对应入站或出站标签报错。</p>
+<div class="sl-heading-wrapper level-h2"><h2 id="流量控制出站">流量控制出站</h2><a class="sl-anchor-link" href="#流量控制出站"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “流量控制出站”</span></a></div>
+<table>
+<thead>
+<tr>
+<th>类型</th>
+<th>选择行为</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Selector</td>
+<td>手动选择成员，可在 <code dir="auto">cache_dir</code> 持久化</td>
+</tr>
+<tr>
+<td>URLTest</td>
+<td>周期性选择最快的健康成员</td>
+</tr>
+<tr>
+<td>Fallback</td>
+<td>按声明顺序使用第一个健康成员</td>
+</tr>
+<tr>
+<td>TryAll</td>
+<td>依次尝试直至成功</td>
+</tr>
+<tr>
+<td>Load balance</td>
+<td>一致性哈希、轮询或粘性策略</td>
+</tr>
+<tr>
+<td>Detour</td>
+<td>通过另一个出站连接当前出站服务器</td>
+</tr>
+</tbody>
+</table>
+<p>它们都是带标签的普通出站。路由规则只需指向组标签，不必知道最终由哪个成员承载连接。</p>
+<div class="sl-heading-wrapper level-h2"><h2 id="透明代理与虚拟网络">透明代理与虚拟网络</h2><a class="sl-anchor-link" href="#透明代理与虚拟网络"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “透明代理与虚拟网络”</span></a></div>
+<p>Sail 支持 Linux、macOS、Windows、iOS、Android 上的 TUN 数据面，Windows NF 集成、平台相关 Redirect，以及 Linux TPROXY。TUN 部署必须设置出口接口策略以防回环，详见<a href="/sail/zh/routing/#%E9%98%B2%E6%AD%A2-tun-%E5%9B%9E%E7%8E%AF">路由规则</a>。</p>
+</div><footer class="sl-flex astro-ddtxxk7k"><div class="meta sl-flex astro-ddtxxk7k"></div><div class="pagination-links print:hidden astro-b5raizh3" dir="ltr"><a href="/sail/zh/mptp/" rel="prev" class="astro-b5raizh3"><svg aria-hidden="true" class="astro-b5raizh3 astro-hkc32dio" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1.5rem;"><path d="M17 11H9.41l3.3-3.29a1.004 1.004 0 1 0-1.42-1.42l-5 5a1 1 0 0 0-.21.33 1 1 0 0 0 0 .76 1 1 0 0 0 .21.33l5 5a1.002 1.002 0 0 0 1.639-.325 1 1 0 0 0-.219-1.095L9.41 13H17a1 1 0 0 0 0-2Z"/></svg><span class="astro-b5raizh3">上一页<br class="astro-b5raizh3"><span class="link-title astro-b5raizh3">MPTP</span></span></a><a href="/sail/zh/platform-integration/" rel="next" class="astro-b5raizh3"><svg aria-hidden="true" class="astro-b5raizh3 astro-hkc32dio" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1.5rem;"><path d="M17.92 11.62a1.001 1.001 0 0 0-.21-.33l-5-5a1.003 1.003 0 1 0-1.42 1.42l3.3 3.29H7a1 1 0 0 0 0 2h7.59l-3.3 3.29a1.002 1.002 0 0 0 .325 1.639 1 1 0 0 0 1.095-.219l5-5a1 1 0 0 0 .21-.33 1 1 0 0 0 0-.76Z"/></svg><span class="astro-b5raizh3">下一页<br class="astro-b5raizh3"><span class="link-title astro-b5raizh3">Platform integration</span></span></a></div></footer></div></div></main></div></div></div></div></body></html>
