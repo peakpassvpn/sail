@@ -40,7 +40,8 @@ impl Format {
     /// sing-box's, text with Surge's sections is Surge's, anything else is
     /// taken for Clash's YAML.
     pub fn of_text(s: &str) -> Self {
-        if s.trim_start().starts_with('{') {
+        // Past any comment before it.
+        if singbox::jsonc::strip(s).trim_start().starts_with('{') {
             Format::SingBox
         } else if s
             .lines()
@@ -86,6 +87,10 @@ mod tests {
     #[test]
     fn formats_are_told_apart() {
         assert_eq!(Format::of_text("  {}"), Format::SingBox);
+        assert_eq!(
+            Format::of_text("// sing-box\n/* too */ {}"),
+            Format::SingBox
+        );
         assert_eq!(
             Format::of_text("# a comment\n[General]\nloglevel = info\n"),
             Format::Surge

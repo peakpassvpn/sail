@@ -7,13 +7,16 @@ use serde_json::Value;
 
 use super::model::Config;
 
+pub mod jsonc;
 pub mod upstream;
 
 use upstream::Tier;
 
 /// Reads a sing-box configuration.
 pub fn parse(s: &str) -> Result<Config> {
-    let mut value: Value = serde_json::from_str(s).map_err(|e| anyhow!("{}", e))?;
+    // Comments and trailing commas, as sing-box takes them.
+    let s = jsonc::strip(s);
+    let mut value: Value = serde_json::from_str(&s).map_err(|e| anyhow!("{}", e))?;
     let warnings = sort_out(&mut value)?;
     let mut config: Config = serde_path_to_error::deserialize(value)
         .map_err(|e| anyhow!("{}: {}", super::model::path(&e), e.inner()))?;
