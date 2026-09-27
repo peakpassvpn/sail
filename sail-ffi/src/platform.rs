@@ -10,7 +10,9 @@ use std::sync::RwLock;
     non_upper_case_globals,
     non_camel_case_types,
     non_snake_case,
-    dead_code
+    dead_code,
+    // bindgen re-exports C typedefs of enums, e.g. `log_id as log_id_t`.
+    unused_imports
 )]
 #[allow(improper_ctypes, clippy::all)]
 mod bindings {
