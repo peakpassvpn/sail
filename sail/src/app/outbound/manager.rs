@@ -348,3 +348,99 @@ impl<'a> Iterator for Handlers<'a> {
         self.inner.next()
     }
 }
+
+#[cfg(all(test, feature = "wireguard", feature = "outbound-direct"))]
+mod tests {
+    use super::*;
+    use crate::config::Config;
+
+    fn build(json: &str, previous: Option<&OutboundManager>) -> Result<OutboundManager> {
+        let config = Config::from_json(json)?;
+        let dial = DialOptions::default();
+        let dns = crate::app::dns::DnsClient::new(
+            &config.dns,
+            Arc::new(dial.clone()),
+            Default::default(),
+        )?
+        .into_shared();
+        let env = RuntimeEnv::default();
+        match previous {
+            None => OutboundManager::with_endpoints(
+                &config.outbounds,
+                &config.endpoints,
+                &dial,
+                &env,
+                dns,
+            ),
+            Some(previous) => OutboundManager::reloaded(
+                previous,
+                &config.outbounds,
+                &config.endpoints,
+                &dial,
+                &env,
+                dns,
+            ),
+        }
+    }
+
+    fn config(outbound: &str, detour: &str) -> String {
+        format!(
+            r#"{{
+                "outbounds": [
+                    {{ "type": "direct", "tag": "a" }},
+                    {{ "type": "direct", "tag": "relay"{} }}
+                ],
+                "endpoints": [{{
+                    "type": "wireguard", "tag": "wg", "detour": "{}",
+                    "address": ["10.0.0.2/32"],
+                    "private_key": "YFf6vyGG0nAu8ZlKIYO7nZbcfdd2dbmodt1XRkcCdU4=",
+                    "peers": [{{
+                        "address": "192.0.2.1", "port": 51820,
+                        "public_key": "Z1XXLsKYkYxuiYjJIkRvtIKFepCYHTgON+GwPq7SOV4=",
+                        "allowed_ips": ["0.0.0.0/0"]
+                    }}]
+                }}]
+            }}"#,
+            outbound, detour
+        )
+    }
+
+    #[test]
+    fn a_reload_keeps_the_endpoints_and_what_they_are_built_on() {
+        let first = build(&config("", "relay"), None).unwrap();
+        assert_eq!(first.endpoint_servers().len(), 1);
+        assert!(first.get("wg").is_some());
+
+        // Other outbounds are built again; the endpoint and its detour are
+        // the ones running.
+        let next = build(&config("", "relay"), Some(&first)).unwrap();
+        assert!(Arc::ptr_eq(
+            &first.get("wg").unwrap(),
+            &next.get("wg").unwrap()
+        ));
+        assert!(Arc::ptr_eq(
+            &first.get("relay").unwrap(),
+            &next.get("relay").unwrap()
+        ));
+        assert!(!Arc::ptr_eq(
+            &first.get("a").unwrap(),
+            &next.get("a").unwrap()
+        ));
+
+        let err = build(&config("", "a"), Some(&first)).err().unwrap();
+        assert!(err.to_string().contains("endpoints: changed"), "{}", err);
+        let err = build(
+            &config(r#", "bind_interface": "lo0""#, "relay"),
+            Some(&first),
+        )
+        .err()
+        .unwrap();
+        assert!(
+            err.to_string().contains("[relay] outbound: changed"),
+            "{}",
+            err
+        );
+        let err = first.without_outbound("wg").err().unwrap();
+        assert!(err.to_string().contains("endpoint"), "{}", err);
+    }
+}
