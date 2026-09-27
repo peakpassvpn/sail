@@ -1192,9 +1192,33 @@ impl TcpTable {
                 after_ms: self.config.persist_initial_ms,
             });
         }
-        if !closed && output.outgoing.is_empty() {
+        // A write Nagle or a closed window held goes out with whatever else
+        // this segment draws: waiting for a quiet ACK could wait forever,
+        // since once the flight is empty neither end has a reason to send.
+        if !closed && output.outgoing.len() < outgoing_limit {
             let pending = self.flush_pending_send(key)?;
             merge_ingress(&mut output, pending);
+        }
+        // With no room left to send it now and nothing in flight, the persist
+        // timer releases it.
+        let stranded = self.by_key.get(&key).is_some_and(|flow| {
+            flow.send.is_empty()
+                && flow
+                    .pending_send
+                    .as_ref()
+                    .is_some_and(|pending| pending.reason == PendingSendReason::Nagle)
+        });
+        if !closed && stranded {
+            let flow = self
+                .by_key
+                .get_mut(&key)
+                .ok_or(TcpTableError::UnknownFlow)?;
+            flow.persist_backoff_ms = self.config.persist_initial_ms;
+            output.timers.push(TcpTimerRequest {
+                token: TcpFlowToken::new_on_shard(id, self.generation, self.shard),
+                event: TimerEvent::Persist,
+                after_ms: self.config.persist_initial_ms,
+            });
         }
         if !closed && !enters_time_wait {
             self.arm_keepalive_if_active(key, &mut output)?;
@@ -3424,4 +3448,97 @@ fn timestamp_before(value: u32, recent: u32) -> bool {
 fn timestamp_value(now_ms: u64, offset: u32) -> u32 {
     let bytes = now_ms.to_le_bytes();
     u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]).wrapping_add(offset)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::net::Ipv4Addr;
+
+    use super::*;
+    use crate::{BudgetProfile, ResourceLedger, SeqNumber, TcpFlags};
+
+    fn segment(
+        source: SocketAddr,
+        destination: SocketAddr,
+        control: SendControl,
+        payload: &[u8],
+    ) -> Vec<u8> {
+        emit_tcp_segment(source, destination, control, payload, 64, 1).unwrap()
+    }
+
+    /// A held write that the answer to the last ACK had no room to carry is
+    /// released by the persist timer, since nothing else will wake the flow.
+    #[test]
+    fn a_held_write_without_room_to_go_waits_on_the_persist_timer() {
+        let ledger = ResourceLedger::new(BudgetProfile::Router.budget()).unwrap();
+        let mut table = TcpTable::new(
+            ledger,
+            NetworkGeneration::new(1),
+            TcpTableConfig {
+                max_segment_payload_bytes: 100,
+                nagle_enabled: true,
+                ..TcpTableConfig::default()
+            },
+        );
+        let peer = SocketAddr::from((Ipv4Addr::new(10, 7, 0, 2), 40_000));
+        let local = SocketAddr::from((Ipv4Addr::new(10, 7, 0, 1), 443));
+        let control = |sequence: u32, acknowledgment: u32, flags: TcpFlags| SendControl {
+            sequence: SeqNumber::new(sequence),
+            acknowledgment: SeqNumber::new(acknowledgment),
+            flags,
+            window: 4_096,
+        };
+        let syn_ack = table
+            .ingest(&segment(peer, local, control(100, 0, TcpFlags::SYN), &[]))
+            .unwrap();
+        let syn_ack =
+            parse_tcp_segment(parse_ip_packet(&syn_ack.outgoing[0], true).unwrap(), true).unwrap();
+        let server_next = syn_ack.meta.sequence.wrapping_add(1).get();
+        let accepted = table
+            .ingest(&segment(
+                peer,
+                local,
+                control(101, server_next, TcpFlags::ACK),
+                &[],
+            ))
+            .unwrap();
+        let Some(TcpEvent::Accepted(connection)) = accepted.events.first() else {
+            panic!("no connection: {:?}", accepted.events);
+        };
+        let token = connection.token;
+        table.accept(token).unwrap();
+        assert_eq!(table.write(token, b"first").unwrap().outgoing.len(), 1);
+        assert!(table.write(token, b"tiny").unwrap().outgoing.is_empty());
+
+        // Room for one packet, which the answer to the data past a hole takes.
+        let last_ack = segment(
+            peer,
+            local,
+            control(111, server_next.wrapping_add(5), TcpFlags::ACK),
+            b"after a hole",
+        );
+        let answered = table
+            .ingest_with_policy_at_limit(&last_ack, true, 0, 1)
+            .unwrap();
+        assert_eq!(answered.outgoing.len(), 1);
+        let answer =
+            parse_tcp_segment(parse_ip_packet(&answered.outgoing[0], true).unwrap(), true).unwrap();
+        assert!(answer.payload.is_empty());
+        let persist = answered
+            .timers
+            .iter()
+            .find(|timer| timer.event == TimerEvent::Persist)
+            .expect("the held write was left without a timer");
+
+        let released = table
+            .on_timer_at(token, TimerEvent::Persist, persist.after_ms)
+            .unwrap();
+        let released =
+            parse_tcp_segment(parse_ip_packet(&released.outgoing[0], true).unwrap(), true).unwrap();
+        assert_eq!(released.payload, b"tiny");
+        assert_eq!(
+            released.meta.sequence,
+            SeqNumber::new(server_next.wrapping_add(5))
+        );
+    }
 }

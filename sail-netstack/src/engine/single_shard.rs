@@ -22,7 +22,11 @@ use crate::{
 };
 
 // IPv6 + TCP + MSS/SACK/window-scale/timestamp SYN options.
-const TCP_CONTROL_PACKET_BYTES: usize = 84;
+/// The largest IP and TCP headers a segment of this stack carries: IPv6's 40
+/// bytes, TCP's 20, and 40 of options (timestamps and three SACK blocks).
+/// A payload of at most the MTU less this always fits.
+pub const TCP_MAX_HEADER_BYTES: usize = 100;
+const TCP_CONTROL_PACKET_BYTES: usize = TCP_MAX_HEADER_BYTES;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RunnerConfig {
@@ -1607,9 +1611,10 @@ impl<I: PacketIo> SingleShardRunner<I> {
         now_ms: u64,
     ) -> Result<EnqueueDisposition, RunnerError> {
         let initial_ip = self.parse_initial_ip(packet.payload(), now_ms)?;
-        // GSO is a transmit capability. An oversized receive packet would
-        // require explicit GRO metadata, which Packet does not expose.
-        if packet.payload().len() > self.mtu {
+        // The MTU bounds what this stack sends. For the flows it ends it is
+        // the host, which takes any packet it has room for (RFC 1122 3.3.2,
+        // RFC 8200 5): a tunnel peer with a larger MTU is still heard.
+        if packet.payload().len() > self.arena.max_packet_size() {
             let error = match initial_ip.version {
                 IpVersion::V6 => Some(IcmpErrorKind::PacketTooBig {
                     mtu: u32::try_from(self.mtu).unwrap_or(u32::MAX),

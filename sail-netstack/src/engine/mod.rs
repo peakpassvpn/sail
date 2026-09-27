@@ -12,4 +12,6 @@ pub use shard::{
     classify_packet, Route, ShardQueueError, ShardRouter, ShardRouterError, ShardRouterStats,
 };
 pub use sharded_io::{ShardedPacketIo, ShardedPacketIoControl, ShardedPacketIoError};
-pub use single_shard::{RunnerConfig, RunnerError, RunnerState, SingleShardRunner, StepOutcome};
+pub use single_shard::{
+    RunnerConfig, RunnerError, RunnerState, SingleShardRunner, StepOutcome, TCP_MAX_HEADER_BYTES,
+};

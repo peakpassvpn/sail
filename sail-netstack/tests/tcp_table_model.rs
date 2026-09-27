@@ -944,6 +944,58 @@ fn nagle_holds_one_small_write_until_all_flight_data_is_acked() {
 }
 
 #[test]
+fn nagle_releases_its_write_when_the_last_ack_also_draws_a_segment() {
+    let ledger = ResourceLedger::new(BudgetProfile::Router.budget()).unwrap();
+    let mut table = TcpTable::new(
+        ledger,
+        NetworkGeneration::new(1),
+        TcpTableConfig {
+            max_segment_payload_bytes: 100,
+            nagle_enabled: true,
+            ..TcpTableConfig::default()
+        },
+    );
+    let (source, destination) = endpoints(24);
+    let (token, server_next) = handshake(&mut table, source, destination);
+    table.accept(token).unwrap();
+    assert_eq!(table.write(token, b"first").unwrap().outgoing.len(), 1);
+    assert!(table.write(token, b"tiny").unwrap().outgoing.is_empty());
+
+    // The ACK that empties the flight carries data past a hole, which this
+    // end must answer at once. The held write goes out with that answer:
+    // once nothing is in flight no timer runs and the peer, all its data
+    // acknowledged, has no reason to send again, so a write held here would
+    // wait forever.
+    let last_ack = packet(
+        source,
+        destination,
+        111,
+        server_next.wrapping_add(5),
+        TcpFlags::ACK,
+        b"after a hole",
+    );
+    let answered = table.ingest(&last_ack).unwrap();
+    let segments = answered
+        .outgoing
+        .iter()
+        .map(|wire| parse_tcp_segment(parse_ip_packet(wire, true).unwrap(), true).unwrap())
+        .collect::<Vec<_>>();
+    let released = segments
+        .iter()
+        .find(|segment| !segment.payload.is_empty())
+        .expect("the held write stayed held");
+    assert_eq!(released.payload, b"tiny");
+    assert_eq!(
+        released.meta.sequence,
+        SeqNumber::new(server_next.wrapping_add(5))
+    );
+    assert!(segments
+        .iter()
+        .all(|segment| segment.meta.acknowledgment == Some(SeqNumber::new(101))));
+    assert_eq!(table.stats().send_buffered_bytes, 4);
+}
+
+#[test]
 fn retransmission_budget_closes_and_releases_an_unresponsive_flow() {
     let ledger = ResourceLedger::new(BudgetProfile::Router.budget()).unwrap();
     let mut table = TcpTable::new(

@@ -14,7 +14,7 @@ use sail_netstack::{
     IcmpMessage, NetworkGeneration, Packet, PacketBatch, PacketCapabilities, PacketIo, PacketToken,
     PressureLevel, ResourceKind, ResourceLedger, RunnerConfig, RunnerError, RunnerState,
     SendControl, SeqNumber, SingleShardRunner, StackStats, TcpEvent, TcpFlags, TcpSegmentMeta,
-    TraceKind, UdpError, MAX_DEBUG_TRACE_EVENTS,
+    TraceKind, UdpError, MAX_DEBUG_TRACE_EVENTS, TCP_MAX_HEADER_BYTES,
 };
 
 #[derive(Debug)]
@@ -647,23 +647,32 @@ fn icmp_echo_limiter_is_independent_and_refills_on_virtual_time() {
 }
 
 #[test]
-fn runner_reports_ipv4_df_packet_exceeding_mtu() {
+fn runner_takes_packets_over_its_mtu_and_refuses_those_over_its_buffer() {
     let (mut io, _) = MockIo::new(1);
     let sent = io.sent_payloads();
+    // Past the MTU, which bounds only what the stack sends; then past the
+    // largest packet it has room for.
     io.push_recv(vec![udp_packet(40_000, &vec![7; 600])]);
+    io.push_recv(vec![udp_packet(40_001, &vec![7; 800])]);
     let config = RunnerConfig {
         mtu: 576,
+        max_packet_size: 700,
         tcp: sail_netstack::TcpTableConfig {
-            max_segment_payload_bytes: 492,
+            max_segment_payload_bytes: 576 - TCP_MAX_HEADER_BYTES,
             ..sail_netstack::TcpTableConfig::default()
         },
         ..deterministic_runner_config()
     };
     let (mut runner, _) = runner_with_config(io, &config);
 
-    let outcome = block_on(runner.step(1)).unwrap();
-    assert_eq!(outcome.dropped_packets, 1);
-    block_on(runner.step(2)).unwrap();
+    let taken = block_on(runner.step(1)).unwrap();
+    assert_eq!(taken.dropped_packets, 0);
+    assert_eq!(taken.datagrams.len(), 1);
+    assert_eq!(taken.datagrams[0].payload.to_vec(), vec![7; 600]);
+
+    let refused = block_on(runner.step(2)).unwrap();
+    assert_eq!(refused.dropped_packets, 1);
+    block_on(runner.step(3)).unwrap();
     let sent = sent.lock().unwrap();
     let ip = parse_ip_packet(&sent[0], true).unwrap();
     assert_eq!(
@@ -2182,4 +2191,103 @@ fn exhausted_data_packet_pool_preserves_existing_tcp_control_progress() {
         ledger.budget().packet_bytes
     );
     drop(reservation);
+}
+
+/// A segment of ours carries up to 40 option bytes, timestamps and SACK
+/// blocks, so on IPv6 a full one needs 100 bytes of headers. With room for
+/// only 84, a full write failed once the connection had SACK blocks to
+/// report, and the application saw the connection die.
+#[test]
+fn a_full_segment_with_sack_blocks_fits_the_mtu_on_ipv6() {
+    let source = SocketAddr::from((Ipv6Addr::new(0xfd00, 0, 0, 0, 0, 0, 0, 2), 40_000));
+    let destination = SocketAddr::from((Ipv6Addr::new(0xfd00, 0, 0, 0, 0, 0, 0, 1), 443));
+    let mtu = 1_284;
+    let mut config = deterministic_runner_config();
+    config.mtu = mtu;
+    config.tcp.max_segment_payload_bytes = mtu - TCP_MAX_HEADER_BYTES;
+    let timestamps = |value: u32, echo: u32| {
+        let mut options = vec![1, 1, 8, 10];
+        options.extend_from_slice(&value.to_be_bytes());
+        options.extend_from_slice(&echo.to_be_bytes());
+        options
+    };
+    // MSS 1440, SACK permitted, timestamps, window scale 7.
+    let mut syn_options = vec![2, 4, 0x05, 0xa0, 4, 2];
+    syn_options.extend_from_slice(&timestamps(100, 0)[2..]);
+    syn_options.extend_from_slice(&[1, 3, 3, 7]);
+    let recv = Arc::new(Mutex::new(VecDeque::from([tcp_packet_with_options(
+        source,
+        destination,
+        100,
+        0,
+        TcpFlags::SYN,
+        &syn_options,
+    )])));
+    let sent = Arc::new(Mutex::new(Vec::new()));
+    let io = DynamicIo {
+        recv: Arc::clone(&recv),
+        sent: Arc::clone(&sent),
+        max_batch: 8,
+    };
+    let ledger = ResourceLedger::new(BudgetProfile::Mobile.budget()).unwrap();
+    let mut runner = SingleShardRunner::new(io, ledger, config).unwrap();
+    block_on(runner.step(1_000)).unwrap();
+    block_on(runner.step(1_001)).unwrap();
+    let packet = sent.lock().unwrap().last().unwrap().clone();
+    let syn_ack = parse_tcp_segment(parse_ip_packet(&packet, true).unwrap(), true).unwrap();
+    let server_next = syn_ack.meta.sequence.wrapping_add(1).get();
+    let echo = syn_ack.options.timestamps.unwrap().0;
+
+    recv.lock().unwrap().push_back(tcp_packet_with_options(
+        source,
+        destination,
+        101,
+        server_next,
+        TcpFlags::ACK,
+        &timestamps(101, echo),
+    ));
+    let accepted = block_on(runner.step(1_010)).unwrap();
+    block_on(runner.step(1_011)).unwrap();
+    let token = match accepted.tcp_events.as_slice() {
+        [TcpEvent::Accepted(connection)] => connection.token,
+        events => panic!("unexpected TCP events: {events:?}"),
+    };
+    runner.accept_tcp(token).unwrap();
+
+    // Three segments past a hole: our segments now report three SACK blocks.
+    for (index, gap) in [20_u32, 40, 60].into_iter().enumerate() {
+        let segment = emit_tcp_segment_with_options(
+            source,
+            destination,
+            SendControl {
+                sequence: SeqNumber::new(101 + gap),
+                acknowledgment: SeqNumber::new(server_next),
+                flags: TcpFlags::ACK,
+                window: 4_096,
+            },
+            &timestamps(102 + u32::try_from(index).unwrap(), echo),
+            &[7; 10],
+            64,
+            1,
+        )
+        .unwrap();
+        recv.lock().unwrap().push_back(segment);
+        block_on(runner.step(1_020 + 2 * u64::try_from(index).unwrap())).unwrap();
+        block_on(runner.step(1_021 + 2 * u64::try_from(index).unwrap())).unwrap();
+    }
+
+    let full = vec![0x42; config.tcp.max_segment_payload_bytes];
+    runner.write_tcp(token, &full).unwrap();
+    block_on(runner.step(1_100)).unwrap();
+    block_on(runner.step(1_101)).unwrap();
+    let packet = sent.lock().unwrap().last().unwrap().clone();
+    assert_eq!(packet.len(), mtu);
+    let written = parse_tcp_segment(parse_ip_packet(&packet, true).unwrap(), true).unwrap();
+    assert_eq!(written.payload, full.as_slice());
+    assert_eq!(written.options.sack_blocks.iter().flatten().count(), 3);
+    assert!(sent
+        .lock()
+        .unwrap()
+        .iter()
+        .all(|packet| packet.len() <= mtu));
 }

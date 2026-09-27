@@ -925,7 +925,38 @@ those cross-target library checks need to be rerun.
   `sharded_io` test that failed about 3% of runs was also fixed: with one flow
   allowed per directory stripe, its two same-owner flows share a stripe one
   time in 32 and legitimately leave one directory entry, not two.
-- `cargo test -p sail-netstack` currently runs 288 deterministic contract,
+- Three faults the WireGuard endpoint met under loss (2026-09-27):
+  - A write Nagle held went out only when the ACK that emptied the flight
+    drew no segment of its own. When that ACK also carried data to answer,
+    or SACK recovery sent in the same step, the write stayed held with
+    nothing in flight, no timer armed, and no reason for the peer to send,
+    so the flow froze. A held write now goes out with whatever the segment
+    draws, room allowing, and when there is no room and nothing in flight
+    the persist timer releases it.
+  - Room for headers was 84 bytes, but a segment of this stack carries up to
+    40 option bytes (timestamps and three SACK blocks), which on IPv6 makes
+    100. Once SACK blocks appeared, a full write exceeded the MTU and failed,
+    and so could the ACK a read sends. `TCP_MAX_HEADER_BYTES` (100) is now
+    exported, and the runner and the TUN inbound size segments and control
+    packets by it.
+  - Packets larger than the MTU were dropped on receipt. The MTU bounds what
+    the stack sends; for the flows it ends it is the host, which takes any
+    packet it has room for (RFC 1122 3.3.2, RFC 8200 5), so the receive
+    limit is now `max_packet_size`, and only a larger packet draws Packet
+    Too Big. A tunnel peer with a larger MTU is heard without refragmenting.
+
+  Regression tests: a table model of the held write released with the
+  answer to data past a hole; a unit test of the persist timer releasing it
+  when no room is left; a runner test of a full IPv6 segment carrying three
+  SACK blocks at an MTU of exactly the headers plus the segment, which
+  failed with `PacketExceedsMtu` at 84; and a runner test taking a datagram
+  over the MTU and refusing one over `max_packet_size`. On the x86_64 Linux
+  host, `linux_kernel_transfers_finish_under_loss_with_nagle` moves 256 KiB
+  each way over IPv4 and IPv6 connections the stack opens and an IPv4 one
+  the kernel opens, with Nagle on, segments at the MTU less 100, and 2% of
+  TCP segments dropped each way; it passed 3 of 3 runs, and with the first
+  two fixes reverted it stalled.
+- `cargo test -p sail-netstack` currently runs 291 deterministic contract,
   randomized-model, scheduler, timer, wire, and UDP lifecycle tests. Strict
   `cargo clippy -p sail-netstack --all-targets -- -D warnings` is clean. Both
   are required by the macOS/Linux CI matrix.
@@ -948,10 +979,10 @@ those cross-target library checks need to be rerun.
   unconditional 64-bit atomic in `sail-netstack`: the denial counter now uses
   a saturating `AtomicUsize` while preserving the public `u64` snapshot field.
   `cargo check -p sail-netstack --locked -Z build-std=std,panic_abort --target
-  mips-unknown-linux-musl` passes without warnings. The current 288-test
+  mips-unknown-linux-musl` passes without warnings. The current 291-test
   library and integration suite, including the wire-validation and legacy
   zero-MTU PMTU cases, passes under the image's MIPS32 big-endian QEMU runner
-  (latest run 288 of 288, including every fix in this revision).
+  (latest run 291 of 291, including every fix in this revision).
   Protocol tests use a relaxed test-only scheduler time ceiling so emulation
   speed cannot masquerade as a packet/state failure; the production 2 ms
   ceiling and its dedicated scheduler test are unchanged. This proves the

@@ -499,11 +499,15 @@ mod tests {
     }
 
     #[cfg(target_os = "linux")]
-    /// Drops the first outgoing TCP segment `drops` picks while armed.
-    struct DropFirstTcpSegment<I> {
+    type SegmentFilter = Box<dyn FnMut(&sail_netstack::ParsedTcpSegment<'_>) -> bool + Send>;
+
+    /// Drops the TCP segments `drops` picks on their way out, and those
+    /// `drops_received` picks on their way in.
+    #[cfg(target_os = "linux")]
+    struct DropTcpSegments<I> {
         inner: I,
-        armed: Arc<AtomicBool>,
-        drops: fn(&sail_netstack::ParsedTcpSegment<'_>) -> bool,
+        drops: SegmentFilter,
+        drops_received: SegmentFilter,
         pending_send_error: Option<io::Error>,
     }
 
@@ -641,40 +645,86 @@ mod tests {
     }
 
     #[cfg(target_os = "linux")]
-    impl<I: PacketIo> DropFirstTcpSegment<I> {
+    impl<I: PacketIo> DropTcpSegments<I> {
+        fn new(inner: I, drops: SegmentFilter, drops_received: SegmentFilter) -> Self {
+            Self {
+                inner,
+                drops,
+                drops_received,
+                pending_send_error: None,
+            }
+        }
+
+        /// The first outgoing segment with payload while `armed`.
         fn payload(inner: I, armed: Arc<AtomicBool>) -> Self {
-            Self {
+            Self::new(
                 inner,
-                armed,
-                drops: |segment| !segment.payload.is_empty(),
-                pending_send_error: None,
-            }
+                Box::new(move |segment| {
+                    !segment.payload.is_empty() && armed.swap(false, Ordering::SeqCst)
+                }),
+                Box::new(|_| false),
+            )
         }
 
+        /// The first outgoing SYN while `armed`.
         fn syn(inner: I, armed: Arc<AtomicBool>) -> Self {
-            Self {
+            Self::new(
                 inner,
-                armed,
-                drops: |segment| segment.meta.flags == TcpFlags::SYN,
-                pending_send_error: None,
-            }
+                Box::new(move |segment| {
+                    segment.meta.flags == TcpFlags::SYN && armed.swap(false, Ordering::SeqCst)
+                }),
+                Box::new(|_| false),
+            )
         }
 
-        fn should_drop(&self, packet: &Packet) -> bool {
+        /// About `per_mille` in a thousand segments each way, from a fixed
+        /// seed so that a failure replays.
+        fn lossy(inner: I, seed: u64, per_mille: u64) -> Self {
+            let pick = move |state: &mut u64| {
+                // xorshift64
+                *state ^= *state << 13;
+                *state ^= *state >> 7;
+                *state ^= *state << 17;
+                *state % 1_000 < per_mille
+            };
+            let mut outgoing = seed | 1;
+            let mut incoming = seed.rotate_left(32) | 1;
+            Self::new(
+                inner,
+                Box::new(move |_| pick(&mut outgoing)),
+                Box::new(move |_| pick(&mut incoming)),
+            )
+        }
+
+        fn picked(filter: &mut SegmentFilter, packet: &Packet) -> bool {
             let Ok(ip) = parse_ip_packet(packet.payload(), true) else {
                 return false;
             };
             let Ok(segment) = parse_tcp_segment(ip, true) else {
                 return false;
             };
-            (self.drops)(&segment) && self.armed.swap(false, Ordering::SeqCst)
+            filter(&segment)
         }
     }
 
     #[cfg(target_os = "linux")]
-    impl<I: PacketIo> PacketIo for DropFirstTcpSegment<I> {
+    impl<I: PacketIo> PacketIo for DropTcpSegments<I> {
         async fn recv(&mut self, out: &mut PacketBatch) -> io::Result<usize> {
-            self.inner.recv(out).await
+            loop {
+                let mut received = PacketBatch::with_limit(out.limit() - out.len());
+                self.inner.recv(&mut received).await?;
+                let mut kept = 0;
+                for packet in received.iter() {
+                    if !Self::picked(&mut self.drops_received, packet) {
+                        out.push(Packet::from_payload(packet.token(), 0, packet.payload()))
+                            .expect("the kept packets fit where all of them did");
+                        kept += 1;
+                    }
+                }
+                if kept > 0 {
+                    return Ok(kept);
+                }
+            }
         }
 
         async fn send(&mut self, packets: &PacketBatch) -> io::Result<usize> {
@@ -683,7 +733,7 @@ mod tests {
             }
             let mut sent = 0;
             for packet in packets.iter() {
-                if self.should_drop(packet) {
+                if Self::picked(&mut self.drops, packet) {
                     sent += 1;
                     continue;
                 }
@@ -862,7 +912,7 @@ mod tests {
         let reorder_completed = Arc::new(AtomicBool::new(false));
         let queues = vec![
             ReorderDuplicateTcpPayload::new(
-                DropFirstTcpSegment::payload(
+                DropTcpSegments::payload(
                     TunRsPacketIo::new(first, 1_500, 64, 2, true).unwrap(),
                     Arc::clone(&drop_tcp_payload),
                 ),
@@ -870,7 +920,7 @@ mod tests {
                 Arc::clone(&reorder_completed),
             ),
             ReorderDuplicateTcpPayload::new(
-                DropFirstTcpSegment::payload(
+                DropTcpSegments::payload(
                     TunRsPacketIo::new(second, 1_500, 64, 2, true).unwrap(),
                     Arc::clone(&drop_tcp_payload),
                 ),
@@ -1189,13 +1239,27 @@ mod tests {
         outgoing: &[u8],
         incoming: &[u8],
     ) {
+        exchange_in_chunks(opened, kernel, outgoing, incoming, usize::MAX).await;
+    }
+
+    /// [`exchange`], the stack writing at most `chunk` bytes at a time.
+    #[cfg(target_os = "linux")]
+    async fn exchange_in_chunks(
+        opened: NativeConnection,
+        kernel: tokio::net::TcpStream,
+        outgoing: &[u8],
+        incoming: &[u8],
+        chunk: usize,
+    ) {
         let mut stack = opened.stream;
         let (mut kernel_read, mut kernel_write) = kernel.into_split();
         let (mut stack_read, mut stack_write) = tokio::io::split(&mut stack);
         let stack_side = async {
             let (written, received) = tokio::join!(
                 async {
-                    stack_write.write_all(outgoing).await?;
+                    for piece in outgoing.chunks(chunk) {
+                        stack_write.write_all(piece).await?;
+                    }
                     stack_write.shutdown().await
                 },
                 async {
@@ -1226,7 +1290,7 @@ mod tests {
             written.unwrap();
             received.unwrap()
         };
-        let (at_stack, at_kernel) = timeout(Duration::from_secs(30), async {
+        let (at_stack, at_kernel) = timeout(Duration::from_secs(60), async {
             tokio::join!(stack_side, kernel_side)
         })
         .await
@@ -1256,11 +1320,11 @@ mod tests {
         let second = first.try_clone().unwrap();
         let drop_syn = Arc::new(AtomicBool::new(false));
         let queues = vec![
-            DropFirstTcpSegment::syn(
+            DropTcpSegments::syn(
                 TunRsPacketIo::new(first, 1_500, 64, 2, true).unwrap(),
                 Arc::clone(&drop_syn),
             ),
-            DropFirstTcpSegment::syn(
+            DropTcpSegments::syn(
                 TunRsPacketIo::new(second, 1_500, 64, 2, true).unwrap(),
                 Arc::clone(&drop_syn),
             ),
@@ -1411,6 +1475,101 @@ mod tests {
         )
         .await;
 
+        runtime_task.abort();
+    }
+
+    /// Transfers finish when segments are lost both ways, with Nagle on and
+    /// segments as large as the MTU allows. Held writes, SACK recovery, and
+    /// full segments carrying SACK blocks all meet here: loss once stalled a
+    /// held write for good, and a full segment with SACK blocks exceeded the
+    /// MTU and failed the write.
+    #[cfg(target_os = "linux")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[ignore = "requires Linux /dev/net/tun and CAP_NET_ADMIN"]
+    async fn linux_kernel_transfers_finish_under_loss_with_nagle() {
+        let first = tun_rs::DeviceBuilder::new()
+            .name("sailns-loss")
+            .ipv4("10.211.0.1", 24, None)
+            .ipv6("2001:db8:211::1", 64)
+            .mtu(1_500)
+            .enable(true)
+            .multi_queue(true)
+            .offload(true)
+            .build_async()
+            .unwrap();
+        let second = first.try_clone().unwrap();
+        let queues = vec![
+            DropTcpSegments::lossy(
+                TunRsPacketIo::new(first, 1_500, 64, 2, true).unwrap(),
+                0x5eed_0001,
+                20,
+            ),
+            DropTcpSegments::lossy(
+                TunRsPacketIo::new(second, 1_500, 64, 2, true).unwrap(),
+                0x5eed_0002,
+                20,
+            ),
+        ];
+        let mut config = RunnerConfig::default();
+        config.tcp.nagle_enabled = true;
+        config.tcp.max_segment_payload_bytes = 1_500 - sail_netstack::TCP_MAX_HEADER_BYTES;
+        let ledger = ResourceLedger::new(BudgetProfile::Server.budget()).unwrap();
+        let (runtime, mut accepted, _datagrams, _udp_reply, mut control) =
+            NativeRuntimeGroup::new(queues, ledger, config, 64, 8, 8).unwrap();
+        let runtime_task = tokio::spawn(runtime.run());
+        let half_segment = config.tcp.max_segment_payload_bytes / 2;
+        let size = 256 << 10;
+
+        // The stack opens the connection, over IPv4 and IPv6.
+        let listener = bind_when_ready(SocketAddr::from((Ipv4Addr::new(10, 211, 0, 1), 0))).await;
+        let local = SocketAddr::from((Ipv4Addr::new(10, 211, 0, 2), 0));
+        let (opened, kernel) = connect_to_kernel(&mut control, local, &listener).await;
+        exchange_in_chunks(
+            opened,
+            kernel,
+            &pattern(size, 0x11),
+            &pattern(size, 0x22),
+            half_segment,
+        )
+        .await;
+        let listener_v6 = bind_when_ready(SocketAddr::from((
+            "2001:db8:211::1".parse::<Ipv6Addr>().unwrap(),
+            0,
+        )))
+        .await;
+        let local_v6 = SocketAddr::from(("2001:db8:211::2".parse::<Ipv6Addr>().unwrap(), 0));
+        let (opened, kernel) = connect_to_kernel(&mut control, local_v6, &listener_v6).await;
+        exchange_in_chunks(
+            opened,
+            kernel,
+            &pattern(size, 0x33),
+            &pattern(size, 0x44),
+            half_segment,
+        )
+        .await;
+
+        // The kernel opens it.
+        let remote = SocketAddr::from((Ipv4Addr::new(10, 211, 0, 2), 8_443));
+        let (kernel, opened) = timeout(Duration::from_secs(10), async {
+            tokio::join!(tokio::net::TcpStream::connect(remote), accepted.recv())
+        })
+        .await
+        .expect("the kernel's connection never arrived");
+        exchange_in_chunks(
+            opened.unwrap(),
+            kernel.unwrap(),
+            &pattern(size, 0x55),
+            &pattern(size, 0x66),
+            half_segment,
+        )
+        .await;
+
+        let stats = control.stats_snapshot().await.unwrap();
+        assert!(
+            stats.stack.tcp_sack_retransmitted_segments + stats.stack.tcp_retransmission_timeouts
+                > 0,
+            "nothing was lost: {stats:?}"
+        );
         runtime_task.abort();
     }
 

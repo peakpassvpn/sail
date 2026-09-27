@@ -29,7 +29,7 @@ pub use engine::{
     classify_packet, EnqueueError, RoundStats, Route, RunnerConfig, RunnerError, RunnerState,
     Scheduler, SchedulerConfig, SchedulerSnapshot, ShardQueueError, ShardRouter, ShardRouterError,
     ShardRouterStats, ShardedPacketIo, ShardedPacketIoControl, ShardedPacketIoError,
-    SingleShardRunner, StepOutcome, WorkClass,
+    SingleShardRunner, StepOutcome, WorkClass, TCP_MAX_HEADER_BYTES,
 };
 pub use ip::{
     emit_icmp_echo_reply, emit_icmp_error, fragment_outbound_ip_packet, parse_icmp_packet,

@@ -208,7 +208,7 @@ fn run<I: sail_netstack::PacketIo + 'static>(
     config.tcp.max_segment_payload_bytes = config
         .tcp
         .max_segment_payload_bytes
-        .min(mtu.saturating_sub(84));
+        .min(mtu.saturating_sub(sail_netstack::TCP_MAX_HEADER_BYTES));
     config.tcp.keepalive_idle_ms = Some(2 * 60 * 60 * 1_000);
     config.tcp.nagle_enabled = true;
     let (runtime, mut accepted, datagrams, udp_reply, mut control) = NativeRuntimeGroup::new(
