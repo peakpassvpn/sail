@@ -1,11 +1,13 @@
 //! Encrypted DNS upstreams given as URLs in `dns.servers`: DNS over TLS
-//! (`tls://`, RFC 7858), over QUIC (`quic://`, RFC 9250) and over HTTP/3
-//! (`h3://`, RFC 8484 on HTTP/3).
+//! (`tls://`, RFC 7858), over HTTPS (`https://`, or `doh:` for short,
+//! RFC 8484), over QUIC (`quic://`, RFC 9250) and over HTTP/3 (`h3://`,
+//! RFC 8484 on HTTP/3).
 //!
 //! Each upstream keeps its connections for the next query, so that the
 //! handshake is paid once, not per query: DoT keeps idle connections to
-//! take again, DoQ and DoH3 keep one QUIC connection and open a stream per
-//! query on it.
+//! take again, DoH keeps one HTTP/2 connection, or idle HTTP/1.1 ones when
+//! the server does not speak HTTP/2, and DoQ and DoH3 keep one QUIC
+//! connection and open a stream per query on it.
 
 use std::fmt;
 use std::net::IpAddr;
@@ -16,6 +18,8 @@ use std::time::Duration;
 use anyhow::{anyhow, Result};
 use hickory_proto::rr::Name;
 
+#[cfg(feature = "dns-doh")]
+mod doh;
 #[cfg(feature = "tls")]
 mod dot;
 #[cfg(feature = "quic")]
@@ -23,14 +27,17 @@ mod quic;
 #[cfg(feature = "quic")]
 mod socket;
 
-/// The largest DNS message: its length is a 16-bit field in DoT and DoQ.
-#[cfg(feature = "quic")]
+/// The largest DNS message: its length is a 16-bit field in DoT and DoQ,
+/// and DoH answers are held to it too.
+#[cfg(any(feature = "quic", feature = "dns-doh"))]
 const MAX_MESSAGE_LEN: usize = u16::MAX as usize;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Protocol {
     /// DNS over TLS.
     Tls,
+    /// DNS over HTTPS, on HTTP/2 or HTTP/1.1.
+    Https,
     /// DNS over QUIC.
     Quic,
     /// DNS over HTTP/3.
@@ -41,6 +48,7 @@ impl Protocol {
     fn scheme(self) -> &'static str {
         match self {
             Self::Tls => "tls",
+            Self::Https => "https",
             Self::Quic => "quic",
             Self::H3 => "h3",
         }
@@ -49,7 +57,7 @@ impl Protocol {
     fn default_port(self) -> u16 {
         match self {
             Self::Tls | Self::Quic => 853,
-            Self::H3 => 443,
+            Self::Https | Self::H3 => 443,
         }
     }
 }
@@ -61,7 +69,7 @@ pub(super) struct Upstream {
     /// SNI: a domain, or an IP address.
     pub host: String,
     pub port: u16,
-    /// The request path, for DoH3.
+    /// The request path, for DoH and DoH3.
     pub path: String,
     /// Where to connect, instead of resolving `host` with the system
     /// resolver.
@@ -76,6 +84,8 @@ pub(super) struct Upstream {
 enum State {
     #[cfg(feature = "tls")]
     Tls(dot::Pool),
+    #[cfg(feature = "dns-doh")]
+    Https(doh::Pool),
     #[cfg(feature = "quic")]
     Quic(quic::Pool),
     #[cfg(feature = "dns-h3")]
@@ -99,7 +109,7 @@ impl fmt::Display for Upstream {
             _ => write!(f, "{}", self.host)?,
         }
         write!(f, ":{}", self.port)?;
-        if self.protocol == Protocol::H3 {
+        if self.has_path() {
             write!(f, "{}", self.path)?;
         }
         if let Some(ip) = self.bootstrap_ip {
@@ -111,11 +121,18 @@ impl fmt::Display for Upstream {
 
 impl Upstream {
     /// `server` without its `direct:` prefix, when it has a scheme this
-    /// module knows; `None` otherwise.
+    /// module knows; `None` otherwise. `doh:x` is `https://x`.
     pub fn parse(server: &str, is_direct: bool) -> Option<Result<Self>> {
+        if server
+            .get(..4)
+            .is_some_and(|s| s.eq_ignore_ascii_case("doh:"))
+        {
+            return Some(Self::parse_rest(Protocol::Https, &server[4..], is_direct));
+        }
         let (scheme, rest) = server.split_once("://")?;
         let protocol = match scheme.to_ascii_lowercase().as_str() {
             "tls" => Protocol::Tls,
+            "https" => Protocol::Https,
             "quic" => Protocol::Quic,
             "h3" => Protocol::H3,
             _ => return None,
@@ -123,8 +140,8 @@ impl Upstream {
         Some(Self::parse_rest(protocol, rest, is_direct))
     }
 
-    /// `host[:port][/path][@bootstrap_ip]`, the path for DoH3 only. As for
-    /// DoH, the bootstrap address comes last, so a path cannot contain `@`.
+    /// `host[:port][/path][@bootstrap_ip]`, the path for DoH and DoH3 only.
+    /// The bootstrap address comes last, so a path cannot contain `@`.
     fn parse_rest(protocol: Protocol, rest: &str, is_direct: bool) -> Result<Self> {
         let (rest, bootstrap_ip) = match rest.rsplit_once('@') {
             Some((rest, ip)) => {
@@ -143,8 +160,8 @@ impl Upstream {
             None => (rest, ""),
         };
         let path = match protocol {
-            Protocol::H3 if path.is_empty() => "/dns-query".to_string(),
-            Protocol::H3 => {
+            Protocol::Https | Protocol::H3 if path.is_empty() => "/dns-query".to_string(),
+            Protocol::Https | Protocol::H3 => {
                 Self::check_path(path)?;
                 path.to_string()
             }
@@ -217,6 +234,31 @@ impl Upstream {
         Ok((host.to_ascii_lowercase(), port))
     }
 
+    fn has_path(&self) -> bool {
+        matches!(self.protocol, Protocol::Https | Protocol::H3)
+    }
+
+    /// The URI a DoH or DoH3 query is posted to.
+    #[cfg(any(feature = "dns-doh", feature = "dns-h3"))]
+    fn uri(&self) -> String {
+        format!("https://{}{}", self.authority(), self.path)
+    }
+
+    /// `host[:port]` as an HTTP request names the server: the port only
+    /// when it is not 443.
+    #[cfg(any(feature = "dns-doh", feature = "dns-h3"))]
+    fn authority(&self) -> String {
+        let host = match self.host.parse::<IpAddr>() {
+            Ok(IpAddr::V6(ip)) => format!("[{}]", ip),
+            _ => self.host.clone(),
+        };
+        if self.port == 443 {
+            host
+        } else {
+            format!("{}:{}", host, self.port)
+        }
+    }
+
     /// A path as a request carries it: no query, since the message goes in
     /// the body of a POST, and nothing to escape.
     fn check_path(path: &str) -> Result<()> {
@@ -229,7 +271,7 @@ impl Upstream {
         Ok(())
     }
 
-    /// The query's ID, which DoQ and DoH3 send as 0 and give back.
+    /// The query's ID, which DoH, DoQ and DoH3 send as 0 and give back.
     #[cfg(any(feature = "tls", feature = "quic", feature = "dns-h3"))]
     fn message_id(request: &[u8]) -> Result<[u8; 2]> {
         match request {
@@ -244,6 +286,8 @@ impl State {
         match protocol {
             #[cfg(feature = "tls")]
             Protocol::Tls => Ok(Self::Tls(dot::Pool::default())),
+            #[cfg(feature = "dns-doh")]
+            Protocol::Https => Ok(Self::Https(doh::Pool::default())),
             #[cfg(feature = "quic")]
             Protocol::Quic => Ok(Self::Quic(quic::Pool::new(quic::Kind::Doq))),
             #[cfg(feature = "dns-h3")]
@@ -276,6 +320,11 @@ impl super::DnsClient {
             #[cfg(feature = "tls")]
             State::Tls(pool) => {
                 self.exchange_dot(upstream, pool, addr, is_direct, request)
+                    .await?
+            }
+            #[cfg(feature = "dns-doh")]
+            State::Https(pool) => {
+                self.exchange_doh(upstream, pool, addr, is_direct, request)
                     .await?
             }
             #[cfg(feature = "quic")]

@@ -324,16 +324,7 @@ async fn exchange_h3(upstream: &Upstream, h3: &H3Handle, request: &[u8]) -> Resu
     use http::header::{ACCEPT, CONTENT_LENGTH, CONTENT_TYPE};
 
     const DNS_MESSAGE: &str = "application/dns-message";
-    let authority = match upstream.host.parse::<std::net::IpAddr>() {
-        Ok(std::net::IpAddr::V6(ip)) => format!("[{}]", ip),
-        _ => upstream.host.clone(),
-    };
-    let uri = if upstream.port == 443 {
-        format!("https://{}{}", authority, upstream.path)
-    } else {
-        format!("https://{}:{}{}", authority, upstream.port, upstream.path)
-    };
-    let req = http::Request::post(uri)
+    let req = http::Request::post(upstream.uri())
         .header(CONTENT_TYPE, DNS_MESSAGE)
         .header(ACCEPT, DNS_MESSAGE)
         .header(CONTENT_LENGTH, request.len())

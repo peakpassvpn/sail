@@ -46,35 +46,24 @@ mod tests {
             Resolver::System(true) => {}
             _ => panic!("unexpected resolver"),
         }
-        match &servers[2] {
-            Resolver::DoH(doh) => {
-                assert_eq!(doh.domain, "example.com");
-                assert_eq!(
-                    doh.bootstrap_ip,
-                    Some(IpAddr::V4(Ipv4Addr::new(9, 9, 9, 9)))
-                );
-                assert!(!doh.is_direct);
+        // `doh:x` is `https://x`.
+        let expected = [
+            ("example.com", Some(IpAddr::V4(Ipv4Addr::new(9, 9, 9, 9))), false),
+            ("example.com", Some(IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8))), true),
+            ("example.net", None, false),
+        ];
+        for (server, (host, bootstrap_ip, is_direct)) in servers[2..].iter().zip(expected) {
+            match server {
+                Resolver::Upstream(upstream) => {
+                    assert_eq!(upstream.protocol, super::upstream::Protocol::Https);
+                    assert_eq!(upstream.host, host);
+                    assert_eq!(upstream.port, 443);
+                    assert_eq!(upstream.path, "/dns-query");
+                    assert_eq!(upstream.bootstrap_ip, bootstrap_ip);
+                    assert_eq!(upstream.is_direct, is_direct);
+                }
+                _ => panic!("unexpected resolver"),
             }
-            _ => panic!("unexpected resolver"),
-        }
-        match &servers[3] {
-            Resolver::DoH(doh) => {
-                assert_eq!(doh.domain, "example.com");
-                assert_eq!(
-                    doh.bootstrap_ip,
-                    Some(IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)))
-                );
-                assert!(doh.is_direct);
-            }
-            _ => panic!("unexpected resolver"),
-        }
-        match &servers[4] {
-            Resolver::DoH(doh) => {
-                assert_eq!(doh.domain, "example.net");
-                assert_eq!(doh.bootstrap_ip, None);
-                assert!(!doh.is_direct);
-            }
-            _ => panic!("unexpected resolver"),
         }
     }
 
@@ -176,7 +165,7 @@ mod tests {
             "h3://dns.google/dns-query?dns=x",
             "h3://dns.google/a b",
             "h3://dns.google/user@example",
-            "https://dns.google/dns-query",
+            "https://dns.google/dns-query?dns=x",
             "udp://8.8.8.8",
         ] {
             let dns = crate::config::Dns {
@@ -231,7 +220,10 @@ mod tests {
             "direct:doh:direct.example@8.8.8.8",
         ]);
         let selected = collect_server_strings(&client, true);
-        assert_eq!(selected, vec!["direct:doh:direct.example@8.8.8.8"]);
+        assert_eq!(
+            selected,
+            vec!["direct:https://direct.example:443/dns-query@8.8.8.8"]
+        );
     }
 
     #[test]
@@ -241,42 +233,11 @@ mod tests {
         assert_eq!(
             selected,
             vec![
-                "doh:normal.example".to_string(),
+                "https://normal.example:443/dns-query".to_string(),
                 "1.1.1.1:53".to_string(),
                 "system".to_string()
             ]
         );
-    }
-
-    #[test]
-    fn parse_doh_http_body_supports_content_length() {
-        let body = b"\x01\x02\x03\x04";
-        let response = format!(
-            "HTTP/1.1 200 OK\r\nContent-Type: application/dns-message\r\nContent-Length: {}\r\n\r\n",
-            body.len()
-        );
-        let mut raw = response.into_bytes();
-        raw.extend_from_slice(body);
-
-        let parsed = DnsClient::parse_doh_http_body(&raw).unwrap();
-        assert_eq!(parsed, body);
-    }
-
-    #[test]
-    fn parse_doh_http_body_supports_chunked() {
-        let response =
-            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n4\r\nABCD\r\n2\r\nEF\r\n0\r\n\r\n";
-        let parsed = DnsClient::parse_doh_http_body(response).unwrap();
-        assert_eq!(parsed, b"ABCDEF");
-    }
-
-    #[test]
-    fn parse_doh_http_body_rejects_non_200() {
-        let response = b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 3\r\n\r\nbad".to_vec();
-        let err = DnsClient::parse_doh_http_body(&response).unwrap_err();
-        assert!(err
-            .to_string()
-            .contains("doh server returned http status 503"));
     }
 
     #[test]

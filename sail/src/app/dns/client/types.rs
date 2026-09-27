@@ -11,17 +11,9 @@ pub struct EchCacheEntry {
 }
 
 #[derive(Clone, Debug)]
-struct DohResolver {
-    domain: String,
-    bootstrap_ip: Option<IpAddr>,
-    is_direct: bool,
-}
-
-#[derive(Clone, Debug)]
 enum Resolver {
     Server(SocketAddr, bool),
-    DoH(DohResolver),
-    /// `tls://`, `quic://` or `h3://`.
+    /// `tls://`, `https://` (or `doh:`), `quic://` or `h3://`.
     Upstream(Arc<upstream::Upstream>),
     System(bool),
 }
@@ -54,17 +46,6 @@ impl fmt::Display for Resolver {
                 } else {
                     write!(f, "{}", addr)
                 }
-            }
-            Self::DoH(doh) => {
-                if doh.is_direct {
-                    write!(f, "direct:doh:{}", doh.domain)?;
-                } else {
-                    write!(f, "doh:{}", doh.domain)?;
-                }
-                if let Some(ip) = doh.bootstrap_ip {
-                    write!(f, "@{}", ip)?;
-                }
-                Ok(())
             }
             Self::Upstream(upstream) => write!(f, "{}", upstream),
             Self::System(direct) => {
@@ -231,11 +212,15 @@ pub struct DnsClient {
     timeout: Duration,
     /// `dns.reverse_mapping`.
     reverse_mapping: bool,
-    /// The certificates `tls://`, `quic://` and `h3://` servers are checked
+    /// The certificates `tls://`, `https://`, `quic://` and `h3://` servers are checked
     /// against, instead of the bundled roots.
     upstream_certificate: Option<String>,
     /// The TLS client of the `tls://` servers, built on first use.
     #[cfg(feature = "tls")]
     upstream_tls:
+        std::sync::OnceLock<std::result::Result<crate::transport::tls::TlsClient, String>>,
+    /// The TLS client of the `https://` servers, built on first use.
+    #[cfg(feature = "dns-doh")]
+    doh_tls:
         std::sync::OnceLock<std::result::Result<crate::transport::tls::TlsClient, String>>,
 }

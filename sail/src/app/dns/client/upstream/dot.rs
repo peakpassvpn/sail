@@ -30,14 +30,14 @@ pub(super) struct Pool {
 
 impl Pool {
     /// The connection idle for the least time, if one is still fresh.
-    fn take(&self) -> Option<AnyStream> {
+    pub(super) fn take(&self) -> Option<AnyStream> {
         let mut idle = self.idle.lock().unwrap_or_else(|e| e.into_inner());
         let now = Instant::now();
         idle.retain(|(_, since)| now.saturating_duration_since(*since) < IDLE_TIMEOUT);
         idle.pop().map(|(stream, _)| stream)
     }
 
-    fn put(&self, stream: AnyStream) {
+    pub(super) fn put(&self, stream: AnyStream) {
         let mut idle = self.idle.lock().unwrap_or_else(|e| e.into_inner());
         if idle.len() >= MAX_IDLE {
             idle.remove(0);
