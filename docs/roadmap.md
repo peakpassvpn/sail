@@ -188,7 +188,7 @@ Sail 与 sing-box 的对比已经完成。当前结果表明：
 | 2.2 | 内置 DNS listener 和 TUN DNS hijack | `dns/`、`protocol/tun/` | UDP/TCP 53 查询均可劫持；`hijack-dns` 动作可测试 |
 | 2.3 | **已完成（2026-09-26）** 加密 DNS：在现有 DoH 基础上补连接复用，并按需要增加 DoT、DoQ、DoH3；每种上游按注册表接入（DoT / DoQ / DoH3 已完成；DoH 保持一条 HTTP/2 连接或空闲 HTTP/1.1 连接复用） | `dns/transport/` | bootstrap、证书校验、代理/直连 detour 和失败回退行为明确 |
 | 2.4 | DNS 缓存可配置：容量、TTL、negative cache、独立缓存、清理和统计 | `dns/`、管理 API | 命中率可观察；切网和配置重载不会返回错误网络下的陈旧结果 |
-| 2.5 | FakeIP 完整化：IPv4/IPv6 地址池、TTL、过滤、容量与持久化 | `dns/transport/fakeip` | 支持 A/AAAA；重启后按配置恢复或安全重建；地址回收无错误映射 |
+| 2.5 | **部分完成（2026-09-28）** FakeIP 完整化：IPv4/IPv6 地址池、TTL、过滤、容量与持久化（sing-box 的 `fakeip` DNS 服务器：双栈地址池、TTL 600、每族最多 65536 个域名，按 DNS 规则过滤；所有入站的目标由 dispatcher / NAT 还原为域名，未知 fake IP 拒绝；热重载保留地址；`exchange` 供 hijack-dns 使用。未做：重启后持久化） | `dns/transport/fakeip` | 支持 A/AAAA；重启后按配置恢复或安全重建；地址回收无错误映射 |
 
 ### 路由、规则集与嗅探
 
