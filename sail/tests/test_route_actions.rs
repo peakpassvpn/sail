@@ -245,7 +245,15 @@ fn answers_localhost(reply: &[u8]) -> bool {
         && reply[2] & 0x80 != 0
         && reply[3] & 0x0f == 0
         && reply[6..8] == [0, 1]
-        && reply.ends_with(&[0, 1, 0, 1, 0, 0, 0, 60, 0, 4, 127, 0, 0, 1])
+        && reply.ends_with(&[0, 4, 127, 0, 0, 1])
+        && reply.len() >= 20
+        && {
+            // Type A, class IN, then a TTL of a hosts server's 600 at most:
+            // a cached answer has less left.
+            let record = &reply[reply.len() - 14..];
+            let ttl = u32::from_be_bytes([record[4], record[5], record[6], record[7]]);
+            record[..4] == [0, 1, 0, 1] && (1..=600).contains(&ttl)
+        }
 }
 
 // app(socks, DNS to an address nothing listens on) -> sail(hijack-dns)
