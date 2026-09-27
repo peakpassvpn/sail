@@ -379,6 +379,22 @@ impl TcpTcb {
         self.active_open
     }
 
+    /// Withdraws the window scale offered in our SYN once the peer's SYN
+    /// shows it does not scale: RFC 7323 1.3 applies scaling only when both
+    /// SYNs carry the option. Only meaningful in SYN-SENT, before any window
+    /// relative to the peer's sequence space was advertised.
+    pub(crate) fn withdraw_receive_window_scale(&mut self) {
+        if self.state != TcpState::SynSent {
+            return;
+        }
+        self.receive_window_scale = 0;
+        self.window_update_threshold = window_update_threshold(
+            self.congestion.maximum_segment_size(),
+            self.recv_capacity,
+            0,
+        );
+    }
+
     #[must_use]
     pub const fn state(&self) -> TcpState {
         self.state
@@ -536,6 +552,7 @@ impl TcpTcb {
         self.state == TcpState::SynReceived
             && segment.flags.contains(TcpFlags::ACK)
             && !segment.flags.contains(TcpFlags::RST)
+            && !segment.flags.contains(TcpFlags::SYN)
             && segment.acknowledgment == Some(self.send_next)
             && segment.sequence
                 == self.recv_next.wrapping_add(

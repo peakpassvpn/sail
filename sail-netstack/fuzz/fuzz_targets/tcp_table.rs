@@ -64,6 +64,11 @@ struct Peer {
     server_high: Option<u32>,
     token: Option<TcpFlowToken>,
     receive_base: u32,
+    /// The acknowledgment the table last sent this peer.
+    last_ack: u32,
+    /// Whether `receive_base` is known for the current flow: a SYN-ACK from
+    /// the table sets it, and an active open learns it on connecting.
+    base_known: bool,
     read_offset: u32,
     write_offset: u64,
 }
@@ -117,15 +122,20 @@ impl Harness {
                     peer.write_offset,
                 );
             }
+            if let Some(acknowledgment) = segment.meta.acknowledgment {
+                peer.last_ack = acknowledgment.get();
+            }
             if flags.contains(TcpFlags::SYN) {
-                assert!(
-                    flags.contains(TcpFlags::ACK),
-                    "passive side sent a bare SYN"
-                );
-                // A SYN-ACK acknowledges exactly the peer ISN, which is the
+                // Our ISN: a bare SYN opens actively, a SYN-ACK answers the
+                // peer, and acknowledges exactly the peer ISN, which is the
                 // base of the peer's byte stream for this flow.
                 peer.server_initial = Some(sequence);
-                peer.receive_base = segment.meta.acknowledgment.map_or(0, SeqNumber::get);
+                if flags.contains(TcpFlags::ACK) {
+                    peer.receive_base = segment.meta.acknowledgment.map_or(0, SeqNumber::get);
+                    peer.base_known = true;
+                } else {
+                    assert!(segment.meta.acknowledgment.is_none());
+                }
             }
             if !segment.payload.is_empty() {
                 let initial = peer
@@ -151,15 +161,40 @@ impl Harness {
             });
         }
         for event in events {
-            if let TcpEvent::Accepted(connection) = event {
-                let peer = self
-                    .peers
-                    .iter_mut()
-                    .find(|peer| peer.address == connection.source)
-                    .expect("accepted an unknown peer");
-                peer.token = Some(connection.token);
-                peer.read_offset = 0;
-                peer.write_offset = 0;
+            if tracing() {
+                eprintln!("  event {event:?}");
+            }
+            match event {
+                TcpEvent::Accepted(connection) => {
+                    let peer = self
+                        .peers
+                        .iter_mut()
+                        .find(|peer| peer.address == connection.source)
+                        .expect("accepted an unknown peer");
+                    peer.token = Some(connection.token);
+                    peer.read_offset = 0;
+                    peer.write_offset = 0;
+                }
+                TcpEvent::Connected(connection) => {
+                    assert_eq!(connection.source, self.service);
+                    let peer = self
+                        .peers
+                        .iter_mut()
+                        .find(|peer| peer.address == connection.destination)
+                        .expect("connected to an unknown peer");
+                    assert_eq!(peer.token, Some(connection.token));
+                    // From SYN-SENT the handshake's ACK acknowledged exactly
+                    // the peer's SYN, as SYN-SENT takes no data. A
+                    // simultaneous open already set the base with its
+                    // SYN-ACK, and its final ACK may carry data.
+                    if !peer.base_known {
+                        peer.receive_base = peer.last_ack;
+                        peer.base_known = true;
+                    }
+                    peer.read_offset = 0;
+                    peer.write_offset = 0;
+                }
+                _ => {}
             }
         }
         for timer in timers {
@@ -270,11 +305,11 @@ impl Harness {
         if tracing() {
             eprintln!(
                 "op {} peer={index} now={} {operation:?}",
-                operation[0] % 10,
+                operation[0] % 11,
                 self.now_ms
             );
         }
-        match operation[0] % 10 {
+        match operation[0] % 11 {
             0..=3 => self.send_segment(index, operation),
             4 => {
                 let Some(token) = self.peers[index].token else {
@@ -347,10 +382,29 @@ impl Harness {
                     self.observe(&output.outgoing, &output.events, &output.timers);
                 }
             }
-            _ => {
+            9 => {
                 self.now_ms = self
                     .now_ms
                     .saturating_add(u64::from(u32_at(operation, 1) % 120_000));
+            }
+            _ => {
+                // An active open on the four-tuple the passive side uses, so
+                // both kinds of open and their collisions meet on one key.
+                let remote = self.peers[index].address;
+                let result = self.table.connect(self.service, remote);
+                assert!(
+                    !matches!(result, Err(TcpTableError::InvalidAddress)),
+                    "valid endpoints were refused"
+                );
+                check_result(&result);
+                if let Ok((token, output)) = result {
+                    let peer = &mut self.peers[index];
+                    peer.token = Some(token);
+                    peer.server_initial = None;
+                    peer.server_high = None;
+                    peer.base_known = false;
+                    self.observe(&output.outgoing, &output.events, &output.timers);
+                }
             }
         }
     }
@@ -386,6 +440,8 @@ fuzz_target!(|input: &[u8]| {
                 server_high: None,
                 token: None,
                 receive_base: 0,
+                last_ack: 0,
+                base_known: false,
                 read_offset: 0,
                 write_offset: 0,
             })

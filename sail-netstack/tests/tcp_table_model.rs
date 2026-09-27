@@ -1703,6 +1703,51 @@ fn invalid_final_ack_is_reset_without_releasing_syn_received() {
 }
 
 #[test]
+fn a_syn_ack_where_the_final_ack_belongs_does_not_accept() {
+    let ledger = ResourceLedger::new(BudgetProfile::Router.budget()).unwrap();
+    let mut table = TcpTable::new(
+        Arc::clone(&ledger),
+        NetworkGeneration::new(1),
+        TcpTableConfig::default(),
+    );
+    let (source, destination) = endpoints(60);
+    let opened = table
+        .ingest(&packet(source, destination, 100, 0, TcpFlags::SYN, &[]))
+        .unwrap();
+    let syn_ack =
+        parse_tcp_segment(parse_ip_packet(&opened.outgoing[0], true).unwrap(), true).unwrap();
+    let server_next = syn_ack.meta.sequence.wrapping_add(1).get();
+
+    // Completing here and then dropping the segment for its SYN left the
+    // flow established with no Accepted event to hand it out.
+    let refused = table
+        .ingest(&packet(
+            source,
+            destination,
+            101,
+            server_next,
+            TcpFlags::SYN.union(TcpFlags::ACK),
+            &[],
+        ))
+        .unwrap();
+    assert!(refused.events.is_empty());
+    assert_eq!(table.stats().syn_received, 1);
+    assert_eq!(table.stats().accept_queue, 0);
+
+    let valid = table
+        .ingest(&packet(
+            source,
+            destination,
+            101,
+            server_next,
+            TcpFlags::ACK,
+            &[],
+        ))
+        .unwrap();
+    assert!(matches!(valid.events.as_slice(), [TcpEvent::Accepted(_)]));
+}
+
+#[test]
 fn invalid_initial_segments_do_not_consume_budget() {
     let ledger = ResourceLedger::new(BudgetProfile::Router.budget()).unwrap();
     let mut table = TcpTable::new(
@@ -3788,4 +3833,305 @@ fn forged_timestamp_echo_cannot_poison_the_rto_estimator() {
 
     let next = table.write(token, b"y").unwrap();
     assert_eq!(next.timers[0].after_ms, 1_000);
+}
+
+fn active_table(config: TcpTableConfig) -> (TcpTable, Arc<ResourceLedger>) {
+    let ledger = ResourceLedger::new(BudgetProfile::Router.budget()).unwrap();
+    let table = TcpTable::new(Arc::clone(&ledger), NetworkGeneration::new(1), config);
+    (table, ledger)
+}
+
+const ACTIVE_LOCAL: SocketAddr =
+    SocketAddr::new(std::net::IpAddr::V4(Ipv4Addr::new(10, 9, 0, 1)), 0);
+const ACTIVE_REMOTE: SocketAddr =
+    SocketAddr::new(std::net::IpAddr::V4(Ipv4Addr::new(10, 9, 0, 2)), 443);
+
+fn only_segment(outgoing: &[Vec<u8>]) -> sail_netstack::ParsedTcpSegment<'_> {
+    assert_eq!(outgoing.len(), 1, "{outgoing:?}");
+    parse_tcp_segment(parse_ip_packet(&outgoing[0], true).unwrap(), true).unwrap()
+}
+
+/// SYN-ACK options: MSS 1400, SACK permitted, window scale 2, timestamps.
+const FULL_SYN_ACK_OPTIONS: [u8; 20] = [
+    2, 4, 0x05, 0x78, 4, 2, 8, 10, 0, 0, 0, 7, 0, 0, 0, 0, 1, 3, 3, 2,
+];
+
+#[test]
+fn connect_sends_a_syn_offering_every_option_from_an_ephemeral_port() {
+    let (mut table, ledger) = active_table(TcpTableConfig::default());
+    let (_, output) = table.connect(ACTIVE_LOCAL, ACTIVE_REMOTE).unwrap();
+    let syn = only_segment(&output.outgoing);
+    assert_eq!(syn.meta.flags, TcpFlags::SYN);
+    assert_eq!(syn.destination, ACTIVE_REMOTE);
+    assert_eq!(syn.source.ip(), ACTIVE_LOCAL.ip());
+    assert!(syn.source.port() >= 49_152);
+    assert_eq!(syn.options.maximum_segment_size, Some(1_200));
+    assert!(syn.options.sack_permitted);
+    assert_eq!(syn.options.window_scale, Some(0));
+    assert!(syn.options.timestamps.is_some());
+    assert!(output
+        .timers
+        .iter()
+        .any(|timer| timer.event == TimerEvent::Retransmission));
+    assert_eq!(table.stats().active_flows, 1);
+    assert_eq!(ledger.snapshot().used(ResourceKind::TcpFlows), 1);
+    assert_eq!(
+        ledger.snapshot().used(ResourceKind::TcpPayloadBytes),
+        TcpTableConfig::default().receive_credit_bytes
+    );
+
+    let (_, second) = table.connect(ACTIVE_LOCAL, ACTIVE_REMOTE).unwrap();
+    assert_ne!(only_segment(&second.outgoing).source, syn.source);
+}
+
+#[test]
+fn syn_ack_connects_with_negotiated_options_and_carries_data_both_ways() {
+    let (mut table, _) = active_table(TcpTableConfig::default());
+    let (token, output) = table.connect(ACTIVE_LOCAL, ACTIVE_REMOTE).unwrap();
+    let syn = only_segment(&output.outgoing);
+    let local = syn.source;
+    let iss = syn.meta.sequence.get();
+
+    let syn_ack = emit_tcp_segment_with_options(
+        ACTIVE_REMOTE,
+        local,
+        SendControl {
+            sequence: SeqNumber::new(9_000),
+            acknowledgment: SeqNumber::new(iss.wrapping_add(1)),
+            flags: TcpFlags::SYN.union(TcpFlags::ACK),
+            window: 1_000,
+        },
+        &FULL_SYN_ACK_OPTIONS,
+        &[],
+        64,
+        1,
+    )
+    .unwrap();
+    let connected = table.ingest(&syn_ack).unwrap();
+    let connection = match connected.events.as_slice() {
+        [TcpEvent::Connected(connection)] => *connection,
+        events => panic!("unexpected events: {events:?}"),
+    };
+    assert_eq!(connection.token, token);
+    assert_eq!(connection.source, local);
+    assert_eq!(connection.destination, ACTIVE_REMOTE);
+    assert_eq!(connection.max_segment_payload_bytes, 1_200);
+    let ack = only_segment(&connected.outgoing);
+    assert_eq!(ack.meta.flags, TcpFlags::ACK);
+    assert_eq!(ack.meta.acknowledgment, Some(SeqNumber::new(9_001)));
+    assert_eq!(ack.options.timestamps.map(|(_, echo)| echo), Some(7));
+
+    // The SYN-ACK's window is never scaled (RFC 7323 2.2): 1000 bytes.
+    assert!(matches!(
+        table.write(token, &[5; 1_001]),
+        Err(TcpTableError::State(_))
+    ));
+    let sent = table.write(token, &[5; 1_000]).unwrap();
+    let data = only_segment(&sent.outgoing);
+    assert_eq!(data.payload, &[5; 1_000]);
+    assert_eq!(data.meta.sequence, SeqNumber::new(iss.wrapping_add(1)));
+
+    let reply = emit_tcp_segment_with_options(
+        ACTIVE_REMOTE,
+        local,
+        SendControl {
+            sequence: SeqNumber::new(9_001),
+            acknowledgment: SeqNumber::new(iss.wrapping_add(1_001)),
+            flags: TcpFlags::ACK,
+            window: 1_000,
+        },
+        &[1, 1, 8, 10, 0, 0, 0, 8, 0, 0, 0, 1],
+        b"pong",
+        64,
+        2,
+    )
+    .unwrap();
+    let readable = table.ingest(&reply).unwrap();
+    assert!(readable
+        .events
+        .contains(&TcpEvent::Readable { token, bytes: 4 }));
+    assert_eq!(table.read(token, 16).unwrap().bytes, b"pong");
+    // Later windows are scaled by the peer's shift of 2: 1000 becomes 4000.
+    assert!(table.write_capacity(token).unwrap() > 1_000);
+}
+
+#[test]
+fn a_syn_ack_without_options_turns_them_off() {
+    let (mut table, _) = active_table(TcpTableConfig {
+        receive_credit_bytes: 256 * 1024,
+        ..TcpTableConfig::default()
+    });
+    let (token, output) = table.connect(ACTIVE_LOCAL, ACTIVE_REMOTE).unwrap();
+    let syn = only_segment(&output.outgoing);
+    assert_eq!(syn.options.window_scale, Some(3));
+    let local = syn.source;
+    let syn_ack = packet_with_window(
+        ACTIVE_REMOTE,
+        local,
+        9_000,
+        syn.meta.sequence.get().wrapping_add(1),
+        TcpFlags::SYN.union(TcpFlags::ACK),
+        2_000,
+        &[],
+    );
+    let connected = table.ingest(&syn_ack).unwrap();
+    let connection = match connected.events.as_slice() {
+        [TcpEvent::Connected(connection)] => *connection,
+        events => panic!("unexpected events: {events:?}"),
+    };
+    // No MSS option: RFC 9293's IPv4 default.
+    assert_eq!(connection.max_segment_payload_bytes, 536);
+    let ack = only_segment(&connected.outgoing);
+    assert!(ack.options.timestamps.is_none());
+    // Scaling withdrawn: the window is in bytes, capped at 16 bits.
+    assert_eq!(ack.meta.window, u32::from(u16::MAX));
+    // The peer's 2000-byte window is unscaled too.
+    assert!(table.write_capacity(token).unwrap() <= 2_000);
+}
+
+#[test]
+fn a_reset_refuses_the_connection_and_releases_everything() {
+    let (mut table, ledger) = active_table(TcpTableConfig::default());
+    let (token, output) = table.connect(ACTIVE_LOCAL, ACTIVE_REMOTE).unwrap();
+    let syn = only_segment(&output.outgoing);
+    let refused = packet(
+        ACTIVE_REMOTE,
+        syn.source,
+        0,
+        syn.meta.sequence.get().wrapping_add(1),
+        TcpFlags::RST.union(TcpFlags::ACK),
+        &[],
+    );
+    let closed = table.ingest(&refused).unwrap();
+    assert_eq!(closed.events, [TcpEvent::Closed(token)]);
+    assert!(closed.outgoing.is_empty());
+    assert_eq!(table.stats().active_flows, 0);
+    assert_eq!(ledger.snapshot().total_bytes, 0);
+}
+
+#[test]
+fn an_unacceptable_syn_ack_draws_a_reset_and_keeps_waiting() {
+    let (mut table, _) = active_table(TcpTableConfig::default());
+    let (_, output) = table.connect(ACTIVE_LOCAL, ACTIVE_REMOTE).unwrap();
+    let syn = only_segment(&output.outgoing);
+    let stale = packet(
+        ACTIVE_REMOTE,
+        syn.source,
+        9_000,
+        syn.meta.sequence.get().wrapping_add(7),
+        TcpFlags::SYN.union(TcpFlags::ACK),
+        &[],
+    );
+    let answered = table.ingest(&stale).unwrap();
+    let reset = only_segment(&answered.outgoing);
+    assert_eq!(reset.meta.flags, TcpFlags::RST);
+    assert_eq!(reset.meta.sequence, syn.meta.sequence.wrapping_add(7));
+    assert!(answered.events.is_empty());
+    assert_eq!(table.stats().active_flows, 1);
+}
+
+#[test]
+fn an_unanswered_syn_is_retransmitted_then_given_up() {
+    let (mut table, ledger) = active_table(TcpTableConfig {
+        max_retransmission_timeouts: 2,
+        black_hole_rto_threshold: None,
+        ..TcpTableConfig::default()
+    });
+    let (token, output) = table.connect(ACTIVE_LOCAL, ACTIVE_REMOTE).unwrap();
+    let syn = only_segment(&output.outgoing);
+    for attempt in 1..=2 {
+        let retry = table
+            .on_timer_at(token, TimerEvent::Retransmission, attempt * 10_000)
+            .unwrap();
+        let again = only_segment(&retry.outgoing);
+        assert_eq!(again.meta.flags, TcpFlags::SYN);
+        assert_eq!(again.meta.sequence, syn.meta.sequence);
+    }
+    let given_up = table
+        .on_timer_at(token, TimerEvent::Retransmission, 30_000)
+        .unwrap();
+    assert_eq!(given_up.events, [TcpEvent::Closed(token)]);
+    assert_eq!(ledger.snapshot().total_bytes, 0);
+}
+
+#[test]
+fn connect_rejects_unusable_or_taken_endpoints() {
+    let (mut table, _) = active_table(TcpTableConfig::default());
+    let explicit = SocketAddr::from((Ipv4Addr::new(10, 9, 0, 1), 50_000));
+    for (local, remote) in [
+        (
+            explicit,
+            SocketAddr::from((Ipv4Addr::new(224, 0, 0, 1), 443)),
+        ),
+        (explicit, SocketAddr::from((Ipv4Addr::new(10, 9, 0, 2), 0))),
+        (
+            explicit,
+            SocketAddr::from(("2001:db8::2".parse::<Ipv6Addr>().unwrap(), 443)),
+        ),
+        (
+            SocketAddr::from((Ipv4Addr::BROADCAST, 50_000)),
+            ACTIVE_REMOTE,
+        ),
+    ] {
+        assert!(matches!(
+            table.connect(local, remote),
+            Err(TcpTableError::InvalidAddress)
+        ));
+    }
+    table.connect(explicit, ACTIVE_REMOTE).unwrap();
+    assert!(matches!(
+        table.connect(explicit, ACTIVE_REMOTE),
+        Err(TcpTableError::AddressInUse)
+    ));
+    assert_eq!(table.stats().active_flows, 1);
+}
+
+#[test]
+fn a_crossing_syn_completes_a_simultaneous_open_through_the_table() {
+    let (mut table, _) = active_table(TcpTableConfig::default());
+    let (token, output) = table.connect(ACTIVE_LOCAL, ACTIVE_REMOTE).unwrap();
+    let syn = only_segment(&output.outgoing);
+    let iss = syn.meta.sequence.get();
+    let crossing = packet_with_options(
+        ACTIVE_REMOTE,
+        syn.source,
+        9_000,
+        0,
+        TcpFlags::SYN,
+        &[2, 4, 0x05, 0x78, 4, 2, 1, 1],
+    );
+    let answered = table.ingest(&crossing).unwrap();
+    let syn_ack = only_segment(&answered.outgoing);
+    assert_eq!(syn_ack.meta.flags, TcpFlags::SYN.union(TcpFlags::ACK));
+    assert_eq!(syn_ack.meta.sequence, SeqNumber::new(iss));
+    assert_eq!(syn_ack.meta.acknowledgment, Some(SeqNumber::new(9_001)));
+    assert!(syn_ack.options.sack_permitted);
+    assert!(answered.events.is_empty());
+
+    let peer_syn_ack = packet(
+        ACTIVE_REMOTE,
+        syn.source,
+        9_000,
+        iss.wrapping_add(1),
+        TcpFlags::SYN.union(TcpFlags::ACK),
+        &[],
+    );
+    let completed = table.ingest(&peer_syn_ack).unwrap();
+    assert!(
+        completed.events.iter().any(
+            |event| matches!(event, TcpEvent::Connected(connection) if connection.token == token)
+        ),
+        "{:?}",
+        completed.events
+    );
+}
+
+#[test]
+fn closing_in_syn_sent_releases_the_flow_without_a_segment() {
+    let (mut table, ledger) = active_table(TcpTableConfig::default());
+    let (token, _) = table.connect(ACTIVE_LOCAL, ACTIVE_REMOTE).unwrap();
+    let closed = table.close(token).unwrap();
+    assert!(closed.outgoing.is_empty());
+    assert_eq!(closed.events, [TcpEvent::Closed(token)]);
+    assert_eq!(ledger.snapshot().total_bytes, 0);
 }

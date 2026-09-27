@@ -1,5 +1,6 @@
-use std::collections::HashMap;
+use std::collections::{hash_map::RandomState, HashMap};
 use std::fmt;
+use std::hash::BuildHasher;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
@@ -61,6 +62,8 @@ pub enum UdpError {
     /// A multicast, broadcast, unspecified, or otherwise non-unicast endpoint
     /// that must not become a proxied flow (for example LLMNR or mDNS).
     InvalidAddress,
+    /// `originate` found no free ephemeral port towards the remote end.
+    AddressInUse,
 }
 
 impl fmt::Display for UdpError {
@@ -73,6 +76,7 @@ impl fmt::Display for UdpError {
             Self::Timer(error) => write!(formatter, "UDP timer error: {error}"),
             Self::NewFlowsDisabled => formatter.write_str("new UDP flows are disabled"),
             Self::InvalidAddress => formatter.write_str("UDP endpoint is not unicast"),
+            Self::AddressInUse => formatter.write_str("no free UDP port towards the peer"),
         }
     }
 }
@@ -117,6 +121,7 @@ pub struct UdpTable {
     by_key: HashMap<UdpFlowKey, UdpFlow>,
     by_id: HashMap<FlowId, UdpFlowKey>,
     stats: UdpTableStats,
+    hash_state: RandomState,
 }
 
 impl UdpTable {
@@ -171,6 +176,7 @@ impl UdpTable {
             by_key: HashMap::new(),
             by_id: HashMap::new(),
             stats: UdpTableStats::default(),
+            hash_state: RandomState::new(),
         }
     }
 
@@ -238,6 +244,102 @@ impl UdpTable {
         );
         payload.append(datagram.payload)?;
 
+        let id = self.touch_or_admit(key, now_ms)?;
+        Ok(UdpIngress {
+            token: UdpFlowToken::new_on_shard(id, self.generation, self.shard),
+            source: datagram.source,
+            destination: datagram.destination,
+            payload,
+        })
+    }
+
+    /// Sends a datagram from `local` to `remote`, opening a flow for the
+    /// four-tuple or refreshing the one there is, and returns its token with
+    /// the packet. Port 0 in `local` picks a free ephemeral port. The remote
+    /// end's datagrams back to that port arrive through
+    /// [`UdpTable::ingest`] with the same token.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`UdpError::InvalidAddress`] for endpoints that cannot carry
+    /// a unicast flow, a wire error for a payload that does not fit a
+    /// datagram, or a budget error when a new flow cannot be charged.
+    pub fn originate(
+        &mut self,
+        local: SocketAddr,
+        remote: SocketAddr,
+        payload: &[u8],
+        now_ms: u64,
+    ) -> Result<(UdpFlowToken, Vec<u8>), UdpError> {
+        self.update_time(now_ms)?;
+        self.expire_due(now_ms)?;
+        // Replies arrive from `remote` to `local` and must pass the checks
+        // any inbound datagram does.
+        if local.is_ipv4() != remote.is_ipv4()
+            || remote.port() == 0
+            || !crate::wire::valid_flow_source(remote.ip())
+            || !crate::wire::valid_flow_destination(local.ip())
+        {
+            return Err(UdpError::InvalidAddress);
+        }
+        let local = if local.port() == 0 {
+            self.ephemeral_local(local, remote)?
+        } else {
+            local
+        };
+        let key = UdpFlowKey {
+            source: remote,
+            destination: local,
+            generation: self.generation,
+        };
+        // The packet is built before the flow, from the id the flow has or
+        // will get, so that an unsendable payload leaves no flow behind.
+        let id = self
+            .by_key
+            .get(&key)
+            .map_or(FlowId::new(self.next_flow_id), |flow| flow.id);
+        let identification =
+            u16::from_be_bytes([id.get().to_be_bytes()[6], id.get().to_be_bytes()[7]]);
+        let wire = emit_udp_packet(local, remote, payload, 64, identification)?;
+        let admitted = self.touch_or_admit(key, now_ms)?;
+        debug_assert_eq!(admitted, id);
+        Ok((
+            UdpFlowToken::new_on_shard(admitted, self.generation, self.shard),
+            wire,
+        ))
+    }
+
+    /// A local address on `local`'s IP with a port in the IANA dynamic range
+    /// (RFC 6335) that no flow to `remote` uses, from a keyed offset.
+    fn ephemeral_local(
+        &self,
+        local: SocketAddr,
+        remote: SocketAddr,
+    ) -> Result<SocketAddr, UdpError> {
+        const FIRST: u16 = 49_152;
+        const SPAN: u64 = 65_536 - FIRST as u64;
+        let start = self
+            .hash_state
+            .hash_one((remote, local.ip(), self.next_flow_id));
+        (0..SPAN)
+            .map(|offset| {
+                let port = FIRST
+                    + u16::try_from(start.wrapping_add(offset) % SPAN)
+                        .expect("an offset below SPAN fits a port");
+                SocketAddr::new(local.ip(), port)
+            })
+            .find(|candidate| {
+                !self.by_key.contains_key(&UdpFlowKey {
+                    source: remote,
+                    destination: *candidate,
+                    generation: self.generation,
+                })
+            })
+            .ok_or(UdpError::AddressInUse)
+    }
+
+    /// Refreshes the flow for `key`, or admits a new one, and returns its id.
+    fn touch_or_admit(&mut self, key: UdpFlowKey, now_ms: u64) -> Result<FlowId, UdpError> {
         let deadline = self.expiry_deadline(now_ms, self.timeout_divisor);
         let expiry_timer = self.schedule_expiry(deadline, key, now_ms)?;
         let id = if let Some(flow) = self.by_key.get_mut(&key) {
@@ -281,12 +383,7 @@ impl UdpTable {
         };
         self.stats.active_flows = self.by_key.len();
         self.stats.peak_active_flows = self.stats.peak_active_flows.max(self.stats.active_flows);
-        Ok(UdpIngress {
-            token: UdpFlowToken::new_on_shard(id, self.generation, self.shard),
-            source: datagram.source,
-            destination: datagram.destination,
-            payload,
-        })
+        Ok(id)
     }
 
     /// Emits a reply toward the original client. `source` may differ from the

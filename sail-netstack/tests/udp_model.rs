@@ -343,3 +343,66 @@ fn ingest_recovers_the_wheel_across_a_large_clock_jump() {
     assert_eq!(table.stats().expired_flows, 1);
     assert_eq!(table.stats().active_flows, 1);
 }
+
+#[test]
+fn originated_datagrams_open_a_flow_that_replies_come_back_on() {
+    let ledger = ResourceLedger::new(BudgetProfile::Mobile.budget()).unwrap();
+    let mut table = UdpTable::new(ledger.clone(), NetworkGeneration::new(1), 30_000, 512);
+    let local = SocketAddr::from((Ipv4Addr::new(10, 9, 0, 1), 0));
+    let remote = SocketAddr::from((Ipv4Addr::new(10, 9, 0, 2), 53));
+
+    let (token, wire) = table.originate(local, remote, b"query", 100).unwrap();
+    let sent = parse_udp_datagram(parse_ip_packet(&wire, true).unwrap(), true).unwrap();
+    assert_eq!(sent.destination, remote);
+    assert_eq!(sent.source.ip(), local.ip());
+    assert!(sent.source.port() >= 49_152);
+    assert_eq!(sent.payload, b"query");
+    assert_eq!(table.stats().created_flows, 1);
+
+    // The answer arrives as ordinary ingress on the originating flow.
+    let answer = emit_udp_packet(remote, sent.source, b"answer", 64, 7).unwrap();
+    let ingress = table.ingest(&answer, 200).unwrap();
+    assert_eq!(ingress.token, token);
+    assert_eq!(ingress.payload.to_vec(), b"answer");
+    drop(ingress);
+
+    // Sending again on the same four-tuple reuses the flow.
+    let (again, _) = table.originate(sent.source, remote, b"more", 300).unwrap();
+    assert_eq!(again, token);
+    assert_eq!(table.stats().created_flows, 1);
+    let reply = table.emit_reply(token, sent.source, b"third", 400).unwrap();
+    let third = parse_udp_datagram(parse_ip_packet(&reply, true).unwrap(), true).unwrap();
+    assert_eq!(third.destination, remote);
+
+    // A second session towards the same peer gets its own port.
+    let (other, other_wire) = table.originate(local, remote, b"q2", 500).unwrap();
+    assert_ne!(other, token);
+    let other_sent = parse_udp_datagram(parse_ip_packet(&other_wire, true).unwrap(), true).unwrap();
+    assert_ne!(other_sent.source, sent.source);
+    assert_eq!(table.stats().active_flows, 2);
+}
+
+#[test]
+fn originate_rejects_unusable_endpoints_and_payloads_without_a_flow() {
+    let ledger = ResourceLedger::new(BudgetProfile::Mobile.budget()).unwrap();
+    let mut table = UdpTable::new(ledger.clone(), NetworkGeneration::new(1), 30_000, 512);
+    let local = SocketAddr::from((Ipv4Addr::new(10, 9, 0, 1), 40_000));
+    for remote in [
+        SocketAddr::from((Ipv4Addr::new(224, 0, 0, 251), 5_353)),
+        SocketAddr::from((Ipv4Addr::BROADCAST, 67)),
+        SocketAddr::from((Ipv4Addr::new(10, 9, 0, 2), 0)),
+        SocketAddr::from(("2001:db8::2".parse::<Ipv6Addr>().unwrap(), 53)),
+    ] {
+        assert!(matches!(
+            table.originate(local, remote, b"x", 100),
+            Err(UdpError::InvalidAddress)
+        ));
+    }
+    let remote = SocketAddr::from((Ipv4Addr::new(10, 9, 0, 2), 53));
+    assert!(matches!(
+        table.originate(local, remote, &vec![0; 70_000], 100),
+        Err(UdpError::Wire(_))
+    ));
+    assert_eq!(table.stats().created_flows, 0);
+    assert_eq!(ledger.snapshot().total_bytes, 0);
+}

@@ -36,6 +36,11 @@ impl NewReno {
     }
 
     #[must_use]
+    pub const fn maximum_segment_size(&self) -> usize {
+        self.maximum_segment_size
+    }
+
+    #[must_use]
     pub const fn slow_start_threshold(&self) -> usize {
         self.slow_start_threshold
     }

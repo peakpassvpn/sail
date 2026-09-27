@@ -871,6 +871,9 @@ impl<I: PacketIo> NativeRuntime<I> {
         for event in outcome.tcp_events {
             match event {
                 TcpEvent::Accepted(connection) => self.accept(connection),
+                // The TUN runtime opens no connections; `connect` arrives with
+                // the shared runtime.
+                TcpEvent::Connected(_) => {}
                 TcpEvent::Readable { token, bytes } => {
                     if let Some(flow) = self.flows.get_mut(&token) {
                         flow.readable_bytes = flow.readable_bytes.saturating_add(bytes);

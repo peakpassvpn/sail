@@ -217,6 +217,9 @@ struct TimeWaitEntry {
     _metadata_lease: BudgetLease,
 }
 
+/// A connection whose handshake completed. `source` opened it and
+/// `destination` was connected to: the peer and the intercepted address for
+/// an accepted connection, the local and remote address for one we opened.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct TcpConnection {
     pub token: TcpFlowToken,
@@ -228,7 +231,12 @@ pub struct TcpConnection {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TcpEvent {
     Accepted(TcpConnection),
-    Readable { token: TcpFlowToken, bytes: usize },
+    /// A connection opened by [`TcpTable::connect`] completed its handshake.
+    Connected(TcpConnection),
+    Readable {
+        token: TcpFlowToken,
+        bytes: usize,
+    },
     Writable(TcpFlowToken),
     PeerHalfClosed(TcpFlowToken),
     Closed(TcpFlowToken),
@@ -319,6 +327,10 @@ pub enum TcpTableError {
     PayloadTooLarge,
     Invariant(&'static str),
     ClockWentBackwards,
+    /// `connect` was given endpoints that cannot carry a unicast flow.
+    InvalidAddress,
+    /// `connect` found its four-tuple taken, or no free ephemeral port.
+    AddressInUse,
 }
 
 impl fmt::Display for TcpTableError {
@@ -334,6 +346,8 @@ impl fmt::Display for TcpTableError {
             Self::PayloadTooLarge => formatter.write_str("TCP write exceeds one segment"),
             Self::Invariant(message) => write!(formatter, "TCP table invariant failed: {message}"),
             Self::ClockWentBackwards => formatter.write_str("TCP clock moved backwards"),
+            Self::InvalidAddress => formatter.write_str("TCP endpoints cannot carry a flow"),
+            Self::AddressInUse => formatter.write_str("TCP four-tuple is in use"),
         }
     }
 }
@@ -609,7 +623,13 @@ impl TcpTable {
             destination: segment.destination,
             generation: self.generation,
         };
-        if self.by_key.contains_key(&key) {
+        if self
+            .by_key
+            .get(&key)
+            .is_some_and(|flow| flow.tcb.state() == TcpState::SynSent)
+        {
+            self.ingest_syn_sent(key, segment.meta, &segment.options)
+        } else if self.by_key.contains_key(&key) {
             self.ingest_existing(
                 key,
                 segment.meta,
@@ -679,6 +699,193 @@ impl TcpTable {
             outgoing: vec![wire],
             ..TcpIngress::default()
         })
+    }
+
+    /// Opens a connection from `local` to `remote` (RFC 9293 3.10.1) and
+    /// returns its token with the SYN to send. Port 0 in `local` picks a free
+    /// ephemeral port. The connection reports [`TcpEvent::Connected`] once
+    /// the handshake completes, or [`TcpEvent::Closed`] when it is refused or
+    /// its SYN is never answered.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`TcpTableError::InvalidAddress`] for endpoints that cannot
+    /// carry a unicast flow, [`TcpTableError::AddressInUse`] when the
+    /// four-tuple is live or in TIME-WAIT, or a budget error when the flow
+    /// cannot be charged.
+    pub fn connect(
+        &mut self,
+        local: SocketAddr,
+        remote: SocketAddr,
+    ) -> Result<(TcpFlowToken, TcpIngress), TcpTableError> {
+        // Replies arrive from `remote` to `local`, and must pass the same
+        // endpoint checks as any inbound segment.
+        if local.is_ipv4() != remote.is_ipv4()
+            || remote.port() == 0
+            || !crate::wire::valid_flow_source(remote.ip())
+            || !crate::wire::valid_flow_destination(local.ip())
+        {
+            return Err(TcpTableError::InvalidAddress);
+        }
+        let local = if local.port() == 0 {
+            self.ephemeral_local(local, remote)?
+        } else {
+            local
+        };
+        let key = TcpFlowKey {
+            source: remote,
+            destination: local,
+            generation: self.generation,
+        };
+        if self.by_key.contains_key(&key) || self.time_wait.contains_key(&key) {
+            return Err(TcpTableError::AddressInUse);
+        }
+        let flow_lease = self.ledger.try_acquire(ResourceKind::TcpFlows, 1)?;
+        let metadata_lease = self
+            .ledger
+            .try_acquire(ResourceKind::MetadataBytes, TCP_FLOW_METADATA_CHARGE)?;
+        let receive_credit = self.ledger.try_acquire(
+            ResourceKind::TcpPayloadBytes,
+            self.config.receive_credit_bytes,
+        )?;
+        let id = FlowId::new(self.next_flow_id);
+        let isn = self.initial_sequence(key, id);
+        let local_window_scale = window_scale_for(self.config.receive_credit_bytes);
+        let (tcb, actions) = TcpTcb::connect(
+            isn,
+            self.config.receive_credit_bytes,
+            self.config.max_segment_payload_bytes,
+            local_window_scale,
+        );
+        let default_peer_mss = if remote.is_ipv4() { 536 } else { 1_220 };
+        let rtt_probe = Some(RttProbe {
+            end_sequence: tcb.send_next(),
+            sent_at_ms: self.now_ms,
+            sent_timestamp: None,
+        });
+        self.next_flow_id = self.next_flow_id.wrapping_add(1);
+        self.by_key.insert(
+            key,
+            TcpFlow {
+                id,
+                tcb,
+                receive: VecDeque::new(),
+                pending_initial_receive: None,
+                out_of_order: Vec::new(),
+                out_of_order_fin: None,
+                recent_out_of_order: None,
+                send: VecDeque::new(),
+                pending_send: None,
+                persist_backoff_ms: 0,
+                keepalive_probes_sent: 0,
+                retransmission_timeouts: 0,
+                max_send_segment_bytes: self.config.max_segment_payload_bytes.min(default_peer_mss),
+                sack_permitted: false,
+                peer_window_scale: None,
+                local_window_scale,
+                timestamp: None,
+                rtt_probe,
+                sack_recovery: None,
+                syn_lease: None,
+                accept_lease: None,
+                stats: FlowStatsContribution::default(),
+                _flow_lease: flow_lease,
+                _metadata_lease: metadata_lease,
+                _receive_credit: receive_credit,
+            },
+        );
+        self.by_id.insert(id, key);
+        increment_counter(&mut self.stats.created_flows);
+        self.sync_flow_stats(key);
+        self.refresh_structural_stats();
+        let output = self.render_actions(key, id, &actions)?;
+        Ok((
+            TcpFlowToken::new_on_shard(id, self.generation, self.shard),
+            output,
+        ))
+    }
+
+    /// A local address on `local`'s IP with a free port in the IANA dynamic
+    /// range (RFC 6335), starting at a keyed offset so that ports are hard
+    /// to predict and successive connections spread out.
+    fn ephemeral_local(
+        &self,
+        local: SocketAddr,
+        remote: SocketAddr,
+    ) -> Result<SocketAddr, TcpTableError> {
+        const FIRST: u16 = 49_152;
+        const SPAN: u64 = 65_536 - FIRST as u64;
+        let start = self
+            .hash_state
+            .hash_one((remote, local.ip(), self.next_flow_id));
+        (0..SPAN)
+            .map(|offset| {
+                let port = FIRST
+                    + u16::try_from((start.wrapping_add(offset)) % SPAN)
+                        .expect("an offset below SPAN fits a port");
+                SocketAddr::new(local.ip(), port)
+            })
+            .find(|candidate| {
+                let key = TcpFlowKey {
+                    source: remote,
+                    destination: *candidate,
+                    generation: self.generation,
+                };
+                !self.by_key.contains_key(&key) && !self.time_wait.contains_key(&key)
+            })
+            .ok_or(TcpTableError::AddressInUse)
+    }
+
+    /// A segment for a connection in SYN-SENT. A SYN from the peer settles
+    /// the options before the control block takes it: SACK, window scaling
+    /// and timestamps apply only when both SYNs carry them (RFC 2018,
+    /// RFC 7323 1.3).
+    fn ingest_syn_sent(
+        &mut self,
+        key: TcpFlowKey,
+        segment: crate::TcpSegmentMeta,
+        options: &TcpOptions,
+    ) -> Result<TcpIngress, TcpTableError> {
+        let now_ms = self.now_ms;
+        let max_segment_payload_bytes = self.config.max_segment_payload_bytes;
+        let flow = self
+            .by_key
+            .get_mut(&key)
+            .ok_or(TcpTableError::UnknownFlow)?;
+        let answers_our_syn = segment
+            .acknowledgment
+            .is_none_or(|acknowledgment| acknowledgment == flow.tcb.send_next());
+        if segment.flags.contains(TcpFlags::SYN)
+            && !segment.flags.contains(TcpFlags::RST)
+            && answers_our_syn
+        {
+            flow.sack_permitted = options.sack_permitted;
+            flow.peer_window_scale = options.window_scale;
+            if options.window_scale.is_none() {
+                flow.local_window_scale = 0;
+                flow.tcb.withdraw_receive_window_scale();
+            }
+            flow.timestamp = options.timestamps.map(|(recent, _)| TimestampState {
+                recent,
+                recent_at_ms: now_ms,
+            });
+            let default_peer_mss = if key.source.is_ipv4() { 536 } else { 1_220 };
+            flow.max_send_segment_bytes = max_segment_payload_bytes.min(usize::from(
+                options.maximum_segment_size.unwrap_or(default_peer_mss),
+            ));
+            if options.window_scale_clamped {
+                increment_counter(&mut self.stats.window_scale_clamps);
+            }
+        }
+        let flow = self
+            .by_key
+            .get_mut(&key)
+            .ok_or(TcpTableError::UnknownFlow)?;
+        let old_send_unacked = flow.tcb.send_unacked();
+        let actions = flow.tcb.on_segment(segment)?;
+        record_ack_progress(flow, old_send_unacked, *options, now_ms);
+        let id = flow.id;
+        self.finish_existing_ingress(key, id, &actions, (None, false, usize::MAX))
     }
 
     fn ingest_new(
@@ -1497,7 +1704,11 @@ impl TcpTable {
             match *action {
                 TcpAction::Send(control) => {
                     if control.flags.contains(TcpFlags::SYN) {
-                        let options = self.syn_ack_options(key)?;
+                        let options = if control.flags.contains(TcpFlags::ACK) {
+                            self.syn_ack_options(key)?
+                        } else {
+                            self.syn_options(key)?
+                        };
                         output
                             .outgoing
                             .push(self.emit_with_options(key, control, &options)?);
@@ -1527,19 +1738,12 @@ impl TcpTable {
                 TcpAction::DeliverPayload { len } => {
                     output.events.push(TcpEvent::Readable { token, bytes: len });
                 }
-                TcpAction::Accepted => output.events.push(TcpEvent::Accepted(TcpConnection {
-                    token,
-                    source: key.source,
-                    destination: key.destination,
-                    max_segment_payload_bytes: self
-                        .by_key
-                        .get(&key)
-                        .ok_or(TcpTableError::UnknownFlow)?
-                        .max_send_segment_bytes,
-                })),
-                // The table has no active opens yet; `TcpTable::connect` will
-                // report this as the connection's event.
-                TcpAction::Connected => {}
+                TcpAction::Accepted => output
+                    .events
+                    .push(TcpEvent::Accepted(self.connection(key, token, false)?)),
+                TcpAction::Connected => output
+                    .events
+                    .push(TcpEvent::Connected(self.connection(key, token, true)?)),
                 TcpAction::PeerHalfClosed => {
                     output.events.push(TcpEvent::PeerHalfClosed(token));
                 }
@@ -1859,6 +2063,45 @@ impl TcpTable {
             .to_vec();
         self.emit_payload(key, control, &payload)
             .map_err(Into::into)
+    }
+
+    /// The completed connection of `key`, oriented from whoever opened it.
+    fn connection(
+        &self,
+        key: TcpFlowKey,
+        token: TcpFlowToken,
+        opened_here: bool,
+    ) -> Result<TcpConnection, TcpTableError> {
+        let (source, destination) = if opened_here {
+            (key.destination, key.source)
+        } else {
+            (key.source, key.destination)
+        };
+        Ok(TcpConnection {
+            token,
+            source,
+            destination,
+            max_segment_payload_bytes: self
+                .by_key
+                .get(&key)
+                .ok_or(TcpTableError::UnknownFlow)?
+                .max_send_segment_bytes,
+        })
+    }
+
+    /// The options of our own SYN: everything this stack can use, left to
+    /// the peer's SYN-ACK to accept.
+    fn syn_options(&self, key: TcpFlowKey) -> Result<Vec<u8>, TcpTableError> {
+        let flow = self.by_key.get(&key).ok_or(TcpTableError::UnknownFlow)?;
+        let advertised_mss =
+            u16::try_from(self.config.max_segment_payload_bytes).unwrap_or(u16::MAX);
+        let mut options = vec![2, 4];
+        options.extend_from_slice(&advertised_mss.to_be_bytes());
+        options.extend_from_slice(&[4, 2, 8, 10]);
+        options.extend_from_slice(&timestamp_value(self.now_ms).to_be_bytes());
+        options.extend_from_slice(&0_u32.to_be_bytes());
+        options.extend_from_slice(&[1, 3, 3, flow.local_window_scale]);
+        Ok(options)
     }
 
     fn syn_ack_options(&self, key: TcpFlowKey) -> Result<Vec<u8>, TcpTableError> {

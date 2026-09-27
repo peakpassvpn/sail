@@ -844,9 +844,25 @@ those cross-target library checks need to be rerun.
   only the SYN is outstanding in SYN-SENT. A 20-minute, 6-worker campaign ran
   about 25 million executions and raised coverage from 711 to 815 edges
   without a failure, and every earlier `tcp_state` artifact still replays
-  cleanly. The flow table, UDP originate, and the runtime API follow in the
-  next steps.
-- `cargo test -p sail-netstack` currently runs 271 deterministic contract,
+  cleanly.
+- Active open, step 2 (the flow table and UDP): `TcpTable::connect` opens a
+  flow towards a remote endpoint, choosing an ephemeral port from 49152-65535
+  (RFC 6335) when the local port is 0 and refusing a tuple that is live or in
+  TIME-WAIT. It charges the same flow, metadata, and receive-credit budgets as
+  a passive flow. The SYN offers MSS, SACK-permitted, timestamps, and window
+  scale; the SYN-ACK decides which of them are used, and a SYN-ACK without
+  window scale withdraws ours (RFC 7323 2.2). Completion is reported as
+  `TcpEvent::Connected`, whose `source` is the local end. `UdpTable::originate`
+  builds the first datagram and admits the flow that replies arrive on; a
+  payload that cannot be sent leaves no flow behind. The `tcp_table` fuzz
+  target now also connects towards its peers. Its first campaign found that a
+  SYN-ACK arriving where the final ACK belongs completed the handshake and
+  was then dropped for its SYN bit, which left the flow established without
+  an `Accepted` or `Connected` event. This had been true of passive flows too.
+  The final ACK must now carry no SYN, as RFC 9293 3.10.7.4 checks the SYN
+  bit before the ACK. With the fix, every earlier `tcp_table` artifact replays cleanly, and a 20-minute, 6-worker campaign ran about 1.5 million executions, raising coverage from 3921 to 3940 edges without a failure. The runtime API and the move to a shared
+  module follow in the next step.
+- `cargo test -p sail-netstack` currently runs 284 deterministic contract,
   randomized-model, scheduler, timer, wire, and UDP lifecycle tests. Strict
   `cargo clippy -p sail-netstack --all-targets -- -D warnings` is clean. Both
   are required by the macOS/Linux CI matrix.
@@ -869,10 +885,10 @@ those cross-target library checks need to be rerun.
   unconditional 64-bit atomic in `sail-netstack`: the denial counter now uses
   a saturating `AtomicUsize` while preserving the public `u64` snapshot field.
   `cargo check -p sail-netstack --locked -Z build-std=std,panic_abort --target
-  mips-unknown-linux-musl` passes without warnings. The current 271-test
+  mips-unknown-linux-musl` passes without warnings. The current 284-test
   library and integration suite, including the wire-validation and legacy
   zero-MTU PMTU cases, passes under the image's MIPS32 big-endian QEMU runner
-  (latest run 271 of 271, including every fix in this revision).
+  (latest run 284 of 284, including every fix in this revision).
   Protocol tests use a relaxed test-only scheduler time ceiling so emulation
   speed cannot masquerade as a packet/state failure; the production 2 ms
   ceiling and its dedicated scheduler test are unchanged. This proves the
@@ -1019,6 +1035,21 @@ step once and drops it the way the runtime does; it fails without the fix,
 and the TIME-WAIT eviction test asserts the evicted flow's `Closed` event.
 The leaking soak was stopped and the 24-hour kernel soak restarted on the
 fixed code.
+
+Both 24-hour VM soaks passed. The kernel-path soak of the fixed `dev` port
+ran from 2026-09-26T01:53:52Z to 2026-09-27T01:53:57Z: 20,850,328 iterations
+and 5.5 TB of real kernel TCP and UDP traffic, no retransmission timeout,
+and 8 policy drops (6 of them host multicast rejected by the UDP endpoint
+predicate). Its throughput stayed near 15,300 iterations per minute for 18
+hours, then ran near 10,300 while CI builds loaded the same 4 vCPUs, without
+further decline; RSS never grew. At the end every flow, TIME-WAIT, payload,
+packet, fragment, and accept lease had returned to zero, and the ledger held
+only 393,216 bytes of bounded router metadata. The core-workload soak
+(`linux-server`, snapshot `055a2e8`, whose crate code matches `dev` except the
+later event-loss fix) ran 2026-09-26T00:55:43Z to 2026-09-27T00:55:57Z and
+exited 0 after 338,360 schema-v1 records. Every workload cycle verified that
+its leases returned to baseline. This settles the 24-hour VM soak; the soak
+on target router, mobile, and server hardware remains open.
 Completion status is appended to `/root/sail-soak/status`; the stopped and
 interrupted runs' logs are kept in `/root/sail-soak/run1-prefix` and
 `/root/sail-soak/run2-kernel-interrupted`. A VM soak does not replace the
@@ -1036,7 +1067,7 @@ macOS kernel path has passed yet.
 
 | Area | RFC / behavior | Status | Test oracle |
 | --- | --- | --- | --- |
-| TCP base | RFC 9293 | partial: passive flow table, handshake/receive/close/credit core, queued initial controls, bidirectional receive-window trimming, ordered FIN promotion; control-block active open (SYN-SENT, 3.10.7.3 checks, simultaneous open) | deterministic state/table model + independent smoltcp peer + Linux kernel peer |
+| TCP base | RFC 9293 | partial: passive flow table, handshake/receive/close/credit core, queued initial controls, bidirectional receive-window trimming, ordered FIN promotion; active open in the control block and flow table (SYN-SENT, 3.10.7.3 checks, simultaneous open, ephemeral ports) | deterministic state/table model + independent smoltcp peer + Linux kernel peer |
 | RTO | RFC 6298 | partial: estimator/backoff, timestamp RTTM, plain-TCP sequence probe, Karn ambiguity suppression | virtual clock and loss traces + deliberately dropped segment against Linux kernel peer |
 | NewReno | RFC 5681, 6582 | partial: IW, slow start/CA, fast retransmit, partial/full ACK recovery, RTO collapse | state model + packet impairment model |
 | SACK | RFC 2018, 6675 | implemented core: negotiated scoreboard, loss inference, Pipe/NextSeg hole scheduling, bounded rescue; independent and impaired Linux peers pass | scoreboard model + smoltcp peer + Linux peer |

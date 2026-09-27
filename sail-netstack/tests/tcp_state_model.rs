@@ -861,6 +861,44 @@ fn simultaneous_open_also_completes_on_a_plain_ack() {
 }
 
 #[test]
+fn a_syn_past_the_peer_syn_never_completes_the_handshake() {
+    // RFC 9293 3.10.7.4 checks the SYN bit before the ACK, so a SYN-ACK
+    // sitting where the final ACK belongs is refused rather than taken as
+    // the handshake's end, whichever side opened.
+    let passive = TcpTcb::from_syn(
+        segment(5_000, None, TcpFlags::SYN, 0),
+        SeqNumber::new(1_000),
+        4_096,
+    )
+    .unwrap()
+    .0;
+    let (mut active, _) = TcpTcb::connect(SeqNumber::new(1_000), 4_096, 1_000, 0);
+    active
+        .on_segment(segment(5_000, None, TcpFlags::SYN, 0))
+        .unwrap();
+    for mut tcb in [passive, active] {
+        let refused = tcb
+            .on_segment(segment(
+                5_001,
+                Some(1_001),
+                TcpFlags::SYN.union(TcpFlags::ACK),
+                0,
+            ))
+            .unwrap();
+        assert!(!refused.contains(&TcpAction::Accepted));
+        assert!(!refused.contains(&TcpAction::Connected));
+        assert_eq!(tcb.state(), TcpState::SynReceived);
+        let completed = tcb
+            .on_segment(segment(5_001, Some(1_001), TcpFlags::ACK, 0))
+            .unwrap();
+        assert!(
+            completed.contains(&TcpAction::Accepted) || completed.contains(&TcpAction::Connected)
+        );
+        assert_eq!(tcb.state(), TcpState::Established);
+    }
+}
+
+#[test]
 fn simultaneous_open_retransmits_its_syn_ack() {
     let (mut tcb, _) = TcpTcb::connect(SeqNumber::new(1_000), 4_096, 1_000, 0);
     tcb.on_segment(segment(5_000, None, TcpFlags::SYN, 0))
