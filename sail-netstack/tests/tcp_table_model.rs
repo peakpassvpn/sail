@@ -4055,6 +4055,25 @@ fn an_unanswered_syn_is_retransmitted_then_given_up() {
 }
 
 #[test]
+fn connect_picks_its_ephemeral_port_among_the_usable_ones() {
+    let (mut table, _) = active_table(TcpTableConfig::default());
+    let local = SocketAddr::from((Ipv4Addr::new(10, 9, 0, 1), 0));
+    for _ in 0..8 {
+        let (_, opened) = table
+            .connect_using(local, ACTIVE_REMOTE, |candidate| candidate.port() % 4 == 1)
+            .unwrap();
+        let syn =
+            parse_tcp_segment(parse_ip_packet(&opened.outgoing[0], true).unwrap(), true).unwrap();
+        assert_eq!(syn.source.port() % 4, 1);
+    }
+    assert!(matches!(
+        table.connect_using(local, ACTIVE_REMOTE, |_| false),
+        Err(TcpTableError::AddressInUse)
+    ));
+    assert_eq!(table.stats().active_flows, 8);
+}
+
+#[test]
 fn connect_rejects_unusable_or_taken_endpoints() {
     let (mut table, _) = active_table(TcpTableConfig::default());
     let explicit = SocketAddr::from((Ipv4Addr::new(10, 9, 0, 1), 50_000));

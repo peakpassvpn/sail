@@ -236,4 +236,13 @@ pub trait PacketIo: Send + 'static {
     fn recv(&mut self, out: &mut PacketBatch) -> impl Future<Output = io::Result<usize>> + Send;
     fn send(&mut self, packets: &PacketBatch) -> impl Future<Output = io::Result<usize>> + Send;
     fn capabilities(&self) -> PacketCapabilities;
+
+    /// Whether packets of `endpoint`, as they arrive from the network, are
+    /// delivered to this adapter. A stack that opens a flow picks a local
+    /// port for which they are, so that the replies find the flow. An adapter
+    /// that is the only one sees every flow.
+    fn owns_flow(&self, endpoint: crate::IpEndpoint) -> bool {
+        let _ = endpoint;
+        true
+    }
 }

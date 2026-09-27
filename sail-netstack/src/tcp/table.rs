@@ -718,6 +718,22 @@ impl TcpTable {
         local: SocketAddr,
         remote: SocketAddr,
     ) -> Result<(TcpFlowToken, TcpIngress), TcpTableError> {
+        self.connect_using(local, remote, |_| true)
+    }
+
+    /// [`TcpTable::connect`], choosing an ephemeral port only among the
+    /// local addresses `usable` accepts: those whose replies reach this
+    /// table when several share the traffic.
+    ///
+    /// # Errors
+    ///
+    /// As [`TcpTable::connect`].
+    pub fn connect_using(
+        &mut self,
+        local: SocketAddr,
+        remote: SocketAddr,
+        usable: impl Fn(SocketAddr) -> bool,
+    ) -> Result<(TcpFlowToken, TcpIngress), TcpTableError> {
         // Replies arrive from `remote` to `local`, and must pass the same
         // endpoint checks as any inbound segment.
         if local.is_ipv4() != remote.is_ipv4()
@@ -728,7 +744,7 @@ impl TcpTable {
             return Err(TcpTableError::InvalidAddress);
         }
         let local = if local.port() == 0 {
-            self.ephemeral_local(local, remote)?
+            self.ephemeral_local(local, remote, usable)?
         } else {
             local
         };
@@ -812,6 +828,7 @@ impl TcpTable {
         &self,
         local: SocketAddr,
         remote: SocketAddr,
+        usable: impl Fn(SocketAddr) -> bool,
     ) -> Result<SocketAddr, TcpTableError> {
         const FIRST: u16 = 49_152;
         const SPAN: u64 = 65_536 - FIRST as u64;
@@ -831,7 +848,9 @@ impl TcpTable {
                     destination: *candidate,
                     generation: self.generation,
                 };
-                !self.by_key.contains_key(&key) && !self.time_wait.contains_key(&key)
+                !self.by_key.contains_key(&key)
+                    && !self.time_wait.contains_key(&key)
+                    && usable(*candidate)
             })
             .ok_or(TcpTableError::AddressInUse)
     }

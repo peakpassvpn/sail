@@ -12,13 +12,13 @@ use crate::trace::DebugTrace;
 use crate::{
     emit_icmp_echo_reply, emit_icmp_error, fragment_outbound_ip_packet, parse_icmp_packet,
     parse_ip_packet, parse_tcp_segment, parse_udp_datagram, ArenaPacket, BudgetError, FlowId,
-    FragmentError, FragmentReassembler, IcmpErrorKind, IcmpMessage, IpVersion, NetworkGeneration,
-    Packet, PacketArena, PacketBatch, PacketCapabilities, PacketIo, PacketToken, PmtuError,
-    PmtuTable, PressureLevel, ResourceLedger, Scheduler, SchedulerConfig, ShardId, StackStats,
-    TcpConnection, TcpError, TcpEvent, TcpFlowToken, TcpIngress, TcpTable, TcpTableConfig,
-    TcpTableError, TcpTimerCancel, TcpTimerRequest, TimerError, TimerEvent, TimerId, TimerWheel,
-    TraceKind, TraceSnapshot, UdpError, UdpFlowToken, UdpIngress, UdpTable, WireError, WorkClass,
-    MAX_DEBUG_TRACE_EVENTS,
+    FragmentError, FragmentReassembler, IcmpErrorKind, IcmpMessage, IpEndpoint, IpVersion,
+    NetworkGeneration, Packet, PacketArena, PacketBatch, PacketCapabilities, PacketIo, PacketToken,
+    PmtuError, PmtuTable, PressureLevel, ResourceLedger, Scheduler, SchedulerConfig, ShardId,
+    StackStats, TcpConnection, TcpError, TcpEvent, TcpFlowToken, TcpIngress, TcpTable,
+    TcpTableConfig, TcpTableError, TcpTimerCancel, TcpTimerRequest, TimerError, TimerEvent,
+    TimerId, TimerWheel, TraceKind, TraceSnapshot, TransportProtocol, UdpError, UdpFlowToken,
+    UdpIngress, UdpTable, WireError, WorkClass, MAX_DEBUG_TRACE_EVENTS,
 };
 
 // IPv6 + TCP + MSS/SACK/window-scale/timestamp SYN options.
@@ -170,6 +170,8 @@ pub enum RunnerError {
     PacketExceedsMtu,
     RxQueueFull,
     TxQueueFull,
+    /// A flow was opened on a shard its replies would not reach.
+    ForeignFlow,
     Closed,
 }
 
@@ -191,6 +193,7 @@ impl fmt::Display for RunnerError {
             Self::PacketExceedsMtu => formatter.write_str("packet exceeds current MTU"),
             Self::RxQueueFull => formatter.write_str("packet RX queue is full"),
             Self::TxQueueFull => formatter.write_str("packet TX queue is full"),
+            Self::ForeignFlow => formatter.write_str("flow belongs to another shard"),
             Self::Closed => formatter.write_str("stack runner is closed"),
         }
     }
@@ -1068,16 +1071,58 @@ impl<I: PacketIo> SingleShardRunner<I> {
             return Err(RunnerError::Closed);
         }
         let wire = self.udp.emit_reply(token, source, payload, now_ms)?;
-        let destination = parse_ip_packet(&wire, true)
+        self.queue_udp_wire(&wire, now_ms)
+    }
+
+    /// Sends a datagram from `local` to `remote`, opening the flow its
+    /// replies come back on, and returns the flow's token and local address.
+    /// Port 0 in `local` picks an ephemeral port whose replies reach this
+    /// runner.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RunnerError::ForeignFlow`] for an explicit local port whose
+    /// replies go to another shard, a UDP error for unusable endpoints or
+    /// payloads, or an error for TX backpressure or a closed runner.
+    pub fn originate_udp(
+        &mut self,
+        local: SocketAddr,
+        remote: SocketAddr,
+        payload: &[u8],
+        now_ms: u64,
+    ) -> Result<(UdpFlowToken, SocketAddr), RunnerError> {
+        if matches!(self.state, RunnerState::Closed | RunnerState::Failed) {
+            return Err(RunnerError::Closed);
+        }
+        let io = &self.io;
+        let usable = |local| {
+            io.owns_flow(IpEndpoint {
+                source: remote,
+                destination: local,
+                protocol: TransportProtocol::Udp,
+            })
+        };
+        if local.port() != 0 && !usable(local) {
+            return Err(RunnerError::ForeignFlow);
+        }
+        let (token, local, wire) = self
+            .udp
+            .originate_using(local, remote, payload, now_ms, usable)?;
+        self.queue_udp_wire(&wire, now_ms)?;
+        Ok((token, local))
+    }
+
+    fn queue_udp_wire(&mut self, wire: &[u8], now_ms: u64) -> Result<(), RunnerError> {
+        let destination = parse_ip_packet(wire, true)
             .map_err(RunnerError::Wire)?
             .destination;
         let path_mtu = self.pmtu.effective_mtu(destination, self.mtu, now_ms)?;
         if wire.len() <= path_mtu {
-            return self.queue_wire(&wire);
+            return self.queue_wire(wire);
         }
         let identification = self.next_fragment_identification;
         self.next_fragment_identification = self.next_fragment_identification.wrapping_add(1);
-        let fragments = fragment_outbound_ip_packet(&wire, path_mtu, identification)
+        let fragments = fragment_outbound_ip_packet(wire, path_mtu, identification)
             .map_err(RunnerError::Wire)?;
         self.queue_wires(&fragments)?;
         self.counters.outbound_fragments = self
@@ -1085,6 +1130,42 @@ impl<I: PacketIo> SingleShardRunner<I> {
             .outbound_fragments
             .saturating_add(u64::try_from(fragments.len()).unwrap_or(u64::MAX));
         Ok(())
+    }
+
+    /// Opens a TCP connection from `local` to `remote` and queues its SYN.
+    /// Port 0 in `local` picks an ephemeral port whose replies reach this
+    /// runner. [`StepOutcome::tcp_events`] reports
+    /// [`TcpEvent::Connected`](crate::TcpEvent::Connected) when the handshake
+    /// completes, or [`TcpEvent::Closed`](crate::TcpEvent::Closed) when it
+    /// fails.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RunnerError::ForeignFlow`] for an explicit local port whose
+    /// replies go to another shard, a TCP error for unusable or taken
+    /// endpoints, or an error for TX backpressure, exhausted memory, or a
+    /// closed runner.
+    pub fn connect_tcp(
+        &mut self,
+        local: SocketAddr,
+        remote: SocketAddr,
+    ) -> Result<TcpFlowToken, RunnerError> {
+        self.ensure_open()?;
+        let io = &self.io;
+        let usable = |local| {
+            io.owns_flow(IpEndpoint {
+                source: remote,
+                destination: local,
+                protocol: TransportProtocol::Tcp,
+            })
+        };
+        if local.port() != 0 && !usable(local) {
+            return Err(RunnerError::ForeignFlow);
+        }
+        let allocation = self.reserve_tcp_control()?;
+        let (token, output) = self.tcp.connect_using(local, remote, usable)?;
+        self.finish_tcp_output(allocation, output)?;
+        Ok(token)
     }
 
     /// Removes a completed handshake from the bounded accept queue.

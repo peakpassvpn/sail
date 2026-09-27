@@ -351,8 +351,9 @@ fn originated_datagrams_open_a_flow_that_replies_come_back_on() {
     let local = SocketAddr::from((Ipv4Addr::new(10, 9, 0, 1), 0));
     let remote = SocketAddr::from((Ipv4Addr::new(10, 9, 0, 2), 53));
 
-    let (token, wire) = table.originate(local, remote, b"query", 100).unwrap();
+    let (token, bound, wire) = table.originate(local, remote, b"query", 100).unwrap();
     let sent = parse_udp_datagram(parse_ip_packet(&wire, true).unwrap(), true).unwrap();
+    assert_eq!(sent.source, bound);
     assert_eq!(sent.destination, remote);
     assert_eq!(sent.source.ip(), local.ip());
     assert!(sent.source.port() >= 49_152);
@@ -367,7 +368,7 @@ fn originated_datagrams_open_a_flow_that_replies_come_back_on() {
     drop(ingress);
 
     // Sending again on the same four-tuple reuses the flow.
-    let (again, _) = table.originate(sent.source, remote, b"more", 300).unwrap();
+    let (again, _, _) = table.originate(sent.source, remote, b"more", 300).unwrap();
     assert_eq!(again, token);
     assert_eq!(table.stats().created_flows, 1);
     let reply = table.emit_reply(token, sent.source, b"third", 400).unwrap();
@@ -375,7 +376,7 @@ fn originated_datagrams_open_a_flow_that_replies_come_back_on() {
     assert_eq!(third.destination, remote);
 
     // A second session towards the same peer gets its own port.
-    let (other, other_wire) = table.originate(local, remote, b"q2", 500).unwrap();
+    let (other, _, other_wire) = table.originate(local, remote, b"q2", 500).unwrap();
     assert_ne!(other, token);
     let other_sent = parse_udp_datagram(parse_ip_packet(&other_wire, true).unwrap(), true).unwrap();
     assert_ne!(other_sent.source, sent.source);
@@ -405,4 +406,26 @@ fn originate_rejects_unusable_endpoints_and_payloads_without_a_flow() {
     ));
     assert_eq!(table.stats().created_flows, 0);
     assert_eq!(ledger.snapshot().total_bytes, 0);
+}
+
+#[test]
+fn originate_picks_its_ephemeral_port_among_the_usable_ones() {
+    let ledger = ResourceLedger::new(BudgetProfile::Mobile.budget()).unwrap();
+    let mut table = UdpTable::new(ledger, NetworkGeneration::new(1), 30_000, 512);
+    let local = SocketAddr::from((Ipv4Addr::new(10, 9, 0, 1), 0));
+    let remote = SocketAddr::from((Ipv4Addr::new(10, 9, 0, 2), 53));
+
+    for _ in 0..8 {
+        let (_, bound, _) = table
+            .originate_using(local, remote, b"q", 100, |candidate| {
+                candidate.port() % 4 == 1
+            })
+            .unwrap();
+        assert_eq!(bound.port() % 4, 1);
+    }
+    assert!(matches!(
+        table.originate_using(local, remote, b"q", 100, |_| false),
+        Err(UdpError::AddressInUse)
+    ));
+    assert_eq!(table.stats().active_flows, 8);
 }

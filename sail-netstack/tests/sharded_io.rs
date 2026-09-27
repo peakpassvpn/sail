@@ -11,9 +11,9 @@ use futures::executor::block_on;
 use futures::task::{waker, ArcWake};
 use sail_netstack::{
     classify_packet, emit_tcp_segment, emit_udp_packet, fragment_outbound_ip_packet, BudgetProfile,
-    ChecksumCapabilities, NetworkGeneration, Packet, PacketBatch, PacketCapabilities, PacketIo,
-    PacketToken, ResourceBudget, ResourceKind, ResourceLedger, RunnerConfig, SchedulerConfig,
-    SendControl, SeqNumber, ShardId, ShardedPacketIo, SingleShardRunner, TcpFlags,
+    ChecksumCapabilities, IpEndpoint, NetworkGeneration, Packet, PacketBatch, PacketCapabilities,
+    PacketIo, PacketToken, ResourceBudget, ResourceKind, ResourceLedger, RunnerConfig, RunnerError,
+    SchedulerConfig, SendControl, SeqNumber, ShardId, ShardedPacketIo, SingleShardRunner, TcpFlags,
     TransportProtocol,
 };
 
@@ -357,6 +357,80 @@ fn group_accepts_platform_handles_that_each_report_one_local_queue() {
     let owner = control.preferred_owner(&udp(b"hint")).unwrap();
     assert!(owner == ShardId::new(0) || owner == ShardId::new(1));
     assert_eq!(control.stats().unwrap().directory_entries, 0);
+}
+
+#[test]
+fn each_flow_has_one_owner_and_opened_flows_are_routed_back_to_it() {
+    let queues = (0..4).map(|_| QueueIo::new(4).0).collect();
+    let ledger = ResourceLedger::new(BudgetProfile::Server.budget()).unwrap();
+    let (adapters, control) = ShardedPacketIo::group(
+        queues,
+        Arc::clone(&ledger),
+        NetworkGeneration::new(1),
+        SchedulerConfig::default(),
+    )
+    .unwrap();
+    let remote = SocketAddr::from((Ipv4Addr::new(9, 9, 9, 9), 53));
+    for port in 40_000..40_064 {
+        let local = SocketAddr::from((Ipv4Addr::new(10, 0, 0, 2), port));
+        let endpoint = IpEndpoint {
+            source: remote,
+            destination: local,
+            protocol: TransportProtocol::Udp,
+        };
+        let owners = adapters
+            .iter()
+            .filter(|adapter| adapter.owns_flow(endpoint))
+            .map(ShardedPacketIo::shard)
+            .collect::<Vec<_>>();
+        assert_eq!(owners, [control.owner(endpoint).unwrap()]);
+        let reply = emit_udp_packet(remote, local, b"reply", 64, 1).unwrap();
+        assert_eq!(control.preferred_owner(&reply).unwrap(), owners[0]);
+    }
+
+    let mut runners = adapters
+        .into_iter()
+        .enumerate()
+        .map(|(index, adapter)| {
+            SingleShardRunner::new(
+                adapter,
+                Arc::clone(&ledger),
+                RunnerConfig {
+                    generation: NetworkGeneration::new(1),
+                    shard: ShardId::new(u16::try_from(index).unwrap()),
+                    ..RunnerConfig::default()
+                },
+            )
+            .unwrap()
+        })
+        .collect::<Vec<_>>();
+    let any_port = SocketAddr::from((Ipv4Addr::new(10, 0, 0, 2), 0));
+    for (index, runner) in runners.iter_mut().enumerate() {
+        let shard = ShardId::new(u16::try_from(index).unwrap());
+        for _ in 0..4 {
+            let (_, local) = runner.originate_udp(any_port, remote, b"q", 0).unwrap();
+            let reply = emit_udp_packet(remote, local, b"reply", 64, 1).unwrap();
+            assert_eq!(control.preferred_owner(&reply).unwrap(), shard);
+        }
+    }
+
+    // An explicit port is opened only by the shard its replies reach.
+    let local = SocketAddr::from((Ipv4Addr::new(10, 0, 0, 2), 41_000));
+    let owner = control
+        .owner(IpEndpoint {
+            source: remote,
+            destination: local,
+            protocol: TransportProtocol::Tcp,
+        })
+        .unwrap();
+    for (index, runner) in runners.iter_mut().enumerate() {
+        let opened = runner.connect_tcp(local, remote);
+        if ShardId::new(u16::try_from(index).unwrap()) == owner {
+            assert!(opened.is_ok());
+        } else {
+            assert!(matches!(opened, Err(RunnerError::ForeignFlow)));
+        }
+    }
 }
 
 #[test]

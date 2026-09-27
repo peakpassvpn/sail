@@ -147,7 +147,10 @@ inbound-shadowsocks = ["aead", "hkdf", "sha-1", "md-5", "tokio-util", "blake3", 
 inbound-socks = []
 inbound-http = ["http", "base64"]
 inbound-hc = []
-inbound-tun = ["tun", "dep:sail-netstack", "dep:tun-rs", "pnet_datalink"]
+inbound-tun = ["tun", "netstack", "dep:tun-rs", "pnet_datalink"]
+# The userspace TCP/IP stack, for the TUN inbound and for outbounds that
+# carry IP packets.
+netstack = ["dep:sail-netstack"]
 inbound-ws = ["tungstenite", "tokio-tungstenite", "http", "httparse", "base64"]
 inbound-httpupgrade = ["http", "httparse"]
 inbound-grpc = ["h2", "http"]

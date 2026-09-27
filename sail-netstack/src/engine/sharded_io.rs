@@ -10,9 +10,9 @@ use std::task::{Poll, Waker};
 use crate::engine::shard::{classify_packet_with_class, PacketClass};
 use crate::metrics::atomic_add_counter;
 use crate::{
-    classify_packet, BudgetLease, FlowId, FlowKey, NetworkGeneration, Packet, PacketBatch,
-    PacketCapabilities, PacketIo, PressureLevel, ResourceKind, ResourceLedger, Scheduler,
-    SchedulerConfig, ShardId, ShardRouterError, ShardRouterStats, WorkClass,
+    classify_packet, BudgetLease, FlowId, FlowKey, IpEndpoint, NetworkGeneration, Packet,
+    PacketBatch, PacketCapabilities, PacketIo, PressureLevel, ResourceKind, ResourceLedger,
+    Scheduler, SchedulerConfig, ShardId, ShardRouterError, ShardRouterStats, WorkClass,
 };
 
 const DIRECTORY_STRIPES: usize = 64;
@@ -114,6 +114,21 @@ impl SharedIngress {
                 .map_err(|_| io::Error::other("shard hash exceeded u16"))?,
         );
         Ok((owner, hash))
+    }
+
+    /// The shard that packets of `endpoint` go to under the current
+    /// generation. Ownership is the stable hash alone; the directory only
+    /// caches it.
+    fn endpoint_owner(&self, endpoint: IpEndpoint) -> io::Result<ShardId> {
+        let generation = *self
+            .generation
+            .read()
+            .map_err(|_| io::Error::other("network generation lock poisoned"))?;
+        self.hashed_owner(FlowKey {
+            endpoint,
+            generation,
+        })
+        .map(|(owner, _)| owner)
     }
 
     fn owner(&self, key: FlowKey) -> io::Result<(ShardId, u64)> {
@@ -467,6 +482,16 @@ impl ShardedPacketIoControl {
         self.shared.stats()
     }
 
+    /// The shard that owns the flow of `endpoint`, as packets arriving from
+    /// the network are routed. Opening a flow on it lets its replies return.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for a poisoned generation lock.
+    pub fn owner(&self, endpoint: IpEndpoint) -> io::Result<ShardId> {
+        self.shared.endpoint_owner(endpoint)
+    }
+
     /// Predicts the owner selected by the group's stable hash without creating
     /// directory state. Platform RSS setup and tests may use this as an
     /// affinity hint; correctness still relies on bounded forwarding.
@@ -760,6 +785,12 @@ impl<I: PacketIo> PacketIo for ShardedPacketIo<I> {
 
     fn capabilities(&self) -> PacketCapabilities {
         self.capabilities
+    }
+
+    fn owns_flow(&self, endpoint: IpEndpoint) -> bool {
+        self.shared
+            .endpoint_owner(endpoint)
+            .is_ok_and(|owner| owner == self.shard)
     }
 }
 

@@ -31,6 +31,8 @@ use resolver::Resolver;
 
 pub mod datagram;
 pub mod dial;
+#[cfg(feature = "netstack")]
+pub mod netstack;
 pub mod relay;
 pub mod resolver;
 

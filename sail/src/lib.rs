@@ -72,7 +72,7 @@ pub struct RuntimeManager {
     network_change_tx: mpsc::Sender<NetworkChange>,
     /// The TUN inbound's stack, when there is one.
     #[cfg(feature = "inbound-tun")]
-    tun_control: Option<protocol::tun::NativeRuntimeControl>,
+    tun_control: Option<net::netstack::NativeRuntimeControl>,
     /// The generation of the network the TUN flows belong to.
     #[cfg(feature = "inbound-tun")]
     network_generation: Mutex<u64>,
@@ -557,7 +557,7 @@ pub fn network_changed(key: RuntimeId, mtu: Option<usize>) -> Result<(), Error> 
 /// Stops the TUN inbound's stack, so that its flows are reset rather than
 /// left open, before the instance goes.
 #[cfg(feature = "inbound-tun")]
-async fn stop_tun(control: Option<protocol::tun::NativeRuntimeControl>) {
+async fn stop_tun(control: Option<net::netstack::NativeRuntimeControl>) {
     let Some(mut control) = control else {
         return;
     };

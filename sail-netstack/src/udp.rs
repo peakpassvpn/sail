@@ -254,8 +254,9 @@ impl UdpTable {
     }
 
     /// Sends a datagram from `local` to `remote`, opening a flow for the
-    /// four-tuple or refreshing the one there is, and returns its token with
-    /// the packet. Port 0 in `local` picks a free ephemeral port. The remote
+    /// four-tuple or refreshing the one there is, and returns its token, the
+    /// local address it uses, and the packet. Port 0 in `local` picks a free
+    /// ephemeral port. The remote
     /// end's datagrams back to that port arrive through
     /// [`UdpTable::ingest`] with the same token.
     ///
@@ -270,7 +271,25 @@ impl UdpTable {
         remote: SocketAddr,
         payload: &[u8],
         now_ms: u64,
-    ) -> Result<(UdpFlowToken, Vec<u8>), UdpError> {
+    ) -> Result<(UdpFlowToken, SocketAddr, Vec<u8>), UdpError> {
+        self.originate_using(local, remote, payload, now_ms, |_| true)
+    }
+
+    /// [`UdpTable::originate`], choosing an ephemeral port only among the
+    /// local addresses `usable` accepts: those whose replies reach this
+    /// table when several share the traffic.
+    ///
+    /// # Errors
+    ///
+    /// As [`UdpTable::originate`].
+    pub fn originate_using(
+        &mut self,
+        local: SocketAddr,
+        remote: SocketAddr,
+        payload: &[u8],
+        now_ms: u64,
+        usable: impl Fn(SocketAddr) -> bool,
+    ) -> Result<(UdpFlowToken, SocketAddr, Vec<u8>), UdpError> {
         self.update_time(now_ms)?;
         self.expire_due(now_ms)?;
         // Replies arrive from `remote` to `local` and must pass the checks
@@ -283,7 +302,7 @@ impl UdpTable {
             return Err(UdpError::InvalidAddress);
         }
         let local = if local.port() == 0 {
-            self.ephemeral_local(local, remote)?
+            self.ephemeral_local(local, remote, usable)?
         } else {
             local
         };
@@ -305,6 +324,7 @@ impl UdpTable {
         debug_assert_eq!(admitted, id);
         Ok((
             UdpFlowToken::new_on_shard(admitted, self.generation, self.shard),
+            local,
             wire,
         ))
     }
@@ -315,6 +335,7 @@ impl UdpTable {
         &self,
         local: SocketAddr,
         remote: SocketAddr,
+        usable: impl Fn(SocketAddr) -> bool,
     ) -> Result<SocketAddr, UdpError> {
         const FIRST: u16 = 49_152;
         const SPAN: u64 = 65_536 - FIRST as u64;
@@ -333,7 +354,7 @@ impl UdpTable {
                     source: remote,
                     destination: *candidate,
                     generation: self.generation,
-                })
+                }) && usable(*candidate)
             })
             .ok_or(UdpError::AddressInUse)
     }

@@ -19,12 +19,13 @@ use crate::{
     Runner,
 };
 
+use super::packet_io::TunPacketIo;
 #[cfg(target_os = "linux")]
-use super::native::TunRsPacketIo;
-use super::native::{
-    NativeRuntimeControl, NativeRuntimeGroup, NativeUdpDatagram, NativeUdpReplyHandle, TunPacketIo,
+use super::packet_io::TunRsPacketIo;
+use crate::net::netstack::{
+    NativeRuntimeControl, NativeRuntimeGroup, NativeTcpStream, NativeUdpDatagram,
+    NativeUdpReplyHandle,
 };
-use super::native_stream::NativeTcpStream;
 
 /// What runs a TUN inbound, and how the instance controls it.
 pub(crate) struct TunRunner {

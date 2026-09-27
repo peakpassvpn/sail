@@ -39,7 +39,7 @@ pub struct Instance {
     net_info: Option<tun_setup::NetInfo>,
     /// Controls the TUN inbound's stack once it is started.
     #[cfg(feature = "inbound-tun")]
-    pub(crate) tun_control: Option<crate::protocol::tun::NativeRuntimeControl>,
+    pub(crate) tun_control: Option<crate::net::netstack::NativeRuntimeControl>,
 }
 
 impl Instance {

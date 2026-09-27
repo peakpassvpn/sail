@@ -13,6 +13,8 @@ use sail_netstack::{NetworkGeneration, StackStats, TcpFlowToken, UdpFlowToken};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::{mpsc as tokio_mpsc, Notify};
 
+use super::runtime::NativeConnection;
+
 pub(super) enum TcpCommand {
     Read {
         token: TcpFlowToken,
@@ -57,9 +59,20 @@ pub(super) enum TcpCommand {
     StatsSnapshot {
         response: oneshot::Sender<StackStats>,
     },
+    Connect {
+        local: SocketAddr,
+        remote: SocketAddr,
+        response: oneshot::Sender<io::Result<NativeConnection>>,
+    },
+    UdpOriginate {
+        local: SocketAddr,
+        remote: SocketAddr,
+        payload: Vec<u8>,
+        response: oneshot::Sender<io::Result<(UdpFlowToken, SocketAddr)>>,
+    },
 }
 
-pub(super) struct NativeTcpStream {
+pub(crate) struct NativeTcpStream {
     token: TcpFlowToken,
     commands: mpsc::Sender<TcpCommand>,
     cleanup: tokio_mpsc::Sender<TcpFlowToken>,

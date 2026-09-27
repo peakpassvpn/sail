@@ -9,6 +9,12 @@ silently changing the design baseline.
 - `sail-netstack` is the only TUN engine. The lwIP and smoltcp adapters, their
   Cargo features and dependencies, the `tun2socks` inbound option, and the
   `.conf` `tun2socks-backend` key are removed without a rollback value.
+- The runtime that drives the stack is shared: `sail/src/net/netstack/` holds
+  `NativeRuntime`, its shard group and control handle, `NativeTcpStream`, and
+  `ChannelPacketIo`, so that protocols reuse it through `net/` rather than
+  through each other (architecture rule: `protocol/` modules do not import
+  one another). The `netstack` Cargo feature builds it; `inbound-tun` turns
+  it on. Only the device adapters stay in `sail/src/protocol/tun/packet_io.rs`.
 - `sail/src/protocol/tun/inbound.rs` builds the stack from the `netstack`
   runtime options (`budget`, `batch_size`, `max_queues`, `offload`, and the
   command and UDP channel sizes), which every `--profile` presets and
@@ -859,10 +865,32 @@ those cross-target library checks need to be rerun.
   SYN-ACK arriving where the final ACK belongs completed the handshake and
   was then dropped for its SYN bit, which left the flow established without
   an `Accepted` or `Connected` event. This had been true of passive flows too.
-  The final ACK must now carry no SYN, as RFC 9293 3.10.7.4 checks the SYN
-  bit before the ACK. With the fix, every earlier `tcp_table` artifact replays cleanly, and a 20-minute, 6-worker campaign ran about 1.5 million executions, raising coverage from 3921 to 3940 edges without a failure. The runtime API and the move to a shared
-  module follow in the next step.
-- `cargo test -p sail-netstack` currently runs 284 deterministic contract,
+  The final ACK must now carry no SYN, as RFC 9293 3.10.7.4 checks the SYN bit
+  before the ACK. With the fix, every earlier `tcp_table` artifact replays
+  cleanly, and a 20-minute, 6-worker campaign ran about 1.5 million
+  executions, raising coverage from 3921 to 3940 edges without a failure.
+- Active open, step 3 (the runtime): the runtime moved from `protocol/tun` to
+  `net/netstack`, and `NativeRuntimeControl` gained `connect(local, remote)`,
+  which resolves to a `NativeConnection` (the connection and its
+  `NativeTcpStream`) once the handshake completes, and `send_udp(local,
+  remote, payload)`, whose replies arrive with the other datagrams under the
+  returned token. With several shards, replies are routed by the hash of
+  their four-tuple, so a flow must be opened on the shard its replies reach:
+  `PacketIo::owns_flow` tells a runner which local ports qualify, the tables
+  pick ephemeral ports only among them (`connect_using`,
+  `originate_using`), an explicit port is sent to its owner
+  (`ShardedPacketIoControl::owner`), and a runner refuses a foreign one
+  (`RunnerError::ForeignFlow`). A connect that meets TX or budget pressure
+  waits and is retried; one whose caller has gone is aborted instead of
+  retransmitting its SYN; a refused or unanswered one fails with
+  `ConnectionRefused`. `ChannelPacketIo` runs the stack over a pair of
+  channels, for a WireGuard endpoint, keeping the cancellation contract of
+  `PacketIo`. A deterministic model shows every endpoint has exactly one
+  owner that agrees with packet routing, and runtime tests over two shards
+  cover a connection from an ephemeral port carrying data both ways, a
+  refused connect, an abandoned connect releasing its flow, and UDP replies
+  on an originated flow.
+- `cargo test -p sail-netstack` currently runs 287 deterministic contract,
   randomized-model, scheduler, timer, wire, and UDP lifecycle tests. Strict
   `cargo clippy -p sail-netstack --all-targets -- -D warnings` is clean. Both
   are required by the macOS/Linux CI matrix.
@@ -885,10 +913,10 @@ those cross-target library checks need to be rerun.
   unconditional 64-bit atomic in `sail-netstack`: the denial counter now uses
   a saturating `AtomicUsize` while preserving the public `u64` snapshot field.
   `cargo check -p sail-netstack --locked -Z build-std=std,panic_abort --target
-  mips-unknown-linux-musl` passes without warnings. The current 284-test
+  mips-unknown-linux-musl` passes without warnings. The current 287-test
   library and integration suite, including the wire-validation and legacy
   zero-MTU PMTU cases, passes under the image's MIPS32 big-endian QEMU runner
-  (latest run 284 of 284, including every fix in this revision).
+  (latest run 287 of 287, including every fix in this revision).
   Protocol tests use a relaxed test-only scheduler time ceiling so emulation
   speed cannot masquerade as a packet/state failure; the production 2 ms
   ceiling and its dedicated scheduler test are unchanged. This proves the
