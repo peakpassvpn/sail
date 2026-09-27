@@ -62,7 +62,7 @@ install_musl() {
 	if [ ! -x "$dir/$target/bin/$target-g++" ]; then
 		mkdir -p "$dir"
 		local tarball=$dir/$target.tar.xz
-		curl -fsSL --retry 3 -o "$tarball" \
+		curl -fsSL --retry 5 --retry-all-errors --speed-limit 10000 --speed-time 60 -C - -o "$tarball" \
 			"https://github.com/cross-tools/musl-cross/releases/download/$MUSL_CROSS_TAG/$target.tar.xz"
 		echo "$(musl_sha256 "$target")  $tarball" | sha256sum -c -
 		tar -C "$dir" -xJf "$tarball"
@@ -89,7 +89,7 @@ install_android() {
 		apt_install unzip
 		mkdir -p "$SAIL_CROSS_DIR"
 		local zip=$SAIL_CROSS_DIR/ndk.zip
-		curl -fsSL --retry 3 -o "$zip" \
+		curl -fsSL --retry 5 --retry-all-errors --speed-limit 10000 --speed-time 60 -C - -o "$zip" \
 			"https://dl.google.com/android/repository/android-ndk-$NDK_VERSION-linux.zip"
 		echo "$NDK_SHA1  $zip" | sha1sum -c -
 		unzip -q "$zip" -d "$SAIL_CROSS_DIR"
