@@ -1239,7 +1239,7 @@ mod tests {
         outgoing: &[u8],
         incoming: &[u8],
     ) {
-        exchange_in_chunks(opened, kernel, outgoing, incoming, usize::MAX).await;
+        exchange_in_chunks(opened, kernel, outgoing, incoming, usize::MAX, None).await;
     }
 
     /// [`exchange`], the stack writing at most `chunk` bytes at a time.
@@ -1250,25 +1250,45 @@ mod tests {
         outgoing: &[u8],
         incoming: &[u8],
         chunk: usize,
+        stack: Option<&mut NativeRuntimeControl>,
     ) {
+        use std::sync::atomic::AtomicUsize;
+        // How far each direction got, and whether each end closed its half,
+        // for a transfer that stalls.
+        let progress = [(); 6].map(|()| AtomicUsize::new(0));
+        let [stack_sent, stack_received, kernel_sent, kernel_received, stack_closed, kernel_closed] =
+            &progress;
+        let control = stack;
         let mut stack = opened.stream;
         let (mut kernel_read, mut kernel_write) = kernel.into_split();
         let (mut stack_read, mut stack_write) = tokio::io::split(&mut stack);
+        async fn read_all(
+            mut read: impl AsyncReadExt + Unpin,
+            counter: &AtomicUsize,
+        ) -> io::Result<Vec<u8>> {
+            let mut received = Vec::new();
+            let mut buffer = vec![0_u8; 64 << 10];
+            loop {
+                let count = read.read(&mut buffer).await?;
+                if count == 0 {
+                    return Ok(received);
+                }
+                received.extend_from_slice(&buffer[..count]);
+                counter.store(received.len(), Ordering::Relaxed);
+            }
+        }
         let stack_side = async {
             let (written, received) = tokio::join!(
                 async {
                     for piece in outgoing.chunks(chunk) {
                         stack_write.write_all(piece).await?;
+                        stack_sent.fetch_add(piece.len(), Ordering::Relaxed);
                     }
-                    stack_write.shutdown().await
+                    stack_write.shutdown().await?;
+                    stack_closed.store(1, Ordering::Relaxed);
+                    io::Result::Ok(())
                 },
-                async {
-                    let mut received = Vec::new();
-                    stack_read
-                        .read_to_end(&mut received)
-                        .await
-                        .map(|_| received)
-                }
+                read_all(&mut stack_read, stack_received)
             );
             written.unwrap();
             received.unwrap()
@@ -1276,25 +1296,35 @@ mod tests {
         let kernel_side = async {
             let (written, received) = tokio::join!(
                 async {
-                    kernel_write.write_all(incoming).await?;
-                    kernel_write.shutdown().await
+                    for piece in incoming.chunks(16 << 10) {
+                        kernel_write.write_all(piece).await?;
+                        kernel_sent.fetch_add(piece.len(), Ordering::Relaxed);
+                    }
+                    kernel_write.shutdown().await?;
+                    kernel_closed.store(1, Ordering::Relaxed);
+                    io::Result::Ok(())
                 },
-                async {
-                    let mut received = Vec::new();
-                    kernel_read
-                        .read_to_end(&mut received)
-                        .await
-                        .map(|_| received)
-                }
+                read_all(&mut kernel_read, kernel_received)
             );
             written.unwrap();
             received.unwrap()
         };
-        let (at_stack, at_kernel) = timeout(Duration::from_secs(60), async {
+        let Ok((at_stack, at_kernel)) = timeout(Duration::from_secs(60), async {
             tokio::join!(stack_side, kernel_side)
         })
         .await
-        .expect("the transfer stalled");
+        else {
+            let [a, b, c, d, e, f] = progress.map(|p| p.into_inner());
+            if let Some(control) = control {
+                eprintln!("stack at the stall: {:#?}", control.stats_snapshot().await);
+            }
+            panic!(
+                "the transfer stalled: stack sent {a} of {} and received {b} of {}, \
+                 closed {e}; kernel sent {c} and received {d}, closed {f}",
+                outgoing.len(),
+                incoming.len()
+            );
+        };
         assert!(at_kernel == outgoing, "the kernel received other bytes");
         assert!(at_stack == incoming, "the stack received other bytes");
     }
@@ -1530,6 +1560,7 @@ mod tests {
             &pattern(size, 0x11),
             &pattern(size, 0x22),
             half_segment,
+            Some(&mut control),
         )
         .await;
         let listener_v6 = bind_when_ready(SocketAddr::from((
@@ -1545,6 +1576,7 @@ mod tests {
             &pattern(size, 0x33),
             &pattern(size, 0x44),
             half_segment,
+            Some(&mut control),
         )
         .await;
 
@@ -1561,6 +1593,7 @@ mod tests {
             &pattern(size, 0x55),
             &pattern(size, 0x66),
             half_segment,
+            Some(&mut control),
         )
         .await;
 
@@ -1885,8 +1918,10 @@ mod tests {
                 }],
                 "outbounds": [{ "type": "direct", "tag": "direct" }],
                 "dns": {
-                    "servers": ["1.1.1.1"],
-                    "hosts": { "netstack.test": ["127.0.0.1"] }
+                    "servers": [{
+                        "type": "hosts",
+                        "predefined": { "netstack.test": "127.0.0.1" }
+                    }]
                 }
             }"#
         .to_string();
