@@ -144,6 +144,7 @@ impl DnsClient {
             rules.push(Rule {
                 matcher,
                 query_types,
+                outbounds: rule.outbound.clone(),
                 action,
             });
         }
@@ -178,18 +179,156 @@ impl DnsClient {
             if !rule.query_types.is_empty() && !rule.query_types.contains(&ty) {
                 continue;
             }
+            if !rule.outbounds.is_empty()
+                && !ctx
+                    .outbound
+                    .as_ref()
+                    .is_some_and(|o| rule.outbounds.contains(o))
+            {
+                continue;
+            }
             if !rule.matcher.matches(&facts) {
                 continue;
             }
             debug!("dns rule {} matches {} {}", i, host, ty);
             return match &rule.action {
-                RuleAction::Route { server, strategy } => {
-                    Pick::Server(server.clone(), strategy.unwrap_or(self.strategy))
-                }
+                RuleAction::Route { server, strategy } => Pick::Server(
+                    server.clone(),
+                    ctx.strategy.or(*strategy).unwrap_or(self.strategy),
+                ),
                 RuleAction::Reject => Pick::Reject,
             };
         }
-        Pick::Server(self.final_server.clone(), self.strategy)
+        Pick::Server(
+            self.final_server.clone(),
+            ctx.strategy.unwrap_or(self.strategy),
+        )
+    }
+
+    /// Fails when resolving a name needs what the resolving itself needs:
+    /// a server whose `detour` dials a server name that resolves, through
+    /// its `domain_resolver`, `route.default_domain_resolver` or the DNS
+    /// rules, back at that server; outbounds' own `detour` and a group's
+    /// members are followed too. Such a query could only time out.
+    pub fn check_loops(
+        &self,
+        outbounds: &[crate::config::Outbound],
+        default_resolver: Option<&crate::config::model::DomainResolver>,
+    ) -> Result<()> {
+        #[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+        enum Node {
+            Dns(String),
+            Outbound(String),
+        }
+        impl std::fmt::Display for Node {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                match self {
+                    Node::Dns(tag) => write!(f, "dns server [{}]", tag),
+                    Node::Outbound(tag) => write!(f, "outbound [{}]", tag),
+                }
+            }
+        }
+        let mut edges: HashMap<Node, Vec<Node>> = HashMap::new();
+        for server in self.servers.values() {
+            let node = Node::Dns(server.tag.clone());
+            let next = edges.entry(node).or_default();
+            next.extend(server.needs().into_iter().map(|t| Node::Dns(t.to_string())));
+            let dialer = match &server.kind {
+                Kind::Udp { dialer, .. } | Kind::Tcp { dialer, .. } => Some(dialer),
+                Kind::Upstream(u) => Some(&u.dialer),
+                _ => None,
+            };
+            if let Some(detour) = dialer.and_then(|d| d.detour.as_ref()) {
+                next.push(Node::Outbound(detour.clone()));
+            }
+        }
+        for outbound in outbounds {
+            let node = Node::Outbound(outbound.tag.clone());
+            let next = edges.entry(node).or_default();
+            let options = &outbound.options;
+            if let Some(members) = options.get("outbounds").and_then(|v| v.as_array()) {
+                next.extend(
+                    members
+                        .iter()
+                        .filter_map(|m| m.as_str())
+                        .map(|m| Node::Outbound(m.to_string())),
+                );
+            }
+            if let Some(detour) = options.get("detour").and_then(|v| v.as_str()) {
+                // Its server is dialled by the detour, which resolves it.
+                next.push(Node::Outbound(detour.to_string()));
+                continue;
+            }
+            let Some(host) = options.get("server").and_then(|v| v.as_str()) else {
+                continue;
+            };
+            if host.parse::<IpAddr>().is_ok() {
+                continue;
+            }
+            let resolver = options
+                .get("domain_resolver")
+                .and_then(|v| {
+                    <crate::config::model::DomainResolver as serde::Deserialize>::deserialize(v)
+                        .ok()
+                })
+                .or_else(|| default_resolver.cloned());
+            let servers = match resolver {
+                Some(resolver) => vec![resolver.server],
+                None => {
+                    let ctx = LookupContext {
+                        outbound: Some(outbound.tag.clone()),
+                        ..Default::default()
+                    };
+                    [RecordType::A, RecordType::AAAA]
+                        .into_iter()
+                        .filter_map(|ty| match self.pick(host, ty, &ctx) {
+                            Pick::Server(tag, _) => Some(tag),
+                            Pick::Reject => None,
+                        })
+                        .collect()
+                }
+            };
+            next.extend(servers.into_iter().map(Node::Dns));
+        }
+
+        fn visit(
+            edges: &HashMap<Node, Vec<Node>>,
+            node: &Node,
+            path: &mut Vec<Node>,
+            done: &mut std::collections::HashSet<Node>,
+        ) -> Result<()> {
+            if done.contains(node) {
+                return Ok(());
+            }
+            if let Some(i) = path.iter().position(|n| n == node) {
+                let cycle: Vec<String> = path[i..]
+                    .iter()
+                    .chain(std::iter::once(node))
+                    .map(|n| n.to_string())
+                    .collect();
+                // A loop among DNS servers alone was reported when they
+                // were built; this one goes through an outbound.
+                return Err(anyhow!(
+                    "resolving needs itself: {}; set a domain_resolver that does not \
+                     go through it",
+                    cycle.join(" -> ")
+                ));
+            }
+            path.push(node.clone());
+            for next in edges.get(node).into_iter().flatten() {
+                visit(edges, next, path, done)?;
+            }
+            path.pop();
+            done.insert(node.clone());
+            Ok(())
+        }
+        let mut nodes: Vec<&Node> = edges.keys().collect();
+        nodes.sort();
+        let mut done = std::collections::HashSet::new();
+        for node in nodes {
+            visit(&edges, node, &mut Vec::new(), &mut done)?;
+        }
+        Ok(())
     }
 
     fn server(&self, tag: &str) -> Result<&Arc<Server>> {
@@ -697,6 +836,45 @@ impl DnsClient {
             Pick::Reject => None,
         };
         self.lookup_by(host, strategy, server(&a), server(&aaaa))
+            .await
+    }
+
+    /// The addresses of `host`, which an outbound dials with `dial`: from
+    /// its `domain_resolver`, or else from the server the rules pick for
+    /// that outbound.
+    pub async fn lookup_dial(
+        &self,
+        host: &str,
+        dial: &crate::net::DialOptions,
+    ) -> Result<Vec<IpAddr>> {
+        match &dial.domain_resolver {
+            Some(resolver) => {
+                self.lookup_with(
+                    &resolver.server,
+                    host,
+                    resolver.strategy.unwrap_or(self.strategy),
+                )
+                .await
+            }
+            None => {
+                let ctx = LookupContext {
+                    outbound: dial.outbound.clone(),
+                    ..Default::default()
+                };
+                self.lookup_in(host, &ctx).await
+            }
+        }
+    }
+
+    /// The addresses of `host` from the server tagged `server`, of the
+    /// families `strategy` says: what the rules have no say in.
+    pub async fn lookup_from(
+        &self,
+        server: &str,
+        host: &str,
+        strategy: Option<DnsStrategy>,
+    ) -> Result<Vec<IpAddr>> {
+        self.lookup_with(server, host, strategy.unwrap_or(self.strategy))
             .await
     }
 

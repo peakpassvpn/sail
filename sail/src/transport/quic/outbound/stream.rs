@@ -74,7 +74,7 @@ impl Manager {
         let ips = {
             self.dns_client
                 .load_full()
-                .lookup(&self.address)
+                .lookup_dial(&self.address, &self.dial)
                 .map_err(|e| io::Error::other(format!("lookup {} failed: {}", self.address, e)))
                 .instrument(tracing::Span::current())
                 .await?

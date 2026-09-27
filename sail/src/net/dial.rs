@@ -40,6 +40,12 @@ pub struct DialOptions {
     /// Whether IPv6 is used at all (`dns.strategy`), which makes the UDP
     /// sockets that are not bound to anything in particular dual-stack.
     pub ipv6: bool,
+    /// The DNS server that resolves the names dialled: the outbound's
+    /// `domain_resolver`, or `route.default_domain_resolver`. Unset, the
+    /// DNS rules decide.
+    pub domain_resolver: Option<crate::config::model::DomainResolver>,
+    /// The outbound these options are for, which DNS rules can match.
+    pub outbound: Option<String>,
 }
 
 impl Default for DialOptions {
@@ -52,6 +58,8 @@ impl Default for DialOptions {
             connect_timeout: DEFAULT_CONNECT_TIMEOUT,
             protect: None,
             ipv6: false,
+            domain_resolver: None,
+            outbound: None,
         }
     }
 }
@@ -86,6 +94,11 @@ impl DialOptions {
             connect_timeout: self.connect_timeout,
             protect: self.protect.clone().or_else(|| defaults.protect.clone()),
             ipv6: defaults.ipv6,
+            domain_resolver: self
+                .domain_resolver
+                .clone()
+                .or_else(|| defaults.domain_resolver.clone()),
+            outbound: self.outbound.clone(),
         }
     }
 
@@ -106,6 +119,7 @@ impl DialOptions {
         let defaults = DialOptions {
             bind_interface: route.default_interface.clone(),
             routing_mark: route.default_mark,
+            domain_resolver: route.default_domain_resolver.clone(),
             ..Default::default()
         };
         if defaults.routing_mark.is_some() && !supports_routing_mark() {

@@ -173,6 +173,7 @@ struct Rule {
     /// The domain, inbound and user conditions, as a routing rule has them.
     matcher: crate::app::router::matcher::Matcher,
     query_types: Vec<RecordType>,
+    outbounds: Vec<String>,
     action: RuleAction,
 }
 
@@ -191,6 +192,10 @@ pub struct LookupContext {
     pub inbound: Option<String>,
     /// The user an inbound authenticated.
     pub user: Option<Arc<str>>,
+    /// The outbound that dials the name.
+    pub outbound: Option<String>,
+    /// The address families, over what the rules and `dns.strategy` say.
+    pub strategy: Option<DnsStrategy>,
 }
 
 /// Where a query of one record type goes, as the rules say.

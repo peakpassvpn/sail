@@ -170,6 +170,9 @@ pub struct DnsRule {
     /// Names of the users an inbound authenticated.
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
     pub auth_user: Vec<String>,
+    /// Tags of the outbounds that dial the name.
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub outbound: Vec<String>,
 
     #[serde(default)]
     pub action: DnsRuleAction,
@@ -202,7 +205,8 @@ impl DnsRule {
             && self.external.is_empty()
             && self.query_type.is_empty()
             && self.inbound.is_empty()
-            && self.auth_user.is_empty())
+            && self.auth_user.is_empty()
+            && self.outbound.is_empty())
     }
 
     fn check(&self, servers: &HashSet<String>) -> Result<()> {
@@ -263,6 +267,15 @@ impl Dns {
         self.timeout.unwrap_or(std::time::Duration::from_secs(4))
     }
 
+    /// The tags of the servers: `local` alone when none are given, for the
+    /// system's resolver then stands in.
+    pub fn server_tags(&self) -> HashSet<String> {
+        if self.servers.is_empty() {
+            return HashSet::from(["local".to_string()]);
+        }
+        self.servers.iter().map(|s| s.tag.clone()).collect()
+    }
+
     /// Fills in the tags left to defaults, and checks that tags are unique
     /// and `final` names a server.
     fn validate(&mut self) -> Result<()> {
@@ -279,6 +292,7 @@ impl Dns {
                 ));
             }
         }
+        let tags = self.server_tags();
         if let Some(tag) = &self.final_server {
             if !tags.contains(tag) {
                 return Err(anyhow!("dns.final: server [{}] does not exist", tag));
@@ -386,6 +400,45 @@ pub struct Route {
     /// routes everything, or outbound traffic would loop back into it.
     #[serde(default)]
     pub auto_detect_interface: bool,
+    /// The DNS server that resolves the names outbounds dial, for those
+    /// that name no `domain_resolver` of their own. Unset, the DNS rules
+    /// decide.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_domain_resolver: Option<DomainResolver>,
+}
+
+/// A DNS server that resolves the names something dials: its tag, or
+/// `{ "server": tag, "strategy": ... }`.
+#[derive(Serialize, Debug, Clone, PartialEq, Eq)]
+pub struct DomainResolver {
+    pub server: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub strategy: Option<DnsStrategy>,
+}
+
+impl<'de> serde::Deserialize<'de> for DomainResolver {
+    fn deserialize<D: serde::Deserializer<'de>>(de: D) -> std::result::Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Full {
+            server: String,
+            #[serde(default)]
+            strategy: Option<DnsStrategy>,
+        }
+        match serde_json::Value::deserialize(de)? {
+            serde_json::Value::String(server) => Ok(DomainResolver {
+                server,
+                strategy: None,
+            }),
+            value => {
+                let full = Full::deserialize(value).map_err(serde::de::Error::custom)?;
+                Ok(DomainResolver {
+                    server: full.server,
+                    strategy: full.strategy,
+                })
+            }
+        }
+    }
 }
 
 /// A routing rule, matched in order. As in sing-box, the destination
@@ -441,6 +494,13 @@ pub struct Rule {
     /// `route`: where a matching connection goes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub outbound: Option<String>,
+    /// `resolve`: the DNS server to ask, rather than the one the DNS rules
+    /// pick.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub server: Option<String>,
+    /// `resolve`: the address families, instead of `dns.strategy`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub strategy: Option<DnsStrategy>,
     /// `sniff`: the protocols to look for; all of them when empty.
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
     pub sniffer: Vec<Sniffer>,
@@ -515,6 +575,10 @@ impl Rule {
             }
             _ => {}
         }
+        if (self.server.is_some() || self.strategy.is_some()) && self.action != RuleAction::Resolve
+        {
+            return Err(anyhow!("server and strategy are for resolve rules"));
+        }
         if sniff_fields && self.action != RuleAction::Sniff {
             return Err(anyhow!(
                 "sniffer, timeout and override_destination are for sniff rules"
@@ -571,6 +635,43 @@ impl Config {
                 ));
             }
         }
+        // The DNS servers named elsewhere.
+        let dns_servers = self.dns.server_tags();
+        let dns_server = |field: &str, tag: &str| -> Result<()> {
+            if dns_servers.contains(tag) {
+                Ok(())
+            } else {
+                Err(anyhow!("{}: dns server [{}] does not exist", field, tag))
+            }
+        };
+        if let Some(resolver) = &self.route.default_domain_resolver {
+            dns_server("route.default_domain_resolver", &resolver.server)?;
+        }
+        for (i, rule) in self.route.rules.iter().enumerate() {
+            if let Some(server) = &rule.server {
+                dns_server(&format!("route.rules[{}].server", i), server)?;
+            }
+        }
+        for (kind, tag, options) in self
+            .outbounds
+            .iter()
+            .map(|o| ("outbound", &o.tag, &o.options))
+            .chain(
+                self.endpoints
+                    .iter()
+                    .map(|e| ("endpoint", &e.tag, &e.options)),
+            )
+        {
+            if let Some(value) = options.get("domain_resolver") {
+                let resolver = <DomainResolver as serde::Deserialize>::deserialize(value)
+                    .map_err(|e| anyhow!("[{}] {}: domain_resolver: {}", tag, kind, e))?;
+                dns_server(
+                    &format!("[{}] {}: domain_resolver", tag, kind),
+                    &resolver.server,
+                )?;
+            }
+        }
+
         // An endpoint is an inbound and an outbound: its tag is taken in
         // both.
         {

@@ -79,11 +79,17 @@ impl OutboundDatagramSendHalf for StdOutboundDatagramSendHalf {
 pub struct DomainResolveOutboundDatagram {
     inner: UdpSocket,
     dns_client: SyncDnsClient,
+    /// The outbound's, which say how its names resolve.
+    dial: Arc<DialOptions>,
 }
 
 impl DomainResolveOutboundDatagram {
-    pub fn new(inner: UdpSocket, dns_client: SyncDnsClient) -> Self {
-        Self { inner, dns_client }
+    pub fn new(inner: UdpSocket, dns_client: SyncDnsClient, dial: Arc<DialOptions>) -> Self {
+        Self {
+            inner,
+            dns_client,
+            dial,
+        }
     }
 }
 
@@ -98,7 +104,11 @@ impl OutboundDatagram for DomainResolveOutboundDatagram {
         let s = r.clone();
         (
             Box::new(DomainResolveOutboundDatagramRecvHalf(r)),
-            Box::new(DomainResolveOutboundDatagramSendHalf(s, self.dns_client)),
+            Box::new(DomainResolveOutboundDatagramSendHalf(
+                s,
+                self.dns_client,
+                self.dial,
+            )),
         )
     }
 }
@@ -115,7 +125,7 @@ impl OutboundDatagramRecvHalf for DomainResolveOutboundDatagramRecvHalf {
     }
 }
 
-pub struct DomainResolveOutboundDatagramSendHalf(Arc<UdpSocket>, SyncDnsClient);
+pub struct DomainResolveOutboundDatagramSendHalf(Arc<UdpSocket>, SyncDnsClient, Arc<DialOptions>);
 
 #[async_trait]
 impl OutboundDatagramSendHalf for DomainResolveOutboundDatagramSendHalf {
@@ -125,7 +135,7 @@ impl OutboundDatagramSendHalf for DomainResolveOutboundDatagramSendHalf {
                 let ips = self
                     .1
                     .load_full()
-                    .lookup(domain)
+                    .lookup_dial(domain, &self.2)
                     .map_err(|e| io::Error::other(format!("lookup {} failed: {}", domain, e)))
                     .await?;
                 let ip = ips.first().ok_or_else(|| io::Error::other("no results"))?;
@@ -146,6 +156,8 @@ pub struct DomainAssociatedOutboundDatagram {
     source: SocketAddr,
     destination: SocksAddr,
     dns_client: SyncDnsClient,
+    /// The outbound's, which say how its names resolve.
+    dial: Arc<DialOptions>,
 }
 
 impl DomainAssociatedOutboundDatagram {
@@ -154,12 +166,14 @@ impl DomainAssociatedOutboundDatagram {
         source: SocketAddr,
         destination: SocksAddr,
         dns_client: SyncDnsClient,
+        dial: Arc<DialOptions>,
     ) -> Self {
         DomainAssociatedOutboundDatagram {
             inner,
             source,
             destination,
             dns_client,
+            dial,
         }
     }
 }
@@ -185,6 +199,7 @@ impl OutboundDatagram for DomainAssociatedOutboundDatagram {
                 self.source,
                 self.dns_client,
                 targets,
+                self.dial,
             )),
         )
     }
@@ -254,6 +269,7 @@ pub struct DomainAssociatedOutboundDatagramSendHalf(
     SocketAddr,
     SyncDnsClient,
     DomainTargetMap,
+    Arc<DialOptions>,
 );
 
 #[async_trait]
@@ -264,7 +280,7 @@ impl OutboundDatagramSendHalf for DomainAssociatedOutboundDatagramSendHalf {
                 let ips = {
                     self.2
                         .load_full()
-                        .lookup(domain)
+                        .lookup_dial(domain, &self.4)
                         .map_err(|e| io::Error::other(format!("lookup {} failed: {}", domain, e)))
                         .await?
                 };

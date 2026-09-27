@@ -10,15 +10,17 @@ pub struct Resolver {
 }
 
 impl Resolver {
+    /// The addresses of `address`, which an outbound dials with `dial`.
     pub async fn new<'a>(
         dns_client: SyncDnsClient,
         address: &'a String,
         port: &'a u16,
+        dial: &crate::net::DialOptions,
     ) -> Result<Self> {
         let mut ips = {
             dns_client
                 .load_full()
-                .lookup(address)
+                .lookup_dial(address, dial)
                 .map_err(|e| anyhow!("lookup {} failed: {}", address, e))
                 .await?
         };

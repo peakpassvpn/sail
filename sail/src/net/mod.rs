@@ -259,7 +259,7 @@ pub async fn connect_datagram_outbound(
                     _ => new_udp_socket(&dial.unspecified(), &dial).await?,
                 };
                 Ok(Some(OutboundTransport::Datagram(Box::new(
-                    DomainResolveOutboundDatagram::new(socket, dns_client.clone()),
+                    DomainResolveOutboundDatagram::new(socket, dns_client.clone(), dial.clone()),
                 ))))
             }
             Network::Tcp => {
@@ -276,6 +276,7 @@ pub async fn connect_datagram_outbound(
                         sess.source,
                         SocksAddr::Domain(domain.to_owned(), *port),
                         dns_client.clone(),
+                        dial.clone(),
                     ),
                 ))))
             }
@@ -302,7 +303,7 @@ pub async fn new_tcp_stream(
     port: &u16,
     dial: &DialOptions,
 ) -> io::Result<AnyStream> {
-    let resolver = Resolver::new(dns_client.clone(), address, port)
+    let resolver = Resolver::new(dns_client.clone(), address, port, dial)
         .map_err(|e| io::Error::other(format!("resolve address failed: {}", e)))
         .await?;
 

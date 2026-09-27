@@ -25,7 +25,8 @@ use crate::runtime::RuntimeEnv;
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Blocks {
     /// The dial fields: `bind_interface`, `inet4_bind_address`,
-    /// `inet6_bind_address`, `routing_mark`, `connect_timeout`.
+    /// `inet6_bind_address`, `routing_mark`, `connect_timeout`,
+    /// `domain_resolver`.
     pub dial: bool,
     pub detour: bool,
     pub tls: bool,
@@ -34,12 +35,13 @@ pub struct Blocks {
 }
 
 /// The fields `Blocks::dial` covers.
-const DIAL_FIELDS: [&str; 5] = [
+const DIAL_FIELDS: [&str; 6] = [
     "bind_interface",
     "inet4_bind_address",
     "inet6_bind_address",
     "routing_mark",
     "connect_timeout",
+    "domain_resolver",
 ];
 
 impl Blocks {
@@ -148,6 +150,9 @@ pub struct OutboundBlocks {
     /// How long a TCP connect may take, e.g. `5s`.
     #[serde(default, with = "crate::config::model::duration")]
     pub connect_timeout: Option<std::time::Duration>,
+    /// The DNS server that resolves the names this outbound dials.
+    #[serde(default)]
+    pub domain_resolver: Option<crate::config::model::DomainResolver>,
     #[serde(default)]
     pub tls: Option<OutboundTls>,
     #[serde(default)]
@@ -435,6 +440,8 @@ impl OutboundBlocks {
                 .unwrap_or(crate::net::dial::DEFAULT_CONNECT_TIMEOUT),
             protect: None,
             ipv6: false,
+            domain_resolver: self.domain_resolver.clone(),
+            outbound: Some(tag.to_string()),
         };
         if let Some(detour) = &self.detour {
             let set = [

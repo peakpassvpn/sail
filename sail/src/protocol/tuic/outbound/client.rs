@@ -120,7 +120,7 @@ impl Client {
         let ips = self
             .dns_client
             .load_full()
-            .lookup(&self.server)
+            .lookup_dial(&self.server, &self.dial)
             .await
             .map_err(|e| io::Error::other(format!("lookup {} failed: {}", self.server, e)))?;
         let mut last_err = None;

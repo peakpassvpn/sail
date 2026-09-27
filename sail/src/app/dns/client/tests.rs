@@ -279,6 +279,7 @@ mod tests {
         let mut ctx = super::LookupContext {
             inbound: Some("lan".into()),
             user: Some("bob".into()),
+            ..Default::default()
         };
         assert_eq!(
             client.lookup_in("nas.home.arpa", &ctx).await.unwrap(),
@@ -320,8 +321,8 @@ mod tests {
                 "dns.rules[0]: query_type: unknown record type \"NOPE\"",
             ),
             (
-                serde_json::json!([{ "outbound": "proxy", "server": "home" }]),
-                "dns.rules[0].outbound: sail does not implement this field yet",
+                serde_json::json!([{ "domain_regex": "^a", "server": "home" }]),
+                "dns.rules[0].domain_regex: sail does not implement this field yet",
             ),
             (
                 serde_json::json!([{ "domain": "a", "action": "predefined" }]),
@@ -331,6 +332,160 @@ mod tests {
             let err = with_rules(rules.clone()).err().unwrap().to_string();
             assert!(err.contains(message), "{}: {}", rules, err);
         }
+    }
+
+    #[tokio::test]
+    async fn an_outbound_s_names_resolve_as_its_dial_options_say() {
+        let client = with_rules(serde_json::json!([
+            { "outbound": "lan-proxy", "server": "home" }
+        ]))
+        .unwrap();
+        let mut dial = crate::net::DialOptions::default();
+        // No resolver: `final`, and the rules for the outbound.
+        assert_eq!(
+            client.lookup_dial("nas.home.arpa", &dial).await.unwrap(),
+            ips(&["203.0.113.9"])
+        );
+        dial.outbound = Some("lan-proxy".into());
+        assert_eq!(
+            client.lookup_dial("nas.home.arpa", &dial).await.unwrap(),
+            ips(&["203.0.113.9"]),
+            "cached by name, as in sing-box"
+        );
+        let client = with_rules(serde_json::json!([
+            { "outbound": "lan-proxy", "server": "home" }
+        ]))
+        .unwrap();
+        assert_eq!(
+            client.lookup_dial("nas.home.arpa", &dial).await.unwrap(),
+            ips(&["192.168.1.2", "fd00::2"])
+        );
+        // A resolver of its own, which the rules have no say in.
+        let client = with_rules(serde_json::json!([
+            { "outbound": "lan-proxy", "server": "world" }
+        ]))
+        .unwrap();
+        dial.domain_resolver = Some(crate::config::model::DomainResolver {
+            server: "home".into(),
+            strategy: Some(crate::config::model::DnsStrategy::Ipv6Only),
+        });
+        assert_eq!(
+            client.lookup_dial("nas.home.arpa", &dial).await.unwrap(),
+            ips(&["fd00::2"])
+        );
+    }
+
+    fn loops(config: serde_json::Value) -> anyhow::Result<()> {
+        let config = crate::config::Config::from_json(&config.to_string())?;
+        let client = DnsClient::new(&config.dns, Default::default(), &Default::default())?;
+        client.check_loops(
+            &config.outbounds,
+            config.route.default_domain_resolver.as_ref(),
+        )
+    }
+
+    /// A remote server reached through a proxy whose own name the remote
+    /// server would resolve: the usual loop, and the ways out of it.
+    #[test]
+    fn a_server_reached_through_an_outbound_that_needs_it_is_an_error() {
+        let config = |dns_extra: serde_json::Value, proxy_extra: serde_json::Value| {
+            let mut dns = serde_json::json!({
+                "servers": [
+                    { "type": "udp", "tag": "remote", "server": "8.8.8.8", "detour": "select" },
+                    { "type": "local", "tag": "local" }
+                ]
+            });
+            for (k, v) in dns_extra.as_object().unwrap() {
+                dns[k] = v.clone();
+            }
+            let mut proxy = serde_json::json!({
+                "type": "socks", "tag": "proxy", "server": "proxy.example", "server_port": 1080
+            });
+            for (k, v) in proxy_extra.as_object().unwrap() {
+                proxy[k] = v.clone();
+            }
+            serde_json::json!({
+                "dns": dns,
+                "outbounds": [
+                    { "type": "selector", "tag": "select", "outbounds": ["proxy", "direct"] },
+                    proxy,
+                    { "type": "direct", "tag": "direct" }
+                ]
+            })
+        };
+
+        let err = loops(config(serde_json::json!({}), serde_json::json!({})))
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains(
+                "dns server [remote] -> outbound [select] -> outbound [proxy] -> dns server [remote]"
+            ),
+            "{}",
+            err
+        );
+
+        // Out by a rule for the outbound, by its own resolver, or by the
+        // default one.
+        loops(config(
+            serde_json::json!({ "rules": [{ "outbound": "proxy", "server": "local" }] }),
+            serde_json::json!({}),
+        ))
+        .unwrap();
+        loops(config(
+            serde_json::json!({}),
+            serde_json::json!({ "domain_resolver": "local" }),
+        ))
+        .unwrap();
+        let mut with_default = config(serde_json::json!({}), serde_json::json!({}));
+        with_default["route"] = serde_json::json!({ "default_domain_resolver": "local" });
+        loops(with_default).unwrap();
+        // A proxy at an address has nothing to resolve.
+        loops(config(
+            serde_json::json!({}),
+            serde_json::json!({ "server": "192.0.2.1" }),
+        ))
+        .unwrap();
+    }
+
+    #[test]
+    fn domain_resolvers_name_servers_that_exist() {
+        for (config, message) in [
+            (
+                serde_json::json!({ "route": { "default_domain_resolver": "nowhere" } }),
+                "route.default_domain_resolver: dns server [nowhere] does not exist",
+            ),
+            (
+                serde_json::json!({ "outbounds": [{ "type": "direct",
+                    "domain_resolver": { "server": "nowhere", "strategy": "ipv4_only" } }] }),
+                "[direct] outbound: domain_resolver: dns server [nowhere] does not exist",
+            ),
+            (
+                serde_json::json!({ "outbounds": [{ "type": "direct",
+                    "domain_resolver": { "server": "local", "stratgy": "ipv4_only" } }] }),
+                "stratgy",
+            ),
+            (
+                serde_json::json!({ "outbounds": [{ "type": "direct" }], "route": { "rules": [
+                    { "action": "resolve", "server": "nowhere" }] } }),
+                "route.rules[0].server: dns server [nowhere] does not exist",
+            ),
+            (
+                serde_json::json!({ "outbounds": [{ "type": "direct" }], "route": { "rules": [
+                    { "domain": "a", "outbound": "direct", "server": "local" }] } }),
+                "server and strategy are for resolve rules",
+            ),
+        ] {
+            let err = crate::config::Config::from_json(&config.to_string())
+                .unwrap_err()
+                .to_string();
+            assert!(err.contains(message), "{}: {}", config, err);
+        }
+        // With no servers, the system's resolver is `local`.
+        crate::config::Config::from_json(
+            &serde_json::json!({ "route": { "default_domain_resolver": "local" } }).to_string(),
+        )
+        .unwrap();
     }
 
     fn tags(tags: &[&str]) -> Vec<String> {

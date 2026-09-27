@@ -34,7 +34,7 @@ impl Shared {
             SocksAddr::Domain(host, port) => self
                 .dns_client
                 .load_full()
-                .lookup(host)
+                .lookup_dial(host, &self.dial)
                 .await
                 .map_err(|e| io::Error::other(format!("lookup {} failed: {}", host, e)))?
                 .into_iter()

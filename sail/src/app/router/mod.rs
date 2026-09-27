@@ -61,7 +61,9 @@ enum Action {
     Route(String),
     Reject,
     Sniff(SniffAction),
-    Resolve,
+    /// With the DNS server to ask, when not the one the DNS rules pick,
+    /// and the families.
+    Resolve(Option<String>, Option<model::DnsStrategy>),
 }
 
 struct Rule {
@@ -78,7 +80,7 @@ impl Rule {
                     .ok_or_else(|| anyhow!("outbound: a route rule needs one"))?,
             ),
             RuleAction::Reject => Action::Reject,
-            RuleAction::Resolve => Action::Resolve,
+            RuleAction::Resolve => Action::Resolve(rule.server.clone(), rule.strategy),
             RuleAction::Sniff => {
                 let all = rule.sniffer.is_empty();
                 Action::Sniff(SniffAction {
@@ -166,10 +168,12 @@ impl Router {
                         .await
                         .map_err(|e| anyhow!("sniff: {}", e))?;
                 }
-                Action::Resolve => {
+                Action::Resolve(server, strategy) => {
                     if resolved.is_empty() && !sess.skip_resolve {
                         if let Some(domain) = facts.domain() {
-                            resolved = self.resolve(domain, sess).await;
+                            resolved = self
+                                .resolve(domain, sess, server.as_deref(), *strategy)
+                                .await;
                         }
                     }
                 }
@@ -181,12 +185,27 @@ impl Router {
 
     /// The addresses of `domain`, or none when it does not resolve: the
     /// rules after a `resolve` then match without them.
-    async fn resolve(&self, domain: &str, sess: &Session) -> Vec<IpAddr> {
-        let ctx = crate::app::dns::LookupContext {
-            inbound: Some(sess.inbound_tag.clone()),
-            user: sess.user.clone(),
+    async fn resolve(
+        &self,
+        domain: &str,
+        sess: &Session,
+        server: Option<&str>,
+        strategy: Option<model::DnsStrategy>,
+    ) -> Vec<IpAddr> {
+        let dns = self.dns_client.load_full();
+        let result = match server {
+            Some(server) => dns.lookup_from(server, domain, strategy).await,
+            None => {
+                let ctx = crate::app::dns::LookupContext {
+                    inbound: Some(sess.inbound_tag.clone()),
+                    user: sess.user.clone(),
+                    outbound: None,
+                    strategy,
+                };
+                dns.lookup_in(domain, &ctx).await
+            }
         };
-        match self.dns_client.load_full().lookup_in(domain, &ctx).await {
+        match result {
             Ok(ips) => {
                 debug!("resolved {} to {:?} for routing", domain, ips);
                 ips
@@ -208,7 +227,10 @@ mod tests {
     fn router(rules: serde_json::Value) -> Router {
         let config = crate::config::Config::from_json(
             &serde_json::json!({
-                "dns": { "servers": [{ "type": "hosts", "predefined": { "test.sail": "127.0.0.1" } }] },
+                "dns": { "servers": [
+                    { "type": "hosts", "predefined": { "test.sail": "127.0.0.1" } },
+                    { "type": "hosts", "tag": "lan", "predefined": { "test.sail": "10.0.0.1" } }
+                ] },
                 "outbounds": [{ "type": "direct", "tag": "a" }, { "type": "direct", "tag": "b" }],
                 "route": { "rules": rules, "final": "b" },
             })
@@ -307,5 +329,19 @@ mod tests {
         sess.skip_resolve = true;
         let decision = router.pick_route(&mut sess, &mut NoSniffer).await.unwrap();
         assert_eq!(decision, Decision::Route(Some("b".into())));
+    }
+
+    #[tokio::test]
+    async fn a_resolve_rule_asks_the_server_it_names() {
+        let router = router(serde_json::json!([
+            { "action": "resolve", "server": "lan", "strategy": "ipv4_only" },
+            { "ip_cidr": ["10.0.0.0/8"], "outbound": "a" },
+        ]));
+        let mut sess = Session {
+            destination: SocksAddr::Domain("test.sail".into(), 80),
+            ..Default::default()
+        };
+        let decision = router.pick_route(&mut sess, &mut NoSniffer).await.unwrap();
+        assert_eq!(decision, Decision::Route(Some("a".into())));
     }
 }

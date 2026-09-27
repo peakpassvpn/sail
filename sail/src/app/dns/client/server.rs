@@ -11,7 +11,7 @@ use serde_derive::Deserialize;
 
 use super::upstream::{Protocol, Upstream};
 use super::ServerSelectorState;
-use crate::config::model::{listable, parse_options, DnsServer, DnsStrategy};
+use crate::config::model::{listable, parse_options, DnsServer};
 use crate::net::DialOptions;
 use crate::runtime::RuntimeEnv;
 use crate::transport::layers::OutboundTls;
@@ -57,11 +57,7 @@ pub(super) struct Address {
 }
 
 /// A server's `domain_resolver`.
-#[derive(Debug, Clone)]
-pub(super) struct Resolver {
-    pub server: String,
-    pub strategy: Option<DnsStrategy>,
-}
+pub(super) type Resolver = crate::config::model::DomainResolver;
 
 impl Address {
     pub fn ip(&self) -> Option<IpAddr> {
@@ -118,15 +114,7 @@ struct RemoteOptions {
     #[serde(default, with = "crate::config::model::duration")]
     connect_timeout: Option<std::time::Duration>,
     #[serde(default)]
-    domain_resolver: Option<serde_json::Value>,
-}
-
-#[derive(Deserialize, Debug)]
-#[serde(deny_unknown_fields)]
-struct ResolverOptions {
-    server: String,
-    #[serde(default)]
-    strategy: Option<DnsStrategy>,
+    domain_resolver: Option<Resolver>,
 }
 
 #[derive(Deserialize, Debug, Default)]
@@ -344,21 +332,7 @@ fn address_and_dialer(
         Some(port) => port,
         None => default_port,
     };
-    let resolver = match o.domain_resolver {
-        None => None,
-        Some(serde_json::Value::String(server)) => Some(Resolver {
-            server,
-            strategy: None,
-        }),
-        Some(value) => {
-            let r: ResolverOptions = serde_path_to_error::deserialize(value)
-                .map_err(|e| anyhow!("domain_resolver.{}: {}", e.path(), e.inner()))?;
-            Some(Resolver {
-                server: r.server,
-                strategy: r.strategy,
-            })
-        }
-    };
+    let resolver = o.domain_resolver;
     let is_ip = host.parse::<IpAddr>().is_ok();
     if !is_ip && resolver.is_none() {
         return Err(anyhow!(
@@ -381,6 +355,9 @@ fn address_and_dialer(
             .unwrap_or(crate::net::dial::DEFAULT_CONNECT_TIMEOUT),
         protect: None,
         ipv6: false,
+        // Its own address resolves through `resolver`, and nothing else.
+        domain_resolver: None,
+        outbound: None,
     };
     if let Some(detour) = &o.detour {
         let set = own.bind_interface.is_some()

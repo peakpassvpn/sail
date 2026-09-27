@@ -136,7 +136,7 @@ impl OutboundDatagramHandler for Handler {
             }
             SocksAddr::Ip(addr) => addr,
             SocksAddr::Domain(domain, port) => {
-                Resolver::new(self.dns_client.clone(), &domain, &port)
+                Resolver::new(self.dns_client.clone(), &domain, &port, &self.dial)
                     .await
                     .map_err(|e| {
                         io::Error::other(format!("resolve socks relay {}: {}", domain, e))
@@ -166,12 +166,17 @@ impl Handler {
     /// The server's address, for a relay whose address the server left
     /// unspecified.
     async fn server_ip(&self) -> io::Result<std::net::IpAddr> {
-        Resolver::new(self.dns_client.clone(), &self.address, &self.port)
-            .await
-            .map_err(|e| io::Error::other(format!("resolve socks server: {}", e)))?
-            .next()
-            .map(|a| a.ip())
-            .ok_or_else(|| io::Error::other("no address for socks server"))
+        Resolver::new(
+            self.dns_client.clone(),
+            &self.address,
+            &self.port,
+            &self.dial,
+        )
+        .await
+        .map_err(|e| io::Error::other(format!("resolve socks server: {}", e)))?
+        .next()
+        .map(|a| a.ip())
+        .ok_or_else(|| io::Error::other("no address for socks server"))
     }
 }
 
