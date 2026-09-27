@@ -40,6 +40,16 @@ impl DnsClient {
         dial: Arc<crate::net::DialOptions>,
         env: &crate::runtime::RuntimeEnv,
     ) -> Result<Self> {
+        Self::with_rule_sets(dns, dial, env, &Default::default())
+    }
+
+    /// A client whose rules can name the rule-sets of `rule_sets`.
+    pub(crate) fn with_rule_sets(
+        dns: &crate::config::Dns,
+        dial: Arc<crate::net::DialOptions>,
+        env: &crate::runtime::RuntimeEnv,
+        rule_sets: &crate::app::router::rule_set::RuleSets,
+    ) -> Result<Self> {
         let tuning = env.options.dns.clone();
         let local = crate::config::model::DnsServer {
             kind: "local".into(),
@@ -62,7 +72,7 @@ impl DnsClient {
             .final_server
             .clone()
             .unwrap_or_else(|| configs[0].tag.clone());
-        let rules = Self::load_rules(dns, env)?;
+        let rules = Self::load_rules(dns, env, rule_sets)?;
         let capacity = NonZeroUsize::new(dns.cache_capacity())
             .ok_or_else(|| anyhow!("dns.cache_capacity: must be at least 1"))?;
         Ok(Self {
@@ -95,13 +105,14 @@ impl DnsClient {
 
     /// A client for `dns`, to replace this one: it starts with empty caches,
     /// and reaches detours as this one does.
-    pub fn reloaded(
+    pub(crate) fn reloaded(
         &self,
         dns: &crate::config::Dns,
         dial: Arc<crate::net::DialOptions>,
         env: &crate::runtime::RuntimeEnv,
+        rule_sets: &crate::app::router::rule_set::RuleSets,
     ) -> Result<Self> {
-        let mut client = Self::new(dns, dial, env)?;
+        let mut client = Self::with_rule_sets(dns, dial, env, rule_sets)?;
         client.dispatcher = self.dispatcher.clone();
         Ok(client)
     }
@@ -111,7 +122,11 @@ impl DnsClient {
         self.reverse_mapping
     }
 
-    fn load_rules(dns: &crate::config::Dns, env: &crate::runtime::RuntimeEnv) -> Result<Vec<Rule>> {
+    fn load_rules(
+        dns: &crate::config::Dns,
+        env: &crate::runtime::RuntimeEnv,
+        rule_sets: &crate::app::router::rule_set::RuleSets,
+    ) -> Result<Vec<Rule>> {
         let mut readers = crate::app::router::matcher::Readers::new();
         let mut rules = Vec::new();
         for (i, rule) in dns.rules.iter().enumerate() {
@@ -124,10 +139,17 @@ impl DnsClient {
                 external: rule.external.clone(),
                 inbound: rule.inbound.clone(),
                 auth_user: rule.auth_user.clone(),
+                rule_set: rule.rule_set.clone(),
+                rule_set_ip_cidr_match_source: rule.rule_set_ip_cidr_match_source,
                 ..Default::default()
             };
-            let matcher = crate::app::router::matcher::Matcher::new(&conditions, &mut readers, env)
-                .map_err(err)?;
+            let matcher = crate::app::router::matcher::Matcher::new(
+                &conditions,
+                &mut readers,
+                env,
+                rule_sets,
+            )
+            .map_err(err)?;
             let query_types = rule
                 .query_type
                 .iter()
@@ -174,7 +196,7 @@ impl DnsClient {
             user: ctx.user.clone(),
             ..Default::default()
         };
-        let facts = crate::app::router::matcher::Facts::new(&sess, &[]);
+        let facts = crate::app::router::matcher::Facts::new(&sess, &[]).with_query_type(ty.into());
         for (i, rule) in self.rules.iter().enumerate() {
             if !rule.query_types.is_empty() && !rule.query_types.contains(&ty) {
                 continue;

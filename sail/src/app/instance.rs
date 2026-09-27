@@ -1,6 +1,7 @@
 //! An instance: the components a configuration describes, built in
 //! dependency order, started in stages, and stopped in reverse.
 
+use crate::app::router::rule_set::RuleSets;
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -64,7 +65,9 @@ impl Instance {
             .as_ref()
             .is_some_and(|platform| platform.opens_tun());
         config.check_tun_route(host_routes)?;
-        let dns_client = DnsClient::new(&config.dns, dial_defaults.clone(), &env)?;
+        let rule_sets = RuleSets::load(&config.route.rule_set, &env)?;
+        let dns_client =
+            DnsClient::with_rule_sets(&config.dns, dial_defaults.clone(), &env, &rule_sets)?;
         dns_client.check_loops(
             &config.outbounds,
             config.route.default_domain_resolver.as_ref(),
@@ -78,10 +81,11 @@ impl Instance {
                 &env,
                 dns_client.clone(),
             )?));
-        let router: SyncRouter = Arc::new(ArcSwap::from_pointee(Router::new(
+        let router: SyncRouter = Arc::new(ArcSwap::from_pointee(Router::with_rule_sets(
             &config.route,
             dns_client.clone(),
             &env,
+            &rule_sets,
         )?));
         let stat_manager = Arc::new(RwLock::new(
             StatManager::new()

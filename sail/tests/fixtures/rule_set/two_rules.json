@@ -1,0 +1,15 @@
+{
+ "version": 3,
+ "rules": [
+  {
+   "domain_suffix": [
+    "one.example"
+   ]
+  },
+  {
+   "ip_cidr": [
+    "198.51.100.0/24"
+   ]
+  }
+ ]
+}

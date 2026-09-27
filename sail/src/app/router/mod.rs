@@ -4,6 +4,36 @@
 //! (`sniff`, `resolve`) and lets the next rules decide.
 
 pub(crate) mod matcher;
+#[cfg(feature = "rule-set")]
+pub(crate) mod rule_set;
+
+/// Without the rule-set feature: no rule-sets, and a configuration that has
+/// some is refused.
+#[cfg(not(feature = "rule-set"))]
+pub(crate) mod rule_set {
+    use anyhow::{anyhow, Result};
+
+    #[derive(Default, Clone)]
+    pub(crate) struct RuleSets;
+
+    impl RuleSets {
+        pub(crate) fn load(
+            configs: &[crate::config::rule_set::RuleSet],
+            _env: &crate::runtime::RuntimeEnv,
+        ) -> Result<Self> {
+            match configs.first() {
+                Some(_) => Err(anyhow!(
+                    "route.rule_set: not supported, the rule-set feature is not compiled in"
+                )),
+                None => Ok(RuleSets),
+            }
+        }
+
+        pub(crate) fn get(&self, tag: &str) -> Result<()> {
+            Err(anyhow!("rule-set [{}] does not exist", tag))
+        }
+    }
+}
 
 use std::io;
 use std::net::IpAddr;
@@ -72,7 +102,12 @@ struct Rule {
 }
 
 impl Rule {
-    fn new(rule: &model::Rule, readers: &mut Readers, env: &RuntimeEnv) -> Result<Self> {
+    fn new(
+        rule: &model::Rule,
+        readers: &mut Readers,
+        env: &RuntimeEnv,
+        rule_sets: &rule_set::RuleSets,
+    ) -> Result<Self> {
         let action = match rule.action {
             RuleAction::Route => Action::Route(
                 rule.outbound
@@ -92,7 +127,7 @@ impl Rule {
             }
         };
         Ok(Rule {
-            matcher: Matcher::new(rule, readers, env)?,
+            matcher: Matcher::new(rule, readers, env, rule_sets)?,
             action,
         })
     }
@@ -105,30 +140,39 @@ pub struct Router {
 }
 
 impl Router {
-    fn load_rules(route: &model::Route, env: &RuntimeEnv) -> Result<Vec<Rule>> {
+    fn load_rules(
+        route: &model::Route,
+        env: &RuntimeEnv,
+        rule_sets: &rule_set::RuleSets,
+    ) -> Result<Vec<Rule>> {
         let mut readers = Readers::new();
         route
             .rules
             .iter()
             .enumerate()
             .map(|(i, rule)| {
-                Rule::new(rule, &mut readers, env).map_err(|e| anyhow!("route.rules[{}]: {}", i, e))
+                Rule::new(rule, &mut readers, env, rule_sets)
+                    .map_err(|e| anyhow!("route.rules[{}]: {}", i, e))
             })
             .collect()
     }
 
     pub fn new(route: &model::Route, dns_client: SyncDnsClient, env: &RuntimeEnv) -> Result<Self> {
+        Self::with_rule_sets(route, dns_client, env, &Default::default())
+    }
+
+    /// A router whose rules can name the rule-sets of `rule_sets`.
+    pub(crate) fn with_rule_sets(
+        route: &model::Route,
+        dns_client: SyncDnsClient,
+        env: &RuntimeEnv,
+        rule_sets: &rule_set::RuleSets,
+    ) -> Result<Self> {
         Ok(Router {
-            rules: Self::load_rules(route, env)?,
+            rules: Self::load_rules(route, env, rule_sets)?,
             final_outbound: route.final_outbound.clone(),
             dns_client,
         })
-    }
-
-    pub fn reload(&mut self, route: &model::Route, env: &RuntimeEnv) -> Result<()> {
-        self.rules = Self::load_rules(route, env)?;
-        self.final_outbound = route.final_outbound.clone();
-        Ok(())
     }
 
     /// Whether a rule, or `final`, routes to the outbound `tag`.

@@ -173,6 +173,17 @@ pub struct DnsRule {
     /// Tags of the outbounds that dial the name.
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
     pub outbound: Vec<String>,
+    /// Tags of rule-sets, any of whose rules matching matches. Their
+    /// `ip_cidr` rules match no query, which has no address yet.
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub rule_set: Vec<String>,
+    /// The rule-sets' `ip_cidr` match the source address.
+    #[serde(
+        default,
+        alias = "rule_set_ipcidr_match_source",
+        skip_serializing_if = "std::ops::Not::not"
+    )]
+    pub rule_set_ip_cidr_match_source: bool,
 
     #[serde(default)]
     pub action: DnsRuleAction,
@@ -206,7 +217,8 @@ impl DnsRule {
             && self.query_type.is_empty()
             && self.inbound.is_empty()
             && self.auth_user.is_empty()
-            && self.outbound.is_empty())
+            && self.outbound.is_empty()
+            && self.rule_set.is_empty())
     }
 
     fn check(&self, servers: &HashSet<String>) -> Result<()> {
@@ -385,6 +397,9 @@ impl Endpoint {
 pub struct Route {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub rules: Vec<Rule>,
+    /// The rule-sets rules name, by tag.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rule_set: Vec<super::rule_set::RuleSet>,
     /// The outbound for connections no rule matches; defaults to the first
     /// outbound.
     #[serde(rename = "final", default, skip_serializing_if = "Option::is_none")]
@@ -488,6 +503,17 @@ pub struct Rule {
     /// Names of the users an inbound authenticated.
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
     pub auth_user: Vec<String>,
+    /// Tags of rule-sets, any of whose rules matching matches.
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub rule_set: Vec<String>,
+    /// The rule-sets' `ip_cidr` match the source address, not the
+    /// destination.
+    #[serde(
+        default,
+        alias = "rule_set_ipcidr_match_source",
+        skip_serializing_if = "std::ops::Not::not"
+    )]
+    pub rule_set_ip_cidr_match_source: bool,
 
     #[serde(default)]
     pub action: RuleAction,
@@ -553,7 +579,8 @@ impl Rule {
             && self.network.is_empty()
             && self.inbound.is_empty()
             && self.process_name.is_empty()
-            && self.auth_user.is_empty())
+            && self.auth_user.is_empty()
+            && self.rule_set.is_empty())
     }
 
     /// The configuration mistakes one rule can make on its own.
@@ -744,6 +771,55 @@ impl Config {
         for (i, rule) in self.route.rules.iter().enumerate() {
             rule.check(&outbounds)
                 .map_err(|e| anyhow!("route.rules[{}]: {}", i, e))?;
+        }
+
+        let mut rule_sets = HashSet::new();
+        for (i, rule_set) in self.route.rule_set.iter().enumerate() {
+            rule_set
+                .check()
+                .map_err(|e| anyhow!("route.rule_set[{}]: {}", i, e))?;
+            for tag in &rule_set.tag {
+                if !rule_sets.insert(tag.as_str()) {
+                    return Err(anyhow!(
+                        "route.rule_set[{}]: another rule-set is tagged [{}]",
+                        i,
+                        tag
+                    ));
+                }
+            }
+            if let Some(detour) = &rule_set.download_detour {
+                if !outbounds.contains(detour.as_str()) {
+                    return Err(anyhow!(
+                        "route.rule_set[{}].download_detour: outbound [{}] does not exist",
+                        i,
+                        detour
+                    ));
+                }
+            }
+        }
+        let named = self
+            .route
+            .rules
+            .iter()
+            .enumerate()
+            .flat_map(|(i, r)| {
+                r.rule_set
+                    .iter()
+                    .map(move |t| (format!("route.rules[{}]", i), t))
+            })
+            .chain(self.dns.rules.iter().enumerate().flat_map(|(i, r)| {
+                r.rule_set
+                    .iter()
+                    .map(move |t| (format!("dns.rules[{}]", i), t))
+            }));
+        for (at, tag) in named {
+            if !rule_sets.contains(tag.as_str()) {
+                return Err(anyhow!(
+                    "{}.rule_set: rule-set [{}] does not exist",
+                    at,
+                    tag
+                ));
+            }
         }
         Ok(())
     }

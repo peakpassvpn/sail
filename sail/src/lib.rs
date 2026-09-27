@@ -249,10 +249,12 @@ impl RuntimeManager {
         info!("reloading from config file: {}", config_path);
         let config = config::from_file(config_path).map_err(Error::Config)?;
         let dial_defaults = dial_defaults(&config, &self.env).map_err(Error::Config)?;
+        let rule_sets = app::router::rule_set::RuleSets::load(&config.route.rule_set, &self.env)
+            .map_err(Error::Config)?;
         let dns_client = self
             .dns_client
             .load()
-            .reloaded(&config.dns, dial_defaults.clone(), &self.env)
+            .reloaded(&config.dns, dial_defaults.clone(), &self.env, &rule_sets)
             .map_err(Error::Config)?;
         dns_client
             .check_loops(
@@ -271,8 +273,13 @@ impl RuntimeManager {
             self.dns_client.clone(),
         )
         .map_err(Error::Config)?;
-        let router = Router::new(&config.route, self.dns_client.clone(), &self.env)
-            .map_err(Error::Config)?;
+        let router = Router::with_rule_sets(
+            &config.route,
+            self.dns_client.clone(),
+            &self.env,
+            &rule_sets,
+        )
+        .map_err(Error::Config)?;
         app::logger::setup_logger(&config.log, &self.env.host)?;
         log_warnings(&config);
 

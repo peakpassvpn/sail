@@ -28,8 +28,16 @@ pub(crate) struct Facts {
     network: Network,
     inbound: String,
     user: Option<std::sync::Arc<str>>,
-    #[cfg_attr(not(feature = "rule-process-name"), allow(dead_code))]
+    #[cfg_attr(
+        not(any(feature = "rule-process-name", feature = "rule-set")),
+        allow(dead_code)
+    )]
     process_name: Option<String>,
+    #[cfg_attr(not(feature = "rule-set"), allow(dead_code))]
+    source: std::net::SocketAddr,
+    /// The record type, for a DNS query.
+    #[cfg_attr(not(feature = "rule-set"), allow(dead_code))]
+    query_type: Option<u16>,
 }
 
 impl Facts {
@@ -48,7 +56,15 @@ impl Facts {
             inbound: sess.inbound_tag.clone(),
             user: sess.user.clone(),
             process_name: sess.process_name.clone(),
+            source: sess.source,
+            query_type: None,
         }
+    }
+
+    /// The facts of a DNS query of `query_type`.
+    pub fn with_query_type(mut self, query_type: u16) -> Self {
+        self.query_type = Some(query_type);
+        self
     }
 
     pub fn domain(&self) -> Option<&str> {
@@ -56,9 +72,74 @@ impl Facts {
     }
 }
 
+#[cfg(feature = "rule-set")]
+impl Facts {
+    /// Where the connection came from; none for the DNS client's own
+    /// queries.
+    pub fn source(&self) -> Option<std::net::SocketAddr> {
+        Some(self.source).filter(|s| !s.ip().is_unspecified() || s.port() != 0)
+    }
+
+    pub fn ips(&self) -> &[IpAddr] {
+        &self.ips
+    }
+
+    pub fn port(&self) -> u16 {
+        self.port
+    }
+
+    pub fn network(&self) -> Network {
+        self.network
+    }
+
+    pub fn process_name(&self) -> Option<&str> {
+        self.process_name.as_deref()
+    }
+
+    pub fn query_type(&self) -> Option<u16> {
+        self.query_type
+    }
+}
+
+/// The things a rule has conditions on, as sing-box groups them: of the
+/// conditions on one thing, any matching will do.
+#[derive(Debug, Default, Clone, Copy)]
+pub(crate) struct Groups {
+    required: u8,
+    satisfied: u8,
+}
+
+#[cfg_attr(not(feature = "rule-set"), allow(dead_code))]
+impl Groups {
+    pub const SOURCE_ADDRESS: u8 = 1;
+    pub const SOURCE_PORT: u8 = 2;
+    pub const DESTINATION_ADDRESS: u8 = 4;
+    pub const DESTINATION_PORT: u8 = 8;
+
+    /// Conditions on `group`, which match or not.
+    pub fn require(&mut self, group: u8, matched: bool) {
+        self.required |= group;
+        if matched {
+            self.satisfied |= group;
+        }
+    }
+
+    /// Whether every thing with conditions matches.
+    pub fn done(self) -> bool {
+        self.required & !self.satisfied == 0
+    }
+
+    pub fn merge(self, other: Groups) -> Groups {
+        Groups {
+            required: self.required | other.required,
+            satisfied: self.satisfied | other.satisfied,
+        }
+    }
+}
+
 /// Domains by how they are compared.
 #[derive(Default)]
-struct DomainIndex {
+pub(crate) struct DomainIndex {
     full: HashSet<String>,
     /// A domain matches when it is one of these or a subdomain of one.
     suffix: HashSet<String>,
@@ -69,7 +150,7 @@ struct DomainIndex {
 }
 
 impl DomainIndex {
-    fn insert(&mut self, kind: DomainKind, value: &str) {
+    pub(crate) fn insert(&mut self, kind: DomainKind, value: &str) {
         let value = value.to_ascii_lowercase();
         match kind {
             DomainKind::Full => {
@@ -87,14 +168,14 @@ impl DomainIndex {
         }
     }
 
-    fn is_empty(&self) -> bool {
+    pub(crate) fn is_empty(&self) -> bool {
         self.full.is_empty()
             && self.suffix.is_empty()
             && self.subdomain.is_empty()
             && self.keyword.is_empty()
     }
 
-    fn matches(&self, domain: &str) -> bool {
+    pub(crate) fn matches(&self, domain: &str) -> bool {
         if self.full.contains(domain) {
             return true;
         }
@@ -118,13 +199,13 @@ impl DomainIndex {
 
 /// Address ranges, sorted and merged, per family.
 #[derive(Default)]
-struct CidrIndex {
+pub(crate) struct CidrIndex {
     v4: Vec<(u32, u32)>,
     v6: Vec<(u128, u128)>,
 }
 
 impl CidrIndex {
-    fn new(cidrs: &[String]) -> Result<Self> {
+    pub(crate) fn new(cidrs: &[String]) -> Result<Self> {
         let mut index = CidrIndex::default();
         for value in cidrs {
             let cidr = value
@@ -141,11 +222,31 @@ impl CidrIndex {
         Ok(index)
     }
 
-    fn is_empty(&self) -> bool {
+    /// Inclusive ranges of addresses, each of one family.
+    #[cfg_attr(not(feature = "rule-set"), allow(dead_code))]
+    pub(crate) fn from_ranges(ranges: &[(IpAddr, IpAddr)]) -> Result<Self> {
+        let mut index = CidrIndex::default();
+        for &(first, last) in ranges {
+            match (first.to_canonical(), last.to_canonical()) {
+                (IpAddr::V4(first), IpAddr::V4(last)) if first <= last => {
+                    index.v4.push((first.into(), last.into()))
+                }
+                (IpAddr::V6(first), IpAddr::V6(last)) if first <= last => {
+                    index.v6.push((first.into(), last.into()))
+                }
+                _ => return Err(anyhow!("invalid address range {} - {}", first, last)),
+            }
+        }
+        merge(&mut index.v4);
+        merge(&mut index.v6);
+        Ok(index)
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
         self.v4.is_empty() && self.v6.is_empty()
     }
 
-    fn contains(&self, ip: IpAddr) -> bool {
+    pub(crate) fn contains(&self, ip: IpAddr) -> bool {
         match ip.to_canonical() {
             IpAddr::V4(ip) => within(&self.v4, u32::from(ip)),
             IpAddr::V6(ip) => within(&self.v6, u128::from(ip)),
@@ -200,10 +301,19 @@ pub(crate) struct Matcher {
     users: Vec<String>,
     #[cfg(feature = "rule-process-name")]
     process_names: Vec<Regex>,
+    #[cfg(feature = "rule-set")]
+    rule_sets: Vec<super::rule_set::SharedRuleSet>,
+    #[cfg(feature = "rule-set")]
+    ip_match_source: bool,
 }
 
 impl Matcher {
-    pub fn new(rule: &model::Rule, readers: &mut Readers, env: &RuntimeEnv) -> Result<Self> {
+    pub fn new(
+        rule: &model::Rule,
+        readers: &mut Readers,
+        env: &RuntimeEnv,
+        rule_sets: &super::rule_set::RuleSets,
+    ) -> Result<Self> {
         let mut domains = DomainIndex::default();
         for d in &rule.domain {
             domains.insert(DomainKind::Full, d);
@@ -255,6 +365,17 @@ impl Matcher {
             })
             .collect::<Result<_>>()?;
 
+        #[cfg(feature = "rule-set")]
+        let sets = rule
+            .rule_set
+            .iter()
+            .map(|tag| rule_sets.get(tag))
+            .collect::<Result<_>>()?;
+        #[cfg(not(feature = "rule-set"))]
+        if let Some(tag) = rule.rule_set.first() {
+            rule_sets.get(tag)?;
+        }
+
         #[cfg(not(feature = "rule-process-name"))]
         if !rule.process_name.is_empty() {
             return Err(anyhow!(
@@ -292,13 +413,16 @@ impl Matcher {
                         .map_err(|e| anyhow!("process_name: invalid pattern \"{}\": {}", p, e))
                 })
                 .collect::<Result<_>>()?,
+            #[cfg(feature = "rule-set")]
+            rule_sets: sets,
+            #[cfg(feature = "rule-set")]
+            ip_match_source: rule.rule_set_ip_cidr_match_source,
         })
     }
 
     pub fn matches(&self, facts: &Facts) -> bool {
-        let destination_set =
-            !self.domains.is_empty() || !self.cidrs.is_empty() || !self.mmdbs.is_empty();
-        if destination_set {
+        let mut groups = Groups::default();
+        if !self.domains.is_empty() || !self.cidrs.is_empty() || !self.mmdbs.is_empty() {
             let by_domain = facts.domain().is_some_and(|d| self.domains.matches(d));
             let by_ip = || {
                 facts
@@ -306,17 +430,15 @@ impl Matcher {
                     .iter()
                     .any(|&ip| self.cidrs.contains(ip) || self.mmdbs.iter().any(|m| m.contains(ip)))
             };
-            if !by_domain && !by_ip() {
-                return false;
-            }
+            groups.require(Groups::DESTINATION_ADDRESS, by_domain || by_ip());
         }
-        if !self.ports.is_empty()
-            && !self
-                .ports
-                .iter()
-                .any(|&(start, end)| (start..=end).contains(&facts.port))
-        {
-            return false;
+        if !self.ports.is_empty() {
+            groups.require(
+                Groups::DESTINATION_PORT,
+                self.ports
+                    .iter()
+                    .any(|&(start, end)| (start..=end).contains(&facts.port)),
+            );
         }
         if !self.networks.is_empty() && !self.networks.contains(&facts.network) {
             return false;
@@ -341,13 +463,20 @@ impl Matcher {
         {
             return false;
         }
-        true
+        #[cfg(feature = "rule-set")]
+        if !self.rule_sets.is_empty() {
+            return self
+                .rule_sets
+                .iter()
+                .any(|set| set.load().matches_with(groups, facts, self.ip_match_source));
+        }
+        groups.done()
     }
 }
 
 /// An inclusive range as sing-box writes it: `1000:2000`, or open at one
 /// end, `:1024`, `8000:`.
-fn port_range(value: &str) -> Result<(u16, u16)> {
+pub(crate) fn port_range(value: &str) -> Result<(u16, u16)> {
     let invalid = || anyhow!("port_range: invalid port range \"{}\"", value);
     let (start, end) = value.split_once(':').ok_or_else(invalid)?;
     let bound = |s: &str, open: u16| match s.trim() {
@@ -367,7 +496,13 @@ mod tests {
     use crate::session::SocksAddr;
 
     fn matcher(rule: model::Rule) -> Matcher {
-        Matcher::new(&rule, &mut Readers::new(), &RuntimeEnv::default()).unwrap()
+        Matcher::new(
+            &rule,
+            &mut Readers::new(),
+            &RuntimeEnv::default(),
+            &Default::default(),
+        )
+        .unwrap()
     }
 
     fn to(destination: SocksAddr) -> Facts {
@@ -525,9 +660,14 @@ mod tests {
                 "network: unknown network",
             ),
         ] {
-            let err = Matcher::new(&rule, &mut Readers::new(), &RuntimeEnv::default())
-                .err()
-                .unwrap();
+            let err = Matcher::new(
+                &rule,
+                &mut Readers::new(),
+                &RuntimeEnv::default(),
+                &Default::default(),
+            )
+            .err()
+            .unwrap();
             assert!(err.to_string().starts_with(message), "{}", err);
         }
         for bad in ["22", "22:21", ":", "22-23", "22:abc", "22:23:24"] {
