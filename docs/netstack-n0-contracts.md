@@ -890,6 +890,28 @@ those cross-target library checks need to be rerun.
   cover a connection from an ephemeral port carrying data both ways, a
   refused connect, an abandoned connect releasing its flow, and UDP replies
   on an originated flow.
+- Active open, step 4 (the Linux kernel as the peer):
+  `linux_kernel_accepts_connections_the_stack_opens` runs the stack on two
+  queues of a multi-queue TUN device, which the kernel fills by flow hash,
+  and opens connections to kernel sockets. It covers:
+  - a megabyte each way at once, then a half-close from each end;
+  - 64 concurrent connections to one listener on distinct ephemeral ports;
+  - a dropped first SYN answered after the 1 s initial RTO (RFC 6298);
+  - a dropped stream reaching the kernel as a reset;
+  - a closed port refusing the connection;
+  - a UDP flow the stack opens, with the kernel's answer and a further
+    datagram on it;
+  - an IPv6 connection carrying 256 KiB each way.
+
+  It passed 10 of 10 runs on the x86_64 Linux host, along with the other
+  privileged kernel tests. A capture shows the kernel accepting every option
+  the SYN offers (MSS, SACK-permitted, timestamps, window scale) and
+  answering with window scale 7. Known gap, shared with passive flows: TSval
+  counts milliseconds from the runtime's start, without the per-connection
+  random offset RFC 7323 7.1 recommends against leaking uptime.
+  After the runtime work, a final 20-minute campaign per target ran about
+  1.7 million `tcp_table` executions (ephemeral ports now filtered by owner)
+  and 107 million `tcp_state` executions, without a failure.
 - `cargo test -p sail-netstack` currently runs 287 deterministic contract,
   randomized-model, scheduler, timer, wire, and UDP lifecycle tests. Strict
   `cargo clippy -p sail-netstack --all-targets -- -D warnings` is clean. Both

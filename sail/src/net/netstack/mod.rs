@@ -22,6 +22,11 @@ pub(crate) mod testing;
 
 #[expect(unused_imports, reason = "the WireGuard outbound is its first user")]
 pub(crate) use channel::ChannelPacketIo;
+#[cfg_attr(
+    not(all(test, target_os = "linux")),
+    expect(unused_imports, reason = "the WireGuard outbound is its first user")
+)]
+pub(crate) use runtime::NativeConnection;
 pub(crate) use runtime::{
     NativeRuntimeControl, NativeRuntimeGroup, NativeUdpDatagram, NativeUdpReplyHandle,
 };

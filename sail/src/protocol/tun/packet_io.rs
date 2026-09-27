@@ -441,6 +441,8 @@ mod tests {
     #[cfg(target_os = "linux")]
     use std::sync::Arc;
     use std::time::Duration;
+    #[cfg(target_os = "linux")]
+    use std::time::Instant;
 
     use sail_netstack::{ResourceLedger, RunnerConfig};
 
@@ -448,6 +450,8 @@ mod tests {
     #[cfg(target_os = "linux")]
     use crate::net::netstack::testing::tcp_packet;
     use crate::net::netstack::NativeRuntimeGroup;
+    #[cfg(target_os = "linux")]
+    use crate::net::netstack::{NativeConnection, NativeRuntimeControl};
     #[cfg(target_os = "linux")]
     use hickory_proto::{
         op::{Message, MessageType, OpCode, Query},
@@ -495,9 +499,11 @@ mod tests {
     }
 
     #[cfg(target_os = "linux")]
-    struct DropFirstTcpPayload<I> {
+    /// Drops the first outgoing TCP segment `drops` picks while armed.
+    struct DropFirstTcpSegment<I> {
         inner: I,
         armed: Arc<AtomicBool>,
+        drops: fn(&sail_netstack::ParsedTcpSegment<'_>) -> bool,
         pending_send_error: Option<io::Error>,
     }
 
@@ -635,11 +641,21 @@ mod tests {
     }
 
     #[cfg(target_os = "linux")]
-    impl<I: PacketIo> DropFirstTcpPayload<I> {
-        fn new(inner: I, armed: Arc<AtomicBool>) -> Self {
+    impl<I: PacketIo> DropFirstTcpSegment<I> {
+        fn payload(inner: I, armed: Arc<AtomicBool>) -> Self {
             Self {
                 inner,
                 armed,
+                drops: |segment| !segment.payload.is_empty(),
+                pending_send_error: None,
+            }
+        }
+
+        fn syn(inner: I, armed: Arc<AtomicBool>) -> Self {
+            Self {
+                inner,
+                armed,
+                drops: |segment| segment.meta.flags == TcpFlags::SYN,
                 pending_send_error: None,
             }
         }
@@ -651,12 +667,12 @@ mod tests {
             let Ok(segment) = parse_tcp_segment(ip, true) else {
                 return false;
             };
-            !segment.payload.is_empty() && self.armed.swap(false, Ordering::SeqCst)
+            (self.drops)(&segment) && self.armed.swap(false, Ordering::SeqCst)
         }
     }
 
     #[cfg(target_os = "linux")]
-    impl<I: PacketIo> PacketIo for DropFirstTcpPayload<I> {
+    impl<I: PacketIo> PacketIo for DropFirstTcpSegment<I> {
         async fn recv(&mut self, out: &mut PacketBatch) -> io::Result<usize> {
             self.inner.recv(out).await
         }
@@ -846,7 +862,7 @@ mod tests {
         let reorder_completed = Arc::new(AtomicBool::new(false));
         let queues = vec![
             ReorderDuplicateTcpPayload::new(
-                DropFirstTcpPayload::new(
+                DropFirstTcpSegment::payload(
                     TunRsPacketIo::new(first, 1_500, 64, 2, true).unwrap(),
                     Arc::clone(&drop_tcp_payload),
                 ),
@@ -854,7 +870,7 @@ mod tests {
                 Arc::clone(&reorder_completed),
             ),
             ReorderDuplicateTcpPayload::new(
-                DropFirstTcpPayload::new(
+                DropFirstTcpSegment::payload(
                     TunRsPacketIo::new(second, 1_500, 64, 2, true).unwrap(),
                     Arc::clone(&drop_tcp_payload),
                 ),
@@ -1118,6 +1134,286 @@ mod tests {
     /// the traffic duration (default 30); progress is printed every minute.
     /// After traffic stops, every flow, payload, and packet lease must return
     /// to zero; router metadata is a bounded cache and is only reported.
+    /// Bytes both ends of a transfer agree on.
+    #[cfg(target_os = "linux")]
+    fn pattern(len: usize, seed: u8) -> Vec<u8> {
+        (0..len)
+            .map(|index| u8::try_from(index % 251).unwrap() ^ seed)
+            .collect()
+    }
+
+    /// Binds once the kernel has finished duplicate address detection.
+    #[cfg(target_os = "linux")]
+    async fn bind_when_ready(address: SocketAddr) -> tokio::net::TcpListener {
+        let deadline = Instant::now() + Duration::from_secs(3);
+        loop {
+            match tokio::net::TcpListener::bind(address).await {
+                Ok(listener) => return listener,
+                Err(error)
+                    if error.kind() == io::ErrorKind::AddrNotAvailable
+                        && Instant::now() < deadline =>
+                {
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                }
+                Err(error) => panic!("bind {address}: {error}"),
+            }
+        }
+    }
+
+    /// Connects to `listener` through the stack, and returns both ends.
+    #[cfg(target_os = "linux")]
+    async fn connect_to_kernel(
+        control: &mut NativeRuntimeControl,
+        local: SocketAddr,
+        listener: &tokio::net::TcpListener,
+    ) -> (NativeConnection, tokio::net::TcpStream) {
+        let remote = listener.local_addr().unwrap();
+        let (opened, accepted) = timeout(Duration::from_secs(5), async {
+            tokio::join!(control.connect(local, remote), listener.accept())
+        })
+        .await
+        .expect("the kernel and the stack never connected");
+        let opened = opened.unwrap();
+        let (kernel, peer) = accepted.unwrap();
+        assert_eq!(peer, opened.connection.source);
+        assert_eq!(opened.connection.destination, remote);
+        (opened, kernel)
+    }
+
+    /// Sends `outgoing` one way and `incoming` the other at once, each end
+    /// closing its sending half when done, and checks what arrives.
+    #[cfg(target_os = "linux")]
+    async fn exchange(
+        opened: NativeConnection,
+        kernel: tokio::net::TcpStream,
+        outgoing: &[u8],
+        incoming: &[u8],
+    ) {
+        let mut stack = opened.stream;
+        let (mut kernel_read, mut kernel_write) = kernel.into_split();
+        let (mut stack_read, mut stack_write) = tokio::io::split(&mut stack);
+        let stack_side = async {
+            let (written, received) = tokio::join!(
+                async {
+                    stack_write.write_all(outgoing).await?;
+                    stack_write.shutdown().await
+                },
+                async {
+                    let mut received = Vec::new();
+                    stack_read
+                        .read_to_end(&mut received)
+                        .await
+                        .map(|_| received)
+                }
+            );
+            written.unwrap();
+            received.unwrap()
+        };
+        let kernel_side = async {
+            let (written, received) = tokio::join!(
+                async {
+                    kernel_write.write_all(incoming).await?;
+                    kernel_write.shutdown().await
+                },
+                async {
+                    let mut received = Vec::new();
+                    kernel_read
+                        .read_to_end(&mut received)
+                        .await
+                        .map(|_| received)
+                }
+            );
+            written.unwrap();
+            received.unwrap()
+        };
+        let (at_stack, at_kernel) = timeout(Duration::from_secs(30), async {
+            tokio::join!(stack_side, kernel_side)
+        })
+        .await
+        .expect("the transfer stalled");
+        assert!(at_kernel == outgoing, "the kernel received other bytes");
+        assert!(at_stack == incoming, "the stack received other bytes");
+    }
+
+    /// The stack opens connections to the kernel, a peer that offers every
+    /// option. The kernel spreads its packets over the device's queues by
+    /// flow hash, so each reply must be routed back to the shard that opened
+    /// the connection.
+    #[cfg(target_os = "linux")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[ignore = "requires Linux /dev/net/tun and CAP_NET_ADMIN"]
+    async fn linux_kernel_accepts_connections_the_stack_opens() {
+        let first = tun_rs::DeviceBuilder::new()
+            .name("sailns-conn")
+            .ipv4("10.209.0.1", 24, None)
+            .ipv6("2001:db8:209::1", 64)
+            .mtu(1_500)
+            .enable(true)
+            .multi_queue(true)
+            .offload(true)
+            .build_async()
+            .unwrap();
+        let second = first.try_clone().unwrap();
+        let drop_syn = Arc::new(AtomicBool::new(false));
+        let queues = vec![
+            DropFirstTcpSegment::syn(
+                TunRsPacketIo::new(first, 1_500, 64, 2, true).unwrap(),
+                Arc::clone(&drop_syn),
+            ),
+            DropFirstTcpSegment::syn(
+                TunRsPacketIo::new(second, 1_500, 64, 2, true).unwrap(),
+                Arc::clone(&drop_syn),
+            ),
+        ];
+        let ledger = ResourceLedger::new(BudgetProfile::Server.budget()).unwrap();
+        let (runtime, _accepted, mut datagrams, mut udp_reply, mut control) =
+            NativeRuntimeGroup::new(queues, ledger, RunnerConfig::default(), 64, 8, 8).unwrap();
+        assert_eq!(runtime.shard_count(), 2);
+        let runtime_task = tokio::spawn(runtime.run());
+        let local = SocketAddr::from((Ipv4Addr::new(10, 209, 0, 2), 0));
+        let listener = bind_when_ready(SocketAddr::from((Ipv4Addr::new(10, 209, 0, 1), 0))).await;
+
+        // A megabyte each way at once, then a half-close from each end.
+        let (opened, kernel) = connect_to_kernel(&mut control, local, &listener).await;
+        assert!(opened.connection.source.port() >= 49_152);
+        exchange(
+            opened,
+            kernel,
+            &pattern(1 << 20, 0x5a),
+            &pattern(1 << 20, 0xa5),
+        )
+        .await;
+
+        // Many at once towards one listener: ports on both shards, none
+        // shared. The kernel accepts them in its own order, so they pair up
+        // by address.
+        let remote = listener.local_addr().unwrap();
+        let (opened, accepted) = timeout(Duration::from_secs(10), async {
+            tokio::join!(
+                futures::future::join_all((0..64).map(|_| {
+                    let mut control = control.clone();
+                    async move { control.connect(local, remote).await.unwrap() }
+                })),
+                async {
+                    let mut accepted = std::collections::HashMap::new();
+                    while accepted.len() < 64 {
+                        let (kernel, peer) = listener.accept().await.unwrap();
+                        accepted.insert(peer, kernel);
+                    }
+                    accepted
+                }
+            )
+        })
+        .await
+        .expect("the concurrent connections never completed");
+        let mut accepted = accepted;
+        let mut ports = std::collections::HashSet::new();
+        let exchanges = opened.into_iter().zip(0_u8..).map(|(opened, seed)| {
+            let port = opened.connection.source.port();
+            assert!(ports.insert(port), "port {port} was used twice");
+            let kernel = accepted
+                .remove(&opened.connection.source)
+                .expect("the kernel accepted another address");
+            async move {
+                exchange(
+                    opened,
+                    kernel,
+                    &pattern(4_096, seed),
+                    &pattern(2_048, !seed),
+                )
+                .await;
+            }
+        });
+        futures::future::join_all(exchanges).await;
+        assert_eq!(ports.len(), 64);
+
+        // A lost SYN is retransmitted after the initial RTO (RFC 6298).
+        drop_syn.store(true, Ordering::SeqCst);
+        let started = Instant::now();
+        let (opened, kernel) = connect_to_kernel(&mut control, local, &listener).await;
+        assert!(!drop_syn.load(Ordering::SeqCst), "no SYN was dropped");
+        assert!(started.elapsed() >= Duration::from_millis(900));
+        exchange(opened, kernel, b"after a lost SYN", b"answered").await;
+
+        // Dropping the stream aborts the connection with a reset.
+        let (opened, mut kernel) = connect_to_kernel(&mut control, local, &listener).await;
+        drop(opened);
+        let mut buffer = [0_u8; 16];
+        let read = timeout(Duration::from_secs(5), kernel.read(&mut buffer))
+            .await
+            .expect("the kernel never saw the reset");
+        assert_eq!(
+            read.err().map(|error| error.kind()),
+            Some(io::ErrorKind::ConnectionReset)
+        );
+
+        // A closed port answers the SYN with a reset.
+        let closed = {
+            let probe = bind_when_ready(SocketAddr::from((Ipv4Addr::new(10, 209, 0, 1), 0))).await;
+            probe.local_addr().unwrap()
+        };
+        let refused = timeout(Duration::from_secs(5), control.connect(local, closed))
+            .await
+            .expect("the refusal never arrived");
+        assert_eq!(
+            refused.err().map(|error| error.kind()),
+            Some(io::ErrorKind::ConnectionRefused)
+        );
+
+        // UDP: the stack sends first, and the kernel's answer comes back on
+        // the flow that opened.
+        let kernel_udp = tokio::net::UdpSocket::bind("10.209.0.1:0").await.unwrap();
+        let kernel_address = kernel_udp.local_addr().unwrap();
+        let (token, bound) = control
+            .send_udp(local, kernel_address, b"stack-first".to_vec())
+            .await
+            .unwrap();
+        let mut received = [0_u8; 32];
+        let (count, source) = timeout(Duration::from_secs(1), kernel_udp.recv_from(&mut received))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(source, bound);
+        assert_eq!(&received[..count], b"stack-first");
+        kernel_udp.send_to(b"kernel-answer", bound).await.unwrap();
+        let answer = timeout(Duration::from_secs(1), datagrams.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(answer.token, token);
+        assert_eq!(answer.source, kernel_address);
+        assert_eq!(answer.destination, bound);
+        assert_eq!(answer.payload.to_vec(), b"kernel-answer");
+        udp_reply
+            .send(token, bound, b"stack-again".to_vec())
+            .await
+            .unwrap();
+        let (count, source) = timeout(Duration::from_secs(1), kernel_udp.recv_from(&mut received))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(source, bound);
+        assert_eq!(&received[..count], b"stack-again");
+
+        // IPv6, once the kernel's address is usable.
+        let listener_v6 = bind_when_ready(SocketAddr::from((
+            "2001:db8:209::1".parse::<Ipv6Addr>().unwrap(),
+            0,
+        )))
+        .await;
+        let local_v6 = SocketAddr::from(("2001:db8:209::2".parse::<Ipv6Addr>().unwrap(), 0));
+        let (opened, kernel) = connect_to_kernel(&mut control, local_v6, &listener_v6).await;
+        exchange(
+            opened,
+            kernel,
+            &pattern(256 << 10, 0x33),
+            &pattern(256 << 10, 0xcc),
+        )
+        .await;
+
+        runtime_task.abort();
+    }
+
     #[cfg(target_os = "linux")]
     #[tokio::test]
     #[ignore = "requires Linux /dev/net/tun and CAP_NET_ADMIN; long-running"]
