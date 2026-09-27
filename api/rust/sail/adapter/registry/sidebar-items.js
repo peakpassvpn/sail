@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["build_inbounds","build_outbounds","no_dependencies"],"struct":["InboundContext","InboundFactory","OutboundBuildState","OutboundContext","OutboundFactory","Registry"],"type":["Handlers","InboundRegistry","OutboundRegistry"]};

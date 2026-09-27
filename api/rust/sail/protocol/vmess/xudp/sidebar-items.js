@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["NETWORK_TCP","NETWORK_UDP","OPTION_DATA","OPTION_ERROR","STATUS_END","STATUS_KEEP","STATUS_KEEP_ALIVE","STATUS_NEW"],"fn":["parse_addr_port","read_addr_port","read_data","read_metadata","write_addr_port"],"struct":["ClientDatagram","Metadata","ServerDatagram"]};

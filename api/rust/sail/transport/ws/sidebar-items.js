@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["decode_early_data","encode_early_data","target_with_early_data"],"mod":["inbound","outbound"],"struct":["EarlyData"]};

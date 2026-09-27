@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["DnsStrategy","LogFormat","LogLevel","RuleAction","Sniffer"],"fn":["parse_duration","parse_options"],"mod":["duration"],"struct":["Api","Config","Dns","Inbound","Log","Outbound","Route","Rule"],"type":["Options"]};

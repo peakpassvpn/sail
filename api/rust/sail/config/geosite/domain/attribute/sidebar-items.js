@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["Typed_value"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["ATYP_DOMAIN","ATYP_IPV4","ATYP_IPV6","CMD_CONNECT","CMD_UDP","DATA_HEADER_LEN","FIN_LEN","MIN_HEADER_LEN","MTYP_DATA","MTYP_FIN","MTYP_PING","MTYP_PONG","MTYP_RST","VER"],"enum":["Address","Frame"],"struct":["HandshakeRequest","UdpHeader"]};

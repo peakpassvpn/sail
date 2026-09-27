@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["encode","read_payload"],"struct":["ClientDatagram","ServerDatagram"]};
