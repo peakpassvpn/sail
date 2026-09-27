@@ -250,7 +250,7 @@ mod tests {
     async fn a_sniffed_domain_is_matched_by_the_rules_after_the_sniff() {
         let router = router(serde_json::json!([
             { "domain_suffix": ["example.com"], "outbound": "a" },
-            { "action": "sniff", "port_range": ["443"] },
+            { "action": "sniff", "port": [443] },
             { "domain_suffix": ["example.com"], "outbound": "a" },
         ]));
         let mut sniffer = FakeSniffer {

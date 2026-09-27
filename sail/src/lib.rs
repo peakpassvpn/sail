@@ -268,6 +268,7 @@ impl RuntimeManager {
         let router = Router::new(&config.route, self.dns_client.clone(), &self.env)
             .map_err(Error::Config)?;
         app::logger::setup_logger(&config.log, &self.env.host)?;
+        log_warnings(&config);
 
         #[cfg(feature = "outbound-select")]
         outbound_manager
@@ -636,6 +637,13 @@ pub fn check_config(config: &config::Config, env: &runtime::RuntimeEnv) -> anyho
     Ok(())
 }
 
+/// Logs what the configuration sets that sail ignores.
+fn log_warnings(config: &config::Config) {
+    for warning in &config.warnings {
+        tracing::warn!("{}", warning);
+    }
+}
+
 fn new_runtime(opt: &RuntimeOption) -> Result<tokio::runtime::Runtime, Error> {
     match opt {
         RuntimeOption::SingleThread => tokio::runtime::Builder::new_current_thread()
@@ -713,6 +721,7 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
     });
 
     app::logger::setup_logger(&config.log, &env.host)?;
+    log_warnings(&config);
     tracing::debug!("runtime options: {:?}", env.options);
 
     let rt = new_runtime(&opts.runtime_opt)?;
@@ -875,19 +884,12 @@ mod tests {
             .and_then(|l| l.local_addr())
             .unwrap()
             .port();
-        let conf = format!(
-            r#"
-[General]
-loglevel = trace
-dns-server = 1.1.1.1
-socks-interface = 127.0.0.1
-socks-port = {}
-
-[Proxy]
-Direct = direct
-"#,
-            port
-        );
+        let conf = serde_json::json!({
+            "log": { "level": "trace" },
+            "inbounds": [{ "type": "socks", "listen": "127.0.0.1", "listen_port": port }],
+            "outbounds": [{ "type": "direct" }]
+        })
+        .to_string();
 
         for _i in 1..3 {
             let conf = conf.clone();

@@ -29,6 +29,7 @@ enum LogFormatMode {
 #[derive(Clone, Copy)]
 struct LogEventFormat {
     mode: LogFormatMode,
+    timestamp: bool,
 }
 
 impl<S, N> tracing_subscriber::fmt::format::FormatEvent<S, N> for LogEventFormat
@@ -43,9 +44,12 @@ where
         event: &tracing::Event<'_>,
     ) -> std::fmt::Result {
         match self.mode {
-            LogFormatMode::Full => {
+            LogFormatMode::Full if self.timestamp => {
                 tracing_subscriber::fmt::format::Format::default().format_event(ctx, writer, event)
             }
+            LogFormatMode::Full => tracing_subscriber::fmt::format::Format::default()
+                .without_time()
+                .format_event(ctx, writer, event),
             LogFormatMode::Compact => {
                 struct MessageVisitor {
                     message: Option<String>,
@@ -71,6 +75,11 @@ where
 
                 let mut visitor = MessageVisitor { message: None };
                 event.record(&mut visitor);
+
+                if self.timestamp {
+                    fmt::time::FormatTime::format_time(&fmt::time::SystemTime, &mut writer)?;
+                    std::fmt::Write::write_str(&mut writer, " ")?;
+                }
 
                 if let Some(mut message) = visitor.message {
                     if message.starts_with('\"') && message.ends_with('\"') && message.len() >= 2 {
@@ -127,6 +136,7 @@ impl HandleController {
 static HANDLE: RwLock<Option<HandleController>> = RwLock::new(None);
 
 fn get_writer(config: &config::Log, host: &Host) -> Result<(WriterLayer, WorkerGuard)> {
+    let timestamp = config.timestamp;
     let mode = match config.format {
         config::model::LogFormat::Compact => LogFormatMode::Compact,
         config::model::LogFormat::Full => LogFormatMode::Full,
@@ -143,14 +153,14 @@ fn get_writer(config: &config::Log, host: &Host) -> Result<(WriterLayer, WorkerG
             let writer = fmt::Layer::default()
                 .with_ansi(false)
                 .with_writer(writer)
-                .event_format(LogEventFormat { mode });
+                .event_format(LogEventFormat { mode, timestamp });
             (writer, writer_guard)
         }
         None => {
             let (writer, writer_guard) = tracing_appender::non_blocking(std::io::stdout());
             let writer = fmt::Layer::default()
                 .with_writer(writer)
-                .event_format(LogEventFormat { mode });
+                .event_format(LogEventFormat { mode, timestamp });
             (writer, writer_guard)
         }
         Some(output_file) => {
@@ -160,7 +170,7 @@ fn get_writer(config: &config::Log, host: &Host) -> Result<(WriterLayer, WorkerG
             let writer = fmt::Layer::default()
                 .with_ansi(false)
                 .with_writer(writer)
-                .event_format(LogEventFormat { mode });
+                .event_format(LogEventFormat { mode, timestamp });
             (writer, writer_guard)
         }
     })
@@ -169,13 +179,16 @@ fn get_writer(config: &config::Log, host: &Host) -> Result<(WriterLayer, WorkerG
 /// Sets up logging as `config` says; `host` may send console output to the
 /// system log instead of standard output.
 pub fn setup_logger(config: &config::Log, host: &Host) -> Result<()> {
+    use config::model::LogLevel;
+    // Installed even when disabled, so that a reload can turn it back on,
+    // and one that disables it takes effect.
     let filter = match config.level {
-        config::model::LogLevel::Trace => LevelFilter::TRACE,
-        config::model::LogLevel::Debug => LevelFilter::DEBUG,
-        config::model::LogLevel::Info => LevelFilter::INFO,
-        config::model::LogLevel::Warn => LevelFilter::WARN,
-        config::model::LogLevel::Error => LevelFilter::ERROR,
-        config::model::LogLevel::None => return Ok(()),
+        _ if config.disabled => LevelFilter::OFF,
+        LogLevel::Trace => LevelFilter::TRACE,
+        LogLevel::Debug => LevelFilter::DEBUG,
+        LogLevel::Info => LevelFilter::INFO,
+        LogLevel::Warn => LevelFilter::WARN,
+        LogLevel::Error | LogLevel::Fatal | LogLevel::Panic => LevelFilter::ERROR,
     };
     let (writer, writer_guard) = get_writer(config, host)?;
     let mut h = HANDLE.write().unwrap_or_else(|e| e.into_inner());

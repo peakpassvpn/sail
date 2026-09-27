@@ -100,19 +100,26 @@ fn test_tls_trojan() -> anyhow::Result<()> {
 
     common::retry_port_clash(|| {
         let [socks_port, trojan_port] = common::free_ports();
-        let config5 = format!(
-            r#"
-[Certificate.mycert]
-{cert_pem}
-[General]
-socks-interface = 127.0.0.1
-socks-port = {socks_port}
-[Proxy]
-Proxy = trojan, 127.0.0.1, {trojan_port}, password=password, sni=localhost, tls=true, tls-cert=mycert
-[Rule]
-FINAL,Proxy
-"#
-        );
+        // The certificate inline, rather than by path.
+        let config5 = serde_json::json!({
+            "inbounds": [{
+                "type": "socks",
+                "listen": "127.0.0.1",
+                "listen_port": socks_port
+            }],
+            "outbounds": [{
+                "type": "trojan",
+                "server": "127.0.0.1",
+                "server_port": trojan_port,
+                "password": "password",
+                "tls": {
+                    "enabled": true,
+                    "server_name": "localhost",
+                    "certificate": cert_pem
+                }
+            }]
+        })
+        .to_string();
         let configs = vec![config5, server(trojan_port)];
         common::test_configs(configs, "127.0.0.1", socks_port)
     })

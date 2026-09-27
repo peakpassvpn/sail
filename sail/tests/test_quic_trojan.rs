@@ -165,20 +165,28 @@ fn test_quic_trojan() -> anyhow::Result<()> {
 
     common::retry_port_clash(|| {
         let [socks_port, server_port] = common::free_ports();
-        let config5 = format!(
-            r#"
-[Certificate.mycert]
-{cert_pem}
-[General]
-socks-interface = 127.0.0.1
-socks-port = {socks_port}
-[Proxy]
-Proxy = trojan, 127.0.0.1, {server_port}, password=password, sni=localhost, quic=true, tls-cert=mycert
-[Rule]
-FINAL,Proxy
-"#,
-            cert_pem = cert_pem
-        );
+        // The certificate inline, rather than by path.
+        let config5 = serde_json::json!({
+            "inbounds": [{
+                "type": "socks",
+                "listen": "127.0.0.1",
+                "listen_port": socks_port
+            }],
+            "outbounds": [{
+                "type": "trojan",
+                "server": "127.0.0.1",
+                "server_port": server_port,
+                "password": "password",
+                "transport": { "type": "quic" },
+                "tls": {
+                    "enabled": true,
+                    "server_name": "localhost",
+                    "alpn": ["http/1.1"],
+                    "certificate": cert_pem
+                }
+            }]
+        })
+        .to_string();
         let config6 = serde_json::json!({
             "inbounds": [
                 {

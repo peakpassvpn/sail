@@ -1,8 +1,7 @@
-//! The configuration every input format is turned into.
-//!
-//! JSON is written in this shape directly; other formats (`.conf`) are
-//! translated into it. Field names follow sing-box wherever the meaning is
-//! the same.
+//! The configuration the runtime is built from, in sing-box's shape: its
+//! JSON is read into it directly, other formats are translated into it.
+//! Field names follow sing-box wherever the meaning is the same; what sail
+//! adds sits in place, and is marked as an extension where it is declared.
 //!
 //! What an inbound or outbound takes beyond its type and tag belongs to its
 //! protocol: the model keeps it as an untyped map, and the protocol's factory
@@ -37,9 +36,13 @@ pub struct Config {
     pub route: Route,
     #[serde(default, skip_serializing_if = "Api::is_default")]
     pub api: Api,
+    /// What the configuration sets that sail ignores, one line each; the
+    /// start logs them.
+    #[serde(skip)]
+    pub warnings: Vec<String>,
 }
 
-/// The control API.
+/// The control API; a sail extension.
 #[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Api {
@@ -63,8 +66,10 @@ pub enum LogLevel {
     Info,
     Warn,
     Error,
-    /// Logs nothing.
-    None,
+    /// As `error`: sail logs nothing more severe.
+    Fatal,
+    /// As `error`.
+    Panic,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -78,11 +83,18 @@ pub enum LogFormat {
 #[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Log {
+    /// Logs nothing.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub disabled: bool,
     #[serde(default)]
     pub level: LogLevel,
     /// A file to append to. Logs go to the console when it is not set.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output: Option<String>,
+    /// Starts each line with the time.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub timestamp: bool,
+    /// A sail extension: `compact` writes the message alone.
     #[serde(default)]
     pub format: LogFormat,
 }
@@ -100,7 +112,8 @@ pub struct Dns {
     /// Answers kept per address family; 512, or 64 on iOS, when unset.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cache_capacity: Option<usize>,
-    /// How long one query to one server may take; 4s when unset.
+    /// How long one query to one server may take; 4s when unset. A sail
+    /// extension.
     #[serde(default, with = "duration", skip_serializing_if = "Option::is_none")]
     pub timeout: Option<std::time::Duration>,
     /// Remembers the domain of each address the DNS answers that pass
@@ -264,37 +277,41 @@ pub struct Route {
 #[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Rule {
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
     pub domain: Vec<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
     pub domain_suffix: Vec<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
     pub domain_keyword: Vec<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
     pub ip_cidr: Vec<String>,
-    /// Country codes, looked up in `geo.mmdb` in the asset directory.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    /// Country codes, looked up in `geo.mmdb` in the asset directory. A sail
+    /// extension: sing-box has dropped its GeoIP and GeoSite databases.
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
     pub geoip: Vec<String>,
     /// Site groups, looked up in `site.dat` in the asset directory.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
     pub geosite: Vec<String>,
-    /// `mmdb:<file>:<code>` or `site:<file>:<code>`, for data files other
-    /// than the default ones.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    /// A sail extension: `mmdb:<file>:<code>` or `site:<file>:<code>`, for
+    /// data files other than the default ones.
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
     pub external: Vec<String>,
-    /// Ports and port ranges: `443`, `1000-2000`.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub port: Vec<u16>,
+    /// Inclusive port ranges, as sing-box writes them: `1000:2000`, `:1024`,
+    /// `8000:`.
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
     pub port_range: Vec<String>,
     /// `tcp`, `udp`.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
     pub network: Vec<String>,
     /// Tags of the inbounds a connection came in through.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
     pub inbound: Vec<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
     pub process_name: Vec<String>,
     /// Names of the users an inbound authenticated.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
     pub auth_user: Vec<String>,
 
     #[serde(default)]
@@ -303,13 +320,13 @@ pub struct Rule {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub outbound: Option<String>,
     /// `sniff`: the protocols to look for; all of them when empty.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
     pub sniffer: Vec<Sniffer>,
     /// `sniff`: how long to wait for the first bytes; 300ms when unset.
     #[serde(default, with = "duration", skip_serializing_if = "Option::is_none")]
     pub timeout: Option<std::time::Duration>,
-    /// `sniff`: connects to the sniffed domain rather than to the address
-    /// the client asked for.
+    /// `sniff`, a sail extension: connects to the sniffed domain rather than
+    /// to the address the client asked for.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub override_destination: bool,
 }
@@ -349,6 +366,7 @@ impl Rule {
             && self.geoip.is_empty()
             && self.geosite.is_empty()
             && self.external.is_empty()
+            && self.port.is_empty()
             && self.port_range.is_empty()
             && self.network.is_empty()
             && self.inbound.is_empty()
@@ -497,15 +515,6 @@ impl Config {
         }
         Ok(())
     }
-
-    /// Parses a JSON configuration.
-    pub fn from_json(s: &str) -> Result<Self> {
-        let de = &mut serde_json::Deserializer::from_str(s);
-        let mut config: Config = serde_path_to_error::deserialize(de)
-            .map_err(|e| anyhow!("{}: {}", path(&e), e.inner()))?;
-        config.validate()?;
-        Ok(config)
-    }
 }
 
 /// Parses a duration as sing-box writes them: a sequence of numbers with
@@ -565,6 +574,50 @@ pub mod duration {
     }
 }
 
+/// Serde support for lists that sing-box also takes as a single value.
+pub mod listable {
+    use serde::de::{self, IntoDeserializer};
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    pub fn serialize<T: Serialize, S: Serializer>(v: &[T], s: S) -> Result<S::Ok, S::Error> {
+        v.serialize(s)
+    }
+
+    pub fn deserialize<'de, T: Deserialize<'de>, D: Deserializer<'de>>(
+        de: D,
+    ) -> Result<Vec<T>, D::Error> {
+        // A visitor rather than an untagged enum, which would hide why the
+        // value is wrong behind "did not match any variant".
+        struct Visitor<T>(std::marker::PhantomData<T>);
+
+        impl<'de, T: Deserialize<'de>> de::Visitor<'de> for Visitor<T> {
+            type Value = Vec<T>;
+
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("a value or a list of values")
+            }
+
+            fn visit_seq<A: de::SeqAccess<'de>>(self, seq: A) -> Result<Vec<T>, A::Error> {
+                Vec::deserialize(de::value::SeqAccessDeserializer::new(seq))
+            }
+
+            fn visit_str<E: de::Error>(self, v: &str) -> Result<Vec<T>, E> {
+                T::deserialize(v.into_deserializer()).map(|v| vec![v])
+            }
+
+            fn visit_u64<E: de::Error>(self, v: u64) -> Result<Vec<T>, E> {
+                T::deserialize(v.into_deserializer()).map(|v| vec![v])
+            }
+
+            fn visit_i64<E: de::Error>(self, v: i64) -> Result<Vec<T>, E> {
+                T::deserialize(v.into_deserializer()).map(|v| vec![v])
+            }
+        }
+
+        de.deserialize_any(Visitor(std::marker::PhantomData))
+    }
+}
+
 /// Reads the options of the inbound or outbound `tag` into its protocol's
 /// options type, naming the field at fault on failure.
 pub fn parse_options<T: serde::de::DeserializeOwned>(
@@ -576,7 +629,7 @@ pub fn parse_options<T: serde::de::DeserializeOwned>(
         .map_err(|e| anyhow!("[{}] {}: {}: {}", tag, kind, path(&e), e.inner()))
 }
 
-fn path<E>(e: &serde_path_to_error::Error<E>) -> String {
+pub(super) fn path<E>(e: &serde_path_to_error::Error<E>) -> String {
     let path = e.path().to_string();
     if path == "." {
         "options".to_string()

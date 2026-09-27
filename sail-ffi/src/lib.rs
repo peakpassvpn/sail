@@ -135,8 +135,8 @@ fn to_errno(e: sail::Error) -> i32 {
 ///
 /// @param rt_id A unique ID to associate this sail instance, this is required when
 ///              calling subsequent FFI functions, e.g. reload, shutdown.
-/// @param config_path The path of the config file, must be a file with suffix .conf
-///                    or .json, according to the enabled features.
+/// @param config_path The path of the config file: .json for sing-box's format
+///                    (Clash's .yaml / .yml and Surge's .conf are to follow).
 /// @param auto_reload Enabls auto reloading when config file changes are detected,
 ///                    takes effect only when the "auto-reload" feature is enabled.
 /// @param multi_thread Whether to use a multi-threaded runtime.
@@ -199,8 +199,8 @@ pub unsafe extern "C" fn sail_run_with_options(
 ///
 /// @param rt_id A unique ID to associate this sail instance, this is required when
 ///              calling subsequent FFI functions, e.g. reload, shutdown.
-/// @param config_path The path of the config file, must be a file with suffix .conf
-///                    or .json, according to the enabled features.
+/// @param config_path The path of the config file: .json for sing-box's format
+///                    (Clash's .yaml / .yml and Surge's .conf are to follow).
 /// @param settings Tuning and host options as a JSON object, or null for the
 ///                 defaults: `{"profile": "mobile", "set": ["relay.buffer_size=32"],
 ///                 "data_dir": "...", "cache_dir": "...", "log_to_system": true,
@@ -315,8 +315,8 @@ pub extern "C" fn sail_network_changed(rt_id: u16, mtu: u16) -> i32 {
 
 /// Tests the configuration.
 ///
-/// @param config_path The path of the config file, must be a file with suffix .conf
-///                    or .json, according to the enabled features.
+/// @param config_path The path of the config file: .json for sing-box's format
+///                    (Clash's .yaml / .yml and Surge's .conf are to follow).
 /// @param settings The start settings the instance would run with, or null.
 /// @return Returns ERR_OK on success, i.e no syntax error.
 #[no_mangle]

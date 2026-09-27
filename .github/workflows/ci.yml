@@ -68,8 +68,7 @@ jobs:
             inbound-vless,inbound-tls,inbound-reality,outbound-vless,outbound-tls,outbound-reality \
             inbound-hysteria2,outbound-hysteria2 \
             inbound-tuic,outbound-tuic \
-            inbound-tun,outbound-direct \
-            config-conf
+            inbound-tun,outbound-direct
           do
             echo "::group::$features"
             cargo check -p sail --no-default-features --features "$features"

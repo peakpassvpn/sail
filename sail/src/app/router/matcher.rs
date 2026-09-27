@@ -255,9 +255,10 @@ impl Matcher {
             cidrs: CidrIndex::new(&rule.ip_cidr)?,
             mmdbs,
             ports: rule
-                .port_range
+                .port
                 .iter()
-                .map(|p| port_range(p))
+                .map(|&p| Ok((p, p)))
+                .chain(rule.port_range.iter().map(|p| port_range(p)))
                 .collect::<Result<_>>()?,
             networks: rule
                 .network
@@ -332,13 +333,17 @@ impl Matcher {
     }
 }
 
-/// A single port, `443`, or an inclusive range, `1000-2000`.
+/// An inclusive range as sing-box writes it: `1000:2000`, or open at one
+/// end, `:1024`, `8000:`.
 fn port_range(value: &str) -> Result<(u16, u16)> {
     let invalid = || anyhow!("port_range: invalid port range \"{}\"", value);
-    let (start, end) = value.split_once('-').unwrap_or((value, value));
-    let start = start.trim().parse::<u16>().map_err(|_| invalid())?;
-    let end = end.trim().parse::<u16>().map_err(|_| invalid())?;
-    if start > end {
+    let (start, end) = value.split_once(':').ok_or_else(invalid)?;
+    let bound = |s: &str, open: u16| match s.trim() {
+        "" => Ok(open),
+        s => s.parse::<u16>().map_err(|_| invalid()),
+    };
+    let (start, end) = (bound(start, 0)?, bound(end, u16::MAX)?);
+    if start > end || value.trim() == ":" {
         return Err(invalid());
     }
     Ok((start, end))
@@ -418,7 +423,7 @@ mod tests {
         let m = matcher(model::Rule {
             domain_suffix: vec!["example.com".into()],
             ip_cidr: vec!["10.0.0.0/8".into()],
-            port_range: vec!["443".into()],
+            port: vec![443],
             ..Default::default()
         });
         assert!(m.matches(&domain("example.com", 443)));
@@ -437,7 +442,8 @@ mod tests {
     #[test]
     fn ports_networks_and_inbounds() {
         let m = matcher(model::Rule {
-            port_range: vec!["1024-5000".into(), "22".into()],
+            port: vec![22],
+            port_range: vec!["1024:5000".into()],
             network: vec!["tcp".into()],
             inbound: vec!["socks".into()],
             ..Default::default()
@@ -497,9 +503,11 @@ mod tests {
                 .unwrap();
             assert!(err.to_string().starts_with(message), "{}", err);
         }
-        for bad in ["22-21", "22-", "-22", "22-abc", "22-23-24"] {
+        for bad in ["22", "22:21", ":", "22-23", "22:abc", "22:23:24"] {
             assert!(port_range(bad).is_err(), "{}", bad);
         }
-        assert_eq!(port_range("22").unwrap(), (22, 22));
+        assert_eq!(port_range("22:22").unwrap(), (22, 22));
+        assert_eq!(port_range(":1024").unwrap(), (0, 1024));
+        assert_eq!(port_range("8000:").unwrap(), (8000, u16::MAX));
     }
 }

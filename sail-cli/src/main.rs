@@ -30,7 +30,7 @@ fn default_thread_stack_size() -> usize {
 /// A lightweight and fast proxy utility
 struct Args {
     /// the configuration file
-    #[argh(option, short = 'c', default = "String::from(\"config.conf\")")]
+    #[argh(option, short = 'c', default = "String::from(\"config.json\")")]
     config: String,
 
     /// enables auto reloading when config file changes
