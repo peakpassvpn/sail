@@ -7,15 +7,18 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use futures::stream::Stream as FuturesStream;
+use tokio::io::AsyncReadExt;
 use tokio::sync::mpsc;
+use tokio::time::timeout;
 use tracing::debug;
 
 use crate::adapter::*;
+use crate::protocol::fallback::{Fallback, HEADER_TIMEOUT};
 use crate::session::{Session as ProxySession, SocksAddr, SocksAddrWireType, StreamId};
 use crate::transport::uot;
 
 use super::super::padding::PaddingScheme;
-use super::super::session::{read_auth, Session, Stream, MAX_STREAMS};
+use super::super::session::{read_auth_padding, Session, Stream, AUTH_HASH_LEN, MAX_STREAMS};
 
 /// Streams handshaken and waiting for the listener to take them.
 const INCOMING_QUEUE: usize = 64;
@@ -26,6 +29,8 @@ pub struct Handler {
     padding: Arc<PaddingScheme>,
     /// How long a stream has to name its destination.
     handshake_timeout: Duration,
+    /// Where what fails to authenticate goes; closed without one.
+    fallback: Option<Fallback>,
 }
 
 impl Handler {
@@ -33,11 +38,13 @@ impl Handler {
         users: HashMap<[u8; 32], Option<Arc<str>>>,
         padding: Arc<PaddingScheme>,
         handshake_timeout: Duration,
+        fallback: Option<Fallback>,
     ) -> Self {
         Handler {
             users,
             padding,
             handshake_timeout,
+            fallback,
         }
     }
 }
@@ -50,10 +57,44 @@ impl InboundStreamHandler for Handler {
         mut stream: AnyStream,
     ) -> io::Result<AnyInboundTransport> {
         tracing::trace!("handling inbound stream");
-        let hash = read_auth(&mut stream).await?;
-        let Some(user) = self.users.get(&hash) else {
-            return Err(io::Error::other("anytls: unknown user"));
+        // The password's hash, and no more: what is read here is what the
+        // fallback is given if it is not a user's. Nothing tells a hash from
+        // anything else before all of it is in.
+        let mut hash = [0u8; AUTH_HASH_LEN];
+        let mut read = 0;
+        let reading = async {
+            while read < AUTH_HASH_LEN {
+                let n = stream.read(&mut hash[read..]).await?;
+                if n == 0 {
+                    return Ok(false);
+                }
+                read += n;
+            }
+            Ok::<_, io::Error>(true)
         };
+        let complete = match self.fallback {
+            // A peer that sends part of a hash and waits is not a client.
+            Some(_) => timeout(HEADER_TIMEOUT, reading)
+                .await
+                .unwrap_or(Ok(false))?,
+            None => reading.await?,
+        };
+        let user = match complete {
+            true => self.users.get(&hash).ok_or("anytls: unknown user"),
+            false => Err("anytls: not an AnyTLS request"),
+        };
+        let user = match user {
+            Ok(user) => user,
+            Err(why) => {
+                return Err(match &self.fallback {
+                    Some(fallback) => fallback.relay(&sess, stream, hash[..read].to_vec(), why),
+                    None => io::Error::new(io::ErrorKind::PermissionDenied, why),
+                })
+            }
+        };
+        // The padding after it is a user's to send, and the handshake's
+        // deadline bounds it.
+        read_auth_padding(&mut stream).await?;
         sess.user = user.clone();
         let (tx, rx) = mpsc::channel(INCOMING_QUEUE);
         let handshake_timeout = self.handshake_timeout;

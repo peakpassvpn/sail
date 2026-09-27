@@ -1,6 +1,6 @@
-//! Fallback on the Trojan and VLESS inbounds: what fails to authenticate is
-//! relayed, byte for byte, to a fallback server chosen by the TLS ALPN, and
-//! clients that do authenticate are not affected.
+//! Fallback on the Trojan, VLESS and AnyTLS inbounds: what fails to
+//! authenticate is relayed, byte for byte, to a fallback server chosen by
+//! the TLS ALPN, and clients that do authenticate are not affected.
 //!
 //! The sing-box tests need `sing-box` on the PATH or in /opt/homebrew/bin,
 //! and are ignored unless asked for:
@@ -444,7 +444,12 @@ fn test_fallback_config_mistakes() -> anyhow::Result<()> {
             Err(_) => true,
         }
     };
-    for inbound in [trojan_server, vless_server] {
+    type Server = fn(&Cert, u16, Option<(u16, u16)>) -> String;
+    #[allow(unused_mut)]
+    let mut inbounds: Vec<Server> = vec![trojan_server, vless_server];
+    #[cfg(all(feature = "inbound-anytls", feature = "outbound-anytls"))]
+    inbounds.push(anytls_server);
+    for inbound in inbounds {
         anyhow::ensure!(bad(inbound, &|i| i["fallback_for_alpn"] =
             json!({ "": { "server": "127.0.0.1", "server_port": 80 } })));
         anyhow::ensure!(bad(inbound, &|i| i["fallback"]["port"] = json!(80)));
@@ -452,6 +457,123 @@ fn test_fallback_config_mistakes() -> anyhow::Result<()> {
         anyhow::ensure!(bad(inbound, &|i| i["fallback"]["server"] = json!("")));
     }
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// AnyTLS
+// ---------------------------------------------------------------------------
+
+#[cfg(all(feature = "inbound-anytls", feature = "outbound-anytls"))]
+fn anytls_server(cert: &Cert, port: u16, fallback: Option<(u16, u16)>) -> String {
+    let mut inbound = json!({
+        "type": "anytls",
+        "listen": "127.0.0.1",
+        "listen_port": port,
+        "users": [{ "password": PASSWORD }],
+        "tls": server_tls(cert),
+    });
+    if let Some((http1, h2)) = fallback {
+        fallbacks(&mut inbound, http1, h2);
+    }
+    json!({ "inbounds": [inbound], "outbounds": [{ "type": "direct" }] }).to_string()
+}
+
+#[cfg(all(feature = "inbound-anytls", feature = "outbound-anytls"))]
+fn anytls_outbound(cert: &Cert, server_port: u16, alpn: &str) -> serde_json::Value {
+    json!({
+        "type": "anytls",
+        "server": "127.0.0.1",
+        "server_port": server_port,
+        "password": PASSWORD,
+        "tls": client_tls(cert, alpn),
+    })
+}
+
+/// How an AnyTLS client starts, with the SHA-256 of `password`: the hash,
+/// then `padding` bytes of padding and their length.
+#[cfg(all(feature = "inbound-anytls", feature = "outbound-anytls"))]
+fn anytls_auth(password: &str, padding: u16) -> Vec<u8> {
+    let mut auth = sha2::Sha256::digest(password.as_bytes()).to_vec();
+    auth.extend_from_slice(&padding.to_be_bytes());
+    auth.resize(auth.len() + padding as usize, 0);
+    auth
+}
+
+#[cfg(all(feature = "inbound-anytls", feature = "outbound-anytls"))]
+#[test]
+fn test_anytls_fallback() -> anyhow::Result<()> {
+    let cert = Cert::new("anytls")?;
+    let http1 = run_web_server("http1")?;
+    let h2 = run_web_server("h2")?;
+    common::retry_port_clash(|| {
+        let [port, socks_h2, socks_http1] = common::free_ports();
+        let configs = vec![
+            anytls_server(&cert, port, Some((http1, h2))),
+            sail_client(anytls_outbound(&cert, port, "h2"), socks_h2),
+            sail_client(anytls_outbound(&cert, port, "http/1.1"), socks_http1),
+        ];
+        with_sail(configs, move || {
+            // A web client gets the web server, byte for byte, whichever
+            // ALPN it speaks.
+            probe(port, b"\x08http/1.1", HTTP1_REQUEST, "http1")?;
+            probe(port, b"", HTTP1_REQUEST, "http1")?;
+            probe(port, b"\x02h2", H2_PREFACE, "h2")?;
+            // A well-formed start with a wrong password: its padding and what
+            // follows it go to the fallback too.
+            let mut wrong = anytls_auth("wrong", 30);
+            wrong.extend_from_slice(HTTP1_REQUEST);
+            probe(port, b"\x08http/1.1", &wrong, "http1")?;
+            // Shorter than a hash: relayed once the header timeout is up.
+            probe(port, b"\x02h2", b"GET / HTTP/1.1\r\n\r\n", "h2")?;
+            // AnyTLS clients still get through, on either ALPN.
+            echo_through_socks(socks_h2)?;
+            echo_through_socks(socks_http1)?;
+            Ok(())
+        })
+    })
+}
+
+#[cfg(all(feature = "inbound-anytls", feature = "outbound-anytls"))]
+#[test]
+fn test_anytls_fallback_after_partial_header() -> anyhow::Result<()> {
+    let cert = Cert::new("anytls-partial")?;
+    let http1 = run_web_server("http1")?;
+    let h2 = run_web_server("h2")?;
+    common::retry_port_clash(|| {
+        let port = common::free_port();
+        let configs = vec![anytls_server(&cert, port, Some((http1, h2)))];
+        with_sail(configs, move || {
+            // Part of a user's hash: the inbound waits for the rest, then
+            // gives up.
+            let auth = anytls_auth(PASSWORD, 0);
+            let took = probe(port, b"\x08http/1.1", &auth[..16], "http1")?;
+            anyhow::ensure!(
+                took >= HEADER_TIMEOUT - Duration::from_millis(100),
+                "fell back after {:?}, before the header timeout",
+                took
+            );
+            Ok(())
+        })
+    })
+}
+
+#[cfg(all(feature = "inbound-anytls", feature = "outbound-anytls"))]
+#[test]
+fn test_anytls_without_fallback_closes() -> anyhow::Result<()> {
+    let cert = Cert::new("anytls-none")?;
+    common::retry_port_clash(|| {
+        let port = common::free_port();
+        let configs = vec![anytls_server(&cert, port, None)];
+        with_sail(configs, move || {
+            let mut tls = tls_connect(port, b"\x08http/1.1")?;
+            tls.write_all(HTTP1_REQUEST)?;
+            let mut buf = [0u8; 64];
+            match tls.read(&mut buf) {
+                Ok(0) | Err(_) => Ok(()),
+                Ok(n) => Err(anyhow::anyhow!("got {} bytes without a fallback", n)),
+            }
+        })
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -504,6 +626,34 @@ fn test_vless_fallback_sing_box_client() -> anyhow::Result<()> {
         let mut sing_box = Vec::new();
         for (alpn, socks) in [("h2", socks_h2), ("http/1.1", socks_http1)] {
             let config = sing_box_client(vless_outbound(&cert, port, alpn), socks);
+            sing_box.push(common::Daemon::sing_box(
+                cert.dir.path(),
+                &format!("client-{}", socks),
+                config,
+            )?);
+        }
+        with_sail(configs, move || {
+            echo_through_socks(socks_h2)?;
+            echo_through_socks(socks_http1)?;
+            probe(port, b"\x08http/1.1", HTTP1_REQUEST, "http1")?;
+            Ok(())
+        })
+    })
+}
+
+#[cfg(all(feature = "inbound-anytls", feature = "outbound-anytls"))]
+#[test]
+#[ignore]
+fn test_anytls_fallback_sing_box_client() -> anyhow::Result<()> {
+    let cert = Cert::new("sb-anytls")?;
+    let http1 = run_web_server("http1")?;
+    let h2 = run_web_server("h2")?;
+    common::retry_port_clash(|| {
+        let [port, socks_h2, socks_http1] = common::free_ports();
+        let configs = vec![anytls_server(&cert, port, Some((http1, h2)))];
+        let mut sing_box = Vec::new();
+        for (alpn, socks) in [("h2", socks_h2), ("http/1.1", socks_http1)] {
+            let config = sing_box_client(anytls_outbound(&cert, port, alpn), socks);
             sing_box.push(common::Daemon::sing_box(
                 cert.dir.path(),
                 &format!("client-{}", socks),

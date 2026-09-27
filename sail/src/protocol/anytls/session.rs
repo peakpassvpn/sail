@@ -712,14 +712,14 @@ impl Drop for Stream {
     }
 }
 
-/// Reads the authentication a client starts with: the password's SHA-256
-/// and its padding. Returns the hash.
-pub async fn read_auth<R: AsyncRead + Unpin>(r: &mut R) -> io::Result<[u8; 32]> {
-    let mut hash = [0u8; 32];
-    r.read_exact(&mut hash).await?;
+/// The length of the password's SHA-256 a client starts with.
+pub const AUTH_HASH_LEN: usize = 32;
+
+/// Reads the rest of the authentication a client starts with, after the
+/// password's SHA-256: the padding's length, and the padding.
+pub async fn read_auth_padding<R: AsyncRead + Unpin>(r: &mut R) -> io::Result<()> {
     let len = r.read_u16().await? as usize;
-    skip(r, len).await?;
-    Ok(hash)
+    skip(r, len).await
 }
 
 /// The authentication a client starts with.
@@ -753,8 +753,9 @@ mod tests {
             let hash = [7u8; 32];
             let raw = auth(&hash, 30);
             assert_eq!(raw.len(), 64);
-            let mut r = &raw[..];
-            assert_eq!(read_auth(&mut r).await.unwrap(), hash);
+            assert_eq!(raw[..AUTH_HASH_LEN], hash);
+            let mut r = &raw[AUTH_HASH_LEN..];
+            read_auth_padding(&mut r).await.unwrap();
             assert!(r.is_empty());
         });
     }
