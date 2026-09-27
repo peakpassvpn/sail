@@ -1,3 +1,5 @@
+#![cfg(all(feature = "inbound-socks", feature = "outbound-socks"))]
+
 mod common;
 
 use std::time::Duration;
@@ -226,7 +228,6 @@ fn an_authenticated_user_is_routed_by_name() -> anyhow::Result<()> {
 }
 
 /// A DNS query of `name`, type A, id 7.
-#[cfg(all(feature = "inbound-socks", feature = "outbound-socks"))]
 fn a_query(name: &str) -> Vec<u8> {
     let mut query = vec![0, 7, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0];
     for label in name.split('.') {
@@ -238,7 +239,6 @@ fn a_query(name: &str) -> Vec<u8> {
 }
 
 /// Whether `reply` answers query 7 with `127.0.0.1` alone.
-#[cfg(all(feature = "inbound-socks", feature = "outbound-socks"))]
 fn answers_localhost(reply: &[u8]) -> bool {
     reply.len() > 12
         && reply[..2] == [0, 7]
@@ -257,7 +257,6 @@ fn answers_localhost(reply: &[u8]) -> bool {
 }
 
 // app(socks, DNS to an address nothing listens on) -> sail(hijack-dns)
-#[cfg(all(feature = "inbound-socks", feature = "outbound-socks"))]
 #[test]
 fn hijacked_dns_is_answered_by_sail_over_udp_and_tcp() -> anyhow::Result<()> {
     common::retry_port_clash(|| {
