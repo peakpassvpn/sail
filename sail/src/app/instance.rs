@@ -56,6 +56,7 @@ impl Instance {
         env: SyncRuntimeEnv,
         dial_defaults: Arc<DialOptions>,
     ) -> Result<Self> {
+        config.check_tun_route(env.host.platform.is_some())?;
         let dns_client = DnsClient::new(&config.dns, dial_defaults.clone(), &env)?;
         dns_client.check_loops(
             &config.outbounds,

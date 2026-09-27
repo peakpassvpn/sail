@@ -598,6 +598,28 @@ impl Rule {
 }
 
 impl Config {
+    /// A TUN inbound with `auto_route` that sail routes itself, with no
+    /// way out for the outbounds: they would loop back into it. A host
+    /// that opens the TUN routes it, and keeps its own sockets out.
+    pub fn check_tun_route(&self, host_routes: bool) -> Result<()> {
+        if host_routes || self.route.auto_detect_interface || self.route.default_interface.is_some()
+        {
+            return Ok(());
+        }
+        if let Some(tun) = self.inbounds.iter().find(|i| {
+            i.protocol == "tun"
+                && i.options.get("auto_route") == Some(&serde_json::Value::Bool(true))
+        }) {
+            return Err(anyhow!(
+                "[{}] inbound: auto_route routes all traffic into the TUN; set \
+                 route.auto_detect_interface (or route.default_interface) so that \
+                 outbound traffic does not loop back into it",
+                tun.tag
+            ));
+        }
+        Ok(())
+    }
+
     /// Fills in what the configuration leaves to defaults, and checks what
     /// can be checked without building anything.
     pub fn validate(&mut self) -> Result<()> {
@@ -706,21 +728,6 @@ impl Config {
             return Err(anyhow!(
                 "route: set default_interface or auto_detect_interface, not both"
             ));
-        }
-        // A TUN that takes the default route catches outbound traffic too,
-        // unless that is sent through the interface it would have used.
-        if let Some(tun) = self.inbounds.iter().find(|i| {
-            i.protocol == "tun"
-                && i.options.get("auto_route") == Some(&serde_json::Value::Bool(true))
-        }) {
-            if !self.route.auto_detect_interface && self.route.default_interface.is_none() {
-                return Err(anyhow!(
-                    "[{}] inbound: auto_route routes all traffic into the TUN; set \
-                     route.auto_detect_interface (or route.default_interface) so that \
-                     outbound traffic does not loop back into it",
-                    tun.tag
-                ));
-            }
         }
 
         let outbounds: HashSet<&str> = self
@@ -957,16 +964,21 @@ mod tests {
     #[test]
     fn a_tun_taking_the_default_route_needs_an_outbound_interface() {
         let tun = r#""inbounds": [{ "type": "tun", "address": "172.19.0.1/30", "auto_route": true }], "outbounds": [{ "type": "direct" }]"#;
-        let err = Config::from_json(&format!("{{ {} }}", tun)).unwrap_err();
+        let config = Config::from_json(&format!("{{ {} }}", tun)).unwrap();
+        let err = config.check_tun_route(false).unwrap_err();
         assert!(
             err.to_string().contains("route.auto_detect_interface"),
             "{}",
             err
         );
+        // A host that opens the TUN routes it.
+        config.check_tun_route(true).unwrap();
         Config::from_json(&format!(
             r#"{{ {}, "route": {{ "auto_detect_interface": true }} }}"#,
             tun
         ))
+        .unwrap()
+        .check_tun_route(false)
         .unwrap();
     }
 
