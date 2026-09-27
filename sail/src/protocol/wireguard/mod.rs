@@ -18,3 +18,4 @@ pub mod cookie;
 pub mod keypair;
 pub mod ratelimiter;
 pub mod allowed_ips;
+pub mod device;
