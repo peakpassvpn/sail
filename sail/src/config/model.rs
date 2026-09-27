@@ -105,7 +105,10 @@ pub struct Dns {
     /// The servers, each by its tag. None is the system's resolver alone.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub servers: Vec<DnsServer>,
-    /// The server a query goes to; the first one when unset.
+    /// Which server a query goes to, matched in order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rules: Vec<DnsRule>,
+    /// The server of the queries no rule matches; the first one when unset.
     #[serde(rename = "final", default, skip_serializing_if = "Option::is_none")]
     pub final_server: Option<String>,
     /// Which address families names resolve to, and in what order.
@@ -137,6 +140,95 @@ pub struct DnsServer {
     pub tag: String,
     #[serde(flatten)]
     pub options: Options,
+}
+
+/// A DNS rule, matched in order against each query. As in a routing rule,
+/// the domain conditions match when any of them does; the rule matches
+/// when that and every other condition it sets match.
+#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct DnsRule {
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub domain: Vec<String>,
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub domain_suffix: Vec<String>,
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub domain_keyword: Vec<String>,
+    /// A sail extension, as in a routing rule.
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub geosite: Vec<String>,
+    /// A sail extension, as in a routing rule: `site:<file>:<code>`.
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub external: Vec<String>,
+    /// Record types, by name (`A`, `AAAA`, `HTTPS`) or number.
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub query_type: Vec<serde_json::Value>,
+    /// Tags of the inbounds the connection that needs the name came in
+    /// through.
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub inbound: Vec<String>,
+    /// Names of the users an inbound authenticated.
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub auth_user: Vec<String>,
+
+    #[serde(default)]
+    pub action: DnsRuleAction,
+    /// `route`: the server a matching query goes to.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub server: Option<String>,
+    /// `route`: the address families, instead of `dns.strategy`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub strategy: Option<DnsStrategy>,
+}
+
+/// What a matching DNS rule does.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DnsRuleAction {
+    /// Sends the query to `server`.
+    #[default]
+    Route,
+    /// Answers that the name does not resolve.
+    Reject,
+}
+
+impl DnsRule {
+    /// Whether the rule sets any condition.
+    pub fn has_conditions(&self) -> bool {
+        !(self.domain.is_empty()
+            && self.domain_suffix.is_empty()
+            && self.domain_keyword.is_empty()
+            && self.geosite.is_empty()
+            && self.external.is_empty()
+            && self.query_type.is_empty()
+            && self.inbound.is_empty()
+            && self.auth_user.is_empty())
+    }
+
+    fn check(&self, servers: &HashSet<String>) -> Result<()> {
+        match self.action {
+            DnsRuleAction::Route => {
+                let tag = self
+                    .server
+                    .as_ref()
+                    .ok_or_else(|| anyhow!("server: a route rule needs one"))?;
+                if !servers.contains(tag) {
+                    return Err(anyhow!("server [{}] does not exist", tag));
+                }
+            }
+            DnsRuleAction::Reject => {
+                if self.server.is_some() || self.strategy.is_some() {
+                    return Err(anyhow!("server and strategy are for route rules"));
+                }
+            }
+        }
+        if !self.has_conditions() {
+            return Err(anyhow!(
+                "the rule has no conditions; dns.final is where everything else goes"
+            ));
+        }
+        Ok(())
+    }
 }
 
 /// Which address families names resolve to, as sing-box names them.
@@ -191,6 +283,10 @@ impl Dns {
             if !tags.contains(tag) {
                 return Err(anyhow!("dns.final: server [{}] does not exist", tag));
             }
+        }
+        for (i, rule) in self.rules.iter().enumerate() {
+            rule.check(&tags)
+                .map_err(|e| anyhow!("dns.rules[{}]: {}", i, e))?;
         }
         Ok(())
     }

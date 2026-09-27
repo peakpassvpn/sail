@@ -3,7 +3,7 @@
 //! the connection goes (`route`, `reject`) or learns more about it
 //! (`sniff`, `resolve`) and lets the next rules decide.
 
-mod matcher;
+pub(crate) mod matcher;
 
 use std::io;
 use std::net::IpAddr;
@@ -169,7 +169,7 @@ impl Router {
                 Action::Resolve => {
                     if resolved.is_empty() && !sess.skip_resolve {
                         if let Some(domain) = facts.domain() {
-                            resolved = self.resolve(domain).await;
+                            resolved = self.resolve(domain, sess).await;
                         }
                     }
                 }
@@ -181,8 +181,12 @@ impl Router {
 
     /// The addresses of `domain`, or none when it does not resolve: the
     /// rules after a `resolve` then match without them.
-    async fn resolve(&self, domain: &str) -> Vec<IpAddr> {
-        match self.dns_client.load_full().lookup(domain).await {
+    async fn resolve(&self, domain: &str, sess: &Session) -> Vec<IpAddr> {
+        let ctx = crate::app::dns::LookupContext {
+            inbound: Some(sess.inbound_tag.clone()),
+            user: sess.user.clone(),
+        };
+        match self.dns_client.load_full().lookup_in(domain, &ctx).await {
             Ok(ips) => {
                 debug!("resolved {} to {:?} for routing", domain, ips);
                 ips

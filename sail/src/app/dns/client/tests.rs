@@ -196,6 +196,143 @@ mod tests {
         );
     }
 
+    fn with_rules(rules: serde_json::Value) -> anyhow::Result<DnsClient> {
+        let config = crate::config::Config::from_json(
+            &serde_json::json!({ "dns": {
+                "servers": [
+                    { "type": "hosts", "tag": "home",
+                      "predefined": { "nas.home.arpa": ["192.168.1.2", "fd00::2"] } },
+                    { "type": "hosts", "tag": "world",
+                      "predefined": { "a.example": ["10.0.0.1", "2001:db8::1"],
+                                      "nas.home.arpa": "203.0.113.9" } }
+                ],
+                "rules": rules,
+                "final": "world"
+            } })
+            .to_string(),
+        )?;
+        DnsClient::new(&config.dns, Default::default(), &Default::default())
+    }
+
+    fn ips(ips: &[&str]) -> Vec<IpAddr> {
+        ips.iter().map(|ip| ip.parse().unwrap()).collect()
+    }
+
+    #[tokio::test]
+    async fn rules_pick_the_server() {
+        let client = with_rules(serde_json::json!([
+            { "domain_suffix": "home.arpa", "server": "home" }
+        ]))
+        .unwrap();
+        assert_eq!(
+            client.lookup("nas.home.arpa").await.unwrap(),
+            ips(&["192.168.1.2", "fd00::2"])
+        );
+        assert_eq!(
+            client.lookup("a.example").await.unwrap(),
+            ips(&["10.0.0.1", "2001:db8::1"])
+        );
+    }
+
+    #[tokio::test]
+    async fn a_rule_by_query_type_rejects_one_family() {
+        let client = with_rules(serde_json::json!([
+            { "query_type": ["AAAA"], "action": "reject" }
+        ]))
+        .unwrap();
+        assert_eq!(client.lookup("a.example").await.unwrap(), ips(&["10.0.0.1"]));
+
+        let client = with_rules(serde_json::json!([
+            { "domain": "a.example", "action": "reject" }
+        ]))
+        .unwrap();
+        let err = client.lookup("a.example").await.unwrap_err().to_string();
+        assert!(err.contains("rejected by a dns rule"), "{}", err);
+    }
+
+    #[tokio::test]
+    async fn a_rule_sets_the_families() {
+        let client = with_rules(serde_json::json!([
+            { "domain": "a.example", "server": "world", "strategy": "prefer_ipv6" },
+            { "query_type": 28, "domain": "nas.home.arpa", "server": "home",
+              "strategy": "ipv6_only" }
+        ]))
+        .unwrap();
+        assert_eq!(
+            client.lookup("a.example").await.unwrap(),
+            ips(&["2001:db8::1", "10.0.0.1"])
+        );
+        // The A query goes to `final`, the AAAA one to `home`, which alone
+        // is asked for by the strategy of the A query's rule, `final`'s.
+        assert_eq!(
+            client.lookup("nas.home.arpa").await.unwrap(),
+            ips(&["203.0.113.9", "fd00::2"])
+        );
+    }
+
+    #[tokio::test]
+    async fn rules_match_the_inbound_and_user() {
+        let client = with_rules(serde_json::json!([
+            { "inbound": "lan", "auth_user": "alice", "server": "home" }
+        ]))
+        .unwrap();
+        let mut ctx = super::LookupContext {
+            inbound: Some("lan".into()),
+            user: Some("bob".into()),
+        };
+        assert_eq!(
+            client.lookup_in("nas.home.arpa", &ctx).await.unwrap(),
+            ips(&["203.0.113.9"])
+        );
+        // A new client: answers are cached by name alone, as in sing-box.
+        let client = with_rules(serde_json::json!([
+            { "inbound": "lan", "auth_user": "alice", "server": "home" }
+        ]))
+        .unwrap();
+        ctx.user = Some("alice".into());
+        assert_eq!(
+            client.lookup_in("nas.home.arpa", &ctx).await.unwrap(),
+            ips(&["192.168.1.2", "fd00::2"])
+        );
+    }
+
+    #[test]
+    fn rule_mistakes_name_the_rule() {
+        for (rules, message) in [
+            (
+                serde_json::json!([{ "domain": "a.example" }]),
+                "dns.rules[0]: server: a route rule needs one",
+            ),
+            (
+                serde_json::json!([{ "domain": "a.example", "server": "nowhere" }]),
+                "dns.rules[0]: server [nowhere] does not exist",
+            ),
+            (
+                serde_json::json!([{ "server": "home" }]),
+                "dns.rules[0]: the rule has no conditions",
+            ),
+            (
+                serde_json::json!([{ "domain": "a", "action": "reject", "server": "home" }]),
+                "server and strategy are for route rules",
+            ),
+            (
+                serde_json::json!([{ "query_type": "NOPE", "server": "home" }]),
+                "dns.rules[0]: query_type: unknown record type \"NOPE\"",
+            ),
+            (
+                serde_json::json!([{ "outbound": "proxy", "server": "home" }]),
+                "dns.rules[0].outbound: sail does not implement this field yet",
+            ),
+            (
+                serde_json::json!([{ "domain": "a", "action": "predefined" }]),
+                "dns.rules[0].action: sail does not implement \"predefined\" yet",
+            ),
+        ] {
+            let err = with_rules(rules.clone()).err().unwrap().to_string();
+            assert!(err.contains(message), "{}: {}", rules, err);
+        }
+    }
+
     fn tags(tags: &[&str]) -> Vec<String> {
         tags.iter().map(|t| t.to_string()).collect()
     }

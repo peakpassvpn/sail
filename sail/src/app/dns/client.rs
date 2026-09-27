@@ -62,11 +62,13 @@ impl DnsClient {
             .final_server
             .clone()
             .unwrap_or_else(|| configs[0].tag.clone());
+        let rules = Self::load_rules(dns, env)?;
         let capacity = NonZeroUsize::new(dns.cache_capacity())
             .ok_or_else(|| anyhow!("dns.cache_capacity: must be at least 1"))?;
         Ok(Self {
             dispatcher: Default::default(),
             servers,
+            rules,
             final_server,
             ipv4_cache: Arc::new(TokioMutex::new(LruCache::new(capacity))),
             ipv6_cache: Arc::new(TokioMutex::new(LruCache::new(capacity))),
@@ -107,6 +109,87 @@ impl DnsClient {
     /// Whether `dns.reverse_mapping` is on.
     pub fn reverse_mapping(&self) -> bool {
         self.reverse_mapping
+    }
+
+    fn load_rules(dns: &crate::config::Dns, env: &crate::runtime::RuntimeEnv) -> Result<Vec<Rule>> {
+        let mut readers = crate::app::router::matcher::Readers::new();
+        let mut rules = Vec::new();
+        for (i, rule) in dns.rules.iter().enumerate() {
+            let err = |e: anyhow::Error| anyhow!("dns.rules[{}]: {}", i, e);
+            let conditions = crate::config::model::Rule {
+                domain: rule.domain.clone(),
+                domain_suffix: rule.domain_suffix.clone(),
+                domain_keyword: rule.domain_keyword.clone(),
+                geosite: rule.geosite.clone(),
+                external: rule.external.clone(),
+                inbound: rule.inbound.clone(),
+                auth_user: rule.auth_user.clone(),
+                ..Default::default()
+            };
+            let matcher = crate::app::router::matcher::Matcher::new(&conditions, &mut readers, env)
+                .map_err(err)?;
+            let query_types = rule
+                .query_type
+                .iter()
+                .map(|t| Self::record_type(t).map_err(err))
+                .collect::<Result<_>>()?;
+            let action = match rule.action {
+                crate::config::model::DnsRuleAction::Route => RuleAction::Route {
+                    // Checked with the model.
+                    server: rule.server.clone().unwrap_or_default(),
+                    strategy: rule.strategy,
+                },
+                crate::config::model::DnsRuleAction::Reject => RuleAction::Reject,
+            };
+            rules.push(Rule {
+                matcher,
+                query_types,
+                action,
+            });
+        }
+        Ok(rules)
+    }
+
+    /// A record type as sing-box writes one: its name, or its number.
+    fn record_type(value: &serde_json::Value) -> Result<RecordType> {
+        match value {
+            serde_json::Value::String(name) => RecordType::from_str(&name.to_ascii_uppercase())
+                .map_err(|_| anyhow!("query_type: unknown record type \"{}\"", name)),
+            serde_json::Value::Number(n) => n
+                .as_u64()
+                .and_then(|n| u16::try_from(n).ok())
+                .map(RecordType::from)
+                .ok_or_else(|| anyhow!("query_type: invalid record type {}", n)),
+            other => Err(anyhow!("query_type: invalid record type {}", other)),
+        }
+    }
+
+    /// Where a query of type `ty` for `host` goes: the first rule that
+    /// matches it decides, and `final` takes the rest.
+    fn pick(&self, host: &str, ty: RecordType, ctx: &LookupContext) -> Pick {
+        let sess = Session {
+            destination: SocksAddr::Domain(host.to_string(), 0),
+            inbound_tag: ctx.inbound.clone().unwrap_or_default(),
+            user: ctx.user.clone(),
+            ..Default::default()
+        };
+        let facts = crate::app::router::matcher::Facts::new(&sess, &[]);
+        for (i, rule) in self.rules.iter().enumerate() {
+            if !rule.query_types.is_empty() && !rule.query_types.contains(&ty) {
+                continue;
+            }
+            if !rule.matcher.matches(&facts) {
+                continue;
+            }
+            debug!("dns rule {} matches {} {}", i, host, ty);
+            return match &rule.action {
+                RuleAction::Route { server, strategy } => {
+                    Pick::Server(server.clone(), strategy.unwrap_or(self.strategy))
+                }
+                RuleAction::Reject => Pick::Reject,
+            };
+        }
+        Pick::Server(self.final_server.clone(), self.strategy)
     }
 
     fn server(&self, tag: &str) -> Result<&Arc<Server>> {
@@ -589,14 +672,36 @@ impl DnsClient {
 
     // -- Lookups ---------------------------------------------------------
 
-    /// The addresses of `host`, from the final server.
+    /// The addresses of `host`, from the server the rules pick.
     pub async fn lookup(&self, host: &str) -> Result<Vec<IpAddr>> {
-        let server = self.final_server.clone();
-        self.lookup_with(&server, host, self.strategy).await
+        self.lookup_in(host, &LookupContext::default()).await
+    }
+
+    /// The addresses of `host`, needed for `ctx`, from the servers the
+    /// rules pick for each record type.
+    pub async fn lookup_in(&self, host: &str, ctx: &LookupContext) -> Result<Vec<IpAddr>> {
+        if let Ok(ip) = host.parse::<IpAddr>() {
+            return Ok(vec![ip]);
+        }
+        let a = self.pick(host, RecordType::A, ctx);
+        let aaaa = self.pick(host, RecordType::AAAA, ctx);
+        // The families: as the rule of the A query says, unless it rejects.
+        let strategy = match (&a, &aaaa) {
+            (Pick::Server(_, strategy), _) | (Pick::Reject, Pick::Server(_, strategy)) => *strategy,
+            (Pick::Reject, Pick::Reject) => {
+                return Err(anyhow!("{}: rejected by a dns rule", host));
+            }
+        };
+        let server = |pick: &Pick| match pick {
+            Pick::Server(tag, _) => Some(tag.clone()),
+            Pick::Reject => None,
+        };
+        self.lookup_by(host, strategy, server(&a), server(&aaaa))
+            .await
     }
 
     /// The addresses of `host`, from the server tagged `server`, of the
-    /// families `strategy` says.
+    /// families `strategy` says: what the rules have no say in.
     #[async_recursion]
     async fn lookup_with(
         &self,
@@ -607,36 +712,65 @@ impl DnsClient {
         if let Ok(ip) = host.parse::<IpAddr>() {
             return Ok(vec![ip]);
         }
+        self.lookup_by(
+            host,
+            strategy,
+            Some(server.to_string()),
+            Some(server.to_string()),
+        )
+        .await
+    }
+
+    /// The addresses of `host`, of the families `strategy` says: A records
+    /// from `server_a`, AAAA ones from `server_aaaa`, none from a family
+    /// without a server.
+    async fn lookup_by(
+        &self,
+        host: &str,
+        strategy: DnsStrategy,
+        server_a: Option<String>,
+        server_aaaa: Option<String>,
+    ) -> Result<Vec<IpAddr>> {
+        // A family is asked for when the strategy wants it and a server
+        // takes it.
+        let v4 = server_a.is_some() && strategy != DnsStrategy::Ipv6Only;
+        let v6 = server_aaaa.is_some() && strategy != DnsStrategy::Ipv4Only;
+        let strategy = match (v4, v6) {
+            (true, true) => strategy,
+            (true, false) => DnsStrategy::Ipv4Only,
+            (false, true) => DnsStrategy::Ipv6Only,
+            (false, false) => return Err(anyhow!("{}: rejected by a dns rule", host)),
+        };
         if let Some(ips) = self.get_cached(host, strategy).await {
             return Ok(ips);
         }
-        let server = self.server(server)?.clone();
         let name = Name::from_str(&format!("{}.", host))
             .map_err(|e| anyhow!("invalid domain name [{}]: {}", host, e))?;
-        let query = |ty| {
-            let server = server.clone();
+        let query = |ty, tag: Option<String>| {
             let name = name.clone();
             async move {
+                let tag = tag.ok_or_else(|| anyhow!("{} {}: rejected by a dns rule", host, ty))?;
+                let server = self.server(&tag)?.clone();
                 let answer = self.query(&server, &name, ty).await?;
                 Self::answer_entry(answer, host, &server)
             }
         };
 
         let single = match strategy {
-            DnsStrategy::Ipv4Only => Some(RecordType::A),
-            DnsStrategy::Ipv6Only => Some(RecordType::AAAA),
+            DnsStrategy::Ipv4Only => Some((RecordType::A, server_a.clone())),
+            DnsStrategy::Ipv6Only => Some((RecordType::AAAA, server_aaaa.clone())),
             DnsStrategy::PreferIpv4 | DnsStrategy::PreferIpv6 => None,
         };
-        if let Some(ty) = single {
-            let entry = query(ty).await?;
+        if let Some((ty, tag)) = single {
+            let entry = query(ty, tag).await?;
             let ips = entry.ips.clone();
             self.cache_insert(host, entry).await;
             return Ok(ips);
         }
 
         let delay = self.tuning.dualstack_delay;
-        let mut a = Box::pin(query(RecordType::A));
-        let mut aaaa = Box::pin(query(RecordType::AAAA));
+        let mut a = Box::pin(query(RecordType::A, server_a));
+        let mut aaaa = Box::pin(query(RecordType::AAAA, server_aaaa));
         let (first, second) = if strategy == DnsStrategy::PreferIpv6 {
             Self::dualstack_query(&mut aaaa, &mut a, delay).await?
         } else {
@@ -709,7 +843,7 @@ impl DnsClient {
     }
 
     /// The ECH configs `host` publishes, in an HTTPS record or else an SVCB
-    /// one, from the final server.
+    /// one, from the server the rules pick.
     pub async fn lookup_ech_config_list(&self, host: &str) -> Result<String> {
         if let Some(cached) = self.get_cached_ech(host).await {
             return Ok(cached);
@@ -747,9 +881,15 @@ impl DnsClient {
     async fn query_ech(&self, host: &str) -> Result<EchCacheEntry> {
         let name = Name::from_str(&format!("{}.", host))
             .map_err(|e| anyhow!("invalid domain name [{}]: {}", host, e))?;
-        let server = self.server(&self.final_server)?.clone();
         let mut errors = Vec::new();
         for ty in [RecordType::HTTPS, RecordType::SVCB] {
+            let server = match self.pick(host, ty, &LookupContext::default()) {
+                Pick::Server(tag, _) => self.server(&tag)?.clone(),
+                Pick::Reject => {
+                    errors.push(format!("{}: rejected by a dns rule", ty));
+                    continue;
+                }
+            };
             match self.query(&server, &name, ty).await {
                 Ok(answer) => match Self::ech_entry(answer, host, &server, ty) {
                     Ok(entry) => return Ok(entry),

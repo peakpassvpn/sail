@@ -168,11 +168,45 @@ impl ServerSelectorState {
     }
 }
 
+/// A DNS rule, compiled.
+struct Rule {
+    /// The domain, inbound and user conditions, as a routing rule has them.
+    matcher: crate::app::router::matcher::Matcher,
+    query_types: Vec<RecordType>,
+    action: RuleAction,
+}
+
+enum RuleAction {
+    Route {
+        server: String,
+        strategy: Option<DnsStrategy>,
+    },
+    Reject,
+}
+
+/// What a lookup is for: the DNS rules match it.
+#[derive(Debug, Clone, Default)]
+pub struct LookupContext {
+    /// The inbound the connection that needs the name came in through.
+    pub inbound: Option<String>,
+    /// The user an inbound authenticated.
+    pub user: Option<Arc<str>>,
+}
+
+/// Where a query of one record type goes, as the rules say.
+#[derive(Debug, Clone, PartialEq)]
+enum Pick {
+    Server(String, DnsStrategy),
+    Reject,
+}
+
 pub struct DnsClient {
     /// Set once the dispatcher exists, and kept across reloads.
     dispatcher: Arc<std::sync::OnceLock<Weak<Dispatcher>>>,
     /// `dns.servers`, by tag.
     servers: HashMap<String, Arc<server::Server>>,
+    /// `dns.rules`.
+    rules: Vec<Rule>,
     /// `dns.final`.
     final_server: String,
     ipv4_cache: Arc<TokioMutex<LruCache<String, CacheEntry>>>,

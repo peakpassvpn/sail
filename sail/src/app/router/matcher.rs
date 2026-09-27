@@ -19,7 +19,7 @@ use crate::session::{Network, Session};
 
 /// What rules are matched against: what is known about a connection at
 /// the time.
-pub(super) struct Facts {
+pub(crate) struct Facts {
     /// The domain, sniffed or asked for, in lowercase.
     domain: Option<String>,
     /// The address asked for, and those the domain resolved to.
@@ -175,10 +175,10 @@ impl Mmdb {
 }
 
 /// Mmdb readers by file, shared by the rules that use the same database.
-pub(super) type Readers = HashMap<String, Arc<maxminddb::Reader<Mmap>>>;
+pub(crate) type Readers = HashMap<String, Arc<maxminddb::Reader<Mmap>>>;
 
 /// The conditions of one rule.
-pub(super) struct Matcher {
+pub(crate) struct Matcher {
     domains: DomainIndex,
     cidrs: CidrIndex,
     mmdbs: Vec<Mmdb>,
