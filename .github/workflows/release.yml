@@ -6,6 +6,7 @@ on:
       - v*
 
 jobs:
+  # Built from Linux with the scripts ci.yml's cross job checks.
   build-cli-cross:
     runs-on: ubuntu-latest
     strategy:
@@ -20,24 +21,20 @@ jobs:
         with:
           submodules: true
 
+      # The version is rust-toolchain.toml's; keep them in step.
       - name: install rust toolchain
-        uses: hecrj/setup-rust-action@v1
+        uses: dtolnay/rust-toolchain@master
         with:
-          rust-version: stable
+          toolchain: 1.98.1
 
-      - name: install deps
-        run: |
-          sudo apt update && sudo apt install llvm-dev libclang-dev clang libssl-dev pkg-config protobuf-compiler make -y
-
-      - name: install cross
-        run: |
-          cargo install cross
+      - name: install cross toolchain
+        run: scripts/install_cross_toolchain.sh ${{ matrix.target }}
 
       - name: build
         run: |
           export CFG_COMMIT_HASH=`git log --pretty=format:'%h' -n 1`
           export CFG_COMMIT_DATE=`git log --format="%ci" -n 1`
-          cross build --release --target ${{ matrix.target }}
+          scripts/cross.sh ${{ matrix.target }} build --release -p sail-cli
 
       - name: rename and compress artifacts
         if: ${{ matrix.target == 'x86_64-pc-windows-gnu' }}
@@ -78,14 +75,9 @@ jobs:
           submodules: true
 
       - name: install rust toolchain
-        uses: hecrj/setup-rust-action@v1
+        uses: dtolnay/rust-toolchain@master
         with:
-          rust-version: stable
-
-      - name: install llvm
-        if: ${{ matrix.os == 'macos-latest' }}
-        run: |
-          brew install llvm protobuf
+          toolchain: 1.98.1
 
       - name: install target
         run: |
@@ -116,9 +108,9 @@ jobs:
           submodules: true
 
       - name: install rust
-        uses: hecrj/setup-rust-action@v1
+        uses: dtolnay/rust-toolchain@master
         with:
-          rust-version: stable
+          toolchain: 1.98.1
 
       - name: install toolchain
         run: |
@@ -149,30 +141,18 @@ jobs:
           submodules: true
 
       - name: install rust
-        uses: hecrj/setup-rust-action@v1
+        uses: dtolnay/rust-toolchain@master
         with:
-          rust-version: stable
+          toolchain: 1.98.1
 
-      - name: install toolchain
+      - name: install cbindgen
         run: |
           cargo install cbindgen
-          apt update && apt install -y make llvm-dev libclang-dev clang pkg-config unzip curl default-jdk build-essential
-          export ANDROID_HOME=/tmp/Android/sdk
-          export NDK_HOME=/tmp/Android/sdk/ndk/25.2.9519653
-          export PATH=$ANDROID_HOME/cmdline-tools/bin:$PATH
-          cd /tmp/
-          curl -OL https://dl.google.com/android/repository/commandlinetools-linux-6858069_latest.zip
-          unzip commandlinetools-linux-6858069_latest.zip
-          mkdir -p $ANDROID_HOME
-          mv cmdline-tools $ANDROID_HOME
-          yes | sdkmanager --sdk_root=$ANDROID_HOME --licenses
-          sdkmanager --sdk_root=$ANDROID_HOME "ndk;25.2.9519653" "platforms;android-21"
 
+      # Installs the NDK and the Rust targets itself.
       - name: build
         run: |
-          export ANDROID_HOME=/tmp/Android/sdk
-          export NDK_HOME=/tmp/Android/sdk/ndk/25.2.9519653
-          ./scripts/build_android.sh
+          ./scripts/build_android.sh release
 
       - name: zip artifacts
         run: |
@@ -187,7 +167,7 @@ jobs:
 
   create-release:
     needs: [build-cli-cross, build-cli-macos, build-lib-apple, build-lib-android]
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     steps:
       - name: checkout
         uses: actions/checkout@v4
@@ -217,7 +197,7 @@ jobs:
 
   release-cli:
     needs: [create-release]
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     strategy:
       matrix:
         target:
@@ -283,7 +263,7 @@ jobs:
 
   release-mobile-libs:
     needs: [create-release]
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     steps:
       - name: download upload url
         uses: actions/download-artifact@v4

@@ -1,25 +1,26 @@
 name: ci
 
+# Day-to-day checks, Linux only: macOS runners are costly, so the Apple
+# builds run at release (release.yml) and nowhere else.
 on: [push, pull_request, workflow_dispatch]
+
+env:
+  CARGO_TERM_COLOR: always
 
 jobs:
   test:
-    strategy:
-      matrix:
-        os:
-          - macos-latest
-          - ubuntu-latest
-            #          - windows-latest
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     steps:
       - name: checkout
         uses: actions/checkout@v4
         with:
           submodules: true
 
+      # The version is rust-toolchain.toml's; keep them in step.
       - name: install rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: 1.98.1
           components: clippy, rustfmt
 
       - name: cache
@@ -50,7 +51,9 @@ jobs:
           submodules: true
 
       - name: install rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
 
       - name: cache
         uses: Swatinem/rust-cache@v2
@@ -73,18 +76,33 @@ jobs:
             echo "::endgroup::"
           done
 
-  build-cli-cross:
+  # Every non-Apple release target, built from Linux with the scripts the
+  # release uses. A debug build: it links, which `cargo check` would not,
+  # and BoringSSL is compiled either way. Then, where the runner can run
+  # the result: `test` runs the sail tests (natively, or under qemu-user),
+  # `smoke` runs `sail --version` (qemu-user, wine), which catches a binary
+  # that does not load. Android libraries are only built.
+  cross:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        target:
-          - x86_64-unknown-linux-musl
-          - i686-unknown-linux-musl
-          - aarch64-unknown-linux-musl
-          - arm-unknown-linux-musleabi
-          - armv7-unknown-linux-musleabihf
-          - x86_64-pc-windows-gnu
+        include:
+          - { target: x86_64-unknown-linux-musl, package: sail-cli, run: test }
+          - { target: i686-unknown-linux-musl, package: sail-cli, run: smoke }
+          - { target: aarch64-unknown-linux-musl, package: sail-cli, run: test }
+          - { target: armv7-unknown-linux-musleabihf, package: sail-cli, run: smoke }
+          - { target: arm-unknown-linux-musleabi, package: sail-cli, run: smoke }
+          - { target: x86_64-pc-windows-gnu, package: sail-cli, run: smoke }
+          - { target: aarch64-linux-android, package: sail-ffi }
+          - { target: armv7-linux-androideabi, package: sail-ffi }
+          - { target: x86_64-linux-android, package: sail-ffi }
+          - { target: i686-linux-android, package: sail-ffi }
+    env:
+      # Debug info and incremental state only cost disk and time here; the
+      # statically linked test binaries are large enough without them.
+      CARGO_PROFILE_DEV_DEBUG: 0
+      CARGO_INCREMENTAL: 0
     steps:
       - name: checkout
         uses: actions/checkout@v4
@@ -92,170 +110,32 @@ jobs:
           submodules: true
 
       - name: install rust toolchain
-        uses: hecrj/setup-rust-action@v1
+        uses: dtolnay/rust-toolchain@master
         with:
-          rust-version: stable
+          toolchain: 1.98.1
 
-      - name: install deps
-        run: |
-          sudo apt update && sudo apt install llvm-dev libclang-dev clang libssl-dev pkg-config protobuf-compiler make -y
+      # scripts/install_cross_toolchain.sh downloads into ~/.sail-cross.
+      - name: cache cross toolchain
+        uses: actions/cache@v4
+        with:
+          path: ~/.sail-cross
+          key: sail-cross-${{ matrix.target }}-${{ hashFiles('scripts/install_cross_toolchain.sh') }}
 
-      - name: install cross
-        run: |
-          cargo install cross
+      - name: cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: install cross toolchain
+        run: scripts/install_cross_toolchain.sh ${{ matrix.target }} ${{ matrix.run && '--run' || '' }}
 
       - name: build
-        run: |
-          export CFG_COMMIT_HASH=`git log --pretty=format:'%h' -n 1`
-          export CFG_COMMIT_DATE=`git log --format="%ci" -n 1`
-          cross build --release --target ${{ matrix.target }}
+        run: scripts/cross.sh ${{ matrix.target }} build -p ${{ matrix.package }}
 
-      - name: rename and compress artifacts
-        if: ${{ matrix.target == 'x86_64-pc-windows-gnu' }}
-        run: |
-          mv target/${{ matrix.target }}/release/sail.exe sail-${{ matrix.target }}.exe
+      - name: smoke
+        if: ${{ matrix.run == 'smoke' }}
+        run: scripts/cross.sh ${{ matrix.target }} run -p sail-cli -- --version
 
-      - name: rename and compress artifacts
-        if: ${{ matrix.target != 'x86_64-pc-windows-gnu' }}
-        run: |
-          mv target/${{ matrix.target }}/release/sail sail-${{ matrix.target }}
-
-      - name: upload assets
-        if: ${{ matrix.target == 'x86_64-pc-windows-gnu' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: sail-${{ matrix.target }}.exe
-          path: sail-${{ matrix.target }}.exe
-
-      - name: upload assets
-        if: ${{ matrix.target != 'x86_64-pc-windows-gnu' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: sail-${{ matrix.target }}
-          path: sail-${{ matrix.target }}
-
-  build-cli-macos:
-    runs-on: [macos-latest]
-    strategy:
-      fail-fast: false
-      matrix:
-        target:
-          - aarch64-apple-darwin
-          - x86_64-apple-darwin
-    steps:
-      - name: checkout
-        uses: actions/checkout@v4
-        with:
-          submodules: true
-
-      - name: show last commit
-        run: |
-          git show --summary
-
-      - name: install rust toolchain
-        uses: hecrj/setup-rust-action@v1
-        with:
-          rust-version: stable
-
-      - name: install llvm
-        if: ${{ matrix.os == 'macos-latest' }}
-        run: |
-          brew install llvm protobuf
-
-      - name: install target
-        run: |
-          rustup target add ${{ matrix.target }}
-
-      - name: build
-        run: |
-          export CFG_COMMIT_HASH=`git log --pretty=format:'%h' -n 1`
-          export CFG_COMMIT_DATE=`git log --format="%ci" -n 1`
-          cargo build --release --target ${{ matrix.target }} -p sail-cli
-
-      - name: rename and compress artifacts
-        run: |
-          mv target/${{ matrix.target }}/release/sail sail-${{ matrix.target }}
-
-      - name: upload assets
-        uses: actions/upload-artifact@v4
-        with:
-          name: sail-${{ matrix.target }}
-          path: sail-${{ matrix.target }}
-
-  build-lib-apple:
-    runs-on: macos-latest
-    steps:
-      - name: checkout
-        uses: actions/checkout@v4
-        with:
-          submodules: true
-
-      - name: install rust
-        uses: hecrj/setup-rust-action@v1
-        with:
-          rust-version: stable
-
-      - name: install toolchain
-        run: |
-          cargo install cbindgen
-          brew install llvm unzip protobuf
-
-      - name: build
-        run: |
-          ./scripts/build_apple_xcframework.sh
-
-      - name: zip artifacts
-        run: |
-          mv target/apple/release/sail.xcframework .
-          zip -r sail.xcframework.zip sail.xcframework
-
-      - name: upload assets
-        uses: actions/upload-artifact@v4
-        with:
-          name: sail.xcframework.zip
-          path: sail.xcframework.zip
-
-  build-lib-android:
-    runs-on: ubuntu-latest
-    steps:
-      - name: checkout
-        uses: actions/checkout@v4
-        with:
-          submodules: true
-
-      - name: install rust
-        uses: hecrj/setup-rust-action@v1
-        with:
-          rust-version: stable
-
-      - name: install toolchain
-        run: |
-          cargo install cbindgen
-          apt update && apt install -y make llvm-dev libclang-dev clang pkg-config unzip curl default-jdk build-essential
-          export ANDROID_HOME=/tmp/Android/sdk
-          export NDK_HOME=/tmp/Android/sdk/ndk/25.2.9519653
-          export PATH=$ANDROID_HOME/cmdline-tools/bin:$PATH
-          cd /tmp/
-          curl -OL https://dl.google.com/android/repository/commandlinetools-linux-6858069_latest.zip
-          unzip commandlinetools-linux-6858069_latest.zip
-          mkdir -p $ANDROID_HOME
-          mv cmdline-tools $ANDROID_HOME
-          yes | sdkmanager --sdk_root=$ANDROID_HOME --licenses
-          sdkmanager --sdk_root=$ANDROID_HOME "ndk;25.2.9519653" "platforms;android-21"
-
-      - name: build
-        run: |
-          export ANDROID_HOME=/tmp/Android/sdk
-          export NDK_HOME=/tmp/Android/sdk/ndk/25.2.9519653
-          ./scripts/build_android.sh
-
-      - name: zip artifacts
-        run: |
-          mv target/sail-android-libs .
-          zip -r sail-android-libs.zip sail-android-libs
-
-      - name: upload assets
-        uses: actions/upload-artifact@v4
-        with:
-          name: sail-android-libs.zip
-          path: sail-android-libs.zip
+      - name: test sail
+        if: ${{ matrix.run == 'test' }}
+        run: scripts/cross.sh ${{ matrix.target }} test -p sail
