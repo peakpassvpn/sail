@@ -190,7 +190,6 @@ pub const FIELDS: &[Field] = &[
     f("route.dhcp_lease_files", Ignored),
     f("route.override_android_vpn", Ignored),
     // Rule conditions.
-    f("route.rules.*.protocol", Unsupported),
     f("route.rules.*.client", Unsupported),
     f("route.rules.*.source_geoip", Unsupported),
     f("route.rules.*.clash_mode", Unsupported),

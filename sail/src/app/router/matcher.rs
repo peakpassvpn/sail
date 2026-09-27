@@ -17,7 +17,7 @@ use super::rule_set::succinct::Succinct;
 use crate::config::external_rule::{self, DomainKind, External};
 use crate::config::model::{self, LogicalMode, RuleType};
 use crate::runtime::RuntimeEnv;
-use crate::session::{Network, Session};
+use crate::session::{Network, Session, SniffedProtocol};
 
 /// What rules are matched against: what is known about a connection at
 /// the time.
@@ -32,6 +32,8 @@ pub(crate) struct Facts {
     network: Network,
     inbound: String,
     user: Option<std::sync::Arc<str>>,
+    /// The protocol sniffing found.
+    protocol: Option<SniffedProtocol>,
     /// The path of the program the connection comes from.
     process_path: Option<String>,
     source: std::net::SocketAddr,
@@ -56,6 +58,7 @@ impl Facts {
             network: sess.network,
             inbound: sess.inbound_tag.clone(),
             user: sess.user.clone(),
+            protocol: sess.sniffed_protocol,
             process_path: sess.process_name.clone(),
             source: sess.source,
             query_type: None,
@@ -373,6 +376,22 @@ fn process_known(field: &str, compiled: bool, known: bool) -> Result<()> {
     Ok(())
 }
 
+/// The protocol sing-box names `name`, as `field` gives it: one sail
+/// sniffs, or a condition that could never match is refused.
+pub(crate) fn sniffed_protocol(field: &str, name: &str) -> Result<SniffedProtocol> {
+    match SniffedProtocol::ALL.into_iter().find(|p| p.name() == name) {
+        Some(SniffedProtocol::Quic) if !cfg!(feature = "btls") => Err(anyhow!(
+            "{}: quic is never sniffed, sail is built without btls",
+            field
+        )),
+        Some(protocol) => Ok(protocol),
+        None if ["ssh", "rdp", "ntp"].contains(&name) => {
+            Err(anyhow!("{}: sail does not sniff {} yet", field, name))
+        }
+        None => Err(anyhow!("{}: unknown protocol \"{}\"", field, name)),
+    }
+}
+
 /// What building a condition needs from outside it.
 pub(crate) struct Context<'a> {
     pub readers: &'a mut Readers,
@@ -495,6 +514,7 @@ pub(crate) struct Conditions {
     ip_version: Option<u8>,
     networks: Vec<Network>,
     auth_users: Vec<String>,
+    protocols: Vec<SniffedProtocol>,
     domains: DomainIndex,
     /// The domains and suffixes of a binary rule-set.
     succinct: Option<Succinct>,
@@ -664,6 +684,11 @@ impl Conditions {
                 })
                 .collect::<Result<_>>()?,
             auth_users: rule.auth_user.clone(),
+            protocols: rule
+                .protocol
+                .iter()
+                .map(|name| sniffed_protocol(&field("protocol"), name))
+                .collect::<Result<_>>()?,
             domains,
             succinct: extras.succinct,
             domain_regex: patterns(&field("domain_regex"), &rule.domain_regex)?,
@@ -704,6 +729,7 @@ impl Conditions {
             && self.ip_version.is_none()
             && self.networks.is_empty()
             && self.auth_users.is_empty()
+            && self.protocols.is_empty()
             && !self.has_domains()
             && self.source_ip_cidr.is_empty()
             && !self.source_ip_is_private
@@ -798,6 +824,8 @@ impl Conditions {
                     .user
                     .as_ref()
                     .is_some_and(|user| self.auth_users.iter().any(|u| **u == **user)))
+            && (self.protocols.is_empty()
+                || facts.protocol.is_some_and(|p| self.protocols.contains(&p)))
             && (self.process_names.is_empty()
                 || facts
                     .process_name()

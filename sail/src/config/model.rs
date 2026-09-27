@@ -488,6 +488,10 @@ pub struct Rule {
     /// Names of the users an inbound authenticated.
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
     pub auth_user: Vec<String>,
+    /// The protocols a `sniff` rule found, by sing-box's names: `tls`,
+    /// `http`, `quic`, `dns`, `stun`, `bittorrent`, `dtls`.
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub protocol: Vec<String>,
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
     pub domain: Vec<String>,
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
@@ -719,6 +723,7 @@ impl Rule {
             ("ip_version", self.ip_version.is_some()),
             ("network", !self.network.is_empty()),
             ("auth_user", !self.auth_user.is_empty()),
+            ("protocol", !self.protocol.is_empty()),
             ("domain", !self.domain.is_empty()),
             ("domain_suffix", !self.domain_suffix.is_empty()),
             ("domain_keyword", !self.domain_keyword.is_empty()),

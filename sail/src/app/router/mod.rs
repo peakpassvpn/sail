@@ -286,6 +286,12 @@ impl Rule {
                 Action::Resolve(rule.server.clone(), rule.strategy, rule.timeout)
             }
             RuleAction::Sniff => {
+                if !cfg!(feature = "btls") && rule.sniffer.contains(&model::Sniffer::Quic) {
+                    return Err(anyhow!(
+                        "{}.sniffer: quic is never sniffed, sail is built without btls",
+                        path
+                    ));
+                }
                 let protocols = crate::sniff::Protocols::of(&rule.sniffer);
                 Action::Sniff(SniffAction {
                     protocols,
@@ -500,6 +506,7 @@ mod tests {
                 .contains(crate::session::SniffedProtocol::Tls)
             {
                 sess.set_sniffed_domain(crate::session::SniffedFrom::Tls, self.domain.to_string());
+                sess.sniffed_protocol = Some(crate::session::SniffedProtocol::Tls);
             }
             Ok(())
         }
@@ -783,5 +790,53 @@ mod tests {
             .unwrap();
             assert!(Options::new(&rule, "route.rules[0]").is_err(), "{:?}", bad);
         }
+    }
+
+    #[tokio::test]
+    async fn the_sniffed_protocol_is_a_condition_of_the_rules_after() {
+        let router = router(serde_json::json!([
+            { "protocol": "tls", "outbound": "a" },
+            { "action": "sniff" },
+            { "protocol": ["quic", "tls"], "port": 443, "outbound": "a" },
+        ]));
+        let mut sniffer = FakeSniffer {
+            domain: "www.example.com",
+            calls: 0,
+        };
+        let mut sess = to_ip();
+        let decision = router.pick_route(&mut sess, &mut sniffer).await.unwrap();
+        assert_eq!(decision, Decision::Route(Some("a".into())));
+        assert_eq!(sniffer.calls, 1);
+        // Unsniffed, no protocol matches.
+        let router = self::router(serde_json::json!([{ "protocol": "tls", "outbound": "a" }]));
+        assert_eq!(
+            pick(&router, &mut to_ip()).await,
+            Decision::Route(Some("b".into()))
+        );
+    }
+
+    #[test]
+    fn a_protocol_never_sniffed_is_refused() {
+        for (name, message) in [
+            (
+                "ssh",
+                "route.rules[0].protocol: sail does not sniff ssh yet",
+            ),
+            (
+                "gopher",
+                "route.rules[0].protocol: unknown protocol \"gopher\"",
+            ),
+        ] {
+            let err = matcher::sniffed_protocol("route.rules[0].protocol", name)
+                .unwrap_err()
+                .to_string();
+            assert_eq!(err, message);
+        }
+        let quic = matcher::sniffed_protocol("protocol", "quic");
+        assert_eq!(quic.is_ok(), cfg!(feature = "btls"), "{:?}", quic.err());
+        assert_eq!(
+            matcher::sniffed_protocol("protocol", "bittorrent").unwrap(),
+            crate::session::SniffedProtocol::Bittorrent
+        );
     }
 }
