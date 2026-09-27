@@ -2,51 +2,52 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 
 use anyhow::{anyhow, Result};
 
-/// The IPv6 address the TUN takes when IPv6 is routed into it.
-const TUN_IPV6_ADDRESS: Ipv6Addr = Ipv6Addr::new(0x2001, 2, 0, 0, 0, 0, 0, 2);
-const TUN_IPV6_GATEWAY: Ipv6Addr = Ipv6Addr::new(0x2001, 2, 0, 0, 0, 0, 0, 1);
-const TUN_IPV6_PREFIX_LEN: i32 = 64;
-
-/// How a TUN with `auto` is addressed and routed.
+/// How a TUN with `auto_route` is addressed and routed.
 #[derive(Debug, Clone)]
 pub struct TunRoute {
     pub name: String,
     pub address: Ipv4Addr,
     pub gateway: Ipv4Addr,
     pub netmask: Ipv4Addr,
-    /// Routes IPv6 into the TUN as well (`dns.strategy` uses IPv6).
-    pub ipv6: bool,
-    /// Forwards the traffic of other hosts: the host is their gateway.
-    pub gateway_mode: bool,
+    /// With an IPv6 address on the device, IPv6 is routed into it as well:
+    /// the address, the other end of the link, and the prefix length.
+    pub ipv6: Option<(Ipv6Addr, Ipv6Addr, u8)>,
 }
 
 impl TunRoute {
-    /// The route of the TUN inbound in `config`, if it has one with `auto`.
-    pub fn from_config(config: &crate::config::Config) -> Result<Option<TunRoute>> {
+    /// The route of the TUN inbound in `config`, if it has one with
+    /// `auto_route` and the device is the instance's to route: a host that
+    /// opens it routes it too.
+    pub fn from_config(
+        config: &crate::config::Config,
+        host: &crate::runtime::Host,
+    ) -> Result<Option<TunRoute>> {
         let Some(inbound) = config.inbounds.iter().find(|i| i.protocol == "tun") else {
             return Ok(None);
         };
-        let options = crate::protocol::tun::inbound::options(inbound)?;
-        if !options.auto {
+        let settings = crate::protocol::tun::inbound::options(inbound)?;
+        let host_opens = host
+            .platform
+            .as_ref()
+            .is_some_and(|platform| platform.opens_tun());
+        if !settings.auto_route || host_opens {
             return Ok(None);
         }
-        let ip = |field: &str, value: &str| {
-            value.parse::<Ipv4Addr>().map_err(|_| {
-                anyhow!(
-                    "[{}] inbound: {}: \"{}\" is not an IPv4 address",
-                    inbound.tag,
-                    field,
-                    value
-                )
-            })
+        let Some(ipv4) = settings.ipv4 else {
+            return Err(anyhow!(
+                "[{}] inbound: auto_route needs an IPv4 address on the tun",
+                inbound.tag
+            ));
         };
+        use crate::protocol::tun::inbound::peer;
         Ok(Some(TunRoute {
-            name: options.name().to_string(),
-            address: ip("address", options.address())?,
-            gateway: ip("gateway", options.gateway())?,
-            netmask: ip("netmask", options.netmask())?,
-            ipv6: config.dns.strategy.ipv6(),
-            gateway_mode: options.gateway_mode,
+            name: settings.name,
+            address: ipv4.address(),
+            gateway: peer(ipv4),
+            netmask: ipv4.mask(),
+            ipv6: settings
+                .ipv6
+                .map(|ipv6| (ipv6.address(), peer(ipv6), ipv6.network_length())),
         }))
     }
 }
@@ -57,8 +58,6 @@ pub struct NetInfo {
     pub default_ipv6_gateway: Option<Ipv6Addr>,
     pub default_ipv4_address: Option<Ipv4Addr>,
     pub default_ipv6_address: Option<Ipv6Addr>,
-    pub ipv4_forwarding: bool,
-    pub ipv6_forwarding: bool,
     pub default_interface: Option<String>,
     /// The route set up, which is undone by the same description.
     pub route: Option<TunRoute>,
@@ -67,9 +66,9 @@ pub struct NetInfo {
     pub saved_routes6: Vec<String>,
 }
 
-/// Reads the default route and forwarding the TUN's routes replace. Fails
-/// without an IPv4 default gateway, which the TUN's route needs; a missing
-/// IPv6 one only leaves IPv6 routing alone.
+/// Reads the default routes the TUN's routes replace. Fails without an IPv4
+/// default gateway, which the TUN's route needs; a missing IPv6 one only
+/// leaves IPv6 routing alone.
 pub fn get_net_info(route: TunRoute) -> Result<NetInfo> {
     let iface = super::cmd::get_default_interface()?;
 
@@ -80,7 +79,8 @@ pub fn get_net_info(route: TunRoute) -> Result<NetInfo> {
             ipv4_gw
         )
     })?;
-    let ipv6_gw = if route.ipv6 {
+    let ipv6 = route.ipv6.is_some();
+    let ipv6_gw = if ipv6 {
         match super::cmd::get_default_ipv6_gateway() {
             Ok(gw) => match gw.parse::<Ipv6Addr>() {
                 Ok(gw) => Some(gw),
@@ -106,7 +106,7 @@ pub fn get_net_info(route: TunRoute) -> Result<NetInfo> {
             std::net::IpAddr::V6(_) => None,
         })
     });
-    let ipv6_addr = if route.ipv6 {
+    let ipv6_addr = if ipv6 {
         default_ifa.and_then(|ifa| {
             ifa.ips.iter().find_map(|ipn| match ipn.ip() {
                 std::net::IpAddr::V6(ip) => Some(ip),
@@ -116,17 +116,11 @@ pub fn get_net_info(route: TunRoute) -> Result<NetInfo> {
     } else {
         None
     };
-    let ipv4_forwarding = super::cmd::get_ipv4_forwarding()?;
-    let ipv6_forwarding = if route.ipv6 {
-        super::cmd::get_ipv6_forwarding()?
-    } else {
-        false
-    };
 
     #[cfg(target_os = "linux")]
     let (saved_routes, saved_routes6) = (
         super::cmd::get_default_routes(false).unwrap_or_default(),
-        if route.ipv6 {
+        if ipv6 {
             super::cmd::get_default_routes(true).unwrap_or_default()
         } else {
             Vec::new()
@@ -140,8 +134,6 @@ pub fn get_net_info(route: TunRoute) -> Result<NetInfo> {
         default_ipv6_gateway: ipv6_gw,
         default_ipv4_address: ipv4_addr,
         default_ipv6_address: ipv6_addr,
-        ipv4_forwarding,
-        ipv6_forwarding,
         default_interface: Some(iface),
         route: Some(route),
         saved_routes,
@@ -167,8 +159,6 @@ fn route_into_tun(net_info: &NetInfo) -> Result<()> {
         default_ipv6_gateway: ipv6_gw,
         default_ipv4_address: ipv4_addr,
         default_ipv6_address: ipv6_addr,
-        ipv4_forwarding,
-        ipv6_forwarding,
         default_interface: Some(iface),
         route: Some(route),
         ..
@@ -192,16 +182,12 @@ fn route_into_tun(net_info: &NetInfo) -> Result<()> {
         super::cmd::add_default_ipv4_rule(*a)?;
     }
 
-    if route.gateway_mode && !ipv4_forwarding {
-        super::cmd::set_ipv4_forwarding(true)?;
-    }
-
-    if route.ipv6 {
-        super::cmd::add_interface_ipv6_address(&route.name, TUN_IPV6_ADDRESS, TUN_IPV6_PREFIX_LEN)?;
+    if let Some((address, gateway, prefix)) = route.ipv6 {
+        super::cmd::add_interface_ipv6_address(&route.name, address, i32::from(prefix))?;
 
         if let Some(ipv6_gw) = ipv6_gw {
             super::cmd::delete_default_ipv6_route(None)?;
-            super::cmd::add_default_ipv6_route(TUN_IPV6_GATEWAY, iface.clone(), true)?;
+            super::cmd::add_default_ipv6_route(gateway, iface.clone(), true)?;
             super::cmd::add_default_ipv6_route(*ipv6_gw, iface.clone(), false)?;
         }
 
@@ -209,15 +195,6 @@ fn route_into_tun(net_info: &NetInfo) -> Result<()> {
         if let Some(a) = ipv6_addr {
             super::cmd::add_default_ipv6_rule(*a)?;
         }
-
-        if route.gateway_mode && !ipv6_forwarding {
-            super::cmd::set_ipv6_forwarding(true)?;
-        }
-    }
-
-    #[cfg(target_os = "linux")]
-    if route.gateway_mode {
-        super::cmd::add_iptable_forward(&route.name)?;
     }
     Ok(())
 }
@@ -238,8 +215,6 @@ pub fn post_tun_completion_setup(net_info: &NetInfo) {
         default_ipv6_gateway: ipv6_gw,
         default_ipv4_address: ipv4_addr,
         default_ipv6_address: ipv6_addr,
-        ipv4_forwarding,
-        ipv6_forwarding,
         default_interface: Some(iface),
         route: Some(route),
         saved_routes,
@@ -265,14 +240,7 @@ pub fn post_tun_completion_setup(net_info: &NetInfo) {
         best_effort("delete the rule", super::cmd::delete_default_ipv4_rule(*a));
     }
 
-    if route.gateway_mode && !ipv4_forwarding {
-        best_effort(
-            "turn IPv4 forwarding off",
-            super::cmd::set_ipv4_forwarding(false),
-        );
-    }
-
-    if route.ipv6 {
+    if route.ipv6.is_some() {
         if let Some(ipv6_gw) = ipv6_gw {
             best_effort(
                 "delete the IPv6 default route",
@@ -294,21 +262,6 @@ pub fn post_tun_completion_setup(net_info: &NetInfo) {
                 super::cmd::delete_default_ipv6_rule(*a),
             );
         }
-
-        if route.gateway_mode && !ipv6_forwarding {
-            best_effort(
-                "turn IPv6 forwarding off",
-                super::cmd::set_ipv6_forwarding(false),
-            );
-        }
-    }
-
-    #[cfg(target_os = "linux")]
-    if route.gateway_mode {
-        best_effort(
-            "delete the forward rule",
-            super::cmd::delete_iptable_forward(&route.name),
-        );
     }
 }
 

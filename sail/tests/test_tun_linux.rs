@@ -166,10 +166,8 @@ impl Sail {
                 "inbounds": [{{
                     "type": "tun",
                     "tag": "tun",
-                    "name": "{TUN}",
-                    "address": "10.213.0.1",
-                    "gateway": "10.213.0.2",
-                    "netmask": "255.255.255.0",
+                    "interface_name": "{TUN}",
+                    "address": "10.213.0.1/24",
                     "mtu": 1500,
                     "udp_timeout": "{udp_timeout}"
                 }}],

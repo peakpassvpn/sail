@@ -109,6 +109,29 @@ pub extern "C" fn sail_set_socket_protector(
     guard((), || platform::set_protector(callback, context));
 }
 
+/// Registers the function that opens the TUN device a TUN inbound needs
+/// (Android's `VpnService.Builder.establish`, the utun of iOS's packet
+/// tunnel), for the instances started after it; null unregisters it. With
+/// it registered, the host also routes the device: an instance neither
+/// creates one nor changes routes.
+///
+/// @param callback Called with a JSON object and `context` when a TUN
+///                 inbound starts: `interface_name`, `mtu`, `ipv4` and
+///                 `ipv6` (an address with its prefix, such as
+///                 `"172.19.0.1/30"`, or null), and `auto_route` (whether
+///                 all traffic is routed into the device). Returns the
+///                 device's file descriptor, which the instance then owns,
+///                 or a negative number when it cannot open it. It may be
+///                 called from any thread.
+/// @param context Passed back to `callback`.
+#[no_mangle]
+pub extern "C" fn sail_set_tun_opener(
+    callback: Option<platform::OpenTunCallback>,
+    context: *mut std::ffi::c_void,
+) {
+    guard((), || platform::set_tun_opener(callback, context));
+}
+
 /// `start_settings` as the environment offline checks run with.
 unsafe fn start_env(settings: *const c_char) -> Result<sail::runtime::RuntimeEnv, i32> {
     let (options, host) = unsafe { start_settings(settings) }?;

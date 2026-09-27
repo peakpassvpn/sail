@@ -1878,10 +1878,8 @@ mod tests {
                 "inbounds": [{
                     "type": "tun",
                     "tag": "native-process-test",
-                    "name": "sailns-e2e",
-                    "address": "198.19.255.254",
-                    "gateway": "198.19.255.253",
-                    "netmask": "255.254.0.0",
+                    "interface_name": "sailns-e2e",
+                    "address": "198.19.255.254/15",
                     "mtu": 1500,
                     "fake_dns_include": ["*"]
                 }],

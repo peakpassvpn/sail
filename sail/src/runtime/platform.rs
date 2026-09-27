@@ -43,6 +43,47 @@ pub trait Platform: Send + Sync {
         let _ = fd;
         Ok(())
     }
+
+    /// Whether `open_tun` opens the device of a TUN inbound; when it does
+    /// not, the instance creates the device and its routes itself.
+    fn opens_tun(&self) -> bool {
+        false
+    }
+
+    /// Opens the device a TUN inbound asks for, addressed as `request`
+    /// says and, with `auto_route`, carrying the system's traffic, as
+    /// Android's `VpnService.Builder` does. The instance owns the returned
+    /// file descriptor.
+    fn open_tun(&self, request: &TunRequest) -> std::io::Result<i32> {
+        let _ = request;
+        Err(std::io::Error::from(std::io::ErrorKind::Unsupported))
+    }
+}
+
+/// The device a TUN inbound asks its host for.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct TunRequest {
+    /// The name the configuration gives, which the host may not be able to
+    /// honour.
+    #[serde(rename = "interface_name")]
+    pub name: String,
+    pub mtu: u16,
+    #[serde(serialize_with = "serialize_inet")]
+    pub ipv4: Option<cidr::Ipv4Inet>,
+    #[serde(serialize_with = "serialize_inet")]
+    pub ipv6: Option<cidr::Ipv6Inet>,
+    /// Routes all traffic into the device.
+    pub auto_route: bool,
+}
+
+fn serialize_inet<I: fmt::Display, S: serde::Serializer>(
+    inet: &Option<I>,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    match inet {
+        Some(inet) => serializer.collect_str(inet),
+        None => serializer.serialize_none(),
+    }
 }
 
 /// A shared platform, compared by identity.

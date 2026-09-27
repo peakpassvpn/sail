@@ -8,7 +8,7 @@ pub mod options;
 pub mod platform;
 
 pub use options::{Profile, RuntimeOptions};
-pub use platform::{Platform, PlatformRef};
+pub use platform::{Platform, PlatformRef, TunRequest};
 
 use anyhow::{anyhow, Result};
 use serde_derive::Deserialize;

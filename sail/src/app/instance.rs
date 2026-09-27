@@ -107,7 +107,7 @@ impl Instance {
             nat_manager.clone(),
         )?));
         #[cfg(all(feature = "inbound-tun", any(target_os = "macos", target_os = "linux")))]
-        let tun_route = tun_setup::TunRoute::from_config(config)?;
+        let tun_route = tun_setup::TunRoute::from_config(config, &env.host)?;
         Ok(Instance {
             env,
             dns_client,

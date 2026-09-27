@@ -1,8 +1,8 @@
 //! The platform the FFI provides to the instances it starts: the system
-//! log of the target, and socket protection through a callback the host
-//! registers.
+//! log of the target, and socket protection and the TUN device through
+//! callbacks the host registers.
 
-use std::ffi::c_void;
+use std::ffi::{c_char, c_void, CString};
 use std::sync::RwLock;
 
 #[cfg(any(target_os = "ios", target_os = "macos", target_os = "android"))]
@@ -39,6 +39,27 @@ pub fn set_protector(callback: Option<ProtectSocketCallback>, context: *mut c_vo
         callback.map(|callback| Protector { callback, context });
 }
 
+/// Opens the TUN device `request` describes, a JSON object, and returns its
+/// file descriptor, or a negative number when it cannot; `context` is what
+/// the host registered along with it.
+pub type OpenTunCallback = extern "C" fn(request: *const c_char, context: *mut c_void) -> i32;
+
+struct TunOpener {
+    callback: OpenTunCallback,
+    context: *mut c_void,
+}
+
+// The host guarantees the context is usable from any thread.
+unsafe impl Send for TunOpener {}
+unsafe impl Sync for TunOpener {}
+
+static TUN_OPENER: RwLock<Option<TunOpener>> = RwLock::new(None);
+
+pub fn set_tun_opener(callback: Option<OpenTunCallback>, context: *mut c_void) {
+    *TUN_OPENER.write().unwrap_or_else(|e| e.into_inner()) =
+        callback.map(|callback| TunOpener { callback, context });
+}
+
 pub struct FfiPlatform;
 
 impl sail::runtime::Platform for FfiPlatform {
@@ -58,6 +79,31 @@ impl sail::runtime::Platform for FfiPlatform {
             Some(p) if (p.callback)(fd, p.context) => Ok(()),
             Some(_) => Err(std::io::Error::other("the host did not protect the socket")),
             None => Ok(()),
+        }
+    }
+
+    fn opens_tun(&self) -> bool {
+        TUN_OPENER
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_some()
+    }
+
+    fn open_tun(&self, request: &sail::runtime::TunRequest) -> std::io::Result<i32> {
+        let request = serde_json::to_string(request)
+            .ok()
+            .and_then(|json| CString::new(json).ok())
+            .ok_or_else(|| std::io::Error::other("the tun request does not encode"))?;
+        match TUN_OPENER
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+        {
+            Some(o) => match (o.callback)(request.as_ptr(), o.context) {
+                fd if fd >= 0 => Ok(fd),
+                _ => Err(std::io::Error::other("the host could not open the tun")),
+            },
+            None => Err(std::io::Error::from(std::io::ErrorKind::Unsupported)),
         }
     }
 }

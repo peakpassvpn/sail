@@ -710,11 +710,12 @@ impl Config {
         // A TUN that takes the default route catches outbound traffic too,
         // unless that is sent through the interface it would have used.
         if let Some(tun) = self.inbounds.iter().find(|i| {
-            i.protocol == "tun" && i.options.get("auto") == Some(&serde_json::Value::Bool(true))
+            i.protocol == "tun"
+                && i.options.get("auto_route") == Some(&serde_json::Value::Bool(true))
         }) {
             if !self.route.auto_detect_interface && self.route.default_interface.is_none() {
                 return Err(anyhow!(
-                    "[{}] inbound: auto routes all traffic into the TUN; set \
+                    "[{}] inbound: auto_route routes all traffic into the TUN; set \
                      route.auto_detect_interface (or route.default_interface) so that \
                      outbound traffic does not loop back into it",
                     tun.tag
@@ -955,8 +956,7 @@ mod tests {
 
     #[test]
     fn a_tun_taking_the_default_route_needs_an_outbound_interface() {
-        let tun =
-            r#""inbounds": [{ "type": "tun", "auto": true }], "outbounds": [{ "type": "direct" }]"#;
+        let tun = r#""inbounds": [{ "type": "tun", "address": "172.19.0.1/30", "auto_route": true }], "outbounds": [{ "type": "direct" }]"#;
         let err = Config::from_json(&format!("{{ {} }}", tun)).unwrap_err();
         assert!(
             err.to_string().contains("route.auto_detect_interface"),

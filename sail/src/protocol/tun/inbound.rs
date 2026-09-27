@@ -1,6 +1,7 @@
 use std::{net::SocketAddr, num::NonZeroUsize, sync::Arc};
 
 use anyhow::{anyhow, Result};
+use cidr::{Inet, IpInet, Ipv4Inet, Ipv6Inet};
 use lru::LruCache;
 use sail_netstack::{BudgetProfile, ResourceLedger, RunnerConfig, UdpFlowToken};
 use serde_derive::Deserialize;
@@ -15,6 +16,7 @@ use crate::{
     app::nat_manager::{NatManager, UdpPacket},
     config::model::{parse_options, Inbound},
     runtime::options::{Netstack, NetstackBudget},
+    runtime::TunRequest,
     session::{DatagramSource, Network, Session, SocksAddr},
     Runner,
 };
@@ -297,23 +299,24 @@ fn run<I: sail_netstack::PacketIo + 'static>(
 
 /// One multi-queue device, a queue per shard, each with its own runner.
 #[cfg(target_os = "linux")]
-fn linux_queues(settings: &TunInboundOptions, netstack: &Netstack) -> Result<Vec<TunRsPacketIo>> {
-    let mtu = usize::try_from(settings.mtu).map_err(|_| anyhow!("invalid TUN mtu"))?;
+fn linux_queues(settings: &TunSettings, netstack: &Netstack) -> Result<Vec<TunRsPacketIo>> {
     let available = std::thread::available_parallelism()
         .map(NonZeroUsize::get)
         .unwrap_or(1);
     let queue_count = available.min(netstack.max_queues).max(1);
-    let first = tun_rs::DeviceBuilder::new()
-        .name(settings.name())
-        .ipv4(
-            settings.address(),
-            settings.netmask(),
-            Some(settings.gateway()),
-        )
-        .mtu(u16::try_from(settings.mtu).map_err(|_| anyhow!("invalid TUN mtu"))?)
+    let mut builder = tun_rs::DeviceBuilder::new()
+        .name(&settings.name)
+        .mtu(settings.mtu)
         .enable(true)
         .multi_queue(queue_count > 1)
-        .offload(netstack.offload)
+        .offload(netstack.offload);
+    if let Some(ipv4) = settings.ipv4 {
+        builder = builder.ipv4(ipv4.address(), ipv4.network_length(), Some(peer(ipv4)));
+    }
+    if let Some(ipv6) = settings.ipv6 {
+        builder = builder.ipv6(ipv6.address(), ipv6.network_length());
+    }
+    let first = builder
         .build_async()
         .map_err(|e| anyhow!("create tun failed: {}", e))?;
     let mut devices = Vec::with_capacity(queue_count);
@@ -330,7 +333,7 @@ fn linux_queues(settings: &TunInboundOptions, netstack: &Netstack) -> Result<Vec
         .map(|device| {
             TunRsPacketIo::new(
                 device,
-                mtu,
+                usize::from(settings.mtu),
                 netstack.batch_size,
                 queue_count,
                 netstack.offload,
@@ -340,104 +343,122 @@ fn linux_queues(settings: &TunInboundOptions, netstack: &Netstack) -> Result<Vec
         .map_err(Into::into)
 }
 
-/// The options of a TUN inbound.
+/// The options of a TUN inbound, as sing-box's `tun` inbound names them.
 #[derive(Deserialize, Debug)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct TunInboundOptions {
-    /// An already open TUN device; everything but the fake DNS options is
-    /// ignored when it is set.
-    #[serde(default = "no_fd")]
-    pub fd: i32,
-    /// Routes all traffic into the device.
+struct TunInboundOptions {
     #[serde(default)]
-    pub auto: bool,
-    #[serde(default)]
-    pub name: Option<String>,
-    #[serde(default)]
-    pub address: Option<String>,
-    #[serde(default)]
-    pub gateway: Option<String>,
-    #[serde(default)]
-    pub netmask: Option<String>,
-    /// With `auto`, forwards the traffic of other hosts, which use this one
-    /// as their gateway.
-    #[serde(default)]
-    #[cfg_attr(not(any(target_os = "macos", target_os = "linux")), allow(dead_code))]
-    pub gateway_mode: bool,
+    interface_name: Option<String>,
+    /// The device's addresses with their prefixes: one IPv4, one IPv6, or
+    /// one of each.
+    #[serde(default, with = "crate::config::model::listable")]
+    address: Vec<String>,
     #[serde(default = "default_mtu")]
-    pub mtu: i32,
+    mtu: u32,
+    /// Routes the system's traffic into the device.
     #[serde(default)]
+    auto_route: bool,
+    /// Until the DNS section serves fake IPs, the domains that get one, or
+    /// those that do not.
+    #[serde(default)]
+    fake_dns_exclude: Vec<String>,
+    #[serde(default)]
+    fake_dns_include: Vec<String>,
+}
+
+/// A TUN inbound's options, checked.
+#[derive(Debug, Clone)]
+pub(crate) struct TunSettings {
+    pub name: String,
+    pub ipv4: Option<Ipv4Inet>,
+    pub ipv6: Option<Ipv6Inet>,
+    pub mtu: u16,
+    pub auto_route: bool,
     pub fake_dns_exclude: Vec<String>,
-    #[serde(default)]
     pub fake_dns_include: Vec<String>,
-    /// Windows only.
-    #[serde(default)]
-    #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
-    pub wintun: Option<String>,
-    /// Windows only.
-    #[serde(default)]
-    #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
-    pub dns_servers: Vec<String>,
 }
 
-#[cfg(windows)]
-const DEFAULT_ADDRESS: &str = "10.7.7.2";
-#[cfg(windows)]
-const DEFAULT_GATEWAY: &str = "10.7.7.1";
-#[cfg(not(windows))]
-const DEFAULT_ADDRESS: &str = "192.168.233.2";
-#[cfg(not(windows))]
-const DEFAULT_GATEWAY: &str = "192.168.233.1";
-
-impl TunInboundOptions {
-    pub fn name(&self) -> &str {
-        self.name.as_deref().unwrap_or("utun233")
-    }
-
-    pub fn address(&self) -> &str {
-        self.address.as_deref().unwrap_or(DEFAULT_ADDRESS)
-    }
-
-    pub fn gateway(&self) -> &str {
-        self.gateway.as_deref().unwrap_or(DEFAULT_GATEWAY)
-    }
-
-    pub fn netmask(&self) -> &str {
-        self.netmask.as_deref().unwrap_or("255.255.255.0")
+impl TunSettings {
+    /// What a host that opens the device itself is asked for.
+    pub fn request(&self) -> TunRequest {
+        TunRequest {
+            name: self.name.clone(),
+            mtu: self.mtu,
+            ipv4: self.ipv4,
+            ipv6: self.ipv6,
+            auto_route: self.auto_route,
+        }
     }
 }
 
-fn no_fd() -> i32 {
-    -1
+/// sing-box leaves the name to the system; utun names suit macOS as well.
+const DEFAULT_NAME: &str = "utun233";
+
+/// sing-box's default: the device is memory, and larger packets are fewer.
+fn default_mtu() -> u32 {
+    9000
 }
 
-fn default_mtu() -> i32 {
-    1500
+/// The other end of the link an address implies: the next address in its
+/// network, the one before when it is the last, or itself when it is alone.
+pub(crate) fn peer<I: Inet>(inet: I) -> I::Address {
+    inet.next()
+        .or_else(|| inet.previous())
+        .map_or(inet.address(), |peer| peer.address())
 }
 
-pub(crate) fn options(inbound: &Inbound) -> Result<TunInboundOptions> {
+pub(crate) fn options(inbound: &Inbound) -> Result<TunSettings> {
     let options: TunInboundOptions = parse_options("inbound", &inbound.tag, &inbound.options)?;
-    if options.auto && options.fd >= 0 {
-        return Err(anyhow!(
-            "[{}] inbound: auto sets up a device of its own; it cannot take fd",
-            inbound.tag
+    let error = |message: String| anyhow!("[{}] inbound: {}", inbound.tag, message);
+    let (mut ipv4, mut ipv6) = (None, None);
+    for address in &options.address {
+        // As sing-box, the prefix is required: a bare address is no /32.
+        let parsed = address
+            .contains('/')
+            .then(|| address.parse::<IpInet>().ok())
+            .flatten()
+            .ok_or(());
+        match parsed {
+            Ok(IpInet::V4(inet)) if ipv4.is_none() => ipv4 = Some(inet),
+            Ok(IpInet::V6(inet)) if ipv6.is_none() => ipv6 = Some(inet),
+            Ok(_) => {
+                return Err(error(format!(
+                    "address: {address}: one address of each family is supported"
+                )))
+            }
+            Err(_) => {
+                return Err(error(format!(
+                    "address: \"{address}\" is not an address with a prefix, such as 172.19.0.1/30"
+                )))
+            }
+        }
+    }
+    if ipv4.is_none() && ipv6.is_none() {
+        return Err(error("address: the device needs an address".into()));
+    }
+    // IPv4 hosts must take 576-byte datagrams, IPv6 ones 1280-byte packets;
+    // an IP packet is at most 64 KiB.
+    let minimum = if ipv6.is_some() { 1280 } else { 576 };
+    let mtu = u16::try_from(options.mtu)
+        .ok()
+        .filter(|mtu| *mtu >= minimum)
+        .ok_or_else(|| error(format!("mtu {} is outside {minimum} to 65535", options.mtu)))?;
+    if !options.fake_dns_exclude.is_empty() && !options.fake_dns_include.is_empty() {
+        return Err(error(
+            "fake DNS runs either in include mode or in exclude mode".into(),
         ));
     }
-    if options.gateway_mode && !options.auto {
-        return Err(anyhow!(
-            "[{}] inbound: gateway_mode needs auto, which does the routing",
-            inbound.tag
-        ));
-    }
-    // IPv4 hosts must take 576-byte datagrams; an IP packet is at most 64 KiB.
-    if !(576..=65_535).contains(&options.mtu) {
-        return Err(anyhow!(
-            "[{}] inbound: mtu {} is outside 576 to 65535",
-            inbound.tag,
-            options.mtu
-        ));
-    }
-    Ok(options)
+    Ok(TunSettings {
+        name: options
+            .interface_name
+            .unwrap_or_else(|| DEFAULT_NAME.to_string()),
+        ipv4,
+        ipv6,
+        mtu,
+        auto_route: options.auto_route,
+        fake_dns_exclude: options.fake_dns_exclude,
+        fake_dns_include: options.fake_dns_include,
+    })
 }
 
 pub(crate) fn new(
@@ -447,87 +468,92 @@ pub(crate) fn new(
 ) -> Result<TunRunner> {
     tracing::debug!("Create TUN inbound");
 
-    let mut settings = options(&inbound)?;
-
-    let mut cfg = tun::Configuration::default();
-    if settings.fd >= 0 {
-        cfg.raw_fd(settings.fd);
-    } else {
-        cfg.tun_name(settings.name())
-            .address(settings.address())
-            .destination(settings.gateway())
-            .mtu(settings.mtu as u16);
-
-        #[cfg(not(any(target_arch = "mips", target_arch = "mips64")))]
-        {
-            cfg.netmask(settings.netmask());
-        }
-
-        cfg.up();
-    }
-
-    // FIXME it's a bad design to have 2 lists in config while we need only one
-    let fake_dns_exclude = std::mem::take(&mut settings.fake_dns_exclude);
-    let fake_dns_include = std::mem::take(&mut settings.fake_dns_include);
-    if !fake_dns_exclude.is_empty() && !fake_dns_include.is_empty() {
-        return Err(anyhow!(
-            "fake DNS run in either include mode or exclude mode"
-        ));
-    }
-    let fakedns = if !fake_dns_include.is_empty() {
+    let settings = options(&inbound)?;
+    let fakedns = if !settings.fake_dns_include.is_empty() {
         Some(Arc::new(FakeDns::new(
             FakeDnsMode::Include,
-            fake_dns_include,
+            settings.fake_dns_include.clone(),
         )))
-    } else if !fake_dns_exclude.is_empty() {
+    } else if !settings.fake_dns_exclude.is_empty() {
         Some(Arc::new(FakeDns::new(
             FakeDnsMode::Exclude,
-            fake_dns_exclude,
+            settings.fake_dns_exclude.clone(),
         )))
     } else {
         None
     };
-
-    #[cfg(target_os = "windows")]
-    {
-        use rand::Rng;
-        use std::net::IpAddr;
-        let mut rng = rand::thread_rng();
-        let dns_servers: Vec<IpAddr> = settings
-            .dns_servers
-            .iter()
-            .filter_map(|x| x.parse().ok())
-            .collect();
-        cfg.metric(0);
-        cfg.platform_config(|x| {
-            x.device_guid(rng.gen());
-            if !dns_servers.is_empty() {
-                x.dns_servers(&dns_servers);
-            }
-            if let Some(f) = &settings.wintun {
-                x.wintun_file(f.clone());
-            }
-        });
-    }
-
     let netstack = &dispatcher.env().options.netstack;
-    let mtu = usize::try_from(settings.mtu).map_err(|_| anyhow!("invalid TUN mtu"))?;
+    let mtu = usize::from(settings.mtu);
 
-    #[cfg(target_os = "linux")]
-    if settings.fd < 0 {
-        let queues = linux_queues(&settings, netstack)?;
-        return run(
-            inbound,
-            dispatcher.clone(),
-            nat_manager,
-            fakedns,
-            queues,
-            mtu,
-            netstack,
-        );
+    // A host that runs the VPN (Android, iOS) opens the device, with its
+    // routes; the instance only reads and writes it.
+    let platform = dispatcher
+        .env()
+        .host
+        .platform
+        .clone()
+        .filter(|platform| platform.opens_tun());
+    let mut cfg = tun::Configuration::default();
+    if let Some(platform) = platform {
+        let fd = platform
+            .open_tun(&settings.request())
+            .map_err(|e| anyhow!("the host did not open the tun: {}", e))?;
+        cfg.raw_fd(fd);
+    } else {
+        #[cfg(target_os = "linux")]
+        {
+            let queues = linux_queues(&settings, netstack)?;
+            return run(
+                inbound,
+                dispatcher.clone(),
+                nat_manager,
+                fakedns,
+                queues,
+                mtu,
+                netstack,
+            );
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            let Some(ipv4) = settings.ipv4 else {
+                return Err(anyhow!(
+                    "[{}] inbound: address: this system needs an IPv4 address on the tun",
+                    inbound.tag
+                ));
+            };
+            cfg.tun_name(&settings.name)
+                .address(ipv4.address())
+                .destination(peer(ipv4))
+                .netmask(ipv4.mask())
+                .mtu(settings.mtu)
+                .up();
+            #[cfg(target_os = "windows")]
+            {
+                if settings.ipv6.is_some() {
+                    return Err(anyhow!(
+                        "[{}] inbound: address: an IPv6 address on the tun is not supported on Windows",
+                        inbound.tag
+                    ));
+                }
+                use rand::Rng;
+                let mut rng = rand::thread_rng();
+                cfg.metric(0);
+                cfg.platform_config(|x| {
+                    x.device_guid(rng.gen());
+                });
+            }
+        }
     }
 
     let tun = tun::create_as_async(&cfg).map_err(|e| anyhow!("create tun failed: {}", e))?;
+    #[cfg(target_os = "macos")]
+    if let Some(ipv6) = settings.ipv6.filter(|_| cfg_opened_here(&dispatcher)) {
+        crate::platform::cmd::add_interface_ipv6_address(
+            &settings.name,
+            ipv6.address(),
+            i32::from(ipv6.network_length()),
+        )?;
+    }
     let io = TunPacketIo::new(tun, mtu, netstack.batch_size)?;
     run(
         inbound,
@@ -538,6 +564,17 @@ pub(crate) fn new(
         mtu,
         netstack,
     )
+}
+
+/// Whether this instance, not its host, opened the device.
+#[cfg(target_os = "macos")]
+fn cfg_opened_here(dispatcher: &Dispatcher) -> bool {
+    !dispatcher
+        .env()
+        .host
+        .platform
+        .as_ref()
+        .is_some_and(|platform| platform.opens_tun())
 }
 
 #[cfg(test)]
@@ -556,18 +593,129 @@ mod tests {
     }
 
     #[test]
-    fn unset_addresses_take_the_defaults() {
-        let options = options(&tun(serde_json::json!({ "auto": true }))).unwrap();
-        assert_eq!(options.name(), "utun233");
-        assert_eq!(options.address(), DEFAULT_ADDRESS);
-        assert_eq!(options.netmask(), "255.255.255.0");
+    fn sing_box_fields_are_read() {
+        let settings = options(&tun(serde_json::json!({
+            "interface_name": "tun7",
+            "address": ["172.19.0.1/30", "fdfe:dcba:9876::1/126"],
+            "mtu": 1500,
+            "auto_route": true
+        })))
+        .unwrap();
+        assert_eq!(settings.name, "tun7");
+        assert_eq!(settings.ipv4, Some("172.19.0.1/30".parse().unwrap()));
+        assert_eq!(
+            settings.ipv6,
+            Some("fdfe:dcba:9876::1/126".parse().unwrap())
+        );
+        assert_eq!(settings.mtu, 1500);
+        assert!(settings.auto_route);
     }
 
     #[test]
-    fn conflicting_options_are_errors() {
-        let err = options(&tun(serde_json::json!({ "auto": true, "fd": 3 }))).unwrap_err();
-        assert!(err.to_string().contains("fd"), "{}", err);
-        let err = options(&tun(serde_json::json!({ "gateway_mode": true }))).unwrap_err();
-        assert!(err.to_string().contains("gateway_mode"), "{}", err);
+    fn unset_fields_take_sing_box_defaults() {
+        let settings = options(&tun(serde_json::json!({ "address": "172.19.0.1/30" }))).unwrap();
+        assert_eq!(settings.name, DEFAULT_NAME);
+        assert_eq!(settings.mtu, 9000);
+        assert!(!settings.auto_route);
+        assert_eq!(settings.ipv6, None);
+    }
+
+    #[test]
+    fn the_peer_is_the_next_address_or_the_one_before() {
+        let peer_of = |inet: &str| peer(inet.parse::<Ipv4Inet>().unwrap()).to_string();
+        assert_eq!(peer_of("172.19.0.1/30"), "172.19.0.2");
+        assert_eq!(peer_of("172.19.0.3/30"), "172.19.0.2");
+        assert_eq!(peer_of("10.0.0.7/32"), "10.0.0.7");
+        let peer6 = peer("fdfe::1/126".parse::<Ipv6Inet>().unwrap());
+        assert_eq!(peer6.to_string(), "fdfe::2");
+    }
+
+    #[test]
+    fn unusable_addresses_and_mtus_are_errors() {
+        for (given, mentions) in [
+            (serde_json::json!({}), "needs an address"),
+            (serde_json::json!({ "address": "172.19.0.1" }), "prefix"),
+            (
+                serde_json::json!({ "address": ["172.19.0.1/30", "172.20.0.1/30"] }),
+                "one address of each family",
+            ),
+            (
+                serde_json::json!({ "address": "fdfe::1/126", "mtu": 1200 }),
+                "1280",
+            ),
+            (
+                serde_json::json!({ "address": "172.19.0.1/30", "mtu": 70000 }),
+                "65535",
+            ),
+        ] {
+            let err = options(&tun(given)).unwrap_err().to_string();
+            assert!(err.contains(mentions), "{err}");
+        }
+    }
+
+    /// A tun inbound as sing-box's documentation writes it.
+    #[test]
+    fn a_sing_box_tun_inbound_is_read() {
+        let config = crate::config::Config::from_json(
+            r#"{
+                "inbounds": [{
+                    "type": "tun",
+                    "tag": "tun-in",
+                    "interface_name": "tun0",
+                    "address": ["172.18.0.1/30", "fdfe:dcba:9876::1/126"],
+                    "mtu": 9000,
+                    "auto_route": true,
+                    "stack": "system",
+                    "endpoint_independent_nat": false,
+                    "udp_timeout": "5m"
+                }],
+                "outbounds": [{ "type": "direct" }],
+                "route": { "auto_detect_interface": true }
+            }"#,
+        )
+        .unwrap();
+        assert_eq!(
+            config.warnings,
+            [
+                "inbounds[0].stack: sail does not implement this field; ignored",
+                "inbounds[0].endpoint_independent_nat: sail does not implement this field; ignored",
+            ]
+        );
+        let settings = options(&config.inbounds[0]).unwrap();
+        assert_eq!(settings.name, "tun0");
+        assert!(settings.ipv4.is_some() && settings.ipv6.is_some());
+        assert_eq!(
+            config.inbounds[0].udp_timeout(),
+            std::time::Duration::from_secs(300)
+        );
+
+        // Fields that choose which traffic enters the TUN are not ignored.
+        let err = crate::config::Config::from_json(
+            r#"{ "inbounds": [{ "type": "tun", "address": "172.18.0.1/30", "strict_route": true }] }"#,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("strict_route"), "{err}");
+    }
+
+    #[test]
+    fn leaf_s_fields_are_mistakes() {
+        for field in [
+            "fd",
+            "auto",
+            "gateway_mode",
+            "name",
+            "netmask",
+            "gateway",
+            "wintun",
+        ] {
+            let err = options(&tun(serde_json::json!({
+                "address": "172.19.0.1/30",
+                field: serde_json::Value::Null
+            })))
+            .unwrap_err()
+            .to_string();
+            assert!(err.contains(field), "{field}: {err}");
+        }
     }
 }
