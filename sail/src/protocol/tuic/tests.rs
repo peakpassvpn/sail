@@ -173,7 +173,6 @@ impl Fixture {
 // space, whose keys it discards right away. Passes with that fork holding
 // Application data back until the 1-RTT keys are handed over.
 #[tokio::test]
-#[ignore = "quinn-btls a3efed7: the server's session ticket is lost"]
 async fn zero_rtt_is_accepted_on_resumption() {
     let mut f = fixture(true, true).await;
     f.round_trip(1).await;

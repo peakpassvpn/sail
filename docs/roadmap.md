@@ -162,7 +162,7 @@ Sail 与 sing-box 的对比已经完成。当前结果表明：
 | 1.3 | **已完成（2026-09-26）** VLESS / Reality / Vision 双向：`flow` 可配置，支持无 Vision、Vision、UDP，明确 XUDP / UoT 策略；补齐 VLESS 入站和 Reality 服务端（含 XUDP） | `protocol/vless/`、`transport/reality/` | 不再硬编码 flow；与 Xray / sing-box 建立入站 × 出站组合测试矩阵 |
 | 1.4 | **已完成（2026-09-26）** VMess 入站（含出站 `auto` / `none` / `zero`；legacy alterId 不支持） | `protocol/vmess/` | 与 Xray / sing-box 客户端互通；AEAD 头、重放保护有测试 |
 | 1.5 | **已完成（2026-09-26）** Hysteria2 入站与出站，含 Salamander 混淆、端口跳跃、带宽与拥塞控制参数（Brutal 为近似实现，quinn 无 pacing 钩子） | `protocol/hysteria2/`，评估复用现有 quinn | 与官方实现双向互通；TCP、UDP、弱网和连接迁移场景可用 |
-| 1.6 | **已完成（2026-09-26）** TUIC 入站与出站（`udp_over_stream` 未实现） | `protocol/tuic/` | 与主流实现双向互通；TCP、UDP 和拥塞控制参数生效 |
+| 1.6 | **已完成（2026-09-26）** TUIC 入站与出站（含 `udp_over_stream` 与 0-RTT） | `protocol/tuic/` | 与主流实现双向互通；TCP、UDP 和拥塞控制参数生效 |
 | 1.7 | **已完成（2026-09-26）** V2Ray 传输层：HTTP、gRPC、HTTPUpgrade；补齐 WebSocket early-data；入站和出站都支持（HTTP/2 传输按分级不支持；gRPC 出站暂为一流一连接） | `transport/` | VLESS / VMess / Trojan 与 Xray、sing-box 双向互通 |
 | 1.8 | **已完成（2026-09-26）** 通用多路复用：smux / yamux / h2mux，入站和出站；按需求决定是否实现 TCP Brutal（兼容 sing-mux，默认 h2mux；含 UoT v2；TCP Brutal 未做） | `transport/mux/` | 与 sing-box / Mihomo 互通；高并发下不会因池化叠加导致内存失控 |
 | 1.9 | **已完成（2026-09-26）** 出站组：默认启用 select，补齐 URLTest、fallback、load-balance 和选择持久化（selector / urltest / fallback / load-balance；failover 并入 fallback，static 已删除） | `protocol/group/` | 手动选择、自动测速、故障切换和重启恢复都有测试 |
