@@ -4,12 +4,9 @@
 //! UDP, each datagram is one.
 
 use std::io;
-use std::net::IpAddr;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use hickory_proto::op::{Message, MessageType, OpCode, ResponseCode};
-use hickory_proto::rr::{rdata, DNSClass, RData, Record, RecordType};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::sync::mpsc;
 use tracing::debug;
@@ -19,82 +16,21 @@ use crate::app::dns::LookupContext;
 use crate::app::SyncDnsClient;
 use crate::session::{Session, SocksAddr};
 
-/// How long the answers are to be kept: the client's lookups carry no TTL.
-const TTL: u32 = 60;
-
-/// The answer to the DNS message `query`, which `sess` carried; `None`
-/// when it is no query to answer. The one place hijacked queries are
-/// answered: until the DNS client exchanges whole messages, the A and AAAA
-/// queries are answered from its lookups, and others with NOTIMP.
+/// The answer to the DNS message `query`, which `sess` carried, as the DNS
+/// rules pick its server; `None` when it is no DNS message.
 pub(crate) async fn answer(dns: &SyncDnsClient, query: &[u8], sess: &Session) -> Option<Vec<u8>> {
-    let request = match Message::from_vec(query) {
-        Ok(m) if m.message_type() == MessageType::Query => m,
-        Ok(_) => return None,
+    let ctx = LookupContext {
+        inbound: Some(sess.inbound_tag.clone()),
+        user: sess.user.clone(),
+        ..Default::default()
+    };
+    match dns.load().exchange(query, &ctx).await {
+        Ok(reply) => Some(reply),
         Err(e) => {
-            debug!("hijack-dns: not a DNS message: {}", e);
-            return None;
+            debug!("hijack-dns: {}", e);
+            None
         }
-    };
-    let mut response = Message::new();
-    response
-        .set_id(request.id())
-        .set_message_type(MessageType::Response)
-        .set_op_code(request.op_code())
-        .set_recursion_desired(request.recursion_desired())
-        .set_recursion_available(true)
-        .set_checking_disabled(request.checking_disabled());
-    for q in request.queries() {
-        response.add_query(q.clone());
     }
-    let code = match (request.op_code(), request.queries()) {
-        (OpCode::Query, [q]) if q.query_class() == DNSClass::IN => {
-            let family = match q.query_type() {
-                RecordType::A => Some(IpAddr::is_ipv4 as fn(&IpAddr) -> bool),
-                RecordType::AAAA => Some(IpAddr::is_ipv6 as fn(&IpAddr) -> bool),
-                _ => None,
-            };
-            match family {
-                // The client answers addresses alone.
-                None => ResponseCode::NotImp,
-                Some(family) => {
-                    let name = q.name().to_ascii();
-                    let host = name.trim_end_matches('.');
-                    let ctx = LookupContext {
-                        inbound: Some(sess.inbound_tag.clone()),
-                        user: sess.user.clone(),
-                        outbound: None,
-                        strategy: None,
-                    };
-                    // Both families, as the strategy says, then those
-                    // asked for: a family the strategy leaves out has none.
-                    match dns.load_full().lookup_in(host, &ctx).await {
-                        Ok(ips) => {
-                            for ip in ips.into_iter().filter(family) {
-                                let data = match ip {
-                                    IpAddr::V4(ip) => RData::A(rdata::A(ip)),
-                                    IpAddr::V6(ip) => RData::AAAA(rdata::AAAA(ip)),
-                                };
-                                response.add_answer(Record::from_rdata(
-                                    q.name().clone(),
-                                    TTL,
-                                    data,
-                                ));
-                            }
-                            ResponseCode::NoError
-                        }
-                        Err(e) => {
-                            debug!("hijack-dns: {} {}: {}", host, q.query_type(), e);
-                            ResponseCode::ServFail
-                        }
-                    }
-                }
-            }
-        }
-        (OpCode::Query, _) => ResponseCode::FormErr,
-        _ => ResponseCode::NotImp,
-    };
-    response.set_response_code(code);
-    response.to_vec().ok()
 }
 
 /// Answers the length-prefixed DNS messages of a TCP connection until it
@@ -206,8 +142,9 @@ impl OutboundDatagramSendHalf for SendHalf {
 mod tests {
     use super::*;
     use crate::app::dns_client::DnsClient;
-    use hickory_proto::op::Query;
-    use hickory_proto::rr::Name;
+    use hickory_proto::op::{Message, MessageType, Query, ResponseCode};
+    use hickory_proto::rr::{Name, RData, RecordType};
+    use std::net::IpAddr;
     use std::str::FromStr;
 
     fn dns(strategy: &str) -> SyncDnsClient {
@@ -273,10 +210,12 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(addresses(&missing).0, ResponseCode::ServFail);
+        // Any other type is answered too, by the server the rules pick;
+        // hosts has no MX record.
         let mx = answer(&dns, &query("test.sail.", RecordType::MX), &sess)
             .await
             .unwrap();
-        assert_eq!(addresses(&mx).0, ResponseCode::NotImp);
+        assert!(addresses(&mx).1.is_empty());
         assert!(answer(&dns, b"not dns", &sess).await.is_none());
     }
 
