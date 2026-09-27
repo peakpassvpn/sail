@@ -1737,6 +1737,19 @@ impl TcpTable {
         })
     }
 
+    /// Moves the table's clock to `now_ms`. Operations that take no time of
+    /// their own (connect, write, read, close) run at this clock, so a
+    /// caller keeps it current: a clock left behind while the flow was idle
+    /// dates what they send too early, and the RTT measured from it is too
+    /// long.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`TcpTableError::ClockWentBackwards`] for an earlier time.
+    pub fn advance_clock(&mut self, now_ms: u64) -> Result<(), TcpTableError> {
+        self.update_clock(now_ms)
+    }
+
     fn update_clock(&mut self, now_ms: u64) -> Result<(), TcpTableError> {
         if now_ms < self.now_ms {
             return Err(TcpTableError::ClockWentBackwards);

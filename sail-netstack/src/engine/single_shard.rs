@@ -978,6 +978,10 @@ impl<I: PacketIo> SingleShardRunner<I> {
         }
 
         let mut outcome = StepOutcome::default();
+        // Commands between steps (connect, write, read, close) run at the
+        // table's clock, which only packets and timers moved: an idle shard
+        // would date a connect's SYN seconds early.
+        self.tcp.advance_clock(now_ms)?;
         self.expire_under_pressure(now_ms)?;
         self.advance_tcp_timers(now_ms, &mut outcome)?;
         // Adapters drop a pending step whenever a timer or command wins the

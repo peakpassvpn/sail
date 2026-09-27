@@ -14,7 +14,7 @@ use sail_netstack::{
     IcmpMessage, NetworkGeneration, Packet, PacketBatch, PacketCapabilities, PacketIo, PacketToken,
     PressureLevel, ResourceKind, ResourceLedger, RunnerConfig, RunnerError, RunnerState,
     SendControl, SeqNumber, SingleShardRunner, StackStats, TcpEvent, TcpFlags, TcpSegmentMeta,
-    TraceKind, UdpError, MAX_DEBUG_TRACE_EVENTS, TCP_MAX_HEADER_BYTES,
+    TimerEvent, TraceKind, UdpError, MAX_DEBUG_TRACE_EVENTS, TCP_MAX_HEADER_BYTES,
 };
 
 #[derive(Debug)]
@@ -2290,4 +2290,54 @@ fn a_full_segment_with_sack_blocks_fits_the_mtu_on_ipv6() {
         .unwrap()
         .iter()
         .all(|packet| packet.len() <= mtu));
+}
+
+/// A connect made after a long quiet spell measures its RTT from when it
+/// sent the SYN. The table's clock used to move only with packets and
+/// timers, so it dated the SYN at the last packet the shard saw and took
+/// the whole quiet spell for round-trip time, which raised the RTO to its
+/// ceiling.
+#[test]
+fn a_connect_after_a_quiet_spell_measures_its_round_trip_from_the_syn() {
+    let local = SocketAddr::from((Ipv4Addr::new(10, 1, 0, 1), 0));
+    let remote = SocketAddr::from((Ipv4Addr::new(10, 1, 0, 2), 443));
+    let recv = Arc::new(Mutex::new(VecDeque::new()));
+    let sent = Arc::new(Mutex::new(Vec::new()));
+    let io = DynamicIo {
+        recv: Arc::clone(&recv),
+        sent: Arc::clone(&sent),
+        max_batch: 8,
+    };
+    let ledger = ResourceLedger::new(BudgetProfile::Mobile.budget()).unwrap();
+    let mut runner = SingleShardRunner::new(io, ledger, deterministic_runner_config()).unwrap();
+    block_on(runner.step(1_000)).unwrap();
+    block_on(runner.step(20_000)).unwrap();
+
+    let token = runner.connect_tcp(local, remote).unwrap();
+    block_on(runner.step(20_000)).unwrap();
+    let packet = sent.lock().unwrap().last().unwrap().clone();
+    let syn = parse_tcp_segment(parse_ip_packet(&packet, true).unwrap(), true).unwrap();
+    assert_eq!(syn.meta.flags, TcpFlags::SYN);
+
+    recv.lock().unwrap().push_back(tcp_packet(
+        remote,
+        syn.source,
+        5_000,
+        syn.meta.sequence.wrapping_add(1).get(),
+        TcpFlags::SYN.union(TcpFlags::ACK),
+    ));
+    let connected = block_on(runner.step(20_050)).unwrap();
+    assert!(connected
+        .tcp_events
+        .iter()
+        .any(|event| matches!(event, TcpEvent::Connected(_))));
+
+    // 50 ms of round trip keeps the RTO at its 1 s floor (RFC 6298).
+    let written = runner.write_tcp(token, b"x").unwrap();
+    let retransmission = written
+        .timers
+        .iter()
+        .find(|timer| timer.event == TimerEvent::Retransmission)
+        .expect("the write armed no retransmission timer");
+    assert_eq!(retransmission.after_ms, 1_000);
 }
