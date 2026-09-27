@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 use std::io;
 use std::net::SocketAddr;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
@@ -102,6 +102,20 @@ impl Client {
         Ok(conn)
     }
 
+    /// The connection in use, if any.
+    #[cfg(test)]
+    pub(crate) async fn current(&self) -> Option<quinn::Connection> {
+        self.conn.lock().await.as_ref().map(|c| c.conn.clone())
+    }
+
+    /// Whether the connection in use was resumed with 0-RTT that the
+    /// server took; None if it was not resumed with 0-RTT, or its
+    /// handshake is not done.
+    #[cfg(test)]
+    pub(crate) async fn zero_rtt_accepted(&self) -> Option<bool> {
+        self.conn.lock().await.as_ref()?.zero_rtt.get().copied()
+    }
+
     async fn connect(&self) -> io::Result<Arc<ClientConn>> {
         let ips = self
             .dns_client
@@ -154,15 +168,24 @@ impl Client {
                 next_id: 0,
             }),
             activity: Activity::default(),
+            zero_rtt: OnceLock::new(),
             _endpoint: endpoint,
         });
 
         let uuid = self.uuid;
         let password = self.password.clone();
+        let early = client.clone();
         tokio::spawn(async move {
             if let Some(done) = handshake_done {
-                done.await;
+                let accepted = done.await;
+                debug!(
+                    "tuic 0-RTT to {} {}",
+                    server,
+                    if accepted { "accepted" } else { "rejected" }
+                );
+                let _ = early.zero_rtt.set(accepted);
             }
+            drop(early);
             if let Err(e) = authenticate(&conn, &uuid, &password).await {
                 debug!("tuic authenticate failed: {}", e);
                 conn.close(quinn::VarInt::from_u32(0), b"");
@@ -205,6 +228,9 @@ struct ClientConn {
     conn: quinn::Connection,
     associations: Mutex<Associations>,
     activity: Activity,
+    /// Whether the server took the 0-RTT data, once the handshake says so;
+    /// never set when the connection was not resumed with 0-RTT.
+    zero_rtt: OnceLock<bool>,
     _endpoint: quinn::Endpoint,
 }
 

@@ -11,3 +11,6 @@ mod proto;
 pub mod inbound;
 #[cfg(feature = "outbound-tuic")]
 pub mod outbound;
+
+#[cfg(all(test, feature = "inbound-tuic", feature = "outbound-tuic"))]
+mod tests;

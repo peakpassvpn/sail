@@ -170,7 +170,17 @@ async fn serve(
         // 0-RTT data is taken before the handshake is done; the
         // `Authenticate` it must wait for comes only after it anyway.
         match connecting.into_0rtt() {
-            Ok((conn, _)) => conn,
+            Ok((conn, accepted)) => {
+                tokio::spawn(async move {
+                    let accepted = accepted.await;
+                    debug!(
+                        "tuic 0-RTT from {} {}",
+                        remote,
+                        if accepted { "accepted" } else { "not used" }
+                    );
+                });
+                conn
+            }
             Err(connecting) => connecting.await?,
         }
     } else {
