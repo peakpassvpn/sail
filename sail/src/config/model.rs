@@ -196,6 +196,10 @@ impl Dns {
     }
 }
 
+/// How long a UDP session lives without traffic when its inbound does not
+/// say: sing-box's default.
+pub const DEFAULT_UDP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5 * 60);
+
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct Inbound {
     #[serde(rename = "type")]
@@ -211,7 +215,7 @@ pub struct Inbound {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub listen_port: Option<u16>,
     /// How long a UDP session through this inbound lives without traffic;
-    /// 30s when unset.
+    /// 5m when unset, as in sing-box.
     #[serde(default, with = "duration", skip_serializing_if = "Option::is_none")]
     pub udp_timeout: Option<std::time::Duration>,
     #[serde(flatten)]
@@ -220,8 +224,7 @@ pub struct Inbound {
 
 impl Inbound {
     pub fn udp_timeout(&self) -> std::time::Duration {
-        self.udp_timeout
-            .unwrap_or(std::time::Duration::from_secs(30))
+        self.udp_timeout.unwrap_or(DEFAULT_UDP_TIMEOUT)
     }
 }
 
@@ -246,7 +249,7 @@ pub struct Endpoint {
     #[serde(default)]
     pub tag: String,
     /// How long a UDP session coming in through this endpoint lives
-    /// without traffic; 30s when unset, as for an inbound.
+    /// without traffic; 5m when unset, as for an inbound.
     #[serde(default, with = "duration", skip_serializing_if = "Option::is_none")]
     pub udp_timeout: Option<std::time::Duration>,
     #[serde(flatten)]
@@ -831,6 +834,12 @@ mod tests {
         assert_eq!(
             config.inbounds[0].udp_timeout(),
             std::time::Duration::from_secs(60)
+        );
+
+        let socks = Config::from_json(r#"{ "inbounds": [{ "type": "socks" }] }"#).unwrap();
+        assert_eq!(
+            socks.inbounds[0].udp_timeout(),
+            std::time::Duration::from_secs(300)
         );
 
         let defaults = Config::from_json("{}").unwrap();

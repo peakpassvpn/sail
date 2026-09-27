@@ -69,10 +69,6 @@ impl std::fmt::Display for NatKey {
 /// and how long the session may be idle.
 type SessionMap = HashMap<NatKey, (Sender<UdpPacket>, oneshot::Sender<bool>, Instant, Duration)>;
 
-/// How long a session through an inbound without its own `udp_timeout`
-/// may be idle.
-const DEFAULT_UDP_TIMEOUT: Duration = Duration::from_secs(30);
-
 /// Ends the sessions whose keys `ends` picks, returning how many.
 async fn end_sessions(sessions: &Mutex<SessionMap>, ends: impl Fn(&NatKey) -> bool) -> usize {
     let mut sessions = sessions.lock().await;
@@ -314,7 +310,7 @@ impl NatManager {
             .udp_timeouts
             .get(&sess.inbound_tag)
             .copied()
-            .unwrap_or(DEFAULT_UDP_TIMEOUT);
+            .unwrap_or(crate::config::model::DEFAULT_UDP_TIMEOUT);
         let key = NatKey::new(&sess.inbound_tag, &raddr);
         guard.insert(
             key.clone(),
