@@ -306,6 +306,9 @@ pub struct OutboundMultiplex {
     pub max_streams: Option<usize>,
     #[serde(default)]
     pub padding: bool,
+    /// sing-mux only: TCP Brutal, negotiated on each new connection.
+    #[serde(default)]
+    pub brutal: Option<MultiplexBrutal>,
     /// amux only.
     #[serde(default)]
     pub max_accepts: Option<usize>,
@@ -351,12 +354,19 @@ fn sing_mux_options(tag: &str, mux: &OutboundMultiplex) -> Result<SingMuxOptions
                 name
             )
         })?;
+        let brutal = match &mux.brutal {
+            Some(brutal) => brutal
+                .rates()
+                .map_err(|e| anyhow!("[{}] outbound: multiplex: {}", tag, e))?,
+            None => None,
+        };
         ClientOptions::new(
             protocol,
             mux.padding,
             mux.max_connections,
             mux.min_streams,
             mux.max_streams,
+            brutal,
         )
         .map_err(|e| anyhow!("[{}] outbound: multiplex: {}", tag, e))
     }
@@ -772,6 +782,33 @@ impl Connector {
                 .await?;
         self.layers.stream()?.handle(sess, None, stream).await
     }
+
+    /// A new connection, as `connect` makes it, and the TCP connection
+    /// under it, for TCP Brutal to be set on, when that is dialled here
+    /// rather than inside a handler.
+    #[cfg(feature = "mux")]
+    pub(crate) async fn connect_on_socket(
+        &self,
+        sess: &crate::session::Session,
+    ) -> std::io::Result<(
+        crate::adapter::AnyStream,
+        Option<crate::transport::mux::brutal::Socket>,
+    )> {
+        let (connect, dial) = self.layers.stream()?.connect_addr().with_dial();
+        let crate::adapter::OutboundConnect::Proxy(crate::session::Network::Tcp, addr, port) =
+            connect
+        else {
+            return Ok((self.connect(sess).await?, None));
+        };
+        let tcp = crate::net::dial_tcp(self.dns_client.clone(), &addr, &port, &dial).await?;
+        let socket = crate::transport::mux::brutal::Socket::of(&socket2::SockRef::from(&tcp)).ok();
+        let stream = self
+            .layers
+            .stream()?
+            .handle(sess, None, Some(Box::new(tcp)))
+            .await?;
+        Ok((stream, socket))
+    }
 }
 
 /// The innermost layer of a `Connector`: asks for the server to be dialled,
@@ -1074,6 +1111,7 @@ fn amux_outbound(
         ("min_streams", mux.min_streams.is_some()),
         ("max_streams", mux.max_streams.is_some()),
         ("padding", mux.padding),
+        ("brutal", mux.brutal.as_ref().is_some_and(|b| b.enabled)),
     ];
     if let Some((field, _)) = sing_mux_only.iter().find(|(_, set)| *set) {
         return Err(anyhow!(
@@ -1264,14 +1302,16 @@ pub struct InboundMultiplex {
     /// sing-mux: refuse connections that are not padded.
     #[serde(default)]
     pub padding: bool,
-    /// sing-box's TCP Brutal: not supported, and an error when enabled.
+    /// sing-mux: TCP Brutal for clients that ask for it; Linux only.
     #[serde(default)]
-    pub brutal: Option<InboundBrutal>,
+    pub brutal: Option<MultiplexBrutal>,
 }
 
+/// sing-box's `brutal` block of `multiplex`: the rates this end sends
+/// (`up_mbps`) and receives (`down_mbps`) at, in megabits per second.
 #[derive(Deserialize, Debug)]
 #[serde(deny_unknown_fields)]
-pub struct InboundBrutal {
+pub struct MultiplexBrutal {
     #[serde(default)]
     pub enabled: bool,
     #[serde(default)]
@@ -1280,13 +1320,25 @@ pub struct InboundBrutal {
     pub down_mbps: u64,
 }
 
+impl MultiplexBrutal {
+    /// The rates, if enabled, checked as sing-box checks them.
+    #[cfg(feature = "mux")]
+    fn rates(&self) -> std::result::Result<Option<crate::transport::mux::brutal::Brutal>, String> {
+        if !self.enabled {
+            return Ok(None);
+        }
+        crate::transport::mux::brutal::Brutal::from_mbps(self.up_mbps, self.down_mbps).map(Some)
+    }
+}
+
 /// What an inbound's `multiplex` block asks for.
 enum InboundMux<'a> {
     /// sing-mux, not served.
     Off,
-    /// sing-mux, padded only or not.
+    /// sing-mux, padded only or not, with TCP Brutal or not.
     SingMux {
         padding: bool,
+        brutal: Option<&'a MultiplexBrutal>,
     },
     Amux(&'a InboundMultiplex),
 }
@@ -1294,17 +1346,18 @@ enum InboundMux<'a> {
 impl InboundMultiplex {
     /// What the block asks for, checked whether it is enabled or not.
     fn mode(&self, tag: &str) -> Result<InboundMux<'_>> {
-        if self.brutal.as_ref().is_some_and(|b| b.enabled) {
-            return Err(anyhow!(
-                "[{}] inbound: multiplex.brutal: TCP Brutal is not supported",
-                tag
-            ));
-        }
+        let brutal = self.brutal.as_ref().filter(|b| b.enabled);
         match self.protocol.as_deref() {
             None => {}
             Some("amux") if self.padding => {
                 return Err(anyhow!(
                     "[{}] inbound: multiplex.padding: only for sing-mux, not amux",
+                    tag
+                ));
+            }
+            Some("amux") if brutal.is_some() => {
+                return Err(anyhow!(
+                    "[{}] inbound: multiplex.brutal: only for sing-mux, not amux",
                     tag
                 ));
             }
@@ -1322,6 +1375,7 @@ impl InboundMultiplex {
             (false, _) => InboundMux::Off,
             (true, false) => InboundMux::SingMux {
                 padding: self.padding,
+                brutal,
             },
             (true, true) => InboundMux::Amux(self),
         })
@@ -1384,7 +1438,7 @@ pub fn inbound(
     };
     let sing_mux = match mode {
         InboundMux::Off => None,
-        InboundMux::SingMux { padding } => Some(padding),
+        InboundMux::SingMux { padding, brutal } => Some((padding, brutal)),
         InboundMux::Amux(_) => None,
     };
     let mut actors: Vec<AnyInboundHandler> = Vec::new();
@@ -1478,27 +1532,44 @@ pub fn inbound(
     sing_mux_inbound(tag, handler, sing_mux)
 }
 
-/// `handler`, serving sing-mux as `padding` says: not at all if `None`,
-/// else padded only or not.
+/// `handler`, serving sing-mux as `serve` says: not at all if `None`,
+/// else padded only or not, and with TCP Brutal for clients that ask or
+/// not.
 #[allow(unused_variables)]
 fn sing_mux_inbound(
     tag: &str,
     handler: AnyInboundHandler,
-    padding: Option<bool>,
+    serve: Option<(bool, Option<&MultiplexBrutal>)>,
 ) -> Result<AnyInboundHandler> {
     #[cfg(feature = "mux")]
     {
-        use crate::transport::mux::inbound::{with_policy, Policy};
-        let policy = match padding {
-            None => Policy::Refuse,
-            Some(false) => Policy::Serve,
-            Some(true) => Policy::ServePadded,
+        use crate::transport::mux::{
+            brutal,
+            inbound::{with_policy, Policy},
         };
-        Ok(with_policy(handler, policy))
+        let policy = match serve {
+            None => Policy::Refuse,
+            Some((false, _)) => Policy::Serve,
+            Some((true, _)) => Policy::ServePadded,
+        };
+        let brutal = match serve.and_then(|(_, brutal)| brutal) {
+            Some(block) => block
+                .rates()
+                .map_err(|e| anyhow!("[{}] inbound: multiplex: {}", tag, e))?,
+            None => None,
+        };
+        // As sing-mux's server refuses to start.
+        if brutal.is_some() && !brutal::AVAILABLE {
+            return Err(anyhow!(
+                "[{}] inbound: multiplex: TCP Brutal is only supported on Linux",
+                tag
+            ));
+        }
+        Ok(with_policy(handler, policy, brutal))
     }
     // Without the feature there is no sing-mux server to refuse.
     #[cfg(not(feature = "mux"))]
-    match padding {
+    match serve {
         None => Ok(handler),
         Some(_) => Err(not_compiled(tag, "inbound", "multiplex", "mux")),
     }

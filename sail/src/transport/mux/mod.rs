@@ -13,7 +13,9 @@
 //!   destination as a SOCKS5 address; `flags` has `1` for UDP and `2` for
 //!   UDP packets that each carry an address;
 //! - from the server, before its first data on the stream, a status byte,
-//!   `0` or `1` followed by an error message.
+//!   `0` or `1` followed by an error message;
+//! - with `brutal`, on a stream of its own to `_BrutalBwExchange`, the
+//!   rates each end sends at over TCP Brutal (`brutal`).
 //!
 //! See <https://github.com/SagerNet/sing-mux>. What the server does with a
 //! stream is up to whoever serves it: an inbound connection to the magic
@@ -28,6 +30,7 @@ use tokio::io::{AsyncRead, AsyncReadExt};
 
 use crate::session::{SocksAddr, SocksAddrWireType};
 
+pub mod brutal;
 pub mod client;
 mod h2mux;
 pub mod inbound;

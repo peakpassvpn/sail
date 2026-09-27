@@ -866,8 +866,23 @@ fn test_mux_inbound_config_mistakes() -> anyhow::Result<()> {
             Err(_) => false,
         }
     };
+    // TCP Brutal is served on Linux only, as by sing-box, at rates of at
+    // least 1 Mbps either way, and not with amux.
     let brutal = json!({ "enabled": true, "up_mbps": 100, "down_mbps": 100 });
-    anyhow::ensure!(!starts(json!({ "enabled": true, "brutal": brutal })));
+    anyhow::ensure!(
+        starts(json!({ "enabled": true, "brutal": brutal })) == cfg!(target_os = "linux")
+    );
+    anyhow::ensure!(!starts(json!({
+        "enabled": true,
+        "brutal": { "enabled": true, "up_mbps": 0, "down_mbps": 100 },
+    })));
+    anyhow::ensure!(!starts(json!({
+        "enabled": true,
+        "brutal": { "enabled": true, "up_mbps": 100 },
+    })));
+    anyhow::ensure!(!starts(
+        json!({ "enabled": true, "protocol": "amux", "brutal": brutal })
+    ));
     anyhow::ensure!(!starts(
         json!({ "enabled": true, "protocol": "amux", "padding": true })
     ));
@@ -878,5 +893,251 @@ fn test_mux_inbound_config_mistakes() -> anyhow::Result<()> {
         json!({ "enabled": true, "brutal": { "enabled": false } })
     ));
     anyhow::ensure!(starts(json!({ "enabled": false, "padding": true })));
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// TCP Brutal
+// ---------------------------------------------------------------------------
+
+/// The rates both ends ask for.
+fn brutal() -> Value {
+    json!({ "enabled": true, "up_mbps": 100, "down_mbps": 100 })
+}
+
+/// The mux protocols the Brutal cases run over: framed and HTTP/2.
+const BRUTAL_PROTOCOLS: [&str; 2] = ["smux", "h2mux"];
+
+/// A Shadowsocks server, per protocol a SOCKS (sail) or mixed (sing-box)
+/// port and a counting forwarder in front of the server.
+struct BrutalPorts {
+    server: u16,
+    socks: [u16; 2],
+    forwarders: [u16; 2],
+}
+
+impl BrutalPorts {
+    fn new() -> Self {
+        let [server, a, b, c] = common::free_ports();
+        BrutalPorts {
+            server,
+            socks: [a, b],
+            forwarders: [c, common::free_port()],
+        }
+    }
+}
+
+/// Whether this host can set TCP Brutal on a socket: Linux, with the
+/// tcp-brutal module loaded.
+fn brutal_loaded() -> bool {
+    std::fs::read_to_string("/proc/sys/net/ipv4/tcp_available_congestion_control")
+        .is_ok_and(|s| s.split_whitespace().any(|c| c == "brutal"))
+}
+
+/// Whether the sing-box run is a build with `-tags debug`, whose server
+/// negotiates Brutal even when it cannot set it on its socket.
+fn sing_box_debug() -> bool {
+    std::env::var_os("SING_BOX_DEBUG").is_some()
+}
+
+/// The same config for sail and sing-box: a Shadowsocks server with
+/// `multiplex`, with Brutal or not.
+fn brutal_server(ports: &BrutalPorts, with_brutal: bool) -> Value {
+    let mut multiplex = json!({ "enabled": true });
+    if with_brutal {
+        multiplex["brutal"] = brutal();
+    }
+    json!({
+        "inbounds": [{
+            "type": "shadowsocks",
+            "tag": "ss",
+            "listen": "127.0.0.1",
+            "listen_port": ports.server,
+            "method": SS_METHOD,
+            "password": SS_KEY,
+            "multiplex": multiplex,
+        }],
+        "outbounds": [{ "type": "direct" }],
+    })
+}
+
+/// A client asking for Brutal, per protocol through its forwarder.
+fn brutal_client(ports: &BrutalPorts, sing_box: bool) -> Value {
+    let mut inbounds = Vec::new();
+    let mut outbounds = Vec::new();
+    let mut rules = Vec::new();
+    for (i, protocol) in BRUTAL_PROTOCOLS.iter().enumerate() {
+        inbounds.push(json!({
+            "type": if sing_box { "mixed" } else { "socks" },
+            "tag": format!("in-{}", i),
+            "listen": "127.0.0.1",
+            "listen_port": ports.socks[i],
+        }));
+        outbounds.push(json!({
+            "type": "shadowsocks",
+            "tag": format!("out-{}", i),
+            "server": "127.0.0.1",
+            "server_port": ports.forwarders[i],
+            "method": SS_METHOD,
+            "password": SS_KEY,
+            "multiplex": {
+                "enabled": true,
+                "protocol": protocol,
+                "brutal": brutal(),
+            },
+        }));
+        rules.push(json!({ "inbound": [format!("in-{}", i)], "outbound": format!("out-{}", i) }));
+    }
+    json!({
+        "inbounds": inbounds,
+        "outbounds": outbounds,
+        "route": { "rules": rules },
+    })
+}
+
+/// Echoes through every protocol: when `served`, concurrent streams that
+/// all go over one connection, as with Brutal they do; else a stream that
+/// fails, since a refused negotiation fails the connection.
+fn run_brutal(
+    rt: &tokio::runtime::Runtime,
+    ports: &BrutalPorts,
+    served: bool,
+) -> anyhow::Result<()> {
+    rt.block_on(async {
+        let (echo, server) = common::run_tcp_echo_server("127.0.0.1:0").await?;
+        let server = tokio::spawn(server);
+        let result = async {
+            for (i, protocol) in BRUTAL_PROTOCOLS.iter().enumerate() {
+                let count = counting_forwarder(ports.forwarders[i], ports.server).await?;
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                if !served {
+                    anyhow::ensure!(
+                        echo_stream(ports.socks[i], echo, 0, 10_000).await.is_err(),
+                        "{}: served without Brutal",
+                        protocol
+                    );
+                    continue;
+                }
+                echo_stream(ports.socks[i], echo, 0, 10_000).await?;
+                let concurrent: Vec<_> = (0..8u8)
+                    .map(|n| tokio::spawn(echo_stream(ports.socks[i], echo, n, 200_000)))
+                    .collect();
+                for task in concurrent {
+                    task.await??;
+                }
+                let connections = count.load(Ordering::SeqCst);
+                anyhow::ensure!(
+                    connections == 1,
+                    "{}: 9 streams with Brutal took {} connections, not 1",
+                    protocol,
+                    connections
+                );
+            }
+            anyhow::Ok(())
+        }
+        .await;
+        server.abort();
+        result
+    })
+}
+
+// app(socks) -> sail(ss + mux + brutal) -> sail(ss + mux): a server
+// without Brutal refuses it, and the connection fails.
+#[test]
+fn test_mux_brutal_refused_sail_to_sail() -> anyhow::Result<()> {
+    common::retry_port_clash(|| {
+        let ports = BrutalPorts::new();
+        let rt = runtime()?;
+        let ids = common::run_sail_instances(
+            &rt,
+            vec![
+                brutal_server(&ports, false).to_string(),
+                brutal_client(&ports, false).to_string(),
+            ],
+        )?;
+        let result = run_brutal(&rt, &ports, false);
+        common::shutdown_instances(&rt, ids);
+        result
+    })
+}
+
+// app(socks) -> sail(ss + mux + brutal) -> sail(ss + mux + brutal): served
+// where the module is loaded; elsewhere the server cannot set Brutal and
+// refuses it.
+#[cfg(target_os = "linux")]
+#[test]
+fn test_mux_brutal_sail_to_sail() -> anyhow::Result<()> {
+    common::retry_port_clash(|| {
+        let ports = BrutalPorts::new();
+        let rt = runtime()?;
+        let ids = common::run_sail_instances(
+            &rt,
+            vec![
+                brutal_server(&ports, true).to_string(),
+                brutal_client(&ports, false).to_string(),
+            ],
+        )?;
+        let result = run_brutal(&rt, &ports, brutal_loaded());
+        common::shutdown_instances(&rt, ids);
+        result
+    })
+}
+
+// app(socks) -> sail(ss + mux + brutal) -> sing-box(ss + mux), then
+// sing-box(ss + mux + brutal). sing-box's release builds serve Brutal on
+// Linux only, and there, where the module is loaded; a build with
+// `-tags debug` (`SING_BOX_DEBUG`) serves it anywhere.
+#[test]
+#[ignore = "needs sing-box"]
+fn test_mux_brutal_sail_to_sing_box() -> anyhow::Result<()> {
+    let dir = common::TempDir::new("mux-brutal")?;
+    for with_brutal in [false, true] {
+        if with_brutal && !cfg!(target_os = "linux") && !sing_box_debug() {
+            continue;
+        }
+        common::retry_port_clash(|| {
+            let ports = BrutalPorts::new();
+            let _sing_box =
+                common::Daemon::sing_box(dir.path(), "server", brutal_server(&ports, with_brutal))?;
+            let rt = runtime()?;
+            let ids =
+                common::run_sail_instances(&rt, vec![brutal_client(&ports, false).to_string()])?;
+            let served = with_brutal && (brutal_loaded() || sing_box_debug());
+            let result = run_brutal(&rt, &ports, served)
+                .map_err(|e| anyhow::anyhow!("server brutal {}: {}", with_brutal, e));
+            common::shutdown_instances(&rt, ids);
+            result
+        })?;
+    }
+    Ok(())
+}
+
+// app(mixed) -> sing-box(ss + mux + brutal) -> sail(ss + mux), then
+// sail(ss + mux + brutal) where sail serves Brutal, on Linux.
+#[test]
+#[ignore = "needs sing-box"]
+fn test_mux_brutal_sing_box_to_sail() -> anyhow::Result<()> {
+    let dir = common::TempDir::new("mux-brutal")?;
+    for with_brutal in [false, true] {
+        if with_brutal && !cfg!(target_os = "linux") {
+            continue;
+        }
+        common::retry_port_clash(|| {
+            let ports = BrutalPorts::new();
+            let rt = runtime()?;
+            let ids = common::run_sail_instances(
+                &rt,
+                vec![brutal_server(&ports, with_brutal).to_string()],
+            )?;
+            let result = (|| {
+                let _sing_box =
+                    common::Daemon::sing_box(dir.path(), "client", brutal_client(&ports, true))?;
+                run_brutal(&rt, &ports, with_brutal && brutal_loaded())
+            })()
+            .map_err(|e| anyhow::anyhow!("server brutal {}: {}", with_brutal, e));
+            common::shutdown_instances(&rt, ids);
+            result
+        })?;
+    }
     Ok(())
 }

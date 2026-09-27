@@ -1,7 +1,10 @@
 //! What an inbound's `multiplex` block makes of the sing-mux connections
 //! that come in through it, as sing-box's inbound `multiplex` does: with no
 //! block, or `enabled: false`, a connection to the magic destination is
-//! refused; with `padding: true`, one that is not padded is.
+//! refused; with `padding: true`, one that is not padded is. With
+//! `brutal`, the connection keeps the inbound's rates and the TCP
+//! connection it came in on, for its client to negotiate TCP Brutal
+//! (`brutal`).
 //!
 //! The connections themselves are served in `app::inbound`, whatever
 //! inbound they came in through; this sits around the inbound's handler,
@@ -22,8 +25,9 @@ use crate::adapter::{
     AnyInboundTransport, AnyStream, BaseHandler, BaseInboundTransport, InboundHandler,
     InboundStreamHandler, InboundTransport, Tag,
 };
-use crate::session::{Network, Session};
+use crate::session::{ConnectionState, Network, Session};
 
+use super::brutal::{Brutal, InboundConnection, Socket};
 use super::{is_magic, VERSION_1};
 
 /// How an inbound serves sing-mux.
@@ -37,23 +41,31 @@ pub enum Policy {
     ServePadded,
 }
 
-/// `handler`, letting through the sing-mux connections `policy` allows.
-pub fn with_policy(handler: AnyInboundHandler, policy: Policy) -> AnyInboundHandler {
+/// `handler`, letting through the sing-mux connections `policy` allows,
+/// with TCP Brutal at `brutal`'s rates for those that ask for it.
+pub fn with_policy(
+    handler: AnyInboundHandler,
+    policy: Policy,
+    brutal: Option<Brutal>,
+) -> AnyInboundHandler {
     let stream = handler.stream().ok().map(|inner| {
         Arc::new(PolicyStreamHandler {
             inner: inner.clone(),
             policy,
+            brutal,
         }) as AnyInboundStreamHandler
     });
     Arc::new(PolicyHandler {
         inner: handler,
         stream,
+        brutal: brutal.is_some(),
     })
 }
 
 struct PolicyHandler {
     inner: AnyInboundHandler,
     stream: Option<AnyInboundStreamHandler>,
+    brutal: bool,
 }
 
 impl Tag for PolicyHandler {
@@ -81,6 +93,11 @@ impl InboundHandler for PolicyHandler {
     }
 
     fn accepted(&self, socket: socket2::SockRef<'_>, sess: &mut Session) -> io::Result<()> {
+        if self.brutal {
+            if let Ok(socket) = Socket::of(&socket) {
+                let _ = sess.state.get::<InboundConnection>().socket.set(socket);
+            }
+        }
         self.inner.accepted(socket, sess)
     }
 }
@@ -88,6 +105,7 @@ impl InboundHandler for PolicyHandler {
 struct PolicyStreamHandler {
     inner: AnyInboundStreamHandler,
     policy: Policy,
+    brutal: Option<Brutal>,
 }
 
 #[async_trait]
@@ -98,6 +116,10 @@ impl InboundStreamHandler for PolicyStreamHandler {
         stream: AnyStream,
     ) -> io::Result<AnyInboundTransport> {
         let policy = self.policy;
+        let brutal = self.brutal;
+        if let Some(brutal) = brutal {
+            let _ = sess.state.get::<InboundConnection>().brutal.set(brutal);
+        }
         Ok(match self.inner.handle(sess, stream).await? {
             InboundTransport::Stream(stream, sess) => {
                 InboundTransport::Stream(admit(policy, stream, &sess)?, sess)
@@ -107,7 +129,10 @@ impl InboundStreamHandler for PolicyStreamHandler {
             InboundTransport::Incoming(incoming) => InboundTransport::Incoming(Box::new(
                 incoming.filter_map(move |transport: AnyBaseInboundTransport| {
                     future::ready(match transport {
-                        BaseInboundTransport::Stream(stream, sess) => {
+                        BaseInboundTransport::Stream(stream, mut sess) => {
+                            if let Some(brutal) = brutal.filter(|_| is_magic(&sess.destination)) {
+                                nested(&mut sess, brutal);
+                            }
                             match admit(policy, stream, &sess) {
                                 Ok(stream) => Some(BaseInboundTransport::Stream(stream, sess)),
                                 Err(e) => {
@@ -123,6 +148,15 @@ impl InboundStreamHandler for PolicyStreamHandler {
             other => other,
         })
     }
+}
+
+/// Gives a mux connection that is a stream of another connection a state
+/// of its own, which knows the inbound's rates but no TCP connection: the
+/// one it came in on carries other streams too, and sing-mux sets TCP
+/// Brutal only on a connection of the mux connection's own.
+fn nested(sess: &mut Session, brutal: Brutal) {
+    sess.state = ConnectionState::default();
+    let _ = sess.state.get::<InboundConnection>().brutal.set(brutal);
 }
 
 /// `stream`, if `policy` lets it through: as it is, or, where only padded

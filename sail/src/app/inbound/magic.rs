@@ -7,6 +7,8 @@
 //!   that carries it. Only an inbound whose `multiplex` block enables it
 //!   lets one through, padded only with `padding`, as sing-box's do; the
 //!   others refuse it before it gets here (`transport::mux::inbound`).
+//!   A stream to `_BrutalBwExchange` is not routed: on it the client
+//!   negotiates TCP Brutal (`transport::mux::brutal`).
 //! - `sp.v2.udp-over-tcp.arpa`: UDP over TCP, version 2, a UDP session of
 //!   its own; on a mux stream too. Version 1 is refused.
 
@@ -155,6 +157,12 @@ async fn serve_mux(
                     StreamRequest::Tcp(destination) => {
                         if mux::is_magic(&destination) {
                             debug!("mux stream: a mux connection inside one is refused");
+                            return;
+                        }
+                        if mux::brutal::is_exchange(&destination) {
+                            if let Err(e) = mux::brutal::serve_exchange(stream, &sess).await {
+                                debug!("mux stream: brutal exchange: {}", e);
+                            }
                             return;
                         }
                         serve_unmuxed(sess, stream, inbound_tag, dispatcher, nat_manager).await;

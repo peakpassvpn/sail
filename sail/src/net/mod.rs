@@ -213,7 +213,7 @@ pub async fn tcp_connect(addr: SocketAddr, dial: &DialOptions) -> io::Result<Tcp
 // A single TCP dial.
 async fn tcp_dial_task(dial_addr: SocketAddr, dial: &DialOptions) -> io::Result<DialResult> {
     Ok(DialResult {
-        stream: Box::new(tcp_connect(dial_addr, dial).await?),
+        stream: tcp_connect(dial_addr, dial).await?,
         addr: dial_addr,
     })
 }
@@ -292,7 +292,7 @@ pub async fn connect_datagram_outbound(
 }
 
 struct DialResult {
-    stream: AnyStream,
+    stream: TcpStream,
     addr: SocketAddr,
 }
 
@@ -303,6 +303,16 @@ pub async fn new_tcp_stream(
     port: &u16,
     dial: &DialOptions,
 ) -> io::Result<AnyStream> {
+    Ok(Box::new(dial_tcp(dns_client, address, port, dial).await?))
+}
+
+/// `new_tcp_stream`, the TCP stream itself.
+pub async fn dial_tcp(
+    dns_client: SyncDnsClient,
+    address: &String,
+    port: &u16,
+    dial: &DialOptions,
+) -> io::Result<TcpStream> {
     let resolver = Resolver::new(dns_client.clone(), address, port, dial)
         .map_err(|e| io::Error::other(format!("resolve address failed: {}", e)))
         .await?;

@@ -12,6 +12,9 @@
 //! least `min_streams`; with `max_streams`, when every connection carries
 //! that many. Hard limits stand behind both: `MAX_CONNECTIONS` connections,
 //! `session::MAX_STREAMS` streams on one.
+//!
+//! With `brutal`, as in sing-mux, there is one connection for all streams,
+//! and TCP Brutal is negotiated on it before it takes any (`brutal`).
 
 use std::io;
 use std::pin::Pin;
@@ -30,11 +33,14 @@ use crate::adapter::*;
 use crate::session::{Network, Session, SocksAddr};
 use crate::transport::layers::Connector;
 
+use super::brutal::{self, Brutal};
 use super::h2mux::H2Client;
 use super::packet::ClientDatagram;
 use super::padding::PaddingStream;
 use super::session::{Flavor, FrameSession};
-use super::{encode_request, Protocol, StreamRequest, MAGIC_DOMAIN, MAGIC_PORT, STATUS_SUCCESS};
+use super::{
+    encode_request, read_status, Protocol, StreamRequest, MAGIC_DOMAIN, MAGIC_PORT, STATUS_SUCCESS,
+};
 
 /// Connections one outbound keeps at most.
 pub const MAX_CONNECTIONS: usize = 32;
@@ -52,6 +58,7 @@ pub struct ClientOptions {
     pub max_connections: usize,
     pub min_streams: usize,
     pub max_streams: usize,
+    pub brutal: Option<Brutal>,
 }
 
 impl ClientOptions {
@@ -64,6 +71,7 @@ impl ClientOptions {
         max_connections: Option<usize>,
         min_streams: Option<usize>,
         max_streams: Option<usize>,
+        brutal: Option<Brutal>,
     ) -> Result<Self, String> {
         let max_streams = max_streams.filter(|n| *n > 0);
         let max_connections = max_connections.filter(|n| *n > 0);
@@ -92,6 +100,7 @@ impl ClientOptions {
             max_connections,
             min_streams,
             max_streams: max_streams.unwrap_or(0),
+            brutal,
         })
     }
 }
@@ -244,6 +253,11 @@ impl Client {
             }
             true
         });
+        if self.options.brutal.is_some() {
+            if let Some(entry) = conns.first() {
+                return Ok(entry.conn.clone());
+            }
+        }
         let least = conns
             .iter()
             .filter(|e| e.conn.can_take_new_request())
@@ -274,11 +288,21 @@ impl Client {
         sess.network = Network::Tcp;
         sess.destination = SocksAddr::Domain(MAGIC_DOMAIN.to_string(), MAGIC_PORT);
         sess.sniffed = None;
-        let mut conn = self
-            .connector
-            .connect(&sess)
-            .instrument(tracing::Span::current())
-            .await?;
+        let (mut conn, socket) = match self.options.brutal {
+            Some(_) => {
+                self.connector
+                    .connect_on_socket(&sess)
+                    .instrument(tracing::Span::current())
+                    .await?
+            }
+            None => (
+                self.connector
+                    .connect(&sess)
+                    .instrument(tracing::Span::current())
+                    .await?,
+                None,
+            ),
+        };
         conn.write_all(&encode_request(self.options.protocol, self.options.padding))
             .await?;
         let conn: AnyStream = if self.options.padding {
@@ -287,11 +311,21 @@ impl Client {
             conn
         };
         debug!("mux connection ({:?})", self.options.protocol);
-        Ok(match self.options.protocol {
+        let conn = match self.options.protocol {
             Protocol::Smux => Conn::Frames(FrameSession::new(conn, Flavor::Smux, false).0),
             Protocol::Yamux => Conn::Frames(FrameSession::new(conn, Flavor::Yamux, false).0),
             Protocol::H2Mux => Conn::H2(H2Client::new(conn).await?),
-        })
+        };
+        if let Some(brutal) = &self.options.brutal {
+            if let Err(e) = brutal_exchange(&conn, brutal, socket.as_ref()).await {
+                conn.close();
+                return Err(io::Error::new(
+                    e.kind(),
+                    format!("mux: brutal exchange: {}", e),
+                ));
+            }
+        }
+        Ok(conn)
     }
 
     /// Opens a stream and sends `request` on it.
@@ -302,6 +336,31 @@ impl Client {
         stream.write_all(&buf).await?;
         Ok(stream)
     }
+}
+
+/// Negotiates TCP Brutal on a new connection, whose TCP connection is
+/// `socket` if it is known, and sends over it at the rate agreed. Only the
+/// server's refusal fails it: as in sing-mux, a client that cannot set the
+/// rate goes on without.
+async fn brutal_exchange(
+    conn: &Conn,
+    brutal: &Brutal,
+    socket: Option<&brutal::Socket>,
+) -> io::Result<()> {
+    let mut stream = conn.open().await?;
+    let mut buf = BytesMut::new();
+    StreamRequest::Tcp(brutal::exchange_destination()).encode(&mut buf);
+    brutal::encode_request(brutal.receive_bps, &mut buf);
+    stream.write_all(&buf).await?;
+    read_status(&mut stream).await?;
+    let server_receive_bps = brutal::read_response(&mut stream).await?;
+    let _ = stream.shutdown().await;
+    let send_bps = brutal.send_bps.min(server_receive_bps);
+    match brutal::set(socket, send_bps) {
+        Ok(()) => debug!("mux: TCP Brutal, sending at {} B/s", send_bps),
+        Err(e) => debug!("mux: failed to enable TCP Brutal at client: {}", e),
+    }
+    Ok(())
 }
 
 /// Whether a stream goes on the least busy connection, which carries
@@ -470,6 +529,7 @@ mod tests {
             max_connections,
             min_streams,
             max_streams,
+            None,
         )
     }
 
