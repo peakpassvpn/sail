@@ -53,7 +53,6 @@ use crate::transport::layers::Blocks;
 use super::allowed_ips::AllowedIps;
 use super::{Device, DeviceConfig, Transport, WireGuard};
 
-mod fragment;
 mod options;
 mod outbound;
 mod transport;
@@ -261,13 +260,13 @@ impl Shared {
         let mut config = RunnerConfig::default();
         config.mtu = mtu;
         config.max_packet_size = config.max_packet_size.max(mtu);
-        // Segments that fit the endpoint's MTU with the largest IPv6 and TCP
-        // headers and options (60 + 40).
-        config.tcp.max_segment_payload_bytes = mtu.saturating_sub(100);
+        // Segments that fit the endpoint's MTU with the largest IP and TCP
+        // headers and options, as the TUN inbound does.
+        config.tcp.max_segment_payload_bytes = config
+            .tcp
+            .max_segment_payload_bytes
+            .min(mtu.saturating_sub(sail_netstack::TCP_MAX_HEADER_BYTES));
         config.tcp.keepalive_idle_ms = Some(2 * 60 * 60 * 1_000);
-        config.tcp.nagle_enabled = false;
-        // The tunnel's MTU is known: no path in it silently drops what fits.
-        config.tcp.black_hole_rto_threshold = None;
         config.udp_idle_timeout_ms = STACK_UDP_IDLE.as_millis() as u64;
         config
     }
@@ -327,17 +326,13 @@ impl Shared {
         self.running_tx.send_replace(Some(running.clone()));
         info!("wireguard [{}]: started", self.tag);
 
-        // Out of the tunnel, into the stack. A peer with a larger MTU (a
-        // kernel peer at 1420, to an endpoint at 1408) sends packets the
-        // stack does not take: they are fragmented to fit.
-        let mtu = self.settings.mtu;
+        // Out of the tunnel, into the stack. The stack takes packets up to
+        // its max_packet_size, so a peer with a larger MTU (a kernel peer at
+        // 1420, to an endpoint at 1408) is fine.
         let pump_in = async move {
-            let mut identification = rand::random::<u32>();
             while let Some(packet) = from_tunnel.recv().await {
-                for packet in fragment::fit(packet.packet, mtu, &mut identification) {
-                    if stack_in_tx.send(packet).await.is_err() {
-                        return;
-                    }
+                if stack_in_tx.send(packet.packet).await.is_err() {
+                    return;
                 }
             }
         };
