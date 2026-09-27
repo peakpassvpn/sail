@@ -167,7 +167,7 @@ Sail 与 sing-box 的对比已经完成。当前结果表明：
 | 1.5 | **已完成（2026-09-26）** Hysteria2 入站与出站，含 Salamander 混淆、端口跳跃、带宽与拥塞控制参数（Brutal 为近似实现，quinn 无 pacing 钩子） | `protocol/hysteria2/`，评估复用现有 quinn | 与官方实现双向互通；TCP、UDP、弱网和连接迁移场景可用 |
 | 1.6 | **已完成（2026-09-26）** TUIC 入站与出站（含 `udp_over_stream` 与 0-RTT） | `protocol/tuic/` | 与主流实现双向互通；TCP、UDP 和拥塞控制参数生效 |
 | 1.7 | **已完成（2026-09-26）** V2Ray 传输层：HTTP、gRPC、HTTPUpgrade；补齐 WebSocket early-data；入站和出站都支持（HTTP/2 传输按分级不支持；gRPC 出站暂为一流一连接） | `transport/` | VLESS / VMess / Trojan 与 Xray、sing-box 双向互通 |
-| 1.8 | **已完成（2026-09-26）** 通用多路复用：smux / yamux / h2mux，入站和出站；按需求决定是否实现 TCP Brutal（兼容 sing-mux，默认 h2mux；含 UoT v2；TCP Brutal 未做） | `transport/mux/` | 与 sing-box / Mihomo 互通；高并发下不会因池化叠加导致内存失控 |
+| 1.8 | **已完成（2026-09-26）** 通用多路复用：smux / yamux / h2mux，入站和出站；TCP Brutal（兼容 sing-mux，默认 h2mux；含 UoT v2；TCP Brutal 按 sing-mux 协商，设置拥塞控制仅限 Linux 且需 tcp-brutal 内核模块） | `transport/mux/` | 与 sing-box / Mihomo 互通；高并发下不会因池化叠加导致内存失控 |
 | 1.9 | **已完成（2026-09-26）** 出站组：默认启用 select，补齐 URLTest、fallback、load-balance 和选择持久化（selector / urltest / fallback / load-balance；failover 并入 fallback，static 已删除） | `protocol/group/` | 手动选择、自动测速、故障切换和重启恢复都有测试 |
 | 1.10 | 统一拨号选项：IP 策略、接口绑定、detour、连接/空闲超时、TCP Fast Open、MPTCP、UDP over TCP | `net/`、共享 Dial options | 各协议共享同一实现，按出站配置，不重复实现 socket 与网络选择逻辑 |
 | 1.11 | **已完成（2026-09-26）** 入站防探测与回落：Trojan / VLESS fallback，鉴权失败时的行为可配置（字段对齐 sing-box `fallback` / `fallback_for_alpn`） | `protocol/trojan/`、`protocol/vless/` | 未通过鉴权的连接可回落到指定目标；主动探测下行为与主流实现一致 |
