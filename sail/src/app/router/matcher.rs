@@ -710,7 +710,15 @@ impl Conditions {
             process_names: rule.process_name.clone(),
             process_paths: rule.process_path.clone(),
             process_path_regex: patterns(&field("process_path_regex"), &rule.process_path_regex)?,
-            query_types: extras.query_types,
+            query_types: if extras.query_types.is_empty() {
+                rule.query_type
+                    .iter()
+                    .map(query_type)
+                    .collect::<Result<_>>()
+                    .map_err(|e| anyhow!("{}: {}", field("query_type"), e))?
+            } else {
+                extras.query_types
+            },
             #[cfg(feature = "rule-set")]
             rule_sets,
             #[cfg(feature = "rule-set")]
@@ -875,6 +883,7 @@ pub(crate) struct Matcher(Condition);
 
 impl Matcher {
     /// Compiles the conditions of `rule`; errors name the field at fault.
+    #[cfg(test)]
     pub fn new(
         rule: &model::Rule,
         readers: &mut Readers,
@@ -903,6 +912,23 @@ impl Matcher {
 
     pub fn matches(&self, facts: &Facts) -> bool {
         self.0.matches(facts, false)
+    }
+}
+
+/// A record type as sing-box writes one: its name, or its number.
+pub(crate) fn query_type(value: &serde_json::Value) -> Result<u16> {
+    use std::str::FromStr;
+    match value {
+        serde_json::Value::String(name) => {
+            hickory_proto::rr::RecordType::from_str(&name.to_ascii_uppercase())
+                .map(u16::from)
+                .map_err(|_| anyhow!("unknown record type \"{}\"", name))
+        }
+        serde_json::Value::Number(n) => n
+            .as_u64()
+            .and_then(|n| u16::try_from(n).ok())
+            .ok_or_else(|| anyhow!("invalid record type {}", n)),
+        other => Err(anyhow!("invalid record type {}", other)),
     }
 }
 

@@ -7,7 +7,9 @@ use std::net::IpAddr;
 use anyhow::{anyhow, Result};
 
 use super::succinct::Succinct;
-use crate::app::router::matcher::{Condition, Conditions, Context, Extras, Readers, MAX_DEPTH};
+use crate::app::router::matcher::{
+    query_type, Condition, Conditions, Context, Extras, Readers, MAX_DEPTH,
+};
 use crate::config::model;
 use crate::config::rule_set::HeadlessRule;
 use crate::runtime::RuntimeEnv;
@@ -42,7 +44,7 @@ fn compile(rule: &HeadlessRule, path: &str, depth: usize) -> Result<Condition> {
                 .iter()
                 .map(query_type)
                 .collect::<Result<_>>()
-                .map_err(|e| anyhow!("{}.{}", path, e))?;
+                .map_err(|e| anyhow!("{}.query_type: {}", path, e))?;
             default(
                 Parts {
                     rule: rule.clone(),
@@ -119,21 +121,4 @@ pub(crate) fn default(parts: Parts, path: &str) -> Result<Condition> {
     };
     let compiled = Conditions::compile(&conditions, extras, path, &mut ctx)?;
     Ok(Condition::Default(Box::new(compiled)))
-}
-
-/// A record type as sing-box writes one: its name, or its number.
-pub(crate) fn query_type(value: &serde_json::Value) -> Result<u16> {
-    use std::str::FromStr;
-    match value {
-        serde_json::Value::String(name) => {
-            hickory_proto::rr::RecordType::from_str(&name.to_ascii_uppercase())
-                .map(u16::from)
-                .map_err(|_| anyhow!("query_type: unknown record type \"{}\"", name))
-        }
-        serde_json::Value::Number(n) => n
-            .as_u64()
-            .and_then(|n| u16::try_from(n).ok())
-            .ok_or_else(|| anyhow!("query_type: invalid record type {}", n)),
-        other => Err(anyhow!("query_type: invalid record type {}", other)),
-    }
 }

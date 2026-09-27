@@ -306,6 +306,44 @@ mod tests {
         );
     }
 
+    /// As one of the published templates has it: an A or AAAA query for a
+    /// name not in a set goes to one server, the rest to `final`.
+    #[tokio::test]
+    async fn logical_and_inverted_rules() {
+        let client = with_rules(serde_json::json!([
+            { "type": "logical", "mode": "and", "rules": [
+                { "query_type": ["A", "AAAA"] },
+                { "domain_suffix": "example", "invert": true }
+            ], "server": "home" }
+        ]))
+        .unwrap();
+        // .arpa is not .example: home.
+        assert_eq!(
+            client.lookup("nas.home.arpa").await.unwrap(),
+            ips(&["192.168.1.2", "fd00::2"])
+        );
+        // .example: world, the final server.
+        assert_eq!(
+            client.lookup("a.example").await.unwrap(),
+            ips(&["10.0.0.1", "2001:db8::1"])
+        );
+        for (rules, message) in [
+            (
+                serde_json::json!([{ "type": "logical", "mode": "or", "server": "home",
+                    "rules": [{ "domain": "a", "server": "world" }] }]),
+                "dns.rules[0]: rules[0]: server: a rule a logical one combines has none",
+            ),
+            (
+                serde_json::json!([{ "type": "logical", "mode": "or", "server": "home",
+                    "rules": [{ "query_type": "NOPE" }] }]),
+                "dns.rules[0].rules[0].query_type: unknown record type \"NOPE\"",
+            ),
+        ] {
+            let err = with_rules(rules.clone()).err().unwrap().to_string();
+            assert!(err.contains(message), "{}: {}", rules, err);
+        }
+    }
+
     #[test]
     fn rule_mistakes_name_the_rule() {
         for (rules, message) in [
@@ -327,11 +365,11 @@ mod tests {
             ),
             (
                 serde_json::json!([{ "query_type": "NOPE", "server": "home" }]),
-                "dns.rules[0]: query_type: unknown record type \"NOPE\"",
+                "dns.rules[0].query_type: unknown record type \"NOPE\"",
             ),
             (
-                serde_json::json!([{ "domain_regex": "^a", "server": "home" }]),
-                "dns.rules[0].domain_regex: sail does not implement this field yet",
+                serde_json::json!([{ "wifi_ssid": "home", "server": "home" }]),
+                "dns.rules[0].wifi_ssid: sail does not implement this field yet",
             ),
             (
                 serde_json::json!([{ "domain": "a", "action": "predefined" }]),

@@ -159,32 +159,14 @@ impl DnsClient {
         let mut readers = crate::app::router::matcher::Readers::new();
         let mut rules = Vec::new();
         for (i, rule) in dns.rules.iter().enumerate() {
-            let err = |e: anyhow::Error| anyhow!("dns.rules[{}]: {}", i, e);
-            let conditions = crate::config::model::Rule {
-                domain: rule.domain.clone(),
-                domain_suffix: rule.domain_suffix.clone(),
-                domain_keyword: rule.domain_keyword.clone(),
-                geosite: rule.geosite.clone(),
-                external: rule.external.clone(),
-                inbound: rule.inbound.clone(),
-                auth_user: rule.auth_user.clone(),
-                rule_set: rule.rule_set.clone(),
-                rule_set_ip_cidr_match_source: rule.rule_set_ip_cidr_match_source,
-                ..Default::default()
-            };
-            let matcher = crate::app::router::matcher::Matcher::new(
-                &conditions,
+            let matcher = crate::app::router::matcher::Matcher::at(
+                &rule.conditions(),
+                &format!("dns.rules[{}]", i),
                 &mut readers,
                 env,
                 rule_sets,
-            )
-            .map_err(err)?;
-            let query_types = rule
-                .query_type
-                .iter()
-                .map(|t| Self::record_type(t).map_err(err))
-                .collect::<Result<_>>()?;
-            let action = match rule.action {
+            )?;
+            let action = match rule.action.unwrap_or_default() {
                 crate::config::model::DnsRuleAction::Route => RuleAction::Route {
                     // Checked with the model.
                     server: rule.server.clone().unwrap_or_default(),
@@ -194,26 +176,11 @@ impl DnsClient {
             };
             rules.push(Rule {
                 matcher,
-                query_types,
                 outbounds: rule.outbound.clone(),
                 action,
             });
         }
         Ok(rules)
-    }
-
-    /// A record type as sing-box writes one: its name, or its number.
-    fn record_type(value: &serde_json::Value) -> Result<RecordType> {
-        match value {
-            serde_json::Value::String(name) => RecordType::from_str(&name.to_ascii_uppercase())
-                .map_err(|_| anyhow!("query_type: unknown record type \"{}\"", name)),
-            serde_json::Value::Number(n) => n
-                .as_u64()
-                .and_then(|n| u16::try_from(n).ok())
-                .map(RecordType::from)
-                .ok_or_else(|| anyhow!("query_type: invalid record type {}", n)),
-            other => Err(anyhow!("query_type: invalid record type {}", other)),
-        }
     }
 
     /// Where a query of type `ty` for `host` goes: the first rule that
@@ -227,9 +194,6 @@ impl DnsClient {
         };
         let facts = crate::app::router::matcher::Facts::new(&sess, &[]).with_query_type(ty.into());
         for (i, rule) in self.rules.iter().enumerate() {
-            if !rule.query_types.is_empty() && !rule.query_types.contains(&ty) {
-                continue;
-            }
             if !rule.outbounds.is_empty()
                 && !ctx
                     .outbound

@@ -142,24 +142,16 @@ pub struct DnsServer {
     pub options: Options,
 }
 
-/// A DNS rule, matched in order against each query. As in a routing rule,
-/// the domain conditions match when any of them does; the rule matches
-/// when that and every other condition it sets match.
+/// A DNS rule, matched in order against each query. Its conditions are a
+/// routing rule's, matched as they are there, and `query_type` and
+/// `outbound` besides; a logical one (`type: logical`) combines others,
+/// which take no action of their own.
 #[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct DnsRule {
-    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
-    pub domain: Vec<String>,
-    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
-    pub domain_suffix: Vec<String>,
-    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
-    pub domain_keyword: Vec<String>,
-    /// A sail extension, as in a routing rule.
-    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
-    pub geosite: Vec<String>,
-    /// A sail extension, as in a routing rule: `site:<file>:<code>`.
-    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
-    pub external: Vec<String>,
+    /// `default`, or `logical`.
+    #[serde(rename = "type", default, skip_serializing_if = "RuleType::is_default")]
+    pub kind: RuleType,
     /// Record types, by name (`A`, `AAAA`, `HTTPS`) or number.
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
     pub query_type: Vec<serde_json::Value>,
@@ -167,10 +159,57 @@ pub struct DnsRule {
     /// through.
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
     pub inbound: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ip_version: Option<u8>,
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub network: Vec<String>,
     /// Names of the users an inbound authenticated.
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
     pub auth_user: Vec<String>,
-    /// Tags of the outbounds that dial the name.
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub protocol: Vec<String>,
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub domain: Vec<String>,
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub domain_suffix: Vec<String>,
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub domain_keyword: Vec<String>,
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub domain_regex: Vec<String>,
+    /// A sail extension, as in a routing rule.
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub geosite: Vec<String>,
+    /// A sail extension, as in a routing rule: `site:<file>:<code>`.
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub external: Vec<String>,
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub source_ip_cidr: Vec<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub source_ip_is_private: bool,
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub source_port: Vec<u16>,
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub source_port_range: Vec<String>,
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub port: Vec<u16>,
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub port_range: Vec<String>,
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub process_name: Vec<String>,
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub process_path: Vec<String>,
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub process_path_regex: Vec<String>,
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub package_name: Vec<String>,
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub package_name_regex: Vec<String>,
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub user: Vec<String>,
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub user_id: Vec<i32>,
+    /// Tags of the outbounds that dial the name; of the rule itself, not
+    /// of a rule a logical one combines.
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
     pub outbound: Vec<String>,
     /// Tags of rule-sets, any of whose rules matching matches. Their
@@ -184,9 +223,18 @@ pub struct DnsRule {
         skip_serializing_if = "std::ops::Not::not"
     )]
     pub rule_set_ip_cidr_match_source: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub invert: bool,
+    /// `logical`: `and` or `or`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<LogicalMode>,
+    /// `logical`: the rules combined.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rules: Vec<DnsRule>,
 
-    #[serde(default)]
-    pub action: DnsRuleAction,
+    /// `route` when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub action: Option<DnsRuleAction>,
     /// `route`: the server a matching query goes to.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub server: Option<String>,
@@ -207,22 +255,52 @@ pub enum DnsRuleAction {
 }
 
 impl DnsRule {
+    /// Its conditions, and those of the rules it combines, as a routing
+    /// rule's: they match as those do.
+    pub fn conditions(&self) -> Rule {
+        Rule {
+            kind: self.kind,
+            query_type: self.query_type.clone(),
+            inbound: self.inbound.clone(),
+            ip_version: self.ip_version,
+            network: self.network.clone(),
+            auth_user: self.auth_user.clone(),
+            protocol: self.protocol.clone(),
+            domain: self.domain.clone(),
+            domain_suffix: self.domain_suffix.clone(),
+            domain_keyword: self.domain_keyword.clone(),
+            domain_regex: self.domain_regex.clone(),
+            geosite: self.geosite.clone(),
+            external: self.external.clone(),
+            source_ip_cidr: self.source_ip_cidr.clone(),
+            source_ip_is_private: self.source_ip_is_private,
+            source_port: self.source_port.clone(),
+            source_port_range: self.source_port_range.clone(),
+            port: self.port.clone(),
+            port_range: self.port_range.clone(),
+            process_name: self.process_name.clone(),
+            process_path: self.process_path.clone(),
+            process_path_regex: self.process_path_regex.clone(),
+            package_name: self.package_name.clone(),
+            package_name_regex: self.package_name_regex.clone(),
+            user: self.user.clone(),
+            user_id: self.user_id.clone(),
+            rule_set: self.rule_set.clone(),
+            rule_set_ip_cidr_match_source: self.rule_set_ip_cidr_match_source,
+            invert: self.invert,
+            mode: self.mode,
+            rules: self.rules.iter().map(DnsRule::conditions).collect(),
+            ..Default::default()
+        }
+    }
+
     /// Whether the rule sets any condition.
     pub fn has_conditions(&self) -> bool {
-        !(self.domain.is_empty()
-            && self.domain_suffix.is_empty()
-            && self.domain_keyword.is_empty()
-            && self.geosite.is_empty()
-            && self.external.is_empty()
-            && self.query_type.is_empty()
-            && self.inbound.is_empty()
-            && self.auth_user.is_empty()
-            && self.outbound.is_empty()
-            && self.rule_set.is_empty())
+        self.conditions().has_conditions() || !self.outbound.is_empty()
     }
 
     fn check(&self, servers: &HashSet<String>) -> Result<()> {
-        match self.action {
+        match self.action.unwrap_or_default() {
             DnsRuleAction::Route => {
                 let tag = self
                     .server
@@ -238,10 +316,32 @@ impl DnsRule {
                 }
             }
         }
+        for (i, rule) in self.rules.iter().enumerate() {
+            rule.check_combined()
+                .map_err(|e| anyhow!("rules[{}]: {}", i, e))?;
+        }
         if !self.has_conditions() {
             return Err(anyhow!(
                 "the rule has no conditions; dns.final is where everything else goes"
             ));
+        }
+        Ok(())
+    }
+
+    /// A rule a logical one combines: conditions, and nothing else.
+    fn check_combined(&self) -> Result<()> {
+        let set = [
+            ("action", self.action.is_some()),
+            ("server", self.server.is_some()),
+            ("strategy", self.strategy.is_some()),
+            ("outbound", !self.outbound.is_empty()),
+        ];
+        if let Some((field, _)) = set.iter().find(|(_, set)| *set) {
+            return Err(anyhow!("{}: a rule a logical one combines has none", field));
+        }
+        for (i, rule) in self.rules.iter().enumerate() {
+            rule.check_combined()
+                .map_err(|e| anyhow!("rules[{}]: {}", i, e))?;
         }
         Ok(())
     }
@@ -476,6 +576,10 @@ pub struct Rule {
     #[serde(rename = "type", default, skip_serializing_if = "RuleType::is_default")]
     pub kind: RuleType,
 
+    /// Record types, by name (`A`, `AAAA`, `HTTPS`) or number: of a DNS
+    /// query, and so never of a connection.
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub query_type: Vec<serde_json::Value>,
     /// Tags of the inbounds a connection came in through.
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
     pub inbound: Vec<String>,
@@ -720,6 +824,7 @@ impl Rule {
     /// The first condition of a default rule the rule sets, by name.
     pub fn first_condition(&self) -> Option<&'static str> {
         [
+            ("query_type", !self.query_type.is_empty()),
             ("inbound", !self.inbound.is_empty()),
             ("ip_version", self.ip_version.is_some()),
             ("network", !self.network.is_empty()),

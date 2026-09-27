@@ -172,7 +172,6 @@ impl ServerSelectorState {
 struct Rule {
     /// The domain, inbound and user conditions, as a routing rule has them.
     matcher: crate::app::router::matcher::Matcher,
-    query_types: Vec<RecordType>,
     outbounds: Vec<String>,
     action: RuleAction,
 }
