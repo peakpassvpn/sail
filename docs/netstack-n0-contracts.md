@@ -956,7 +956,30 @@ those cross-target library checks need to be rerun.
   the kernel opens, with Nagle on, segments at the MTU less 100, and 2% of
   TCP segments dropped each way; it passed 3 of 3 runs, and with the first
   two fixes reverted it stalled.
-- `cargo test -p sail-netstack` currently runs 291 deterministic contract,
+- The clock of commands (2026-09-28): the TCP table's clock moved only with
+  packets and timers, and connect, write, read and close ran at it. A shard
+  that had been quiet dated a connect's SYN at the last packet it saw, took
+  the quiet spell for round-trip time, and set the RTO to its 60 s ceiling;
+  under loss a transfer then waited most of a minute on one retransmission.
+  The loss test above failed 5 of 10 runs for it once it ran longer, and an
+  instrumented run showed the first RTO of the second connection at 60 s.
+  The runner now moves the table's clock at every step, which the runtime
+  takes at least every 10 ms. A runner test connecting after a 19 s quiet
+  spell keeps the RTO at 1 s where it used to reach 60 s, and the loss test
+  passed 10 of 10 runs afterwards.
+- The TUN inbound end to end (roadmap 2.11): the inbound reads sing-box's
+  `tun` fields (`interface_name`, `address` as prefixes, `mtu` defaulting to
+  9000, `auto_route`, `udp_timeout`), a host that runs the VPN opens the
+  device through `Platform::open_tun`, and the netstack keeps a UDP flow as
+  long as its NAT session, where it used to drop it after a fixed minute.
+  `sail/tests/test_tun_linux.rs` runs it as root: sockets of the host reach
+  servers in another network namespace through the TUN, the netstack, the
+  dispatcher and a marked direct outbound, over IPv4 and IPv6, with ping, a
+  megabyte of TCP each way, 16 connections at once, 64- and 4000-byte UDP,
+  a NAT session ending after `udp_timeout`, and a reply 65 s late under a
+  90 s timeout. It passes; the 4000-byte echo needed the 64 KiB UDP buffer
+  that came separately.
+- `cargo test -p sail-netstack` currently runs 292 deterministic contract,
   randomized-model, scheduler, timer, wire, and UDP lifecycle tests. Strict
   `cargo clippy -p sail-netstack --all-targets -- -D warnings` is clean. Both
   are required by the macOS/Linux CI matrix.
@@ -979,10 +1002,10 @@ those cross-target library checks need to be rerun.
   unconditional 64-bit atomic in `sail-netstack`: the denial counter now uses
   a saturating `AtomicUsize` while preserving the public `u64` snapshot field.
   `cargo check -p sail-netstack --locked -Z build-std=std,panic_abort --target
-  mips-unknown-linux-musl` passes without warnings. The current 291-test
+  mips-unknown-linux-musl` passes without warnings. The current 292-test
   library and integration suite, including the wire-validation and legacy
   zero-MTU PMTU cases, passes under the image's MIPS32 big-endian QEMU runner
-  (latest run 291 of 291, including every fix in this revision).
+  (latest run 292 of 292, including every fix in this revision).
   Protocol tests use a relaxed test-only scheduler time ceiling so emulation
   speed cannot masquerade as a packet/state failure; the production 2 ms
   ceiling and its dedicated scheduler test are unchanged. This proves the

@@ -204,7 +204,7 @@ Sail 与 sing-box 的对比已经完成。当前结果表明：
 
 | # | 任务 | 涉及位置 | 验收标准 |
 | --- | --- | --- | --- |
-| 2.11 | TUN IPv4/IPv6、MTU、UDP NAT timeout、ICMP/ICMPv6 和 DNS 劫持完整性 | `protocol/tun/`、netstack | iOS、Android、macOS、Linux 上 TCP/UDP/IPv6 测试通过 |
+| 2.11 | **部分完成（2026-09-28）** TUN IPv4/IPv6、MTU、UDP NAT timeout、ICMP/ICMPv6 和 DNS 劫持完整性（Linux 端到端测试已通过：IPv4/IPv6 的 TCP、UDP、ICMP、NAT 超时；TUN 选项改为 sing-box 的 `tun` 字段，移动端经 `Platform::open_tun` 打开设备；iOS、Android、macOS 实测和 DNS 劫持未做） | `protocol/tun/`、netstack | iOS、Android、macOS、Linux 上 TCP/UDP/IPv6 测试通过 |
 | 2.12 | 网络生命周期：Wi-Fi/蜂窝切换、IPv6-only/NAT64、锁屏恢复、休眠唤醒、captive portal | `platform/`、`runtime/` | 宿主通知网络变化后，旧连接按策略关闭或重建，3 秒内恢复新连接；不会复用错误接口上的 DNS 或出站连接 |
 | 2.13 | Android 分应用代理 | Android 侧与 `Session` 元数据 | package/uid include/exclude 生效，并明确哪些逻辑属于 VpnService、哪些属于内核 |
 | 2.14 | **部分完成（2026-09-26）** 桌面与路由器原生路由管理：Linux netlink、macOS routing socket、`strict_route`；Linux 透明代理（TProxy / redirect）（Linux TProxy / redirect 已完成；原生路由管理未做） | `platform/`、`protocol/redirect/` | 开关 TUN、异常退出和重启后路由表可恢复，无流量泄漏；路由器透明代理 TCP / UDP 可用 |
