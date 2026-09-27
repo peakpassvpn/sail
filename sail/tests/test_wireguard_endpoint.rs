@@ -12,6 +12,8 @@
     feature = "outbound-socks",
     feature = "outbound-direct",
     feature = "outbound-redirect",
+    feature = "inbound-hysteria2",
+    feature = "outbound-hysteria2",
 ))]
 
 mod common;
@@ -67,7 +69,7 @@ impl Keys {
 const TARGET_V4: &str = "198.18.0.1:7";
 const TARGET_V6: &str = "[2001:db8::1]:7";
 
-fn client(keys: &Keys, server: &Keys, socks_port: u16, server_port: u16) -> String {
+fn client_json(keys: &Keys, server: &Keys, socks_port: u16, server_port: u16) -> serde_json::Value {
     json!({
         "inbounds": [{ "type": "socks", "listen": "127.0.0.1", "listen_port": socks_port }],
         "endpoints": [{
@@ -86,7 +88,6 @@ fn client(keys: &Keys, server: &Keys, socks_port: u16, server_port: u16) -> Stri
         "outbounds": [{ "type": "direct" }],
         "route": { "final": "wg" },
     })
-    .to_string()
 }
 
 fn server(keys: &Keys, client: &Keys, port: u16, tcp_echo: u16, udp_echo: u16) -> String {
@@ -179,9 +180,66 @@ async fn udp_echo(socks_port: u16, target: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// How the client's WireGuard datagrams reach the server.
+#[derive(Clone, Copy)]
+enum Path {
+    Direct,
+    /// Through a SOCKS outbound, to a relay instance.
+    Socks,
+    /// Through a Hysteria2 outbound, to a relay instance.
+    Hysteria2,
+}
+
+/// The relay's configuration, and the client's outbound to it.
+fn relay(path: Path, relay_port: u16) -> Option<(String, serde_json::Value)> {
+    match path {
+        Path::Direct => None,
+        Path::Socks => Some((
+            json!({
+                "inbounds": [{ "type": "socks", "listen": "127.0.0.1", "listen_port": relay_port }],
+                "outbounds": [{ "type": "direct" }],
+            })
+            .to_string(),
+            json!({ "type": "socks", "tag": "relay", "server": "127.0.0.1", "server_port": relay_port }),
+        )),
+        Path::Hysteria2 => {
+            let rcgen::CertifiedKey { cert, key_pair } =
+                rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
+            Some((
+                json!({
+                    "inbounds": [{
+                        "type": "hysteria2",
+                        "listen": "127.0.0.1",
+                        "listen_port": relay_port,
+                        "users": [{ "name": "wg", "password": "relay" }],
+                        "tls": { "enabled": true, "certificate": cert.pem(), "key": key_pair.serialize_pem() },
+                    }],
+                    "outbounds": [{ "type": "direct" }],
+                })
+                .to_string(),
+                json!({
+                    "type": "hysteria2",
+                    "tag": "relay",
+                    "server": "127.0.0.1",
+                    "server_port": relay_port,
+                    "password": "relay",
+                    "tls": { "enabled": true, "server_name": "localhost", "certificate": cert.pem() },
+                }),
+            ))
+        }
+    }
+}
+
 /// Runs a client and a server with echo servers behind, and `f` against
 /// the client's SOCKS port.
 fn with_tunnel(
+    f: impl Fn(&tokio::runtime::Runtime, u16) -> anyhow::Result<()>,
+) -> anyhow::Result<()> {
+    with_tunnel_over(Path::Direct, f)
+}
+
+fn with_tunnel_over(
+    path: Path,
     f: impl Fn(&tokio::runtime::Runtime, u16) -> anyhow::Result<()>,
 ) -> anyhow::Result<()> {
     let rt = tokio::runtime::Builder::new_multi_thread()
@@ -193,20 +251,22 @@ fn with_tunnel(
     let echo_udp = rt.spawn(udp_fut);
     let (client_keys, server_keys) = (Keys::new(), Keys::new());
     let result = common::retry_port_clash(|| {
-        let [socks_port, server_port] = common::free_ports();
-        let ids = common::run_sail_instances(
-            &rt,
-            vec![
-                server(
-                    &server_keys,
-                    &client_keys,
-                    server_port,
-                    tcp_addr.port(),
-                    udp_addr.port(),
-                ),
-                client(&client_keys, &server_keys, socks_port, server_port),
-            ],
-        )?;
+        let [socks_port, server_port, relay_port] = common::free_ports();
+        let mut configs = vec![server(
+            &server_keys,
+            &client_keys,
+            server_port,
+            tcp_addr.port(),
+            udp_addr.port(),
+        )];
+        let mut client = client_json(&client_keys, &server_keys, socks_port, server_port);
+        if let Some((relay, outbound)) = relay(path, relay_port) {
+            configs.push(relay);
+            client["outbounds"].as_array_mut().unwrap().push(outbound);
+            client["endpoints"][0]["detour"] = "relay".into();
+        }
+        configs.push(client.to_string());
+        let ids = common::run_sail_instances(&rt, configs)?;
         let result = f(&rt, socks_port);
         common::shutdown_instances(&rt, ids);
         result
@@ -236,6 +296,20 @@ fn test_wireguard_endpoint_sail_to_sail() -> anyhow::Result<()> {
             anyhow::Ok(())
         })
     })
+}
+
+/// WireGuard's own datagrams through another outbound.
+#[test]
+fn test_wireguard_endpoint_detour() -> anyhow::Result<()> {
+    for path in [Path::Socks, Path::Hysteria2] {
+        with_tunnel_over(path, |rt, socks_port| {
+            rt.block_on(async {
+                tcp_echo(socks_port, TARGET_V4, &pattern(1 << 20, 1)).await?;
+                udp_echo(socks_port, TARGET_V6).await
+            })
+        })?;
+    }
+    Ok(())
 }
 
 /// Throughput of one TCP connection through the tunnel, both instances in

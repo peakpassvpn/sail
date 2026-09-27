@@ -70,6 +70,9 @@ impl Transport for SocketTransport {
     }
 }
 
+/// How long a datagram waits for the detour to open.
+const OPEN_WAIT: Duration = Duration::from_secs(5);
+
 /// The datagram path of another outbound. It is opened when the first
 /// datagram is received for, and opened again when it fails.
 pub struct DetourTransport {
@@ -81,6 +84,8 @@ pub struct DetourTransport {
     recv: Mutex<Option<Box<dyn OutboundDatagramRecvHalf>>>,
     /// Tells the receiving side that the path failed while sending.
     failed: Notify,
+    /// Tells senders waiting for the path that it is open.
+    opened: Notify,
 }
 
 impl DetourTransport {
@@ -103,6 +108,7 @@ impl DetourTransport {
             send: Mutex::new(None),
             recv: Mutex::new(None),
             failed: Notify::new(),
+            opened: Notify::new(),
         }
     }
 
@@ -121,6 +127,7 @@ impl DetourTransport {
         let (recv, send) = datagram.split();
         *self.recv.lock().await = Some(recv);
         *self.send.lock().await = Some(send);
+        self.opened.notify_waiters();
         debug!(
             "wireguard [{}]: datagrams go through [{}]",
             self.session.inbound_tag,
@@ -133,10 +140,16 @@ impl DetourTransport {
 #[async_trait]
 impl Transport for DetourTransport {
     async fn send_to(&self, datagram: &[u8], dst: SocketAddr) -> io::Result<()> {
+        // Not open yet, or failed: the receiving side opens it. A handshake
+        // waits for it a while rather than for WireGuard to send again.
+        let opened = self.opened.notified();
+        tokio::pin!(opened);
+        opened.as_mut().enable();
+        if self.send.lock().await.is_none() {
+            let _ = tokio::time::timeout(OPEN_WAIT, opened).await;
+        }
         let mut send = self.send.lock().await;
         let Some(half) = send.as_mut() else {
-            // Not open yet, or failed: the receiving side opens it. WireGuard
-            // sends again.
             return Err(io::Error::new(
                 io::ErrorKind::NotConnected,
                 "the detour is not open",
