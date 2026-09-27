@@ -1,8 +1,10 @@
 name: docs
 
+# Published when master moves; dev pushes do not publish. It can also be
+# run by hand from the Actions page.
 on:
   push:
-    branches: [dev]
+    branches: [master]
     paths:
       - 'website/**'
       - 'sail/**'
