@@ -132,6 +132,10 @@ struct TcpFlow {
     sack_permitted: bool,
     peer_window_scale: Option<u8>,
     local_window_scale: u8,
+    /// Added to the millisecond clock for this flow's `TSval`, so that its
+    /// timestamps reveal neither the stack's uptime nor another flow's
+    /// clock (RFC 7323 7.1).
+    timestamp_offset: u32,
     timestamp: Option<TimestampState>,
     rtt_probe: Option<RttProbe>,
     sack_recovery: Option<SackRecovery>,
@@ -766,6 +770,7 @@ impl TcpTable {
         )?;
         let id = FlowId::new(self.next_flow_id);
         let isn = self.initial_sequence(key, id);
+        let timestamp_offset = self.timestamp_offset(key);
         let local_window_scale = window_scale_for(self.config.receive_credit_bytes);
         let (tcb, actions) = TcpTcb::connect(
             isn,
@@ -799,6 +804,7 @@ impl TcpTable {
                 sack_permitted: false,
                 peer_window_scale: None,
                 local_window_scale,
+                timestamp_offset,
                 timestamp: None,
                 rtt_probe,
                 sack_recovery: None,
@@ -945,6 +951,7 @@ impl TcpTable {
         };
         let id = FlowId::new(self.next_flow_id);
         let isn = self.initial_sequence(key, id);
+        let timestamp_offset = self.timestamp_offset(key);
         let default_peer_mss = if key.source.is_ipv4() { 536 } else { 1_220 };
         let max_send_segment_bytes = self.config.max_segment_payload_bytes.min(usize::from(
             options.maximum_segment_size.unwrap_or(default_peer_mss),
@@ -962,7 +969,9 @@ impl TcpTable {
         let rtt_probe = Some(RttProbe {
             end_sequence: tcb.send_next(),
             sent_at_ms: self.now_ms,
-            sent_timestamp: options.timestamps.map(|_| timestamp_value(self.now_ms)),
+            sent_timestamp: options
+                .timestamps
+                .map(|_| timestamp_value(self.now_ms, timestamp_offset)),
         });
         self.next_flow_id = self.next_flow_id.wrapping_add(1);
         self.by_key.insert(
@@ -984,6 +993,7 @@ impl TcpTable {
                 sack_permitted: options.sack_permitted,
                 peer_window_scale: options.window_scale,
                 local_window_scale,
+                timestamp_offset,
                 timestamp: options.timestamps.map(|(recent, _)| TimestampState {
                     recent,
                     recent_at_ms: self.now_ms,
@@ -2117,7 +2127,8 @@ impl TcpTable {
         let mut options = vec![2, 4];
         options.extend_from_slice(&advertised_mss.to_be_bytes());
         options.extend_from_slice(&[4, 2, 8, 10]);
-        options.extend_from_slice(&timestamp_value(self.now_ms).to_be_bytes());
+        options
+            .extend_from_slice(&timestamp_value(self.now_ms, flow.timestamp_offset).to_be_bytes());
         options.extend_from_slice(&0_u32.to_be_bytes());
         options.extend_from_slice(&[1, 3, 3, flow.local_window_scale]);
         Ok(options)
@@ -2137,7 +2148,9 @@ impl TcpTable {
         }
         if let Some(timestamp) = flow.timestamp {
             options.extend_from_slice(&[8, 10]);
-            options.extend_from_slice(&timestamp_value(self.now_ms).to_be_bytes());
+            options.extend_from_slice(
+                &timestamp_value(self.now_ms, flow.timestamp_offset).to_be_bytes(),
+            );
             options.extend_from_slice(&timestamp.recent.to_be_bytes());
             options.extend_from_slice(&[1, 1]);
         }
@@ -2286,10 +2299,12 @@ impl TcpTable {
     }
 
     fn timestamp_options(&self, key: TcpFlowKey) -> Option<[u8; 12]> {
-        let timestamp = self.by_key.get(&key)?.timestamp?;
+        let flow = self.by_key.get(&key)?;
+        let timestamp = flow.timestamp?;
         let mut options = [0_u8; 12];
         options[0..2].copy_from_slice(&[8, 10]);
-        options[2..6].copy_from_slice(&timestamp_value(self.now_ms).to_be_bytes());
+        options[2..6]
+            .copy_from_slice(&timestamp_value(self.now_ms, flow.timestamp_offset).to_be_bytes());
         options[6..10].copy_from_slice(&timestamp.recent.to_be_bytes());
         options[10..12].copy_from_slice(&[1, 1]);
         Some(options)
@@ -2430,6 +2445,19 @@ impl TcpTable {
             token: TcpFlowToken::new_on_shard(entry.id, self.generation, self.shard),
             event: TimerEvent::TimeWaitExpired,
         })
+    }
+
+    /// A keyed offset for the timestamp clock of `key`'s four-tuple, as
+    /// Linux derives it. It depends on the four-tuple alone, so a new
+    /// connection on the same one continues the old one's timestamps, which
+    /// the peer's PAWS check and TIME-WAIT reuse rely on (RFC 6191).
+    fn timestamp_offset(&self, key: TcpFlowKey) -> u32 {
+        let mut hasher = self.hash_state.build_hasher();
+        "tcp timestamp offset".hash(&mut hasher);
+        key.source.hash(&mut hasher);
+        key.destination.hash(&mut hasher);
+        let bytes = hasher.finish().to_le_bytes();
+        u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])
     }
 
     fn initial_sequence(&self, key: TcpFlowKey, id: FlowId) -> SeqNumber {
@@ -2658,7 +2686,9 @@ fn arm_rtt_probe(flow: &mut TcpFlow, end_sequence: SeqNumber, now_ms: u64) {
         flow.rtt_probe = Some(RttProbe {
             end_sequence,
             sent_at_ms: now_ms,
-            sent_timestamp: flow.timestamp.map(|_| timestamp_value(now_ms)),
+            sent_timestamp: flow
+                .timestamp
+                .map(|_| timestamp_value(now_ms, flow.timestamp_offset)),
         });
     }
 }
@@ -3389,7 +3419,9 @@ fn timestamp_before(value: u32, recent: u32) -> bool {
     i32::from_ne_bytes(value.wrapping_sub(recent).to_ne_bytes()) < 0
 }
 
-fn timestamp_value(now_ms: u64) -> u32 {
+/// The `TSval` a flow sends at `now_ms`: a millisecond clock, shifted by the
+/// flow's offset.
+fn timestamp_value(now_ms: u64, offset: u32) -> u32 {
     let bytes = now_ms.to_le_bytes();
-    u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])
+    u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]).wrapping_add(offset)
 }

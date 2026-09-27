@@ -258,6 +258,41 @@ fn reserved_bits_do_not_block_a_checksum_valid_handshake() {
 }
 
 #[test]
+fn each_four_tuple_has_its_own_timestamp_clock() {
+    let ledger = ResourceLedger::new(BudgetProfile::Router.budget()).unwrap();
+    let mut table = TcpTable::new(ledger, NetworkGeneration::new(1), TcpTableConfig::default());
+    let (source, destination) = endpoints(39);
+    let other = SocketAddr::new(source.ip(), source.port() + 1);
+    let mut syn_options = vec![8, 10];
+    syn_options.extend_from_slice(&100_u32.to_be_bytes());
+    syn_options.extend_from_slice(&0_u32.to_be_bytes());
+    syn_options.extend_from_slice(&[1, 1]);
+    let open = |table: &mut TcpTable, source: SocketAddr, now_ms: u64| {
+        let syn = packet_with_options(source, destination, 100, 0, TcpFlags::SYN, &syn_options);
+        let syn_ack = table.ingest_with_policy_at(&syn, true, now_ms).unwrap();
+        let syn_ack =
+            parse_tcp_segment(parse_ip_packet(&syn_ack.outgoing[0], true).unwrap(), true).unwrap();
+        syn_ack.options.timestamps.unwrap().0
+    };
+
+    // At the same moment two flows send unrelated values, neither of them
+    // the stack's clock (RFC 7323 7.1).
+    let first = open(&mut table, source, 1_000);
+    let second = open(&mut table, other, 1_000);
+    assert_ne!(first, second);
+    assert_ne!(first, 1_000);
+    assert_ne!(second, 1_000);
+
+    // The peer resets the first flow and opens the same four-tuple again:
+    // its clock carries on where the old one would be, as PAWS expects.
+    let reset = packet(source, destination, 101, 0, TcpFlags::RST, &[]);
+    table.ingest_with_policy_at(&reset, true, 2_000).unwrap();
+    assert_eq!(table.stats().active_flows, 1);
+    let again = open(&mut table, source, 4_000);
+    assert_eq!(again.wrapping_sub(first), 3_000);
+}
+
+#[test]
 fn pure_ack_timestamp_does_not_advance_paws_recent_value() {
     let ledger = ResourceLedger::new(BudgetProfile::Router.budget()).unwrap();
     let mut table = TcpTable::new(ledger, NetworkGeneration::new(1), TcpTableConfig::default());
@@ -3698,12 +3733,15 @@ fn timestamps_echo_and_paws_rejects_old_segments() {
     let syn_ack = table.ingest_with_policy_at(&syn, true, 1_000).unwrap();
     let syn_ack =
         parse_tcp_segment(parse_ip_packet(&syn_ack.outgoing[0], true).unwrap(), true).unwrap();
-    assert_eq!(syn_ack.options.timestamps, Some((1_000, 100)));
+    assert_eq!(syn_ack.options.timestamps.map(|(_, echo)| echo), Some(100));
     let server_next = syn_ack.meta.sequence.wrapping_add(1).get();
+    // Our TSval runs from the flow's own offset; `at` is its value at a time.
+    let base = syn_ack.options.timestamps.unwrap().0;
+    let at = |now_ms: u32| base.wrapping_add(now_ms - 1_000);
 
     let mut ack_options = vec![8, 10];
     ack_options.extend_from_slice(&101_u32.to_be_bytes());
-    ack_options.extend_from_slice(&1_000_u32.to_be_bytes());
+    ack_options.extend_from_slice(&at(1_000).to_be_bytes());
     ack_options.extend_from_slice(&[1, 1]);
     let ack = packet_with_options(
         source,
@@ -3729,7 +3767,7 @@ fn timestamps_echo_and_paws_rejects_old_segments() {
 
     let mut stale_options = vec![8, 10];
     stale_options.extend_from_slice(&99_u32.to_be_bytes());
-    stale_options.extend_from_slice(&1_000_u32.to_be_bytes());
+    stale_options.extend_from_slice(&at(1_000).to_be_bytes());
     stale_options.extend_from_slice(&[1, 1]);
     let stale = packet_with_options(
         source,
@@ -3744,17 +3782,17 @@ fn timestamps_echo_and_paws_rejects_old_segments() {
     let paws_ack =
         parse_tcp_segment(parse_ip_packet(&paws.outgoing[0], true).unwrap(), true).unwrap();
     assert_eq!(paws_ack.meta.acknowledgment, Some(SeqNumber::new(101)));
-    assert_eq!(paws_ack.options.timestamps, Some((1_200, 100)));
+    assert_eq!(paws_ack.options.timestamps, Some((at(1_200), 100)));
     assert_eq!(table.stats().paws_rejections, 1);
     assert_eq!(table.stats().defensive_acks_sent, 1);
 
     let sent = table.write(token, b"timestamped").unwrap();
     let sent = parse_tcp_segment(parse_ip_packet(&sent.outgoing[0], true).unwrap(), true).unwrap();
-    assert_eq!(sent.options.timestamps, Some((1_200, 100)));
+    assert_eq!(sent.options.timestamps, Some((at(1_200), 100)));
 
     let mut data_ack_options = vec![8, 10];
     data_ack_options.extend_from_slice(&102_u32.to_be_bytes());
-    data_ack_options.extend_from_slice(&1_200_u32.to_be_bytes());
+    data_ack_options.extend_from_slice(&at(1_200).to_be_bytes());
     data_ack_options.extend_from_slice(&[1, 1]);
     let data_ack = packet_with_options(
         source,
@@ -3788,10 +3826,13 @@ fn forged_timestamp_echo_cannot_poison_the_rto_estimator() {
     let syn_ack =
         parse_tcp_segment(parse_ip_packet(&syn_ack.outgoing[0], true).unwrap(), true).unwrap();
     let server_next = syn_ack.meta.sequence.wrapping_add(1).get();
+    // Our TSval runs from the flow's own offset; `at` is its value at a time.
+    let base = syn_ack.options.timestamps.unwrap().0;
+    let at = |now_ms: u32| base.wrapping_add(now_ms - 1_000);
 
     let mut handshake_options = vec![8, 10];
     handshake_options.extend_from_slice(&101_u32.to_be_bytes());
-    handshake_options.extend_from_slice(&1_000_u32.to_be_bytes());
+    handshake_options.extend_from_slice(&at(1_000).to_be_bytes());
     handshake_options.extend_from_slice(&[1, 1]);
     let handshake_ack = packet_with_options(
         source,
@@ -3813,7 +3854,7 @@ fn forged_timestamp_echo_cannot_poison_the_rto_estimator() {
     let sent = table.write(token, b"x").unwrap();
     assert_eq!(sent.timers[0].after_ms, 1_000);
     let sent = parse_tcp_segment(parse_ip_packet(&sent.outgoing[0], true).unwrap(), true).unwrap();
-    assert_eq!(sent.options.timestamps, Some((1_100, 100)));
+    assert_eq!(sent.options.timestamps, Some((at(1_100), 100)));
 
     let mut forged_options = vec![8, 10];
     forged_options.extend_from_slice(&101_u32.to_be_bytes());

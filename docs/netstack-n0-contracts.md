@@ -906,13 +906,26 @@ those cross-target library checks need to be rerun.
   It passed 10 of 10 runs on the x86_64 Linux host, along with the other
   privileged kernel tests. A capture shows the kernel accepting every option
   the SYN offers (MSS, SACK-permitted, timestamps, window scale) and
-  answering with window scale 7. Known gap, shared with passive flows: TSval
-  counts milliseconds from the runtime's start, without the per-connection
-  random offset RFC 7323 7.1 recommends against leaking uptime.
+  answering with window scale 7.
   After the runtime work, a final 20-minute campaign per target ran about
   1.7 million `tcp_table` executions (ephemeral ports now filtered by owner)
   and 107 million `tcp_state` executions, without a failure.
-- `cargo test -p sail-netstack` currently runs 287 deterministic contract,
+- Timestamp clock per four-tuple (RFC 7323 7.1): TSval used to be the
+  runtime's millisecond clock for every flow, active or passive, so the first
+  SYN of a runtime sent 0 and any peer could read the stack's uptime and
+  compare flows. Each flow now adds a keyed offset of its four-tuple, as
+  Linux does. It depends on the four-tuple alone, so a new connection on the
+  same one continues the old clock, which the peer's PAWS check and TIME-WAIT
+  reuse (RFC 6191) rely on; RTT measurement matches echoes against the same
+  shifted values. A model test shows two flows at one moment sending
+  unrelated values, neither the clock, and a reopened four-tuple continuing
+  exactly where its clock ran to. A capture of the kernel test shows SYNs
+  with unrelated 32-bit TSvals where they used to carry 0 and 266. Tests that
+  had assumed TSval equal to the clock now take it from the SYN-ACK. A
+  `sharded_io` test that failed about 3% of runs was also fixed: with one flow
+  allowed per directory stripe, its two same-owner flows share a stripe one
+  time in 32 and legitimately leave one directory entry, not two.
+- `cargo test -p sail-netstack` currently runs 288 deterministic contract,
   randomized-model, scheduler, timer, wire, and UDP lifecycle tests. Strict
   `cargo clippy -p sail-netstack --all-targets -- -D warnings` is clean. Both
   are required by the macOS/Linux CI matrix.
@@ -935,10 +948,10 @@ those cross-target library checks need to be rerun.
   unconditional 64-bit atomic in `sail-netstack`: the denial counter now uses
   a saturating `AtomicUsize` while preserving the public `u64` snapshot field.
   `cargo check -p sail-netstack --locked -Z build-std=std,panic_abort --target
-  mips-unknown-linux-musl` passes without warnings. The current 287-test
+  mips-unknown-linux-musl` passes without warnings. The current 288-test
   library and integration suite, including the wire-validation and legacy
   zero-MTU PMTU cases, passes under the image's MIPS32 big-endian QEMU runner
-  (latest run 287 of 287, including every fix in this revision).
+  (latest run 288 of 288, including every fix in this revision).
   Protocol tests use a relaxed test-only scheduler time ceiling so emulation
   speed cannot masquerade as a packet/state failure; the production 2 ms
   ceiling and its dedicated scheduler test are unchanged. This proves the

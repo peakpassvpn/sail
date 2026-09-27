@@ -1591,17 +1591,16 @@ fn runner_emits_timestamped_ack_for_paws_rejection_without_failing() {
 
     block_on(runner.step(1_000)).unwrap();
     block_on(runner.step(1_001)).unwrap();
-    let syn_ack = {
+    let (syn_ack, syn_ack_timestamp) = {
         let packet = sent.lock().unwrap().last().unwrap().clone();
-        parse_tcp_segment(parse_ip_packet(&packet, true).unwrap(), true)
-            .unwrap()
-            .meta
+        let segment = parse_tcp_segment(parse_ip_packet(&packet, true).unwrap(), true).unwrap();
+        (segment.meta, segment.options.timestamps.unwrap().0)
     };
     let server_next = syn_ack.sequence.wrapping_add(1).get();
 
     let mut ack_options = vec![8, 10];
     ack_options.extend_from_slice(&101_u32.to_be_bytes());
-    ack_options.extend_from_slice(&1_000_u32.to_be_bytes());
+    ack_options.extend_from_slice(&syn_ack_timestamp.to_be_bytes());
     ack_options.extend_from_slice(&[1, 1]);
     recv.lock().unwrap().push_back(tcp_packet_with_options(
         source,
@@ -1620,7 +1619,7 @@ fn runner_emits_timestamped_ack_for_paws_rejection_without_failing() {
 
     let mut stale_options = vec![8, 10];
     stale_options.extend_from_slice(&99_u32.to_be_bytes());
-    stale_options.extend_from_slice(&1_000_u32.to_be_bytes());
+    stale_options.extend_from_slice(&syn_ack_timestamp.to_be_bytes());
     stale_options.extend_from_slice(&[1, 1]);
     recv.lock().unwrap().push_back(tcp_packet_with_options(
         source,
@@ -1643,7 +1642,10 @@ fn runner_emits_timestamped_ack_for_paws_rejection_without_failing() {
     let packet = sent.lock().unwrap().last().unwrap().clone();
     let paws_ack = parse_tcp_segment(parse_ip_packet(&packet, true).unwrap(), true).unwrap();
     assert_eq!(paws_ack.meta.acknowledgment, Some(SeqNumber::new(101)));
-    assert_eq!(paws_ack.options.timestamps, Some((1_200, 100)));
+    // Our clock ran 200 ms since the SYN-ACK, from the flow's own offset.
+    let (value, echo) = paws_ack.options.timestamps.unwrap();
+    assert_eq!(value.wrapping_sub(syn_ack_timestamp), 200);
+    assert_eq!(echo, 100);
 }
 
 #[test]

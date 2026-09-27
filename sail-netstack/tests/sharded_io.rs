@@ -616,7 +616,14 @@ fn route_cache_capacity_replaces_oldest_without_dropping_local_input() {
     inputs[owner].inject(first_wire);
     assert_eq!(receive(&mut adapters[owner]).unwrap().len(), 1);
     let stats = control.stats().unwrap();
-    assert_eq!(stats.directory_entries, 2);
+    // With one flow allowed, each directory stripe keeps one entry. The two
+    // flows share an owner, so their hashes share a parity, and one time in
+    // 32 they share a stripe too; the second then replaces the first.
+    assert!(
+        (1..=2).contains(&stats.directory_entries),
+        "{} directory entries",
+        stats.directory_entries
+    );
     assert_eq!(stats.local_cache_entries, 1);
     assert_eq!(stats.local_cache_misses, 3);
     assert_eq!(stats.local_cache_admission_failures, 0);
