@@ -73,9 +73,7 @@ fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
         return Err(anyhow!("[{}] inbound: tls: anytls needs it enabled", tag));
     }
     let options: AnyTlsInboundOptions = parse_options("inbound", tag, &protocol)?;
-    if options.users.is_empty() {
-        return Err(anyhow!("[{}] inbound: users: needs at least one", tag));
-    }
+    // An empty table intentionally revokes every user for new sessions.
     let padding = match options.padding_scheme {
         Some(scheme) => PaddingScheme::parse_strict(&scheme.joined())
             .map_err(|e| anyhow!("[{}] inbound: padding_scheme: {}", tag, e))?,

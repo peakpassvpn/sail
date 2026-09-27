@@ -12,9 +12,7 @@ use tokio::time::{timeout, Duration};
 use tracing::{info, trace, warn};
 
 #[cfg(feature = "auto-reload")]
-use notify::{
-    event, Error as NotifyError, RecommendedWatcher, RecursiveMode, Result as NotifyResult, Watcher,
-};
+use notify::Error as NotifyError;
 
 use app::{outbound::manager::OutboundManager, router::Router};
 
@@ -61,8 +59,6 @@ pub enum Error {
 pub type Runner = futures::future::BoxFuture<'static, ()>;
 
 pub struct RuntimeManager {
-    #[cfg(feature = "auto-reload")]
-    rt_id: RuntimeId,
     config_path: Option<String>,
     #[cfg(feature = "auto-reload")]
     auto_reload: bool,
@@ -93,13 +89,13 @@ pub struct RuntimeManager {
     /// or removed.
     update: tokio::sync::Mutex<()>,
     #[cfg(feature = "auto-reload")]
-    watcher: Mutex<Option<RecommendedWatcher>>,
+    watcher: Mutex<Option<runtime::watch::FileWatcher>>,
 }
 
 impl RuntimeManager {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        #[cfg(feature = "auto-reload")] rt_id: RuntimeId,
+        #[cfg(feature = "auto-reload")] _rt_id: RuntimeId,
         config_path: Option<String>,
         #[cfg(feature = "auto-reload")] auto_reload: bool,
         reload_tx: mpsc::Sender<std::sync::mpsc::SyncSender<Result<(), Error>>>,
@@ -109,8 +105,6 @@ impl RuntimeManager {
         dial_defaults: Arc<net::DialOptions>,
     ) -> Arc<Self> {
         Arc::new(Self {
-            #[cfg(feature = "auto-reload")]
-            rt_id,
             config_path,
             #[cfg(feature = "auto-reload")]
             auto_reload,
@@ -258,6 +252,12 @@ impl RuntimeManager {
         let _update = self.update.lock().await;
         info!("reloading from config file: {}", config_path);
         let config = config::from_file(config_path).map_err(Error::Config)?;
+        let inbound_resources = self
+            .inbound_manager
+            .lock()
+            .map_err(|_| Error::RuntimeManager)?
+            .prepare_resources(&config.inbounds)
+            .map_err(Error::Config)?;
         let dial_defaults = dial_defaults(&config, &self.env).map_err(Error::Config)?;
         self.env
             .clash_mode
@@ -306,6 +306,19 @@ impl RuntimeManager {
         outbound_manager
             .restore_selected(&self.outbound_manager.load())
             .await;
+        // Acquire the last fallible lock before publishing anything. No
+        // listener is stopped or rebound by a resource update.
+        let mut inbounds = self
+            .inbound_manager
+            .lock()
+            .map_err(|_| Error::RuntimeManager)?;
+        #[cfg(feature = "auto-reload")]
+        let watcher = self.prepare_watcher(inbounds.prepared_resource_files(&inbound_resources))?;
+        inbounds.publish_resources(inbound_resources);
+        #[cfg(feature = "auto-reload")]
+        {
+            *self.watcher.lock().unwrap_or_else(|e| e.into_inner()) = watcher;
+        }
         self.dns_client.store(Arc::new(dns_client));
         let replaced = self.outbound_manager.swap(Arc::new(outbound_manager));
         self.router.store(Arc::new(router));
@@ -376,23 +389,64 @@ impl RuntimeManager {
         if inbound.tag.is_empty() {
             inbound.tag = inbound.protocol.clone();
         }
-        self.inbound_manager
+        let mut inbounds = self
+            .inbound_manager
             .lock()
-            .map_err(|_| Error::RuntimeManager)?
-            .add(&inbound)
-            .map_err(Error::Config)?;
+            .map_err(|_| Error::RuntimeManager)?;
+        #[cfg(feature = "auto-reload")]
+        let watcher = self.prepare_watcher(inbounds.resource_files_after_add(&inbound))?;
+        inbounds.add(&inbound).map_err(Error::Config)?;
+        #[cfg(feature = "auto-reload")]
+        {
+            *self.watcher.lock().unwrap_or_else(|e| e.into_inner()) = watcher;
+        }
         info!("added inbound [{}]", inbound.tag);
+        Ok(())
+    }
+
+    /// Replaces a supported inbound's users and TLS certificate without
+    /// rebinding its socket. Pass the complete inbound configuration; all
+    /// static fields must match. Existing authenticated sessions continue.
+    /// Does not write the configuration file or disconnect removed users.
+    pub async fn update_inbound_resources(
+        &self,
+        mut inbound: config::Inbound,
+    ) -> Result<(), Error> {
+        let _update = self.update.lock().await;
+        if inbound.tag.is_empty() {
+            inbound.tag = inbound.protocol.clone();
+        }
+        let mut inbounds = self
+            .inbound_manager
+            .lock()
+            .map_err(|_| Error::RuntimeManager)?;
+        let prepared = inbounds
+            .prepare_update_resources(&inbound)
+            .map_err(Error::Config)?;
+        #[cfg(feature = "auto-reload")]
+        let watcher = self.prepare_watcher(inbounds.prepared_resource_files(&prepared))?;
+        inbounds.publish_resources(prepared);
+        #[cfg(feature = "auto-reload")]
+        {
+            *self.watcher.lock().unwrap_or_else(|e| e.into_inner()) = watcher;
+        }
         Ok(())
     }
 
     /// Stops listening for the inbound `tag`, and removes it.
     pub async fn remove_inbound(&self, tag: &str) -> Result<(), Error> {
         let _update = self.update.lock().await;
-        self.inbound_manager
+        let mut inbounds = self
+            .inbound_manager
             .lock()
-            .map_err(|_| Error::RuntimeManager)?
-            .remove(tag)
-            .map_err(Error::Config)?;
+            .map_err(|_| Error::RuntimeManager)?;
+        #[cfg(feature = "auto-reload")]
+        let watcher = self.prepare_watcher(inbounds.resource_files_after_remove(tag))?;
+        inbounds.remove(tag).map_err(Error::Config)?;
+        #[cfg(feature = "auto-reload")]
+        {
+            *self.watcher.lock().unwrap_or_else(|e| e.into_inner()) = watcher;
+        }
         info!("removed inbound [{}]", tag);
         Ok(())
     }
@@ -468,81 +522,29 @@ impl RuntimeManager {
     }
 
     #[cfg(feature = "auto-reload")]
-    pub(crate) fn new_watcher(&self) -> Result<(), Error> {
-        let config_path = if let Some(p) = self.config_path.as_ref() {
-            p
-        } else {
-            return Err(Error::NoConfigFile);
-        };
-        if self.auto_reload {
-            trace!("starting new watcher for config file: {}", config_path);
-            let rt_id = self.rt_id;
-            let mut watcher: RecommendedWatcher =
-                notify::recommended_watcher(move |res: NotifyResult<event::Event>| {
-                    match res {
-                        // FIXME Not sure what are the most appropriate events to
-                        // filter on different platforms.
-                        Ok(ev) => {
-                            match ev.kind {
-                                #[cfg(any(target_os = "macos", target_os = "ios"))]
-                                event::EventKind::Modify(event::ModifyKind::Data(
-                                    event::DataChange::Content,
-                                )) => {
-                                    info!("config file event matched: {:?}", ev);
-                                    if let Err(e) = reload(rt_id) {
-                                        warn!("reload config file failed: {}", e);
-                                    }
-                                }
-                                #[cfg(any(target_os = "linux", target_os = "android"))]
-                                event::EventKind::Access(event::AccessKind::Close(
-                                    event::AccessMode::Write,
-                                ))
-                                | event::EventKind::Remove(event::RemoveKind::File) => {
-                                    info!("config file event matched: {:?}", ev);
-                                    if let Err(e) = reload(rt_id) {
-                                        warn!("reload config file failed: {}", e);
-                                    }
-                                }
-                                #[cfg(target_os = "windows")]
-                                event::EventKind::Modify(event::ModifyKind::Data(
-                                    event::DataChange::Any,
-                                )) => {
-                                    info!("config file event matched: {:?}", ev);
-                                    if let Err(e) = reload(rt_id) {
-                                        warn!("reload config file failed: {}", e);
-                                    }
-                                }
-                                _ => {
-                                    trace!("skip config file event: {:?}", ev);
-                                }
-                            }
-                            // The config file could somehow be removed and re-created
-                            // by an editor, in that case create a new watcher to watch
-                            // the new file.
-                            if let event::EventKind::Remove(event::RemoveKind::File) = ev.kind {
-                                if let Some(m) = runtime_managers().get(&rt_id) {
-                                    let _ = m.new_watcher();
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            tracing::error!("config file watch error: {:?}", e);
-                        }
-                    }
-                })
-                .map_err(Error::Watcher)?;
-            watcher
-                .watch(
-                    std::path::Path::new(&config_path),
-                    RecursiveMode::NonRecursive,
-                )
-                .map_err(Error::Watcher)?;
-            info!("watching changes of file: {}", config_path);
-            self.watcher
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .replace(watcher);
+    fn prepare_watcher(
+        &self,
+        mut files: Vec<std::path::PathBuf>,
+    ) -> Result<Option<runtime::watch::FileWatcher>, Error> {
+        if !self.auto_reload {
+            return Ok(None);
         }
+        let Some(config_path) = self.config_path.as_ref() else {
+            return Ok(None);
+        };
+        files.push(config_path.into());
+        runtime::watch::FileWatcher::new(files, self.reload_tx.clone()).map(Some)
+    }
+
+    #[cfg(feature = "auto-reload")]
+    pub(crate) fn new_watcher(&self) -> Result<(), Error> {
+        let files = self
+            .inbound_manager
+            .lock()
+            .map_err(|_| Error::RuntimeManager)?
+            .resource_files();
+        let watcher = self.prepare_watcher(files)?;
+        *self.watcher.lock().unwrap_or_else(|e| e.into_inner()) = watcher;
         Ok(())
     }
 }

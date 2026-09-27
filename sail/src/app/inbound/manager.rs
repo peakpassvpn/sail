@@ -14,6 +14,14 @@ use crate::include;
 use crate::Runner;
 
 use super::network_listener::NetworkInboundListener;
+use super::resource::{self, StreamGeneration, StreamResource};
+
+/// Nothing is published until every candidate (and the other reloadable
+/// components) has been built successfully. Commit itself cannot fail.
+pub(crate) struct PreparedResources {
+    configs: HashMap<String, config::Inbound>,
+    updates: Vec<(StreamResource, Arc<StreamGeneration>)>,
+}
 
 #[cfg(feature = "inbound-cat")]
 use super::cat_listener::CatInboundListener;
@@ -22,6 +30,8 @@ use super::cat_listener::CatInboundListener;
 use super::tun_listener::TunInboundListener;
 
 pub struct InboundManager {
+    configs: HashMap<String, config::Inbound>,
+    resources: HashMap<String, StreamResource>,
     /// Every inbound's handler, for inbounds built on others.
     handlers: HashMap<String, AnyInboundHandler>,
     /// The inbounds each inbound is built on.
@@ -38,6 +48,46 @@ pub struct InboundManager {
 }
 
 impl InboundManager {
+    #[cfg(feature = "auto-reload")]
+    pub(crate) fn resource_files(&self) -> Vec<std::path::PathBuf> {
+        self.files_for(self.configs.values())
+    }
+
+    #[cfg(feature = "auto-reload")]
+    pub(crate) fn resource_files_after_add(
+        &self,
+        inbound: &config::Inbound,
+    ) -> Vec<std::path::PathBuf> {
+        let mut files = self.resource_files();
+        if resource::supported(inbound) {
+            files.extend(resource::files(inbound, self.dispatcher.env()));
+        }
+        files
+    }
+
+    #[cfg(feature = "auto-reload")]
+    pub(crate) fn resource_files_after_remove(&self, tag: &str) -> Vec<std::path::PathBuf> {
+        self.files_for(self.configs.values().filter(|i| i.tag != tag))
+    }
+
+    #[cfg(feature = "auto-reload")]
+    pub(crate) fn prepared_resource_files(
+        &self,
+        prepared: &PreparedResources,
+    ) -> Vec<std::path::PathBuf> {
+        self.files_for(prepared.configs.values())
+    }
+
+    #[cfg(feature = "auto-reload")]
+    fn files_for<'a>(
+        &self,
+        configs: impl Iterator<Item = &'a config::Inbound>,
+    ) -> Vec<std::path::PathBuf> {
+        configs
+            .filter(|i| self.resources.contains_key(&i.tag))
+            .flat_map(|i| resource::files(i, self.dispatcher.env()))
+            .collect()
+    }
     pub fn new(
         inbounds: &[config::Inbound],
         env: &crate::runtime::RuntimeEnv,
@@ -54,6 +104,22 @@ impl InboundManager {
             &mut handlers,
             &mut dependencies,
         )?;
+
+        let mut resources = HashMap::new();
+        for inbound in inbounds {
+            // An initially built dependent holds the original handler.
+            // Such graphs need resource-aware factories before reloading.
+            if resource::supported(inbound)
+                && !dependencies
+                    .values()
+                    .any(|deps| deps.contains(&inbound.tag))
+            {
+                resources.insert(
+                    inbound.tag.clone(),
+                    resource::wrap(handlers.get_mut(&inbound.tag).unwrap())?,
+                );
+            }
+        }
 
         let mut network_listeners: HashMap<String, NetworkInboundListener> = HashMap::new();
         for (inbound, address) in plan_listeners(inbounds, &handlers)? {
@@ -98,6 +164,11 @@ impl InboundManager {
         }
 
         Ok(InboundManager {
+            configs: inbounds
+                .iter()
+                .map(|i| (i.tag.clone(), i.clone()))
+                .collect(),
+            resources,
             handlers,
             dependencies,
             network_listeners,
@@ -136,6 +207,110 @@ impl InboundManager {
         self.running.insert(tag, handles);
     }
 
+    /// Builds replacement users/certificates without binding any sockets or
+    /// mutating live resources. Re-read certificate files even if the JSON
+    /// did not change. Unsupported inbounds are retained, never rebuilt.
+    pub(crate) fn prepare_resources(
+        &self,
+        inbounds: &[config::Inbound],
+    ) -> Result<PreparedResources> {
+        self.prepare_selected_resources(inbounds, None)
+    }
+
+    fn prepare_selected_resources(
+        &self,
+        inbounds: &[config::Inbound],
+        selected: Option<&str>,
+    ) -> Result<PreparedResources> {
+        let mut configs = HashMap::new();
+        for inbound in inbounds {
+            if configs
+                .insert(inbound.tag.clone(), inbound.clone())
+                .is_some()
+            {
+                return Err(anyhow!("[{}] inbound: duplicate tag", inbound.tag));
+            }
+            let old = self.configs.get(&inbound.tag).ok_or_else(|| {
+                anyhow!(
+                    "[{}] inbound: reload cannot add listeners; use add_inbound",
+                    inbound.tag
+                )
+            })?;
+            resource::check_change(old, inbound)?;
+            if !self.resources.contains_key(&inbound.tag) && old != inbound {
+                return Err(anyhow!(
+                    "[{}] inbound: resource reload is not supported for this pipeline",
+                    inbound.tag
+                ));
+            }
+        }
+        if configs.len() != self.configs.len() {
+            return Err(anyhow!(
+                "inbound: reload cannot remove listeners; use remove_inbound"
+            ));
+        }
+        let mut updates = Vec::new();
+        for inbound in inbounds {
+            if selected.is_some_and(|tag| tag != inbound.tag) {
+                continue;
+            }
+            let Some(resource) = self.resources.get(&inbound.tag) else {
+                continue;
+            };
+            let mut handlers = HashMap::new();
+            let mut dependencies = HashMap::new();
+            registry::build_inbounds(
+                &include::INBOUNDS,
+                std::slice::from_ref(inbound),
+                include::LISTENER_INBOUNDS,
+                self.dispatcher.env(),
+                &mut handlers,
+                &mut dependencies,
+            )?;
+            updates.push((
+                resource.clone(),
+                resource::generation(&handlers[&inbound.tag])?,
+            ));
+        }
+        Ok(PreparedResources { configs, updates })
+    }
+
+    pub(crate) fn publish_resources(&mut self, prepared: PreparedResources) {
+        for (resource, generation) in prepared.updates {
+            resource.publish(generation);
+        }
+        self.configs = prepared.configs;
+    }
+
+    /// The same validation/publication path for an embedding host changing
+    /// one inbound's users or certificate without a configuration file.
+    pub(crate) fn prepare_update_resources(
+        &self,
+        inbound: &config::Inbound,
+    ) -> Result<PreparedResources> {
+        if !self.configs.contains_key(&inbound.tag) {
+            return Err(anyhow!("[{}] inbound: does not exist", inbound.tag));
+        }
+        if !self.resources.contains_key(&inbound.tag) {
+            return Err(anyhow!(
+                "[{}] inbound: resource reload is not supported for this pipeline",
+                inbound.tag
+            ));
+        }
+        let configs: Vec<_> = self
+            .configs
+            .values()
+            .map(|old| {
+                if old.tag == inbound.tag {
+                    inbound.clone()
+                } else {
+                    old.clone()
+                }
+            })
+            .collect();
+        self.prepare_selected_resources(&configs, Some(&inbound.tag))
+    }
+
     /// Builds `inbound` and starts listening on its port. A TUN or cat
     /// inbound is only configured at start.
     pub fn add(&mut self, inbound: &config::Inbound) -> Result<()> {
@@ -156,6 +331,11 @@ impl InboundManager {
             &mut handlers,
             &mut dependencies,
         )?;
+        let resource = if resource::supported(inbound) {
+            Some(resource::wrap(handlers.get_mut(&inbound.tag).unwrap())?)
+        } else {
+            None
+        };
         let planned = plan_listeners(std::slice::from_ref(inbound), &handlers)?;
         if let Some((_, address)) = planned.first() {
             let listener = NetworkInboundListener {
@@ -170,6 +350,10 @@ impl InboundManager {
         }
         self.handlers = handlers;
         self.dependencies = dependencies;
+        self.configs.insert(inbound.tag.clone(), inbound.clone());
+        if let Some(resource) = resource {
+            self.resources.insert(inbound.tag.clone(), resource);
+        }
         self.dispatcher
             .set_inbound_type(&inbound.tag, Some(&inbound.protocol));
         Ok(())
@@ -194,6 +378,8 @@ impl InboundManager {
         self.network_listeners.remove(tag);
         self.handlers.remove(tag);
         self.dependencies.remove(tag);
+        self.configs.remove(tag);
+        self.resources.remove(tag);
         self.dispatcher.set_inbound_type(tag, None);
         Ok(())
     }

@@ -81,9 +81,7 @@ struct VlessUser {
 
 fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
     let options: VlessInboundOptions = ctx.options()?;
-    if options.users.is_empty() {
-        return Err(anyhow!("[{}] inbound: users: cannot be empty", ctx.tag));
-    }
+    // An empty table intentionally revokes every user for new sessions.
     let mut users = HashMap::new();
     for (i, user) in options.users.into_iter().enumerate() {
         let uuid = *uuid::Uuid::parse_str(&user.uuid)

@@ -6,6 +6,9 @@ use std::sync::Arc;
 
 pub mod options;
 pub mod platform;
+pub(crate) mod resource;
+#[cfg(feature = "auto-reload")]
+pub(crate) mod watch;
 
 pub use options::{Profile, RuntimeOptions};
 pub use platform::{Platform, PlatformRef, TunRequest};

@@ -1,7 +1,7 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 
 use crate::adapter::inbound::Handler;
 use crate::adapter::registry::{InboundContext, InboundFactory, InboundRegistry};
@@ -52,6 +52,16 @@ struct TrojanUser {
 
 fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
     let options: TrojanInboundOptions = ctx.options()?;
+    let mut passwords = HashSet::new();
+    for (i, user) in options.users.iter().enumerate() {
+        if !passwords.insert(&user.password) {
+            return Err(anyhow!(
+                "[{}] inbound: users[{}].password: used by another user",
+                ctx.tag,
+                i
+            ));
+        }
+    }
     let fallback = fallback::Fallback::new(ctx.tag, options.fallback, options.fallback_for_alpn)?;
     let users = options
         .users
