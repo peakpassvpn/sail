@@ -190,13 +190,13 @@ mod tests {
         let err = parse(
             r#"{
                 "outbounds": [{ "type": "direct" }],
-                "route": { "rules": [{ "rule_set": "geosite-cn", "outbound": "direct" }] }
+                "route": { "rules": [{ "domain_regex": "^a", "outbound": "direct" }] }
             }"#,
         )
         .unwrap_err();
         assert_eq!(
             err.to_string(),
-            "route.rules[0].rule_set: sail does not implement this field yet"
+            "route.rules[0].domain_regex: sail does not implement this field yet"
         );
     }
 

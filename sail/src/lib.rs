@@ -82,6 +82,10 @@ pub struct RuntimeManager {
     inbound_manager: Arc<Mutex<app::inbound::manager::InboundManager>>,
     stat_manager: SyncStatManager,
     env: runtime::SyncRuntimeEnv,
+    /// What rule-sets are downloaded through; the same across reloads.
+    dispatcher: std::sync::Weak<app::dispatcher::Dispatcher>,
+    /// Downloads the remote rule-sets again as they fall due.
+    rule_set_updater: Mutex<Option<tokio::task::AbortHandle>>,
     /// What outbounds dial with where theirs leave off, as the current
     /// configuration has it.
     dial_defaults: arc_swap::ArcSwap<net::DialOptions>,
@@ -124,6 +128,12 @@ impl RuntimeManager {
             inbound_manager: instance.inbound_manager.clone(),
             stat_manager: instance.stat_manager.clone(),
             env: instance.env.clone(),
+            dispatcher: Arc::downgrade(&instance.dispatcher),
+            rule_set_updater: Mutex::new(
+                instance
+                    .rule_sets
+                    .spawn_updater(Arc::downgrade(&instance.dispatcher)),
+            ),
             dial_defaults: arc_swap::ArcSwap::new(dial_defaults),
             update: tokio::sync::Mutex::new(()),
             #[cfg(feature = "auto-reload")]
@@ -251,6 +261,12 @@ impl RuntimeManager {
         let dial_defaults = dial_defaults(&config, &self.env).map_err(Error::Config)?;
         let rule_sets = app::router::rule_set::RuleSets::load(&config.route.rule_set, &self.env)
             .map_err(Error::Config)?;
+        if let Some(dispatcher) = self.dispatcher.upgrade() {
+            rule_sets
+                .fetch_missing(&dispatcher)
+                .await
+                .map_err(Error::Config)?;
+        }
         let dns_client = self
             .dns_client
             .load()
@@ -290,6 +306,16 @@ impl RuntimeManager {
         self.dns_client.store(Arc::new(dns_client));
         let replaced = self.outbound_manager.swap(Arc::new(outbound_manager));
         self.router.store(Arc::new(router));
+        {
+            let mut updater = self
+                .rule_set_updater
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            if let Some(old) = updater.take() {
+                old.abort();
+            }
+            *updater = rule_sets.spawn_updater(self.dispatcher.clone());
+        }
         self.dial_defaults.store(dial_defaults);
         replaced.abort_tasks_replaced_by(&self.outbound_manager.load());
         info!("reloaded from config file: {}", config_path);
@@ -756,6 +782,10 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
                 .map_err(|e| Error::Config(anyhow!("api.listen: {}: {}", addr, e)))
         })
         .transpose()?;
+    // The rules cannot match a rule-set not downloaded yet: before any
+    // connection comes in.
+    rt.block_on(instance.rule_sets.fetch_missing(&instance.dispatcher))
+        .map_err(Error::Config)?;
     // Without the API nothing is added to them.
     #[cfg_attr(not(feature = "api"), allow(unused_mut))]
     let mut runners = instance.start().map_err(Error::Config)?;

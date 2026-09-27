@@ -186,7 +186,7 @@ Sail 与 sing-box 的对比已经完成。当前结果表明：
 | --- | --- | --- | --- |
 | 2.1 | **已完成（2026-09-28）** 结构化 DNS 上游和规则：按域名、query type、入站、规则集选择服务器；支持 detour 与 IPv4/IPv6 strategy（服务器为 sing-box 对象形式，另有 sail 扩展 `smart_select`；规则按域名、query_type、入站、用户、出站选择服务器；出站 `domain_resolver`、`route.default_domain_resolver`；启动和重载时检查递归环；按规则集选择等 2.6） | `dns/` | 国内外 DNS 分流正确，节点域名解析无递归环，无 DNS 泄漏 |
 | 2.2 | 内置 DNS listener 和 TUN DNS hijack | `dns/`、`protocol/tun/` | UDP/TCP 53 查询均可劫持；`hijack-dns` 动作可测试 |
-| 2.3 | **部分完成（2026-09-26）** 加密 DNS：在现有 DoH 基础上补连接复用，并按需要增加 DoT、DoQ、DoH3；每种上游按注册表接入（DoT / DoQ / DoH3 已完成；DoH 连接复用未做） | `dns/transport/` | bootstrap、证书校验、代理/直连 detour 和失败回退行为明确 |
+| 2.3 | **已完成（2026-09-26）** 加密 DNS：在现有 DoH 基础上补连接复用，并按需要增加 DoT、DoQ、DoH3；每种上游按注册表接入（DoT / DoQ / DoH3 已完成；DoH 保持一条 HTTP/2 连接或空闲 HTTP/1.1 连接复用） | `dns/transport/` | bootstrap、证书校验、代理/直连 detour 和失败回退行为明确 |
 | 2.4 | DNS 缓存可配置：容量、TTL、negative cache、独立缓存、清理和统计 | `dns/`、管理 API | 命中率可观察；切网和配置重载不会返回错误网络下的陈旧结果 |
 | 2.5 | FakeIP 完整化：IPv4/IPv6 地址池、TTL、过滤、容量与持久化 | `dns/transport/fakeip` | 支持 A/AAAA；重启后按配置恢复或安全重建；地址回收无错误映射 |
 
@@ -194,8 +194,8 @@ Sail 与 sing-box 的对比已经完成。当前结果表明：
 
 | # | 任务 | 涉及位置 | 验收标准 |
 | --- | --- | --- | --- |
-| 2.6 | rule-set 远程下载、定时更新、本地缓存、大小限制和原子替换 | `route/rule_set/` | 更新失败继续使用旧规则；下载可指定出站；不允许任意路径写入 |
-| 2.7 | 支持 sing-box `.srs` 导入 | `config/` | 导入后转换为 Sail 内部规则，不让运行时路由器长期耦合外部格式 |
+| 2.6 | **已完成（2026-09-28）** rule-set 远程下载、定时更新、本地缓存、大小限制和原子替换（sing-box 的 inline / local / remote，`{tag}` 多标签；经 `download_detour` 下载，跟随重定向、ETag；首次下载完成前不接受连接，失败则启动失败；`cache_dir` 下原子写入，更新失败保留旧规则） | `route/rule_set/` | 更新失败继续使用旧规则；下载可指定出站；不允许任意路径写入 |
+| 2.7 | **已完成（2026-09-28）** 支持 sing-box `.srs` 导入（source 与 binary 格式 v1–v5；域名保持 succinct trie 形式匹配；与 sing-box 1.13.12 的 compile / match 结果和官方 geosite-cn、geoip-cn 对照一致；路由规则和 DNS 规则的 `rule_set` 按 sing-box 的合并语义） | `config/` | 导入后转换为 Sail 内部规则，不让运行时路由器长期耦合外部格式 |
 | 2.8 | 逻辑规则 and/or/not，以及 source IP/port、用户、入站类型、进程路径、package、uid、IP version、ASN、网络类型等常用条件 | `route/rule/` | 每种条件一个模块；与选定的 sing-box / Mihomo 规则样例得到一致结果 |
 | 2.9 | 路由动作补齐：route、reject、hijack-dns、sniff、resolve、bypass 和 route options | `route/` | 动作可组合，错误组合在配置检查阶段失败 |
 | 2.10 | 嗅探补齐并可配置覆盖目标：HTTP、TLS、QUIC、DNS | `sniff/` | 有长度限制、超时和模糊测试；不能由异常报文触发 panic 或无限缓存 |

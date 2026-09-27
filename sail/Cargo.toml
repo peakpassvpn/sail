@@ -93,7 +93,7 @@ dns-h3 = ["quic", "h3", "h3-quinn", "http"]
 # Router rules
 rule-process-name = ["regex"]
 # sing-box rule-sets: `route.rule_set`, source and binary.
-rule-set = ["regex", "miniz_oxide"]
+rule-set = ["regex", "miniz_oxide", "url", "httparse"]
 
 # Outbounds
 outbound-direct = []

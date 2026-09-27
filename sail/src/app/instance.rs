@@ -31,6 +31,8 @@ pub struct Instance {
     pub router: SyncRouter,
     pub stat_manager: SyncStatManager,
     pub dispatcher: Arc<Dispatcher>,
+    /// The rule-sets the rules name.
+    pub(crate) rule_sets: RuleSets,
     pub inbound_manager: Arc<std::sync::Mutex<InboundManager>>,
     /// Serves the UDP of the inbounds, and of the endpoints once started.
     nat_manager: Arc<NatManager>,
@@ -127,6 +129,7 @@ impl Instance {
             router,
             stat_manager,
             dispatcher,
+            rule_sets,
             inbound_manager,
             nat_manager,
             #[cfg(all(feature = "inbound-tun", any(target_os = "macos", target_os = "linux")))]

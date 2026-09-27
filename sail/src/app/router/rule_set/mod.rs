@@ -8,11 +8,14 @@ use std::sync::Arc;
 use anyhow::{anyhow, Context, Result};
 use arc_swap::ArcSwap;
 
+use crate::app::dispatcher::Dispatcher;
 use crate::app::router::matcher::{Facts, Groups};
 use crate::config::rule_set::{self as config, RuleSetFormat, RuleSetKind, MAX_VERSION};
 use crate::runtime::RuntimeEnv;
 
+mod http;
 mod reader;
+mod remote;
 pub(crate) mod rule;
 mod srs;
 mod succinct;
@@ -83,6 +86,7 @@ pub(crate) type SharedRuleSet = Arc<ArcSwap<RuleSet>>;
 #[derive(Default, Clone)]
 pub(crate) struct RuleSets {
     sets: HashMap<String, SharedRuleSet>,
+    remotes: Vec<Arc<remote::Remote>>,
 }
 
 impl RuleSets {
@@ -90,14 +94,77 @@ impl RuleSets {
     /// cached copy, or its `initial_path`, or else empty until downloaded.
     pub(crate) fn load(configs: &[config::RuleSet], env: &RuntimeEnv) -> Result<Self> {
         let mut sets = HashMap::new();
+        let mut remotes = Vec::new();
         for (i, config) in configs.iter().enumerate() {
             for tag in &config.tag {
-                let set = Self::load_one(config, tag, env)
-                    .with_context(|| format!("route.rule_set[{}]: [{}]", i, tag))?;
-                sets.insert(tag.clone(), Arc::new(ArcSwap::from_pointee(set)));
+                let context = || format!("route.rule_set[{}]: [{}]", i, tag);
+                let set = if config.kind == RuleSetKind::Remote {
+                    let remote =
+                        Arc::new(remote::Remote::load(config, tag, env).with_context(context)?);
+                    let set = remote.set.clone();
+                    remotes.push(remote);
+                    set
+                } else {
+                    Arc::new(ArcSwap::from_pointee(
+                        Self::load_one(config, tag, env).with_context(context)?,
+                    ))
+                };
+                sets.insert(tag.clone(), set);
             }
         }
-        Ok(Self { sets })
+        Ok(Self { sets, remotes })
+    }
+
+    /// Downloads the remote rule-sets that have no copy yet: the rules
+    /// that name them cannot match until they do.
+    pub(crate) async fn fetch_missing(&self, dispatcher: &Dispatcher) -> Result<()> {
+        let missing = self.remotes.iter().filter(|r| !r.is_loaded());
+        let downloads = missing.map(|remote| async move {
+            remote
+                .update(dispatcher)
+                .await
+                .map_err(|e| anyhow!("rule-set [{}]: download: {:#}", remote.tag, e))
+        });
+        futures::future::try_join_all(downloads).await?;
+        Ok(())
+    }
+
+    /// Downloads the remote rule-sets again as each falls due; stopped by
+    /// aborting the task.
+    pub(crate) fn spawn_updater(
+        &self,
+        dispatcher: std::sync::Weak<Dispatcher>,
+    ) -> Option<tokio::task::AbortHandle> {
+        if self.remotes.is_empty() {
+            return None;
+        }
+        let remotes = self.remotes.clone();
+        let task = tokio::spawn(async move {
+            loop {
+                let now = std::time::SystemTime::now();
+                let next = remotes
+                    .iter()
+                    .map(|r| r.due_in(now))
+                    .min()
+                    .unwrap_or_default();
+                // At least a second apart, whatever the clock does.
+                tokio::time::sleep(next.max(std::time::Duration::from_secs(1))).await;
+                let Some(dispatcher) = dispatcher.upgrade() else {
+                    return;
+                };
+                let now = std::time::SystemTime::now();
+                for remote in remotes.iter().filter(|r| r.due_in(now).is_zero()) {
+                    if let Err(e) = remote.update(&dispatcher).await {
+                        tracing::warn!(
+                            "rule-set [{}]: download failed, keeping the rules in use: {:#}",
+                            remote.tag,
+                            e
+                        );
+                    }
+                }
+            }
+        });
+        Some(task.abort_handle())
     }
 
     fn load_one(config: &config::RuleSet, tag: &str, env: &RuntimeEnv) -> Result<RuleSet> {
@@ -110,7 +177,7 @@ impl RuleSets {
                 ));
                 read_file(&path, config)
             }
-            RuleSetKind::Remote => Err(anyhow!("remote rule-sets come with the next step")),
+            RuleSetKind::Remote => unreachable!("remote rule-sets are loaded apart"),
         }
     }
 

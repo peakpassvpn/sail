@@ -367,6 +367,11 @@ impl Dispatcher {
         self.stream_via(&outbound, sess).await
     }
 
+    /// The outbound connections go to when nothing says otherwise.
+    pub fn default_outbound(&self) -> Option<String> {
+        self.outbound_manager.load().default_handler()
+    }
+
     /// A stream to the session's destination through the outbound `tag`,
     /// whatever the rules say: for a DNS server's `detour`.
     pub async fn stream_via(&self, tag: &str, mut sess: Session) -> io::Result<AnyStream> {

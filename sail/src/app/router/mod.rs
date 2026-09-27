@@ -32,6 +32,20 @@ pub(crate) mod rule_set {
         pub(crate) fn get(&self, tag: &str) -> Result<()> {
             Err(anyhow!("rule-set [{}] does not exist", tag))
         }
+
+        pub(crate) async fn fetch_missing(
+            &self,
+            _dispatcher: &crate::app::dispatcher::Dispatcher,
+        ) -> Result<()> {
+            Ok(())
+        }
+
+        pub(crate) fn spawn_updater(
+            &self,
+            _dispatcher: std::sync::Weak<crate::app::dispatcher::Dispatcher>,
+        ) -> Option<tokio::task::AbortHandle> {
+            None
+        }
     }
 }
 
