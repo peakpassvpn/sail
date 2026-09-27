@@ -116,6 +116,12 @@ pub struct Proxy {
 
     // vless: the flow, e.g. `xtls-rprx-vision`; none when unset
     pub flow: Option<String>,
+
+    // wireguard: the `[WireGuard <name>]` section it is configured in
+    pub section_name: Option<String>,
+    // wireguard: Surge's `underlying-proxy`, the proxy its datagrams go
+    // through
+    pub underlying_proxy: Option<String>,
 }
 
 impl Default for Proxy {
@@ -155,6 +161,8 @@ impl Default for Proxy {
             reality_short_id: None,
             client_fingerprint: None,
             flow: None,
+            section_name: None,
+            underlying_proxy: None,
         }
     }
 }
@@ -185,6 +193,9 @@ pub struct Config {
     pub host: Option<HashMap<String, Vec<String>>>,
     pub certificates: Option<HashMap<String, String>>,
     pub ech_configs: Option<HashMap<String, String>>,
+    /// The `[WireGuard <name>]` sections, by name: their `key = value`
+    /// lines.
+    pub wireguard: HashMap<String, Vec<String>>,
 }
 
 fn read_lines<P>(filename: P) -> io::Result<io::Lines<io::BufReader<File>>>
@@ -360,6 +371,38 @@ where
     }
 
     ech_configs
+}
+
+/// The lines of every `[<prefix> <name>]` section, by name.
+fn get_named_sections<'a, I>(prefix: &str, lines: I) -> HashMap<String, Vec<String>>
+where
+    I: Iterator<Item = &'a io::Result<String>>,
+{
+    let mut sections: HashMap<String, Vec<String>> = HashMap::new();
+    let mut current: Option<String> = None;
+    for line in lines.flatten().map(|x| x.trim()) {
+        let line = remove_comments(line);
+        if let Some(section) = get_section(line.as_ref()) {
+            current = section
+                .strip_prefix(prefix)
+                .filter(|rest| rest.starts_with(' '))
+                .map(|name| name.trim().to_string());
+            if let Some(name) = &current {
+                sections.entry(name.clone()).or_default();
+            }
+            continue;
+        }
+        if let Some(name) = &current {
+            let line = line.trim();
+            if !line.is_empty() {
+                sections
+                    .get_mut(name)
+                    .expect("added with the header")
+                    .push(line.to_string());
+            }
+        }
+    }
+    sections
 }
 
 fn get_lines_by_section<'a, I>(section: &str, lines: I) -> Vec<String>
@@ -674,12 +717,33 @@ pub fn from_lines(lines: Vec<io::Result<String>>) -> Result<Config> {
                 "interface" => {
                     proxy.interface = Some(v.to_string());
                 }
+                "section-name" => {
+                    proxy.section_name = Some(v.to_string());
+                }
+                "underlying-proxy" => {
+                    proxy.underlying_proxy = Some(v.to_string());
+                }
                 _ => {}
             }
         }
 
         // built-in protocols have no address port, password
         match proxy.protocol.as_str() {
+            "wireguard" => {
+                // Everything is in its section.
+                for param in &params[1..] {
+                    let key = param.split_once('=').map(|(k, _)| k.trim());
+                    if !matches!(key, Some("section-name" | "interface" | "underlying-proxy")) {
+                        return Err(anyhow!(
+                            "[Proxy] {}: unknown wireguard parameter \"{}\"",
+                            proxy.tag,
+                            param
+                        ));
+                    }
+                }
+                proxies.push(proxy);
+                continue;
+            }
             "direct" => {
                 proxies.push(proxy);
                 continue;
@@ -847,7 +911,10 @@ pub fn from_lines(lines: Vec<io::Result<String>>) -> Result<Config> {
         hosts.insert(name.to_owned(), ips);
     }
 
+    let wireguard = get_named_sections("WireGuard", lines.iter());
+
     Ok(Config {
+        wireguard,
         general: Some(general),
         proxy: Some(proxies),
         proxy_group: Some(proxy_groups),
@@ -965,6 +1032,12 @@ pub fn to_config(conf: &Config) -> Result<model::Config> {
     for ext_proxy in conf.proxy.iter().flatten() {
         let tag = ext_proxy.tag.as_str();
         let first_new = outbounds.len();
+        if ext_proxy.protocol == "wireguard" {
+            config
+                .endpoints
+                .push(wireguard_endpoint(ext_proxy, &conf.wireguard)?);
+            continue;
+        }
         match ext_proxy.protocol.as_str() {
             "direct" => outbounds.push(outbound(tag, "direct", json!({}))),
             "drop" => outbounds.push(outbound(tag, "block", json!({}))),
@@ -1333,6 +1406,172 @@ pub fn to_config(conf: &Config) -> Result<model::Config> {
 
     config.validate()?;
     Ok(config)
+}
+
+/// A `[Proxy]` line of type wireguard, and the `[WireGuard <name>]`
+/// section it names, as Surge writes them, as a WireGuard endpoint.
+fn wireguard_endpoint(
+    proxy: &Proxy,
+    sections: &HashMap<String, Vec<String>>,
+) -> Result<model::Endpoint> {
+    let tag = proxy.tag.as_str();
+    let name = proxy.section_name.as_deref().ok_or_else(|| {
+        anyhow!(
+            "[Proxy] {}: section-name: names the [WireGuard <name>] section",
+            tag
+        )
+    })?;
+    let lines = sections
+        .get(name)
+        .ok_or_else(|| anyhow!("[Proxy] {}: there is no section [WireGuard {}]", tag, name))?;
+    let section = format!("[WireGuard {}]", name);
+    let mut address = Vec::new();
+    let mut private_key = None;
+    let mut mtu = None;
+    let mut peers = Vec::new();
+    for line in lines {
+        let (key, value) = line
+            .split_once('=')
+            .map(|(k, v)| (k.trim(), v.trim()))
+            .ok_or_else(|| anyhow!("{}: \"{}\" is not key = value", section, line))?;
+        match key {
+            "private-key" => private_key = Some(value.to_string()),
+            "self-ip" => {
+                let ip: std::net::Ipv4Addr = value.parse().map_err(|_| {
+                    anyhow!("{} self-ip: \"{}\" is not an IPv4 address", section, value)
+                })?;
+                address.push(format!("{}/32", ip));
+            }
+            "self-ip-v6" => {
+                let ip: std::net::Ipv6Addr = value.parse().map_err(|_| {
+                    anyhow!(
+                        "{} self-ip-v6: \"{}\" is not an IPv6 address",
+                        section,
+                        value
+                    )
+                })?;
+                address.push(format!("{}/128", ip));
+            }
+            // The servers Surge asks inside the tunnel. sail's DNS is its
+            // own, routed as the rules say; they are only checked.
+            "dns-server" => {
+                for server in value.split(',').map(str::trim) {
+                    server.parse::<std::net::IpAddr>().map_err(|_| {
+                        anyhow!(
+                            "{} dns-server: \"{}\" is not an IP address",
+                            section,
+                            server
+                        )
+                    })?;
+                }
+            }
+            "mtu" => {
+                mtu = Some(
+                    value
+                        .parse::<u32>()
+                        .map_err(|_| anyhow!("{} mtu: not a number: {}", section, value))?,
+                )
+            }
+            "peer" => {
+                peers.push(wireguard_peer(value).map_err(|e| anyhow!("{} peer: {}", section, e))?)
+            }
+            other => return Err(anyhow!("{}: unknown key \"{}\"", section, other)),
+        }
+    }
+    let mut options = json!({
+        "address": address,
+        "private_key": private_key,
+        "peers": peers,
+        "mtu": mtu,
+    });
+    if let Some(detour) = &proxy.underlying_proxy {
+        options["detour"] = json!(detour);
+    }
+    if let Some(interface) = &proxy.interface {
+        let field = match interface.parse::<std::net::IpAddr>() {
+            Ok(std::net::IpAddr::V4(_)) => "inet4_bind_address",
+            Ok(std::net::IpAddr::V6(_)) => "inet6_bind_address",
+            Err(_) => "bind_interface",
+        };
+        options[field] = json!(interface);
+    }
+    Ok(model::Endpoint {
+        protocol: "wireguard".to_string(),
+        tag: tag.to_string(),
+        udp_timeout: None,
+        options: self::options(options),
+    })
+}
+
+/// Surge's `peer = (key = value, ...)`, a value with commas in quotes.
+fn wireguard_peer(value: &str) -> Result<serde_json::Value> {
+    let inner = value
+        .strip_prefix('(')
+        .and_then(|v| v.strip_suffix(')'))
+        .ok_or_else(|| anyhow!("expected (key = value, ...)"))?;
+    let mut fields = Vec::new();
+    let (mut field, mut quoted) = (String::new(), false);
+    for c in inner.chars() {
+        match c {
+            '"' => quoted = !quoted,
+            ',' if !quoted => fields.push(std::mem::take(&mut field)),
+            c => field.push(c),
+        }
+    }
+    if quoted {
+        return Err(anyhow!("a quote is not closed"));
+    }
+    fields.push(field);
+    let mut peer = json!({});
+    for field in fields.iter().map(|f| f.trim()).filter(|f| !f.is_empty()) {
+        let (key, value) = field
+            .split_once('=')
+            .map(|(k, v)| (k.trim(), v.trim()))
+            .ok_or_else(|| anyhow!("\"{}\" is not key = value", field))?;
+        match key {
+            "public-key" => peer["public_key"] = json!(value),
+            "preshared-key" => peer["pre_shared_key"] = json!(value),
+            "allowed-ips" => {
+                peer["allowed_ips"] = json!(value
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .collect::<Vec<_>>())
+            }
+            "endpoint" => {
+                let (host, port) = value
+                    .rsplit_once(':')
+                    .ok_or_else(|| anyhow!("endpoint: \"{}\" is not host:port", value))?;
+                let port: u16 = port
+                    .parse()
+                    .map_err(|_| anyhow!("endpoint: \"{}\" is not a port", port))?;
+                let host = host.trim_start_matches('[').trim_end_matches(']');
+                peer["address"] = json!(host);
+                peer["port"] = json!(port);
+            }
+            "keepalive" => {
+                let seconds: u16 = value
+                    .parse()
+                    .map_err(|_| anyhow!("keepalive: not a number of seconds: {}", value))?;
+                peer["persistent_keepalive_interval"] = json!(seconds);
+            }
+            // WARP's client identifier: the reserved bytes, as a/b/c.
+            "client-id" => {
+                let bytes = value
+                    .split('/')
+                    .map(|b| b.trim().parse::<u8>())
+                    .collect::<std::result::Result<Vec<u8>, _>>()
+                    .ok()
+                    .filter(|b| b.len() == 3)
+                    .ok_or_else(|| {
+                        anyhow!("client-id: \"{}\" is not three bytes as 1/2/3", value)
+                    })?;
+                peer["reserved"] = json!(bytes);
+            }
+            other => return Err(anyhow!("unknown key \"{}\"", other)),
+        }
+    }
+    Ok(peer)
 }
 
 fn to_log(general: &General) -> Result<model::Log> {
@@ -1955,5 +2194,126 @@ CERT4
         assert_eq!(certs.get("AnotherCert").unwrap(), "CERT2\n");
         assert_eq!(certs.get("MyThirdCert").unwrap(), "CERT3\n");
         assert_eq!(certs.get("NoSpaceCert").unwrap(), "CERT4\n");
+    }
+
+    const WG: &str = r#"
+[Proxy]
+Relay = socks, 127.0.0.1, 1080
+Home = wireguard, section-name = HomeServer, underlying-proxy = Relay
+
+[WireGuard HomeServer]
+private-key = YFf6vyGG0nAu8ZlKIYO7nZbcfdd2dbmodt1XRkcCdU4=
+self-ip = 10.0.2.2
+self-ip-v6 = fd00:1::2
+dns-server = 8.8.8.8, 2606:4700:4700::1001
+mtu = 1280
+peer = (public-key = Z1XXLsKYkYxuiYjJIkRvtIKFepCYHTgON+GwPq7SOV4=, allowed-ips = "0.0.0.0/0, ::/0", endpoint = engage.cloudflareclient.com:2408, keepalive = 45, preshared-key = YFf6vyGG0nAu8ZlKIYO7nZbcfdd2dbmodt1XRkcCdU4=, client-id = 83/12/235)
+peer = (public-key = YFf6vyGG0nAu8ZlKIYO7nZbcfdd2dbmodt1XRkcCdU4=, allowed-ips = 10.9.0.0/16, endpoint = [2001:db8::1]:51820)
+
+[Rule]
+FINAL,Home
+"#;
+
+    #[test]
+    fn a_surge_wireguard_proxy_is_an_endpoint() {
+        let config = load(WG);
+        assert_eq!(config.outbounds.len(), 1);
+        let endpoint = &config.endpoints[0];
+        assert_eq!(endpoint.tag, "Home");
+        assert_eq!(endpoint.protocol, "wireguard");
+        assert_eq!(config.route.final_outbound.as_deref(), Some("Home"));
+        let o = serde_json::Value::Object(endpoint.options.clone());
+        assert_eq!(o["address"], json!(["10.0.2.2/32", "fd00:1::2/128"]));
+        assert_eq!(o["mtu"], 1280);
+        assert_eq!(o["detour"], "Relay");
+        assert_eq!(
+            o["private_key"],
+            "YFf6vyGG0nAu8ZlKIYO7nZbcfdd2dbmodt1XRkcCdU4="
+        );
+        assert_eq!(
+            o["peers"][0],
+            json!({
+                "public_key": "Z1XXLsKYkYxuiYjJIkRvtIKFepCYHTgON+GwPq7SOV4=",
+                "pre_shared_key": "YFf6vyGG0nAu8ZlKIYO7nZbcfdd2dbmodt1XRkcCdU4=",
+                "allowed_ips": ["0.0.0.0/0", "::/0"],
+                "address": "engage.cloudflareclient.com",
+                "port": 2408,
+                "persistent_keepalive_interval": 45,
+                "reserved": [83, 12, 235],
+            })
+        );
+        assert_eq!(o["peers"][1]["address"], "2001:db8::1");
+        assert_eq!(o["peers"][1]["port"], 51820);
+        // What the endpoint's own parser makes of it.
+        #[cfg(feature = "wireguard")]
+        {
+            let options: crate::protocol::wireguard::endpoint::WireGuardOptions = {
+                let mut o = endpoint.options.clone();
+                o.remove("detour");
+                serde_json::from_value(serde_json::Value::Object(o)).unwrap()
+            };
+            let settings =
+                crate::protocol::wireguard::endpoint::Settings::parse(&options, true).unwrap();
+            assert_eq!(settings.peers[0].config.reserved, [83, 12, 235]);
+        }
+    }
+
+    #[test]
+    fn surge_wireguard_mistakes_are_errors() {
+        for (from, to, message) in [
+            (
+                "section-name = HomeServer",
+                "section-name = Nowhere",
+                "no section [WireGuard Nowhere]",
+            ),
+            (", section-name = HomeServer", "", "section-name"),
+            (
+                "underlying-proxy = Relay",
+                "test-url = http://x",
+                "unknown wireguard parameter",
+            ),
+            (
+                "mtu = 1280",
+                "prefer-ipv6 = false",
+                "unknown key \"prefer-ipv6\"",
+            ),
+            ("self-ip = 10.0.2.2", "self-ip = 10.0.2.2/24", "self-ip"),
+            (
+                "self-ip-v6 = fd00:1::2",
+                "self-ip-v6 = 10.0.0.1",
+                "self-ip-v6",
+            ),
+            (
+                "dns-server = 8.8.8.8",
+                "dns-server = dns.google",
+                "dns-server",
+            ),
+            ("keepalive = 45", "keepalive = soon", "keepalive"),
+            ("client-id = 83/12/235", "client-id = 83/12", "client-id"),
+            (
+                "client-id = 83/12/235",
+                "client-id = 83/12/256",
+                "client-id",
+            ),
+            (
+                "client-id = 83/12/235",
+                "reserved = 1",
+                "unknown key \"reserved\"",
+            ),
+            (
+                "endpoint = [2001:db8::1]:51820",
+                "endpoint = 2001",
+                "endpoint",
+            ),
+            (
+                "allowed-ips = \"0.0.0.0/0, ::/0\"",
+                "allowed-ips = \"0.0.0.0/0",
+                "quote",
+            ),
+        ] {
+            assert!(WG.contains(from), "{}", from);
+            let err = load_err(&WG.replace(from, to));
+            assert!(err.contains(message), "{} -> {}: {}", from, to, err);
+        }
     }
 }
