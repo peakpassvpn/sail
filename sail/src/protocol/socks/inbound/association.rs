@@ -18,13 +18,16 @@
 //!   their address are never guessed at.
 //!
 //! An association is in the table while its control connection is open,
-//! and the table holds at most [`MAX_ASSOCIATIONS`].
+//! and the table holds at most [`MAX_ASSOCIATIONS`]. Its datagrams carry
+//! it, a [`UdpAssociation`], which ends as it leaves the table: the NAT
+//! manager then ends its sessions, as RFC 1928 ends an association with its
+//! control connection.
 
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::{Arc, Mutex};
 
-use crate::session::SocksAddr;
+use crate::session::{SocksAddr, UdpAssociation, UdpAssociationOwner};
 
 /// How many associations an inbound keeps at once. A client asking for
 /// one more is refused.
@@ -40,10 +43,14 @@ const MAX_ADDRS: usize = 8;
 pub struct Found {
     /// Who authenticated on the control connection.
     pub user: Option<Arc<str>>,
+    /// The association, which ends when it leaves the table.
+    pub association: UdpAssociation,
 }
 
 struct Entry {
     found: Found,
+    /// Keeps `found.association` alive while the entry is in the table.
+    _owner: UdpAssociationOwner,
     peer_ip: IpAddr,
     /// Addresses in `by_addr` that are this entry's.
     addrs: Vec<SocketAddr>,
@@ -92,12 +99,12 @@ impl Associations {
     }
 
     /// Enters the association the control connection from `peer` asked for,
-    /// declaring `declared`, as `found`. None when the table is full.
+    /// declaring `declared`, for `user`. None when the table is full.
     pub fn register(
         self: &Arc<Self>,
         peer: SocketAddr,
         declared: &SocksAddr,
-        found: Found,
+        user: Option<Arc<str>>,
     ) -> Option<Registration> {
         let peer_ip = peer.ip().to_canonical();
         // A domain says nothing of where datagrams come from; a zero port,
@@ -126,10 +133,15 @@ impl Associations {
             addrs.push(addr);
         }
         table.by_ip.entry(peer_ip).or_default().push(id);
+        let owner = UdpAssociationOwner::new();
         table.entries.insert(
             id,
             Entry {
-                found,
+                found: Found {
+                    user,
+                    association: owner.association().clone(),
+                },
+                _owner: owner,
                 peer_ip,
                 declared: !addrs.is_empty(),
                 addrs,
@@ -176,6 +188,7 @@ impl Associations {
     fn remove(&self, id: u64) {
         let mut guard = self.lock();
         let table = &mut *guard;
+        // Dropping the entry ends its association.
         let Some(entry) = table.entries.remove(&id) else {
             return;
         };
@@ -207,10 +220,8 @@ mod tests {
         s.parse().unwrap()
     }
 
-    fn found(user: &str) -> Found {
-        Found {
-            user: Some(user.into()),
-        }
+    fn found(user: &str) -> Option<Arc<str>> {
+        Some(user.into())
     }
 
     fn user_of(a: &Associations, src: &str) -> Option<String> {
@@ -288,6 +299,18 @@ mod tests {
         assert_eq!(user_of(&a, "[::ffff:10.0.0.1]:6000").as_deref(), Some("x"));
         // All sent from: the newest takes a new port.
         assert_eq!(user_of(&a, "10.0.0.1:6003").as_deref(), Some("y"));
+    }
+
+    #[test]
+    fn closing_ends_the_association() {
+        let a = Arc::new(Associations::default());
+        let x = a
+            .register(addr("10.0.0.1:4000"), &SocksAddr::any(), found("x"))
+            .unwrap();
+        let association = a.find(addr("10.0.0.1:6000")).unwrap().association;
+        assert!(!association.has_ended());
+        drop(x);
+        assert!(association.has_ended());
     }
 
     #[test]

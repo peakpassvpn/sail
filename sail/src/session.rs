@@ -47,6 +47,10 @@ pub struct DatagramSource {
     /// part of the key: datagrams of different users never share a
     /// session.
     pub user: Option<std::sync::Arc<str>>,
+    /// The association it was sent under, for inbounds whose datagrams
+    /// belong to one, as SOCKS5's `UDP ASSOCIATE`. Its sessions end with
+    /// it, and datagrams of different associations never share a session.
+    pub association: Option<UdpAssociation>,
 }
 
 impl DatagramSource {
@@ -56,12 +60,19 @@ impl DatagramSource {
             stream_id,
             process_name: None,
             user: None,
+            association: None,
         }
     }
 
     /// The same source, sent by `user`.
     pub fn with_user(mut self, user: Option<std::sync::Arc<str>>) -> Self {
         self.user = user;
+        self
+    }
+
+    /// The same source, sent under `association`.
+    pub fn with_association(mut self, association: Option<UdpAssociation>) -> Self {
+        self.association = association;
         self
     }
 
@@ -75,17 +86,102 @@ impl DatagramSource {
             stream_id,
             process_name,
             user: None,
+            association: None,
         }
+    }
+}
+
+/// A group of datagrams that ends as a whole: SOCKS5's `UDP ASSOCIATE`,
+/// which lasts as long as the TCP connection that asked for it.
+///
+/// Copies compare by identity. The association ends when its
+/// [`UdpAssociationOwner`] is dropped.
+#[derive(Clone)]
+pub struct UdpAssociation {
+    id: u64,
+    ended: tokio::sync::watch::Receiver<()>,
+}
+
+/// Keeps a [`UdpAssociation`] alive; dropping it ends the association.
+pub struct UdpAssociationOwner {
+    association: UdpAssociation,
+    _alive: tokio::sync::watch::Sender<()>,
+}
+
+impl UdpAssociation {
+    pub fn id(&self) -> u64 {
+        self.id
+    }
+
+    /// Whether the association has ended.
+    pub fn has_ended(&self) -> bool {
+        self.ended.has_changed().is_err()
+    }
+
+    /// Returns once the association has ended.
+    pub async fn ended(&self) {
+        let mut ended = self.ended.clone();
+        while ended.changed().await.is_ok() {}
+    }
+}
+
+impl UdpAssociationOwner {
+    /// A new association, alive until this is dropped.
+    pub fn new() -> Self {
+        static NEXT_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        let (alive, ended) = tokio::sync::watch::channel(());
+        UdpAssociationOwner {
+            association: UdpAssociation {
+                id: NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+                ended,
+            },
+            _alive: alive,
+        }
+    }
+
+    /// The association this keeps alive.
+    pub fn association(&self) -> &UdpAssociation {
+        &self.association
+    }
+}
+
+impl Default for UdpAssociationOwner {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl PartialEq for UdpAssociation {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
+impl Eq for UdpAssociation {}
+
+impl std::hash::Hash for UdpAssociation {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.id.hash(state);
+    }
+}
+
+impl fmt::Debug for UdpAssociation {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "UdpAssociation({})", self.id)
     }
 }
 
 impl std::fmt::Display for DatagramSource {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         if let Some(id) = self.stream_id.as_ref() {
-            write!(f, "{}(stream-{})", self.address, id)
+            write!(f, "{}(stream-{})", self.address, id)?;
         } else {
-            write!(f, "{}", self.address)
+            write!(f, "{}", self.address)?;
         }
+        if let Some(association) = self.association.as_ref() {
+            write!(f, "(association-{})", association.id)?;
+        }
+        Ok(())
     }
 }
 

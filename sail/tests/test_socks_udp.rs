@@ -222,3 +222,44 @@ fn test_socks_udp_without_association_is_dropped() -> anyhow::Result<()> {
         })
     })
 }
+
+// Closing the control connection ends the association's NAT sessions (RFC
+// 1928): the outbound socket the session sent from takes nothing more back
+// to the client, well before the session would have idled out.
+#[test]
+fn test_socks_udp_association_end_ends_its_sessions() -> anyhow::Result<()> {
+    common::retry_port_clash(|| {
+        let port = common::free_port();
+        with_instances(vec![server("socks", port)], move || async move {
+            let target = UdpSocket::bind("127.0.0.1:0").await?;
+            let target_addr = target.local_addr()?;
+            let bob = Association::open(port, "bob", "bob-pass", false).await?;
+            bob.send(target_addr, b"hello").await?;
+            let mut buf = [0u8; 2048];
+            let (n, outbound) =
+                timeout(Duration::from_secs(5), target.recv_from(&mut buf)).await??;
+            anyhow::ensure!(&buf[..n] == b"hello", "target got {:?}", &buf[..n]);
+
+            // While the association lasts, its session takes datagrams back.
+            target.send_to(b"ping", outbound).await?;
+            let answer = bob.recv(Duration::from_secs(5)).await?;
+            anyhow::ensure!(
+                answer == Some((b"ping".to_vec(), target_addr)),
+                "bob got {:?}",
+                answer
+            );
+
+            let Association { control, socket } = bob;
+            drop(control);
+            let bob = Association {
+                control: TcpStream::connect(("127.0.0.1", port)).await?,
+                socket,
+            };
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            target.send_to(b"late", outbound).await?;
+            let answer = bob.recv(Duration::from_secs(1)).await?;
+            anyhow::ensure!(answer.is_none(), "the session outlived its association");
+            Ok(())
+        })
+    })
+}

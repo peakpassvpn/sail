@@ -112,7 +112,9 @@ impl InboundDatagramRecvHalf for DatagramRecvHalf {
             )));
         }
         let src = match self.associations.find(src.address) {
-            Some(found) => src.with_user(found.user),
+            Some(found) => src
+                .with_user(found.user)
+                .with_association(Some(found.association)),
             None if self.authenticated => {
                 return Err(ProxyError::DatagramWarn(anyhow!(
                     "Datagram from {} of no association dropped",

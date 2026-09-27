@@ -7,7 +7,7 @@ use bytes::{BufMut, BytesMut};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tracing::{debug, Instrument};
 
-use super::association::{Associations, Found};
+use super::association::Associations;
 use crate::{
     adapter::*,
     session::{Session, SocksAddr, SocksAddrWireType},
@@ -250,11 +250,9 @@ impl Handler {
             0x03 => {
                 // In the table before the client hears back, so that its
                 // first datagram finds it.
-                let found = Found {
-                    user: sess.user.clone(),
-                };
                 let Some(registration) =
-                    self.associations.register(sess.source, &destination, found)
+                    self.associations
+                        .register(sess.source, &destination, sess.user.clone())
                 else {
                     // General SOCKS server failure.
                     stream
@@ -271,8 +269,9 @@ impl Handler {
                 let relay_addr = SocksAddr::from(sess.local_addr);
                 relay_addr.write_buf(&mut buf, SocksAddrWireType::PortLast);
                 stream.write_all(&buf[..]).await?;
-                // The association lasts as long as the connection (RFC 1928);
-                // anything the client sends on it meanwhile means nothing.
+                // The association lasts as long as the connection (RFC 1928),
+                // and its NAT sessions end with it; anything the client
+                // sends on it meanwhile means nothing.
                 tokio::spawn(
                     async move {
                         let mut buf = [0u8; 512];

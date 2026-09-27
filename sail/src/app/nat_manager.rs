@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -10,7 +10,7 @@ use tokio::sync::{
 use tracing::{debug, error, trace, Instrument};
 
 use crate::app::dispatcher::Dispatcher;
-use crate::session::{DatagramSource, Network, Session, SocksAddr};
+use crate::session::{DatagramSource, Network, Session, SocksAddr, UdpAssociation};
 
 #[derive(Debug)]
 pub struct UdpPacket {
@@ -73,12 +73,29 @@ type SessionMap = HashMap<NatKey, (Sender<UdpPacket>, oneshot::Sender<bool>, Ins
 /// may be idle.
 const DEFAULT_UDP_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// Ends the sessions whose keys `ends` picks, returning how many.
+async fn end_sessions(sessions: &Mutex<SessionMap>, ends: impl Fn(&NatKey) -> bool) -> usize {
+    let mut sessions = sessions.lock().await;
+    let keys: Vec<NatKey> = sessions.keys().filter(|k| ends(k)).cloned().collect();
+    for key in &keys {
+        if let Some(sess) = sessions.remove(key) {
+            // The uplink ends with its channel, dropped with the entry; the
+            // downlink is told to.
+            let _ = sess.1.send(true);
+            debug!("udp session {} ended", key);
+        }
+    }
+    keys.len()
+}
+
 pub struct NatManager {
     sessions: Arc<Mutex<SessionMap>>,
     dispatcher: Arc<Dispatcher>,
     timeout_check_task: Mutex<Option<BoxFuture<'static, ()>>>,
     /// `udp_timeout` by inbound tag.
     udp_timeouts: HashMap<String, Duration>,
+    /// The associations a task waits on to end their sessions, by id.
+    watched: Arc<std::sync::Mutex<HashSet<u64>>>,
 }
 
 impl NatManager {
@@ -138,7 +155,57 @@ impl NatManager {
             dispatcher,
             timeout_check_task: Mutex::new(Some(timeout_check_task)),
             udp_timeouts,
+            watched: Default::default(),
         }
+    }
+
+    /// Ends the session of `source` through the inbound `inbound_tag`,
+    /// returning whether there was one.
+    pub async fn end_source(&self, inbound_tag: &str, source: &DatagramSource) -> bool {
+        let key = NatKey::new(inbound_tag, source);
+        end_sessions(&self.sessions, |k| *k == key).await > 0
+    }
+
+    /// Ends the sessions of `association`, returning how many there were.
+    ///
+    /// Sessions whose source carries an association end by themselves when
+    /// it ends; this ends them sooner.
+    pub async fn end_association(&self, association: &UdpAssociation) -> usize {
+        end_sessions(&self.sessions, |k| {
+            k.source.association.as_ref() == Some(association)
+        })
+        .await
+    }
+
+    /// Ends the sessions of `association` once it ends. One task waits per
+    /// association, however many sessions it has.
+    fn watch_association(&self, association: &UdpAssociation) {
+        let id = association.id();
+        if !self
+            .watched
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(id)
+        {
+            return;
+        }
+        let association = association.clone();
+        let sessions = self.sessions.clone();
+        let watched = self.watched.clone();
+        tokio::spawn(async move {
+            association.ended().await;
+            // Unwatched first: a session added from here on starts its own
+            // watch, which finds the association ended at once.
+            watched
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove(&id);
+            let n = end_sessions(&sessions, |k| {
+                k.source.association.as_ref() == Some(&association)
+            })
+            .await;
+            debug!("udp association {} ended with {} sessions", id, n);
+        });
     }
 
     fn _send(&self, guard: &mut MutexGuard<'_, SessionMap>, key: &NatKey, pkt: UdpPacket) {
@@ -166,6 +233,13 @@ impl NatManager {
         if guard.contains_key(&key) {
             self._send(&mut guard, &key, pkt);
             return;
+        }
+        if let Some(association) = dgram_src.association.as_ref() {
+            if association.has_ended() {
+                debug!("drop udp packet of ended association {}", dgram_src);
+                return;
+            }
+            self.watch_association(association);
         }
 
         let mut sess = sess.cloned().unwrap_or_else(|| Session {
