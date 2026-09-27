@@ -209,6 +209,11 @@ fn run<I: sail_netstack::PacketIo + 'static>(
         .tcp
         .max_segment_payload_bytes
         .min(mtu.saturating_sub(sail_netstack::TCP_MAX_HEADER_BYTES));
+    // A UDP flow of the stack outlives the NAT session it carries, which
+    // ends within one check after `udp_timeout` of silence: a reply until
+    // then still needs the flow to reach the client.
+    let udp_idle = inbound.udp_timeout() + dispatcher.env().options.udp.session_check_interval;
+    config.udp_idle_timeout_ms = u64::try_from(udp_idle.as_millis()).unwrap_or(u64::MAX);
     config.tcp.keepalive_idle_ms = Some(2 * 60 * 60 * 1_000);
     config.tcp.nagle_enabled = true;
     let (runtime, mut accepted, datagrams, udp_reply, mut control) = NativeRuntimeGroup::new(
