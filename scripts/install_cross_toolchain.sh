@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+#
+# Installs what scripts/cross.sh needs to build for TARGET on an x86_64
+# Linux host (Debian/Ubuntu): the Rust target, and a C/C++ toolchain for it,
+# since BoringSSL (btls-sys) is C++ built with CMake.
+#
+#   scripts/install_cross_toolchain.sh <target> [--run]
+#
+# --run also installs what runs the target's binaries on this host, for
+# `scripts/cross.sh <target> test`: qemu-user for arm/aarch64, wine for
+# windows.
+#
+# Downloaded toolchains go under $SAIL_CROSS_DIR (default ~/.sail-cross),
+# which CI caches. Versions are pinned here and checked by hash.
+
+set -euo pipefail
+
+target=${1:?usage: $0 <target> [--run]}
+run=${2:-}
+
+SAIL_CROSS_DIR=${SAIL_CROSS_DIR:-$HOME/.sail-cross}
+
+# musl: GCC + musl + libstdc++ from https://github.com/cross-tools/musl-cross.
+MUSL_CROSS_TAG=20260823
+# Android: the NDK, r27 is the current LTS. Google publishes SHA-1 only.
+NDK_VERSION=r27d
+NDK_SHA1=22105e410cf29afcf163760cc95522b9fb981121
+
+sudo=
+if [ "$(id -u)" != 0 ]; then
+	sudo=sudo
+fi
+
+apt_install() {
+	# Only what is missing, so a warm host does not touch apt.
+	local missing=()
+	for p in "$@"; do
+		dpkg -s "$p" >/dev/null 2>&1 || missing+=("$p")
+	done
+	if [ ${#missing[@]} -gt 0 ]; then
+		$sudo apt-get update -qq
+		DEBIAN_FRONTEND=noninteractive $sudo apt-get install -y -qq --no-install-recommends "${missing[@]}"
+	fi
+}
+
+musl_sha256() {
+	case $1 in
+	x86_64-unknown-linux-musl) echo 9752ecb10bafc0fc2ea75b3ed864a78137f3e5ba9b1579f1f16923d444c48096 ;;
+	i686-unknown-linux-musl) echo 685a00f2b4273894adc97343620647d31458c8097abc37c4043d287815f1837e ;;
+	aarch64-unknown-linux-musl) echo 0fc483607d9ed83bdf75e7539bacc66721d7e37ca606377aed6a90cef82e45da ;;
+	armv7-unknown-linux-musleabihf) echo 3e0c17cd4da0799102668dcbe4b041be740c61e93df80c0e1c36573ceecbe4ac ;;
+	arm-unknown-linux-musleabi) echo d9542873fbe7a2239418d1a2798ef3dece6f0679ba218721880b25a051e61cfd ;;
+	*)
+		echo "no musl toolchain pinned for $1" >&2
+		exit 1
+		;;
+	esac
+}
+
+install_musl() {
+	local dir=$SAIL_CROSS_DIR/musl-$MUSL_CROSS_TAG
+	if [ ! -x "$dir/$target/bin/$target-g++" ]; then
+		mkdir -p "$dir"
+		local tarball=$dir/$target.tar.xz
+		curl -fsSL --retry 3 -o "$tarball" \
+			"https://github.com/cross-tools/musl-cross/releases/download/$MUSL_CROSS_TAG/$target.tar.xz"
+		echo "$(musl_sha256 "$target")  $tarball" | sha256sum -c -
+		tar -C "$dir" -xJf "$tarball"
+		rm "$tarball"
+	fi
+	if [ "$run" = --run ]; then
+		case $target in
+		x86_64-* | i686-*) ;; # the host runs them
+		*) apt_install qemu-user ;;
+		esac
+	fi
+}
+
+install_windows() {
+	apt_install gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64 nasm
+	if [ "$run" = --run ]; then
+		apt_install wine wine64
+	fi
+}
+
+install_android() {
+	local dir=$SAIL_CROSS_DIR/android-ndk-$NDK_VERSION
+	if [ ! -d "$dir/toolchains/llvm/prebuilt/linux-x86_64/bin" ]; then
+		apt_install unzip
+		mkdir -p "$SAIL_CROSS_DIR"
+		local zip=$SAIL_CROSS_DIR/ndk.zip
+		curl -fsSL --retry 3 -o "$zip" \
+			"https://dl.google.com/android/repository/android-ndk-$NDK_VERSION-linux.zip"
+		echo "$NDK_SHA1  $zip" | sha1sum -c -
+		unzip -q "$zip" -d "$SAIL_CROSS_DIR"
+		rm "$zip"
+	fi
+}
+
+# CMake builds BoringSSL; bindgen (btls-sys, sail-ffi) loads libclang.
+apt_install cmake libclang-dev
+
+case $target in
+*-linux-musl*) install_musl ;;
+x86_64-pc-windows-gnu) install_windows ;;
+*-linux-android*) install_android ;;
+*)
+	echo "unsupported target: $target" >&2
+	exit 1
+	;;
+esac
+
+rustup target add "$target"
