@@ -78,6 +78,8 @@ all-endpoints = [
     "outbound-select",
     "outbound-urltest",
     "outbound-load-balance",
+    # endpoints
+    "wireguard",
 ]
 
 # BoringSSL, through btls, is the only crypto library: TLS over TCP and

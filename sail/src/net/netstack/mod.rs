@@ -4,13 +4,14 @@
 //! over the device; an outbound that carries IP packets runs it over
 //! [`ChannelPacketIo`].
 // The stack serves the protocols that carry IP packets; built without any
-// of them, as `netstack` alone, it has no user.
+// of them, as `netstack` alone, it has no user. The WireGuard endpoint uses
+// less of it than the TUN inbound, which uses all of it.
 #![cfg_attr(
-    not(any(feature = "inbound-tun", feature = "wireguard")),
+    not(feature = "inbound-tun"),
     allow(
         dead_code,
         unused_imports,
-        reason = "no protocol that uses it is enabled"
+        reason = "no protocol that uses all of it is enabled"
     )
 )]
 
