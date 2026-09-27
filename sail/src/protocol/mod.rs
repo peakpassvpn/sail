@@ -7,7 +7,11 @@ pub mod anytls;
 pub mod direct;
 #[cfg(feature = "outbound-drop")]
 pub mod drop;
-#[cfg(any(feature = "inbound-trojan", feature = "inbound-vless"))]
+#[cfg(any(
+    feature = "inbound-anytls",
+    feature = "inbound-trojan",
+    feature = "inbound-vless"
+))]
 pub mod fallback;
 #[cfg(feature = "inbound-hc")]
 pub mod hc;

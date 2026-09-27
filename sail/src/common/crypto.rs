@@ -169,12 +169,11 @@ pub mod aead {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "aead"))]
 mod tests {
     use super::*;
 
     #[test]
-    #[cfg(feature = "aead")]
     fn test_aead_enc_dec() {
         struct ShadowsocksNonceSequence(Vec<u8>);
 
@@ -218,10 +217,8 @@ mod tests {
     }
 
     /// A fixed nonce sequence: the same nonce every time.
-    #[cfg(feature = "aead")]
     struct FixedNonce(Vec<u8>);
 
-    #[cfg(feature = "aead")]
     impl NonceSequence for FixedNonce {
         fn advance(&mut self) -> Result<Vec<u8>> {
             Ok(self.0.clone())
@@ -231,7 +228,6 @@ mod tests {
     // BoringSSL and RustCrypto agree on every cipher: same ciphertext and
     // tag, and each opens the other's.
     #[test]
-    #[cfg(feature = "aead")]
     fn test_aead_matches_rustcrypto() {
         use aes_gcm::aead::{Aead, KeyInit};
         let key: Vec<u8> = (0..32).collect();
