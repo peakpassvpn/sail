@@ -62,6 +62,9 @@ struct DomainIndex {
     full: HashSet<String>,
     /// A domain matches when it is one of these or a subdomain of one.
     suffix: HashSet<String>,
+    /// A domain matches when it is a subdomain of one of these: a suffix
+    /// written with a leading dot, as sing-box reads it.
+    subdomain: HashSet<String>,
     keyword: Vec<String>,
 }
 
@@ -72,32 +75,41 @@ impl DomainIndex {
             DomainKind::Full => {
                 self.full.insert(value);
             }
-            DomainKind::Suffix => {
-                self.suffix
-                    .insert(value.trim_start_matches('.').to_string());
-            }
+            DomainKind::Suffix => match value.strip_prefix('.') {
+                Some(parent) => {
+                    self.subdomain.insert(parent.to_string());
+                }
+                None => {
+                    self.suffix.insert(value);
+                }
+            },
             DomainKind::Keyword => self.keyword.push(value),
         }
     }
 
     fn is_empty(&self) -> bool {
-        self.full.is_empty() && self.suffix.is_empty() && self.keyword.is_empty()
+        self.full.is_empty()
+            && self.suffix.is_empty()
+            && self.subdomain.is_empty()
+            && self.keyword.is_empty()
     }
 
     fn matches(&self, domain: &str) -> bool {
         if self.full.contains(domain) {
             return true;
         }
-        if !self.suffix.is_empty() {
+        if !self.suffix.is_empty() || !self.subdomain.is_empty() {
             let mut rest = domain;
+            let mut is_parent = false;
             loop {
-                if self.suffix.contains(rest) {
+                if self.suffix.contains(rest) || (is_parent && self.subdomain.contains(rest)) {
                     return true;
                 }
                 match rest.find('.') {
                     Some(dot) => rest = &rest[dot + 1..],
                     None => break,
                 }
+                is_parent = true;
             }
         }
         self.keyword.iter().any(|k| domain.contains(k.as_str()))
@@ -414,6 +426,21 @@ mod tests {
         assert!(m.matches(&ip("fd12::1", 80)));
         assert!(m.matches(&ip("::ffff:10.0.0.1", 80)));
         assert!(!m.matches(&domain("example.com", 80)));
+    }
+
+    /// As in sing-box: `example.com` matches it and its subdomains,
+    /// `.example.com` its subdomains alone.
+    #[test]
+    fn a_suffix_with_a_leading_dot_matches_subdomains_only() {
+        let m = matcher(model::Rule {
+            domain_suffix: vec![".dot.example".into(), "plain.example".into()],
+            ..Default::default()
+        });
+        assert!(!m.matches(&domain("dot.example", 80)));
+        assert!(m.matches(&domain("a.dot.example", 80)));
+        assert!(m.matches(&domain("plain.example", 80)));
+        assert!(m.matches(&domain("a.plain.example", 80)));
+        assert!(!m.matches(&domain("xplain.example", 80)));
     }
 
     /// As in sing-box: a domain condition and an address condition are
