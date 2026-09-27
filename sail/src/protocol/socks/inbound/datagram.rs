@@ -123,6 +123,12 @@ impl InboundDatagramRecvHalf for RecvHalf {
         let mut ignored = [0u8; 512];
         loop {
             tokio::select! {
+                // The socket first: a client that sends its last datagrams
+                // and closes the control connection at once has them
+                // queued here before the close arrives, and they are
+                // relayed, not dropped by which branch a fair select
+                // happens to pick.
+                biased;
                 received = shared.socket.recv_from(packet) => {
                     let (n, src) = match received {
                         Ok(r) => r,
@@ -241,6 +247,52 @@ mod tests {
             recv(packet(0, 3000), 2048),
             Err(ProxyError::DatagramWarn(_))
         ));
+    }
+
+    /// A client that sends its last datagrams and closes the control
+    /// connection at once has them relayed before the association ends.
+    #[tokio::test]
+    async fn datagrams_sent_before_the_control_closes_are_relayed() {
+        use super::super::association::Associations;
+        use std::net::Ipv4Addr;
+
+        let loopback = IpAddr::V4(Ipv4Addr::LOCALHOST);
+        for _ in 0..50 {
+            let relay_socket = bind(loopback).unwrap();
+            let relay_addr = relay_socket.local_addr().unwrap();
+            let client = UdpSocket::bind((loopback, 0)).await.unwrap();
+            // A real connection: its close and the datagrams reach the
+            // reactor as they would in use.
+            let listener = tokio::net::TcpListener::bind((loopback, 0)).await.unwrap();
+            let peer = tokio::net::TcpStream::connect(listener.local_addr().unwrap())
+                .await
+                .unwrap();
+            let (control, _) = listener.accept().await.unwrap();
+            let relay = Box::new(Relay::new(
+                relay_socket,
+                Arc::new(Associations::default()).acquire().unwrap(),
+                Box::new(control),
+                ClientFilter::new(client.local_addr().unwrap(), &SocksAddr::any()),
+                None,
+            ));
+            let (mut r, _s) = relay.split();
+            for i in 0..3 {
+                client
+                    .send_to(&packet(0, 10 + i), relay_addr)
+                    .await
+                    .unwrap();
+            }
+            drop(peer);
+            let mut buf = vec![0u8; 2048];
+            for i in 0..3 {
+                let (n, _, _) = r.recv_from(&mut buf).await.unwrap();
+                assert_eq!(n, 10 + i);
+            }
+            assert!(matches!(
+                r.recv_from(&mut buf).await,
+                Err(ProxyError::DatagramFatal(_))
+            ));
+        }
     }
 
     #[test]
