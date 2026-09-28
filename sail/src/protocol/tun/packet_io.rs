@@ -8,9 +8,6 @@ use sail_netstack::{
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-#[cfg(target_os = "linux")]
-use crate::util::DnsMessageExt;
-
 pub(crate) struct TunPacketIo {
     writer: tun::DeviceWriter,
     reader: tun::DeviceReader,
@@ -440,6 +437,8 @@ impl PacketIo for TunRsPacketIo {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(target_os = "linux")]
+    use crate::util::DnsMessageExt;
     use std::net::SocketAddr;
     #[cfg(target_os = "linux")]
     use std::sync::Arc;
