@@ -15,7 +15,9 @@ pub enum Tier {
 
 use Tier::*;
 
-/// A field by its path, `*` standing for any list index or object key.
+/// A field by its path, `*` standing for any list index or object key. A
+/// rule's field, `….rules.*.field`, is the field of the rules a logical one
+/// combines too, however deep.
 pub struct Field {
     pub path: &'static str,
     pub tier: Tier,
@@ -116,8 +118,6 @@ pub const FIELDS: &[Field] = &[
     // Matched while its responses come: a race is won by the first rule
     // that matches.
     f("dns.rules.*.race", Unsupported),
-    f("dns.rules.*.rules.*.match_response", Unsupported),
-    f("dns.rules.*.rules.*.rules.*.match_response", Unsupported),
     f("dns.rules.*.response_answer", Unsupported),
     f("dns.rules.*.response_ns", Unsupported),
     f("dns.rules.*.response_extra", Unsupported),

@@ -133,11 +133,31 @@ fn walk(value: &Value, segments: &[&str], at: &mut Vec<Step>, found: &mut Vec<(A
             }
         }
         Value::Array(list) if *segment == "*" => {
+            let rules = matches!(at.last(), Some(Step::Key(k)) if k == "rules");
             for (i, v) in list.iter().enumerate() {
-                visit(Step::Index(i), v);
+                at.push(Step::Index(i));
+                match rules {
+                    true => walk_rule(v, rest, at, found),
+                    false => walk(v, rest, at, found),
+                }
+                at.pop();
             }
         }
         _ => {}
+    }
+}
+
+/// `walk` from a rule, and from each rule it combines, however deep.
+fn walk_rule(rule: &Value, segments: &[&str], at: &mut Vec<Step>, found: &mut Vec<(At, Value)>) {
+    walk(rule, segments, at, found);
+    if let Some(Value::Array(rules)) = rule.get("rules") {
+        at.push(Step::Key("rules".to_string()));
+        for (i, sub) in rules.iter().enumerate() {
+            at.push(Step::Index(i));
+            walk_rule(sub, segments, at, found);
+            at.pop();
+        }
+        at.pop();
     }
 }
 
@@ -222,6 +242,36 @@ mod tests {
             .unwrap_err();
             assert_eq!(err.to_string(), message);
         }
+    }
+
+    #[test]
+    fn the_rules_a_logical_one_combines_are_sorted_out_too() {
+        let err = parse(
+            r#"{ "outbounds": [{ "type": "direct", "tag": "d" }],
+                 "route": { "rules": [{ "type": "logical", "mode": "and", "outbound": "d",
+                   "rules": [{ "port": 53 }, { "type": "logical", "mode": "or",
+                     "rules": [{ "preferred_by": "d" }] }] }] } }"#,
+        )
+        .unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "route.rules[0].rules[1].rules[0].preferred_by: sail does not implement this field yet"
+        );
+        let err = parse(
+            r#"{ "dns": { "servers": [{ "type": "local" }], "rules": [
+                   { "domain": "a", "action": "evaluate", "server": "local" },
+                   { "type": "logical", "mode": "and", "server": "local",
+                     "rules": [{ "match_response": true, "ip_accept_any": true }] }] } }"#,
+        )
+        .unwrap_err();
+        assert!(
+            err.to_string().contains(
+                "dns.rules[1]: rules[0]: match_response: sail does not implement it in a \
+                 logical rule's rules yet"
+            ),
+            "{}",
+            err
+        );
     }
 
     #[test]

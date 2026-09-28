@@ -1024,7 +1024,8 @@ mod tests {
                     { "type": "logical", "mode": "and", "server": "home",
                       "rules": [{ "match_response": true, "ip_accept_any": true }] }
                 ]),
-                "dns.rules[1].rules[0].match_response: sail does not implement this field yet",
+                "dns.rules[1]: rules[0]: match_response: sail does not implement it in a \
+                 logical rule's rules yet",
             ),
             (
                 serde_json::json!([{ "domain": "a", "action": "evaluate", "server": "home",
