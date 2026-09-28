@@ -258,9 +258,19 @@ enum Action {
     Reject(Reject),
     HijackDns,
     Sniff(SniffAction),
-    /// With the DNS server to ask, when not the one the DNS rules pick,
-    /// the families, and how long to wait.
-    Resolve(Option<String>, Option<model::DnsStrategy>, Option<Duration>),
+    Resolve(Resolve),
+}
+
+/// How a `resolve` rule resolves.
+struct Resolve {
+    /// The DNS server to ask, when not the one the DNS rules pick.
+    server: Option<String>,
+    strategy: Option<model::DnsStrategy>,
+    /// How long to wait.
+    timeout: Option<Duration>,
+    /// Whether a domain that does not resolve goes on without addresses,
+    /// rather than failing the connection.
+    ignore_failure: bool,
 }
 
 struct Rule {
@@ -301,9 +311,12 @@ impl Rule {
                 })
             }
             RuleAction::HijackDns => Action::HijackDns,
-            RuleAction::Resolve => {
-                Action::Resolve(rule.server.clone(), rule.strategy, rule.timeout)
-            }
+            RuleAction::Resolve => Action::Resolve(Resolve {
+                server: rule.server.clone(),
+                strategy: rule.strategy,
+                timeout: rule.timeout,
+                ignore_failure: rule.ignore_failure,
+            }),
             RuleAction::Sniff => {
                 if !cfg!(feature = "btls") && rule.sniffer.contains(&model::Sniffer::Quic) {
                     return Err(anyhow!(
@@ -427,13 +440,26 @@ impl Router {
                         .await
                         .map_err(|e| anyhow!("sniff: {}", e))?;
                 }
-                Action::Resolve(server, strategy, timeout) => {
+                Action::Resolve(how) => {
                     if resolved.is_empty() && !sess.skip_resolve {
                         if let Some(domain) = facts.domain().map(str::to_string) {
-                            resolved = self
-                                .resolve(&domain, sess, server.as_deref(), *strategy, *timeout)
-                                .await
-                                .map_err(|e| anyhow!("resolve {}: {}", domain, e))?;
+                            let result = self
+                                .resolve(
+                                    &domain,
+                                    sess,
+                                    how.server.as_deref(),
+                                    how.strategy,
+                                    how.timeout,
+                                )
+                                .await;
+                            resolved = match result {
+                                Ok(ips) => ips,
+                                Err(e) if how.ignore_failure => {
+                                    debug!("resolve {}: {}; matching goes on", domain, e);
+                                    Vec::new()
+                                }
+                                Err(e) => return Err(anyhow!("resolve {}: {}", domain, e)),
+                            };
                         }
                     }
                 }
@@ -844,6 +870,21 @@ mod tests {
             .await
             .unwrap_err();
         assert!(err.to_string().starts_with("resolve test.sail:"), "{}", err);
+        assert!(start.elapsed() < Duration::from_secs(2));
+    }
+
+    #[tokio::test]
+    async fn with_ignore_failure_matching_goes_on_past_a_timeout() {
+        let router = router(serde_json::json!([
+            { "action": "resolve", "timeout": "1ms", "server": "slow", "ignore_failure": true },
+            { "ip_cidr": ["192.0.2.0/24"], "outbound": "a" },
+            { "domain_suffix": "sail", "outbound": "b" },
+        ]));
+        let start = std::time::Instant::now();
+        assert_eq!(
+            pick(&router, &mut to("test.sail:80")).await,
+            Decision::Route(Some("b".into()))
+        );
         assert!(start.elapsed() < Duration::from_secs(2));
     }
 

@@ -1345,6 +1345,11 @@ pub struct Rule {
     /// to the address the client asked for.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub override_destination: bool,
+    /// `resolve`, a sail extension: a domain that does not resolve, or not in
+    /// time, has no addresses, and matching goes on, as Mihomo's IP rules
+    /// have it; rather than the connection failing, as in sing-box.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub ignore_failure: bool,
 }
 
 /// A rule's kind.
@@ -1520,6 +1525,7 @@ impl Rule {
             ("strategy", self.strategy.is_some(), &[Resolve]),
             ("sniffer", !self.sniffer.is_empty(), &[Sniff]),
             ("timeout", self.timeout.is_some(), &[Sniff, Resolve]),
+            ("ignore_failure", self.ignore_failure, &[Resolve]),
             ("override_destination", self.override_destination, &[Sniff]),
         ]
         .into_iter()
@@ -2206,6 +2212,10 @@ mod tests {
             (
                 r#"[{ "port": 1, "action": "bypass", "method": "drop" }]"#,
                 "route.rules[0].method: not for a bypass rule",
+            ),
+            (
+                r#"[{ "port": 1, "outbound": "direct", "ignore_failure": true }]"#,
+                "route.rules[0].ignore_failure: not for a route rule",
             ),
         ] {
             let err = config(rules).unwrap_err().to_string();
