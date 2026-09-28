@@ -1,4 +1,8 @@
-use std::{net::SocketAddr, num::NonZeroUsize, sync::Arc};
+use std::{
+    net::{IpAddr, SocketAddr},
+    num::NonZeroUsize,
+    sync::Arc,
+};
 
 use anyhow::{anyhow, Result};
 use cidr::{Inet, IpInet, Ipv4Inet, Ipv6Inet};
@@ -358,6 +362,58 @@ struct TunInboundOptions {
     /// Routes the system's traffic into the device.
     #[serde(default)]
     auto_route: bool,
+    /// Linux: redirects TCP to sail with nftables and marks the rest into
+    /// the device, and lets rules bypass sail before a connection is set
+    /// up (sing-box 1.13).
+    #[serde(default)]
+    auto_redirect: bool,
+    #[serde(default, with = "fw_mark")]
+    auto_redirect_input_mark: Option<u32>,
+    #[serde(default, with = "fw_mark")]
+    auto_redirect_output_mark: Option<u32>,
+    #[serde(default, with = "fw_mark")]
+    auto_redirect_reset_mark: Option<u32>,
+    #[serde(default)]
+    auto_redirect_nfqueue: Option<u16>,
+    #[serde(default)]
+    iproute2_table_index: Option<u32>,
+    #[serde(default)]
+    iproute2_rule_index: Option<u32>,
+    #[serde(default)]
+    auto_redirect_iproute2_fallback_rule_index: Option<u32>,
+    #[serde(default)]
+    exclude_mptcp: bool,
+    #[serde(default)]
+    strict_route: bool,
+    #[serde(default, with = "crate::config::model::listable")]
+    loopback_address: Vec<IpAddr>,
+    #[serde(default, with = "crate::config::model::listable")]
+    route_address: Vec<String>,
+    #[serde(default, with = "crate::config::model::listable")]
+    route_exclude_address: Vec<String>,
+    #[serde(default, with = "crate::config::model::listable")]
+    route_address_set: Vec<String>,
+    #[serde(default, with = "crate::config::model::listable")]
+    route_exclude_address_set: Vec<String>,
+    #[serde(default, with = "crate::config::model::listable")]
+    include_interface: Vec<String>,
+    #[serde(default, with = "crate::config::model::listable")]
+    exclude_interface: Vec<String>,
+    #[serde(default, with = "crate::config::model::listable")]
+    include_uid: Vec<u32>,
+    #[serde(default, with = "crate::config::model::listable")]
+    include_uid_range: Vec<String>,
+    #[serde(default, with = "crate::config::model::listable")]
+    exclude_uid: Vec<u32>,
+    #[serde(default, with = "crate::config::model::listable")]
+    exclude_uid_range: Vec<String>,
+    /// Android: what the host's VPN takes in, applied by the host.
+    #[serde(default, with = "crate::config::model::listable")]
+    include_android_user: Vec<u32>,
+    #[serde(default, with = "crate::config::model::listable")]
+    include_package: Vec<String>,
+    #[serde(default, with = "crate::config::model::listable")]
+    exclude_package: Vec<String>,
     /// Until the DNS section serves fake IPs, the domains that get one, or
     /// those that do not.
     #[serde(default)]
@@ -374,6 +430,11 @@ pub(crate) struct TunSettings {
     pub ipv6: Option<Ipv6Inet>,
     pub mtu: u16,
     pub auto_route: bool,
+    pub auto_redirect: Option<AutoRedirectSettings>,
+    /// Android apps and users the host's VPN takes in or leaves out.
+    pub include_android_user: Vec<u32>,
+    pub include_package: Vec<String>,
+    pub exclude_package: Vec<String>,
     pub fake_dns_exclude: Vec<String>,
     pub fake_dns_include: Vec<String>,
 }
@@ -387,8 +448,100 @@ impl TunSettings {
             ipv4: self.ipv4,
             ipv6: self.ipv6,
             auto_route: self.auto_route,
+            include_android_user: self.include_android_user.clone(),
+            include_package: self.include_package.clone(),
+            exclude_package: self.exclude_package.clone(),
         }
     }
+}
+
+/// How a TUN with `auto_redirect` redirects, marks and routes, with
+/// sing-box's defaults filled in.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AutoRedirectSettings {
+    /// Sends a packet into the device.
+    pub input_mark: u32,
+    /// Sail's own sockets, and flows that bypass it: never redirected.
+    pub output_mark: u32,
+    /// A connection pre-match rejects: reset by the kernel.
+    pub reset_mark: u32,
+    pub nfqueue: u16,
+    pub table_index: u32,
+    pub rule_index: u32,
+    pub fallback_rule_index: u32,
+    pub exclude_mptcp: bool,
+    pub strict_route: bool,
+    pub loopback_address: Vec<IpAddr>,
+    pub route_address: Vec<IpInet>,
+    pub route_exclude_address: Vec<IpInet>,
+    /// Rule sets whose IP CIDRs are what is redirected, or what is not.
+    pub route_address_set: Vec<String>,
+    pub route_exclude_address_set: Vec<String>,
+    pub include_interface: Vec<String>,
+    pub exclude_interface: Vec<String>,
+    pub include_uid: Vec<std::ops::RangeInclusive<u32>>,
+    pub exclude_uid: Vec<std::ops::RangeInclusive<u32>>,
+}
+
+/// sing-tun's defaults (redirect.go, tun.go).
+pub(crate) const DEFAULT_INPUT_MARK: u32 = 0x2023;
+pub(crate) const DEFAULT_OUTPUT_MARK: u32 = 0x2024;
+pub(crate) const DEFAULT_RESET_MARK: u32 = 0x2025;
+pub(crate) const DEFAULT_NFQUEUE: u16 = 100;
+pub(crate) const DEFAULT_TABLE_INDEX: u32 = 2022;
+pub(crate) const DEFAULT_RULE_INDEX: u32 = 9000;
+pub(crate) const DEFAULT_FALLBACK_RULE_INDEX: u32 = 32768;
+
+/// A firewall mark as sing-box takes it: a number, or a string such as
+/// "0x2023"; 0 is the default.
+mod fw_mark {
+    use serde::{de, Deserialize, Deserializer};
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(de: D) -> Result<Option<u32>, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Mark {
+            Number(u32),
+            Text(String),
+        }
+        let mark = match Option::<Mark>::deserialize(de)? {
+            None => return Ok(None),
+            Some(Mark::Number(number)) => number,
+            Some(Mark::Text(text)) => {
+                let parsed = match text.strip_prefix("0x").or_else(|| text.strip_prefix("0X")) {
+                    Some(hex) => u32::from_str_radix(hex, 16),
+                    None => text.parse::<u32>(),
+                };
+                parsed.map_err(|_| de::Error::custom(format!("invalid mark \"{text}\"")))?
+            }
+        };
+        Ok((mark != 0).then_some(mark))
+    }
+}
+
+/// uid lists and "from:to" ranges, as sing-box's include_uid(_range).
+fn uid_ranges(
+    uids: &[u32],
+    ranges: &[String],
+    field: &str,
+) -> std::result::Result<Vec<std::ops::RangeInclusive<u32>>, String> {
+    let mut all: Vec<_> = uids.iter().map(|uid| *uid..=*uid).collect();
+    for range in ranges {
+        let (from, to) = range
+            .split_once(':')
+            .ok_or_else(|| format!("{field}: missing ':' in range \"{range}\""))?;
+        let bound = |value: &str| {
+            value
+                .parse::<u32>()
+                .map_err(|_| format!("{field}: \"{range}\" is not a uid range"))
+        };
+        let (from, to) = (bound(from)?, bound(to)?);
+        if from > to {
+            return Err(format!("{field}: \"{range}\" ends before it starts"));
+        }
+        all.push(from..=to);
+    }
+    Ok(all)
 }
 
 /// sing-box leaves the name to the system; utun names suit macOS as well.
@@ -448,6 +601,7 @@ pub(crate) fn options(inbound: &Inbound) -> Result<TunSettings> {
             "fake DNS runs either in include mode or in exclude mode".into(),
         ));
     }
+    let auto_redirect = auto_redirect(&options).map_err(error)?;
     Ok(TunSettings {
         name: options
             .interface_name
@@ -456,9 +610,145 @@ pub(crate) fn options(inbound: &Inbound) -> Result<TunSettings> {
         ipv6,
         mtu,
         auto_route: options.auto_route,
+        auto_redirect,
+        include_android_user: options.include_android_user,
+        include_package: options.include_package,
+        exclude_package: options.exclude_package,
         fake_dns_exclude: options.fake_dns_exclude,
         fake_dns_include: options.fake_dns_include,
     })
+}
+
+/// The auto_redirect settings, with sing-box's defaults. What chooses the
+/// traffic the TUN takes (route_address, the interface and uid lists,
+/// strict_route, loopback_address) is enforced by auto_redirect's nftables
+/// rules; with auto_route alone it is route management, which sail does not
+/// do yet, so it is refused there rather than ignored.
+fn auto_redirect(
+    options: &TunInboundOptions,
+) -> std::result::Result<Option<AutoRedirectSettings>, String> {
+    let selects = [
+        ("strict_route", options.strict_route),
+        ("exclude_mptcp", options.exclude_mptcp),
+        ("loopback_address", !options.loopback_address.is_empty()),
+        ("route_address", !options.route_address.is_empty()),
+        (
+            "route_exclude_address",
+            !options.route_exclude_address.is_empty(),
+        ),
+        ("route_address_set", !options.route_address_set.is_empty()),
+        (
+            "route_exclude_address_set",
+            !options.route_exclude_address_set.is_empty(),
+        ),
+        ("include_interface", !options.include_interface.is_empty()),
+        ("exclude_interface", !options.exclude_interface.is_empty()),
+        ("include_uid", !options.include_uid.is_empty()),
+        ("include_uid_range", !options.include_uid_range.is_empty()),
+        ("exclude_uid", !options.exclude_uid.is_empty()),
+        ("exclude_uid_range", !options.exclude_uid_range.is_empty()),
+        (
+            "auto_redirect_input_mark",
+            options.auto_redirect_input_mark.is_some(),
+        ),
+        (
+            "auto_redirect_output_mark",
+            options.auto_redirect_output_mark.is_some(),
+        ),
+        (
+            "auto_redirect_reset_mark",
+            options.auto_redirect_reset_mark.is_some(),
+        ),
+        (
+            "auto_redirect_nfqueue",
+            options.auto_redirect_nfqueue.is_some(),
+        ),
+        (
+            "iproute2_table_index",
+            options.iproute2_table_index.is_some(),
+        ),
+        ("iproute2_rule_index", options.iproute2_rule_index.is_some()),
+        (
+            "auto_redirect_iproute2_fallback_rule_index",
+            options.auto_redirect_iproute2_fallback_rule_index.is_some(),
+        ),
+    ];
+    if !options.auto_redirect {
+        if let Some((field, _)) = selects.iter().find(|(_, set)| *set) {
+            return Err(format!(
+                "{field}: sail takes it with auto_redirect only; with auto_route alone it is \
+                 route management, not implemented yet"
+            ));
+        }
+        return Ok(None);
+    }
+    if !options.auto_route {
+        return Err("`auto_route` is required by `auto_redirect`".into());
+    }
+    if !cfg!(target_os = "linux") {
+        return Err("auto_redirect: Linux only".into());
+    }
+    if !options.include_interface.is_empty() && !options.exclude_interface.is_empty() {
+        return Err("include_interface and exclude_interface exclude each other".into());
+    }
+    let prefixes = |field: &str, values: &[String]| {
+        values
+            .iter()
+            .map(|value| {
+                value
+                    .contains('/')
+                    .then(|| value.parse::<IpInet>().ok())
+                    .flatten()
+                    .ok_or_else(|| format!("{field}: \"{value}\" is not a prefix"))
+            })
+            .collect::<std::result::Result<Vec<_>, _>>()
+    };
+    Ok(Some(AutoRedirectSettings {
+        input_mark: options
+            .auto_redirect_input_mark
+            .unwrap_or(DEFAULT_INPUT_MARK),
+        output_mark: options
+            .auto_redirect_output_mark
+            .unwrap_or(DEFAULT_OUTPUT_MARK),
+        reset_mark: options
+            .auto_redirect_reset_mark
+            .unwrap_or(DEFAULT_RESET_MARK),
+        nfqueue: options
+            .auto_redirect_nfqueue
+            .filter(|queue| *queue != 0)
+            .unwrap_or(DEFAULT_NFQUEUE),
+        table_index: options
+            .iproute2_table_index
+            .filter(|index| *index != 0)
+            .unwrap_or(DEFAULT_TABLE_INDEX),
+        rule_index: options
+            .iproute2_rule_index
+            .filter(|index| *index != 0)
+            .unwrap_or(DEFAULT_RULE_INDEX),
+        fallback_rule_index: options
+            .auto_redirect_iproute2_fallback_rule_index
+            .filter(|index| *index != 0)
+            .unwrap_or(DEFAULT_FALLBACK_RULE_INDEX),
+        exclude_mptcp: options.exclude_mptcp,
+        strict_route: options.strict_route,
+        loopback_address: options.loopback_address.clone(),
+        route_address: prefixes("route_address", &options.route_address)?,
+        route_exclude_address: prefixes("route_exclude_address", &options.route_exclude_address)?,
+        route_address_set: options.route_address_set.clone(),
+        route_exclude_address_set: options.route_exclude_address_set.clone(),
+        include_interface: options.include_interface.clone(),
+        exclude_interface: options.exclude_interface.clone(),
+        include_uid: uid_ranges(
+            &options.include_uid,
+            &options.include_uid_range,
+            "include_uid",
+        )?,
+        exclude_uid: uid_ranges(
+            &options.exclude_uid,
+            &options.exclude_uid_range,
+            "exclude_uid",
+        )?,
+    }))
 }
 
 pub(crate) fn new(
@@ -493,6 +783,25 @@ pub(crate) fn new(
         .platform
         .clone()
         .filter(|platform| platform.opens_tun());
+    if platform.is_none() {
+        if let Some(field) = [
+            (
+                "include_android_user",
+                !settings.include_android_user.is_empty(),
+            ),
+            ("include_package", !settings.include_package.is_empty()),
+            ("exclude_package", !settings.exclude_package.is_empty()),
+        ]
+        .into_iter()
+        .find_map(|(field, set)| set.then_some(field))
+        {
+            return Err(anyhow!(
+                "[{}] inbound: {}: applied by a host that opens the tun (Android)",
+                inbound.tag,
+                field
+            ));
+        }
+    }
     let mut cfg = tun::Configuration::default();
     if let Some(platform) = platform {
         let fd = platform
@@ -689,13 +998,136 @@ mod tests {
             std::time::Duration::from_secs(300)
         );
 
-        // Fields that choose which traffic enters the TUN are not ignored.
-        let err = crate::config::Config::from_json(
+        // Fields that choose which traffic enters the TUN are not ignored:
+        // auto_redirect enforces them, and without it they are an error.
+        let config = crate::config::Config::from_json(
             r#"{ "inbounds": [{ "type": "tun", "address": "172.18.0.1/30", "strict_route": true }] }"#,
         )
+        .unwrap();
+        let err = options(&config.inbounds[0]).unwrap_err().to_string();
+        assert!(
+            err.contains("strict_route") && err.contains("auto_redirect"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn uid_ranges_and_marks_read_as_sing_box_writes_them() {
+        assert_eq!(
+            uid_ranges(&[0, 7], &["1000:1999".into()], "include_uid").unwrap(),
+            [0..=0, 7..=7, 1000..=1999]
+        );
+        for (range, mentions) in [
+            ("1000", "missing ':'"),
+            ("9:1", "ends before"),
+            ("a:b", "not a uid"),
+        ] {
+            let err = uid_ranges(&[], &[range.into()], "exclude_uid").unwrap_err();
+            assert!(err.contains(mentions), "{range}: {err}");
+        }
+        #[derive(serde_derive::Deserialize)]
+        struct Mark {
+            #[serde(default, with = "fw_mark")]
+            mark: Option<u32>,
+        }
+        let mark = |json: &str| serde_json::from_str::<Mark>(json).map(|m| m.mark);
+        assert_eq!(mark(r#"{ "mark": "0x2023" }"#).unwrap(), Some(0x2023));
+        assert_eq!(mark(r#"{ "mark": 8228 }"#).unwrap(), Some(8228));
+        assert_eq!(mark(r#"{ "mark": "8228" }"#).unwrap(), Some(8228));
+        assert_eq!(mark(r#"{ "mark": 0 }"#).unwrap(), None);
+        assert!(mark(r#"{ "mark": "0xzz" }"#).is_err());
+    }
+
+    #[test]
+    fn auto_redirect_needs_auto_route_and_what_it_enforces_needs_it() {
+        let err = options(&tun(serde_json::json!({
+            "address": "172.19.0.1/30", "auto_redirect": true
+        })))
         .unwrap_err()
         .to_string();
-        assert!(err.contains("strict_route"), "{err}");
+        assert!(
+            err.contains("`auto_route` is required by `auto_redirect`"),
+            "{err}"
+        );
+        for field in ["route_address", "include_uid", "auto_redirect_output_mark"] {
+            let value = match field {
+                "route_address" => serde_json::json!("10.0.0.0/8"),
+                "include_uid" => serde_json::json!(1000),
+                _ => serde_json::json!("0x100"),
+            };
+            let err = options(&tun(serde_json::json!({
+                "address": "172.19.0.1/30", "auto_route": true, field: value
+            })))
+            .unwrap_err()
+            .to_string();
+            assert!(
+                err.contains(field) && err.contains("auto_redirect"),
+                "{err}"
+            );
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn auto_redirect_takes_sing_box_s_defaults_and_fields() {
+        let settings = options(&tun(serde_json::json!({
+            "address": "172.19.0.1/30", "auto_route": true, "auto_redirect": true
+        })))
+        .unwrap();
+        let redirect = settings.auto_redirect.unwrap();
+        assert_eq!(
+            (
+                redirect.input_mark,
+                redirect.output_mark,
+                redirect.reset_mark
+            ),
+            (0x2023, 0x2024, 0x2025)
+        );
+        assert_eq!(redirect.nfqueue, 100);
+        assert_eq!(
+            (
+                redirect.table_index,
+                redirect.rule_index,
+                redirect.fallback_rule_index
+            ),
+            (2022, 9000, 32768)
+        );
+
+        let redirect = options(&tun(serde_json::json!({
+            "address": "172.19.0.1/30", "auto_route": true, "auto_redirect": true,
+            "auto_redirect_output_mark": "0x99", "auto_redirect_nfqueue": 7,
+            "route_address": ["10.0.0.0/8", "fd00::/8"], "exclude_interface": "docker0",
+            "exclude_uid": 1000, "exclude_uid_range": ["2000:2999"],
+            "loopback_address": "10.7.0.1", "strict_route": true
+        })))
+        .unwrap()
+        .auto_redirect
+        .unwrap();
+        assert_eq!(redirect.output_mark, 0x99);
+        assert_eq!(redirect.nfqueue, 7);
+        assert_eq!(redirect.route_address.len(), 2);
+        assert_eq!(redirect.exclude_interface, ["docker0"]);
+        assert_eq!(redirect.exclude_uid, [1000..=1000, 2000..=2999]);
+        assert!(redirect.strict_route);
+
+        let err = options(&tun(serde_json::json!({
+            "address": "172.19.0.1/30", "auto_route": true, "auto_redirect": true,
+            "include_interface": "eth0", "exclude_interface": "eth1"
+        })))
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("exclude each other"), "{err}");
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    #[test]
+    fn auto_redirect_is_linux_only() {
+        let err = options(&tun(serde_json::json!({
+            "address": "172.19.0.1/30", "auto_route": true, "auto_redirect": true
+        })))
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("Linux only"), "{err}");
     }
 
     #[test]

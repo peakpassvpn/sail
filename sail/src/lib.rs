@@ -674,12 +674,54 @@ pub fn is_running(key: RuntimeId) -> bool {
 
 /// The dial defaults of an instance: `route`'s, with the system's default
 /// interface when `route.auto_detect_interface` asks for it.
+/// The output mark of the TUN inbound's auto_redirect, if it has one. A
+/// mark of the configuration's own on sail's sockets would undo it, so
+/// `route.default_mark` and an outbound's `routing_mark` are errors then, as
+/// in sing-box.
+#[cfg(feature = "inbound-tun")]
+fn auto_redirect_output_mark(config: &config::Config) -> anyhow::Result<Option<u32>> {
+    let Some(tun) = config.inbounds.iter().find(|i| i.protocol == "tun") else {
+        return Ok(None);
+    };
+    let Some(redirect) = protocol::tun::inbound::options(tun)?.auto_redirect else {
+        return Ok(None);
+    };
+    if config.route.default_mark.is_some() {
+        anyhow::bail!("route.default_mark: conflicts with the tun inbound's auto_redirect");
+    }
+    let marked = config
+        .outbounds
+        .iter()
+        .map(|o| ("outbound", &o.tag, &o.options))
+        .chain(
+            config
+                .endpoints
+                .iter()
+                .map(|e| ("endpoint", &e.tag, &e.options)),
+        )
+        .find(|(_, _, options)| options.contains_key("routing_mark"));
+    if let Some((kind, tag, _)) = marked {
+        anyhow::bail!(
+            "[{}] {}: routing_mark conflicts with the tun inbound's auto_redirect",
+            tag,
+            kind
+        );
+    }
+    Ok(Some(redirect.output_mark))
+}
+
 pub(crate) fn dial_defaults(
     config: &config::Config,
     env: &runtime::RuntimeEnv,
 ) -> anyhow::Result<Arc<net::DialOptions>> {
     let route = &config.route;
     let mut defaults = net::DialOptions::defaults(route)?;
+    #[cfg(feature = "inbound-tun")]
+    if let Some(mark) = auto_redirect_output_mark(config)? {
+        // auto_redirect's only guard against loops: its rules let sail's
+        // own sockets, which carry this mark, go out as they are.
+        defaults.routing_mark = Some(mark);
+    }
     defaults.protect = match &env.host.platform {
         Some(platform) if platform.protects_sockets() => {
             Some(net::dial::SocketProtect::Platform(platform.clone()))

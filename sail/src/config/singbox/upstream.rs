@@ -333,32 +333,9 @@ pub const FIELDS: &[Field] = &[
     f("inbounds.*.stack", Ignored),
     f("inbounds.*.endpoint_independent_nat", Ignored),
     f("inbounds.*.platform", Ignored),
-    // Route management (roadmap 2.14): which traffic enters the TUN.
-    f("inbounds.*.strict_route", Unsupported),
-    f("inbounds.*.route_address", Unsupported),
-    f("inbounds.*.route_exclude_address", Unsupported),
-    f("inbounds.*.route_address_set", Unsupported),
-    f("inbounds.*.route_exclude_address_set", Unsupported),
-    f("inbounds.*.auto_redirect", Unsupported),
-    f("inbounds.*.auto_redirect_input_mark", Unsupported),
-    f("inbounds.*.auto_redirect_output_mark", Unsupported),
-    f("inbounds.*.auto_redirect_reset_mark", Unsupported),
-    f("inbounds.*.auto_redirect_nfqueue", Unsupported),
-    f("inbounds.*.iproute2_table_index", Unsupported),
-    f("inbounds.*.iproute2_rule_index", Unsupported),
-    f("inbounds.*.loopback_address", Unsupported),
-    f("inbounds.*.include_interface", Unsupported),
-    f("inbounds.*.exclude_interface", Unsupported),
-    f("inbounds.*.include_uid", Unsupported),
-    f("inbounds.*.include_uid_range", Unsupported),
-    f("inbounds.*.exclude_uid", Unsupported),
-    f("inbounds.*.exclude_uid_range", Unsupported),
-    f("inbounds.*.include_android_user", Unsupported),
-    f("inbounds.*.include_package", Unsupported),
-    f("inbounds.*.exclude_package", Unsupported),
+    // Filtering LAN clients by MAC address: not implemented.
     f("inbounds.*.include_mac_address", Unsupported),
     f("inbounds.*.exclude_mac_address", Unsupported),
-    f("inbounds.*.exclude_mptcp", Unsupported),
 ];
 
 /// Values sing-box accepts that sail does not implement: all of them change

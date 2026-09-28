@@ -118,8 +118,10 @@ pub extern "C" fn sail_set_socket_protector(
 /// @param callback Called with a JSON object and `context` when a TUN
 ///                 inbound starts: `interface_name`, `mtu`, `ipv4` and
 ///                 `ipv6` (an address with its prefix, such as
-///                 `"172.19.0.1/30"`, or null), and `auto_route` (whether
-///                 all traffic is routed into the device). Returns the
+///                 `"172.19.0.1/30"`, or null), `auto_route` (whether
+///                 all traffic is routed into the device), and, for
+///                 Android's `VpnService.Builder`, `include_android_user`,
+///                 `include_package` and `exclude_package`. Returns the
 ///                 device's file descriptor, which the instance then owns,
 ///                 or a negative number when it cannot open it. It may be
 ///                 called from any thread.

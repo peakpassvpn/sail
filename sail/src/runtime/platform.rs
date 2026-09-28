@@ -74,6 +74,11 @@ pub struct TunRequest {
     pub ipv6: Option<cidr::Ipv6Inet>,
     /// Routes all traffic into the device.
     pub auto_route: bool,
+    /// Android: the users and apps the VPN takes in, and the apps it
+    /// leaves out, as `VpnService.Builder` applies them.
+    pub include_android_user: Vec<u32>,
+    pub include_package: Vec<String>,
+    pub exclude_package: Vec<String>,
 }
 
 fn serialize_inet<I: fmt::Display, S: serde::Serializer>(
