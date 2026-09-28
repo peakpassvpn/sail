@@ -196,6 +196,16 @@ impl OutboundSelector {
         )
     }
 
+    /// Takes over what `previous`, the selector this one replaces, has
+    /// selected by hand: the member itself, which need not be a member
+    /// now, and not the one connections go to meanwhile. It is kept
+    /// already, so it is not kept again.
+    pub fn restore(&self, previous: &OutboundSelector) {
+        if self.is_selectable() && previous.is_selectable() {
+            self.selected.set((*previous.selected.get()).clone());
+        }
+    }
+
     /// Whether a member can be selected by hand.
     pub fn is_selectable(&self) -> bool {
         matches!(self.selected_by, SelectedBy::Hand { .. })
@@ -310,5 +320,47 @@ mod tests {
         assert_eq!(selector.get_selected_tag(), "a");
         members.publish(vec![member(None, "a"), member(None, "b")]);
         assert_eq!(selector.get_selected_tag(), "b");
+    }
+
+    #[test]
+    fn a_reload_keeps_a_selection_absent_and_the_cache() {
+        let dir = std::env::temp_dir().join(format!("sail-selector-{}", std::process::id()));
+        let cache_file = dir.join("selector.cache");
+        let _ = std::fs::remove_dir_all(&dir);
+        let members = outbounds(&["a", "b"]);
+        let mut old = OutboundSelector::new(
+            "g".to_string(),
+            members.clone(),
+            Arc::new(Selection::new(key("a"), key("a"))),
+            SelectedBy::Hand {
+                cache_file: Some(cache_file.clone()),
+            },
+            None,
+        );
+        old.set_selected("b").unwrap();
+        members.publish(vec![member(None, "a")]);
+        assert_eq!(old.get_selected_tag(), "a");
+
+        let selection = Arc::new(Selection::new(key("a"), key("a")));
+        let new = OutboundSelector::new(
+            "g".to_string(),
+            members.clone(),
+            selection.clone(),
+            SelectedBy::Hand {
+                cache_file: Some(cache_file.clone()),
+            },
+            None,
+        );
+        new.restore(&old);
+        assert_eq!(*selection.get(), key("b"));
+        assert_eq!(
+            get_selected_from_cache(&cache_file, "g")
+                .unwrap()
+                .as_deref(),
+            Some("b")
+        );
+        members.publish(vec![member(None, "a"), member(None, "b")]);
+        assert_eq!(new.get_selected_tag(), "b");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

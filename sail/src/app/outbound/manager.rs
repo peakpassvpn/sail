@@ -274,13 +274,12 @@ impl OutboundManager {
     }
 
     /// Selects what `previous`, the manager this one replaces, had
-    /// selected, where the same selector still offers it.
+    /// selected by hand, see `OutboundSelector::restore`.
     #[cfg(feature = "outbound-select")]
     pub async fn restore_selected(&self, previous: &OutboundManager) {
         for (tag, selector) in self.selectors.iter() {
             if let Some(old) = previous.selectors.get(tag) {
-                let selected = old.read().await.get_selected_tag();
-                let _ = selector.write().await.set_selected(&selected);
+                selector.read().await.restore(&*old.read().await);
             }
         }
     }
