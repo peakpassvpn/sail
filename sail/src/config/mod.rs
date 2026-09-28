@@ -6,6 +6,8 @@ use std::path::Path;
 
 use anyhow::{anyhow, Result};
 
+#[cfg(feature = "config-clash")]
+pub mod clash;
 pub mod external_rule;
 pub mod geosite;
 pub mod model;
@@ -58,7 +60,12 @@ impl Format {
     pub fn parse(self, s: &str) -> Result<Config> {
         match self {
             Format::SingBox => singbox::parse(s),
-            Format::Clash => Err(anyhow!("sail does not read Clash configurations yet")),
+            #[cfg(feature = "config-clash")]
+            Format::Clash => clash::parse(s),
+            #[cfg(not(feature = "config-clash"))]
+            Format::Clash => Err(anyhow!(
+                "Clash configurations need the config-clash feature, which is not compiled in"
+            )),
             Format::Surge => Err(anyhow!("sail does not read Surge configurations yet")),
         }
     }

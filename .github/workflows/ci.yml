@@ -71,7 +71,8 @@ jobs:
             inbound-tun,outbound-direct \
             rule-set,inbound-socks,outbound-direct \
             outbound-load-balance,outbound-redirect \
-            outbound-urltest,outbound-redirect
+            outbound-urltest,outbound-redirect \
+            config-clash,inbound-mixed,outbound-direct
           do
             echo "::group::$features"
             cargo check -p sail --no-default-features --features "$features" --all-targets
