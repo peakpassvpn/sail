@@ -25,6 +25,7 @@ Serde: `serde (deny_unknown_fields)`
 | `experimental` | `Experimental` | Default::default() | —<br/>`serde (default , skip_serializing_if = "Experimental::is_default")` |
 | `certificate` | `Option < CertificateOptions >` | Default::default() | The root certificates servers are checked against; the system's when unset.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
 | `http_clients` | `Vec < HttpClient >` | Default::default() | How sail fetches over HTTP, rule-sets for one, by tag.<br/>`serde (default , skip_serializing_if = "Vec::is_empty")` |
+| `outbound_providers` | `Vec < OutboundProvider >` | Default::default() | A sail extension: outbounds given together, downloaded, read from a file or written in place, that groups take as members, as Mihomo's proxy groups take a proxy-provider's proxies.<br/>`serde (default , skip_serializing_if = "Vec::is_empty")` |
 | `warnings` | `Vec < String >` | 必填 | What the configuration sets that sail ignores, one line each; the start logs them.<br/>`serde (skip)` |
 
 ## HttpClient
@@ -334,6 +335,56 @@ An endpoint: an outbound, and an inbound, under one tag. Like an outbound's, its
 | `udp_timeout` | `Option < std :: time :: Duration >` | Default::default() | How long a UDP session coming in through this endpoint lives without traffic; 5m when unset, as for an inbound.<br/>`serde (default , with = "duration" , skip_serializing_if = "Option::is_none")` |
 | `options` | `Options` | 展开到当前对象，不是独立键 | —<br/>`serde (flatten)` |
 
+## OutboundProvider
+
+[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+
+Outbounds given together, for groups to take as members (their `providers`): a sail extension, with the semantics of Mihomo's proxy-providers. A subscription or a file holds what Mihomo reads from one: Clash's YAML with its `proxies`, or share links, a line each and maybe in base64. It needs the outbound-provider feature.
+
+Serde: `serde (deny_unknown_fields)`
+
+| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
+| --- | --- | --- | --- |
+| `type` | `OutboundProviderKind` | 必填 | —<br/>`serde (rename = "type")` |
+| `tag` | `String` | 必填 | Its members' keys name it, and groups' `providers`. |
+| `url` | `Option < String >` | Default::default() | `remote`: where it is downloaded from.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
+| `path` | `Option < String >` | Default::default() | `local`: the file, in the data directory unless absolute.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
+| `update_interval` | `Option < std :: time :: Duration >` | Default::default() | `remote`: how often it is downloaded again, 1d when unset. `local`: how often the file is read again, never when unset.<br/>`serde (default , with = "duration" , skip_serializing_if = "Option::is_none")` |
+| `download_detour` | `Option < String >` | Default::default() | `remote`: the outbound it is downloaded through, as a remote rule-set's.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
+| `http_client` | `Option < HttpClientRef >` | Default::default() | `remote`: the HTTP client it is downloaded with, as a remote rule-set's.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
+| `filter` | `Vec < String >` | Default::default() | `remote`, `local`: regular expressions, as Mihomo's `filter`; only the outbounds whose names match one are taken, those of the first first.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
+| `exclude_filter` | `Vec < String >` | Default::default() | `remote`, `local`: regular expressions no name taken may match.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
+| `exclude_type` | `Vec < String >` | Default::default() | `remote`, `local`: the Clash types (`ss`, `vmess`, ...) not taken, without case.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
+| `override` | `Option < serde_json :: Map < String , serde_json :: Value > >` | Default::default() | `remote`, `local`: what is changed in every outbound taken, in the keys of Mihomo's `override` (`skip-cert-verify`, `additional-prefix`, `proxy-name`, ...).<br/>`serde (rename = "override" , default , skip_serializing_if = "Option::is_none")` |
+| `detour` | `Option < String >` | Default::default() | `remote`, `local`: the outbound every outbound taken dials through, as Mihomo's `dialer-proxy`.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
+| `outbounds` | `Vec < Outbound >` | Default::default() | `inline`: the outbounds, their tags their names as members.<br/>`serde (default , skip_serializing_if = "Vec::is_empty")` |
+
+## OutboundProviderKind
+
+[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+
+Serde: `serde (rename_all = "snake_case")`
+
+| 可选值 / 形态 | 源码说明 |
+| --- | --- |
+| `remote` | — |
+| `local` | — |
+| `inline` | — |
+
+## GroupProviders
+
+[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+
+The members a group takes from outbound providers, after its own `outbounds`, and those it leaves out: a sail extension, as Mihomo's proxy groups take them (`use`, `filter`, `exclude-filter`, `exclude-type`, `empty-fallback`). Of `selector`, `urltest`, `fallback` and `load-balance`; it needs the outbound-provider feature.
+
+| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
+| --- | --- | --- | --- |
+| `providers` | `Vec < String >` | Default::default() | The outbound providers, by tag, whose outbounds join the group's own, in this order.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
+| `filter` | `Vec < String >` | Default::default() | Regular expressions, as Mihomo's `filter`: of the providers' outbounds, only those whose names match one are members, those of the first first. The group's own outbounds are not filtered.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
+| `exclude_filter` | `Vec < String >` | Default::default() | Regular expressions no member's name may match, the group's own outbounds' too.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
+| `exclude_type` | `Vec < String >` | Default::default() | The types no member may be of, the group's own outbounds too, in Mihomo's names for them, without case: `Shadowsocks`, `Vmess`, `Socks5`, `Direct`, ...<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
+| `empty_fallback` | `Option < String >` | Default::default() | An outbound, not a group, that is the member while there is none else. Without it such a group has none, and its connections fail.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
+
 ## Route
 
 [配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
@@ -415,6 +466,7 @@ Serde: `serde (deny_unknown_fields)`
 | `sniffer` | `Vec < Sniffer >` | Default::default() | `sniff`: the protocols to look for; all of them when empty.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
 | `timeout` | `Option < std :: time :: Duration >` | Default::default() | `sniff`: how long to wait for the first bytes; 300ms when unset. `resolve`: how long to wait for the answer; `dns.timeout` when unset.<br/>`serde (default , with = "duration" , skip_serializing_if = "Option::is_none")` |
 | `override_destination` | `bool` | Default::default() | `sniff`, a sail extension: connects to the sniffed domain rather than to the address the client asked for.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
+| `ignore_failure` | `bool` | Default::default() | `resolve`, a sail extension: a domain that does not resolve, or not in time, has no addresses, and matching goes on, as Mihomo's IP rules have it; rather than the connection failing, as in sing-box.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
 
 ## RuleType
 

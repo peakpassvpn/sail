@@ -61,7 +61,8 @@ Serde: `serde (deny_unknown_fields)`
 
 | 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
 | --- | --- | --- | --- |
-| `outbounds` | `Vec < String >` | 必填 | — |
+| `outbounds` | `Vec < String >` | Default::default() | Its members, in order; none may be when its providers give others.<br/>`serde (default)` |
+| `providers` | `GroupProviders` | 展开到当前对象，不是独立键 | Members from outbound providers too, a sail extension.<br/>`serde (flatten)` |
 | `url` | `String` | default: default_url() | What is requested through each member to test it.<br/>`serde (default = "default_url")` |
 | `interval` | `Option < Duration >` | Default::default() | —<br/>`serde (default , with = "crate::config::model::duration")` |
 | `timeout` | `Option < Duration >` | Default::default() | How long a test, or a connection attempt that has a member left to fall back to, may take before its member counts as failed.<br/>`serde (default , with = "crate::config::model::duration")` |
@@ -88,7 +89,8 @@ Serde: `serde (deny_unknown_fields)`
 
 | 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
 | --- | --- | --- | --- |
-| `outbounds` | `Vec < String >` | 必填 | — |
+| `outbounds` | `Vec < String >` | Default::default() | Its members; none may be when its providers give others.<br/>`serde (default)` |
+| `providers` | `GroupProviders` | 展开到当前对象，不是独立键 | Members from outbound providers too, a sail extension.<br/>`serde (flatten)` |
 | `strategy` | `StrategyKind` | Default::default() | —<br/>`serde (default)` |
 | `url` | `String` | default: default_url() | What is requested through each member to test it.<br/>`serde (default = "default_url")` |
 | `interval` | `Option < Duration >` | Default::default() | —<br/>`serde (default , with = "crate::config::model::duration")` |
@@ -102,8 +104,9 @@ Serde: `serde (deny_unknown_fields)`
 
 | 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
 | --- | --- | --- | --- |
-| `outbounds` | `Vec < String >` | 必填 | — |
-| `default` | `Option < String >` | Default::default() | Selected when nothing was selected before, or what was is no longer a member; defaults to the first.<br/>`serde (default)` |
+| `outbounds` | `Vec < String >` | Default::default() | Its members; none may be when its providers give others.<br/>`serde (default)` |
+| `providers` | `GroupProviders` | 展开到当前对象，不是独立键 | Members from outbound providers too, a sail extension.<br/>`serde (flatten)` |
+| `default` | `Option < String >` | Default::default() | Selected when nothing was selected before, or what was is no longer a member; defaults to the first. It may be a member a provider gives, the first so named.<br/>`serde (default)` |
 | `interrupt_exist_connections` | `bool` | Default::default() | Ends the connections through the member selected before once another is selected, rather than leaving them on it.<br/>`serde (default)` |
 
 ## TryAllOutboundOptions
@@ -125,7 +128,8 @@ Serde: `serde (deny_unknown_fields)`
 
 | 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
 | --- | --- | --- | --- |
-| `outbounds` | `Vec < String >` | 必填 | — |
+| `outbounds` | `Vec < String >` | Default::default() | Its members; none may be when its providers give others.<br/>`serde (default)` |
+| `providers` | `GroupProviders` | 展开到当前对象，不是独立键 | Members from outbound providers too, a sail extension.<br/>`serde (flatten)` |
 | `url` | `String` | default: default_url() | What is requested through each member; sing-box's default.<br/>`serde (default = "default_url")` |
 | `interval` | `Option < Duration >` | Default::default() | —<br/>`serde (default , with = "crate::config::model::duration")` |
 | `tolerance` | `u16` | default: default_tolerance() | Milliseconds.<br/>`serde (default = "default_tolerance")` |

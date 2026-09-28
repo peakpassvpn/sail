@@ -285,10 +285,34 @@ Serde: `serde (deny_unknown_fields)`
 
 | Field | Type | Omission / flattening | Source notes |
 | --- | --- | --- | --- |
-| `interface_name` | `Option < String >` | Default::default() | —<br/>`serde (default)` |
+| `interface_name` | `Option < String >` | Default::default() | The device's name; the system picks one without it.<br/>`serde (default)` |
 | `address` | `Vec < String >` | Default::default() | The device's addresses with their prefixes: one IPv4, one IPv6, or one of each.<br/>`serde (default , with = "crate::config::model::listable")` |
-| `mtu` | `u32` | default: default_mtu() | —<br/>`serde (default = "default_mtu")` |
+| `mtu` | `u32` | default: default_mtu() | 9000 when omitted, as sing-box has it on Android.<br/>`serde (default = "default_mtu")` |
 | `auto_route` | `bool` | Default::default() | Routes the system's traffic into the device.<br/>`serde (default)` |
+| `auto_redirect` | `bool` | Default::default() | Linux: redirects TCP to sail with nftables and marks the rest into the device, and lets rules bypass sail before a connection is set up (sing-box 1.13).<br/>`serde (default)` |
+| `auto_redirect_input_mark` | `Option < u32 >` | Default::default() | The mark that routes a packet into the device (0x2023). Marks are numbers, or strings of hexadecimal ("0x2023"); 0 is the default.<br/>`serde (default , with = "fw_mark")` |
+| `auto_redirect_output_mark` | `Option < u32 >` | Default::default() | The mark sail's own sockets carry, and flows that bypass it (0x2024). `route.default_mark` and `routing_mark` conflict with it.<br/>`serde (default , with = "fw_mark")` |
+| `auto_redirect_reset_mark` | `Option < u32 >` | Default::default() | The mark of a connection pre-match rejects, which the kernel resets (0x2025).<br/>`serde (default , with = "fw_mark")` |
+| `auto_redirect_nfqueue` | `Option < u16 >` | Default::default() | The NFQUEUE pre-match reads first packets from (100). If it cannot be bound, sail runs without pre-match: `bypass` rules are skipped.<br/>`serde (default)` |
+| `iproute2_table_index` | `Option < u32 >` | Default::default() | The routing table of the device's routes (2022).<br/>`serde (default)` |
+| `iproute2_rule_index` | `Option < u32 >` | Default::default() | The first of auto_redirect's ip rules (9000); the rules from it to 10 after it are sail's, and removed at start and stop.<br/>`serde (default)` |
+| `auto_redirect_iproute2_fallback_rule_index` | `Option < u32 >` | Default::default() | The ip rule that sends what the main table has no route for into the device (32768).<br/>`serde (default)` |
+| `exclude_mptcp` | `bool` | Default::default() | Lets MPTCP go past sail rather than dropping it, which makes clients fall back to TCP.<br/>`serde (default)` |
+| `strict_route` | `bool` | Default::default() | With one family on the device, rejects the other rather than let it go past sail.<br/>`serde (default)` |
+| `loopback_address` | `Vec < IpAddr >` | Default::default() | Addresses whose TCP goes into the device rather than to the redirect listener: a destination sail's own listeners use, say.<br/>`serde (default , with = "crate::config::model::listable")` |
+| `route_address` | `Vec < String >` | Default::default() | Only these destinations are taken...<br/>`serde (default , with = "crate::config::model::listable")` |
+| `route_exclude_address` | `Vec < String >` | Default::default() | ...and not these.<br/>`serde (default , with = "crate::config::model::listable")` |
+| `route_address_set` | `Vec < String >` | Default::default() | Rule-sets whose destination `ip_cidr` alone are taken, kept up to date as they are downloaded again.<br/>`serde (default , with = "crate::config::model::listable")` |
+| `route_exclude_address_set` | `Vec < String >` | Default::default() | Rule-sets whose destination `ip_cidr` are not taken.<br/>`serde (default , with = "crate::config::model::listable")` |
+| `include_interface` | `Vec < String >` | Default::default() | Forwarded traffic is taken only from these interfaces...<br/>`serde (default , with = "crate::config::model::listable")` |
+| `exclude_interface` | `Vec < String >` | Default::default() | ...or not from these. Naming `lo` in either leaves the host's own traffic out.<br/>`serde (default , with = "crate::config::model::listable")` |
+| `include_uid` | `Vec < u32 >` | Default::default() | The host's traffic is taken only from these users...<br/>`serde (default , with = "crate::config::model::listable")` |
+| `include_uid_range` | `Vec < String >` | Default::default() | ...and from these ranges, as "1000:2000".<br/>`serde (default , with = "crate::config::model::listable")` |
+| `exclude_uid` | `Vec < u32 >` | Default::default() | The host's traffic of these users is not taken...<br/>`serde (default , with = "crate::config::model::listable")` |
+| `exclude_uid_range` | `Vec < String >` | Default::default() | ...nor of these ranges.<br/>`serde (default , with = "crate::config::model::listable")` |
+| `include_android_user` | `Vec < u32 >` | Default::default() | Android: what the host's VPN takes in, applied by the host.<br/>`serde (default , with = "crate::config::model::listable")` |
+| `include_package` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "crate::config::model::listable")` |
+| `exclude_package` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "crate::config::model::listable")` |
 | `fake_dns_exclude` | `Vec < String >` | Default::default() | Until the DNS section serves fake IPs, the domains that get one, or those that do not.<br/>`serde (default)` |
 | `fake_dns_include` | `Vec < String >` | Default::default() | —<br/>`serde (default)` |
 
