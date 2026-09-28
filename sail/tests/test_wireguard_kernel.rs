@@ -34,6 +34,7 @@
     feature = "outbound-direct",
 ))]
 
+#[path = "it/common.rs"]
 mod common;
 
 use std::io::{Read, Write};

@@ -109,7 +109,7 @@ Socket preparation/acceptance hooks, including TCP Brutal, are retained.
 
 ## Regression coverage
 
-`sail/tests/test_inbound_resources.rs` exercises real TLS connections,
+`sail/tests/it/test_inbound_resources.rs` exercises real TLS connections,
 certificate fingerprints, new/removed users, retained connections and
 in-flight handshakes, invalid UUID/key rollback, empty tables, the host
 entry point, unchanged PEM paths, and repeated atomic replacement of both
