@@ -269,7 +269,7 @@ Sail 与 sing-box 的对比已经完成。当前结果表明：
 | --- | --- | --- | --- |
 | 4.1 | 移动端 FFI：流量统计、连接列表与关闭、日志回调、节点测速、切换节点、网络变化、运行状态、capability 查询 | `sail-ffi` | App 不经过 HTTP API 即可控制内核；回调线程、内存所有权、取消与错误消息有明确契约 |
 | 4.2 | FFI 健壮性 | `sail-ffi` | 多实例、重复启动/停止、回调重入和 App 异常退出不会死锁或泄漏；Swift/Kotlin 封装有集成测试 |
-| 4.3 | 服务端守护进程：systemd 集成、信号处理（重载 / 优雅退出）、日志轮转、配置检查命令 | `sail-cli` | 优雅退出时等待连接排空；重载失败保持旧配置运行 |
+| 4.3 | **部分完成（2026-09-29）** 服务端守护进程 | 已有非 root systemd unit、独立 TUN capability drop-in、安全安装/卸载、配置预检、便携自测与 Linux 验收脚本；真实 systemd PID 1 生命周期尚未验收，当前只支持 SIGTERM 停止而无连接排空或 `ExecReload` | 在一次性 Linux systemd 环境完成验收；优雅退出时等待连接排空；提供明确重载命令/信号且失败时保持旧配置运行 |
 | 4.4 | 路由器打包：OpenWrt 等发行版、低内存预算预设、按需裁剪 feature | `scripts/`、发布流程 | 在目标低内存设备上长时间运行不 OOM；包体积有记录 |
 | 4.5 | Clash API 基础兼容：`/version`、`/configs`、`/proxies`、节点切换和 delay | `service/clash_api/` | yacd、metacubexd 可读取配置、展示并切换节点 |
 | 4.6 | Clash API 实时与管理接口：WebSocket `/traffic`、`/logs`、`/connections`，连接关闭、`/rules`、`/providers/proxies` | `service/clash_api/` | 用真实面板做端到端测试，而不只验证单个 URL |
@@ -287,7 +287,7 @@ Sail 与 sing-box 的对比已经完成。当前结果表明：
 | 5.3 | **已完成基线（2026-09-29）** 模糊测试 | 独立 `fuzz-config` workspace 有配置、订阅、source/binary 规则集、DNS、嗅探、TUIC/XUDP 入站解析共 8 个 cargo-fuzz target；有界语料、稳定回归、ASan campaign/replay 和留存证据 | 持续延长 campaign、扩充真实且脱敏的协议语料；新 crash 先最小化并固化为默认回归 |
 | 5.4 | 性能回归 CI | 目前为手动 benchmark | 移动端、桌面、服务端、路由器四种预算都有可比较基线；吞吐、CPU、内存或分配次数超阈值即告警 |
 | 5.5 | 长稳与弱网测试 | 无 | 24 小时运行，以及延迟、丢包、乱序、断网重连、高并发和半关闭场景通过 |
-| 5.6 | **部分完成（2026-09-29）** 安全 | 已有依赖来源、RustSec、许可证门禁和只读 CI；根锁文件纳入版本控制，3 个漏洞和直接 `lru` unsound 路径已升级，audit 无漏洞；第一方统一 Apache-2.0，`webpki-root-certs` 的 CDLA 采用精确例外并随发布提供全文；`quinn-btls -> lru 0.16.4`、`paste` 和 `tun/WTFPL` 仍未闭环 | 推进 fork/TUN 上游依赖及 WTFPL 决策；补入站抗探测和资源耗尽防护、订阅和规则下载限流/大小限制/超时/路径约束、日志脱敏 |
+| 5.6 | **部分完成（2026-09-29）** 安全 | 已有依赖来源、RustSec、许可证门禁和只读 CI；根锁文件纳入版本控制，3 个漏洞和直接 `lru` unsound 路径已升级，audit 无漏洞；第一方统一 Apache-2.0，`webpki-root-certs/CDLA` 与 `tun/WTFPL` 采用精确例外并随发布提供全文；`quinn-btls -> lru 0.16.4` 和 `paste` 警告仍未闭环 | 推进 fork/TUN 上游依赖；补入站抗探测和资源耗尽防护、订阅和规则下载限流/大小限制/超时/路径约束、日志脱敏 |
 | 5.7 | 配置参考文档 | 只有 README 和 MPTP 文档 | 原生格式（sing-box JSON 及 sail 扩展字段）有逐字段文档、示例和 schema，由 options 类型生成；Clash 与 Surge 用 C.6 生成的支持表；变更采用一次性迁移，不保留并行版本 |
 | 5.8 | 跨平台发布 | 已有部分 Apple/Android 构建脚本 | 自动产出 XCFramework、AAR、桌面、服务端和路由器二进制；记录符号、包体积、依赖和可重复构建信息 |
 | 5.9 | 处理 TODO / FIXME | 49 处 | 逐项处理，或转成带优先级的 issue |

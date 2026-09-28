@@ -22,6 +22,9 @@ exceptions = [
   # Mozilla/CCADB trust-anchor data embedded by Sail. Its license text ships
   # as THIRD_PARTY_LICENSES.md and is uploaded with every GitHub release.
   { allow = ["CDLA-Permissive-2.0"], crate = "webpki-root-certs@1.0.9" },
+  # Cross-platform TUN device implementation. Keep this narrow so a new tun
+  # release or another WTFPL dependency requires a fresh review.
+  { allow = ["WTFPL"], crate = "tun@0.7.22" },
 ]
 
 # Exceptions require review and a package/version-specific justification; see

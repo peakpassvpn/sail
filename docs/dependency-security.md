@@ -110,10 +110,10 @@ license. `webpki-root-certs 1.0.9` has a package-and-version-specific
 `CDLA-Permissive-2.0` exception: it contains Mozilla/CCADB trust-anchor data,
 and the required agreement text is retained in `THIRD_PARTY_LICENSES.md` and
 uploaded with every GitHub release. The exception does not globally allow
-CDLA for another dependency or version. `tun 0.7.22` (WTFPL) remains
-unapproved, so the license gate still intentionally fails on that package.
-This exact state was verified with the pinned `cargo-deny 0.20.2`: CDLA was
-accepted through the exception and `tun` was the only rejected package.
+CDLA for another dependency or version. `tun 0.7.22` has likewise been
+approved through an exact `WTFPL` exception for Sail's cross-platform TUN
+implementation. Its license text is included in the same release notice.
+Neither exception permits a different package or version without review.
 
 ## Historical local baseline (2026-09-28)
 

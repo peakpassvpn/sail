@@ -64,3 +64,25 @@ from a Data Provider and agrees to the terms of this agreement.
 
 5.4. “Results” means any outcome obtained by computational analysis of Data,
 including for example machine learning models and models’ insights.
+
+## tun 0.7.22
+
+Sail uses `tun` to create and operate cross-platform TUN interfaces. The crate
+declares the following license.
+
+Source: <https://github.com/meh/rust-tun>
+
+### DO WHAT THE FUCK YOU WANT TO PUBLIC LICENSE
+
+Version 2, December 2004
+
+Copyright (C) 2004 Sam Hocevar <sam@hocevar.net>
+
+Everyone is permitted to copy and distribute verbatim or modified copies of
+this license document, and changing it is allowed as long as the name is
+changed.
+
+DO WHAT THE FUCK YOU WANT TO PUBLIC LICENSE TERMS AND CONDITIONS FOR COPYING,
+DISTRIBUTION AND MODIFICATION
+
+0. You just DO WHAT THE FUCK YOU WANT TO.
