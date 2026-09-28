@@ -11,7 +11,6 @@ use std::sync::Arc;
 use anyhow::{anyhow, Result};
 use cidr::IpCidr;
 use maxminddb::geoip2::Country;
-use maxminddb::Mmap;
 
 use super::rule_set::succinct::Succinct;
 use crate::config::external_rule::{self, DomainKind, External};
@@ -311,23 +310,26 @@ pub(crate) fn is_private(ip: IpAddr) -> bool {
 }
 
 struct Mmdb {
-    reader: Arc<maxminddb::Reader<Mmap>>,
+    reader: Arc<maxminddb::Reader<Vec<u8>>>,
     /// Uppercase, as the databases have them.
     country_code: String,
 }
 
 impl Mmdb {
     fn contains(&self, ip: IpAddr) -> bool {
-        matches!(
-            self.reader.lookup::<Country>(ip),
-            Ok(Country { country: Some(country), .. })
-                if country.iso_code == Some(self.country_code.as_str())
-        )
+        self.reader
+            .lookup(ip)
+            .and_then(|result| result.decode::<Country>())
+            .is_ok_and(|country| {
+                country.is_some_and(|country| {
+                    country.country.iso_code == Some(self.country_code.as_str())
+                })
+            })
     }
 }
 
 /// Mmdb readers by file, shared by the rules that use the same database.
-pub(crate) type Readers = HashMap<String, Arc<maxminddb::Reader<Mmap>>>;
+pub(crate) type Readers = HashMap<String, Arc<maxminddb::Reader<Vec<u8>>>>;
 
 /// A regular expression, when sail is built with them.
 #[cfg(feature = "regex")]
@@ -605,10 +607,9 @@ impl Conditions {
                 let reader = match ctx.readers.get(&mmdb.file) {
                     Some(r) => r.clone(),
                     None => {
-                        let r =
-                            Arc::new(maxminddb::Reader::open_mmap(&mmdb.file).map_err(|e| {
-                                anyhow!("{}: open {} failed: {}", field("geoip"), mmdb.file, e)
-                            })?);
+                        let r = Arc::new(maxminddb::Reader::open_readfile(&mmdb.file).map_err(
+                            |e| anyhow!("{}: open {} failed: {}", field("geoip"), mmdb.file, e),
+                        )?);
                         ctx.readers.insert(mmdb.file.clone(), r.clone());
                         r
                     }

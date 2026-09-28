@@ -142,7 +142,8 @@ impl OutboundDatagramSendHalf for SendHalf {
 mod tests {
     use super::*;
     use crate::app::dns_client::DnsClient;
-    use hickory_proto::op::{Message, MessageType, Query, ResponseCode};
+    use crate::util::DnsMessageExt;
+    use hickory_proto::op::{Message, MessageType, OpCode, Query, ResponseCode};
     use hickory_proto::rr::{Name, RData, RecordType};
     use std::net::IpAddr;
     use std::str::FromStr;
@@ -165,7 +166,7 @@ mod tests {
     }
 
     fn query(name: &str, ty: RecordType) -> Vec<u8> {
-        let mut m = Message::new();
+        let mut m = Message::new(0, MessageType::Query, OpCode::Query);
         m.set_id(7)
             .set_recursion_desired(true)
             .add_query(Query::query(Name::from_str(name).unwrap(), ty));
@@ -179,9 +180,9 @@ mod tests {
         let ips = m
             .answers()
             .iter()
-            .filter_map(|r| match r.data() {
-                Some(RData::A(a)) => Some(IpAddr::V4(a.0)),
-                Some(RData::AAAA(a)) => Some(IpAddr::V6(a.0)),
+            .filter_map(|r| match &r.data {
+                RData::A(a) => Some(IpAddr::V4(a.0)),
+                RData::AAAA(a) => Some(IpAddr::V6(a.0)),
                 _ => None,
             })
             .collect();

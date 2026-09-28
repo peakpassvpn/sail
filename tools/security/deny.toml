@@ -1,0 +1,37 @@
+[licenses]
+confidence-threshold = 0.8
+include-dev = true
+unused-allowed-license = "warn"
+unused-license-exception = "deny"
+allow = [
+  "0BSD",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "BSL-1.0",
+  "CC0-1.0",
+  "ISC",
+  "MIT",
+  "MIT-0",
+  "Unicode-3.0",
+  "Unlicense",
+  "Zlib",
+]
+
+# Deliberately no per-crate exceptions. New exceptions require review and a
+# package/version-specific justification; see docs/dependency-security.md.
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+required-git-spec = "rev"
+unused-allowed-source = "deny"
+allow-registry = [
+  "https://github.com/rust-lang/crates.io-index",
+]
+allow-git = [
+  "https://github.com/peakpassvpn/btls.git",
+  "https://github.com/peakpassvpn/quinn.git",
+  "https://github.com/peakpassvpn/quinn-btls.git",
+]

@@ -9,10 +9,8 @@ use anyhow::{anyhow, Result};
 use async_recursion::async_recursion;
 use futures::future::select_ok;
 use hickory_proto::{
-    op::{
-        header::MessageType, op_code::OpCode, query::Query, response_code::ResponseCode, Message,
-    },
-    rr::{record_data::RData, record_type::RecordType, resource::Record, Name},
+    op::{Message, MessageType, OpCode, Query, ResponseCode},
+    rr::{Name, RData, Record, RecordType},
 };
 use lru::LruCache;
 use rand::{rngs::StdRng, Rng, SeedableRng};
@@ -22,6 +20,7 @@ use tracing::{debug, trace, Instrument};
 
 use crate::{
     adapter::*, app::dispatcher::Dispatcher, config::model::DnsStrategy, net::*, session::*,
+    util::DnsMessageExt,
 };
 include!("client/types.rs");
 
@@ -642,7 +641,7 @@ impl DnsClient {
 
     /// An answer to `request` made here: `ips` of the family asked for.
     fn reply(request: &Message, ips: &[IpAddr], ttl: u32) -> Message {
-        let mut reply = Message::new();
+        let mut reply = Message::new(0, MessageType::Query, OpCode::Query);
         reply.set_id(request.id());
         reply.set_message_type(MessageType::Response);
         reply.set_op_code(OpCode::Query);
@@ -675,7 +674,7 @@ impl DnsClient {
         if ips.is_empty() {
             return Err(anyhow!("no address for {}", host));
         }
-        let ttl = Duration::from_secs(response.answers().first().map_or(0, |a| a.ttl()).into());
+        let ttl = Duration::from_secs(response.answers().first().map_or(0, |a| a.ttl).into());
         debug!("{} is {:?}, ttl={:?}", host, ips, ttl);
         let deadline = Instant::now()
             .checked_add(ttl)
@@ -690,11 +689,11 @@ impl DnsClient {
             if ans.record_type() != ty {
                 continue;
             }
-            let Some(data) = ans.data() else { continue };
+            let data = &ans.data;
             found = true;
             if let Some(ech_config_list) = Self::extract_ech_config_list(&data.to_string()) {
                 let deadline = Instant::now()
-                    .checked_add(Duration::from_secs(ans.ttl().into()))
+                    .checked_add(Duration::from_secs(ans.ttl.into()))
                     .ok_or_else(|| anyhow!("invalid ttl"))?;
                 debug!("{} {} has an ech config", host, ty);
                 return Ok(EchCacheEntry {
@@ -739,7 +738,7 @@ impl DnsClient {
     }
 
     fn new_query(name: Name, ty: RecordType) -> Message {
-        let mut msg = Message::new();
+        let mut msg = Message::new(0, MessageType::Query, OpCode::Query);
         msg.add_query(Query::query(name, ty));
         let mut rng = StdRng::from_entropy();
         let id: u16 = rng.gen();
@@ -827,7 +826,7 @@ impl DnsClient {
         let mut message = message.clone();
         message.set_id(id);
         for record in message.answers_mut() {
-            record.set_ttl(record.ttl().min(left));
+            record.ttl = record.ttl.min(left);
         }
         Some(message)
     }
@@ -838,7 +837,7 @@ impl DnsClient {
         let ttl = message
             .answers()
             .iter()
-            .map(|r| r.ttl())
+            .map(|r| r.ttl)
             .min()
             .unwrap_or(LOCAL_TTL.as_secs() as u32);
         if ttl == 0 {

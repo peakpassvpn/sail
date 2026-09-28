@@ -1,0 +1,53 @@
+name: dependency security
+
+on:
+  push:
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "**/Cargo.toml"
+      - "tools/security/**"
+      - ".github/workflows/dependency-security.yml"
+  pull_request:
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "**/Cargo.toml"
+      - "tools/security/**"
+      - ".github/workflows/dependency-security.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dependency-security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CARGO_TERM_COLOR: always
+      CARGO_INSTALL_ROOT: ${{ runner.temp }}/dependency-security-tools
+    steps:
+      - name: checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: verify committed dependency sources
+        run: tools/security/check.sh sources
+
+      - name: test security gate failure modes
+        run: tools/security/test.sh
+
+      - name: install pinned Rust toolchain
+        run: rustup toolchain install 1.98.1 --profile minimal
+
+      - name: install pinned scanners
+        run: |
+          cargo +1.98.1 install --locked --version 0.22.2 cargo-audit -j 2
+          cargo +1.98.1 install --locked --version 0.20.2 cargo-deny -j 2
+          echo "$CARGO_INSTALL_ROOT/bin" >> "$GITHUB_PATH"
+
+      - name: audit locked dependencies
+        run: tools/security/check.sh audit
+
+      - name: check licenses and resolved sources
+        run: tools/security/check.sh licenses

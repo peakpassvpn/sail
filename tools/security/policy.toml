@@ -1,0 +1,25 @@
+schema = 1
+lockfile = "Cargo.lock"
+manifests = [
+  "Cargo.toml",
+  "sail/Cargo.toml",
+  "sail-cli/Cargo.toml",
+  "sail-ffi/Cargo.toml",
+  "sail-netstack/Cargo.toml",
+  "sail-plugins/shadowsocks/Cargo.toml",
+]
+
+# Git dependencies are an explicit, exact allowlist. A repository added here
+# still has to use this full 40-character revision in both its manifest and
+# Cargo.lock; branches, tags, abbreviated revisions, and floating HEADs fail.
+[[git]]
+url = "https://github.com/peakpassvpn/btls.git"
+rev = "4123de36dc5ac86914c8a744f958025e598aa712"
+
+[[git]]
+url = "https://github.com/peakpassvpn/quinn.git"
+rev = "6d1e2b9e29895c1707a83167fb482348a70ac65c"
+
+[[git]]
+url = "https://github.com/peakpassvpn/quinn-btls.git"
+rev = "3a577da6370dbd1b7035bac55141bb625bb4f68a"

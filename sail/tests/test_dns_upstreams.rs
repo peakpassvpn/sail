@@ -37,14 +37,15 @@ fn cert() -> Cert {
 /// Answers `query` with `ANSWER`; `None` when it is not a query.
 fn answer(query: &[u8]) -> Option<Vec<u8>> {
     let query = Message::from_vec(query).ok()?;
-    let mut resp = Message::new();
-    resp.set_id(query.id());
-    resp.set_message_type(MessageType::Response);
-    resp.set_op_code(query.op_code());
-    resp.set_recursion_desired(query.recursion_desired());
-    resp.set_recursion_available(true);
-    resp.set_response_code(ResponseCode::NoError);
-    for q in query.queries() {
+    let mut resp = Message::new(
+        query.metadata.id,
+        MessageType::Response,
+        query.metadata.op_code,
+    );
+    resp.metadata.recursion_desired = query.metadata.recursion_desired;
+    resp.metadata.recursion_available = true;
+    resp.metadata.response_code = ResponseCode::NoError;
+    for q in &query.queries {
         resp.add_query(q.clone());
         if q.query_type() == RecordType::A {
             resp.add_answer(Record::from_rdata(
@@ -537,8 +538,8 @@ mod doh {
             Reply::Answer => Some(resp),
             Reply::NxDomain => {
                 let mut resp = Message::from_vec(&resp).ok()?;
-                resp.take_answers();
-                resp.set_response_code(ResponseCode::NXDomain);
+                resp.answers.clear();
+                resp.metadata.response_code = ResponseCode::NXDomain;
                 resp.to_vec().ok()
             }
             Reply::Oversized => {

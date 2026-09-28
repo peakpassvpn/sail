@@ -7,6 +7,100 @@ use anyhow::{anyhow, Result};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::time::timeout;
 
+/// Compatibility accessors for hickory-proto 0.26's public message fields.
+pub(crate) trait DnsMessageExt {
+    fn id(&self) -> u16;
+    fn message_type(&self) -> hickory_proto::op::MessageType;
+    fn op_code(&self) -> hickory_proto::op::OpCode;
+    fn recursion_desired(&self) -> bool;
+    fn checking_disabled(&self) -> bool;
+    fn response_code(&self) -> hickory_proto::op::ResponseCode;
+    fn queries(&self) -> &[hickory_proto::op::Query];
+    fn answers(&self) -> &[hickory_proto::rr::Record];
+    fn answers_mut(&mut self) -> &mut [hickory_proto::rr::Record];
+    fn name_servers(&self) -> &[hickory_proto::rr::Record];
+    fn name_servers_mut(&mut self) -> &mut [hickory_proto::rr::Record];
+    fn extensions(&self) -> &Option<hickory_proto::op::Edns>;
+    fn extensions_mut(&mut self) -> &mut Option<hickory_proto::op::Edns>;
+    fn set_id(&mut self, value: u16) -> &mut Self;
+    fn set_message_type(&mut self, value: hickory_proto::op::MessageType) -> &mut Self;
+    fn set_op_code(&mut self, value: hickory_proto::op::OpCode) -> &mut Self;
+    fn set_recursion_desired(&mut self, value: bool) -> &mut Self;
+    fn set_recursion_available(&mut self, value: bool) -> &mut Self;
+    fn set_checking_disabled(&mut self, value: bool) -> &mut Self;
+    fn set_response_code(&mut self, value: hickory_proto::op::ResponseCode) -> &mut Self;
+}
+
+impl DnsMessageExt for hickory_proto::op::Message {
+    fn id(&self) -> u16 {
+        self.metadata.id
+    }
+    fn message_type(&self) -> hickory_proto::op::MessageType {
+        self.metadata.message_type
+    }
+    fn op_code(&self) -> hickory_proto::op::OpCode {
+        self.metadata.op_code
+    }
+    fn recursion_desired(&self) -> bool {
+        self.metadata.recursion_desired
+    }
+    fn checking_disabled(&self) -> bool {
+        self.metadata.checking_disabled
+    }
+    fn response_code(&self) -> hickory_proto::op::ResponseCode {
+        self.metadata.response_code
+    }
+    fn queries(&self) -> &[hickory_proto::op::Query] {
+        &self.queries
+    }
+    fn answers(&self) -> &[hickory_proto::rr::Record] {
+        &self.answers
+    }
+    fn answers_mut(&mut self) -> &mut [hickory_proto::rr::Record] {
+        &mut self.answers
+    }
+    fn name_servers(&self) -> &[hickory_proto::rr::Record] {
+        &self.authorities
+    }
+    fn name_servers_mut(&mut self) -> &mut [hickory_proto::rr::Record] {
+        &mut self.authorities
+    }
+    fn extensions(&self) -> &Option<hickory_proto::op::Edns> {
+        &self.edns
+    }
+    fn extensions_mut(&mut self) -> &mut Option<hickory_proto::op::Edns> {
+        &mut self.edns
+    }
+    fn set_id(&mut self, value: u16) -> &mut Self {
+        self.metadata.id = value;
+        self
+    }
+    fn set_message_type(&mut self, value: hickory_proto::op::MessageType) -> &mut Self {
+        self.metadata.message_type = value;
+        self
+    }
+    fn set_op_code(&mut self, value: hickory_proto::op::OpCode) -> &mut Self {
+        self.metadata.op_code = value;
+        self
+    }
+    fn set_recursion_desired(&mut self, value: bool) -> &mut Self {
+        self.metadata.recursion_desired = value;
+        self
+    }
+    fn set_recursion_available(&mut self, value: bool) -> &mut Self {
+        self.metadata.recursion_available = value;
+        self
+    }
+    fn set_checking_disabled(&mut self, value: bool) -> &mut Self {
+        self.metadata.checking_disabled = value;
+        self
+    }
+    fn set_response_code(&mut self, value: hickory_proto::op::ResponseCode) -> &mut Self {
+        self.metadata.response_code = value;
+        self
+    }
+}
+
 use crate::{
     adapter::*,
     app::{dns::DnsClient, outbound::manager::OutboundManager, SyncDnsClient},
@@ -72,8 +166,8 @@ async fn test_udp_outbound(
     handler: AnyOutboundHandler,
 ) -> Result<Duration> {
     use hickory_proto::{
-        op::{header::MessageType, op_code::OpCode, query::Query, Message},
-        rr::{record_type::RecordType, Name},
+        op::{Message, MessageType, OpCode, Query},
+        rr::{Name, RecordType},
     };
     use rand::{rngs::StdRng, Rng, SeedableRng};
     let addr = SocksAddr::Ip(SocketAddr::new(IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)), 53));
@@ -85,7 +179,7 @@ async fn test_udp_outbound(
     let start = tokio::time::Instant::now();
     let dgram = crate::net::connect_datagram_outbound(&sess, dns_client, &handler).await?;
     let dgram = handler.datagram()?.handle(&sess, dgram).await?;
-    let mut msg = Message::new();
+    let mut msg = Message::new(0, MessageType::Query, OpCode::Query);
     let name = Name::from_str("www.google.com.")?;
     let query = Query::query(name, RecordType::A);
     msg.add_query(query);

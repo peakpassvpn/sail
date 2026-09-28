@@ -179,7 +179,7 @@ fuzzing = ["rule-set"]
 [dependencies]
 # Common
 tokio = { version = "1", features = ["sync", "io-util", "net", "time", "rt", "rt-multi-thread", "macros"] }
-protobuf = "3.6"
+protobuf = "3.7.2"
 thiserror = "1.0"
 futures = "0.3"
 async-trait = "0.1"
@@ -194,8 +194,8 @@ parking_lot = "0.12"
 uuid = { version = "1", features = ["v4"] }
 
 # DNS
-hickory-proto = { version = "0.24", default-features = false }
-lru = "0.12"
+hickory-proto = { version = "0.26.1", default-features = false }
+lru = "0.18.2"
 
 # Logging
 tracing = "0.1"
@@ -204,7 +204,7 @@ tracing-subscriber = "0.3"
 chrono = "0.4"
 
 # Router
-maxminddb = { version = "0.24", features = ["mmap"] }
+maxminddb = "0.27"
 memmap2 = "0.9"
 cidr = "0.2"
 regex = { version = "1.11", optional = true }
@@ -315,5 +315,5 @@ tokio = { version = "1", features = ["fs", "sync", "io-util", "net", "time", "rt
 
 [build-dependencies]
 cc = "1.2"
-protobuf-codegen = "=3.6.0"
+protobuf-codegen = "=3.7.2"
 protoc-bin-vendored = "3.2"

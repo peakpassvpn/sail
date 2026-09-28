@@ -2,14 +2,12 @@ use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr};
 
 use anyhow::{anyhow, Result};
-use hickory_proto::op::{
-    header::MessageType, op_code::OpCode, response_code::ResponseCode, Message,
-};
-use hickory_proto::rr::{
-    dns_class::DNSClass, rdata, record_data::RData, record_type::RecordType, resource::Record,
-};
+use hickory_proto::op::{Message, MessageType, OpCode, ResponseCode};
+use hickory_proto::rr::{rdata, DNSClass, RData, Record, RecordType};
 use tokio::sync::RwLock;
 use tracing::debug;
+
+use crate::util::DnsMessageExt;
 
 pub enum FakeDnsMode {
     Include,
@@ -126,7 +124,7 @@ impl FakeDnsImpl {
             ip
         };
 
-        let mut resp = Message::new();
+        let mut resp = Message::new(0, MessageType::Query, OpCode::Query);
 
         // sets the response according to request
         // https://github.com/miekg/dns/blob/f515aa579d28efa1af67d9a62cc57f2dfe59da76/defaults.go#L15
@@ -144,12 +142,7 @@ impl FakeDnsImpl {
         }
 
         if query.query_type() == RecordType::A {
-            let mut ans = Record::new();
-            ans.set_name(raw_name.clone())
-                .set_rr_type(RecordType::A)
-                .set_ttl(self.ttl)
-                .set_dns_class(DNSClass::IN)
-                .set_data(Some(RData::A(rdata::A(ip))));
+            let ans = Record::from_rdata(raw_name.clone(), self.ttl, RData::A(rdata::A(ip)));
             resp.add_answer(ans);
         }
 

@@ -4,6 +4,7 @@ mod tests {
     use std::time::Duration;
 
     use super::{DnsClient, Kind, ServerSelectorState};
+    use crate::util::DnsMessageExt;
 
     fn dns(servers: serde_json::Value) -> crate::config::Dns {
         let mut config = crate::config::Config::from_json(
@@ -570,9 +571,9 @@ mod tests {
         message
             .answers()
             .iter()
-            .filter_map(|r| match r.data() {
-                Some(RData::A(a)) => Some(IpAddr::V4(**a)),
-                Some(RData::AAAA(a)) => Some(IpAddr::V6(**a)),
+            .filter_map(|r| match &r.data {
+                RData::A(a) => Some(IpAddr::V4(a.0)),
+                RData::AAAA(a) => Some(IpAddr::V6(a.0)),
                 _ => None,
             })
             .collect()
@@ -618,7 +619,7 @@ mod tests {
         // Fake IPs, in turn, for as long as the domain has one.
         let a = exchange(&client, "a.example", RecordType::A).await;
         assert_eq!(answer_ips(&a), ips(&["198.18.0.2"]));
-        assert_eq!(a.answers()[0].ttl(), 600);
+        assert_eq!(a.answers()[0].ttl, 600);
         let b = exchange(&client, "b.example", RecordType::A).await;
         assert_eq!(answer_ips(&b), ips(&["198.18.0.3"]));
         let again = exchange(&client, "a.example", RecordType::A).await;
@@ -722,7 +723,7 @@ mod tests {
         assert_eq!(answer_ips(&first), ips(&["10.0.0.7"]));
         let second = exchange(&client, "a.example", RecordType::A).await;
         assert_eq!(answer_ips(&second), ips(&["10.0.0.7"]));
-        assert!(second.answers()[0].ttl() <= 300);
+        assert!(second.answers()[0].ttl <= 300);
         assert_eq!(count.load(std::sync::atomic::Ordering::SeqCst), 1);
     }
 
@@ -938,7 +939,7 @@ mod tests {
         exchange(&client, "own.example", RecordType::A).await;
         exchange(&client, "none.example", RecordType::A).await;
         let ttl = exchange(&client, "ttl.example", RecordType::A).await;
-        assert_eq!(ttl.answers()[0].ttl(), 5);
+        assert_eq!(ttl.answers()[0].ttl, 5);
         // Not cached: asked again.
         exchange(&client, "ttl.example", RecordType::A).await;
         let prefix = |p: &str| Some(p.parse::<crate::config::model::Prefix>().unwrap());

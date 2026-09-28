@@ -8,6 +8,9 @@ use sail_netstack::{
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+#[cfg(target_os = "linux")]
+use crate::util::DnsMessageExt;
+
 pub(crate) struct TunPacketIo {
     writer: tun::DeviceWriter,
     reader: tun::DeviceReader,
@@ -474,7 +477,7 @@ mod tests {
         id: u16,
         domain: &str,
     ) -> anyhow::Result<Ipv4Addr> {
-        let mut request = Message::new();
+        let mut request = Message::new(0, MessageType::Query, OpCode::Query);
         request
             .set_id(id)
             .set_message_type(MessageType::Query)
@@ -491,8 +494,8 @@ mod tests {
         response
             .answers()
             .iter()
-            .find_map(|answer| match answer.data() {
-                Some(RData::A(address)) => Some(**address),
+            .find_map(|answer| match &answer.data {
+                RData::A(address) => Some(address.0),
                 _ => None,
             })
             .ok_or_else(|| anyhow::anyhow!("fake DNS response has no A record"))

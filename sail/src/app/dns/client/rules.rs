@@ -15,6 +15,7 @@ use super::{DnsClient, LookupContext, QueryOptions, Rule, RuleAction, Subnet};
 use crate::app::router::matcher::Facts;
 use crate::config::model::{DnsRuleAction, DnsStrategy, Prefix, ResponseRef};
 use crate::session::{Session, SocksAddr};
+use crate::util::DnsMessageExt;
 
 /// What the rules make of a query.
 pub(super) enum Walked {
@@ -370,10 +371,10 @@ impl DnsClient {
         response.set_id(request.id());
         if let Some(ttl) = options.rewrite_ttl {
             for record in response.answers_mut() {
-                record.set_ttl(ttl);
+                record.ttl = ttl;
             }
             for record in response.name_servers_mut() {
-                record.set_ttl(ttl);
+                record.ttl = ttl;
             }
         }
         let keeps = matches!(
@@ -392,9 +393,9 @@ pub(super) fn addresses(response: &Message) -> Vec<IpAddr> {
     response
         .answers()
         .iter()
-        .filter_map(|record| match record.data() {
-            Some(RData::A(ip)) => Some(IpAddr::V4(**ip)),
-            Some(RData::AAAA(ip)) => Some(IpAddr::V6(**ip)),
+        .filter_map(|record| match &record.data {
+            RData::A(ip) => Some(IpAddr::V4(ip.0)),
+            RData::AAAA(ip) => Some(IpAddr::V6(ip.0)),
             _ => None,
         })
         .collect()
@@ -444,8 +445,9 @@ fn set_client_subnet(request: &mut Message, prefix: Prefix) {
         edns.set_max_payload(1232);
         edns
     });
-    edns.options_mut()
-        .insert(EdnsOption::Subnet(ClientSubnet::new(addr, prefix.len, 0)));
+    let options = edns.options_mut();
+    options.remove(EdnsCode::Subnet);
+    options.insert(EdnsOption::Subnet(ClientSubnet::new(addr, prefix.len, 0)));
 }
 
 fn remove_client_subnet(request: &mut Message) {
@@ -457,10 +459,11 @@ fn remove_client_subnet(request: &mut Message) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use hickory_proto::op::{MessageType, OpCode};
 
     #[test]
     fn a_client_subnet_is_set_masked_and_read_back() {
-        let mut request = Message::new();
+        let mut request = Message::new(0, MessageType::Query, OpCode::Query);
         let prefix: Prefix = "223.5.5.77/24".parse().unwrap();
         set_client_subnet(&mut request, prefix);
         let read = client_subnet(&Message::from_vec(&request.to_vec().unwrap()).unwrap());

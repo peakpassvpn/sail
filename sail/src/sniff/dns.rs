@@ -10,6 +10,7 @@ use tokio::sync::RwLock;
 
 use crate::adapter::{OutboundDatagram, OutboundDatagramRecvHalf, OutboundDatagramSendHalf};
 use crate::session::SocksAddr;
+use crate::util::DnsMessageExt;
 
 use super::{be_u16, Sniff};
 
@@ -150,16 +151,14 @@ impl OutboundDatagramRecvHalf for SniffingDatagramRecvHalf {
 
                 if let Some(domain) = domain {
                     for answer in msg.answers() {
-                        if let Some(rdata) = answer.data() {
-                            match rdata {
-                                RData::A(ip) => {
-                                    self.sniffer.add(IpAddr::V4(ip.0), domain.clone()).await;
-                                }
-                                RData::AAAA(ip) => {
-                                    self.sniffer.add(IpAddr::V6(ip.0), domain.clone()).await;
-                                }
-                                _ => {}
+                        match &answer.data {
+                            RData::A(ip) => {
+                                self.sniffer.add(IpAddr::V4(ip.0), domain.clone()).await;
                             }
+                            RData::AAAA(ip) => {
+                                self.sniffer.add(IpAddr::V6(ip.0), domain.clone()).await;
+                            }
+                            _ => {}
                         }
                     }
                 }
@@ -190,6 +189,7 @@ mod tests {
     use super::*;
     use crate::adapter::{OutboundDatagram, OutboundDatagramRecvHalf, OutboundDatagramSendHalf};
     use crate::session::SocksAddr;
+    use hickory_proto::op::OpCode;
     use hickory_proto::op::{Message, MessageType, Query};
     use hickory_proto::rr::{Name, RData, Record, RecordType};
     use std::io;
@@ -242,7 +242,7 @@ mod tests {
     }
 
     fn query_bytes(name: &str) -> Vec<u8> {
-        let mut msg = Message::new();
+        let mut msg = Message::new(0, MessageType::Query, OpCode::Query);
         msg.set_id(7);
         msg.set_recursion_desired(true);
         msg.add_query(Query::query(
@@ -269,7 +269,7 @@ mod tests {
 
     #[test]
     fn a_response_is_not_a_query() {
-        let mut msg = Message::new();
+        let mut msg = Message::new(0, MessageType::Query, OpCode::Query);
         msg.set_message_type(MessageType::Response);
         let name = Name::from_str("example.com.").unwrap();
         msg.add_query(Query::query(name.clone(), RecordType::A));
@@ -302,7 +302,7 @@ mod tests {
         let sniffer = DnsSniffer::new();
 
         // Construct a DNS response
-        let mut msg = Message::new();
+        let mut msg = Message::new(0, MessageType::Query, OpCode::Query);
         msg.set_message_type(MessageType::Response);
         let name = Name::from_str("example.com.").unwrap();
         let query = Query::query(name.clone(), RecordType::A);
