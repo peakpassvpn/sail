@@ -94,7 +94,9 @@ cleanup() {
             "$tmp_dir/config-check.txt" \
             "$tmp_dir/systemd-analyze-verify.txt" \
             "$tmp_dir/systemd-analyze-verify-tun.txt" \
-            "$tmp_dir/journal-start.txt"; do
+            "$tmp_dir/journal-start.txt" \
+            "$tmp_dir/process-status-ordinary.txt" \
+            "$tmp_dir/process-status-tun.txt"; do
             if [ -f "$evidence" ]; then
                 cp "$evidence" "$artifact_dir/" >/dev/null 2>&1 || true
             fi
@@ -145,6 +147,41 @@ trap 'cleanup $?' EXIT
 trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
+
+wait_for_process_security_state() {
+    security_expected_uid=$1
+    security_expected_cap=$2
+    security_evidence=$3
+    security_attempt=0
+    pid=0
+    actual_uid=
+    cap_eff=
+    while [ "$security_attempt" -lt 50 ]; do
+        pid=$(systemctl show "$unit_name" -p MainPID --value)
+        if [ "$pid" -gt 1 ] 2>/dev/null && [ -r "/proc/$pid/status" ]; then
+            actual_uid=$(awk '/^Uid:/{print $2}' "/proc/$pid/status")
+            cap_eff=$(awk '/^CapEff:/{print $2}' "/proc/$pid/status")
+            if [ "$actual_uid" = "$security_expected_uid" ] && \
+                [ "$cap_eff" = "$security_expected_cap" ]; then
+                cp "/proc/$pid/status" "$security_evidence"
+                return 0
+            fi
+        fi
+        security_attempt=$((security_attempt + 1))
+        sleep 0.1
+    done
+    {
+        printf 'expected_uid=%s\n' "$security_expected_uid"
+        printf 'expected_cap_eff=%s\n' "$security_expected_cap"
+        printf 'observed_pid=%s\n' "$pid"
+        printf 'observed_uid=%s\n' "$actual_uid"
+        printf 'observed_cap_eff=%s\n' "$cap_eff"
+        if [ "$pid" -gt 1 ] 2>/dev/null && [ -r "/proc/$pid/status" ]; then
+            cat "/proc/$pid/status"
+        fi
+    } >"$security_evidence"
+    return 1
+}
 
 if [ -n "$artifacts_root" ]; then
     artifact_dir=$artifacts_root/run-$(date -u +%Y%m%dT%H%M%SZ)-$$
@@ -235,14 +272,13 @@ started_at=$(date +%s)
 systemctl start "$unit_name"
 active=$(systemctl is-active "$unit_name")
 [ "$active" = active ] || die "ordinary service did not become active"
-pid=$(systemctl show "$unit_name" -p MainPID --value)
-[ "$pid" -gt 1 ] || die "ordinary service has no MainPID"
 expected_uid=$(id -u sail)
-actual_uid=$(awk '/^Uid:/{print $2}' "/proc/$pid/status")
-[ "$actual_uid" = "$expected_uid" ] || die "service did not run as sail"
+[ "$expected_uid" != 0 ] || die "sail account unexpectedly has root UID"
+if ! wait_for_process_security_state "$expected_uid" 0000000000000000 \
+    "$tmp_dir/process-status-ordinary.txt"; then
+    die "ordinary service did not settle to the expected UID and capability state"
+fi
 [ "$actual_uid" != 0 ] || die "ordinary service ran as root"
-cap_eff=$(awk '/^CapEff:/{print $2}' "/proc/$pid/status")
-[ "$cap_eff" = 0000000000000000 ] || die "ordinary service retained capabilities: $cap_eff"
 journalctl -u "$unit_name" --since "@$started_at" --no-pager >"$tmp_dir/journal-start.txt"
 [ -s "$tmp_dir/journal-start.txt" ] || die "service produced no journal evidence"
 note "PASS runtime: ordinary service active as non-root UID $actual_uid with journal output"
@@ -288,11 +324,11 @@ if [ "$tun_check" = true ]; then
     chmod 0644 "$dropin_dir/10-tun-transparent.conf"
     systemctl daemon-reload
     systemctl start "$unit_name"
-    pid=$(systemctl show "$unit_name" -p MainPID --value)
-    actual_uid=$(awk '/^Uid:/{print $2}' "/proc/$pid/status")
+    if ! wait_for_process_security_state "$expected_uid" 0000000000003000 \
+        "$tmp_dir/process-status-tun.txt"; then
+        die "TUN mode did not settle to the expected UID and capability state"
+    fi
     [ "$actual_uid" = "$expected_uid" ] && [ "$actual_uid" != 0 ] || die "TUN mode did not remain non-root"
-    cap_eff=$(awk '/^CapEff:/{print $2}' "/proc/$pid/status")
-    [ "$cap_eff" = 0000000000003000 ] || die "unexpected TUN capability mask: $cap_eff"
     device_policy=$(systemctl show "$unit_name" -p DevicePolicy --value)
     [ "$device_policy" = closed ] || die "unexpected TUN device policy: $device_policy"
     systemctl stop "$unit_name"
