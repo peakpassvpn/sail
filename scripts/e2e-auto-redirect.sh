@@ -32,6 +32,7 @@ $W ip link set sar-vw up
 $W ip addr add 198.51.100.10/32 dev sar-vw
 $W ip addr add 198.51.100.11/32 dev sar-vw
 $W ip addr add 198.51.100.12/32 dev sar-vw
+$W ip addr add 198.51.100.13/32 dev sar-vw
 $A ip route add default via 10.231.0.2
 $A ip addr add fd31::1/64 dev sar-va nodad
 $W ip addr add fd31::2/64 dev sar-vw nodad
@@ -118,5 +119,59 @@ out=$($A socat -T3 - TCP:198.51.100.10:8080 </dev/null 2>&1)
 check "stopping removes the table: TCP goes direct" '[[ "$out" == *ffff:0ae7:0001* ]]'
 check "stopping removes the rules" '! $A ip rule | grep -qE "^(9000|9001|9002|32768):"'
 tail -5 $DIR/sail.out
+
+# A reload that changes the rule-set of route_address_set refills the set.
+reload_config() {
+  cat > $DIR/reload.json.tmp <<EOF
+{
+  "log": { "level": "debug", "output": "$DIR/sail.log" },
+  "inbounds": [{
+    "type": "tun", "tag": "tun-in", "interface_name": "sartun",
+    "address": ["172.31.231.1/30"],
+    "auto_route": true, "auto_redirect": true,
+    "route_address_set": ["taken"]
+  }],
+  "outbounds": [{ "type": "direct", "tag": "direct" }],
+  "route": { "rule_set": [$1], "final": "direct" }
+}
+EOF
+  mv $DIR/reload.json.tmp $DIR/reload.json
+}
+taken() { echo '{ "type": "inline", "tag": "taken", "rules": [{ "ip_cidr": ["'$1'"] }] }'; }
+# Whether a connection to $1 made now shows in the log after line $2.
+through_sail() {
+  $A socat -T3 - TCP:$1:8080 </dev/null >/dev/null 2>&1
+  sleep 0.3
+  tail -n +$(( $2 + 1 )) $DIR/sail.log | grep -q "dst=$1:8080"
+}
+mark() { wc -l < $DIR/sail.log; }
+reloads() { grep -c "reloaded from config file" $DIR/sail.log; }
+wait_reload() {
+  for _ in $(seq 50); do
+    [ "$(reloads)" -gt "$1" ] && return 0
+    sleep 0.1
+  done
+  return 1
+}
+
+reload_config "$(taken 198.51.100.10/32)"
+: > $DIR/sail.log
+$A $SAIL -c $DIR/reload.json --auto-reload > $DIR/sail-reload.out 2>&1 &
+SAILPID=$!
+sleep 3
+check "route_address_set takes its rule-set's addresses" 'through_sail 198.51.100.10 $(mark)'
+check "route_address_set leaves the others" '! through_sail 198.51.100.13 $(mark)'
+n=$(reloads)
+reload_config "$(taken 198.51.100.13/32)"
+check "the reload happened" 'wait_reload $n'
+sleep 0.5
+check "after a reload, the new rule-set's addresses are taken" 'through_sail 198.51.100.13 $(mark)'
+check "after a reload, the old ones are not" '! through_sail 198.51.100.10 $(mark)'
+# A reload without the rule-set the TUN names fails, and changes nothing.
+reload_config ""
+sleep 2
+check "a reload without the rule-set fails" 'grep -q "route_address_set" $DIR/sail.log && [ "$(reloads)" -eq "$((n + 1))" ]'
+check "a failed reload keeps the sets" 'through_sail 198.51.100.13 $(mark)'
+kill $SAILPID; wait $SAILPID 2>/dev/null; SAILPID=
 cleanup
 exit $fail

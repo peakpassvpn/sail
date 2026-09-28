@@ -96,6 +96,9 @@ pub struct RuntimeManager {
     watch_events: Mutex<Option<runtime::watch::ReloadEvents>>,
     #[cfg(feature = "auto-reload")]
     rule_set_files: Mutex<Vec<std::path::PathBuf>>,
+    /// Where a reload's rule-sets go for the TUN's auto_redirect.
+    #[cfg(all(feature = "inbound-tun", target_os = "linux"))]
+    auto_redirect_rule_sets: Option<protocol::tun::auto_redirect::RuleSetFeed>,
 }
 
 impl RuntimeManager {
@@ -129,6 +132,8 @@ impl RuntimeManager {
             stat_manager: instance.stat_manager.clone(),
             env: instance.env.clone(),
             dispatcher: Arc::downgrade(&instance.dispatcher),
+            #[cfg(all(feature = "inbound-tun", target_os = "linux"))]
+            auto_redirect_rule_sets: instance.auto_redirect_rule_sets(),
             rule_set_updater: Mutex::new(
                 instance
                     .rule_sets
@@ -323,6 +328,10 @@ impl RuntimeManager {
         outbound_manager
             .restore_selected(&self.outbound_manager.load())
             .await;
+        #[cfg(all(feature = "inbound-tun", target_os = "linux"))]
+        if let Some(feed) = &self.auto_redirect_rule_sets {
+            feed.check(&rule_sets).map_err(Error::Config)?;
+        }
         // Acquire the last fallible lock before publishing anything. No
         // listener is stopped or rebound by a resource update.
         let mut inbounds = self
@@ -349,6 +358,10 @@ impl RuntimeManager {
         self.dns_client.store(Arc::new(dns_client));
         let replaced = self.outbound_manager.swap(Arc::new(outbound_manager));
         self.router.store(Arc::new(router));
+        #[cfg(all(feature = "inbound-tun", target_os = "linux"))]
+        if let Some(feed) = &self.auto_redirect_rule_sets {
+            feed.publish(rule_sets.clone());
+        }
         {
             let mut updater = self
                 .rule_set_updater

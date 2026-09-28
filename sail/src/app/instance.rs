@@ -243,6 +243,15 @@ impl Instance {
         Ok(runners)
     }
 
+    /// What a reload hands its rule-sets to, when the TUN runs
+    /// auto_redirect.
+    #[cfg(all(feature = "inbound-tun", target_os = "linux"))]
+    pub(crate) fn auto_redirect_rule_sets(
+        &self,
+    ) -> Option<crate::protocol::tun::auto_redirect::RuleSetFeed> {
+        self.auto_redirect.as_ref().map(|a| a.rule_set_feed())
+    }
+
     /// Undoes what `start` did to the system.
     pub fn stop(&mut self) {
         // Before the device goes, as sing-box closes it.

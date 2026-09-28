@@ -11,6 +11,8 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
 
+use tokio::sync::watch;
+
 use anyhow::{anyhow, Result};
 use tracing::{debug, info, warn};
 
@@ -34,6 +36,7 @@ pub(crate) struct AutoRedirect {
     ruleset: bool,
     /// Whether fw4's drop-in was written (OpenWrt).
     fw4: bool,
+    feed: RuleSetFeed,
 }
 
 /// The nftables table of the ruleset.
@@ -63,6 +66,11 @@ const KEEPALIVE: Duration = Duration::from_secs(10 * 60);
 const SETTLE: Duration = Duration::from_millis(200);
 
 impl AutoRedirect {
+    /// What a reload hands its rule-sets to.
+    pub(crate) fn rule_set_feed(&self) -> RuleSetFeed {
+        self.feed.clone()
+    }
+
     /// Sets it up for the TUN inbound `tag`, and returns what serves it.
     /// What fails is undone.
     pub(crate) fn start(
@@ -89,11 +97,12 @@ impl AutoRedirect {
         let monitor = AddressMonitor::open()
             .map_err(|e| anyhow!("auto_redirect: watching addresses: {}", e))?;
         let address_sets = AddressSets {
+            tun: tag.to_owned(),
             include: options.route_address_set.clone(),
             exclude: options.route_exclude_address_set.clone(),
-            rule_sets: rule_sets.clone(),
         };
-        let (include, exclude) = address_sets.load()?;
+        let (include, exclude) = address_sets.load(rule_sets)?;
+        let (sender, feed) = watch::channel(rule_sets.clone());
         let ruleset_options = Arc::new(ruleset_options(
             settings,
             options,
@@ -106,10 +115,19 @@ impl AutoRedirect {
 
         let routes = policy_routes(settings, options);
         routes.setup()?;
+        let follow_sets = AddressSets {
+            tun: address_sets.tun.clone(),
+            include: address_sets.include.clone(),
+            exclude: address_sets.exclude.clone(),
+        };
         let mut this = AutoRedirect {
             routes,
             ruleset: true,
             fw4: false,
+            feed: RuleSetFeed {
+                sets: Arc::new(address_sets),
+                sender: Arc::new(sender),
+            },
         };
         batch
             .commit()
@@ -143,7 +161,7 @@ impl AutoRedirect {
                 serve(listener, tag.clone(), dispatcher.clone()),
                 prematch,
                 follow_addresses(monitor, ruleset_options.clone()),
-                address_sets.follow(ruleset_options.clone()),
+                follow_sets.follow(feed, ruleset_options.clone()),
             );
         });
         Ok((this, runner))
@@ -175,66 +193,111 @@ async fn follow_addresses(monitor: AddressMonitor, options: Arc<RulesetOptions>)
 
 /// The rule-sets of `route_address_set` and `route_exclude_address_set`.
 struct AddressSets {
+    tun: String,
     include: Vec<String>,
     exclude: Vec<String>,
-    rule_sets: RuleSets,
 }
 
 impl AddressSets {
-    /// Their destinations now; `None` for a list with no rule-set.
-    fn load(&self) -> Result<(Option<AddressSet>, Option<AddressSet>)> {
-        let set = |tags: &[String]| -> Result<Option<AddressSet>> {
+    /// Their destinations in `rule_sets`; `None` for a list with no
+    /// rule-set.
+    fn load(&self, rule_sets: &RuleSets) -> Result<(Option<AddressSet>, Option<AddressSet>)> {
+        let set = |field: &str, tags: &[String]| -> Result<Option<AddressSet>> {
             if tags.is_empty() {
                 return Ok(None);
             }
             let mut prefixes = Vec::new();
             for tag in tags {
-                for (first, last) in self
-                    .rule_sets
+                let ranges = rule_sets
                     .ip_ranges(tag)
-                    .map_err(|e| anyhow!("auto_redirect: {:#}", e))?
-                {
+                    .map_err(|e| anyhow!("[{}] inbound: {}: {:#}", self.tun, field, e))?;
+                for (first, last) in ranges {
                     prefixes.extend(range_prefixes(first, last));
                 }
             }
             Ok(Some(AddressSet { prefixes }))
         };
-        Ok((set(&self.include)?, set(&self.exclude)?))
+        Ok((
+            set("route_address_set", &self.include)?,
+            set("route_exclude_address_set", &self.exclude)?,
+        ))
     }
 
-    /// Refills the sets whenever one of their rule-sets is replaced.
-    async fn follow(self, options: Arc<RulesetOptions>) {
-        let (changed, mut changes) = tokio::sync::mpsc::channel::<()>(1);
-        let mut watchers = Vec::new();
-        for tag in self.include.iter().chain(&self.exclude) {
-            let Ok(mut version) = self.rule_sets.subscribe(tag) else {
-                continue;
-            };
-            let changed = changed.clone();
-            watchers.push(AbortOnDrop(tokio::spawn(async move {
-                while version.changed().await.is_ok() {
-                    // A refill is due already if the channel is full.
-                    let _ = changed.try_send(());
-                }
-            })));
+    fn refill(&self, rule_sets: &RuleSets, options: &RulesetOptions) {
+        let (include, exclude) = match self.load(rule_sets) {
+            Ok(sets) => sets,
+            Err(e) => {
+                warn!("auto_redirect: {:#}", e);
+                return;
+            }
+        };
+        let batch = ruleset::update_route_address_sets(options, include.as_ref(), exclude.as_ref());
+        if let Err(e) = batch.commit() {
+            warn!("auto_redirect: updating rule-set addresses: {}", e);
         }
-        drop(changed);
-        while changes.recv().await.is_some() {
-            let (include, exclude) = match self.load() {
-                Ok(sets) => sets,
-                Err(e) => {
-                    warn!("auto_redirect: {:#}", e);
+    }
+
+    /// Refills the sets whenever one of their rule-sets is replaced, and
+    /// when a reload brings other rule-sets, from those.
+    async fn follow(self, mut feed: watch::Receiver<RuleSets>, options: Arc<RulesetOptions>) {
+        let mut first = true;
+        loop {
+            let rule_sets = feed.borrow_and_update().clone();
+            if !first {
+                self.refill(&rule_sets, &options);
+            }
+            first = false;
+            let (changed, mut changes) = tokio::sync::mpsc::channel::<()>(1);
+            let mut watchers = Vec::new();
+            for tag in self.include.iter().chain(&self.exclude) {
+                let Ok(mut version) = rule_sets.subscribe(tag) else {
                     continue;
+                };
+                let changed = changed.clone();
+                watchers.push(AbortOnDrop(tokio::spawn(async move {
+                    while version.changed().await.is_ok() {
+                        // A refill is due already if the channel is full.
+                        let _ = changed.try_send(());
+                    }
+                })));
+            }
+            drop(changed);
+            loop {
+                tokio::select! {
+                    Some(()) = changes.recv() => self.refill(&rule_sets, &options),
+                    fed = feed.changed() => {
+                        if fed.is_err() {
+                            // No more reloads: follow these to the end.
+                            while changes.recv().await.is_some() {
+                                self.refill(&rule_sets, &options);
+                            }
+                            std::future::pending::<()>().await;
+                        }
+                        break;
+                    }
                 }
-            };
-            let batch =
-                ruleset::update_route_address_sets(&options, include.as_ref(), exclude.as_ref());
-            if let Err(e) = batch.commit() {
-                warn!("auto_redirect: updating rule-set addresses: {}", e);
             }
         }
-        // No rule-set to follow: nothing ends this part.
-        std::future::pending::<()>().await;
+    }
+}
+
+/// Hands the rule-sets of a reload to a running auto_redirect, which
+/// refills its sets from them and follows them from then on.
+#[derive(Clone)]
+pub(crate) struct RuleSetFeed {
+    sets: Arc<AddressSets>,
+    sender: Arc<watch::Sender<RuleSets>>,
+}
+
+impl RuleSetFeed {
+    /// Whether `rule_sets` has every rule-set the TUN names: a reload
+    /// without one fails, and changes nothing.
+    pub(crate) fn check(&self, rule_sets: &RuleSets) -> Result<()> {
+        self.sets.load(rule_sets).map(|_| ())
+    }
+
+    pub(crate) fn publish(&self, rule_sets: RuleSets) {
+        self.sender.send_replace(rule_sets);
     }
 }
 
