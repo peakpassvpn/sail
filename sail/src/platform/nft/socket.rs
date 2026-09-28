@@ -18,12 +18,18 @@ const ANSWER_TIMEOUT: Duration = Duration::from_secs(5);
 /// skb, and all of a batch's are queued before the first is read.
 const ACK_ROOM: usize = 1024;
 
-struct Socket {
+pub(in crate::platform) struct Socket {
     fd: OwnedFd,
 }
 
+impl AsRawFd for Socket {
+    fn as_raw_fd(&self) -> std::os::fd::RawFd {
+        self.fd.as_raw_fd()
+    }
+}
+
 impl Socket {
-    fn open() -> io::Result<Socket> {
+    pub(in crate::platform) fn open() -> io::Result<Socket> {
         // SAFETY: plain socket(2); the result is checked and owned.
         let fd = unsafe {
             libc::socket(
@@ -69,7 +75,12 @@ impl Socket {
         Ok(())
     }
 
-    fn set_int(&self, level: libc::c_int, name: libc::c_int, value: libc::c_int) -> io::Result<()> {
+    pub(in crate::platform) fn set_int(
+        &self,
+        level: libc::c_int,
+        name: libc::c_int,
+        value: libc::c_int,
+    ) -> io::Result<()> {
         self.set(level, name, &value)
     }
 
@@ -83,7 +94,7 @@ impl Socket {
         }
     }
 
-    fn send(&self, buf: &[u8]) -> io::Result<()> {
+    pub(in crate::platform) fn send(&self, buf: &[u8]) -> io::Result<()> {
         loop {
             // SAFETY: buf is valid for its length. Unconnected, a netlink
             // socket sends to the kernel.
@@ -107,7 +118,7 @@ impl Socket {
     }
 
     /// One datagram, whole: its size is peeked first.
-    fn recv(&self) -> io::Result<Vec<u8>> {
+    pub(in crate::platform) fn recv(&self) -> io::Result<Vec<u8>> {
         let mut buf = vec![0u8; 0];
         let mut flags = libc::MSG_PEEK | libc::MSG_TRUNC;
         loop {
@@ -157,7 +168,10 @@ fn recv_error(e: io::Error, doing: &str) -> Error {
 
 /// An `NLMSG_ERROR`'s errno (positive, 0 for an acknowledgement), and the
 /// kernel's message if it gave one.
-fn parse_error(flags: u16, body: &[u8]) -> Result<(i32, Option<String>), Error> {
+pub(in crate::platform) fn parse_error(
+    flags: u16,
+    body: &[u8],
+) -> Result<(i32, Option<String>), Error> {
     let short = || Error::Protocol("short NLMSG_ERROR".into());
     let errno = -i32::from_ne_bytes(body.get(..4).ok_or_else(short)?.try_into().unwrap());
     if flags & NLM_F_ACK_TLVS == 0 {
@@ -181,7 +195,7 @@ fn parse_error(flags: u16, body: &[u8]) -> Result<(i32, Option<String>), Error> 
 
 /// A sequence number to start from: a fresh socket sees only answers to
 /// its own requests, so this needs only to be unlikely to repeat.
-fn first_seq() -> u32 {
+pub(in crate::platform) fn first_seq() -> u32 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as u32)

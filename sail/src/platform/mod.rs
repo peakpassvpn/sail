@@ -32,6 +32,10 @@ pub(crate) mod policy_route;
 ))]
 pub(crate) mod original_dst;
 
+// Linux only, like nft, whose netlink framing it uses.
+#[cfg(any(target_os = "linux", test))]
+pub mod nfqueue;
+
 #[cfg(target_os = "windows")]
 pub(crate) mod windows;
 

@@ -24,10 +24,11 @@
 
 mod batch;
 mod expr;
-mod netlink;
+// The netlink framing and the socket serve the NFQUEUE consumer too.
+pub(super) mod netlink;
 #[cfg(target_os = "linux")]
-mod socket;
-mod sys;
+pub(super) mod socket;
+pub(super) mod sys;
 
 pub use batch::*;
 pub use expr::*;
