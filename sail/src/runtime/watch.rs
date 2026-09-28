@@ -11,20 +11,22 @@ use tokio::sync::mpsc;
 
 pub(crate) struct FileWatcher {
     _watcher: RecommendedWatcher,
+}
+
+/// Runtime-owned dirty queue, independent of native watcher replacements.
+pub(crate) struct ReloadEvents {
+    events: mpsc::Sender<()>,
     task: tokio::task::JoinHandle<()>,
 }
 
-impl Drop for FileWatcher {
+impl Drop for ReloadEvents {
     fn drop(&mut self) {
         self.task.abort();
     }
 }
 
 impl FileWatcher {
-    pub(crate) fn new(
-        paths: Vec<PathBuf>,
-        reload: mpsc::Sender<SyncSender<Result<(), crate::Error>>>,
-    ) -> Result<Self, crate::Error> {
+    pub(crate) fn new(paths: Vec<PathBuf>, events: &ReloadEvents) -> Result<Self, crate::Error> {
         let cwd = std::env::current_dir().map_err(|e| crate::Error::Config(e.into()))?;
         let mut watched = HashSet::new();
         for path in paths {
@@ -42,7 +44,7 @@ impl FileWatcher {
             .iter()
             .filter_map(|p| p.parent().map(PathBuf::from))
             .collect();
-        let (events, mut rx) = mpsc::channel(1);
+        let events = events.events.clone();
         let mut watcher =
             notify::recommended_watcher(move |event: notify::Result<notify::Event>| match event {
                 Ok(event)
@@ -60,6 +62,13 @@ impl FileWatcher {
                 .watch(&parent, RecursiveMode::NonRecursive)
                 .map_err(crate::Error::Watcher)?;
         }
+        Ok(Self { _watcher: watcher })
+    }
+}
+
+impl ReloadEvents {
+    pub(crate) fn new(reload: mpsc::Sender<SyncSender<Result<(), crate::Error>>>) -> Self {
+        let (events, mut rx) = mpsc::channel(1);
         let task = tokio::spawn(async move {
             while rx.recv().await.is_some() {
                 loop {
@@ -83,10 +92,7 @@ impl FileWatcher {
                 }
             }
         });
-        Ok(Self {
-            _watcher: watcher,
-            task,
-        })
+        Self { events, task }
     }
 }
 
@@ -104,7 +110,8 @@ mod tests {
         std::fs::write(&cert, "old certificate").unwrap();
         std::fs::write(&key, "old key").unwrap();
         let (tx, mut requests) = mpsc::channel(1);
-        let watcher = FileWatcher::new(vec![cert.clone(), key.clone()], tx).unwrap();
+        let events = ReloadEvents::new(tx);
+        let watcher = FileWatcher::new(vec![cert.clone(), key.clone()], &events).unwrap();
         std::fs::write(dir.join("unrelated"), "ignored").unwrap();
         assert!(
             tokio::time::timeout(Duration::from_millis(600), requests.recv())
@@ -129,5 +136,39 @@ mod tests {
         }
         drop(watcher);
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn queued_change_survives_watcher_replacement_and_failed_reload() {
+        let (tx, mut requests) = mpsc::channel(1);
+        let events = ReloadEvents::new(tx);
+        let mut watcher = FileWatcher::new(Vec::new(), &events).unwrap();
+        for succeeds in [true, false] {
+            events.events.try_send(()).unwrap();
+            let reply = tokio::time::timeout(Duration::from_secs(5), requests.recv())
+                .await
+                .unwrap()
+                .unwrap();
+            // A notification after candidate reads, before commit.
+            events.events.try_send(()).unwrap();
+            let candidate = FileWatcher::new(Vec::new(), &events).unwrap();
+            if succeeds {
+                watcher = candidate;
+                reply.send(Ok(())).unwrap();
+            } else {
+                drop(candidate);
+                reply
+                    .send(Err(crate::Error::Config(anyhow::anyhow!(
+                        "invalid candidate"
+                    ))))
+                    .unwrap();
+            }
+            let followup = tokio::time::timeout(Duration::from_secs(5), requests.recv())
+                .await
+                .unwrap()
+                .unwrap();
+            followup.send(Ok(())).unwrap();
+        }
+        drop(watcher);
     }
 }

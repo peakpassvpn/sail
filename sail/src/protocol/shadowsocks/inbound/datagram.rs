@@ -1,4 +1,4 @@
-use crate::session::DatagramSource;
+use crate::session::{DatagramResourceLease, DatagramSource};
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::io;
@@ -24,6 +24,13 @@ const MAX_SESSIONS: usize = 16 * 1024;
 struct Peer {
     resource: Arc<LegacyResources>,
     seen: Instant,
+    lease: std::sync::Weak<()>,
+}
+
+impl Peer {
+    fn expired(&self) -> bool {
+        self.lease.strong_count() == 0 && self.seen.elapsed() >= SESSION_TTL
+    }
 }
 
 /// Legacy SS UDP has no session ID: pin a credential to its authenticated
@@ -37,35 +44,52 @@ impl Sessions {
             .0
             .lock()
             .map_err(|_| io::Error::other("SS UDP sessions poisoned"))?;
-        if peers
-            .get(address)
-            .is_some_and(|p| p.seen.elapsed() >= SESSION_TTL)
-        {
+        if peers.get(address).is_some_and(Peer::expired) {
             peers.remove(address);
         }
         Ok(peers.get(address).map(|p| p.resource.clone()))
     }
 
-    fn authenticated(&self, address: SocketAddr, resource: Arc<LegacyResources>) -> io::Result<()> {
+    fn authenticated(
+        &self,
+        address: SocketAddr,
+        resource: Arc<LegacyResources>,
+    ) -> io::Result<DatagramResourceLease> {
         let mut peers = self
             .0
             .lock()
             .map_err(|_| io::Error::other("SS UDP sessions poisoned"))?;
         if !peers.contains_key(&address) && peers.len() >= MAX_SESSIONS {
-            peers.retain(|_, p| p.seen.elapsed() < SESSION_TTL);
+            peers.retain(|_, p| !p.expired());
             // Never evict an active peer just to admit another: that could
             // silently change its reply credential during rotation.
             if peers.len() >= MAX_SESSIONS {
                 return Err(io::Error::other("SS UDP sessions full"));
             }
         }
+        let lease = peers
+            .get(&address)
+            .and_then(|p| p.lease.upgrade())
+            .unwrap_or_else(|| Arc::new(()));
         peers.insert(
             address,
             Peer {
                 resource,
                 seen: Instant::now(),
+                lease: Arc::downgrade(&lease),
             },
         );
+        Ok(DatagramResourceLease(lease))
+    }
+
+    fn sent(&self, address: &SocketAddr) -> io::Result<()> {
+        let mut peers = self
+            .0
+            .lock()
+            .map_err(|_| io::Error::other("SS UDP sessions poisoned"))?;
+        if let Some(peer) = peers.get_mut(address) {
+            peer.seen = Instant::now();
+        }
         Ok(())
     }
 }
@@ -135,7 +159,7 @@ impl InboundDatagramRecvHalf for DatagramRecvHalf {
         buf: &mut [u8],
     ) -> ProxyResult<(usize, DatagramSource, SocksAddr)> {
         self.buf.resize(buf.len() + 1024, 0);
-        let (n, src_addr, _) = self.inner.recv_from(&mut self.buf).await?;
+        let (n, mut src_addr, _) = self.inner.recv_from(&mut self.buf).await?;
         let recv_buf = BytesMut::from(&self.buf[..n]);
         let resource = self
             .sessions
@@ -153,9 +177,11 @@ impl InboundDatagramRecvHalf for DatagramRecvHalf {
         if buf.len() < payload_size {
             return Err(ProxyError::DatagramWarn(anyhow!("SS packet too large")));
         }
-        self.sessions
+        let lease = self
+            .sessions
             .authenticated(src_addr.address, resource)
             .map_err(|e| ProxyError::DatagramWarn(anyhow!(e)))?;
+        src_addr.resource_lease = Some(lease);
         buf[..payload_size].copy_from_slice(&plaintext[header_size..header_size + payload_size]);
         Ok((payload_size, src_addr, dst_addr))
     }
@@ -182,7 +208,9 @@ impl InboundDatagramSendHalf for DatagramSendHalf {
             .datagram
             .encrypt(send_buf)
             .map_err(|_| shadow::crypto_err())?;
-        self.1.send_to(&ciphertext[..], src_addr, dst_addr).await
+        let sent = self.1.send_to(&ciphertext[..], src_addr, dst_addr).await?;
+        self.0.sent(dst_addr)?;
+        Ok(sent)
     }
 
     async fn close(&mut self) -> io::Result<()> {
@@ -193,6 +221,83 @@ impl InboundDatagramSendHalf for DatagramSendHalf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct Sink {
+        payload: Arc<Mutex<Vec<u8>>>,
+        fail: bool,
+    }
+
+    #[async_trait]
+    impl InboundDatagramSendHalf for Sink {
+        async fn send_to(
+            &mut self,
+            buf: &[u8],
+            _: &SocksAddr,
+            _: &SocketAddr,
+        ) -> io::Result<usize> {
+            if self.fail {
+                return Err(io::Error::other("send failed"));
+            }
+            *self.payload.lock().unwrap() = buf.to_vec();
+            Ok(buf.len())
+        }
+
+        async fn close(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn live_nat_lease_preserves_downlink_and_only_success_refreshes_activity() {
+        let sessions = Arc::new(Sessions::default());
+        let generation = Arc::new(LegacyResources {
+            cipher: "aes-128-gcm".into(),
+            password: "old".into(),
+            datagram: shadow::ShadowedDatagram::new("aes-128-gcm", "old").unwrap(),
+        });
+        let address = SocketAddr::from(([127, 0, 0, 1], 12345));
+        let mut source = DatagramSource::new(address, None);
+        source.resource_lease = Some(sessions.authenticated(address, generation.clone()).unwrap());
+        // NAT keys/tasks clone the source for their entire lifetime. This
+        // protects even a silent session with a route timeout above 300s.
+        let nat_source = source.clone();
+        drop(source);
+        let old = Instant::now() - SESSION_TTL * 2;
+        sessions.0.lock().unwrap().get_mut(&address).unwrap().seen = old;
+        assert!(Arc::ptr_eq(
+            &sessions.resource(&address).unwrap().unwrap(),
+            &generation
+        ));
+        let payload = Arc::new(Mutex::new(Vec::new()));
+        let target = SocksAddr::from(SocketAddr::from(([127, 0, 0, 1], 8080)));
+        let mut failing = DatagramSendHalf(
+            sessions.clone(),
+            Box::new(Sink {
+                payload: payload.clone(),
+                fail: true,
+            }),
+        );
+        assert!(failing.send_to(b"reply", &target, &address).await.is_err());
+        assert_eq!(sessions.0.lock().unwrap()[&address].seen, old);
+        let mut sender = DatagramSendHalf(
+            sessions.clone(),
+            Box::new(Sink {
+                payload: payload.clone(),
+                fail: false,
+            }),
+        );
+        sender.send_to(b"reply", &target, &address).await.unwrap();
+        let wire = BytesMut::from(payload.lock().unwrap().as_slice());
+        let plain = generation.datagram.decrypt(wire).unwrap();
+        assert_eq!(&plain[target.size()..], b"reply");
+        assert!(sessions.0.lock().unwrap()[&address].seen > old);
+        drop(nat_source);
+        // Successful downlink leaves the normal idle grace period.
+        assert!(sessions.resource(&address).unwrap().is_some());
+        sessions.0.lock().unwrap().get_mut(&address).unwrap().seen = old;
+        assert!(sessions.resource(&address).unwrap().is_none());
+    }
+
     #[test]
     fn pins_are_bounded_and_expire() {
         let sessions = Sessions::default();

@@ -91,6 +91,8 @@ pub struct RuntimeManager {
     #[cfg(feature = "auto-reload")]
     watcher: Mutex<Option<runtime::watch::FileWatcher>>,
     #[cfg(feature = "auto-reload")]
+    watch_events: Mutex<Option<runtime::watch::ReloadEvents>>,
+    #[cfg(feature = "auto-reload")]
     rule_set_files: Mutex<Vec<std::path::PathBuf>>,
 }
 
@@ -134,6 +136,8 @@ impl RuntimeManager {
             update: tokio::sync::Mutex::new(()),
             #[cfg(feature = "auto-reload")]
             watcher: Mutex::new(None),
+            #[cfg(feature = "auto-reload")]
+            watch_events: Mutex::new(None),
             #[cfg(feature = "auto-reload")]
             rule_set_files: Mutex::new(instance.rule_sets.files()),
         })
@@ -559,7 +563,10 @@ impl RuntimeManager {
         };
         files.push(config_path.into());
         files.extend(rules);
-        runtime::watch::FileWatcher::new(files, self.reload_tx.clone()).map(Some)
+        let mut events = self.watch_events.lock().unwrap_or_else(|e| e.into_inner());
+        let events =
+            events.get_or_insert_with(|| runtime::watch::ReloadEvents::new(self.reload_tx.clone()));
+        runtime::watch::FileWatcher::new(files, events).map(Some)
     }
 
     #[cfg(feature = "auto-reload")]

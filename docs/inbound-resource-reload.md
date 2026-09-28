@@ -71,7 +71,9 @@ user's array index; reordering, renaming or removing users cannot reattribute
 it. New session IDs use the current table; idle sessions expire after 300 s.
 
 Legacy SS has no UDP session ID: an authenticated source address pins its
-password generation until 300 s of inactivity. A new source address must use
+password generation while its NAT session is alive (including inbound and
+route-specific UDP timeouts), and until 300 s without authenticated uplink or
+successful downlink activity once no session owns it. A new source address must use
 the current password. Changing passwords at the same source address requires
 expiry or a new client socket. The table is capped at 16,384 peers; invalid
 packets cannot create/refresh entries, and a full table refuses new peers
