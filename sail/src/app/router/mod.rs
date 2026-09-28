@@ -97,7 +97,6 @@ use crate::session::{Session, SocksAddr, TlsFragment};
 
 use matcher::{Facts, Matcher, Readers};
 
-/// Where a connection goes.
 /// What the pre-match of a connection's first packet decides.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PreMatch {
@@ -109,6 +108,7 @@ pub enum PreMatch {
     Proceed,
 }
 
+/// Where a connection goes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Decision {
     /// To this outbound; to the default one when `None`.

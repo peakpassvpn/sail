@@ -15,7 +15,9 @@ use anyhow::{anyhow, Result};
 use tracing::{debug, info, warn};
 
 use super::inbound::{AutoRedirectSettings, TunSettings};
+use super::prematch::{self, Marks};
 use crate::app::dispatcher::Dispatcher;
+use crate::platform::nfqueue::Queue;
 use crate::platform::original_dst::{original_destination, unmapped};
 use crate::platform::policy_route::PolicyRoutes;
 use crate::session::{Network, Session, SocksAddr};
@@ -48,10 +50,27 @@ impl AutoRedirect {
         let routes = policy_routes(settings, options);
         let listener = listen(settings.ipv6.is_some())?;
         let port = listener.local_addr()?.port();
+        // Without the queue, nothing is judged before it is redirected: the
+        // ruleset leaves the pre-match out, and bypass rules are skipped.
+        let queue = match Queue::open(options.nfqueue) {
+            Ok(queue) => Some(queue),
+            Err(e) => {
+                warn!(
+                    "auto_redirect: no pre-match, bypass rules will not apply: {}",
+                    e
+                );
+                None
+            }
+        };
         routes.setup()?;
         let this = AutoRedirect { routes };
         info!("auto_redirect: TCP redirected to port {}", port);
         let tag = tag.to_owned();
+        let marks = Marks {
+            input: options.input_mark,
+            output: options.output_mark,
+            reset: options.reset_mark,
+        };
         let runner = Box::pin(async move {
             let listener = match tokio::net::TcpListener::from_std(listener) {
                 Ok(listener) => listener,
@@ -60,7 +79,15 @@ impl AutoRedirect {
                     return;
                 }
             };
-            serve(listener, tag, dispatcher).await;
+            let prematch = async {
+                match queue {
+                    Some(queue) => {
+                        prematch::serve(queue, tag.clone(), dispatcher.clone(), marks).await
+                    }
+                    None => std::future::pending().await,
+                }
+            };
+            tokio::join!(serve(listener, tag.clone(), dispatcher.clone()), prematch);
         });
         Ok((this, runner))
     }
