@@ -27,9 +27,22 @@ pub(crate) mod rule_set {
         }
     }
 
+    /// What rule-sets would be downloaded with.
+    pub(crate) struct HttpClients;
+
+    impl HttpClients {
+        pub(crate) fn new(
+            _config: &crate::config::Config,
+            _dial: std::sync::Arc<crate::net::DialOptions>,
+        ) -> Self {
+            HttpClients
+        }
+    }
+
     impl RuleSets {
         pub(crate) fn load(
             configs: &[crate::config::rule_set::RuleSet],
+            _clients: &HttpClients,
             _env: &crate::runtime::RuntimeEnv,
         ) -> Result<Self> {
             match configs.first() {

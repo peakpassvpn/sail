@@ -39,10 +39,16 @@ pub struct RuleSet {
     /// `remote`: how often it is downloaded again; 1d when unset.
     #[serde(default, with = "duration", skip_serializing_if = "Option::is_none")]
     pub update_interval: Option<std::time::Duration>,
-    /// `remote`: the outbound it is downloaded through; the default one
-    /// when unset.
+    /// `remote`: the outbound it is downloaded through; deprecated in
+    /// sing-box for `http_client`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub download_detour: Option<String>,
+    /// `remote`: the HTTP client it is downloaded with, by tag or in place.
+    /// With neither this nor `download_detour`, the default one of
+    /// `http_clients` (`route.default_http_client`, or else the first), or
+    /// else the default outbound.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub http_client: Option<super::model::HttpClientRef>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -130,6 +136,11 @@ impl RuleSet {
                         ));
                     }
                 }
+                if self.http_client.is_some() && self.download_detour.is_some() {
+                    return Err(anyhow!(
+                        "http_client: not with download_detour, which it replaces"
+                    ));
+                }
                 if self.update_interval == Some(std::time::Duration::ZERO) {
                     return Err(anyhow!("update_interval: must be more than 0"));
                 }
@@ -144,6 +155,7 @@ impl RuleSet {
             only(self.initial_path.is_some(), "initial_path", "remote")?;
             only(self.update_interval.is_some(), "update_interval", "remote")?;
             only(self.download_detour.is_some(), "download_detour", "remote")?;
+            only(self.http_client.is_some(), "http_client", "remote")?;
         }
         if self.kind != RuleSetKind::Inline && self.format().is_none() {
             return Err(anyhow!(

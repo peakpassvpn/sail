@@ -1,7 +1,7 @@
 //! An instance: the components a configuration describes, built in
 //! dependency order, started in stages, and stopped in reverse.
 
-use crate::app::router::rule_set::RuleSets;
+use crate::app::router::rule_set::{HttpClients, RuleSets};
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -74,7 +74,11 @@ impl Instance {
             config.certificate.as_ref(),
             &env,
         )?);
-        let rule_sets = RuleSets::load(&config.route.rule_set, &env)?;
+        let rule_sets = RuleSets::load(
+            &config.route.rule_set,
+            &HttpClients::new(config, dial_defaults.clone()),
+            &env,
+        )?;
         let dns_client =
             DnsClient::with_rule_sets(&config.dns, dial_defaults.clone(), &env, &rule_sets)?;
         dns_client.check_loops(

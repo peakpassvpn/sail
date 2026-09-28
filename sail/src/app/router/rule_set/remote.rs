@@ -25,7 +25,7 @@ pub(crate) struct Remote {
     url: String,
     format: RuleSetFormat,
     interval: Duration,
-    detour: Option<String>,
+    client: http::Client,
     /// Where the downloaded copy is kept; none when there is nowhere to.
     cache: Option<PathBuf>,
     pub set: SharedRuleSet,
@@ -50,7 +50,12 @@ struct State {
 impl Remote {
     /// The rule-set `tag` of `config`, from its cached copy or its
     /// `initial_path`, or empty until the first download.
-    pub(crate) fn load(config: &config::RuleSet, tag: &str, env: &RuntimeEnv) -> Result<Self> {
+    pub(crate) fn load(
+        config: &config::RuleSet,
+        tag: &str,
+        client: http::Client,
+        env: &RuntimeEnv,
+    ) -> Result<Self> {
         let format = config.format().unwrap_or(RuleSetFormat::Binary);
         let extension = match format {
             RuleSetFormat::Binary => "srs",
@@ -66,7 +71,7 @@ impl Remote {
             url: config::RuleSet::for_tag(config.url.as_deref().unwrap_or_default(), tag),
             format,
             interval: config.update_interval.unwrap_or(DEFAULT_INTERVAL),
-            detour: config.download_detour.clone(),
+            client,
             cache: cache.clone(),
             set: Arc::new(ArcSwap::from_pointee(RuleSet { rules: Vec::new() })),
             state: Mutex::new(State::default()),
@@ -139,17 +144,27 @@ impl Remote {
     }
 
     async fn download(&self, dispatcher: &Dispatcher) -> Result<()> {
-        let detour = match &self.detour {
-            Some(detour) => detour.clone(),
-            None => dispatcher
-                .default_outbound()
-                .ok_or_else(|| anyhow!("no outbound to download through"))?,
+        let via = match &self.client.via {
+            Some(via) => via.clone(),
+            None => http::Via::Outbound(
+                dispatcher
+                    .default_outbound()
+                    .ok_or_else(|| anyhow!("no outbound to download through"))?,
+            ),
         };
         let etag = {
             let state = self.state();
             state.loaded.then(|| state.etag.clone()).flatten()
         };
-        match http::get(dispatcher, &detour, &self.url, etag.as_deref()).await? {
+        match http::get(
+            dispatcher,
+            &via,
+            &self.client.headers,
+            &self.url,
+            etag.as_deref(),
+        )
+        .await?
+        {
             http::Response::NotModified => {
                 debug!("rule-set [{}]: unchanged", self.tag);
                 self.state().updated = Some(SystemTime::now());
@@ -249,7 +264,7 @@ mod tests {
             "update_interval": "1h"
         }))
         .unwrap();
-        let remote = Remote::load(&config, "s", &env).unwrap();
+        let remote = Remote::load(&config, "s", Default::default(), &env).unwrap();
         assert!(!remote.is_loaded());
         assert!(remote.due_in(SystemTime::now()).is_zero());
 
@@ -258,7 +273,7 @@ mod tests {
             .unwrap();
         remote.state().updated = Some(SystemTime::now());
         remote.save_meta().unwrap();
-        let again = Remote::load(&config, "s", &env).unwrap();
+        let again = Remote::load(&config, "s", Default::default(), &env).unwrap();
         assert!(again.is_loaded());
         let due = again.due_in(SystemTime::now());
         assert!(

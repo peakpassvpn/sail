@@ -269,8 +269,12 @@ impl RuntimeManager {
         self.env
             .clash_mode
             .configure(config.experimental.clash_api.as_ref());
-        let rule_sets = app::router::rule_set::RuleSets::load(&config.route.rule_set, &self.env)
-            .map_err(Error::Config)?;
+        let rule_sets = app::router::rule_set::RuleSets::load(
+            &config.route.rule_set,
+            &app::router::rule_set::HttpClients::new(&config, dial_defaults.clone()),
+            &self.env,
+        )
+        .map_err(Error::Config)?;
         if let Some(dispatcher) = self.dispatcher.upgrade() {
             rule_sets
                 .fetch_missing(&dispatcher)

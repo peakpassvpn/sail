@@ -8,7 +8,7 @@
 //! reads it into its own options type when the handler is built. That keeps
 //! the whole of a protocol, options included, in the protocol's directory.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use anyhow::{anyhow, Result};
 use serde_derive::{Deserialize, Serialize};
@@ -42,10 +42,122 @@ pub struct Config {
     /// when unset.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub certificate: Option<CertificateOptions>,
+    /// How sail fetches over HTTP, rule-sets for one, by tag.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub http_clients: Vec<HttpClient>,
     /// What the configuration sets that sail ignores, one line each; the
     /// start logs them.
     #[serde(skip)]
     pub warnings: Vec<String>,
+}
+
+/// An HTTP client: the outbound it fetches through, or, with none, the
+/// dial fields it connects with itself.
+#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct HttpClient {
+    /// Of one in `http_clients`; none inline.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub tag: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detour: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bind_interface: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inet4_bind_address: Option<std::net::Ipv4Addr>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inet6_bind_address: Option<std::net::Ipv6Addr>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub routing_mark: Option<u32>,
+    #[serde(default, with = "duration", skip_serializing_if = "Option::is_none")]
+    pub connect_timeout: Option<std::time::Duration>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub domain_resolver: Option<DomainResolver>,
+    /// Sent with each request, over sail's own of the same name.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub headers: BTreeMap<String, HeaderValues>,
+}
+
+/// The values of a header: one, or a list.
+#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
+#[serde(transparent)]
+pub struct HeaderValues(#[serde(with = "listable")] pub Vec<String>);
+
+impl HttpClient {
+    /// Its headers, a line each.
+    pub fn header_lines(&self) -> Vec<(String, String)> {
+        self.headers
+            .iter()
+            .flat_map(|(name, values)| values.0.iter().map(|v| (name.clone(), v.clone())))
+            .collect()
+    }
+
+    /// The dial options it connects with, when it has no detour: its own,
+    /// over `defaults`.
+    pub fn dial(&self, defaults: &crate::net::DialOptions) -> crate::net::DialOptions {
+        crate::net::DialOptions {
+            bind_interface: self.bind_interface.clone(),
+            inet4_bind_address: self.inet4_bind_address,
+            inet6_bind_address: self.inet6_bind_address,
+            routing_mark: self.routing_mark,
+            connect_timeout: self
+                .connect_timeout
+                .unwrap_or(crate::net::dial::DEFAULT_CONNECT_TIMEOUT),
+            domain_resolver: self.domain_resolver.clone(),
+            ..Default::default()
+        }
+        .or(defaults)
+    }
+
+    fn check(&self, outbounds: &HashSet<&str>, dns_servers: &HashSet<String>) -> Result<()> {
+        if let Some(detour) = &self.detour {
+            if !outbounds.contains(detour.as_str()) {
+                return Err(anyhow!("detour: outbound [{}] does not exist", detour));
+            }
+            let dials = self.bind_interface.is_some()
+                || self.inet4_bind_address.is_some()
+                || self.inet6_bind_address.is_some()
+                || self.routing_mark.is_some()
+                || self.connect_timeout.is_some()
+                || self.domain_resolver.is_some();
+            if dials {
+                return Err(anyhow!(
+                    "the dial fields have no effect with a detour; set them on [{}]",
+                    detour
+                ));
+            }
+        }
+        for (name, values) in &self.headers {
+            let token = |c: char| c.is_ascii_alphanumeric() || "!#$%&'*+-.^_`|~".contains(c);
+            if name.is_empty() || !name.chars().all(token) {
+                return Err(anyhow!("headers: {:?} is no header name", name));
+            }
+            if name.eq_ignore_ascii_case("connection") {
+                return Err(anyhow!("headers: Connection is sail's to set"));
+            }
+            if let Some(v) = values.0.iter().find(|v| v.contains(['\r', '\n', '\0'])) {
+                return Err(anyhow!("headers: {}: {:?} breaks the line", name, v));
+            }
+        }
+        if let Some(resolver) = &self.domain_resolver {
+            if !dns_servers.contains(&resolver.server) {
+                return Err(anyhow!(
+                    "domain_resolver: dns server [{}] does not exist",
+                    resolver.server
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
+/// An HTTP client named by tag, or given in place; in place, its tag is
+/// no name, as in sing-box.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[serde(untagged)]
+pub enum HttpClientRef {
+    Tag(String),
+    Inline(HttpClient),
 }
 
 /// sing-box's top-level `certificate`: a store of root certificates, and
@@ -582,6 +694,10 @@ pub struct Route {
     /// decide.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_domain_resolver: Option<DomainResolver>,
+    /// The HTTP client of what names none, by tag; the first of
+    /// `http_clients` when unset, or with none, the default outbound.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_http_client: Option<String>,
 }
 
 /// A DNS server that resolves the names something dials: its tag, or
@@ -1300,6 +1416,31 @@ impl Config {
             rule.check(&format!("route.rules[{}]", i), &outbounds)?;
         }
 
+        let mut http_clients = HashSet::new();
+        for (i, client) in self.http_clients.iter().enumerate() {
+            if client.tag.is_empty() {
+                return Err(anyhow!("http_clients[{}].tag: missing", i));
+            }
+            if !http_clients.insert(client.tag.as_str()) {
+                return Err(anyhow!(
+                    "http_clients[{}]: another http client is tagged [{}]",
+                    i,
+                    client.tag
+                ));
+            }
+            client
+                .check(&outbounds, &dns_servers)
+                .map_err(|e| anyhow!("http_clients[{}]: {}", i, e))?;
+        }
+        if let Some(tag) = &self.route.default_http_client {
+            if !http_clients.contains(tag.as_str()) {
+                return Err(anyhow!(
+                    "route.default_http_client: http client [{}] does not exist",
+                    tag
+                ));
+            }
+        }
+
         let mut rule_sets = HashSet::new();
         for (i, rule_set) in self.route.rule_set.iter().enumerate() {
             rule_set
@@ -1322,6 +1463,19 @@ impl Config {
                         detour
                     ));
                 }
+            }
+            match &rule_set.http_client {
+                Some(HttpClientRef::Tag(tag)) if !http_clients.contains(tag.as_str()) => {
+                    return Err(anyhow!(
+                        "route.rule_set[{}].http_client: http client [{}] does not exist",
+                        i,
+                        tag
+                    ));
+                }
+                Some(HttpClientRef::Inline(client)) => client
+                    .check(&outbounds, &dns_servers)
+                    .map_err(|e| anyhow!("route.rule_set[{}].http_client: {}", i, e))?,
+                _ => {}
             }
         }
         let mut in_route = Vec::new();

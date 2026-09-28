@@ -225,6 +225,97 @@ mod tests {
     }
 
     #[test]
+    fn http_clients_are_checked() {
+        let with = |clients: &str, route: &str| {
+            parse(&format!(
+                r#"{{ "outbounds": [{{ "type": "direct", "tag": "direct" }}],
+                     "http_clients": {}, "route": {} }}"#,
+                clients, route
+            ))
+        };
+        let remote = |client: &str| {
+            format!(
+                r#"{{ "rule_set": [{{ "type": "remote", "tag": "s",
+                     "url": "https://example.com/s.srs"{} }}] }}"#,
+                client
+            )
+        };
+        let config = with(
+            r#"[{ "tag": "c", "version": 2, "idle_timeout": "1m",
+                  "headers": { "Authorization": "Bearer t", "X-A": ["1", "2"] } }]"#,
+            &remote(r#", "http_client": "c""#),
+        )
+        .unwrap();
+        assert_eq!(
+            config.warnings,
+            [
+                "http_clients[0].version: sail does not implement this field; ignored",
+                "http_clients[0].idle_timeout: sail does not implement this field; ignored",
+            ]
+        );
+        assert_eq!(
+            config.http_clients[0].header_lines(),
+            [
+                ("Authorization".to_string(), "Bearer t".to_string()),
+                ("X-A".to_string(), "1".to_string()),
+                ("X-A".to_string(), "2".to_string()),
+            ]
+        );
+        // In place, its tag names nothing.
+        with(
+            "[]",
+            &remote(r#", "http_client": { "tag": "none", "detour": "direct" }"#),
+        )
+        .unwrap();
+        for (clients, route, message) in [
+            (r#"[{ "detour": "direct" }]"#, "{}".to_string(), "http_clients[0].tag: missing"),
+            (
+                r#"[{ "tag": "c" }, { "tag": "c" }]"#,
+                "{}".to_string(),
+                "http_clients[1]: another http client is tagged [c]",
+            ),
+            (
+                r#"[{ "tag": "c", "detour": "proxy" }]"#,
+                "{}".to_string(),
+                "http_clients[0]: detour: outbound [proxy] does not exist",
+            ),
+            (
+                r#"[{ "tag": "c", "detour": "direct", "routing_mark": 1 }]"#,
+                "{}".to_string(),
+                "http_clients[0]: the dial fields have no effect with a detour; set them on [direct]",
+            ),
+            (
+                r#"[{ "tag": "c", "headers": { "X-A": "1\r\nX-B: 2" } }]"#,
+                "{}".to_string(),
+                r#"http_clients[0]: headers: X-A: "1\r\nX-B: 2" breaks the line"#,
+            ),
+            (
+                r#"[{ "tag": "c", "tls": { "enabled": true } }]"#,
+                "{}".to_string(),
+                "http_clients[0].tls: sail does not implement this field yet",
+            ),
+            (
+                "[]",
+                r#"{ "default_http_client": "c" }"#.to_string(),
+                "route.default_http_client: http client [c] does not exist",
+            ),
+            (
+                "[]",
+                remote(r#", "http_client": "c""#),
+                "route.rule_set[0].http_client: http client [c] does not exist",
+            ),
+            (
+                r#"[{ "tag": "c" }]"#,
+                remote(r#", "http_client": "c", "download_detour": "direct""#),
+                "route.rule_set[0]: http_client: not with download_detour, which it replaces",
+            ),
+        ] {
+            let err = with(clients, &route).unwrap_err();
+            assert_eq!(format!("{:#}", err), message, "{} {}", clients, route);
+        }
+    }
+
+    #[test]
     fn dial_fields_sail_implements_pass_through() {
         let config = parse(
             r#"{ "outbounds": [{ "type": "direct", "inet4_bind_address": "192.0.2.1",

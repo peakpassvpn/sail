@@ -1,7 +1,8 @@
-//! A GET over HTTP/1.1, through an outbound: what downloading a rule-set
+//! A GET over HTTP/1.1, through an outbound or directly: what downloading a rule-set
 //! takes, and no more.
 
 use std::net::IpAddr;
+use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{anyhow, Result};
@@ -9,6 +10,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::adapter::AnyStream;
 use crate::app::dispatcher::Dispatcher;
+use crate::net::DialOptions;
 use crate::session::{Network, Session, SocksAddr};
 
 /// The most a download may be: well past the largest published rule-sets.
@@ -17,6 +19,23 @@ const MAX_HEAD: usize = 64 << 10;
 const MAX_REDIRECTS: usize = 5;
 /// How long a download may take, redirects and all.
 pub(crate) const TIMEOUT: Duration = Duration::from_secs(60);
+
+/// What a download is made with: an HTTP client, or `download_detour`.
+#[derive(Clone, Default)]
+pub(crate) struct Client {
+    /// None: through the default outbound.
+    pub via: Option<Via>,
+    pub headers: Vec<(String, String)>,
+}
+
+/// How a download connects.
+#[derive(Clone)]
+pub(crate) enum Via {
+    /// Through the outbound of this tag.
+    Outbound(String),
+    /// Straight to the server, as an HTTP client without a detour does.
+    Direct(Arc<DialOptions>),
+}
 
 pub(crate) enum Response {
     /// Unchanged since the ETag given.
@@ -27,28 +46,30 @@ pub(crate) enum Response {
     },
 }
 
-/// GETs `url` through the outbound `detour`, following redirects; with
+/// GETs `url` `via` an outbound or directly, following redirects; with
 /// `etag`, asks for it only if changed.
 pub(crate) async fn get(
     dispatcher: &Dispatcher,
-    detour: &str,
+    via: &Via,
+    headers: &[(String, String)],
     url: &str,
     etag: Option<&str>,
 ) -> Result<Response> {
-    tokio::time::timeout(TIMEOUT, get_following(dispatcher, detour, url, etag))
+    tokio::time::timeout(TIMEOUT, get_following(dispatcher, via, headers, url, etag))
         .await
         .map_err(|_| anyhow!("timed out after {:?}", TIMEOUT))?
 }
 
 async fn get_following(
     dispatcher: &Dispatcher,
-    detour: &str,
+    via: &Via,
+    headers: &[(String, String)],
     url: &str,
     etag: Option<&str>,
 ) -> Result<Response> {
     let mut url = url::Url::parse(url).map_err(|e| anyhow!("url: {}", e))?;
     for _ in 0..=MAX_REDIRECTS {
-        match get_once(dispatcher, detour, &url, etag).await? {
+        match get_once(dispatcher, via, headers, &url, etag).await? {
             Step::Done(response) => return Ok(response),
             Step::Redirect(location) => {
                 url = url
@@ -67,7 +88,8 @@ enum Step {
 
 async fn get_once(
     dispatcher: &Dispatcher,
-    detour: &str,
+    via: &Via,
+    headers: &[(String, String)],
     url: &url::Url,
     etag: Option<&str>,
 ) -> Result<Step> {
@@ -93,10 +115,17 @@ async fn get_once(
         inbound_tag: "rule-set".to_string(),
         ..Default::default()
     };
-    let stream = dispatcher
-        .stream_via(detour, sess)
-        .await
-        .map_err(|e| anyhow!("connect {} through [{}]: {}", host, detour, e))?;
+    let stream = match via {
+        Via::Outbound(detour) => dispatcher
+            .stream_via(detour, sess)
+            .await
+            .map_err(|e| anyhow!("connect {} through [{}]: {}", host, detour, e))?,
+        Via::Direct(dial) => {
+            crate::net::new_tcp_stream(dispatcher.dns_client(), &host, &port, dial)
+                .await
+                .map_err(|e| anyhow!("connect {}: {}", host, e))?
+        }
+    };
     let mut stream = if tls {
         handshake(&host, stream, dispatcher.env()).await?
     } else {
@@ -112,12 +141,20 @@ async fn get_once(
         Some(port) => format!("{}:{}", url.host_str().unwrap_or_default(), port),
         None => url.host_str().unwrap_or_default().to_string(),
     };
-    let mut request = format!(
-        "GET {} HTTP/1.1\r\nHost: {}\r\nUser-Agent: sail/{}\r\nAccept: */*\r\nConnection: close\r\n",
-        path,
-        authority,
-        env!("CARGO_PKG_VERSION")
-    );
+    let mut request = format!("GET {} HTTP/1.1\r\nConnection: close\r\n", path);
+    let user_agent = format!("sail/{}", env!("CARGO_PKG_VERSION"));
+    for (name, value) in [
+        ("Host", authority.as_str()),
+        ("User-Agent", user_agent.as_str()),
+        ("Accept", "*/*"),
+    ] {
+        if !headers.iter().any(|(n, _)| n.eq_ignore_ascii_case(name)) {
+            request.push_str(&format!("{}: {}\r\n", name, value));
+        }
+    }
+    for (name, value) in headers {
+        request.push_str(&format!("{}: {}\r\n", name, value));
+    }
     if let Some(etag) = etag {
         request.push_str(&format!("If-None-Match: {}\r\n", etag));
     }
