@@ -42,6 +42,7 @@ mod test_out_chain_6;
 mod test_out_chain_7;
 mod test_out_chain_8;
 mod test_out_chain_9;
+mod test_outbound_provider;
 mod test_outbound_registry;
 mod test_quic_resources;
 mod test_quic_trojan;
