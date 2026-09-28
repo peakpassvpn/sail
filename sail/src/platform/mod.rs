@@ -14,6 +14,11 @@ pub use cmd_linux as cmd;
 #[cfg(all(feature = "inbound-tun", any(target_os = "macos", target_os = "linux")))]
 pub(crate) mod tun_setup;
 
+// Linux only; its encoder builds everywhere under test so it is tested on
+// any host.
+#[cfg(any(target_os = "linux", test))]
+pub mod nft;
+
 #[cfg(target_os = "windows")]
 pub(crate) mod windows;
 
