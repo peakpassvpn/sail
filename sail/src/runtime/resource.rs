@@ -18,8 +18,12 @@ impl<T> Clone for HotResource<T> {
 
 impl<T> HotResource<T> {
     pub(crate) fn new(value: T) -> Self {
+        Self::from_arc(Arc::new(value))
+    }
+
+    pub(crate) fn from_arc(value: Arc<T>) -> Self {
         Self {
-            current: Arc::new(ArcSwap::from_pointee(value)),
+            current: Arc::new(ArcSwap::from(value)),
         }
     }
 
@@ -31,6 +35,9 @@ impl<T> HotResource<T> {
         self.current.store(value);
     }
 }
+
+/// An already validated publication. Dropping it rolls back preparation.
+pub(crate) type ResourceUpdate = Box<dyn FnOnce() + Send>;
 
 #[cfg(test)]
 mod tests {

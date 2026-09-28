@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 
@@ -19,6 +19,7 @@ use super::resource::{self, StreamGeneration, StreamResource};
 /// Nothing is published until every candidate (and the other reloadable
 /// components) has been built successfully. Commit itself cannot fail.
 pub(crate) struct PreparedResources {
+    protocol_updates: Vec<crate::runtime::resource::ResourceUpdate>,
     configs: HashMap<String, config::Inbound>,
     updates: Vec<(StreamResource, Arc<StreamGeneration>)>,
 }
@@ -30,6 +31,7 @@ use super::cat_listener::CatInboundListener;
 use super::tun_listener::TunInboundListener;
 
 pub struct InboundManager {
+    stateful_resources: HashSet<String>,
     states: HashMap<String, Arc<registry::InboundState>>,
     configs: HashMap<String, config::Inbound>,
     resources: HashMap<String, StreamResource>,
@@ -49,6 +51,9 @@ pub struct InboundManager {
 }
 
 impl InboundManager {
+    fn reloadable(&self, tag: &str) -> bool {
+        self.resources.contains_key(tag) || self.stateful_resources.contains(tag)
+    }
     #[cfg(feature = "auto-reload")]
     pub(crate) fn resource_files(&self) -> Vec<std::path::PathBuf> {
         self.files_for(self.configs.values())
@@ -85,7 +90,7 @@ impl InboundManager {
         configs: impl Iterator<Item = &'a config::Inbound>,
     ) -> Vec<std::path::PathBuf> {
         configs
-            .filter(|i| self.resources.contains_key(&i.tag))
+            .filter(|i| self.reloadable(&i.tag))
             .flat_map(|i| resource::files(i, self.dispatcher.env()))
             .collect()
     }
@@ -109,6 +114,7 @@ impl InboundManager {
         )?;
 
         let mut resources = HashMap::new();
+        let mut stateful_resources = HashSet::new();
         for inbound in inbounds {
             // An initially built dependent holds the original handler.
             // Such graphs need resource-aware factories before reloading.
@@ -117,10 +123,14 @@ impl InboundManager {
                     .values()
                     .any(|deps| deps.contains(&inbound.tag))
             {
-                resources.insert(
-                    inbound.tag.clone(),
-                    resource::wrap(handlers.get_mut(&inbound.tag).unwrap())?,
-                );
+                if resource::stateful(inbound) {
+                    stateful_resources.insert(inbound.tag.clone());
+                } else {
+                    resources.insert(
+                        inbound.tag.clone(),
+                        resource::wrap(handlers.get_mut(&inbound.tag).unwrap())?,
+                    );
+                }
             }
         }
 
@@ -167,6 +177,7 @@ impl InboundManager {
         }
 
         Ok(InboundManager {
+            stateful_resources,
             states,
             configs: inbounds
                 .iter()
@@ -241,7 +252,7 @@ impl InboundManager {
                 )
             })?;
             resource::check_change(old, inbound)?;
-            if !self.resources.contains_key(&inbound.tag) && old != inbound {
+            if !self.reloadable(&inbound.tag) && old != inbound {
                 return Err(anyhow!(
                     "[{}] inbound: resource reload is not supported for this pipeline",
                     inbound.tag
@@ -254,17 +265,18 @@ impl InboundManager {
             ));
         }
         let mut updates = Vec::new();
+        let mut protocol_updates = Vec::new();
         let mut states = self.states.clone();
         for inbound in inbounds {
             if selected.is_some_and(|tag| tag != inbound.tag) {
                 continue;
             }
-            let Some(resource) = self.resources.get(&inbound.tag) else {
+            if !self.reloadable(&inbound.tag) {
                 continue;
-            };
+            }
             let mut handlers = HashMap::new();
             let mut dependencies = HashMap::new();
-            registry::build_inbounds(
+            protocol_updates.extend(registry::build_inbounds(
                 &include::INBOUNDS,
                 std::slice::from_ref(inbound),
                 include::LISTENER_INBOUNDS,
@@ -272,16 +284,25 @@ impl InboundManager {
                 &mut handlers,
                 &mut dependencies,
                 &mut states,
-            )?;
-            updates.push((
-                resource.clone(),
-                resource::generation(&handlers[&inbound.tag])?,
-            ));
+            )?);
+            if let Some(resource) = self.resources.get(&inbound.tag) {
+                updates.push((
+                    resource.clone(),
+                    resource::generation(&handlers[&inbound.tag])?,
+                ));
+            }
         }
-        Ok(PreparedResources { configs, updates })
+        Ok(PreparedResources {
+            configs,
+            updates,
+            protocol_updates,
+        })
     }
 
     pub(crate) fn publish_resources(&mut self, prepared: PreparedResources) {
+        for update in prepared.protocol_updates {
+            update();
+        }
         for (resource, generation) in prepared.updates {
             resource.publish(generation);
         }
@@ -297,7 +318,7 @@ impl InboundManager {
         if !self.configs.contains_key(&inbound.tag) {
             return Err(anyhow!("[{}] inbound: does not exist", inbound.tag));
         }
-        if !self.resources.contains_key(&inbound.tag) {
+        if !self.reloadable(&inbound.tag) {
             return Err(anyhow!(
                 "[{}] inbound: resource reload is not supported for this pipeline",
                 inbound.tag
@@ -339,7 +360,7 @@ impl InboundManager {
             &mut dependencies,
             &mut states,
         )?;
-        let resource = if resource::supported(inbound) {
+        let resource = if resource::supported(inbound) && !resource::stateful(inbound) {
             Some(resource::wrap(handlers.get_mut(&inbound.tag).unwrap())?)
         } else {
             None
@@ -360,6 +381,9 @@ impl InboundManager {
         self.states = states;
         self.dependencies = dependencies;
         self.configs.insert(inbound.tag.clone(), inbound.clone());
+        if resource::stateful(inbound) {
+            self.stateful_resources.insert(inbound.tag.clone());
+        }
         if let Some(resource) = resource {
             self.resources.insert(inbound.tag.clone(), resource);
         }
@@ -389,6 +413,7 @@ impl InboundManager {
         self.dependencies.remove(tag);
         self.configs.remove(tag);
         self.resources.remove(tag);
+        self.stateful_resources.remove(tag);
         self.states.remove(tag);
         self.dispatcher.set_inbound_type(tag, None);
         Ok(())

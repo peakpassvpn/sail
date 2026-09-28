@@ -171,7 +171,7 @@ pub struct ServerConfig {
     pub psk: Vec<u8>,
     /// With users, every request carries an identity header naming one.
     pub users: Option<Users>,
-    pub salts: SaltPool,
+    pub salts: Arc<SaltPool>,
 }
 
 /// A request the server accepted.
@@ -491,7 +491,7 @@ mod tests {
             method,
             psk: vec![0x11; method.key_len()],
             users: users.map(|u| Users::new(u).unwrap()),
-            salts: SaltPool::new(),
+            salts: Arc::new(SaltPool::new()),
         }
     }
 

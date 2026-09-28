@@ -60,6 +60,7 @@ mod tests {
             &mut HashMap::new(),
             &mut HashMap::new(),
         )
+        .map(|_| ())
     }
 
     #[test]

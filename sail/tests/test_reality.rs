@@ -211,6 +211,109 @@ fn sail_server(keys: &Keys, site: &Site, port: u16) -> String {
 }
 
 #[test]
+fn reality_credentials_reload_without_rebinding() -> anyhow::Result<()> {
+    use sail::adapter::{AnyOutboundHandler, AnyStream};
+    use sail::app::instance::Instance;
+    use sail::session::{Session, SocksAddr};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    async fn open(
+        handler: &AnyOutboundHandler,
+        port: u16,
+        destination: SocketAddr,
+    ) -> anyhow::Result<AnyStream> {
+        let tcp = tokio::net::TcpStream::connect(("127.0.0.1", port)).await?;
+        let sess = Session {
+            destination: SocksAddr::from(destination),
+            ..Default::default()
+        };
+        Ok(tokio::time::timeout(
+            Duration::from_secs(3),
+            handler.stream()?.handle(&sess, None, Some(Box::new(tcp))),
+        )
+        .await??)
+    }
+    async fn ping(stream: &mut AnyStream) -> anyhow::Result<()> {
+        tokio::time::timeout(Duration::from_secs(3), async {
+            stream.write_all(b"live").await?;
+            stream.flush().await?;
+            let mut bytes = [0; 4];
+            stream.read_exact(&mut bytes).await?;
+            anyhow::ensure!(&bytes == b"live");
+            anyhow::Ok(())
+        })
+        .await?
+    }
+    let cert = Cert::new("reload")?;
+    let site = Site::run(&cert)?;
+    let first = Keys::new();
+    let second = Keys::new();
+    let port = common::free_port();
+    let mut old = vless_inbound(&first, &site, port);
+    old["tag"] = json!("server");
+    let mut new = vless_inbound(&second, &site, port);
+    new["tag"] = json!("server");
+    new["users"][0]["uuid"] = json!("90ee4432-671e-4ec8-8512-15d5fd0f8eab");
+    new["tls"]["reality"]["short_id"] = json!(["cd"]);
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()?;
+    let ids = common::run_sail_instances(
+        &rt,
+        vec![json!({"inbounds":[old],"outbounds":[{"type":"direct"}]}).to_string()],
+    )?;
+    let result = rt.block_on(async {
+        let manager = sail::runtime_managers().get(&ids[0]).unwrap().clone();
+        let (destination, echo) = common::run_tcp_echo_server("127.0.0.1:0").await?;
+        let echo = tokio::spawn(echo);
+        let client = |keys: &Keys,
+                      short: &str,
+                      uuid: &str|
+         -> anyhow::Result<(Instance, AnyOutboundHandler)> {
+            let mut outbound = vless_outbound(keys, port, short);
+            outbound["tag"] = json!("proxy");
+            outbound["uuid"] = json!(uuid);
+            let config = sail::config::from_string(&json!({"outbounds":[outbound]}).to_string())?;
+            let instance = Instance::build(&config, Default::default(), Default::default())?;
+            let handler = instance.outbound_manager.load().get("proxy").unwrap();
+            Ok((instance, handler))
+        };
+        let (_old_client, old_handler) = client(&first, SHORT_ID, UUID)?;
+        let mut established = open(&old_handler, port, destination).await?;
+        ping(&mut established).await?;
+        let mut invalid = new.clone();
+        invalid["tls"]["reality"]["private_key"] = json!("invalid");
+        anyhow::ensure!(manager
+            .update_inbound_resources(serde_json::from_value(invalid)?)
+            .await
+            .is_err());
+        ping(&mut open(&old_handler, port, destination).await?).await?;
+        manager
+            .update_inbound_resources(serde_json::from_value(new)?)
+            .await?;
+        ping(&mut established).await?;
+        let (_new_client, new_handler) =
+            client(&second, "cd", "90ee4432-671e-4ec8-8512-15d5fd0f8eab")?;
+        ping(&mut open(&new_handler, port, destination).await?).await?;
+        let (_removed, removed) = client(&second, "cd", UUID)?;
+        anyhow::ensure!(
+            async { ping(&mut open(&removed, port, destination).await?).await }
+                .await
+                .is_err()
+        );
+        anyhow::ensure!(
+            async { ping(&mut open(&old_handler, port, destination).await?).await }
+                .await
+                .is_err()
+        );
+        echo.abort();
+        anyhow::Ok(())
+    });
+    common::shutdown_instances(&rt, ids);
+    result
+}
+
+#[test]
 fn test_reality_sail_to_sail() -> anyhow::Result<()> {
     let cert = Cert::new("sail")?;
     let site = Site::run(&cert)?;

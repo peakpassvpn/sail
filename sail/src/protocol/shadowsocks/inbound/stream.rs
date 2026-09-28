@@ -12,6 +12,25 @@ pub struct Handler {
     pub password: String,
 }
 
+pub(super) struct ReloadableStream(pub(super) super::HotResource<super::LegacyResources>);
+
+#[async_trait]
+impl InboundStreamHandler for ReloadableStream {
+    async fn handle<'a>(
+        &'a self,
+        sess: Session,
+        stream: AnyStream,
+    ) -> std::io::Result<AnyInboundTransport> {
+        let generation = self.0.load();
+        Handler {
+            cipher: generation.cipher.clone(),
+            password: generation.password.clone(),
+        }
+        .handle(sess, stream)
+        .await
+    }
+}
+
 #[async_trait]
 impl InboundStreamHandler for Handler {
     async fn handle<'a>(

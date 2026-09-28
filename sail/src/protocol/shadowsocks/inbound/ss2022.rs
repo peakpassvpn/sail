@@ -2,7 +2,6 @@
 
 use std::io;
 use std::net::SocketAddr;
-use std::sync::Arc;
 
 use anyhow::anyhow;
 use async_trait::async_trait;
@@ -16,9 +15,15 @@ use super::sip022::{
     stream::{self, ServerConfig},
     udp,
 };
+use crate::runtime::resource::HotResource;
+
+pub(crate) struct Resources {
+    pub(super) config: ServerConfig,
+    pub(super) server: udp::Server,
+}
 
 pub struct StreamHandler {
-    pub config: Arc<ServerConfig>,
+    pub(super) resource: HotResource<Resources>,
 }
 
 #[async_trait]
@@ -29,7 +34,8 @@ impl InboundStreamHandler for StreamHandler {
         stream: AnyStream,
     ) -> io::Result<AnyInboundTransport> {
         tracing::trace!("handling inbound ss2022 stream");
-        let accepted = stream::accept(stream, &self.config).await?;
+        let generation = self.resource.load();
+        let accepted = stream::accept(stream, &generation.config).await?;
         sess.destination = accepted.destination;
         sess.user = accepted.user;
         Ok(InboundTransport::Stream(Box::new(accepted.stream), sess))
@@ -37,7 +43,7 @@ impl InboundStreamHandler for StreamHandler {
 }
 
 pub struct DatagramHandler {
-    pub server: Arc<udp::Server>,
+    pub(super) resource: HotResource<Resources>,
 }
 
 #[async_trait]
@@ -46,7 +52,7 @@ impl InboundDatagramHandler for DatagramHandler {
         tracing::trace!("handling inbound ss2022 datagram");
         Ok(InboundTransport::Datagram(
             Box::new(Datagram {
-                server: self.server.clone(),
+                resource: self.resource.clone(),
                 socket,
             }),
             None,
@@ -55,7 +61,7 @@ impl InboundDatagramHandler for DatagramHandler {
 }
 
 struct Datagram {
-    server: Arc<udp::Server>,
+    resource: HotResource<Resources>,
     socket: AnyInboundDatagram,
 }
 
@@ -69,12 +75,12 @@ impl InboundDatagram for Datagram {
         let (rh, sh) = self.socket.split();
         (
             Box::new(RecvHalf {
-                server: self.server.clone(),
+                resource: self.resource.clone(),
                 inner: rh,
                 buf: Vec::new(),
             }),
             Box::new(SendHalf {
-                server: self.server,
+                resource: self.resource,
                 inner: sh,
             }),
         )
@@ -86,7 +92,7 @@ impl InboundDatagram for Datagram {
 }
 
 struct RecvHalf {
-    server: Arc<udp::Server>,
+    resource: HotResource<Resources>,
     inner: Box<dyn InboundDatagramRecvHalf>,
     buf: Vec<u8>,
 }
@@ -103,6 +109,8 @@ impl InboundDatagramRecvHalf for RecvHalf {
         let (n, src, _) = self.inner.recv_from(&mut self.buf).await?;
         let packet = &mut self.buf[..n];
         let received = self
+            .resource
+            .load()
             .server
             .decode(src.address, packet)
             .map_err(|e| ProxyError::DatagramWarn(anyhow!("ss2022 packet: {}", e)))?;
@@ -120,7 +128,7 @@ impl InboundDatagramRecvHalf for RecvHalf {
 }
 
 struct SendHalf {
-    server: Arc<udp::Server>,
+    resource: HotResource<Resources>,
     inner: Box<dyn InboundDatagramSendHalf>,
 }
 
@@ -132,7 +140,11 @@ impl InboundDatagramSendHalf for SendHalf {
         src_addr: &SocksAddr,
         dst_addr: &SocketAddr,
     ) -> io::Result<usize> {
-        let packet = self.server.encode(*dst_addr, src_addr, buf)?;
+        let packet = self
+            .resource
+            .load()
+            .server
+            .encode(*dst_addr, src_addr, buf)?;
         self.inner.send_to(&packet, src_addr, dst_addr).await?;
         Ok(buf.len())
     }

@@ -324,7 +324,7 @@ pub struct Server {
     method: Method,
     psk: Vec<u8>,
     users: Option<Users>,
-    state: Mutex<ServerState>,
+    state: Arc<Mutex<ServerState>>,
 }
 
 struct ServerState {
@@ -335,7 +335,8 @@ struct ServerState {
 
 struct ServerSession {
     client_id: u64,
-    user: Option<usize>,
+    user: Option<[u8; EIH_LEN]>,
+    name: Option<Arc<str>>,
     /// Opens the client's packets (AES methods).
     client_aead: Option<Aead>,
     window: ReplayWindow,
@@ -365,10 +366,10 @@ impl Server {
             method,
             psk,
             users,
-            state: Mutex::new(ServerState {
+            state: Arc::new(Mutex::new(ServerState {
                 xchacha,
                 sessions: HashMap::new(),
-            }),
+            })),
         })
     }
 
@@ -378,10 +379,22 @@ impl Server {
             .map_err(|_| io::Error::other("udp session table poisoned"))
     }
 
-    fn user_psk(&self, user: Option<usize>) -> io::Result<&[u8]> {
+    /// Credentials change without forgetting authenticated UDP sessions or
+    /// their replay windows. Method, identity PSK and EIH framing stay static.
+    #[cfg(any(feature = "inbound-shadowsocks", test))]
+    pub(crate) fn with_users(&self, users: Option<Users>) -> Self {
+        Self {
+            method: self.method,
+            psk: self.psk.clone(),
+            users,
+            state: self.state.clone(),
+        }
+    }
+
+    fn user_psk(&self, user: Option<[u8; EIH_LEN]>) -> io::Result<&[u8]> {
         match (user, &self.users) {
             (None, _) => Ok(&self.psk),
-            (Some(i), Some(users)) => Ok(&users.get(i).ok_or_else(crypto_err)?.psk),
+            (Some(hash), Some(users)) => Ok(&users.find(&hash).ok_or_else(crypto_err)?.1.psk),
             (Some(_), None) => Err(crypto_err()),
         }
     }
@@ -390,6 +403,13 @@ impl Server {
     pub fn decode(&self, from: SocketAddr, packet: &mut [u8]) -> io::Result<Received> {
         let mut state = self.lock()?;
         let state = &mut *state;
+        if state
+            .sessions
+            .get(&from)
+            .is_some_and(|s| s.last_seen.elapsed() >= SERVER_SESSION_TTL)
+        {
+            state.sessions.remove(&from);
+        }
         let (client_id, packet_id, user, body, new_aead) = if let Some(aead) = &mut state.xchacha {
             if packet.len() < NONCE_LEN + SEPARATE_HEADER_LEN + TAG_LEN {
                 return Err(bad("short packet"));
@@ -421,7 +441,7 @@ impl Server {
             let pid = read_u64(&packet[8..])?;
             let user = match &self.users {
                 None => None,
-                Some(users) => {
+                Some(_) => {
                     let mut hash = [0u8; EIH_LEN];
                     hash.copy_from_slice(
                         &packet[SEPARATE_HEADER_LEN..SEPARATE_HEADER_LEN + EIH_LEN],
@@ -430,7 +450,7 @@ impl Server {
                     hash.iter_mut()
                         .zip(packet.iter())
                         .for_each(|(h, p)| *h ^= p);
-                    Some(users.find(&hash).ok_or_else(|| bad("unknown user"))?.0)
+                    Some(hash)
                 }
             };
             let start = SEPARATE_HEADER_LEN + eih_len;
@@ -484,9 +504,7 @@ impl Server {
         session.window.add(packet_id);
         session.last_seen = now;
 
-        let user = user
-            .and_then(|i| self.users.as_ref()?.get(i))
-            .and_then(|u| u.name.clone());
+        let user = session.name.clone();
         Ok(Received {
             destination,
             payload: body.start + 9 + offset..body.end,
@@ -497,7 +515,7 @@ impl Server {
     fn new_session(
         &self,
         client_id: u64,
-        user: Option<usize>,
+        user: Option<[u8; EIH_LEN]>,
         client_aead: Option<Aead>,
     ) -> io::Result<ServerSession> {
         let server_id = rand::thread_rng().next_u64();
@@ -513,6 +531,7 @@ impl Server {
         Ok(ServerSession {
             client_id,
             user,
+            name: user.and_then(|hash| self.users.as_ref()?.find(&hash)?.1.name.clone()),
             client_aead,
             window: ReplayWindow::new(),
             server_id,
@@ -671,6 +690,73 @@ mod tests {
             let err = rx.decode(&mut reply.clone()).err().unwrap();
             assert!(err.to_string().contains("repeated"), "{}", err);
         }
+    }
+
+    #[test]
+    fn user_rotation_preserves_sessions_identity_and_replay() {
+        let method = Method::Aes128Gcm;
+        let identity = vec![0x11; 16];
+        let alice = User {
+            name: Some("alice".into()),
+            psk: vec![0x22; 16],
+        };
+        let bob = User {
+            name: Some("bob".into()),
+            psk: vec![0x33; 16],
+        };
+        let server = Server::new(
+            method,
+            identity.clone(),
+            Some(Users::new(vec![alice.clone(), bob.clone()]).unwrap()),
+        )
+        .unwrap();
+        let (mut tx, mut rx) = client(method, &[identity.clone(), alice.psk.clone()]).unwrap();
+        let target = SocksAddr::from(addr());
+        let packet = tx.encode(&target, b"first").unwrap();
+        assert_eq!(
+            server
+                .decode(addr(), &mut packet.clone())
+                .unwrap()
+                .user
+                .as_deref(),
+            Some("alice")
+        );
+        // Reordering and renaming must not reattribute an established session.
+        let mut renamed = alice.clone();
+        renamed.name = Some("renamed".into());
+        let reordered = server.with_users(Some(Users::new(vec![bob.clone(), renamed]).unwrap()));
+        assert!(reordered.decode(addr(), &mut packet.clone()).is_err());
+        let mut next = tx.encode(&target, b"next").unwrap();
+        assert_eq!(
+            reordered.decode(addr(), &mut next).unwrap().user.as_deref(),
+            Some("alice")
+        );
+        let empty = reordered.with_users(Some(Users::new(vec![]).unwrap()));
+        let mut next = tx.encode(&target, b"old session").unwrap();
+        assert_eq!(
+            empty.decode(addr(), &mut next).unwrap().user.as_deref(),
+            Some("alice")
+        );
+        let mut reply = empty.encode(addr(), &target, b"reply").unwrap();
+        let (_, payload) = rx.decode(&mut reply).unwrap();
+        assert_eq!(&reply[payload], b"reply");
+        let (mut fresh, _) = client(method, &[identity, alice.psk]).unwrap();
+        assert!(empty
+            .decode(addr(), &mut fresh.encode(&target, b"new session").unwrap())
+            .is_err());
+        let restored = empty.with_users(Some(Users::new(vec![bob]).unwrap()));
+        assert!(restored.decode(addr(), &mut packet.clone()).is_err());
+        // Idle sessions cannot indefinitely extend removed credentials.
+        empty
+            .lock()
+            .unwrap()
+            .sessions
+            .get_mut(&addr())
+            .unwrap()
+            .last_seen = Instant::now() - SERVER_SESSION_TTL;
+        assert!(empty
+            .decode(addr(), &mut tx.encode(&target, b"expired").unwrap())
+            .is_err());
     }
 
     #[test]

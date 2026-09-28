@@ -97,5 +97,5 @@ fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
         fallback,
     ));
     let core: AnyInboundHandler = Arc::new(Handler::new(tag.to_owned(), Some(stream), None));
-    layers::inbound(tag, core, &blocks, ctx.env)
+    layers::inbound(core, &blocks, ctx)
 }

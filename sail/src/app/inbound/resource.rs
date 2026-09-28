@@ -1,7 +1,7 @@
 //! Snapshot the complete stream pipeline before TLS and authentication:
 //! a connection's certificate and users belong to the same generation.
-//! VMess shares listener-lifetime replay state across generations. SS replay
-//! caches, QUIC endpoints and REALITY need state-preserving updates instead.
+//! Stateful protocols publish their own snapshots while retaining listener
+//! lifetime replay caches, UDP sessions and QUIC endpoints.
 
 use crate::adapter::*;
 use crate::config::Inbound;
@@ -39,28 +39,33 @@ pub(super) fn files(
 }
 
 pub(super) fn supported(inbound: &Inbound) -> bool {
+    if stateful(inbound) {
+        return true;
+    }
     matches!(
         inbound.protocol.as_str(),
-        "trojan" | "vless" | "anytls" | "vmess"
+        "trojan" | "vless" | "anytls" | "vmess" | "socks" | "http" | "mixed"
     ) && inbound
         .options
         .get("transport")
         .and_then(|v| v.get("type"))
         .and_then(|v| v.as_str())
         != Some("quic")
+}
+
+/// These protocols retain their socket/endpoint and publish a protocol
+/// snapshot at the boundary of a new connection instead of rebuilding it.
+pub(super) fn stateful(inbound: &Inbound) -> bool {
+    matches!(
+        inbound.protocol.as_str(),
+        "hysteria2" | "tuic" | "shadowsocks"
+    ) || (matches!(inbound.protocol.as_str(), "trojan" | "vless" | "vmess")
         && inbound
             .options
-            .get("tls")
-            .and_then(|v| v.get("reality"))
-            .and_then(|v| v.get("enabled"))
-            .and_then(|v| v.as_bool())
-            != Some(true)
-        && inbound
-            .options
-            .get("multiplex")
-            .and_then(|v| v.get("protocol"))
+            .get("transport")
+            .and_then(|t| t.get("type"))
             .and_then(|v| v.as_str())
-            != Some("amux")
+            == Some("quic"))
 }
 
 /// Reject unsupported edits rather than reporting a successful no-op.
@@ -68,10 +73,30 @@ pub(super) fn check_change(old: &Inbound, new: &Inbound) -> Result<()> {
     let static_part = |inbound: &Inbound| {
         let mut value = inbound.clone();
         if supported(inbound) {
-            value.options.remove("users");
+            // None vs Some is the SS2022 wire framing (identity headers).
+            // Keep that structural distinction; Some([]) is deny-all.
+            if inbound.protocol == "shadowsocks" {
+                if !inbound
+                    .options
+                    .get("method")
+                    .and_then(|v| v.as_str())
+                    .is_some_and(|m| m.starts_with("2022-"))
+                {
+                    value.options.remove("password");
+                }
+                if value.options.get("users").is_some_and(|v| v.is_array()) {
+                    value.options.insert("users".into(), serde_json::json!([]));
+                }
+            } else {
+                value.options.remove("users");
+            }
             if let Some(tls) = value.options.get_mut("tls").and_then(|v| v.as_object_mut()) {
                 for field in ["certificate", "certificate_path", "key", "key_path"] {
                     tls.remove(field);
+                }
+                if let Some(reality) = tls.get_mut("reality").and_then(|v| v.as_object_mut()) {
+                    reality.remove("private_key");
+                    reality.remove("short_id");
                 }
             }
         }
@@ -165,6 +190,91 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    #[cfg(all(
+        feature = "inbound-socks",
+        feature = "inbound-http",
+        feature = "inbound-mixed"
+    ))]
+    #[tokio::test]
+    async fn local_proxy_users_reload_without_resetting_association_limits() {
+        use crate::adapter::registry;
+        use std::collections::HashMap;
+        use tokio::io::AsyncWriteExt;
+        async fn authenticate(
+            handler: &AnyInboundHandler,
+            socks: bool,
+            password: &str,
+        ) -> std::io::Result<()> {
+            use base64::Engine;
+            let wire = if socks {
+                let mut wire = vec![5, 1, 2, 1, 5];
+                wire.extend_from_slice(b"alice");
+                wire.push(password.len() as u8);
+                wire.extend_from_slice(password.as_bytes());
+                wire.extend_from_slice(&[5, 1, 0, 1, 127, 0, 0, 1, 0, 80]);
+                wire
+            } else {
+                let auth =
+                    base64::engine::general_purpose::STANDARD.encode(format!("alice:{password}"));
+                format!("CONNECT 127.0.0.1:80 HTTP/1.1\r\nHost: 127.0.0.1:80\r\nProxy-Authorization: Basic {auth}\r\n\r\n").into_bytes()
+            };
+            let (mut client, server) = tokio::io::duplex(4096);
+            client.write_all(&wire).await?;
+            client.shutdown().await?;
+            match handler
+                .stream()?
+                .handle(Session::default(), Box::new(server))
+                .await?
+            {
+                InboundTransport::Stream(_, sess) => {
+                    assert_eq!(sess.user.as_deref(), Some("alice"));
+                    Ok(())
+                }
+                _ => panic!("expected stream"),
+            }
+        }
+        for protocol in ["http", "socks", "mixed"] {
+            let mut states = HashMap::new();
+            let build = |password: &str, states: &mut HashMap<_, _>| {
+                let config = serde_json::from_value(json!({"type":protocol,"tag":"local","users":[{"username":"alice","password":password}]})).unwrap();
+                let mut handlers = HashMap::new();
+                registry::build_inbounds(
+                    &crate::include::INBOUNDS,
+                    &[config],
+                    crate::include::LISTENER_INBOUNDS,
+                    &Default::default(),
+                    &mut handlers,
+                    &mut HashMap::new(),
+                    states,
+                )
+                .unwrap();
+                handlers.remove("local").unwrap()
+            };
+            let mut live = build("old", &mut states);
+            let resource = wrap(&mut live).unwrap();
+            let associations = states["local"].socks_associations.get().cloned();
+            authenticate(&live, protocol != "http", "old")
+                .await
+                .unwrap();
+            resource.publish(generation(&build("new", &mut states)).unwrap());
+            assert!(authenticate(&live, protocol != "http", "old")
+                .await
+                .is_err());
+            authenticate(&live, protocol != "http", "new")
+                .await
+                .unwrap();
+            if protocol == "mixed" {
+                authenticate(&live, false, "new").await.unwrap();
+            }
+            if let Some(old) = associations {
+                assert!(Arc::ptr_eq(
+                    &old,
+                    states["local"].socks_associations.get().unwrap()
+                ));
+            }
+        }
+    }
+
     #[test]
     fn only_resources_of_supported_pipelines_may_change() {
         let old: Inbound = serde_json::from_value(json!({
@@ -179,7 +289,7 @@ mod tests {
         assert!(check_change(&old, &new).is_ok());
         new.listen_port = Some(4321);
         assert!(check_change(&old, &new).is_err());
-        for protocol in ["shadowsocks", "hysteria2", "tuic", "tun", "nf"] {
+        for protocol in ["tun", "nf"] {
             let mut old = old.clone();
             old.protocol = protocol.into();
             let mut new = old.clone();
@@ -189,11 +299,11 @@ mod tests {
         }
         let mut reality = old.clone();
         reality.options["tls"]["reality"] = json!({"enabled":true});
-        assert!(!supported(&reality));
+        assert!(supported(&reality));
         let mut quic = old;
         quic.options
             .insert("transport".into(), json!({"type":"quic"}));
-        assert!(!supported(&quic));
+        assert!(supported(&quic));
     }
 
     #[cfg(feature = "inbound-vless")]

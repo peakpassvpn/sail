@@ -58,8 +58,12 @@ pub struct Server {
 }
 
 pub struct DatagramHandler {
-    server_config: quinn::ServerConfig,
+    resource: crate::runtime::resource::HotResource<Resources>,
     obfs: Option<Salamander>,
+}
+
+pub(crate) struct Resources {
+    server_config: quinn::ServerConfig,
     server: Arc<Server>,
 }
 
@@ -70,10 +74,17 @@ impl DatagramHandler {
         server: Arc<Server>,
     ) -> Self {
         Self {
-            server_config,
+            resource: crate::runtime::resource::HotResource::new(Resources {
+                server_config,
+                server,
+            }),
             obfs,
-            server,
         }
+    }
+
+    pub(crate) fn reloadable(mut self, ctx: &crate::adapter::registry::InboundContext<'_>) -> Self {
+        self.resource = ctx.resource(&ctx.state.hysteria2, self.resource.load());
+        self
     }
 }
 
@@ -93,10 +104,9 @@ impl InboundDatagramHandler for DatagramHandler {
         let socket = socket.into_std()?;
         let local_addr = socket.local_addr()?;
         let socket = quic::wrap_socket(socket, self.obfs.as_ref())?;
-        let endpoint = endpoint_on(socket, Some(self.server_config.clone()))?;
+        let endpoint = endpoint_on(socket, Some(self.resource.load().server_config.clone()))?;
         let (tx, rx) = mpsc::channel(ACCEPT_QUEUE);
-        let server = self.server.clone();
-        let server_config = self.server_config.clone();
+        let resource = self.resource.clone();
         tokio::spawn(async move {
             loop {
                 let accept = std::pin::pin!(endpoint.accept());
@@ -109,12 +119,13 @@ impl InboundDatagramHandler for DatagramHandler {
                 let Some(incoming) = incoming else {
                     break;
                 };
+                let generation = resource.load();
                 let conn = Conn {
-                    server: server.clone(),
+                    server: generation.server.clone(),
                     tx: tx.clone(),
                     local_addr,
                 };
-                let config = server_config.clone();
+                let config = generation.server_config.clone();
                 tokio::spawn(async move {
                     let remote = incoming.remote_address();
                     if let Err(e) = conn.serve(incoming, config).await {

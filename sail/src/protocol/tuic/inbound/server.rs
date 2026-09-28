@@ -60,6 +60,10 @@ struct Settings {
 }
 
 pub struct Server {
+    resource: crate::runtime::resource::HotResource<Resources>,
+}
+
+pub(crate) struct Resources {
     server_config: quinn::ServerConfig,
     settings: Arc<Settings>,
 }
@@ -83,14 +87,21 @@ impl Server {
             Side::Server,
         )));
         Ok(Self {
-            server_config,
-            settings: Arc::new(Settings {
-                users,
-                auth_timeout,
-                zero_rtt,
-                heartbeat,
+            resource: crate::runtime::resource::HotResource::new(Resources {
+                server_config,
+                settings: Arc::new(Settings {
+                    users,
+                    auth_timeout,
+                    zero_rtt,
+                    heartbeat,
+                }),
             }),
         })
+    }
+
+    pub(crate) fn reloadable(mut self, ctx: &crate::adapter::registry::InboundContext<'_>) -> Self {
+        self.resource = ctx.resource(&ctx.state.tuic, self.resource.load());
+        self
     }
 }
 
@@ -99,9 +110,9 @@ impl InboundDatagramHandler for Server {
     async fn handle<'a>(&'a self, socket: AnyInboundDatagram) -> io::Result<AnyInboundTransport> {
         let socket = socket.into_std()?;
         let local_addr = socket.local_addr()?;
-        let endpoint = endpoint(socket, Some(self.server_config.clone()))?;
+        let endpoint = endpoint(socket, Some(self.resource.load().server_config.clone()))?;
         let (accepted, accepted_rx) = mpsc::channel(ACCEPT_CHANNEL_SIZE);
-        let settings = self.settings.clone();
+        let resource = self.resource.clone();
         tokio::spawn(async move {
             loop {
                 let incoming = tokio::select! {
@@ -112,11 +123,19 @@ impl InboundDatagramHandler for Server {
                 let Some(incoming) = incoming else {
                     break;
                 };
-                let settings = settings.clone();
+                let generation = resource.load();
                 let accepted = accepted.clone();
                 tokio::spawn(async move {
                     let remote = incoming.remote_address();
-                    if let Err(e) = serve(settings, incoming, accepted, local_addr).await {
+                    if let Err(e) = serve(
+                        generation.settings.clone(),
+                        incoming,
+                        generation.server_config.clone(),
+                        accepted,
+                        local_addr,
+                    )
+                    .await
+                    {
                         debug!("tuic connection from {} failed: {}", remote, e);
                     }
                 });
@@ -161,11 +180,12 @@ struct Conn {
 async fn serve(
     settings: Arc<Settings>,
     incoming: quinn::Incoming,
+    server_config: quinn::ServerConfig,
     accepted: mpsc::Sender<AnyBaseInboundTransport>,
     local_addr: SocketAddr,
 ) -> Result<()> {
     let remote = incoming.remote_address();
-    let connecting = incoming.accept()?;
+    let connecting = incoming.accept_with(Arc::new(server_config))?;
     let conn = if settings.zero_rtt {
         // 0-RTT data is taken before the handshake is done; the
         // `Authenticate` it must wait for comes only after it anyway.

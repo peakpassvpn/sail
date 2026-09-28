@@ -6,6 +6,7 @@
 //! adding a protocol touches that list and the protocol's own directory and
 //! nothing else.
 
+use crate::runtime::resource::{HotResource, ResourceUpdate};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -540,8 +541,20 @@ pub struct InboundContext<'a> {
     pub options: &'a Options,
     /// The instance's tuning and host.
     pub env: &'a RuntimeEnv,
-    #[cfg_attr(not(feature = "inbound-vmess"), allow(dead_code))]
+    #[cfg_attr(
+        not(any(
+            feature = "inbound-vmess",
+            feature = "inbound-hysteria2",
+            feature = "inbound-tuic"
+        )),
+        allow(dead_code)
+    )]
     pub(crate) state: &'a InboundState,
+    #[cfg_attr(
+        not(any(feature = "inbound-hysteria2", feature = "inbound-tuic")),
+        allow(dead_code)
+    )]
+    updates: &'a std::cell::RefCell<Vec<ResourceUpdate>>,
     handlers: &'a Handlers<AnyInboundHandler>,
 }
 
@@ -549,12 +562,51 @@ pub struct InboundContext<'a> {
 /// Candidates borrow the same state without resetting or consuming it.
 #[derive(Default)]
 pub(crate) struct InboundState {
+    #[cfg(feature = "inbound-shadowsocks")]
+    pub(crate) shadowsocks_legacy:
+        std::sync::OnceLock<HotResource<crate::protocol::shadowsocks::inbound::LegacyResources>>,
+    #[cfg(feature = "inbound-shadowsocks")]
+    pub(crate) shadowsocks_sessions:
+        std::sync::OnceLock<Arc<crate::protocol::shadowsocks::inbound::Sessions>>,
+    #[cfg(feature = "inbound-socks")]
+    pub(crate) socks_associations:
+        std::sync::OnceLock<Arc<crate::protocol::socks::inbound::Associations>>,
+    #[cfg(feature = "inbound-shadowsocks")]
+    pub(crate) shadowsocks:
+        std::sync::OnceLock<HotResource<crate::protocol::shadowsocks::inbound::Resources>>,
+    #[cfg(feature = "inbound-quic")]
+    pub(crate) quic: std::sync::OnceLock<HotResource<crate::transport::quic::inbound::Resources>>,
+    #[cfg(feature = "inbound-hysteria2")]
+    pub(crate) hysteria2:
+        std::sync::OnceLock<HotResource<crate::protocol::hysteria2::inbound::Resources>>,
+    #[cfg(feature = "inbound-tuic")]
+    pub(crate) tuic: std::sync::OnceLock<HotResource<crate::protocol::tuic::inbound::Resources>>,
     #[cfg(feature = "inbound-vmess")]
     pub(crate) vmess_replay:
         std::sync::OnceLock<std::sync::Arc<crate::protocol::vmess::inbound::ReplayFilter>>,
 }
 
 impl InboundContext<'_> {
+    /// Initial construction installs the first generation. Rebuilds only
+    /// stage publication: no live credential changes during validation.
+    #[cfg_attr(
+        not(any(feature = "inbound-hysteria2", feature = "inbound-tuic")),
+        allow(dead_code)
+    )]
+    pub(crate) fn resource<T: Send + Sync + 'static>(
+        &self,
+        slot: &std::sync::OnceLock<HotResource<T>>,
+        candidate: Arc<T>,
+    ) -> HotResource<T> {
+        let resource = slot
+            .get_or_init(|| HotResource::from_arc(candidate.clone()))
+            .clone();
+        let publish = resource.clone();
+        self.updates
+            .borrow_mut()
+            .push(Box::new(move || publish.publish(candidate)));
+        resource
+    }
     /// This inbound's options, read into its protocol's options type.
     pub fn options<T: serde::de::DeserializeOwned>(&self) -> Result<T> {
         parse_options("inbound", self.tag, self.options)
@@ -588,7 +640,8 @@ pub(crate) fn build_inbounds(
     handlers: &mut Handlers<AnyInboundHandler>,
     dependencies: &mut HashMap<String, Vec<String>>,
     states: &mut HashMap<String, std::sync::Arc<InboundState>>,
-) -> Result<()> {
+) -> Result<Vec<ResourceUpdate>> {
+    let updates = std::cell::RefCell::new(Vec::new());
     let nodes = inbounds
         .iter()
         .filter(|i| !listeners.contains(&i.protocol.as_str()))
@@ -618,14 +671,16 @@ pub(crate) fn build_inbounds(
                 options: &options,
                 env,
                 state: states.entry(inbound.tag.clone()).or_default(),
+                updates: &updates,
                 handlers,
             };
             let core = (factory.build)(&ctx)?;
-            let handler = layers::inbound(&inbound.tag, core, &blocks, env)?;
+            let handler = layers::inbound(core, &blocks, &ctx)?;
             handlers.insert(inbound.tag.clone(), handler);
             Ok(())
         },
-    )
+    )?;
+    Ok(updates.into_inner())
 }
 
 // ---------------------------------------------------------------------------

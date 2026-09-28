@@ -6,12 +6,13 @@ use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use futures::stream::Stream;
 use futures::task::{Context, Poll};
-use quinn::{RecvStream, SendStream};
+use futures::StreamExt;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
+use tokio::sync::Semaphore;
 use tokio::time::{timeout, Duration};
 use tracing::{debug, trace, warn};
 
-use crate::runtime::RuntimeEnv;
+use crate::runtime::resource::HotResource;
 use crate::transport::layers::InboundTls;
 use crate::{adapter::*, session::Session, session::StreamId};
 
@@ -21,28 +22,14 @@ use super::super::{
 };
 
 struct Incoming {
-    stream_rx: Receiver<(SocketAddr, (SendStream, RecvStream))>,
+    stream_rx: Receiver<AnyBaseInboundTransport>,
 }
 
 impl Stream for Incoming {
     type Item = AnyBaseInboundTransport;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        match self.stream_rx.poll_recv(cx) {
-            Poll::Ready(Some((source, (send, recv)))) => {
-                let mut sess = Session {
-                    source,
-                    ..Default::default()
-                };
-                sess.stream_id = Some(StreamId::U64(send.id().index()));
-                Poll::Ready(Some(AnyBaseInboundTransport::Stream(
-                    Box::new(QuicStream::new(send, recv)),
-                    sess,
-                )))
-            }
-            Poll::Ready(None) => Poll::Ready(None),
-            Poll::Pending => Poll::Pending,
-        }
+        self.stream_rx.poll_recv(cx)
     }
 }
 
@@ -52,11 +39,23 @@ const ACCEPT_CHANNEL_SIZE: usize = 1024;
 const ACCEPT_QUEUE_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub struct Handler {
+    resource: HotResource<Resources>,
+}
+
+pub(crate) struct Resources {
     server_config: quinn::ServerConfig,
+    core: AnyInboundHandler,
+    accept: crate::protocol::group::chain::inbound::Accept,
 }
 
 impl Handler {
-    pub fn new(tag: &str, tls: &InboundTls, env: &RuntimeEnv) -> Result<Self> {
+    pub(crate) fn new(
+        ctx: &crate::adapter::registry::InboundContext<'_>,
+        tls: &InboundTls,
+        core: AnyInboundHandler,
+    ) -> Result<Self> {
+        let tag = ctx.tag;
+        let env = ctx.env;
         // tls_inbound serves REALITY without a certificate; this cannot.
         if tls.reality.as_ref().is_some_and(|r| r.enabled) {
             return Err(anyhow!(
@@ -71,27 +70,60 @@ impl Handler {
             Side::Server,
             CongestionControl::Bbr.factory(),
         )));
-        Ok(Self { server_config })
+        let generation = Arc::new(Resources {
+            server_config,
+            core,
+            accept: (&env.options.inbound).into(),
+        });
+        Ok(Self {
+            resource: ctx.resource(&ctx.state.quic, generation),
+        })
     }
 }
 
 async fn handle_conn(
-    stream_tx: Sender<(SocketAddr, (SendStream, RecvStream))>,
+    stream_tx: Sender<AnyBaseInboundTransport>,
     remote_addr: SocketAddr,
     conn: quinn::Connecting,
+    generation: Arc<Resources>,
+    handshakes: Arc<Semaphore>,
 ) -> Result<()> {
     let (conn, _) = conn
         .into_0rtt()
         .map_err(|_| anyhow!("convert 0rtt failed"))?;
     let send_timeout = ACCEPT_QUEUE_TIMEOUT;
     trace!("quic handling connection from {}", remote_addr);
-    loop {
-        let s = conn.accept_bi().await?;
+    let streams = futures::stream::unfold(conn, move |conn| async move {
+        let (send, recv) = conn.accept_bi().await.ok()?;
+        let sess = Session {
+            source: remote_addr,
+            stream_id: Some(StreamId::U64(send.id().index())),
+            ..Default::default()
+        };
+        Some((
+            AnyBaseInboundTransport::Stream(Box::new(QuicStream::new(send, recv)), sess),
+            conn,
+        ))
+    });
+    let core: AnyInboundHandler = Arc::new(crate::adapter::inbound::Handler::new(
+        generation.core.tag().clone(),
+        Some(Arc::new(LimitedHandshake {
+            core: generation.core.clone(),
+            handshakes,
+        })),
+        None,
+    ));
+    let mut incoming = crate::protocol::group::chain::inbound::Incoming::new(
+        Box::new(Box::pin(streams)),
+        vec![core],
+        generation.accept,
+    );
+    while let Some(transport) = incoming.next().await {
         trace!("quic accepted stream from {}", remote_addr);
         if stream_tx.capacity() == 0 {
             warn!("quic accept channel full");
         }
-        match timeout(send_timeout, stream_tx.send((remote_addr, s))).await {
+        match timeout(send_timeout, stream_tx.send(transport)).await {
             Ok(Ok(())) => {}
             Ok(Err(_)) => return Ok(()),
             Err(_) => {
@@ -102,6 +134,30 @@ async fn handle_conn(
             }
         }
     }
+    Ok(())
+}
+
+/// The old pipeline bounded authentication across the entire endpoint.
+/// Keep that budget when each connection now owns a credential snapshot.
+struct LimitedHandshake {
+    core: AnyInboundHandler,
+    handshakes: Arc<Semaphore>,
+}
+
+#[async_trait]
+impl InboundStreamHandler for LimitedHandshake {
+    async fn handle<'a>(
+        &'a self,
+        sess: Session,
+        stream: AnyStream,
+    ) -> io::Result<AnyInboundTransport> {
+        let _permit = self
+            .handshakes
+            .acquire()
+            .await
+            .map_err(|_| io::Error::other("QUIC endpoint closed"))?;
+        self.core.stream()?.handle(sess, stream).await
+    }
 }
 
 #[async_trait]
@@ -109,15 +165,36 @@ impl InboundDatagramHandler for Handler {
     async fn handle<'a>(&'a self, socket: AnyInboundDatagram) -> io::Result<AnyInboundTransport> {
         tracing::trace!("handling inbound datagram");
         let (stream_tx, stream_rx) = channel(ACCEPT_CHANNEL_SIZE);
-        let endpoint = endpoint(socket.into_std()?, Some(self.server_config.clone()))?;
+        let endpoint = endpoint(
+            socket.into_std()?,
+            Some(self.resource.load().server_config.clone()),
+        )?;
+        let resource = self.resource.clone();
+        let handshakes = Arc::new(Semaphore::new(resource.load().accept.concurrency.max(1)));
         tokio::spawn(async move {
-            while let Some(incoming) = endpoint.accept().await {
+            loop {
+                let incoming = tokio::select! {
+                    incoming = endpoint.accept() => incoming,
+                    _ = stream_tx.closed() => None,
+                };
+                let Some(incoming) = incoming else {
+                    break;
+                };
+                let generation = resource.load();
                 let stream_tx_c = stream_tx.clone();
+                let handshakes = handshakes.clone();
                 tokio::spawn(async move {
                     let remote_addr = incoming.remote_address();
-                    match incoming.accept() {
+                    match incoming.accept_with(Arc::new(generation.server_config.clone())) {
                         Ok(connecting) => {
-                            if let Err(e) = handle_conn(stream_tx_c, remote_addr, connecting).await
+                            if let Err(e) = handle_conn(
+                                stream_tx_c,
+                                remote_addr,
+                                connecting,
+                                generation,
+                                handshakes,
+                            )
+                            .await
                             {
                                 debug!(
                                     "handle quic connection from {} failed: {}",
@@ -131,7 +208,53 @@ impl InboundDatagramHandler for Handler {
                     }
                 });
             }
+            endpoint.close(0u32.into(), b"");
         });
         Ok(InboundTransport::Incoming(Box::new(Incoming { stream_rx })))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    struct Authentication;
+    #[async_trait]
+    impl InboundStreamHandler for Authentication {
+        async fn handle<'a>(
+            &'a self,
+            sess: Session,
+            mut stream: AnyStream,
+        ) -> io::Result<AnyInboundTransport> {
+            stream.read_u8().await?;
+            Ok(InboundTransport::Stream(stream, sess))
+        }
+    }
+
+    #[tokio::test]
+    async fn connection_generations_share_and_release_handshake_budget() {
+        let slots = Arc::new(Semaphore::new(1));
+        let generation = |tag: &str| LimitedHandshake {
+            core: Arc::new(crate::adapter::inbound::Handler::new(
+                tag.into(),
+                Some(Arc::new(Authentication)),
+                None,
+            )),
+            handshakes: slots.clone(),
+        };
+        let first = generation("old");
+        let second = generation("new");
+        let (_client1, server1) = tokio::io::duplex(64);
+        let (mut client2, server2) = tokio::io::duplex(64);
+        let mut pending1 = first.handle(Session::default(), Box::new(server1));
+        let mut pending2 = second.handle(Session::default(), Box::new(server2));
+        assert!(futures::poll!(&mut pending1).is_pending());
+        client2.write_u8(1).await.unwrap();
+        assert!(futures::poll!(&mut pending2).is_pending());
+        assert_eq!(slots.available_permits(), 0);
+        drop(pending1); // a cancelled/timed out handshake returns its slot
+        assert!(pending2.await.is_ok());
+        assert_eq!(slots.available_permits(), 1);
     }
 }
