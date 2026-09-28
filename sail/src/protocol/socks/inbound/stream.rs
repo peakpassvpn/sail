@@ -49,13 +49,20 @@ pub struct Handler {
     /// The UDP associations clients ask for, each with a relay socket of
     /// its own.
     associations: Arc<Associations>,
+    /// The listener's mark, for the relay sockets.
+    mark: Option<u32>,
 }
 
 impl Handler {
-    pub fn new(users: HashMap<String, String>, associations: Arc<Associations>) -> Self {
+    pub fn new(
+        users: HashMap<String, String>,
+        associations: Arc<Associations>,
+        mark: Option<u32>,
+    ) -> Self {
         Handler {
             users: Arc::new(users),
             associations,
+            mark,
         }
     }
 
@@ -261,7 +268,7 @@ impl Handler {
                 // A relay of its own, on the address the client reached
                 // the inbound at, so that it can reach the relay too.
                 let local_ip = sess.local_addr.ip().to_canonical();
-                let socket = match datagram::bind(local_ip) {
+                let socket = match datagram::bind(local_ip, self.mark) {
                     Ok(socket) => socket,
                     Err(e) => {
                         stream.write_all(&FAILURE).await?;
@@ -324,6 +331,7 @@ mod tests {
                 ("bob".to_string(), "bpass".to_string()),
             ]),
             Default::default(),
+            None,
         )
     }
 
@@ -382,7 +390,7 @@ mod tests {
         assert_eq!(answer[1], 91);
 
         let (result, answer) =
-            run(Handler::new(HashMap::new(), Default::default()), &request).await;
+            run(Handler::new(HashMap::new(), Default::default(), None), &request).await;
         assert!(result.unwrap().is_some());
         assert_eq!(answer[1], 90);
     }
@@ -391,7 +399,7 @@ mod tests {
     async fn socks4_fields_are_bounded() {
         let mut request = vec![0x04, 0x01, 0, 80, 127, 0, 0, 1];
         request.resize(request.len() + MAX_SOCKS4_FIELD + 10, b'a');
-        let (result, _) = run(Handler::new(HashMap::new(), Default::default()), &request).await;
+        let (result, _) = run(Handler::new(HashMap::new(), Default::default(), None), &request).await;
         assert!(result.is_err());
     }
 }

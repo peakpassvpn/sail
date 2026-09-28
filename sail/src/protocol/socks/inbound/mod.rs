@@ -77,7 +77,7 @@ fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
         .socks_associations
         .get_or_init(Default::default)
         .clone();
-    let stream = Arc::new(StreamHandler::new(users, associations));
+    let stream = Arc::new(StreamHandler::new(users, associations, ctx.env.listen_mark));
     // No datagram handler: UDP ASSOCIATE binds a relay socket per
     // association, as RFC 1928 and sing-box do, and nothing is served on
     // the listen port's UDP.

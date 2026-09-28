@@ -14,6 +14,7 @@
 //! each `route_address` (all addresses without) through the TUN, with a
 //! `throw` route of each `route_exclude_address`, so that those fall
 //! through to the rules after it.
+#![cfg_attr(not(target_os = "linux"), allow(dead_code))]
 
 use std::process::Command;
 

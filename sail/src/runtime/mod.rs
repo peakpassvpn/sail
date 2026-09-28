@@ -46,6 +46,10 @@ pub struct RuntimeEnv {
     /// configuration's `certificate` chose them.
     #[cfg(feature = "tls")]
     pub tls_roots: crate::transport::tls::roots::TrustRoots,
+    /// The mark on the sockets sail listens with (Linux): the TUN's
+    /// auto_redirect output mark, which keeps replies to clients out of
+    /// its redirection, as it keeps the outbounds' connections out.
+    pub listen_mark: Option<u32>,
 }
 
 pub type SyncRuntimeEnv = Arc<RuntimeEnv>;

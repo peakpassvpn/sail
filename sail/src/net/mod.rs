@@ -131,6 +131,23 @@ impl TcpListener {
 /// The largest UDP payload: what a socket must be able to send.
 pub const MAX_DATAGRAM: usize = 65535;
 
+/// Marks a socket sail listens with by `env.listen_mark`, if there is one.
+pub fn mark_listener(socket: SockRef, env: &crate::runtime::RuntimeEnv) -> io::Result<()> {
+    match env.listen_mark {
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        Some(mark) => socket.set_mark(mark),
+        #[cfg(not(any(target_os = "linux", target_os = "android")))]
+        Some(_) => {
+            let _ = socket;
+            Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "socket marks are only supported on Linux",
+            ))
+        }
+        None => Ok(()),
+    }
+}
+
 /// Lets `socket` send a datagram of [`MAX_DATAGRAM`] bytes. macOS caps a
 /// datagram at the send buffer, which starts at 9 KiB
 /// (`net.inet.udp.maxdgram`), and fails a larger one with EMSGSIZE; other

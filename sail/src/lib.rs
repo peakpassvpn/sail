@@ -852,6 +852,8 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
     let env = Arc::new(runtime::RuntimeEnv {
         options: opts.runtime,
         host: opts.host,
+        #[cfg(feature = "inbound-tun")]
+        listen_mark: auto_redirect_output_mark(&config).map_err(Error::Config)?,
         ..Default::default()
     });
 

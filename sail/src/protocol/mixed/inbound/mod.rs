@@ -76,6 +76,7 @@ fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
                 .socks_associations
                 .get_or_init(Default::default)
                 .clone(),
+            ctx.env.listen_mark,
         ),
     });
     // UDP ASSOCIATE binds a relay socket per association, as the socks

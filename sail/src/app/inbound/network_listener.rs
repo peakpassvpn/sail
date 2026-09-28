@@ -325,6 +325,8 @@ impl NetworkInboundListener {
             let listener = crate::net::TcpListener::bind_now(&listen_addr)
                 .map_err(|e| bind_failed("tcp", e))?
                 .abort_on_close(self.dispatcher.env().options.inbound.tcp_abort_on_close);
+            crate::net::mark_listener(socket2::SockRef::from(listener.io()), self.dispatcher.env())
+                .map_err(|e| bind_failed("tcp", e))?;
             self.handler
                 .prepare_listener(socket2::SockRef::from(listener.io()), Network::Tcp)
                 .map_err(|e| bind_failed("tcp", e))?;
@@ -343,6 +345,10 @@ impl NetworkInboundListener {
                 .and_then(|socket| {
                     socket.set_nonblocking(true)?;
                     crate::net::fit_largest_datagram(socket2::SockRef::from(&socket))?;
+                    crate::net::mark_listener(
+                        socket2::SockRef::from(&socket),
+                        self.dispatcher.env(),
+                    )?;
                     UdpSocket::from_std(socket)
                 })
                 .map_err(|e| bind_failed("udp", e))?;

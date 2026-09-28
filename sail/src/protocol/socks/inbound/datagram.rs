@@ -20,11 +20,17 @@ use crate::{
 };
 
 /// A relay socket on `ip`, on a port the system picks, bound as the
-/// inbound's listener binds its sockets.
-pub fn bind(ip: IpAddr) -> io::Result<UdpSocket> {
+/// inbound's listener binds its sockets, with their `mark`.
+pub fn bind(ip: IpAddr, mark: Option<u32>) -> io::Result<UdpSocket> {
     let socket = std::net::UdpSocket::bind(SocketAddr::new(ip, 0))?;
     socket.set_nonblocking(true)?;
     crate::net::fit_largest_datagram(socket2::SockRef::from(&socket))?;
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    if let Some(mark) = mark {
+        socket2::SockRef::from(&socket).set_mark(mark)?;
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "android")))]
+    let _ = mark;
     UdpSocket::from_std(socket)
 }
 
@@ -258,7 +264,7 @@ mod tests {
 
         let loopback = IpAddr::V4(Ipv4Addr::LOCALHOST);
         for _ in 0..50 {
-            let relay_socket = bind(loopback).unwrap();
+            let relay_socket = bind(loopback, None).unwrap();
             let relay_addr = relay_socket.local_addr().unwrap();
             let client = UdpSocket::bind((loopback, 0)).await.unwrap();
             // A real connection: its close and the datagrams reach the
