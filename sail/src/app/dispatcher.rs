@@ -31,7 +31,7 @@ where
 
 use crate::app::SyncStatManager;
 
-use super::router::{Decision, NoSniffer, SniffAction, Sniffer};
+use super::router::{Decision, NoSniffer, PreMatch, SniffAction, Sniffer};
 
 /// Where routing sends a connection.
 enum Routed {
@@ -726,6 +726,18 @@ impl Dispatcher {
             }
         }
         true
+    }
+
+    /// The pre-match of a connection not yet set up, from its first packet
+    /// (TUN's auto_redirect). As sing-box, a fake IP stands for its domain
+    /// and reverse mapping applies first; a fake IP nobody knows leaves the
+    /// connection to be set up, where it fails.
+    pub async fn pre_match(&self, sess: &mut Session) -> PreMatch {
+        if self.restore_fake_ip(&mut sess.destination).is_err() {
+            return PreMatch::Proceed;
+        }
+        self.reverse_map(sess).await;
+        self.router.load_full().pre_match(sess).await
     }
 
     /// Where `sess` goes, as the rules decide; an error when a rule rejects

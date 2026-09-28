@@ -98,6 +98,17 @@ use crate::session::{Session, SocksAddr, TlsFragment};
 use matcher::{Facts, Matcher, Readers};
 
 /// Where a connection goes.
+/// What the pre-match of a connection's first packet decides.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PreMatch {
+    /// The kernel carries the connection, past sail.
+    Bypass,
+    /// It is refused before it is set up: reset, or dropped when `drop`.
+    Reject { drop: bool },
+    /// It goes on to be set up and routed as usual.
+    Proceed,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Decision {
     /// To this outbound; to the default one when `None`.
@@ -254,6 +265,10 @@ impl Reject {
 
 enum Action {
     Route(String, Options),
+    /// sing-box's bypass: in auto_redirect's pre-match the kernel carries
+    /// the connection past sail; elsewhere it routes to the outbound, when
+    /// there is one, and is skipped when there is not.
+    Bypass(Option<(String, Options)>),
     RouteOptions(Options),
     Reject(Reject),
     HijackDns,
@@ -278,6 +293,21 @@ struct Rule {
     action: Action,
 }
 
+/// Where a walk over the rules stopped.
+enum Stop {
+    Route(String),
+    Reject {
+        drop: bool,
+    },
+    HijackDns,
+    /// A bypass rule, in pre-match.
+    Bypass,
+    /// A rule that needs the connection's data, in pre-match.
+    NeedsData,
+    /// No rule decided: `final`.
+    Final,
+}
+
 impl Rule {
     fn new(
         rule: &model::Rule,
@@ -287,14 +317,16 @@ impl Rule {
         rule_sets: &rule_set::RuleSets,
     ) -> Result<Self> {
         let action = match rule.action() {
-            // Where nothing pre-matches the connection, a bypass rule with
-            // an outbound routes to it.
-            RuleAction::Route | RuleAction::Bypass => Action::Route(
+            RuleAction::Route => Action::Route(
                 rule.outbound
                     .clone()
                     .ok_or_else(|| anyhow!("{}: outbound: a route rule needs one", path))?,
                 Options::new(rule, path)?,
             ),
+            RuleAction::Bypass => Action::Bypass(match &rule.outbound {
+                Some(tag) => Some((tag.clone(), Options::new(rule, path)?)),
+                None => None,
+            }),
             RuleAction::RouteOptions => Action::RouteOptions(Options::new(rule, path)?),
             RuleAction::Reject => {
                 let method = rule.method.unwrap_or_default();
@@ -356,9 +388,6 @@ impl Router {
             .rules
             .iter()
             .enumerate()
-            // Without auto_redirect's pre-match, a bypass rule with no
-            // outbound is skipped, as in sing-box.
-            .filter(|(_, rule)| !(rule.action() == RuleAction::Bypass && rule.outbound.is_none()))
             .map(|(i, rule)| {
                 Rule::new(
                     rule,
@@ -392,10 +421,10 @@ impl Router {
     /// Whether a rule, or `final`, routes to the outbound `tag`.
     pub fn uses(&self, tag: &str) -> bool {
         self.final_outbound.as_deref() == Some(tag)
-            || self
-                .rules
-                .iter()
-                .any(|rule| matches!(&rule.action, Action::Route(t, _) if t == tag))
+            || self.rules.iter().any(|rule| match &rule.action {
+                Action::Route(t, _) | Action::Bypass(Some((t, _))) => t == tag,
+                _ => false,
+            })
     }
 
     /// Matches `sess` against the rules in order, sniffing through
@@ -406,6 +435,46 @@ impl Router {
         sess: &mut Session,
         sniffer: &mut dyn Sniffer,
     ) -> Result<Decision> {
+        Ok(match self.walk(sess, Some(sniffer)).await? {
+            Stop::Route(tag) => Decision::Route(Some(tag)),
+            Stop::Reject { drop } => Decision::Reject { drop },
+            Stop::HijackDns => Decision::HijackDns,
+            Stop::Final => Decision::Route(self.final_outbound.clone()),
+            // With a sniffer the walk never stops at these; a release build
+            // that somehow did routes to `final` rather than panicking.
+            Stop::Bypass | Stop::NeedsData => {
+                debug_assert!(false, "only pre-match stops at a bypass or for the data");
+                Decision::Route(self.final_outbound.clone())
+            }
+        })
+    }
+
+    /// What a connection's first packet meets before the connection is
+    /// set up, as TUN's auto_redirect asks: sing-box's pre-match with
+    /// bypass supported (route/route.go:293-318, 470-590). Rules match on
+    /// what the packet tells, so those that need a sniffed domain or a
+    /// user do not; route options apply and resolve rules resolve, and the
+    /// first rule that routes, hijacks DNS or needs the connection's data
+    /// (sniff) leaves it to be set up. Any bypass rule lets the kernel
+    /// carry it past sail. A failure, such as a domain that does not
+    /// resolve, leaves the connection to be set up too, where it fails, as
+    /// sing-box accepts the packet on any other error.
+    pub async fn pre_match(&self, sess: &mut Session) -> PreMatch {
+        match self.walk(sess, None).await {
+            Ok(Stop::Bypass) => PreMatch::Bypass,
+            Ok(Stop::Reject { drop }) => PreMatch::Reject { drop },
+            Ok(_) | Err(_) => PreMatch::Proceed,
+        }
+    }
+
+    /// The one walk over the rules, for routing (with a sniffer) or for
+    /// pre-match (without one, where nothing is read).
+    async fn walk(
+        &self,
+        sess: &mut Session,
+        mut sniffer: Option<&mut dyn Sniffer>,
+    ) -> Result<Stop> {
+        let pre_match = sniffer.is_none();
         let mut resolved: Vec<IpAddr> = Vec::new();
         let mut facts = Facts::new(sess, &resolved);
         for (i, rule) in self.rules.iter().enumerate() {
@@ -416,8 +485,20 @@ impl Router {
                 Action::Route(tag, options) => {
                     debug!("rule {} routes to {}", i, tag);
                     options.apply(sess);
-                    return Ok(Decision::Route(Some(tag.clone())));
+                    return Ok(Stop::Route(tag.clone()));
                 }
+                // Only pre-match bypasses; elsewhere a bypass with an
+                // outbound routes, and one without is skipped.
+                Action::Bypass(_) if pre_match => {
+                    debug!("rule {} bypasses", i);
+                    return Ok(Stop::Bypass);
+                }
+                Action::Bypass(Some((tag, options))) => {
+                    debug!("rule {} routes to {}", i, tag);
+                    options.apply(sess);
+                    return Ok(Stop::Route(tag.clone()));
+                }
+                Action::Bypass(None) => {}
                 Action::RouteOptions(options) => {
                     debug!("rule {} sets route options", i);
                     if options.override_address.is_some() {
@@ -428,18 +509,19 @@ impl Router {
                 Action::Reject(reject) => {
                     let drop = reject.drops();
                     debug!("rule {} rejects{}", i, if drop { ", dropping" } else { "" });
-                    return Ok(Decision::Reject { drop });
+                    return Ok(Stop::Reject { drop });
                 }
                 Action::HijackDns => {
                     debug!("rule {} hijacks dns", i);
-                    return Ok(Decision::HijackDns);
+                    return Ok(Stop::HijackDns);
                 }
-                Action::Sniff(action) => {
-                    sniffer
+                Action::Sniff(action) => match sniffer.as_mut() {
+                    Some(sniffer) => sniffer
                         .sniff(sess, action)
                         .await
-                        .map_err(|e| anyhow!("sniff: {}", e))?;
-                }
+                        .map_err(|e| anyhow!("sniff: {}", e))?,
+                    None => return Ok(Stop::NeedsData),
+                },
                 Action::Resolve(how) => {
                     if resolved.is_empty() && !sess.skip_resolve {
                         if let Some(domain) = facts.domain().map(str::to_string) {
@@ -466,7 +548,7 @@ impl Router {
             }
             facts = Facts::new(sess, &resolved);
         }
-        Ok(Decision::Route(self.final_outbound.clone()))
+        Ok(Stop::Final)
     }
 
     /// The addresses of `domain`. As in sing-box, a domain that does not
@@ -792,6 +874,61 @@ mod tests {
         assert_eq!(
             pick(&router, &mut to("x.test:80")).await,
             Decision::Route(Some("b".into()))
+        );
+    }
+
+    /// sing-box's pre-match with bypass supported: any bypass lets the
+    /// kernel carry the connection, reject refuses it, and the first rule
+    /// that routes or needs the connection's data leaves it to be set up.
+    #[tokio::test]
+    async fn pre_match_bypasses_rejects_or_proceeds() {
+        let router = router(serde_json::json!([
+            { "port": 22, "action": "bypass" },
+            { "port": 23, "action": "bypass", "outbound": "a" },
+            { "port": 25, "action": "reject" },
+            { "port": 26, "action": "reject", "method": "drop" },
+            { "port": 443, "action": "sniff" },
+            { "port": 443, "action": "bypass" },
+            { "port": 80, "outbound": "a" },
+            { "port": 80, "action": "bypass" },
+        ]));
+        for (destination, expected) in [
+            ("1.2.3.4:22", PreMatch::Bypass),
+            ("1.2.3.4:23", PreMatch::Bypass),
+            ("1.2.3.4:25", PreMatch::Reject { drop: false }),
+            ("1.2.3.4:26", PreMatch::Reject { drop: true }),
+            ("1.2.3.4:443", PreMatch::Proceed),
+            ("1.2.3.4:80", PreMatch::Proceed),
+            ("1.2.3.4:8080", PreMatch::Proceed),
+        ] {
+            assert_eq!(
+                router.pre_match(&mut to(destination)).await,
+                expected,
+                "{destination}"
+            );
+        }
+    }
+
+    /// The first packet tells no sniffed domain and no user, so rules that
+    /// need them do not match in pre-match, as in sing-box: they cannot
+    /// bypass what they would not have matched.
+    #[tokio::test]
+    async fn pre_match_sees_only_what_the_first_packet_tells() {
+        let router = router(serde_json::json!([
+            { "domain_suffix": ["example.com"], "action": "bypass" },
+            { "auth_user": ["alice"], "action": "bypass" },
+            { "protocol": ["tls"], "action": "bypass" },
+            { "port": 443, "action": "route-options", "override_port": 22 },
+            { "port": 22, "action": "bypass" },
+        ]));
+        assert_eq!(
+            router.pre_match(&mut to("1.2.3.4:8443")).await,
+            PreMatch::Proceed
+        );
+        // Route options apply on the way, and the rules after them see it.
+        assert_eq!(
+            router.pre_match(&mut to("1.2.3.4:443")).await,
+            PreMatch::Bypass
         );
     }
 
