@@ -24,6 +24,7 @@ mod masquerade;
 mod server;
 
 use masquerade::{Masquerade, MasqueradeOptions};
+pub(crate) use server::Resources;
 use server::{DatagramHandler, Server};
 
 pub(crate) fn register(registry: &mut InboundRegistry) {
@@ -78,9 +79,6 @@ fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
             return Err(err("users: two users share a password".into()));
         }
     }
-    if users.is_empty() {
-        return Err(err("users: none".into()));
-    }
 
     let tls = options.tls;
     if !tls.enabled {
@@ -117,6 +115,8 @@ fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
     Ok(Arc::new(Handler::new(
         tag.to_owned(),
         None,
-        Some(Arc::new(DatagramHandler::new(server_config, obfs, server))),
+        Some(Arc::new(
+            DatagramHandler::new(server_config, obfs, server).reloadable(ctx),
+        )),
     )))
 }

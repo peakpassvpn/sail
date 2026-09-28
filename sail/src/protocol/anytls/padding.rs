@@ -58,6 +58,12 @@ pub struct PaddingScheme {
     writes: HashMap<u32, Vec<Range>>,
 }
 
+impl Default for PaddingScheme {
+    fn default() -> Self {
+        Self::default_scheme()
+    }
+}
+
 impl PaddingScheme {
     /// The default scheme.
     pub fn default_scheme() -> Self {

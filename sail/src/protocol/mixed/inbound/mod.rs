@@ -72,7 +72,10 @@ fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
         http: http::inbound::StreamHandler::new(http_users),
         socks: socks::inbound::StreamHandler::new(
             socks_users,
-            Arc::new(socks::inbound::Associations::default()),
+            ctx.state
+                .socks_associations
+                .get_or_init(Default::default)
+                .clone(),
         ),
     });
     // UDP ASSOCIATE binds a relay socket per association, as the socks

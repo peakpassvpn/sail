@@ -22,8 +22,15 @@ pub struct Handler {
 impl Handler {
     /// Takes the users, each with their name.
     pub fn new(users: Vec<User<Option<Arc<str>>>>) -> Self {
+        Self::with_replay(users, Arc::default())
+    }
+
+    pub(crate) fn with_replay(
+        users: Vec<User<Option<Arc<str>>>>,
+        replay: Arc<ReplayFilter>,
+    ) -> Self {
         Handler {
-            auth: Authenticator::new(users),
+            auth: Authenticator::with_replay(users, replay),
         }
     }
 }

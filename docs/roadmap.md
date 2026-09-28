@@ -256,10 +256,10 @@ Sail 与 sing-box 的对比已经完成。当前结果表明：
   - 文件监听：证书文件和规则文件，带去抖；
   - 管理 API（3.5）：在线增删用户。
 - **替换规则：** 新数据先构建并校验；失败时保留旧值并报错，成功后原子替换。
-- **现状（2026-09-26）：**
-  - 配置重载只覆盖 DNS、出站和路由；
-  - 要替换入站证书，只能通过 API 删除后重新添加入站，端口会被重新绑定，中间有短暂时间拒绝新连接；
-  - btls 的 TLS 入站 Handler 只持有一个 `SslAcceptor`，届时改为从快照读取即可。
+- **资源机制已实现（2026-09-28；不等于整个在线管理平台完成）：**
+  - Trojan、VLESS、AnyTLS、VMess、SS/SS2022、Hysteria2、TUIC、HTTP/SOCKS/mixed 可经配置重载或宿主 `update_inbound_resources` 更新凭据；支持普通 TLS、REALITY、QUIC、AMUX 等合法协议组合，不重新绑定端口。协议重放缓存、QUIC endpoint、已有 TCP/UDP 会话及 SOCKS 关联容量跨代保留。
+  - 证书、用户表、规则集统一使用 `HotResource<T>`。`auto-reload` 通过父目录监听与 250ms 去抖处理配置、证书/私钥及本地规则文件，支持原子替换；所有候选先校验，失败保留旧资源。
+  - 原子发布以单个入站为单位。任意监听结构迁移、扩展入站依赖图和 3.5 的 HTTP 管理平台不在本次资源实现中；现有 add/remove API 继续提供显式入站生命周期管理。具体协议语义、边界与测试见 [入站资源热更新](inbound-resource-reload.md)。
 
 ---
 

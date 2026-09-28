@@ -328,10 +328,6 @@ impl Users {
         let i = *self.by_hash.get(hash)?;
         Some((i, &self.users[i]))
     }
-
-    pub fn get(&self, i: usize) -> Option<&User> {
-        self.users.get(i)
-    }
 }
 
 /// How long a salt is remembered: twice the timestamp tolerance, so a

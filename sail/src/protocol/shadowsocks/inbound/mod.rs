@@ -12,7 +12,16 @@ mod datagram;
 mod ss2022;
 mod stream;
 
+use crate::runtime::resource::HotResource;
 pub use datagram::Handler as DatagramHandler;
+pub(crate) use datagram::Sessions;
+pub(crate) use ss2022::Resources;
+
+pub(crate) struct LegacyResources {
+    cipher: String,
+    password: String,
+    datagram: shadow::ShadowedDatagram,
+}
 pub use stream::Handler as StreamHandler;
 
 use super::shadow;
@@ -53,7 +62,7 @@ struct ShadowsocksUser {
 fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
     let options: ShadowsocksInboundOptions = ctx.options()?;
     if sip022::is_2022(&options.method) {
-        return build_2022(ctx.tag, options);
+        return build_2022(ctx, options);
     }
     shadow::check_method("inbound", ctx.tag, &options.method)?;
     if options.users.is_some() {
@@ -62,13 +71,20 @@ fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
             ctx.tag
         ));
     }
-    let stream = Arc::new(StreamHandler {
-        cipher: options.method.clone(),
-        password: options.password.clone(),
-    });
-    let datagram = Arc::new(DatagramHandler {
+    let candidate = Arc::new(LegacyResources {
+        datagram: shadow::ShadowedDatagram::new(&options.method, &options.password)?,
         cipher: options.method,
         password: options.password,
+    });
+    let resource = ctx.resource(&ctx.state.shadowsocks_legacy, candidate);
+    let stream = Arc::new(stream::ReloadableStream(resource.clone()));
+    let datagram = Arc::new(DatagramHandler {
+        resource,
+        sessions: ctx
+            .state
+            .shadowsocks_sessions
+            .get_or_init(Default::default)
+            .clone(),
     });
     Ok(Arc::new(Handler::new(
         ctx.tag.to_owned(),
@@ -77,7 +93,11 @@ fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
     )))
 }
 
-fn build_2022(tag: &str, options: ShadowsocksInboundOptions) -> Result<AnyInboundHandler> {
+fn build_2022(
+    ctx: &InboundContext<'_>,
+    options: ShadowsocksInboundOptions,
+) -> Result<AnyInboundHandler> {
+    let tag = ctx.tag;
     let method = sip022::Method::from_name(&options.method)
         .map_err(|e| anyhow!("[{}] inbound: method: {}", tag, e))?;
     let psk = sip022::decode_psk(method, &options.password)
@@ -91,9 +111,6 @@ fn build_2022(tag: &str, options: ShadowsocksInboundOptions) -> Result<AnyInboun
                     tag,
                     options.method
                 ));
-            }
-            if users.is_empty() {
-                return Err(anyhow!("[{}] inbound: users: empty", tag));
             }
             let users = users
                 .into_iter()
@@ -113,21 +130,91 @@ fn build_2022(tag: &str, options: ShadowsocksInboundOptions) -> Result<AnyInboun
             )
         }
     };
-    let udp = sip022::udp::Server::new(method, psk.clone(), users.clone())?;
-    let stream = Arc::new(ss2022::StreamHandler {
-        config: Arc::new(sip022::stream::ServerConfig {
-            method,
-            psk,
-            users,
-            salts: sip022::SaltPool::new(),
+    let previous = ctx.state.shadowsocks.get().map(|r| r.load());
+    let udp = match &previous {
+        Some(previous) => previous.server.with_users(users.clone()),
+        None => sip022::udp::Server::new(method, psk.clone(), users.clone())?,
+    };
+    let resource = ctx.resource(
+        &ctx.state.shadowsocks,
+        Arc::new(Resources {
+            config: sip022::stream::ServerConfig {
+                method,
+                psk,
+                users,
+                salts: previous.map(|r| r.config.salts.clone()).unwrap_or_default(),
+            },
+            server: udp,
         }),
+    );
+    let stream = Arc::new(ss2022::StreamHandler {
+        resource: resource.clone(),
     });
-    let datagram = Arc::new(ss2022::DatagramHandler {
-        server: Arc::new(udp),
-    });
+    let datagram = Arc::new(ss2022::DatagramHandler { resource });
     Ok(Arc::new(Handler::new(
         tag.to_owned(),
         Some(stream),
         Some(datagram),
     )))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::adapter::registry::{build_inbounds, InboundState};
+    use base64::Engine;
+    use std::collections::HashMap;
+
+    #[tokio::test]
+    async fn prepared_users_preserve_tcp_replay_and_only_publish_on_commit() {
+        let psk = base64::engine::general_purpose::STANDARD.encode([1u8; 16]);
+        let user = base64::engine::general_purpose::STANDARD.encode([2u8; 16]);
+        let config = |users: serde_json::Value| {
+            serde_json::from_value(serde_json::json!({
+                "type":"shadowsocks","tag":"ss","method":"2022-blake3-aes-128-gcm",
+                "password":psk,"users":users
+            }))
+            .unwrap()
+        };
+        let users = serde_json::json!([{"name":"alice","password":user}]);
+        let mut states: HashMap<String, Arc<InboundState>> = HashMap::new();
+        let prepare = |inbound, states: &mut HashMap<_, _>| {
+            build_inbounds(
+                &crate::include::INBOUNDS,
+                &[inbound],
+                crate::include::LISTENER_INBOUNDS,
+                &Default::default(),
+                &mut HashMap::new(),
+                &mut HashMap::new(),
+                states,
+            )
+            .unwrap()
+        };
+        drop(prepare(config(users.clone()), &mut states));
+        let resource = states["ss"].shadowsocks.get().unwrap().clone();
+        let first = resource.load();
+        first.config.salts.check_and_insert(&[7; 16]).unwrap();
+        let discarded = prepare(config(serde_json::json!([])), &mut states);
+        assert!(Arc::ptr_eq(&first, &resource.load()));
+        drop(discarded);
+        assert!(Arc::ptr_eq(&first, &resource.load()));
+        for update in prepare(config(serde_json::json!([])), &mut states) {
+            update();
+        }
+        assert!(!Arc::ptr_eq(&first, &resource.load()));
+        assert!(Arc::ptr_eq(
+            &first.config.salts,
+            &resource.load().config.salts
+        ));
+        for update in prepare(config(users), &mut states) {
+            update();
+        }
+        assert!(resource
+            .load()
+            .config
+            .salts
+            .check_and_insert(&[7; 16])
+            .is_err());
+        assert!(first.config.salts.check_and_insert(&[7; 16]).is_err());
+    }
 }

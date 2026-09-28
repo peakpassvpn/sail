@@ -81,6 +81,7 @@ mod tests {
             &crate::runtime::RuntimeEnv::default(),
             &mut handlers,
             &mut HashMap::new(),
+            &mut HashMap::new(),
         )?;
         Ok(handlers)
     }

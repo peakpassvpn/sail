@@ -1423,11 +1423,12 @@ impl InboundTls {
 
 /// Puts `core` inside the layers `blocks` configure.
 pub fn inbound(
-    tag: &str,
     core: AnyInboundHandler,
     blocks: &InboundBlocks,
-    env: &RuntimeEnv,
+    ctx: &crate::adapter::registry::InboundContext<'_>,
 ) -> Result<AnyInboundHandler> {
+    let tag = ctx.tag;
+    let env = ctx.env;
     let tls = blocks.tls.as_ref().filter(|t| t.enabled);
     let mode = match &blocks.multiplex {
         Some(multiplex) => multiplex.mode(tag)?,
@@ -1471,7 +1472,8 @@ pub fn inbound(
                 tag
             )
         })?;
-        actors.push(quic_inbound(tag, tls, env)?);
+        let core = sing_mux_inbound(tag, core, sing_mux)?;
+        return quic_inbound(ctx, tls, core);
     } else {
         let mut under_mux = Vec::new();
         if let Some(tls) = tls {
@@ -1804,12 +1806,17 @@ fn grpc_inbound(
 }
 
 #[allow(unused_variables)]
-fn quic_inbound(tag: &str, tls: &InboundTls, env: &RuntimeEnv) -> Result<AnyInboundHandler> {
+fn quic_inbound(
+    ctx: &crate::adapter::registry::InboundContext<'_>,
+    tls: &InboundTls,
+    core: AnyInboundHandler,
+) -> Result<AnyInboundHandler> {
+    let tag = ctx.tag;
     #[cfg(feature = "inbound-quic")]
     {
-        let handler = crate::transport::quic::inbound::DatagramHandler::new(tag, tls, env)?;
+        let handler = crate::transport::quic::inbound::DatagramHandler::new(ctx, tls, core)?;
         Ok(Arc::new(crate::adapter::inbound::Handler::new(
-            format!("{}/quic", tag),
+            tag.to_owned(),
             None,
             Some(Arc::new(handler)),
         )))

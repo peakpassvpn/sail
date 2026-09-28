@@ -51,6 +51,9 @@ pub struct DatagramSource {
     /// belong to one, as SOCKS5's `UDP ASSOCIATE`. Its sessions end with
     /// it, and datagrams of different associations never share a session.
     pub association: Option<UdpAssociation>,
+    /// Keeps protocol resources pinned while NAT owns this source. Copies
+    /// share an identity, so a later generation cannot reuse its NAT session.
+    pub resource_lease: Option<DatagramResourceLease>,
 }
 
 impl DatagramSource {
@@ -61,6 +64,7 @@ impl DatagramSource {
             process_name: None,
             user: None,
             association: None,
+            resource_lease: None,
         }
     }
 
@@ -87,7 +91,25 @@ impl DatagramSource {
             process_name,
             user: None,
             association: None,
+            resource_lease: None,
         }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct DatagramResourceLease(pub(crate) std::sync::Arc<()>);
+
+impl PartialEq for DatagramResourceLease {
+    fn eq(&self, other: &Self) -> bool {
+        std::sync::Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl Eq for DatagramResourceLease {}
+
+impl std::hash::Hash for DatagramResourceLease {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        std::hash::Hash::hash(&std::sync::Arc::as_ptr(&self.0), state);
     }
 }
 

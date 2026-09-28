@@ -12,17 +12,23 @@ use std::collections::HashSet;
 use std::io;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use aes::cipher::{BlockDecrypt, BlockEncrypt, KeyInit};
+#[cfg(any(feature = "outbound-vmess", test))]
+use aes::cipher::BlockEncrypt;
+use aes::cipher::{BlockDecrypt, KeyInit};
 use aes::Aes128;
 use btls::aead::{AeadCtx, Algorithm};
+#[cfg(any(feature = "outbound-vmess", test))]
 use bytes::{BufMut, BytesMut};
 use md5::{Digest, Md5};
 use parking_lot::Mutex;
+#[cfg(any(feature = "outbound-vmess", test))]
 use rand::{Rng, RngCore};
 use tokio::io::{AsyncRead, AsyncReadExt};
 
 use super::kdf::*;
-use super::xudp::{parse_addr_port, write_addr_port};
+use super::xudp::parse_addr_port;
+#[cfg(any(feature = "outbound-vmess", test))]
+use super::xudp::write_addr_port;
 use crate::session::SocksAddr;
 
 pub const VERSION: u8 = 1;
@@ -99,6 +105,7 @@ fn auth_id_cipher(cmd_key: &[u8; 16]) -> Aes128 {
     Aes128::new((&key[..16]).into())
 }
 
+#[cfg(any(feature = "outbound-vmess", test))]
 fn auth_id(cmd_key: &[u8; 16], time: u64) -> [u8; 16] {
     let mut id = [0u8; 16];
     id[..8].copy_from_slice(&time.to_be_bytes());
@@ -132,6 +139,7 @@ pub struct RequestHeader {
 
 impl RequestHeader {
     /// A new request with fresh body keys.
+    #[cfg(any(feature = "outbound-vmess", test))]
     pub fn new(option: u8, security: u8, command: u8, address: Option<SocksAddr>) -> Self {
         let mut rng = rand::thread_rng();
         let mut header = RequestHeader {
@@ -148,6 +156,7 @@ impl RequestHeader {
         header
     }
 
+    #[cfg(any(feature = "outbound-vmess", test))]
     fn encode(&self) -> Vec<u8> {
         let mut rng = rand::thread_rng();
         let padding: u8 = rng.gen_range(0..16);
@@ -211,6 +220,7 @@ impl RequestHeader {
     }
 
     /// The request as it goes on the wire, sealed for the user `cmd_key`.
+    #[cfg(any(feature = "outbound-vmess", test))]
     pub fn seal(&self, cmd_key: &[u8; 16]) -> io::Result<Vec<u8>> {
         let auth_id = auth_id(cmd_key, now());
         let mut nonce = [0u8; 8];
@@ -387,7 +397,7 @@ impl<T> User<T> {
 /// used.
 pub struct Authenticator<T> {
     users: Vec<User<T>>,
-    replay: ReplayFilter,
+    replay: std::sync::Arc<ReplayFilter>,
 }
 
 /// Why a request was refused.
@@ -399,11 +409,13 @@ pub enum AuthError {
 }
 
 impl<T> Authenticator<T> {
+    #[cfg(test)]
     pub fn new(users: Vec<User<T>>) -> Self {
-        Authenticator {
-            users,
-            replay: ReplayFilter::default(),
-        }
+        Self::with_replay(users, std::sync::Arc::default())
+    }
+
+    pub fn with_replay(users: Vec<User<T>>, replay: std::sync::Arc<ReplayFilter>) -> Self {
+        Authenticator { users, replay }
     }
 
     /// The user an auth ID is from, if it is theirs, current and new.
@@ -553,6 +565,36 @@ mod tests {
         // Twice, it is gone.
         filter.inner.lock().since -= REPLAY_WINDOW * 2;
         assert!(filter.check(&[1; 16]));
+    }
+
+    #[test]
+    fn concurrent_generations_accept_an_auth_id_only_once() {
+        let replay: std::sync::Arc<ReplayFilter> = std::sync::Arc::default();
+        let old = Authenticator::with_replay(vec![User::new(&UUID, ())], replay.clone());
+        let new = Authenticator::with_replay(vec![User::new(&UUID, ())], replay);
+        let now = now();
+        let id = auth_id(&cmd_key(&UUID), now);
+        let barrier = std::sync::Barrier::new(16);
+        std::thread::scope(|scope| {
+            let joins: Vec<_> = (0..16)
+                .map(|n| {
+                    let auth = if n % 2 == 0 { &old } else { &new };
+                    let barrier = &barrier;
+                    scope.spawn(move || {
+                        barrier.wait();
+                        match auth.authenticate(&id, now) {
+                            Ok(_) => 1,
+                            Err(AuthError::Replayed) => 0,
+                            Err(err) => panic!("unexpected refusal: {err:?}"),
+                        }
+                    })
+                })
+                .collect();
+            assert_eq!(
+                joins.into_iter().map(|j| j.join().unwrap()).sum::<usize>(),
+                1
+            );
+        });
     }
 
     #[tokio::test]

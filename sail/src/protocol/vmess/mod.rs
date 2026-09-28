@@ -3,7 +3,7 @@
 #[cfg(any(feature = "inbound-vmess", feature = "outbound-vmess"))]
 mod body;
 #[cfg(any(feature = "inbound-vmess", feature = "outbound-vmess"))]
-mod header;
+pub(crate) mod header;
 #[cfg(any(feature = "inbound-vmess", feature = "outbound-vmess"))]
 mod kdf;
 pub mod xudp;

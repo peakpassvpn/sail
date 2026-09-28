@@ -15,6 +15,7 @@ use super::common::{parse_uuid, CongestionControl, DEFAULT_ALPN, DEFAULT_HEARTBE
 
 mod server;
 
+pub(crate) use server::Resources;
 pub use server::{Server, User};
 
 pub(crate) fn register(registry: &mut InboundRegistry) {
@@ -56,9 +57,6 @@ const DEFAULT_AUTH_TIMEOUT: Duration = Duration::from_secs(3);
 fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
     let tag = ctx.tag;
     let options: TuicInboundOptions = ctx.options()?;
-    if options.users.is_empty() {
-        return Err(anyhow!("[{}] inbound: users: needs at least one user", tag));
-    }
     let mut users = HashMap::new();
     for (i, user) in options.users.into_iter().enumerate() {
         let field = format!("users[{}].uuid", i);
@@ -94,7 +92,8 @@ fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
         options.heartbeat.unwrap_or(DEFAULT_HEARTBEAT),
         &ctx.env.options.quic,
     )
-    .map_err(|e| anyhow!("[{}] inbound: tls: {}", tag, e))?;
+    .map_err(|e| anyhow!("[{}] inbound: tls: {}", tag, e))?
+    .reloadable(ctx);
     Ok(Arc::new(Handler::new(
         tag.to_owned(),
         None,
