@@ -36,6 +36,11 @@ pub(crate) mod original_dst;
 #[cfg(any(target_os = "linux", test))]
 pub mod nfqueue;
 
+// The nftables ruleset of the TUN's auto_redirect; built everywhere under
+// test, like nft.
+#[cfg(any(target_os = "linux", test))]
+pub mod auto_redirect;
+
 #[cfg(target_os = "windows")]
 pub(crate) mod windows;
 
