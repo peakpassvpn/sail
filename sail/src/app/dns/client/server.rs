@@ -117,6 +117,14 @@ struct RemoteOptions {
     connect_timeout: Option<std::time::Duration>,
     #[serde(default)]
     domain_resolver: Option<Resolver>,
+    /// sing-box's deprecated field for the families the server's name
+    /// resolves to, which the resolver's own `strategy` goes before.
+    #[serde(default)]
+    domain_strategy: Option<crate::config::model::DnsStrategy>,
+    /// `https` and `h3`: sent with each request; a `Host` one is the
+    /// host the requests name.
+    #[serde(default)]
+    headers: std::collections::BTreeMap<String, crate::config::model::HeaderValues>,
 }
 
 #[derive(Deserialize, Debug, Default)]
@@ -188,10 +196,11 @@ impl Server {
                 }
                 let path = o.path.take();
                 let tls = o.tls.take();
+                let headers = std::mem::take(&mut o.headers);
                 let (address, dialer) =
                     address_and_dialer(o, protocol.default_port(), tag, defaults).map_err(err)?;
                 Kind::Upstream(Arc::new(
-                    Upstream::new(protocol, address, dialer, path, tls.as_ref(), env)
+                    Upstream::new(protocol, address, dialer, path, &headers, tls.as_ref(), env)
                         .map_err(err)?,
                 ))
             }
@@ -342,6 +351,9 @@ fn no_path_or_tls(o: &RemoteOptions, kind: &str) -> Result<()> {
     if o.tls.is_some() {
         return Err(anyhow!("tls: a {} server takes none", kind));
     }
+    if !o.headers.is_empty() {
+        return Err(anyhow!("headers: only https and h3 servers take them"));
+    }
     Ok(())
 }
 
@@ -361,7 +373,10 @@ fn address_and_dialer(
         Some(port) => port,
         None => default_port,
     };
-    let resolver = o.domain_resolver;
+    let resolver = o.domain_resolver.map(|resolver| Resolver {
+        strategy: resolver.strategy.or(o.domain_strategy),
+        ..resolver
+    });
     let is_ip = host.parse::<IpAddr>().is_ok();
     if !is_ip && resolver.is_none() {
         return Err(anyhow!(
@@ -386,6 +401,7 @@ fn address_and_dialer(
         ipv6: false,
         // Its own address resolves through `resolver`, and nothing else.
         domain_resolver: None,
+        strategy: None,
         outbound: None,
     };
     if let Some(detour) = &o.detour {

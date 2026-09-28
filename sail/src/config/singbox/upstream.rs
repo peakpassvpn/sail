@@ -73,39 +73,31 @@ pub const FIELDS: &[Field] = &[
     f("dns.disable_expire", Ignored),
     f("dns.independent_cache", Ignored),
     f("dns.optimistic", Ignored),
-    // A domain_resolver's options beyond its server and strategy.
-    f("route.default_domain_resolver.timeout", Ignored),
-    f("route.default_domain_resolver.disable_cache", Ignored),
+    // A domain_resolver's optimistic cache, which sail has not.
+    f(
+        "http_clients.*.domain_resolver.disable_optimistic_cache",
+        Ignored,
+    ),
+    f(
+        "route.rule_set.*.http_client.domain_resolver.disable_optimistic_cache",
+        Ignored,
+    ),
     f(
         "route.default_domain_resolver.disable_optimistic_cache",
         Ignored,
     ),
-    f("route.default_domain_resolver.rewrite_ttl", Ignored),
-    f("route.default_domain_resolver.client_subnet", Unsupported),
-    f("outbounds.*.domain_resolver.timeout", Ignored),
-    f("outbounds.*.domain_resolver.disable_cache", Ignored),
     f(
         "outbounds.*.domain_resolver.disable_optimistic_cache",
         Ignored,
     ),
-    f("outbounds.*.domain_resolver.rewrite_ttl", Ignored),
-    f("outbounds.*.domain_resolver.client_subnet", Unsupported),
-    f("endpoints.*.domain_resolver.timeout", Ignored),
-    f("endpoints.*.domain_resolver.disable_cache", Ignored),
     f(
         "endpoints.*.domain_resolver.disable_optimistic_cache",
         Ignored,
     ),
-    f("endpoints.*.domain_resolver.rewrite_ttl", Ignored),
-    f("endpoints.*.domain_resolver.client_subnet", Unsupported),
-    f("dns.servers.*.domain_resolver.timeout", Ignored),
-    f("dns.servers.*.domain_resolver.disable_cache", Ignored),
     f(
         "dns.servers.*.domain_resolver.disable_optimistic_cache",
         Ignored,
     ),
-    f("dns.servers.*.domain_resolver.rewrite_ttl", Ignored),
-    f("dns.servers.*.domain_resolver.client_subnet", Unsupported),
     // DNS rule conditions and action options.
     f("dns.rules.*.query_client_subnet", Unsupported),
     f("dns.rules.*.query_dnssec", Unsupported),
@@ -137,7 +129,6 @@ pub const FIELDS: &[Field] = &[
     f("http_clients.*.tls", Unsupported),
     f("http_clients.*.protect_path", Unsupported),
     f("http_clients.*.netns", Unsupported),
-    f("http_clients.*.domain_strategy", Unsupported),
     f("http_clients.*.network_strategy", Unsupported),
     f("http_clients.*.network_type", Unsupported),
     f("http_clients.*.fallback_network_type", Unsupported),
@@ -163,7 +154,6 @@ pub const FIELDS: &[Field] = &[
     f("route.rule_set.*.http_client.tls", Unsupported),
     f("route.rule_set.*.http_client.protect_path", Unsupported),
     f("route.rule_set.*.http_client.netns", Unsupported),
-    f("route.rule_set.*.http_client.domain_strategy", Unsupported),
     f("route.rule_set.*.http_client.network_strategy", Unsupported),
     f("route.rule_set.*.http_client.network_type", Unsupported),
     f(
@@ -211,13 +201,11 @@ pub const FIELDS: &[Field] = &[
     f("route.rule_set.*.http_client.tcp_multi_path", Ignored),
     f("route.rule_set.*.http_client.udp_fragment", Ignored),
     // DNS servers.
-    f("dns.servers.*.headers", Unsupported),
     f("dns.servers.*.method", Unsupported),
     f("dns.servers.*.prefer_go", Ignored),
     f("dns.servers.*.neighbor_domain", Unsupported),
     f("dns.servers.*.netns", Unsupported),
     f("dns.servers.*.protect_path", Unsupported),
-    f("dns.servers.*.domain_strategy", Unsupported),
     f("dns.servers.*.network_strategy", Unsupported),
     f("dns.servers.*.network_type", Unsupported),
     f("dns.servers.*.fallback_network_type", Unsupported),
@@ -298,7 +286,6 @@ pub const FIELDS: &[Field] = &[
     // Dial fields.
     f("outbounds.*.protect_path", Unsupported),
     f("outbounds.*.netns", Unsupported),
-    f("outbounds.*.domain_strategy", Unsupported),
     f("outbounds.*.network_strategy", Unsupported),
     f("outbounds.*.network_type", Unsupported),
     f("outbounds.*.fallback_network_type", Unsupported),

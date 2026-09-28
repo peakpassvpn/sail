@@ -44,6 +44,10 @@ pub struct DialOptions {
     /// `domain_resolver`, or `route.default_domain_resolver`. Unset, the
     /// DNS rules decide.
     pub domain_resolver: Option<crate::config::model::DomainResolver>,
+    /// The families the names dialled resolve to: sing-box's deprecated
+    /// `domain_strategy`, which a `domain_resolver`'s own `strategy` goes
+    /// before, where there is one.
+    pub strategy: Option<crate::config::model::DnsStrategy>,
     /// The outbound these options are for, which DNS rules can match.
     pub outbound: Option<String>,
 }
@@ -59,6 +63,7 @@ impl Default for DialOptions {
             protect: None,
             ipv6: false,
             domain_resolver: None,
+            strategy: None,
             outbound: None,
         }
     }
@@ -94,10 +99,17 @@ impl DialOptions {
             connect_timeout: self.connect_timeout,
             protect: self.protect.clone().or_else(|| defaults.protect.clone()),
             ipv6: defaults.ipv6,
-            domain_resolver: self
-                .domain_resolver
-                .clone()
-                .or_else(|| defaults.domain_resolver.clone()),
+            // Its strategy goes before that of the default resolver, as
+            // in sing-box, but not before its own resolver's.
+            domain_resolver: self.domain_resolver.clone().or_else(|| {
+                defaults.domain_resolver.clone().map(|resolver| {
+                    crate::config::model::DomainResolver {
+                        strategy: self.strategy.or(resolver.strategy),
+                        ..resolver
+                    }
+                })
+            }),
+            strategy: self.strategy,
             outbound: self.outbound.clone(),
         }
     }

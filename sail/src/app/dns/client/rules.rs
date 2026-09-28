@@ -19,8 +19,9 @@ use crate::util::DnsMessageExt;
 
 /// What the rules make of a query.
 pub(super) enum Walked {
-    /// A server's response, or one an `evaluate` rule kept.
-    Response(Message),
+    /// A server's response, or one an `evaluate` rule kept, and whether
+    /// its addresses may be kept: not when the query is not to be cached.
+    Response(Box<Message>, bool),
     /// A rule rejects it.
     Refused,
 }
@@ -198,7 +199,7 @@ impl DnsClient {
                         _ => latest.clone(),
                     };
                     return match response.flatten() {
-                        Some(response) => Ok(Walked::Response(response)),
+                        Some(response) => Ok(Walked::Response(Box::new(response), true)),
                         None => Err(anyhow!(
                             "{} {}: dns rule {} responds, and there is no evaluated response",
                             host,
@@ -216,10 +217,13 @@ impl DnsClient {
                         continue;
                     }
                     debug!("dns rule {} matches {} {}: [{}]", i, host, ty, server);
+                    let options = options.with(own);
                     return self
-                        .resolve(server, request, &options.with(own))
+                        .resolve(server, request, &options)
                         .await
-                        .map(Walked::Response);
+                        .map(|response| {
+                            Walked::Response(Box::new(response), !options.disable_cache)
+                        });
                 }
                 RuleAction::Reject => {
                     debug!("dns rule {} matches {} {}: reject", i, host, ty);
@@ -229,7 +233,7 @@ impl DnsClient {
         }
         self.resolve(&self.final_server, request, &options)
             .await
-            .map(Walked::Response)
+            .map(|response| Walked::Response(Box::new(response), !options.disable_cache))
     }
 
     /// The families a lookup of `host` for `ctx` asks for: what `ctx`

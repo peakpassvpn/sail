@@ -35,6 +35,7 @@ Serde: `serde (deny_unknown_fields)`
 | `routing_mark` | `Option < u32 >` | Default::default() | `SO_MARK`, Linux only.<br/>`serde (default)` |
 | `connect_timeout` | `Option < std :: time :: Duration >` | Default::default() | How long a TCP connect may take, e.g. `5s`.<br/>`serde (default , with = "crate::config::model::duration")` |
 | `domain_resolver` | `Option < crate :: config :: model :: DomainResolver >` | Default::default() | The DNS server that resolves the names this outbound dials.<br/>`serde (default)` |
+| `domain_strategy` | `Option < crate :: config :: model :: DnsStrategy >` | Default::default() | sing-box's deprecated field for the families they resolve to.<br/>`serde (default)` |
 | `tls` | `Option < OutboundTls >` | Default::default() | —<br/>`serde (default)` |
 | `transport` | `Option < OutboundTransport >` | Default::default() | —<br/>`serde (default)` |
 | `multiplex` | `Option < OutboundMultiplex >` | Default::default() | —<br/>`serde (default)` |

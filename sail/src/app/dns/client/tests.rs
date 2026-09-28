@@ -438,6 +438,7 @@ mod tests {
         dial.domain_resolver = Some(crate::config::model::DomainResolver {
             server: "home".into(),
             strategy: Some(crate::config::model::DnsStrategy::Ipv6Only),
+            ..Default::default()
         });
         assert_eq!(
             client.lookup_dial("nas.home.arpa", &dial).await.unwrap(),
@@ -953,6 +954,123 @@ mod tests {
                 prefix("192.0.2.1/32"),
             ]
         );
+    }
+
+    #[tokio::test]
+    async fn a_domain_resolver_sends_its_queries_as_it_says() {
+        let (port, seen) = subnet_server().await;
+        let client = client(serde_json::json!([
+            { "type": "udp", "tag": "up", "server": "127.0.0.1", "server_port": port }
+        ]))
+        .unwrap();
+        let resolver: crate::config::model::DomainResolver = serde_json::from_value(
+            serde_json::json!({ "server": "up", "strategy": "ipv4_only",
+                                "client_subnet": "223.5.5.0/24", "disable_cache": true,
+                                "timeout": "1s", "rewrite_ttl": 5 }),
+        )
+        .unwrap();
+        let dial = crate::net::DialOptions {
+            domain_resolver: Some(resolver),
+            ..Default::default()
+        };
+        for _ in 0..2 {
+            assert_eq!(
+                client.lookup_dial("a.example", &dial).await.unwrap(),
+                ips(&["10.0.0.7"])
+            );
+        }
+        // Not cached: asked each time, with its subnet.
+        let prefix = "223.5.5.0/24".parse::<crate::config::model::Prefix>().ok();
+        assert_eq!(*seen.lock().unwrap(), [prefix, prefix]);
+    }
+
+    #[tokio::test]
+    async fn domain_strategy_sets_the_families_of_what_is_dialled() {
+        let client = with_rules(serde_json::json!([])).unwrap();
+        // With no resolver, the rules', of its families.
+        let dial = crate::net::DialOptions {
+            strategy: Some(crate::config::model::DnsStrategy::Ipv6Only),
+            ..Default::default()
+        };
+        assert_eq!(
+            client.lookup_dial("a.example", &dial).await.unwrap(),
+            ips(&["2001:db8::1"])
+        );
+        // Over the default resolver's strategy, as in sing-box; not over
+        // a resolver of its own.
+        let defaults = crate::net::DialOptions {
+            domain_resolver: Some(crate::config::model::DomainResolver {
+                server: "world".into(),
+                strategy: Some(crate::config::model::DnsStrategy::Ipv4Only),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let dial = crate::net::DialOptions {
+            strategy: Some(crate::config::model::DnsStrategy::Ipv6Only),
+            ..Default::default()
+        }
+        .or(&defaults);
+        assert_eq!(
+            dial.domain_resolver.as_ref().unwrap().strategy,
+            Some(crate::config::model::DnsStrategy::Ipv6Only)
+        );
+        let own = crate::net::DialOptions {
+            domain_resolver: Some(crate::config::model::DomainResolver {
+                server: "world".into(),
+                strategy: Some(crate::config::model::DnsStrategy::Ipv4Only),
+                ..Default::default()
+            }),
+            strategy: Some(crate::config::model::DnsStrategy::Ipv6Only),
+            ..Default::default()
+        }
+        .or(&defaults);
+        assert_eq!(
+            own.domain_resolver.as_ref().unwrap().strategy,
+            Some(crate::config::model::DnsStrategy::Ipv4Only)
+        );
+    }
+
+    #[cfg(feature = "dns-doh")]
+    #[test]
+    fn a_doh_server_sends_its_headers() {
+        let client = client(serde_json::json!([
+            { "type": "udp", "tag": "udp", "server": "1.1.1.1" },
+            { "type": "https", "tag": "doh", "server": "1.1.1.1", "path": "/q",
+              "headers": { "Host": "dns.example", "X-Token": ["a", "b"],
+                           "accept": "application/dns-message" } }
+        ]))
+        .unwrap();
+        let Kind::Upstream(upstream) = &client.servers["doh"].kind else {
+            panic!("not an upstream");
+        };
+        assert_eq!(
+            upstream.http1_head(33),
+            "POST /q HTTP/1.1\r\nHost: dns.example\r\nContent-Length: 33\r\n\
+             Content-Type: application/dns-message\r\nX-Token: a\r\nX-Token: b\r\n\
+             accept: application/dns-message\r\n\r\n"
+        );
+        let request = upstream.http_request(33).unwrap();
+        assert_eq!(request.uri(), "https://dns.example/q");
+        let tokens: Vec<_> = request.headers().get_all("x-token").iter().collect();
+        assert_eq!(tokens, ["a", "b"]);
+        assert_eq!(request.headers().get_all("accept").iter().count(), 1);
+
+        for (servers, message) in [
+            (
+                serde_json::json!([{ "type": "udp", "server": "1.1.1.1",
+                                     "headers": { "X-A": "1" } }]),
+                "headers: only https and h3 servers take them",
+            ),
+            (
+                serde_json::json!([{ "type": "https", "server": "1.1.1.1",
+                                     "headers": { "Content-Length": "1" } }]),
+                "headers: Content-Length is sail's to set",
+            ),
+        ] {
+            let err = error(servers.clone());
+            assert!(err.contains(message), "{}: {}", servers, err);
+        }
     }
 
     #[test]

@@ -35,13 +35,14 @@ pub struct Blocks {
 }
 
 /// The fields `Blocks::dial` covers.
-const DIAL_FIELDS: [&str; 6] = [
+const DIAL_FIELDS: [&str; 7] = [
     "bind_interface",
     "inet4_bind_address",
     "inet6_bind_address",
     "routing_mark",
     "connect_timeout",
     "domain_resolver",
+    "domain_strategy",
 ];
 
 impl Blocks {
@@ -153,6 +154,9 @@ pub struct OutboundBlocks {
     /// The DNS server that resolves the names this outbound dials.
     #[serde(default)]
     pub domain_resolver: Option<crate::config::model::DomainResolver>,
+    /// sing-box's deprecated field for the families they resolve to.
+    #[serde(default)]
+    pub domain_strategy: Option<crate::config::model::DnsStrategy>,
     #[serde(default)]
     pub tls: Option<OutboundTls>,
     #[serde(default)]
@@ -450,7 +454,13 @@ impl OutboundBlocks {
                 .unwrap_or(crate::net::dial::DEFAULT_CONNECT_TIMEOUT),
             protect: None,
             ipv6: false,
-            domain_resolver: self.domain_resolver.clone(),
+            domain_resolver: self.domain_resolver.clone().map(|resolver| {
+                crate::config::model::DomainResolver {
+                    strategy: resolver.strategy.or(self.domain_strategy),
+                    ..resolver
+                }
+            }),
+            strategy: self.domain_strategy,
             outbound: Some(tag.to_string()),
         };
         if let Some(detour) = &self.detour {

@@ -132,6 +132,13 @@ pub(super) struct Upstream {
     pub server_name: String,
     /// The request path, for DoH and DoH3.
     pub path: String,
+    /// DoH and DoH3: the headers each request carries, but `Host`.
+    #[cfg_attr(not(any(feature = "dns-doh", feature = "dns-h3")), allow(dead_code))]
+    headers: Vec<(String, String)>,
+    /// DoH and DoH3: the host a `Host` header names, which the requests
+    /// name instead of the server's.
+    #[cfg_attr(not(any(feature = "dns-doh", feature = "dns-h3")), allow(dead_code))]
+    host: Option<String>,
     #[cfg_attr(not(any(feature = "tls", feature = "quic")), allow(dead_code))]
     pub dialer: Dialer,
     /// The certificates trusted instead of the bundled roots: inline PEM,
@@ -190,9 +197,28 @@ impl Upstream {
         address: Address,
         dialer: Dialer,
         path: Option<String>,
+        headers: &std::collections::BTreeMap<String, crate::config::model::HeaderValues>,
         tls: Option<&OutboundTls>,
         env: &RuntimeEnv,
     ) -> Result<Self> {
+        if !headers.is_empty() && !matches!(protocol, Protocol::Https | Protocol::H3) {
+            return Err(anyhow!("headers: only https and h3 servers take them"));
+        }
+        crate::config::model::check_headers(headers)?;
+        let mut host = None;
+        let mut lines = Vec::new();
+        for (name, value) in crate::config::model::header_lines(headers) {
+            if name.eq_ignore_ascii_case("host") {
+                host = Some(value);
+            } else if ["content-length", "transfer-encoding"]
+                .iter()
+                .any(|n| name.eq_ignore_ascii_case(n))
+            {
+                return Err(anyhow!("headers: {} is sail's to set", name));
+            } else {
+                lines.push((name, value));
+            }
+        }
         let path = match path {
             Some(path) => {
                 Self::check_path(&path)?;
@@ -250,6 +276,8 @@ impl Upstream {
             address,
             server_name,
             path,
+            headers: lines,
+            host,
             dialer,
             certificate,
             insecure,
@@ -292,9 +320,12 @@ impl Upstream {
     }
 
     /// `host[:port]` as an HTTP request names the server: the port only
-    /// when it is not 443.
+    /// when it is not 443. A `Host` header names it instead.
     #[cfg(any(feature = "dns-doh", feature = "dns-h3"))]
     fn authority(&self) -> String {
+        if let Some(host) = &self.host {
+            return host.clone();
+        }
         let host = match self.server_name.parse::<std::net::IpAddr>() {
             Ok(std::net::IpAddr::V6(ip)) => format!("[{}]", ip),
             _ => self.server_name.clone(),
@@ -304,6 +335,57 @@ impl Upstream {
         } else {
             format!("{}:{}", host, self.address.port)
         }
+    }
+
+    /// The request of an HTTP/2 or HTTP/3 query of `len` bytes: its own
+    /// headers over sail's.
+    #[cfg(any(feature = "dns-doh", feature = "dns-h3"))]
+    pub(super) fn http_request(&self, len: usize) -> Result<http::Request<()>> {
+        use http::header::{ACCEPT, CONTENT_LENGTH, CONTENT_TYPE};
+        const DNS_MESSAGE: &str = "application/dns-message";
+        let mut request = http::Request::post(self.uri()).header(CONTENT_LENGTH, len);
+        for (name, value) in [(CONTENT_TYPE, DNS_MESSAGE), (ACCEPT, DNS_MESSAGE)] {
+            if !self
+                .headers
+                .iter()
+                .any(|(n, _)| n.eq_ignore_ascii_case(name.as_str()))
+            {
+                request = request.header(name, value);
+            }
+        }
+        for (name, value) in &self.headers {
+            request = request.header(name.as_str(), value.as_str());
+        }
+        request
+            .body(())
+            .map_err(|e| anyhow!("invalid request: {}", e))
+    }
+
+    /// The head of an HTTP/1.1 query of `len` bytes: its own headers over
+    /// sail's.
+    #[cfg(feature = "dns-doh")]
+    pub(super) fn http1_head(&self, len: usize) -> String {
+        const DNS_MESSAGE: &str = "application/dns-message";
+        let mut head = format!(
+            "POST {} HTTP/1.1\r\nHost: {}\r\nContent-Length: {}\r\n",
+            self.path,
+            self.authority(),
+            len
+        );
+        for (name, value) in [("Content-Type", DNS_MESSAGE), ("Accept", DNS_MESSAGE)] {
+            if !self
+                .headers
+                .iter()
+                .any(|(n, _)| n.eq_ignore_ascii_case(name))
+            {
+                head.push_str(&format!("{}: {}\r\n", name, value));
+            }
+        }
+        for (name, value) in &self.headers {
+            head.push_str(&format!("{}: {}\r\n", name, value));
+        }
+        head.push_str("\r\n");
+        head
     }
 
     /// A path as a request carries it: no query, since the message goes in

@@ -17,7 +17,6 @@ use super::{Upstream, MAX_MESSAGE_LEN};
 use crate::adapter::AnyStream;
 use crate::app::dns::DnsClient;
 
-const DNS_MESSAGE: &str = "application/dns-message";
 /// The most an HTTP/1.1 response head, or a chunk-size line, may take.
 const MAX_HEAD_LEN: usize = 16 * 1024;
 /// How long a queryless HTTP/2 connection is kept: dropped past that,
@@ -248,14 +247,9 @@ async fn exchange_h2(
     send_request: h2::client::SendRequest<Bytes>,
     request: Bytes,
 ) -> std::result::Result<Vec<u8>, Failure> {
-    use http::header::{ACCEPT, CONTENT_LENGTH, CONTENT_TYPE};
-
-    let req = http::Request::post(upstream.uri())
-        .header(CONTENT_TYPE, DNS_MESSAGE)
-        .header(ACCEPT, DNS_MESSAGE)
-        .header(CONTENT_LENGTH, request.len())
-        .body(())
-        .map_err(|e| Failure::Answer(anyhow!("invalid http/2 request: {}", e)))?;
+    let req = upstream
+        .http_request(request.len())
+        .map_err(|e| Failure::Answer(anyhow!("http/2: {}", e)))?;
     let mut send_request = send_request
         .ready()
         .await
@@ -295,15 +289,7 @@ async fn exchange_http1(
     stream: &mut AnyStream,
     request: &[u8],
 ) -> std::result::Result<(Vec<u8>, bool), Failure> {
-    let mut out = format!(
-        "POST {} HTTP/1.1\r\nHost: {}\r\nContent-Type: {}\r\nAccept: {}\r\nContent-Length: {}\r\n\r\n",
-        upstream.path,
-        upstream.authority(),
-        DNS_MESSAGE,
-        DNS_MESSAGE,
-        request.len()
-    )
-    .into_bytes();
+    let mut out = upstream.http1_head(request.len()).into_bytes();
     out.extend_from_slice(request);
     stream
         .write_all(&out)

@@ -229,6 +229,16 @@ impl QueryOptions {
         }
     }
 
+    /// How a `domain_resolver`'s queries are sent.
+    fn of_resolver(resolver: &crate::config::model::DomainResolver) -> Self {
+        QueryOptions {
+            disable_cache: resolver.disable_cache,
+            rewrite_ttl: resolver.rewrite_ttl,
+            timeout: resolver.timeout,
+            client_subnet: resolver.client_subnet.map(Subnet::Set),
+        }
+    }
+
     /// These, with what `later` sets over them.
     fn with(&self, later: &QueryOptions) -> QueryOptions {
         QueryOptions {

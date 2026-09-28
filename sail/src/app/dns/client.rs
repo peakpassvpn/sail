@@ -38,8 +38,8 @@ use server::{Address, Dialer, Kind, Server};
 enum By<'a> {
     /// Where the rules send them.
     Rules(&'a LookupContext),
-    /// To this server.
-    Server(&'a str),
+    /// To this server, sent so.
+    Server(&'a str, &'a QueryOptions),
 }
 
 /// How long the system resolver's and a hosts server's answers are kept:
@@ -305,11 +305,7 @@ impl DnsClient {
             .as_ref()
             .ok_or_else(|| anyhow!("no resolver for {}", address.host))?;
         let ips = self
-            .lookup_with(
-                &resolver.server,
-                &address.host,
-                resolver.strategy.unwrap_or(self.strategy),
-            )
+            .lookup_resolver(resolver, &address.host)
             .await
             .map_err(|e| anyhow!("resolving {}: {}", address.host, e))?;
         let ip = ips
@@ -794,9 +790,9 @@ impl DnsClient {
             return Self::reply(request, &[], LOCAL_TTL.as_secs() as u32);
         }
         match self.walk(request, ctx, true).await {
-            Ok(rules::Walked::Response(mut response)) => {
+            Ok(rules::Walked::Response(mut response, _)) => {
                 response.set_id(request.id());
-                response
+                *response
             }
             Ok(rules::Walked::Refused) => Self::status(request, ResponseCode::Refused),
             Err(e) => {
@@ -933,24 +929,18 @@ impl DnsClient {
 
     /// The addresses of `host`, which an outbound dials with `dial`: from
     /// its `domain_resolver`, or else from the server the rules pick for
-    /// that outbound.
+    /// that outbound, of the families its `domain_strategy` says.
     pub async fn lookup_dial(
         &self,
         host: &str,
         dial: &crate::net::DialOptions,
     ) -> Result<Vec<IpAddr>> {
         match &dial.domain_resolver {
-            Some(resolver) => {
-                self.lookup_with(
-                    &resolver.server,
-                    host,
-                    resolver.strategy.unwrap_or(self.strategy),
-                )
-                .await
-            }
+            Some(resolver) => self.lookup_resolver(resolver, host).await,
             None => {
                 let ctx = LookupContext {
                     outbound: dial.outbound.clone(),
+                    strategy: dial.strategy,
                     ..Default::default()
                 };
                 self.lookup_in(host, &ctx).await
@@ -966,23 +956,29 @@ impl DnsClient {
         host: &str,
         strategy: Option<DnsStrategy>,
     ) -> Result<Vec<IpAddr>> {
-        self.lookup_with(server, host, strategy.unwrap_or(self.strategy))
-            .await
+        let resolver = crate::config::model::DomainResolver {
+            server: server.to_string(),
+            strategy,
+            ..Default::default()
+        };
+        self.lookup_resolver(&resolver, host).await
     }
 
-    /// The addresses of `host`, from the server tagged `server`, of the
-    /// families `strategy` says: what the rules have no say in.
+    /// The addresses of `host`, from `resolver`'s server, asked as it says:
+    /// what the rules have no say in.
     #[async_recursion]
-    async fn lookup_with(
+    async fn lookup_resolver(
         &self,
-        server: &str,
+        resolver: &crate::config::model::DomainResolver,
         host: &str,
-        strategy: DnsStrategy,
     ) -> Result<Vec<IpAddr>> {
         if let Ok(ip) = host.parse::<IpAddr>() {
             return Ok(vec![ip]);
         }
-        self.lookup_by(host, strategy, By::Server(server)).await
+        let options = QueryOptions::of_resolver(resolver);
+        let strategy = resolver.strategy.unwrap_or(self.strategy);
+        self.lookup_by(host, strategy, By::Server(&resolver.server, &options))
+            .await
     }
 
     /// The addresses of `host`, of the families `strategy` says, from the
@@ -993,27 +989,31 @@ impl DnsClient {
         strategy: DnsStrategy,
         by: By<'_>,
     ) -> Result<Vec<IpAddr>> {
-        if let Some(ips) = self.get_cached(host, strategy).await {
-            return Ok(ips);
+        let cached = !matches!(by, By::Server(_, options) if options.disable_cache);
+        if cached {
+            if let Some(ips) = self.get_cached(host, strategy).await {
+                return Ok(ips);
+            }
         }
         let name = Name::from_str(&format!("{}.", host))
             .map_err(|e| anyhow!("invalid domain name [{}]: {}", host, e))?;
+        // The addresses, and whether they may be kept.
         let query = |ty| {
             let request = Self::new_query(name.clone(), ty);
             async move {
-                let response = match by {
+                let (response, keep) = match by {
                     By::Rules(ctx) => match self.walk(&request, ctx, false).await? {
-                        rules::Walked::Response(response) => response,
+                        rules::Walked::Response(response, keep) => (*response, keep),
                         rules::Walked::Refused => {
                             return Err(anyhow!("{} {}: rejected by a dns rule", host, ty))
                         }
                     },
-                    By::Server(tag) => {
-                        self.resolve(tag, &request, &QueryOptions::default())
-                            .await?
-                    }
+                    By::Server(tag, options) => (
+                        self.resolve(tag, &request, options).await?,
+                        !options.disable_cache,
+                    ),
                 };
-                Self::answer_entry(&response, host)
+                Self::answer_entry(&response, host).map(|entry| (entry, keep))
             }
         };
 
@@ -1023,9 +1023,11 @@ impl DnsClient {
             DnsStrategy::PreferIpv4 | DnsStrategy::PreferIpv6 => None,
         };
         if let Some(ty) = single {
-            let entry = query(ty).await?;
+            let (entry, keep) = query(ty).await?;
             let ips = entry.ips.clone();
-            self.cache_insert(host, entry).await;
+            if keep {
+                self.cache_insert(host, entry).await;
+            }
             return Ok(ips);
         }
 
@@ -1037,25 +1039,26 @@ impl DnsClient {
         } else {
             Self::dualstack_query(&mut a, &mut aaaa, delay).await?
         };
-        let mut ips = first.ips.clone();
-        self.cache_insert(host, first).await;
-        if let Some(second) = second {
-            ips.extend_from_slice(&second.ips);
-            self.cache_insert(host, second).await;
+        let mut ips = Vec::new();
+        for (entry, keep) in std::iter::once(first).chain(second) {
+            ips.extend_from_slice(&entry.ips);
+            if keep {
+                self.cache_insert(host, entry).await;
+            }
         }
         Ok(ips)
     }
 
     /// The answer of `preferred`, or of `fallback` when `preferred` has
     /// none within `delay`, and the other one too if it is already there.
-    async fn dualstack_query<P, F>(
+    async fn dualstack_query<T, P, F>(
         preferred: &mut P,
         fallback: &mut F,
         delay: Duration,
-    ) -> Result<(CacheEntry, Option<CacheEntry>)>
+    ) -> Result<(T, Option<T>)>
     where
-        P: std::future::Future<Output = Result<CacheEntry>> + Unpin,
-        F: std::future::Future<Output = Result<CacheEntry>> + Unpin,
+        P: std::future::Future<Output = Result<T>> + Unpin,
+        F: std::future::Future<Output = Result<T>> + Unpin,
     {
         let delay_fut = tokio::time::sleep(delay);
         tokio::pin!(delay_fut);
@@ -1146,7 +1149,7 @@ impl DnsClient {
         for ty in [RecordType::HTTPS, RecordType::SVCB] {
             let request = Self::new_query(name.clone(), ty);
             match self.walk(&request, &LookupContext::default(), false).await {
-                Ok(rules::Walked::Response(response)) => {
+                Ok(rules::Walked::Response(response, _)) => {
                     match Self::ech_entry(&response, host, ty) {
                         Ok(entry) => return Ok(entry),
                         Err(e) => errors.push(format!("{}: {}", ty, e)),

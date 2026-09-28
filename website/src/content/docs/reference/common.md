@@ -45,6 +45,7 @@ Serde: `serde (deny_unknown_fields)`
 | `routing_mark` | `Option < u32 >` | Default::default() | —<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
 | `connect_timeout` | `Option < std :: time :: Duration >` | Default::default() | —<br/>`serde (default , with = "duration" , skip_serializing_if = "Option::is_none")` |
 | `domain_resolver` | `Option < DomainResolver >` | Default::default() | —<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
+| `domain_strategy` | `Option < DnsStrategy >` | Default::default() | sing-box's deprecated field for the families names resolve to.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
 | `headers` | `BTreeMap < String , HeaderValues >` | Default::default() | Sent with each request, over sail's own of the same name.<br/>`serde (default , skip_serializing_if = "BTreeMap::is_empty")` |
 
 ## HeaderValues

@@ -330,6 +330,34 @@ mod tests {
     }
 
     #[test]
+    fn domain_strategy_and_resolver_options_are_read() {
+        let config = parse(
+            r#"{ "dns": { "servers": [
+                   { "type": "udp", "tag": "u", "server": "1.1.1.1" },
+                   { "type": "tls", "tag": "t", "server": "dns.example",
+                     "domain_strategy": "ipv4_only",
+                     "domain_resolver": { "server": "u", "client_subnet": "1.2.3.0/24" } }
+                 ] },
+                 "outbounds": [{ "type": "direct", "domain_strategy": "ipv6_only",
+                   "domain_resolver": { "server": "u", "timeout": "1s",
+                     "disable_cache": true, "rewrite_ttl": 30,
+                     "disable_optimistic_cache": true } }],
+                 "route": { "default_domain_resolver": { "server": "u",
+                   "client_subnet": "2001:db8::/48" } } }"#,
+        )
+        .unwrap();
+        assert_eq!(
+            config.warnings,
+            [
+                "outbounds[0].domain_resolver.disable_optimistic_cache: sail does not implement \
+              this field; ignored"
+            ]
+        );
+        let resolver = config.route.default_domain_resolver.unwrap();
+        assert_eq!(resolver.client_subnet, "2001:db8::/48".parse().ok());
+    }
+
+    #[test]
     fn a_route_rule_has_no_response_to_match() {
         let err = parse(
             r#"{ "outbounds": [{ "type": "direct" }],

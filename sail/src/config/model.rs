@@ -73,9 +73,38 @@ pub struct HttpClient {
     pub connect_timeout: Option<std::time::Duration>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub domain_resolver: Option<DomainResolver>,
+    /// sing-box's deprecated field for the families names resolve to.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub domain_strategy: Option<DnsStrategy>,
     /// Sent with each request, over sail's own of the same name.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub headers: BTreeMap<String, HeaderValues>,
+}
+
+/// Its headers, a line each.
+pub fn header_lines(headers: &BTreeMap<String, HeaderValues>) -> Vec<(String, String)> {
+    headers
+        .iter()
+        .flat_map(|(name, values)| values.0.iter().map(|v| (name.clone(), v.clone())))
+        .collect()
+}
+
+/// Checks that each header is one a request can carry: a name, and values
+/// that do not break its line. `Connection` is sail's to set.
+pub fn check_headers(headers: &BTreeMap<String, HeaderValues>) -> Result<()> {
+    for (name, values) in headers {
+        let token = |c: char| c.is_ascii_alphanumeric() || "!#$%&'*+-.^_`|~".contains(c);
+        if name.is_empty() || !name.chars().all(token) {
+            return Err(anyhow!("headers: {:?} is no header name", name));
+        }
+        if name.eq_ignore_ascii_case("connection") {
+            return Err(anyhow!("headers: Connection is sail's to set"));
+        }
+        if let Some(v) = values.0.iter().find(|v| v.contains(['\r', '\n', '\0'])) {
+            return Err(anyhow!("headers: {}: {:?} breaks the line", name, v));
+        }
+    }
+    Ok(())
 }
 
 /// The values of a header: one, or a list.
@@ -86,10 +115,7 @@ pub struct HeaderValues(#[serde(with = "listable")] pub Vec<String>);
 impl HttpClient {
     /// Its headers, a line each.
     pub fn header_lines(&self) -> Vec<(String, String)> {
-        self.headers
-            .iter()
-            .flat_map(|(name, values)| values.0.iter().map(|v| (name.clone(), v.clone())))
-            .collect()
+        header_lines(&self.headers)
     }
 
     /// The dial options it connects with, when it has no detour: its own,
@@ -103,7 +129,11 @@ impl HttpClient {
             connect_timeout: self
                 .connect_timeout
                 .unwrap_or(crate::net::dial::DEFAULT_CONNECT_TIMEOUT),
-            domain_resolver: self.domain_resolver.clone(),
+            domain_resolver: self.domain_resolver.clone().map(|resolver| DomainResolver {
+                strategy: resolver.strategy.or(self.domain_strategy),
+                ..resolver
+            }),
+            strategy: self.domain_strategy,
             ..Default::default()
         }
         .or(defaults)
@@ -119,7 +149,8 @@ impl HttpClient {
                 || self.inet6_bind_address.is_some()
                 || self.routing_mark.is_some()
                 || self.connect_timeout.is_some()
-                || self.domain_resolver.is_some();
+                || self.domain_resolver.is_some()
+                || self.domain_strategy.is_some();
             if dials {
                 return Err(anyhow!(
                     "the dial fields have no effect with a detour; set them on [{}]",
@@ -127,18 +158,7 @@ impl HttpClient {
                 ));
             }
         }
-        for (name, values) in &self.headers {
-            let token = |c: char| c.is_ascii_alphanumeric() || "!#$%&'*+-.^_`|~".contains(c);
-            if name.is_empty() || !name.chars().all(token) {
-                return Err(anyhow!("headers: {:?} is no header name", name));
-            }
-            if name.eq_ignore_ascii_case("connection") {
-                return Err(anyhow!("headers: Connection is sail's to set"));
-            }
-            if let Some(v) = values.0.iter().find(|v| v.contains(['\r', '\n', '\0'])) {
-                return Err(anyhow!("headers: {}: {:?} breaks the line", name, v));
-            }
-        }
+        check_headers(&self.headers)?;
         if let Some(resolver) = &self.domain_resolver {
             if !dns_servers.contains(&resolver.server) {
                 return Err(anyhow!(
@@ -1082,12 +1102,21 @@ pub struct Route {
 }
 
 /// A DNS server that resolves the names something dials: its tag, or
-/// `{ "server": tag, "strategy": ... }`.
-#[derive(Serialize, Debug, Clone, PartialEq, Eq)]
+/// `{ "server": tag, "strategy": ... }` with how the queries are sent, as a
+/// DNS rule's route options say it.
+#[derive(Serialize, Debug, Clone, Default, PartialEq, Eq)]
 pub struct DomainResolver {
     pub server: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub strategy: Option<DnsStrategy>,
+    #[serde(default, with = "duration", skip_serializing_if = "Option::is_none")]
+    pub timeout: Option<std::time::Duration>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub disable_cache: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rewrite_ttl: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_subnet: Option<Prefix>,
 }
 
 impl<'de> serde::Deserialize<'de> for DomainResolver {
@@ -1098,17 +1127,29 @@ impl<'de> serde::Deserialize<'de> for DomainResolver {
             server: String,
             #[serde(default)]
             strategy: Option<DnsStrategy>,
+            #[serde(default, with = "duration")]
+            timeout: Option<std::time::Duration>,
+            #[serde(default)]
+            disable_cache: bool,
+            #[serde(default)]
+            rewrite_ttl: Option<u32>,
+            #[serde(default)]
+            client_subnet: Option<Prefix>,
         }
         match <serde_json::Value as serde::Deserialize>::deserialize(de)? {
             serde_json::Value::String(server) => Ok(DomainResolver {
                 server,
-                strategy: None,
+                ..Default::default()
             }),
             value => {
                 let full = Full::deserialize(value).map_err(serde::de::Error::custom)?;
                 Ok(DomainResolver {
                     server: full.server,
                     strategy: full.strategy,
+                    timeout: full.timeout,
+                    disable_cache: full.disable_cache,
+                    rewrite_ttl: full.rewrite_ttl,
+                    client_subnet: full.client_subnet,
                 })
             }
         }

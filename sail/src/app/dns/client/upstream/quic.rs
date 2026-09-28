@@ -333,15 +333,10 @@ async fn connect_h3(conn: quinn::Connection) -> Result<H3> {
 #[cfg(feature = "dns-h3")]
 async fn exchange_h3(upstream: &Upstream, h3: &H3Handle, request: &[u8]) -> Result<Vec<u8>> {
     use bytes::Buf;
-    use http::header::{ACCEPT, CONTENT_LENGTH, CONTENT_TYPE};
 
-    const DNS_MESSAGE: &str = "application/dns-message";
-    let req = http::Request::post(upstream.uri())
-        .header(CONTENT_TYPE, DNS_MESSAGE)
-        .header(ACCEPT, DNS_MESSAGE)
-        .header(CONTENT_LENGTH, request.len())
-        .body(())
-        .map_err(|e| anyhow!("invalid http/3 request: {}", e))?;
+    let req = upstream
+        .http_request(request.len())
+        .map_err(|e| anyhow!("http/3: {}", e))?;
     let mut send_request = h3.send_request.clone();
     let mut stream = send_request
         .send_request(req)
