@@ -225,3 +225,73 @@ fn off_sections_and_the_system_resolver() {
     assert_eq!(config.route.final_outbound.as_deref(), Some("DIRECT"));
     assert!(config.warnings.is_empty(), "{:?}", config.warnings);
 }
+
+fn rules(config: &Config) -> Vec<serde_json::Value> {
+    config
+        .route
+        .rules
+        .iter()
+        .skip(2)
+        .map(|r| serde_json::to_value(r).unwrap())
+        .collect()
+}
+
+#[test]
+fn logical_rules_are_sail_s() {
+    let config = load(
+        "rules:\n\
+         - AND,((DOMAIN-SUFFIX,example.com),(NETWORK,UDP)),REJECT\n\
+         - OR,((DST-PORT,443),(AND,((DOMAIN,a.example),(NOT,((NETWORK,tcp)))))),DIRECT\n\
+         - NOT,((IP-CIDR,10.0.0.0/8)),DIRECT\n\
+         - DOMAIN-WILDCARD,*.a?.example,REJECT\n",
+    );
+    let rules = rules(&config);
+    assert_eq!(rules[0]["type"], "logical");
+    assert_eq!(rules[0]["mode"], "and");
+    assert_eq!(rules[0]["rules"][1]["network"], serde_json::json!(["udp"]));
+    assert_eq!(rules[1]["mode"], "or");
+    assert_eq!(rules[1]["rules"][1]["rules"][1]["invert"], true);
+    // The NOT of an IP rule resolves first.
+    assert_eq!(rules[2]["action"], "resolve");
+    assert_eq!(rules[3]["invert"], true);
+    assert_eq!(
+        rules[4]["domain_regex"],
+        serde_json::json!(["^.*\\.a.\\.example$"])
+    );
+}
+
+#[test]
+fn sub_rules_stand_where_they_are_named() {
+    let config = load(
+        "sub-rules:\n\
+         \x20 outer:\n\
+         \x20   - DOMAIN,a.example,DIRECT\n\
+         \x20   - SUB-RULE,(NETWORK,udp),inner\n\
+         \x20   - DOMAIN,b.example,REJECT\n\
+         \x20 inner:\n\
+         \x20   - DST-PORT,53,DIRECT\n\
+         rules:\n\
+         - SUB-RULE,(DOMAIN-SUFFIX,example),outer\n\
+         - MATCH,REJECT\n",
+    );
+    let rules = rules(&config);
+    // example AND a.example; example AND udp AND 53; example AND NOT udp
+    // AND b.example; and MATCH's reject.
+    assert_eq!(rules.len(), 4, "{:#?}", rules);
+    assert_eq!(
+        rules[0]["rules"][1]["domain"],
+        serde_json::json!(["a.example"])
+    );
+    assert_eq!(rules[1]["rules"][2]["port"], serde_json::json!([53]));
+    assert_eq!(rules[2]["rules"][1]["invert"], true);
+    assert_eq!(rules[2]["action"], "reject");
+
+    let err = error(
+        "sub-rules:\n  a:\n    - SUB-RULE,(NETWORK,tcp),a\nrules:\n  - SUB-RULE,(NETWORK,tcp),a\n",
+    );
+    assert!(err.contains("a leads back to itself"), "{}", err);
+    let err = error("rules:\n  - AND,(DOMAIN,a),DIRECT\n");
+    assert!(err.contains("rules[0]: AND:"), "{}", err);
+    let err = error("rules:\n  - OR,((MATCH)),DIRECT\n");
+    assert!(err.contains("a MATCH rule cannot be within"), "{}", err);
+}

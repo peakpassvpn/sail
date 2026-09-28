@@ -51,7 +51,6 @@ pub const TOP: &[(&str, Tier)] = &[
     // Later stages.
     ("proxy-providers", Unsupported),
     ("rule-providers", Unsupported),
-    ("sub-rules", Unsupported),
     ("hosts", Unsupported),
     ("listeners", Unsupported),
     ("tunnels", Unsupported),
