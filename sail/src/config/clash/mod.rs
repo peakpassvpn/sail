@@ -56,12 +56,14 @@ pub fn parse(s: &str) -> Result<Config> {
 
 /// A line of a classical rule-provider, a Clash rule without its target,
 /// as a rule-set's rule.
+#[cfg(feature = "rule-set")]
 pub(crate) fn headless(line: &str) -> Result<super::rule_set::HeadlessRule> {
     let rule = rule::headless(line)?;
     serde_json::from_value(Value::Object(rule)).map_err(|e| anyhow!("{}", e))
 }
 
 /// The `payload`, or `rules`, of a YAML rule-provider.
+#[cfg(feature = "rule-set")]
 pub(crate) fn payload(s: &str) -> Result<Vec<String>> {
     let mut doc = Fields::of(node::parse(s)?, "")?;
     let payload = doc.strings("payload")?;
