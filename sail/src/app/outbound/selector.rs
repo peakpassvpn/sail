@@ -1,14 +1,16 @@
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use arc_swap::{ArcSwap, Guard};
 use protobuf::Message;
 use tokio::sync::watch;
 use tracing::warn;
 
 use anyhow::{anyhow, Result};
 
+use crate::protocol::group::members::{MemberKey, MemberLatencies, Members, Snapshot};
 use crate::runtime::RuntimeEnv;
 
 /// The file selections are kept in: in the host's cache directory when it
@@ -57,43 +59,69 @@ pub fn persist_selected_to_cache(cache_file: &Path, id: String, selected: String
 }
 
 /// Which member a group sends its connections to, shared by the group's
-/// handlers and its selector. Connections that should not outlive a
+/// handlers and its selector. It names the member: one selected that is
+/// not a member for a while stays selected, and the group's default takes
+/// the connections meanwhile. Connections that should not outlive a
 /// change of member watch it, see `subscribe`.
 pub struct Selection {
-    index: AtomicUsize,
-    changed: watch::Sender<usize>,
+    default: MemberKey,
+    selected: ArcSwap<MemberKey>,
+    /// Where the selected member was last found, to look there first.
+    hint: AtomicUsize,
+    changed: watch::Sender<MemberKey>,
 }
 
 impl Selection {
-    pub fn new(index: usize) -> Self {
+    /// `selected`, or `default` while it is not a member.
+    pub fn new(default: MemberKey, selected: MemberKey) -> Self {
         Self {
-            index: AtomicUsize::new(index),
-            changed: watch::Sender::new(index),
+            default,
+            selected: ArcSwap::from_pointee(selected.clone()),
+            hint: AtomicUsize::new(0),
+            changed: watch::Sender::new(selected),
         }
     }
 
-    pub fn get(&self) -> usize {
-        self.index.load(Ordering::Relaxed)
+    pub fn get(&self) -> Arc<MemberKey> {
+        self.selected.load_full()
     }
 
-    pub fn set(&self, index: usize) {
-        self.index.store(index, Ordering::Relaxed);
+    pub fn set(&self, key: MemberKey) {
+        self.selected.store(Arc::new(key.clone()));
         self.changed.send_if_modified(|current| {
-            let modified = *current != index;
-            *current = index;
+            let modified = *current != key;
+            *current = key;
             modified
         });
     }
 
     /// The selection as it changes.
-    pub fn subscribe(&self) -> watch::Receiver<usize> {
+    pub fn subscribe(&self) -> watch::Receiver<MemberKey> {
         self.changed.subscribe()
     }
-}
 
-/// The latency of each member of a group, as its last check measured
-/// it; `None` for a member that failed it or was not checked yet.
-pub type MemberLatencies = Arc<RwLock<Vec<Option<Duration>>>>;
+    /// The member of `snapshot` connections go to: the one selected, or,
+    /// while it is not a member, the default, or the first; with the
+    /// selection it went by. `None` when there is no member.
+    pub fn pick(&self, snapshot: &Snapshot) -> Option<(usize, Guard<Arc<MemberKey>>)> {
+        let selected = self.selected.load();
+        let i = self
+            .position(&selected, snapshot)
+            .or_else(|| snapshot.position(&self.default))
+            .or_else(|| (!snapshot.members.is_empty()).then_some(0))?;
+        Some((i, selected))
+    }
+
+    fn position(&self, key: &MemberKey, snapshot: &Snapshot) -> Option<usize> {
+        let hint = self.hint.load(Ordering::Relaxed);
+        if snapshot.members.get(hint).is_some_and(|m| m.key == *key) {
+            return Some(hint);
+        }
+        let i = snapshot.position(key)?;
+        self.hint.store(i, Ordering::Relaxed);
+        Some(i)
+    }
+}
 
 /// How a group's member comes to be selected.
 pub enum SelectedBy {
@@ -110,7 +138,7 @@ pub enum SelectedBy {
 /// their latencies where the group measures them.
 pub struct OutboundSelector {
     id: String,
-    handlers: Vec<String>,
+    members: Arc<Members>,
     selected: Arc<Selection>,
     selected_by: SelectedBy,
     latencies: Option<MemberLatencies>,
@@ -119,14 +147,14 @@ pub struct OutboundSelector {
 impl OutboundSelector {
     pub fn new(
         id: String,
-        handlers: Vec<String>,
+        members: Arc<Members>,
         selected: Arc<Selection>,
         selected_by: SelectedBy,
         latencies: Option<MemberLatencies>,
     ) -> Self {
         Self {
             id,
-            handlers,
+            members,
             selected,
             selected_by,
             latencies,
@@ -134,13 +162,20 @@ impl OutboundSelector {
     }
 
     pub fn get_available_tags(&self) -> Vec<String> {
-        self.handlers.clone()
+        let snapshot = self.members.load();
+        snapshot
+            .members
+            .iter()
+            .map(|m| m.key.name.to_string())
+            .collect()
     }
 
+    /// The member connections go to, see `Selection::pick`.
     pub fn get_selected_tag(&self) -> String {
-        self.handlers
-            .get(self.selected.get())
-            .cloned()
+        let snapshot = self.members.load();
+        self.selected
+            .pick(&snapshot)
+            .map(|(i, _)| snapshot.members[i].key.name.to_string())
             .unwrap_or_default()
     }
 
@@ -148,11 +183,15 @@ impl OutboundSelector {
     pub fn get_latencies(&self) -> Option<Vec<(String, Option<Duration>)>> {
         let latencies = self.latencies.as_ref()?;
         let latencies = latencies.read().ok()?;
+        let snapshot = self.members.load();
         Some(
-            self.handlers
+            snapshot
+                .members
                 .iter()
-                .cloned()
-                .zip(latencies.iter().copied())
+                .map(|m| {
+                    let latency = latencies.get(&m.key).copied().flatten();
+                    (m.key.name.to_string(), latency)
+                })
                 .collect(),
         )
     }
@@ -162,7 +201,8 @@ impl OutboundSelector {
         matches!(self.selected_by, SelectedBy::Hand { .. })
     }
 
-    /// Selects the member `tag` by hand, and keeps the choice.
+    /// Selects the member `tag`, the first so named, by hand, and keeps
+    /// the choice.
     pub fn set_selected(&mut self, tag: &str) -> Result<()> {
         let SelectedBy::Hand { cache_file } = &self.selected_by else {
             return Err(anyhow!(
@@ -170,10 +210,10 @@ impl OutboundSelector {
                 self.id
             ));
         };
-        let Some(i) = self.handlers.iter().position(|x| x == tag) else {
+        let Some(member) = self.members.load().find(tag).map(|m| m.key.clone()) else {
             return Err(anyhow!("[{}] has no outbound [{}]", self.id, tag));
         };
-        self.selected.set(i);
+        self.selected.set(member);
         if let Some(cache_file) = cache_file {
             if let Err(e) = persist_selected_to_cache(cache_file, self.id.clone(), tag.to_string())
             {
@@ -181,5 +221,94 @@ impl OutboundSelector {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::protocol::group::members::tests::{member, outbounds};
+
+    fn key(name: &str) -> MemberKey {
+        MemberKey::outbound(name)
+    }
+
+    fn picked(selection: &Selection, members: &Members) -> String {
+        let snapshot = members.load();
+        let (i, _) = selection.pick(&snapshot).unwrap();
+        snapshot.members[i].key.name.to_string()
+    }
+
+    #[test]
+    fn a_selection_absent_is_kept_and_the_default_used_meanwhile() {
+        let members = outbounds(&["a", "b", "c"]);
+        let selection = Selection::new(key("b"), key("c"));
+        assert_eq!(picked(&selection, &members), "c");
+
+        members.publish(vec![member(None, "a"), member(None, "b")]);
+        assert_eq!(picked(&selection, &members), "b");
+        assert_eq!(*selection.get(), key("c"));
+
+        members.publish(vec![
+            member(None, "c"),
+            member(None, "a"),
+            member(None, "b"),
+        ]);
+        assert_eq!(picked(&selection, &members), "c");
+    }
+
+    #[test]
+    fn without_the_default_the_first_member_is_used() {
+        let members = outbounds(&["a", "b"]);
+        let selection = Selection::new(key("b"), key("b"));
+        members.publish(vec![member(None, "x"), member(None, "y")]);
+        assert_eq!(picked(&selection, &members), "x");
+        members.publish(vec![]);
+        assert!(selection.pick(&members.load()).is_none());
+    }
+
+    #[test]
+    fn a_member_of_the_same_name_from_elsewhere_is_another_member() {
+        let members = outbounds(&["a"]);
+        members.publish(vec![member(None, "a"), member(Some("p"), "b")]);
+        let selection = Selection::new(key("a"), key("b"));
+        assert_eq!(picked(&selection, &members), "a");
+    }
+
+    #[test]
+    fn the_selector_selects_and_reports_by_name() {
+        let members = outbounds(&["a", "b"]);
+        let selection = Arc::new(Selection::new(key("a"), key("a")));
+        let latencies = MemberLatencies::default();
+        latencies
+            .write()
+            .unwrap()
+            .insert(key("b"), Some(Duration::from_millis(20)));
+        let mut selector = OutboundSelector::new(
+            "g".to_string(),
+            members.clone(),
+            selection.clone(),
+            SelectedBy::Hand { cache_file: None },
+            Some(latencies),
+        );
+        assert_eq!(selector.get_available_tags(), ["a", "b"]);
+        assert_eq!(selector.get_selected_tag(), "a");
+        selector.set_selected("b").unwrap();
+        assert_eq!(selector.get_selected_tag(), "b");
+        assert!(selector.set_selected("c").is_err());
+        assert_eq!(
+            selector.get_latencies().unwrap(),
+            [
+                ("a".to_string(), None),
+                ("b".to_string(), Some(Duration::from_millis(20)))
+            ]
+        );
+
+        // Its member gone, the selection shows the default, and comes
+        // back with it.
+        members.publish(vec![member(None, "a")]);
+        assert_eq!(selector.get_selected_tag(), "a");
+        members.publish(vec![member(None, "a"), member(None, "b")]);
+        assert_eq!(selector.get_selected_tag(), "b");
     }
 }

@@ -2,7 +2,8 @@
 //! members with: every member at once, through it, every `interval`, while
 //! the group is in use.
 
-use std::sync::{Arc, Mutex, RwLock, Weak};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
 use futures::future::{abortable, AbortHandle, BoxFuture};
@@ -11,7 +12,7 @@ use tokio::sync::Notify;
 use tokio::time::Instant;
 use tracing::debug;
 
-use crate::adapter::AnyOutboundHandler;
+use super::members::{MemberKey, MemberLatencies, Members, Snapshot};
 use crate::app::healthcheck::HttpProbe;
 use crate::app::SyncDnsClient;
 
@@ -26,17 +27,13 @@ const MIN_RETEST: Duration = Duration::from_secs(2);
 pub const DEFAULT_URL: &str = "https://www.gstatic.com/generate_204";
 pub const DEFAULT_INTERVAL: Duration = Duration::from_secs(3 * 60);
 
-/// Called with the latencies after every round of tests.
-pub type OnTested = Box<dyn Fn(&[Option<Duration>]) + Send + Sync>;
-
-/// The latency of each member, as the last round measured it. The same
-/// type as the selector's `MemberLatencies`, spelled out here, for
-/// load-balance builds without the selector.
-pub type MemberLatencies = Arc<RwLock<Vec<Option<Duration>>>>;
+/// Called after every round of tests with the members tested and their
+/// latencies, in the same order.
+pub type OnTested = Box<dyn Fn(&Snapshot, &[Option<Duration>]) + Send + Sync>;
 
 pub struct Checker {
     tag: String,
-    members: Vec<AnyOutboundHandler>,
+    members: Arc<Members>,
     probe: HttpProbe,
     dns_client: SyncDnsClient,
     interval: Duration,
@@ -45,10 +42,8 @@ pub struct Checker {
     /// Tests pause once the group has not been used for this long, and
     /// resume, at once, when it is used again.
     idle: Option<Duration>,
+    /// A member is taken to be up until it is tested.
     latencies: MemberLatencies,
-    /// Whether a round of tests has been done: before, every member is
-    /// taken to be up.
-    tested: std::sync::atomic::AtomicBool,
     last_used: Mutex<Instant>,
     wake: Notify,
     on_tested: OnTested,
@@ -61,7 +56,7 @@ impl Checker {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         tag: &str,
-        members: Vec<AnyOutboundHandler>,
+        members: Arc<Members>,
         probe: HttpProbe,
         dns_client: SyncDnsClient,
         interval: Duration,
@@ -69,7 +64,6 @@ impl Checker {
         idle: Option<Duration>,
         on_tested: OnTested,
     ) -> (Arc<Self>, AbortHandle) {
-        let n = members.len();
         let checker = Arc::new(Self {
             tag: tag.to_string(),
             members,
@@ -78,8 +72,7 @@ impl Checker {
             interval,
             timeout,
             idle,
-            latencies: Arc::new(RwLock::new(vec![None; n])),
-            tested: Default::default(),
+            latencies: Default::default(),
             last_used: Mutex::new(Instant::now()),
             wake: Notify::new(),
             on_tested,
@@ -113,15 +106,12 @@ impl Checker {
         self.latencies.clone()
     }
 
-    /// Whether member `i` passed its last test, or none was done yet.
+    /// Whether `member` passed its last test, or was not tested yet.
     #[cfg(any(feature = "outbound-load-balance", feature = "outbound-fallback"))]
-    pub fn is_up(&self, i: usize) -> bool {
-        if !self.tested.load(std::sync::atomic::Ordering::Relaxed) {
-            return true;
-        }
+    pub fn is_up(&self, member: &MemberKey) -> bool {
         self.latencies
             .read()
-            .map(|l| l.get(i).is_some_and(Option::is_some))
+            .map(|l| is_up(&l, member))
             .unwrap_or(true)
     }
 
@@ -161,45 +151,68 @@ impl Checker {
     }
 
     async fn test_all(&self) {
-        let tests = self.members.iter().map(|member| async move {
-            match tokio::time::timeout(
-                self.timeout,
-                self.probe.run(self.dns_client.clone(), member),
-            )
-            .await
-            {
-                Ok(Ok(latency)) => Some(latency),
-                Ok(Err(e)) => {
-                    debug!("[{}] test of [{}] failed: {}", self.tag, member.tag(), e);
-                    None
+        let snapshot = self.members.load();
+        let tests = snapshot
+            .members
+            .iter()
+            .map(|m| &m.handler)
+            .map(|member| async move {
+                match tokio::time::timeout(
+                    self.timeout,
+                    self.probe.run(self.dns_client.clone(), member),
+                )
+                .await
+                {
+                    Ok(Ok(latency)) => Some(latency),
+                    Ok(Err(e)) => {
+                        debug!("[{}] test of [{}] failed: {}", self.tag, member.tag(), e);
+                        None
+                    }
+                    Err(_) => {
+                        debug!("[{}] test of [{}] timed out", self.tag, member.tag());
+                        None
+                    }
                 }
-                Err(_) => {
-                    debug!("[{}] test of [{}] timed out", self.tag, member.tag());
-                    None
-                }
-            }
-        });
+            });
         let latencies = futures::future::join_all(tests).await;
         debug!(
             "[{}] tested: {}",
             self.tag,
-            self.members
+            snapshot
+                .members
                 .iter()
                 .zip(&latencies)
                 .map(|(m, l)| match l {
-                    Some(l) => format!("{}({}ms)", m.tag(), l.as_millis()),
-                    None => format!("{}(failed)", m.tag()),
+                    Some(l) => format!("{}({}ms)", m.key.name, l.as_millis()),
+                    None => format!("{}(failed)", m.key.name),
                 })
                 .collect::<Vec<_>>()
                 .join(" ")
         );
         if let Ok(mut current) = self.latencies.write() {
-            current.clone_from(&latencies);
+            *current = measured(&snapshot, &latencies);
         }
-        self.tested
-            .store(true, std::sync::atomic::Ordering::Relaxed);
-        (self.on_tested)(&latencies);
+        (self.on_tested)(&snapshot, &latencies);
     }
+}
+
+/// The latencies of a round of tests of `snapshot`, by member: those of
+/// members since gone are dropped.
+fn measured(
+    snapshot: &Snapshot,
+    latencies: &[Option<Duration>],
+) -> HashMap<MemberKey, Option<Duration>> {
+    snapshot
+        .members
+        .iter()
+        .zip(latencies)
+        .map(|(m, l)| (m.key.clone(), *l))
+        .collect()
+}
+
+#[cfg(any(feature = "outbound-load-balance", feature = "outbound-fallback"))]
+fn is_up(latencies: &HashMap<MemberKey, Option<Duration>>, member: &MemberKey) -> bool {
+    latencies.get(member).is_none_or(Option::is_some)
 }
 
 async fn test_loop(checker: Weak<Checker>) {
@@ -222,5 +235,38 @@ async fn test_loop(checker: Weak<Checker>) {
         if woken {
             tokio::time::sleep_until(tested + MIN_RETEST.min(interval)).await;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::protocol::group::members::tests::{member, outbounds};
+
+    #[test]
+    fn a_round_keeps_the_members_tested_and_only_them() {
+        let ms = |v| Some(Duration::from_millis(v));
+        let members = outbounds(&["a", "b", "c"]);
+        let before = measured(&members.load(), &[ms(10), None, ms(30)]);
+        assert_eq!(before.len(), 3);
+
+        members.publish(vec![member(None, "c"), member(Some("p"), "d")]);
+        let snapshot = members.load();
+        let after = measured(&snapshot, &[None, ms(40)]);
+        assert_eq!(after.len(), 2);
+        assert!(!after.contains_key(&MemberKey::outbound("a")));
+        assert_eq!(after[&snapshot.members[0].key], None);
+        assert_eq!(after[&snapshot.members[1].key], ms(40));
+    }
+
+    #[cfg(any(feature = "outbound-load-balance", feature = "outbound-fallback"))]
+    #[test]
+    fn a_member_is_up_until_it_fails_a_test() {
+        let members = outbounds(&["a", "b"]);
+        let latencies = measured(&members.load(), &[Some(Duration::from_millis(10)), None]);
+        assert!(is_up(&latencies, &MemberKey::outbound("a")));
+        assert!(!is_up(&latencies, &MemberKey::outbound("b")));
+        // One new since the round is not tested yet.
+        assert!(is_up(&latencies, &MemberKey::outbound("c")));
     }
 }

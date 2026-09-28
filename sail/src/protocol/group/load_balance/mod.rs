@@ -23,6 +23,7 @@ use serde_derive::Deserialize;
 use tracing::debug;
 
 use super::health::{self, Checker};
+use super::members::{Members, Snapshot};
 use crate::adapter::outbound::HandlerBuilder;
 use crate::adapter::registry::{
     parse_options, Options, OutboundContext, OutboundFactory, OutboundRegistry,
@@ -90,7 +91,7 @@ fn dependencies(tag: &str, options: &Options) -> Result<Vec<String>> {
 
 fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
     let options: LoadBalanceOutboundOptions = ctx.options()?;
-    let actors = ctx.members(&options.outbounds)?;
+    let members = Members::outbounds(&options.outbounds, ctx.members(&options.outbounds)?);
     let interval = options.interval.unwrap_or(health::DEFAULT_INTERVAL);
     if interval.is_zero() {
         return Err(anyhow!(
@@ -102,18 +103,18 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
         .map_err(|e| anyhow!("[{}] outbound: url: {}", ctx.tag, e))?;
     let (checker, abort_handle) = Checker::new(
         ctx.tag,
-        actors.clone(),
+        members.clone(),
         probe,
         ctx.dns_client.clone(),
         interval,
         health::DEFAULT_TIMEOUT,
         options.lazy.then_some(interval),
-        Box::new(|_| ()),
+        Box::new(|_, _| ()),
     );
     ctx.abort_handles.push(abort_handle);
     let group = Arc::new(Group {
-        balancer: Balancer::new(options.strategy, actors.len(), STICKY_TTL),
-        actors,
+        balancer: Balancer::new(options.strategy, STICKY_TTL),
+        members,
         checker,
         dns_client: ctx.dns_client.clone(),
     });
@@ -126,7 +127,6 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
 
 /// Picks a member per connection.
 struct Balancer {
-    members: usize,
     strategy: Strategy,
 }
 
@@ -137,7 +137,7 @@ enum Strategy {
 }
 
 impl Balancer {
-    fn new(kind: StrategyKind, members: usize, sticky_ttl: Duration) -> Self {
+    fn new(kind: StrategyKind, sticky_ttl: Duration) -> Self {
         let strategy = match kind {
             StrategyKind::ConsistentHashing => Strategy::ConsistentHashing,
             StrategyKind::RoundRobin => Strategy::RoundRobin(AtomicUsize::new(0)),
@@ -145,13 +145,13 @@ impl Balancer {
                 LruCache::with_expiry_duration_and_capacity(sticky_ttl, STICKY_CAPACITY),
             )),
         };
-        Self { members, strategy }
+        Self { strategy }
     }
 
-    /// The member for `sess`, among those `is_up`; when none is, among
-    /// all, since a test can be wrong and trying beats refusing.
-    fn pick(&self, sess: &Session, is_up: impl Fn(usize) -> bool) -> usize {
-        let n = self.members;
+    /// The member for `sess`, of `n` in order, among those `is_up`; when
+    /// none is, among all, since a test can be wrong and trying beats
+    /// refusing.
+    fn pick(&self, sess: &Session, n: usize, is_up: impl Fn(usize) -> bool) -> usize {
         let any_up = (0..n).any(&is_up);
         let is_up = |i: usize| !any_up || is_up(i);
         match &self.strategy {
@@ -262,16 +262,28 @@ fn jump_hash(mut key: u64, buckets: usize) -> usize {
 }
 
 struct Group {
-    actors: Vec<AnyOutboundHandler>,
+    members: Arc<Members>,
     balancer: Balancer,
     checker: Arc<Checker>,
     dns_client: SyncDnsClient,
 }
 
 impl Group {
-    fn pick(&self, sess: &Session) -> &AnyOutboundHandler {
+    /// The member of `snapshot` for `sess`.
+    fn pick<'s>(
+        &self,
+        sess: &Session,
+        snapshot: &'s Snapshot,
+    ) -> io::Result<&'s AnyOutboundHandler> {
         self.checker.used();
-        &self.actors[self.balancer.pick(sess, |i| self.checker.is_up(i))]
+        let members = &snapshot.members;
+        if members.is_empty() {
+            return Err(io::Error::other("no outbound to balance over"));
+        }
+        let i = self
+            .balancer
+            .pick(sess, members.len(), |i| self.checker.is_up(&members[i].key));
+        Ok(&members[i].handler)
     }
 
     /// A failed connection is reason to test again rather than wait out
@@ -297,7 +309,8 @@ impl OutboundStreamHandler for Group {
         _lhs: Option<&mut AnyStream>,
         _stream: Option<AnyStream>,
     ) -> io::Result<AnyStream> {
-        let a = self.pick(sess);
+        let snapshot = self.members.load();
+        let a = self.pick(sess, &snapshot)?;
         debug!(
             "load-balance handles [{}] to [{}]",
             sess.destination,
@@ -328,7 +341,8 @@ impl OutboundDatagramHandler for Group {
         sess: &'a Session,
         _transport: Option<AnyOutboundTransport>,
     ) -> io::Result<AnyOutboundDatagram> {
-        let a = self.pick(sess);
+        let snapshot = self.members.load();
+        let a = self.pick(sess, &snapshot)?;
         debug!(
             "load-balance handles [{}] to [{}]",
             sess.destination,
@@ -436,51 +450,54 @@ mod tests {
 
     #[test]
     fn consistent_hashing_keeps_a_site_on_one_member() {
-        let b = Balancer::new(StrategyKind::ConsistentHashing, 5, STICKY_TTL);
-        let first = b.pick(&sess("10.0.0.1", "www.example.com"), all_up);
+        let b = Balancer::new(StrategyKind::ConsistentHashing, STICKY_TTL);
+        let first = b.pick(&sess("10.0.0.1", "www.example.com"), 5, all_up);
         for (source, host) in [
             ("10.0.0.2", "api.example.com"),
             ("10.0.0.3", "example.com"),
             ("10.0.0.1", "cdn.static.example.com"),
         ] {
-            assert_eq!(b.pick(&sess(source, host), all_up), first, "{}", host);
+            assert_eq!(b.pick(&sess(source, host), 5, all_up), first, "{}", host);
         }
         // And a new balancer, as after a restart, agrees.
-        let again = Balancer::new(StrategyKind::ConsistentHashing, 5, STICKY_TTL);
-        assert_eq!(again.pick(&sess("10.0.0.9", "example.com"), all_up), first);
+        let again = Balancer::new(StrategyKind::ConsistentHashing, STICKY_TTL);
+        assert_eq!(
+            again.pick(&sess("10.0.0.9", "example.com"), 5, all_up),
+            first
+        );
     }
 
     #[test]
     fn consistent_hashing_spreads_sites() {
-        let b = Balancer::new(StrategyKind::ConsistentHashing, 4, STICKY_TTL);
+        let b = Balancer::new(StrategyKind::ConsistentHashing, STICKY_TTL);
         let mut used = [0; 4];
         for i in 0..200 {
-            used[b.pick(&sess("10.0.0.1", &format!("site{}.com", i)), all_up)] += 1;
+            used[b.pick(&sess("10.0.0.1", &format!("site{}.com", i)), 4, all_up)] += 1;
         }
         assert!(used.iter().all(|&n| n > 20), "{:?}", used);
     }
 
     #[test]
     fn consistent_hashing_moves_only_the_sites_of_a_member_that_is_down() {
-        let b = Balancer::new(StrategyKind::ConsistentHashing, 4, STICKY_TTL);
+        let b = Balancer::new(StrategyKind::ConsistentHashing, STICKY_TTL);
         for i in 0..100 {
             let s = sess("10.0.0.1", &format!("site{}.com", i));
-            let up = b.pick(&s, all_up);
+            let up = b.pick(&s, 4, all_up);
             let down = if up == 0 { 1 } else { 0 };
-            let picked = b.pick(&s, |i| i != down);
+            let picked = b.pick(&s, 4, |i| i != down);
             assert_eq!(picked, up, "site{} moved though its member is up", i);
-            let moved = b.pick(&s, |i| i != up);
+            let moved = b.pick(&s, 4, |i| i != up);
             assert_ne!(moved, up);
         }
     }
 
     #[test]
     fn round_robin_takes_each_member_in_turn_and_skips_one_down() {
-        let b = Balancer::new(StrategyKind::RoundRobin, 3, STICKY_TTL);
+        let b = Balancer::new(StrategyKind::RoundRobin, STICKY_TTL);
         let s = sess("10.0.0.1", "example.com");
-        let picks: Vec<usize> = (0..6).map(|_| b.pick(&s, all_up)).collect();
+        let picks: Vec<usize> = (0..6).map(|_| b.pick(&s, 3, all_up)).collect();
         assert_eq!(picks, [0, 1, 2, 0, 1, 2]);
-        let picks: Vec<usize> = (0..4).map(|_| b.pick(&s, |i| i != 1)).collect();
+        let picks: Vec<usize> = (0..4).map(|_| b.pick(&s, 3, |i| i != 1)).collect();
         assert!(picks.iter().all(|&i| i != 1), "{:?}", picks);
         assert!(picks.contains(&0) && picks.contains(&2), "{:?}", picks);
     }
@@ -492,29 +509,32 @@ mod tests {
             StrategyKind::RoundRobin,
             StrategyKind::StickySessions,
         ] {
-            let b = Balancer::new(kind, 3, STICKY_TTL);
-            assert!(b.pick(&sess("10.0.0.1", "example.com"), |_| false) < 3);
+            let b = Balancer::new(kind, STICKY_TTL);
+            assert!(b.pick(&sess("10.0.0.1", "example.com"), 3, |_| false) < 3);
         }
     }
 
     #[test]
     fn a_sticky_session_keeps_its_member_until_it_expires() {
         let ttl = Duration::from_millis(100);
-        let b = Balancer::new(StrategyKind::StickySessions, 16, ttl);
+        let b = Balancer::new(StrategyKind::StickySessions, ttl);
         let s = sess("10.0.0.1", "www.example.com");
-        let first = b.pick(&s, all_up);
+        let first = b.pick(&s, 16, all_up);
         for _ in 0..20 {
-            assert_eq!(b.pick(&s, all_up), first);
+            assert_eq!(b.pick(&s, 16, all_up), first);
         }
         // Another host of the same site is the same session.
-        assert_eq!(b.pick(&sess("10.0.0.1", "api.example.com"), all_up), first);
+        assert_eq!(
+            b.pick(&sess("10.0.0.1", "api.example.com"), 16, all_up),
+            first
+        );
 
         // Once expired, a member is picked again, at random: out of 16,
         // some of a few tries differ.
         let mut differed = false;
         for _ in 0..5 {
             std::thread::sleep(ttl + Duration::from_millis(50));
-            if b.pick(&s, all_up) != first {
+            if b.pick(&s, 16, all_up) != first {
                 differed = true;
                 break;
             }
@@ -524,20 +544,20 @@ mod tests {
 
     #[test]
     fn a_sticky_session_leaves_a_member_that_is_down() {
-        let b = Balancer::new(StrategyKind::StickySessions, 3, STICKY_TTL);
+        let b = Balancer::new(StrategyKind::StickySessions, STICKY_TTL);
         let s = sess("10.0.0.1", "example.com");
-        let first = b.pick(&s, all_up);
-        let next = b.pick(&s, |i| i != first);
+        let first = b.pick(&s, 3, all_up);
+        let next = b.pick(&s, 3, |i| i != first);
         assert_ne!(next, first);
         // And sticks to the new one, even once the old one is back.
-        assert_eq!(b.pick(&s, all_up), next);
+        assert_eq!(b.pick(&s, 3, all_up), next);
     }
 
     #[test]
     fn sticky_sessions_are_bounded() {
-        let b = Balancer::new(StrategyKind::StickySessions, 2, STICKY_TTL);
+        let b = Balancer::new(StrategyKind::StickySessions, STICKY_TTL);
         for i in 0..(STICKY_CAPACITY + 100) {
-            b.pick(&sess("10.0.0.1", &format!("site{}.com", i)), all_up);
+            b.pick(&sess("10.0.0.1", &format!("site{}.com", i)), 2, all_up);
         }
         let Strategy::StickySessions(cache) = &b.strategy else {
             unreachable!()

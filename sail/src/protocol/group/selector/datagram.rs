@@ -5,19 +5,24 @@ use async_trait::async_trait;
 use tokio::sync::watch;
 
 use crate::app::outbound::selector::Selection;
+use crate::protocol::group::members::{MemberKey, Members};
 use crate::{adapter::*, session::Session};
 
 pub struct Handler {
-    pub actors: Vec<AnyOutboundHandler>,
+    pub members: Arc<Members>,
     pub selected: Arc<Selection>,
     /// Set for `interrupt_exist_connections`.
-    pub interrupt: Option<watch::Receiver<usize>>,
+    pub interrupt: Option<watch::Receiver<MemberKey>>,
 }
 
 #[async_trait]
 impl OutboundDatagramHandler for Handler {
     fn connect_addr(&self) -> OutboundConnect {
-        let a = &self.actors[self.selected.get()];
+        let snapshot = self.members.load();
+        let Some((i, _)) = self.selected.pick(&snapshot) else {
+            return OutboundConnect::Unknown;
+        };
+        let a = &snapshot.members[i].handler;
         if let Ok(h) = a.datagram() {
             return h.connect_addr();
         }
@@ -28,8 +33,13 @@ impl OutboundDatagramHandler for Handler {
     }
 
     fn transport_type(&self) -> DatagramTransportType {
-        let a = &self.actors[self.selected.get()];
-        a.datagram()
+        let snapshot = self.members.load();
+        let Some((i, _)) = self.selected.pick(&snapshot) else {
+            return DatagramTransportType::Unknown;
+        };
+        snapshot.members[i]
+            .handler
+            .datagram()
             .map(|x| x.transport_type())
             .unwrap_or(DatagramTransportType::Unknown)
     }
@@ -40,13 +50,15 @@ impl OutboundDatagramHandler for Handler {
         transport: Option<AnyOutboundTransport>,
     ) -> io::Result<AnyOutboundDatagram> {
         tracing::trace!("handling outbound datagram");
-        let i = self.selected.get();
-        let a = &self.actors[i];
+        let snapshot = self.members.load();
+        let (a, by) = super::pick(&snapshot, &self.selected, self.interrupt.is_some())?;
         tracing::debug!("selector handles to [{}]", a.tag());
         let datagram = a.datagram()?.handle(sess, transport).await?;
-        Ok(match &self.interrupt {
-            Some(selection) => super::super::interrupt::datagram(datagram, selection, i),
-            None => datagram,
+        Ok(match (&self.interrupt, by) {
+            (Some(selection), Some(by)) => {
+                super::super::interrupt::datagram(datagram, selection, by)
+            }
+            _ => datagram,
         })
     }
 }

@@ -2,6 +2,7 @@
 //! through the API, as sing-box's selector does. The choice is kept
 //! across restarts.
 
+use std::io;
 use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
@@ -13,6 +14,7 @@ use crate::adapter::registry::{
 };
 use crate::adapter::AnyOutboundHandler;
 use crate::app::outbound::selector::{self, OutboundSelector, SelectedBy, Selection};
+use crate::protocol::group::members::{MemberKey, Members, Snapshot};
 use serde_derive::Deserialize;
 
 pub mod datagram;
@@ -46,18 +48,20 @@ fn dependencies(tag: &str, options: &Options) -> Result<Vec<String>> {
 
 fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
     let options: SelectorOutboundOptions = ctx.options()?;
-    let actors = ctx.members(&options.outbounds)?;
-    let position = |tag: &str| options.outbounds.iter().position(|x| x == tag);
+    let members = Members::outbounds(&options.outbounds, ctx.members(&options.outbounds)?);
+    let snapshot = members.load();
     let default = match &options.default {
-        Some(default) => position(default).ok_or_else(|| {
+        Some(default) => snapshot.find(default).ok_or_else(|| {
             anyhow!(
                 "[{}] outbound: default: [{}] is not one of its outbounds",
                 ctx.tag,
                 default
             )
         })?,
-        None => 0,
-    };
+        None => &snapshot.members[0],
+    }
+    .key
+    .clone();
 
     // What was selected before the restart, if it is still a member: the
     // configuration may have changed since.
@@ -75,21 +79,24 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
         }
     };
     let initial = match cached {
-        Some(cached) => position(&cached).unwrap_or_else(|| {
-            tracing::warn!(
-                "[{}] outbound: [{}] was selected but is no longer one of its outbounds",
-                ctx.tag,
-                cached
-            );
-            default
-        }),
-        None => default,
+        Some(cached) => match snapshot.find(&cached) {
+            Some(member) => member.key.clone(),
+            None => {
+                tracing::warn!(
+                    "[{}] outbound: [{}] was selected but is no longer one of its outbounds",
+                    ctx.tag,
+                    cached
+                );
+                default.clone()
+            }
+        },
+        None => default.clone(),
     };
 
-    let selected = Arc::new(Selection::new(initial));
+    let selected = Arc::new(Selection::new(default, initial));
     let outbound_selector = OutboundSelector::new(
         ctx.tag.to_owned(),
-        options.outbounds.clone(),
+        members.clone(),
         selected.clone(),
         SelectedBy::Hand {
             cache_file: Some(cache_file),
@@ -103,12 +110,12 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
         .interrupt_exist_connections
         .then(|| selected.subscribe());
     let stream = Arc::new(StreamHandler {
-        actors: actors.clone(),
+        members: members.clone(),
         selected: selected.clone(),
         interrupt: interrupt.clone(),
     });
     let datagram = Arc::new(DatagramHandler {
-        actors,
+        members,
         selected,
         interrupt,
     });
@@ -117,4 +124,18 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
         .stream_handler(stream)
         .datagram_handler(datagram)
         .build())
+}
+
+/// The member of `snapshot` a connection goes to, and, for
+/// `interrupt_exist_connections`, the selection it went by.
+fn pick<'s>(
+    snapshot: &'s Snapshot,
+    selected: &Selection,
+    interrupt: bool,
+) -> io::Result<(&'s AnyOutboundHandler, Option<MemberKey>)> {
+    let (i, by) = selected
+        .pick(snapshot)
+        .ok_or_else(|| io::Error::other("no outbound to select"))?;
+    let by = interrupt.then(|| MemberKey::clone(&by));
+    Ok((&snapshot.members[i].handler, by))
 }

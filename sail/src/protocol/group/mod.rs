@@ -14,6 +14,13 @@ mod health;
 mod interrupt;
 #[cfg(feature = "outbound-load-balance")]
 pub mod load_balance;
+#[cfg(any(
+    feature = "outbound-select",
+    feature = "outbound-urltest",
+    feature = "outbound-fallback",
+    feature = "outbound-load-balance"
+))]
+pub mod members;
 #[cfg(feature = "outbound-select")]
 pub mod selector;
 #[cfg(feature = "outbound-tryall")]

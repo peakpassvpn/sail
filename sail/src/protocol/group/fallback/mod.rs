@@ -19,6 +19,7 @@ use tokio::sync::{watch, RwLock};
 use tracing::debug;
 
 use super::health::{self, Checker};
+use super::members::{MemberKey, Members, Snapshot};
 use crate::adapter::outbound::HandlerBuilder;
 use crate::adapter::registry::{
     parse_options, Options, OutboundContext, OutboundFactory, OutboundRegistry,
@@ -96,7 +97,7 @@ pub(crate) fn candidates(
 
 fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
     let options: FallbackOutboundOptions = ctx.options()?;
-    let actors = ctx.members(&options.outbounds)?;
+    let members = Members::outbounds(&options.outbounds, ctx.members(&options.outbounds)?);
     let interval = options.interval.unwrap_or(health::DEFAULT_INTERVAL);
     let timeout = options.timeout.unwrap_or(health::DEFAULT_TIMEOUT);
     if interval.is_zero() {
@@ -112,27 +113,28 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
         .map_err(|e| anyhow!("[{}] outbound: url: {}", ctx.tag, e))?;
 
     // The first member until the first tests are done.
-    let selected = Arc::new(Selection::new(0));
+    let first = members.load().members[0].key.clone();
+    let selected = Arc::new(Selection::new(first.clone(), first));
     let on_tested = {
         let selected = selected.clone();
         let tag = ctx.tag.to_owned();
-        let members = options.outbounds.clone();
-        Box::new(move |latencies: &[Option<Duration>]| {
+        Box::new(move |snapshot: &Snapshot, latencies: &[Option<Duration>]| {
             let current = selected.get();
             if let Some(next) = choose(latencies) {
-                if next != current {
+                let next = &snapshot.members[next].key;
+                if *next != *current {
                     debug!(
                         "[{}] switches from [{}] to [{}]",
-                        tag, members[current], members[next]
+                        tag, current.name, next.name
                     );
-                    selected.set(next);
+                    selected.set(next.clone());
                 }
             }
         })
     };
     let (checker, abort_handle) = Checker::new(
         ctx.tag,
-        actors.clone(),
+        members.clone(),
         probe,
         ctx.dns_client.clone(),
         interval,
@@ -144,7 +146,7 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
 
     let outbound_selector = OutboundSelector::new(
         ctx.tag.to_owned(),
-        options.outbounds.clone(),
+        members.clone(),
         selected.clone(),
         SelectedBy::Checks,
         Some(checker.latencies()),
@@ -154,7 +156,7 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
 
     let group = Arc::new(Group {
         tag: ctx.tag.to_owned(),
-        actors,
+        members,
         interrupt: options
             .interrupt_exist_connections
             .then(|| selected.subscribe()),
@@ -172,34 +174,39 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
 
 struct Group {
     tag: String,
-    actors: Vec<AnyOutboundHandler>,
+    members: Arc<Members>,
     selected: Arc<Selection>,
     checker: Arc<Checker>,
     timeout: Duration,
     dns_client: SyncDnsClient,
-    interrupt: Option<watch::Receiver<usize>>,
+    interrupt: Option<watch::Receiver<MemberKey>>,
 }
 
 impl Group {
-    /// Connects through the members in turn, see `candidates`, until one
-    /// connects; returns which, and what it connected. Every member but the
-    /// last one tried has `timeout` to connect.
+    /// Connects through the members of `snapshot` in turn, see
+    /// `candidates`, until one connects; returns which, and what it
+    /// connected. Every member but the last one tried has `timeout` to
+    /// connect.
     async fn connect<'a, T, F, Fut>(
         &'a self,
         sess: &'a Session,
+        snapshot: &'a Snapshot,
         connect: F,
-    ) -> io::Result<(usize, T)>
+    ) -> io::Result<(&'a MemberKey, T)>
     where
         F: Fn(&'a AnyOutboundHandler) -> Fut,
         Fut: Future<Output = io::Result<T>>,
     {
         self.checker.used();
-        let order = candidates(self.selected.get(), self.actors.len(), |i| {
-            self.checker.is_up(i)
+        let Some((selected, _)) = self.selected.pick(snapshot) else {
+            return Err(io::Error::other("no outbound to try"));
+        };
+        let order = candidates(selected, snapshot.members.len(), |i| {
+            self.checker.is_up(&snapshot.members[i].key)
         });
         let mut last_error = None;
         for (n, &i) in order.iter().enumerate() {
-            let a = &self.actors[i];
+            let a = &snapshot.members[i].handler;
             debug!(
                 "[{}] handles [{}:{}] to [{}]",
                 self.tag,
@@ -215,7 +222,7 @@ impl Group {
                 connect(a).await
             };
             match result {
-                Ok(v) => return Ok((i, v)),
+                Ok(v) => return Ok((&snapshot.members[i].key, v)),
                 Err(e) => {
                     debug!(
                         "[{}] failed to handle [{}:{}] through [{}]: {}",
@@ -235,13 +242,13 @@ impl Group {
         Err(last_error.unwrap_or_else(|| io::Error::other("no outbound to try")))
     }
 
-    /// The selection a connection through member `i` watches, to end when
-    /// the group moves off `i`: only one through the member selected, since
+    /// The selection a connection through `member` watches, to end when
+    /// the group moves off it: only one through the member selected, since
     /// one that fell back to another is already off it.
-    fn interrupt(&self, i: usize) -> Option<&watch::Receiver<usize>> {
+    fn interrupt(&self, member: &MemberKey) -> Option<&watch::Receiver<MemberKey>> {
         self.interrupt
             .as_ref()
-            .filter(|selection| *selection.borrow() == i)
+            .filter(|selection| *selection.borrow() == *member)
     }
 }
 
@@ -258,14 +265,15 @@ impl OutboundStreamHandler for Group {
         _lhs: Option<&mut AnyStream>,
         _stream: Option<AnyStream>,
     ) -> io::Result<AnyStream> {
-        let (i, stream) = self
-            .connect(sess, |a| async move {
+        let snapshot = self.members.load();
+        let (member, stream) = self
+            .connect(sess, &snapshot, |a| async move {
                 let stream = connect_stream_outbound(sess, self.dns_client.clone(), a).await?;
                 a.stream()?.handle(sess, None, stream).await
             })
             .await?;
-        Ok(match self.interrupt(i) {
-            Some(selection) => super::interrupt::stream(stream, selection, i),
+        Ok(match self.interrupt(member) {
+            Some(selection) => super::interrupt::stream(stream, selection, member.clone()),
             None => stream,
         })
     }
@@ -286,14 +294,15 @@ impl OutboundDatagramHandler for Group {
         sess: &'a Session,
         _transport: Option<AnyOutboundTransport>,
     ) -> io::Result<AnyOutboundDatagram> {
-        let (i, datagram) = self
-            .connect(sess, |a| async move {
+        let snapshot = self.members.load();
+        let (member, datagram) = self
+            .connect(sess, &snapshot, |a| async move {
                 let transport = connect_datagram_outbound(sess, self.dns_client.clone(), a).await?;
                 a.datagram()?.handle(sess, transport).await
             })
             .await?;
-        Ok(match self.interrupt(i) {
-            Some(selection) => super::interrupt::datagram(datagram, selection, i),
+        Ok(match self.interrupt(member) {
+            Some(selection) => super::interrupt::datagram(datagram, selection, member.clone()),
             None => datagram,
         })
     }

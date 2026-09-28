@@ -17,13 +17,14 @@ use async_trait::async_trait;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::watch;
 
+use super::members::MemberKey;
 use crate::adapter::*;
 use crate::session::SocksAddr;
 
 /// Resolves once the selection is not `member`. A group that is gone
 /// (replaced by a reload) never ends its connections.
-async fn moved_off(mut selection: watch::Receiver<usize>, member: usize) {
-    if selection.wait_for(|&i| i != member).await.is_err() {
+async fn moved_off(mut selection: watch::Receiver<MemberKey>, member: MemberKey) {
+    if selection.wait_for(|key| *key != member).await.is_err() {
         std::future::pending::<()>().await
     }
 }
@@ -37,8 +38,8 @@ fn interrupted() -> io::Error {
 
 type Moved = Mutex<Pin<Box<dyn Future<Output = ()> + Send>>>;
 
-fn moved(selection: &watch::Receiver<usize>, member: usize) -> Moved {
-    Mutex::new(Box::pin(moved_off(selection.clone(), member)))
+fn moved(selection: &watch::Receiver<MemberKey>, member: &MemberKey) -> Moved {
+    Mutex::new(Box::pin(moved_off(selection.clone(), member.clone())))
 }
 
 /// Whether the selection moved off; each direction watches on its own,
@@ -52,11 +53,15 @@ fn poll_moved(moved: &mut Moved, cx: &mut Context<'_>) -> bool {
 
 /// `stream`, which went through `member`, ended when `selection` moves
 /// off it.
-pub fn stream(stream: AnyStream, selection: &watch::Receiver<usize>, member: usize) -> AnyStream {
+pub fn stream(
+    stream: AnyStream,
+    selection: &watch::Receiver<MemberKey>,
+    member: MemberKey,
+) -> AnyStream {
     Box::new(InterruptibleStream {
         inner: stream,
-        read: moved(selection, member),
-        write: moved(selection, member),
+        read: moved(selection, &member),
+        write: moved(selection, &member),
         interrupted: false,
     })
 }
@@ -110,8 +115,8 @@ impl AsyncWrite for InterruptibleStream {
 /// off it.
 pub fn datagram(
     datagram: AnyOutboundDatagram,
-    selection: &watch::Receiver<usize>,
-    member: usize,
+    selection: &watch::Receiver<MemberKey>,
+    member: MemberKey,
 ) -> AnyOutboundDatagram {
     Box::new(InterruptibleDatagram {
         inner: datagram,
@@ -122,8 +127,8 @@ pub fn datagram(
 
 struct InterruptibleDatagram {
     inner: AnyOutboundDatagram,
-    selection: watch::Receiver<usize>,
-    member: usize,
+    selection: watch::Receiver<MemberKey>,
+    member: MemberKey,
 }
 
 impl OutboundDatagram for InterruptibleDatagram {
@@ -138,7 +143,7 @@ impl OutboundDatagram for InterruptibleDatagram {
             Box::new(RecvHalf {
                 inner: recv,
                 selection: self.selection.clone(),
-                member: self.member,
+                member: self.member.clone(),
             }),
             Box::new(SendHalf {
                 inner: send,
@@ -151,14 +156,14 @@ impl OutboundDatagram for InterruptibleDatagram {
 
 struct RecvHalf {
     inner: Box<dyn OutboundDatagramRecvHalf>,
-    selection: watch::Receiver<usize>,
-    member: usize,
+    selection: watch::Receiver<MemberKey>,
+    member: MemberKey,
 }
 
 #[async_trait]
 impl OutboundDatagramRecvHalf for RecvHalf {
     async fn recv_from(&mut self, buf: &mut [u8]) -> io::Result<(usize, SocksAddr)> {
-        let moved = moved_off(self.selection.clone(), self.member);
+        let moved = moved_off(self.selection.clone(), self.member.clone());
         let recv = self.inner.recv_from(buf);
         futures::pin_mut!(moved, recv);
         match futures::future::select(recv, moved).await {
@@ -170,8 +175,8 @@ impl OutboundDatagramRecvHalf for RecvHalf {
 
 struct SendHalf {
     inner: Box<dyn OutboundDatagramSendHalf>,
-    selection: watch::Receiver<usize>,
-    member: usize,
+    selection: watch::Receiver<MemberKey>,
+    member: MemberKey,
 }
 
 #[async_trait]
@@ -194,6 +199,10 @@ mod tests {
     use crate::app::outbound::selector::Selection;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+    fn key(i: usize) -> MemberKey {
+        MemberKey::outbound(&i.to_string())
+    }
+
     #[test]
     fn a_stream_ends_when_the_group_moves_off_its_member() {
         let rt = tokio::runtime::Builder::new_current_thread()
@@ -201,9 +210,9 @@ mod tests {
             .build()
             .unwrap();
         rt.block_on(async {
-            let selection = Selection::new(0);
+            let selection = Selection::new(key(0), key(0));
             let (a, mut b) = tokio::io::duplex(64);
-            let mut a = stream(Box::new(a), &selection.subscribe(), 0);
+            let mut a = stream(Box::new(a), &selection.subscribe(), key(0));
             a.write_all(b"ping").await.unwrap();
             let mut buf = [0u8; 4];
             b.read_exact(&mut buf).await.unwrap();
@@ -214,7 +223,7 @@ mod tests {
                 a.read(&mut buf).await
             });
             tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-            selection.set(1);
+            selection.set(key(1));
             let r = tokio::time::timeout(std::time::Duration::from_secs(1), reader)
                 .await
                 .expect("the pending read must be woken")
@@ -230,11 +239,11 @@ mod tests {
             .build()
             .unwrap();
         rt.block_on(async {
-            let selection = Selection::new(1);
+            let selection = Selection::new(key(0), key(1));
             let (a, mut b) = tokio::io::duplex(64);
-            let mut a = stream(Box::new(a), &selection.subscribe(), 1);
+            let mut a = stream(Box::new(a), &selection.subscribe(), key(1));
             // Selecting the same member again is no change.
-            selection.set(1);
+            selection.set(key(1));
             a.write_all(b"ping").await.unwrap();
             let mut buf = [0u8; 4];
             b.read_exact(&mut buf).await.unwrap();

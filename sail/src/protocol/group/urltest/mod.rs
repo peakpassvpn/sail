@@ -15,6 +15,7 @@ use tokio::sync::{watch, RwLock};
 use tracing::debug;
 
 use super::health::{self, Checker};
+use super::members::{MemberKey, Members, Snapshot};
 use crate::adapter::outbound::HandlerBuilder;
 use crate::adapter::registry::{
     parse_options, Options, OutboundContext, OutboundFactory, OutboundRegistry,
@@ -88,7 +89,7 @@ pub(crate) fn choose(
 
 fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
     let options: UrlTestOutboundOptions = ctx.options()?;
-    let actors = ctx.members(&options.outbounds)?;
+    let members = Members::outbounds(&options.outbounds, ctx.members(&options.outbounds)?);
     let interval = options.interval.unwrap_or(health::DEFAULT_INTERVAL);
     let idle_timeout = options.idle_timeout.unwrap_or(DEFAULT_IDLE_TIMEOUT);
     if interval.is_zero() {
@@ -107,28 +108,31 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
         .map_err(|e| anyhow!("[{}] outbound: url: {}", ctx.tag, e))?;
 
     // The first member until the first tests are done.
-    let selected = Arc::new(Selection::new(0));
+    let first = members.load().members[0].key.clone();
+    let selected = Arc::new(Selection::new(first.clone(), first));
     let tolerance = Duration::from_millis(options.tolerance.into());
     let on_tested = {
         let selected = selected.clone();
         let tag = ctx.tag.to_owned();
-        let members = options.outbounds.clone();
-        Box::new(move |latencies: &[Option<Duration>]| {
+        Box::new(move |snapshot: &Snapshot, latencies: &[Option<Duration>]| {
             let current = selected.get();
-            if let Some(next) = choose(current, latencies, tolerance) {
-                if next != current {
+            // A selection that is not a member is left for the fastest.
+            let at = snapshot.position(&current).unwrap_or(usize::MAX);
+            if let Some(next) = choose(at, latencies, tolerance) {
+                if next != at {
+                    let next = &snapshot.members[next].key;
                     debug!(
                         "[{}] switches from [{}] to [{}]",
-                        tag, members[current], members[next]
+                        tag, current.name, next.name
                     );
-                    selected.set(next);
+                    selected.set(next.clone());
                 }
             }
         })
     };
     let (checker, abort_handle) = Checker::new(
         ctx.tag,
-        actors.clone(),
+        members.clone(),
         probe,
         ctx.dns_client.clone(),
         interval,
@@ -140,7 +144,7 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
 
     let outbound_selector = OutboundSelector::new(
         ctx.tag.to_owned(),
-        options.outbounds.clone(),
+        members.clone(),
         selected.clone(),
         SelectedBy::Checks,
         Some(checker.latencies()),
@@ -149,7 +153,7 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
         .insert(ctx.tag.to_owned(), Arc::new(RwLock::new(outbound_selector)));
 
     let group = Arc::new(Group {
-        actors,
+        members,
         interrupt: options
             .interrupt_exist_connections
             .then(|| selected.subscribe()),
@@ -165,19 +169,28 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
 }
 
 struct Group {
-    actors: Vec<AnyOutboundHandler>,
+    members: Arc<Members>,
     selected: Arc<Selection>,
     checker: Arc<Checker>,
     dns_client: SyncDnsClient,
-    interrupt: Option<watch::Receiver<usize>>,
+    interrupt: Option<watch::Receiver<MemberKey>>,
 }
 
 impl Group {
-    /// The member for a new connection, which is also a use of the group.
-    fn pick(&self) -> (usize, &AnyOutboundHandler) {
+    /// The member of `snapshot` for a new connection, which is also a use
+    /// of the group, and, for `interrupt_exist_connections`, the
+    /// selection it went by.
+    fn pick<'s>(
+        &self,
+        snapshot: &'s Snapshot,
+    ) -> io::Result<(&'s AnyOutboundHandler, Option<MemberKey>)> {
         self.checker.used();
-        let i = self.selected.get();
-        (i, &self.actors[i])
+        let (i, by) = self
+            .selected
+            .pick(snapshot)
+            .ok_or_else(|| io::Error::other("no outbound to select"))?;
+        let by = self.interrupt.as_ref().map(|_| MemberKey::clone(&by));
+        Ok((&snapshot.members[i].handler, by))
     }
 
     /// A connection through the selected member that failed is reason to
@@ -203,7 +216,8 @@ impl OutboundStreamHandler for Group {
         _lhs: Option<&mut AnyStream>,
         _stream: Option<AnyStream>,
     ) -> io::Result<AnyStream> {
-        let (i, a) = self.pick();
+        let snapshot = self.members.load();
+        let (a, by) = self.pick(&snapshot)?;
         debug!("urltest handles [{}] to [{}]", sess.destination, a.tag());
         let stream = self.failed(
             async {
@@ -212,9 +226,9 @@ impl OutboundStreamHandler for Group {
             }
             .await,
         )?;
-        Ok(match &self.interrupt {
-            Some(selection) => super::interrupt::stream(stream, selection, i),
-            None => stream,
+        Ok(match (&self.interrupt, by) {
+            (Some(selection), Some(by)) => super::interrupt::stream(stream, selection, by),
+            _ => stream,
         })
     }
 }
@@ -234,7 +248,8 @@ impl OutboundDatagramHandler for Group {
         sess: &'a Session,
         _transport: Option<AnyOutboundTransport>,
     ) -> io::Result<AnyOutboundDatagram> {
-        let (i, a) = self.pick();
+        let snapshot = self.members.load();
+        let (a, by) = self.pick(&snapshot)?;
         debug!("urltest handles [{}] to [{}]", sess.destination, a.tag());
         let datagram = self.failed(
             async {
@@ -243,9 +258,9 @@ impl OutboundDatagramHandler for Group {
             }
             .await,
         )?;
-        Ok(match &self.interrupt {
-            Some(selection) => super::interrupt::datagram(datagram, selection, i),
-            None => datagram,
+        Ok(match (&self.interrupt, by) {
+            (Some(selection), Some(by)) => super::interrupt::datagram(datagram, selection, by),
+            _ => datagram,
         })
     }
 }
