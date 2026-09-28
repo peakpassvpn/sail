@@ -106,10 +106,14 @@ Local validation passed:
   both macOS watcher regressions.
 
 All five first-party crates now declare `Apache-2.0`, matching the repository
-license. The third-party license gate remains intentionally unresolved:
-`tun 0.7.22` (WTFPL) and `webpki-root-certs 1.0.9`
-(CDLA-Permissive-2.0) still require explicit review. No third-party license
-exception has been added.
+license. `webpki-root-certs 1.0.9` has a package-and-version-specific
+`CDLA-Permissive-2.0` exception: it contains Mozilla/CCADB trust-anchor data,
+and the required agreement text is retained in `THIRD_PARTY_LICENSES.md` and
+uploaded with every GitHub release. The exception does not globally allow
+CDLA for another dependency or version. `tun 0.7.22` (WTFPL) remains
+unapproved, so the license gate still intentionally fails on that package.
+This exact state was verified with the pinned `cargo-deny 0.20.2`: CDLA was
+accepted through the exception and `tun` was the only rejected package.
 
 ## Historical local baseline (2026-09-28)
 

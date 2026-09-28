@@ -18,9 +18,14 @@ allow = [
   "Unlicense",
   "Zlib",
 ]
+exceptions = [
+  # Mozilla/CCADB trust-anchor data embedded by Sail. Its license text ships
+  # as THIRD_PARTY_LICENSES.md and is uploaded with every GitHub release.
+  { allow = ["CDLA-Permissive-2.0"], crate = "webpki-root-certs@1.0.9" },
+]
 
-# Deliberately no per-crate exceptions. New exceptions require review and a
-# package/version-specific justification; see docs/dependency-security.md.
+# Exceptions require review and a package/version-specific justification; see
+# docs/dependency-security.md.
 
 [sources]
 unknown-registry = "deny"
