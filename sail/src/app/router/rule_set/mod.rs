@@ -11,16 +11,37 @@ use anyhow::{anyhow, Context, Result};
 use crate::app::dispatcher::Dispatcher;
 use crate::app::router::matcher::{Condition, Facts, Groups};
 use crate::config::model::{HttpClient, HttpClientRef};
-use crate::config::rule_set::{self as config, RuleSetFormat, RuleSetKind, MAX_VERSION};
+use crate::config::rule_set::{
+    self as config, ClashBehavior, RuleSetFormat, RuleSetKind, MAX_VERSION,
+};
 use crate::net::DialOptions;
 use crate::runtime::RuntimeEnv;
 
+mod clash;
+pub(crate) mod domain_set;
 mod http;
+mod mrs;
 mod reader;
 mod remote;
 pub(crate) mod rule;
 mod srs;
 pub(crate) mod succinct;
+
+/// The domains of a binary rule-set, matched in their compact form:
+/// sing-box's (`.srs`) or Mihomo's (`.mrs`).
+pub(crate) enum SuccinctSet {
+    Sing(succinct::Succinct),
+    Mihomo(domain_set::DomainSet),
+}
+
+impl SuccinctSet {
+    pub(crate) fn matches(&self, domain: &str) -> bool {
+        match self {
+            SuccinctSet::Sing(set) => set.matches(domain),
+            SuccinctSet::Mihomo(set) => set.matches(domain),
+        }
+    }
+}
 
 /// The rules of one rule-set.
 pub(crate) struct RuleSet {
@@ -37,9 +58,20 @@ impl RuleSet {
         Ok(Self { rules })
     }
 
-    /// Reads a rule-set of `format` from `data`.
-    pub(crate) fn read(data: &[u8], format: RuleSetFormat) -> Result<Self> {
+    /// Reads a rule-set of `format` from `data`; one of Clash's formats is
+    /// of `behavior`.
+    pub(crate) fn read(
+        data: &[u8],
+        format: RuleSetFormat,
+        behavior: Option<ClashBehavior>,
+    ) -> Result<Self> {
         match format {
+            RuleSetFormat::Mrs | RuleSetFormat::ClashYaml | RuleSetFormat::ClashText => {
+                let behavior = behavior.ok_or_else(|| anyhow!("behavior: missing"))?;
+                Ok(Self {
+                    rules: clash::read(data, format, behavior)?,
+                })
+            }
             RuleSetFormat::Binary => Ok(Self {
                 rules: srs::read(data)?,
             }),
@@ -301,11 +333,31 @@ fn read_file(path: &str, config: &config::RuleSet) -> Result<RuleSet> {
     let data = std::fs::read(path).map_err(|e| anyhow!("{}: {}", path, e))?;
     // Checked with the configuration.
     let format = config.format().unwrap_or(RuleSetFormat::Source);
-    RuleSet::read(&data, format).map_err(|e| anyhow!("{}: {}", path, e))
+    RuleSet::read(&data, format, config.behavior).map_err(|e| anyhow!("{}: {}", path, e))
 }
 
 #[cfg(test)]
 mod tests {
+    /// How long a rule-set takes to load into matchers: `SAIL_RS_FILE`, of
+    /// `SAIL_RS_FORMAT` (`binary`, `mrs`) and `SAIL_RS_BEHAVIOR`. For
+    /// measuring, not run by default; its peak memory is the process's.
+    #[test]
+    #[ignore]
+    fn load_a_rule_set_for_measuring() {
+        let file = std::env::var("SAIL_RS_FILE").unwrap();
+        let format: RuleSetFormat =
+            serde_json::from_value(serde_json::json!(std::env::var("SAIL_RS_FORMAT").unwrap()))
+                .unwrap();
+        let behavior = std::env::var("SAIL_RS_BEHAVIOR")
+            .ok()
+            .map(|b| serde_json::from_value(serde_json::json!(b)).unwrap());
+        let data = std::fs::read(&file).unwrap();
+        let start = std::time::Instant::now();
+        let set = RuleSet::read(&data, format, behavior).unwrap();
+        println!("{}: loaded in {:?}", file, start.elapsed());
+        std::hint::black_box(set);
+    }
+
     use super::*;
     use crate::session::{Session, SocksAddr};
 
@@ -337,7 +389,7 @@ mod tests {
                 (format!("{}/{}.json", FIXTURES, name), RuleSetFormat::Source),
                 (format!("{}/{}.srs", FIXTURES, name), RuleSetFormat::Binary),
             ] {
-                let set = RuleSet::read(&std::fs::read(&file).unwrap(), format)
+                let set = RuleSet::read(&std::fs::read(&file).unwrap(), format, None)
                     .unwrap_or_else(|e| panic!("{}: {}", file, e));
                 let wrong: Vec<&String> = probes
                     .iter()
@@ -367,7 +419,7 @@ mod tests {
                 .unwrap();
         for (name, probes) in &expected {
             let file = format!("{}/{}.srs", dir, name);
-            let set = RuleSet::read(&std::fs::read(&file).unwrap(), RuleSetFormat::Binary)
+            let set = RuleSet::read(&std::fs::read(&file).unwrap(), RuleSetFormat::Binary, None)
                 .unwrap_or_else(|e| panic!("{}: {}", file, e));
             let wrong: Vec<&String> = probes
                 .iter()
@@ -587,14 +639,14 @@ mod tests {
     #[test]
     fn a_damaged_binary_is_an_error_not_a_panic() {
         let data = std::fs::read(format!("{}/domains.srs", FIXTURES)).unwrap();
-        assert!(RuleSet::read(&data[..data.len() / 2], RuleSetFormat::Binary).is_err());
-        assert!(RuleSet::read(b"SRS\x09", RuleSetFormat::Binary).is_err());
-        assert!(RuleSet::read(b"XYZ\x01", RuleSetFormat::Binary).is_err());
+        assert!(RuleSet::read(&data[..data.len() / 2], RuleSetFormat::Binary, None).is_err());
+        assert!(RuleSet::read(b"SRS\x09", RuleSetFormat::Binary, None).is_err());
+        assert!(RuleSet::read(b"XYZ\x01", RuleSetFormat::Binary, None).is_err());
         // Each byte flipped in turn: never a panic.
         for i in 4..data.len().min(600) {
             let mut bad = data.clone();
             bad[i] ^= 0x5a;
-            let _ = RuleSet::read(&bad, RuleSetFormat::Binary);
+            let _ = RuleSet::read(&bad, RuleSetFormat::Binary, None);
         }
     }
 }

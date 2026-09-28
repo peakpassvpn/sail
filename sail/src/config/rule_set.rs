@@ -21,9 +21,15 @@ pub struct RuleSet {
     #[serde(with = "listable")]
     pub tag: Vec<String>,
     /// `source` (JSON) or `binary` (`.srs`); from the extension of the
-    /// path or URL when unset.
+    /// path or URL when unset. A sail extension, for Clash's rule-providers:
+    /// `mrs` (Mihomo's binary), `clash-yaml` or `clash-text`, which take a
+    /// `behavior`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub format: Option<RuleSetFormat>,
+    /// A sail extension, for the Clash formats: what each line is,
+    /// `domain`, `ipcidr` or `classical` (a Clash rule without its target).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub behavior: Option<ClashBehavior>,
     /// `inline`: the rules.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub rules: Vec<HeadlessRule>,
@@ -61,10 +67,38 @@ pub enum RuleSetKind {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "kebab-case")]
 pub enum RuleSetFormat {
     Source,
     Binary,
+    /// Mihomo's binary format.
+    Mrs,
+    /// Clash's YAML, a `payload` list.
+    ClashYaml,
+    /// Clash's text, a line each.
+    ClashText,
+}
+
+impl RuleSetFormat {
+    /// Whether it is one of Clash's, which take a behavior.
+    pub fn is_clash(self) -> bool {
+        matches!(
+            self,
+            RuleSetFormat::Mrs | RuleSetFormat::ClashYaml | RuleSetFormat::ClashText
+        )
+    }
+}
+
+/// What the lines of a Clash rule-set are.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ClashBehavior {
+    /// Domains, as Mihomo writes them: `+.x`, `.x`, `*.x` or `x`.
+    Domain,
+    /// IP prefixes.
+    Ipcidr,
+    /// Clash rules without their targets.
+    Classical,
 }
 
 impl RuleSet {
@@ -80,6 +114,8 @@ impl RuleSet {
             Some(RuleSetFormat::Source)
         } else if path.ends_with(".srs") {
             Some(RuleSetFormat::Binary)
+        } else if path.ends_with(".mrs") {
+            Some(RuleSetFormat::Mrs)
         } else {
             None
         }
@@ -156,6 +192,18 @@ impl RuleSet {
             only(self.update_interval.is_some(), "update_interval", "remote")?;
             only(self.download_detour.is_some(), "download_detour", "remote")?;
             only(self.http_client.is_some(), "http_client", "remote")?;
+        }
+        match (self.format().filter(|f| f.is_clash()), self.behavior) {
+            (Some(_), None) => {
+                return Err(anyhow!("behavior: a Clash format needs one"));
+            }
+            (None, Some(_)) => {
+                return Err(anyhow!("behavior: only for the Clash formats"));
+            }
+            (Some(RuleSetFormat::Mrs), Some(ClashBehavior::Classical)) => {
+                return Err(anyhow!("behavior: an mrs rule-set is domain or ipcidr"));
+            }
+            _ => {}
         }
         if self.kind != RuleSetKind::Inline && self.format().is_none() {
             return Err(anyhow!(

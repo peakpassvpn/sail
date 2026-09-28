@@ -3,7 +3,7 @@
 //! This module exists only with the `fuzzing` feature and deliberately does
 //! not perform file, network, or runtime I/O.
 
-use crate::config::rule_set::RuleSetFormat;
+use crate::config::rule_set::{ClashBehavior, RuleSetFormat};
 use crate::sniff::{DatagramSniff, Protocols};
 
 /// Parse a source-format sing-box rule-set.
@@ -11,6 +11,7 @@ pub fn rule_set_source(data: &[u8]) {
     let _ = std::hint::black_box(crate::app::router::rule_set::RuleSet::read(
         data,
         RuleSetFormat::Source,
+        None,
     ));
 }
 
@@ -19,7 +20,19 @@ pub fn rule_set_binary(data: &[u8]) {
     let _ = std::hint::black_box(crate::app::router::rule_set::RuleSet::read(
         data,
         RuleSetFormat::Binary,
+        None,
     ));
+}
+
+/// Parse Mihomo's binary rule-set (`.mrs`), of domains and of IP ranges.
+pub fn rule_set_mrs(data: &[u8]) {
+    for behavior in [ClashBehavior::Domain, ClashBehavior::Ipcidr] {
+        let _ = std::hint::black_box(crate::app::router::rule_set::RuleSet::read(
+            data,
+            RuleSetFormat::Mrs,
+            Some(behavior),
+        ));
+    }
 }
 
 /// Exercise both DNS-over-datagram and DNS-over-stream framing parsers.

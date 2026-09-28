@@ -201,7 +201,7 @@ fn mistakes_name_the_field() {
             "proxy-groups[0].use: sail does not implement this field yet",
         ),
         ("rules: [\"DOMAIN,a.example,Nowhere\"]", "rules[0]: no proxy or group is named \"Nowhere\""),
-        ("rules: [\"GEOIP,CN,DIRECT\"]", "rules[0]: sail does not implement GEOIP rules yet"),
+        ("rules: [\"DSCP,4,DIRECT\"]", "rules[0]: sail does not implement DSCP rules yet"),
         ("dns: { enable: true }", "dns: sail does not implement Mihomo's DNS module yet"),
         ("tun: { enable: true }", "tun: sail does not implement this section yet"),
         ("mode: script", "mode: \"script\" is none of rule, global and direct"),
@@ -294,4 +294,100 @@ fn sub_rules_stand_where_they_are_named() {
     assert!(err.contains("rules[0]: AND:"), "{}", err);
     let err = error("rules:\n  - OR,((MATCH)),DIRECT\n");
     assert!(err.contains("a MATCH rule cannot be within"), "{}", err);
+}
+
+#[test]
+fn rule_providers_are_rule_sets() {
+    let config = load(
+        "proxy-groups: [{ name: P, type: select, proxies: [DIRECT] }]\n\
+         rule-providers:\n\
+         \x20 cn: { type: http, behavior: domain, format: mrs, url: 'https://example.com/cn.mrs', interval: 86400 }\n\
+         \x20 ips: { type: http, behavior: ipcidr, format: text, url: 'https://example.com/ip.txt', proxy: P,\n\
+         \x20        header: { Authorization: [Bearer t] }, size-limit: 1000 }\n\
+         \x20 local: { type: file, behavior: classical, path: ./rules/local.yaml }\n\
+         \x20 mine: { type: inline, behavior: domain, payload: ['+.a.example', '.b.example', '*.c.example', d.example] }\n\
+         rules:\n\
+         - RULE-SET,cn,DIRECT\n\
+         - RULE-SET,ips,P,no-resolve\n\
+         - RULE-SET,local,P\n\
+         - RULE-SET,mine,REJECT\n\
+         - GEOSITE,geolocation-!cn,P\n\
+         - GEOIP,LAN,DIRECT\n\
+         - MATCH,P\n",
+    );
+    let sets: Vec<serde_json::Value> = config
+        .route
+        .rule_set
+        .iter()
+        .map(|s| serde_json::to_value(s).unwrap())
+        .collect();
+    let set = |tag: &str| {
+        sets.iter()
+            .find(|s| s["tag"] == serde_json::json!([tag]) || s["tag"] == tag)
+            .unwrap_or_else(|| panic!("{} in {:#?}", tag, sets))
+            .clone()
+    };
+    let cn = set("cn");
+    assert_eq!(
+        (
+            cn["type"].as_str(),
+            cn["format"].as_str(),
+            cn["behavior"].as_str()
+        ),
+        (Some("remote"), Some("mrs"), Some("domain"))
+    );
+    assert_eq!(
+        config.route.rule_set[0].update_interval,
+        Some(std::time::Duration::from_secs(86400))
+    );
+    assert_eq!(cn["download_detour"], "DIRECT");
+    let ips = set("ips");
+    assert_eq!(ips["http_client"]["detour"], "P");
+    assert_eq!(
+        ips["http_client"]["headers"]["Authorization"],
+        serde_json::json!(["Bearer t"])
+    );
+    assert_eq!(set("local")["type"], "local");
+    let mine = set("mine");
+    assert_eq!(
+        mine["rules"][0]["domain_suffix"],
+        serde_json::json!(["a.example", ".b.example"])
+    );
+    assert_eq!(mine["rules"][0]["domain"], serde_json::json!(["d.example"]));
+    let geosite = set("geosite:geolocation-!cn");
+    assert_eq!(
+        geosite["url"],
+        "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/geolocation-%21cn.mrs"
+    );
+    assert_eq!(set("geoip:private")["behavior"], "ipcidr");
+
+    // A set of addresses resolves first, unless no-resolve: the classical
+    // one does, and the GEOIP one.
+    let rules = rules(&config);
+    let resolve = rules.iter().position(|r| r["action"] == "resolve").unwrap();
+    assert_eq!(rules[resolve + 1]["rule_set"], serde_json::json!(["local"]));
+    assert_eq!(
+        config.warnings,
+        ["rule-providers.ips.size-limit: sail does not implement this field; ignored"]
+    );
+}
+
+#[test]
+fn rule_provider_mistakes_name_the_field() {
+    for (yaml, message) in [
+        (
+            "rule-providers: { a: { type: http, behavior: classical, format: mrs, url: 'https://x/a.mrs' } }",
+            "rule-providers.a.format: an mrs rule-provider is of domains or IP prefixes",
+        ),
+        ("rule-providers: { a: { type: http, format: text, url: 'https://x/a' } }", "rule-providers.a.behavior: missing"),
+        (
+            "rule-providers: { a: { type: http, behavior: domain, url: 'https://x/a', proxy: nowhere } }",
+            "rule-providers.a.proxy: no proxy or group is named \"nowhere\"",
+        ),
+        ("rules: [\"RULE-SET,nowhere,DIRECT\"]", "rules[0]: no rule-provider is named \"nowhere\""),
+        ("rules: [\"GEOSITE,../x,DIRECT\"]", "is no geosite list"),
+    ] {
+        let err = error(yaml);
+        assert!(err.contains(message), "{}\n  => {}", yaml, err);
+    }
 }

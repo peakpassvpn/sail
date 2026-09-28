@@ -37,3 +37,59 @@ fn a_clash_configuration_routes() -> anyhow::Result<()> {
     }
     Ok(())
 }
+
+// The same, by rule-providers read from files: Mihomo's binary (MRS) and
+// text forms of a set holding the loopback range.
+#[cfg(all(
+    feature = "config-clash",
+    feature = "rule-set",
+    feature = "inbound-mixed",
+    feature = "outbound-direct",
+    feature = "outbound-drop",
+    feature = "outbound-select"
+))]
+#[test]
+fn rule_providers_route() -> anyhow::Result<()> {
+    let fixtures = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/rule_set");
+    for (provider, rejected) in [
+        (
+            format!(
+                "{{ type: file, behavior: ipcidr, format: mrs, path: '{}/loopback.mrs' }}",
+                fixtures
+            ),
+            true,
+        ),
+        (
+            format!(
+                "{{ type: file, behavior: ipcidr, format: text, path: '{}/loopback.list' }}",
+                fixtures
+            ),
+            true,
+        ),
+        (
+            format!(
+                "{{ type: file, behavior: ipcidr, format: mrs, path: '{}/geoip-telegram.mrs' }}",
+                fixtures
+            ),
+            false,
+        ),
+        (
+            "{ type: inline, behavior: classical, payload: ['IP-CIDR,127.0.0.1/32'] }".to_string(),
+            true,
+        ),
+    ] {
+        let result = common::retry_port_clash(|| {
+            let [port] = common::free_ports();
+            let yaml = format!(
+                "mixed-port: {}\n\
+                 log-level: silent\n\
+                 rule-providers:\n  lo: {}\n\
+                 rules:\n  - RULE-SET,lo,REJECT,no-resolve\n  - MATCH,DIRECT\n",
+                port, provider
+            );
+            common::test_configs(vec![yaml], "127.0.0.1", port)
+        });
+        assert_eq!(result.is_err(), rejected, "{}: {:?}", provider, result);
+    }
+    Ok(())
+}

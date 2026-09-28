@@ -50,7 +50,6 @@ pub const TOP: &[(&str, Tier)] = &[
     ("geosite-matcher", Ignored),
     // Later stages.
     ("proxy-providers", Unsupported),
-    ("rule-providers", Unsupported),
     ("hosts", Unsupported),
     ("listeners", Unsupported),
     ("tunnels", Unsupported),

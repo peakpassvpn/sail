@@ -1,0 +1,5 @@
++.a.example
+.b.example
+*.c.example
+d.example
+x.*.e.example

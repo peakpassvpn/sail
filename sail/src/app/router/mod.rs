@@ -16,14 +16,12 @@ pub(crate) mod rule_set {
     #[derive(Default, Clone)]
     pub(crate) struct RuleSets;
 
-    /// The domain matcher of binary rule-sets, of which there are none.
-    pub(crate) mod succinct {
-        pub(crate) enum Succinct {}
+    /// The domain matchers of binary rule-sets, of which there are none.
+    pub(crate) enum SuccinctSet {}
 
-        impl Succinct {
-            pub(crate) fn matches(&self, _domain: &str) -> bool {
-                match *self {}
-            }
+    impl SuccinctSet {
+        pub(crate) fn matches(&self, _domain: &str) -> bool {
+            match *self {}
         }
     }
 

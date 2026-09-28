@@ -24,6 +24,7 @@ pub(crate) struct Remote {
     pub tag: String,
     url: String,
     format: RuleSetFormat,
+    behavior: Option<crate::config::rule_set::ClashBehavior>,
     interval: Duration,
     client: http::Client,
     /// Where the downloaded copy is kept; none when there is nowhere to.
@@ -60,6 +61,9 @@ impl Remote {
         let extension = match format {
             RuleSetFormat::Binary => "srs",
             RuleSetFormat::Source => "json",
+            RuleSetFormat::Mrs => "mrs",
+            RuleSetFormat::ClashYaml => "yaml",
+            RuleSetFormat::ClashText => "txt",
         };
         // Kept across restarts only where the host keeps things.
         let cache = env.host.cache_dir.as_ref().map(|dir| {
@@ -70,6 +74,7 @@ impl Remote {
             tag: tag.to_string(),
             url: config::RuleSet::for_tag(config.url.as_deref().unwrap_or_default(), tag),
             format,
+            behavior: config.behavior,
             interval: config.update_interval.unwrap_or(DEFAULT_INTERVAL),
             client,
             cache: cache.clone(),
@@ -79,7 +84,7 @@ impl Remote {
         // A cached copy that does not read is as good as none.
         if let Some(Ok(data)) = cache.as_ref().map(std::fs::read) {
             let cache = cache.as_ref().expect("read from it");
-            match RuleSet::read(&data, format) {
+            match RuleSet::read(&data, format, config.behavior) {
                 Ok(set) => {
                     let mut state: State = std::fs::read(meta_path(cache))
                         .ok()
@@ -98,7 +103,7 @@ impl Remote {
             let path = env.data_path(&config::RuleSet::for_tag(initial, tag));
             let data =
                 std::fs::read(&path).map_err(|e| anyhow!("initial_path: {}: {}", path, e))?;
-            let set = RuleSet::read(&data, format)
+            let set = RuleSet::read(&data, format, config.behavior)
                 .map_err(|e| anyhow!("initial_path: {}: {}", path, e))?;
             remote.set.publish(Arc::new(set));
             remote
@@ -170,7 +175,7 @@ impl Remote {
                 self.state().updated = Some(SystemTime::now());
             }
             http::Response::Body { data, etag } => {
-                let set = RuleSet::read(&data, self.format)?;
+                let set = RuleSet::read(&data, self.format, self.behavior)?;
                 self.set.publish(Arc::new(set));
                 {
                     let mut state = self.state();

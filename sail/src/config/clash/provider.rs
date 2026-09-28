@@ -1,0 +1,301 @@
+//! `rule-providers`, as rule-sets: `http` ones downloaded as remote
+//! rule-sets are, `file` ones read as local, `inline` ones held in place;
+//! in Mihomo's YAML, text or MRS, of domains, IP prefixes or rules.
+//!
+//! And the rule-sets `GEOSITE` and `GEOIP` rules name: MetaCubeX's
+//! meta-rules-dat publishes each site list and country of the databases
+//! Mihomo downloads by default as a rule-set of its own, which sail
+//! downloads instead.
+
+use anyhow::{anyhow, Result};
+use indexmap::IndexMap;
+use serde_json::{json, Map, Value};
+
+use super::fields::{Fields, Tier};
+use super::group::Policies;
+use super::Lowered;
+use crate::config::rule_set::ClashBehavior;
+
+use Tier::*;
+
+/// Where meta-rules-dat's rule-sets are.
+const META_RULES: &str = "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo";
+
+/// The rule-sets rules may name, and those they name that are made here.
+#[derive(Default)]
+pub struct Sets {
+    /// The rule-providers, by name.
+    providers: IndexMap<String, ClashBehavior>,
+    /// The GEOSITE and GEOIP sets rules name, by tag: each downloaded.
+    geo: IndexMap<String, (String, ClashBehavior)>,
+    /// Whether rule-sets may be named at all: not within a classical
+    /// rule-provider.
+    closed: bool,
+}
+
+impl Sets {
+    /// None: for a rule-provider's own rules.
+    pub fn none() -> Self {
+        Sets {
+            closed: true,
+            ..Default::default()
+        }
+    }
+
+    /// The behavior of the rule-provider `name`.
+    pub fn provider(&self, name: &str) -> Result<ClashBehavior> {
+        if self.closed {
+            return Err(anyhow!("a rule-provider's rules name no rule-set"));
+        }
+        self.providers
+            .get(name)
+            .copied()
+            .ok_or_else(|| anyhow!("no rule-provider is named {:?}", name))
+    }
+
+    /// The tag of the rule-set of the site list `name`.
+    pub fn geosite(&mut self, name: &str) -> Result<String> {
+        self.geo_set("geosite", name, ClashBehavior::Domain)
+    }
+
+    /// The tag of the rule-set of the country `code`: `LAN` for the
+    /// private ranges, as in Mihomo.
+    pub fn geoip(&mut self, code: &str) -> Result<String> {
+        let code = match code.to_ascii_lowercase().as_str() {
+            "lan" => "private".to_string(),
+            code => code.to_string(),
+        };
+        self.geo_set("geoip", &code, ClashBehavior::Ipcidr)
+    }
+
+    fn geo_set(&mut self, kind: &str, name: &str, behavior: ClashBehavior) -> Result<String> {
+        if self.closed {
+            return Err(anyhow!("a rule-provider's rules name no {} list", kind));
+        }
+        let name = name.to_ascii_lowercase();
+        let valid = !name.is_empty()
+            && name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '@' | '!' | '.'));
+        if !valid {
+            return Err(anyhow!("{:?} is no {} list", name, kind));
+        }
+        let tag = format!("{}:{}", kind, name);
+        let url = format!("{}/{}/{}.mrs", META_RULES, kind, name.replace('!', "%21"));
+        self.geo.insert(tag.clone(), (url, behavior));
+        Ok(tag)
+    }
+
+    /// The rule-sets of the GEOSITE and GEOIP rules, downloaded directly.
+    pub fn into_geo_sets(self) -> Vec<Value> {
+        self.geo
+            .into_iter()
+            .map(|(tag, (url, behavior))| {
+                json!({
+                    "type": "remote",
+                    "tag": tag,
+                    "format": "mrs",
+                    "behavior": behavior,
+                    "url": url,
+                    "download_detour": "DIRECT",
+                })
+            })
+            .collect()
+    }
+}
+
+const PROVIDER: &[(&str, Tier)] = &[("size-limit", Ignored), ("path-in-bundle", Unsupported)];
+
+pub fn lower(
+    doc: &mut Fields,
+    policies: &Policies,
+    out: &mut Lowered,
+    warnings: &mut Vec<String>,
+) -> Result<Sets> {
+    let mut sets = Sets::default();
+    let Some(mut providers) = doc.map("rule-providers")? else {
+        return Ok(sets);
+    };
+    for name in providers.keys() {
+        let at = providers.at(&name);
+        let mut f = providers
+            .map(&name)?
+            .ok_or_else(|| anyhow!("{}: a map, not nothing", at))?;
+        let set = provider(&name, &mut f, policies)?;
+        f.finish(PROVIDER, |_| false, warnings)?;
+        sets.providers.insert(name, set.1);
+        out.rule_sets.push(set.0);
+    }
+    Ok(sets)
+}
+
+fn provider(name: &str, f: &mut Fields, policies: &Policies) -> Result<(Value, ClashBehavior)> {
+    let behavior = match f.string("behavior")?.as_deref() {
+        Some("domain") => ClashBehavior::Domain,
+        Some("ipcidr") => ClashBehavior::Ipcidr,
+        Some("classical") => ClashBehavior::Classical,
+        Some(other) => {
+            return Err(anyhow!(
+                "{}: {:?} is none of domain, ipcidr and classical",
+                f.at("behavior"),
+                other
+            ))
+        }
+        None => return Err(anyhow!("{}: missing", f.at("behavior"))),
+    };
+    let format = match f.string("format")?.as_deref() {
+        None | Some("yaml") => "clash-yaml",
+        Some("text") => "clash-text",
+        Some("mrs") => {
+            if behavior == ClashBehavior::Classical {
+                return Err(anyhow!(
+                    "{}: an mrs rule-provider is of domains or IP prefixes",
+                    f.at("format")
+                ));
+            }
+            "mrs"
+        }
+        Some(other) => {
+            return Err(anyhow!(
+                "{}: {:?} is none of yaml, text and mrs",
+                f.at("format"),
+                other
+            ))
+        }
+    };
+    let mut set = Map::new();
+    set.insert("tag".into(), json!(name));
+    let kind = f
+        .string("type")?
+        .ok_or_else(|| anyhow!("{}: missing", f.at("type")))?;
+    match kind.as_str() {
+        "http" => {
+            let url = f
+                .string("url")?
+                .ok_or_else(|| anyhow!("{}: missing", f.at("url")))?;
+            set.insert("type".into(), json!("remote"));
+            set.insert("url".into(), json!(url));
+            set.insert("format".into(), json!(format));
+            set.insert("behavior".into(), json!(behavior));
+            // Where Mihomo keeps its copy; sail keeps its own.
+            f.take("path");
+            if let Some(seconds) = f.int::<u64>("interval")?.filter(|s| *s > 0) {
+                set.insert("update_interval".into(), json!(format!("{}s", seconds)));
+            }
+            // As Mihomo: directly, unless through the policy `proxy`.
+            let via = f.string("proxy")?.unwrap_or_else(|| "DIRECT".to_string());
+            if !policies.has(&via) {
+                return Err(anyhow!(
+                    "{}: no proxy or group is named {:?}",
+                    f.at("proxy"),
+                    via
+                ));
+            }
+            match f.map("header")? {
+                Some(mut h) => {
+                    let mut headers = Map::new();
+                    for key in h.keys() {
+                        headers.insert(key.clone(), json!(h.strings(&key)?));
+                    }
+                    set.insert(
+                        "http_client".into(),
+                        json!({ "detour": via, "headers": headers }),
+                    );
+                }
+                None => {
+                    set.insert("download_detour".into(), json!(via));
+                }
+            }
+        }
+        "file" => {
+            let path = f
+                .string("path")?
+                .ok_or_else(|| anyhow!("{}: missing", f.at("path")))?;
+            set.insert("type".into(), json!("local"));
+            set.insert("path".into(), json!(path));
+            set.insert("format".into(), json!(format));
+            set.insert("behavior".into(), json!(behavior));
+            f.take("interval");
+        }
+        "inline" => {
+            let payload = f.strings("payload")?;
+            set.insert("type".into(), json!("inline"));
+            set.insert(
+                "rules".into(),
+                inline(&payload, behavior, &f.at("payload"))?,
+            );
+        }
+        other => {
+            return Err(anyhow!(
+                "{}: {:?} is none of http, file and inline",
+                f.at("type"),
+                other
+            ))
+        }
+    }
+    Ok((Value::Object(set), behavior))
+}
+
+/// The rules of an inline rule-provider, as a rule-set's.
+fn inline(payload: &[String], behavior: ClashBehavior, at: &str) -> Result<Value> {
+    match behavior {
+        ClashBehavior::Domain => {
+            let mut rule = Map::new();
+            let (mut domain, mut suffix, mut regex) = (Vec::new(), Vec::new(), Vec::new());
+            for entry in payload {
+                let entry = entry.trim().to_ascii_lowercase();
+                if let Some(base) = entry.strip_prefix("+.") {
+                    suffix.push(base.to_string());
+                } else if entry.starts_with('.') {
+                    suffix.push(entry);
+                } else if entry.split('.').any(|l| l == "*") {
+                    let labels: Vec<String> = entry
+                        .split('.')
+                        .map(|l| {
+                            if l == "*" {
+                                "[^.]+".to_string()
+                            } else {
+                                regex_escape(l)
+                            }
+                        })
+                        .collect();
+                    regex.push(format!("^{}$", labels.join("\\.")));
+                } else if !entry.is_empty() {
+                    domain.push(entry);
+                }
+            }
+            for (key, list) in [
+                ("domain", domain),
+                ("domain_suffix", suffix),
+                ("domain_regex", regex),
+            ] {
+                if !list.is_empty() {
+                    rule.insert(key.into(), json!(list));
+                }
+            }
+            Ok(json!([rule]))
+        }
+        ClashBehavior::Ipcidr => Ok(json!([{ "ip_cidr": payload }])),
+        ClashBehavior::Classical => payload
+            .iter()
+            .enumerate()
+            .map(|(i, line)| {
+                super::rule::headless(line)
+                    .map(Value::Object)
+                    .map_err(|e| anyhow!("{}[{}]: {}", at, i, e))
+            })
+            .collect::<Result<Vec<_>>>()
+            .map(Value::Array),
+    }
+}
+
+fn regex_escape(s: &str) -> String {
+    let mut out = String::new();
+    for c in s.chars() {
+        if "\\.+*?()|[]{}^$#&-~".contains(c) {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+    out
+}

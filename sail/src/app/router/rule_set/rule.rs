@@ -6,7 +6,7 @@ use std::net::IpAddr;
 
 use anyhow::{anyhow, Result};
 
-use super::succinct::Succinct;
+use super::SuccinctSet;
 use crate::app::router::matcher::{
     query_type, Condition, Conditions, Context, Extras, Readers, MAX_DEPTH,
 };
@@ -19,7 +19,7 @@ use crate::runtime::RuntimeEnv;
 #[derive(Default)]
 pub(crate) struct Parts {
     pub rule: HeadlessRule,
-    pub succinct: Option<Succinct>,
+    pub succinct: Option<SuccinctSet>,
     pub ip_ranges: Option<Vec<(IpAddr, IpAddr)>>,
     pub source_ip_ranges: Option<Vec<(IpAddr, IpAddr)>>,
     pub query_types: Vec<u16>,

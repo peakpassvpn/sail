@@ -12,7 +12,9 @@ use super::fields::Fields;
 use super::general::LISTENERS;
 use super::group::Policies;
 use super::node::Node;
+use super::provider::Sets;
 use super::Lowered;
+use crate::config::rule_set::ClashBehavior;
 
 /// A rule, split: its type, payload, target and parameters.
 struct Split<'a> {
@@ -64,6 +66,7 @@ fn split(rule: &str, need_target: bool) -> Split<'_> {
 /// What lowering the rules needs to keep.
 struct Walk<'a> {
     policies: &'a Policies,
+    sets: &'a mut Sets,
     sub_rules: IndexMap<String, Vec<String>>,
     out: &'a mut Lowered,
     /// Whether a rule before resolves the domain already.
@@ -132,7 +135,8 @@ impl Walk<'_> {
             let at = format!("sub-rules.{}[{}]", name, i);
             let s = split(rule, true);
             if s.kind == "SUB-RULE" {
-                let inner = sub_condition(&s.payload).map_err(|e| anyhow!("{}: {}", at, e))?;
+                let inner =
+                    sub_condition(&s.payload, self.sets).map_err(|e| anyhow!("{}: {}", at, e))?;
                 let mut nested = guard.clone();
                 nested.push(inner.clone());
                 self.sub_rules(s.target, nested, stack)
@@ -143,7 +147,7 @@ impl Walk<'_> {
             let target = target(s.target, self.policies).map_err(|e| anyhow!("{}: {}", at, e))?;
             let mut conditions: Vec<_> = guard.clone();
             if s.kind != "MATCH" {
-                conditions.push(condition(&s).map_err(|e| anyhow!("{}: {}", at, e))?);
+                conditions.push(condition(&s, self.sets).map_err(|e| anyhow!("{}: {}", at, e))?);
             }
             let resolves = conditions.iter().any(|(_, r)| *r);
             self.push(
@@ -160,6 +164,18 @@ impl Walk<'_> {
     }
 }
 
+/// The condition of `line`, a Clash rule without its target, as a
+/// classical rule-provider holds it.
+pub(super) fn headless(line: &str) -> Result<Map<String, Value>> {
+    let s = split(line, false);
+    match s.kind.as_str() {
+        "" | "MATCH" | "SUB-RULE" | "RULE-SET" => {
+            Err(anyhow!("{:?} is no rule a rule-provider holds", line))
+        }
+        _ => condition(&s, &mut Sets::none()).map(|(condition, _)| condition),
+    }
+}
+
 /// A rule that holds where `condition` does not.
 fn not(condition: Map<String, Value>) -> Map<String, Value> {
     let mut rule = Map::new();
@@ -171,7 +187,7 @@ fn not(condition: Map<String, Value>) -> Map<String, Value> {
 }
 
 /// The condition of a `SUB-RULE`: `(TYPE,payload)`.
-fn sub_condition(payload: &str) -> Result<(Map<String, Value>, bool)> {
+fn sub_condition(payload: &str, sets: &mut Sets) -> Result<(Map<String, Value>, bool)> {
     let inner = payload
         .strip_prefix('(')
         .and_then(|p| p.strip_suffix(')'))
@@ -179,7 +195,7 @@ fn sub_condition(payload: &str) -> Result<(Map<String, Value>, bool)> {
     let s = split(inner, false);
     match s.kind.as_str() {
         "" | "MATCH" | "SUB-RULE" => Err(anyhow!("SUB-RULE: {:?} is no condition", inner)),
-        _ => condition(&s),
+        _ => condition(&s, sets),
     }
 }
 
@@ -221,7 +237,7 @@ fn logical_parts(payload: &str) -> Result<Vec<&str>> {
 }
 
 /// A logical rule's conditions, sail's logical rule.
-fn logical(kind: &str, payload: &str) -> Result<(Map<String, Value>, bool)> {
+fn logical(kind: &str, payload: &str, sets: &mut Sets) -> Result<(Map<String, Value>, bool)> {
     let mut rules = Vec::new();
     let mut resolves = false;
     for part in logical_parts(payload).map_err(|e| anyhow!("{}: {}", kind, e))? {
@@ -233,7 +249,7 @@ fn logical(kind: &str, payload: &str) -> Result<(Map<String, Value>, bool)> {
             }
             _ => {}
         }
-        let (condition, r) = condition(&s)?;
+        let (condition, r) = condition(&s, sets)?;
         resolves |= r;
         rules.push(Value::Object(condition));
     }
@@ -264,6 +280,7 @@ fn logical(kind: &str, payload: &str) -> Result<(Map<String, Value>, bool)> {
 pub fn lower(
     doc: &mut Fields,
     policies: &Policies,
+    sets: &mut Sets,
     out: &mut Lowered,
     warnings: &mut Vec<String>,
 ) -> Result<()> {
@@ -288,6 +305,7 @@ pub fn lower(
     }
     let mut walk = Walk {
         policies,
+        sets,
         sub_rules,
         out,
         resolved: false,
@@ -312,7 +330,8 @@ pub fn lower(
         }
         let s = split(rule, true);
         if s.kind == "SUB-RULE" {
-            let condition = sub_condition(&s.payload).map_err(|e| anyhow!("{}: {}", at, e))?;
+            let condition =
+                sub_condition(&s.payload, walk.sets).map_err(|e| anyhow!("{}: {}", at, e))?;
             walk.sub_rules(s.target, vec![condition], &mut Vec::new())
                 .map_err(|e| anyhow!("{}: {}", at, e))?;
             continue;
@@ -335,7 +354,8 @@ pub fn lower(
             matched = true;
             continue;
         }
-        let (condition, resolves) = condition(&s).map_err(|e| anyhow!("{}: {}", at, e))?;
+        let (condition, resolves) =
+            condition(&s, walk.sets).map_err(|e| anyhow!("{}: {}", at, e))?;
         walk.push(vec![condition], resolves, target);
     }
     if !walk.out.route.contains_key("final") {
@@ -391,7 +411,7 @@ fn target(name: &str, policies: &Policies) -> Result<Target> {
 
 /// The conditions of a rule, and whether it matches the destination's
 /// addresses, which a domain is resolved to first.
-fn condition(s: &Split) -> Result<(Map<String, Value>, bool)> {
+fn condition(s: &Split, sets: &mut Sets) -> Result<(Map<String, Value>, bool)> {
     let mut rule = Map::new();
     let payload = s.payload.as_str();
     if payload.is_empty() {
@@ -408,7 +428,30 @@ fn condition(s: &Split) -> Result<(Map<String, Value>, bool)> {
     }
     let mut resolves = false;
     let key = match s.kind.as_str() {
-        "AND" | "OR" | "NOT" => return logical(&s.kind, payload),
+        "AND" | "OR" | "NOT" => return logical(&s.kind, payload, sets),
+        "RULE-SET" => {
+            let behavior = sets.provider(payload)?;
+            rule.insert("rule_set".into(), json!([payload]));
+            if source {
+                rule.insert("rule_set_ip_cidr_match_source".into(), json!(true));
+            }
+            // A set of addresses, or of rules that may be, resolves the
+            // domain first, as in Mihomo, unless told not to.
+            let resolves = behavior != ClashBehavior::Domain && !no_resolve && !source;
+            return Ok((rule, resolves));
+        }
+        "GEOSITE" => {
+            rule.insert("rule_set".into(), json!([sets.geosite(payload)?]));
+            return Ok((rule, false));
+        }
+        "GEOIP" | "SRC-GEOIP" => {
+            rule.insert("rule_set".into(), json!([sets.geoip(payload)?]));
+            let source = source || s.kind == "SRC-GEOIP";
+            if source {
+                rule.insert("rule_set_ip_cidr_match_source".into(), json!(true));
+            }
+            return Ok((rule, !no_resolve && !source));
+        }
         "DOMAIN-WILDCARD" => {
             rule.insert("domain_regex".into(), json!([wildcard(payload)]));
             return Ok((rule, false));

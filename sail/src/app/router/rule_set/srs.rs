@@ -9,6 +9,7 @@ use anyhow::{anyhow, Context, Result};
 use super::reader::Reader;
 use super::rule::Parts;
 use super::succinct::Succinct;
+use super::SuccinctSet;
 use crate::app::router::matcher::Condition;
 use crate::config::rule_set::MAX_VERSION;
 
@@ -111,7 +112,7 @@ fn read_plain(reader: &mut Reader) -> Result<Parts> {
         match item {
             QUERY_TYPE => parts.query_types = reader.u16_slice()?,
             NETWORK => rule.network = reader.strings()?,
-            DOMAIN => parts.succinct = Some(Succinct::read(reader)?),
+            DOMAIN => parts.succinct = Some(SuccinctSet::Sing(Succinct::read(reader)?)),
             DOMAIN_KEYWORD => rule.domain_keyword = reader.strings()?,
             DOMAIN_REGEX => rule.domain_regex = reader.strings()?,
             SOURCE_IP_CIDR => parts.source_ip_ranges = Some(read_ip_set(reader)?),

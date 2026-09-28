@@ -1,7 +1,7 @@
-//! The domain matcher of sing-box's binary rule-sets: a succinct trie of
-//! the reversed domains, as sing's `common/domain` writes and reads it
-//! (itself after github.com/openacid/succinct). It is matched in its
-//! compact form, as sing-box does, not expanded into sets.
+//! The domain matcher of sing-box's binary rule-sets (`.srs`): a succinct
+//! trie of the reversed domains, as that format lays it out, of the kind
+//! github.com/openacid/succinct (MIT) describes. It is matched in its
+//! compact form, not expanded into sets.
 
 use anyhow::{anyhow, Result};
 

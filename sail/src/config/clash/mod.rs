@@ -20,6 +20,7 @@ mod fields;
 mod general;
 mod group;
 mod node;
+mod provider;
 mod proxy;
 mod rule;
 
@@ -35,7 +36,9 @@ pub fn parse(s: &str) -> Result<Config> {
     general::lower(&mut doc, &mut out, &mut warnings)?;
     let proxies = proxy::lower(&mut doc, &mut out, &mut warnings)?;
     let groups = group::lower(&mut doc, &proxies, &mut out, &mut warnings)?;
-    rule::lower(&mut doc, &groups, &mut out, &mut warnings)?;
+    let mut sets = provider::lower(&mut doc, &groups, &mut out, &mut warnings)?;
+    rule::lower(&mut doc, &groups, &mut sets, &mut out, &mut warnings)?;
+    out.rule_sets.extend(sets.into_geo_sets());
     doc.finish(general::TOP, |key| holders.contains(key), &mut warnings)?;
 
     let value = out.into_json();
@@ -51,6 +54,23 @@ pub fn parse(s: &str) -> Result<Config> {
     Ok(config)
 }
 
+/// A line of a classical rule-provider, a Clash rule without its target,
+/// as a rule-set's rule.
+pub(crate) fn headless(line: &str) -> Result<super::rule_set::HeadlessRule> {
+    let rule = rule::headless(line)?;
+    serde_json::from_value(Value::Object(rule)).map_err(|e| anyhow!("{}", e))
+}
+
+/// The `payload`, or `rules`, of a YAML rule-provider.
+pub(crate) fn payload(s: &str) -> Result<Vec<String>> {
+    let mut doc = Fields::of(node::parse(s)?, "")?;
+    let payload = doc.strings("payload")?;
+    if !payload.is_empty() {
+        return Ok(payload);
+    }
+    doc.strings("rules")
+}
+
 /// The configuration being built, in sing-box's shape.
 #[derive(Default)]
 pub struct Lowered {
@@ -59,6 +79,7 @@ pub struct Lowered {
     pub inbounds: Vec<Value>,
     pub outbounds: Vec<Value>,
     pub rules: Vec<Value>,
+    pub rule_sets: Vec<Value>,
     pub route: Map<String, Value>,
     /// Mihomo's `mode`, which the Clash API may change.
     pub mode: Option<String>,
@@ -68,6 +89,9 @@ impl Lowered {
     fn into_json(self) -> Value {
         let mut route = self.route;
         route.insert("rules".into(), Value::Array(self.rules));
+        if !self.rule_sets.is_empty() {
+            route.insert("rule_set".into(), Value::Array(self.rule_sets));
+        }
         let mut config = json!({
             "log": self.log,
             "dns": self.dns,

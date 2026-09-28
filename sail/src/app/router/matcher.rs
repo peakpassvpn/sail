@@ -12,7 +12,7 @@ use anyhow::{anyhow, Result};
 use cidr::IpCidr;
 use maxminddb::geoip2::Country;
 
-use super::rule_set::succinct::Succinct;
+use super::rule_set::SuccinctSet;
 use crate::config::external_rule::{self, DomainKind, External};
 use crate::config::model::{self, LogicalMode, RuleType};
 use crate::runtime::RuntimeEnv;
@@ -432,7 +432,7 @@ pub(crate) struct Context<'a> {
 /// What the rules of a binary rule-set give in forms of their own.
 #[derive(Default)]
 pub(crate) struct Extras {
-    pub succinct: Option<Succinct>,
+    pub succinct: Option<SuccinctSet>,
     pub ip_ranges: Option<Vec<(IpAddr, IpAddr)>>,
     pub source_ip_ranges: Option<Vec<(IpAddr, IpAddr)>>,
     pub query_types: Vec<u16>,
@@ -559,7 +559,7 @@ pub(crate) struct Conditions {
     protocols: Vec<SniffedProtocol>,
     domains: DomainIndex,
     /// The domains and suffixes of a binary rule-set.
-    succinct: Option<Succinct>,
+    succinct: Option<SuccinctSet>,
     domain_regex: Vec<Pattern>,
     source_ip_cidr: CidrIndex,
     source_ip_is_private: bool,
