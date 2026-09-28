@@ -120,3 +120,33 @@ When a TUN inbound installs the default route, Sail's own outbound sockets can o
 ```
 
 Use `default_interface` instead when the egress interface must be fixed. Do not set both.
+
+## Bypass in the kernel (Linux `auto_redirect`)
+
+With `auto_redirect`, a Linux TUN inbound leaves the main routing table alone. nftables sends the system's TCP to a local listener, and a mark sends UDP and ICMP into the TUN. Sail's own sockets carry the output mark and are never taken, so `auto_detect_interface` is not needed:
+
+```json
+{
+  "inbounds": [
+    {
+      "type": "tun",
+      "address": ["172.19.0.1/30", "fdfe:dcba:9876::1/126"],
+      "auto_route": true,
+      "auto_redirect": true
+    }
+  ]
+}
+```
+
+The first packet of each connection is judged through NFQUEUE before the connection is redirected. A `bypass` rule that matches it lets the kernel carry the connection past Sail. A `reject` rule has the kernel reset or drop the connection:
+
+```json
+{
+  "ip_cidr": ["192.0.2.0/24"],
+  "action": "bypass"
+}
+```
+
+Only what the first packet shows can match: addresses, ports and the network. A rule that needs sniffing ends the judgement, and the connection is redirected as usual. A `bypass` rule with an `outbound` routes to that outbound when the connection reaches Sail. Without auto_redirect, a `bypass` rule with no outbound is skipped.
+
+`route_address_set` and `route_exclude_address_set` take only the destinations of rule-sets. They are refreshed when a rule-set is downloaded again. On OpenWrt, Sail also adds an fw4 drop-in that accepts the TUN's traffic.
