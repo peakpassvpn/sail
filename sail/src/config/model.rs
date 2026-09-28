@@ -295,6 +295,10 @@ pub struct Dns {
     /// domain.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub reverse_mapping: bool,
+    /// The EDNS Client Subnet each query carries, unless a rule says
+    /// otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_subnet: Option<Prefix>,
 }
 
 /// A DNS server. What it takes beyond its type and tag belongs to its type,
@@ -396,6 +400,21 @@ pub struct DnsRule {
         skip_serializing_if = "std::ops::Not::not"
     )]
     pub rule_set_ip_cidr_match_source: bool,
+    /// The response of an `evaluate` rule before it, which the rule then
+    /// matches: its addresses are what `ip_cidr`, `ip_is_private`,
+    /// `ip_accept_any` and the rule-sets' `ip_cidr` match. With none, the
+    /// rule matches only inverted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub match_response: Option<ResponseRef>,
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub ip_cidr: Vec<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub ip_is_private: bool,
+    /// The response has an address.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub ip_accept_any: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub response_rcode: Option<Rcode>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub invert: bool,
     /// `logical`: `and` or `or`.
@@ -414,17 +433,197 @@ pub struct DnsRule {
     /// `route`: the address families, instead of `dns.strategy`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub strategy: Option<DnsStrategy>,
+    /// `evaluate`: the name of its response, which `match_response` gives.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tag: Option<String>,
+    /// `route`, `evaluate` and `route-options`: the query neither comes
+    /// from the cache nor goes into it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub disable_cache: bool,
+    /// The TTL the answer's records carry, in seconds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rewrite_ttl: Option<u32>,
+    /// How long the query may take, instead of `dns.timeout`.
+    #[serde(default, with = "duration", skip_serializing_if = "Option::is_none")]
+    pub timeout: Option<std::time::Duration>,
+    /// The EDNS Client Subnet the query carries, instead of
+    /// `dns.client_subnet`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_subnet: Option<Prefix>,
+    /// The query carries no EDNS Client Subnet, whatever it or
+    /// `dns.client_subnet` has.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub remove_client_subnet: bool,
 }
 
 /// What a matching DNS rule does.
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, Default, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "kebab-case")]
 pub enum DnsRuleAction {
     /// Sends the query to `server`.
     #[default]
     Route,
+    /// Sends the query to `server` and keeps the response for the rules
+    /// after it to match, which goes on with the next rule.
+    Evaluate,
+    /// Answers with the response kept.
+    Respond,
+    /// Sets how the query is sent, for the rule that sends it; matching
+    /// goes on with the next rule.
+    RouteOptions,
     /// Answers that the name does not resolve.
     Reject,
+}
+
+impl DnsRuleAction {
+    /// As a configuration writes it.
+    pub fn name(self) -> &'static str {
+        match self {
+            DnsRuleAction::Route => "route",
+            DnsRuleAction::Evaluate => "evaluate",
+            DnsRuleAction::Respond => "respond",
+            DnsRuleAction::RouteOptions => "route-options",
+            DnsRuleAction::Reject => "reject",
+        }
+    }
+}
+
+/// Which evaluated response a rule matches: `true` for the last one without
+/// a tag, or a tag.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ResponseRef {
+    Latest,
+    Tag(String),
+}
+
+impl<'de> serde::Deserialize<'de> for ResponseRef {
+    fn deserialize<D: serde::Deserializer<'de>>(de: D) -> std::result::Result<Self, D::Error> {
+        match <serde_json::Value as serde::Deserialize>::deserialize(de)? {
+            serde_json::Value::Bool(true) => Ok(ResponseRef::Latest),
+            serde_json::Value::String(tag) if !tag.is_empty() => Ok(ResponseRef::Tag(tag)),
+            other => Err(serde::de::Error::custom(format!(
+                "true, or the tag of an evaluate rule, not {}",
+                other
+            ))),
+        }
+    }
+}
+
+impl serde::Serialize for ResponseRef {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> std::result::Result<S::Ok, S::Error> {
+        match self {
+            ResponseRef::Latest => s.serialize_bool(true),
+            ResponseRef::Tag(tag) => s.serialize_str(tag),
+        }
+    }
+}
+
+/// A DNS response code: its number, or its name (`NOERROR`, `NXDOMAIN`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Rcode(pub u16);
+
+const RCODES: &[(&str, u16)] = &[
+    ("NOERROR", 0),
+    ("FORMERR", 1),
+    ("SERVFAIL", 2),
+    ("NXDOMAIN", 3),
+    ("NOTIMP", 4),
+    ("REFUSED", 5),
+    ("YXDOMAIN", 6),
+    ("YXRRSET", 7),
+    ("NXRRSET", 8),
+    ("NOTAUTH", 9),
+    ("NOTZONE", 10),
+    ("BADSIG", 16),
+    ("BADKEY", 17),
+    ("BADTIME", 18),
+    ("BADMODE", 19),
+    ("BADNAME", 20),
+    ("BADALG", 21),
+    ("BADTRUNC", 22),
+    ("BADCOOKIE", 23),
+];
+
+impl<'de> serde::Deserialize<'de> for Rcode {
+    fn deserialize<D: serde::Deserializer<'de>>(de: D) -> std::result::Result<Self, D::Error> {
+        match <serde_json::Value as serde::Deserialize>::deserialize(de)? {
+            serde_json::Value::Number(n) => n
+                .as_u64()
+                .and_then(|n| u16::try_from(n).ok())
+                .map(Rcode)
+                .ok_or_else(|| serde::de::Error::custom(format!("rcode {} is out of range", n))),
+            serde_json::Value::String(name) => RCODES
+                .iter()
+                .find(|(n, _)| *n == name)
+                .map(|(_, code)| Rcode(*code))
+                .ok_or_else(|| serde::de::Error::custom(format!("unknown rcode: {}", name))),
+            other => Err(serde::de::Error::custom(format!(
+                "an rcode, by name or number, not {}",
+                other
+            ))),
+        }
+    }
+}
+
+impl serde::Serialize for Rcode {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> std::result::Result<S::Ok, S::Error> {
+        match RCODES.iter().find(|(_, code)| *code == self.0) {
+            Some((name, _)) => s.serialize_str(name),
+            None => s.serialize_u16(self.0),
+        }
+    }
+}
+
+/// An IP prefix, or an address, which is a prefix of its whole length.
+/// The bits past the prefix are kept, as written.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Prefix {
+    pub addr: std::net::IpAddr,
+    pub len: u8,
+}
+
+impl std::str::FromStr for Prefix {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self> {
+        let (addr, len) = match s.split_once('/') {
+            Some((addr, len)) => (addr, Some(len)),
+            None => (s, None),
+        };
+        let addr: std::net::IpAddr = addr
+            .parse()
+            .map_err(|_| anyhow!("{:?} is not an address or prefix", s))?;
+        let max = if addr.is_ipv4() { 32 } else { 128 };
+        let len = match len {
+            Some(len) => len
+                .parse::<u8>()
+                .ok()
+                .filter(|len| *len <= max)
+                .ok_or_else(|| anyhow!("{:?}: the prefix length is 0 to {}", s, max))?,
+            None => max,
+        };
+        Ok(Prefix { addr, len })
+    }
+}
+
+impl std::fmt::Display for Prefix {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}/{}", self.addr, self.len)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for Prefix {
+    fn deserialize<D: serde::Deserializer<'de>>(de: D) -> std::result::Result<Self, D::Error> {
+        <String as serde::Deserialize>::deserialize(de)?
+            .parse()
+            .map_err(serde::de::Error::custom)
+    }
+}
+
+impl serde::Serialize for Prefix {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> std::result::Result<S::Ok, S::Error> {
+        s.collect_str(self)
+    }
 }
 
 impl DnsRule {
@@ -461,6 +660,10 @@ impl DnsRule {
             user_id: self.user_id.clone(),
             rule_set: self.rule_set.clone(),
             rule_set_ip_cidr_match_source: self.rule_set_ip_cidr_match_source,
+            ip_cidr: self.ip_cidr.clone(),
+            ip_is_private: self.ip_is_private,
+            ip_accept_any: self.ip_accept_any,
+            response_rcode: self.response_rcode.map(|r| r.0),
             invert: self.invert,
             mode: self.mode,
             rules: self.rules.iter().map(DnsRule::conditions).collect(),
@@ -468,26 +671,113 @@ impl DnsRule {
         }
     }
 
-    /// Whether the rule sets any condition.
+    /// Whether the rule sets any condition: that there is a response to
+    /// match is one.
     pub fn has_conditions(&self) -> bool {
-        self.conditions().has_conditions() || !self.outbound.is_empty()
+        self.conditions().has_conditions()
+            || !self.outbound.is_empty()
+            || self.match_response.is_some()
     }
 
-    fn check(&self, servers: &HashSet<String>) -> Result<()> {
-        match self.action.unwrap_or_default() {
-            DnsRuleAction::Route => {
-                let tag = self
-                    .server
-                    .as_ref()
-                    .ok_or_else(|| anyhow!("server: a route rule needs one"))?;
-                if !servers.contains(tag) {
-                    return Err(anyhow!("server [{}] does not exist", tag));
-                }
+    /// The response the rule matches, or answers with: `respond` without
+    /// `match_response` answers with the last one without a tag.
+    pub fn response(&self) -> Option<ResponseRef> {
+        match (&self.match_response, self.action.unwrap_or_default()) {
+            (Some(response), _) => Some(response.clone()),
+            (None, DnsRuleAction::Respond) => Some(ResponseRef::Latest),
+            (None, _) => None,
+        }
+    }
+
+    /// Whether it sets how its query is sent.
+    fn has_query_options(&self) -> bool {
+        self.disable_cache
+            || self.rewrite_ttl.is_some()
+            || self.timeout.is_some()
+            || self.client_subnet.is_some()
+            || self.remove_client_subnet
+    }
+
+    fn check(&self, servers: &HashSet<String>, fake_ip: Option<&str>) -> Result<()> {
+        use DnsRuleAction::*;
+        let action = self.action.unwrap_or_default();
+        let fields = [
+            (
+                "server",
+                self.server.is_some(),
+                &[Route, Evaluate] as &[DnsRuleAction],
+            ),
+            ("strategy", self.strategy.is_some(), &[Route]),
+            ("tag", self.tag.is_some(), &[Evaluate]),
+            (
+                "disable_cache",
+                self.disable_cache,
+                &[Route, Evaluate, RouteOptions],
+            ),
+            (
+                "rewrite_ttl",
+                self.rewrite_ttl.is_some(),
+                &[Route, Evaluate, RouteOptions],
+            ),
+            (
+                "timeout",
+                self.timeout.is_some(),
+                &[Route, Evaluate, RouteOptions],
+            ),
+            (
+                "client_subnet",
+                self.client_subnet.is_some(),
+                &[Route, Evaluate, RouteOptions],
+            ),
+            (
+                "remove_client_subnet",
+                self.remove_client_subnet,
+                &[Route, Evaluate, RouteOptions],
+            ),
+        ];
+        if let Some((field, _, _)) = fields
+            .iter()
+            .find(|(_, set, actions)| *set && !actions.contains(&action))
+        {
+            return Err(anyhow!("{}: not with action {}", field, action.name()));
+        }
+        if matches!(action, Route | Evaluate) {
+            let tag = self
+                .server
+                .as_ref()
+                .ok_or_else(|| anyhow!("server: a {} rule needs one", action.name()))?;
+            if !servers.contains(tag) {
+                return Err(anyhow!("server [{}] does not exist", tag));
             }
-            DnsRuleAction::Reject => {
-                if self.server.is_some() || self.strategy.is_some() {
-                    return Err(anyhow!("server and strategy are for route rules"));
-                }
+            if action == Evaluate && fake_ip == Some(tag.as_str()) {
+                return Err(anyhow!(
+                    "server: [{}] is the fakeip server, whose answers are not the name's",
+                    tag
+                ));
+            }
+        }
+        if action == RouteOptions && !self.has_query_options() {
+            return Err(anyhow!("a route-options rule sets some option"));
+        }
+        if self.client_subnet.is_some() && self.remove_client_subnet {
+            return Err(anyhow!("client_subnet: not with remove_client_subnet"));
+        }
+        if self.tag.as_deref() == Some("") {
+            return Err(anyhow!("tag: empty"));
+        }
+        let response_fields = [
+            ("ip_cidr", !self.ip_cidr.is_empty()),
+            ("ip_is_private", self.ip_is_private),
+            ("ip_accept_any", self.ip_accept_any),
+            ("response_rcode", self.response_rcode.is_some()),
+        ];
+        if self.match_response.is_none() {
+            if let Some((field, _)) = response_fields.iter().find(|(_, set)| *set) {
+                return Err(anyhow!(
+                    "{}: matches an evaluated response, and needs match_response \
+                     (sail does not filter answers as sing-box's legacy DNS rules did)",
+                    field
+                ));
             }
         }
         for (i, rule) in self.rules.iter().enumerate() {
@@ -509,7 +799,30 @@ impl DnsRule {
             ("server", self.server.is_some()),
             ("strategy", self.strategy.is_some()),
             ("outbound", !self.outbound.is_empty()),
+            ("tag", self.tag.is_some()),
+            ("disable_cache", self.disable_cache),
+            ("rewrite_ttl", self.rewrite_ttl.is_some()),
+            ("timeout", self.timeout.is_some()),
+            ("client_subnet", self.client_subnet.is_some()),
+            ("remove_client_subnet", self.remove_client_subnet),
         ];
+        if self.match_response.is_some() {
+            return Err(anyhow!(
+                "match_response: sail does not implement it in a logical rule's rules yet"
+            ));
+        }
+        let response_fields = [
+            ("ip_cidr", !self.ip_cidr.is_empty()),
+            ("ip_is_private", self.ip_is_private),
+            ("ip_accept_any", self.ip_accept_any),
+            ("response_rcode", self.response_rcode.is_some()),
+        ];
+        if let Some((field, _)) = response_fields.iter().find(|(_, set)| *set) {
+            return Err(anyhow!(
+                "{}: matches an evaluated response, and needs match_response",
+                field
+            ));
+        }
         if let Some((field, _)) = set.iter().find(|(_, set)| *set) {
             return Err(anyhow!("{}: a rule a logical one combines has none", field));
         }
@@ -584,9 +897,77 @@ impl Dns {
                 return Err(anyhow!("dns.final: server [{}] does not exist", tag));
             }
         }
+        let fake_ip = self
+            .servers
+            .iter()
+            .find(|s| s.kind == "fakeip")
+            .map(|s| s.tag.as_str());
         for (i, rule) in self.rules.iter().enumerate() {
-            rule.check(&tags)
+            rule.check(&tags, fake_ip)
                 .map_err(|e| anyhow!("dns.rules[{}]: {}", i, e))?;
+        }
+        self.check_responses()
+    }
+
+    /// Checks that each rule matching a response, or answering with one,
+    /// has an `evaluate` rule before it that gives it; and that a rule's
+    /// own `strategy`, which sing-box keeps for its legacy rules, is not
+    /// set alongside them.
+    fn check_responses(&self) -> Result<()> {
+        let mut latest = false;
+        let mut tags = HashSet::new();
+        let mut uses_responses = None;
+        for (i, rule) in self.rules.iter().enumerate() {
+            let at = |e: String| anyhow!("dns.rules[{}]: {}", i, e);
+            match rule.response() {
+                Some(ResponseRef::Latest) if !latest => {
+                    return Err(at(if tags.is_empty() {
+                        "the response it matches comes from an evaluate rule before it, and \
+                         there is none"
+                            .to_string()
+                    } else {
+                        "the response it matches comes from an evaluate rule without a tag \
+                         before it; match_response names a tagged one"
+                            .to_string()
+                    }));
+                }
+                Some(ResponseRef::Tag(tag)) if !tags.contains(&tag) => {
+                    return Err(at(format!(
+                        "match_response: no evaluate rule before it is tagged [{}]",
+                        tag
+                    )));
+                }
+                _ => {}
+            }
+            let action = rule.action.unwrap_or_default();
+            if action == DnsRuleAction::Evaluate {
+                match &rule.tag {
+                    None => latest = true,
+                    Some(tag) => {
+                        if !tags.insert(tag.clone()) {
+                            return Err(at(format!(
+                                "tag: another evaluate rule is tagged [{}]",
+                                tag
+                            )));
+                        }
+                    }
+                }
+            }
+            if uses_responses.is_none()
+                && (rule.response().is_some() || action == DnsRuleAction::Evaluate)
+            {
+                uses_responses = Some(i);
+            }
+        }
+        if let Some(i) = uses_responses {
+            if let Some(j) = self.rules.iter().position(|r| r.strategy.is_some()) {
+                return Err(anyhow!(
+                    "dns.rules[{}].strategy: not with evaluated responses (dns.rules[{}]), as in \
+                     sing-box; set dns.strategy, or an outbound's domain_resolver",
+                    j,
+                    i
+                ));
+            }
         }
         Ok(())
     }
@@ -718,7 +1099,7 @@ impl<'de> serde::Deserialize<'de> for DomainResolver {
             #[serde(default)]
             strategy: Option<DnsStrategy>,
         }
-        match serde_json::Value::deserialize(de)? {
+        match <serde_json::Value as serde::Deserialize>::deserialize(de)? {
             serde_json::Value::String(server) => Ok(DomainResolver {
                 server,
                 strategy: None,
@@ -809,6 +1190,12 @@ pub struct Rule {
     /// public one.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub ip_is_private: bool,
+    /// A DNS rule's: the response it matches has an address.
+    #[serde(skip)]
+    pub ip_accept_any: bool,
+    /// A DNS rule's: the response it matches has this code.
+    #[serde(skip)]
+    pub response_rcode: Option<u16>,
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
     pub source_port: Vec<u16>,
     /// Inclusive port ranges, as `port_range` writes them.
@@ -1024,6 +1411,8 @@ impl Rule {
             ("source_ip_is_private", self.source_ip_is_private),
             ("ip_cidr", !self.ip_cidr.is_empty()),
             ("ip_is_private", self.ip_is_private),
+            ("ip_accept_any", self.ip_accept_any),
+            ("response_rcode", self.response_rcode.is_some()),
             ("source_port", !self.source_port.is_empty()),
             ("source_port_range", !self.source_port_range.is_empty()),
             ("port", !self.port.is_empty()),

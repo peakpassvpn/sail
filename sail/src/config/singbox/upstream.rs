@@ -59,7 +59,6 @@ pub const FIELDS: &[Field] = &[
     f("experimental.v2ray_api", Ignored),
     f("experimental.debug", Ignored),
     // DNS.
-    f("dns.client_subnet", Unsupported),
     f("dns.disable_cache", Ignored),
     f("dns.disable_expire", Ignored),
     f("dns.independent_cache", Ignored),
@@ -114,20 +113,15 @@ pub const FIELDS: &[Field] = &[
     f("dns.rules.*.source_hostname", Unsupported),
     f("dns.rules.*.preferred_by", Unsupported),
     f("dns.rules.*.rule_set_ip_cidr_accept_empty", Unsupported),
-    f("dns.rules.*.match_response", Unsupported),
-    f("dns.rules.*.ip_cidr", Unsupported),
-    f("dns.rules.*.ip_is_private", Unsupported),
-    f("dns.rules.*.ip_accept_any", Unsupported),
-    f("dns.rules.*.response_rcode", Unsupported),
+    // Matched while its responses come: a race is won by the first rule
+    // that matches.
+    f("dns.rules.*.race", Unsupported),
+    f("dns.rules.*.rules.*.match_response", Unsupported),
+    f("dns.rules.*.rules.*.rules.*.match_response", Unsupported),
     f("dns.rules.*.response_answer", Unsupported),
     f("dns.rules.*.response_ns", Unsupported),
     f("dns.rules.*.response_extra", Unsupported),
-    f("dns.rules.*.client_subnet", Unsupported),
-    f("dns.rules.*.remove_client_subnet", Unsupported),
-    f("dns.rules.*.disable_cache", Ignored),
     f("dns.rules.*.disable_optimistic_cache", Ignored),
-    f("dns.rules.*.rewrite_ttl", Ignored),
-    f("dns.rules.*.timeout", Ignored),
     f("dns.rules.*.speculative", Ignored),
     f("dns.rules.*.method", Ignored),
     f("dns.rules.*.no_drop", Ignored),
@@ -375,10 +369,7 @@ pub const FIELDS: &[Field] = &[
 /// Values sing-box accepts that sail does not implement: all of them change
 /// routing.
 pub const VALUES: &[(&str, &[&str])] = &[
-    (
-        "dns.rules.*.action",
-        &["route-options", "evaluate", "respond", "predefined"],
-    ),
+    ("dns.rules.*.action", &["predefined"]),
     (
         "dns.servers.*.type",
         &[

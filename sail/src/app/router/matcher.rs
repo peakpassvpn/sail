@@ -39,6 +39,8 @@ pub(crate) struct Facts {
     source: std::net::SocketAddr,
     /// The record type, for a DNS query.
     query_type: Option<u16>,
+    /// The code of the DNS response matched.
+    rcode: Option<u16>,
 }
 
 impl Facts {
@@ -62,7 +64,15 @@ impl Facts {
             process_path: sess.process_name.clone(),
             source: sess.source,
             query_type: None,
+            rcode: None,
         }
+    }
+
+    /// The facts of a DNS response with code `rcode`, whose addresses
+    /// are those resolved.
+    pub fn with_rcode(mut self, rcode: u16) -> Self {
+        self.rcode = Some(rcode);
+        self
     }
 
     /// The facts of a DNS query of `query_type`.
@@ -526,6 +536,9 @@ pub(crate) struct Conditions {
     ip_cidr: CidrIndex,
     mmdbs: Vec<Mmdb>,
     ip_is_private: bool,
+    /// Any address matches, of a DNS response.
+    ip_accept_any: bool,
+    response_rcode: Option<u16>,
     source_ports: Vec<(u16, u16)>,
     ports: Vec<(u16, u16)>,
     process_names: Vec<String>,
@@ -703,6 +716,8 @@ impl Conditions {
             ip_cidr: cidrs(&rule.ip_cidr, &extras.ip_ranges, "ip_cidr")?,
             mmdbs,
             ip_is_private: rule.ip_is_private,
+            ip_accept_any: rule.ip_accept_any,
+            response_rcode: rule.response_rcode,
             source_ports: ports(
                 &rule.source_port,
                 &rule.source_port_range,
@@ -754,6 +769,7 @@ impl Conditions {
             && self.process_paths.is_empty()
             && self.process_path_regex.is_empty()
             && self.query_types.is_empty()
+            && self.response_rcode.is_none()
             && self.clash_mode.is_none()
             && !self.has_rule_sets()
     }
@@ -767,7 +783,10 @@ impl Conditions {
 
     /// Whether it has conditions on a destination address given as IPs.
     pub(crate) fn has_ip_cidr(&self) -> bool {
-        !self.ip_cidr.is_empty() || !self.mmdbs.is_empty() || self.ip_is_private
+        !self.ip_cidr.is_empty()
+            || !self.mmdbs.is_empty()
+            || self.ip_is_private
+            || self.ip_accept_any
     }
 
     fn has_domains(&self) -> bool {
@@ -793,6 +812,7 @@ impl Conditions {
             self.ip_cidr.contains(ip)
                 || self.mmdbs.iter().any(|m| m.contains(ip))
                 || (self.ip_is_private && is_private(ip))
+                || self.ip_accept_any
         };
         if ip_match_source && self.has_ip_cidr() {
             // Only `ip_cidr` looks at the source; the others still look at
@@ -859,6 +879,7 @@ impl Conditions {
                 || facts
                     .query_type()
                     .is_some_and(|t| self.query_types.contains(&t)))
+            && self.response_rcode.is_none_or(|c| facts.rcode == Some(c))
             && self
                 .clash_mode
                 .as_ref()

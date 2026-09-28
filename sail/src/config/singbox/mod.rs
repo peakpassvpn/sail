@@ -225,6 +225,21 @@ mod tests {
     }
 
     #[test]
+    fn a_route_rule_has_no_response_to_match() {
+        let err = parse(
+            r#"{ "outbounds": [{ "type": "direct" }],
+                 "route": { "rules": [{ "ip_accept_any": true, "outbound": "direct" }] } }"#,
+        )
+        .unwrap_err();
+        assert!(
+            format!("{:#}", err)
+                .contains("route.rules[0].ip_accept_any: unknown field `ip_accept_any`"),
+            "{:#}",
+            err
+        );
+    }
+
+    #[test]
     fn http_clients_are_checked() {
         let with = |clients: &str, route: &str| {
             parse(&format!(
