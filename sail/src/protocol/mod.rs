@@ -35,7 +35,11 @@ pub mod socks;
 pub mod tproxy;
 #[cfg(any(feature = "inbound-trojan", feature = "outbound-trojan"))]
 pub mod trojan;
-#[cfg(any(feature = "inbound-tuic", feature = "outbound-tuic"))]
+#[cfg(any(
+    feature = "inbound-tuic",
+    feature = "outbound-tuic",
+    feature = "fuzzing"
+))]
 pub mod tuic;
 #[cfg(feature = "inbound-tun")]
 pub mod tun;
@@ -48,7 +52,8 @@ pub mod wireguard;
     feature = "inbound-vless",
     feature = "outbound-vless",
     feature = "inbound-vmess",
-    feature = "outbound-vmess"
+    feature = "outbound-vmess",
+    feature = "fuzzing"
 ))]
 pub mod vmess;
 

@@ -1918,7 +1918,9 @@ pub fn parse_duration(s: &str) -> Result<std::time::Duration> {
             "h" => 3600.0,
             _ => return Err(invalid()),
         };
-        total += std::time::Duration::from_secs_f64(value * seconds);
+        let part =
+            std::time::Duration::try_from_secs_f64(value * seconds).map_err(|_| invalid())?;
+        total = total.checked_add(part).ok_or_else(invalid)?;
         rest = &rest[unit_len..];
     }
     Ok(total)
@@ -2262,6 +2264,16 @@ mod tests {
         for bad in ["", "5", "s", "5 s", "5x", "-1s"] {
             assert!(parse_duration(bad).is_err(), "{:?}", bad);
         }
+    }
+
+    #[test]
+    fn duration_overflow_is_an_error() {
+        // One component can overflow Duration during the float conversion.
+        assert!(parse_duration("222222222222222222222s").is_err());
+        assert!(parse_duration(&format!("{}s", "9".repeat(400))).is_err());
+
+        // Individually representable components can overflow when combined.
+        assert!(parse_duration("10000000000000000000s10000000000000000000s").is_err());
     }
 
     #[test]

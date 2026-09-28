@@ -27,6 +27,8 @@ pub mod adapter;
 pub mod app;
 pub mod common;
 pub mod config;
+#[cfg(feature = "fuzzing")]
+pub mod fuzzing;
 mod include;
 pub mod net;
 pub mod platform;

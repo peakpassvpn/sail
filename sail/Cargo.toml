@@ -172,6 +172,9 @@ plugin = ["async-ffi", "libloading"]
 api = ["axum"]
 auto-reload = ["notify"]
 ctrlc = ["tokio/signal"]
+# Pure in-memory parser entry points used only by the separate cargo-fuzz
+# workspace. Keep this out of default builds and runtime APIs.
+fuzzing = ["rule-set"]
 
 [dependencies]
 # Common
