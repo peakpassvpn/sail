@@ -64,6 +64,15 @@ pub fn lower(doc: &mut Fields, out: &mut Lowered, warnings: &mut Vec<String>) ->
     Ok(proxies)
 }
 
+/// A proxy of a provider, as an outbound tagged with its name. A `dns` one
+/// is left out, as sail does not implement it in a provider.
+pub(super) fn lower_one(f: Fields, warnings: &mut Vec<String>) -> Result<Value> {
+    let proxy = Proxy::read(f, None, warnings)?;
+    proxy
+        .outbound
+        .ok_or_else(|| anyhow!("a dns proxy: sail does not implement it in a provider"))
+}
+
 /// A proxy, read.
 struct Proxy {
     name: String,

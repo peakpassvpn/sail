@@ -23,6 +23,7 @@ mod node;
 mod provider;
 mod proxy;
 mod rule;
+pub(crate) mod subscription;
 
 use fields::Fields;
 
