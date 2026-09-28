@@ -336,3 +336,63 @@ fn exercise_watch(port: u16) -> Result<()> {
     ping(&mut old)?;
     Ok(())
 }
+
+#[cfg(all(feature = "auto-reload", feature = "rule-set"))]
+#[test]
+fn local_rule_files_reload_and_invalid_replacements_keep_previous_rules() -> Result<()> {
+    let dir = common::TempDir::new("rule-resource-watch")?;
+    let path = dir.join("config.json");
+    let rules = dir.join("rules.json");
+    let staged = dir.join("staged.json");
+    let port = common::free_port();
+    let cert = rcgen::generate_simple_self_signed(vec!["localhost".into()])?;
+    std::fs::write(&rules, json!({"version":3,"rules":[]}).to_string())?;
+    std::fs::write(&path, json!({
+        "inbounds":[{"type":"trojan","tag":"server","listen":"127.0.0.1","listen_port":port,
+            "users":[{"password":"alice"}],"tls":{"enabled":true,"certificate":cert.cert.pem(),"key":cert.key_pair.serialize_pem()}}],
+        "outbounds":[{"type":"direct","tag":"direct"}],
+        "route":{"rule_set":[{"type":"local","tag":"blocked","format":"source","path":rules}],
+            "rules":[{"rule_set":["blocked"],"action":"reject"}],"final":"direct"}
+    }).to_string())?;
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()?;
+    let _running = start_runtime(&rt, &path, ID + 2, true)?;
+    let destination = rt.block_on(async {
+        let (address, echo) = common::run_tcp_echo_server("127.0.0.1:0").await?;
+        tokio::spawn(echo);
+        anyhow::Ok(address)
+    })?;
+    let fresh = || -> Result<()> {
+        let mut stream = connect(port)?;
+        authenticate(&mut stream, "alice", destination)?;
+        ping(&mut stream)
+    };
+    let mut old = connect(port)?;
+    authenticate(&mut old, "alice", destination)?;
+    ping(&mut old)?;
+    for (data, allowed) in [
+        (
+            json!({"version":3,"rules":[{"ip_cidr":["127.0.0.0/8"]}]}).to_string(),
+            false,
+        ),
+        ("invalid JSON".to_owned(), false),
+        (json!({"version":3,"rules":[]}).to_string(), true),
+    ] {
+        std::fs::write(&staged, data)?;
+        std::fs::rename(&staged, &rules)?;
+        // Also wait for the invalid candidate to be processed before checking rollback.
+        std::thread::sleep(Duration::from_millis(600));
+        let deadline = Instant::now() + Duration::from_secs(8);
+        while fresh().is_ok() != allowed {
+            ensure!(
+                Instant::now() < deadline,
+                "rule-set file update did not become visible"
+            );
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        ping(&mut old)?;
+    }
+    Ok(())
+}

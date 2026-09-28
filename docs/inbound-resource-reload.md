@@ -1,16 +1,22 @@
 # Inbound users and certificate reload
 
-The first part of roadmap 3.4 supports **Trojan, VLESS, AnyTLS and VMess over
-TCP**, including ordinary TLS, WebSocket, HTTPUpgrade, gRPC and sing-mux
-where the protocol supports those layers. It does not rebind listeners.
+Inbound resource reload supports **Trojan, VLESS, AnyTLS, VMess, Shadowsocks
+(legacy and 2022), Hysteria2, TUIC, HTTP, SOCKS and mixed**. Supported layers
+include TLS, REALITY, WebSocket, HTTPUpgrade, gRPC, QUIC, AMUX and sing-mux
+where the protocol permits those combinations. It does not rebind listeners.
 
 ## Entry points
 
 - Replace `users` or the ordinary TLS `certificate` / `certificate_path`
   and `key` / `key_path` fields, then call the existing configuration
   reload entry point (`sail::reload`, or `RuntimeManager::reload`).
-- With the `auto-reload` feature and `StartOptions::auto_reload = true`,
-  changes to the configuration and supported certificate/key files also
+- REALITY `private_key` / `short_id` and legacy Shadowsocks `password`
+  use the same entry points. SS2022's server identity PSK, method and
+  presence/absence of identity headers are structural, not user resources.
+- For file-backed runtimes, with the `auto-reload` feature and
+  `StartOptions::auto_reload = true`,
+  changes to the configuration, supported certificate/key files and local
+  `route.rule_set` files also
   trigger reload. Parent directories are watched, so atomic rename-over
   replacement keeps working. Events are coalesced with a 250 ms quiet
   period. A temporarily invalid certificate/key pair retains the old
@@ -33,15 +39,17 @@ is changed. This includes UUID/flow/password-table checks, PEM parsing and
 certificate/private-key matching. A failed configuration reload leaves
 the current inbound resources, DNS, outbounds and routing in place.
 
-Each inbound publishes one immutable stream-pipeline generation through
+Each inbound publishes an immutable credential/pipeline generation through
 `HotResource<T>`. A connection snapshots it before its first TLS/protocol
 handshake. Its users and certificate cannot come from different generations.
 Existing connections and handshakes already in progress continue with
-their generation. Existing AnyTLS, gRPC and sing-mux sessions may also
+their generation. Existing AnyTLS, gRPC, AMUX, QUIC and sing-mux sessions may also
 open new logical streams under that session's original generation.
 Removing a user is **not** active session revocation; that is separate work.
-An empty user table authenticates nobody new (configured fallback behavior
-is retained). Duplicate Trojan passwords are rejected rather than silently
+An empty tunnel-protocol user table authenticates nobody new (configured
+fallback behavior is retained). **HTTP, SOCKS and mixed retain their existing
+configuration semantics: an empty user table enables anonymous access.**
+Duplicate Trojan passwords are rejected rather than silently
 overwriting one user's identity.
 
 VMess generations share one listener-lifetime auth-ID replay filter, including
@@ -51,6 +59,30 @@ Different inbounds have separate filters. Explicitly removing/recreating an
 inbound creates a new listener lifetime; history is not persisted across that
 operation or process restarts. VMess UDP/XUDP carried inside TCP keeps its
 existing connection; this does not add native UDP listener reload support.
+
+Hysteria2, TUIC and generic QUIC retain their live endpoint. Each incoming
+connection uses one snapshot for both its certificate and authentication;
+old connections retain their original stream and UDP authentication.
+Generic QUIC retains an endpoint-wide authentication concurrency budget
+across those connection generations; cancellation releases its permit.
+SS2022 retains its TCP salt replay cache and authenticated UDP sessions/replay
+windows. A UDP session pins the PSK hash and original user name, not the
+user's array index; reordering, renaming or removing users cannot reattribute
+it. New session IDs use the current table; idle sessions expire after 300 s.
+
+Legacy SS has no UDP session ID: an authenticated source address pins its
+password generation until 300 s of inactivity. A new source address must use
+the current password. Changing passwords at the same source address requires
+expiry or a new client socket. The table is capped at 16,384 peers; invalid
+packets cannot create/refresh entries, and a full table refuses new peers
+instead of evicting active ones. Existing TCP streams keep their cipher.
+SOCKS/mixed retain their shared UDP-association capacity counter across reloads.
+
+Rule-sets use the same `HotResource<T>` snapshot primitive. Configuration and
+local file reloads validate rules before publishing a new routing/DNS view;
+remote downloads validate before publishing to existing shared readers. Failed
+parsing retains the previous rules. Local file watches follow successful
+configuration changes and remain installed during host inbound updates.
 
 Publication is atomic **per inbound**, not a global transaction across
 every listener, DNS and router. All candidates are validated first, but
@@ -64,16 +96,14 @@ Socket preparation/acceptance hooks, including TCP Brutal, are retained.
   Unsupported edits return an error; use the existing add/remove API or
   restart for structural changes. Inbound additions/removals in a file
   reload are also rejected rather than silently ignored.
-- Shadowsocks has replay state; Hysteria2, TUIC and QUIC
-  transports have long-lived endpoint state. They are not rebuilt.
-  REALITY, AMUX, and initially dependent inbound graphs are not supported
-  by this first implementation either. They need state-preserving,
-  protocol-specific resource updates. Unchanged unsupported inbounds
-  continue to operate, and their resource files are not watched here.
+- Custom inbound dependency graphs remain rejected for resource edits rather
+  than silently keeping a stale referenced handler. No built-in inbound
+  factory currently declares another inbound as a dependency. Unchanged
+  unsupported device inbounds continue to operate.
 - TUN/NF devices, routing setup and NAT session identity are untouched.
-- Rule-sets still use their existing reload/updater implementation. The
-  generic snapshot primitive is reusable, but this does not claim to
-  complete the entire shared-resource/management-API roadmap item.
+- This implements the resource mechanism and embedding-host entry point,
+  not the separate 3.5 authenticated HTTP management platform, nor arbitrary
+  structural inbound migration. Add/remove APIs remain available separately.
 
 ## Regression coverage
 
@@ -86,3 +116,8 @@ AnyTLS authentication snapshots, unsupported edits and watcher filtering.
 VMess tests cover shared replay history across generations, identity changes,
 in-flight old authentication, invalid candidates, empty tables, user removal
 and re-addition, and isolation between inbounds.
+`test_quic_resources.rs` covers live QUIC/AMUX endpoints and both Shadowsocks
+families over TCP and UDP. `test_reality.rs` rotates REALITY keys, short IDs
+and VLESS users. Further unit tests cover SS replay/session identity and
+candidate rollback, and HTTP/SOCKS/mixed user snapshots. File tests cover
+local rule-set replacement and invalid-content rollback as well as PEM files.

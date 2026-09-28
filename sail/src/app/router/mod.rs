@@ -28,6 +28,10 @@ pub(crate) mod rule_set {
     }
 
     impl RuleSets {
+        #[cfg(feature = "auto-reload")]
+        pub(crate) fn files(&self) -> Vec<std::path::PathBuf> {
+            Vec::new()
+        }
         pub(crate) fn load(
             configs: &[crate::config::rule_set::RuleSet],
             _env: &crate::runtime::RuntimeEnv,

@@ -90,6 +90,8 @@ pub struct RuntimeManager {
     update: tokio::sync::Mutex<()>,
     #[cfg(feature = "auto-reload")]
     watcher: Mutex<Option<runtime::watch::FileWatcher>>,
+    #[cfg(feature = "auto-reload")]
+    rule_set_files: Mutex<Vec<std::path::PathBuf>>,
 }
 
 impl RuntimeManager {
@@ -132,6 +134,8 @@ impl RuntimeManager {
             update: tokio::sync::Mutex::new(()),
             #[cfg(feature = "auto-reload")]
             watcher: Mutex::new(None),
+            #[cfg(feature = "auto-reload")]
+            rule_set_files: Mutex::new(instance.rule_sets.files()),
         })
     }
 
@@ -241,8 +245,7 @@ impl RuntimeManager {
     /// build changes nothing. Connections already routed keep what they
     /// were routed with.
     //
-    // TODO Reload FakeDns. And perhaps the inbounds as long as the listening
-    // addresses haven't changed.
+    // TODO Reload FakeDns.
     pub async fn reload(&self) -> Result<(), Error> {
         let config_path = if let Some(p) = self.config_path.as_ref() {
             p
@@ -310,7 +313,10 @@ impl RuntimeManager {
             .lock()
             .map_err(|_| Error::RuntimeManager)?;
         #[cfg(feature = "auto-reload")]
-        let watcher = self.prepare_watcher(inbounds.prepared_resource_files(&inbound_resources))?;
+        let watcher = self.prepare_watcher_with_rules(
+            inbounds.prepared_resource_files(&inbound_resources),
+            rule_sets.files(),
+        )?;
         self.env
             .clash_mode
             .configure(config.experimental.clash_api.as_ref());
@@ -318,6 +324,10 @@ impl RuntimeManager {
         #[cfg(feature = "auto-reload")]
         {
             *self.watcher.lock().unwrap_or_else(|e| e.into_inner()) = watcher;
+            *self
+                .rule_set_files
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()) = rule_sets.files();
         }
         self.dns_client.store(Arc::new(dns_client));
         let replaced = self.outbound_manager.swap(Arc::new(outbound_manager));
@@ -524,7 +534,22 @@ impl RuntimeManager {
     #[cfg(feature = "auto-reload")]
     fn prepare_watcher(
         &self,
+        files: Vec<std::path::PathBuf>,
+    ) -> Result<Option<runtime::watch::FileWatcher>, Error> {
+        self.prepare_watcher_with_rules(
+            files,
+            self.rule_set_files
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone(),
+        )
+    }
+
+    #[cfg(feature = "auto-reload")]
+    fn prepare_watcher_with_rules(
+        &self,
         mut files: Vec<std::path::PathBuf>,
+        rules: Vec<std::path::PathBuf>,
     ) -> Result<Option<runtime::watch::FileWatcher>, Error> {
         if !self.auto_reload {
             return Ok(None);
@@ -533,6 +558,7 @@ impl RuntimeManager {
             return Ok(None);
         };
         files.push(config_path.into());
+        files.extend(rules);
         runtime::watch::FileWatcher::new(files, self.reload_tx.clone()).map(Some)
     }
 

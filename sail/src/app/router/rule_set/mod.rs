@@ -5,8 +5,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::runtime::resource::HotResource;
 use anyhow::{anyhow, Context, Result};
-use arc_swap::ArcSwap;
 
 use crate::app::dispatcher::Dispatcher;
 use crate::app::router::matcher::{Condition, Facts, Groups};
@@ -78,13 +78,15 @@ impl RuleSet {
 }
 
 /// A rule-set by tag, replaced whole when a download brings a new one.
-pub(crate) type SharedRuleSet = Arc<ArcSwap<RuleSet>>;
+pub(crate) type SharedRuleSet = HotResource<RuleSet>;
 
 /// The rule-sets of `route.rule_set`, by tag.
 #[derive(Default, Clone)]
 pub(crate) struct RuleSets {
     sets: HashMap<String, SharedRuleSet>,
     remotes: Vec<Arc<remote::Remote>>,
+    #[cfg(feature = "auto-reload")]
+    files: Vec<std::path::PathBuf>,
 }
 
 impl RuleSets {
@@ -93,8 +95,20 @@ impl RuleSets {
     pub(crate) fn load(configs: &[config::RuleSet], env: &RuntimeEnv) -> Result<Self> {
         let mut sets = HashMap::new();
         let mut remotes = Vec::new();
+        #[cfg(feature = "auto-reload")]
+        let mut files = Vec::new();
         for (i, config) in configs.iter().enumerate() {
             for tag in &config.tag {
+                #[cfg(feature = "auto-reload")]
+                if config.kind == RuleSetKind::Local {
+                    files.push(
+                        env.data_path(&config::RuleSet::for_tag(
+                            config.path.as_deref().unwrap_or_default(),
+                            tag,
+                        ))
+                        .into(),
+                    );
+                }
                 let context = || format!("route.rule_set[{}]: [{}]", i, tag);
                 let set = if config.kind == RuleSetKind::Remote {
                     let remote =
@@ -103,14 +117,22 @@ impl RuleSets {
                     remotes.push(remote);
                     set
                 } else {
-                    Arc::new(ArcSwap::from_pointee(
-                        Self::load_one(config, tag, env).with_context(context)?,
-                    ))
+                    HotResource::new(Self::load_one(config, tag, env).with_context(context)?)
                 };
                 sets.insert(tag.clone(), set);
             }
         }
-        Ok(Self { sets, remotes })
+        Ok(Self {
+            sets,
+            remotes,
+            #[cfg(feature = "auto-reload")]
+            files,
+        })
+    }
+
+    #[cfg(feature = "auto-reload")]
+    pub(crate) fn files(&self) -> Vec<std::path::PathBuf> {
+        self.files.clone()
     }
 
     /// Downloads the remote rule-sets that have no copy yet: the rules

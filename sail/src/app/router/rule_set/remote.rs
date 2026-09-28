@@ -6,8 +6,8 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
+use crate::runtime::resource::HotResource;
 use anyhow::{anyhow, Result};
-use arc_swap::ArcSwap;
 use serde_derive::{Deserialize, Serialize};
 use tracing::{debug, info, warn};
 
@@ -68,7 +68,7 @@ impl Remote {
             interval: config.update_interval.unwrap_or(DEFAULT_INTERVAL),
             detour: config.download_detour.clone(),
             cache: cache.clone(),
-            set: Arc::new(ArcSwap::from_pointee(RuleSet { rules: Vec::new() })),
+            set: HotResource::new(RuleSet { rules: Vec::new() }),
             state: Mutex::new(State::default()),
         };
         // A cached copy that does not read is as good as none.
@@ -81,7 +81,7 @@ impl Remote {
                         .and_then(|m| serde_json::from_slice(&m).ok())
                         .unwrap_or_default();
                     state.loaded = true;
-                    remote.set.store(Arc::new(set));
+                    remote.set.publish(Arc::new(set));
                     *remote.state.get_mut().unwrap_or_else(|e| e.into_inner()) = state;
                     debug!("rule-set [{}]: from {}", tag, cache.display());
                     return Ok(remote);
@@ -95,7 +95,7 @@ impl Remote {
                 std::fs::read(&path).map_err(|e| anyhow!("initial_path: {}: {}", path, e))?;
             let set = RuleSet::read(&data, format)
                 .map_err(|e| anyhow!("initial_path: {}: {}", path, e))?;
-            remote.set.store(Arc::new(set));
+            remote.set.publish(Arc::new(set));
             remote
                 .state
                 .get_mut()
@@ -156,7 +156,7 @@ impl Remote {
             }
             http::Response::Body { data, etag } => {
                 let set = RuleSet::read(&data, self.format)?;
-                self.set.store(Arc::new(set));
+                self.set.publish(Arc::new(set));
                 {
                     let mut state = self.state();
                     state.loaded = true;
