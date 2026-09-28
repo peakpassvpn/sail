@@ -47,7 +47,7 @@ fn sort_out(value: &mut Value) -> Result<Vec<String>> {
             }
         }
     }
-    let mut warnings = Vec::new();
+    let mut warnings = services(value)?;
     for field in upstream::FIELDS {
         for (at, _) in find(value, field.path) {
             match field.tier {
@@ -75,6 +75,36 @@ fn sort_out(value: &mut Value) -> Result<Vec<String>> {
                 remove(value, &at);
             }
         }
+    }
+    Ok(warnings)
+}
+
+/// Drops the services sail can do without, with a warning each, and fails
+/// on any other.
+fn services(value: &mut Value) -> Result<Vec<String>> {
+    let Some(Value::Array(services)) = value.get_mut("services") else {
+        return Ok(Vec::new());
+    };
+    let mut warnings = Vec::new();
+    for (i, service) in services.iter().enumerate() {
+        let kind = service
+            .get("type")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        if !upstream::IGNORED_SERVICES.contains(&kind) {
+            return Err(anyhow!(
+                "services[{}].type: sail does not implement \"{}\" yet",
+                i,
+                kind
+            ));
+        }
+        warnings.push(format!(
+            "services[{}]: sail does not run the {} service; ignored",
+            i, kind
+        ));
+    }
+    if let Some(map) = value.as_object_mut() {
+        map.remove("services");
     }
     Ok(warnings)
 }
@@ -271,6 +301,31 @@ mod tests {
             ),
             "{}",
             err
+        );
+    }
+
+    #[test]
+    fn services_are_dropped_or_refused_by_type() {
+        let config = parse(
+            r#"{ "outbounds": [{ "type": "direct" }], "services": [
+                 { "type": "api", "listen": "0.0.0.0", "listen_port": 9090,
+                   "secret": "s", "dashboard": { "enabled": true, "path": "dashboard" } }
+               ] }"#,
+        )
+        .unwrap();
+        assert_eq!(
+            config.warnings,
+            ["services[0]: sail does not run the api service; ignored"]
+        );
+        let err = parse(
+            r#"{ "outbounds": [{ "type": "direct" }], "services": [
+                 { "type": "api" }, { "type": "resolved", "listen": "127.0.0.53" }
+               ] }"#,
+        )
+        .unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "services[1].type: sail does not implement \"resolved\" yet"
         );
     }
 

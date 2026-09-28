@@ -30,6 +30,15 @@ const fn f(path: &'static str, tier: Tier) -> Field {
 /// Removed without a word: `$schema` only points editors at a schema.
 pub const SILENT: &[&str] = &["$schema"];
 
+/// The services, by type, whose absence changes nothing about the traffic:
+/// sail does not run them, and drops them with a warning. It runs no other
+/// service either, and any other is an error.
+pub const IGNORED_SERVICES: &[&str] = &[
+    // sing-box's gRPC API, for its clients and dashboard to watch and
+    // control the instance.
+    "api",
+];
+
 /// Objects sail has no counterpart for, dropped once the fields they held
 /// are.
 pub const EMPTIED: &[&str] = &["experimental.clash_api", "experimental"];
@@ -39,7 +48,6 @@ pub const FIELDS: &[Field] = &[
     f("ntp", Ignored),
     f("certificate_providers", Unsupported),
     f("network_namespaces", Unsupported),
-    f("services", Unsupported),
     f("experimental.cache_file", Ignored),
     // The Clash API is not served yet; its mode is kept.
     f("experimental.clash_api.external_controller", Ignored),
