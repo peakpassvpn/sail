@@ -290,9 +290,9 @@ pub fn split_list(s: &str) -> Vec<String> {
 pub fn fingerprint(fp: &str) -> Result<String> {
     let fp = fp.to_ascii_lowercase();
     match fp.as_str() {
-        "chrome" | "edge" | "firefox" | "safari" | "ios" | "android" => Ok(fp),
+        "chrome" | "edge" | "firefox" | "safari" | "ios" | "android" | "random" => Ok(fp),
         _ => Err(anyhow!(
-            "fp: sail has no fingerprint {}, only chrome, edge, firefox, safari, ios and android",
+            "fp: sail has no fingerprint {}, only chrome, edge, firefox, safari, ios, android and random",
             shown(&fp)
         )),
     }

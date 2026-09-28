@@ -30,18 +30,38 @@ pub enum Fingerprint {
 
 impl Fingerprint {
     /// The fingerprint a config names: `chrome` (or `edge`, the same),
-    /// `firefox`, `safari` (or `ios`, the same), or `android` (OkHttp).
+    /// `firefox`, `safari` (or `ios`, the same), `android` (OkHttp), or
+    /// `random`.
     pub fn from_name(name: &str) -> Result<Self> {
         match name {
             "chrome" | "edge" => Ok(Self::Chrome),
             "firefox" => Ok(Self::Firefox),
             "safari" | "ios" => Ok(Self::Safari),
             "android" => Ok(Self::Android),
+            "random" => Ok(Self::random()),
             _ => Err(anyhow!(
-                "unsupported fingerprint \"{}\", supported: chrome, edge, firefox, safari, ios, android",
+                "unsupported fingerprint \"{}\", supported: chrome, edge, firefox, safari, ios, android, random",
                 name
             )),
         }
+    }
+
+    /// The fingerprint `random` names: as in sing-box, one of chrome, firefox,
+    /// edge, safari and ios, picked once when the process starts and kept for
+    /// every connection after, so that a client does not change browsers
+    /// from one connection to the next.
+    fn random() -> Self {
+        static PICKED: std::sync::OnceLock<Fingerprint> = std::sync::OnceLock::new();
+        *PICKED.get_or_init(|| {
+            use rand::seq::SliceRandom;
+            let names = ["chrome", "firefox", "edge", "safari", "ios"];
+            let name = names.choose(&mut rand::thread_rng()).unwrap_or(&"chrome");
+            match *name {
+                "firefox" => Self::Firefox,
+                "safari" | "ios" => Self::Safari,
+                _ => Self::Chrome,
+            }
+        })
     }
 
     /// ALPN a browser offers when the config sets none.

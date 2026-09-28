@@ -399,3 +399,18 @@ async fn fingerprints_against_real_sites() {
         }
     }
 }
+
+// `random` picks one of the browsers once, and keeps it.
+#[test]
+fn test_random_fingerprint_is_a_browser_kept_for_the_process() {
+    use super::Fingerprint;
+    let picked = Fingerprint::from_name("random").unwrap();
+    assert!(matches!(
+        picked,
+        Fingerprint::Chrome | Fingerprint::Firefox | Fingerprint::Safari
+    ));
+    for _ in 0..16 {
+        assert_eq!(Fingerprint::from_name("random").unwrap(), picked);
+    }
+    assert!(Fingerprint::from_name("randomized").is_err());
+}

@@ -267,7 +267,7 @@ fn vless_transports() {
             "encryption=mlkem768x25519plus.native.0rtt.abc",
             "encryption",
         ),
-        ("security=tls&fp=random", "\"random\""),
+        ("security=tls&fp=randomized", "\"randomized\""),
         ("security=reality&sni=a.com", "pbk"),
         ("security=tls&pcs=abcd", "pcs"),
         ("flow=xtls-rprx-vision", "flow"),
