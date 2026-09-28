@@ -22,7 +22,109 @@ Serde: `serde (deny_unknown_fields)`
 | `endpoints` | `Vec < Endpoint >` | Default::default() | Both an inbound and an outbound under one tag, as sing-box's endpoints: connections routed to the tag go out through it, and what comes in through it is routed with the tag as its inbound.<br/>`serde (default , skip_serializing_if = "Vec::is_empty")` |
 | `route` | `Route` | Default::default() | —<br/>`serde (default)` |
 | `api` | `Api` | Default::default() | —<br/>`serde (default , skip_serializing_if = "Api::is_default")` |
+| `experimental` | `Experimental` | Default::default() | —<br/>`serde (default , skip_serializing_if = "Experimental::is_default")` |
+| `certificate` | `Option < CertificateOptions >` | Default::default() | The root certificates servers are checked against; the system's when unset.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
+| `http_clients` | `Vec < HttpClient >` | Default::default() | How sail fetches over HTTP, rule-sets for one, by tag.<br/>`serde (default , skip_serializing_if = "Vec::is_empty")` |
 | `warnings` | `Vec < String >` | Required | What the configuration sets that sail ignores, one line each; the start logs them.<br/>`serde (skip)` |
+
+## HttpClient
+
+[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+
+An HTTP client: the outbound it fetches through, or, with none, the dial fields it connects with itself.
+
+Serde: `serde (deny_unknown_fields)`
+
+| Field | Type | Omission / flattening | Source notes |
+| --- | --- | --- | --- |
+| `tag` | `String` | Default::default() | Of one in `http_clients`; none inline.<br/>`serde (default , skip_serializing_if = "String::is_empty")` |
+| `detour` | `Option < String >` | Default::default() | —<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
+| `bind_interface` | `Option < String >` | Default::default() | —<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
+| `inet4_bind_address` | `Option < std :: net :: Ipv4Addr >` | Default::default() | —<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
+| `inet6_bind_address` | `Option < std :: net :: Ipv6Addr >` | Default::default() | —<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
+| `routing_mark` | `Option < u32 >` | Default::default() | —<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
+| `connect_timeout` | `Option < std :: time :: Duration >` | Default::default() | —<br/>`serde (default , with = "duration" , skip_serializing_if = "Option::is_none")` |
+| `domain_resolver` | `Option < DomainResolver >` | Default::default() | —<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
+| `headers` | `BTreeMap < String , HeaderValues >` | Default::default() | Sent with each request, over sail's own of the same name.<br/>`serde (default , skip_serializing_if = "BTreeMap::is_empty")` |
+
+## HeaderValues
+
+[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+
+The values of a header: one, or a list.
+
+Serde: `serde (transparent)`
+
+| Field | Type | Omission / flattening | Source notes |
+| --- | --- | --- | --- |
+| `` | `Vec < String >` | Required | —<br/>`serde (with = "listable")` |
+
+## HttpClientRef
+
+[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+
+An HTTP client named by tag, or given in place; in place, its tag is no name, as in sing-box.
+
+Serde: `serde (untagged)`
+
+| Value / shape | Source notes |
+| --- | --- |
+| `(String)` | — |
+| `(HttpClient)` | — |
+
+## CertificateOptions
+
+[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+
+sing-box's top-level `certificate`: a store of root certificates, and certificates of one's own besides.
+
+Serde: `serde (deny_unknown_fields)`
+
+| Field | Type | Omission / flattening | Source notes |
+| --- | --- | --- | --- |
+| `store` | `CertificateStore` | Default::default() | —<br/>`serde (default)` |
+| `certificate` | `Vec < String >` | Default::default() | Inline PEM, its lines one to an entry or all in one.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
+| `certificate_path` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
+| `certificate_directory_path` | `Vec < String >` | Default::default() | Directories, every file of which holds certificates.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
+
+## CertificateStore
+
+[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+
+Which roots: the system's, or Mozilla's or Chrome's included lists (without the certificate authorities of China, as sing-box's), or none.
+
+Serde: `serde (rename_all = "snake_case")`
+
+| Value / shape | Source notes |
+| --- | --- |
+| `system` (default) | — |
+| `mozilla` | — |
+| `chrome` | — |
+| `none` | — |
+
+## Experimental
+
+[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+
+sing-box's `experimental`: what sail takes of it.
+
+Serde: `serde (deny_unknown_fields)`
+
+| Field | Type | Omission / flattening | Source notes |
+| --- | --- | --- | --- |
+| `clash_api` | `Option < ClashApi >` | Default::default() | —<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
+
+## ClashApi
+
+[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+
+Clash's API: the mode rules match, `Rule` when unset. The API itself is not served yet.
+
+Serde: `serde (deny_unknown_fields)`
+
+| Field | Type | Omission / flattening | Source notes |
+| --- | --- | --- | --- |
+| `default_mode` | `Option < String >` | Default::default() | —<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
 
 ## Api
 
@@ -92,6 +194,7 @@ Serde: `serde (deny_unknown_fields)`
 | `cache_capacity` | `Option < usize >` | Default::default() | Answers kept per address family; 512, or 64 on iOS, when unset.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
 | `timeout` | `Option < std :: time :: Duration >` | Default::default() | How long one query to one server may take; 4s when unset.<br/>`serde (default , with = "duration" , skip_serializing_if = "Option::is_none")` |
 | `reverse_mapping` | `bool` | Default::default() | Remembers the domain of each address the DNS answers that pass through carry, so that connections to the address are routed by the domain.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
+| `client_subnet` | `Option < Prefix >` | Default::default() | The EDNS Client Subnet each query carries, unless a rule says otherwise.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
 
 ## DnsServer
 
@@ -109,26 +212,59 @@ A DNS server. What it takes beyond its type and tag belongs to its type, and is 
 
 [Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
 
-A DNS rule, matched in order against each query. As in a routing rule, the domain conditions match when any of them does; the rule matches when that and every other condition it sets match.
+A DNS rule, matched in order against each query. Its conditions are a routing rule's, matched as they are there, and `query_type` and `outbound` besides; a logical one (`type: logical`) combines others, which take no action of their own.
 
 Serde: `serde (deny_unknown_fields)`
 
 | Field | Type | Omission / flattening | Source notes |
 | --- | --- | --- | --- |
+| `type` | `RuleType` | Default::default() | `default`, or `logical`.<br/>`serde (rename = "type" , default , skip_serializing_if = "RuleType::is_default")` |
+| `query_type` | `Vec < serde_json :: Value >` | Default::default() | Record types, by name (`A`, `AAAA`, `HTTPS`) or number.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
+| `inbound` | `Vec < String >` | Default::default() | Tags of the inbounds the connection that needs the name came in through.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
+| `clash_mode` | `Option < String >` | Default::default() | The mode of Clash's API, as in a routing rule.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
+| `ip_version` | `Option < u8 >` | Default::default() | —<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
+| `network` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
+| `auth_user` | `Vec < String >` | Default::default() | Names of the users an inbound authenticated.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
+| `protocol` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
 | `domain` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
 | `domain_suffix` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
 | `domain_keyword` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
+| `domain_regex` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
 | `geosite` | `Vec < String >` | Default::default() | A sail extension, as in a routing rule.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
 | `external` | `Vec < String >` | Default::default() | A sail extension, as in a routing rule: `site:<file>:<code>`.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `query_type` | `Vec < serde_json :: Value >` | Default::default() | Record types, by name (`A`, `AAAA`, `HTTPS`) or number.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `inbound` | `Vec < String >` | Default::default() | Tags of the inbounds the connection that needs the name came in through.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `auth_user` | `Vec < String >` | Default::default() | Names of the users an inbound authenticated.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `outbound` | `Vec < String >` | Default::default() | Tags of the outbounds that dial the name.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
+| `source_ip_cidr` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
+| `source_ip_is_private` | `bool` | Default::default() | —<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
+| `source_port` | `Vec < u16 >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
+| `source_port_range` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
+| `port` | `Vec < u16 >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
+| `port_range` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
+| `process_name` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
+| `process_path` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
+| `process_path_regex` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
+| `package_name` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
+| `package_name_regex` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
+| `user` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
+| `user_id` | `Vec < i32 >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
+| `outbound` | `Vec < String >` | Default::default() | Tags of the outbounds that dial the name; of the rule itself, not of a rule a logical one combines.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
 | `rule_set` | `Vec < String >` | Default::default() | Tags of rule-sets, any of whose rules matching matches. Their `ip_cidr` rules match no query, which has no address yet.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
 | `rule_set_ip_cidr_match_source` | `bool` | Default::default() | The rule-sets' `ip_cidr` match the source address.<br/>`serde (default , alias = "rule_set_ipcidr_match_source" , skip_serializing_if = "std::ops::Not::not")` |
-| `action` | `DnsRuleAction` | Default::default() | —<br/>`serde (default)` |
+| `match_response` | `Option < ResponseRef >` | Default::default() | The response of an `evaluate` rule before it, which the rule then matches: its addresses are what `ip_cidr`, `ip_is_private`, `ip_accept_any` and the rule-sets' `ip_cidr` match. With none, the rule matches only inverted.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
+| `ip_cidr` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
+| `ip_is_private` | `bool` | Default::default() | —<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
+| `ip_accept_any` | `bool` | Default::default() | The response has an address.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
+| `response_rcode` | `Option < Rcode >` | Default::default() | —<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
+| `invert` | `bool` | Default::default() | —<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
+| `mode` | `Option < LogicalMode >` | Default::default() | `logical`: `and` or `or`.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
+| `rules` | `Vec < DnsRule >` | Default::default() | `logical`: the rules combined.<br/>`serde (default , skip_serializing_if = "Vec::is_empty")` |
+| `action` | `Option < DnsRuleAction >` | Default::default() | `route` when unset.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
 | `server` | `Option < String >` | Default::default() | `route`: the server a matching query goes to.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
 | `strategy` | `Option < DnsStrategy >` | Default::default() | `route`: the address families, instead of `dns.strategy`.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
+| `tag` | `Option < String >` | Default::default() | `evaluate`: the name of its response, which `match_response` gives.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
+| `disable_cache` | `bool` | Default::default() | `route`, `evaluate` and `route-options`: the query neither comes from the cache nor goes into it.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
+| `rewrite_ttl` | `Option < u32 >` | Default::default() | The TTL the answer's records carry, in seconds.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
+| `timeout` | `Option < std :: time :: Duration >` | Default::default() | How long the query may take, instead of `dns.timeout`.<br/>`serde (default , with = "duration" , skip_serializing_if = "Option::is_none")` |
+| `client_subnet` | `Option < Prefix >` | Default::default() | The EDNS Client Subnet the query carries, instead of `dns.client_subnet`.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
+| `remove_client_subnet` | `bool` | Default::default() | The query carries no EDNS Client Subnet, whatever it or `dns.client_subnet` has.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
 
 ## DnsRuleAction
 
@@ -136,12 +272,15 @@ Serde: `serde (deny_unknown_fields)`
 
 What a matching DNS rule does.
 
-Serde: `serde (rename_all = "snake_case")`
+Serde: `serde (rename_all = "kebab-case")`
 
 | Value / shape | Source notes |
 | --- | --- |
-| `route` (default) | Sends the query to `server`. |
-| `reject` | Answers that the name does not resolve. |
+| `Route` (default) | Sends the query to `server`. |
+| `Evaluate` | Sends the query to `server` and keeps the response for the rules after it to match, which goes on with the next rule. |
+| `Respond` | Answers with the response kept. |
+| `RouteOptions` | Sets how the query is sent, for the rule that sends it; matching goes on with the next rule. |
+| `Reject` | Answers that the name does not resolve. |
 
 ## DnsStrategy
 
@@ -209,6 +348,7 @@ Serde: `serde (deny_unknown_fields)`
 | `default_mark` | `Option < u32 >` | Default::default() | The routing mark (`SO_MARK`, Linux) of outbounds that set none.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
 | `auto_detect_interface` | `bool` | Default::default() | Sends outbounds that name no interface of their own through the system's default interface, found at start. Needed when a TUN inbound routes everything, or outbound traffic would loop back into it.<br/>`serde (default)` |
 | `default_domain_resolver` | `Option < DomainResolver >` | Default::default() | The DNS server that resolves the names outbounds dial, for those that name no `domain_resolver` of their own. Unset, the DNS rules decide.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
+| `default_http_client` | `Option < String >` | Default::default() | The HTTP client of what names none, by tag; the first of `http_clients` when unset, or with none, the default outbound.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
 
 ## Rule
 
@@ -221,6 +361,8 @@ Serde: `serde (deny_unknown_fields)`
 | Field | Type | Omission / flattening | Source notes |
 | --- | --- | --- | --- |
 | `type` | `RuleType` | Default::default() | `default`, or `logical`.<br/>`serde (rename = "type" , default , skip_serializing_if = "RuleType::is_default")` |
+| `query_type` | `Vec < serde_json :: Value >` | Default::default() | Record types, by name (`A`, `AAAA`, `HTTPS`) or number: of a DNS query, and so never of a connection.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
+| `clash_mode` | `Option < String >` | Default::default() | The mode of Clash's API: matches while it is that, whatever the case; never without an API.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
 | `inbound` | `Vec < String >` | Default::default() | Tags of the inbounds a connection came in through.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
 | `ip_version` | `Option < u8 >` | Default::default() | 4 or 6: the family of the destination address.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
 | `network` | `Vec < String >` | Default::default() | `tcp`, `udp`.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
@@ -237,6 +379,8 @@ Serde: `serde (deny_unknown_fields)`
 | `source_ip_is_private` | `bool` | Default::default() | The source address is not a public one.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
 | `ip_cidr` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
 | `ip_is_private` | `bool` | Default::default() | The destination address, or one the domain resolved to, is not a public one.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
+| `ip_accept_any` | `bool` | Required | A DNS rule's: the response it matches has an address.<br/>`serde (skip)` |
+| `response_rcode` | `Option < u16 >` | Optional (None) | A DNS rule's: the response it matches has this code.<br/>`serde (skip)` |
 | `source_port` | `Vec < u16 >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
 | `source_port_range` | `Vec < String >` | Default::default() | Inclusive port ranges, as `port_range` writes them.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
 | `port` | `Vec < u16 >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
@@ -313,6 +457,7 @@ Serde: `serde (rename_all = "kebab-case")`
 | `HijackDns` | Answers the DNS queries the connection carries. |
 | `Sniff` | Reads the domain from the first bytes of a TCP connection (TLS SNI, HTTP Host), so that later rules match it. |
 | `Resolve` | Resolves the domain, so that later rules match its addresses; a domain that does not resolve fails the connection. |
+| `Bypass` | As sing-box 1.13: lets the kernel carry the connection past the proxy where TUN's auto_redirect matches it before it is set up. Elsewhere it routes to `outbound` like `route`, and without one the rule is skipped. |
 
 ## RejectMethod
 
