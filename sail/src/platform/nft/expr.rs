@@ -35,6 +35,8 @@ pub enum MetaKey {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CtKey {
     Direction = 1,
+    /// The `IPS_*` status bits, a host-order u32.
+    Status = 2,
     Mark = 3,
 }
 
@@ -50,6 +52,13 @@ pub enum CmpOp {
 pub enum PayloadBase {
     Network = 1,
     Transport = 2,
+}
+
+/// Which way `byteorder` converts (`enum nft_byteorder_ops`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ByteorderOp {
+    Ntoh = 0,
+    Hton = 1,
 }
 
 /// Which extension headers `exthdr` walks (`enum nft_exthdr_op`).
@@ -156,6 +165,17 @@ pub enum Expr {
     },
     /// Stops the rule unless `sreg` compares so with `data`.
     Cmp { op: CmpOp, sreg: Reg, data: Vec<u8> },
+    /// Converts `len` bytes from `sreg` into `dreg`, as numbers of `size`
+    /// bytes each (2, 4 or 8). A lookup in an interval set of host-order
+    /// keys -- uids, say -- needs them big-endian first, since the kernel
+    /// orders an interval set's keys as bytes; nft(8) puts this before it.
+    Byteorder {
+        sreg: Reg,
+        dreg: Reg,
+        op: ByteorderOp,
+        len: u32,
+        size: u32,
+    },
     /// `dreg = (sreg & mask) ^ xor` over `len` bytes.
     Bitwise {
         sreg: Reg,
@@ -204,6 +224,7 @@ impl Expr {
             Expr::Exthdr { .. } => "exthdr",
             Expr::Cmp { .. } => "cmp",
             Expr::Bitwise { .. } => "bitwise",
+            Expr::Byteorder { .. } => "byteorder",
             Expr::Immediate { .. } | Expr::Verdict(_) => "immediate",
             Expr::Lookup { .. } => "lookup",
             Expr::Redir { .. } => "redir",
@@ -297,6 +318,20 @@ impl Expr {
                 a.nested(NFTA_BITWISE_XOR, |a| {
                     a.bytes(NFTA_DATA_VALUE, xor);
                 });
+            }
+            // expr/byteorder.go:39-54: every attribute, in this order.
+            Expr::Byteorder {
+                sreg,
+                dreg,
+                op,
+                len,
+                size,
+            } => {
+                a.be32(NFTA_BYTEORDER_SREG, *sreg as u32);
+                a.be32(NFTA_BYTEORDER_DREG, *dreg as u32);
+                a.be32(NFTA_BYTEORDER_OP, *op as u32);
+                a.be32(NFTA_BYTEORDER_LEN, *len);
+                a.be32(NFTA_BYTEORDER_SIZE, *size);
             }
             // expr/immediate.go:31-50.
             Expr::Immediate { dreg, data } => {
@@ -523,6 +558,14 @@ mod tests {
                 "440001800c0001006269747769736500340002800800010000000001080002000000000108000300000000040c00048008000100ffffff000c0005800800010000000000",
             ),
             (
+                Expr::Byteorder { sreg: Reg::R1, dreg: Reg::R1, op: ByteorderOp::Hton, len: 4, size: 4 },
+                "400001800e000100627974656f726465720000002c00028008000100000000010800020000000001080003000000000108000400000000040800050000000004",
+            ),
+            (
+                ct(CtKey::Status),
+                "2000018007000100637400001400028008000200000000020800010000000001",
+            ),
+            (
                 Expr::Immediate { dreg: Reg::R1, data: port(2222) },
                 "2c0001800e000100696d6d6564696174650000001800028008000100000000010c0002800600010008ae0000",
             ),
@@ -726,6 +769,30 @@ mod tests {
               \x08\x00\x03\x00\x00\x00\x00\x04\
               \x0c\x00\x04\x80\x08\x00\x01\x00\xff\xff\xff\x00\
               \x0c\x00\x05\x80\x08\x00\x01\x00\x00\x00\x00\x00"
+        );
+    }
+
+    #[test]
+    fn byteorder_hton() {
+        // expr/byteorder.go:39-54, as nft(8) sends it before looking a uid
+        // up in an interval set: "byteorder reg 1 = hton(reg 1, 4, 4)".
+        let e = Expr::Byteorder {
+            sreg: Reg::R1,
+            dreg: Reg::R1,
+            op: ByteorderOp::Hton,
+            len: 4,
+            size: 4,
+        };
+        assert_eq!(
+            encoded(&e),
+            b"\x40\x00\x01\x80\
+              \x0e\x00\x01\x00byteorder\x00\x00\x00\
+              \x2c\x00\x02\x80\
+              \x08\x00\x01\x00\x00\x00\x00\x01\
+              \x08\x00\x02\x00\x00\x00\x00\x01\
+              \x08\x00\x03\x00\x00\x00\x00\x01\
+              \x08\x00\x04\x00\x00\x00\x00\x04\
+              \x08\x00\x05\x00\x00\x00\x00\x04"
         );
     }
 

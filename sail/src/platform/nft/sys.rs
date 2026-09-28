@@ -127,6 +127,13 @@ pub const NFTA_PAYLOAD_BASE: u16 = 2;
 pub const NFTA_PAYLOAD_OFFSET: u16 = 3;
 pub const NFTA_PAYLOAD_LEN: u16 = 4;
 
+// enum nft_byteorder_attributes
+pub const NFTA_BYTEORDER_SREG: u16 = 1;
+pub const NFTA_BYTEORDER_DREG: u16 = 2;
+pub const NFTA_BYTEORDER_OP: u16 = 3;
+pub const NFTA_BYTEORDER_LEN: u16 = 4;
+pub const NFTA_BYTEORDER_SIZE: u16 = 5;
+
 // enum nft_exthdr_attributes
 pub const NFTA_EXTHDR_DREG: u16 = 1;
 pub const NFTA_EXTHDR_TYPE: u16 = 2;

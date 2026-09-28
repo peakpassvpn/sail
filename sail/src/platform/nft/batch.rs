@@ -9,6 +9,8 @@
 use std::net::IpAddr;
 
 use super::expr::{Expr, SetRef};
+#[cfg(test)]
+use super::netlink::{align, messages};
 use super::netlink::{nft_type, put_message, Attrs};
 use super::sys::*;
 use super::Family;
@@ -459,28 +461,53 @@ impl Batch {
         self.push_elements(table, set, elems, what);
     }
 
-    /// set.go:399-503, for a set without data.
+    /// set.go:399-503, for a set without data. The element list is one
+    /// attribute, whose length is 16 bits, so a long list is split over
+    /// as many messages as it takes -- as nft(8) and set.go's callers do --
+    /// all in the same transaction.
     fn push_elements(&mut self, table: &Table, set: &SetRef, elems: &[SetElem], what: String) {
-        let mut body = Attrs::nfgen(table.family as u8, 0);
-        body.str(NFTA_SET_ELEM_LIST_SET, &set.name);
-        if let Some(id) = set.id {
-            body.be32(NFTA_SET_ELEM_LIST_SET_ID, id);
-        }
-        body.str(NFTA_SET_ELEM_LIST_TABLE, &table.name);
-        body.nested(NFTA_SET_ELEM_LIST_ELEMENTS, |a| {
-            for (i, elem) in elems.iter().enumerate() {
-                // Each element is a list entry numbered from 1.
-                a.nested(i as u16 + 1, |a| {
-                    if elem.interval_end {
-                        a.be32(NFTA_SET_ELEM_FLAGS, NFT_SET_ELEM_INTERVAL_END);
-                    }
-                    a.nested(NFTA_SET_ELEM_KEY, |a| {
-                        a.bytes(NFTA_DATA_VALUE, &elem.key);
-                    });
-                });
+        // Room for the elements in one list attribute, with its header.
+        const ROOM: usize = u16::MAX as usize - NLA_HDRLEN;
+        let mut rest = elems;
+        while !rest.is_empty() {
+            let mut size = 0;
+            let mut n = 0;
+            for elem in rest {
+                // The entry, its flags, the key nested twice.
+                let len = NLA_HDRLEN
+                    + if elem.interval_end { 8 } else { 0 }
+                    + 2 * NLA_HDRLEN
+                    + super::netlink::align(elem.key.len());
+                if n > 0 && size + len > ROOM {
+                    break;
+                }
+                size += len;
+                n += 1;
             }
-        });
-        self.push(NFT_MSG_NEWSETELEM, NLM_F_CREATE, body, what);
+            let (chunk, tail) = rest.split_at(n);
+            rest = tail;
+            let mut body = Attrs::nfgen(table.family as u8, 0);
+            body.str(NFTA_SET_ELEM_LIST_SET, &set.name);
+            if let Some(id) = set.id {
+                body.be32(NFTA_SET_ELEM_LIST_SET_ID, id);
+            }
+            body.str(NFTA_SET_ELEM_LIST_TABLE, &table.name);
+            body.nested(NFTA_SET_ELEM_LIST_ELEMENTS, |a| {
+                for (i, elem) in chunk.iter().enumerate() {
+                    // Each element is a list entry numbered from 1; the
+                    // kernel does not read the number.
+                    a.nested((i as u16).wrapping_add(1), |a| {
+                        if elem.interval_end {
+                            a.be32(NFTA_SET_ELEM_FLAGS, NFT_SET_ELEM_INTERVAL_END);
+                        }
+                        a.nested(NFTA_SET_ELEM_KEY, |a| {
+                            a.bytes(NFTA_DATA_VALUE, &elem.key);
+                        });
+                    });
+                }
+            });
+            self.push(NFT_MSG_NEWSETELEM, NLM_F_CREATE, body, what.clone());
+        }
     }
 
     /// Removes every element from a named set. set.go:689-703.
@@ -489,6 +516,46 @@ impl Batch {
         body.str(NFTA_SET_ELEM_LIST_TABLE, &table.name)
             .str(NFTA_SET_ELEM_LIST_SET, set);
         self.push(NFT_MSG_DELSETELEM, 0, body, format!("flushing set {}", set));
+    }
+
+    /// What each message does, in order: "creating rule 3 in chain
+    /// output", say.
+    pub fn descriptions(&self) -> impl Iterator<Item = &str> + '_ {
+        self.messages.iter().map(|m| m.what.as_str())
+    }
+
+    /// Encodes the batch and reads it back: each message, and each
+    /// attribute in it, nested ones too, must span its bytes exactly.
+    /// Returns the number of messages, the framing included. For the tests
+    /// of what builds batches.
+    #[cfg(test)]
+    pub(crate) fn check_wire(&self) -> usize {
+        fn walk(mut buf: &[u8]) {
+            while !buf.is_empty() {
+                assert!(buf.len() >= NLA_HDRLEN, "truncated attribute header");
+                let len = u16::from_ne_bytes([buf[0], buf[1]]) as usize;
+                let ty = u16::from_ne_bytes([buf[2], buf[3]]);
+                assert!(
+                    len >= NLA_HDRLEN && len <= buf.len(),
+                    "bad attribute length"
+                );
+                if ty & NLA_F_NESTED != 0 {
+                    walk(&buf[NLA_HDRLEN..len]);
+                }
+                buf = &buf[align(len).min(buf.len())..];
+            }
+        }
+        let wire = self.encode(1);
+        let mut n = 0;
+        for msg in messages(&wire) {
+            let msg = msg.expect("a well-formed message");
+            // The nfgenmsg, then the attributes.
+            assert!(msg.body.len() >= 4);
+            walk(&msg.body[4..]);
+            n += 1;
+        }
+        assert_eq!(n, self.messages.len() + 2);
+        n
     }
 
     /// The batch as it is sent: BATCH_BEGIN, the messages numbered from
@@ -763,6 +830,38 @@ mod tests {
             b.messages[2].body,
             b"\x01\x00\x00\x00\x06\x00\x01\x00t\x00\x00\x00\x06\x00\x02\x00s\x00\x00\x00"
         );
+    }
+
+    #[test]
+    fn long_element_list_is_split() {
+        // 3000 IPv6 intervals do not fit one 64 KiB attribute.
+        let t = Table::new(Family::Inet, "t");
+        let mut b = Batch::new();
+        let elems: Vec<SetElem> = (0..3000u128)
+            .flat_map(|i| SetElem::ip_prefix(IpAddr::from((i << 64).to_be_bytes()), 64))
+            .collect();
+        let set = b.add_set(&t, &Set::named("s6", KeyType::IPV6_ADDR).interval(), &elems);
+        assert!(b.messages.len() > 2, "{} messages", b.messages.len());
+        b.check_wire();
+        // Every element went, once, in order.
+        let mut keys = Vec::new();
+        for m in &b.messages[1..] {
+            assert_eq!(m.ty, 0x0a0c);
+            assert_eq!(m.what, "adding elements to set s6");
+            for (ty, list) in super::super::netlink::attrs(&m.body[4..]) {
+                if ty == NFTA_SET_ELEM_LIST_ELEMENTS {
+                    for (_, elem) in super::super::netlink::attrs(list) {
+                        keys.push(elem.to_vec());
+                    }
+                }
+            }
+        }
+        assert_eq!(keys.len(), elems.len());
+        assert_eq!(set.id, Some(1));
+        // Adding them later splits the same way.
+        let mut b = Batch::new();
+        b.add_elements(&t, &SetRef::named("s6"), &elems);
+        assert_eq!(b.messages.len(), 3);
     }
 
     #[test]
