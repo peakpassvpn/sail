@@ -229,6 +229,11 @@ impl OutboundDatagramRecvHalf for DatagramRecvHalf {
         let mut ignored = [0u8; 64];
         loop {
             tokio::select! {
+                // The socket first, as the inbound's relay does: replies a
+                // server sent before closing the control connection are
+                // queued here when the close arrives, and are handed out,
+                // not dropped by which branch a fair select picks.
+                biased;
                 received = socket.recv(packet) => {
                     let n = received?;
                     match unwrap(&packet[..n], buf) {
@@ -318,6 +323,41 @@ mod tests {
         let bound = associate(&mut stream, Some(("ab", "cd"))).await.unwrap();
         assert_eq!(bound.to_string(), "127.0.0.1:4660");
         server.await.unwrap();
+    }
+
+    /// A server that sends its last replies and closes the control
+    /// connection at once has them handed out before the association ends.
+    #[tokio::test]
+    async fn replies_sent_before_the_control_closes_are_received() {
+        let loopback = std::net::Ipv4Addr::LOCALHOST;
+        for _ in 0..50 {
+            let relay = UdpSocket::bind((loopback, 0)).await.unwrap();
+            let socket = UdpSocket::bind((loopback, 0)).await.unwrap();
+            socket.connect(relay.local_addr().unwrap()).await.unwrap();
+            let client_addr = socket.local_addr().unwrap();
+            let listener = TcpListener::bind((loopback, 0)).await.unwrap();
+            let control = tokio::net::TcpStream::connect(listener.local_addr().unwrap())
+                .await
+                .unwrap();
+            let (server_control, _) = listener.accept().await.unwrap();
+            let dgram = Box::new(Datagram {
+                socket: Arc::new(socket),
+                control: Box::new(control),
+            });
+            let (mut r, _s) = dgram.split();
+            for i in 0..3u8 {
+                let reply = [0, 0, 0, 0x01, 1, 2, 3, 4, 0, 53, i];
+                relay.send_to(&reply, client_addr).await.unwrap();
+            }
+            drop(server_control);
+            let mut buf = [0u8; 16];
+            for i in 0..3u8 {
+                let (n, _) = r.recv_from(&mut buf).await.unwrap();
+                assert_eq!(&buf[..n], &[i]);
+            }
+            let err = r.recv_from(&mut buf).await.unwrap_err();
+            assert_eq!(err.kind(), io::ErrorKind::ConnectionAborted);
+        }
     }
 
     #[test]
