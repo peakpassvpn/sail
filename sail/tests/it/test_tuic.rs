@@ -1,3 +1,4 @@
+#[allow(unused_imports)] // Unused where features leave out every test.
 use crate::common;
 
 // TUIC between two sail instances, and against sing-box in both directions:

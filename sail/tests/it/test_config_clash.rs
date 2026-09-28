@@ -1,3 +1,4 @@
+#[allow(unused_imports)] // Unused where features leave out every test.
 use crate::common;
 
 // app(socks) -> (mixed)sail, read from a Clash configuration -> echo

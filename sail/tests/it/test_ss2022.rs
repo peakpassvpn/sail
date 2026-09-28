@@ -5,6 +5,7 @@
 //! `sing-box` in `$SING_BOX`, else at `/opt/homebrew/bin/sing-box`, else
 //! on the PATH.
 
+#[allow(unused_imports)] // Unused where features leave out every test.
 use crate::common;
 
 const AES128_SERVER: &str = "a8C5QncIl9HvTmenrEb7aw==";

@@ -1,5 +1,6 @@
 #![cfg(all(feature = "inbound-socks", feature = "outbound-socks"))]
 
+#[allow(unused_imports)] // Unused where features leave out every test.
 use crate::common;
 
 use std::time::Duration;

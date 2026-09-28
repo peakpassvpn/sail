@@ -1,3 +1,4 @@
+#[allow(unused_imports)] // Unused where features leave out every test.
 use crate::common;
 
 // app(socks) -> (socks)client(chain(chain(amux(ws)+trojan)+trojan)) -> (chain(amux(ws)+trojan))server1(direct) -> (trojan)server2(direct) -> echo

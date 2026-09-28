@@ -1,3 +1,4 @@
+#[allow(unused_imports)] // Unused where features leave out every test.
 use crate::common;
 
 // app(socks) -> (socks)client(socks to proxy.sail.test) -> (socks)server(direct) -> echo

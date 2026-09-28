@@ -19,6 +19,7 @@
     feature = "outbound-chain",
 ))]
 
+#[allow(unused_imports)] // Unused where features leave out every test.
 use crate::common;
 
 use std::sync::atomic::{AtomicUsize, Ordering};

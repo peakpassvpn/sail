@@ -1,3 +1,4 @@
+#[allow(unused_imports)] // Unused where features leave out every test.
 use crate::common;
 
 // app(socks) -> (socks)client(chain(shadowsocks+chain(ws+trojan)) -> (shadowsocks)server2(direct) -> (chain(ws+trojan))server1(direct) -> echo

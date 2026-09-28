@@ -1,3 +1,4 @@
+#[allow(unused_imports)] // Unused where features leave out every test.
 use crate::common;
 
 // app(socks) -> (socks)sail(route by rule-set) -> echo
