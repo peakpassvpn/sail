@@ -103,7 +103,7 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
             ctx.tag
         ));
     }
-    let probe = HttpProbe::new(&options.url, ctx.dns_client.clone())
+    let probe = HttpProbe::new(&options.url, ctx.dns_client.clone(), ctx.env)
         .map_err(|e| anyhow!("[{}] outbound: url: {}", ctx.tag, e))?;
 
     // The first member until the first tests are done.

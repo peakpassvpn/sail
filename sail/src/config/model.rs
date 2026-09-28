@@ -38,10 +38,43 @@ pub struct Config {
     pub api: Api,
     #[serde(default, skip_serializing_if = "Experimental::is_default")]
     pub experimental: Experimental,
+    /// The root certificates servers are checked against; the system's
+    /// when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub certificate: Option<CertificateOptions>,
     /// What the configuration sets that sail ignores, one line each; the
     /// start logs them.
     #[serde(skip)]
     pub warnings: Vec<String>,
+}
+
+/// sing-box's top-level `certificate`: a store of root certificates, and
+/// certificates of one's own besides.
+#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct CertificateOptions {
+    #[serde(default)]
+    pub store: CertificateStore,
+    /// Inline PEM, its lines one to an entry or all in one.
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub certificate: Vec<String>,
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub certificate_path: Vec<String>,
+    /// Directories, every file of which holds certificates.
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub certificate_directory_path: Vec<String>,
+}
+
+/// Which roots: the system's, or Mozilla's or Chrome's included lists
+/// (without the certificate authorities of China, as sing-box's), or none.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CertificateStore {
+    #[default]
+    System,
+    Mozilla,
+    Chrome,
+    None,
 }
 
 /// sing-box's `experimental`: what sail takes of it.

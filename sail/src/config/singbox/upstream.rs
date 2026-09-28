@@ -35,7 +35,6 @@ pub const EMPTIED: &[&str] = &["experimental.clash_api", "experimental"];
 pub const FIELDS: &[Field] = &[
     // Top level.
     f("ntp", Ignored),
-    f("certificate", Unsupported),
     f("certificate_providers", Unsupported),
     f("http_clients", Unsupported),
     f("network_namespaces", Unsupported),

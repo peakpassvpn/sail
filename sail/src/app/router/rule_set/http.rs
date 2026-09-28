@@ -98,7 +98,7 @@ async fn get_once(
         .await
         .map_err(|e| anyhow!("connect {} through [{}]: {}", host, detour, e))?;
     let mut stream = if tls {
-        handshake(&host, stream).await?
+        handshake(&host, stream, dispatcher.env()).await?
     } else {
         stream
     };
@@ -181,13 +181,18 @@ async fn get_once(
 }
 
 #[cfg(feature = "tls")]
-async fn handshake(host: &str, stream: AnyStream) -> Result<AnyStream> {
+async fn handshake(
+    host: &str,
+    stream: AnyStream,
+    env: &crate::runtime::RuntimeEnv,
+) -> Result<AnyStream> {
     use crate::transport::tls::{Fingerprint, TlsClient};
     let client = TlsClient::new(
         &["http/1.1".to_string()],
         None,
         false,
         Some(Fingerprint::Chrome),
+        &env.tls_roots.get()?,
     )?;
     let stream = client
         .connect(host, stream, None, None)
@@ -197,7 +202,11 @@ async fn handshake(host: &str, stream: AnyStream) -> Result<AnyStream> {
 }
 
 #[cfg(not(feature = "tls"))]
-async fn handshake(_host: &str, _stream: AnyStream) -> Result<AnyStream> {
+async fn handshake(
+    _host: &str,
+    _stream: AnyStream,
+    _env: &crate::runtime::RuntimeEnv,
+) -> Result<AnyStream> {
     Err(anyhow!(
         "https: not supported, the tls feature is not compiled in"
     ))

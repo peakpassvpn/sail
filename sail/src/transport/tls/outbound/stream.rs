@@ -33,13 +33,14 @@ impl Handler {
         ech_disable_dns_lookup: bool,
         ech_config_list: Option<String>,
         dns_client: SyncDnsClient,
+        roots: &crate::transport::tls::roots::Roots,
     ) -> Result<Self> {
         if let Some(list) = ech_config_list.as_deref() {
             decode_ech_config_list(list)?;
         }
         Ok(Handler {
             server_name,
-            client: TlsClient::new(&alpns, certificate.as_deref(), insecure, fingerprint)?,
+            client: TlsClient::new(&alpns, certificate.as_deref(), insecure, fingerprint, roots)?,
             ech: ech.then_some(Ech {
                 fixed_config_list: ech_config_list,
                 disable_dns_lookup: ech_disable_dns_lookup,
@@ -417,6 +418,7 @@ mod tests {
             false,
             Some("$$$".to_string()),
             new_test_dns_client(),
+            &crate::transport::tls::tests::test_roots(),
         );
         assert!(result.is_err());
     }

@@ -122,5 +122,39 @@ fn test_tls_trojan() -> anyhow::Result<()> {
         .to_string();
         let configs = vec![config5, server(trojan_port)];
         common::test_configs(configs, "127.0.0.1", socks_port)
-    })
+    })?;
+
+    // Trusted through the top-level `certificate` instead: its store and a
+    // certificate of one's own. Mozilla's roots alone do not know it.
+    for (certificate, trusted) in [
+        (
+            serde_json::json!({ "store": "none", "certificate": cert_pem.clone() }),
+            true,
+        ),
+        (serde_json::json!({ "store": "mozilla" }), false),
+    ] {
+        let result = common::retry_port_clash(|| {
+            let [socks_port, trojan_port] = common::free_ports();
+            let client = serde_json::json!({
+                "certificate": certificate,
+                "inbounds": [{
+                    "type": "socks",
+                    "listen": "127.0.0.1",
+                    "listen_port": socks_port
+                }],
+                "outbounds": [{
+                    "type": "trojan",
+                    "server": "127.0.0.1",
+                    "server_port": trojan_port,
+                    "password": "password",
+                    "tls": { "enabled": true, "server_name": "localhost" }
+                }]
+            })
+            .to_string();
+            let configs = vec![client, server(trojan_port)];
+            common::test_configs(configs, "127.0.0.1", socks_port)
+        });
+        assert_eq!(result.is_ok(), trusted, "{}: {:?}", certificate, result);
+    }
+    Ok(())
 }

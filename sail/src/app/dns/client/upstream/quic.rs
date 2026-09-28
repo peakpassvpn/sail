@@ -89,10 +89,12 @@ impl Pool {
         &self,
         certificate: Option<&str>,
         insecure: bool,
+        roots: &crate::transport::tls::roots::Roots,
     ) -> Result<quinn::ClientConfig> {
         self.client_config
             .get_or_init(|| {
-                build_client_config(self.kind, certificate, insecure).map_err(|e| e.to_string())
+                build_client_config(self.kind, certificate, insecure, roots)
+                    .map_err(|e| e.to_string())
             })
             .clone()
             .map_err(|e| anyhow!("quic client config: {}", e))
@@ -103,9 +105,10 @@ fn build_client_config(
     kind: Kind,
     certificate: Option<&str>,
     insecure: bool,
+    roots: &crate::transport::tls::roots::Roots,
 ) -> Result<quinn::ClientConfig> {
-    // As for TLS: the bundled roots, or `certificate` instead.
-    let crypto = client_crypto(certificate, insecure, &[kind.alpn().to_vec()])?;
+    // As for TLS: the instance's roots, or `certificate` instead.
+    let crypto = client_crypto(certificate, insecure, &[kind.alpn().to_vec()], roots)?;
     let mut client_config = quinn::ClientConfig::new(Arc::new(crypto));
     let mut transport = quinn::TransportConfig::default();
     transport.max_idle_timeout(quinn::IdleTimeout::try_from(IDLE_TIMEOUT).ok());
@@ -193,8 +196,11 @@ impl DnsClient {
         pool: &Pool,
         addr: SocketAddr,
     ) -> Result<Live> {
-        let client_config =
-            pool.client_config(upstream.certificate.as_deref(), upstream.insecure)?;
+        let client_config = pool.client_config(
+            upstream.certificate.as_deref(),
+            upstream.insecure,
+            &upstream.roots,
+        )?;
         let dialer = &upstream.dialer;
         let mut endpoint = if dialer.detour.is_none() {
             endpoint(bind(addr.ip(), &dialer.dial).await?, None)?

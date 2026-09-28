@@ -69,6 +69,11 @@ impl Instance {
         config.check_tun_route(host_routes)?;
         env.clash_mode
             .configure(config.experimental.clash_api.as_ref());
+        #[cfg(feature = "tls")]
+        env.tls_roots.set(crate::transport::tls::roots::configured(
+            config.certificate.as_ref(),
+            &env,
+        )?);
         let rule_sets = RuleSets::load(&config.route.rule_set, &env)?;
         let dns_client =
             DnsClient::with_rule_sets(&config.dns, dial_defaults.clone(), &env, &rule_sets)?;

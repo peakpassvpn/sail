@@ -935,6 +935,7 @@ fn tls_outbound(
             ech.is_some_and(|e| e.disable_dns_lookup),
             ech_config_list,
             dns_client.clone(),
+            &env.tls_roots.get()?,
         )?;
         Ok(HandlerBuilder::default()
             .tag(format!("{}/tls", tag))

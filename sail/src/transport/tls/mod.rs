@@ -9,6 +9,7 @@ pub(crate) mod hello;
 pub mod inbound;
 #[cfg(feature = "outbound-tls")]
 pub mod outbound;
+pub mod roots;
 
 pub use client::TlsClient;
 pub use conn::BoringConnection;

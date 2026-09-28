@@ -593,7 +593,13 @@ mod tests {
         let InboundTransport::Incoming(incoming) = transport else {
             panic!("not incoming");
         };
-        let crypto = client_crypto(Some(&cert.pem()), false, &alpns).unwrap();
+        let crypto = client_crypto(
+            Some(&cert.pem()),
+            false,
+            &alpns,
+            &crate::transport::tls::tests::test_roots(),
+        )
+        .unwrap();
         let mut endpoint =
             endpoint(std::net::UdpSocket::bind("127.0.0.1:0").unwrap(), None).unwrap();
         endpoint.set_default_client_config(quinn::ClientConfig::new(Arc::new(crypto)));
