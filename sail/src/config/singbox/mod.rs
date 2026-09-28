@@ -257,8 +257,8 @@ mod tests {
     fn a_value_sail_lacks_is_an_error() {
         for (rule, message) in [
             (
-                r#"{ "action": "bypass", "port": 53 }"#,
-                r#"route.rules[0].action: sail does not implement "bypass" yet"#,
+                r#"{ "action": "predefined", "port": 53 }"#,
+                r#"route.rules[0].action: sail does not implement "predefined" yet"#,
             ),
             (
                 r#"{ "action": "sniff", "sniffer": ["tls", "ssh"] }"#,

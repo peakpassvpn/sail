@@ -277,7 +277,9 @@ impl Rule {
         rule_sets: &rule_set::RuleSets,
     ) -> Result<Self> {
         let action = match rule.action() {
-            RuleAction::Route => Action::Route(
+            // Where nothing pre-matches the connection, a bypass rule with
+            // an outbound routes to it.
+            RuleAction::Route | RuleAction::Bypass => Action::Route(
                 rule.outbound
                     .clone()
                     .ok_or_else(|| anyhow!("{}: outbound: a route rule needs one", path))?,
@@ -341,6 +343,9 @@ impl Router {
             .rules
             .iter()
             .enumerate()
+            // Without auto_redirect's pre-match, a bypass rule with no
+            // outbound is skipped, as in sing-box.
+            .filter(|(_, rule)| !(rule.action() == RuleAction::Bypass && rule.outbound.is_none()))
             .map(|(i, rule)| {
                 Rule::new(
                     rule,
@@ -735,6 +740,32 @@ mod tests {
         assert_eq!(
             sess.route.tls_fragment,
             Some(TlsFragment::Segments(Duration::from_millis(10)))
+        );
+    }
+
+    /// Without auto_redirect's pre-match, bypass is sing-box's: with an
+    /// outbound it routes there, options and all; without one the rule is
+    /// skipped.
+    #[tokio::test]
+    async fn bypass_routes_to_its_outbound_or_is_skipped() {
+        let router = router(serde_json::json!([
+            { "port": 22, "action": "bypass" },
+            { "port": 443, "action": "bypass", "outbound": "a", "override_address": "::1" },
+            { "port": 22, "outbound": "a" },
+        ]));
+        let mut sess = to("x.test:443");
+        assert_eq!(
+            pick(&router, &mut sess).await,
+            Decision::Route(Some("a".into()))
+        );
+        assert_eq!(sess.destination, to("[::1]:443").destination);
+        assert_eq!(
+            pick(&router, &mut to("x.test:22")).await,
+            Decision::Route(Some("a".into()))
+        );
+        assert_eq!(
+            pick(&router, &mut to("x.test:80")).await,
+            Decision::Route(Some("b".into()))
         );
     }
 

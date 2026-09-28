@@ -1353,6 +1353,11 @@ pub enum RuleAction {
     /// Resolves the domain, so that later rules match its addresses; a
     /// domain that does not resolve fails the connection.
     Resolve,
+    /// As sing-box 1.13: lets the kernel carry the connection past the
+    /// proxy where TUN's auto_redirect matches it before it is set up.
+    /// Elsewhere it routes to `outbound` like `route`, and without one the
+    /// rule is skipped.
+    Bypass,
 }
 
 /// How a `reject` rule closes a connection.
@@ -1448,10 +1453,10 @@ impl Rule {
     /// belongs to.
     fn action_fields(&self) -> Vec<(&'static str, &'static [RuleAction])> {
         use RuleAction::*;
-        const ROUTE: &[RuleAction] = &[Route, RouteOptions];
+        const ROUTE: &[RuleAction] = &[Route, RouteOptions, Bypass];
         [
             ("action", self.action.is_some(), &[] as &[RuleAction]),
-            ("outbound", self.outbound.is_some(), &[Route]),
+            ("outbound", self.outbound.is_some(), &[Route, Bypass]),
             ("override_address", self.override_address.is_some(), ROUTE),
             ("override_port", self.override_port.is_some(), ROUTE),
             (
@@ -1527,6 +1532,13 @@ impl Rule {
                 }
                 _ => {}
             },
+            RuleAction::Bypass => {
+                if let Some(tag) = &self.outbound {
+                    if !outbounds.contains(tag.as_str()) {
+                        return Err(anyhow!("{}: outbound [{}] does not exist", path, tag));
+                    }
+                }
+            }
             RuleAction::HijackDns | RuleAction::Sniff | RuleAction::Resolve => {}
         }
         if self.tls_fragment && self.tls_record_fragment {
@@ -1560,7 +1572,9 @@ impl Rule {
             return Err(anyhow!("{}.override_port: must be more than 0", path));
         }
         // A rule that ends the matching for every connection is `final`.
-        if matches!(action, RuleAction::Route | RuleAction::Reject) && !self.has_conditions() {
+        let ends_matching = matches!(action, RuleAction::Route | RuleAction::Reject)
+            || (action == RuleAction::Bypass && self.outbound.is_some());
+        if ends_matching && !self.has_conditions() {
             return Err(anyhow!(
                 "{}: the rule has no conditions; route.final is where everything else goes",
                 path
@@ -1653,6 +1667,7 @@ impl RuleAction {
             RuleAction::HijackDns => "hijack-dns",
             RuleAction::Sniff => "sniff",
             RuleAction::Resolve => "resolve",
+            RuleAction::Bypass => "bypass",
         }
     }
 }
@@ -2139,7 +2154,18 @@ mod tests {
                 r#"[{ "port": 1, "ip_version": 5, "outbound": "direct" }]"#,
                 "route.rules[0].ip_version: 4 or 6",
             ),
-            (r#"[{ "action": "bypass" }]"#, "bypass"),
+            (
+                r#"[{ "port": 1, "action": "bypass", "outbound": "proxy" }]"#,
+                "route.rules[0]: outbound [proxy] does not exist",
+            ),
+            (
+                r#"[{ "action": "bypass", "outbound": "direct" }]"#,
+                "route.final",
+            ),
+            (
+                r#"[{ "port": 1, "action": "bypass", "method": "drop" }]"#,
+                "route.rules[0].method: not for a bypass rule",
+            ),
         ] {
             let err = config(rules).unwrap_err().to_string();
             assert!(err.contains(message), "{}: {}", rules, err);

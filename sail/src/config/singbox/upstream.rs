@@ -391,7 +391,7 @@ pub const VALUES: &[(&str, &[&str])] = &[
     ),
     (
         "route.rules.*.action",
-        &["evaluate", "respond", "direct", "bypass", "predefined"],
+        &["evaluate", "respond", "direct", "predefined"],
     ),
     ("route.rules.*.sniffer", &["ssh", "rdp", "ntp"]),
 ];
