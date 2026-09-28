@@ -19,6 +19,11 @@ use crate::{
 
 #[cfg(feature = "outbound-select")]
 use super::selector::OutboundSelector;
+#[cfg(feature = "outbound-provider")]
+use crate::{
+    app::provider::Providers,
+    protocol::group::merge::{Merge, Sources},
+};
 
 /// The outbounds of an instance. It is not changed in place: a change
 /// makes a new manager, which replaces this one in the instance's
@@ -41,6 +46,13 @@ pub struct OutboundManager {
     /// How each outbound was configured, to tell whether a reload changed
     /// one that must not change.
     configs: HashMap<String, Outbound>,
+    /// The outbound providers, whose members groups take.
+    #[cfg(feature = "outbound-provider")]
+    providers: Arc<Providers>,
+    /// What merges the members of each group that takes some from
+    /// providers.
+    #[cfg(feature = "outbound-provider")]
+    merges: HashMap<String, Arc<Merge>>,
 }
 
 impl OutboundManager {
@@ -52,28 +64,47 @@ impl OutboundManager {
         env: &RuntimeEnv,
         dns_client: SyncDnsClient,
     ) -> Result<Self> {
-        Self::with_endpoints(outbounds, &[], dial_defaults, env, dns_client)
+        Self::with_endpoints(
+            outbounds,
+            &[],
+            #[cfg(feature = "outbound-provider")]
+            Default::default(),
+            dial_defaults,
+            env,
+            dns_client,
+        )
     }
 
-    /// Builds `outbounds` and `endpoints`, as `new` does outbounds.
-    pub fn with_endpoints(
+    /// Builds `outbounds` and `endpoints`, as `new` does outbounds, and
+    /// the members of `providers`.
+    pub(crate) fn with_endpoints(
         outbounds: &[Outbound],
         endpoints: &[Endpoint],
+        #[cfg(feature = "outbound-provider")] providers: Providers,
         dial_defaults: &DialOptions,
         env: &RuntimeEnv,
         dns_client: SyncDnsClient,
     ) -> Result<Self> {
-        let empty = Self::empty(outbounds, endpoints);
-        empty.with(outbounds, endpoints, dial_defaults, env, dns_client)
+        #[cfg_attr(not(feature = "outbound-provider"), allow(unused_mut))]
+        let mut empty = Self::empty(outbounds, endpoints);
+        #[cfg(feature = "outbound-provider")]
+        {
+            empty.providers = Arc::new(providers);
+        }
+        let next = empty.with(outbounds, endpoints, dial_defaults, env, dns_client.clone())?;
+        #[cfg(feature = "outbound-provider")]
+        next.build_providers(env, &dns_client)?;
+        Ok(next)
     }
 
     /// Builds `outbounds` anew for a reload, keeping the endpoints of
     /// `previous`, which run, and the outbounds they are built on: those
     /// are only configured at start, and must be configured as they were.
-    pub fn reloaded(
+    pub(crate) fn reloaded(
         previous: &OutboundManager,
         outbounds: &[Outbound],
         endpoints: &[Endpoint],
+        #[cfg(feature = "outbound-provider")] providers: Providers,
         dial_defaults: &DialOptions,
         env: &RuntimeEnv,
         dns_client: SyncDnsClient,
@@ -98,6 +129,10 @@ impl OutboundManager {
             i += 1;
         }
         let mut next = Self::empty(outbounds, endpoints);
+        #[cfg(feature = "outbound-provider")]
+        {
+            next.providers = Arc::new(providers);
+        }
         #[cfg(feature = "outbound-select")]
         let mut selectors = HashMap::new();
         for tag in &kept {
@@ -125,6 +160,23 @@ impl OutboundManager {
             if let Some(selector) = previous.selectors.get(tag) {
                 selectors.insert(tag.clone(), selector.clone());
             }
+            // A group kept follows the members of the providers it was
+            // built on, which must be the ones there are.
+            #[cfg(feature = "outbound-provider")]
+            if let Some(merge) = previous.merges.get(tag) {
+                let now = next.providers.members();
+                let unchanged = merge.providers().iter().all(|(provider, members)| {
+                    now.get(provider).is_some_and(|m| Arc::ptr_eq(m, members))
+                });
+                if !unchanged {
+                    return Err(anyhow!(
+                        "[{}] outbound: its providers changed, but an endpoint is built on it, \
+                         and it is only configured at start",
+                        tag
+                    ));
+                }
+                next.merges.insert(tag.clone(), merge.clone());
+            }
         }
         #[cfg(feature = "outbound-select")]
         {
@@ -136,7 +188,10 @@ impl OutboundManager {
             .filter(|o| !kept.contains(&o.tag))
             .cloned()
             .collect();
-        next.with(&rest, &[], dial_defaults, env, dns_client)
+        let next = next.with(&rest, &[], dial_defaults, env, dns_client.clone())?;
+        #[cfg(feature = "outbound-provider")]
+        next.build_providers(env, &dns_client)?;
+        Ok(next)
     }
 
     fn empty(outbounds: &[Outbound], endpoints: &[Endpoint]) -> Self {
@@ -156,6 +211,10 @@ impl OutboundManager {
             dependencies: HashMap::new(),
             endpoints: HashMap::new(),
             configs: HashMap::new(),
+            #[cfg(feature = "outbound-provider")]
+            providers: Default::default(),
+            #[cfg(feature = "outbound-provider")]
+            merges: HashMap::new(),
         };
         if let Some(tag) = &empty.default_handler {
             tracing::debug!("default handler [{}]", tag);
@@ -178,6 +237,24 @@ impl OutboundManager {
         let mut external_handlers = super::plugin::ExternalHandlers::new();
         #[cfg(feature = "outbound-select")]
         let mut selectors = (*self.selectors).clone();
+        #[cfg(feature = "outbound-provider")]
+        let mut sources = Sources {
+            providers: self.providers.members(),
+            protocols: self
+                .configs
+                .values()
+                .chain(outbounds)
+                .map(|o| (o.tag.clone(), o.protocol.clone()))
+                .chain(
+                    self.endpoints
+                        .values()
+                        .map(|e| &e.config)
+                        .chain(endpoints)
+                        .map(|e| (e.tag.clone(), e.protocol.clone())),
+                )
+                .collect(),
+            merges: Vec::new(),
+        };
         registry::build_outbounds(
             &include::OUTBOUNDS,
             &include::ENDPOINTS,
@@ -195,10 +272,16 @@ impl OutboundManager {
                 selectors: &mut selectors,
                 #[cfg(feature = "plugin")]
                 external_handlers: &mut external_handlers,
+                #[cfg(feature = "outbound-provider")]
+                providers: &mut sources,
             },
         )?;
         for outbound in outbounds {
             next.configs.insert(outbound.tag.clone(), outbound.clone());
+        }
+        #[cfg(feature = "outbound-provider")]
+        for merge in sources.merges {
+            next.merges.insert(merge.tag().to_string(), merge);
         }
         #[cfg(feature = "plugin")]
         next.external_handlers.push(Arc::new(external_handlers));
@@ -270,7 +353,39 @@ impl OutboundManager {
             selectors.remove(tag);
             next.selectors = Arc::new(selectors);
         }
+        #[cfg(feature = "outbound-provider")]
+        next.merges.remove(tag);
         Ok((next, tasks))
+    }
+
+    /// Builds the members of the providers onto the outbounds, and merges
+    /// the groups that take them.
+    #[cfg(feature = "outbound-provider")]
+    fn build_providers(&self, env: &RuntimeEnv, dns_client: &SyncDnsClient) -> Result<()> {
+        self.providers.build(&self.handlers, dns_client, env)?;
+        self.merge_groups();
+        Ok(())
+    }
+
+    /// Merges the members of the groups that take some from providers
+    /// again, where a provider changed.
+    #[cfg(feature = "outbound-provider")]
+    pub(crate) fn merge_groups(&self) {
+        for merge in self.merges.values() {
+            merge.run();
+        }
+    }
+
+    /// The outbound providers.
+    #[cfg(feature = "outbound-provider")]
+    pub(crate) fn providers(&self) -> Arc<Providers> {
+        self.providers.clone()
+    }
+
+    /// The handlers, by tag.
+    #[cfg(feature = "outbound-provider")]
+    pub(crate) fn handler_map(&self) -> &HashMap<String, AnyOutboundHandler> {
+        &self.handlers
     }
 
     /// Selects what `previous`, the manager this one replaces, had
@@ -367,6 +482,8 @@ mod tests {
             None => OutboundManager::with_endpoints(
                 &config.outbounds,
                 &config.endpoints,
+                #[cfg(feature = "outbound-provider")]
+                Default::default(),
                 &dial,
                 &env,
                 dns,
@@ -375,6 +492,8 @@ mod tests {
                 previous,
                 &config.outbounds,
                 &config.endpoints,
+                #[cfg(feature = "outbound-provider")]
+                Default::default(),
                 &dial,
                 &env,
                 dns,

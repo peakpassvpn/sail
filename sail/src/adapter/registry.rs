@@ -167,6 +167,9 @@ pub struct OutboundContext<'a> {
     pub selectors: &'a mut crate::app::outbound::Selectors,
     #[cfg(feature = "plugin")]
     pub external_handlers: &'a mut crate::app::outbound::plugin::ExternalHandlers,
+    /// What groups take members from besides their outbounds.
+    #[cfg(feature = "outbound-provider")]
+    pub providers: &'a mut crate::protocol::group::merge::Sources,
     /// For an endpoint, the outbound its `detour` names: what it sends
     /// its own traffic through. An outbound's detour is applied around it
     /// instead, and is not here.
@@ -228,6 +231,9 @@ pub struct OutboundBuildState<'a> {
     pub selectors: &'a mut crate::app::outbound::Selectors,
     #[cfg(feature = "plugin")]
     pub external_handlers: &'a mut crate::app::outbound::plugin::ExternalHandlers,
+    /// What groups take members from besides their outbounds.
+    #[cfg(feature = "outbound-provider")]
+    pub providers: &'a mut crate::protocol::group::merge::Sources,
 }
 
 /// What `build_outbounds` builds one of.
@@ -313,6 +319,8 @@ pub fn build_outbounds(
                         selectors: state.selectors,
                         #[cfg(feature = "plugin")]
                         external_handlers: state.external_handlers,
+                        #[cfg(feature = "outbound-provider")]
+                        providers: state.providers,
                         handlers: state.handlers,
                         connector: None,
                     };
@@ -379,6 +387,8 @@ pub fn build_outbounds(
                 selectors: state.selectors,
                 #[cfg(feature = "plugin")]
                 external_handlers: state.external_handlers,
+                #[cfg(feature = "outbound-provider")]
+                providers: state.providers,
                 detour: None,
                 handlers: state.handlers,
                 connector,

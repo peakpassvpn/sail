@@ -210,7 +210,7 @@ mod tests {
             .build()
             .unwrap();
         rt.block_on(async {
-            let selection = Selection::new(key(0), key(0));
+            let selection = Selection::new("0", key(0));
             let (a, mut b) = tokio::io::duplex(64);
             let mut a = stream(Box::new(a), &selection.subscribe(), key(0));
             a.write_all(b"ping").await.unwrap();
@@ -239,7 +239,7 @@ mod tests {
             .build()
             .unwrap();
         rt.block_on(async {
-            let selection = Selection::new(key(0), key(1));
+            let selection = Selection::new("0", key(1));
             let (a, mut b) = tokio::io::duplex(64);
             let mut a = stream(Box::new(a), &selection.subscribe(), key(1));
             // Selecting the same member again is no change.

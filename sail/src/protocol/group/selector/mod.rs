@@ -14,7 +14,9 @@ use crate::adapter::registry::{
 };
 use crate::adapter::AnyOutboundHandler;
 use crate::app::outbound::selector::{self, OutboundSelector, SelectedBy, Selection};
-use crate::protocol::group::members::{MemberKey, Members, Snapshot};
+use crate::config::model::GroupProviders;
+use crate::protocol::group::members::{MemberKey, Snapshot};
+use crate::protocol::group::merge;
 use serde_derive::Deserialize;
 
 pub mod datagram;
@@ -30,9 +32,15 @@ pub(crate) fn register(registry: &mut OutboundRegistry) {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SelectorOutboundOptions {
+    /// Its members; none may be when its providers give others.
+    #[serde(default)]
     outbounds: Vec<String>,
+    /// Members from outbound providers too, a sail extension.
+    #[serde(flatten)]
+    providers: GroupProviders,
     /// Selected when nothing was selected before, or what was is no
-    /// longer a member; defaults to the first.
+    /// longer a member; defaults to the first. It may be a member a
+    /// provider gives, the first so named.
     #[serde(default)]
     default: Option<String>,
     /// Ends the connections through the member selected before once
@@ -43,25 +51,35 @@ struct SelectorOutboundOptions {
 
 fn dependencies(tag: &str, options: &Options) -> Result<Vec<String>> {
     let options: SelectorOutboundOptions = parse_options("outbound", tag, options)?;
-    Ok(options.outbounds)
+    Ok(options.providers.dependencies(options.outbounds))
 }
 
 fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
     let options: SelectorOutboundOptions = ctx.options()?;
-    let members = Members::outbounds(&options.outbounds, ctx.members(&options.outbounds)?);
+    let merged = merge::members(ctx, &options.outbounds, &options.providers)?;
+    let members = merged.members.clone();
     let snapshot = members.load();
-    let default = match &options.default {
-        Some(default) => snapshot.find(default).ok_or_else(|| {
-            anyhow!(
+    // A provider's members may be there only later.
+    let default: Arc<str> = match &options.default {
+        Some(default) if snapshot.find(default).is_none() && !merged.has_providers() => {
+            return Err(anyhow!(
                 "[{}] outbound: default: [{}] is not one of its outbounds",
                 ctx.tag,
                 default
-            )
-        })?,
-        None => &snapshot.members[0],
-    }
-    .key
-    .clone();
+            ));
+        }
+        Some(default) => default.as_str().into(),
+        None => snapshot
+            .members
+            .first()
+            .map(|m| m.key.name.clone())
+            .unwrap_or_default(),
+    };
+    let default_key = snapshot
+        .find(&default)
+        .map(|m| m.key.clone())
+        .unwrap_or_else(|| MemberKey::outbound(&default));
+    let mut wanted = None;
 
     // What was selected before the restart, if it is still a member: the
     // configuration may have changed since.
@@ -81,19 +99,31 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
     let initial = match cached {
         Some(cached) => match snapshot.find(&cached) {
             Some(member) => member.key.clone(),
+            // Until its providers give it, if they do.
+            None if merged.has_providers() => {
+                wanted = Some(cached);
+                default_key
+            }
             None => {
                 tracing::warn!(
                     "[{}] outbound: [{}] was selected but is no longer one of its outbounds",
                     ctx.tag,
                     cached
                 );
-                default.clone()
+                default_key
             }
         },
-        None => default.clone(),
+        None => default_key,
     };
 
-    let selected = Arc::new(Selection::new(default, initial));
+    let selected = Arc::new(Selection::new(&default, initial));
+    if let Some(wanted) = wanted {
+        selected.want(&wanted);
+    }
+    merged.on_merged({
+        let selected = selected.clone();
+        Box::new(move |snapshot, _| selected.settle(snapshot))
+    });
     let outbound_selector = OutboundSelector::new(
         ctx.tag.to_owned(),
         members.clone(),

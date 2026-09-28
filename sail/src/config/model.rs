@@ -45,6 +45,11 @@ pub struct Config {
     /// How sail fetches over HTTP, rule-sets for one, by tag.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub http_clients: Vec<HttpClient>,
+    /// A sail extension: outbounds given together, downloaded, read from
+    /// a file or written in place, that groups take as members, as
+    /// Mihomo's proxy groups take a proxy-provider's proxies.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub outbound_providers: Vec<OutboundProvider>,
     /// What the configuration sets that sail ignores, one line each; the
     /// start logs them.
     #[serde(skip)]
@@ -1067,6 +1072,285 @@ impl Endpoint {
     }
 }
 
+/// Outbounds given together, for groups to take as members (their
+/// `providers`): a sail extension, with the semantics of Mihomo's
+/// proxy-providers. A subscription or a file holds what Mihomo reads from
+/// one: Clash's YAML with its `proxies`, or share links, a line each and
+/// maybe in base64. It needs the outbound-provider feature.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct OutboundProvider {
+    #[serde(rename = "type")]
+    pub kind: OutboundProviderKind,
+    /// Its members' keys name it, and groups' `providers`.
+    pub tag: String,
+    /// `remote`: where it is downloaded from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    /// `local`: the file, in the data directory unless absolute.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    /// `remote`: how often it is downloaded again, 1d when unset. `local`:
+    /// how often the file is read again, never when unset.
+    #[serde(default, with = "duration", skip_serializing_if = "Option::is_none")]
+    pub update_interval: Option<std::time::Duration>,
+    /// `remote`: the outbound it is downloaded through, as a remote
+    /// rule-set's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub download_detour: Option<String>,
+    /// `remote`: the HTTP client it is downloaded with, as a remote
+    /// rule-set's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub http_client: Option<HttpClientRef>,
+    /// `remote`, `local`: regular expressions, as Mihomo's `filter`; only
+    /// the outbounds whose names match one are taken, those of the first
+    /// first.
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub filter: Vec<String>,
+    /// `remote`, `local`: regular expressions no name taken may match.
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub exclude_filter: Vec<String>,
+    /// `remote`, `local`: the Clash types (`ss`, `vmess`, ...) not taken,
+    /// without case.
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub exclude_type: Vec<String>,
+    /// `remote`, `local`: what is changed in every outbound taken, in the
+    /// keys of Mihomo's `override` (`skip-cert-verify`,
+    /// `additional-prefix`, `proxy-name`, ...).
+    #[serde(rename = "override", default, skip_serializing_if = "Option::is_none")]
+    pub overrides: Option<serde_json::Map<String, serde_json::Value>>,
+    /// `remote`, `local`: the outbound every outbound taken dials through,
+    /// as Mihomo's `dialer-proxy`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detour: Option<String>,
+    /// `inline`: the outbounds, their tags their names as members.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub outbounds: Vec<Outbound>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum OutboundProviderKind {
+    Remote,
+    Local,
+    Inline,
+}
+
+/// The protocols of groups, which take other outbounds as members.
+pub const GROUP_PROTOCOLS: &[&str] = &["selector", "urltest", "fallback", "load-balance", "tryall"];
+
+/// The groups that take members from outbound providers too.
+pub const PROVIDER_GROUPS: &[&str] = &["selector", "urltest", "fallback", "load-balance"];
+
+impl OutboundProvider {
+    /// The mistakes one provider can make on its own, and those naming what
+    /// is not there: `outbounds` and `http_clients` are the tags there are.
+    fn check(
+        &self,
+        outbounds: &HashSet<&str>,
+        http_clients: &HashSet<&str>,
+        dns_servers: &HashSet<String>,
+    ) -> Result<()> {
+        use OutboundProviderKind::*;
+        if self.tag.is_empty() {
+            return Err(anyhow!("tag: missing"));
+        }
+        let only = |set: bool, field: &str, kinds: &str| {
+            if set {
+                Err(anyhow!("{}: only a {} provider takes one", field, kinds))
+            } else {
+                Ok(())
+            }
+        };
+        match self.kind {
+            Remote => {
+                let url = self.url.as_deref().ok_or_else(|| anyhow!("url: missing"))?;
+                if !url.starts_with("https://") && !url.starts_with("http://") {
+                    return Err(anyhow!("url: \"{}\" is not an http(s) URL", url));
+                }
+                if self.http_client.is_some() && self.download_detour.is_some() {
+                    return Err(anyhow!(
+                        "http_client: not with download_detour, which it replaces"
+                    ));
+                }
+            }
+            Local => {
+                if self.path.is_none() {
+                    return Err(anyhow!("path: missing"));
+                }
+            }
+            Inline => {
+                if self.outbounds.is_empty() {
+                    return Err(anyhow!("outbounds: missing"));
+                }
+                let mut names = HashSet::new();
+                for (i, outbound) in self.outbounds.iter().enumerate() {
+                    if outbound.tag.is_empty() {
+                        return Err(anyhow!("outbounds[{}].tag: missing", i));
+                    }
+                    if !names.insert(outbound.tag.as_str()) {
+                        return Err(anyhow!(
+                            "outbounds[{}]: another outbound is tagged [{}]",
+                            i,
+                            outbound.tag
+                        ));
+                    }
+                    if GROUP_PROTOCOLS.contains(&outbound.protocol.as_str())
+                        || outbound.protocol == "plugin"
+                    {
+                        return Err(anyhow!(
+                            "outbounds[{}]: a group or a plugin is not a provider's outbound",
+                            i
+                        ));
+                    }
+                }
+                only(
+                    self.update_interval.is_some(),
+                    "update_interval",
+                    "remote or local",
+                )?;
+                let selection = [
+                    ("filter", !self.filter.is_empty()),
+                    ("exclude_filter", !self.exclude_filter.is_empty()),
+                    ("exclude_type", !self.exclude_type.is_empty()),
+                    ("override", self.overrides.is_some()),
+                    ("detour", self.detour.is_some()),
+                ];
+                for (field, set) in selection {
+                    only(set, field, "remote or local")?;
+                }
+            }
+        }
+        if self.kind != Remote {
+            only(self.url.is_some(), "url", "remote")?;
+            only(self.download_detour.is_some(), "download_detour", "remote")?;
+            only(self.http_client.is_some(), "http_client", "remote")?;
+        }
+        if self.kind != Local {
+            only(self.path.is_some(), "path", "local")?;
+        }
+        if self.kind != Inline {
+            only(!self.outbounds.is_empty(), "outbounds", "inline")?;
+        }
+        if self.update_interval == Some(std::time::Duration::ZERO) {
+            return Err(anyhow!("update_interval: must be more than 0"));
+        }
+        for (field, tag) in [
+            ("detour", &self.detour),
+            ("download_detour", &self.download_detour),
+        ] {
+            if let Some(tag) = tag {
+                if !outbounds.contains(tag.as_str()) {
+                    return Err(anyhow!("{}: outbound [{}] does not exist", field, tag));
+                }
+            }
+        }
+        match &self.http_client {
+            Some(HttpClientRef::Tag(tag)) if !http_clients.contains(tag.as_str()) => {
+                Err(anyhow!("http_client: http client [{}] does not exist", tag))
+            }
+            Some(HttpClientRef::Inline(client)) => client
+                .check(outbounds, dns_servers)
+                .map_err(|e| anyhow!("http_client: {}", e)),
+            _ => Ok(()),
+        }
+    }
+}
+
+/// The members a group takes from outbound providers, after its own
+/// `outbounds`, and those it leaves out: a sail extension, as Mihomo's
+/// proxy groups take them (`use`, `filter`, `exclude-filter`,
+/// `exclude-type`, `empty-fallback`). Of `selector`, `urltest`, `fallback`
+/// and `load-balance`; it needs the outbound-provider feature.
+#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
+pub struct GroupProviders {
+    /// The outbound providers, by tag, whose outbounds join the group's
+    /// own, in this order.
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub providers: Vec<String>,
+    /// Regular expressions, as Mihomo's `filter`: of the providers'
+    /// outbounds, only those whose names match one are members, those of
+    /// the first first. The group's own outbounds are not filtered.
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub filter: Vec<String>,
+    /// Regular expressions no member's name may match, the group's own
+    /// outbounds' too.
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub exclude_filter: Vec<String>,
+    /// The types no member may be of, the group's own outbounds too, in
+    /// Mihomo's names for them, without case: `Shadowsocks`, `Vmess`,
+    /// `Socks5`, `Direct`, ...
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub exclude_type: Vec<String>,
+    /// An outbound, not a group, that is the member while there is none
+    /// else. Without it such a group has none, and its connections fail.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub empty_fallback: Option<String>,
+}
+
+impl GroupProviders {
+    /// What the group's options set of it.
+    pub fn of(options: &Options) -> Result<Self> {
+        serde_path_to_error::deserialize(serde_json::Value::Object(options.clone()))
+            .map_err(|e| anyhow!("{}: {}", path(&e), e.inner()))
+    }
+
+    /// The first of its fields that is set, if any is.
+    pub fn first_set(&self) -> Option<&'static str> {
+        [
+            ("providers", !self.providers.is_empty()),
+            ("filter", !self.filter.is_empty()),
+            ("exclude_filter", !self.exclude_filter.is_empty()),
+            ("exclude_type", !self.exclude_type.is_empty()),
+            ("empty_fallback", self.empty_fallback.is_some()),
+        ]
+        .into_iter()
+        .find_map(|(field, set)| set.then_some(field))
+    }
+
+    /// The outbounds a group with `outbounds` of its own is built on: the
+    /// empty fallback too.
+    pub fn dependencies(&self, mut outbounds: Vec<String>) -> Vec<String> {
+        outbounds.extend(self.empty_fallback.clone());
+        outbounds
+    }
+
+    fn check(&self, providers: &HashSet<&str>, protocols: &HashMap<&str, &str>) -> Result<()> {
+        if !cfg!(feature = "outbound-provider") {
+            if let Some(field) = self.first_set() {
+                return Err(anyhow!(
+                    "{}: needs the outbound-provider feature, which is not compiled in",
+                    field
+                ));
+            }
+        }
+        if let Some(tag) = self
+            .providers
+            .iter()
+            .find(|p| !providers.contains(p.as_str()))
+        {
+            return Err(anyhow!("providers: provider [{}] does not exist", tag));
+        }
+        if !self.filter.is_empty() && self.providers.is_empty() {
+            return Err(anyhow!(
+                "filter: only with providers, as the group's own outbounds are not filtered"
+            ));
+        }
+        if let Some(tag) = &self.empty_fallback {
+            match protocols.get(tag.as_str()) {
+                None => {
+                    return Err(anyhow!("empty_fallback: outbound [{}] does not exist", tag));
+                }
+                Some(protocol) if GROUP_PROTOCOLS.contains(protocol) => {
+                    return Err(anyhow!("empty_fallback: [{}] is a group", tag));
+                }
+                Some(_) => {}
+            }
+        }
+        Ok(())
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Route {
@@ -1932,6 +2216,62 @@ impl Config {
                 _ => {}
             }
         }
+        let mut providers = HashSet::new();
+        for (i, provider) in self.outbound_providers.iter().enumerate() {
+            if !cfg!(feature = "outbound-provider") {
+                return Err(anyhow!(
+                    "outbound_providers: need the outbound-provider feature, which is not \
+                     compiled in"
+                ));
+            }
+            provider
+                .check(&outbounds, &http_clients, &dns_servers)
+                .map_err(|e| anyhow!("outbound_providers[{}]: {}", i, e))?;
+            if !providers.insert(provider.tag.as_str()) {
+                return Err(anyhow!(
+                    "outbound_providers[{}]: another provider is tagged [{}]",
+                    i,
+                    provider.tag
+                ));
+            }
+        }
+        let protocols: HashMap<&str, &str> = self
+            .outbounds
+            .iter()
+            .map(|o| (o.tag.as_str(), o.protocol.as_str()))
+            .chain(
+                self.endpoints
+                    .iter()
+                    .map(|e| (e.tag.as_str(), e.protocol.as_str())),
+            )
+            .collect();
+        let mut users: HashMap<&str, Vec<String>> = HashMap::new();
+        for group in self
+            .outbounds
+            .iter()
+            .filter(|o| PROVIDER_GROUPS.contains(&o.protocol.as_str()))
+        {
+            let members = GroupProviders::of(&group.options)
+                .and_then(|m| m.check(&providers, &protocols).map(|()| m))
+                .map_err(|e| anyhow!("[{}] outbound: {}", group.tag, e))?;
+            users.insert(group.tag.as_str(), members.providers);
+        }
+        // A provider's outbounds dialling through a group of them would go
+        // round in a loop.
+        for provider in &self.outbound_providers {
+            if let Some(detour) = &provider.detour {
+                if users
+                    .get(detour.as_str())
+                    .is_some_and(|p| p.contains(&provider.tag))
+                {
+                    return Err(anyhow!(
+                        "outbound_providers: [{}]: detour: [{}] takes its members from it",
+                        provider.tag,
+                        detour
+                    ));
+                }
+            }
+        }
         let mut in_route = Vec::new();
         for (i, rule) in self.route.rules.iter().enumerate() {
             rule.rule_sets(&format!("route.rules[{}]", i), &mut in_route);
@@ -2477,5 +2817,124 @@ mod tests {
             let err = Config::from_json(json).unwrap_err();
             assert!(err.to_string().contains(field), "{}: {}", json, err);
         }
+    }
+
+    /// A configuration of a direct outbound `d` and the group `group`, with
+    /// the outbound providers `providers`.
+    fn with_providers(providers: &str, group: &str) -> Result<Config> {
+        Config::from_json(&format!(
+            r#"{{ "outbounds": [{{ "type": "direct", "tag": "d" }}, {}],
+                  "outbound_providers": [{}] }}"#,
+            group, providers
+        ))
+    }
+
+    const REMOTE: &str = r#"{ "type": "remote", "tag": "p", "url": "https://example.com/s",
+        "filter": ["HK", "JP"], "exclude_type": "vmess", "detour": "d",
+        "override": { "skip-cert-verify": true, "additional-prefix": "A|" } }"#;
+
+    #[cfg(feature = "outbound-provider")]
+    #[test]
+    fn outbound_providers_and_the_groups_that_take_them() {
+        let group = r#"{ "type": "selector", "tag": "g", "providers": ["p"], "filter": "HK",
+            "exclude_type": ["Direct"], "empty_fallback": "d" }"#;
+        let config = with_providers(REMOTE, group).unwrap();
+        assert_eq!(config.outbound_providers[0].filter, ["HK", "JP"]);
+        let members = GroupProviders::of(&config.outbounds[1].options).unwrap();
+        assert_eq!(members.providers, ["p"]);
+        assert_eq!(members.dependencies(Vec::new()), ["d"]);
+
+        let local = r#"{ "type": "local", "tag": "p", "path": "p.yaml", "update_interval": "1m" }"#;
+        let inline =
+            r#"{ "type": "inline", "tag": "p", "outbounds": [{ "type": "direct", "tag": "a" }] }"#;
+        let taking = r#"{ "type": "urltest", "tag": "g", "providers": "p" }"#;
+        with_providers(local, taking).unwrap();
+        with_providers(inline, taking).unwrap();
+
+        for (providers, group, error) in [
+            (
+                REMOTE,
+                r#"{ "type": "selector", "tag": "g", "providers": ["q"] }"#,
+                "[g] outbound: providers: provider [q] does not exist",
+            ),
+            (
+                REMOTE,
+                r#"{ "type": "selector", "tag": "g", "outbounds": ["d"], "filter": "HK" }"#,
+                "[g] outbound: filter: only with providers",
+            ),
+            (
+                REMOTE,
+                r#"{ "type": "fallback", "tag": "g", "providers": "p", "empty_fallback": "x" }"#,
+                "[g] outbound: empty_fallback: outbound [x] does not exist",
+            ),
+            (
+                REMOTE,
+                r#"{ "type": "fallback", "tag": "g", "providers": "p", "empty_fallback": "g" }"#,
+                "[g] outbound: empty_fallback: [g] is a group",
+            ),
+            (
+                &REMOTE.replace(r#""detour": "d""#, r#""detour": "g""#),
+                r#"{ "type": "load-balance", "tag": "g", "providers": "p" }"#,
+                "[p]: detour: [g] takes its members from it",
+            ),
+            (
+                &format!("{}, {}", REMOTE, REMOTE),
+                r#"{ "type": "direct", "tag": "g" }"#,
+                "outbound_providers[1]: another provider is tagged [p]",
+            ),
+            (
+                r#"{ "type": "remote", "tag": "p" }"#,
+                r#"{ "type": "direct", "tag": "g" }"#,
+                "outbound_providers[0]: url: missing",
+            ),
+            (
+                r#"{ "type": "local", "tag": "p", "path": "a", "url": "https://a" }"#,
+                r#"{ "type": "direct", "tag": "g" }"#,
+                "url: only a remote provider takes one",
+            ),
+            (
+                r#"{ "type": "inline", "tag": "p", "filter": "HK",
+                  "outbounds": [{ "type": "direct", "tag": "a" }] }"#,
+                r#"{ "type": "direct", "tag": "g" }"#,
+                "filter: only a remote or local provider takes one",
+            ),
+            (
+                r#"{ "type": "inline", "tag": "p",
+                  "outbounds": [{ "type": "selector", "tag": "a", "outbounds": ["d"] }] }"#,
+                r#"{ "type": "direct", "tag": "g" }"#,
+                "outbounds[0]: a group or a plugin is not a provider's outbound",
+            ),
+            (
+                r#"{ "type": "remote", "tag": "p", "url": "https://a", "detour": "x" }"#,
+                r#"{ "type": "direct", "tag": "g" }"#,
+                "detour: outbound [x] does not exist",
+            ),
+        ] {
+            let err = with_providers(providers, group).unwrap_err();
+            assert!(err.to_string().contains(error), "{}: {}", error, err);
+        }
+    }
+
+    #[cfg(not(feature = "outbound-provider"))]
+    #[test]
+    fn outbound_providers_need_their_feature() {
+        let err = with_providers(REMOTE, r#"{ "type": "direct", "tag": "g" }"#).unwrap_err();
+        assert!(
+            err.to_string().contains("outbound-provider feature"),
+            "{}",
+            err
+        );
+        let err = with_providers(
+            "",
+            r#"{ "type": "selector", "tag": "g", "outbounds": ["d"],
+            "exclude_filter": "x" }"#,
+        )
+        .unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("[g] outbound: exclude_filter: needs the outbound-provider feature"),
+            "{}",
+            err
+        );
     }
 }

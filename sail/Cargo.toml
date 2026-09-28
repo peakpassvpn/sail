@@ -15,6 +15,7 @@ default = [
     "all-endpoints",
     "config-clash",
     "rule-set",
+    "outbound-provider",
     "api",
     "dns-doh",
     "dns-h3",
@@ -99,6 +100,9 @@ dns-h3 = ["quic", "h3", "h3-quinn", "http"]
 rule-process-name = ["regex"]
 # sing-box rule-sets: `route.rule_set`, source and binary.
 rule-set = ["regex", "miniz_oxide", "url", "httparse", "ruzstd"]
+# Outbound providers, a sail extension: group members downloaded as remote
+# rule-sets are, and read as Mihomo reads a proxy-provider's.
+outbound-provider = ["config-clash", "rule-set"]
 
 # Outbounds
 outbound-direct = []

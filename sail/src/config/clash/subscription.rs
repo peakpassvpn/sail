@@ -14,53 +14,10 @@ use serde_json::{json, Map, Value};
 use super::fields::Fields;
 use super::node::Node;
 use super::proxy;
-
-/// How far a name filter may backtrack before it is taken not to match:
-/// the names come from the network.
-const BACKTRACK_LIMIT: usize = 100_000;
+pub use crate::common::name_filter::NameFilter;
 
 /// The longest name a proxy may have; longer ones are cut.
 const MAX_NAME: usize = 256;
-
-/// A name filter, as Mihomo's regexp2 takes it (lookarounds included).
-pub struct NameFilter {
-    regex: fancy_regex::Regex,
-}
-
-impl NameFilter {
-    pub fn new(pattern: &str) -> Result<Self> {
-        let regex = fancy_regex::RegexBuilder::new(pattern)
-            .backtrack_limit(BACKTRACK_LIMIT)
-            .build()
-            .map_err(|e| anyhow!("{:?}: {}", pattern, e))?;
-        Ok(NameFilter { regex })
-    }
-
-    /// Several filters, as one field writes them: split at backquotes.
-    pub fn list(patterns: Option<&str>) -> Result<Vec<Self>> {
-        match patterns {
-            None | Some("") => Ok(Vec::new()),
-            Some(patterns) => patterns.split('`').map(NameFilter::new).collect(),
-        }
-    }
-
-    /// Whether `name` matches; a filter that backtracks too far does not,
-    /// and says so.
-    pub fn matches(&self, name: &str, warnings: &mut Vec<String>) -> bool {
-        match self.regex.is_match(name) {
-            Ok(matched) => matched,
-            Err(e) => {
-                warnings.push(format!(
-                    "filter {:?} on {:?}: {}; taken not to match",
-                    self.regex.as_str(),
-                    name,
-                    e
-                ));
-                false
-            }
-        }
-    }
-}
 
 /// A provider's choice of proxies, and what it changes in them.
 #[derive(Default)]
@@ -133,15 +90,35 @@ impl Override {
         Ok(o)
     }
 
+    /// An `override` as sail's JSON gives it, an object in Mihomo's own
+    /// keys: one Mihomo's does not take is an error there.
+    pub fn from_json(value: &Map<String, Value>, warnings: &mut Vec<String>) -> Result<Self> {
+        const NAMES: &[&str] = &[
+            "proxy-name",
+            "additional-prefix",
+            "additional-suffix",
+            "name-cert-verify",
+            "override-expr",
+        ];
+        if let Some(key) = value
+            .keys()
+            .find(|k| !OVERRIDDEN.contains(&k.as_str()) && !NAMES.contains(&k.as_str()))
+        {
+            return Err(anyhow!(
+                "override.{}: not a field Mihomo's override takes",
+                key
+            ));
+        }
+        let node = json_node(&Value::Object(value.clone()));
+        Self::read(Some(Fields::of(node, "override")?), warnings)
+    }
+
     /// The name, changed as `proxy-name`, `additional-prefix` and
     /// `additional-suffix` say.
     fn name(&self, name: &str) -> String {
         let mut name = name.to_string();
         for (filter, target) in &self.names {
-            name = match filter.regex.try_replacen(&name, 0, target.as_str()) {
-                Ok(replaced) => replaced.into_owned(),
-                Err(_) => name,
-            };
+            name = filter.replace(&name, target);
         }
         format!(
             "{}{}{}",
@@ -508,13 +485,5 @@ proxies:
             .unwrap_err()
             .to_string()
             .contains("cipher"));
-    }
-
-    #[test]
-    fn a_runaway_filter_does_not_match() {
-        let filter = NameFilter::new("(a+)+(?=b)").unwrap();
-        let mut warnings = Vec::new();
-        assert!(!filter.matches(&"a".repeat(64), &mut warnings));
-        assert_eq!(warnings.len(), 1, "{:?}", warnings);
     }
 }

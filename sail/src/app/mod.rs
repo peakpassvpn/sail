@@ -10,6 +10,8 @@ pub mod instance;
 pub mod logger;
 pub mod nat_manager;
 pub mod outbound;
+#[cfg(feature = "outbound-provider")]
+pub(crate) mod provider;
 pub mod router;
 pub mod stat_manager;
 

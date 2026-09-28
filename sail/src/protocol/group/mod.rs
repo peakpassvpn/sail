@@ -18,9 +18,18 @@ pub mod load_balance;
     feature = "outbound-select",
     feature = "outbound-urltest",
     feature = "outbound-fallback",
-    feature = "outbound-load-balance"
+    feature = "outbound-load-balance",
+    feature = "outbound-provider"
 ))]
 pub mod members;
+#[cfg(any(
+    feature = "outbound-select",
+    feature = "outbound-urltest",
+    feature = "outbound-fallback",
+    feature = "outbound-load-balance",
+    feature = "outbound-provider"
+))]
+pub mod merge;
 #[cfg(feature = "outbound-select")]
 pub mod selector;
 #[cfg(feature = "outbound-tryall")]

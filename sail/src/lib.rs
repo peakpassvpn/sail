@@ -84,6 +84,9 @@ pub struct RuntimeManager {
     dispatcher: std::sync::Weak<app::dispatcher::Dispatcher>,
     /// Downloads the remote rule-sets again as they fall due.
     rule_set_updater: Mutex<Option<tokio::task::AbortHandle>>,
+    /// Updates the outbound providers as they fall due.
+    #[cfg(feature = "outbound-provider")]
+    provider_updater: Mutex<Option<tokio::task::AbortHandle>>,
     /// What outbounds dial with where theirs leave off, as the current
     /// configuration has it.
     dial_defaults: arc_swap::ArcSwap<net::DialOptions>,
@@ -137,6 +140,14 @@ impl RuntimeManager {
             rule_set_updater: Mutex::new(
                 instance
                     .rule_sets
+                    .spawn_updater(Arc::downgrade(&instance.dispatcher)),
+            ),
+            #[cfg(feature = "outbound-provider")]
+            provider_updater: Mutex::new(
+                instance
+                    .outbound_manager
+                    .load()
+                    .providers()
                     .spawn_updater(Arc::downgrade(&instance.dispatcher)),
             ),
             dial_defaults: arc_swap::ArcSwap::new(dial_defaults),
@@ -280,10 +291,18 @@ impl RuntimeManager {
             transport::tls::roots::configured(config.certificate.as_ref(), &self.env)
                 .map_err(Error::Config)?,
         );
-        let rule_sets = app::router::rule_set::RuleSets::load(
-            &config.route.rule_set,
-            &app::router::rule_set::HttpClients::new(&config, dial_defaults.clone()),
+        let http_clients = app::router::rule_set::HttpClients::new(&config, dial_defaults.clone());
+        let rule_sets =
+            app::router::rule_set::RuleSets::load(&config.route.rule_set, &http_clients, &self.env)
+                .map_err(Error::Config)?;
+        // Those configured as they were go on as they are.
+        #[cfg(feature = "outbound-provider")]
+        let providers = app::provider::Providers::load(
+            &config.outbound_providers,
+            &http_clients,
+            dial_defaults.clone(),
             &self.env,
+            Some(&self.outbound_manager.load().providers()),
         )
         .map_err(Error::Config)?;
         if let Some(dispatcher) = self.dispatcher.upgrade() {
@@ -309,6 +328,8 @@ impl RuntimeManager {
             &self.outbound_manager.load(),
             &config.outbounds,
             &config.endpoints,
+            #[cfg(feature = "outbound-provider")]
+            providers,
             &dial_defaults,
             &self.env,
             self.dns_client.clone(),
@@ -371,6 +392,21 @@ impl RuntimeManager {
                 old.abort();
             }
             *updater = rule_sets.spawn_updater(self.dispatcher.clone());
+        }
+        // It downloads the remote providers new to this configuration
+        // first, now that their members are built onto the outbounds in
+        // use.
+        #[cfg(feature = "outbound-provider")]
+        {
+            let providers = self.outbound_manager.load().providers();
+            let mut updater = self
+                .provider_updater
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            if let Some(old) = updater.take() {
+                old.abort();
+            }
+            *updater = providers.spawn_updater(self.dispatcher.clone());
         }
         self.dial_defaults.store(dial_defaults);
         replaced.abort_tasks_replaced_by(&self.outbound_manager.load());
@@ -897,6 +933,16 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
     // connection comes in.
     rt.block_on(instance.rule_sets.fetch_missing(&instance.dispatcher))
         .map_err(Error::Config)?;
+    // Groups have no members from a provider not downloaded yet; one that
+    // fails is left to the updater.
+    #[cfg(feature = "outbound-provider")]
+    rt.block_on(
+        instance
+            .outbound_manager
+            .load()
+            .providers()
+            .fetch_missing(&instance.dispatcher),
+    );
     // Without the API nothing is added to them.
     #[cfg_attr(not(feature = "api"), allow(unused_mut))]
     let mut runners = instance.start().map_err(Error::Config)?;

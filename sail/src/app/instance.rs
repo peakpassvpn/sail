@@ -80,10 +80,15 @@ impl Instance {
             config.certificate.as_ref(),
             &env,
         )?);
-        let rule_sets = RuleSets::load(
-            &config.route.rule_set,
-            &HttpClients::new(config, dial_defaults.clone()),
+        let http_clients = HttpClients::new(config, dial_defaults.clone());
+        let rule_sets = RuleSets::load(&config.route.rule_set, &http_clients, &env)?;
+        #[cfg(feature = "outbound-provider")]
+        let providers = crate::app::provider::Providers::load(
+            &config.outbound_providers,
+            &http_clients,
+            dial_defaults.clone(),
             &env,
+            None,
         )?;
         let dns_client =
             DnsClient::with_rule_sets(&config.dns, dial_defaults.clone(), &env, &rule_sets)?;
@@ -96,6 +101,8 @@ impl Instance {
             Arc::new(ArcSwap::from_pointee(OutboundManager::with_endpoints(
                 &config.outbounds,
                 &config.endpoints,
+                #[cfg(feature = "outbound-provider")]
+                providers,
                 &dial_defaults,
                 &env,
                 dns_client.clone(),

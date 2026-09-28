@@ -23,6 +23,8 @@ mod node;
 mod provider;
 mod proxy;
 mod rule;
+/// What outbound providers read.
+#[cfg(feature = "outbound-provider")]
 pub(crate) mod subscription;
 
 use fields::Fields;

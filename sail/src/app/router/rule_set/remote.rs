@@ -213,7 +213,7 @@ impl Remote {
     }
 }
 
-fn write_atomically(path: &std::path::Path, data: &[u8]) -> Result<()> {
+pub(crate) fn write_atomically(path: &std::path::Path, data: &[u8]) -> Result<()> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
@@ -229,7 +229,7 @@ fn meta_path(cache: &std::path::Path) -> PathBuf {
 
 /// A tag as a file name: what could leave the directory, or trouble a
 /// file system, becomes `_`.
-fn file_name(tag: &str) -> String {
+pub(crate) fn file_name(tag: &str) -> String {
     let name: String = tag
         .chars()
         .map(|c| {

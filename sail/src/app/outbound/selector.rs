@@ -64,19 +64,26 @@ pub fn persist_selected_to_cache(cache_file: &Path, id: String, selected: String
 /// the connections meanwhile. Connections that should not outlive a
 /// change of member watch it, see `subscribe`.
 pub struct Selection {
-    default: MemberKey,
+    /// The default, by name: the first member so named, whatever gives
+    /// it.
+    default: Arc<str>,
     selected: ArcSwap<MemberKey>,
+    /// A member selected, by name, before any member had that name: one
+    /// kept across a restart, of a provider not loaded yet. The first
+    /// member to have it is selected, see `settle`.
+    wanted: Mutex<Option<Arc<str>>>,
     /// Where the selected member was last found, to look there first.
     hint: AtomicUsize,
     changed: watch::Sender<MemberKey>,
 }
 
 impl Selection {
-    /// `selected`, or `default` while it is not a member.
-    pub fn new(default: MemberKey, selected: MemberKey) -> Self {
+    /// `selected`, or the member named `default` while it is not a member.
+    pub fn new(default: &str, selected: MemberKey) -> Self {
         Self {
-            default,
+            default: default.into(),
             selected: ArcSwap::from_pointee(selected.clone()),
+            wanted: Mutex::new(None),
             hint: AtomicUsize::new(0),
             changed: watch::Sender::new(selected),
         }
@@ -87,12 +94,37 @@ impl Selection {
     }
 
     pub fn set(&self, key: MemberKey) {
+        *self.wanted.lock().unwrap_or_else(|e| e.into_inner()) = None;
         self.selected.store(Arc::new(key.clone()));
         self.changed.send_if_modified(|current| {
             let modified = *current != key;
             *current = key;
             modified
         });
+    }
+
+    /// Selects the first member named `name` once there is one, unless
+    /// another is selected first.
+    pub fn want(&self, name: &str) {
+        *self.wanted.lock().unwrap_or_else(|e| e.into_inner()) = Some(name.into());
+    }
+
+    /// The name wanted, see `want`.
+    fn wanted(&self) -> Option<Arc<str>> {
+        self.wanted
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
+    /// Selects the member wanted, if `snapshot`, the members now, has it.
+    pub fn settle(&self, snapshot: &Snapshot) {
+        let Some(name) = self.wanted() else {
+            return;
+        };
+        if let Some(member) = snapshot.find(&name) {
+            self.set(member.key.clone());
+        }
     }
 
     /// The selection as it changes.
@@ -107,7 +139,12 @@ impl Selection {
         let selected = self.selected.load();
         let i = self
             .position(&selected, snapshot)
-            .or_else(|| snapshot.position(&self.default))
+            .or_else(|| {
+                snapshot
+                    .members
+                    .iter()
+                    .position(|m| m.key.name == self.default)
+            })
             .or_else(|| (!snapshot.members.is_empty()).then_some(0))?;
         Some((i, selected))
     }
@@ -198,11 +235,15 @@ impl OutboundSelector {
 
     /// Takes over what `previous`, the selector this one replaces, has
     /// selected by hand: the member itself, which need not be a member
-    /// now, and not the one connections go to meanwhile. It is kept
+    /// now, and not the one connections go to meanwhile; or the one it
+    /// still waits for. It is kept
     /// already, so it is not kept again.
     pub fn restore(&self, previous: &OutboundSelector) {
         if self.is_selectable() && previous.is_selectable() {
             self.selected.set((*previous.selected.get()).clone());
+            if let Some(name) = previous.selected.wanted() {
+                self.selected.want(&name);
+            }
         }
     }
 
@@ -252,7 +293,7 @@ mod tests {
     #[test]
     fn a_selection_absent_is_kept_and_the_default_used_meanwhile() {
         let members = outbounds(&["a", "b", "c"]);
-        let selection = Selection::new(key("b"), key("c"));
+        let selection = Selection::new("b", key("c"));
         assert_eq!(picked(&selection, &members), "c");
 
         members.publish(vec![member(None, "a"), member(None, "b")]);
@@ -270,7 +311,7 @@ mod tests {
     #[test]
     fn without_the_default_the_first_member_is_used() {
         let members = outbounds(&["a", "b"]);
-        let selection = Selection::new(key("b"), key("b"));
+        let selection = Selection::new("b", key("b"));
         members.publish(vec![member(None, "x"), member(None, "y")]);
         assert_eq!(picked(&selection, &members), "x");
         members.publish(vec![]);
@@ -281,14 +322,14 @@ mod tests {
     fn a_member_of_the_same_name_from_elsewhere_is_another_member() {
         let members = outbounds(&["a"]);
         members.publish(vec![member(None, "a"), member(Some("p"), "b")]);
-        let selection = Selection::new(key("a"), key("b"));
+        let selection = Selection::new("a", key("b"));
         assert_eq!(picked(&selection, &members), "a");
     }
 
     #[test]
     fn the_selector_selects_and_reports_by_name() {
         let members = outbounds(&["a", "b"]);
-        let selection = Arc::new(Selection::new(key("a"), key("a")));
+        let selection = Arc::new(Selection::new("a", key("a")));
         let latencies = MemberLatencies::default();
         latencies
             .write()
@@ -331,7 +372,7 @@ mod tests {
         let mut old = OutboundSelector::new(
             "g".to_string(),
             members.clone(),
-            Arc::new(Selection::new(key("a"), key("a"))),
+            Arc::new(Selection::new("a", key("a"))),
             SelectedBy::Hand {
                 cache_file: Some(cache_file.clone()),
             },
@@ -341,7 +382,7 @@ mod tests {
         members.publish(vec![member(None, "a")]);
         assert_eq!(old.get_selected_tag(), "a");
 
-        let selection = Arc::new(Selection::new(key("a"), key("a")));
+        let selection = Arc::new(Selection::new("a", key("a")));
         let new = OutboundSelector::new(
             "g".to_string(),
             members.clone(),

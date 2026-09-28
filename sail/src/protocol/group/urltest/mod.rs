@@ -4,6 +4,7 @@
 //! is faster by more than `tolerance`, so that close latencies do not
 //! make it switch back and forth.
 
+use std::collections::HashMap;
 use std::io;
 use std::sync::Arc;
 use std::time::Duration;
@@ -16,6 +17,7 @@ use tracing::debug;
 
 use super::health::{self, Checker};
 use super::members::{MemberKey, Members, Snapshot};
+use super::merge;
 use crate::adapter::outbound::HandlerBuilder;
 use crate::adapter::registry::{
     parse_options, Options, OutboundContext, OutboundFactory, OutboundRegistry,
@@ -24,6 +26,7 @@ use crate::adapter::*;
 use crate::app::healthcheck::HttpProbe;
 use crate::app::outbound::selector::{OutboundSelector, SelectedBy, Selection};
 use crate::app::SyncDnsClient;
+use crate::config::model::GroupProviders;
 use crate::net::{connect_datagram_outbound, connect_stream_outbound};
 use crate::session::Session;
 
@@ -34,7 +37,12 @@ pub(crate) fn register(registry: &mut OutboundRegistry) {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct UrlTestOutboundOptions {
+    /// Its members; none may be when its providers give others.
+    #[serde(default)]
     outbounds: Vec<String>,
+    /// Members from outbound providers too, a sail extension.
+    #[serde(flatten)]
+    providers: GroupProviders,
     /// What is requested through each member; sing-box's default.
     #[serde(default = "default_url")]
     url: String,
@@ -64,7 +72,7 @@ const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 
 fn dependencies(tag: &str, options: &Options) -> Result<Vec<String>> {
     let options: UrlTestOutboundOptions = parse_options("outbound", tag, options)?;
-    Ok(options.outbounds)
+    Ok(options.providers.dependencies(options.outbounds))
 }
 
 /// The member to move to, given the one selected and the latest
@@ -87,9 +95,30 @@ pub(crate) fn choose(
     }
 }
 
+/// The member to move to once the members changed, given the one
+/// selected and the latencies known: none while the selected one is still
+/// a member and did not fail its last test; else the fastest known, if
+/// any is.
+pub(crate) fn repick(
+    snapshot: &Snapshot,
+    current: &MemberKey,
+    latencies: &HashMap<MemberKey, Option<Duration>>,
+) -> Option<MemberKey> {
+    if snapshot.position(current).is_some() && latencies.get(current) != Some(&None) {
+        return None;
+    }
+    snapshot
+        .members
+        .iter()
+        .filter_map(|m| latencies.get(&m.key).copied().flatten().map(|l| (m, l)))
+        .min_by_key(|(_, l)| *l)
+        .map(|(m, _)| m.key.clone())
+}
+
 fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
     let options: UrlTestOutboundOptions = ctx.options()?;
-    let members = Members::outbounds(&options.outbounds, ctx.members(&options.outbounds)?);
+    let merged = merge::members(ctx, &options.outbounds, &options.providers)?;
+    let members = merged.members.clone();
     let interval = options.interval.unwrap_or(health::DEFAULT_INTERVAL);
     let idle_timeout = options.idle_timeout.unwrap_or(DEFAULT_IDLE_TIMEOUT);
     if interval.is_zero() {
@@ -108,8 +137,13 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
         .map_err(|e| anyhow!("[{}] outbound: url: {}", ctx.tag, e))?;
 
     // The first member until the first tests are done.
-    let first = members.load().members[0].key.clone();
-    let selected = Arc::new(Selection::new(first.clone(), first));
+    let first = members
+        .load()
+        .members
+        .first()
+        .map(|m| m.key.clone())
+        .unwrap_or_else(|| MemberKey::outbound(""));
+    let selected = Arc::new(Selection::new(&first.name, first.clone()));
     let tolerance = Duration::from_millis(options.tolerance.into());
     let on_tested = {
         let selected = selected.clone();
@@ -141,6 +175,30 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
         on_tested,
     );
     ctx.abort_handles.push(abort_handle);
+    merged.on_merged({
+        let selected = selected.clone();
+        let checker = checker.clone();
+        let tag = ctx.tag.to_owned();
+        Box::new(move |snapshot, added| {
+            let current = selected.get();
+            let latencies = checker.latencies();
+            let next = latencies
+                .read()
+                .ok()
+                .and_then(|latencies| repick(snapshot, &current, &latencies));
+            if let Some(next) = next {
+                debug!(
+                    "[{}] switches from [{}] to [{}], as its members changed",
+                    tag, current.name, next.name
+                );
+                selected.set(next);
+            }
+            // The new members are tested soon rather than an interval on.
+            if added {
+                checker.retest();
+            }
+        })
+    });
 
     let outbound_selector = OutboundSelector::new(
         ctx.tag.to_owned(),
@@ -298,5 +356,46 @@ mod tests {
     #[test]
     fn nothing_changes_when_every_member_failed() {
         assert_eq!(choose(1, &[None, None], Duration::ZERO), None);
+    }
+
+    #[test]
+    fn a_change_of_members_keeps_the_pick_while_it_is_a_member_and_up() {
+        use crate::protocol::group::members::tests::{member, outbounds};
+        let key = |source: Option<&str>, name: &str| MemberKey {
+            source: source.map(Into::into),
+            name: name.into(),
+        };
+        let members = outbounds(&[]);
+        members.publish(vec![
+            member(None, "a"),
+            member(Some("p"), "b"),
+            member(Some("p"), "c"),
+        ]);
+        let snapshot = members.load();
+        let latencies: HashMap<MemberKey, Option<Duration>> = [
+            (key(None, "a"), ms(90)),
+            (key(Some("p"), "b"), None),
+            (key(Some("p"), "c"), ms(30)),
+        ]
+        .into();
+        // Kept, slower or untested as it may be.
+        assert_eq!(repick(&snapshot, &key(None, "a"), &latencies), None);
+        let mut untested = latencies.clone();
+        untested.remove(&key(None, "a"));
+        assert_eq!(repick(&snapshot, &key(None, "a"), &untested), None);
+        // Failed, or gone: the fastest known.
+        assert_eq!(
+            repick(&snapshot, &key(Some("p"), "b"), &latencies),
+            Some(key(Some("p"), "c"))
+        );
+        assert_eq!(
+            repick(&snapshot, &key(Some("q"), "c"), &latencies),
+            Some(key(Some("p"), "c"))
+        );
+        // Nothing known: left for the next tests.
+        assert_eq!(
+            repick(&snapshot, &key(Some("q"), "c"), &HashMap::new()),
+            None
+        );
     }
 }

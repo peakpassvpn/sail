@@ -19,10 +19,10 @@ use crate::runtime::RuntimeEnv;
 
 mod clash;
 pub(crate) mod domain_set;
-mod http;
+pub(crate) mod http;
 mod mrs;
 mod reader;
-mod remote;
+pub(crate) mod remote;
 pub(crate) mod rule;
 mod srs;
 pub(crate) mod succinct;
@@ -145,17 +145,22 @@ impl HttpClients {
             .ok_or_else(|| anyhow!("http client [{}] does not exist", tag))
     }
 
-    /// How the rule-set of `config` is downloaded, as sing-box has it: with
-    /// its `http_client`, or through its `download_detour`, or with the
-    /// default client; none, through the default outbound.
-    fn client(&self, config: &config::RuleSet) -> Result<http::Client> {
-        let client = match &config.http_client {
+    /// How what names `http_client` and `download_detour` is downloaded,
+    /// a remote rule-set or outbound provider, as sing-box has it: with its
+    /// `http_client`, or through its `download_detour`, or with the default
+    /// client; none, through the default outbound.
+    pub(crate) fn client(
+        &self,
+        http_client: Option<&HttpClientRef>,
+        download_detour: Option<&str>,
+    ) -> Result<http::Client> {
+        let client = match http_client {
             Some(HttpClientRef::Tag(tag)) => self.get(tag)?,
             Some(HttpClientRef::Inline(client)) => client,
             None => {
-                if let Some(detour) = &config.download_detour {
+                if let Some(detour) = download_detour {
                     return Ok(http::Client {
-                        via: Some(http::Via::Outbound(detour.clone())),
+                        via: Some(http::Via::Outbound(detour.to_string())),
                         headers: Vec::new(),
                     });
                 }
@@ -217,7 +222,12 @@ impl RuleSets {
                 }
                 let context = || format!("route.rule_set[{}]: [{}]", i, tag);
                 let set = if config.kind == RuleSetKind::Remote {
-                    let client = clients.client(config).with_context(context)?;
+                    let client = clients
+                        .client(
+                            config.http_client.as_ref(),
+                            config.download_detour.as_deref(),
+                        )
+                        .with_context(context)?;
                     let remote = Arc::new(
                         remote::Remote::load(config, tag, client, env).with_context(context)?,
                     );

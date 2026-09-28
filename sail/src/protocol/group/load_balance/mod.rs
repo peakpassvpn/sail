@@ -24,6 +24,7 @@ use tracing::debug;
 
 use super::health::{self, Checker};
 use super::members::{Members, Snapshot};
+use super::merge;
 use crate::adapter::outbound::HandlerBuilder;
 use crate::adapter::registry::{
     parse_options, Options, OutboundContext, OutboundFactory, OutboundRegistry,
@@ -31,6 +32,7 @@ use crate::adapter::registry::{
 use crate::adapter::*;
 use crate::app::healthcheck::HttpProbe;
 use crate::app::SyncDnsClient;
+use crate::config::model::GroupProviders;
 use crate::net::{connect_datagram_outbound, connect_stream_outbound};
 use crate::session::{Session, SocksAddr};
 
@@ -53,7 +55,12 @@ enum StrategyKind {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct LoadBalanceOutboundOptions {
+    /// Its members; none may be when its providers give others.
+    #[serde(default)]
     outbounds: Vec<String>,
+    /// Members from outbound providers too, a sail extension.
+    #[serde(flatten)]
+    providers: GroupProviders,
     #[serde(default)]
     strategy: StrategyKind,
     /// What is requested through each member to test it.
@@ -86,12 +93,13 @@ const MAX_REHASH: u64 = 5;
 
 fn dependencies(tag: &str, options: &Options) -> Result<Vec<String>> {
     let options: LoadBalanceOutboundOptions = parse_options("outbound", tag, options)?;
-    Ok(options.outbounds)
+    Ok(options.providers.dependencies(options.outbounds))
 }
 
 fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
     let options: LoadBalanceOutboundOptions = ctx.options()?;
-    let members = Members::outbounds(&options.outbounds, ctx.members(&options.outbounds)?);
+    let merged = merge::members(ctx, &options.outbounds, &options.providers)?;
+    let members = merged.members.clone();
     let interval = options.interval.unwrap_or(health::DEFAULT_INTERVAL);
     if interval.is_zero() {
         return Err(anyhow!(
@@ -112,6 +120,15 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
         Box::new(|_, _| ()),
     );
     ctx.abort_handles.push(abort_handle);
+    merged.on_merged({
+        let checker = checker.clone();
+        // The new members are tested soon rather than an interval on.
+        Box::new(move |_, added| {
+            if added {
+                checker.retest();
+            }
+        })
+    });
     let group = Arc::new(Group {
         balancer: Balancer::new(options.strategy, STICKY_TTL),
         members,

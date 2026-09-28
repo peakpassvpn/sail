@@ -30,9 +30,13 @@ impl MemberKey {
     }
 }
 
+#[derive(Clone)]
 pub struct Member {
     pub key: MemberKey,
     pub handler: AnyOutboundHandler,
+    /// Its type, in Mihomo's name for it, which `exclude_type` goes by;
+    /// empty where no group asks.
+    pub kind: &'static str,
 }
 
 /// The members of a group at one time, in order.
@@ -75,8 +79,14 @@ impl Members {
             .map(|(tag, handler)| Member {
                 key: MemberKey::outbound(tag),
                 handler,
+                kind: "",
             })
             .collect();
+        Self::of(members)
+    }
+
+    /// `members`, to begin with.
+    pub fn of(members: Vec<Member>) -> Arc<Self> {
         Arc::new(Self {
             current: ArcSwap::from_pointee(Snapshot {
                 version: 0,
@@ -121,6 +131,7 @@ pub(crate) mod tests {
                 name: name.into(),
             },
             handler: handler(name),
+            kind: "",
         }
     }
 

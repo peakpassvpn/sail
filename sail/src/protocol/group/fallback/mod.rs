@@ -20,6 +20,7 @@ use tracing::debug;
 
 use super::health::{self, Checker};
 use super::members::{MemberKey, Members, Snapshot};
+use super::merge;
 use crate::adapter::outbound::HandlerBuilder;
 use crate::adapter::registry::{
     parse_options, Options, OutboundContext, OutboundFactory, OutboundRegistry,
@@ -28,6 +29,7 @@ use crate::adapter::*;
 use crate::app::healthcheck::HttpProbe;
 use crate::app::outbound::selector::{OutboundSelector, SelectedBy, Selection};
 use crate::app::SyncDnsClient;
+use crate::config::model::GroupProviders;
 use crate::net::{connect_datagram_outbound, connect_stream_outbound};
 use crate::session::Session;
 
@@ -38,7 +40,13 @@ pub(crate) fn register(registry: &mut OutboundRegistry) {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct FallbackOutboundOptions {
+    /// Its members, in order; none may be when its providers give
+    /// others.
+    #[serde(default)]
     outbounds: Vec<String>,
+    /// Members from outbound providers too, a sail extension.
+    #[serde(flatten)]
+    providers: GroupProviders,
     /// What is requested through each member to test it.
     #[serde(default = "default_url")]
     url: String,
@@ -71,7 +79,7 @@ const MAX_ATTEMPTS: usize = 3;
 
 fn dependencies(tag: &str, options: &Options) -> Result<Vec<String>> {
     let options: FallbackOutboundOptions = parse_options("outbound", tag, options)?;
-    Ok(options.outbounds)
+    Ok(options.providers.dependencies(options.outbounds))
 }
 
 /// The member to select after a round of tests: the first that passed.
@@ -97,7 +105,8 @@ pub(crate) fn candidates(
 
 fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
     let options: FallbackOutboundOptions = ctx.options()?;
-    let members = Members::outbounds(&options.outbounds, ctx.members(&options.outbounds)?);
+    let merged = merge::members(ctx, &options.outbounds, &options.providers)?;
+    let members = merged.members.clone();
     let interval = options.interval.unwrap_or(health::DEFAULT_INTERVAL);
     let timeout = options.timeout.unwrap_or(health::DEFAULT_TIMEOUT);
     if interval.is_zero() {
@@ -113,8 +122,13 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
         .map_err(|e| anyhow!("[{}] outbound: url: {}", ctx.tag, e))?;
 
     // The first member until the first tests are done.
-    let first = members.load().members[0].key.clone();
-    let selected = Arc::new(Selection::new(first.clone(), first));
+    let first = members
+        .load()
+        .members
+        .first()
+        .map(|m| m.key.clone())
+        .unwrap_or_else(|| MemberKey::outbound(""));
+    let selected = Arc::new(Selection::new(&first.name, first.clone()));
     let on_tested = {
         let selected = selected.clone();
         let tag = ctx.tag.to_owned();
@@ -143,6 +157,28 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
         on_tested,
     );
     ctx.abort_handles.push(abort_handle);
+    merged.on_merged({
+        let selected = selected.clone();
+        let checker = checker.clone();
+        let tag = ctx.tag.to_owned();
+        Box::new(move |snapshot, added| {
+            // The first member up in the new order, new ones untested and
+            // so taken to be up.
+            let current = selected.get();
+            if let Some(next) = snapshot.members.iter().find(|m| checker.is_up(&m.key)) {
+                if next.key != *current {
+                    debug!(
+                        "[{}] switches from [{}] to [{}], as its members changed",
+                        tag, current.name, next.key.name
+                    );
+                    selected.set(next.key.clone());
+                }
+            }
+            if added {
+                checker.retest();
+            }
+        })
+    });
 
     let outbound_selector = OutboundSelector::new(
         ctx.tag.to_owned(),
