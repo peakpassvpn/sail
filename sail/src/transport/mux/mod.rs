@@ -39,6 +39,8 @@ mod padding;
 pub mod server;
 mod session;
 mod smux;
+#[cfg(test)]
+mod stall_tests;
 mod yamux;
 
 /// The destination a mux connection asks for.

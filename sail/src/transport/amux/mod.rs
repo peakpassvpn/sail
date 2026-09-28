@@ -35,6 +35,8 @@ const STREAM_CHANNEL_SIZE: usize = 16;
 pub mod inbound;
 #[cfg(feature = "outbound-amux")]
 pub mod outbound;
+#[cfg(test)]
+mod stall_tests;
 
 pub const FRAME_STREAM: u8 = 0x01;
 pub const FRAME_STREAM_FIN: u8 = 0x02;

@@ -28,3 +28,6 @@ mod session;
 pub mod inbound;
 #[cfg(feature = "outbound-anytls")]
 pub mod outbound;
+
+#[cfg(all(test, feature = "inbound-anytls"))]
+mod stall_tests;
