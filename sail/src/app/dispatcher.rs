@@ -508,6 +508,12 @@ impl Dispatcher {
         }
     }
 
+    /// The DNS client what dials directly resolves with.
+    #[cfg(feature = "rule-set")]
+    pub(crate) fn dns_client(&self) -> SyncDnsClient {
+        self.dns_client.clone()
+    }
+
     /// The outbound connections go to when nothing says otherwise.
     pub fn default_outbound(&self) -> Option<String> {
         self.outbound_manager.load().default_handler()

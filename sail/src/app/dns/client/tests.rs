@@ -383,7 +383,7 @@ mod tests {
             ),
             (
                 serde_json::json!([{ "domain": "a", "action": "reject", "server": "home" }]),
-                "server and strategy are for route rules",
+                "dns.rules[0]: server: not with action reject",
             ),
             (
                 serde_json::json!([{ "query_type": "NOPE", "server": "home" }]),
@@ -724,6 +724,329 @@ mod tests {
         assert_eq!(answer_ips(&second), ips(&["10.0.0.7"]));
         assert!(second.answers()[0].ttl() <= 300);
         assert_eq!(count.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
+    /// As the published templates have it: a query goes first to a
+    /// server abroad, and when the address it answers is at home, to the
+    /// server at home; the rest get fake IPs, but the instance's own
+    /// lookups, which go to `final`.
+    fn evaluating(rules: serde_json::Value) -> anyhow::Result<DnsClient> {
+        let config = crate::config::Config::from_json(
+            &serde_json::json!({ "dns": {
+                "servers": [
+                    { "type": "hosts", "tag": "abroad",
+                      "predefined": { "home.example": "1.1.1.1", "away.example": "8.8.8.8" } },
+                    { "type": "hosts", "tag": "home",
+                      "predefined": { "home.example": "1.2.2.2", "away.example": "8.9.9.9" } },
+                    { "type": "fakeip", "tag": "fake", "inet4_range": "198.18.0.0/15" }
+                ],
+                "rules": rules,
+                "final": "abroad"
+            } })
+            .to_string(),
+        )?;
+        DnsClient::new(&config.dns, Default::default(), &Default::default())
+    }
+
+    #[tokio::test]
+    async fn a_rule_matches_an_evaluated_response() {
+        let client = evaluating(serde_json::json!([
+            { "query_type": "A", "action": "evaluate", "server": "abroad" },
+            { "match_response": true, "ip_cidr": "1.0.0.0/8", "server": "home" },
+            { "query_type": ["A", "AAAA"], "server": "fake" }
+        ]))
+        .unwrap();
+        let home = exchange(&client, "home.example", RecordType::A).await;
+        assert_eq!(answer_ips(&home), ips(&["1.2.2.2"]));
+        let away = exchange(&client, "away.example", RecordType::A).await;
+        assert_eq!(answer_ips(&away), ips(&["198.18.0.2"]));
+        // The instance's own lookup passes over the fakeip server.
+        let client = evaluating(serde_json::json!([
+            { "query_type": "A", "action": "evaluate", "server": "abroad" },
+            { "match_response": true, "ip_cidr": "1.0.0.0/8", "server": "home" },
+            { "query_type": ["A", "AAAA"], "server": "fake" }
+        ]))
+        .unwrap();
+        assert_eq!(client.lookup("home.example").await.unwrap(), ips(&["1.2.2.2"]));
+        assert_eq!(client.lookup("away.example").await.unwrap(), ips(&["8.8.8.8"]));
+    }
+
+    /// The published templates' own: an address in a rule-set of the
+    /// country's.
+    #[cfg(feature = "rule-set")]
+    #[tokio::test]
+    async fn a_rule_set_matches_an_evaluated_response() {
+        let config = crate::config::Config::from_json(
+            &serde_json::json!({
+                "route": { "rule_set": [
+                    { "tag": "geoip-cn", "rules": [{ "ip_cidr": "1.0.0.0/8" }] }
+                ] },
+                "dns": {
+                    "servers": [
+                        { "type": "hosts", "tag": "abroad",
+                          "predefined": { "home.example": "1.1.1.1", "away.example": "8.8.8.8" } },
+                        { "type": "hosts", "tag": "home",
+                          "predefined": { "home.example": "1.2.2.2", "away.example": "8.9.9.9" } }
+                    ],
+                    "rules": [
+                        { "type": "logical", "mode": "and", "rules": [
+                            { "query_type": ["A", "AAAA"] },
+                            { "domain": "never.example", "invert": true }
+                        ], "action": "evaluate", "server": "abroad",
+                          "client_subnet": "223.5.5.0/24", "timeout": "2s" },
+                        { "match_response": true, "rule_set": "geoip-cn", "server": "home" }
+                    ],
+                    "final": "abroad"
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let env = crate::runtime::RuntimeEnv::default();
+        let rule_sets = crate::app::router::rule_set::RuleSets::load(
+            &config.route.rule_set,
+            &Default::default(),
+            &env,
+        )
+        .unwrap();
+        let client =
+            DnsClient::with_rule_sets(&config.dns, Default::default(), &env, &rule_sets).unwrap();
+        assert_eq!(client.lookup("home.example").await.unwrap(), ips(&["1.2.2.2"]));
+        assert_eq!(client.lookup("away.example").await.unwrap(), ips(&["8.8.8.8"]));
+    }
+
+    #[tokio::test]
+    async fn respond_answers_with_the_evaluated_response() {
+        let client = evaluating(serde_json::json!([
+            { "domain_suffix": "example", "action": "evaluate", "server": "home", "tag": "h" },
+            { "domain_suffix": "example", "action": "evaluate", "server": "abroad" },
+            // By tag, the one at home.
+            { "match_response": "h", "ip_cidr": "8.0.0.0/8", "action": "respond" },
+            // The latest one without a tag, abroad.
+            { "match_response": true, "ip_is_private": true, "invert": true, "action": "respond" }
+        ]))
+        .unwrap();
+        let away = exchange(&client, "away.example", RecordType::A).await;
+        assert_eq!(answer_ips(&away), ips(&["8.9.9.9"]));
+        let home = exchange(&client, "home.example", RecordType::A).await;
+        assert_eq!(answer_ips(&home), ips(&["1.1.1.1"]));
+
+        // A hosts server answers NXDOMAIN for the names it has not.
+        let client = evaluating(serde_json::json!([
+            { "domain_suffix": "example", "action": "evaluate", "server": "home" },
+            { "match_response": true, "response_rcode": "NXDOMAIN", "action": "reject" },
+            { "match_response": true, "ip_accept_any": true, "action": "respond" }
+        ]))
+        .unwrap();
+        let missing = exchange(&client, "missing.example", RecordType::A).await;
+        assert_eq!(missing.response_code(), ResponseCode::Refused);
+        let away = exchange(&client, "away.example", RecordType::A).await;
+        assert_eq!(answer_ips(&away), ips(&["8.9.9.9"]));
+    }
+
+    #[tokio::test]
+    async fn without_its_response_a_rule_matches_only_inverted() {
+        let dead = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let port = dead.local_addr().unwrap().port();
+        let config = crate::config::Config::from_json(
+            &serde_json::json!({ "dns": {
+                "servers": [
+                    { "type": "hosts", "tag": "home", "predefined": { "a.example": "1.2.2.2" } },
+                    { "type": "udp", "tag": "dead", "server": "127.0.0.1", "server_port": port }
+                ],
+                "rules": [
+                    { "domain": "a.example", "action": "evaluate", "server": "dead",
+                      "timeout": "100ms" },
+                    { "match_response": true, "ip_accept_any": true, "action": "respond" },
+                    { "match_response": true, "ip_accept_any": true, "invert": true,
+                      "server": "home" }
+                ],
+                "final": "dead"
+            } })
+            .to_string(),
+        )
+        .unwrap();
+        let client = DnsClient::new(&config.dns, Default::default(), &Default::default()).unwrap();
+        let started = std::time::Instant::now();
+        let a = exchange(&client, "a.example", RecordType::A).await;
+        assert_eq!(answer_ips(&a), ips(&["1.2.2.2"]));
+        assert!(started.elapsed() < Duration::from_secs(2), "{:?}", started.elapsed());
+
+        // Respond with nothing evaluated fails the query.
+        let config = crate::config::Config::from_json(
+            &serde_json::json!({ "dns": {
+                "servers": [
+                    { "type": "udp", "tag": "dead", "server": "127.0.0.1", "server_port": port }
+                ],
+                "rules": [
+                    { "domain": "a.example", "action": "evaluate", "server": "dead",
+                      "timeout": "100ms" },
+                    { "domain": "a.example", "action": "respond" }
+                ]
+            } })
+            .to_string(),
+        )
+        .unwrap();
+        let client = DnsClient::new(&config.dns, Default::default(), &Default::default()).unwrap();
+        let a = exchange(&client, "a.example", RecordType::A).await;
+        assert_eq!(a.response_code(), ResponseCode::ServFail);
+    }
+
+    /// A UDP server answering every A query with 10.0.0.7, TTL 300, and
+    /// keeping the client subnet of each.
+    async fn subnet_server() -> (
+        u16,
+        std::sync::Arc<std::sync::Mutex<Vec<Option<crate::config::model::Prefix>>>>,
+    ) {
+        let socket = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let port = socket.local_addr().unwrap().port();
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let kept = seen.clone();
+        tokio::spawn(async move {
+            let mut buf = [0u8; 1500];
+            while let Ok((n, peer)) = socket.recv_from(&mut buf).await {
+                let request = Message::from_vec(&buf[..n]).unwrap();
+                kept.lock().unwrap().push(super::rules::client_subnet(&request));
+                let reply = DnsClient::reply(&request, &ips(&["10.0.0.7"]), 300);
+                let _ = socket.send_to(&reply.to_vec().unwrap(), peer).await;
+            }
+        });
+        (port, seen)
+    }
+
+    #[tokio::test]
+    async fn queries_carry_the_client_subnet_and_options_rules_set() {
+        let (port, seen) = subnet_server().await;
+        let config = crate::config::Config::from_json(
+            &serde_json::json!({ "dns": {
+                "servers": [{ "type": "udp", "tag": "up", "server": "127.0.0.1",
+                              "server_port": port }],
+                "client_subnet": "192.0.2.1",
+                "rules": [
+                    { "domain": "own.example", "server": "up", "client_subnet": "223.5.5.9/24" },
+                    { "domain": "none.example", "server": "up", "remove_client_subnet": true },
+                    { "domain": "ttl.example", "action": "route-options", "rewrite_ttl": 5,
+                      "disable_cache": true },
+                    { "domain": "ttl.example", "server": "up" }
+                ]
+            } })
+            .to_string(),
+        )
+        .unwrap();
+        let client = DnsClient::new(&config.dns, Default::default(), &Default::default()).unwrap();
+        exchange(&client, "a.example", RecordType::A).await;
+        exchange(&client, "own.example", RecordType::A).await;
+        exchange(&client, "none.example", RecordType::A).await;
+        let ttl = exchange(&client, "ttl.example", RecordType::A).await;
+        assert_eq!(ttl.answers()[0].ttl(), 5);
+        // Not cached: asked again.
+        exchange(&client, "ttl.example", RecordType::A).await;
+        let prefix = |p: &str| Some(p.parse::<crate::config::model::Prefix>().unwrap());
+        assert_eq!(
+            *seen.lock().unwrap(),
+            [
+                prefix("192.0.2.1/32"),
+                prefix("223.5.5.0/24"),
+                None,
+                prefix("192.0.2.1/32"),
+                prefix("192.0.2.1/32"),
+            ]
+        );
+    }
+
+    #[test]
+    fn response_rule_mistakes_name_the_rule() {
+        for (rules, message) in [
+            (
+                serde_json::json!([{ "match_response": true, "ip_cidr": "1.0.0.0/8",
+                                     "server": "home" }]),
+                "dns.rules[0]: the response it matches comes from an evaluate rule before it, \
+                 and there is none",
+            ),
+            (
+                serde_json::json!([
+                    { "domain": "a", "action": "evaluate", "server": "home", "tag": "x" },
+                    { "match_response": true, "server": "home" }
+                ]),
+                "dns.rules[1]: the response it matches comes from an evaluate rule without a \
+                 tag before it; match_response names a tagged one",
+            ),
+            (
+                serde_json::json!([{ "match_response": "x", "server": "home" }]),
+                "dns.rules[0]: match_response: no evaluate rule before it is tagged [x]",
+            ),
+            (
+                serde_json::json!([
+                    { "domain": "a", "action": "evaluate", "server": "home", "tag": "x" },
+                    { "domain": "b", "action": "evaluate", "server": "home", "tag": "x" }
+                ]),
+                "dns.rules[1]: tag: another evaluate rule is tagged [x]",
+            ),
+            (
+                serde_json::json!([{ "domain": "a", "action": "respond" }]),
+                "dns.rules[0]: the response it matches comes from an evaluate rule before it, \
+                 and there is none",
+            ),
+            (
+                serde_json::json!([{ "ip_cidr": "1.0.0.0/8", "server": "home" }]),
+                "dns.rules[0]: ip_cidr: matches an evaluated response, and needs \
+                 match_response",
+            ),
+            (
+                serde_json::json!([
+                    { "domain": "a", "action": "evaluate", "server": "home" },
+                    { "domain": "b", "server": "home", "strategy": "ipv4_only" }
+                ]),
+                "dns.rules[1].strategy: not with evaluated responses (dns.rules[0])",
+            ),
+            (
+                serde_json::json!([{ "domain": "a", "action": "route-options" }]),
+                "dns.rules[0]: a route-options rule sets some option",
+            ),
+            (
+                serde_json::json!([{ "domain": "a", "server": "home",
+                                     "client_subnet": "1.2.3.0/24",
+                                     "remove_client_subnet": true }]),
+                "dns.rules[0]: client_subnet: not with remove_client_subnet",
+            ),
+            (
+                serde_json::json!([{ "domain": "a", "server": "home",
+                                     "client_subnet": "1.2.3.0/33" }]),
+                "the prefix length is 0 to 32",
+            ),
+            (
+                serde_json::json!([{ "domain": "a", "action": "respond", "tag": "x" }]),
+                "dns.rules[0]: tag: not with action respond",
+            ),
+            (
+                serde_json::json!([
+                    { "domain": "a", "action": "evaluate", "server": "home" },
+                    { "type": "logical", "mode": "and", "server": "home",
+                      "rules": [{ "match_response": true, "ip_accept_any": true }] }
+                ]),
+                "dns.rules[1]: rules[0]: match_response: sail does not implement it in a \
+                 logical rule's rules yet",
+            ),
+            (
+                serde_json::json!([{ "domain": "a", "action": "evaluate", "server": "home",
+                                     "race": true }]),
+                "dns.rules[0].race: sail does not implement this field yet",
+            ),
+        ] {
+            let err = with_rules(rules.clone()).err().unwrap().to_string();
+            assert!(err.contains(message), "{}: {}", rules, err);
+        }
+        let err = evaluating(serde_json::json!([
+            { "domain": "a", "action": "evaluate", "server": "fake" }
+        ]))
+        .err()
+        .unwrap()
+        .to_string();
+        assert!(
+            err.contains("dns.rules[0]: server: [fake] is the fakeip server"),
+            "{}",
+            err
+        );
     }
 
     fn tags(tags: &[&str]) -> Vec<String> {

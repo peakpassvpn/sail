@@ -140,6 +140,9 @@ pub(super) struct Upstream {
     pub(super) certificate: Option<String>,
     #[cfg_attr(not(any(feature = "tls", feature = "quic")), allow(dead_code))]
     pub(super) insecure: bool,
+    /// The roots of the instance, for no `certificate` of its own.
+    #[cfg(feature = "tls")]
+    pub(super) roots: crate::transport::tls::roots::Roots,
     /// The ClientHello of DoT and DoH, `tls.utls`: none for DoT and Chrome's
     /// for DoH when unset.
     #[cfg(feature = "tls")]
@@ -254,6 +257,8 @@ impl Upstream {
             fingerprint,
             #[cfg(feature = "tls")]
             tls_client: Default::default(),
+            #[cfg(feature = "tls")]
+            roots: env.tls_roots.get()?,
             state,
         })
     }
@@ -268,6 +273,7 @@ impl Upstream {
                     self.certificate.as_deref(),
                     self.insecure,
                     self.fingerprint,
+                    &self.roots,
                 )
                 .map_err(|e| e.to_string())
             })

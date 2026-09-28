@@ -62,6 +62,20 @@ fn a_rule_set_decides_the_route() -> anyhow::Result<()> {
     feature = "rule-set"
 ))]
 fn rule_set_server(body: &'static str) -> (u16, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+    rule_set_server_requiring(body, None)
+}
+
+/// `rule_set_server`, answering 403 to requests without the header line
+/// `required`.
+#[cfg(all(
+    feature = "inbound-socks",
+    feature = "outbound-direct",
+    feature = "rule-set"
+))]
+fn rule_set_server_requiring(
+    body: &'static str,
+    required: Option<&'static str>,
+) -> (u16, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
     use std::io::{BufRead, BufReader, Write};
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
@@ -76,14 +90,17 @@ fn rule_set_server(body: &'static str) -> (u16, std::sync::Arc<std::sync::atomic
                 continue;
             }
             // The rest of the head.
+            let mut found = required.is_none();
             loop {
                 let mut header = String::new();
                 if reader.read_line(&mut header).is_err() || header == "\r\n" {
                     break;
                 }
+                found |= required.is_some_and(|r| header.trim_end().eq_ignore_ascii_case(r));
             }
             let path = line.split_whitespace().nth(1).unwrap_or("").to_string();
             let response = match path.as_str() {
+                _ if !found => "HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n".to_string(),
                 "/s.json" => {
                     "HTTP/1.1 302 Found\r\nLocation: /rules.json\r\nContent-Length: 0\r\n\r\n"
                         .to_string()
@@ -160,5 +177,118 @@ fn a_remote_rule_set_is_downloaded_before_the_first_connection() -> anyhow::Resu
         "{:#}",
         err
     );
+    Ok(())
+}
+
+// An HTTP client without a detour dials the server itself, with its
+// headers: the default outbound, a SOCKS server that is not there, would
+// fail the download, and so does the server, without the header. The
+// first of `http_clients` is the default; `download_detour` goes before
+// it, and a rule-set's own `http_client` before that.
+#[cfg(all(
+    feature = "inbound-socks",
+    feature = "outbound-direct",
+    feature = "outbound-socks",
+    feature = "rule-set"
+))]
+#[test]
+fn a_rule_set_is_downloaded_with_its_http_client() -> anyhow::Result<()> {
+    let (http_port, fetched) = rule_set_server_requiring(
+        r#"{ "version": 3, "rules": [{ "ip_cidr": "127.0.0.0/8" }] }"#,
+        Some("Authorization: Bearer t"),
+    );
+    let [dead] = common::free_ports();
+    let config = |port: u16, http_clients: serde_json::Value, rule_set: serde_json::Value| {
+        let mut rule_set_config = serde_json::json!({
+            "type": "remote", "tag": "s", "format": "source",
+            "url": format!("http://127.0.0.1:{}/s.json", http_port)
+        });
+        rule_set_config
+            .as_object_mut()
+            .unwrap()
+            .extend(rule_set.as_object().unwrap().clone());
+        serde_json::json!({
+            "inbounds": [{ "type": "socks", "listen": "127.0.0.1", "listen_port": port }],
+            "outbounds": [
+                { "type": "socks", "tag": "nowhere", "server": "127.0.0.1", "server_port": dead },
+                { "type": "direct", "tag": "direct" }
+            ],
+            "http_clients": http_clients,
+            "route": {
+                "rule_set": [rule_set_config],
+                "rules": [{ "rule_set": "s", "action": "reject" }],
+                "final": "direct"
+            }
+        })
+        .to_string()
+    };
+    let headers = serde_json::json!({ "Authorization": "Bearer t" });
+    let downloaded = [
+        // The default, the first.
+        (
+            serde_json::json!([{ "tag": "c", "headers": headers }]),
+            serde_json::json!({}),
+        ),
+        // Its own, in place, through an outbound.
+        (
+            serde_json::json!([]),
+            serde_json::json!({ "http_client": { "detour": "direct", "headers": headers } }),
+        ),
+        // Its own, by tag, over the default.
+        (
+            serde_json::json!([{ "tag": "c" }, { "tag": "d", "headers": headers }]),
+            serde_json::json!({ "http_client": "d" }),
+        ),
+    ];
+    for (http_clients, rule_set) in downloaded {
+        let result = common::retry_port_clash(|| {
+            let [port] = common::free_ports();
+            common::test_configs(
+                vec![config(port, http_clients.clone(), rule_set.clone())],
+                "127.0.0.1",
+                port,
+            )
+        });
+        assert!(
+            result.is_err(),
+            "{} {}: not rejected: the rule-set was not in place",
+            http_clients,
+            rule_set
+        );
+    }
+    assert!(fetched.load(std::sync::atomic::Ordering::SeqCst) >= 3);
+
+    let not_downloaded = [
+        // No client: the default outbound.
+        (serde_json::json!([]), serde_json::json!({}), "connect"),
+        // Through the outbound, over the default client.
+        (
+            serde_json::json!([{ "tag": "c", "headers": headers }]),
+            serde_json::json!({ "download_detour": "nowhere" }),
+            "connect",
+        ),
+        // Without the header.
+        (
+            serde_json::json!([{ "tag": "c" }]),
+            serde_json::json!({}),
+            "http status 403",
+        ),
+    ];
+    let rt = tokio::runtime::Runtime::new()?;
+    for (http_clients, rule_set, message) in not_downloaded {
+        let [port] = common::free_ports();
+        let err = common::run_sail_instances(
+            &rt,
+            vec![config(port, http_clients.clone(), rule_set.clone())],
+        )
+        .expect_err("started without its rule-set");
+        assert!(
+            format!("{:#}", err).contains(message),
+            "{} {}: {:#}",
+            http_clients,
+            rule_set,
+            err
+        );
+    }
     Ok(())
 }

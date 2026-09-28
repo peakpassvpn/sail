@@ -26,12 +26,22 @@ use crate::{
 include!("client/types.rs");
 
 mod fakeip;
+mod rules;
 mod server;
 mod upstream;
 
 pub use fakeip::FakeIp;
 
 use server::{Address, Dialer, Kind, Server};
+
+/// Where a lookup's queries go.
+#[derive(Clone, Copy)]
+enum By<'a> {
+    /// Where the rules send them.
+    Rules(&'a LookupContext),
+    /// To this server.
+    Server(&'a str),
+}
 
 /// How long the system resolver's and a hosts server's answers are kept:
 /// they carry no TTL.
@@ -116,6 +126,8 @@ impl DnsClient {
             strategy: dns.strategy,
             timeout: dns.timeout(),
             reverse_mapping: dns.reverse_mapping,
+            client_subnet: dns.client_subnet,
+            rules_set_strategy: dns.rules.iter().any(|r| r.strategy.is_some()),
         })
     }
 
@@ -149,75 +161,6 @@ impl DnsClient {
     /// Whether `dns.reverse_mapping` is on.
     pub fn reverse_mapping(&self) -> bool {
         self.reverse_mapping
-    }
-
-    fn load_rules(
-        dns: &crate::config::Dns,
-        env: &crate::runtime::RuntimeEnv,
-        rule_sets: &crate::app::router::rule_set::RuleSets,
-    ) -> Result<Vec<Rule>> {
-        let mut readers = crate::app::router::matcher::Readers::new();
-        let mut rules = Vec::new();
-        for (i, rule) in dns.rules.iter().enumerate() {
-            let matcher = crate::app::router::matcher::Matcher::at(
-                &rule.conditions(),
-                &format!("dns.rules[{}]", i),
-                &mut readers,
-                env,
-                rule_sets,
-            )?;
-            let action = match rule.action.unwrap_or_default() {
-                crate::config::model::DnsRuleAction::Route => RuleAction::Route {
-                    // Checked with the model.
-                    server: rule.server.clone().unwrap_or_default(),
-                    strategy: rule.strategy,
-                },
-                crate::config::model::DnsRuleAction::Reject => RuleAction::Reject,
-            };
-            rules.push(Rule {
-                matcher,
-                outbounds: rule.outbound.clone(),
-                action,
-            });
-        }
-        Ok(rules)
-    }
-
-    /// Where a query of type `ty` for `host` goes: the first rule that
-    /// matches it decides, and `final` takes the rest.
-    fn pick(&self, host: &str, ty: RecordType, ctx: &LookupContext) -> Pick {
-        let sess = Session {
-            destination: SocksAddr::Domain(host.to_string(), 0),
-            inbound_tag: ctx.inbound.clone().unwrap_or_default(),
-            user: ctx.user.clone(),
-            ..Default::default()
-        };
-        let facts = crate::app::router::matcher::Facts::new(&sess, &[]).with_query_type(ty.into());
-        for (i, rule) in self.rules.iter().enumerate() {
-            if !rule.outbounds.is_empty()
-                && !ctx
-                    .outbound
-                    .as_ref()
-                    .is_some_and(|o| rule.outbounds.contains(o))
-            {
-                continue;
-            }
-            if !rule.matcher.matches(&facts) {
-                continue;
-            }
-            debug!("dns rule {} matches {} {}", i, host, ty);
-            return match &rule.action {
-                RuleAction::Route { server, strategy } => Pick::Server(
-                    server.clone(),
-                    ctx.strategy.or(*strategy).unwrap_or(self.strategy),
-                ),
-                RuleAction::Reject => Pick::Reject,
-            };
-        }
-        Pick::Server(
-            self.final_server.clone(),
-            ctx.strategy.unwrap_or(self.strategy),
-        )
     }
 
     /// Fails when resolving a name needs what the resolving itself needs:
@@ -296,10 +239,7 @@ impl DnsClient {
                     };
                     [RecordType::A, RecordType::AAAA]
                         .into_iter()
-                        .filter_map(|ty| match self.pick(host, ty, &ctx) {
-                            Pick::Server(tag, _) => Some(tag),
-                            Pick::Reject => None,
-                        })
+                        .flat_map(|ty| self.reach(host, ty, &ctx).servers)
                         .collect()
                 }
             };
@@ -444,14 +384,14 @@ impl DnsClient {
 
     // -- Asking servers --------------------------------------------------
 
-    /// Asks `server` `request`, within the query's time; a smart_select
-    /// asks its members, as they have fared.
+    /// Asks `server` `request`, within `time`; a smart_select asks its
+    /// members, as they have fared.
     #[async_recursion]
-    async fn query(&self, server: &Server, request: &Message) -> Result<Answer> {
+    async fn query(&self, server: &Server, request: &Message, time: Duration) -> Result<Answer> {
         if let Kind::SmartSelect { members, state } = &server.kind {
-            return self.query_selected(members, state, request).await;
+            return self.query_selected(members, state, request, time).await;
         }
-        match timeout(self.timeout, self.ask(server, request)).await {
+        match timeout(time, self.ask(server, request, time)).await {
             Ok(res) => res,
             Err(_) => Err(anyhow!("{} {}: timeout", server, Self::question(request))),
         }
@@ -473,6 +413,7 @@ impl DnsClient {
         members: &[String],
         state: &std::sync::Mutex<ServerSelectorState>,
         request: &Message,
+        time: Duration,
     ) -> Result<Answer> {
         let lock = || state.lock().unwrap_or_else(|e| e.into_inner());
         let ask = |idx: usize| {
@@ -480,7 +421,22 @@ impl DnsClient {
             async move {
                 let server = self.server(tag)?;
                 let start = tokio::time::Instant::now();
-                match self.query(server, request).await {
+                // A member that answers it failed is as one that does not.
+                let answered =
+                    self.query(server, request, time)
+                        .await
+                        .and_then(|answer| match &answer {
+                            Answer::Message(m)
+                                if !matches!(
+                                    m.response_code(),
+                                    ResponseCode::NoError | ResponseCode::NXDomain
+                                ) =>
+                            {
+                                Err(anyhow!("{}", m.response_code()))
+                            }
+                            _ => Ok(answer),
+                        });
+                match answered {
                     Ok(answer) => {
                         lock().mark_success(tag, start.elapsed());
                         Ok((idx, answer))
@@ -515,8 +471,8 @@ impl DnsClient {
         Err(anyhow!("all dns queries failed: {}", errors.join("; ")))
     }
 
-    /// Asks one server that is not a smart_select.
-    async fn ask(&self, server: &Server, request: &Message) -> Result<Answer> {
+    /// Asks one server that is not a smart_select, within `time`.
+    async fn ask(&self, server: &Server, request: &Message, time: Duration) -> Result<Answer> {
         let query = request
             .queries()
             .first()
@@ -576,7 +532,7 @@ impl DnsClient {
                 let request = request.to_vec()?;
                 let addr = self.server_addr(address).await?;
                 let socket = self.dial_datagram(dialer, addr).await?;
-                self.exchange_udp(socket, &request, addr, server)
+                self.exchange_udp(socket, &request, addr, server, time)
                     .await
                     .map(Answer::Message)
             }
@@ -632,13 +588,14 @@ impl DnsClient {
         request: &[u8],
         addr: SocketAddr,
         server: &Server,
+        time: Duration,
     ) -> Result<Message> {
         let to = SocksAddr::from(addr);
         let (mut r, mut s) = socket.split();
         let attempts = self.tuning.max_retries.max(1);
         // The query's time, shared by the attempts: a datagram lost is sent
         // again.
-        let wait = self.timeout / attempts as u32;
+        let wait = time / attempts as u32;
         let mut last_err = anyhow!("no answer");
         for _ in 0..attempts {
             if let Err(e) = s.send_to(request, &to).await {
@@ -674,18 +631,13 @@ impl DnsClient {
         Ok(response)
     }
 
-    /// An answer to `request`: that the name has records, or that it does
-    /// not exist. A server that fails to answer, or refuses to, has not.
+    /// An answer to `request`, whatever its code: that the server failed,
+    /// or refuses, is an answer the rules can match, as in sing-box.
     fn parse(response: &[u8], request: &[u8], server: &Server) -> Result<Message> {
         if response.get(..2) != request.get(..2) {
             return Err(anyhow!("{}: an answer to another query", server));
         }
-        let message = Message::from_vec(response)
-            .map_err(|e| anyhow!("{}: invalid answer: {}", server, e))?;
-        match message.response_code() {
-            ResponseCode::NoError | ResponseCode::NXDomain => Ok(message),
-            code => Err(anyhow!("{}: {}", server, code)),
-        }
+        Message::from_vec(response).map_err(|e| anyhow!("{}: invalid answer: {}", server, e))
     }
 
     /// An answer to `request` made here: `ips` of the family asked for.
@@ -712,30 +664,19 @@ impl DnsClient {
 
     // -- Reading answers -------------------------------------------------
 
-    /// The addresses an answer carries, kept for its TTL.
-    fn answer_entry(answer: Answer, host: &str, server: &Server) -> Result<CacheEntry> {
-        let (ips, ttl) = match answer {
-            Answer::Ips(ips) => (ips, LOCAL_TTL),
-            Answer::Message(message) if message.response_code() == ResponseCode::NXDomain => {
-                return Err(anyhow!("{}: {} does not exist", server, host));
-            }
-            Answer::Message(message) => {
-                let mut ips = Vec::new();
-                for ans in message.answers() {
-                    match ans.data() {
-                        Some(RData::A(ip)) => ips.push(IpAddr::V4(**ip)),
-                        Some(RData::AAAA(ip)) => ips.push(IpAddr::V6(**ip)),
-                        _ => (),
-                    }
-                }
-                let ttl = message.answers().first().map_or(0, |ans| ans.ttl());
-                (ips, Duration::from_secs(ttl.into()))
-            }
-        };
-        if ips.is_empty() {
-            return Err(anyhow!("{}: no address for {}", server, host));
+    /// The addresses a response for `host` carries, kept for its TTL.
+    fn answer_entry(response: &Message, host: &str) -> Result<CacheEntry> {
+        match response.response_code() {
+            ResponseCode::NoError => {}
+            ResponseCode::NXDomain => return Err(anyhow!("{} does not exist", host)),
+            code => return Err(anyhow!("{}: {}", host, code)),
         }
-        debug!("{} answered {} {:?} ttl={:?}", server, host, ips, ttl);
+        let ips = rules::addresses(response);
+        if ips.is_empty() {
+            return Err(anyhow!("no address for {}", host));
+        }
+        let ttl = Duration::from_secs(response.answers().first().map_or(0, |a| a.ttl()).into());
+        debug!("{} is {:?}, ttl={:?}", host, ips, ttl);
         let deadline = Instant::now()
             .checked_add(ttl)
             .ok_or_else(|| anyhow!("invalid ttl"))?;
@@ -743,15 +684,7 @@ impl DnsClient {
     }
 
     /// The ECH configs an HTTPS or SVCB answer carries.
-    fn ech_entry(
-        answer: Answer,
-        host: &str,
-        server: &Server,
-        ty: RecordType,
-    ) -> Result<EchCacheEntry> {
-        let Answer::Message(message) = answer else {
-            return Err(anyhow!("{} answers no {} query", server, ty));
-        };
+    fn ech_entry(message: &Message, host: &str, ty: RecordType) -> Result<EchCacheEntry> {
         let mut found = false;
         for ans in message.answers() {
             if ans.record_type() != ty {
@@ -763,7 +696,7 @@ impl DnsClient {
                 let deadline = Instant::now()
                     .checked_add(Duration::from_secs(ans.ttl().into()))
                     .ok_or_else(|| anyhow!("invalid ttl"))?;
-                debug!("{} answered {} {} with an ech config", server, host, ty);
+                debug!("{} {} has an ech config", host, ty);
                 return Ok(EchCacheEntry {
                     ech_config_list,
                     deadline,
@@ -772,13 +705,12 @@ impl DnsClient {
         }
         if found {
             return Err(anyhow!(
-                "missing ech parameter in {} record for {} from {}",
+                "missing ech parameter in {} record for {}",
                 ty,
-                host,
-                server
+                host
             ));
         }
-        Err(anyhow!("no {} records for {} from {}", ty, host, server))
+        Err(anyhow!("no {} records for {}", ty, host))
     }
 
     fn extract_ech_config_list(rdata: &str) -> Option<String> {
@@ -855,40 +787,21 @@ impl DnsClient {
         let ty = query.query_type();
         let host = query.name().to_utf8();
         let host = host.trim_end_matches('.').to_ascii_lowercase();
-        let (tag, strategy) = match self.pick(&host, ty, ctx) {
-            Pick::Reject => return Self::status(request, ResponseCode::Refused),
-            Pick::Server(tag, strategy) => (tag, strategy),
-        };
+        let strategy = self.query_strategy(&host, ty, ctx);
         // A family the strategy leaves out has no records.
         if (ty == RecordType::AAAA && strategy == DnsStrategy::Ipv4Only)
             || (ty == RecordType::A && strategy == DnsStrategy::Ipv6Only)
         {
             return Self::reply(request, &[], LOCAL_TTL.as_secs() as u32);
         }
-        let key = (host, u16::from(ty));
-        if let Some(cached) = self.cached_answer(&key, request.id()) {
-            return cached;
-        }
-        let server = match self.server(&tag) {
-            Ok(server) => server.clone(),
-            Err(e) => {
-                debug!("{}", e);
-                return Self::status(request, ResponseCode::ServFail);
+        match self.walk(request, ctx, true).await {
+            Ok(rules::Walked::Response(mut response)) => {
+                response.set_id(request.id());
+                response
             }
-        };
-        match self.query(&server, request).await {
-            Ok(Answer::Message(mut message)) => {
-                message.set_id(request.id());
-                // A fake IP comes from its store, which may have handed its
-                // address to another domain by the time a cache would.
-                if !matches!(server.kind, Kind::FakeIp(_)) {
-                    self.cache_answer(key, &message);
-                }
-                message
-            }
-            Ok(Answer::Ips(ips)) => Self::reply(request, &ips, LOCAL_TTL.as_secs() as u32),
+            Ok(rules::Walked::Refused) => Self::status(request, ResponseCode::Refused),
             Err(e) => {
-                debug!("{} from {}: {}", Self::question(request), server, e);
+                debug!("{}: {}", Self::question(request), e);
                 Self::status(request, ResponseCode::ServFail)
             }
         }
@@ -902,7 +815,7 @@ impl DnsClient {
     }
 
     /// The answer cached for `key`, with `id` and what is left of its TTLs.
-    fn cached_answer(&self, key: &(String, u16), id: u16) -> Option<Message> {
+    fn cached_answer(&self, key: &AnswerKey, id: u16) -> Option<Message> {
         let mut answers = self.answers.lock().unwrap_or_else(|e| e.into_inner());
         let (message, expires) = answers.get(key)?;
         let now = Instant::now();
@@ -921,7 +834,7 @@ impl DnsClient {
 
     /// Keeps `message` for its shortest TTL; one with no records, a
     /// minute.
-    fn cache_answer(&self, key: (String, u16), message: &Message) {
+    fn cache_answer(&self, key: AnswerKey, message: &Message) {
         let ttl = message
             .answers()
             .iter()
@@ -1015,21 +928,8 @@ impl DnsClient {
         if let Ok(ip) = host.parse::<IpAddr>() {
             return Ok(vec![ip]);
         }
-        let a = self.pick(host, RecordType::A, ctx);
-        let aaaa = self.pick(host, RecordType::AAAA, ctx);
-        // The families: as the rule of the A query says, unless it rejects.
-        let strategy = match (&a, &aaaa) {
-            (Pick::Server(_, strategy), _) | (Pick::Reject, Pick::Server(_, strategy)) => *strategy,
-            (Pick::Reject, Pick::Reject) => {
-                return Err(anyhow!("{}: rejected by a dns rule", host));
-            }
-        };
-        let server = |pick: &Pick| match pick {
-            Pick::Server(tag, _) => Some(tag.clone()),
-            Pick::Reject => None,
-        };
-        self.lookup_by(host, strategy, server(&a), server(&aaaa))
-            .await
+        let strategy = self.lookup_strategy(host, ctx);
+        self.lookup_by(host, strategy, By::Rules(ctx)).await
     }
 
     /// The addresses of `host`, which an outbound dials with `dial`: from
@@ -1083,65 +983,56 @@ impl DnsClient {
         if let Ok(ip) = host.parse::<IpAddr>() {
             return Ok(vec![ip]);
         }
-        self.lookup_by(
-            host,
-            strategy,
-            Some(server.to_string()),
-            Some(server.to_string()),
-        )
-        .await
+        self.lookup_by(host, strategy, By::Server(server)).await
     }
 
-    /// The addresses of `host`, of the families `strategy` says: A records
-    /// from `server_a`, AAAA ones from `server_aaaa`, none from a family
-    /// without a server.
+    /// The addresses of `host`, of the families `strategy` says, from the
+    /// servers the rules send each query to, or from one server.
     async fn lookup_by(
         &self,
         host: &str,
         strategy: DnsStrategy,
-        server_a: Option<String>,
-        server_aaaa: Option<String>,
+        by: By<'_>,
     ) -> Result<Vec<IpAddr>> {
-        // A family is asked for when the strategy wants it and a server
-        // takes it.
-        let v4 = server_a.is_some() && strategy != DnsStrategy::Ipv6Only;
-        let v6 = server_aaaa.is_some() && strategy != DnsStrategy::Ipv4Only;
-        let strategy = match (v4, v6) {
-            (true, true) => strategy,
-            (true, false) => DnsStrategy::Ipv4Only,
-            (false, true) => DnsStrategy::Ipv6Only,
-            (false, false) => return Err(anyhow!("{}: rejected by a dns rule", host)),
-        };
         if let Some(ips) = self.get_cached(host, strategy).await {
             return Ok(ips);
         }
         let name = Name::from_str(&format!("{}.", host))
             .map_err(|e| anyhow!("invalid domain name [{}]: {}", host, e))?;
-        let query = |ty, tag: Option<String>| {
-            let name = name.clone();
+        let query = |ty| {
+            let request = Self::new_query(name.clone(), ty);
             async move {
-                let tag = tag.ok_or_else(|| anyhow!("{} {}: rejected by a dns rule", host, ty))?;
-                let server = self.server(&tag)?.clone();
-                let answer = self.query(&server, &Self::new_query(name, ty)).await?;
-                Self::answer_entry(answer, host, &server)
+                let response = match by {
+                    By::Rules(ctx) => match self.walk(&request, ctx, false).await? {
+                        rules::Walked::Response(response) => response,
+                        rules::Walked::Refused => {
+                            return Err(anyhow!("{} {}: rejected by a dns rule", host, ty))
+                        }
+                    },
+                    By::Server(tag) => {
+                        self.resolve(tag, &request, &QueryOptions::default())
+                            .await?
+                    }
+                };
+                Self::answer_entry(&response, host)
             }
         };
 
         let single = match strategy {
-            DnsStrategy::Ipv4Only => Some((RecordType::A, server_a.clone())),
-            DnsStrategy::Ipv6Only => Some((RecordType::AAAA, server_aaaa.clone())),
+            DnsStrategy::Ipv4Only => Some(RecordType::A),
+            DnsStrategy::Ipv6Only => Some(RecordType::AAAA),
             DnsStrategy::PreferIpv4 | DnsStrategy::PreferIpv6 => None,
         };
-        if let Some((ty, tag)) = single {
-            let entry = query(ty, tag).await?;
+        if let Some(ty) = single {
+            let entry = query(ty).await?;
             let ips = entry.ips.clone();
             self.cache_insert(host, entry).await;
             return Ok(ips);
         }
 
         let delay = self.tuning.dualstack_delay;
-        let mut a = Box::pin(query(RecordType::A, server_a));
-        let mut aaaa = Box::pin(query(RecordType::AAAA, server_aaaa));
+        let mut a = Box::pin(query(RecordType::A));
+        let mut aaaa = Box::pin(query(RecordType::AAAA));
         let (first, second) = if strategy == DnsStrategy::PreferIpv6 {
             Self::dualstack_query(&mut aaaa, &mut a, delay).await?
         } else {
@@ -1254,21 +1145,17 @@ impl DnsClient {
             .map_err(|e| anyhow!("invalid domain name [{}]: {}", host, e))?;
         let mut errors = Vec::new();
         for ty in [RecordType::HTTPS, RecordType::SVCB] {
-            let server = match self.pick(host, ty, &LookupContext::default()) {
-                Pick::Server(tag, _) => self.server(&tag)?.clone(),
-                Pick::Reject => {
-                    errors.push(format!("{}: rejected by a dns rule", ty));
-                    continue;
+            let request = Self::new_query(name.clone(), ty);
+            match self.walk(&request, &LookupContext::default(), false).await {
+                Ok(rules::Walked::Response(response)) => {
+                    match Self::ech_entry(&response, host, ty) {
+                        Ok(entry) => return Ok(entry),
+                        Err(e) => errors.push(format!("{}: {}", ty, e)),
+                    }
                 }
-            };
-            match self
-                .query(&server, &Self::new_query(name.clone(), ty))
-                .await
-            {
-                Ok(answer) => match Self::ech_entry(answer, host, &server, ty) {
-                    Ok(entry) => return Ok(entry),
-                    Err(e) => errors.push(format!("{}: {}", ty, e)),
-                },
+                Ok(rules::Walked::Refused) => {
+                    errors.push(format!("{}: rejected by a dns rule", ty))
+                }
                 Err(e) => errors.push(format!("{}: {}", ty, e)),
             }
         }

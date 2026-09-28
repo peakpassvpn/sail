@@ -38,8 +38,8 @@ jobs:
       - name: test sail-netstack
         run: cargo test -p sail-netstack
 
-  # Small builds, one feature set at a time, so that cfg gates and feature
-  # dependencies stay right.
+  # Small builds, one feature set at a time, tests included, so that cfg
+  # gates and feature dependencies stay right.
   check-features:
     runs-on: ubuntu-latest
     env:
@@ -69,10 +69,12 @@ jobs:
             inbound-hysteria2,outbound-hysteria2 \
             inbound-tuic,outbound-tuic \
             inbound-tun,outbound-direct \
-            rule-set,inbound-socks,outbound-direct
+            rule-set,inbound-socks,outbound-direct \
+            outbound-load-balance,outbound-redirect \
+            outbound-urltest,outbound-redirect
           do
             echo "::group::$features"
-            cargo check -p sail --no-default-features --features "$features"
+            cargo check -p sail --no-default-features --features "$features" --all-targets
             echo "::endgroup::"
           done
 

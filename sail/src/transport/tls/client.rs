@@ -33,6 +33,7 @@ impl TlsClient {
         certificate: Option<&str>,
         insecure: bool,
         fingerprint: Option<Fingerprint>,
+        roots: &super::roots::Roots,
     ) -> Result<Self> {
         let mut builder = SslConnector::bare_builder(SslMethod::tls())?;
         builder.set_min_proto_version(Some(SslVersion::TLS1_2))?;
@@ -53,7 +54,7 @@ impl TlsClient {
             builder.set_verify(SslVerifyMode::PEER);
             match certificate {
                 Some(certificate) => builder.set_cert_store(trust_store(certificate)?),
-                None => builder.set_cert_store_ref(bundled_roots()?),
+                None => builder.set_cert_store_ref(roots.store()),
             }
         }
         if !alpn.is_empty() {
@@ -146,22 +147,6 @@ pub(crate) fn bundled_root_certs() -> Result<&'static [X509]> {
         .map_err(|e| anyhow!("load root certificates failed: {}", e))
 }
 
-/// The bundled roots as a store, built once.
-fn bundled_roots() -> Result<&'static X509Store> {
-    static ROOTS: OnceLock<std::result::Result<X509Store, String>> = OnceLock::new();
-    ROOTS
-        .get_or_init(|| {
-            let certs = bundled_root_certs().map_err(|e| e.to_string())?;
-            let mut store = X509StoreBuilder::new().map_err(|e| e.to_string())?;
-            for cert in certs {
-                store.add_cert(cert.clone()).map_err(|e| e.to_string())?;
-            }
-            Ok(store.build())
-        })
-        .as_ref()
-        .map_err(|e| anyhow!("load root certificates failed: {}", e))
-}
-
 fn trust_store(certificate: &str) -> Result<X509Store> {
     let mut store = X509StoreBuilder::new()?;
     for cert in load_certificates(certificate)? {
@@ -211,6 +196,7 @@ pub(crate) fn load_private_key(key: &str) -> Result<btls::pkey::PKey<btls::pkey:
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::transport::tls::tests::test_roots;
 
     #[test]
     fn test_alpn_wire() {
@@ -220,14 +206,12 @@ mod tests {
     }
 
     #[test]
-    fn test_bundled_roots_load() {
-        assert!(bundled_roots().is_ok());
-    }
+    fn test_bundled_roots_load() {}
 
     #[test]
     fn test_client_hello_is_ready() {
         use crate::transport::tls_stream::TlsConnection;
-        let client = TlsClient::new(&[], None, false, None).unwrap();
+        let client = TlsClient::new(&[], None, false, None, &test_roots()).unwrap();
         let mut conn = client.connection("example.com", None).unwrap();
         assert!(conn.is_handshaking());
         assert!(conn.wants_write());

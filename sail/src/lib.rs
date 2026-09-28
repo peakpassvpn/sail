@@ -266,8 +266,19 @@ impl RuntimeManager {
             .prepare_resources(&config.inbounds)
             .map_err(Error::Config)?;
         let dial_defaults = dial_defaults(&config, &self.env).map_err(Error::Config)?;
-        let rule_sets = app::router::rule_set::RuleSets::load(&config.route.rule_set, &self.env)
-            .map_err(Error::Config)?;
+        // What is built from here on trusts the new roots; a reload that
+        // fails puts the old ones back.
+        #[cfg(feature = "tls")]
+        let roots = self.env.tls_roots.replace(
+            transport::tls::roots::configured(config.certificate.as_ref(), &self.env)
+                .map_err(Error::Config)?,
+        );
+        let rule_sets = app::router::rule_set::RuleSets::load(
+            &config.route.rule_set,
+            &app::router::rule_set::HttpClients::new(&config, dial_defaults.clone()),
+            &self.env,
+        )
+        .map_err(Error::Config)?;
         if let Some(dispatcher) = self.dispatcher.upgrade() {
             rule_sets
                 .fetch_missing(&dispatcher)
@@ -348,6 +359,8 @@ impl RuntimeManager {
         }
         self.dial_defaults.store(dial_defaults);
         replaced.abort_tasks_replaced_by(&self.outbound_manager.load());
+        #[cfg(feature = "tls")]
+        roots.keep();
         info!("reloaded from config file: {}", config_path);
         Ok(())
     }

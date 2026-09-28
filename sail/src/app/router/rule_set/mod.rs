@@ -10,7 +10,9 @@ use anyhow::{anyhow, Context, Result};
 
 use crate::app::dispatcher::Dispatcher;
 use crate::app::router::matcher::{Condition, Facts, Groups};
+use crate::config::model::{HttpClient, HttpClientRef};
 use crate::config::rule_set::{self as config, RuleSetFormat, RuleSetKind, MAX_VERSION};
+use crate::net::DialOptions;
 use crate::runtime::RuntimeEnv;
 
 mod http;
@@ -77,6 +79,65 @@ impl RuleSet {
     }
 }
 
+/// What remote rule-sets are downloaded with: `http_clients`, and the dial
+/// options of those that dial directly.
+#[derive(Default)]
+pub(crate) struct HttpClients {
+    clients: Vec<HttpClient>,
+    default: Option<String>,
+    dial: Arc<DialOptions>,
+}
+
+impl HttpClients {
+    pub(crate) fn new(config: &crate::config::Config, dial: Arc<DialOptions>) -> Self {
+        Self {
+            clients: config.http_clients.clone(),
+            default: config.route.default_http_client.clone(),
+            dial,
+        }
+    }
+
+    fn get(&self, tag: &str) -> Result<&HttpClient> {
+        self.clients
+            .iter()
+            .find(|c| c.tag == tag)
+            .ok_or_else(|| anyhow!("http client [{}] does not exist", tag))
+    }
+
+    /// How the rule-set of `config` is downloaded, as sing-box has it: with
+    /// its `http_client`, or through its `download_detour`, or with the
+    /// default client; none, through the default outbound.
+    fn client(&self, config: &config::RuleSet) -> Result<http::Client> {
+        let client = match &config.http_client {
+            Some(HttpClientRef::Tag(tag)) => self.get(tag)?,
+            Some(HttpClientRef::Inline(client)) => client,
+            None => {
+                if let Some(detour) = &config.download_detour {
+                    return Ok(http::Client {
+                        via: Some(http::Via::Outbound(detour.clone())),
+                        headers: Vec::new(),
+                    });
+                }
+                match &self.default {
+                    Some(tag) => self.get(tag)?,
+                    None => match self.clients.first() {
+                        Some(client) => client,
+                        None => return Ok(http::Client::default()),
+                    },
+                }
+            }
+        };
+        let via = match &client.detour {
+            Some(detour) => http::Via::Outbound(detour.clone()),
+            None => http::Via::Direct(Arc::new(client.dial(&self.dial))),
+        };
+        Ok(http::Client {
+            via: Some(via),
+            headers: client.header_lines(),
+        })
+    }
+}
+
 /// A rule-set by tag, replaced whole when a download brings a new one.
 pub(crate) type SharedRuleSet = HotResource<RuleSet>;
 
@@ -92,7 +153,11 @@ pub(crate) struct RuleSets {
 impl RuleSets {
     /// Reads the inline and local rule-sets. A remote one starts from its
     /// cached copy, or its `initial_path`, or else empty until downloaded.
-    pub(crate) fn load(configs: &[config::RuleSet], env: &RuntimeEnv) -> Result<Self> {
+    pub(crate) fn load(
+        configs: &[config::RuleSet],
+        clients: &HttpClients,
+        env: &RuntimeEnv,
+    ) -> Result<Self> {
         let mut sets = HashMap::new();
         let mut remotes = Vec::new();
         #[cfg(feature = "auto-reload")]
@@ -111,8 +176,10 @@ impl RuleSets {
                 }
                 let context = || format!("route.rule_set[{}]: [{}]", i, tag);
                 let set = if config.kind == RuleSetKind::Remote {
-                    let remote =
-                        Arc::new(remote::Remote::load(config, tag, env).with_context(context)?);
+                    let client = clients.client(config).with_context(context)?;
+                    let remote = Arc::new(
+                        remote::Remote::load(config, tag, client, env).with_context(context)?,
+                    );
                     let set = remote.set.clone();
                     remotes.push(remote);
                     set
@@ -301,7 +368,7 @@ mod tests {
         let rule: crate::config::model::Rule = serde_json::from_value(route_rule).unwrap();
         let configs: Vec<config::RuleSet> = serde_json::from_value(sets).unwrap();
         let env = RuntimeEnv::default();
-        let sets = RuleSets::load(&configs, &env).unwrap();
+        let sets = RuleSets::load(&configs, &HttpClients::default(), &env).unwrap();
         Matcher::new(&rule, &mut Default::default(), &env, &sets).unwrap()
     }
 
@@ -446,7 +513,7 @@ mod tests {
             { "tag": "w", "rules": [{ "wifi_ssid": "home" }] }
         ]))
         .unwrap();
-        let err = RuleSets::load(&configs, &RuntimeEnv::default())
+        let err = RuleSets::load(&configs, &HttpClients::default(), &RuntimeEnv::default())
             .err()
             .unwrap();
         assert!(

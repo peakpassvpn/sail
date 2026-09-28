@@ -83,7 +83,13 @@ pub struct HttpProbe {
 
 impl HttpProbe {
     /// A probe of `url`, `http://` or `https://`.
-    pub fn new(url: &str, dns_client: SyncDnsClient) -> anyhow::Result<Self> {
+    /// Its TLS trusts the roots of `env`.
+    pub fn new(
+        url: &str,
+        dns_client: SyncDnsClient,
+        #[cfg_attr(not(feature = "outbound-tls"), allow(unused_variables))]
+        env: &crate::runtime::RuntimeEnv,
+    ) -> anyhow::Result<Self> {
         let invalid = |why: &str| anyhow!("invalid URL \"{}\": {}", url, why);
         let (https, rest) = if let Some(rest) = url.strip_prefix("http://") {
             (false, rest)
@@ -138,6 +144,7 @@ impl HttpProbe {
                 false,
                 None,
                 dns_client,
+                &env.tls_roots.get()?,
             )?)
         } else {
             None
@@ -239,21 +246,26 @@ mod tests {
 
     #[test]
     fn a_url_is_split_into_what_the_request_needs() {
-        let p = HttpProbe::new("http://example.com/generate_204", dns()).unwrap();
+        let p = HttpProbe::new(
+            "http://example.com/generate_204",
+            dns(),
+            &Default::default(),
+        )
+        .unwrap();
         assert_eq!(p.destination, SocksAddr::Domain("example.com".into(), 80));
         assert_eq!(
             (p.host.as_str(), p.path.as_str()),
             ("example.com", "/generate_204")
         );
 
-        let p = HttpProbe::new("http://127.0.0.1:8080", dns()).unwrap();
+        let p = HttpProbe::new("http://127.0.0.1:8080", dns(), &Default::default()).unwrap();
         assert_eq!(
             p.destination,
             SocksAddr::Ip("127.0.0.1:8080".parse().unwrap())
         );
         assert_eq!((p.host.as_str(), p.path.as_str()), ("127.0.0.1:8080", "/"));
 
-        let p = HttpProbe::new("http://[::1]:81?x=1", dns()).unwrap();
+        let p = HttpProbe::new("http://[::1]:81?x=1", dns(), &Default::default()).unwrap();
         assert_eq!(p.destination, SocksAddr::Ip("[::1]:81".parse().unwrap()));
         assert_eq!(p.path, "/?x=1");
     }
@@ -267,7 +279,11 @@ mod tests {
             "http://u@x/",
             "http://[::1/",
         ] {
-            assert!(HttpProbe::new(url, dns()).is_err(), "{}", url);
+            assert!(
+                HttpProbe::new(url, dns(), &Default::default()).is_err(),
+                "{}",
+                url
+            );
         }
     }
 }

@@ -15,7 +15,9 @@ pub enum Tier {
 
 use Tier::*;
 
-/// A field by its path, `*` standing for any list index or object key.
+/// A field by its path, `*` standing for any list index or object key. A
+/// rule's field, `….rules.*.field`, is the field of the rules a logical one
+/// combines too, however deep.
 pub struct Field {
     pub path: &'static str,
     pub tier: Tier,
@@ -28,6 +30,15 @@ const fn f(path: &'static str, tier: Tier) -> Field {
 /// Removed without a word: `$schema` only points editors at a schema.
 pub const SILENT: &[&str] = &["$schema"];
 
+/// The services, by type, whose absence changes nothing about the traffic:
+/// sail does not run them, and drops them with a warning. It runs no other
+/// service either, and any other is an error.
+pub const IGNORED_SERVICES: &[&str] = &[
+    // sing-box's gRPC API, for its clients and dashboard to watch and
+    // control the instance.
+    "api",
+];
+
 /// Objects sail has no counterpart for, dropped once the fields they held
 /// are.
 pub const EMPTIED: &[&str] = &["experimental.clash_api", "experimental"];
@@ -35,11 +46,8 @@ pub const EMPTIED: &[&str] = &["experimental.clash_api", "experimental"];
 pub const FIELDS: &[Field] = &[
     // Top level.
     f("ntp", Ignored),
-    f("certificate", Unsupported),
     f("certificate_providers", Unsupported),
-    f("http_clients", Unsupported),
     f("network_namespaces", Unsupported),
-    f("services", Unsupported),
     f("experimental.cache_file", Ignored),
     // The Clash API is not served yet; its mode is kept.
     f("experimental.clash_api.external_controller", Ignored),
@@ -61,7 +69,6 @@ pub const FIELDS: &[Field] = &[
     f("experimental.v2ray_api", Ignored),
     f("experimental.debug", Ignored),
     // DNS.
-    f("dns.client_subnet", Unsupported),
     f("dns.disable_cache", Ignored),
     f("dns.disable_expire", Ignored),
     f("dns.independent_cache", Ignored),
@@ -116,23 +123,93 @@ pub const FIELDS: &[Field] = &[
     f("dns.rules.*.source_hostname", Unsupported),
     f("dns.rules.*.preferred_by", Unsupported),
     f("dns.rules.*.rule_set_ip_cidr_accept_empty", Unsupported),
-    f("dns.rules.*.match_response", Unsupported),
-    f("dns.rules.*.ip_cidr", Unsupported),
-    f("dns.rules.*.ip_is_private", Unsupported),
-    f("dns.rules.*.ip_accept_any", Unsupported),
-    f("dns.rules.*.response_rcode", Unsupported),
+    // Matched while its responses come: a race is won by the first rule
+    // that matches.
+    f("dns.rules.*.race", Unsupported),
     f("dns.rules.*.response_answer", Unsupported),
     f("dns.rules.*.response_ns", Unsupported),
     f("dns.rules.*.response_extra", Unsupported),
-    f("dns.rules.*.client_subnet", Unsupported),
-    f("dns.rules.*.remove_client_subnet", Unsupported),
-    f("dns.rules.*.disable_cache", Ignored),
     f("dns.rules.*.disable_optimistic_cache", Ignored),
-    f("dns.rules.*.rewrite_ttl", Ignored),
-    f("dns.rules.*.timeout", Ignored),
     f("dns.rules.*.speculative", Ignored),
     f("dns.rules.*.method", Ignored),
     f("dns.rules.*.no_drop", Ignored),
+    // HTTP clients: a download over HTTP/1.1 is the same download.
+    f("http_clients.*.tls", Unsupported),
+    f("http_clients.*.protect_path", Unsupported),
+    f("http_clients.*.netns", Unsupported),
+    f("http_clients.*.domain_strategy", Unsupported),
+    f("http_clients.*.network_strategy", Unsupported),
+    f("http_clients.*.network_type", Unsupported),
+    f("http_clients.*.fallback_network_type", Unsupported),
+    f("http_clients.*.fallback_delay", Unsupported),
+    f("http_clients.*.engine", Ignored),
+    f("http_clients.*.version", Ignored),
+    f("http_clients.*.disable_version_fallback", Ignored),
+    f("http_clients.*.idle_timeout", Ignored),
+    f("http_clients.*.keep_alive_period", Ignored),
+    f("http_clients.*.stream_receive_window", Ignored),
+    f("http_clients.*.connection_receive_window", Ignored),
+    f("http_clients.*.max_concurrent_streams", Ignored),
+    f("http_clients.*.initial_packet_size", Ignored),
+    f("http_clients.*.disable_path_mtu_discovery", Ignored),
+    f("http_clients.*.bind_address_no_port", Ignored),
+    f("http_clients.*.reuse_addr", Ignored),
+    f("http_clients.*.disable_tcp_keep_alive", Ignored),
+    f("http_clients.*.tcp_keep_alive", Ignored),
+    f("http_clients.*.tcp_keep_alive_interval", Ignored),
+    f("http_clients.*.tcp_fast_open", Ignored),
+    f("http_clients.*.tcp_multi_path", Ignored),
+    f("http_clients.*.udp_fragment", Ignored),
+    f("route.rule_set.*.http_client.tls", Unsupported),
+    f("route.rule_set.*.http_client.protect_path", Unsupported),
+    f("route.rule_set.*.http_client.netns", Unsupported),
+    f("route.rule_set.*.http_client.domain_strategy", Unsupported),
+    f("route.rule_set.*.http_client.network_strategy", Unsupported),
+    f("route.rule_set.*.http_client.network_type", Unsupported),
+    f(
+        "route.rule_set.*.http_client.fallback_network_type",
+        Unsupported,
+    ),
+    f("route.rule_set.*.http_client.fallback_delay", Unsupported),
+    f("route.rule_set.*.http_client.engine", Ignored),
+    f("route.rule_set.*.http_client.version", Ignored),
+    f(
+        "route.rule_set.*.http_client.disable_version_fallback",
+        Ignored,
+    ),
+    f("route.rule_set.*.http_client.idle_timeout", Ignored),
+    f("route.rule_set.*.http_client.keep_alive_period", Ignored),
+    f(
+        "route.rule_set.*.http_client.stream_receive_window",
+        Ignored,
+    ),
+    f(
+        "route.rule_set.*.http_client.connection_receive_window",
+        Ignored,
+    ),
+    f(
+        "route.rule_set.*.http_client.max_concurrent_streams",
+        Ignored,
+    ),
+    f("route.rule_set.*.http_client.initial_packet_size", Ignored),
+    f(
+        "route.rule_set.*.http_client.disable_path_mtu_discovery",
+        Ignored,
+    ),
+    f("route.rule_set.*.http_client.bind_address_no_port", Ignored),
+    f("route.rule_set.*.http_client.reuse_addr", Ignored),
+    f(
+        "route.rule_set.*.http_client.disable_tcp_keep_alive",
+        Ignored,
+    ),
+    f("route.rule_set.*.http_client.tcp_keep_alive", Ignored),
+    f(
+        "route.rule_set.*.http_client.tcp_keep_alive_interval",
+        Ignored,
+    ),
+    f("route.rule_set.*.http_client.tcp_fast_open", Ignored),
+    f("route.rule_set.*.http_client.tcp_multi_path", Ignored),
+    f("route.rule_set.*.http_client.udp_fragment", Ignored),
     // DNS servers.
     f("dns.servers.*.headers", Unsupported),
     f("dns.servers.*.method", Unsupported),
@@ -177,8 +254,6 @@ pub const FIELDS: &[Field] = &[
     f("route.default_network_type", Unsupported),
     f("route.default_fallback_network_type", Unsupported),
     f("route.default_fallback_delay", Unsupported),
-    f("route.default_http_client", Unsupported),
-    f("route.rule_set.*.http_client", Unsupported),
     f("route.find_process", Ignored),
     f("route.find_neighbor", Ignored),
     f("route.dhcp_lease_files", Ignored),
@@ -302,10 +377,7 @@ pub const FIELDS: &[Field] = &[
 /// Values sing-box accepts that sail does not implement: all of them change
 /// routing.
 pub const VALUES: &[(&str, &[&str])] = &[
-    (
-        "dns.rules.*.action",
-        &["route-options", "evaluate", "respond", "predefined"],
-    ),
+    ("dns.rules.*.action", &["predefined"]),
     (
         "dns.servers.*.type",
         &[

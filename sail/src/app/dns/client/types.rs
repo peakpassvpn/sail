@@ -173,6 +173,11 @@ struct Rule {
     /// The domain, inbound and user conditions, as a routing rule has them.
     matcher: crate::app::router::matcher::Matcher,
     outbounds: Vec<String>,
+    /// The evaluated response it matches, whose addresses and code the
+    /// matcher sees.
+    response: Option<crate::config::model::ResponseRef>,
+    /// Whether it is inverted: without its response, it matches only then.
+    invert: bool,
     action: RuleAction,
 }
 
@@ -180,8 +185,59 @@ enum RuleAction {
     Route {
         server: String,
         strategy: Option<DnsStrategy>,
+        options: QueryOptions,
     },
+    Evaluate {
+        server: String,
+        tag: Option<String>,
+        options: QueryOptions,
+    },
+    /// Answers with the response the rule names, or the latest.
+    Respond,
+    RouteOptions(QueryOptions),
     Reject,
+}
+
+/// How a query is sent: what rules' route options set.
+#[derive(Debug, Clone, Default, PartialEq)]
+struct QueryOptions {
+    disable_cache: bool,
+    rewrite_ttl: Option<u32>,
+    timeout: Option<Duration>,
+    /// Unset, `dns.client_subnet`.
+    client_subnet: Option<Subnet>,
+}
+
+/// The EDNS Client Subnet a query carries.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Subnet {
+    Set(crate::config::model::Prefix),
+    Remove,
+}
+
+impl QueryOptions {
+    fn of(rule: &crate::config::model::DnsRule) -> Self {
+        QueryOptions {
+            disable_cache: rule.disable_cache,
+            rewrite_ttl: rule.rewrite_ttl,
+            timeout: rule.timeout,
+            client_subnet: match (rule.client_subnet, rule.remove_client_subnet) {
+                (_, true) => Some(Subnet::Remove),
+                (Some(prefix), false) => Some(Subnet::Set(prefix)),
+                (None, false) => None,
+            },
+        }
+    }
+
+    /// These, with what `later` sets over them.
+    fn with(&self, later: &QueryOptions) -> QueryOptions {
+        QueryOptions {
+            disable_cache: self.disable_cache || later.disable_cache,
+            rewrite_ttl: later.rewrite_ttl.or(self.rewrite_ttl),
+            timeout: later.timeout.or(self.timeout),
+            client_subnet: later.client_subnet.or(self.client_subnet),
+        }
+    }
 }
 
 /// What a lookup is for: the DNS rules match it.
@@ -197,15 +253,12 @@ pub struct LookupContext {
     pub strategy: Option<DnsStrategy>,
 }
 
-/// Where a query of one record type goes, as the rules say.
-#[derive(Debug, Clone, PartialEq)]
-enum Pick {
-    Server(String, DnsStrategy),
-    Reject,
-}
+/// A server's answers, by the server, the question (name, record type)
+/// and the client subnet asked for.
+type AnswerKey = (String, String, u16, Option<crate::config::model::Prefix>);
 
-/// Answers by question (name, record type), with when each expires.
-type AnswerCache = LruCache<(String, u16), (Message, Instant)>;
+/// Answers, with when each expires.
+type AnswerCache = LruCache<AnswerKey, (Message, Instant)>;
 
 pub struct DnsClient {
     /// Set once the dispatcher exists, and kept across reloads.
@@ -231,4 +284,9 @@ pub struct DnsClient {
     timeout: Duration,
     /// `dns.reverse_mapping`.
     reverse_mapping: bool,
+    /// `dns.client_subnet`.
+    client_subnet: Option<crate::config::model::Prefix>,
+    /// Whether any rule has a `strategy` of its own, which then decides
+    /// the families of a lookup.
+    rules_set_strategy: bool,
 }

@@ -42,6 +42,10 @@ pub struct RuntimeEnv {
     /// The Clash API's mode, which rules can match: what the instance
     /// runs in, not what it is configured with.
     pub clash_mode: crate::app::clash_mode::ClashMode,
+    /// The root certificates servers are checked against, as the
+    /// configuration's `certificate` chose them.
+    #[cfg(feature = "tls")]
+    pub tls_roots: crate::transport::tls::roots::TrustRoots,
 }
 
 pub type SyncRuntimeEnv = Arc<RuntimeEnv>;

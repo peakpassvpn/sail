@@ -704,7 +704,13 @@ mod tests {
             None,
         )
         .unwrap();
-        let crypto = client_crypto(None, true, alpns).unwrap();
+        let crypto = client_crypto(
+            None,
+            true,
+            alpns,
+            &crate::transport::tls::tests::test_roots(),
+        )
+        .unwrap();
         let config = quinn::ClientConfig::new(Arc::new(crypto));
         let _connecting = client
             .connect_with(config, server.local_addr().unwrap(), name)

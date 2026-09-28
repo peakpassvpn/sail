@@ -363,7 +363,13 @@ mod tests {
             new_socket(),
         ));
         let mut client = endpoint_on(hop.clone(), None).unwrap();
-        let crypto = client_crypto(Some(&cert.pem()), false, &alpns).unwrap();
+        let crypto = client_crypto(
+            Some(&cert.pem()),
+            false,
+            &alpns,
+            &crate::transport::tls::tests::test_roots(),
+        )
+        .unwrap();
         client.set_default_client_config(quinn::ClientConfig::new(Arc::new(crypto)));
         let conn = client
             .connect(hop.virtual_addr(), "localhost")

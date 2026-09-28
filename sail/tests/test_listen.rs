@@ -1,9 +1,10 @@
+#![cfg(feature = "inbound-socks")]
+
 use std::sync::mpsc;
 use std::time::Duration;
 
 /// An inbound whose port is taken fails the start, instead of the instance
 /// running without it.
-#[cfg(feature = "inbound-socks")]
 #[test]
 fn a_port_in_use_fails_the_start() {
     let taken = std::net::TcpListener::bind("127.0.0.1:0").unwrap();

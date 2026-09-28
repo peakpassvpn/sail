@@ -9,7 +9,11 @@
 //! UDP may lose a packet, and losing one fragment loses the whole payload,
 //! so each echo is tried a few times, as a UDP application would.
 
-#![cfg(all(feature = "inbound-socks", feature = "outbound-socks"))]
+#![cfg(all(
+    feature = "inbound-socks",
+    feature = "outbound-socks",
+    feature = "outbound-direct"
+))]
 
 mod common;
 
@@ -102,7 +106,6 @@ fn socks_in(port: u16) -> serde_json::Value {
     json!({ "type": "socks", "listen": "127.0.0.1", "listen_port": port })
 }
 
-#[cfg(feature = "outbound-direct")]
 #[test]
 fn test_udp_large_direct() -> anyhow::Result<()> {
     common::retry_port_clash(|| {
@@ -115,11 +118,7 @@ fn test_udp_large_direct() -> anyhow::Result<()> {
     })
 }
 
-#[cfg(all(
-    feature = "inbound-shadowsocks",
-    feature = "outbound-shadowsocks",
-    feature = "outbound-direct"
-))]
+#[cfg(all(feature = "inbound-shadowsocks", feature = "outbound-shadowsocks"))]
 #[test]
 fn test_udp_large_ss2022() -> anyhow::Result<()> {
     const METHOD: &str = "2022-blake3-aes-128-gcm";
@@ -152,11 +151,7 @@ fn test_udp_large_ss2022() -> anyhow::Result<()> {
     })
 }
 
-#[cfg(all(
-    feature = "inbound-hysteria2",
-    feature = "outbound-hysteria2",
-    feature = "outbound-direct"
-))]
+#[cfg(all(feature = "inbound-hysteria2", feature = "outbound-hysteria2"))]
 #[test]
 fn test_udp_large_hysteria2() -> anyhow::Result<()> {
     let (pem, key) = cert();
@@ -188,11 +183,7 @@ fn test_udp_large_hysteria2() -> anyhow::Result<()> {
     })
 }
 
-#[cfg(all(
-    feature = "inbound-tuic",
-    feature = "outbound-tuic",
-    feature = "outbound-direct"
-))]
+#[cfg(all(feature = "inbound-tuic", feature = "outbound-tuic"))]
 #[test]
 fn test_udp_large_tuic() -> anyhow::Result<()> {
     const UUID: &str = "2dd61d93-75d8-4da4-ac0e-6aece7eac365";
@@ -237,11 +228,7 @@ fn test_udp_large_tuic() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[cfg(all(
-    feature = "wireguard",
-    feature = "outbound-direct",
-    feature = "outbound-redirect"
-))]
+#[cfg(all(feature = "wireguard", feature = "outbound-redirect"))]
 #[test]
 fn test_udp_large_wireguard() -> anyhow::Result<()> {
     use sail::protocol::wireguard::crypto;

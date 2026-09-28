@@ -22,7 +22,7 @@ use crate::net::DialOptions;
 use crate::runtime::options::Quic as Tuning;
 use crate::runtime::RuntimeEnv;
 use crate::transport::layers::{trusted_certificate, InboundTls, Listable, OutboundTls};
-use crate::transport::tls::client::{bundled_root_certs, load_certificates, load_private_key};
+use crate::transport::tls::client::{load_certificates, load_private_key};
 
 /// The ALPNs of a `tls` block's `alpn`, or `default` when it lists none.
 pub fn alpn_protocols(alpn: Option<&Listable>, default: &[&str]) -> Vec<Vec<u8>> {
@@ -39,6 +39,7 @@ pub fn client_crypto(
     certificate: Option<&str>,
     insecure: bool,
     alpns: &[Vec<u8>],
+    roots: &crate::transport::tls::roots::Roots,
 ) -> Result<quinn_btls::ClientConfig> {
     use quinn_btls::QuicSslContext;
     let mut crypto =
@@ -48,7 +49,7 @@ pub fn client_crypto(
     } else {
         let certs = match certificate {
             Some(certificate) => load_certificates(certificate)?,
-            None => bundled_root_certs()?.to_vec(),
+            None => roots.certs().to_vec(),
         };
         let store = crypto.ctx_mut().cert_store_mut();
         for cert in certs {
@@ -85,6 +86,7 @@ impl ClientTls {
             trusted_certificate(tls, env).as_deref(),
             tls.insecure,
             &alpn_protocols(tls.alpn.as_ref(), default_alpn),
+            &env.tls_roots.get()?,
         )?;
         Ok(Self {
             server_name: tls.server_name.clone().unwrap_or_else(|| server.to_owned()),
@@ -346,7 +348,16 @@ mod tests {
             Some(server_config(server).unwrap()),
         )
         .unwrap();
-        (server, client_crypto(Some(&pem), false, &[]).unwrap())
+        (
+            server,
+            client_crypto(
+                Some(&pem),
+                false,
+                &[],
+                &crate::transport::tls::tests::test_roots(),
+            )
+            .unwrap(),
+        )
     }
 
     /// Dials `server` as `server_name`: the SNI the server saw, if the

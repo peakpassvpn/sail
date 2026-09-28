@@ -248,6 +248,7 @@ pub async fn eventually(within: Duration, mut f: impl FnMut() -> bool) -> bool {
 }
 
 /// The member the group `tag` has selected.
+#[cfg(feature = "outbound-select")]
 pub fn selected(m: &OutboundManager, tag: &str) -> String {
     let selector = m.get_selector(tag).expect("a selector");
     let s = selector.try_read().expect("not locked").get_selected_tag();
@@ -255,6 +256,7 @@ pub fn selected(m: &OutboundManager, tag: &str) -> String {
 }
 
 /// The latency of each member of the group `tag`, as last tested.
+#[cfg(feature = "outbound-select")]
 pub fn latencies(m: &OutboundManager, tag: &str) -> Vec<(String, Option<Duration>)> {
     let selector = m.get_selector(tag).expect("a selector");
     let l = selector

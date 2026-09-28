@@ -47,7 +47,7 @@ fn sort_out(value: &mut Value) -> Result<Vec<String>> {
             }
         }
     }
-    let mut warnings = Vec::new();
+    let mut warnings = services(value)?;
     for field in upstream::FIELDS {
         for (at, _) in find(value, field.path) {
             match field.tier {
@@ -75,6 +75,36 @@ fn sort_out(value: &mut Value) -> Result<Vec<String>> {
                 remove(value, &at);
             }
         }
+    }
+    Ok(warnings)
+}
+
+/// Drops the services sail can do without, with a warning each, and fails
+/// on any other.
+fn services(value: &mut Value) -> Result<Vec<String>> {
+    let Some(Value::Array(services)) = value.get_mut("services") else {
+        return Ok(Vec::new());
+    };
+    let mut warnings = Vec::new();
+    for (i, service) in services.iter().enumerate() {
+        let kind = service
+            .get("type")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        if !upstream::IGNORED_SERVICES.contains(&kind) {
+            return Err(anyhow!(
+                "services[{}].type: sail does not implement \"{}\" yet",
+                i,
+                kind
+            ));
+        }
+        warnings.push(format!(
+            "services[{}]: sail does not run the {} service; ignored",
+            i, kind
+        ));
+    }
+    if let Some(map) = value.as_object_mut() {
+        map.remove("services");
     }
     Ok(warnings)
 }
@@ -133,11 +163,31 @@ fn walk(value: &Value, segments: &[&str], at: &mut Vec<Step>, found: &mut Vec<(A
             }
         }
         Value::Array(list) if *segment == "*" => {
+            let rules = matches!(at.last(), Some(Step::Key(k)) if k == "rules");
             for (i, v) in list.iter().enumerate() {
-                visit(Step::Index(i), v);
+                at.push(Step::Index(i));
+                match rules {
+                    true => walk_rule(v, rest, at, found),
+                    false => walk(v, rest, at, found),
+                }
+                at.pop();
             }
         }
         _ => {}
+    }
+}
+
+/// `walk` from a rule, and from each rule it combines, however deep.
+fn walk_rule(rule: &Value, segments: &[&str], at: &mut Vec<Step>, found: &mut Vec<(At, Value)>) {
+    walk(rule, segments, at, found);
+    if let Some(Value::Array(rules)) = rule.get("rules") {
+        at.push(Step::Key("rules".to_string()));
+        for (i, sub) in rules.iter().enumerate() {
+            at.push(Step::Index(i));
+            walk_rule(sub, segments, at, found);
+            at.pop();
+        }
+        at.pop();
     }
 }
 
@@ -221,6 +271,167 @@ mod tests {
             ))
             .unwrap_err();
             assert_eq!(err.to_string(), message);
+        }
+    }
+
+    #[test]
+    fn the_rules_a_logical_one_combines_are_sorted_out_too() {
+        let err = parse(
+            r#"{ "outbounds": [{ "type": "direct", "tag": "d" }],
+                 "route": { "rules": [{ "type": "logical", "mode": "and", "outbound": "d",
+                   "rules": [{ "port": 53 }, { "type": "logical", "mode": "or",
+                     "rules": [{ "preferred_by": "d" }] }] }] } }"#,
+        )
+        .unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "route.rules[0].rules[1].rules[0].preferred_by: sail does not implement this field yet"
+        );
+        let err = parse(
+            r#"{ "dns": { "servers": [{ "type": "local" }], "rules": [
+                   { "domain": "a", "action": "evaluate", "server": "local" },
+                   { "type": "logical", "mode": "and", "server": "local",
+                     "rules": [{ "match_response": true, "ip_accept_any": true }] }] } }"#,
+        )
+        .unwrap_err();
+        assert!(
+            err.to_string().contains(
+                "dns.rules[1]: rules[0]: match_response: sail does not implement it in a \
+                 logical rule's rules yet"
+            ),
+            "{}",
+            err
+        );
+    }
+
+    #[test]
+    fn services_are_dropped_or_refused_by_type() {
+        let config = parse(
+            r#"{ "outbounds": [{ "type": "direct" }], "services": [
+                 { "type": "api", "listen": "0.0.0.0", "listen_port": 9090,
+                   "secret": "s", "dashboard": { "enabled": true, "path": "dashboard" } }
+               ] }"#,
+        )
+        .unwrap();
+        assert_eq!(
+            config.warnings,
+            ["services[0]: sail does not run the api service; ignored"]
+        );
+        let err = parse(
+            r#"{ "outbounds": [{ "type": "direct" }], "services": [
+                 { "type": "api" }, { "type": "resolved", "listen": "127.0.0.53" }
+               ] }"#,
+        )
+        .unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "services[1].type: sail does not implement \"resolved\" yet"
+        );
+    }
+
+    #[test]
+    fn a_route_rule_has_no_response_to_match() {
+        let err = parse(
+            r#"{ "outbounds": [{ "type": "direct" }],
+                 "route": { "rules": [{ "ip_accept_any": true, "outbound": "direct" }] } }"#,
+        )
+        .unwrap_err();
+        assert!(
+            format!("{:#}", err)
+                .contains("route.rules[0].ip_accept_any: unknown field `ip_accept_any`"),
+            "{:#}",
+            err
+        );
+    }
+
+    #[test]
+    fn http_clients_are_checked() {
+        let with = |clients: &str, route: &str| {
+            parse(&format!(
+                r#"{{ "outbounds": [{{ "type": "direct", "tag": "direct" }}],
+                     "http_clients": {}, "route": {} }}"#,
+                clients, route
+            ))
+        };
+        let remote = |client: &str| {
+            format!(
+                r#"{{ "rule_set": [{{ "type": "remote", "tag": "s",
+                     "url": "https://example.com/s.srs"{} }}] }}"#,
+                client
+            )
+        };
+        let config = with(
+            r#"[{ "tag": "c", "version": 2, "idle_timeout": "1m",
+                  "headers": { "Authorization": "Bearer t", "X-A": ["1", "2"] } }]"#,
+            &remote(r#", "http_client": "c""#),
+        )
+        .unwrap();
+        assert_eq!(
+            config.warnings,
+            [
+                "http_clients[0].version: sail does not implement this field; ignored",
+                "http_clients[0].idle_timeout: sail does not implement this field; ignored",
+            ]
+        );
+        assert_eq!(
+            config.http_clients[0].header_lines(),
+            [
+                ("Authorization".to_string(), "Bearer t".to_string()),
+                ("X-A".to_string(), "1".to_string()),
+                ("X-A".to_string(), "2".to_string()),
+            ]
+        );
+        // In place, its tag names nothing.
+        with(
+            "[]",
+            &remote(r#", "http_client": { "tag": "none", "detour": "direct" }"#),
+        )
+        .unwrap();
+        for (clients, route, message) in [
+            (r#"[{ "detour": "direct" }]"#, "{}".to_string(), "http_clients[0].tag: missing"),
+            (
+                r#"[{ "tag": "c" }, { "tag": "c" }]"#,
+                "{}".to_string(),
+                "http_clients[1]: another http client is tagged [c]",
+            ),
+            (
+                r#"[{ "tag": "c", "detour": "proxy" }]"#,
+                "{}".to_string(),
+                "http_clients[0]: detour: outbound [proxy] does not exist",
+            ),
+            (
+                r#"[{ "tag": "c", "detour": "direct", "routing_mark": 1 }]"#,
+                "{}".to_string(),
+                "http_clients[0]: the dial fields have no effect with a detour; set them on [direct]",
+            ),
+            (
+                r#"[{ "tag": "c", "headers": { "X-A": "1\r\nX-B: 2" } }]"#,
+                "{}".to_string(),
+                r#"http_clients[0]: headers: X-A: "1\r\nX-B: 2" breaks the line"#,
+            ),
+            (
+                r#"[{ "tag": "c", "tls": { "enabled": true } }]"#,
+                "{}".to_string(),
+                "http_clients[0].tls: sail does not implement this field yet",
+            ),
+            (
+                "[]",
+                r#"{ "default_http_client": "c" }"#.to_string(),
+                "route.default_http_client: http client [c] does not exist",
+            ),
+            (
+                "[]",
+                remote(r#", "http_client": "c""#),
+                "route.rule_set[0].http_client: http client [c] does not exist",
+            ),
+            (
+                r#"[{ "tag": "c" }]"#,
+                remote(r#", "http_client": "c", "download_detour": "direct""#),
+                "route.rule_set[0]: http_client: not with download_detour, which it replaces",
+            ),
+        ] {
+            let err = with(clients, &route).unwrap_err();
+            assert_eq!(format!("{:#}", err), message, "{} {}", clients, route);
         }
     }
 

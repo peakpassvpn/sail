@@ -14,6 +14,16 @@ struct Server {
     cert_pem: String,
 }
 
+/// The roots tests trust when they give no certificate: Mozilla's.
+pub(crate) fn test_roots() -> super::roots::Roots {
+    super::roots::Roots::of(crate::config::model::CertificateStore::Mozilla).unwrap()
+}
+
+/// A self-signed certificate for `localhost`, as PEM.
+pub(crate) fn self_signed_pem() -> String {
+    server().cert_pem
+}
+
 fn server() -> Server {
     let rcgen::CertifiedKey { cert, key_pair } =
         rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
@@ -63,7 +73,7 @@ async fn pair(
 #[tokio::test]
 async fn test_round_trip_and_close() {
     let server = server();
-    let client = TlsClient::new(&[], Some(&server.cert_pem), false, None).unwrap();
+    let client = TlsClient::new(&[], Some(&server.cert_pem), false, None, &test_roots()).unwrap();
     let (c, s) = pair(&server, &client, "localhost", None, None).await;
     let (mut c, mut s) = (c.unwrap(), s.unwrap());
 
@@ -92,15 +102,15 @@ async fn test_round_trip_and_close() {
 #[tokio::test]
 async fn test_certificate_verification() {
     let server = server();
-    let trusting = TlsClient::new(&[], Some(&server.cert_pem), false, None).unwrap();
+    let trusting = TlsClient::new(&[], Some(&server.cert_pem), false, None, &test_roots()).unwrap();
     let (c, _) = pair(&server, &trusting, "example.com", None, None).await;
     assert!(c.is_err(), "the certificate is not for example.com");
 
-    let bundled = TlsClient::new(&[], None, false, None).unwrap();
+    let bundled = TlsClient::new(&[], None, false, None, &test_roots()).unwrap();
     let (c, _) = pair(&server, &bundled, "localhost", None, None).await;
     assert!(c.is_err(), "a self-signed certificate is not trusted");
 
-    let insecure = TlsClient::new(&[], None, true, None).unwrap();
+    let insecure = TlsClient::new(&[], None, true, None, &test_roots()).unwrap();
     let (c, s) = pair(&server, &insecure, "example.com", None, None).await;
     assert!(c.is_ok() && s.is_ok());
 }
@@ -110,7 +120,7 @@ async fn test_certificate_verification() {
 #[tokio::test]
 async fn test_vision_switch_to_raw() {
     let server = server();
-    let client = TlsClient::new(&[], Some(&server.cert_pem), false, None).unwrap();
+    let client = TlsClient::new(&[], Some(&server.cert_pem), false, None, &test_roots()).unwrap();
     let (cv, sv) = (VisionState::default(), VisionState::default());
     cv.start();
     sv.start();
@@ -169,7 +179,8 @@ fn test_chrome_client_hello_matches_capture() {
     use super::Fingerprint;
     let chrome = fixture("chrome-154");
     let android = fixture("chrome-android-154");
-    let client = TlsClient::new(&[], None, false, Some(Fingerprint::Chrome)).unwrap();
+    let client =
+        TlsClient::new(&[], None, false, Some(Fingerprint::Chrome), &test_roots()).unwrap();
     // Several connections: GREASE and the extension order change each time.
     for _ in 0..8 {
         let mut conn = client.connection("localhost", None).unwrap();
@@ -209,7 +220,8 @@ fn test_firefox_client_hello_matches_capture() {
     use super::hello::{assert_same_hello, fixture};
     use super::Fingerprint;
     let firefox = fixture("firefox-156");
-    let client = TlsClient::new(&[], None, false, Some(Fingerprint::Firefox)).unwrap();
+    let client =
+        TlsClient::new(&[], None, false, Some(Fingerprint::Firefox), &test_roots()).unwrap();
     for _ in 0..4 {
         let mut conn = client.connection("localhost", None).unwrap();
         let hello = first_hello(&mut conn);
@@ -230,7 +242,8 @@ fn test_android_client_hello_matches_capture() {
     use super::hello::{assert_same_hello, fixture};
     use super::Fingerprint;
     let okhttp = fixture("android-okhttp4");
-    let client = TlsClient::new(&[], None, false, Some(Fingerprint::Android)).unwrap();
+    let client =
+        TlsClient::new(&[], None, false, Some(Fingerprint::Android), &test_roots()).unwrap();
     for _ in 0..4 {
         let mut conn = client.connection("localhost", None).unwrap();
         let hello = first_hello(&mut conn);
@@ -247,7 +260,8 @@ fn test_safari_client_hello_matches_ios_capture() {
     use super::Fingerprint;
     let ios = fixture("ios-26");
     assert_eq!(Fingerprint::from_name("ios").unwrap(), Fingerprint::Safari);
-    let client = TlsClient::new(&[], None, false, Some(Fingerprint::Safari)).unwrap();
+    let client =
+        TlsClient::new(&[], None, false, Some(Fingerprint::Safari), &test_roots()).unwrap();
     let mut conn = client.connection("localhost", None).unwrap();
     let hello = first_hello(&mut conn);
     assert_same_hello(&hello, &ios);
@@ -259,7 +273,8 @@ fn test_safari_client_hello_matches_capture() {
     use super::hello::{assert_same_hello, fixture};
     use super::Fingerprint;
     let safari = fixture("safari-26");
-    let client = TlsClient::new(&[], None, false, Some(Fingerprint::Safari)).unwrap();
+    let client =
+        TlsClient::new(&[], None, false, Some(Fingerprint::Safari), &test_roots()).unwrap();
     for _ in 0..4 {
         let mut conn = client.connection("localhost", None).unwrap();
         let hello = first_hello(&mut conn);
@@ -271,7 +286,7 @@ fn test_safari_client_hello_matches_capture() {
 #[test]
 fn test_no_fingerprint_is_not_chrome() {
     use super::hello::fixture;
-    let client = TlsClient::new(&[], None, false, None).unwrap();
+    let client = TlsClient::new(&[], None, false, None, &test_roots()).unwrap();
     let mut conn = client.connection("localhost", None).unwrap();
     assert_ne!(first_hello(&mut conn).ja4(), fixture("chrome-154").ja4());
 }
@@ -287,6 +302,7 @@ fn test_chrome_with_configured_alpn() {
         None,
         false,
         Some(Fingerprint::Chrome),
+        &test_roots(),
     )
     .unwrap();
     let mut conn = client.connection("localhost", None).unwrap();
@@ -309,6 +325,7 @@ async fn test_chrome_client_handshakes() {
         Some(&server.cert_pem),
         false,
         Some(Fingerprint::Chrome),
+        &test_roots(),
     )
     .unwrap();
     let (c, s) = pair(&server, &client, "localhost", None, None).await;
@@ -332,7 +349,7 @@ async fn fingerprints_against_real_sites() {
         Fingerprint::Safari,
         Fingerprint::Android,
     ] {
-        let client = TlsClient::new(&[], None, false, Some(fingerprint)).unwrap();
+        let client = TlsClient::new(&[], None, false, Some(fingerprint), &test_roots()).unwrap();
         for host in [
             "www.google.com",
             "www.cloudflare.com",

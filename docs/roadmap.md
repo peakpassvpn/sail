@@ -171,7 +171,7 @@ Sail 与 sing-box 的对比已经完成。当前结果表明：
 | 1.9 | **已完成（2026-09-26）** 出站组：默认启用 select，补齐 URLTest、fallback、load-balance 和选择持久化（selector / urltest / fallback / load-balance；failover 并入 fallback，static 已删除） | `protocol/group/` | 手动选择、自动测速、故障切换和重启恢复都有测试 |
 | 1.10 | 统一拨号选项：IP 策略、接口绑定、detour、连接/空闲超时、TCP Fast Open、MPTCP、UDP over TCP | `net/`、共享 Dial options | 各协议共享同一实现，按出站配置，不重复实现 socket 与网络选择逻辑 |
 | 1.11 | **已完成（2026-09-26）** 入站防探测与回落：Trojan / VLESS fallback，鉴权失败时的行为可配置（字段对齐 sing-box `fallback` / `fallback_for_alpn`） | `protocol/trojan/`、`protocol/vless/` | 未通过鉴权的连接可回落到指定目标；主动探测下行为与主流实现一致 |
-| 1.12 | 分享链接导入：`ss://`、`trojan://`、`vless://`、`vmess://`、`hy2://`、`tuic://` | `config/` | 真实节点语料可导入；错误字段有可诊断提示；敏感信息不进入日志 |
+| 1.12 | **已完成（2026-09-28）** 分享链接导入：`ss://`、`trojan://`、`vless://`、`vmess://`、`hy2://`、`tuic://`（另有 `hysteria2://`、`anytls://`；`share_link::parse` / `parse_subscription` 输出 sing-box 出站，`Config::from_json` 可直接加载；订阅为 base64（标准或 URL-safe，有无填充、换行均可）或逐行文本，重名按 “name 2” 去重；CLI `sail import`，FFI `sail_import_share_links`；sail 不支持的传输（HTTP/2、XHTTP、mKCP、QUIC、gRPC multi）、VMess alterId > 0、TUIC v4、证书哈希固定、缺少的加密方式与指纹都按行报错；WireGuard 链接是端点，不导入；尚未接入运行时配置加载，Clash proxy-providers 由 C.4 调用） | `config/` | 真实节点语料可导入；错误字段有可诊断提示；敏感信息不进入日志 |
 | 1.13 | **已完成（2026-09-27）** WireGuard 端点：sing-box 式 `endpoints`，同一个 tag 既是出站也是入站（服务端）；协议核心自研（BoringSSL + blake2），TCP/IP 走 sail-netstack；支持 WARP `reserved`、`detour`（WG 自身的 UDP 走其他出站）和 `.conf`（Surge `[WireGuard <name>]`，`client-id` 即 reserved） | `protocol/wireguard/`、`config/` | 与 Linux 内核 wg（出站、入站、detour、重新握手、64 并发）和 sing-box（双向，含 reserved）互通；sail↔sail TCP、UDP、IPv6 |
 
 所有协议任务都必须加入统一性能场景，入站和出站分别测试，避免新增协议重新引入连接级常驻大缓冲或无上限缓存。
@@ -184,11 +184,11 @@ Sail 与 sing-box 的对比已经完成。当前结果表明：
 
 | # | 任务 | 涉及位置 | 验收标准 |
 | --- | --- | --- | --- |
-| 2.1 | **已完成（2026-09-28）** 结构化 DNS 上游和规则：按域名、query type、入站、规则集选择服务器；支持 detour 与 IPv4/IPv6 strategy（服务器为 sing-box 对象形式，另有 sail 扩展 `smart_select`；规则按域名、query_type、入站、用户、出站选择服务器；出站 `domain_resolver`、`route.default_domain_resolver`；启动和重载时检查递归环；按规则集选择等 2.6） | `dns/` | 国内外 DNS 分流正确，节点域名解析无递归环，无 DNS 泄漏 |
+| 2.1 | **已完成（2026-09-28）** 结构化 DNS 上游和规则：按域名、query type、入站、规则集选择服务器；支持 detour 与 IPv4/IPv6 strategy（服务器为 sing-box 对象形式，另有 sail 扩展 `smart_select`；规则按域名、query_type、入站、用户、出站选择服务器；出站 `domain_resolver`、`route.default_domain_resolver`；启动和重载时检查递归环；按规则集选择等 2.6。2026-09-28 补 sing-box 1.14 的响应匹配：`evaluate` 先问一个服务器并保留应答（可带 tag），后续规则以 `match_response` 按应答的 `ip_cidr`/`ip_is_private`/`ip_accept_any`/规则集 IP 与 `response_rcode` 匹配，`respond` 直接返回该应答；`route-options`；规则级 `timeout`、`rewrite_ttl`、`disable_cache`；`dns.client_subnet` 与规则级 `client_subnet`/`remove_client_subnet`（EDNS Client Subnet）；应答缓存按服务器、问题和子网区分。未做：`race`、`predefined`、`response_answer`/`response_ns`/`response_extra`、逻辑规则子规则里的 `match_response`，配置即报错） | `dns/` | 国内外 DNS 分流正确，节点域名解析无递归环，无 DNS 泄漏 |
 | 2.2 | 内置 DNS listener 和 TUN DNS hijack | `dns/`、`protocol/tun/` | UDP/TCP 53 查询均可劫持；`hijack-dns` 动作可测试 |
 | 2.3 | **已完成（2026-09-26）** 加密 DNS：在现有 DoH 基础上补连接复用，并按需要增加 DoT、DoQ、DoH3；每种上游按注册表接入（DoT / DoQ / DoH3 已完成；DoH 保持一条 HTTP/2 连接或空闲 HTTP/1.1 连接复用） | `dns/transport/` | bootstrap、证书校验、代理/直连 detour 和失败回退行为明确 |
 | 2.4 | DNS 缓存可配置：容量、TTL、negative cache、独立缓存、清理和统计 | `dns/`、管理 API | 命中率可观察；切网和配置重载不会返回错误网络下的陈旧结果 |
-| 2.5 | **部分完成（2026-09-28）** FakeIP 完整化：IPv4/IPv6 地址池、TTL、过滤、容量与持久化（sing-box 的 `fakeip` DNS 服务器：双栈地址池、TTL 600、每族最多 65536 个域名，按 DNS 规则过滤；所有入站的目标由 dispatcher / NAT 还原为域名，未知 fake IP 拒绝；热重载保留地址；`exchange` 供 hijack-dns 使用。未做：重启后持久化） | `dns/transport/fakeip` | 支持 A/AAAA；重启后按配置恢复或安全重建；地址回收无错误映射 |
+| 2.5 | **部分完成（2026-09-28）** FakeIP 完整化：IPv4/IPv6 地址池、TTL、过滤、容量与持久化（sing-box 的 `fakeip` DNS 服务器：双栈地址池、TTL 600、每族最多 65536 个域名，按 DNS 规则过滤；所有入站的目标由 dispatcher / NAT 还原为域名，未知 fake IP 拒绝；热重载保留地址；`exchange` 供 hijack-dns 使用；sail 自身的解析（出站拨号等）跳过指向 fakeip 的规则，同 sing-box。未做：重启后持久化） | `dns/transport/fakeip` | 支持 A/AAAA；重启后按配置恢复或安全重建；地址回收无错误映射 |
 
 ### 路由、规则集与嗅探
 

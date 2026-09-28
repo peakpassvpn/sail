@@ -58,7 +58,16 @@ where
     S: AsyncRead + AsyncWrite + Unpin,
 {
     let server = server(max_version);
-    let client = TlsClient::new(&[], Some(&server.cert_pem), false, None).unwrap();
+    let client = TlsClient::new(
+        &[],
+        Some(&server.cert_pem),
+        false,
+        None,
+        // Unused: the certificate given is what is trusted.
+        &sail::transport::tls::roots::Roots::of(sail::config::model::CertificateStore::None)
+            .unwrap(),
+    )
+    .unwrap();
     let vision = || {
         vision.then(|| {
             // Started but never switched: reads stay exact, one record each.

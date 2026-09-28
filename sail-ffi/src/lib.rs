@@ -578,6 +578,42 @@ pub unsafe extern "C" fn sail_get_since_last_active(
     })
 }
 
+/// Reads share links into sing-box outbounds.
+///
+/// @param input A share link, or a subscription: base64, or one link to a
+///              line.
+/// @return A JSON object, `{"outbounds": [...], "warnings": [...]}`: an
+///         outbound for each link read, and a warning for each line that
+///         is not one (no warning holds a password, a UUID or a key). The
+///         string is sail's: free it with sail_free_string. Null if
+///         `input` is null or not UTF-8.
+#[no_mangle]
+pub unsafe extern "C" fn sail_import_share_links(input: *const c_char) -> *mut c_char {
+    guard(std::ptr::null_mut(), || {
+        let Ok(input) = (unsafe { c_str(input, ERR_CONFIG) }) else {
+            return std::ptr::null_mut();
+        };
+        let (outbounds, warnings) = sail::config::share_link::parse_subscription(input);
+        let json = serde_json::json!({ "outbounds": outbounds, "warnings": warnings });
+        // JSON escapes a NUL in a string: there is none in the text.
+        match std::ffi::CString::new(json.to_string()) {
+            Ok(s) => s.into_raw(),
+            Err(_) => std::ptr::null_mut(),
+        }
+    })
+}
+
+/// Frees a string sail returned, as sail_import_share_links does. Null is
+/// ignored.
+///
+/// @param s The string; not to be used after.
+#[no_mangle]
+pub unsafe extern "C" fn sail_free_string(s: *mut c_char) {
+    if !s.is_null() {
+        guard((), || drop(unsafe { std::ffi::CString::from_raw(s) }));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -629,6 +665,24 @@ mod tests {
             );
         }
         assert!(!sail_shutdown(u16::MAX));
+    }
+
+    #[test]
+    fn share_links_are_imported_into_json_the_caller_frees() {
+        unsafe {
+            assert!(sail_import_share_links(std::ptr::null()).is_null());
+            let json = sail_import_share_links(
+                c"trojan://pw@example.com:443#a\nssr://x\nvless://no@example.com:1".as_ptr(),
+            );
+            assert!(!json.is_null());
+            let value: serde_json::Value =
+                serde_json::from_str(CStr::from_ptr(json).to_str().unwrap()).unwrap();
+            sail_free_string(json);
+            assert_eq!(value["outbounds"].as_array().unwrap().len(), 1);
+            assert_eq!(value["outbounds"][0]["tag"], "a");
+            assert_eq!(value["warnings"].as_array().unwrap().len(), 2);
+            sail_free_string(std::ptr::null_mut());
+        }
     }
 
     #[test]

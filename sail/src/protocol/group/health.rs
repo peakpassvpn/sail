@@ -13,7 +13,6 @@ use tracing::debug;
 
 use crate::adapter::AnyOutboundHandler;
 use crate::app::healthcheck::HttpProbe;
-use crate::app::outbound::selector::MemberLatencies;
 use crate::app::SyncDnsClient;
 
 /// How long one test may take, by default, before its member counts as
@@ -29,6 +28,11 @@ pub const DEFAULT_INTERVAL: Duration = Duration::from_secs(3 * 60);
 
 /// Called with the latencies after every round of tests.
 pub type OnTested = Box<dyn Fn(&[Option<Duration>]) + Send + Sync>;
+
+/// The latency of each member, as the last round measured it. The same
+/// type as the selector's `MemberLatencies`, spelled out here, for
+/// load-balance builds without the selector.
+pub type MemberLatencies = Arc<RwLock<Vec<Option<Duration>>>>;
 
 pub struct Checker {
     tag: String,
@@ -103,11 +107,14 @@ impl Checker {
         }
     }
 
+    /// For the selector, which shows them.
+    #[cfg(feature = "outbound-select")]
     pub fn latencies(&self) -> MemberLatencies {
         self.latencies.clone()
     }
 
     /// Whether member `i` passed its last test, or none was done yet.
+    #[cfg(any(feature = "outbound-load-balance", feature = "outbound-fallback"))]
     pub fn is_up(&self, i: usize) -> bool {
         if !self.tested.load(std::sync::atomic::Ordering::Relaxed) {
             return true;

@@ -70,7 +70,13 @@ async fn fixture(server_zero_rtt: bool, client_zero_rtt: bool) -> Fixture {
     )
     .unwrap()
     .into_shared();
-    let crypto = client_crypto(Some(&cert.pem()), false, &alpns).unwrap();
+    let crypto = client_crypto(
+        Some(&cert.pem()),
+        false,
+        &alpns,
+        &crate::transport::tls::tests::test_roots(),
+    )
+    .unwrap();
     let tickets = crypto.get_session_cache();
     let client = Arc::new(Client::new(ClientOptions {
         server: "127.0.0.1".into(),

@@ -1,7 +1,7 @@
 //! An instance: the components a configuration describes, built in
 //! dependency order, started in stages, and stopped in reverse.
 
-use crate::app::router::rule_set::RuleSets;
+use crate::app::router::rule_set::{HttpClients, RuleSets};
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -69,7 +69,16 @@ impl Instance {
         config.check_tun_route(host_routes)?;
         env.clash_mode
             .configure(config.experimental.clash_api.as_ref());
-        let rule_sets = RuleSets::load(&config.route.rule_set, &env)?;
+        #[cfg(feature = "tls")]
+        env.tls_roots.set(crate::transport::tls::roots::configured(
+            config.certificate.as_ref(),
+            &env,
+        )?);
+        let rule_sets = RuleSets::load(
+            &config.route.rule_set,
+            &HttpClients::new(config, dial_defaults.clone()),
+            &env,
+        )?;
         let dns_client =
             DnsClient::with_rule_sets(&config.dns, dial_defaults.clone(), &env, &rule_sets)?;
         dns_client.check_loops(
