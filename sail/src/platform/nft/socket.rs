@@ -353,3 +353,572 @@ pub fn list_tables(family: Option<Family>) -> Result<Vec<TableInfo>, Error> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+    use std::process::Command;
+
+    use super::super::*;
+
+    const TABLE: &str = "sail-nft-test";
+
+    /// nft(8), to read back what the kernel has: `$SAIL_NFT`, or `nft`.
+    fn nft(args: &[&str]) -> String {
+        let bin = std::env::var("SAIL_NFT").unwrap_or_else(|_| "nft".into());
+        let out = Command::new(&bin)
+            .args(args)
+            .output()
+            .unwrap_or_else(|e| panic!("cannot run {}: {}", bin, e));
+        assert!(
+            out.status.success(),
+            "nft {:?}: {}",
+            args,
+            String::from_utf8_lossy(&out.stderr)
+        );
+        String::from_utf8(out.stdout).unwrap()
+    }
+
+    fn rule(parts: impl IntoIterator<Item = impl IntoIterator<Item = Expr>>) -> Vec<Expr> {
+        parts.into_iter().flatten().collect()
+    }
+
+    fn l4proto(op: CmpOp, proto: u8) -> [Expr; 2] {
+        meta_cmp(MetaKey::L4Proto, op, vec![proto])
+    }
+
+    fn nfproto(family: Family) -> [Expr; 2] {
+        meta_cmp(MetaKey::NfProto, CmpOp::Eq, vec![family as u8])
+    }
+
+    fn mark(op: CmpOp, value: u32) -> [Expr; 2] {
+        meta_cmp(MetaKey::Mark, op, host_u32(value))
+    }
+
+    fn payload(base: PayloadBase, offset: u32, len: u32) -> [Expr; 1] {
+        [Expr::Payload {
+            base,
+            offset,
+            len,
+            dreg: Reg::R1,
+        }]
+    }
+
+    fn immediate(dreg: Reg, data: impl Into<Vec<u8>>) -> [Expr; 1] {
+        [Expr::Immediate {
+            dreg,
+            data: data.into(),
+        }]
+    }
+
+    fn then(v: Verdict) -> [Expr; 2] {
+        [Expr::Counter, verdict(v)]
+    }
+
+    /// Builds a table with every chain type, named and anonymous sets and
+    /// every expression, commits it, and reads it back with nft(8). Run as
+    /// root in a network namespace of its own, since nftables state is per
+    /// namespace:
+    ///
+    /// ```text
+    /// ip netns add sail-nft-test
+    /// ip netns exec sail-nft-test <test binary> --ignored --exact \
+    ///     platform::nft::socket::tests::commit_and_read_back
+    /// ip netns del sail-nft-test
+    /// ```
+    #[test]
+    #[ignore = "requires root and nf_tables"]
+    fn commit_and_read_back() {
+        let t = Table::new(Family::Inet, TABLE);
+        const UDP: u8 = 17;
+        const TCP: u8 = 6;
+        const ICMP: u8 = 1;
+        const ICMPV6: u8 = 58;
+
+        let mut b = Batch::new();
+        b.del_table_if_exists(&t);
+        b.add_table(&t);
+        let v4 = b.add_set(
+            &t,
+            &Set::named("v4", KeyType::IPV4_ADDR).interval(),
+            &[
+                SetElem::ip_prefix(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 0)), 8),
+                SetElem::ip_prefix(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 7)), 24),
+                SetElem::ip_prefix(IpAddr::V4(Ipv4Addr::new(224, 0, 0, 0)), 3),
+            ]
+            .concat(),
+        );
+        let v6 = b.add_set(
+            &t,
+            &Set::named("v6", KeyType::IPV6_ADDR).interval(),
+            &[
+                SetElem::ip_prefix(IpAddr::V6(Ipv6Addr::LOCALHOST), 128),
+                SetElem::ip_prefix("fd00::".parse().unwrap(), 8),
+            ]
+            .concat(),
+        );
+        b.add_chain(
+            &t,
+            &Chain::base("prematch", ChainType::Filter, Hook::Prerouting, -101),
+        );
+        b.add_chain(
+            &t,
+            &Chain::base("output", ChainType::Nat, Hook::Output, -100),
+        );
+        b.add_chain(
+            &t,
+            &Chain::base("output_route", ChainType::Route, Hook::Output, -150),
+        );
+        b.add_chain(&t, &Chain::regular("bypass"));
+
+        // prematch: filter, prerouting.
+        let no_udp_icmp = b.add_set(
+            &t,
+            &Set::anonymous(KeyType::INET_PROTO),
+            &[
+                SetElem::new([UDP]),
+                SetElem::new([ICMP]),
+                SetElem::new([ICMPV6]),
+            ],
+        );
+        let ifaces = b.add_set(
+            &t,
+            &Set::anonymous(KeyType::IFNAME),
+            &[
+                SetElem::new(ifname("eth1").unwrap()),
+                SetElem::new(ifname("eth2").unwrap()),
+            ],
+        );
+        let rules = vec![
+            rule([
+                meta_cmp(MetaKey::IifName, CmpOp::Eq, ifname("tun0").unwrap()).to_vec(),
+                vec![verdict(Verdict::Return)],
+            ]),
+            rule([
+                vec![meta(MetaKey::IifName), lookup(&ifaces, false)],
+                then(Verdict::Return).to_vec(),
+            ]),
+            rule([
+                vec![meta(MetaKey::L4Proto), lookup(&no_udp_icmp, true)],
+                vec![verdict(Verdict::Return)],
+            ]),
+            rule([
+                mark(CmpOp::Eq, 0x2024).to_vec(),
+                then(Verdict::Return).to_vec(),
+            ]),
+            rule([
+                ct_cmp(CtKey::Mark, CmpOp::Eq, host_u32(0x2024)).to_vec(),
+                vec![verdict(Verdict::Return)],
+            ]),
+            rule([
+                ct_cmp(CtKey::Direction, CmpOp::Eq, vec![1]).to_vec(),
+                vec![verdict(Verdict::Return)],
+            ]),
+            // tcp flags & (syn | ack) == syn counter queue num 100 bypass
+            rule([
+                l4proto(CmpOp::Eq, TCP).to_vec(),
+                payload(PayloadBase::Transport, 13, 1).to_vec(),
+                vec![
+                    Expr::Bitwise {
+                        sreg: Reg::R1,
+                        dreg: Reg::R1,
+                        len: 1,
+                        mask: vec![0x12],
+                        xor: vec![0],
+                    },
+                    cmp(CmpOp::Eq, vec![0x02]),
+                    Expr::Counter,
+                    Expr::Queue {
+                        num: 100,
+                        total: 1,
+                        flags: QUEUE_FLAG_BYPASS,
+                    },
+                ],
+            ]),
+            rule([
+                l4proto(CmpOp::Eq, TCP).to_vec(),
+                mark(CmpOp::Eq, 0x2025).to_vec(),
+                vec![
+                    Expr::Counter,
+                    Expr::Reject {
+                        kind: RejectKind::TcpRst,
+                        code: 0,
+                    },
+                ],
+            ]),
+            rule([
+                mark(CmpOp::Eq, 0x2026).to_vec(),
+                vec![Expr::Reject {
+                    kind: RejectKind::Icmpx,
+                    code: 3,
+                }],
+            ]),
+            rule([
+                nfproto(Family::Ipv4).to_vec(),
+                mark(CmpOp::Eq, 0x2027).to_vec(),
+                vec![Expr::Reject {
+                    kind: RejectKind::Icmp,
+                    code: 0,
+                }],
+            ]),
+            rule([
+                mark(CmpOp::Eq, 0x2024).to_vec(),
+                vec![
+                    meta(MetaKey::Mark),
+                    Expr::CtSet {
+                        key: CtKey::Mark,
+                        sreg: Reg::R1,
+                    },
+                    Expr::Counter,
+                ],
+            ]),
+            rule([
+                nfproto(Family::Ipv4).to_vec(),
+                payload(PayloadBase::Network, 16, 4).to_vec(),
+                vec![lookup(&v4, false)],
+                then(Verdict::Return).to_vec(),
+            ]),
+            rule([
+                nfproto(Family::Ipv6).to_vec(),
+                payload(PayloadBase::Network, 24, 16).to_vec(),
+                vec![lookup(&SetRef::named("v6"), true)],
+                then(Verdict::Return).to_vec(),
+            ]),
+            rule([
+                l4proto(CmpOp::Eq, TCP).to_vec(),
+                vec![
+                    Expr::Exthdr {
+                        op: ExthdrOp::TcpOpt,
+                        ty: 30,
+                        offset: 0,
+                        len: 1,
+                        flags: EXTHDR_F_PRESENT,
+                        dreg: Reg::R1,
+                    },
+                    cmp(CmpOp::Eq, vec![1]),
+                ],
+                then(Verdict::Drop).to_vec(),
+            ]),
+            rule([
+                mark(CmpOp::Eq, 0x2028).to_vec(),
+                vec![verdict(Verdict::Jump("bypass".into()))],
+            ]),
+        ];
+        for r in &rules {
+            b.add_rule(&t, "prematch", r);
+        }
+        b.add_rule(&t, "bypass", &then(Verdict::Accept));
+        drop(v6);
+
+        // output: nat, output. An anonymous set binds to one rule only, so
+        // each rule gets its own.
+        let mut dns = |family: Family, addr: Vec<u8>| {
+            let tcp_udp = b.add_set(
+                &t,
+                &Set::anonymous(KeyType::INET_PROTO),
+                &[SetElem::new([TCP]), SetElem::new([UDP])],
+            );
+            rule([
+                nfproto(family).to_vec(),
+                meta_cmp(MetaKey::OifName, CmpOp::Neq, ifname("lo").unwrap()).to_vec(),
+                vec![meta(MetaKey::L4Proto), lookup(&tcp_udp, false)],
+                payload(PayloadBase::Transport, 2, 2).to_vec(),
+                vec![cmp(CmpOp::Eq, port(53)), Expr::Counter],
+                immediate(Reg::R1, addr).to_vec(),
+                vec![Expr::Nat {
+                    kind: NatKind::Dnat,
+                    family,
+                    addr_min: Some(Reg::R1),
+                    proto_min: None,
+                    flags: 0,
+                }],
+            ])
+        };
+        let dns4 = dns(Family::Ipv4, vec![172, 18, 0, 2]);
+        let dns6 = dns(
+            Family::Ipv6,
+            "fdfe:dcba:9876::2"
+                .parse::<Ipv6Addr>()
+                .unwrap()
+                .octets()
+                .to_vec(),
+        );
+        b.add_rule(&t, "output", &dns4);
+        b.add_rule(&t, "output", &dns6);
+        b.add_rule(
+            &t,
+            "output",
+            &rule([
+                nfproto(Family::Ipv4).to_vec(),
+                mark(CmpOp::Eq, 0x2029).to_vec(),
+                immediate(Reg::R1, vec![127, 0, 0, 1]).to_vec(),
+                immediate(Reg::R2, port(5353)).to_vec(),
+                vec![Expr::Nat {
+                    kind: NatKind::Dnat,
+                    family: Family::Ipv4,
+                    addr_min: Some(Reg::R1),
+                    proto_min: Some(Reg::R2),
+                    flags: NAT_RANGE_PROTO_SPECIFIED,
+                }],
+            ]),
+        );
+        b.add_rule(
+            &t,
+            "output",
+            &rule([
+                l4proto(CmpOp::Eq, TCP).to_vec(),
+                vec![Expr::Counter],
+                immediate(Reg::R1, port(7890)).to_vec(),
+                vec![Expr::Redir {
+                    proto_min: Some(Reg::R1),
+                    flags: NAT_RANGE_PROTO_SPECIFIED,
+                }],
+                vec![verdict(Verdict::Return)],
+            ]),
+        );
+
+        // output_route: route, output.
+        let uids = b.add_set(
+            &t,
+            &Set::anonymous(KeyType::UID),
+            &[SetElem::new(host_u32(1000)), SetElem::new(host_u32(2000))],
+        );
+        let routed = b.add_set(
+            &t,
+            &Set::anonymous(KeyType::IPV4_ADDR).interval(),
+            &[
+                SetElem::ip_prefix(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 0)), 8),
+                SetElem::ip_prefix(IpAddr::V4(Ipv4Addr::new(172, 16, 0, 0)), 12),
+            ]
+            .concat(),
+        );
+        b.add_rule(
+            &t,
+            "output_route",
+            &rule([
+                meta_cmp(MetaKey::SkUid, CmpOp::Eq, host_u32(0)).to_vec(),
+                vec![verdict(Verdict::Return)],
+            ]),
+        );
+        b.add_rule(
+            &t,
+            "output_route",
+            &rule([
+                vec![meta(MetaKey::SkUid), lookup(&uids, true)],
+                vec![verdict(Verdict::Return)],
+            ]),
+        );
+        b.add_rule(
+            &t,
+            "output_route",
+            &rule([
+                nfproto(Family::Ipv4).to_vec(),
+                payload(PayloadBase::Network, 16, 4).to_vec(),
+                vec![lookup(&routed, true)],
+                then(Verdict::Return).to_vec(),
+            ]),
+        );
+        b.add_rule(
+            &t,
+            "output_route",
+            &rule([
+                meta_cmp(MetaKey::OifName, CmpOp::Neq, ifname("tun0").unwrap()).to_vec(),
+                ct_cmp(CtKey::Mark, CmpOp::Eq, host_u32(0x2023)).to_vec(),
+                vec![
+                    ct(CtKey::Mark),
+                    Expr::MetaSet {
+                        key: MetaKey::Mark,
+                        sreg: Reg::R1,
+                    },
+                    Expr::Counter,
+                ],
+            ]),
+        );
+        b.add_rule(
+            &t,
+            "output_route",
+            &rule([
+                immediate(Reg::R1, host_u32(0x2023)).to_vec(),
+                vec![
+                    Expr::MetaSet {
+                        key: MetaKey::Mark,
+                        sreg: Reg::R1,
+                    },
+                    meta(MetaKey::Mark),
+                    Expr::CtSet {
+                        key: CtKey::Mark,
+                        sreg: Reg::R1,
+                    },
+                ],
+                then(Verdict::Return).to_vec(),
+            ]),
+        );
+        b.commit().unwrap_or_else(|e| panic!("commit: {}", e));
+
+        // The probe sees it.
+        let tables = list_tables(Some(Family::Inet)).expect("list tables");
+        let ours = tables
+            .iter()
+            .find(|t| t.name == TABLE)
+            .expect("the table is listed");
+        assert_eq!(ours.family, Family::Inet);
+        // Four chains and two named sets.
+        assert_eq!(ours.uses, 6);
+        assert!(list_tables(None).unwrap().iter().any(|t| t.name == TABLE));
+        assert!(!list_tables(Some(Family::Ipv4))
+            .unwrap()
+            .iter()
+            .any(|t| t.name == TABLE));
+
+        let listing = nft(&["list", "table", "inet", TABLE]);
+        println!("{}", listing);
+        let got: Vec<&str> = listing
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect();
+        let want: Vec<&str> = WANT
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect();
+        assert_eq!(got, want);
+
+        // The JSON view parses and holds every rule, none of them
+        // something nft could not make out.
+        let json: serde_json::Value =
+            serde_json::from_str(&nft(&["-j", "list", "table", "inet", TABLE])).unwrap();
+        let mut per_chain = std::collections::HashMap::<String, usize>::new();
+        for item in json["nftables"].as_array().unwrap() {
+            if let Some(rule) = item.get("rule") {
+                *per_chain
+                    .entry(rule["chain"].as_str().unwrap().to_string())
+                    .or_default() += 1;
+                let text = rule["expr"].to_string();
+                assert!(!text.contains("unknown"), "{}", text);
+            }
+        }
+        assert_eq!(per_chain["prematch"], rules.len());
+        assert_eq!(per_chain["output"], 4);
+        assert_eq!(per_chain["output_route"], 5);
+        assert_eq!(per_chain["bypass"], 1);
+
+        // Committing it again replaces it whole.
+        b.commit()
+            .unwrap_or_else(|e| panic!("second commit: {}", e));
+        assert_eq!(nft(&["list", "table", "inet", TABLE]), listing);
+
+        let mut del = Batch::new();
+        del.del_table(&t);
+        del.commit().expect("delete");
+        assert!(!list_tables(None).unwrap().iter().any(|t| t.name == TABLE));
+        // Gone, it is still fine to delete if it exists...
+        let mut del = Batch::new();
+        del.del_table_if_exists(&t);
+        del.commit().expect("delete if exists");
+        // ...but not to delete it outright.
+        let mut del = Batch::new();
+        del.del_table(&t);
+        let err = del.commit().unwrap_err();
+        assert_eq!(err.errno(), Some(libc::ENOENT));
+        assert!(
+            err.to_string()
+                .starts_with("deleting table inet sail-nft-test: ENOENT"),
+            "{}",
+            err
+        );
+    }
+
+    /// A failed message aborts the batch, and the error names it.
+    #[test]
+    #[ignore = "requires root and nf_tables"]
+    fn failed_rule_is_named_and_aborts_the_batch() {
+        let t = Table::new(Family::Inet, "sail-nft-test-fail");
+        let mut b = Batch::new();
+        b.del_table_if_exists(&t);
+        b.add_table(&t);
+        b.add_chain(
+            &t,
+            &Chain::base("c", ChainType::Filter, Hook::Prerouting, 0),
+        );
+        b.add_rule(&t, "c", &[Expr::Counter]);
+        // redir only works in a nat chain.
+        b.add_rule(
+            &t,
+            "c",
+            &[Expr::Redir {
+                proto_min: None,
+                flags: 0,
+            }],
+        );
+        b.add_rule(&t, "c", &[Expr::Counter]);
+        let err = b.commit().unwrap_err();
+        println!("{}", err);
+        assert_eq!(err.errno(), Some(libc::EOPNOTSUPP));
+        assert!(
+            err.to_string()
+                .starts_with("creating rule 2 in chain c: EOPNOTSUPP"),
+            "{}",
+            err
+        );
+        assert!(!list_tables(None).unwrap().iter().any(|x| x.name == t.name));
+    }
+
+    /// What nft(8) lists for the table `commit_and_read_back` builds, line
+    /// by line with the indentation dropped (nft 1.1.3; another version may
+    /// wrap set elements differently). nft leaves out what a rule needs only
+    /// as a dependency: the `meta nfproto` before `ip daddr`, the `meta
+    /// l4proto tcp` before `tcp flags`.
+    const WANT: &str = r#"
+table inet sail-nft-test {
+    set v4 {
+        type ipv4_addr
+        flags interval
+        elements = { 10.0.0.0/8, 192.168.1.0/24,
+                     224.0.0.0/3 }
+    }
+    set v6 {
+        type ipv6_addr
+        flags interval
+        elements = { ::1,
+                     fd00::/8 }
+    }
+    chain prematch {
+        type filter hook prerouting priority dstnat - 1; policy accept;
+        iifname "tun0" return
+        iifname { "eth1", "eth2" } counter packets 0 bytes 0 return
+        meta l4proto != { icmp, udp, ipv6-icmp } return
+        meta mark 0x00002024 counter packets 0 bytes 0 return
+        ct mark 0x00002024 return
+        ct direction reply return
+        tcp flags & (syn | ack) == syn counter packets 0 bytes 0 queue flags bypass to 100
+        meta l4proto tcp meta mark 0x00002025 counter packets 0 bytes 0 reject with tcp reset
+        meta mark 0x00002026 reject with icmpx admin-prohibited
+        meta mark 0x00002027 reject with icmp net-unreachable
+        meta mark 0x00002024 ct mark set meta mark counter packets 0 bytes 0
+        ip daddr @v4 counter packets 0 bytes 0 return
+        ip6 daddr != @v6 counter packets 0 bytes 0 return
+        tcp option mptcp exists counter packets 0 bytes 0 drop
+        meta mark 0x00002028 jump bypass
+    }
+    chain output {
+        type nat hook output priority dstnat; policy accept;
+        meta nfproto ipv4 oifname != "lo" meta l4proto { tcp, udp } th dport 53 counter packets 0 bytes 0 dnat ip to 172.18.0.2
+        meta nfproto ipv6 oifname != "lo" meta l4proto { tcp, udp } th dport 53 counter packets 0 bytes 0 dnat ip6 to fdfe:dcba:9876::2
+        meta nfproto ipv4 meta mark 0x00002029 dnat ip to 127.0.0.1:5353
+        meta l4proto tcp counter packets 0 bytes 0 redirect to :7890 return
+    }
+    chain output_route {
+        type route hook output priority mangle; policy accept;
+        meta skuid 0 return
+        meta skuid != { 1000, 2000 } return
+        ip daddr != { 10.0.0.0/8, 172.16.0.0/12 } counter packets 0 bytes 0 return
+        oifname != "tun0" ct mark 0x00002023 meta mark set ct mark counter packets 0 bytes 0
+        meta mark set 0x00002023 ct mark set meta mark counter packets 0 bytes 0 return
+    }
+    chain bypass {
+        counter packets 0 bytes 0 accept
+    }
+}
+"#;
+}
