@@ -105,10 +105,11 @@ Local validation passed:
 - Sail library tests: 615 passed, 3 pre-existing ignored, 0 failed, including
   both macOS watcher regressions.
 
-The license gate remains intentionally unresolved. Four first-party crates
-still need project license declarations, and `tun 0.7.22` (WTFPL) plus
-`webpki-root-certs 1.0.9` (CDLA-Permissive-2.0) still require explicit review.
-No license exception has been added.
+All five first-party crates now declare `Apache-2.0`, matching the repository
+license. The third-party license gate remains intentionally unresolved:
+`tun 0.7.22` (WTFPL) and `webpki-root-certs 1.0.9`
+(CDLA-Permissive-2.0) still require explicit review. No third-party license
+exception has been added.
 
 ## Historical local baseline (2026-09-28)
 

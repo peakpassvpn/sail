@@ -3,6 +3,7 @@ name = "sail-ffi"
 version = "0.1.0"
 authors = ["eycorsican <eric.y.corsican@gmail.com>"]
 edition = "2021"
+license = "Apache-2.0"
 
 [lib]
 name = "sail"
