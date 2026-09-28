@@ -262,6 +262,24 @@ impl CidrIndex {
         self.v4.is_empty() && self.v6.is_empty()
     }
 
+    /// Its inclusive ranges, IPv4 first.
+    #[cfg_attr(not(feature = "rule-set"), allow(dead_code))]
+    pub(crate) fn ranges(&self) -> impl Iterator<Item = (IpAddr, IpAddr)> + '_ {
+        let v4 = self.v4.iter().map(|&(first, last)| {
+            (
+                IpAddr::from(std::net::Ipv4Addr::from(first)),
+                IpAddr::from(std::net::Ipv4Addr::from(last)),
+            )
+        });
+        let v6 = self.v6.iter().map(|&(first, last)| {
+            (
+                IpAddr::from(std::net::Ipv6Addr::from(first)),
+                IpAddr::from(std::net::Ipv6Addr::from(last)),
+            )
+        });
+        v4.chain(v6)
+    }
+
     pub(crate) fn contains(&self, ip: IpAddr) -> bool {
         match ip.to_canonical() {
             IpAddr::V4(ip) => within(&self.v4, u32::from(ip)),
@@ -502,6 +520,16 @@ impl Condition {
                 };
                 matched != *invert
             }
+        }
+    }
+
+    /// The destination `ip_cidr` ranges of its default rules, however
+    /// deep, as sing-box extracts a rule-set's addresses.
+    #[cfg_attr(not(feature = "rule-set"), allow(dead_code))]
+    pub(crate) fn ip_ranges(&self, out: &mut Vec<(IpAddr, IpAddr)>) {
+        match self {
+            Condition::Default(c) => out.extend(c.ip_cidr.ranges()),
+            Condition::Logical { rules, .. } => rules.iter().for_each(|r| r.ip_ranges(out)),
         }
     }
 

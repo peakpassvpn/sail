@@ -58,6 +58,15 @@ impl RuleSet {
         }
     }
 
+    /// The destination `ip_cidr` ranges of its rules, for sets kept
+    /// outside sail (auto_redirect's `route_address_set`).
+    #[allow(dead_code)]
+    pub(crate) fn ip_ranges(&self) -> Vec<(std::net::IpAddr, std::net::IpAddr)> {
+        let mut ranges = Vec::new();
+        self.rules.iter().for_each(|r| r.ip_ranges(&mut ranges));
+        ranges
+    }
+
     /// Whether any of its rules matches.
     pub(crate) fn matches(&self, facts: &Facts, ip_match_source: bool) -> bool {
         self.rules.iter().any(|r| r.matches(facts, ip_match_source))
@@ -268,6 +277,18 @@ impl RuleSets {
         }
     }
 
+    /// The destination address ranges of the rule-set `tag` as it is now.
+    #[allow(dead_code)]
+    pub(crate) fn ip_ranges(&self, tag: &str) -> Result<Vec<(std::net::IpAddr, std::net::IpAddr)>> {
+        Ok(self.get(tag)?.load().ip_ranges())
+    }
+
+    /// Changes whenever the rule-set `tag` is replaced, by a download.
+    #[allow(dead_code)]
+    pub(crate) fn subscribe(&self, tag: &str) -> Result<tokio::sync::watch::Receiver<u64>> {
+        Ok(self.get(tag)?.subscribe())
+    }
+
     pub(crate) fn get(&self, tag: &str) -> Result<SharedRuleSet> {
         self.sets
             .get(tag)
@@ -385,6 +406,46 @@ mod tests {
 
     use crate::app::router::matcher::Matcher;
     use crate::session::Network::{Tcp, Udp};
+
+    /// Destination CIDRs of every default rule, nested in logical ones
+    /// too, merged; source CIDRs and domains are not addresses to route.
+    #[test]
+    fn ip_ranges_are_the_destination_cidrs() {
+        let configs: Vec<config::RuleSet> = serde_json::from_value(serde_json::json!([
+            { "tag": "s", "rules": [
+                { "ip_cidr": ["10.0.0.0/8", "10.1.0.0/16", "2001:db8::/32"] },
+                { "source_ip_cidr": ["192.168.0.0/16"], "domain": ["example.com"] },
+                { "type": "logical", "mode": "or", "rules": [
+                    { "ip_cidr": ["1.1.1.1"] },
+                    { "domain_suffix": ["example.org"] }
+                ] }
+            ] }
+        ]))
+        .unwrap();
+        let sets =
+            RuleSets::load(&configs, &HttpClients::default(), &RuntimeEnv::default()).unwrap();
+        let ip = |s: &str| s.parse::<std::net::IpAddr>().unwrap();
+        assert_eq!(
+            sets.ip_ranges("s").unwrap(),
+            vec![
+                (ip("10.0.0.0"), ip("10.255.255.255")),
+                (
+                    ip("2001:db8::"),
+                    ip("2001:db8:ffff:ffff:ffff:ffff:ffff:ffff")
+                ),
+                (ip("1.1.1.1"), ip("1.1.1.1")),
+            ]
+        );
+        assert!(sets.ip_ranges("t").is_err());
+
+        let version = sets.subscribe("s").unwrap();
+        sets.get("s")
+            .unwrap()
+            .publish(Arc::new(RuleSet { rules: Vec::new() }));
+        assert!(version.has_changed().unwrap());
+        assert!(sets.ip_ranges("s").unwrap().is_empty());
+        assert!(sets.subscribe("t").is_err());
+    }
 
     /// sing-box's TestRuleSetShapeBoundary: one plain rule merges with the
     /// outer conditions, two do not.
