@@ -389,8 +389,11 @@ mod tests {
         assert!(result.is_err());
         assert_eq!(answer[1], 91);
 
-        let (result, answer) =
-            run(Handler::new(HashMap::new(), Default::default(), None), &request).await;
+        let (result, answer) = run(
+            Handler::new(HashMap::new(), Default::default(), None),
+            &request,
+        )
+        .await;
         assert!(result.unwrap().is_some());
         assert_eq!(answer[1], 90);
     }
@@ -399,7 +402,11 @@ mod tests {
     async fn socks4_fields_are_bounded() {
         let mut request = vec![0x04, 0x01, 0, 80, 127, 0, 0, 1];
         request.resize(request.len() + MAX_SOCKS4_FIELD + 10, b'a');
-        let (result, _) = run(Handler::new(HashMap::new(), Default::default(), None), &request).await;
+        let (result, _) = run(
+            Handler::new(HashMap::new(), Default::default(), None),
+            &request,
+        )
+        .await;
         assert!(result.is_err());
     }
 }
