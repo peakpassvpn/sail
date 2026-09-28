@@ -19,6 +19,19 @@ pub(crate) mod tun_setup;
 #[cfg(any(target_os = "linux", test))]
 pub mod nft;
 
+// auto_redirect's routing, Linux only; its commands are tested on macOS too.
+#[cfg(all(
+    feature = "inbound-tun",
+    any(target_os = "linux", all(test, target_os = "macos"))
+))]
+pub(crate) mod policy_route;
+
+#[cfg(all(
+    target_os = "linux",
+    any(feature = "inbound-redirect", feature = "inbound-tun")
+))]
+pub(crate) mod original_dst;
+
 #[cfg(target_os = "windows")]
 pub(crate) mod windows;
 

@@ -1722,7 +1722,8 @@ impl RuleAction {
 impl Config {
     /// A TUN inbound with `auto_route` that sail routes itself, with no
     /// way out for the outbounds: they would loop back into it. A host
-    /// that opens the TUN routes it, and keeps its own sockets out.
+    /// that opens the TUN routes it, and keeps its own sockets out, as
+    /// `auto_redirect` does by their mark.
     pub fn check_tun_route(&self, host_routes: bool) -> Result<()> {
         if host_routes || self.route.auto_detect_interface || self.route.default_interface.is_some()
         {
@@ -1731,6 +1732,8 @@ impl Config {
         if let Some(tun) = self.inbounds.iter().find(|i| {
             i.protocol == "tun"
                 && i.options.get("auto_route") == Some(&serde_json::Value::Bool(true))
+                // Its routing leaves sail's own marked sockets out.
+                && i.options.get("auto_redirect") != Some(&serde_json::Value::Bool(true))
         }) {
             return Err(anyhow!(
                 "[{}] inbound: auto_route routes all traffic into the TUN; set \
@@ -2317,6 +2320,11 @@ mod tests {
         .unwrap()
         .check_tun_route(false)
         .unwrap();
+        // auto_redirect keeps sail's own sockets out by their mark.
+        Config::from_json(r#"{ "inbounds": [{ "type": "tun", "address": "172.19.0.1/30", "auto_route": true, "auto_redirect": true }], "outbounds": [{ "type": "direct" }] }"#)
+            .unwrap()
+            .check_tun_route(false)
+            .unwrap();
     }
 
     #[test]

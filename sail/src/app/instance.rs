@@ -45,6 +45,12 @@ pub struct Instance {
     /// Controls the TUN inbound's stack once it is started.
     #[cfg(feature = "inbound-tun")]
     pub(crate) tun_control: Option<crate::net::netstack::NativeRuntimeControl>,
+    /// A TUN inbound's tag and settings, with `auto_redirect`; once
+    /// started, what it set up.
+    #[cfg(all(feature = "inbound-tun", target_os = "linux"))]
+    redirected_tun: Option<(String, crate::protocol::tun::inbound::TunSettings)>,
+    #[cfg(all(feature = "inbound-tun", target_os = "linux"))]
+    auto_redirect: Option<crate::protocol::tun::auto_redirect::AutoRedirect>,
 }
 
 impl Instance {
@@ -133,6 +139,16 @@ impl Instance {
         )?));
         #[cfg(all(feature = "inbound-tun", any(target_os = "macos", target_os = "linux")))]
         let tun_route = tun_setup::TunRoute::from_config(config, &env.host)?;
+        #[cfg(all(feature = "inbound-tun", target_os = "linux"))]
+        let redirected_tun = config
+            .inbounds
+            .iter()
+            .find(|i| i.protocol == "tun")
+            .map(|i| {
+                crate::protocol::tun::inbound::options(i).map(|settings| (i.tag.clone(), settings))
+            })
+            .transpose()?
+            .filter(|(_, settings)| settings.auto_redirect.is_some());
         Ok(Instance {
             env,
             dns_client,
@@ -149,6 +165,10 @@ impl Instance {
             net_info: None,
             #[cfg(feature = "inbound-tun")]
             tun_control: None,
+            #[cfg(all(feature = "inbound-tun", target_os = "linux"))]
+            redirected_tun,
+            #[cfg(all(feature = "inbound-tun", target_os = "linux"))]
+            auto_redirect: None,
         })
     }
 
@@ -198,11 +218,35 @@ impl Instance {
             // Only what was done is undone.
             self.net_info = Some(net_info);
         }
+        // After the device, whose routes it adds; what fails is undone.
+        #[cfg(all(feature = "inbound-tun", target_os = "linux"))]
+        if let Some((tag, settings)) = &self.redirected_tun {
+            let options = settings.auto_redirect.as_ref().expect("filtered on it");
+            match crate::protocol::tun::auto_redirect::AutoRedirect::start(
+                tag,
+                settings,
+                options,
+                self.dispatcher.clone(),
+            ) {
+                Ok((auto_redirect, runner)) => {
+                    runners.push(runner);
+                    self.auto_redirect = Some(auto_redirect);
+                }
+                Err(e) => {
+                    self.tun_control = None;
+                    drop(runners);
+                    return Err(e);
+                }
+            }
+        }
         Ok(runners)
     }
 
     /// Undoes what `start` did to the system.
     pub fn stop(&mut self) {
+        // Before the device goes, as sing-box closes it.
+        #[cfg(all(feature = "inbound-tun", target_os = "linux"))]
+        drop(self.auto_redirect.take());
         #[cfg(all(feature = "inbound-tun", any(target_os = "macos", target_os = "linux")))]
         if let Some(net_info) = self.net_info.take() {
             tun_setup::post_tun_completion_setup(&net_info);

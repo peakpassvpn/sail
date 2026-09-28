@@ -30,7 +30,8 @@ impl TunRoute {
             .platform
             .as_ref()
             .is_some_and(|platform| platform.opens_tun());
-        if !settings.auto_route || host_opens {
+        // auto_redirect routes by marks, in a table of its own.
+        if !settings.auto_route || host_opens || settings.auto_redirect.is_some() {
             return Ok(None);
         }
         let Some(ipv4) = settings.ipv4 else {
