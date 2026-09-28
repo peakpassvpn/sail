@@ -1008,3 +1008,280 @@ mod tests {
         assert!(parse(&ipv4(47, [1; 4], [2; 4], &[0; 20])).is_none());
     }
 }
+
+#[cfg(all(test, target_os = "linux"))]
+mod kernel_tests {
+    use std::io;
+    use std::net::SocketAddr;
+    use std::process::Command;
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    use tokio::net::{TcpListener, TcpStream};
+    use tokio::sync::mpsc;
+    use tokio::time::timeout;
+
+    use super::*;
+    use crate::platform::nft::{
+        self, cmp, host_u32, meta_cmp, port, Batch, Chain, ChainType, CmpOp, Expr, Family, Hook,
+        MetaKey, PayloadBase, Reg, RejectKind, Table, QUEUE_FLAG_BYPASS,
+    };
+
+    const QUEUE: u16 = 4242;
+    const TABLE: &str = "sail-nfq-test";
+    /// A repeat with this mark meets a rule that resets the connection.
+    const MARK_RESET: u32 = 0x77;
+    /// A repeat with this mark meets a rule that lets it through.
+    const MARK_PASS: u32 = 0x78;
+
+    /// In the output hook: marked SYNs are reset or passed, and any other
+    /// TCP SYN to port 7 is queued, bypassed when no one listens.
+    fn install_rules() {
+        const TCP: u8 = 6;
+        let t = Table::new(Family::Inet, TABLE);
+        let mut b = Batch::new();
+        b.del_table_if_exists(&t);
+        b.add_table(&t);
+        b.add_chain(
+            &t,
+            &Chain::base("output", ChainType::Filter, Hook::Output, 0),
+        );
+        let tcp = meta_cmp(MetaKey::L4Proto, CmpOp::Eq, vec![TCP]);
+        let mut reset = tcp.to_vec();
+        reset.extend(meta_cmp(MetaKey::Mark, CmpOp::Eq, host_u32(MARK_RESET)));
+        reset.extend([
+            Expr::Counter,
+            Expr::Reject {
+                kind: RejectKind::TcpRst,
+                code: 0,
+            },
+        ]);
+        b.add_rule(&t, "output", &reset);
+        let mut pass = meta_cmp(MetaKey::Mark, CmpOp::Eq, host_u32(MARK_PASS)).to_vec();
+        pass.extend([Expr::Counter, nft::verdict(nft::Verdict::Accept)]);
+        b.add_rule(&t, "output", &pass);
+        let mut queue = tcp.to_vec();
+        queue.extend([
+            Expr::Payload {
+                base: PayloadBase::Transport,
+                offset: 2,
+                len: 2,
+                dreg: Reg::R1,
+            },
+            cmp(CmpOp::Eq, port(7)),
+            Expr::Payload {
+                base: PayloadBase::Transport,
+                offset: 13,
+                len: 1,
+                dreg: Reg::R1,
+            },
+            Expr::Bitwise {
+                sreg: Reg::R1,
+                dreg: Reg::R1,
+                len: 1,
+                mask: vec![0x12],
+                xor: vec![0],
+            },
+            cmp(CmpOp::Eq, vec![0x02]),
+            Expr::Counter,
+            Expr::Queue {
+                num: QUEUE,
+                total: 1,
+                flags: QUEUE_FLAG_BYPASS,
+            },
+        ]);
+        b.add_rule(&t, "output", &queue);
+        b.commit().unwrap_or_else(|e| panic!("commit: {}", e));
+    }
+
+    /// nft(8)'s listing of the table, if `$SAIL_NFT` names one: each mark
+    /// rule met the one SYN repeated with its mark.
+    fn check_counters() {
+        if let Ok(nft) = std::env::var("SAIL_NFT") {
+            let out = Command::new(nft)
+                .args(["list", "table", "inet", TABLE])
+                .output()
+                .unwrap();
+            let listing = String::from_utf8_lossy(&out.stdout);
+            println!("{}", listing);
+            for mark in [MARK_RESET, MARK_PASS] {
+                let counted = format!("meta mark {:#010x} counter packets 1 ", mark);
+                assert!(listing.contains(&counted), "{}", counted);
+            }
+        }
+    }
+
+    async fn connect(to: SocketAddr, within: Duration) -> io::Result<TcpStream> {
+        timeout(within, TcpStream::connect(to))
+            .await
+            .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "connect timed out"))?
+    }
+
+    async fn next(rx: &mut mpsc::UnboundedReceiver<Queued>) -> Queued {
+        timeout(Duration::from_secs(3), rx.recv())
+            .await
+            .expect("a packet is queued")
+            .expect("the reader runs")
+    }
+
+    fn syn_to(q: &Queued, to: SocketAddr) -> Flow {
+        let flow = q.flow.clone().expect("a flow");
+        assert_eq!(flow.protocol, Protocol::Tcp);
+        assert_eq!(flow.destination, to);
+        assert!(flow.first_packet, "{:?}", flow);
+        flow
+    }
+
+    /// Runs as root in a network namespace of its own, with nf_tables and
+    /// nfnetlink_queue loaded:
+    ///
+    /// ```text
+    /// modprobe nfnetlink_queue; modprobe nft_queue
+    /// ip netns add sail-nfq-test
+    /// ip netns exec sail-nfq-test <test binary> --ignored --exact --nocapture \
+    ///     platform::nfqueue::kernel_tests::verdicts
+    /// ip netns del sail-nfq-test
+    /// ```
+    #[test]
+    #[ignore = "requires root, nf_tables and nfnetlink_queue"]
+    fn verdicts() {
+        let status = Command::new("ip")
+            .args(["link", "set", "lo", "up"])
+            .status()
+            .unwrap();
+        assert!(status.success());
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .unwrap();
+        rt.block_on(async {
+            let listener = TcpListener::bind("127.0.0.1:7").await.unwrap();
+            let listener6 = TcpListener::bind("[::1]:7").await.unwrap();
+            for l in [listener, listener6] {
+                tokio::spawn(async move {
+                    loop {
+                        let _ = l.accept().await;
+                    }
+                });
+            }
+            let v4: SocketAddr = "127.0.0.1:7".parse().unwrap();
+            let v6: SocketAddr = "[::1]:7".parse().unwrap();
+            install_rules();
+
+            // No queue bound: `bypass` lets the SYN through.
+            connect(v4, Duration::from_secs(2))
+                .await
+                .expect("bypassed while no queue is bound");
+            println!("unbound: bypassed");
+
+            let queue = Arc::new(Queue::open(QUEUE).expect("open the queue"));
+            // A second socket cannot have the same queue: the kernel says
+            // EPERM, not EBUSY, when another port id holds it.
+            let err = Queue::open(QUEUE).err().expect("the queue is taken");
+            println!("second open: {}", err);
+            assert_eq!(err.kind(), io::ErrorKind::PermissionDenied);
+
+            // A task that only reads, forever pending in recv between
+            // packets; the verdicts are given elsewhere.
+            let (tx, mut rx) = mpsc::unbounded_channel();
+            let reader = tokio::spawn({
+                let queue = queue.clone();
+                async move {
+                    loop {
+                        match queue.recv().await {
+                            Ok(q) => {
+                                if tx.send(q).is_err() {
+                                    return;
+                                }
+                            }
+                            Err(e) => println!("recv: {}", e),
+                        }
+                    }
+                }
+            });
+
+            // Accept, given from this task.
+            let client = tokio::spawn(connect(v4, Duration::from_secs(3)));
+            let q = next(&mut rx).await;
+            let flow = syn_to(&q, v4);
+            println!("accept: queued {:?}", q);
+            queue.verdict(q.id, Verdict::Accept).unwrap();
+            let stream = client.await.unwrap().expect("accepted");
+            assert_eq!(flow.source, stream.local_addr().unwrap());
+            assert!(!reader.is_finished());
+
+            // Accept, IPv6, given from a task of its own.
+            let client = tokio::spawn(connect(v6, Duration::from_secs(3)));
+            let q = next(&mut rx).await;
+            let flow = syn_to(&q, v6);
+            println!("accept v6: queued {:?}", flow);
+            tokio::spawn({
+                let queue = queue.clone();
+                async move { queue.verdict(q.id, Verdict::Accept) }
+            })
+            .await
+            .unwrap()
+            .unwrap();
+            let stream = client.await.unwrap().expect("accepted");
+            assert_eq!(flow.source, stream.local_addr().unwrap());
+
+            // Repeat with the pass mark: the chain runs again, and its
+            // rule for the mark accepts the SYN before it is queued again.
+            let client = tokio::spawn(connect(v4, Duration::from_secs(3)));
+            let q = next(&mut rx).await;
+            syn_to(&q, v4);
+            queue
+                .verdict(q.id, Verdict::Repeat { mark: MARK_PASS })
+                .unwrap();
+            client.await.unwrap().expect("passed by the mark");
+            println!("repeat {:#x}: passed", MARK_PASS);
+
+            // Repeat with the reset mark: the chain's rule for it answers
+            // with a reset, so the mark was set and the chain re-run.
+            let client = tokio::spawn(connect(v4, Duration::from_secs(3)));
+            let q = next(&mut rx).await;
+            syn_to(&q, v4);
+            queue
+                .verdict(q.id, Verdict::Repeat { mark: MARK_RESET })
+                .unwrap();
+            let err = client.await.unwrap().expect_err("reset by the mark");
+            println!("repeat {:#x}: {}", MARK_RESET, err);
+            assert_eq!(err.kind(), io::ErrorKind::ConnectionRefused);
+
+            // Drop: the SYN and its retransmissions are dropped, and the
+            // connect times out.
+            let client = tokio::spawn(connect(v4, Duration::from_millis(2500)));
+            let mut dropped = 0;
+            while !client.is_finished() {
+                if let Ok(Some(q)) = timeout(Duration::from_millis(100), rx.recv()).await {
+                    syn_to(&q, v4);
+                    queue.verdict(q.id, Verdict::Drop).unwrap();
+                    dropped += 1;
+                }
+            }
+            let err = client.await.unwrap().expect_err("dropped");
+            println!("drop: {} SYNs dropped, {}", dropped, err);
+            assert_eq!(err.kind(), io::ErrorKind::TimedOut);
+            // The first SYN and the retransmission a second later.
+            assert!(dropped >= 2, "{}", dropped);
+
+            check_counters();
+
+            // Unbound again, by closing: bypassed again.
+            reader.abort();
+            let _ = reader.await;
+            drop(rx);
+            let queue = Arc::try_unwrap(queue).ok().expect("the last reference");
+            drop(queue);
+            connect(v4, Duration::from_secs(2))
+                .await
+                .expect("bypassed once the queue is closed");
+            println!("closed: bypassed");
+
+            let mut del = Batch::new();
+            del.del_table(&Table::new(Family::Inet, TABLE));
+            del.commit().unwrap();
+        });
+    }
+}
