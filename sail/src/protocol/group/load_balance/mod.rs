@@ -3,7 +3,9 @@
 //! test.
 //!
 //! - `consistent-hashing`: a destination's registrable domain, or its IP,
-//!   always goes to the same member, so a site sees one address.
+//!   always goes to the same member, so a site sees one address. Members
+//!   are weighed per site (rendezvous hashing), so that a member that
+//!   comes or goes moves only the sites it takes or had.
 //! - `round-robin`: each connection goes to the next member.
 //! - `sticky-sessions`: a source and destination pair goes to the member
 //!   it went to last, picked at random at first, until the pair is left
@@ -23,7 +25,7 @@ use serde_derive::Deserialize;
 use tracing::debug;
 
 use super::health::{self, Checker};
-use super::members::{Members, Snapshot};
+use super::members::{Member, MemberKey, Members, Snapshot};
 use super::merge;
 use crate::adapter::outbound::HandlerBuilder;
 use crate::adapter::registry::{
@@ -87,10 +89,6 @@ const STICKY_TTL: Duration = Duration::from_secs(10 * 60);
 /// How many sticky sessions are kept at most; the least recently used
 /// goes first.
 const STICKY_CAPACITY: usize = 4096;
-/// How many hashes consistent hashing tries before it takes any member
-/// that is up.
-const MAX_REHASH: u64 = 5;
-
 fn dependencies(tag: &str, options: &Options) -> Result<Vec<String>> {
     let options: LoadBalanceOutboundOptions = parse_options("outbound", tag, options)?;
     Ok(options.providers.dependencies(options.outbounds))
@@ -150,7 +148,7 @@ struct Balancer {
 enum Strategy {
     ConsistentHashing,
     RoundRobin(AtomicUsize),
-    StickySessions(Mutex<LruCache<u64, usize>>),
+    StickySessions(Mutex<LruCache<u64, MemberKey>>),
 }
 
 impl Balancer {
@@ -165,19 +163,24 @@ impl Balancer {
         Self { strategy }
     }
 
-    /// The member for `sess`, of `n` in order, among those `is_up`; when
-    /// none is, among all, since a test can be wrong and trying beats
-    /// refusing.
-    fn pick(&self, sess: &Session, n: usize, is_up: impl Fn(usize) -> bool) -> usize {
-        let any_up = (0..n).any(&is_up);
-        let is_up = |i: usize| !any_up || is_up(i);
+    /// The member of `members`, which are not none, for `sess`, among
+    /// those `is_up`; when none is, among all, since a test can be wrong
+    /// and trying beats refusing.
+    fn pick(
+        &self,
+        sess: &Session,
+        members: &[Member],
+        is_up: impl Fn(&MemberKey) -> bool,
+    ) -> usize {
+        let n = members.len();
+        let any_up = members.iter().any(|m| is_up(&m.key));
+        let is_up = |i: usize| !any_up || is_up(&members[i].key);
         match &self.strategy {
             Strategy::ConsistentHashing => {
-                let key = fnv1a(destination_key(&sess.destination).as_bytes());
-                (0..MAX_REHASH)
-                    .map(|i| jump_hash(key.wrapping_add(i), n))
-                    .find(|&i| is_up(i))
-                    .or_else(|| (0..n).find(|&i| is_up(i)))
+                let site = fnv1a(destination_key(&sess.destination).as_bytes());
+                (0..n)
+                    .filter(|&i| is_up(i))
+                    .max_by_key(|&i| weight(site, &members[i].key))
                     .unwrap_or(0)
             }
             Strategy::RoundRobin(next) => {
@@ -199,14 +202,16 @@ impl Balancer {
                 let Ok(mut cache) = cache.lock() else {
                     return 0;
                 };
-                if let Some(&i) = cache.get(&key) {
-                    if i < n && is_up(i) {
-                        return i;
+                if let Some(member) = cache.get(&key) {
+                    if let Some(i) = members.iter().position(|m| m.key == *member) {
+                        if is_up(i) {
+                            return i;
+                        }
                     }
                 }
                 let up: Vec<usize> = (0..n).filter(|&i| is_up(i)).collect();
                 let i = up[rand::thread_rng().gen_range(0..up.len())];
-                cache.insert(key, i);
+                cache.insert(key, members[i].key.clone());
                 i
             }
         }
@@ -266,16 +271,27 @@ fn fnv1a(bytes: &[u8]) -> u64 {
     })
 }
 
-/// Jump consistent hashing (Lamping and Veach): a key keeps its bucket
-/// as long as the number of buckets does.
-fn jump_hash(mut key: u64, buckets: usize) -> usize {
-    let (mut b, mut j) = (-1i64, 0i64);
-    while j < buckets as i64 {
-        b = j;
-        key = key.wrapping_mul(2862933555777941757).wrapping_add(1);
-        j = ((b + 1) as f64 * ((1u64 << 31) as f64 / ((key >> 33) + 1) as f64)) as i64;
+/// How much the site hashed to `site` weighs `member`: the member that
+/// weighs most takes the site. Each weight is the pair's alone, so a
+/// member's coming or going moves no site between other members.
+fn weight(site: u64, member: &MemberKey) -> u64 {
+    let mut bytes = Vec::with_capacity(member.name.len() + 16);
+    if let Some(source) = &member.source {
+        bytes.extend_from_slice(source.as_bytes());
     }
-    b.max(0) as usize
+    bytes.push(0xff);
+    bytes.extend_from_slice(member.name.as_bytes());
+    mix(site ^ fnv1a(&bytes))
+}
+
+/// splitmix64's finalizer: every bit of the result depends on every bit
+/// of `x`.
+fn mix(mut x: u64) -> u64 {
+    x ^= x >> 30;
+    x = x.wrapping_mul(0xbf58476d1ce4e5b9);
+    x ^= x >> 27;
+    x = x.wrapping_mul(0x94d049bb133111eb);
+    x ^ (x >> 31)
 }
 
 struct Group {
@@ -299,7 +315,7 @@ impl Group {
         }
         let i = self
             .balancer
-            .pick(sess, members.len(), |i| self.checker.is_up(&members[i].key));
+            .pick(sess, members, |key| self.checker.is_up(key));
         Ok(&members[i].handler)
     }
 
@@ -378,6 +394,7 @@ impl OutboundDatagramHandler for Group {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::protocol::group::members::tests::member;
 
     fn sess(source: &str, destination: &str) -> Session {
         let destination = match destination.parse::<IpAddr>() {
@@ -393,6 +410,12 @@ mod tests {
 
     fn all_up(_: usize) -> bool {
         true
+    }
+
+    /// `Balancer::pick` over `n` members, `m0` on, by index.
+    fn pick(b: &Balancer, s: &Session, n: usize, is_up: impl Fn(usize) -> bool) -> usize {
+        let members: Vec<Member> = (0..n).map(|i| member(None, &format!("m{}", i))).collect();
+        b.pick(s, &members, |key| is_up(key.name[1..].parse().unwrap()))
     }
 
     /// What either way of finding the registrable domain gives.
@@ -468,18 +491,18 @@ mod tests {
     #[test]
     fn consistent_hashing_keeps_a_site_on_one_member() {
         let b = Balancer::new(StrategyKind::ConsistentHashing, STICKY_TTL);
-        let first = b.pick(&sess("10.0.0.1", "www.example.com"), 5, all_up);
+        let first = pick(&b, &sess("10.0.0.1", "www.example.com"), 5, all_up);
         for (source, host) in [
             ("10.0.0.2", "api.example.com"),
             ("10.0.0.3", "example.com"),
             ("10.0.0.1", "cdn.static.example.com"),
         ] {
-            assert_eq!(b.pick(&sess(source, host), 5, all_up), first, "{}", host);
+            assert_eq!(pick(&b, &sess(source, host), 5, all_up), first, "{}", host);
         }
         // And a new balancer, as after a restart, agrees.
         let again = Balancer::new(StrategyKind::ConsistentHashing, STICKY_TTL);
         assert_eq!(
-            again.pick(&sess("10.0.0.9", "example.com"), 5, all_up),
+            pick(&again, &sess("10.0.0.9", "example.com"), 5, all_up),
             first
         );
     }
@@ -489,7 +512,7 @@ mod tests {
         let b = Balancer::new(StrategyKind::ConsistentHashing, STICKY_TTL);
         let mut used = [0; 4];
         for i in 0..200 {
-            used[b.pick(&sess("10.0.0.1", &format!("site{}.com", i)), 4, all_up)] += 1;
+            used[pick(&b, &sess("10.0.0.1", &format!("site{}.com", i)), 4, all_up)] += 1;
         }
         assert!(used.iter().all(|&n| n > 20), "{:?}", used);
     }
@@ -499,22 +522,58 @@ mod tests {
         let b = Balancer::new(StrategyKind::ConsistentHashing, STICKY_TTL);
         for i in 0..100 {
             let s = sess("10.0.0.1", &format!("site{}.com", i));
-            let up = b.pick(&s, 4, all_up);
+            let up = pick(&b, &s, 4, all_up);
             let down = if up == 0 { 1 } else { 0 };
-            let picked = b.pick(&s, 4, |i| i != down);
+            let picked = pick(&b, &s, 4, |i| i != down);
             assert_eq!(picked, up, "site{} moved though its member is up", i);
-            let moved = b.pick(&s, 4, |i| i != up);
+            let moved = pick(&b, &s, 4, |i| i != up);
             assert_ne!(moved, up);
         }
+    }
+
+    #[test]
+    fn consistent_hashing_moves_only_the_sites_of_a_member_removed() {
+        let b = Balancer::new(StrategyKind::ConsistentHashing, STICKY_TTL);
+        let all: Vec<Member> = (0..8)
+            .map(|i| member(Some("p"), &format!("HK {:02}", i)))
+            .collect();
+        let gone = all[3].key.clone();
+        let rest: Vec<Member> = all.iter().filter(|m| m.key != gone).cloned().collect();
+        let mut moved = 0;
+        for i in 0..400 {
+            let s = sess("10.0.0.1", &format!("site{}.com", i));
+            let before = &all[b.pick(&s, &all, |_| true)].key;
+            let after = &rest[b.pick(&s, &rest, |_| true)].key;
+            if *before == gone {
+                moved += 1;
+            } else {
+                assert_eq!(after, before, "site{} moved off a member still there", i);
+            }
+        }
+        // Its share of the sites, give or take.
+        assert!((20..=90).contains(&moved), "{}", moved);
+    }
+
+    #[test]
+    fn a_sticky_session_follows_its_member_wherever_it_moves() {
+        let b = Balancer::new(StrategyKind::StickySessions, STICKY_TTL);
+        let s = sess("10.0.0.1", "example.com");
+        let mut members: Vec<Member> = (0..6)
+            .map(|i| member(Some("p"), &format!("m{}", i)))
+            .collect();
+        let first = members[b.pick(&s, &members, |_| true)].key.clone();
+        members.reverse();
+        members.insert(0, member(Some("q"), "new"));
+        assert_eq!(members[b.pick(&s, &members, |_| true)].key, first);
     }
 
     #[test]
     fn round_robin_takes_each_member_in_turn_and_skips_one_down() {
         let b = Balancer::new(StrategyKind::RoundRobin, STICKY_TTL);
         let s = sess("10.0.0.1", "example.com");
-        let picks: Vec<usize> = (0..6).map(|_| b.pick(&s, 3, all_up)).collect();
+        let picks: Vec<usize> = (0..6).map(|_| pick(&b, &s, 3, all_up)).collect();
         assert_eq!(picks, [0, 1, 2, 0, 1, 2]);
-        let picks: Vec<usize> = (0..4).map(|_| b.pick(&s, 3, |i| i != 1)).collect();
+        let picks: Vec<usize> = (0..4).map(|_| pick(&b, &s, 3, |i| i != 1)).collect();
         assert!(picks.iter().all(|&i| i != 1), "{:?}", picks);
         assert!(picks.contains(&0) && picks.contains(&2), "{:?}", picks);
     }
@@ -527,7 +586,7 @@ mod tests {
             StrategyKind::StickySessions,
         ] {
             let b = Balancer::new(kind, STICKY_TTL);
-            assert!(b.pick(&sess("10.0.0.1", "example.com"), 3, |_| false) < 3);
+            assert!(pick(&b, &sess("10.0.0.1", "example.com"), 3, |_| false) < 3);
         }
     }
 
@@ -536,13 +595,13 @@ mod tests {
         let ttl = Duration::from_millis(100);
         let b = Balancer::new(StrategyKind::StickySessions, ttl);
         let s = sess("10.0.0.1", "www.example.com");
-        let first = b.pick(&s, 16, all_up);
+        let first = pick(&b, &s, 16, all_up);
         for _ in 0..20 {
-            assert_eq!(b.pick(&s, 16, all_up), first);
+            assert_eq!(pick(&b, &s, 16, all_up), first);
         }
         // Another host of the same site is the same session.
         assert_eq!(
-            b.pick(&sess("10.0.0.1", "api.example.com"), 16, all_up),
+            pick(&b, &sess("10.0.0.1", "api.example.com"), 16, all_up),
             first
         );
 
@@ -551,7 +610,7 @@ mod tests {
         let mut differed = false;
         for _ in 0..5 {
             std::thread::sleep(ttl + Duration::from_millis(50));
-            if b.pick(&s, 16, all_up) != first {
+            if pick(&b, &s, 16, all_up) != first {
                 differed = true;
                 break;
             }
@@ -563,18 +622,18 @@ mod tests {
     fn a_sticky_session_leaves_a_member_that_is_down() {
         let b = Balancer::new(StrategyKind::StickySessions, STICKY_TTL);
         let s = sess("10.0.0.1", "example.com");
-        let first = b.pick(&s, 3, all_up);
-        let next = b.pick(&s, 3, |i| i != first);
+        let first = pick(&b, &s, 3, all_up);
+        let next = pick(&b, &s, 3, |i| i != first);
         assert_ne!(next, first);
         // And sticks to the new one, even once the old one is back.
-        assert_eq!(b.pick(&s, 3, all_up), next);
+        assert_eq!(pick(&b, &s, 3, all_up), next);
     }
 
     #[test]
     fn sticky_sessions_are_bounded() {
         let b = Balancer::new(StrategyKind::StickySessions, STICKY_TTL);
         for i in 0..(STICKY_CAPACITY + 100) {
-            b.pick(&sess("10.0.0.1", &format!("site{}.com", i)), 2, all_up);
+            pick(&b, &sess("10.0.0.1", &format!("site{}.com", i)), 2, all_up);
         }
         let Strategy::StickySessions(cache) = &b.strategy else {
             unreachable!()
