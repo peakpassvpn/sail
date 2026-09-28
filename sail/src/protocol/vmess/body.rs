@@ -57,6 +57,7 @@ impl Security {
         }
     }
 
+    #[cfg(any(feature = "outbound-vmess", test))]
     pub fn wire(self) -> u8 {
         match self {
             Security::Aes128Gcm => SECURITY_AES128_GCM,
@@ -260,6 +261,7 @@ impl<S> VmessStream<S> {
 
     /// The client's end, after it has sent `request`. With `packets`, each
     /// write is one chunk and each read one chunk, as UDP is carried.
+    #[cfg(any(feature = "outbound-vmess", test))]
     pub fn client(inner: S, request: &RequestHeader, packets: bool) -> io::Result<Self> {
         let security = Security::from_wire(request.security)?;
         let (response_key, response_iv) = request.response_keys();
