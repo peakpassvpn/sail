@@ -77,6 +77,63 @@ struct Args {
     /// prints version
     #[argh(switch, short = 'V')]
     version: bool,
+
+    #[argh(subcommand)]
+    command: Option<Command>,
+}
+
+#[derive(FromArgs)]
+#[argh(subcommand)]
+enum Command {
+    Import(Import),
+}
+
+#[derive(FromArgs)]
+/// Reads share links (ss://, trojan://, vless://, vmess://, hy2://, tuic://,
+/// anytls://) into sing-box outbounds, printed as JSON; lines that are not
+/// read are reported on stderr
+#[argh(subcommand, name = "import")]
+struct Import {
+    /// a share link, or a subscription file (base64, or one link to a
+    /// line); standard input when not given
+    #[argh(positional)]
+    input: Option<String>,
+}
+
+/// Prints the outbounds `import.input` reads into, and exits.
+fn import(import: Import) -> ! {
+    let body = match import.input {
+        Some(link) if link.contains("://") => link,
+        Some(path) => match std::fs::read_to_string(&path) {
+            Ok(body) => body,
+            Err(e) => {
+                eprintln!("cannot read {}: {}", path, e);
+                exit(1);
+            }
+        },
+        None => {
+            let mut body = String::new();
+            if let Err(e) = std::io::Read::read_to_string(&mut std::io::stdin(), &mut body) {
+                eprintln!("cannot read standard input: {}", e);
+                exit(1);
+            }
+            body
+        }
+    };
+    let (outbounds, warnings) = sail::config::share_link::parse_subscription(&body);
+    for warning in &warnings {
+        eprintln!("{}", warning);
+    }
+    if outbounds.is_empty() {
+        eprintln!("no share link read");
+        exit(1);
+    }
+    let json = serde_json::json!({ "outbounds": outbounds });
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&json).expect("a JSON value serializes")
+    );
+    exit(0);
 }
 
 fn main() {
@@ -85,6 +142,10 @@ fn main() {
     if args.version {
         println!("{}", get_version_string());
         exit(0);
+    }
+
+    if let Some(Command::Import(i)) = args.command {
+        import(i);
     }
 
     let settings = sail::runtime::StartSettings {
