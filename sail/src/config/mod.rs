@@ -10,6 +10,7 @@ pub mod external_rule;
 pub mod geosite;
 pub mod model;
 pub mod rule_set;
+pub mod share_link;
 pub mod singbox;
 
 pub use model::{Config, Dns, Inbound, Log, Outbound, Route, Rule};
