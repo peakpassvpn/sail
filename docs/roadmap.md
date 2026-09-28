@@ -171,7 +171,7 @@ Sail 与 sing-box 的对比已经完成。当前结果表明：
 | 1.9 | **已完成（2026-09-26）** 出站组：默认启用 select，补齐 URLTest、fallback、load-balance 和选择持久化（selector / urltest / fallback / load-balance；failover 并入 fallback，static 已删除） | `protocol/group/` | 手动选择、自动测速、故障切换和重启恢复都有测试 |
 | 1.10 | 统一拨号选项：IP 策略、接口绑定、detour、连接/空闲超时、TCP Fast Open、MPTCP、UDP over TCP | `net/`、共享 Dial options | 各协议共享同一实现，按出站配置，不重复实现 socket 与网络选择逻辑 |
 | 1.11 | **已完成（2026-09-26）** 入站防探测与回落：Trojan / VLESS fallback，鉴权失败时的行为可配置（字段对齐 sing-box `fallback` / `fallback_for_alpn`） | `protocol/trojan/`、`protocol/vless/` | 未通过鉴权的连接可回落到指定目标；主动探测下行为与主流实现一致 |
-| 1.12 | 分享链接导入：`ss://`、`trojan://`、`vless://`、`vmess://`、`hy2://`、`tuic://` | `config/` | 真实节点语料可导入；错误字段有可诊断提示；敏感信息不进入日志 |
+| 1.12 | **已完成（2026-09-28）** 分享链接导入：`ss://`、`trojan://`、`vless://`、`vmess://`、`hy2://`、`tuic://`（另有 `hysteria2://`、`anytls://`；`share_link::parse` / `parse_subscription` 输出 sing-box 出站，`Config::from_json` 可直接加载；订阅为 base64（标准或 URL-safe，有无填充、换行均可）或逐行文本，重名按 “name 2” 去重；CLI `sail import`，FFI `sail_import_share_links`；sail 不支持的传输（HTTP/2、XHTTP、mKCP、QUIC、gRPC multi）、VMess alterId > 0、TUIC v4、证书哈希固定、缺少的加密方式与指纹都按行报错；WireGuard 链接是端点，不导入；尚未接入运行时配置加载，Clash proxy-providers 由 C.4 调用） | `config/` | 真实节点语料可导入；错误字段有可诊断提示；敏感信息不进入日志 |
 | 1.13 | **已完成（2026-09-27）** WireGuard 端点：sing-box 式 `endpoints`，同一个 tag 既是出站也是入站（服务端）；协议核心自研（BoringSSL + blake2），TCP/IP 走 sail-netstack；支持 WARP `reserved`、`detour`（WG 自身的 UDP 走其他出站）和 `.conf`（Surge `[WireGuard <name>]`，`client-id` 即 reserved） | `protocol/wireguard/`、`config/` | 与 Linux 内核 wg（出站、入站、detour、重新握手、64 并发）和 sing-box（双向，含 reserved）互通；sail↔sail TCP、UDP、IPv6 |
 
 所有协议任务都必须加入统一性能场景，入站和出站分别测试，避免新增协议重新引入连接级常驻大缓冲或无上限缓存。
