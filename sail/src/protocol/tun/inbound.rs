@@ -351,12 +351,14 @@ fn linux_queues(settings: &TunSettings, netstack: &Netstack) -> Result<Vec<TunRs
 #[derive(Deserialize, Debug)]
 #[serde(deny_unknown_fields)]
 struct TunInboundOptions {
+    /// The device's name; the system picks one without it.
     #[serde(default)]
     interface_name: Option<String>,
     /// The device's addresses with their prefixes: one IPv4, one IPv6, or
     /// one of each.
     #[serde(default, with = "crate::config::model::listable")]
     address: Vec<String>,
+    /// 9000 when omitted, as sing-box has it on Android.
     #[serde(default = "default_mtu")]
     mtu: u32,
     /// Routes the system's traffic into the device.
@@ -367,44 +369,75 @@ struct TunInboundOptions {
     /// up (sing-box 1.13).
     #[serde(default)]
     auto_redirect: bool,
+    /// The mark that routes a packet into the device (0x2023). Marks are
+    /// numbers, or strings of hexadecimal ("0x2023"); 0 is the default.
     #[serde(default, with = "fw_mark")]
     auto_redirect_input_mark: Option<u32>,
+    /// The mark sail's own sockets carry, and flows that bypass it
+    /// (0x2024). `route.default_mark` and `routing_mark` conflict with it.
     #[serde(default, with = "fw_mark")]
     auto_redirect_output_mark: Option<u32>,
+    /// The mark of a connection pre-match rejects, which the kernel
+    /// resets (0x2025).
     #[serde(default, with = "fw_mark")]
     auto_redirect_reset_mark: Option<u32>,
+    /// The NFQUEUE pre-match reads first packets from (100). If it cannot
+    /// be bound, sail runs without pre-match: `bypass` rules are skipped.
     #[serde(default)]
     auto_redirect_nfqueue: Option<u16>,
+    /// The routing table of the device's routes (2022).
     #[serde(default)]
     iproute2_table_index: Option<u32>,
+    /// The first of auto_redirect's ip rules (9000); the rules from it to
+    /// 10 after it are sail's, and removed at start and stop.
     #[serde(default)]
     iproute2_rule_index: Option<u32>,
+    /// The ip rule that sends what the main table has no route for into
+    /// the device (32768).
     #[serde(default)]
     auto_redirect_iproute2_fallback_rule_index: Option<u32>,
+    /// Lets MPTCP go past sail rather than dropping it, which makes
+    /// clients fall back to TCP.
     #[serde(default)]
     exclude_mptcp: bool,
+    /// With one family on the device, rejects the other rather than let
+    /// it go past sail.
     #[serde(default)]
     strict_route: bool,
+    /// Addresses whose TCP goes into the device rather than to the
+    /// redirect listener: a destination sail's own listeners use, say.
     #[serde(default, with = "crate::config::model::listable")]
     loopback_address: Vec<IpAddr>,
+    /// Only these destinations are taken...
     #[serde(default, with = "crate::config::model::listable")]
     route_address: Vec<String>,
+    /// ...and not these.
     #[serde(default, with = "crate::config::model::listable")]
     route_exclude_address: Vec<String>,
+    /// Rule-sets whose destination `ip_cidr` alone are taken, kept up to
+    /// date as they are downloaded again.
     #[serde(default, with = "crate::config::model::listable")]
     route_address_set: Vec<String>,
+    /// Rule-sets whose destination `ip_cidr` are not taken.
     #[serde(default, with = "crate::config::model::listable")]
     route_exclude_address_set: Vec<String>,
+    /// Forwarded traffic is taken only from these interfaces...
     #[serde(default, with = "crate::config::model::listable")]
     include_interface: Vec<String>,
+    /// ...or not from these. Naming `lo` in either leaves the host's own
+    /// traffic out.
     #[serde(default, with = "crate::config::model::listable")]
     exclude_interface: Vec<String>,
+    /// The host's traffic is taken only from these users...
     #[serde(default, with = "crate::config::model::listable")]
     include_uid: Vec<u32>,
+    /// ...and from these ranges, as "1000:2000".
     #[serde(default, with = "crate::config::model::listable")]
     include_uid_range: Vec<String>,
+    /// The host's traffic of these users is not taken...
     #[serde(default, with = "crate::config::model::listable")]
     exclude_uid: Vec<u32>,
+    /// ...nor of these ranges.
     #[serde(default, with = "crate::config::model::listable")]
     exclude_uid_range: Vec<String>,
     /// Android: what the host's VPN takes in, applied by the host.

@@ -32,6 +32,11 @@ pub(crate) mod policy_route;
 ))]
 pub(crate) mod original_dst;
 
+#[cfg(all(target_os = "linux", feature = "inbound-tun"))]
+pub(crate) mod addr_monitor;
+#[cfg(all(target_os = "linux", feature = "inbound-tun"))]
+pub(crate) mod openwrt;
+
 // Linux only, like nft, whose netlink framing it uses.
 #[cfg(any(target_os = "linux", test))]
 pub mod nfqueue;

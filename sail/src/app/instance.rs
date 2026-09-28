@@ -227,6 +227,7 @@ impl Instance {
                 settings,
                 options,
                 self.dispatcher.clone(),
+                &self.rule_sets,
             ) {
                 Ok((auto_redirect, runner)) => {
                     runners.push(runner);

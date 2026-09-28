@@ -57,6 +57,19 @@ pub(crate) mod rule_set {
             }
         }
 
+        #[allow(dead_code)]
+        pub(crate) fn ip_ranges(
+            &self,
+            tag: &str,
+        ) -> Result<Vec<(std::net::IpAddr, std::net::IpAddr)>> {
+            self.get(tag).map(|()| Vec::new())
+        }
+
+        #[allow(dead_code)]
+        pub(crate) fn subscribe(&self, tag: &str) -> Result<tokio::sync::watch::Receiver<u64>> {
+            self.get(tag).map(|()| tokio::sync::watch::channel(0).1)
+        }
+
         pub(crate) fn get(&self, tag: &str) -> Result<()> {
             Err(anyhow!("rule-set [{}] does not exist", tag))
         }
