@@ -182,7 +182,8 @@ fn to_errno(e: sail::Error) -> i32 {
 ///                 defaults (on iOS and Android, the "mobile" profile and the
 ///                 system log): `{"profile": "mobile", "set": ["relay.buffer_size=32"],
 ///                 "data_dir": "...", "cache_dir": "...", "log_to_system": true,
-///                 "socket_protect": "/path/or/host:port"}`.
+///                 "socket_protect": "/path/or/host:port",
+///                 "sub_store": "https://sub.example.com/secret"}`.
 /// @return ERR_OK on finish running, any other errors means a startup failure.
 #[no_mangle]
 #[allow(unused_variables)]
@@ -238,7 +239,8 @@ pub unsafe extern "C" fn sail_run_with_options(
 ///                 defaults (on iOS and Android, the "mobile" profile and the
 ///                 system log): `{"profile": "mobile", "set": ["relay.buffer_size=32"],
 ///                 "data_dir": "...", "cache_dir": "...", "log_to_system": true,
-///                 "socket_protect": "/path/or/host:port"}`.
+///                 "socket_protect": "/path/or/host:port",
+///                 "sub_store": "https://sub.example.com/secret"}`.
 /// @return ERR_OK on finish running, any other errors means a startup failure.
 #[no_mangle]
 pub unsafe extern "C" fn sail_run(
@@ -275,7 +277,8 @@ pub unsafe extern "C" fn sail_run(
 ///                 defaults (on iOS and Android, the "mobile" profile and the
 ///                 system log): `{"profile": "mobile", "set": ["relay.buffer_size=32"],
 ///                 "data_dir": "...", "cache_dir": "...", "log_to_system": true,
-///                 "socket_protect": "/path/or/host:port"}`.
+///                 "socket_protect": "/path/or/host:port",
+///                 "sub_store": "https://sub.example.com/secret"}`.
 #[no_mangle]
 pub unsafe extern "C" fn sail_run_with_config_string(
     rt_id: u16,

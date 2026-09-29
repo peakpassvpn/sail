@@ -74,6 +74,18 @@ struct Args {
     #[argh(option)]
     cache_dir: Option<String>,
 
+    /// the base URL of your own Sub-Store backend (secret path included),
+    /// which sub.store, Sub-Store's address inside Surge, Loon and
+    /// Quantumult X, stands for in subscription and rule-set URLs
+    #[argh(option)]
+    sub_store: Option<String>,
+
+    /// downloads the URLs a Surge profile includes (#!include https://...),
+    /// and those they include, into the cache directory before it is read;
+    /// a download that fails leaves the copy there is
+    #[argh(switch)]
+    fetch_includes: bool,
+
     /// prints version
     #[argh(switch, short = 'V')]
     version: bool,
@@ -241,6 +253,51 @@ fn import(import: Import) -> ! {
     exit(0);
 }
 
+/// Downloads the URLs the Surge profile `config` includes, and those they
+/// include, where sail reads them: the includes directory in `cache_dir`.
+/// One that fails keeps the copy there is; without one, it is an error.
+fn fetch_includes(config: &str, cache_dir: Option<&str>) -> Result<(), String> {
+    use sail::config::surge::{include_path, includes_dir, remote_includes};
+
+    if sail::config::Format::of_file(config).ok() != Some(sail::config::Format::Surge) {
+        return Err(format!(
+            "{}: only a Surge profile (.conf) includes URLs",
+            config
+        ));
+    }
+    let cache_dir = cache_dir.ok_or("the copies are kept in --cache-dir, which is not given")?;
+    let dir = includes_dir(std::path::Path::new(cache_dir));
+    let text = std::fs::read_to_string(config).map_err(|e| format!("{}: {}", config, e))?;
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| format!("cannot start a runtime: {}", e))?;
+    let mut queue: std::collections::VecDeque<String> = remote_includes(&text).into();
+    let mut seen = std::collections::HashSet::new();
+    while let Some(url) = queue.pop_front() {
+        if !seen.insert(url.clone()) {
+            continue;
+        }
+        let path = include_path(&dir, &url);
+        let fetched = rt.block_on(sail::fetch::fetch(&url, &Default::default()));
+        let body = match fetched {
+            Ok(body) => {
+                sail::fetch::write_atomically(&path, &body)
+                    .map_err(|e| format!("{}: {}", path.display(), e))?;
+                println!("fetched {}: {} bytes", url, body.len());
+                body
+            }
+            Err(e) if path.is_file() => {
+                println!("{}: {:#}; the copy kept is read", url, e);
+                std::fs::read(&path).map_err(|e| format!("{}: {}", path.display(), e))?
+            }
+            Err(e) => return Err(format!("{}: {:#}", url, e)),
+        };
+        queue.extend(remote_includes(&String::from_utf8_lossy(&body)));
+    }
+    Ok(())
+}
+
 fn main() {
     let args: Args = argh::from_env();
 
@@ -259,7 +316,8 @@ fn main() {
         profile: args.profile,
         set: args.set,
         data_dir: args.data_dir.map(Into::into),
-        cache_dir: args.cache_dir.map(Into::into),
+        cache_dir: args.cache_dir.clone().map(Into::into),
+        sub_store: args.sub_store,
         ..Default::default()
     };
     let (runtime, host) = match settings.resolve() {
@@ -275,6 +333,13 @@ fn main() {
         ..Default::default()
     };
 
+    if args.fetch_includes {
+        if let Err(e) = fetch_includes(&args.config, args.cache_dir.as_deref()) {
+            println!("fetching includes failed: {}", e);
+            exit(1);
+        }
+    }
+
     if args.test {
         if let Err(e) = sail::test_config_with(&args.config, &env) {
             println!("{}", e);
@@ -286,7 +351,7 @@ fn main() {
     }
 
     if let Some(tag) = args.test_outbound {
-        let config = match sail::config::from_file(&args.config) {
+        let config = match sail::config::from_file_for(&args.config, &host) {
             Ok(config) => config,
             Err(e) => {
                 println!("{}", e);
