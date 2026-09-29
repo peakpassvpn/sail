@@ -33,6 +33,12 @@ Sail 将代理行为保留在 Rust 核心，把宿主特有能力注入边界。
 
 同一代理定义因此可以在应用中使用移动端预算，在中继服务器中使用 server 预算。
 
+`asset_sources` 按资源文件名给出下载地址，如 `{"asn.mmdb": "https://..."}`：运行时 API 的 `POST /api/v1/runtime/assets/{name}/update` 在请求未给地址时使用它。Sail 没有默认来源，CLI 的默认来源属于 CLI 自己。
+
+## 资源文件
+
+配置读取的数据文件（`asn.mmdb`、`geo.mmdb`、`site.dat`，或规则指定的文件）由宿主放到数据目录。`sail_required_assets(config_path, settings)` 以 JSON 返回它们：`{"assets": [{"name", "kind", "path", "used_by", "present"}]}`，或 `{"error": "..."}`；字符串用 `sail_free_string` 释放。启动前下载缺少的文件：需要的文件不存在时启动失败，并给出路径。CLI 使用的默认来源见 CLI 参考。
+
 ## Android 与 Apple 平台
 
 Android VPN 应用必须在启动前注册基于 `VpnService.protect` 的回调，让 Sail 出站套接字绕过 VPN 接口。回调可能从多个运行时线程调用，宿主实现必须线程安全；Wi-Fi/移动网络切换时也应转发网络变化。

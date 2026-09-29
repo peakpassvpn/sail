@@ -82,6 +82,42 @@ sail -c config.json \
 
 The data directory contains files such as `geo.mmdb`, `site.dat` and relative certificate paths. It defaults to the executable's directory. The cache directory preserves state such as the active member of a selector across restarts.
 
+## Assets
+
+Some rules read data files from the data directory: `geoip` and `mmdb:` external rules read `geo.mmdb`, `geosite` and `site:` read `site.dat`, `ip_asn` (Surge's `IP-ASN`) and a `smart` group's `prefer_asn` read `asn.mmdb`, and an external rule or `asn_file` may name another file. Sail never downloads these itself; a configuration that needs one that is missing fails to load, naming the path.
+
+```sh
+# What the configuration reads, where, and whether it is there
+sail -D /opt/sail/data assets config.json
+
+# Download the missing ones, or all of them again
+sail -D /opt/sail/data assets config.json --fetch
+sail -D /opt/sail/data assets config.json --update
+
+# From another URL
+sail assets config.json --fetch --source geo.mmdb=https://example.com/Country.mmdb
+
+# Download the missing ones before starting
+sail -c config.json --fetch-assets
+```
+
+`sail assets` prints one line per file: its name, `present` or `missing`, its path, and the fields that read it (`route.rules[3].ip_asn`). A download replaces a file only once it reads as a MaxMind database or a site list, and never leaves half a file. The defaults:
+
+| Asset | Source |
+| --- | --- |
+| `asn.mmdb` | GeoLite2-ASN, Mihomo's default: `https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/GeoLite2-ASN.mmdb` |
+| `geo.mmdb` | GeoLite2-Country format: `https://github.com/Loyalsoldier/geoip/releases/latest/download/Country.mmdb` |
+| `site.dat` | V2Ray site lists: `https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat` |
+
+A file a rule names has no default: give it one with `--source name=url` (or `--asset-source name=url` when starting). A rule-set read from a file or downloaded may need `asn.mmdb` too; that is known only when it loads, and its error names the file.
+
+The sources the CLI starts with become the host's `asset_sources`, which the runtime API updates from while sail runs:
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /api/v1/runtime/assets` | The running configuration's assets, as `sail assets` lists them, in JSON |
+| `POST /api/v1/runtime/assets/{name}/update` | Downloads one, from the body's `url` or else the host's source, through the body's `detour` outbound or else the default one; puts it in place if it reads, then reloads so that the rules read it. The reply says whether the reload took. 404 for a name the configuration does not read, 400 without a URL, 502 when the download or the file fails |
+
 ## Threading
 
 Sail uses a multi-threaded runtime by default. `--single-thread` is useful for constrained hosts, deterministic debugging or embeddings that provide their own outer concurrency. `--thread-stack-size` changes the worker stack size in bytes; keep the default unless profiling shows a concrete need.
@@ -101,4 +137,7 @@ Sail uses a multi-threaded runtime by default. `--single-thread` is useful for c
 | `--set` | Override one runtime tuning value; repeatable |
 | `-D`, `--data-dir` | Assets and relative certificate base directory |
 | `--cache-dir` | Where `experimental.cache_file` is by default, and remote rule-sets are cached |
+| `--fetch-assets` | Download the missing assets before starting |
+| `--asset-source` | `name=url`: where an asset is downloaded from; repeatable |
+| `assets <config>` | List the assets; `--fetch`, `--update`, `--source name=url` |
 | `-V`, `--version` | Print version and exit |

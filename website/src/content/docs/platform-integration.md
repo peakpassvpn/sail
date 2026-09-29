@@ -46,6 +46,12 @@ Host tuning is passed separately from the portable proxy configuration:
 
 Keeping these values separate lets the same proxy definition use a mobile memory budget in an app and a server budget in a relay.
 
+`asset_sources` maps an asset's name to the URL it is downloaded from, as `{"asn.mmdb": "https://..."}`: the runtime API's `POST /api/v1/runtime/assets/{name}/update` takes it when the request gives no URL. Sail has no default source; the CLI's are its own.
+
+## Assets
+
+The data files a configuration reads (`asn.mmdb`, `geo.mmdb`, `site.dat`, or files its rules name) are the host's to provide in the data directory. `sail_required_assets(config_path, settings)` returns them as JSON, `{"assets": [{"name", "kind", "path", "used_by", "present"}]}`, or `{"error": "..."}`; free the string with `sail_free_string`. Fetch the missing ones before starting: a configuration that needs one that is missing fails to start, naming the path. See the CLI reference for the default sources the CLI uses.
+
 ## Android
 
 Android VPN applications must keep Sail's outbound sockets outside the VPN interface. Register the host callback backed by `VpnService.protect` before starting the instance. The callback can be invoked from multiple runtime threads, so the host implementation must be safe for concurrent calls.
