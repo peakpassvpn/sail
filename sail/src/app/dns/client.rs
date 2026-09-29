@@ -167,6 +167,23 @@ impl DnsClient {
         debug!("dns cache cleared");
     }
 
+    /// Forgets the fake IPs handed out, as the Clash API's flush does;
+    /// false without a fakeip server.
+    pub fn clear_fake_ips(&self) -> bool {
+        match &self.fake_ips {
+            Some(store) => {
+                store.clear();
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// A query for `name` of type `ty`, as a client would send one.
+    pub fn query_message(name: Name, ty: RecordType) -> Message {
+        Self::new_query(name, ty)
+    }
+
     /// What the cache holds and how it served.
     pub fn cache_stats(&self) -> CacheStats {
         self.answers.stats()

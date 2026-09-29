@@ -41,7 +41,7 @@ pub const IGNORED_SERVICES: &[&str] = &[
 
 /// Objects sail has no counterpart for, dropped once the fields they held
 /// are.
-pub const EMPTIED: &[&str] = &["experimental.clash_api", "experimental"];
+pub const EMPTIED: &[&str] = &["experimental"];
 
 pub const FIELDS: &[Field] = &[
     // Top level.
@@ -53,22 +53,6 @@ pub const FIELDS: &[Field] = &[
     f("experimental.cache_file.store_rdrc", Ignored),
     f("experimental.cache_file.rdrc_timeout", Ignored),
     // The Clash API is not served yet; its mode is kept.
-    f("experimental.clash_api.external_controller", Ignored),
-    f("experimental.clash_api.external_ui", Ignored),
-    f("experimental.clash_api.external_ui_download_url", Ignored),
-    f(
-        "experimental.clash_api.external_ui_download_detour",
-        Ignored,
-    ),
-    f("experimental.clash_api.secret", Ignored),
-    f(
-        "experimental.clash_api.access_control_allow_origin",
-        Ignored,
-    ),
-    f(
-        "experimental.clash_api.access_control_allow_private_network",
-        Ignored,
-    ),
     f("experimental.v2ray_api", Ignored),
     f("experimental.debug", Ignored),
     // DNS.

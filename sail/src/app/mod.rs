@@ -18,6 +18,8 @@ pub mod stat_manager;
 #[cfg(feature = "api")]
 pub mod api;
 
+#[cfg(feature = "clash-api")]
+pub(crate) mod clash_api;
 pub mod clash_mode;
 pub mod fake_dns;
 

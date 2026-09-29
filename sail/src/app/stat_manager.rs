@@ -267,6 +267,9 @@ pub struct StatManager {
     pub next_id: u64,
     pub tx: mpsc::UnboundedSender<u64>,
     pub rx: Option<mpsc::UnboundedReceiver<u64>>,
+    /// What the connections no longer counted sent and received.
+    closed_sent: u64,
+    closed_recvd: u64,
 }
 
 impl Default for StatManager {
@@ -279,6 +282,8 @@ impl Default for StatManager {
             next_id: 1,
             tx,
             rx: Some(rx),
+            closed_sent: 0,
+            closed_recvd: 0,
         }
     }
 }
@@ -294,6 +299,29 @@ impl StatManager {
         self
     }
 
+    /// What every connection since the start sent and received, those
+    /// closed too: the traffic totals.
+    pub fn totals(&self) -> (u64, u64) {
+        self.counters
+            .values()
+            .fold((self.closed_sent, self.closed_recvd), |(sent, recvd), c| {
+                (sent + c.bytes_sent(), recvd + c.bytes_recvd())
+            })
+    }
+
+    /// Stops counting the connection `id`, keeping its bytes in the
+    /// totals, and it among the recent ones.
+    fn retire(&mut self, id: u64) {
+        if let Some(counter) = self.counters.remove(&id) {
+            counter.log_session_end();
+            self.closed_sent += counter.bytes_sent();
+            self.closed_recvd += counter.bytes_recvd();
+            if self.max_recent_connections > 0 {
+                self.recent_counters.push_back(counter);
+            }
+        }
+    }
+
     pub fn move_to_recent(&mut self) {
         let mut to_move = Vec::new();
         for (id, c) in self.counters.iter() {
@@ -302,12 +330,7 @@ impl StatManager {
             }
         }
         for id in to_move {
-            if let Some(counter) = self.counters.remove(&id) {
-                counter.log_session_end();
-                if self.max_recent_connections > 0 {
-                    self.recent_counters.push_back(counter);
-                }
-            }
+            self.retire(id);
         }
         if self.max_recent_connections > 0 {
             self.prune_recent();
@@ -357,12 +380,7 @@ impl StatManager {
                 if !ids.is_empty() {
                     let mut sm_w = sm.write().await;
                     for id in ids {
-                        if let Some(counter) = sm_w.counters.remove(&id) {
-                            counter.log_session_end();
-                            if sm_w.max_recent_connections > 0 {
-                                sm_w.recent_counters.push_back(counter);
-                            }
-                        }
+                        sm_w.retire(id);
                     }
                     if sm_w.max_recent_connections > 0 {
                         sm_w.prune_recent();

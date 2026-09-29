@@ -22,6 +22,7 @@ Serde: `serde (deny_unknown_fields)`
 | `endpoints` | `Vec < Endpoint >` | Default::default() | Both an inbound and an outbound under one tag, as sing-box's endpoints: connections routed to the tag go out through it, and what comes in through it is routed with the tag as its inbound.<br/>`serde (default , skip_serializing_if = "Vec::is_empty")` |
 | `route` | `Route` | Default::default() | —<br/>`serde (default)` |
 | `api` | `Api` | Default::default() | —<br/>`serde (default , skip_serializing_if = "Api::is_default")` |
+| `clash_api` | `Option < ClashApi >` | Default::default() | The Clash API, which dashboards (yacd, metacubexd) and clients control the instance through. sing-box has it under `experimental`, which is read too, as the same.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
 | `experimental` | `Experimental` | Default::default() | —<br/>`serde (default , skip_serializing_if = "Experimental::is_default")` |
 | `certificate` | `Option < CertificateOptions >` | Default::default() | The root certificates servers are checked against; the system's when unset.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
 | `http_clients` | `Vec < HttpClient >` | Default::default() | How sail fetches over HTTP, rule-sets for one, by tag.<br/>`serde (default , skip_serializing_if = "Vec::is_empty")` |
@@ -115,7 +116,7 @@ Serde: `serde (deny_unknown_fields)`
 | Field | Type | Omission / flattening | Source notes |
 | --- | --- | --- | --- |
 | `cache_file` | `Option < CacheFileOptions >` | Default::default() | —<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `clash_api` | `Option < ClashApi >` | Default::default() | —<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
+| `clash_api` | `Option < ClashApi >` | Default::default() | sing-box's place for the Clash API: taken to `clash_api` when the configuration is validated.<br/>`serde (default , skip_serializing)` |
 
 ## CacheFileOptions
 
@@ -137,13 +138,20 @@ Serde: `serde (deny_unknown_fields)`
 
 [Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
 
-Clash's API: the mode rules match, `Rule` when unset. The API itself is not served yet.
+The Clash API, as sing-box's `clash_api` has it, and Mihomo's `external-controller` and the fields about it.
 
 Serde: `serde (deny_unknown_fields)`
 
 | Field | Type | Omission / flattening | Source notes |
 | --- | --- | --- | --- |
-| `default_mode` | `Option < String >` | Default::default() | —<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
+| `external_controller` | `Option < String >` | Default::default() | Where it listens, `host:port`; an empty host is every address, as in Mihomo. Unset, it is not served, though `default_mode` still sets the mode rules match.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
+| `secret` | `Option < String >` | Default::default() | What callers authenticate with, `Authorization: Bearer`, or a WebSocket's `?token=`. The API is served only with a strong one (at least 32 characters, 10 distinct): `sail generate secret` makes one.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
+| `external_ui` | `Option < String >` | Default::default() | A directory of a dashboard's files, served at `/ui/`; relative to the data directory.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
+| `external_ui_download_url` | `Option < String >` | Default::default() | Where the dashboard is downloaded from, a ZIP, when `external_ui` is empty: Yacd-meta's when unset, as in sing-box.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
+| `external_ui_download_detour` | `Option < String >` | Default::default() | The outbound the download goes through; the default one when unset.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
+| `access_control_allow_origin` | `Vec < String >` | Default::default() | The origins browsers may call it from (CORS); any when empty.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
+| `access_control_allow_private_network` | `bool` | Default::default() | Pages on public addresses may call it on a private one (Private Network Access).<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
+| `default_mode` | `Option < String >` | Default::default() | The mode rules match at the start, `Rule` when unset.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
 
 ## Api
 

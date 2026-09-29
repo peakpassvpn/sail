@@ -18,6 +18,7 @@ default = [
     "rule-set",
     "outbound-provider",
     "api",
+    "clash-api",
     "dns-doh",
     "dns-h3",
 ]
@@ -188,6 +189,8 @@ mux = ["h2", "http"]
 
 plugin = ["async-ffi", "libloading"]
 api = ["axum"]
+# The Clash API, which dashboards (yacd, metacubexd) control an instance through.
+clash-api = ["axum", "axum/ws", "axum/query"]
 auto-reload = ["notify"]
 ctrlc = ["tokio/signal"]
 # Pure in-memory parser entry points used only by the separate cargo-fuzz

@@ -103,6 +103,9 @@ pub struct RuntimeManager {
     /// Where a reload's rule-sets go for the TUN's routing.
     #[cfg(all(feature = "inbound-tun", any(target_os = "linux", target_os = "macos")))]
     tun_rule_sets: Option<app::instance::TunRuleSets>,
+    /// What the Clash API tells of the configuration.
+    #[cfg(feature = "clash-api")]
+    clash_view: arc_swap::ArcSwap<app::clash_api::ConfigView>,
 }
 
 impl RuntimeManager {
@@ -159,7 +162,51 @@ impl RuntimeManager {
             watch_events: Mutex::new(None),
             #[cfg(feature = "auto-reload")]
             rule_set_files: Mutex::new(instance.rule_sets.files()),
+            #[cfg(feature = "clash-api")]
+            clash_view: Default::default(),
         })
+    }
+
+    #[cfg(feature = "clash-api")]
+    /// The outbounds, as they are now.
+    pub(crate) fn outbound_manager(&self) -> Arc<app::outbound::manager::OutboundManager> {
+        self.outbound_manager.load_full()
+    }
+
+    #[cfg(feature = "clash-api")]
+    pub(crate) fn dns_client(&self) -> SyncDnsClient {
+        self.dns_client.clone()
+    }
+
+    #[cfg(feature = "clash-api")]
+    pub(crate) fn env(&self) -> runtime::SyncRuntimeEnv {
+        self.env.clone()
+    }
+
+    /// What the Clash API tells of the configuration.
+    #[cfg(feature = "clash-api")]
+    pub(crate) fn clash_view(&self) -> app::clash_api::ConfigView {
+        (**self.clash_view.load()).clone()
+    }
+
+    #[cfg(feature = "clash-api")]
+    fn set_clash_view(&self, config: &config::Config) {
+        self.clash_view
+            .store(Arc::new(app::clash_api::ConfigView::of(config)));
+    }
+
+    /// Switches the mode rules match, as the Clash API does, keeping it in
+    /// the cache file; the DNS answers kept go, as the rules that picked
+    /// their servers may pick others now (sing-box's).
+    pub fn switch_clash_mode(&self, mode: &str) {
+        if self.env.clash_mode.get().as_deref() == Some(mode) {
+            return;
+        }
+        self.env
+            .clash_mode
+            .switch(mode, self.env.cache_file.get().as_deref());
+        self.dns_client.load().clear_cache();
+        info!("clash mode: {}", mode);
     }
 
     /// What the DNS cache holds and how it served.
@@ -380,9 +427,11 @@ impl RuntimeManager {
             rule_sets.files(),
         )?;
         self.env.clash_mode.configure(
-            config.experimental.clash_api.as_ref(),
+            config.clash_api.as_ref(),
             self.env.cache_file.get().as_deref(),
         );
+        #[cfg(feature = "clash-api")]
+        self.set_clash_view(&config);
         inbounds.publish_resources(inbound_resources);
         #[cfg(feature = "auto-reload")]
         {
@@ -1010,6 +1059,8 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
         .map_err(Error::Config)?;
     // The API server joins them, when it is compiled in.
     // Bound before anything starts: an address in use fails the start.
+    #[cfg(feature = "clash-api")]
+    let clash_api = app::clash_api::bind(config.clash_api.as_ref()).map_err(Error::Config)?;
     #[cfg(feature = "api")]
     let api_listener = config
         .api
@@ -1034,7 +1085,7 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
             .fetch_missing(&instance.dispatcher),
     );
     // Without the API nothing is added to them.
-    #[cfg_attr(not(feature = "api"), allow(unused_mut))]
+    #[cfg_attr(not(any(feature = "api", feature = "clash-api")), allow(unused_mut))]
     let mut runners = instance.start().map_err(Error::Config)?;
 
     let runtime_manager = RuntimeManager::new(
@@ -1063,6 +1114,17 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
     if let Some(listener) = api_listener {
         let api_server = ApiServer::new(runtime_manager.clone());
         runners.push(api_server.serve(listener)?);
+    }
+    #[cfg(feature = "clash-api")]
+    {
+        runtime_manager.set_clash_view(&config);
+        if let Some((listener, api)) = clash_api {
+            runners.push(app::clash_api::serve(
+                listener,
+                &api,
+                runtime_manager.clone(),
+            )?);
+        }
     }
 
     drop(config); // explicitly free the memory

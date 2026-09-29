@@ -274,6 +274,23 @@ impl FakeIpStore {
         inner.written_to = Some(binding);
     }
 
+    /// Forgets every fake IP handed out, in the cache file too, and hands
+    /// out from the start of the ranges again: a connection to one handed
+    /// out before is refused, as to one it never handed out.
+    pub(crate) fn clear(&self) {
+        let mut inner = self.inner();
+        let Inner { v4, v6, .. } = &mut *inner;
+        for pool in [v4.as_mut(), v6.as_mut()].into_iter().flatten() {
+            pool.domains.clear();
+            pool.order.clear();
+            pool.current = pool.first + RESERVED - 1;
+        }
+        inner.by_address.clear();
+        inner.handed_out = 0;
+        let ranges = self.ranges_key();
+        self.persist(&mut inner, vec![FakeIpOp::Clear { ranges }]);
+    }
+
     /// Writes all it holds to the cache file if it is not the one it was
     /// written to, as after a reload that changed it.
     pub(crate) fn sync(&self) {

@@ -431,6 +431,15 @@ impl OutboundManager {
             .collect()
     }
 
+    /// The type an outbound or endpoint was configured with: `direct`,
+    /// `selector`, `vless`.
+    pub fn protocol(&self, tag: &str) -> Option<&str> {
+        self.configs
+            .get(tag)
+            .map(|o| o.protocol.as_str())
+            .or_else(|| self.endpoints.get(tag).map(|e| e.config.protocol.as_str()))
+    }
+
     pub fn get(&self, tag: &str) -> Option<AnyOutboundHandler> {
         self.handlers.get(tag).map(Clone::clone)
     }

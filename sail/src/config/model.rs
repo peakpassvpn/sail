@@ -36,6 +36,11 @@ pub struct Config {
     pub route: Route,
     #[serde(default, skip_serializing_if = "Api::is_default")]
     pub api: Api,
+    /// The Clash API, which dashboards (yacd, metacubexd) and clients
+    /// control the instance through. sing-box has it under `experimental`,
+    /// which is read too, as the same.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub clash_api: Option<ClashApi>,
     #[serde(default, skip_serializing_if = "Experimental::is_default")]
     pub experimental: Experimental,
     /// The root certificates servers are checked against; the system's
@@ -220,7 +225,9 @@ pub enum CertificateStore {
 pub struct Experimental {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cache_file: Option<CacheFileOptions>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// sing-box's place for the Clash API: taken to `clash_api` when the
+    /// configuration is validated.
+    #[serde(default, skip_serializing)]
     pub clash_api: Option<ClashApi>,
 }
 
@@ -254,11 +261,40 @@ impl Experimental {
     }
 }
 
-/// Clash's API: the mode rules match, `Rule` when unset. The API itself
-/// is not served yet.
+/// The Clash API, as sing-box's `clash_api` has it, and Mihomo's
+/// `external-controller` and the fields about it.
 #[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ClashApi {
+    /// Where it listens, `host:port`; an empty host is every address, as
+    /// in Mihomo. Unset, it is not served, though `default_mode` still
+    /// sets the mode rules match.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub external_controller: Option<String>,
+    /// What callers authenticate with, `Authorization: Bearer`, or a
+    /// WebSocket's `?token=`. The API is served only with a strong one (at
+    /// least 32 characters, 10 distinct): `sail generate secret` makes one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub secret: Option<String>,
+    /// A directory of a dashboard's files, served at `/ui/`; relative to
+    /// the data directory.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub external_ui: Option<String>,
+    /// Where the dashboard is downloaded from, a ZIP, when `external_ui`
+    /// is empty: Yacd-meta's when unset, as in sing-box.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub external_ui_download_url: Option<String>,
+    /// The outbound the download goes through; the default one when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub external_ui_download_detour: Option<String>,
+    /// The origins browsers may call it from (CORS); any when empty.
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub access_control_allow_origin: Vec<String>,
+    /// Pages on public addresses may call it on a private one (Private
+    /// Network Access).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub access_control_allow_private_network: bool,
+    /// The mode rules match at the start, `Rule` when unset.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_mode: Option<String>,
 }
@@ -2412,6 +2448,14 @@ impl Config {
     /// Fills in what the configuration leaves to defaults, and checks what
     /// can be checked without building anything.
     pub fn validate(&mut self) -> Result<()> {
+        if let Some(api) = self.experimental.clash_api.take() {
+            if self.clash_api.is_some() {
+                return Err(anyhow!(
+                    "experimental.clash_api: the Clash API is set in clash_api too; keep one"
+                ));
+            }
+            self.clash_api = Some(api);
+        }
         for inbound in &mut self.inbounds {
             if inbound.tag.is_empty() {
                 inbound.tag = inbound.protocol.clone();

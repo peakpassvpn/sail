@@ -90,6 +90,7 @@ mod tests {
         mode.configure(
             Some(&crate::config::model::ClashApi {
                 default_mode: Some("Direct".into()),
+                ..Default::default()
             }),
             None,
         );
