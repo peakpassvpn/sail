@@ -435,6 +435,8 @@ fn dns_answers_as_surge_s_responder_and_host() {
          nas = server:syslib\n\
          DOMAIN-SET:https://example.com/d.txt = server:223.5.5.5\n\
          abc.com = 5.5.5.5\n\
+         RULE-SET:https://example.com/r.list = 0.0.0.0\n\
+         not a line\n\
          [Rule]\n\
          FINAL,DIRECT\n",
     );
@@ -458,6 +460,7 @@ fn dns_answers_as_surge_s_responder_and_host() {
             "hosts:*.dev",
             "hosts:*google.com",
             "server:119.29.29.29,https://doh.pub/dns-query",
+            "hosts:RULE-SET:https://example.com/r.list",
             "hosts",
             "system-hosts",
         ]
@@ -479,14 +482,9 @@ fn dns_answers_as_surge_s_responder_and_host() {
         server("hosts")["predefined"],
         json!({ "abc.com": ["1.2.3.4", "::1"], "foo.com": "bar.com" })
     );
-    assert_eq!(
-        server("hosts:*.dev")["predefined"],
-        json!({ ".dev": ["6.7.8.9"] })
-    );
-    assert_eq!(
-        server("hosts:*google.com")["predefined"],
-        json!({ "+.com": ["10.0.0.1"] })
-    );
+    let any = server("hosts:*google.com")["predefined"].clone();
+    assert_eq!(any["*"], json!(["10.0.0.1"]));
+    assert_eq!(any[vec!["*"; 32].join(".")], json!(["10.0.0.1"]));
     // The DoH server's name resolves through the plain one.
     assert_eq!(
         server("https://doh.pub/dns-query")["domain_resolver"],
@@ -546,9 +544,17 @@ fn dns_answers_as_surge_s_responder_and_host() {
         json!({ "rule_set": ["https://example.com/d.txt"], "server": "223.5.5.5" })
     );
     // The system's hosts, then local and simple names.
-    assert_eq!(at(13)["server"], "system-hosts");
-    assert_eq!(at(15)["server"], "system");
-    assert_eq!(rules.len(), 16);
+    // A set's names, any of them given the address.
+    assert_eq!(
+        at(13),
+        a_aaaa(
+            json!({ "rule_set": ["https://example.com/r.list"] }),
+            "hosts:RULE-SET:https://example.com/r.list"
+        )
+    );
+    assert_eq!(at(14)["server"], "system-hosts");
+    assert_eq!(at(16)["server"], "system");
+    assert_eq!(rules.len(), 17);
     assert!(config
         .route
         .rule_set
@@ -562,7 +568,8 @@ fn dns_answers_as_surge_s_responder_and_host() {
         .contains(&"198.18.0.2/31".to_string()));
     let warnings = config.warnings.join("\n");
     assert!(
-        warnings.contains("use-local-host-item-for-proxy: sail sends a proxy the name"),
+        warnings.contains("use-local-host-item-for-proxy: sail sends a proxy the name")
+            && warnings.contains("\"not a line\" is not name = value"),
         "{}",
         warnings
     );
@@ -670,14 +677,6 @@ fn mistakes_name_where_they_are() {
         (
             "[Host]\na.com = script:dnspod\n[Rule]\nFINAL,DIRECT\n",
             "[Host] line 2: a.com: sail does not run DNS scripts",
-        ),
-        (
-            "[Host]\nRULE-SET:https://a/b.list = 10.0.0.1\n[Rule]\nFINAL,DIRECT\n",
-            "[Host] line 2: RULE-SET:https://a/b.list: sail gives a set's names no addresses",
-        ),
-        (
-            "[Host]\nab* = 10.0.0.1\n[Rule]\nFINAL,DIRECT\n",
-            "[Host] line 2: ab*: sail gives addresses to a wildcard",
         ),
         (
             "[Host]\na.com = server:dns.example\n[Rule]\nFINAL,DIRECT\n",

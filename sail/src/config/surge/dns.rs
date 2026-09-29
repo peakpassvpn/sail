@@ -497,11 +497,17 @@ pub fn host(
     let mut mapped = false;
     for line in lines {
         let at = format!("[Host] {}", line.loc);
-        let (key, value) = line
+        let Some((key, value)) = line
             .text
             .split_once('=')
             .map(|(k, v)| (text::unquote(k), text::unquote(v)))
-            .ok_or_else(|| anyhow!("{}: {:?} is not name = value", at, line.text))?;
+        else {
+            warnings.push(format!(
+                "{}: {:?} is not name = value; ignored, as by Surge",
+                at, line.text
+            ));
+            continue;
+        };
         let err = |e: anyhow::Error| anyhow!("{}: {}: {}", at, key, e);
         let answer = answer(&value, &mut dns, out).map_err(err)?;
         let set = [
@@ -540,32 +546,25 @@ pub fn host(
             }
             Answer::Hosts(value) => {
                 mapped = true;
-                let server = match (&set, key.contains(['*', '?'])) {
-                    (Some(_), _) => {
-                        return Err(err(anyhow!(
-                            "sail gives a set's names no addresses; server: it can"
-                        )))
+                let server = if set.is_none() && !key.contains(['*', '?']) {
+                    // The first line of a name decides, as in Surge.
+                    let name = key.trim_end_matches('.').to_ascii_lowercase();
+                    if !names.contains_key(&name) {
+                        names.insert(name, value);
                     }
-                    (None, false) => {
-                        // The first line of a name decides, as in Surge.
-                        let name = key.trim_end_matches('.').to_ascii_lowercase();
-                        if !names.contains_key(&name) {
-                            names.insert(name, value);
-                        }
-                        HOSTS.to_string()
-                    }
-                    (None, true) => {
-                        // A server of its own, of a pattern of sail's hosts
-                        // that holds every name the wildcard does.
-                        let pattern = hosts_pattern(&key).map_err(err)?;
-                        let tag = format!("{}:{}", HOSTS, key);
+                    HOSTS.to_string()
+                } else {
+                    // A server of its own, giving any name what the line
+                    // gives the names its rule lets through.
+                    let tag = format!("{}:{}", HOSTS, key);
+                    if !new_servers.iter().any(|s| s["tag"] == tag.as_str()) {
                         new_servers.push(json!({
                             "type": "hosts",
                             "tag": tag,
-                            "predefined": { pattern: value },
+                            "predefined": any_name(&value),
                         }));
-                        tag
                     }
+                    tag
                 };
                 condition = logical("and", vec![condition, query_types(&["A", "AAAA"])]);
                 condition.insert("server".into(), json!(server));
@@ -667,26 +666,15 @@ fn answer(value: &str, dns: &mut Dns, out: &mut Lowered) -> Result<Answer> {
     }
 }
 
-/// A pattern of sail's hosts (Mihomo's) that holds every name the
-/// wildcard `key` holds: of the part after its last `*` or `?`, the
-/// names under a `.x` it starts with, else `x` and the names under it
-/// past its first dot.
-fn hosts_pattern(key: &str) -> Result<String> {
-    let tail = key
-        .rsplit(['*', '?'])
-        .next()
-        .unwrap_or_default()
-        .to_ascii_lowercase();
-    if let Some(base) = tail.strip_prefix('.').filter(|b| !b.is_empty()) {
-        return Ok(format!(".{}", base));
-    }
-    match tail.split_once('.') {
-        Some((_, base)) if !base.is_empty() => Ok(format!("+.{}", base)),
-        _ => Err(anyhow!(
-            "sail gives addresses to a wildcard that ends in a name with a dot, as *.a or \
-             *a.b, alone"
-        )),
-    }
+/// How many labels a name a wildcard's server answers has at most.
+const MAX_LABELS: usize = 32;
+
+/// Names of sail's hosts (Mihomo's patterns) that any name of up to
+/// `MAX_LABELS` labels matches, a `*` a label: each given `value`.
+fn any_name(value: &Value) -> Map<String, Value> {
+    (1..=MAX_LABELS)
+        .map(|n| (vec!["*"; n].join("."), value.clone()))
+        .collect()
 }
 
 #[cfg(test)]
