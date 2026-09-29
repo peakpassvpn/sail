@@ -1676,3 +1676,21 @@ fn lan_ips_keep_the_listeners_that_authenticate_as_mihomo_s() {
         err
     );
 }
+
+#[test]
+fn process_name_regex_and_path_in_bundle() {
+    let config = load(
+        "rule-providers:\n\
+         \x20 cn: { type: http, behavior: domain, format: mrs, url: 'https://x/cn.mrs', path-in-bundle: geo/geosite/cn.mrs }\n\
+         rules: [\"PROCESS-NAME-REGEX,.*telegram.*,DIRECT\", \"MATCH,REJECT\"]",
+    );
+    let rules = rules(&config);
+    assert_eq!(
+        rules[0]["process_name_regex"],
+        serde_json::json!([".*telegram.*"])
+    );
+    assert!(config
+        .warnings
+        .iter()
+        .any(|w| w.contains("rule-providers.cn.path-in-bundle")));
+}

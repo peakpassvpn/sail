@@ -574,6 +574,7 @@ pub(crate) struct Conditions {
     process_names: Vec<String>,
     process_paths: Vec<String>,
     process_path_regex: Vec<Pattern>,
+    process_name_regex: Vec<Pattern>,
     query_types: Vec<u16>,
     #[cfg(feature = "rule-set")]
     rule_sets: Vec<super::rule_set::SharedRuleSet>,
@@ -667,6 +668,7 @@ impl Conditions {
             ("process_name", !rule.process_name.is_empty()),
             ("process_path", !rule.process_path.is_empty()),
             ("process_path_regex", !rule.process_path_regex.is_empty()),
+            ("process_name_regex", !rule.process_name_regex.is_empty()),
         ] {
             if set {
                 process_known(&field(name), PROCESS_COMPILED, PROCESS_KNOWN)?;
@@ -756,6 +758,7 @@ impl Conditions {
             process_names: rule.process_name.clone(),
             process_paths: rule.process_path.clone(),
             process_path_regex: patterns(&field("process_path_regex"), &rule.process_path_regex)?,
+            process_name_regex: patterns(&field("process_name_regex"), &rule.process_name_regex)?,
             clash_mode: rule
                 .clash_mode
                 .clone()
@@ -797,6 +800,7 @@ impl Conditions {
             && self.process_names.is_empty()
             && self.process_paths.is_empty()
             && self.process_path_regex.is_empty()
+            && self.process_name_regex.is_empty()
             && self.query_types.is_empty()
             && self.response_rcode.is_none()
             && self.clash_mode.is_none()
@@ -904,6 +908,10 @@ impl Conditions {
                     .process_path
                     .as_deref()
                     .is_some_and(|path| self.process_path_regex.iter().any(|r| r.is_match(path))))
+            && (self.process_name_regex.is_empty()
+                || facts
+                    .process_name()
+                    .is_some_and(|name| self.process_name_regex.iter().any(|r| r.is_match(name))))
             && (self.query_types.is_empty()
                 || facts
                     .query_type()
@@ -1340,6 +1348,13 @@ mod tests {
         assert!(m.matches(&from("/usr/bin/curl")));
         assert!(!m.matches(&from("/bin/curl")));
         if cfg!(feature = "regex") {
+            // The name alone, as Mihomo's PROCESS-NAME-REGEX: not a directory.
+            let m = json(serde_json::json!({ "process_name_regex": ".*telegram.*" }));
+            assert!(m.matches(&from(
+                "/Applications/Telegram.app/Contents/MacOS/telegram-desktop"
+            )));
+            assert!(m.matches(&from("C:\\Apps\\telegram.exe")));
+            assert!(!m.matches(&from("/opt/telegram/bin/curl")));
             let m = json(serde_json::json!({ "process_path_regex": "^/usr/(local/)?bin/" }));
             assert!(m.matches(&from("/usr/local/bin/curl")));
             assert!(!m.matches(&from("/opt/curl")));

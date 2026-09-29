@@ -150,7 +150,9 @@ impl Sets {
     }
 }
 
-const PROVIDER: &[(&str, Tier)] = &[("size-limit", Ignored), ("path-in-bundle", Unsupported)];
+/// `path-in-bundle` names where Mihomo finds the copy to start with, in a
+/// bundle of its own, where sail downloads it.
+const PROVIDER: &[(&str, Tier)] = &[("size-limit", Ignored), ("path-in-bundle", Ignored)];
 
 pub fn lower(
     doc: &mut Fields,

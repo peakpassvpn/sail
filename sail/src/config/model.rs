@@ -424,6 +424,10 @@ pub struct DnsRule {
     pub process_path: Vec<String>,
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
     pub process_path_regex: Vec<String>,
+    /// A sail extension, as Mihomo's `PROCESS-NAME-REGEX`: regular
+    /// expressions the program's name, its path's last part, matches.
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub process_name_regex: Vec<String>,
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
     pub package_name: Vec<String>,
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
@@ -713,6 +717,7 @@ impl DnsRule {
             process_name: self.process_name.clone(),
             process_path: self.process_path.clone(),
             process_path_regex: self.process_path_regex.clone(),
+            process_name_regex: self.process_name_regex.clone(),
             package_name: self.package_name.clone(),
             package_name_regex: self.package_name_regex.clone(),
             user: self.user.clone(),
@@ -1621,6 +1626,10 @@ pub struct Rule {
     pub process_path: Vec<String>,
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
     pub process_path_regex: Vec<String>,
+    /// A sail extension, as Mihomo's `PROCESS-NAME-REGEX`: regular
+    /// expressions the program's name, its path's last part, matches.
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub process_name_regex: Vec<String>,
     /// Android packages; no platform sail runs on tells them yet.
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
     pub package_name: Vec<String>,
@@ -1841,6 +1850,7 @@ impl Rule {
             ("process_name", !self.process_name.is_empty()),
             ("process_path", !self.process_path.is_empty()),
             ("process_path_regex", !self.process_path_regex.is_empty()),
+            ("process_name_regex", !self.process_name_regex.is_empty()),
             ("package_name", !self.package_name.is_empty()),
             ("package_name_regex", !self.package_name_regex.is_empty()),
             ("user", !self.user.is_empty()),

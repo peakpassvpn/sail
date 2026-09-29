@@ -501,6 +501,7 @@ fn condition(s: &Split, sets: &mut Sets) -> Result<(Map<String, Value>, bool)> {
         "PROCESS-NAME" => "process_name",
         "PROCESS-PATH" => "process_path",
         "PROCESS-PATH-REGEX" => "process_path_regex",
+        "PROCESS-NAME-REGEX" => "process_name_regex",
         "IN-USER" => "auth_user",
         "IN-NAME" => "inbound",
         "DST-PORT" | "SRC-PORT" => {

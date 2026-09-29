@@ -266,6 +266,10 @@ pub struct HeadlessRule {
     pub process_path: Vec<String>,
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
     pub process_path_regex: Vec<String>,
+    /// A sail extension, as Mihomo's `PROCESS-NAME-REGEX`: regular
+    /// expressions the program's name, its path's last part, matches.
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub process_name_regex: Vec<String>,
     /// Refused as a routing rule's is: no platform sail runs on tells
     /// them yet.
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]

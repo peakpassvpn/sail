@@ -102,6 +102,7 @@ pub(crate) fn default(parts: Parts, path: &str) -> Result<Condition> {
         process_name: rule.process_name.clone(),
         process_path: rule.process_path.clone(),
         process_path_regex: rule.process_path_regex.clone(),
+        process_name_regex: rule.process_name_regex.clone(),
         package_name: rule.package_name.clone(),
         package_name_regex: rule.package_name_regex.clone(),
         invert: rule.invert,
