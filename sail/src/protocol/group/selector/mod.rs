@@ -15,7 +15,7 @@ use crate::adapter::registry::{
 use crate::adapter::AnyOutboundHandler;
 use crate::app::outbound::selector::{OutboundSelector, SelectedBy, Selection};
 use crate::config::model::GroupProviders;
-use crate::protocol::group::members::{MemberKey, Snapshot};
+use crate::protocol::group::members::{Member, MemberKey, Snapshot};
 use crate::protocol::group::merge;
 use serde_derive::Deserialize;
 
@@ -160,10 +160,10 @@ fn pick<'s>(
     snapshot: &'s Snapshot,
     selected: &Selection,
     interrupt: bool,
-) -> io::Result<(&'s AnyOutboundHandler, Option<MemberKey>)> {
+) -> io::Result<(&'s Member, Option<MemberKey>)> {
     let (i, by) = selected
         .pick(snapshot)
         .ok_or_else(|| io::Error::other("no outbound to select"))?;
     let by = interrupt.then(|| MemberKey::clone(&by));
-    Ok((&snapshot.members[i].handler, by))
+    Ok((&snapshot.members[i], by))
 }

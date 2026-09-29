@@ -51,9 +51,12 @@ impl OutboundDatagramHandler for Handler {
     ) -> io::Result<AnyOutboundDatagram> {
         tracing::trace!("handling outbound datagram");
         let snapshot = self.members.load();
-        let (a, by) = super::pick(&snapshot, &self.selected, self.interrupt.is_some())?;
+        let (member, by) = super::pick(&snapshot, &self.selected, self.interrupt.is_some())?;
+        let a = &member.handler;
         tracing::debug!("selector handles to [{}]", a.tag());
         let datagram = a.datagram()?.handle(sess, transport).await?;
+        // By its name: members alike share one handler, and its tag.
+        sess.chain.push(&member.key.name);
         Ok(match (&self.interrupt, by) {
             (Some(selection), Some(by)) => {
                 super::super::interrupt::datagram(datagram, selection, by)

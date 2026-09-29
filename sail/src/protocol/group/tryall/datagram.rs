@@ -13,6 +13,9 @@ struct HandleResult {
 
 pub struct Handler {
     pub actors: Vec<AnyOutboundHandler>,
+    /// Their tags, as the group names them: members alike share one
+    /// handler, and its tag.
+    pub tags: Vec<String>,
     pub delay_base: u32,
     pub dns_client: SyncDnsClient,
 }
@@ -59,6 +62,7 @@ impl OutboundDatagramHandler for Handler {
                     sess.destination,
                     self.actors[v.0.idx].tag()
                 );
+                sess.chain.push(&self.tags[v.0.idx]);
                 Ok(v.0.dgram)
             }
             Err(e) => Err(io::Error::other(format!(

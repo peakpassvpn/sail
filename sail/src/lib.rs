@@ -181,6 +181,11 @@ impl RuntimeManager {
     }
 
     #[cfg(feature = "clash-api")]
+    pub(crate) fn router(&self) -> Arc<app::router::Router> {
+        self.router.load_full()
+    }
+
+    #[cfg(feature = "clash-api")]
     pub(crate) fn env(&self) -> runtime::SyncRuntimeEnv {
         self.env.clone()
     }

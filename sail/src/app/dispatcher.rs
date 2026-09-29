@@ -419,6 +419,8 @@ impl Dispatcher {
         };
 
         sess.outbound_tag = outbound.clone();
+        // The groups on the way record the members they take here.
+        sess.chain = Default::default();
 
         let h = if let Some(h) = self.outbound_manager.load().get(&outbound) {
             h
@@ -551,6 +553,7 @@ impl Dispatcher {
     /// whatever the rules say: for a DNS server's `detour`.
     pub async fn stream_via(&self, tag: &str, mut sess: Session) -> io::Result<AnyStream> {
         sess.outbound_tag = tag.to_string();
+        sess.chain = Default::default();
         let h = self
             .outbound_manager
             .load()
@@ -569,6 +572,7 @@ impl Dispatcher {
         mut sess: Session,
     ) -> io::Result<Box<dyn OutboundDatagram>> {
         sess.outbound_tag = tag.to_string();
+        sess.chain = Default::default();
         let h = self
             .outbound_manager
             .load()
@@ -627,6 +631,8 @@ impl Dispatcher {
         };
 
         sess.outbound_tag = outbound.clone();
+        // The groups on the way record the members they take here.
+        sess.chain = Default::default();
 
         let h = if let Some(h) = self.outbound_manager.load().get(&outbound) {
             h

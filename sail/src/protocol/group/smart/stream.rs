@@ -58,6 +58,7 @@ pub async fn connect(group: Arc<Group>, sess: &Session) -> io::Result<AnyStream>
     let verdict = Verdict::new(group.clone(), failed);
     let (i, took, stream) = result?;
     let key = snapshot.members[i].key.clone();
+    sess.chain.push(&key.name);
     group.connected(&key, &site, took);
     let handshake = is_handshake(sess);
     let next = order
@@ -70,6 +71,7 @@ pub async fn connect(group: Arc<Group>, sess: &Session) -> io::Result<AnyStream>
         group,
         snapshot,
         sess: handshake.then(|| Arc::new(sess.clone())),
+        chain: sess.chain.clone(),
         site,
         member: i,
         connect: took,
@@ -106,6 +108,8 @@ pub struct SmartStream {
     snapshot: Arc<Snapshot>,
     /// For another member, while one may be tried.
     sess: Option<Arc<Session>>,
+    /// The session's chain, where a change of member is written.
+    chain: crate::session::Chain,
     site: Arc<str>,
     /// The member it goes through, by index into `snapshot`.
     member: usize,
@@ -229,6 +233,10 @@ impl SmartStream {
         }
         let result = match result {
             Ok((i, took, stream, remaining)) => {
+                self.chain.replace(
+                    &self.snapshot.members[self.member].key.name,
+                    &self.snapshot.members[i].key.name,
+                );
                 self.member = i;
                 self.connect = took;
                 self.remaining = remaining;

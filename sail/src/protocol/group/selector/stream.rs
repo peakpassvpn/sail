@@ -39,9 +39,12 @@ impl OutboundStreamHandler for Handler {
     ) -> io::Result<AnyStream> {
         tracing::trace!("handling outbound stream");
         let snapshot = self.members.load();
-        let (a, by) = super::pick(&snapshot, &self.selected, self.interrupt.is_some())?;
+        let (member, by) = super::pick(&snapshot, &self.selected, self.interrupt.is_some())?;
+        let a = &member.handler;
         tracing::debug!("selector handles to [{}]", a.tag());
         let stream = a.stream()?.handle(sess, lhs, stream).await?;
+        // By its name: members alike share one handler, and its tag.
+        sess.chain.push(&member.key.name);
         Ok(match (&self.interrupt, by) {
             (Some(selection), Some(by)) => super::super::interrupt::stream(stream, selection, by),
             _ => stream,

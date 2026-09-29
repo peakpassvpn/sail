@@ -281,7 +281,9 @@ pub struct ClashApi {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub external_ui: Option<String>,
     /// Where the dashboard is downloaded from, a ZIP, when `external_ui`
-    /// is empty: Yacd-meta's when unset, as in sing-box.
+    /// is empty. The core has none of its own: unset, nothing is
+    /// downloaded, and a warning says so; a host, such as sail-cli, may
+    /// give one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub external_ui_download_url: Option<String>,
     /// The outbound the download goes through; the default one when unset.

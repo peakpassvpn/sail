@@ -46,6 +46,7 @@ pub async fn connect(group: Arc<Group>, sess: &Session) -> io::Result<AnyOutboun
     let verdict = Verdict::new(group.clone(), failed);
     let (i, took, datagram) = result?;
     let key = snapshot.members[i].key.clone();
+    sess.chain.push(&key.name);
     group.connected(&key, &site, took);
     let until = group.until(&key);
     let measured = Box::new(MeasuredDatagram {

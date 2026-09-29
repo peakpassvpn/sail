@@ -305,9 +305,11 @@ impl OutboundStreamHandler for Group {
         let (member, stream) = self
             .connect(sess, &snapshot, |a| async move {
                 let stream = connect_stream_outbound(sess, self.dns_client.clone(), a).await?;
-                a.stream()?.handle(sess, None, stream).await
+                let stream = a.stream()?.handle(sess, None, stream).await?;
+                Ok(stream)
             })
             .await?;
+        sess.chain.push(&member.name);
         Ok(match self.interrupt(member) {
             Some(selection) => super::interrupt::stream(stream, selection, member.clone()),
             None => stream,
@@ -334,9 +336,11 @@ impl OutboundDatagramHandler for Group {
         let (member, datagram) = self
             .connect(sess, &snapshot, |a| async move {
                 let transport = connect_datagram_outbound(sess, self.dns_client.clone(), a).await?;
-                a.datagram()?.handle(sess, transport).await
+                let datagram = a.datagram()?.handle(sess, transport).await?;
+                Ok(datagram)
             })
             .await?;
+        sess.chain.push(&member.name);
         Ok(match self.interrupt(member) {
             Some(selection) => super::interrupt::datagram(datagram, selection, member.clone()),
             None => datagram,

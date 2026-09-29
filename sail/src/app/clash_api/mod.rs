@@ -19,7 +19,7 @@ use axum::extract::{Request, State};
 use axum::http::{header, HeaderMap, HeaderValue, Method, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use serde_json::json;
 use tracing::{info, warn};
@@ -28,6 +28,7 @@ use crate::config::model::ClashApi;
 use crate::RuntimeManager;
 
 mod configs;
+mod connections;
 mod dns;
 mod proxies;
 mod streams;
@@ -149,6 +150,12 @@ fn router(clash: Arc<Clash>) -> Router {
         .route("/group/:name/delay", get(proxies::group_delay))
         .route("/providers/proxies", get(proxies::providers))
         .route("/providers/rules", get(proxies::rule_providers))
+        .route(
+            "/connections",
+            get(connections::list).delete(connections::close_all),
+        )
+        .route("/connections/:id", delete(connections::close))
+        .route("/rules", get(connections::rules))
         .route("/traffic", get(streams::traffic))
         .route("/memory", get(streams::memory))
         .route("/logs", get(streams::logs))

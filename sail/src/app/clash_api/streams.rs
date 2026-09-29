@@ -18,7 +18,7 @@ use serde_json::{json, Value};
 use super::{ApiError, Clash};
 
 /// `frames`, over the WebSocket asked for, or as JSON lines.
-fn send<S>(ws: Option<WebSocketUpgrade>, frames: S) -> Response
+pub(super) fn send<S>(ws: Option<WebSocketUpgrade>, frames: S) -> Response
 where
     S: Stream<Item = Value> + Send + 'static,
 {
@@ -96,7 +96,7 @@ pub(super) async fn memory(ws: Option<WebSocketUpgrade>) -> Response {
 }
 
 /// The process's resident memory, in bytes; 0 where it is not known.
-fn resident_memory() -> u64 {
+pub(super) fn resident_memory() -> u64 {
     #[cfg(any(target_os = "linux", target_os = "android"))]
     {
         let pages = std::fs::read_to_string("/proc/self/statm")

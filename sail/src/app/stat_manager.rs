@@ -16,8 +16,59 @@ use crate::{adapter::*, session::*};
 
 pub type SyncStatManager = Arc<RwLock<StatManager>>;
 
+/// Closes a connection from outside, as the Clash API does: its streams
+/// and datagrams fail from then on, which ends what relays them, both
+/// ways, as any failure does.
+#[derive(Default)]
+pub struct Closer {
+    closed: AtomicBool,
+    read: futures::task::AtomicWaker,
+    write: futures::task::AtomicWaker,
+}
+
+impl Closer {
+    pub fn close(&self) {
+        self.closed.store(true, Ordering::SeqCst);
+        self.read.wake();
+        self.write.wake();
+    }
+
+    pub fn is_closed(&self) -> bool {
+        self.closed.load(Ordering::SeqCst)
+    }
+
+    /// Whether it is closed, with `cx` woken when it is, reading.
+    fn poll_read_closed(&self, cx: &Context) -> bool {
+        self.read.register(cx.waker());
+        self.is_closed()
+    }
+
+    /// Whether it is closed, with `cx` woken when it is, writing.
+    fn poll_write_closed(&self, cx: &Context) -> bool {
+        self.write.register(cx.waker());
+        self.is_closed()
+    }
+
+    /// Once it is closed.
+    async fn closed(&self) {
+        futures::future::poll_fn(|cx| {
+            if self.poll_read_closed(cx) {
+                Poll::Ready(())
+            } else {
+                Poll::Pending
+            }
+        })
+        .await
+    }
+}
+
+fn closed_by_api() -> io::Error {
+    io::Error::new(io::ErrorKind::ConnectionAborted, "closed by API")
+}
+
 pub struct Stream {
     pub inner: AnyStream,
+    pub closer: Arc<Closer>,
     pub bytes_recvd: Arc<AtomicU64>,
     pub bytes_sent: Arc<AtomicU64>,
     pub recv_completed: Arc<AtomicBool>,
@@ -42,6 +93,9 @@ impl AsyncRead for Stream {
         cx: &mut Context,
         buf: &mut ReadBuf,
     ) -> Poll<io::Result<()>> {
+        if self.closer.poll_read_closed(cx) {
+            return Poll::Ready(Err(closed_by_api()));
+        }
         let len = buf.filled().len();
         let remaining = buf.remaining();
         ready!(Pin::new(&mut self.inner).poll_read(cx, buf))?;
@@ -64,6 +118,9 @@ impl AsyncWrite for Stream {
         cx: &mut Context,
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
+        if self.closer.poll_write_closed(cx) {
+            return Poll::Ready(Err(closed_by_api()));
+        }
         let n = ready!(Pin::new(&mut self.inner).poll_write(cx, buf))?;
         self.bytes_sent.fetch_add(n as u64, Ordering::Relaxed);
         Poll::Ready(Ok(n))
@@ -75,6 +132,9 @@ impl AsyncWrite for Stream {
         cx: &mut Context,
         bufs: &[io::IoSlice<'_>],
     ) -> Poll<io::Result<usize>> {
+        if self.closer.poll_write_closed(cx) {
+            return Poll::Ready(Err(closed_by_api()));
+        }
         let n = ready!(Pin::new(&mut self.inner).poll_write_vectored(cx, bufs))?;
         self.bytes_sent.fetch_add(n as u64, Ordering::Relaxed);
         Poll::Ready(Ok(n))
@@ -97,6 +157,7 @@ impl AsyncWrite for Stream {
 
 pub struct Datagram {
     pub inner: Option<AnyOutboundDatagram>,
+    pub closer: Arc<Closer>,
     pub bytes_recvd: Arc<AtomicU64>,
     pub bytes_sent: Arc<AtomicU64>,
     pub recv_completed: Arc<AtomicBool>,
@@ -137,11 +198,13 @@ impl OutboundDatagram for Datagram {
                 self.bytes_recvd.clone(),
                 self.recv_completed.clone(),
                 self.last_peer_active.clone(),
+                self.closer.clone(),
             )),
             Box::new(DatagramSendHalf(
                 s,
                 self.bytes_sent.clone(),
                 self.send_completed.clone(),
+                self.closer.clone(),
             )),
         )
     }
@@ -152,6 +215,7 @@ pub struct DatagramRecvHalf(
     Arc<AtomicU64>,
     Arc<AtomicBool>,
     Arc<AtomicU32>,
+    Arc<Closer>,
 );
 
 impl Drop for DatagramRecvHalf {
@@ -163,7 +227,12 @@ impl Drop for DatagramRecvHalf {
 #[async_trait]
 impl OutboundDatagramRecvHalf for DatagramRecvHalf {
     async fn recv_from(&mut self, buf: &mut [u8]) -> io::Result<(usize, SocksAddr)> {
-        self.0.recv_from(buf).await.map(|(n, a)| {
+        let closer = self.4.clone();
+        let received = tokio::select! {
+            received = self.0.recv_from(buf) => received,
+            () = closer.closed() => Err(closed_by_api()),
+        };
+        received.map(|(n, a)| {
             self.1.fetch_add(n as u64, Ordering::Relaxed);
             self.3.store(get_unix_timestamp(), Ordering::Relaxed);
             (n, a)
@@ -175,6 +244,7 @@ pub struct DatagramSendHalf(
     Box<dyn OutboundDatagramSendHalf>,
     Arc<AtomicU64>,
     Arc<AtomicBool>,
+    Arc<Closer>,
 );
 
 impl Drop for DatagramSendHalf {
@@ -186,6 +256,9 @@ impl Drop for DatagramSendHalf {
 #[async_trait]
 impl OutboundDatagramSendHalf for DatagramSendHalf {
     async fn send_to(&mut self, buf: &[u8], target: &SocksAddr) -> io::Result<usize> {
+        if self.3.is_closed() {
+            return Err(closed_by_api());
+        }
         self.0.send_to(buf, target).await.inspect(|&n| {
             self.1.fetch_add(n as u64, Ordering::Relaxed);
         })
@@ -206,6 +279,8 @@ pub struct Counter {
     pub send_completed: Arc<AtomicBool>,
     pub last_peer_active: Arc<AtomicU32>,
     pub logged: Arc<AtomicBool>,
+    /// Closes the connection, as the Clash API does.
+    pub closer: Arc<Closer>,
 }
 
 impl Counter {
@@ -297,6 +372,25 @@ impl StatManager {
     pub fn with_max_recent_connections(mut self, n: usize) -> Self {
         self.max_recent_connections = n;
         self
+    }
+
+    /// Closes the connection `id`, as the Clash API does; false when there
+    /// is none so numbered.
+    pub fn close(&self, id: u64) -> bool {
+        match self.counters.get(&id) {
+            Some(counter) => {
+                counter.closer.close();
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Closes every connection.
+    pub fn close_all(&self) {
+        for counter in self.counters.values() {
+            counter.closer.close();
+        }
     }
 
     /// What every connection since the start sent and received, those
@@ -396,6 +490,7 @@ impl StatManager {
         let recv_completed = Arc::new(AtomicBool::new(false));
         let send_completed = Arc::new(AtomicBool::new(false));
         let logged = Arc::new(AtomicBool::new(false));
+        let closer = Arc::new(Closer::default());
         let ts = get_unix_timestamp();
         let last_peer_active = Arc::new(AtomicU32::new(ts));
         let id = self.next_id;
@@ -412,10 +507,12 @@ impl StatManager {
                 send_completed: send_completed.clone(),
                 last_peer_active: last_peer_active.clone(),
                 logged,
+                closer: closer.clone(),
             },
         );
         Box::new(Stream {
             inner: stream,
+            closer,
             bytes_recvd,
             bytes_sent,
             recv_completed,
@@ -432,6 +529,7 @@ impl StatManager {
         let recv_completed = Arc::new(AtomicBool::new(false));
         let send_completed = Arc::new(AtomicBool::new(false));
         let logged = Arc::new(AtomicBool::new(false));
+        let closer = Arc::new(Closer::default());
         let ts = get_unix_timestamp();
         let last_peer_active = Arc::new(AtomicU32::new(ts));
         let id = self.next_id;
@@ -448,10 +546,12 @@ impl StatManager {
                 send_completed: send_completed.clone(),
                 last_peer_active: last_peer_active.clone(),
                 logged,
+                closer: closer.clone(),
             },
         );
         Box::new(Stream {
             inner: stream,
+            closer,
             bytes_recvd: bytes_sent,
             bytes_sent: bytes_recvd,
             recv_completed: send_completed,
@@ -472,6 +572,7 @@ impl StatManager {
         let recv_completed = Arc::new(AtomicBool::new(false));
         let send_completed = Arc::new(AtomicBool::new(false));
         let logged = Arc::new(AtomicBool::new(false));
+        let closer = Arc::new(Closer::default());
         let ts = get_unix_timestamp();
         let last_peer_active = Arc::new(AtomicU32::new(ts));
         let id = self.next_id;
@@ -488,10 +589,12 @@ impl StatManager {
                 send_completed: send_completed.clone(),
                 last_peer_active: last_peer_active.clone(),
                 logged,
+                closer: closer.clone(),
             },
         );
         Box::new(Datagram {
             inner: Some(dgram),
+            closer,
             bytes_recvd,
             bytes_sent,
             recv_completed,
@@ -625,6 +728,7 @@ mod tests {
             last_peer_active: last_peer_active.clone(),
             id: 0,
             tx,
+            closer: Default::default(),
         };
 
         let mut data = vec![0u8; 20];
@@ -641,6 +745,28 @@ mod tests {
 
         let received = bytes_recvd.load(Ordering::Relaxed);
         assert_eq!(received, 5, "Expected 5 bytes received, got {}", received);
+    }
+
+    /// A connection the API closes fails its reads and writes, waiting
+    /// ones too.
+    #[tokio::test]
+    async fn a_closed_connection_fails_its_reads_and_writes() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let mut sm = StatManager::new();
+        let (a, _b) = tokio::io::duplex(64);
+        let mut stream = sm.stat_stream(Box::new(a), Session::default());
+        let id = *sm.counters.keys().next().unwrap();
+        let reading = tokio::spawn(async move {
+            let mut buf = [0u8; 8];
+            let read = stream.read(&mut buf).await;
+            (read, stream.write_all(b"x").await)
+        });
+        tokio::task::yield_now().await;
+        assert!(sm.close(id));
+        let (read, write) = reading.await.unwrap();
+        assert_eq!(read.unwrap_err().kind(), io::ErrorKind::ConnectionAborted);
+        assert_eq!(write.unwrap_err().kind(), io::ErrorKind::ConnectionAborted);
+        assert!(!sm.close(id + 1));
     }
 
     #[test]

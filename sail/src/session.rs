@@ -349,6 +349,42 @@ pub struct Session {
     /// matched, if any: the site it belongs to, as the smart group keeps
     /// one member per site.
     pub matched_rule_set: Option<std::sync::Arc<str>>,
+    /// The routing rule that decided where the connection goes, as it is
+    /// written out: `None` for `route.final`.
+    pub matched_rule: Option<std::sync::Arc<str>>,
+    /// The members the groups the connection went through handed it to,
+    /// the innermost first: shared by the session's copies, as each group
+    /// adds its member once the member has taken the connection.
+    pub chain: Chain,
+}
+
+/// The members groups handed a connection to, the innermost first, as
+/// Mihomo's connections list them (with the outbound routed to last).
+#[derive(Debug, Clone, Default)]
+pub struct Chain(std::sync::Arc<std::sync::Mutex<Vec<String>>>);
+
+impl Chain {
+    /// Adds `tag`, the member a group handed the connection to.
+    pub fn push(&self, tag: &str) {
+        self.0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push(tag.to_string());
+    }
+
+    pub fn get(&self) -> Vec<String> {
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    /// Puts `to` where `from` was last added: a group went over to another
+    /// member.
+    pub fn replace(&self, from: &str, to: &str) {
+        let mut chain = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        match chain.iter().rposition(|t| t == from) {
+            Some(i) => chain[i] = to.to_string(),
+            None => chain.push(to.to_string()),
+        }
+    }
 }
 
 /// How the routing rules said a connection is to be carried: their route
@@ -402,6 +438,8 @@ impl Clone for Session {
             tls_alpn: self.tls_alpn.clone(),
             route: self.route.clone(),
             matched_rule_set: self.matched_rule_set.clone(),
+            matched_rule: self.matched_rule.clone(),
+            chain: self.chain.clone(),
         }
     }
 }
@@ -433,6 +471,8 @@ impl Default for Session {
             tls_alpn: None,
             route: RouteOptions::default(),
             matched_rule_set: None,
+            matched_rule: None,
+            chain: Chain::default(),
         }
     }
 }

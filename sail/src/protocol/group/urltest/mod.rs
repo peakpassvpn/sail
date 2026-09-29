@@ -16,7 +16,7 @@ use tokio::sync::{watch, RwLock};
 use tracing::debug;
 
 use super::health::{self, Checker};
-use super::members::{MemberKey, Members, Snapshot};
+use super::members::{Member, MemberKey, Members, Snapshot};
 use super::merge;
 use crate::adapter::outbound::HandlerBuilder;
 use crate::adapter::registry::{
@@ -238,17 +238,14 @@ impl Group {
     /// The member of `snapshot` for a new connection, which is also a use
     /// of the group, and, for `interrupt_exist_connections`, the
     /// selection it went by.
-    fn pick<'s>(
-        &self,
-        snapshot: &'s Snapshot,
-    ) -> io::Result<(&'s AnyOutboundHandler, Option<MemberKey>)> {
+    fn pick<'s>(&self, snapshot: &'s Snapshot) -> io::Result<(&'s Member, Option<MemberKey>)> {
         self.checker.used();
         let (i, by) = self
             .selected
             .pick(snapshot)
             .ok_or_else(|| io::Error::other("no outbound to select"))?;
         let by = self.interrupt.as_ref().map(|_| MemberKey::clone(&by));
-        Ok((&snapshot.members[i].handler, by))
+        Ok((&snapshot.members[i], by))
     }
 
     /// A connection through the selected member that failed is reason to
@@ -275,12 +272,15 @@ impl OutboundStreamHandler for Group {
         _stream: Option<AnyStream>,
     ) -> io::Result<AnyStream> {
         let snapshot = self.members.load();
-        let (a, by) = self.pick(&snapshot)?;
+        let (member, by) = self.pick(&snapshot)?;
+        let a = &member.handler;
         debug!("urltest handles [{}] to [{}]", sess.destination, a.tag());
         let stream = self.failed(
             async {
                 let stream = connect_stream_outbound(sess, self.dns_client.clone(), a).await?;
-                a.stream()?.handle(sess, None, stream).await
+                let stream = a.stream()?.handle(sess, None, stream).await?;
+                sess.chain.push(&member.key.name);
+                Ok(stream)
             }
             .await,
         )?;
@@ -307,12 +307,15 @@ impl OutboundDatagramHandler for Group {
         _transport: Option<AnyOutboundTransport>,
     ) -> io::Result<AnyOutboundDatagram> {
         let snapshot = self.members.load();
-        let (a, by) = self.pick(&snapshot)?;
+        let (member, by) = self.pick(&snapshot)?;
+        let a = &member.handler;
         debug!("urltest handles [{}] to [{}]", sess.destination, a.tag());
         let datagram = self.failed(
             async {
                 let transport = connect_datagram_outbound(sess, self.dns_client.clone(), a).await?;
-                a.datagram()?.handle(sess, transport).await
+                let datagram = a.datagram()?.handle(sess, transport).await?;
+                sess.chain.push(&member.key.name);
+                Ok(datagram)
             }
             .await,
         )?;

@@ -38,11 +38,13 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
     let actors = ctx.members(&options.outbounds)?;
     let stream = Arc::new(StreamHandler {
         actors: actors.clone(),
+        tags: options.outbounds.clone(),
         delay_base: options.delay_base,
         dns_client: ctx.dns_client.clone(),
     });
     let datagram = Arc::new(DatagramHandler {
         actors,
+        tags: options.outbounds,
         delay_base: options.delay_base,
         dns_client: ctx.dns_client.clone(),
     });

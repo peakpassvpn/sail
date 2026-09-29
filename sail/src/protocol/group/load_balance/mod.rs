@@ -269,11 +269,7 @@ struct Group {
 
 impl Group {
     /// The member of `snapshot` for `sess`.
-    fn pick<'s>(
-        &self,
-        sess: &Session,
-        snapshot: &'s Snapshot,
-    ) -> io::Result<&'s AnyOutboundHandler> {
+    fn pick<'s>(&self, sess: &Session, snapshot: &'s Snapshot) -> io::Result<&'s Member> {
         self.checker.used();
         let members = &snapshot.members;
         if members.is_empty() {
@@ -282,7 +278,7 @@ impl Group {
         let i = self
             .balancer
             .pick(sess, members, |key| self.checker.is_up(key));
-        Ok(&members[i].handler)
+        Ok(&members[i])
     }
 
     /// A failed connection is reason to test again rather than wait out
@@ -309,7 +305,8 @@ impl OutboundStreamHandler for Group {
         _stream: Option<AnyStream>,
     ) -> io::Result<AnyStream> {
         let snapshot = self.members.load();
-        let a = self.pick(sess, &snapshot)?;
+        let member = self.pick(sess, &snapshot)?;
+        let a = &member.handler;
         debug!(
             "load-balance handles [{}] to [{}]",
             sess.destination,
@@ -318,7 +315,9 @@ impl OutboundStreamHandler for Group {
         self.failed(
             async {
                 let stream = connect_stream_outbound(sess, self.dns_client.clone(), a).await?;
-                a.stream()?.handle(sess, None, stream).await
+                let stream = a.stream()?.handle(sess, None, stream).await?;
+                sess.chain.push(&member.key.name);
+                Ok(stream)
             }
             .await,
         )
@@ -341,7 +340,8 @@ impl OutboundDatagramHandler for Group {
         _transport: Option<AnyOutboundTransport>,
     ) -> io::Result<AnyOutboundDatagram> {
         let snapshot = self.members.load();
-        let a = self.pick(sess, &snapshot)?;
+        let member = self.pick(sess, &snapshot)?;
+        let a = &member.handler;
         debug!(
             "load-balance handles [{}] to [{}]",
             sess.destination,
@@ -350,7 +350,9 @@ impl OutboundDatagramHandler for Group {
         self.failed(
             async {
                 let transport = connect_datagram_outbound(sess, self.dns_client.clone(), a).await?;
-                a.datagram()?.handle(sess, transport).await
+                let datagram = a.datagram()?.handle(sess, transport).await?;
+                sess.chain.push(&member.key.name);
+                Ok(datagram)
             }
             .await,
         )

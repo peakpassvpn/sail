@@ -3,6 +3,7 @@
 //! the connection goes (`route`, `reject`) or learns more about it
 //! (`sniff`, `resolve`) and lets the next rules decide.
 
+pub(crate) mod describe;
 pub(crate) mod matcher;
 #[cfg(feature = "rule-set")]
 pub(crate) mod rule_set;
@@ -366,6 +367,8 @@ struct Resolve {
 struct Rule {
     matcher: Matcher,
     action: Action,
+    /// The rule told, for the Clash API.
+    about: describe::About,
 }
 
 /// Where a walk over the rules stopped.
@@ -463,6 +466,7 @@ impl Rule {
         Ok(Rule {
             matcher: Matcher::at(rule, path, env, rule_sets)?,
             action,
+            about: describe::About::of(rule),
         })
     }
 }
@@ -514,6 +518,12 @@ impl Router {
             })
     }
 
+    /// The rules, told, in order.
+    #[cfg(feature = "clash-api")]
+    pub(crate) fn rules(&self) -> impl Iterator<Item = &describe::About> {
+        self.rules.iter().map(|rule| &rule.about)
+    }
+
     /// Matches `sess` against the rules in order, sniffing through
     /// `sniffer`, resolving and setting route options as they say, until
     /// one decides.
@@ -563,6 +573,7 @@ impl Router {
         mut sniffer: Option<&mut dyn Sniffer>,
     ) -> Result<Stop> {
         let pre_match = sniffer.is_none();
+        sess.matched_rule = None;
         let mut resolved: Vec<IpAddr> = Vec::new();
         let mut facts = Facts::new(sess, &resolved);
         // The on_demand actions armed and not yet taken, and whether an
@@ -606,6 +617,7 @@ impl Router {
                     debug!("rule {} routes to {}", i, tag);
                     options.apply(sess);
                     sess.matched_rule_set = rule.matcher.narrow_rule_set(&facts);
+                    sess.matched_rule = Some(rule.about.matched.clone());
                     return Ok(Stop::Route(tag.clone()));
                 }
                 // Only pre-match bypasses; elsewhere a bypass with an
@@ -618,6 +630,7 @@ impl Router {
                     debug!("rule {} routes to {}", i, tag);
                     options.apply(sess);
                     sess.matched_rule_set = rule.matcher.narrow_rule_set(&facts);
+                    sess.matched_rule = Some(rule.about.matched.clone());
                     return Ok(Stop::Route(tag.clone()));
                 }
                 Action::Bypass(None) => {}
@@ -632,10 +645,12 @@ impl Router {
                 Action::Reject(reject) => {
                     let drop = reject.drops();
                     debug!("rule {} rejects{}", i, if drop { ", dropping" } else { "" });
+                    sess.matched_rule = Some(rule.about.matched.clone());
                     return Ok(Stop::Reject { drop });
                 }
                 Action::HijackDns => {
                     debug!("rule {} hijacks dns", i);
+                    sess.matched_rule = Some(rule.about.matched.clone());
                     return Ok(Stop::HijackDns);
                 }
                 Action::Sniff(action) => match sniffer.as_mut() {
