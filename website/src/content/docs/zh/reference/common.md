@@ -226,7 +226,7 @@ A DNS server. What it takes beyond its type and tag belongs to its type, and is 
 
 | 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
 | --- | --- | --- | --- |
-| `type` | `String` | 必填 | `udp`, `tcp`, `tls`, `https`, `quic`, `h3`, `local`, `hosts`, or sail's `smart_select`.<br/>`serde (rename = "type")` |
+| `type` | `String` | 必填 | `udp`, `tcp`, `tls`, `https`, `quic`, `h3`, `local`, `hosts`, or sail's `race`.<br/>`serde (rename = "type")` |
 | `tag` | `String` | Default::default() | Defaults to the type.<br/>`serde (default)` |
 | `options` | `Options` | 展开到当前对象，不是独立键 | —<br/>`serde (flatten)` |
 
@@ -263,6 +263,7 @@ Serde: `serde (deny_unknown_fields)`
 | `process_name` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
 | `process_path` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
 | `process_path_regex` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
+| `process_name_regex` | `Vec < String >` | Default::default() | A sail extension, as Mihomo's `PROCESS-NAME-REGEX`: regular expressions the program's name, its path's last part, matches.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
 | `package_name` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
 | `package_name_regex` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
 | `user` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
@@ -467,6 +468,7 @@ Serde: `serde (deny_unknown_fields)`
 | `process_name` | `Vec < String >` | Default::default() | The name of the program a connection comes from, its path's last part.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
 | `process_path` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
 | `process_path_regex` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
+| `process_name_regex` | `Vec < String >` | Default::default() | A sail extension, as Mihomo's `PROCESS-NAME-REGEX`: regular expressions the program's name, its path's last part, matches.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
 | `package_name` | `Vec < String >` | Default::default() | Android packages; no platform sail runs on tells them yet.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
 | `package_name_regex` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
 | `user` | `Vec < String >` | Default::default() | The user a connection's process runs as, by name and by id; no platform sail runs on tells them yet.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |

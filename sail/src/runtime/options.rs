@@ -181,23 +181,12 @@ pub struct Ws {
     pub half_close: bool,
 }
 
-/// Retrying DNS servers, and how a `smart_select` chooses among its
-/// members.
+/// Retrying DNS servers, and resolving both families.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Dns {
     /// Attempts per query to one server.
     pub max_retries: usize,
-    /// How often the preferred server is chosen again.
-    #[serde(with = "duration")]
-    pub reselect_interval: Duration,
-    /// Answers slower than this count against a server.
-    #[serde(with = "duration")]
-    pub slow_response: Duration,
-    /// Slow or failed answers in a row before switching server.
-    pub switch_threshold: usize,
-    /// Servers asked at once when falling back.
-    pub fallback_concurrency: usize,
     /// How long an AAAA answer is waited for after the A answer.
     #[serde(with = "duration")]
     pub dualstack_delay: Duration,
@@ -334,10 +323,6 @@ impl RuntimeOptions {
             ws: Ws { half_close: false },
             dns: Dns {
                 max_retries: 4,
-                reselect_interval: Duration::from_secs(30),
-                slow_response: Duration::from_millis(800),
-                switch_threshold: 3,
-                fallback_concurrency: 1,
                 dualstack_delay: Duration::from_millis(250),
             },
             stats: Stats {
@@ -525,12 +510,12 @@ mod tests {
             .set_all([
                 "relay.buffer_size=32",
                 "inbound.tcp_abort_on_close=true",
-                "dns.slow_response=1s",
+                "dns.dualstack_delay=1s",
             ])
             .unwrap();
         assert_eq!(options.relay.buffer_size, 32);
         assert!(options.inbound.tcp_abort_on_close);
-        assert_eq!(options.dns.slow_response, Duration::from_secs(1));
+        assert_eq!(options.dns.dualstack_delay, Duration::from_secs(1));
         // The rest stays as the profile has it.
         assert_eq!(
             options.relay.buffer_max_size,

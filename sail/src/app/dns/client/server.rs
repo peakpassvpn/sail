@@ -4,13 +4,12 @@
 
 use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, SocketAddr};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
 use serde_derive::Deserialize;
 
 use super::upstream::{Protocol, Upstream};
-use super::ServerSelectorState;
 use crate::config::model::{listable, parse_options, DnsServer, Prefix};
 use crate::net::DialOptions;
 use crate::runtime::RuntimeEnv;
@@ -45,10 +44,9 @@ pub(super) enum Kind {
     FakeIp(Arc<super::fakeip::FakeIpStore>),
     /// A sail extension: the member that answers best, chosen again as they
     /// fare.
-    SmartSelect {
-        members: Vec<String>,
-        state: Mutex<ServerSelectorState>,
-    },
+    /// Asks its members all at once, and takes the first to answer well,
+    /// as Mihomo and Surge ask a list of servers; a sail extension.
+    Race { members: Vec<String> },
 }
 
 /// Where a server is: an address, or a domain its resolver resolves.
@@ -177,7 +175,7 @@ struct FakeIpOptions {
 
 #[derive(Deserialize, Debug)]
 #[serde(deny_unknown_fields)]
-struct SmartSelectOptions {
+struct RaceOptions {
     #[serde(with = "listable")]
     servers: Vec<String>,
 }
@@ -194,7 +192,6 @@ impl Server {
         config: &DnsServer,
         defaults: &DialOptions,
         env: &RuntimeEnv,
-        tuning: &crate::runtime::options::Dns,
         fake_ips: Option<&Arc<super::fakeip::FakeIpStore>>,
     ) -> Result<Self> {
         let tag = &config.tag;
@@ -264,18 +261,12 @@ impl Server {
                 };
                 Kind::FakeIp(store)
             }
-            "smart_select" => {
-                let o: SmartSelectOptions = parse_options("dns server", tag, &config.options)?;
+            "race" => {
+                let o: RaceOptions = parse_options("dns server", tag, &config.options)?;
                 if o.servers.len() < 2 {
-                    return Err(err(anyhow!("servers: a smart_select takes two or more")));
+                    return Err(err(anyhow!("servers: a race takes two or more")));
                 }
-                Kind::SmartSelect {
-                    members: o.servers,
-                    state: Mutex::new(ServerSelectorState {
-                        tuning: tuning.clone(),
-                        ..Default::default()
-                    }),
-                }
+                Kind::Race { members: o.servers }
             }
             other => {
                 return Err(anyhow!(
@@ -293,7 +284,7 @@ impl Server {
     }
 
     /// The servers this one needs: the one that resolves its address, and
-    /// a smart_select's members.
+    /// a race's members.
     pub fn needs(&self) -> Vec<&str> {
         match &self.kind {
             Kind::Udp { address, .. } | Kind::Tcp { address, .. } => {
@@ -305,7 +296,7 @@ impl Server {
                 .iter()
                 .map(|r| r.server.as_str())
                 .collect(),
-            Kind::SmartSelect { members, .. } => members.iter().map(String::as_str).collect(),
+            Kind::Race { members } => members.iter().map(String::as_str).collect(),
             Kind::Local | Kind::Hosts(_) | Kind::FakeIp(_) => vec![],
         }
     }
@@ -318,7 +309,7 @@ impl std::fmt::Display for Server {
 }
 
 /// Checks what the servers name of each other: that each exists, that no
-/// smart_select is a member of another, and that no server needs itself,
+/// race is a member of another, and that no server needs itself,
 /// however far round.
 pub(super) fn check(servers: &HashMap<String, Arc<Server>>) -> Result<()> {
     for server in servers.values() {
@@ -330,11 +321,9 @@ pub(super) fn check(servers: &HashMap<String, Arc<Server>>) -> Result<()> {
                     needed
                 ));
             };
-            if matches!(server.kind, Kind::SmartSelect { .. })
-                && matches!(other.kind, Kind::SmartSelect { .. })
-            {
+            if matches!(server.kind, Kind::Race { .. }) && matches!(other.kind, Kind::Race { .. }) {
                 return Err(anyhow!(
-                    "dns.servers[{}]: [{}] is a smart_select too, and cannot be a member",
+                    "dns.servers[{}]: [{}] is a race too, and cannot be a member",
                     server.tag,
                     needed
                 ));

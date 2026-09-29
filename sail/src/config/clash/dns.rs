@@ -18,10 +18,10 @@
 //! `direct-nameserver-follow-policy`), else as a query goes. Servers with
 //! domains are resolved through `default-nameserver`.
 //!
-//! Where sail does otherwise: Mihomo races a list of servers and takes the
-//! first answer; sail's `smart_select` asks the one that has answered best
-//! and the others when it fails, which gives the same answers at another
-//! latency. Within a run of plain domain keys of `nameserver-policy`,
+//! A list of servers is sail's `race`, which asks them all at once and
+//! takes the first answer, as Mihomo does.
+//!
+//! Where sail does otherwise: within a run of plain domain keys of `nameserver-policy`,
 //! Mihomo's domain tree prefers the most specific; sail tries the keys
 //! most specific first. `dns.ipv6: false` leaves the instance's own
 //! lookups without IPv6 too, where Mihomo still resolves them for the
@@ -120,7 +120,7 @@ pub fn lower(
 /// A list of Mihomo's servers, lowered.
 #[derive(Debug, Clone, PartialEq)]
 enum Target {
-    /// A server, or a smart_select of several, by tag.
+    /// A server, or a race of several, by tag.
     Server(String),
     /// `rcode://`: an answer with this code and no records.
     Rcode(u16),
@@ -145,7 +145,7 @@ struct Servers<'a> {
     policies: &'a Policies,
     list: Vec<Value>,
     tags: HashSet<String>,
-    /// The smart_selects made, by their members.
+    /// The races made, by their members.
     selects: HashMap<Vec<String>, String>,
     /// `default-nameserver`, and where it is.
     default_nameserver: Option<(Vec<String>, String)>,
@@ -201,7 +201,7 @@ impl Servers<'_> {
                 None => {
                     let tag = at.to_string();
                     self.list.push(json!({
-                        "type": "smart_select", "tag": tag, "servers": members
+                        "type": "race", "tag": tag, "servers": members
                     }));
                     self.selects.insert(members, tag.clone());
                     tag

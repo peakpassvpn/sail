@@ -3,7 +3,7 @@ mod tests {
     use std::net::IpAddr;
     use std::time::Duration;
 
-    use super::{DnsClient, Kind, ServerSelectorState};
+    use super::{DnsClient, Kind};
     use crate::util::DnsMessageExt;
 
     fn dns(servers: serde_json::Value) -> crate::config::Dns {
@@ -31,7 +31,7 @@ mod tests {
             serde_json::json!({ "type": "local", "tag": "local" }),
             serde_json::json!({ "type": "hosts", "tag": "hosts",
                                 "predefined": { "a.example": ["10.0.0.1", "::1"] } }),
-            serde_json::json!({ "type": "smart_select", "tag": "best", "servers": ["udp", "tcp"] }),
+            serde_json::json!({ "type": "race", "tag": "best", "servers": ["udp", "tcp"] }),
         ];
         #[cfg(feature = "tls")]
         servers.push(serde_json::json!({
@@ -51,7 +51,7 @@ mod tests {
         assert_eq!(client.final_server, "udp");
         assert!(matches!(
             client.servers["best"].kind,
-            Kind::SmartSelect { .. }
+            Kind::Race { .. }
         ));
         #[cfg(feature = "dns-doh")]
         match &client.servers["doh"].kind {
@@ -125,14 +125,14 @@ mod tests {
             (
                 serde_json::json!([
                     { "type": "local", "tag": "l" },
-                    { "type": "smart_select", "tag": "s1", "servers": ["l", "s2"] },
-                    { "type": "smart_select", "tag": "s2", "servers": ["l", "l"] }
+                    { "type": "race", "tag": "s1", "servers": ["l", "s2"] },
+                    { "type": "race", "tag": "s2", "servers": ["l", "l"] }
                 ]),
-                "[s2] is a smart_select too",
+                "[s2] is a race too",
             ),
             (
-                serde_json::json!([{ "type": "smart_select", "tag": "s", "servers": ["x"] }]),
-                "a smart_select takes two or more",
+                serde_json::json!([{ "type": "race", "tag": "s", "servers": ["x"] }]),
+                "a race takes two or more",
             ),
         ] {
             let err = error(servers.clone());
@@ -182,28 +182,73 @@ mod tests {
         assert!(client.lookup("c.example").await.is_err());
     }
 
+    /// A UDP server answering every query with `code` and no records.
+    async fn failing_server(code: hickory_proto::op::ResponseCode) -> u16 {
+        let socket = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let port = socket.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            let mut buf = [0u8; 1500];
+            while let Ok((n, peer)) = socket.recv_from(&mut buf).await {
+                let request = Message::from_vec(&buf[..n]).unwrap();
+                let mut reply = DnsClient::reply(&request, &[], 0);
+                reply.set_response_code(code);
+                let _ = socket.send_to(&reply.to_vec().unwrap(), peer).await;
+            }
+        });
+        port
+    }
+
+    fn race_client(servers: serde_json::Value) -> DnsClient {
+        let config = crate::config::Config::from_json(
+            &serde_json::json!({ "dns": { "timeout": "2s", "servers": servers } }).to_string(),
+        )
+        .unwrap();
+        DnsClient::new(&config.dns, Default::default(), &Default::default()).unwrap()
+    }
+
     #[tokio::test]
-    async fn a_smart_select_falls_back_to_a_member_that_answers() {
+    async fn a_race_takes_the_first_member_to_answer_well() {
+        use hickory_proto::op::ResponseCode;
         // A port nothing listens on: no answer comes.
         let dead = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
         let dead_port = dead.local_addr().unwrap().port();
         drop(dead);
-        let config = crate::config::Config::from_json(
-            &serde_json::json!({ "dns": { "timeout": "200ms", "servers": [
-                { "type": "smart_select", "tag": "best", "servers": ["dead", "hosts"] },
-                { "type": "udp", "tag": "dead", "server": "127.0.0.1", "server_port": dead_port },
-                { "type": "hosts", "tag": "hosts", "predefined": { "a.example": "10.0.0.1" } }
-            ] } })
-            .to_string(),
-        )
-        .unwrap();
-        let client =
-            DnsClient::new(&config.dns, Default::default(), &Default::default()).unwrap();
-        assert_eq!(client.final_server, "best");
-        assert_eq!(
-            client.lookup("a.example").await.unwrap(),
-            ["10.0.0.1".parse::<IpAddr>().unwrap()]
-        );
+        let servfail = failing_server(ResponseCode::ServFail).await;
+        let refused = failing_server(ResponseCode::Refused).await;
+        let (good, _) = counting_server(300, false).await;
+        let client = race_client(serde_json::json!([
+            { "type": "race", "tag": "all",
+              "servers": ["dead", "servfail", "refused", "good"] },
+            { "type": "udp", "tag": "dead", "server": "127.0.0.1", "server_port": dead_port },
+            { "type": "udp", "tag": "servfail", "server": "127.0.0.1", "server_port": servfail },
+            { "type": "udp", "tag": "refused", "server": "127.0.0.1", "server_port": refused },
+            { "type": "udp", "tag": "good", "server": "127.0.0.1", "server_port": good },
+        ]));
+        assert_eq!(client.final_server, "all");
+        let started = std::time::Instant::now();
+        let answer = exchange(&client, "a.example", RecordType::A).await;
+        assert_eq!(answer_ips(&answer), ips(&["10.0.0.1"]));
+        // Not held up by the member that never answers.
+        assert!(started.elapsed() < Duration::from_secs(1), "{:?}", started.elapsed());
+
+        // NXDOMAIN is an answer: the first one wins.
+        let nxdomain = failing_server(ResponseCode::NXDomain).await;
+        let client = race_client(serde_json::json!([
+            { "type": "race", "tag": "all", "servers": ["nx", "dead"] },
+            { "type": "udp", "tag": "nx", "server": "127.0.0.1", "server_port": nxdomain },
+            { "type": "udp", "tag": "dead", "server": "127.0.0.1", "server_port": dead_port },
+        ]));
+        let answer = exchange(&client, "a.example", RecordType::A).await;
+        assert_eq!(answer.response_code(), ResponseCode::NXDomain);
+
+        // Every one failing: SERVFAIL to the client.
+        let client = race_client(serde_json::json!([
+            { "type": "race", "tag": "all", "servers": ["servfail", "refused"] },
+            { "type": "udp", "tag": "servfail", "server": "127.0.0.1", "server_port": servfail },
+            { "type": "udp", "tag": "refused", "server": "127.0.0.1", "server_port": refused },
+        ]));
+        let err = client.lookup("a.example").await.unwrap_err().to_string();
+        assert!(err.contains("every server failed"), "{}", err);
     }
 
     fn with_rules(rules: serde_json::Value) -> anyhow::Result<DnsClient> {
@@ -1395,44 +1440,6 @@ mod tests {
             { "type": "udp", "server": "8.8.8.8", "respect_rules": true, "detour": "proxy" }
         ]));
         assert!(err.contains("respect_rules: not with a detour"), "{}", err);
-    }
-
-    fn tags(tags: &[&str]) -> Vec<String> {
-        tags.iter().map(|t| t.to_string()).collect()
-    }
-
-    #[test]
-    fn selector_primary_switches_after_consecutive_failures() {
-        let servers = tags(&["a", "b"]);
-        let mut selector = ServerSelectorState::default();
-        assert_eq!(selector.select_primary_index(&servers), 0);
-        let threshold = crate::runtime::options::Dns::default()
-            .switch_threshold
-            .max(1);
-        for _ in 0..threshold {
-            selector.mark_failure("a", true);
-        }
-        assert_eq!(selector.select_primary_index(&servers), 1);
-    }
-
-    #[test]
-    fn selector_prefers_lower_latency_in_fallback_order() {
-        let servers = tags(&["a", "b", "c"]);
-        let mut selector = ServerSelectorState::default();
-        selector.mark_success("b", Duration::from_millis(30));
-        selector.mark_success("c", Duration::from_millis(450));
-        assert_eq!(selector.fallback_indices(&servers, 0), vec![1, 2]);
-    }
-
-    #[test]
-    fn selector_marks_slow_server_as_degraded() {
-        let mut selector = ServerSelectorState::default();
-        let tuning = crate::runtime::options::Dns::default();
-        let slow = tuning.slow_response + Duration::from_millis(50);
-        for _ in 0..tuning.switch_threshold.max(1) {
-            selector.mark_success("a", slow);
-        }
-        assert!(selector.is_degraded("a"));
     }
 
     /// A UDP server answering the `n`th A query with 10.0.0.`n`, TTL

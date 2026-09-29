@@ -92,7 +92,7 @@ impl DnsClient {
         let mut servers = HashMap::new();
         let mut fake_ip_store = None;
         for config in configs {
-            let server = Server::new(config, &dial, env, &tuning, fake_ips)?;
+            let server = Server::new(config, &dial, env, fake_ips)?;
             if let Kind::FakeIp(store) = &server.kind {
                 if fake_ip_store.replace(store.clone()).is_some() {
                     return Err(anyhow!(
@@ -457,12 +457,12 @@ impl DnsClient {
 
     // -- Asking servers --------------------------------------------------
 
-    /// Asks `server` `request`, within `time`; a smart_select asks its
-    /// members, as they have fared.
+    /// Asks `server` `request`, within `time`; a race asks its members.
+    /// Asking may resolve the server's own name, which asks again.
     #[async_recursion]
     async fn query(&self, server: &Server, request: &Message, time: Duration) -> Result<Answer> {
-        if let Kind::SmartSelect { members, state } = &server.kind {
-            return self.query_selected(members, state, request, time).await;
+        if let Kind::Race { members } = &server.kind {
+            return self.race(members, request, time).await;
         }
         match timeout(time, self.ask(server, request, time)).await {
             Ok(res) => res,
@@ -479,72 +479,42 @@ impl DnsClient {
             .unwrap_or_default()
     }
 
-    /// Asks the member that fares best, then the others, as many at once
-    /// as `fallback_concurrency` says, as they fare.
-    async fn query_selected(
-        &self,
-        members: &[String],
-        state: &std::sync::Mutex<ServerSelectorState>,
-        request: &Message,
-        time: Duration,
-    ) -> Result<Answer> {
-        let lock = || state.lock().unwrap_or_else(|e| e.into_inner());
-        let ask = |idx: usize| {
-            let tag = &members[idx];
-            async move {
+    /// Asks every member at once, and takes the first answer that is not
+    /// a failure, as Mihomo does: an error, a timeout, SERVFAIL or REFUSED
+    /// counts as none, and the others are waited for.
+    async fn race(&self, members: &[String], request: &Message, time: Duration) -> Result<Answer> {
+        let asks = members.iter().map(|tag| {
+            Box::pin(async move {
                 let server = self.server(tag)?;
-                let start = tokio::time::Instant::now();
-                // A member that answers it failed is as one that does not.
-                let answered =
-                    self.query(server, request, time)
-                        .await
-                        .and_then(|answer| match &answer {
-                            Answer::Message(m)
-                                if !matches!(
-                                    m.response_code(),
-                                    ResponseCode::NoError | ResponseCode::NXDomain
-                                ) =>
-                            {
-                                Err(anyhow!("{}", m.response_code()))
-                            }
-                            _ => Ok(answer),
-                        });
+                let answered = match timeout(time, self.ask(server, request, time)).await {
+                    Ok(answered) => answered,
+                    Err(_) => Err(anyhow!("timeout")),
+                };
                 match answered {
-                    Ok(answer) => {
-                        lock().mark_success(tag, start.elapsed());
-                        Ok((idx, answer))
+                    Ok(Answer::Message(m))
+                        if matches!(
+                            m.response_code(),
+                            ResponseCode::ServFail | ResponseCode::Refused
+                        ) =>
+                    {
+                        Err(anyhow!("[{}]: {}", tag, m.response_code()))
                     }
-                    Err(e) => {
-                        let is_timeout = e.to_string().contains("timeout");
-                        lock().mark_failure(tag, is_timeout);
-                        debug!("{} failed with [{}]: {}", Self::question(request), tag, e);
-                        Err(anyhow!("[{}]: {}", tag, e))
-                    }
+                    Ok(answer) => Ok(answer),
+                    Err(e) => Err(anyhow!("[{}]: {}", tag, e)),
                 }
-            }
-        };
-
-        let preferred = lock().select_primary_index(members);
-        let mut errors = Vec::new();
-        match ask(preferred).await {
-            Ok((_, answer)) => return Ok(answer),
-            Err(e) => errors.push(e.to_string()),
+            })
+        });
+        match select_ok(asks).await {
+            Ok((answer, _)) => Ok(answer),
+            Err(e) => Err(anyhow!(
+                "{}: every server failed, the last {}",
+                Self::question(request),
+                e
+            )),
         }
-        let fallback = lock().fallback_indices(members, preferred);
-        for batch in fallback.chunks(self.tuning.fallback_concurrency.max(1)) {
-            let tasks = batch.iter().map(|idx| Box::pin(ask(*idx)));
-            match select_ok(tasks).await {
-                Ok(((idx, answer), _)) => {
-                    lock().set_primary(&members[idx]);
-                    return Ok(answer);
-                }
-                Err(e) => errors.push(e.to_string()),
-            }
-        }
-        Err(anyhow!("all dns queries failed: {}", errors.join("; ")))
     }
 
-    /// Asks one server that is not a smart_select, within `time`.
+    /// Asks one server that is not a race, within `time`.
     async fn ask(&self, server: &Server, request: &Message, time: Duration) -> Result<Answer> {
         let query = request
             .queries()
@@ -666,7 +636,7 @@ impl DnsClient {
                 }
                 Err(last_err.unwrap_or_else(|| anyhow!("no answer")))
             }
-            Kind::SmartSelect { .. } => unreachable!("query() takes a smart_select"),
+            Kind::Race { .. } => unreachable!("query() takes a race"),
         }
     }
 

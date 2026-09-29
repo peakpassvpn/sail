@@ -646,7 +646,7 @@ fn a_fake_ip_policy_and_fallback_config_lowers_to_rules() {
     };
     assert_eq!(
         server("dns.nameserver"),
-        serde_json::json!({ "type": "smart_select", "tag": "dns.nameserver",
+        serde_json::json!({ "type": "race", "tag": "dns.nameserver",
             "servers": ["https://dns.alidns.com/dns-query", "https://doh.pub/dns-query"] })
     );
     assert_eq!(
@@ -744,7 +744,7 @@ fn servers_are_read_as_mihomo_reads_them() {
         .as_array()
         .unwrap()
         .iter()
-        .filter(|s| s["type"] != "smart_select" && s["tag"] != "114.114.114.114")
+        .filter(|s| s["type"] != "race" && s["tag"] != "114.114.114.114")
         .cloned()
         .collect();
     assert_eq!(
