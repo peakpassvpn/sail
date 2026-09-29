@@ -73,6 +73,7 @@ jobs:
             outbound-load-balance,outbound-redirect \
             outbound-urltest,outbound-redirect \
             config-clash,inbound-mixed,outbound-direct \
+            config-surge,inbound-mixed,outbound-direct \
             outbound-provider,outbound-select,outbound-direct,inbound-socks
           do
             echo "::group::$features"
