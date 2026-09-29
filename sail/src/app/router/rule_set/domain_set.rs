@@ -45,6 +45,11 @@ impl DomainSet {
         })
     }
 
+    /// How many domains it holds: its leaves.
+    pub(crate) fn len(&self) -> usize {
+        self.leaves.iter().map(|w| w.count_ones() as usize).sum()
+    }
+
     fn bit(words: &[u64], i: usize) -> Option<bool> {
         words.get(i / 64).map(|w| w & (1 << (i % 64)) != 0)
     }

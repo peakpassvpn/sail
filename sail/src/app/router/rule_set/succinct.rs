@@ -71,6 +71,11 @@ impl Succinct {
         })
     }
 
+    /// How many domains and suffixes it holds: its leaves.
+    pub(crate) fn len(&self) -> usize {
+        self.leaves.iter().map(|w| w.count_ones() as usize).sum()
+    }
+
     /// Whether `domain` matches one of the domains or suffixes.
     pub(crate) fn matches(&self, domain: &str) -> bool {
         let key: String = domain.chars().rev().collect();

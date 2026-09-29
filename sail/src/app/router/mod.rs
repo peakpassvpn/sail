@@ -26,6 +26,10 @@ pub(crate) mod rule_set {
         pub(crate) fn matches(&self, _domain: &str) -> bool {
             match *self {}
         }
+
+        pub(crate) fn len(&self) -> usize {
+            match *self {}
+        }
     }
 
     /// What rule-sets would be downloaded with.
@@ -561,6 +565,7 @@ impl Router {
                 Action::Route(tag, options) => {
                     debug!("rule {} routes to {}", i, tag);
                     options.apply(sess);
+                    sess.matched_rule_set = rule.matcher.narrow_rule_set(&facts);
                     return Ok(Stop::Route(tag.clone()));
                 }
                 // Only pre-match bypasses; elsewhere a bypass with an
@@ -572,6 +577,7 @@ impl Router {
                 Action::Bypass(Some((tag, options))) => {
                     debug!("rule {} routes to {}", i, tag);
                     options.apply(sess);
+                    sess.matched_rule_set = rule.matcher.narrow_rule_set(&facts);
                     return Ok(Stop::Route(tag.clone()));
                 }
                 Action::Bypass(None) => {}
@@ -903,6 +909,55 @@ mod tests {
 
     async fn pick(router: &Router, sess: &mut Session) -> Decision {
         router.pick_route(sess, &mut NoSniffer).await.unwrap()
+    }
+
+    /// The narrow rule-set a route rule matched by goes with the
+    /// connection, for the smart group's sites.
+    #[cfg(feature = "rule-set")]
+    #[tokio::test]
+    async fn a_route_rule_tells_the_narrow_rule_set_it_matched_by() {
+        let config = crate::config::Config::from_json(
+            &serde_json::json!({
+                "outbounds": [{ "type": "direct", "tag": "a" }, { "type": "direct", "tag": "b" }],
+                "route": {
+                    "rule_set": [
+                        { "tag": "video", "type": "inline",
+                          "rules": [{ "domain_suffix": ["video.test"] }] },
+                        { "tag": "nets", "type": "inline",
+                          "rules": [{ "ip_cidr": ["10.0.0.0/8"] }] },
+                    ],
+                    "rules": [
+                        { "rule_set": ["nets", "video"], "outbound": "a" },
+                        { "domain": ["plain.test"], "outbound": "a" },
+                    ],
+                    "final": "b",
+                },
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let env = RuntimeEnv::default();
+        let sets =
+            rule_set::RuleSets::load(&config.route.rule_set, &Default::default(), &env).unwrap();
+        let dns = DnsClient::new(&config.dns, Default::default(), &env)
+            .unwrap()
+            .into_shared();
+        let router = Router::with_rule_sets(&config.route, dns, &env, &sets).unwrap();
+        let mut sess = to("www.video.test:443");
+        assert_eq!(
+            pick(&router, &mut sess).await,
+            Decision::Route(Some("a".into()))
+        );
+        assert_eq!(sess.matched_rule_set.as_deref(), Some("video"));
+        let mut sess = to("10.1.1.1:443");
+        assert_eq!(
+            pick(&router, &mut sess).await,
+            Decision::Route(Some("a".into()))
+        );
+        assert_eq!(sess.matched_rule_set, None);
+        let mut sess = to("plain.test:443");
+        pick(&router, &mut sess).await;
+        assert_eq!(sess.matched_rule_set, None);
     }
 
     #[tokio::test]

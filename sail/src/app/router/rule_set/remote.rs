@@ -78,7 +78,7 @@ impl Remote {
             interval: config.update_interval.unwrap_or(DEFAULT_INTERVAL),
             client,
             cache: cache.clone(),
-            set: HotResource::new(RuleSet { rules: Vec::new() }),
+            set: HotResource::new(RuleSet::new(Vec::new())),
             state: Mutex::new(State::default()),
         };
         // A cached copy that does not read is as good as none.

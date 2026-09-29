@@ -533,6 +533,31 @@ impl Condition {
         }
     }
 
+    /// How many domains its default rules name, however deep; `None` when
+    /// any of them matches addresses, and so more than sites.
+    #[cfg_attr(not(feature = "rule-set"), allow(dead_code))]
+    pub(crate) fn domain_count(&self) -> Option<usize> {
+        match self {
+            Condition::Default(c) => c.domain_count(),
+            Condition::Logical { rules, .. } => rules
+                .iter()
+                .try_fold(0, |n, r| r.domain_count().map(|m| n + m)),
+        }
+    }
+
+    /// The tag of a narrow rule-set of this rule's that `facts` matches,
+    /// if any: the first such, however deep.
+    #[cfg(feature = "rule-set")]
+    fn narrow_rule_set(&self, facts: &Facts) -> Option<std::sync::Arc<str>> {
+        match self {
+            Condition::Default(c) => c.narrow_rule_set(facts),
+            Condition::Logical { rules, invert, .. } if !invert => {
+                rules.iter().find_map(|r| r.narrow_rule_set(facts))
+            }
+            Condition::Logical { .. } => None,
+        }
+    }
+
     /// The conditions a rule-set of this rule alone merges into the rule
     /// that names it: a default rule's, not inverted, naming no rule-set.
     #[cfg_attr(not(feature = "rule-set"), allow(dead_code))]
@@ -576,8 +601,9 @@ pub(crate) struct Conditions {
     process_path_regex: Vec<Pattern>,
     process_name_regex: Vec<Pattern>,
     query_types: Vec<u16>,
+    /// Each by its tag.
     #[cfg(feature = "rule-set")]
-    rule_sets: Vec<super::rule_set::SharedRuleSet>,
+    rule_sets: Vec<(std::sync::Arc<str>, super::rule_set::SharedRuleSet)>,
     #[cfg(feature = "rule-set")]
     ip_match_source: bool,
     invert: bool,
@@ -654,7 +680,7 @@ impl Conditions {
         let rule_sets = rule
             .rule_set
             .iter()
-            .map(|tag| ctx.rule_sets.get(tag))
+            .map(|tag| ctx.rule_sets.get(tag).map(|set| (tag.as_str().into(), set)))
             .collect::<Result<_>>()
             .map_err(|e| anyhow!("{}: {}", field("rule_set"), e))?;
         #[cfg(not(feature = "rule-set"))]
@@ -814,6 +840,34 @@ impl Conditions {
         false
     }
 
+    /// How many domains it names; `None` when it matches addresses too.
+    fn domain_count(&self) -> Option<usize> {
+        if self.has_ip_cidr() || !self.source_ip_cidr.is_empty() || self.source_ip_is_private {
+            return None;
+        }
+        let d = &self.domains;
+        Some(
+            d.full.len()
+                + d.suffix.len()
+                + d.subdomain.len()
+                + d.keyword.len()
+                + self.domain_regex.len()
+                + self.succinct.as_ref().map_or(0, |s| s.len()),
+        )
+    }
+
+    /// The tag of the first of its narrow rule-sets that `facts` matches.
+    #[cfg(feature = "rule-set")]
+    fn narrow_rule_set(&self, facts: &Facts) -> Option<std::sync::Arc<str>> {
+        if self.invert {
+            return None;
+        }
+        self.rule_sets.iter().find_map(|(tag, set)| {
+            let set = set.load();
+            (set.is_narrow() && set.matches(facts, self.ip_match_source)).then(|| tag.clone())
+        })
+    }
+
     /// Whether it has conditions on a destination address given as IPs.
     pub(crate) fn has_ip_cidr(&self) -> bool {
         !self.ip_cidr.is_empty()
@@ -934,7 +988,7 @@ impl Conditions {
             Some(groups) if !self.rule_sets.is_empty() => self
                 .rule_sets
                 .iter()
-                .any(|set| set.load().matches_with(groups, facts, self.ip_match_source)),
+                .any(|(_, set)| set.load().matches_with(groups, facts, self.ip_match_source)),
             Some(groups) => groups.done(),
         };
         matched != self.invert
@@ -981,6 +1035,19 @@ impl Matcher {
 
     pub fn matches(&self, facts: &Facts) -> bool {
         self.0.matches(facts, false)
+    }
+
+    /// The tag of a narrow rule-set (see `RuleSet::is_narrow`) the rule
+    /// names that `facts`, which the rule matches, match: the site's
+    /// group, for the smart group.
+    pub fn narrow_rule_set(&self, facts: &Facts) -> Option<std::sync::Arc<str>> {
+        #[cfg(feature = "rule-set")]
+        return self.0.narrow_rule_set(facts);
+        #[cfg(not(feature = "rule-set"))]
+        {
+            let _ = facts;
+            None
+        }
     }
 }
 

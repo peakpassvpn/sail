@@ -342,6 +342,10 @@ pub struct Session {
     pub tls_alpn: Option<String>,
     /// How the routing rules said the connection is to be carried.
     pub route: RouteOptions,
+    /// The narrow rule-set by which the rule that routed the connection
+    /// matched, if any: the site it belongs to, as the smart group keeps
+    /// one member per site.
+    pub matched_rule_set: Option<std::sync::Arc<str>>,
 }
 
 /// How the routing rules said a connection is to be carried: their route
@@ -393,6 +397,7 @@ impl Clone for Session {
             skip_resolve: self.skip_resolve,
             tls_alpn: self.tls_alpn.clone(),
             route: self.route.clone(),
+            matched_rule_set: self.matched_rule_set.clone(),
         }
     }
 }
@@ -422,6 +427,7 @@ impl Default for Session {
             skip_resolve: false,
             tls_alpn: None,
             route: RouteOptions::default(),
+            matched_rule_set: None,
         }
     }
 }

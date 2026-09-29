@@ -41,21 +41,54 @@ impl SuccinctSet {
             SuccinctSet::Mihomo(set) => set.matches(domain),
         }
     }
+
+    /// How many domains and suffixes it holds.
+    pub(crate) fn len(&self) -> usize {
+        match self {
+            SuccinctSet::Sing(set) => set.len(),
+            SuccinctSet::Mihomo(set) => set.len(),
+        }
+    }
 }
+
+/// A rule-set of at most this many domains, and no addresses, is narrow.
+pub(crate) const NARROW_DOMAINS: usize = 2000;
 
 /// The rules of one rule-set.
 pub(crate) struct RuleSet {
     rules: Vec<Condition>,
+    /// Whether it names a few sites rather than a region or a category:
+    /// some domains, at most `NARROW_DOMAINS`, and no addresses. The smart
+    /// group keeps the sites of a narrow rule-set on one member.
+    narrow: bool,
 }
 
 impl RuleSet {
+    pub(crate) fn new(rules: Vec<Condition>) -> Self {
+        let mut domains = 0usize;
+        let mut addresses = false;
+        for rule in &rules {
+            match rule.domain_count() {
+                Some(n) => domains += n,
+                None => addresses = true,
+            }
+        }
+        let narrow = !addresses && (1..=NARROW_DOMAINS).contains(&domains);
+        Self { rules, narrow }
+    }
+
     pub(crate) fn from_rules(rules: &[config::HeadlessRule]) -> Result<Self> {
         let rules = rules
             .iter()
             .enumerate()
             .map(|(i, r)| rule::from_source(r, &format!("rules[{}]", i)))
             .collect::<Result<_>>()?;
-        Ok(Self { rules })
+        Ok(Self::new(rules))
+    }
+
+    /// Whether it is narrow: see `narrow`.
+    pub(crate) fn is_narrow(&self) -> bool {
+        self.narrow
     }
 
     /// Reads a rule-set of `format` from `data`; one of Clash's formats is
@@ -68,13 +101,9 @@ impl RuleSet {
         match format {
             RuleSetFormat::Mrs | RuleSetFormat::ClashYaml | RuleSetFormat::ClashText => {
                 let behavior = behavior.ok_or_else(|| anyhow!("behavior: missing"))?;
-                Ok(Self {
-                    rules: clash::read(data, format, behavior)?,
-                })
+                Ok(Self::new(clash::read(data, format, behavior)?))
             }
-            RuleSetFormat::Binary => Ok(Self {
-                rules: srs::read(data)?,
-            }),
+            RuleSetFormat::Binary => Ok(Self::new(srs::read(data)?)),
             RuleSetFormat::Source => {
                 let source: config::SourceRuleSet = serde_json::from_slice(data)
                     .map_err(|e| anyhow!("invalid source rule-set: {}", e))?;
@@ -503,10 +532,115 @@ mod tests {
         let version = sets.subscribe("s").unwrap();
         sets.get("s")
             .unwrap()
-            .publish(Arc::new(RuleSet { rules: Vec::new() }));
+            .publish(Arc::new(RuleSet::new(Vec::new())));
         assert!(version.has_changed().unwrap());
         assert!(sets.ip_ranges("s").unwrap().is_empty());
         assert!(sets.subscribe("t").is_err());
+    }
+
+    /// A rule-set of a few domains and no addresses names sites; one of
+    /// many domains, or with addresses, a region or a category. A rule
+    /// that matched by a narrow one says which.
+    #[test]
+    fn narrow_rule_sets_name_the_sites_a_rule_matched() {
+        let many: Vec<String> = (0..=NARROW_DOMAINS)
+            .map(|i| format!("d{}.test", i))
+            .collect();
+        let m = rule(
+            serde_json::json!({ "rule_set": ["broad", "addresses", "netflix", "logical"],
+                                "outbound": "o" }),
+            serde_json::json!([
+                { "tag": "broad", "rules": [{ "domain_suffix": many }] },
+                { "tag": "addresses", "rules": [
+                    { "domain_suffix": ["example.com"], "ip_cidr": ["10.0.0.0/8"] }
+                ] },
+                { "tag": "netflix", "rules": [
+                    { "domain_suffix": ["netflix.com", "nflxvideo.net", "example.com"] }
+                ] },
+                { "tag": "logical", "rules": [{ "type": "logical", "mode": "or", "rules": [
+                    { "domain": ["a.example.org"] }, { "domain_keyword": ["example"] }
+                ] }] }
+            ]),
+        );
+        let site = |domain: &str| m.narrow_rule_set(&at(domain, 443, Tcp));
+        assert_eq!(site("www.netflix.com").as_deref(), Some("netflix"));
+        // Matched by the broad sets first, but they name no site.
+        assert_eq!(site("example.com").as_deref(), Some("netflix"));
+        assert_eq!(site("d7.test"), None);
+        assert_eq!(site("a.example.org").as_deref(), Some("logical"));
+        assert_eq!(site("nothing.test"), None);
+
+        let narrow = |rules: serde_json::Value| {
+            let rules: Vec<config::HeadlessRule> = serde_json::from_value(rules).unwrap();
+            RuleSet::from_rules(&rules).unwrap().is_narrow()
+        };
+        assert!(narrow(serde_json::json!([{ "domain": ["a.test"] }])));
+        assert!(!narrow(serde_json::json!([])));
+        assert!(!narrow(serde_json::json!([{ "port": [443] }])));
+        assert!(!narrow(
+            serde_json::json!([{ "source_ip_cidr": ["10.0.0.0/8"] }])
+        ));
+        assert!(!narrow(serde_json::json!([{ "domain_suffix": many }])));
+    }
+
+    /// A download that brings a set of another size makes it narrow, or
+    /// not, from then on.
+    #[test]
+    fn a_rule_set_replaced_is_measured_again() {
+        let configs: Vec<config::RuleSet> = serde_json::from_value(serde_json::json!([
+            { "tag": "s", "rules": [{ "domain_suffix": ["example.com"] }] }
+        ]))
+        .unwrap();
+        let sets =
+            RuleSets::load(&configs, &HttpClients::default(), &RuntimeEnv::default()).unwrap();
+        let set = sets.get("s").unwrap();
+        assert!(set.load().is_narrow());
+        let many: Vec<String> = (0..=NARROW_DOMAINS)
+            .map(|i| format!("d{}.test", i))
+            .collect();
+        let rules: Vec<config::HeadlessRule> =
+            serde_json::from_value(serde_json::json!([{ "domain": many }])).unwrap();
+        set.publish(Arc::new(RuleSet::from_rules(&rules).unwrap()));
+        assert!(!set.load().is_narrow());
+    }
+
+    /// The domains of binary sets are counted in their compact form.
+    #[test]
+    fn binary_sets_are_measured_too() {
+        let read = |file: &str, format, behavior| {
+            let data = std::fs::read(format!("{}/{}", FIXTURES, file)).unwrap();
+            RuleSet::read(&data, format, behavior).unwrap()
+        };
+        let count =
+            |set: &RuleSet| -> usize { set.rules.iter().filter_map(|r| r.domain_count()).sum() };
+        // Its source has 2073 domains, suffixes, keywords and regexes.
+        let srs = read("domains.srs", RuleSetFormat::Binary, None);
+        let source = read("domains.json", RuleSetFormat::Source, None);
+        // The trie keeps a domain that is also a suffix once: about as many.
+        let (binary, source) = (count(&srs) as f64, count(&source) as f64);
+        assert!(
+            (binary - source).abs() / source < 0.05,
+            "{} {}",
+            binary,
+            source
+        );
+        assert!(!srs.is_narrow());
+        let mrs = read(
+            "geosite-telegram.mrs",
+            RuleSetFormat::Mrs,
+            Some(ClashBehavior::Domain),
+        );
+        let lines = std::fs::read_to_string(format!("{}/geosite-telegram.list", FIXTURES)).unwrap();
+        let listed = lines.lines().filter(|l| !l.trim().is_empty()).count();
+        // A suffix (`+.telegram.org`) is two keys there: the domain and
+        // its subdomains.
+        assert!(
+            (listed..=2 * listed).contains(&count(&mrs)),
+            "{}",
+            count(&mrs)
+        );
+        assert!(mrs.is_narrow());
+        assert!(!read("ips.srs", RuleSetFormat::Binary, None).is_narrow());
     }
 
     /// sing-box's TestRuleSetShapeBoundary: one plain rule merges with the
