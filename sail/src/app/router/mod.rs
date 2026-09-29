@@ -1433,7 +1433,8 @@ mod tests {
         let router = router(serde_json::json!([
             { "protocol": "tls", "outbound": "a" },
             { "action": "sniff" },
-            { "protocol": ["quic", "tls"], "port": 443, "outbound": "a" },
+            // Not quic: builds without btls take quic as a config error.
+            { "protocol": ["http", "tls"], "port": 443, "outbound": "a" },
         ]));
         let mut sniffer = FakeSniffer {
             domain: "www.example.com",
