@@ -140,7 +140,7 @@ Sail 与 sing-box 的对比已经完成。当前结果表明：
 | 优先级 | 项目 |
 | --- | --- |
 | 高 | DoT；DoQ；DoH3 |
-| 中 | DHCP 上游；ECS |
+| 中 | ECS（已完成）；DHCP 上游（2026-09-30 决定暂不做：sing-box 真实模板 0/47、Clash 配置 1/100 且为 Mihomo 文档示例；需 68 端口与绑定网卡，移动端做不了；配置 `dhcp` 服务器或 `dhcp://网卡` 仍报错，有需求再做） |
 | 不支持 | mDNS；systemd-resolved 集成 |
 
 **策略组**
