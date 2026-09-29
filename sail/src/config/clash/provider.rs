@@ -239,42 +239,7 @@ fn provider(name: &str, f: &mut Fields, policies: &Policies) -> Result<(Value, C
 /// The rules of an inline rule-provider, as a rule-set's.
 fn inline(payload: &[String], behavior: ClashBehavior, at: &str) -> Result<Value> {
     match behavior {
-        ClashBehavior::Domain => {
-            let mut rule = Map::new();
-            let (mut domain, mut suffix, mut regex) = (Vec::new(), Vec::new(), Vec::new());
-            for entry in payload {
-                let entry = entry.trim().to_ascii_lowercase();
-                if let Some(base) = entry.strip_prefix("+.") {
-                    suffix.push(base.to_string());
-                } else if entry.starts_with('.') {
-                    suffix.push(entry);
-                } else if entry.split('.').any(|l| l == "*") {
-                    let labels: Vec<String> = entry
-                        .split('.')
-                        .map(|l| {
-                            if l == "*" {
-                                "[^.]+".to_string()
-                            } else {
-                                regex_escape(l)
-                            }
-                        })
-                        .collect();
-                    regex.push(format!("^{}$", labels.join("\\.")));
-                } else if !entry.is_empty() {
-                    domain.push(entry);
-                }
-            }
-            for (key, list) in [
-                ("domain", domain),
-                ("domain_suffix", suffix),
-                ("domain_regex", regex),
-            ] {
-                if !list.is_empty() {
-                    rule.insert(key.into(), json!(list));
-                }
-            }
-            Ok(json!([rule]))
-        }
+        ClashBehavior::Domain => Ok(json!([domains(payload)])),
         ClashBehavior::Ipcidr => Ok(json!([{ "ip_cidr": payload }])),
         ClashBehavior::Classical => payload
             .iter()
@@ -287,6 +252,46 @@ fn inline(payload: &[String], behavior: ClashBehavior, at: &str) -> Result<Value
             .collect::<Result<Vec<_>>>()
             .map(Value::Array),
     }
+}
+
+/// Mihomo's domain patterns, as its domain sets match them, as a rule's
+/// conditions: `+.a` is a and its subdomains, `.a` its subdomains alone,
+/// a `*` label any one label, and anything else the domain itself.
+pub fn domains(patterns: &[String]) -> Map<String, Value> {
+    let mut rule = Map::new();
+    let (mut domain, mut suffix, mut regex) = (Vec::new(), Vec::new(), Vec::new());
+    for entry in patterns {
+        let entry = entry.trim().to_ascii_lowercase();
+        if let Some(base) = entry.strip_prefix("+.") {
+            suffix.push(base.to_string());
+        } else if entry.starts_with('.') {
+            suffix.push(entry);
+        } else if entry.split('.').any(|l| l == "*") {
+            let labels: Vec<String> = entry
+                .split('.')
+                .map(|l| {
+                    if l == "*" {
+                        "[^.]+".to_string()
+                    } else {
+                        regex_escape(l)
+                    }
+                })
+                .collect();
+            regex.push(format!("^{}$", labels.join("\\.")));
+        } else if !entry.is_empty() {
+            domain.push(entry);
+        }
+    }
+    for (key, list) in [
+        ("domain", domain),
+        ("domain_suffix", suffix),
+        ("domain_regex", regex),
+    ] {
+        if !list.is_empty() {
+            rule.insert(key.into(), json!(list));
+        }
+    }
+    rule
 }
 
 fn regex_escape(s: &str) -> String {

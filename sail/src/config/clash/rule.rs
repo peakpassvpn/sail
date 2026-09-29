@@ -176,8 +176,40 @@ pub(super) fn headless(line: &str) -> Result<Map<String, Value>> {
     }
 }
 
+/// A rule of a list that matches domains alone, as `dns.fake-ip-filter`
+/// holds them in rule mode: its condition, none for `MATCH`, and its
+/// target, as written.
+pub(super) fn domain_rule(
+    line: &str,
+    sets: &mut Sets,
+) -> Result<(Option<Map<String, Value>>, String)> {
+    let s = split(line, true);
+    if s.target.is_empty() {
+        return Err(anyhow!("{:?}: no target", line));
+    }
+    let target = s.target.to_string();
+    match s.kind.as_str() {
+        "MATCH" => Ok((None, target)),
+        "DOMAIN" | "DOMAIN-SUFFIX" | "DOMAIN-KEYWORD" | "DOMAIN-REGEX" | "DOMAIN-WILDCARD"
+        | "GEOSITE" => Ok((Some(condition(&s, sets)?.0), target)),
+        "RULE-SET" => {
+            if sets.provider(&s.payload)? == ClashBehavior::Ipcidr {
+                return Err(anyhow!(
+                    "RULE-SET: {:?} is a rule-set of IP prefixes, not of domains",
+                    s.payload
+                ));
+            }
+            Ok((Some(condition(&s, sets)?.0), target))
+        }
+        other => Err(anyhow!(
+            "{} rules match no domain; only domain rules are allowed here",
+            other
+        )),
+    }
+}
+
 /// A rule that holds where `condition` does not.
-fn not(condition: Map<String, Value>) -> Map<String, Value> {
+pub(super) fn not(condition: Map<String, Value>) -> Map<String, Value> {
     let mut rule = Map::new();
     rule.insert("type".into(), json!("logical"));
     rule.insert("mode".into(), json!("and"));

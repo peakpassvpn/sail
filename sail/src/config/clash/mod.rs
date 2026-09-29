@@ -16,6 +16,7 @@ use serde_json::{json, Map, Value};
 
 use super::model::Config;
 
+mod dns;
 mod fields;
 mod general;
 mod group;
@@ -42,6 +43,7 @@ pub fn parse(s: &str) -> Result<Config> {
     let providers = proxy_provider::lower(&mut doc, &mut out, &mut warnings)?;
     let groups = group::lower(&mut doc, &proxies, &providers, &mut out, &mut warnings)?;
     let mut sets = provider::lower(&mut doc, &groups, &mut out, &mut warnings)?;
+    dns::lower(&mut doc, &groups, &mut sets, &mut out, &mut warnings)?;
     rule::lower(&mut doc, &groups, &mut sets, &mut out, &mut warnings)?;
     out.rule_sets.extend(sets.into_geo_sets());
     doc.finish(general::TOP, |key| holders.contains(key), &mut warnings)?;

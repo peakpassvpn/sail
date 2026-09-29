@@ -78,7 +78,6 @@ pub fn lower(doc: &mut Fields, out: &mut Lowered, warnings: &mut Vec<String>) ->
     if let Some(mark) = doc.int::<u32>("routing-mark")? {
         out.route.insert("default_mark".into(), json!(mark));
     }
-    dns(doc, out)?;
     off_while_unimplemented(doc, "tun")?;
     off_while_unimplemented(doc, "sniffer")?;
     Ok(())
@@ -193,29 +192,6 @@ fn mode(doc: &mut Fields, out: &mut Lowered) -> Result<()> {
         }
     };
     out.mode = Some(name.to_string());
-    Ok(())
-}
-
-/// Mihomo's DNS module. Off, as by default, names resolve as the system
-/// resolves them, to IPv6 addresses too unless `ipv6: false`.
-fn dns(doc: &mut Fields, out: &mut Lowered) -> Result<()> {
-    let ipv6 = doc.bool("ipv6")?.unwrap_or(true);
-    if let Some(mut dns) = doc.map("dns")? {
-        if dns.bool("enable")?.unwrap_or(false) {
-            return Err(anyhow!(
-                "dns: sail does not implement Mihomo's DNS module yet; set enable: false"
-            ));
-        }
-        // Off, its other fields change nothing.
-        drop(dns);
-    }
-    out.dns = json!({
-        "servers": [{ "type": "local", "tag": "system" }],
-        "strategy": if ipv6 { "prefer_ipv4" } else { "ipv4_only" },
-    })
-    .as_object()
-    .cloned()
-    .unwrap_or_default();
     Ok(())
 }
 
