@@ -895,7 +895,6 @@ fn what_sail_does_not_implement_of_dns_is_warned_of() {
         [
             "dns.prefer-h3: sail does not implement this field; ignored",
             "dns.cache-algorithm: sail does not implement this field; ignored",
-            "dns.listen: sail has no DNS listener yet; 0.0.0.0:53 is not served",
             "tls://1.1.1.1#disable-reuse=true&x=1: disable-reuse: sail does not implement this \
              parameter; ignored",
             "tls://1.1.1.1#disable-reuse=true&x=1: x: not a parameter Mihomo takes; ignored",
@@ -1430,4 +1429,38 @@ fn hosts_mistakes_name_the_field() {
         .warnings
         .iter()
         .any(|w| w.contains("dns.use-hosts: false")));
+}
+
+#[test]
+fn dns_listen_is_a_direct_inbound_hijacked() {
+    for (listen, address) in [
+        ("0.0.0.0:1053", Some(("0.0.0.0", 1053))),
+        (":53", Some(("::", 53))),
+        ("'[::1]:5353'", Some(("::1", 5353))),
+        ("127.0.0.1:0", None),
+    ] {
+        let config = load(&format!(
+            "dns: {{ enable: true, listen: {}, nameserver: [223.5.5.5] }}\nrules: [\"MATCH,DIRECT\"]",
+            listen
+        ));
+        let inbound = config.inbounds.iter().find(|i| i.tag == "DEFAULT-DNS");
+        match address {
+            None => assert!(inbound.is_none(), "{}", listen),
+            Some((host, port)) => {
+                let inbound = inbound.unwrap_or_else(|| panic!("{}", listen));
+                assert_eq!(inbound.protocol, "direct");
+                assert_eq!(inbound.listen.as_deref(), Some(host), "{}", listen);
+                assert_eq!(inbound.listen_port, Some(port), "{}", listen);
+                let rules = all_rules(&config);
+                assert_eq!(rules[0]["inbound"], serde_json::json!(["DEFAULT-DNS"]));
+                assert_eq!(rules[0]["action"], "hijack-dns");
+            }
+        }
+    }
+    let err = error("dns: { enable: true, listen: 'nowhere' }");
+    assert!(
+        err.contains("dns.listen: \"nowhere\" names no port"),
+        "{}",
+        err
+    );
 }

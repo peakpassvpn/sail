@@ -568,11 +568,7 @@ impl Lowering<'_, '_> {
             v.as_string().is_some_and(|a| a != "lru")
         });
         if let Some(listen) = f.string("listen")?.filter(|l| !l.is_empty()) {
-            self.warnings.push(format!(
-                "{}: sail has no DNS listener yet; {} is not served",
-                f.at("listen"),
-                listen
-            ));
+            listener(&listen, &f.at("listen"), out)?;
         }
         let dns_ipv6 = f.bool("ipv6")?.unwrap_or(false);
         let respect = f.bool("respect-rules")?.unwrap_or(false);
@@ -1100,4 +1096,43 @@ fn network(range: &str, v6: bool) -> Result<String> {
         }
     };
     Ok(format!("{}/{}", addr, prefix.len))
+}
+
+/// The inbound `dns.listen` makes, which the DNS client answers through.
+const LISTENER: &str = "DEFAULT-DNS";
+
+/// `dns.listen`, `host:port`, as a direct inbound whose queries a rule
+/// before every other hands the DNS client, as sing-box serves DNS: over
+/// UDP and TCP, on every address without a host, and not at all on port
+/// 0, as Mihomo has it.
+fn listener(listen: &str, at: &str, out: &mut Lowered) -> Result<()> {
+    let (host, port) = listen
+        .rsplit_once(':')
+        .ok_or_else(|| anyhow!("{}: {:?} names no port", at, listen))?;
+    let port: u16 = match port {
+        "" => 0,
+        port => port
+            .parse()
+            .map_err(|_| anyhow!("{}: {:?} is not a port", at, port))?,
+    };
+    if port == 0 {
+        return Ok(());
+    }
+    let host = host.trim_start_matches('[').trim_end_matches(']');
+    let host = match host {
+        "" => "::".to_string(),
+        host => host
+            .parse::<std::net::IpAddr>()
+            .map_err(|_| anyhow!("{}: {:?} is not an address", at, host))?
+            .to_string(),
+    };
+    out.inbounds.push(json!({
+        "type": "direct",
+        "tag": LISTENER,
+        "listen": host,
+        "listen_port": port,
+    }));
+    out.rules
+        .insert(0, json!({ "inbound": [LISTENER], "action": "hijack-dns" }));
+    Ok(())
 }
