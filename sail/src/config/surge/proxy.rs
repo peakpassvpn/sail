@@ -181,13 +181,15 @@ pub struct External {
 /// line of it being a policy. A line that does not read is not taken, as
 /// by Surge; the warnings of those that do are `warnings`.
 pub fn external(body: &str, warnings: &mut Vec<String>) -> Result<Option<Vec<External>>> {
+    // Not a share link, whose query may read `?type=http`.
     let policy = |line: &str| {
         let line = line.trim();
         line.eq_ignore_ascii_case("[Proxy]")
-            || text::key_value(line).is_some_and(|(_, rest)| {
+            || text::key_value(line).is_some_and(|(name, rest)| {
                 let kind = rest.split(',').next().unwrap_or_default().trim();
                 let kind = kind.to_ascii_lowercase();
-                TYPES.contains(&kind.as_str()) || TYPES_LATER.contains(&kind.as_str())
+                !name.contains("://")
+                    && (TYPES.contains(&kind.as_str()) || TYPES_LATER.contains(&kind.as_str()))
             })
     };
     if !body.lines().any(policy) {

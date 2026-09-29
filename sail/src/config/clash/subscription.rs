@@ -633,5 +633,10 @@ proxies:
             names(&read(links, &Selection::default()).unwrap()),
             ["A HK"]
         );
+        // Not even one whose query reads as a policy of Surge's type.
+        let link = "vless://00000000-0000-0000-0000-000000000001@b.example:443?type=http#B\n";
+        assert!(crate::config::surge::external(link, &mut Vec::new())
+            .unwrap()
+            .is_none());
     }
 }
