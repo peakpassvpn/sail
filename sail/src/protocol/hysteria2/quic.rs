@@ -60,12 +60,20 @@ pub async fn open_control_stream(conn: &quinn::Connection) -> io::Result<quinn::
 
 /// Accepts the peer's unidirectional streams, its HTTP/3 control stream
 /// among them, and reads them to nothing, holding them open, until the
-/// connection closes.
+/// connection closes. The streams are read within it, so that stopping it
+/// lets them go: a stream kept keeps its connection open.
 pub async fn drain_uni_streams(conn: quinn::Connection) {
-    while let Ok(mut recv) = conn.accept_uni().await {
-        tokio::spawn(async move {
-            let mut buf = [0u8; 1024];
-            while let Ok(Some(_)) = recv.read(&mut buf).await {}
-        });
+    let mut streams = futures::stream::FuturesUnordered::new();
+    loop {
+        tokio::select! {
+            accepted = conn.accept_uni() => match accepted {
+                Ok(mut recv) => streams.push(async move {
+                    let mut buf = [0u8; 1024];
+                    while let Ok(Some(_)) = recv.read(&mut buf).await {}
+                }),
+                Err(_) => return,
+            },
+            Some(()) = futures::StreamExt::next(&mut streams), if !streams.is_empty() => {}
+        }
     }
 }
