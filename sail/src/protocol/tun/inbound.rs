@@ -401,7 +401,8 @@ struct TunInboundOptions {
     #[serde(default)]
     exclude_mptcp: bool,
     /// With one family on the device, rejects the other rather than let
-    /// it go past sail.
+    /// it go past sail. Linux: with auto_redirect only, for now. Windows:
+    /// not yet. Elsewhere it changes nothing, as in sing-box.
     #[serde(default)]
     strict_route: bool,
     /// Addresses whose TCP goes into the device rather than to the
@@ -652,6 +653,11 @@ pub(crate) fn options(inbound: &Inbound) -> Result<TunSettings> {
     })
 }
 
+/// Whether `strict_route` does anything here: sing-tun acts on it on Linux
+/// (its rules) and Windows (firewall rules against DNS leaks); elsewhere
+/// sing-box takes it and it changes nothing, as in sail.
+const STRICT_ROUTE_ACTS: bool = cfg!(any(target_os = "linux", target_os = "windows"));
+
 /// The auto_redirect settings, with sing-box's defaults. What chooses the
 /// traffic the TUN takes (route_address, the interface and uid lists,
 /// strict_route, loopback_address) is enforced by auto_redirect's nftables
@@ -661,7 +667,7 @@ fn auto_redirect(
     options: &TunInboundOptions,
 ) -> std::result::Result<Option<AutoRedirectSettings>, String> {
     let selects = [
-        ("strict_route", options.strict_route),
+        ("strict_route", options.strict_route && STRICT_ROUTE_ACTS),
         ("exclude_mptcp", options.exclude_mptcp),
         ("loopback_address", !options.loopback_address.is_empty()),
         ("route_address", !options.route_address.is_empty()),
@@ -1034,14 +1040,27 @@ mod tests {
         // Fields that choose which traffic enters the TUN are not ignored:
         // auto_redirect enforces them, and without it they are an error.
         let config = crate::config::Config::from_json(
-            r#"{ "inbounds": [{ "type": "tun", "address": "172.18.0.1/30", "strict_route": true }] }"#,
+            r#"{ "inbounds": [{ "type": "tun", "address": "172.18.0.1/30", "route_address": "10.0.0.0/8" }] }"#,
         )
         .unwrap();
         let err = options(&config.inbounds[0]).unwrap_err().to_string();
         assert!(
-            err.contains("strict_route") && err.contains("auto_redirect"),
+            err.contains("route_address") && err.contains("auto_redirect"),
             "{err}"
         );
+        // strict_route too, where sing-box acts on it; elsewhere it is taken
+        // and changes nothing, as in sing-box.
+        let config = crate::config::Config::from_json(
+            r#"{ "inbounds": [{ "type": "tun", "address": "172.18.0.1/30", "auto_route": true, "strict_route": true }] }"#,
+        )
+        .unwrap();
+        let strict = options(&config.inbounds[0]);
+        if STRICT_ROUTE_ACTS {
+            let err = strict.unwrap_err().to_string();
+            assert!(err.contains("strict_route"), "{err}");
+        } else {
+            assert!(strict.unwrap().auto_redirect.is_none());
+        }
     }
 
     #[test]
