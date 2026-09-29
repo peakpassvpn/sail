@@ -14,6 +14,7 @@ path = "src/lib.rs"
 default = [
     "all-endpoints",
     "config-clash",
+    "config-surge",
     "rule-set",
     "outbound-provider",
     "api",
@@ -23,6 +24,8 @@ default = [
 
 # Clash / Mihomo YAML configurations.
 config-clash = ["serde-saphyr", "indexmap", "fancy-regex"]
+# Surge profiles; they share the Clash front-end's rule-sets and groups.
+config-surge = ["config-clash", "base64"]
 
 # Grouping all features
 all-endpoints = [

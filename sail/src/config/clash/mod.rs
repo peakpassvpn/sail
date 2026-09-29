@@ -23,7 +23,8 @@ mod group;
 mod hosts;
 mod listeners;
 mod node;
-mod provider;
+/// The rule-sets rules name, which Surge's rules name too.
+pub(in crate::config) mod provider;
 mod proxy;
 mod proxy_provider;
 mod rule;
@@ -103,6 +104,7 @@ pub struct Lowered {
     pub dns: Map<String, Value>,
     pub inbounds: Vec<Value>,
     pub outbounds: Vec<Value>,
+    pub endpoints: Vec<Value>,
     pub outbound_providers: Vec<Value>,
     pub rules: Vec<Value>,
     pub rule_sets: Vec<Value>,
@@ -122,7 +124,7 @@ pub struct Lowered {
 }
 
 impl Lowered {
-    fn into_json(self) -> Value {
+    pub(in crate::config) fn into_json(self) -> Value {
         let mut route = self.route;
         route.insert("rules".into(), Value::Array(self.rules));
         if !self.rule_sets.is_empty() {
@@ -135,6 +137,9 @@ impl Lowered {
             "outbounds": self.outbounds,
             "route": route,
         });
+        if !self.endpoints.is_empty() {
+            config["endpoints"] = Value::Array(self.endpoints);
+        }
         if !self.outbound_providers.is_empty() {
             config["outbound_providers"] = Value::Array(self.outbound_providers);
         }

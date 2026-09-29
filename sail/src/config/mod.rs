@@ -14,6 +14,8 @@ pub mod model;
 pub mod rule_set;
 pub mod share_link;
 pub mod singbox;
+#[cfg(feature = "config-surge")]
+pub mod surge;
 
 pub use model::{Config, Dns, Inbound, Log, Outbound, Route, Rule};
 
@@ -66,7 +68,12 @@ impl Format {
             Format::Clash => Err(anyhow!(
                 "Clash configurations need the config-clash feature, which is not compiled in"
             )),
-            Format::Surge => Err(anyhow!("sail does not read Surge configurations yet")),
+            #[cfg(feature = "config-surge")]
+            Format::Surge => surge::parse(s),
+            #[cfg(not(feature = "config-surge"))]
+            Format::Surge => Err(anyhow!(
+                "Surge configurations need the config-surge feature, which is not compiled in"
+            )),
         }
     }
 }
@@ -76,10 +83,16 @@ pub fn from_string(s: &str) -> Result<Config> {
     Format::of_text(s).parse(s)
 }
 
-/// Reads a configuration file, in the format its extension names.
+/// Reads a configuration file, in the format its extension names. A Surge
+/// profile includes files next to it.
 pub fn from_file(path: &str) -> Result<Config> {
     let format = Format::of_file(path)?;
-    format.parse(&std::fs::read_to_string(path)?)
+    let text = std::fs::read_to_string(path)?;
+    #[cfg(feature = "config-surge")]
+    if format == Format::Surge {
+        return surge::parse_in(&text, Path::new(path).parent());
+    }
+    format.parse(&text)
 }
 
 #[cfg(test)]

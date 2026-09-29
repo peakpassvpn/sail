@@ -1,0 +1,449 @@
+use serde_json::json;
+
+use super::*;
+
+fn load(text: &str) -> Config {
+    parse(text).unwrap_or_else(|e| panic!("{:#}", e))
+}
+
+fn error(text: &str) -> String {
+    format!("{:#}", parse(text).unwrap_err())
+}
+
+fn outbound(config: &Config, tag: &str) -> Value {
+    let o = config
+        .outbounds
+        .iter()
+        .find(|o| o.tag == tag)
+        .unwrap_or_else(|| panic!("no outbound [{}]", tag));
+    serde_json::to_value(o).unwrap()
+}
+
+fn rules(config: &Config) -> Vec<Value> {
+    config
+        .route
+        .rules
+        .iter()
+        .map(|r| serde_json::to_value(r).unwrap())
+        .collect()
+}
+
+/// A profile of every kind of line this stage reads.
+const PROFILE: &str = r#"
+#!MANAGED-CONFIG https://example.com/profile.conf interval=86400 strict=true
+[General]
+loglevel = notify
+LogLevel = warning
+dns-server = 223.5.5.5, 119.29.29.29:53, system
+encrypted-dns-server = https://dns.alidns.com/dns-query, quic://1.1.1.1
+ipv6 = false
+skip-proxy = 127.0.0.1, 192.168.0.0/16, localhost, *.local
+http-listen = 0.0.0.0:6152
+socks5-listen = 127.0.0.1:6153
+proxy-test-url = http://cp.cloudflare.com/generate_204
+test-timeout = 3
+udp-policy-not-supported-behaviour = REJECT
+tun-excluded-routes = 10.0.0.0/8
+hijack-dns = 8.8.8.8:53, *:5353
+always-real-ip = *.lan
+show-error-page-for-reject = true
+made-up-key = 1
+
+[Proxy]
+DIRECT = direct
+On = direct, interface = en0
+Ads = reject-drop
+HK = ss, hk.example.com, 8388, encrypt-method=aes-128-gcm, password=pw, obfs=http, obfs-host=bing.com, udp-relay=true, tfo=true
+Old = custom, old.example.com, 443, aes-256-gcm, "p,w", https://example.com/SSEncrypt.module
+JP = vmess, jp.example.com, 443, username=00000000-0000-0000-0000-000000000001, tls=true, sni=cdn.example.com, ws=true, ws-path=/v, ws-headers=Host:cdn.example.com|X-A:"b"
+US = trojan, us.example.com, 443, password=pw, skip-cert-verify=true, underlying-proxy=HK
+Web = https, web.example.com, 443, user, pass
+Sock = socks5, 10.0.0.1, 1080, udp-relay=false, test-url=http://a/
+SG = hysteria2, sg.example.com, 443, password=pw, download-bandwidth=200, port-hopping=20000-30000;443, port-hopping-interval=30, salamander-password=ob
+TU = tuic-v5, tu.example.com, 443, uuid=00000000-0000-0000-0000-000000000002, password=pw, alpn=h3
+AT = anytls, at.example.com, 443, password=pw
+WG = wireguard, section-name = Home, underlying-proxy = HK
+
+[WireGuard Home]
+private-key = +H8zw3vdhoAO+jn1DjDgYgxq8CxmhF2WrDfJsqzUzGI=
+self-ip = 10.0.0.2
+self-ip-v6 = fd00::2
+dns-server = 10.0.0.1
+mtu = 1280
+peer = (public-key = ZJjDQHEGALKKy0jRPsjIFdmvQkD0gwJU8ZPbNpUTuSE=, allowed-ips = "0.0.0.0/0, ::/0", endpoint = wg.example.com:51820, keepalive = 25, client-id = 1/2/3)
+
+[Proxy Group]
+Proxy = select, Auto, HK, JP, DIRECT, REJECT-DROP, icon-url=https://example.com/i.png, hidden=true
+Auto = url-test, HK, JP, US, interval=300, tolerance=50, timeout=5
+Fall = fallback, US, JP, timeout=2
+Balance = load-balance, HK, JP, persistent=true
+Smart = smart, HK, JP, DIRECT, Proxy
+All = select, include-all-proxies=true, policy-regex-filter=^(HK|JP)$
+Mixed = select, Web, include-other-group="All, Fall"
+NoUdp = select, Web, Sock
+Nothing = select, include-all-proxies=true, policy-regex-filter=^none$
+
+[Rule]
+DOMAIN,ads.example.com,Ads
+DOMAIN-SUFFIX,Example.com,Proxy // an inline comment
+DOMAIN-KEYWORD,google,Proxy,extended-matching
+DOMAIN-WILDCARD,*.cdn?.example.net,Proxy
+PROCESS-NAME,Telegram,Proxy
+DEST-PORT,>=10000,Auto
+SRC-PORT,1000-2000,Auto
+IN-PORT,6153,DIRECT
+SRC-IP,192.168.1.2,DIRECT
+PROTOCOL,QUIC,REJECT-NO-DROP
+DOMAIN,web.example.com,NoUdp
+IP-CIDR,10.0.0.0/8,DIRECT,no-resolve
+IP-CIDR6,2001:db8::1,DIRECT
+GEOIP,CN,DIRECT
+FINAL,Proxy,dns-failed
+DOMAIN,after.example.com,DIRECT
+
+[MITM]
+hostname = *.example.com
+
+[URL Rewrite]
+^http://a http://b 302
+
+[Script]
+s = type=http-response, pattern=^https://a, script-path=a.js
+
+[Replica]
+hide-apple-request = true
+
+[Port Forwarding]
+0.0.0.0:6841 localhost:3306 policy=HK
+
+[Unknown Section]
+a = b
+"#;
+
+#[test]
+fn a_profile_loads() {
+    let config = load(PROFILE);
+    let log = serde_json::to_value(&config.log).unwrap();
+    assert_eq!(log["level"], "warn");
+
+    let http = config
+        .inbounds
+        .iter()
+        .find(|i| i.tag == "http-listen")
+        .unwrap();
+    assert_eq!(http.listen.as_deref(), Some("0.0.0.0"));
+    assert_eq!(http.listen_port, Some(6152));
+
+    let hk = outbound(&config, "HK");
+    assert_eq!(hk["type"], "shadowsocks");
+    assert_eq!(hk["plugin"], "obfs-local");
+    assert_eq!(hk["plugin_opts"], "obfs=http;obfs-host=bing.com");
+    assert_eq!(outbound(&config, "Old")["password"], "p,w");
+    let jp = outbound(&config, "JP");
+    assert_eq!(jp["security"], "aes-128-gcm");
+    assert_eq!(jp["tls"]["server_name"], "cdn.example.com");
+    assert_eq!(jp["transport"]["headers"]["X-A"], "b");
+    assert_eq!(outbound(&config, "US")["detour"], "HK");
+    assert_eq!(outbound(&config, "US")["tls"]["insecure"], true);
+    let web = outbound(&config, "Web");
+    assert_eq!(web["username"], "user");
+    assert_eq!(web["password"], "pass");
+    assert_eq!(web["tls"]["enabled"], true);
+    let sg = outbound(&config, "SG");
+    assert_eq!(sg["server_ports"], json!(["20000:30000", "443:443"]));
+    assert!(sg.get("server_port").is_none());
+    assert_eq!(sg["obfs"]["type"], "salamander");
+    assert_eq!(outbound(&config, "On")["bind_interface"], "en0");
+    assert_eq!(outbound(&config, "Ads")["type"], "block");
+
+    let wg = serde_json::to_value(&config.endpoints[0]).unwrap();
+    assert_eq!(wg["tag"], "WG");
+    assert_eq!(wg["detour"], "HK");
+    assert_eq!(wg["address"], json!(["10.0.0.2/32", "fd00::2/128"]));
+    assert_eq!(wg["peers"][0]["reserved"], json!([1, 2, 3]));
+    assert_eq!(wg["peers"][0]["allowed_ips"], json!(["0.0.0.0/0", "::/0"]));
+
+    // REJECT-DROP rejects as REJECT in a group.
+    assert_eq!(
+        outbound(&config, "Proxy")["outbounds"],
+        json!(["Auto", "HK", "JP", "DIRECT", "REJECT"])
+    );
+    let auto = outbound(&config, "Auto");
+    assert_eq!(auto["type"], "urltest");
+    assert_eq!(auto["url"], "http://cp.cloudflare.com/generate_204");
+    assert_eq!(auto["tolerance"], 50);
+    assert_eq!(outbound(&config, "Fall")["timeout"], "2s");
+    assert_eq!(
+        outbound(&config, "Balance")["strategy"],
+        "consistent-hashing"
+    );
+    // Proxies alone.
+    assert_eq!(outbound(&config, "Smart")["outbounds"], json!(["HK", "JP"]));
+    assert_eq!(outbound(&config, "All")["outbounds"], json!(["HK", "JP"]));
+    assert_eq!(
+        outbound(&config, "Mixed")["outbounds"],
+        json!(["Web", "HK", "JP", "US"])
+    );
+    assert_eq!(outbound(&config, "Nothing")["outbounds"], json!(["DIRECT"]));
+
+    let dns = serde_json::to_value(&config.dns).unwrap();
+    assert_eq!(dns["final"], "encrypted-dns-server");
+    assert_eq!(dns["strategy"], "ipv4_only");
+
+    let warnings = config.warnings.join("\n");
+    for expected in [
+        "#!MANAGED-CONFIG",
+        "tun-excluded-routes",
+        "[General] line 19: made-up-key: not a key Surge takes",
+        "HK: tfo",
+        "test-url, test-timeout, test-udp of Sock",
+        "JP: vmess-aead",
+        "sail approximates smart groups",
+        "extended-matching",
+        "after FINAL",
+        "[MITM]",
+        "[URL Rewrite]",
+        "[Script]",
+        "[Unknown Section]",
+        "[WireGuard Home] line 40: dns-server",
+    ] {
+        assert!(
+            warnings.contains(expected),
+            "{}\n---\n{}",
+            expected,
+            warnings
+        );
+    }
+    for unexpected in ["skip-proxy", "always-real-ip", "Replica", "Proxy] line 21"] {
+        assert!(
+            !warnings.contains(unexpected),
+            "{}\n---\n{}",
+            unexpected,
+            warnings
+        );
+    }
+}
+
+#[test]
+fn rules_lower_in_order() {
+    let config = load(PROFILE);
+    let rules = rules(&config);
+    let text: Vec<String> = rules.iter().map(|r| r.to_string()).collect();
+    let position = |needle: &str| {
+        text.iter()
+            .position(|r| r.contains(needle))
+            .unwrap_or_else(|| panic!("no rule with {}:\n{}", needle, text.join("\n")))
+    };
+    // First, who may use the listeners, and DNS queries answered here.
+    assert!(text[0].contains("source_ip_is_private"), "{}", text[0]);
+    // The loopback listener is anyone's.
+    assert_eq!(rules[0]["rules"][0]["inbound"], json!(["http-listen"]));
+    assert!(text[1].contains("hijack-dns") && text[1].contains("8.8.8.8/32"));
+    assert!(text[3].contains("port-forwarding:0.0.0.0:6841") && text[3].contains("\"HK\""));
+    assert_eq!(
+        rules[position("ads.example.com")],
+        json!({ "domain": ["ads.example.com"], "action": "reject", "method": "drop" })
+    );
+    assert_eq!(
+        rules[position("\"example.com\"")]["domain_suffix"],
+        json!(["example.com"])
+    );
+    assert_eq!(
+        rules[position("domain_regex")]["domain_regex"],
+        json!(["^.*\\.cdn.\\.example\\.net$"])
+    );
+    assert_eq!(
+        rules[position("port_range")]["port_range"],
+        json!(["10000:"])
+    );
+    assert_eq!(
+        rules[position("\"inbound\":[\"socks5-listen\"]")]["outbound"],
+        "DIRECT"
+    );
+    // Sniffed first.
+    let sniff = position("\"sniff\"");
+    let quic = position("quic\"]");
+    assert!(sniff < quic);
+    assert_eq!(rules[quic]["no_drop"], true);
+    // UDP to a group of proxies without it is rejected.
+    let web = position("web.example.com");
+    assert_eq!(
+        rules[web],
+        json!({ "domain": ["web.example.com"], "network": ["udp"], "action": "reject" })
+    );
+    assert_eq!(rules[web + 1]["outbound"], "NoUdp");
+    // Resolved at the first IP rule without no-resolve, going on when it
+    // fails, as FINAL has dns-failed.
+    let resolve = position("resolve");
+    assert!(resolve > position("10.0.0.0/8"));
+    assert_eq!(rules[resolve]["ignore_failure"], true);
+    assert!(position("2001:db8::1/128") > resolve);
+    assert!(position("geoip:cn") > resolve);
+    assert_eq!(config.route.final_outbound.as_deref(), Some("Proxy"));
+    assert!(!text.iter().any(|r| r.contains("after.example.com")));
+}
+
+#[test]
+fn mistakes_name_where_they_are() {
+    for (text, expected) in [
+        (
+            "[Proxy]\nA = ss, a, 1, password=p\n[Rule]\nFINAL,DIRECT\n",
+            "[Proxy] line 2: A: encrypt-method: missing",
+        ),
+        (
+            "[Proxy]\nA = snell, a, 1, psk=p\n[Rule]\nFINAL,DIRECT\n",
+            "[Proxy] line 2: A: sail does not implement snell policies yet (C.5d)",
+        ),
+        (
+            "[Proxy]\nREJECT = direct\n",
+            "[Proxy] line 2: REJECT is Surge's own policy",
+        ),
+        (
+            "[Proxy]\nA = https, a, 443, sni=off\n[Rule]\nFINAL,DIRECT\n",
+            "[Proxy] line 2: A: sni: off",
+        ),
+        (
+            "[Proxy]\nA = trojan, a, 443, password=p, server-cert-fingerprint-sha256=ab\n\
+             [Rule]\nFINAL,DIRECT\n",
+            "[Proxy] line 2: A: server-cert-fingerprint-sha256: sail does not implement",
+        ),
+        (
+            "[Proxy Group]\nG = select, Nowhere\n[Rule]\nFINAL,DIRECT\n",
+            "[Proxy Group] line 2: G: no policy or group is named \"Nowhere\"",
+        ),
+        (
+            "[Proxy Group]\nG = select, policy-path=https://a\n[Rule]\nFINAL,G\n",
+            "policy-path: sail does not implement this parameter yet (C.5c)",
+        ),
+        (
+            "[Proxy Group]\nG = subnet, default=DIRECT\n[Rule]\nFINAL,G\n",
+            "sail does not implement subnet groups yet (C.5d)",
+        ),
+        (
+            "[Proxy Group]\nA = select, B\nB = select, A\n[Rule]\nFINAL,A\n",
+            "holds itself",
+        ),
+        (
+            "[Rule]\nRULE-SET,https://a/b.list,DIRECT\nFINAL,DIRECT\n",
+            "[Rule] line 2: sail does not implement RULE-SET rules yet (C.5b)",
+        ),
+        (
+            "[Rule]\nDOMAIN,a,Nowhere\nFINAL,DIRECT\n",
+            "[Rule] line 2: no policy or group is named \"Nowhere\"",
+        ),
+        ("[Rule]\nDOMAIN,a,DIRECT\n", "no FINAL rule"),
+        (
+            "[Rule]\nDOMAIN,a,CELLULAR\nFINAL,DIRECT\n",
+            "cellular policies",
+        ),
+        (
+            "[Rule]\nSCRIPT,s,DIRECT\nFINAL,DIRECT\n",
+            "sail does not implement SCRIPT rules",
+        ),
+        (
+            "[General]\nudp-policy-not-supported-behaviour = maybe\n[Rule]\nFINAL,DIRECT\n",
+            "[General] line 2: udp-policy-not-supported-behaviour: \"maybe\"",
+        ),
+        (
+            "[Host]\na.com = 1.2.3.4\n[Rule]\nFINAL,DIRECT\n",
+            "[Host] line 2: sail does not implement local DNS mappings yet (C.5b)",
+        ),
+        (
+            "[Script]\nr = type=rule, script-path=a.js\n[Rule]\nFINAL,DIRECT\n",
+            "sail does not run rule scripts",
+        ),
+        (
+            "[Proxy]\nA = ss, a, 1, encrypt-method=aes-128-gcm, password=p, \
+             underlying-proxy=Nowhere\n[Rule]\nFINAL,DIRECT\n",
+            "[Proxy] line 2: A: underlying-proxy: no policy or group is named \"Nowhere\"",
+        ),
+        (
+            "[Rule]\nDOMAIN,a,DIRECT\n#!include more.conf\nFINAL,DIRECT\n",
+            "a profile read from text includes no files",
+        ),
+    ] {
+        let err = error(text);
+        assert!(err.contains(expected), "{}\n---\n{}", expected, err);
+    }
+}
+
+#[test]
+fn udp_goes_directly_when_told() {
+    let config = load(
+        "[General]\nudp-policy-not-supported-behaviour = DIRECT\n\
+         [Proxy]\nH = http, h, 80\n[Rule]\nDOMAIN,a,H\nFINAL,H\n",
+    );
+    let rules = rules(&config);
+    assert_eq!(
+        rules[0],
+        json!({ "domain": ["a"], "network": ["udp"], "outbound": "DIRECT" })
+    );
+    assert_eq!(rules[1]["outbound"], "H");
+    // FINAL's UDP too.
+    assert_eq!(
+        rules[2],
+        json!({ "network": ["udp"], "outbound": "DIRECT" })
+    );
+    assert_eq!(config.route.final_outbound.as_deref(), Some("H"));
+}
+
+#[test]
+fn surge_ios_listens_on_the_loopback_address() {
+    let config = load(
+        "[General]\nallow-wifi-access = false\nwifi-access-http-port = 7000\n\
+         wifi-access-socks5-port = 7001\n[Rule]\nFINAL,DIRECT\n",
+    );
+    let ports: Vec<_> = config
+        .inbounds
+        .iter()
+        .map(|i| (i.listen.clone().unwrap(), i.listen_port.unwrap()))
+        .collect();
+    assert_eq!(
+        ports,
+        [
+            ("127.0.0.1".to_string(), 7000),
+            ("127.0.0.1".to_string(), 7001)
+        ]
+    );
+    // No one else to keep out.
+    assert!(rules(&config).is_empty());
+    let config = load(
+        "[General]\nallow-wifi-access = true\nwifi-access-http-auth = u:p\n\
+         proxy-restricted-to-lan = false\n[Rule]\nFINAL,DIRECT\n",
+    );
+    assert_eq!(config.inbounds[0].listen.as_deref(), Some("::"));
+    assert_eq!(config.inbounds[0].listen_port, Some(6152));
+    assert!(rules(&config).is_empty());
+}
+
+#[test]
+fn a_final_reject_is_a_rule() {
+    let config = load("[Rule]\nFINAL,REJECT\n");
+    assert_eq!(
+        rules(&config),
+        [json!({ "network": ["tcp", "udp"], "action": "reject" })]
+    );
+    // Without dns-failed, a name that does not resolve fails.
+    let config = load("[Rule]\nGEOIP,CN,DIRECT\nFINAL,DIRECT\n");
+    assert_eq!(rules(&config)[0], json!({ "action": "resolve" }));
+}
+
+#[test]
+fn a_profile_includes_its_sections_from_files() {
+    let dir = std::env::temp_dir().join(format!("sail-surge-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("proxies.dconf"),
+        "[Proxy]\nHK = trojan, hk.example.com, 443, password=pw\n",
+    )
+    .unwrap();
+    let path = dir.join("main.conf");
+    std::fs::write(
+        &path,
+        "[Proxy]\n#!include proxies.dconf\n[Rule]\nDOMAIN,a,HK\nFINAL,DIRECT\n",
+    )
+    .unwrap();
+    let config = crate::config::from_file(path.to_str().unwrap()).unwrap();
+    assert_eq!(outbound(&config, "HK")["type"], "trojan");
+    std::fs::remove_dir_all(&dir).unwrap();
+}
