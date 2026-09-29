@@ -48,12 +48,10 @@ pub const TOP: &[(&str, Tier)] = &[
     ("geodata-loader", Ignored),
     ("geosite-matcher", Ignored),
     // Later stages.
-    ("tunnels", Unsupported),
     ("tuic-server", Unsupported),
     ("ss-config", Unsupported),
     ("vmess-config", Unsupported),
     ("iptables", Unsupported),
-    ("lan-disallowed-ips", Unsupported),
 ];
 
 /// The names Mihomo gives its own listeners, which `IN-NAME` matches.
@@ -114,13 +112,16 @@ fn listeners(doc: &mut Fields, out: &mut Lowered, warnings: &mut Vec<String>) ->
             .map_err(|_| anyhow!("bind-address: {:?} is not an address, nor *", address))?
             .to_string(),
     };
-    let allowed = doc.strings("lan-allowed-ips")?;
-    if !allowed.is_empty() && !covers_everything(&allowed) {
-        return Err(anyhow!(
-            "lan-allowed-ips: sail does not implement this field yet, but to allow \
-             everyone (0.0.0.0/0 and ::/0)"
-        ));
+    // Who may use the listeners that authenticate as `authentication`
+    // says: those of `lan-allowed-ips`, everyone unless set, but those of
+    // `lan-disallowed-ips`.
+    if doc.has("lan-allowed-ips") {
+        let allowed = prefixes(doc, "lan-allowed-ips")?;
+        if !covers_everything(&allowed) {
+            out.lan_allowed = Some(allowed);
+        }
     }
+    out.lan_disallowed = prefixes(doc, "lan-disallowed-ips")?;
     // As Mihomo: an entry that is not user:password is no user.
     let mut users = Vec::new();
     for (i, credentials) in doc.strings("authentication")?.into_iter().enumerate() {
@@ -156,12 +157,33 @@ fn listeners(doc: &mut Fields, out: &mut Lowered, warnings: &mut Vec<String>) ->
             "listen": listen,
             "listen_port": port,
         });
-        if !users.is_empty() && matches!(*kind, "http" | "socks" | "mixed") {
-            inbound["users"] = Value::Array(users.clone());
+        if matches!(*kind, "http" | "socks" | "mixed") {
+            if !users.is_empty() {
+                inbound["users"] = Value::Array(users.clone());
+            }
+            out.lan_inbounds.push(tag.to_string());
         }
         out.inbounds.push(inbound);
     }
     Ok(())
+}
+
+/// A list of IP prefixes, checked.
+fn prefixes(doc: &mut Fields, key: &str) -> Result<Vec<String>> {
+    let at = doc.at(key);
+    let prefixes = doc.strings(key)?;
+    for (i, prefix) in prefixes.iter().enumerate() {
+        let valid = prefix.split_once('/').is_some_and(|(ip, len)| {
+            match (ip.parse::<std::net::IpAddr>(), len.parse::<u8>()) {
+                (Ok(ip), Ok(len)) => len <= if ip.is_ipv4() { 32 } else { 128 },
+                _ => false,
+            }
+        });
+        if !valid {
+            return Err(anyhow!("{}[{}]: {:?} is not an IP prefix", at, i, prefix));
+        }
+    }
+    Ok(prefixes)
 }
 
 fn covers_everything(prefixes: &[String]) -> bool {

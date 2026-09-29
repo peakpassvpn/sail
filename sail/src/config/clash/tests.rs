@@ -1576,3 +1576,103 @@ fn listener_mistakes_name_the_field() {
         assert!(err.contains(message), "{}\n  => {}", yaml, err);
     }
 }
+
+#[test]
+fn tunnels_forward_to_their_targets() {
+    let config = load(
+        "proxy-groups: [{ name: G, type: select, proxies: [DIRECT] }]\n\
+         tunnels:\n\
+         \x20 - { network: [tcp, udp], address: 127.0.0.1:7788, target: jp1.example.com:443, proxy: G }\n\
+         \x20 - tcp,127.0.0.1:6553,114.114.114.114:53\n\
+         rules: [\"IN-TYPE,TUNNEL,DIRECT\", \"MATCH,REJECT\"]",
+    );
+    let inbound = |tag: &str| config.inbounds.iter().find(|i| i.tag == tag).unwrap();
+    let first = inbound("tunnel:127.0.0.1:7788");
+    assert_eq!(first.protocol, "direct");
+    assert_eq!(first.listen.as_deref(), Some("127.0.0.1"));
+    assert_eq!(first.listen_port, Some(7788));
+    assert_eq!(first.options["override_address"], "jp1.example.com");
+    assert_eq!(first.options["override_port"], 443);
+    assert!(first.options.get("network").is_none());
+    let second = inbound("tunnel:127.0.0.1:6553");
+    assert_eq!(second.options["network"], "tcp");
+    let rules = all_rules(&config);
+    // Its proxy's rule before Clash's modes'; the other follows the rules.
+    assert_eq!(
+        rules[0]["inbound"],
+        serde_json::json!(["tunnel:127.0.0.1:7788"])
+    );
+    assert_eq!(rules[0]["outbound"], "G");
+    assert_eq!(rules[1]["clash_mode"], "Global");
+    assert!(rules
+        .iter()
+        .any(|r| r["inbound"]
+            == serde_json::json!(["tunnel:127.0.0.1:7788", "tunnel:127.0.0.1:6553"])));
+    for (yaml, message) in [
+        (
+            "tunnels: [\"tcp,127.0.0.1:1\"]",
+            "tunnels[0]: \"tcp,127.0.0.1:1\" is not network,address,target and a proxy",
+        ),
+        (
+            "tunnels: [\"sctp,127.0.0.1:1,a:1\"]",
+            "tunnels[0]: \"sctp\" is neither tcp nor udp",
+        ),
+        (
+            "tunnels: [{ network: [tcp], address: 127.0.0.1, target: a:1 }]",
+            "tunnels[0]: \"127.0.0.1\" names no port",
+        ),
+        (
+            "tunnels: [\"tcp,127.0.0.1:1,a:1,nowhere\"]",
+            "tunnels[0].proxy: no proxy or group is named \"nowhere\"",
+        ),
+    ] {
+        let err = error(yaml);
+        assert!(err.contains(message), "{}\n  => {}", yaml, err);
+    }
+}
+
+#[test]
+fn lan_ips_keep_the_listeners_that_authenticate_as_mihomo_s() {
+    let config = load(
+        "mixed-port: 7890\nport: 7891\nredir-port: 7892\n\
+         lan-allowed-ips: [192.168.0.0/16, 127.0.0.1/32]\n\
+         lan-disallowed-ips: [192.168.1.1/32]\n\
+         listeners:\n\
+         \x20 - { name: OWN, type: mixed, port: 50000, users: [] }\n\
+         \x20 - { name: INHERITS, type: socks, port: 50001 }\n\
+         sniffer: { enable: true, sniff: { TLS: {} } }\n\
+         rules: [\"MATCH,DIRECT\"]",
+    );
+    let rules = all_rules(&config);
+    let lan = &rules[0];
+    assert_eq!(lan["action"], "reject");
+    // Mihomo's own that authenticate, and listeners taking authentication's
+    // users; not those with users of their own, nor redir.
+    assert_eq!(
+        lan["rules"][0]["inbound"],
+        serde_json::json!(["DEFAULT-HTTP", "DEFAULT-MIXED", "INHERITS"])
+    );
+    let out_of = &lan["rules"][1]["rules"];
+    assert_eq!(
+        out_of[0]["source_ip_cidr"],
+        serde_json::json!(["192.168.0.0/16", "127.0.0.1/32"])
+    );
+    assert_eq!(out_of[0]["invert"], true);
+    assert_eq!(
+        out_of[1]["source_ip_cidr"],
+        serde_json::json!(["192.168.1.1/32"])
+    );
+    // Before the sniffer's.
+    assert_eq!(rules[1]["action"], "sniff");
+
+    // Everyone allowed, no one kept out: no rule.
+    let config =
+        load("mixed-port: 7890\nlan-allowed-ips: [0.0.0.0/0, ::/0]\nrules: [\"MATCH,DIRECT\"]");
+    assert!(all_rules(&config).iter().all(|r| r["action"] != "reject"));
+    let err = error("mixed-port: 7890\nlan-disallowed-ips: [nope]");
+    assert!(
+        err.contains("lan-disallowed-ips[0]: \"nope\" is not an IP prefix"),
+        "{}",
+        err
+    );
+}

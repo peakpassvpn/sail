@@ -540,6 +540,7 @@ fn condition(s: &Split, sets: &mut Sets) -> Result<(Map<String, Value>, bool)> {
                 "REDIR" => "redirect",
                 "TPROXY" => "tproxy",
                 "SHADOWSOCKS" => "shadowsocks",
+                "TUNNEL" => "tunnel",
                 "TUN" => {
                     rule.insert("inbound".into(), json!([super::tun::TAG]));
                     return Ok((rule, false));
@@ -547,7 +548,7 @@ fn condition(s: &Split, sets: &mut Sets) -> Result<(Map<String, Value>, bool)> {
                 other => {
                     return Err(anyhow!(
                         "IN-TYPE: sail does not implement {:?} yet, only HTTP, SOCKS5, MIXED, \
-                         REDIR, TPROXY, SHADOWSOCKS and TUN",
+                         REDIR, TPROXY, SHADOWSOCKS, TUNNEL and TUN",
                         other
                     ))
                 }

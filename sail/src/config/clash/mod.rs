@@ -57,6 +57,10 @@ pub fn parse(s: &str) -> Result<Config> {
     listeners.apply(&mut out);
     sniffer::lower(&mut doc, &mut sets, &mut out, &mut warnings)?;
     tun::lower(&mut doc, fake_ip, &mut sets, &mut out, &mut warnings)?;
+    // Before every other rule, sniffing among them.
+    if let Some(rule) = listeners::lan_rule(&out) {
+        out.rules.insert(0, rule);
+    }
     out.rule_sets.extend(sets.into_geo_sets());
     doc.finish(general::TOP, |key| holders.contains(key), &mut warnings)?;
 
@@ -107,6 +111,12 @@ pub struct Lowered {
     pub mode: Option<String>,
     /// The users of `authentication`, which listeners take too.
     pub authentication: Vec<Value>,
+    /// The inbounds that authenticate as `authentication` says, which
+    /// `lan-allowed-ips` and `lan-disallowed-ips` keep to.
+    pub lan_inbounds: Vec<String>,
+    /// `lan-allowed-ips`, unless it allows everyone.
+    pub lan_allowed: Option<Vec<String>>,
+    pub lan_disallowed: Vec<String>,
 }
 
 impl Lowered {

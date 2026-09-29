@@ -68,6 +68,70 @@ fn a_listener_s_proxy_goes_before_the_rules() -> anyhow::Result<()> {
     Ok(())
 }
 
+// app(socks) -> (mixed)sail -> echo, from 127.0.0.1: lan-disallowed-ips
+// keeps it out, as Mihomo does.
+#[cfg(all(
+    feature = "config-clash",
+    feature = "inbound-mixed",
+    feature = "outbound-direct"
+))]
+#[test]
+fn lan_ips_keep_clients_out() -> anyhow::Result<()> {
+    for (lan, rejected) in [("lan-disallowed-ips: [127.0.0.1/32]\n", true), ("", false)] {
+        let result = common::retry_port_clash(|| {
+            let [port] = common::free_ports();
+            let yaml = format!(
+                "mixed-port: {}\nlog-level: silent\n{}rules:\n  - MATCH,DIRECT\n",
+                port, lan
+            );
+            common::test_configs(vec![yaml], "127.0.0.1", port)
+        });
+        assert_eq!(result.is_err(), rejected, "{:?}: {:?}", lan, result);
+    }
+    Ok(())
+}
+
+// app -> (tunnel)sail -> echo: a tunnel forwards to its target.
+#[cfg(all(
+    feature = "config-clash",
+    feature = "inbound-direct",
+    feature = "outbound-direct"
+))]
+#[test]
+fn a_tunnel_forwards_to_its_target() -> anyhow::Result<()> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+    let (echo, echo_fut) = rt.block_on(common::run_tcp_echo_server("127.0.0.1:0"))?;
+    rt.spawn(echo_fut);
+    common::retry_port_clash(|| {
+        let [port] = common::free_ports();
+        let yaml = format!(
+            "log-level: silent\n\
+             tunnels: [\"tcp,127.0.0.1:{},{}\"]\n\
+             rules: [\"MATCH,DIRECT\"]\n",
+            port, echo
+        );
+        let ids = common::run_sail_instances(&rt, vec![yaml])?;
+        let result = rt.block_on(async {
+            let mut stream = tokio::net::TcpStream::connect(("127.0.0.1", port)).await?;
+            stream.write_all(b"through the tunnel").await?;
+            let mut buf = [0u8; 18];
+            tokio::time::timeout(
+                std::time::Duration::from_secs(5),
+                stream.read_exact(&mut buf),
+            )
+            .await??;
+            anyhow::ensure!(&buf == b"through the tunnel", "echoed {:?}", buf);
+            Ok(())
+        });
+        common::shutdown_instances(&rt, ids);
+        result
+    })
+}
+
 // The same, by rule-providers read from files: Mihomo's binary (MRS) and
 // text forms of a set holding the loopback range.
 #[cfg(all(
