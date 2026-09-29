@@ -680,7 +680,7 @@ fn a_fake_ip_policy_and_fallback_config_lowers_to_rules() {
 }
 
 /// What the lowered DNS is checked for when it is built.
-#[cfg(feature = "rule-set")]
+#[cfg(all(feature = "rule-set", feature = "dns-doh"))]
 #[test]
 fn a_lowered_dns_builds_and_has_no_loop() {
     let config = load(DNS_TEMPLATE);

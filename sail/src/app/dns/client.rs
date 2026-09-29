@@ -366,7 +366,7 @@ impl DnsClient {
                 Self::detour_session(network, addr, detour),
             )));
         }
-        if !dialer.respect_rules {
+        if dialer.is_direct() {
             return Ok(None);
         }
         let mut sess = Self::detour_session(network, addr, "");
