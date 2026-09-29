@@ -22,7 +22,7 @@ enum Inner {
         _session: FrameSession,
         accept: mpsc::UnboundedReceiver<MuxStream>,
     },
-    H2(AbortHandle, mpsc::Receiver<H2Stream>),
+    H2(AbortHandle, mpsc::UnboundedReceiver<H2Stream>),
 }
 
 /// A mux connection being served. Dropping it takes no more streams; with

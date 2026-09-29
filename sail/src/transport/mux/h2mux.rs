@@ -28,8 +28,6 @@ use crate::transport::muxcore::{Tuning, MAX_STREAMS};
 const CONNECTION_WINDOWS: u32 = 8;
 /// Written into one stream's send buffer at once.
 const MAX_WRITE: usize = 32 << 10;
-/// Streams accepted and not yet taken by the server.
-const ACCEPT_QUEUE: usize = 256;
 
 fn h2_error(e: h2::Error) -> io::Error {
     if e.is_io() {
@@ -143,11 +141,17 @@ impl Drop for H2Client {
 
 /// Serves HTTP/2 on `conn`: the streams come out of the receiver. The
 /// handle stops serving. `label` says who it serves in logs.
-pub fn serve<S>(conn: S, tuning: Tuning, label: &str) -> (AbortHandle, mpsc::Receiver<H2Stream>)
+pub fn serve<S>(
+    conn: S,
+    tuning: Tuning,
+    label: &str,
+) -> (AbortHandle, mpsc::UnboundedReceiver<H2Stream>)
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
-    let (tx, rx) = mpsc::channel(ACCEPT_QUEUE);
+    // Streams waiting to be taken are bounded by the streams the peer
+    // may open at once, `MAX_STREAMS`: a burst is taken whole.
+    let (tx, rx) = mpsc::unbounded_channel();
     let label: Arc<str> = label.into();
     let (task, handle) = abortable(async move {
         let mut connection = match h2::server::Builder::new()
@@ -165,7 +169,7 @@ where
         };
         let active = Arc::new(AtomicUsize::new(0));
         // Accepting drives the connection too, so it never waits on the
-        // receiver: a stream that finds the queue full is refused.
+        // receiver.
         while let Some(accepted) = connection.accept().await {
             let (request, mut respond) = match accepted {
                 Ok(v) => v,
@@ -202,8 +206,8 @@ where
                 _active: Active::new(&active),
             };
             let stream = guard(stream, &tuning, label.clone());
-            if tx.try_send(stream).is_err() {
-                debug!("h2mux: too many streams waiting, one refused");
+            if tx.send(stream).is_err() {
+                break;
             }
         }
     });
