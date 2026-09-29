@@ -70,6 +70,13 @@ fn record_sniffed(
         debug!("sniffed protocol={}", protocol);
         return;
     };
+    if action.skip.matches(&domain) {
+        debug!(
+            "sniffed protocol={} domain={}, not taken",
+            protocol, &domain
+        );
+        return;
+    }
     debug!("sniffed protocol={} domain={}", protocol, &domain);
     if action.override_destination {
         if let Ok(dest) = SocksAddr::try_from((domain.as_str(), sess.destination.port())) {
@@ -819,6 +826,7 @@ mod tests {
             protocols,
             timeout: Duration::from_millis(300),
             override_destination: true,
+            skip: Default::default(),
         }
     }
 
@@ -847,6 +855,35 @@ mod tests {
         let mut read = Vec::new();
         stream.read_to_end(&mut read).await.unwrap();
         assert_eq!(read, request);
+    }
+
+    #[tokio::test]
+    async fn a_domain_a_skip_rule_set_matches_is_not_taken() {
+        let skip = crate::app::router::rule_set::RuleSet::from_rules(&[serde_json::from_value(
+            serde_json::json!({ "domain_suffix": ["push.apple.com"] }),
+        )
+        .unwrap()])
+        .unwrap();
+        let action = SniffAction {
+            skip: super::super::router::SniffSkip::of(vec![(
+                "skip".to_string(),
+                crate::runtime::resource::HotResource::new(skip),
+            )]),
+            ..action(Protocols::ALL)
+        };
+        for (host, taken) in [("a.push.apple.com", false), ("example.com", true)] {
+            let (mut client, server) = tokio::io::duplex(4096);
+            let request = format!("GET / HTTP/1.1\r\nHost: {}\r\n\r\n", host);
+            client.write_all(request.as_bytes()).await.unwrap();
+            let mut sess = to_ip(Network::Tcp);
+            StreamSniffer::new(server)
+                .sniff(&mut sess, &action)
+                .await
+                .unwrap();
+            assert_eq!(sess.sniffed_protocol, Some(SniffedProtocol::Http));
+            assert_eq!(sess.sniffed_domain_from(SniffedFrom::Http).is_some(), taken);
+            assert_eq!(matches!(sess.destination, SocksAddr::Domain(..)), taken);
+        }
     }
 
     #[tokio::test]

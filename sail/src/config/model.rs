@@ -1688,6 +1688,11 @@ pub struct Rule {
     /// to the address the client asked for.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub override_destination: bool,
+    /// `sniff`, a sail extension: a domain found that one of these
+    /// rule-sets matches is not taken, neither matched nor connected to, as
+    /// Mihomo's sniffer `skip-domain` has it.
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub skip_rule_set: Vec<String>,
     /// `resolve`, a sail extension: a domain that does not resolve, or not in
     /// time, has no addresses, and matching goes on, as Mihomo's IP rules
     /// have it; rather than the connection failing, as in sing-box.
@@ -1870,6 +1875,7 @@ impl Rule {
             ("timeout", self.timeout.is_some(), &[Sniff, Resolve]),
             ("ignore_failure", self.ignore_failure, &[Resolve]),
             ("override_destination", self.override_destination, &[Sniff]),
+            ("skip_rule_set", !self.skip_rule_set.is_empty(), &[Sniff]),
         ]
         .into_iter()
         .filter(|(_, set, _)| *set)

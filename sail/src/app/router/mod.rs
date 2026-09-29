@@ -139,7 +139,51 @@ pub struct SniffAction {
     pub timeout: Duration,
     /// Connects to the sniffed domain rather than to the address asked for.
     pub override_destination: bool,
+    /// Domains found that are not taken.
+    pub skip: SniffSkip,
 }
+
+/// The rule-sets whose domains a `sniff` rule does not take, by tag.
+#[derive(Clone, Default)]
+pub struct SniffSkip(Vec<(String, rule_set::SharedRuleSet)>);
+
+impl SniffSkip {
+    /// The rule-sets, each with its tag.
+    pub(crate) fn of(sets: Vec<(String, rule_set::SharedRuleSet)>) -> Self {
+        SniffSkip(sets)
+    }
+
+    /// Whether one of the rule-sets matches `domain`.
+    pub fn matches(&self, domain: &str) -> bool {
+        if self.0.is_empty() {
+            return false;
+        }
+        let sess = Session {
+            destination: SocksAddr::Domain(domain.to_string(), 0),
+            ..Default::default()
+        };
+        let facts = Facts::new(&sess, &[]);
+        self.0
+            .iter()
+            .any(|(_, set)| set.load().matches(&facts, false))
+    }
+}
+
+impl std::fmt::Debug for SniffSkip {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_list()
+            .entries(self.0.iter().map(|(tag, _)| tag))
+            .finish()
+    }
+}
+
+impl PartialEq for SniffSkip {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.len() == other.0.len() && self.0.iter().zip(&other.0).all(|(a, b)| a.0 == b.0)
+    }
+}
+
+impl Eq for SniffSkip {}
 
 /// Reads what a `sniff` rule asks for from a connection, into its session.
 /// Only the dispatcher, which holds the connection, can.
@@ -372,6 +416,17 @@ impl Rule {
                     protocols,
                     timeout: rule.timeout.unwrap_or(Duration::from_millis(300)),
                     override_destination: rule.override_destination,
+                    skip: SniffSkip::of(
+                        rule.skip_rule_set
+                            .iter()
+                            .map(|tag| {
+                                rule_sets
+                                    .get(tag)
+                                    .map(|set| (tag.clone(), set))
+                                    .map_err(|e| anyhow!("{}.skip_rule_set: {}", path, e))
+                            })
+                            .collect::<Result<_>>()?,
+                    ),
                 })
             }
         };
