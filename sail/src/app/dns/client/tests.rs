@@ -395,8 +395,9 @@ mod tests {
                 "dns.rules[0].wifi_ssid: sail does not implement this field yet",
             ),
             (
-                serde_json::json!([{ "domain": "a", "action": "predefined" }]),
-                "dns.rules[0].action: sail does not implement \"predefined\" yet",
+                serde_json::json!([{ "domain": "a", "action": "predefined",
+                                     "answer": ["a. IN A 10.0.0.1"] }]),
+                "dns.rules[0].answer: sail does not implement this field yet",
             ),
         ] {
             let err = with_rules(rules.clone()).err().unwrap().to_string();
@@ -449,10 +450,7 @@ mod tests {
     fn loops(config: serde_json::Value) -> anyhow::Result<()> {
         let config = crate::config::Config::from_json(&config.to_string())?;
         let client = DnsClient::new(&config.dns, Default::default(), &Default::default())?;
-        client.check_loops(
-            &config.outbounds,
-            config.route.default_domain_resolver.as_ref(),
-        )
+        client.check_loops(&config.outbounds, &config.route)
     }
 
     /// A remote server reached through a proxy whose own name the remote
@@ -1166,6 +1164,204 @@ mod tests {
             "{}",
             err
         );
+    }
+
+    #[tokio::test]
+    async fn a_predefined_rule_answers_with_its_code() {
+        let client = with_rules(serde_json::json!([
+            { "domain": "ads.example", "action": "predefined", "rcode": "NXDOMAIN" },
+            { "domain": "quiet.example", "action": "predefined" },
+            { "query_type": "HTTPS", "action": "predefined", "rcode": 5 }
+        ]))
+        .unwrap();
+        let ads = exchange(&client, "ads.example", RecordType::A).await;
+        assert_eq!(ads.response_code(), ResponseCode::NXDomain);
+        let quiet = exchange(&client, "quiet.example", RecordType::A).await;
+        assert_eq!(quiet.response_code(), ResponseCode::NoError);
+        assert!(quiet.answers().is_empty());
+        let https = exchange(&client, "a.example", RecordType::HTTPS).await;
+        assert_eq!(https.response_code(), ResponseCode::Refused);
+        // The instance's own lookups get no address from it.
+        let err = client.lookup("ads.example").await.unwrap_err().to_string();
+        assert!(err.contains("does not exist"), "{}", err);
+        assert!(client.lookup("quiet.example").await.is_err());
+        assert_eq!(
+            client.lookup("a.example").await.unwrap(),
+            ips(&["10.0.0.1", "2001:db8::1"])
+        );
+
+        let err = with_rules(serde_json::json!([
+            { "domain": "a", "server": "home", "rcode": "NXDOMAIN" }
+        ]))
+        .err()
+        .unwrap()
+        .to_string();
+        assert!(
+            err.contains("dns.rules[0]: rcode: not with action route"),
+            "{}",
+            err
+        );
+    }
+
+    /// Mihomo's fallback filter: the answer is kept only when every address
+    /// in it is at home.
+    #[tokio::test]
+    async fn ip_match_all_holds_for_every_address() {
+        let config = crate::config::Config::from_json(
+            &serde_json::json!({ "dns": {
+                "servers": [
+                    { "type": "hosts", "tag": "main", "predefined": {
+                        "home.example": ["1.1.1.1", "1.2.2.2"],
+                        "mixed.example": ["1.1.1.1", "8.8.8.8"],
+                        "none.example": [] } },
+                    { "type": "hosts", "tag": "fallback", "predefined": {
+                        "home.example": "9.9.9.1", "mixed.example": "9.9.9.2",
+                        "none.example": "9.9.9.3" } }
+                ],
+                "rules": [
+                    { "query_type": ["A", "AAAA"], "action": "evaluate", "server": "main" },
+                    { "match_response": true, "ip_cidr": "1.0.0.0/8", "ip_match_all": true,
+                      "action": "respond" }
+                ],
+                "final": "fallback"
+            } })
+            .to_string(),
+        )
+        .unwrap();
+        let client = DnsClient::new(&config.dns, Default::default(), &Default::default()).unwrap();
+        let home = exchange(&client, "home.example", RecordType::A).await;
+        assert_eq!(answer_ips(&home), ips(&["1.1.1.1", "1.2.2.2"]));
+        let mixed = exchange(&client, "mixed.example", RecordType::A).await;
+        assert_eq!(answer_ips(&mixed), ips(&["9.9.9.2"]));
+        let none = exchange(&client, "none.example", RecordType::A).await;
+        assert_eq!(answer_ips(&none), ips(&["9.9.9.3"]));
+
+        for (rules, message) in [
+            (
+                serde_json::json!([{ "domain": "a", "ip_match_all": true, "server": "home" }]),
+                "dns.rules[0]: ip_match_all: matches an evaluated response",
+            ),
+            (
+                serde_json::json!([
+                    { "domain": "a", "action": "evaluate", "server": "home" },
+                    { "match_response": true, "ip_cidr": "1.0.0.0/8", "ip_match_all": true,
+                      "invert": true, "server": "home" }
+                ]),
+                "dns.rules[1]: ip_match_all: not with invert",
+            ),
+        ] {
+            let err = with_rules(rules.clone()).err().unwrap().to_string();
+            assert!(err.contains(message), "{}: {}", rules, err);
+        }
+    }
+
+    #[tokio::test]
+    async fn a_fakeip_server_answers_https_with_no_records() {
+        let config = crate::config::Config::from_json(
+            &serde_json::json!({ "dns": {
+                "servers": [
+                    { "type": "fakeip", "tag": "fake", "inet4_range": "198.18.0.0/15" }
+                ],
+                "rules": [{ "query_type": ["A", "AAAA", "HTTPS", "SVCB"], "server": "fake" }]
+            } })
+            .to_string(),
+        )
+        .unwrap();
+        let client = DnsClient::new(&config.dns, Default::default(), &Default::default()).unwrap();
+        for ty in [RecordType::HTTPS, RecordType::SVCB] {
+            let answer = exchange(&client, "a.example", ty).await;
+            assert_eq!(answer.response_code(), ResponseCode::NoError);
+            assert!(answer.answers().is_empty());
+        }
+        let mx = exchange(&client, "a.example", RecordType::MX).await;
+        assert_eq!(mx.response_code(), ResponseCode::ServFail);
+    }
+
+    /// A server's own client subnet goes over the one the rules or
+    /// `dns.client_subnet` set.
+    #[tokio::test]
+    async fn a_server_s_client_subnet_goes_over_the_rules() {
+        let (port, seen) = subnet_server().await;
+        let config = crate::config::Config::from_json(
+            &serde_json::json!({ "dns": {
+                "servers": [
+                    { "type": "udp", "tag": "ecs", "server": "127.0.0.1", "server_port": port,
+                      "client_subnet": "1.1.1.1/24" },
+                    { "type": "udp", "tag": "plain", "server": "127.0.0.1",
+                      "server_port": port }
+                ],
+                "client_subnet": "192.0.2.1",
+                "rules": [{ "domain": "plain.example", "server": "plain" }],
+                "final": "ecs"
+            } })
+            .to_string(),
+        )
+        .unwrap();
+        let client = DnsClient::new(&config.dns, Default::default(), &Default::default()).unwrap();
+        exchange(&client, "a.example", RecordType::A).await;
+        exchange(&client, "plain.example", RecordType::A).await;
+        let prefix = |p: &str| Some(p.parse::<crate::config::model::Prefix>().unwrap());
+        assert_eq!(
+            *seen.lock().unwrap(),
+            [prefix("1.1.1.0/24"), prefix("192.0.2.1/32")]
+        );
+        let err = error(serde_json::json!([
+            { "type": "local", "tag": "l", "client_subnet": "1.1.1.1/24" }
+        ]));
+        assert!(err.contains("client_subnet"), "{}", err);
+    }
+
+    /// A server that respects the rules may go through any outbound the
+    /// routing rules name, and so needs none of them to resolve through it.
+    #[test]
+    fn a_server_that_respects_the_rules_is_checked_against_every_route() {
+        let config = |final_outbound: &str, proxy_extra: serde_json::Value| {
+            let mut proxy = serde_json::json!({
+                "type": "socks", "tag": "proxy", "server": "proxy.example", "server_port": 1080
+            });
+            for (k, v) in proxy_extra.as_object().unwrap() {
+                proxy[k] = v.clone();
+            }
+            serde_json::json!({
+                "dns": { "servers": [
+                    { "type": "udp", "tag": "remote", "server": "8.8.8.8",
+                      "respect_rules": true },
+                    { "type": "local", "tag": "local" }
+                ] },
+                "outbounds": [proxy, { "type": "direct", "tag": "direct" }],
+                "route": { "rules": [{ "domain": "a.example", "outbound": "direct" }],
+                           "final": final_outbound }
+            })
+        };
+        let err = loops(config("proxy", serde_json::json!({})))
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("dns server [remote] -> outbound [proxy] -> dns server [remote]"),
+            "{}",
+            err
+        );
+        loops(config("direct", serde_json::json!({}))).unwrap();
+        loops(config("proxy", serde_json::json!({ "domain_resolver": "local" }))).unwrap();
+
+        // Skipping the default resolver, the rules resolve for it again.
+        let mut skipped = config(
+            "proxy",
+            serde_json::json!({ "skip_default_domain_resolver": true }),
+        );
+        skipped["route"]["default_domain_resolver"] = "local".into();
+        let err = loops(skipped.clone()).unwrap_err().to_string();
+        assert!(err.contains("outbound [proxy] -> dns server [remote]"), "{}", err);
+        skipped["outbounds"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("skip_default_domain_resolver");
+        loops(skipped).unwrap();
+
+        let err = error(serde_json::json!([
+            { "type": "udp", "server": "8.8.8.8", "respect_rules": true, "detour": "proxy" }
+        ]));
+        assert!(err.contains("respect_rules: not with a detour"), "{}", err);
     }
 
     fn tags(tags: &[&str]) -> Vec<String> {

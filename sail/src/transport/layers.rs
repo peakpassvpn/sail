@@ -35,13 +35,14 @@ pub struct Blocks {
 }
 
 /// The fields `Blocks::dial` covers.
-const DIAL_FIELDS: [&str; 10] = [
+const DIAL_FIELDS: [&str; 11] = [
     "bind_interface",
     "inet4_bind_address",
     "inet6_bind_address",
     "routing_mark",
     "connect_timeout",
     "domain_resolver",
+    "skip_default_domain_resolver",
     "domain_strategy",
     "tcp_keep_alive",
     "tcp_keep_alive_interval",
@@ -157,6 +158,12 @@ pub struct OutboundBlocks {
     /// The DNS server that resolves the names this outbound dials.
     #[serde(default)]
     pub domain_resolver: Option<crate::config::model::DomainResolver>,
+    /// A sail extension: without a `domain_resolver` of its own, the names
+    /// it dials resolve as the DNS rules say, not as
+    /// `route.default_domain_resolver` does; as Mihomo's DIRECT resolves
+    /// apart from the proxies' servers.
+    #[serde(default)]
+    pub skip_default_domain_resolver: bool,
     /// sing-box's deprecated field for the families they resolve to.
     #[serde(default)]
     pub domain_strategy: Option<crate::config::model::DnsStrategy>,
@@ -477,7 +484,15 @@ impl OutboundBlocks {
             tcp_keep_alive: self.tcp_keep_alive,
             tcp_keep_alive_interval: self.tcp_keep_alive_interval,
             disable_tcp_keep_alive: self.disable_tcp_keep_alive,
+            skip_default_resolver: self.skip_default_domain_resolver,
         };
+        if self.skip_default_domain_resolver && self.domain_resolver.is_some() {
+            return Err(anyhow!(
+                "[{}] outbound: skip_default_domain_resolver: not with a domain_resolver, \
+                 which the default never replaces",
+                tag
+            ));
+        }
         if let Some(detour) = &self.detour {
             let set = [
                 ("bind_interface", dial.bind_interface.is_some()),

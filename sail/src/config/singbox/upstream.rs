@@ -121,6 +121,10 @@ pub const FIELDS: &[Field] = &[
     f("dns.rules.*.response_answer", Unsupported),
     f("dns.rules.*.response_ns", Unsupported),
     f("dns.rules.*.response_extra", Unsupported),
+    // A `predefined` answer's records: sail answers with its rcode alone.
+    f("dns.rules.*.answer", Unsupported),
+    f("dns.rules.*.ns", Unsupported),
+    f("dns.rules.*.extra", Unsupported),
     f("dns.rules.*.disable_optimistic_cache", Ignored),
     f("dns.rules.*.speculative", Ignored),
     f("dns.rules.*.method", Ignored),
@@ -335,7 +339,6 @@ pub const FIELDS: &[Field] = &[
 /// Values sing-box accepts that sail does not implement: all of them change
 /// routing.
 pub const VALUES: &[(&str, &[&str])] = &[
-    ("dns.rules.*.action", &["predefined"]),
     (
         "dns.servers.*.type",
         &[

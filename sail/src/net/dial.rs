@@ -75,6 +75,9 @@ pub struct DialOptions {
     pub tcp_keep_alive_interval: Option<Duration>,
     /// No keepalive at all.
     pub disable_tcp_keep_alive: bool,
+    /// Whether the default's `domain_resolver` is not taken, and the DNS
+    /// rules resolve where these name none.
+    pub skip_default_resolver: bool,
 }
 
 impl Default for DialOptions {
@@ -93,6 +96,7 @@ impl Default for DialOptions {
             tcp_keep_alive: None,
             tcp_keep_alive_interval: None,
             disable_tcp_keep_alive: false,
+            skip_default_resolver: false,
         }
     }
 }
@@ -130,6 +134,9 @@ impl DialOptions {
             // Its strategy goes before that of the default resolver, as
             // in sing-box, but not before its own resolver's.
             domain_resolver: self.domain_resolver.clone().or_else(|| {
+                if self.skip_default_resolver {
+                    return None;
+                }
                 defaults.domain_resolver.clone().map(|resolver| {
                     crate::config::model::DomainResolver {
                         strategy: self.strategy.or(resolver.strategy),
@@ -144,6 +151,7 @@ impl DialOptions {
                 .tcp_keep_alive_interval
                 .or(defaults.tcp_keep_alive_interval),
             disable_tcp_keep_alive: self.disable_tcp_keep_alive || defaults.disable_tcp_keep_alive,
+            skip_default_resolver: self.skip_default_resolver,
         }
     }
 
@@ -361,6 +369,26 @@ mod tests {
         };
         let combined = DialOptions::default().or(&defaults);
         assert_eq!(combined.bind_interface.as_deref(), Some("en0"));
+    }
+
+    #[test]
+    fn skipping_the_default_resolver_leaves_the_dns_rules() {
+        let defaults = DialOptions {
+            domain_resolver: Some(crate::config::model::DomainResolver {
+                server: "proxy-dns".into(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let own = DialOptions {
+            skip_default_resolver: true,
+            ..Default::default()
+        };
+        assert_eq!(own.or(&defaults).domain_resolver, None);
+        assert!(DialOptions::default()
+            .or(&defaults)
+            .domain_resolver
+            .is_some());
     }
 
     #[test]

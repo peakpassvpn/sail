@@ -202,10 +202,10 @@ impl DnsClient {
             &upstream.roots,
         )?;
         let dialer = &upstream.dialer;
-        let mut endpoint = if dialer.detour.is_none() {
+        let mut endpoint = if dialer.is_direct() {
             endpoint(bind(addr.ip(), &dialer.dial).await?, None)?
         } else {
-            // QUIC over the datagrams of the detour.
+            // QUIC over the datagrams of the outbound.
             let datagram = self.dial_datagram(dialer, addr).await?;
             endpoint_on(
                 Arc::new(super::socket::DatagramSocket::new(datagram, addr)),

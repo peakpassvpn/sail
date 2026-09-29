@@ -166,12 +166,16 @@ impl DnsClient {
     /// a server whose `detour` dials a server name that resolves, through
     /// its `domain_resolver`, `route.default_domain_resolver` or the DNS
     /// rules, back at that server; outbounds' own `detour` and a group's
-    /// members are followed too. Such a query could only time out.
+    /// members are followed too. A server with `respect_rules` may go
+    /// through any outbound `route` names. Such a query could only time
+    /// out.
     pub fn check_loops(
         &self,
         outbounds: &[crate::config::Outbound],
-        default_resolver: Option<&crate::config::model::DomainResolver>,
+        route: &crate::config::model::Route,
     ) -> Result<()> {
+        let default_resolver = route.default_domain_resolver.as_ref();
+        let routed = route.outbounds(outbounds);
         #[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
         enum Node {
             Dns(String),
@@ -198,6 +202,9 @@ impl DnsClient {
             if let Some(detour) = dialer.and_then(|d| d.detour.as_ref()) {
                 next.push(Node::Outbound(detour.clone()));
             }
+            if dialer.is_some_and(|d| d.respect_rules) {
+                next.extend(routed.iter().map(|o| Node::Outbound(o.to_string())));
+            }
         }
         for outbound in outbounds {
             let node = Node::Outbound(outbound.tag.clone());
@@ -222,13 +229,17 @@ impl DnsClient {
             if host.parse::<IpAddr>().is_ok() {
                 continue;
             }
+            let skip_default = options
+                .get("skip_default_domain_resolver")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
             let resolver = options
                 .get("domain_resolver")
                 .and_then(|v| {
                     <crate::config::model::DomainResolver as serde::Deserialize>::deserialize(v)
                         .ok()
                 })
-                .or_else(|| default_resolver.cloned());
+                .or_else(|| default_resolver.filter(|_| !skip_default).cloned());
             let servers = match resolver {
                 Some(resolver) => vec![resolver.server],
                 None => {
@@ -340,17 +351,50 @@ impl DnsClient {
             .ok_or_else(|| anyhow!("dispatcher is gone"))
     }
 
+    /// The outbound a server's connection goes through, and the session
+    /// it carries it in: its `detour`, or with `respect_rules`, the one
+    /// the routing rules pick for it; `None` for none.
+    async fn outbound_for(
+        &self,
+        dialer: &Dialer,
+        network: Network,
+        addr: SocketAddr,
+    ) -> Result<Option<(String, Session)>> {
+        if let Some(detour) = &dialer.detour {
+            return Ok(Some((
+                detour.clone(),
+                Self::detour_session(network, addr, detour),
+            )));
+        }
+        if !dialer.respect_rules {
+            return Ok(None);
+        }
+        let mut sess = Self::detour_session(network, addr, "");
+        // The rules match the server's domain, as Mihomo's do, but its
+        // address is known already: resolving it again for an IP rule
+        // could come back here.
+        if let Some(domain) = &dialer.domain {
+            sess.set_sniffed_domain(SniffedFrom::Dns, domain.clone());
+        }
+        sess.skip_resolve = true;
+        let outbound = self
+            .dispatcher()?
+            .outbound_for(&mut sess)
+            .await
+            .map_err(|e| anyhow!("routing {}: {}", addr, e))?;
+        debug!("dns server at {} routed to [{}]", addr, outbound);
+        Ok(Some((outbound, sess)))
+    }
+
     /// A TCP connection to `addr`, as the server's dialer makes them.
     async fn dial_stream(&self, dialer: &Dialer, addr: SocketAddr) -> Result<AnyStream> {
-        match &dialer.detour {
+        match self.outbound_for(dialer, Network::Tcp, addr).await? {
             None => Ok(Box::new(crate::net::tcp_connect(addr, &dialer.dial).await?)),
-            Some(detour) => {
-                let sess = Self::detour_session(Network::Tcp, addr, detour);
-                self.dispatcher()?
-                    .stream_via(detour, sess)
-                    .await
-                    .map_err(|e| anyhow!("through [{}]: {}", detour, e))
-            }
+            Some((outbound, sess)) => self
+                .dispatcher()?
+                .stream_via(&outbound, sess)
+                .await
+                .map_err(|e| anyhow!("through [{}]: {}", outbound, e)),
         }
     }
 
@@ -360,19 +404,18 @@ impl DnsClient {
         dialer: &Dialer,
         addr: SocketAddr,
     ) -> Result<AnyOutboundDatagram> {
-        match &dialer.detour {
+        match self.outbound_for(dialer, Network::Udp, addr).await? {
             None => {
                 let socket = crate::net::new_udp_socket(&addr, &dialer.dial).await?;
                 Ok(Box::new(StdOutboundDatagram::new(socket)))
             }
-            Some(detour) => {
-                let sess = Self::detour_session(Network::Udp, addr, detour);
+            Some((outbound, sess)) => {
                 let span = sess.span();
                 self.dispatcher()?
-                    .datagram_via(detour, sess)
+                    .datagram_via(&outbound, sess)
                     .instrument(span)
                     .await
-                    .map_err(|e| anyhow!("through [{}]: {}", detour, e))
+                    .map_err(|e| anyhow!("through [{}]: {}", outbound, e))
             }
         }
     }
@@ -514,6 +557,11 @@ impl DnsClient {
                 let v6 = match ty {
                     RecordType::A => false,
                     RecordType::AAAA => true,
+                    // No records, as Mihomo answers: those it would have
+                    // give the real addresses in their hints.
+                    RecordType::HTTPS | RecordType::SVCB => {
+                        return Ok(Answer::Message(Self::reply(request, &[], FAKE_IP_TTL)))
+                    }
                     _ => return Err(anyhow!("a fakeip server answers no {} query", ty)),
                 };
                 // A family without a range: no address, and no error.
@@ -524,7 +572,7 @@ impl DnsClient {
                 Ok(Answer::Message(Self::reply(request, &ips, FAKE_IP_TTL)))
             }
             Kind::Udp { address, dialer } => {
-                let request = request.to_vec()?;
+                let request = Self::wire(server, request)?;
                 let addr = self.server_addr(address).await?;
                 let socket = self.dial_datagram(dialer, addr).await?;
                 self.exchange_udp(socket, &request, addr, server, time)
@@ -536,7 +584,7 @@ impl DnsClient {
                 dialer,
                 pool,
             } => {
-                let request = request.to_vec()?;
+                let request = Self::wire(server, request)?;
                 let addr = self.server_addr(address).await?;
                 let response = match pool.take() {
                     Some(mut stream) => {
@@ -556,7 +604,7 @@ impl DnsClient {
                 Self::parse(&response, &request, server).map(Answer::Message)
             }
             Kind::Upstream(upstream) => {
-                let request = request.to_vec()?;
+                let request = Self::wire(server, request)?;
                 let mut last_err = None;
                 for _ in 0..self.tuning.max_retries.max(1) {
                     match self.exchange_upstream(upstream, &request).await {
@@ -572,6 +620,19 @@ impl DnsClient {
                 Err(last_err.unwrap_or_else(|| anyhow!("no answer")))
             }
             Kind::SmartSelect { .. } => unreachable!("query() takes a smart_select"),
+        }
+    }
+
+    /// `request` as it goes to `server`: with the client subnet the server
+    /// sets.
+    fn wire(server: &Server, request: &Message) -> Result<Vec<u8>> {
+        match server.client_subnet {
+            Some(prefix) => {
+                let mut request = request.clone();
+                rules::set_client_subnet(&mut request, prefix);
+                Ok(request.to_vec()?)
+            }
+            None => Ok(request.to_vec()?),
         }
     }
 

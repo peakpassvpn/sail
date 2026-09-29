@@ -178,6 +178,8 @@ struct Rule {
     response: Option<crate::config::model::ResponseRef>,
     /// Whether it is inverted: without its response, it matches only then.
     invert: bool,
+    /// Whether its conditions on the response's addresses hold for each.
+    ip_match_all: bool,
     action: RuleAction,
 }
 
@@ -196,6 +198,8 @@ enum RuleAction {
     Respond,
     RouteOptions(QueryOptions),
     Reject,
+    /// Answers with this code and no records.
+    Predefined(ResponseCode),
 }
 
 /// How a query is sent: what rules' route options set.

@@ -511,6 +511,18 @@ impl Dispatcher {
         }
     }
 
+    /// The outbound the rules pick for `sess`, which is not dialled: for
+    /// a DNS server that respects the rules. An error when they pick none.
+    pub async fn outbound_for(&self, sess: &mut Session) -> io::Result<String> {
+        match self.route(sess, &mut NoSniffer).await? {
+            Routed::Outbound(outbound) => Ok(outbound),
+            Routed::HijackDns | Routed::Drop => Err(io::Error::new(
+                io::ErrorKind::ConnectionRefused,
+                "not routed to an outbound",
+            )),
+        }
+    }
+
     /// The DNS client what dials directly resolves with.
     #[cfg(feature = "rule-set")]
     pub(crate) fn dns_client(&self) -> SyncDnsClient {

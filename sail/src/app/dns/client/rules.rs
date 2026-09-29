@@ -73,12 +73,20 @@ impl DnsClient {
                 DnsRuleAction::Respond => RuleAction::Respond,
                 DnsRuleAction::RouteOptions => RuleAction::RouteOptions(options),
                 DnsRuleAction::Reject => RuleAction::Reject,
+                DnsRuleAction::Predefined => {
+                    let code = rule.rcode.map_or(0, |r| r.0);
+                    RuleAction::Predefined(ResponseCode::from(
+                        (code >> 4) as u8,
+                        (code & 0xf) as u8,
+                    ))
+                }
             };
             rules.push(Rule {
                 matcher,
                 outbounds: rule.outbound.clone(),
                 response: rule.match_response.clone(),
                 invert: rule.invert,
+                ip_match_all: rule.ip_match_all,
                 action,
             });
         }
@@ -87,18 +95,65 @@ impl DnsClient {
 
     /// The facts of a query of type `ty` for `host`, made for `ctx`.
     fn facts(host: &str, ty: RecordType, ctx: &LookupContext, response: Option<&Message>) -> Facts {
-        let sess = Session {
+        match response {
+            Some(response) => Self::response_facts(
+                host,
+                ty,
+                ctx,
+                response.response_code(),
+                &addresses(response),
+            ),
+            None => Facts::new(&Self::session(host, ctx), &[]).with_query_type(ty.into()),
+        }
+    }
+
+    /// The facts of a response with `rcode` and the addresses `ips`.
+    fn response_facts(
+        host: &str,
+        ty: RecordType,
+        ctx: &LookupContext,
+        rcode: ResponseCode,
+        ips: &[IpAddr],
+    ) -> Facts {
+        Facts::new(&Self::session(host, ctx), ips)
+            .with_rcode(u16::from(rcode))
+            .with_query_type(ty.into())
+    }
+
+    fn session(host: &str, ctx: &LookupContext) -> Session {
+        Session {
             destination: SocksAddr::Domain(host.to_string(), 0),
             inbound_tag: ctx.inbound.clone().unwrap_or_default(),
             user: ctx.user.clone(),
             ..Default::default()
-        };
-        let facts = match response {
-            Some(response) => Facts::new(&sess, &addresses(response))
-                .with_rcode(u16::from(response.response_code())),
-            None => Facts::new(&sess, &[]),
-        };
-        facts.with_query_type(ty.into())
+        }
+    }
+
+    /// Whether `rule` matches `response`: with `ip_match_all`, as each of
+    /// its addresses alone.
+    fn matches_response(
+        rule: &Rule,
+        host: &str,
+        ty: RecordType,
+        ctx: &LookupContext,
+        response: &Message,
+    ) -> bool {
+        if !rule.ip_match_all {
+            return rule
+                .matcher
+                .matches(&Self::facts(host, ty, ctx, Some(response)));
+        }
+        let ips = addresses(response);
+        !ips.is_empty()
+            && ips.iter().all(|ip| {
+                rule.matcher.matches(&Self::response_facts(
+                    host,
+                    ty,
+                    ctx,
+                    response.response_code(),
+                    std::slice::from_ref(ip),
+                ))
+            })
     }
 
     /// Whether the rule is for the outbound `ctx` dials for.
@@ -155,10 +210,7 @@ impl DnsClient {
                 // Without its response, a rule matches only inverted, as
                 // in sing-box.
                 Some(None) => rule.invert,
-                Some(Some(response)) => {
-                    rule.matcher
-                        .matches(&Self::facts(&host, ty, ctx, Some(response)))
-                }
+                Some(Some(response)) => Self::matches_response(rule, &host, ty, ctx, response),
                 None => rule.matcher.matches(&Self::facts(&host, ty, ctx, None)),
             };
             if !matched {
@@ -229,6 +281,13 @@ impl DnsClient {
                     debug!("dns rule {} matches {} {}: reject", i, host, ty);
                     return Ok(Walked::Refused);
                 }
+                RuleAction::Predefined(code) => {
+                    debug!("dns rule {} matches {} {}: {}", i, host, ty, code);
+                    return Ok(Walked::Response(
+                        Box::new(Self::status(request, *code)),
+                        false,
+                    ));
+                }
             }
         }
         self.resolve(&self.final_server, request, &options)
@@ -290,7 +349,7 @@ impl DnsClient {
                 RuleAction::Route {
                     server, strategy, ..
                 } if !self.is_fake_ip(server) => return RuleStrategy::Sent(*strategy),
-                RuleAction::Reject => return RuleStrategy::Rejected,
+                RuleAction::Reject | RuleAction::Predefined(_) => return RuleStrategy::Rejected,
                 _ => {}
             }
         }
@@ -320,7 +379,7 @@ impl DnsClient {
                         return Reach { servers };
                     }
                 }
-                RuleAction::Respond | RuleAction::Reject if surely => {
+                RuleAction::Respond | RuleAction::Reject | RuleAction::Predefined(_) if surely => {
                     return Reach { servers };
                 }
                 _ => {}
@@ -433,7 +492,7 @@ pub(super) fn client_subnet(request: &Message) -> Option<Prefix> {
 
 /// Makes `request` carry `prefix` as its client subnet, in place of any it
 /// has; the address's bits past the prefix are cleared, as RFC 7871 wants.
-fn set_client_subnet(request: &mut Message, prefix: Prefix) {
+pub(super) fn set_client_subnet(request: &mut Message, prefix: Prefix) {
     let addr = match prefix.addr {
         IpAddr::V4(v4) => {
             let mask = u32::MAX.checked_shl(32 - prefix.len as u32).unwrap_or(0);

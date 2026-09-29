@@ -15,6 +15,7 @@ mod test_anytls;
 mod test_components;
 mod test_config_clash;
 mod test_direct;
+mod test_dns_respect_rules;
 mod test_dns_upstreams;
 mod test_domain_resolver;
 mod test_fakeip;

@@ -438,6 +438,11 @@ pub struct DnsRule {
     /// The response has an address.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub ip_accept_any: bool,
+    /// A sail extension: the rule's conditions on the response's addresses
+    /// hold for every one of them, rather than for any; a response without
+    /// one they hold for none. Mihomo's fallback filter keeps an answer so.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub ip_match_all: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub response_rcode: Option<Rcode>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -458,6 +463,9 @@ pub struct DnsRule {
     /// `route`: the address families, instead of `dns.strategy`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub strategy: Option<DnsStrategy>,
+    /// `predefined`: the code of the answer, NOERROR when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rcode: Option<Rcode>,
     /// `evaluate`: the name of its response, which `match_response` gives.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tag: Option<String>,
@@ -498,6 +506,9 @@ pub enum DnsRuleAction {
     RouteOptions,
     /// Answers that the name does not resolve.
     Reject,
+    /// Answers with `rcode` and no records, as sing-box's `predefined`
+    /// without its records, which sail does not implement.
+    Predefined,
 }
 
 impl DnsRuleAction {
@@ -509,6 +520,7 @@ impl DnsRuleAction {
             DnsRuleAction::Respond => "respond",
             DnsRuleAction::RouteOptions => "route-options",
             DnsRuleAction::Reject => "reject",
+            DnsRuleAction::Predefined => "predefined",
         }
     }
 }
@@ -734,6 +746,7 @@ impl DnsRule {
             ),
             ("strategy", self.strategy.is_some(), &[Route]),
             ("tag", self.tag.is_some(), &[Evaluate]),
+            ("rcode", self.rcode.is_some(), &[Predefined]),
             (
                 "disable_cache",
                 self.disable_cache,
@@ -790,10 +803,14 @@ impl DnsRule {
         if self.tag.as_deref() == Some("") {
             return Err(anyhow!("tag: empty"));
         }
+        if self.ip_match_all && self.invert {
+            return Err(anyhow!("ip_match_all: not with invert"));
+        }
         let response_fields = [
             ("ip_cidr", !self.ip_cidr.is_empty()),
             ("ip_is_private", self.ip_is_private),
             ("ip_accept_any", self.ip_accept_any),
+            ("ip_match_all", self.ip_match_all),
             ("response_rcode", self.response_rcode.is_some()),
         ];
         if self.match_response.is_none() {
@@ -825,6 +842,7 @@ impl DnsRule {
             ("strategy", self.strategy.is_some()),
             ("outbound", !self.outbound.is_empty()),
             ("tag", self.tag.is_some()),
+            ("rcode", self.rcode.is_some()),
             ("disable_cache", self.disable_cache),
             ("rewrite_ttl", self.rewrite_ttl.is_some()),
             ("timeout", self.timeout.is_some()),
@@ -840,6 +858,7 @@ impl DnsRule {
             ("ip_cidr", !self.ip_cidr.is_empty()),
             ("ip_is_private", self.ip_is_private),
             ("ip_accept_any", self.ip_accept_any),
+            ("ip_match_all", self.ip_match_all),
             ("response_rcode", self.response_rcode.is_some()),
         ];
         if let Some((field, _)) = response_fields.iter().find(|(_, set)| *set) {
@@ -1404,6 +1423,25 @@ pub struct Route {
     /// `http_clients` when unset, or with none, the default outbound.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_http_client: Option<String>,
+}
+
+impl Route {
+    /// The outbounds its rules may send a connection to, and `final`, or
+    /// else the first of `outbounds`, which takes what no rule matches.
+    pub fn outbounds<'a>(&'a self, outbounds: &'a [Outbound]) -> Vec<&'a str> {
+        let mut tags: Vec<&str> = self
+            .rules
+            .iter()
+            .filter_map(|r| r.outbound.as_deref())
+            .collect();
+        match &self.final_outbound {
+            Some(tag) => tags.push(tag),
+            None => tags.extend(outbounds.first().map(|o| o.tag.as_str())),
+        }
+        tags.sort();
+        tags.dedup();
+        tags
+    }
 }
 
 /// A DNS server that resolves the names something dials: its tag, or

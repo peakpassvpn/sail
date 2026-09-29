@@ -317,10 +317,7 @@ impl RuntimeManager {
             .reloaded(&config.dns, dial_defaults.clone(), &self.env, &rule_sets)
             .map_err(Error::Config)?;
         dns_client
-            .check_loops(
-                &config.outbounds,
-                config.route.default_domain_resolver.as_ref(),
-            )
+            .check_loops(&config.outbounds, &config.route)
             .map_err(Error::Config)?;
         // Outbounds and routing reach the DNS client through the shared
         // cell, and so find the new one once it is stored.

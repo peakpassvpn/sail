@@ -11,7 +11,7 @@ use serde_derive::Deserialize;
 
 use super::upstream::{Protocol, Upstream};
 use super::ServerSelectorState;
-use crate::config::model::{listable, parse_options, DnsServer};
+use crate::config::model::{listable, parse_options, DnsServer, Prefix};
 use crate::net::DialOptions;
 use crate::runtime::RuntimeEnv;
 use crate::transport::layers::OutboundTls;
@@ -20,6 +20,8 @@ use crate::transport::layers::OutboundTls;
 pub(super) struct Server {
     pub tag: String,
     pub kind: Kind,
+    /// The EDNS Client Subnet its queries carry, over any they have.
+    pub client_subnet: Option<Prefix>,
 }
 
 pub(super) enum Kind {
@@ -82,11 +84,23 @@ impl std::fmt::Display for Address {
 }
 
 /// How a server's connections are made: through the outbound `detour`
-/// names, or directly with its own dial fields.
+/// names, through the one the routing rules pick (`respect_rules`), or
+/// directly with its own dial fields.
 #[derive(Debug, Clone)]
 pub(super) struct Dialer {
     pub detour: Option<String>,
+    pub respect_rules: bool,
+    /// The server's domain, which the routing rules see with
+    /// `respect_rules`.
+    pub domain: Option<String>,
     pub dial: Arc<DialOptions>,
+}
+
+impl Dialer {
+    /// Whether it dials with its own dial fields, through no outbound.
+    pub fn is_direct(&self) -> bool {
+        self.detour.is_none() && !self.respect_rules
+    }
 }
 
 /// The dial fields a server takes, and what the remote ones take besides.
@@ -105,6 +119,16 @@ struct RemoteOptions {
     tls: Option<OutboundTls>,
     #[serde(default)]
     detour: Option<String>,
+    /// A sail extension, as Mihomo's `respect-rules`: the connections go
+    /// through the outbound the routing rules pick for them, as for a
+    /// connection from the inbound `dnsclient` to the server, its domain
+    /// known.
+    #[serde(default)]
+    respect_rules: bool,
+    /// A sail extension: the EDNS Client Subnet its queries carry, over
+    /// any they have, as Mihomo's `ecs` with `ecs-override`.
+    #[serde(default)]
+    client_subnet: Option<Prefix>,
     #[serde(default)]
     bind_interface: Option<String>,
     #[serde(default)]
@@ -171,15 +195,18 @@ impl Server {
     ) -> Result<Self> {
         let tag = &config.tag;
         let err = |e: anyhow::Error| anyhow!("dns.servers[{}]: {}", tag, e);
+        let mut client_subnet = None;
         let kind = match config.kind.as_str() {
             "udp" => {
                 let o = remote(config)?;
+                client_subnet = o.client_subnet;
                 no_path_or_tls(&o, "udp")?;
                 let (address, dialer) = address_and_dialer(o, 53, tag, defaults).map_err(err)?;
                 Kind::Udp { address, dialer }
             }
             "tcp" => {
                 let o = remote(config)?;
+                client_subnet = o.client_subnet;
                 no_path_or_tls(&o, "tcp")?;
                 let (address, dialer) = address_and_dialer(o, 53, tag, defaults).map_err(err)?;
                 Kind::Tcp {
@@ -191,6 +218,7 @@ impl Server {
             "tls" | "https" | "quic" | "h3" => {
                 let protocol = Protocol::of(&config.kind);
                 let mut o = remote(config)?;
+                client_subnet = o.client_subnet;
                 if o.path.is_some() && !matches!(protocol, Protocol::Https | Protocol::H3) {
                     return Err(err(anyhow!("path: only https and h3 servers take one")));
                 }
@@ -251,6 +279,7 @@ impl Server {
         Ok(Self {
             tag: tag.clone(),
             kind,
+            client_subnet,
         })
     }
 
@@ -406,18 +435,28 @@ fn address_and_dialer(
         // DNS servers do not take sing-box's keepalive fields yet.
         ..Default::default()
     };
+    let own_dial = own.bind_interface.is_some()
+        || own.inet4_bind_address.is_some()
+        || own.inet6_bind_address.is_some()
+        || own.routing_mark.is_some()
+        || o.connect_timeout.is_some();
     if let Some(detour) = &o.detour {
-        let set = own.bind_interface.is_some()
-            || own.inet4_bind_address.is_some()
-            || own.inet6_bind_address.is_some()
-            || own.routing_mark.is_some()
-            || o.connect_timeout.is_some();
-        if set {
+        if o.respect_rules {
+            return Err(anyhow!(
+                "respect_rules: not with a detour, which the rules would pick"
+            ));
+        }
+        if own_dial {
             return Err(anyhow!(
                 "the dial fields have no effect with a detour; set them on [{}]",
                 detour
             ));
         }
+    }
+    if o.respect_rules && own_dial {
+        return Err(anyhow!(
+            "the dial fields have no effect with respect_rules; set them on the outbounds"
+        ));
     }
     crate::transport::layers::check_dial_platform("dns server", tag, &own)?;
     Ok((
@@ -428,6 +467,8 @@ fn address_and_dialer(
         },
         Dialer {
             detour: o.detour,
+            respect_rules: o.respect_rules,
+            domain: (!is_ip).then(|| host.to_ascii_lowercase()),
             dial: Arc::new(own.or(defaults)),
         },
     ))
