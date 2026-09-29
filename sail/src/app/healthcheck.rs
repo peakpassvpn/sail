@@ -68,6 +68,10 @@ pub async fn udp(
     }
 }
 
+/// What groups request through their members to test them, by default:
+/// sing-box's.
+pub const DEFAULT_URL: &str = "https://www.gstatic.com/generate_204";
+
 /// An HTTP request made through an outbound to measure it, as sing-box's
 /// URL tests do: the latency is the time to the response's status line,
 /// connecting and any TLS handshake included.

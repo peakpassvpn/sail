@@ -85,6 +85,7 @@ all-endpoints = [
     "outbound-select",
     "outbound-urltest",
     "outbound-load-balance",
+    "outbound-smart",
     # endpoints
     "wireguard",
 ]
@@ -141,6 +142,9 @@ outbound-load-balance = ["lru_time_cache"]
 # an approximation of it. The list, compiled in, adds about 900 KB to a
 # release binary, so it is left out by default.
 load-balance-psl = ["outbound-load-balance", "psl"]
+# Scores its members by the connections through them and keeps a site on
+# one; exposes its selection and scores the way a selector does.
+outbound-smart = ["outbound-select", "lru_time_cache", "regex"]
 # Exposes its selection and latencies the way a selector does.
 outbound-fallback = ["outbound-select"]
 outbound-vmess = ["aead", "hmac", "sha2", "aes", "sha3", "md-5", "crc32fast"]
@@ -284,7 +288,7 @@ aes-gcm = { version = "0.10", optional = true }
 sha3 = { version = "0.10", optional = true }
 crc32fast = { version = "1", optional = true }
 
-# load-balance: sticky sessions
+# load-balance: sticky sessions; smart: sites
 lru_time_cache = { version = "0.11", optional = true }
 # load-balance: consistent hashing by registrable domain, from the public
 # suffix list compiled in

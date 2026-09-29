@@ -24,7 +24,7 @@ pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
 /// more often than this.
 const MIN_RETEST: Duration = Duration::from_secs(2);
 
-pub const DEFAULT_URL: &str = "https://www.gstatic.com/generate_204";
+pub use crate::app::healthcheck::DEFAULT_URL;
 pub const DEFAULT_INTERVAL: Duration = Duration::from_secs(3 * 60);
 
 /// Called after every round of tests with the members tested and their
@@ -101,7 +101,7 @@ impl Checker {
     }
 
     /// For the selector, which shows them.
-    #[cfg(feature = "outbound-select")]
+    #[cfg(any(feature = "outbound-urltest", feature = "outbound-fallback"))]
     pub fn latencies(&self) -> MemberLatencies {
         self.latencies.clone()
     }

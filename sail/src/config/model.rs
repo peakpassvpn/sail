@@ -1276,10 +1276,17 @@ pub enum OutboundProviderKind {
 }
 
 /// The protocols of groups, which take other outbounds as members.
-pub const GROUP_PROTOCOLS: &[&str] = &["selector", "urltest", "fallback", "load-balance", "tryall"];
+pub const GROUP_PROTOCOLS: &[&str] = &[
+    "selector",
+    "urltest",
+    "fallback",
+    "load-balance",
+    "smart",
+    "tryall",
+];
 
 /// The groups that take members from outbound providers too.
-pub const PROVIDER_GROUPS: &[&str] = &["selector", "urltest", "fallback", "load-balance"];
+pub const PROVIDER_GROUPS: &[&str] = &["selector", "urltest", "fallback", "load-balance", "smart"];
 
 impl OutboundProvider {
     /// The mistakes one provider can make on its own, and those naming what
@@ -1399,8 +1406,8 @@ impl OutboundProvider {
 /// The members a group takes from outbound providers, after its own
 /// `outbounds`, and those it leaves out: a sail extension, as Mihomo's
 /// proxy groups take them (`use`, `filter`, `exclude-filter`,
-/// `exclude-type`, `empty-fallback`). Of `selector`, `urltest`, `fallback`
-/// and `load-balance`; it needs the outbound-provider feature.
+/// `exclude-type`, `empty-fallback`). Of `selector`, `urltest`, `fallback`,
+/// `load-balance` and `smart`; it needs the outbound-provider feature.
 #[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
 pub struct GroupProviders {
     /// The outbound providers, by tag, whose outbounds join the group's

@@ -1,11 +1,13 @@
 //! Connections that end once their group moves off the member they went
-//! through, for `interrupt_exist_connections`.
+//! through, or the member leaves the group, for
+//! `interrupt_exist_connections`.
 //!
 //! A group that switches members sends new connections to the new one,
 //! but the connections already open would otherwise stay on the old one
 //! for as long as they last: long-lived ones never see the switch. These
 //! wrappers fail such a connection's reads and writes, which ends it, as
-//! soon as the selection moves off its member.
+//! soon as the selection moves off its member (or, for the smart group,
+//! which selects none, once its member is no longer one).
 
 use std::future::Future;
 use std::io;
@@ -18,14 +20,50 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::watch;
 
 use super::members::MemberKey;
+#[cfg(feature = "outbound-smart")]
+use super::members::Members;
 use crate::adapter::*;
 use crate::session::SocksAddr;
 
-/// Resolves once the selection is not `member`. A group that is gone
-/// (replaced by a reload) never ends its connections.
-async fn moved_off(mut selection: watch::Receiver<MemberKey>, member: MemberKey) {
-    if selection.wait_for(|key| *key != member).await.is_err() {
-        std::future::pending::<()>().await
+/// What ends a connection through `member`.
+#[derive(Clone)]
+pub enum Until {
+    /// The selection moving off it.
+    Deselected(watch::Receiver<MemberKey>, MemberKey),
+    /// The member leaving the group's members.
+    #[cfg(feature = "outbound-smart")]
+    Removed(std::sync::Arc<Members>, MemberKey),
+}
+
+impl Until {
+    /// Whether it happened already.
+    fn happened(&self) -> bool {
+        match self {
+            Until::Deselected(selection, member) => *selection.borrow() != *member,
+            #[cfg(feature = "outbound-smart")]
+            Until::Removed(members, member) => members.load().position(member).is_none(),
+        }
+    }
+
+    /// Resolves once it happens. A group that is gone (replaced by a
+    /// reload) never ends its connections.
+    async fn wait(self) {
+        match self {
+            Until::Deselected(mut selection, member) => {
+                if selection.wait_for(|key| *key != member).await.is_err() {
+                    std::future::pending::<()>().await
+                }
+            }
+            #[cfg(feature = "outbound-smart")]
+            Until::Removed(members, member) => {
+                let mut version = members.subscribe();
+                while members.load().position(&member).is_some() {
+                    if version.changed().await.is_err() {
+                        std::future::pending::<()>().await
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -38,8 +76,8 @@ fn interrupted() -> io::Error {
 
 type Moved = Mutex<Pin<Box<dyn Future<Output = ()> + Send>>>;
 
-fn moved(selection: &watch::Receiver<MemberKey>, member: &MemberKey) -> Moved {
-    Mutex::new(Box::pin(moved_off(selection.clone(), member.clone())))
+fn moved(until: &Until) -> Moved {
+    Mutex::new(Box::pin(until.clone().wait()))
 }
 
 /// Whether the selection moved off; each direction watches on its own,
@@ -58,10 +96,15 @@ pub fn stream(
     selection: &watch::Receiver<MemberKey>,
     member: MemberKey,
 ) -> AnyStream {
+    stream_until(stream, Until::Deselected(selection.clone(), member))
+}
+
+/// `stream`, ended when `until` happens.
+pub fn stream_until(stream: AnyStream, until: Until) -> AnyStream {
     Box::new(InterruptibleStream {
         inner: stream,
-        read: moved(selection, &member),
-        write: moved(selection, &member),
+        read: moved(&until),
+        write: moved(&until),
         interrupted: false,
     })
 }
@@ -118,17 +161,20 @@ pub fn datagram(
     selection: &watch::Receiver<MemberKey>,
     member: MemberKey,
 ) -> AnyOutboundDatagram {
+    datagram_until(datagram, Until::Deselected(selection.clone(), member))
+}
+
+/// `datagram`, ended when `until` happens.
+pub fn datagram_until(datagram: AnyOutboundDatagram, until: Until) -> AnyOutboundDatagram {
     Box::new(InterruptibleDatagram {
         inner: datagram,
-        selection: selection.clone(),
-        member,
+        until,
     })
 }
 
 struct InterruptibleDatagram {
     inner: AnyOutboundDatagram,
-    selection: watch::Receiver<MemberKey>,
-    member: MemberKey,
+    until: Until,
 }
 
 impl OutboundDatagram for InterruptibleDatagram {
@@ -142,13 +188,11 @@ impl OutboundDatagram for InterruptibleDatagram {
         (
             Box::new(RecvHalf {
                 inner: recv,
-                selection: self.selection.clone(),
-                member: self.member.clone(),
+                until: self.until.clone(),
             }),
             Box::new(SendHalf {
                 inner: send,
-                selection: self.selection,
-                member: self.member,
+                until: self.until,
             }),
         )
     }
@@ -156,14 +200,13 @@ impl OutboundDatagram for InterruptibleDatagram {
 
 struct RecvHalf {
     inner: Box<dyn OutboundDatagramRecvHalf>,
-    selection: watch::Receiver<MemberKey>,
-    member: MemberKey,
+    until: Until,
 }
 
 #[async_trait]
 impl OutboundDatagramRecvHalf for RecvHalf {
     async fn recv_from(&mut self, buf: &mut [u8]) -> io::Result<(usize, SocksAddr)> {
-        let moved = moved_off(self.selection.clone(), self.member.clone());
+        let moved = self.until.clone().wait();
         let recv = self.inner.recv_from(buf);
         futures::pin_mut!(moved, recv);
         match futures::future::select(recv, moved).await {
@@ -175,14 +218,13 @@ impl OutboundDatagramRecvHalf for RecvHalf {
 
 struct SendHalf {
     inner: Box<dyn OutboundDatagramSendHalf>,
-    selection: watch::Receiver<MemberKey>,
-    member: MemberKey,
+    until: Until,
 }
 
 #[async_trait]
 impl OutboundDatagramSendHalf for SendHalf {
     async fn send_to(&mut self, buf: &[u8], dst_addr: &SocksAddr) -> io::Result<usize> {
-        if *self.selection.borrow() != self.member {
+        if self.until.happened() {
             return Err(interrupted());
         }
         self.inner.send_to(buf, dst_addr).await
@@ -224,6 +266,38 @@ mod tests {
             });
             tokio::time::sleep(std::time::Duration::from_millis(20)).await;
             selection.set(key(1));
+            let r = tokio::time::timeout(std::time::Duration::from_secs(1), reader)
+                .await
+                .expect("the pending read must be woken")
+                .unwrap();
+            assert_eq!(r.unwrap_err().kind(), io::ErrorKind::ConnectionAborted);
+        });
+    }
+
+    #[cfg(feature = "outbound-smart")]
+    #[test]
+    fn a_stream_ends_when_its_member_leaves_the_group() {
+        use crate::protocol::group::members::tests::{member, outbounds};
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        rt.block_on(async {
+            let members = outbounds(&["0", "1"]);
+            let (a, mut b) = tokio::io::duplex(64);
+            let mut a = stream_until(Box::new(a), Until::Removed(members.clone(), key(0)));
+            // Other changes leave it.
+            members.publish(vec![member(None, "0")]);
+            a.write_all(b"ping").await.unwrap();
+            let mut buf = [0u8; 4];
+            b.read_exact(&mut buf).await.unwrap();
+
+            let reader = tokio::spawn(async move {
+                let mut buf = [0u8; 4];
+                a.read(&mut buf).await
+            });
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            members.publish(vec![member(None, "1")]);
             let r = tokio::time::timeout(std::time::Duration::from_secs(1), reader)
                 .await
                 .expect("the pending read must be woken")

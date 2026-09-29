@@ -99,6 +99,7 @@ pub fn mihomo_type(protocol: &str) -> &'static str {
         "urltest" => "URLTest",
         "fallback" => "Fallback",
         "load-balance" => "LoadBalance",
+        "smart" => "Smart",
         other => crate::include::OUTBOUNDS
             .name(other)
             .or_else(|| crate::include::ENDPOINTS.name(other))

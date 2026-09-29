@@ -25,6 +25,7 @@ mod test_fallback;
 mod test_group_fallback;
 mod test_group_load_balance;
 mod test_group_selector;
+mod test_group_smart;
 mod test_group_urltest;
 mod test_grpc_pool;
 mod test_http_proxy;
