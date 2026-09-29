@@ -20,6 +20,7 @@ use crate::session::{Network, Session, SniffedProtocol};
 
 /// What rules are matched against: what is known about a connection at
 /// the time.
+#[derive(Clone)]
 pub(crate) struct Facts {
     /// The domain, sniffed or asked for, in lowercase.
     domain: Option<String>,
@@ -40,6 +41,25 @@ pub(crate) struct Facts {
     query_type: Option<u16>,
     /// The code of the DNS response matched.
     rcode: Option<u16>,
+    /// The DNS response matched, whose records `response_answer`,
+    /// `response_ns` and `response_extra` match.
+    response: Option<Arc<hickory_proto::op::Message>>,
+    /// The evaluated DNS responses, by what `match_response` calls them,
+    /// for the rules a logical one combines that name their own.
+    responses: Option<Arc<Responses>>,
+}
+
+/// The evaluated DNS responses a DNS rule may match, by what
+/// `match_response` calls them: none for a server that did not answer.
+pub(crate) type Responses = std::collections::HashMap<model::ResponseRef, Option<ResponseFacts>>;
+
+/// What the conditions on a DNS response see of it.
+#[derive(Clone)]
+pub(crate) struct ResponseFacts {
+    /// Its addresses.
+    pub ips: Vec<IpAddr>,
+    pub rcode: u16,
+    pub message: Arc<hickory_proto::op::Message>,
 }
 
 impl Facts {
@@ -64,7 +84,34 @@ impl Facts {
             source: sess.source,
             query_type: None,
             rcode: None,
+            response: None,
+            responses: None,
         }
+    }
+
+    /// The facts of the DNS response `message`, whose records the rules
+    /// may match.
+    pub fn with_response(mut self, message: Arc<hickory_proto::op::Message>) -> Self {
+        self.response = Some(message);
+        self
+    }
+
+    /// With the evaluated responses the rules a logical one combines may
+    /// name.
+    pub fn with_responses(mut self, responses: Arc<Responses>) -> Self {
+        self.responses = Some(responses);
+        self
+    }
+
+    /// These facts, of the evaluated response `response` names instead;
+    /// none when there is no such response.
+    fn of_response(&self, response: &model::ResponseRef) -> Option<Facts> {
+        let of = self.responses.as_ref()?.get(response)?.as_ref()?;
+        let mut facts = self.clone();
+        facts.ips = of.ips.clone();
+        facts.rcode = Some(of.rcode);
+        facts.response = Some(of.message.clone());
+        Some(facts)
     }
 
     /// The facts of a DNS response with code `rcode`, whose addresses
@@ -460,6 +507,8 @@ pub(crate) enum Condition {
         all: bool,
         rules: Vec<Condition>,
         invert: bool,
+        /// A DNS rule's own `match_response`, within a logical one.
+        response: Option<model::ResponseRef>,
     },
 }
 
@@ -502,6 +551,7 @@ impl Condition {
                     all,
                     rules,
                     invert: rule.invert,
+                    response: rule.match_response.clone(),
                 })
             }
         }
@@ -512,7 +562,25 @@ impl Condition {
     pub(crate) fn matches(&self, facts: &Facts, ip_match_source: bool) -> bool {
         match self {
             Condition::Default(conditions) => conditions.matches(facts, ip_match_source),
-            Condition::Logical { all, rules, invert } => {
+            Condition::Logical {
+                all,
+                rules,
+                invert,
+                response,
+            } => {
+                // On a response it names, which it matches only inverted
+                // without, as in sing-box.
+                let switched;
+                let facts = match response {
+                    None => facts,
+                    Some(r) => match facts.of_response(r) {
+                        Some(f) => {
+                            switched = f;
+                            &switched
+                        }
+                        None => return *invert,
+                    },
+                };
                 let matched = if *all {
                     rules.iter().all(|r| r.matches(facts, ip_match_source))
                 } else {
@@ -594,6 +662,13 @@ pub(crate) struct Conditions {
     /// Any address matches, of a DNS response.
     ip_accept_any: bool,
     response_rcode: Option<u16>,
+    /// Records the DNS response matched has, in each section: any of
+    /// them.
+    response_answer: Vec<hickory_proto::rr::Record>,
+    response_ns: Vec<hickory_proto::rr::Record>,
+    response_extra: Vec<hickory_proto::rr::Record>,
+    /// A DNS rule's own `match_response`, within a logical one.
+    response: Option<model::ResponseRef>,
     source_ports: Vec<(u16, u16)>,
     ports: Vec<(u16, u16)>,
     process_names: Vec<String>,
@@ -743,6 +818,16 @@ impl Conditions {
                 .collect::<Result<Vec<_>>>()
                 .map_err(|e| anyhow!("{}: {}", field(name), e))
         };
+        let records = |texts: &[String], name: &str| {
+            texts
+                .iter()
+                .enumerate()
+                .map(|(i, text)| {
+                    crate::app::dns::parse_record(text)
+                        .map_err(|e| anyhow!("{}[{}]: {}", field(name), i, e))
+                })
+                .collect::<Result<Vec<_>>>()
+        };
         let conditions = Conditions {
             inbounds: rule.inbound.clone(),
             ip_version,
@@ -775,6 +860,10 @@ impl Conditions {
             ip_is_private: rule.ip_is_private,
             ip_accept_any: rule.ip_accept_any,
             response_rcode: rule.response_rcode,
+            response_answer: records(&rule.response_answer, "response_answer")?,
+            response_ns: records(&rule.response_ns, "response_ns")?,
+            response_extra: records(&rule.response_extra, "response_extra")?,
+            response: rule.match_response.clone(),
             source_ports: ports(
                 &rule.source_port,
                 &rule.source_port_range,
@@ -829,8 +918,34 @@ impl Conditions {
             && self.process_name_regex.is_empty()
             && self.query_types.is_empty()
             && self.response_rcode.is_none()
+            && self.response_answer.is_empty()
+            && self.response_ns.is_empty()
+            && self.response_extra.is_empty()
             && self.clash_mode.is_none()
             && !self.has_rule_sets()
+    }
+
+    /// Whether the DNS response has one of the records each section's
+    /// condition names, as sing-box compares them.
+    fn response_records_match(&self, facts: &Facts) -> bool {
+        let sections = [
+            (&self.response_answer, 0),
+            (&self.response_ns, 1),
+            (&self.response_extra, 2),
+        ];
+        sections.iter().all(|(wanted, section)| {
+            wanted.is_empty()
+                || facts.response.as_ref().is_some_and(|m| {
+                    let records = match section {
+                        0 => &m.answers,
+                        1 => &m.authorities,
+                        _ => &m.additionals,
+                    };
+                    wanted
+                        .iter()
+                        .any(|w| records.iter().any(|r| crate::app::dns::same_record(w, r)))
+                })
+        })
     }
 
     fn has_rule_sets(&self) -> bool {
@@ -971,6 +1086,7 @@ impl Conditions {
                     .query_type()
                     .is_some_and(|t| self.query_types.contains(&t)))
             && self.response_rcode.is_none_or(|c| facts.rcode == Some(c))
+            && self.response_records_match(facts)
             && self
                 .clash_mode
                 .as_ref()
@@ -979,6 +1095,19 @@ impl Conditions {
     }
 
     pub(crate) fn matches(&self, facts: &Facts, ip_match_source: bool) -> bool {
+        // On a response it names, which it matches only inverted without,
+        // as in sing-box.
+        let switched;
+        let facts = match &self.response {
+            None => facts,
+            Some(r) => match facts.of_response(r) {
+                Some(f) => {
+                    switched = f;
+                    &switched
+                }
+                None => return self.invert,
+            },
+        };
         if self.empty {
             return true;
         }

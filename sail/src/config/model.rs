@@ -524,6 +524,16 @@ pub struct DnsRule {
     pub ip_match_all: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub response_rcode: Option<Rcode>,
+    /// Records the response has among its answers, as `answer` writes
+    /// them: any of them.
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub response_answer: Vec<String>,
+    /// Records the response has among its name servers.
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub response_ns: Vec<String>,
+    /// Records the response has among its additional records.
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub response_extra: Vec<String>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub invert: bool,
     /// `logical`: `and` or `or`.
@@ -545,6 +555,18 @@ pub struct DnsRule {
     /// `predefined`: the code of the answer, NOERROR when unset.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rcode: Option<Rcode>,
+    /// `predefined`: the answer's records, as a zone file writes them
+    /// (`localhost. IN A 127.0.0.1`, TTL 3600 unless given), or the base64
+    /// of their wire form; one named `*.suffix.` takes the name asked for
+    /// when it ends so.
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub answer: Vec<String>,
+    /// `predefined`: its name server records.
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub ns: Vec<String>,
+    /// `predefined`: its additional records.
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub extra: Vec<String>,
     /// `evaluate`: the name of its response, which `match_response` gives.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tag: Option<String>,
@@ -610,7 +632,7 @@ impl DnsRuleAction {
 
 /// Which evaluated response a rule matches: `true` for the last one without
 /// a tag, or a tag.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ResponseRef {
     Latest,
     Tag(String),
@@ -748,8 +770,17 @@ impl serde::Serialize for Prefix {
 
 impl DnsRule {
     /// Its conditions, and those of the rules it combines, as a routing
-    /// rule's: they match as those do.
+    /// rule's: they match as those do. Its own `match_response` is for the
+    /// DNS client, which matches it against that response; those of the
+    /// rules it combines are theirs.
     pub fn conditions(&self) -> Rule {
+        Rule {
+            match_response: None,
+            ..self.combined_conditions()
+        }
+    }
+
+    fn combined_conditions(&self) -> Rule {
         Rule {
             kind: self.kind,
             query_type: self.query_type.clone(),
@@ -785,9 +816,17 @@ impl DnsRule {
             ip_is_private: self.ip_is_private,
             ip_accept_any: self.ip_accept_any,
             response_rcode: self.response_rcode.map(|r| r.0),
+            response_answer: self.response_answer.clone(),
+            response_ns: self.response_ns.clone(),
+            response_extra: self.response_extra.clone(),
+            match_response: self.match_response.clone(),
             invert: self.invert,
             mode: self.mode,
-            rules: self.rules.iter().map(DnsRule::conditions).collect(),
+            rules: self
+                .rules
+                .iter()
+                .map(DnsRule::combined_conditions)
+                .collect(),
             ..Default::default()
         }
     }
@@ -832,6 +871,9 @@ impl DnsRule {
             ("strategy", self.strategy.is_some(), &[Route]),
             ("tag", self.tag.is_some(), &[Evaluate]),
             ("rcode", self.rcode.is_some(), &[Predefined]),
+            ("answer", !self.answer.is_empty(), &[Predefined]),
+            ("ns", !self.ns.is_empty(), &[Predefined]),
+            ("extra", !self.extra.is_empty(), &[Predefined]),
             (
                 "disable_cache",
                 self.disable_cache,
@@ -902,6 +944,9 @@ impl DnsRule {
             ("ip_accept_any", self.ip_accept_any),
             ("ip_match_all", self.ip_match_all),
             ("response_rcode", self.response_rcode.is_some()),
+            ("response_answer", !self.response_answer.is_empty()),
+            ("response_ns", !self.response_ns.is_empty()),
+            ("response_extra", !self.response_extra.is_empty()),
         ];
         if self.match_response.is_none() {
             if let Some((field, _)) = response_fields.iter().find(|(_, set)| *set) {
@@ -913,7 +958,7 @@ impl DnsRule {
             }
         }
         for (i, rule) in self.rules.iter().enumerate() {
-            rule.check_combined()
+            rule.check_combined(self.match_response.is_some())
                 .map_err(|e| anyhow!("rules[{}]: {}", i, e))?;
         }
         if !self.has_conditions() {
@@ -924,8 +969,10 @@ impl DnsRule {
         Ok(())
     }
 
-    /// A rule a logical one combines: conditions, and nothing else.
-    fn check_combined(&self) -> Result<()> {
+    /// A rule a logical one combines: conditions, and nothing else; those
+    /// on a response need a `match_response` of its own, or of a rule it is
+    /// within.
+    fn check_combined(&self, within_response: bool) -> Result<()> {
         let set = [
             ("action", self.action.is_some()),
             ("server", self.server.is_some()),
@@ -939,32 +986,45 @@ impl DnsRule {
             ("client_subnet", self.client_subnet.is_some()),
             ("remove_client_subnet", self.remove_client_subnet),
         ];
-        if self.match_response.is_some() {
+        if self.ip_match_all {
             return Err(anyhow!(
-                "match_response: sail does not implement it in a logical rule's rules yet"
+                "ip_match_all: sail takes it on a rule, not on the rules a logical one combines"
             ));
         }
         let response_fields = [
             ("ip_cidr", !self.ip_cidr.is_empty()),
             ("ip_is_private", self.ip_is_private),
             ("ip_accept_any", self.ip_accept_any),
-            ("ip_match_all", self.ip_match_all),
             ("response_rcode", self.response_rcode.is_some()),
+            ("response_answer", !self.response_answer.is_empty()),
+            ("response_ns", !self.response_ns.is_empty()),
+            ("response_extra", !self.response_extra.is_empty()),
         ];
-        if let Some((field, _)) = response_fields.iter().find(|(_, set)| *set) {
-            return Err(anyhow!(
-                "{}: matches an evaluated response, and needs match_response",
-                field
-            ));
+        if !within_response && self.match_response.is_none() {
+            if let Some((field, _)) = response_fields.iter().find(|(_, set)| *set) {
+                return Err(anyhow!(
+                    "{}: matches an evaluated response, and needs match_response",
+                    field
+                ));
+            }
         }
         if let Some((field, _)) = set.iter().find(|(_, set)| *set) {
             return Err(anyhow!("{}: a rule a logical one combines has none", field));
         }
         for (i, rule) in self.rules.iter().enumerate() {
-            rule.check_combined()
+            rule.check_combined(within_response || self.match_response.is_some())
                 .map_err(|e| anyhow!("rules[{}]: {}", i, e))?;
         }
         Ok(())
+    }
+
+    /// The `match_response` of the rule and of those it combines.
+    pub fn responses(&self) -> Vec<&ResponseRef> {
+        let mut out: Vec<&ResponseRef> = self.match_response.iter().collect();
+        for rule in &self.rules {
+            out.extend(rule.responses());
+        }
+        out
     }
 }
 
@@ -1062,25 +1122,29 @@ impl Dns {
         let mut uses_responses = None;
         for (i, rule) in self.rules.iter().enumerate() {
             let at = |e: String| anyhow!("dns.rules[{}]: {}", i, e);
-            match rule.response() {
-                Some(ResponseRef::Latest) if !latest => {
-                    return Err(at(if tags.is_empty() {
-                        "the response it matches comes from an evaluate rule before it, and \
-                         there is none"
-                            .to_string()
-                    } else {
-                        "the response it matches comes from an evaluate rule without a tag \
-                         before it; match_response names a tagged one"
-                            .to_string()
-                    }));
+            // Its own, and those of the rules it combines.
+            let nested = rule.rules.iter().flat_map(DnsRule::responses).cloned();
+            for response in rule.response().into_iter().chain(nested) {
+                match response {
+                    ResponseRef::Latest if !latest => {
+                        return Err(at(if tags.is_empty() {
+                            "the response it matches comes from an evaluate rule before it, \
+                             and there is none"
+                                .to_string()
+                        } else {
+                            "the response it matches comes from an evaluate rule without a \
+                             tag before it; match_response names a tagged one"
+                                .to_string()
+                        }));
+                    }
+                    ResponseRef::Tag(tag) if !tags.contains(&tag) => {
+                        return Err(at(format!(
+                            "match_response: no evaluate rule before it is tagged [{}]",
+                            tag
+                        )));
+                    }
+                    _ => {}
                 }
-                Some(ResponseRef::Tag(tag)) if !tags.contains(&tag) => {
-                    return Err(at(format!(
-                        "match_response: no evaluate rule before it is tagged [{}]",
-                        tag
-                    )));
-                }
-                _ => {}
             }
             let action = rule.action.unwrap_or_default();
             if action == DnsRuleAction::Evaluate {
@@ -1097,7 +1161,9 @@ impl Dns {
                 }
             }
             if uses_responses.is_none()
-                && (rule.response().is_some() || action == DnsRuleAction::Evaluate)
+                && (rule.response().is_some()
+                    || !rule.rules.iter().all(|r| r.responses().is_empty())
+                    || action == DnsRuleAction::Evaluate)
             {
                 uses_responses = Some(i);
             }
@@ -1691,6 +1757,21 @@ pub struct Rule {
     /// A DNS rule's: the response it matches has this code.
     #[serde(skip)]
     pub response_rcode: Option<u16>,
+    /// A DNS rule's: the response it matches has one of these records
+    /// among its answers, as the configuration writes them; parsed when
+    /// the rule is compiled.
+    #[serde(skip)]
+    pub response_answer: Vec<String>,
+    /// A DNS rule's: among its name servers.
+    #[serde(skip)]
+    pub response_ns: Vec<String>,
+    /// A DNS rule's: among its additional records.
+    #[serde(skip)]
+    pub response_extra: Vec<String>,
+    /// A DNS rule's, combined by a logical one: the evaluated response it
+    /// matches, rather than the one of the rule it is within.
+    #[serde(skip)]
+    pub match_response: Option<ResponseRef>,
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
     pub source_port: Vec<u16>,
     /// Inclusive port ranges, as `port_range` writes them.
@@ -1927,6 +2008,10 @@ impl Rule {
             ("ip_is_private", self.ip_is_private),
             ("ip_accept_any", self.ip_accept_any),
             ("response_rcode", self.response_rcode.is_some()),
+            ("response_answer", !self.response_answer.is_empty()),
+            ("response_ns", !self.response_ns.is_empty()),
+            ("response_extra", !self.response_extra.is_empty()),
+            ("match_response", self.match_response.is_some()),
             ("source_port", !self.source_port.is_empty()),
             ("source_port_range", !self.source_port_range.is_empty()),
             ("port", !self.port.is_empty()),

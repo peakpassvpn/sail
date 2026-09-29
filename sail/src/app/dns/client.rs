@@ -1034,10 +1034,15 @@ impl DnsClient {
         } else {
             Self::dualstack_query(&mut a, &mut aaaa, delay).await?
         };
-        Ok(first
-            .into_iter()
-            .chain(second.into_iter().flatten())
-            .collect())
+        // Each once: an answer need not be of the type asked, as a
+        // predefined one is not.
+        let mut ips: Vec<IpAddr> = Vec::new();
+        for ip in first.into_iter().chain(second.into_iter().flatten()) {
+            if !ips.contains(&ip) {
+                ips.push(ip);
+            }
+        }
+        Ok(ips)
     }
 
     /// The answer of `preferred`, or of `fallback` when `preferred` has

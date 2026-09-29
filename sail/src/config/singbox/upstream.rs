@@ -94,13 +94,6 @@ pub const FIELDS: &[Field] = &[
     // Matched while its responses come: a race is won by the first rule
     // that matches.
     f("dns.rules.*.race", Unsupported),
-    f("dns.rules.*.response_answer", Unsupported),
-    f("dns.rules.*.response_ns", Unsupported),
-    f("dns.rules.*.response_extra", Unsupported),
-    // A `predefined` answer's records: sail answers with its rcode alone.
-    f("dns.rules.*.answer", Unsupported),
-    f("dns.rules.*.ns", Unsupported),
-    f("dns.rules.*.extra", Unsupported),
     f("dns.rules.*.speculative", Ignored),
     f("dns.rules.*.method", Ignored),
     f("dns.rules.*.no_drop", Ignored),

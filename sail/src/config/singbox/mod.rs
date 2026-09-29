@@ -287,21 +287,14 @@ mod tests {
             err.to_string(),
             "route.rules[0].rules[1].rules[0].preferred_by: sail does not implement this field yet"
         );
-        let err = parse(
+        // A response of their own, as sing-box's DNS rules may name.
+        parse(
             r#"{ "dns": { "servers": [{ "type": "local" }], "rules": [
                    { "domain": "a", "action": "evaluate", "server": "local" },
                    { "type": "logical", "mode": "and", "server": "local",
                      "rules": [{ "match_response": true, "ip_accept_any": true }] }] } }"#,
         )
-        .unwrap_err();
-        assert!(
-            err.to_string().contains(
-                "dns.rules[1]: rules[0]: match_response: sail does not implement it in a \
-                 logical rule's rules yet"
-            ),
-            "{}",
-            err
-        );
+        .unwrap();
     }
 
     #[test]

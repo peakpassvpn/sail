@@ -25,6 +25,8 @@ struct Rule {
     invert: bool,
     /// Whether its conditions on the response's addresses hold for each.
     ip_match_all: bool,
+    /// Whether rules it combines name evaluated responses of their own.
+    nested_responses: bool,
     action: RuleAction,
 }
 
@@ -43,8 +45,16 @@ enum RuleAction {
     Respond,
     RouteOptions(QueryOptions),
     Reject,
-    /// Answers with this code and no records.
-    Predefined(ResponseCode),
+    /// Answers with this code and these records.
+    Predefined(Box<Predefined>),
+}
+
+/// A `predefined` answer.
+struct Predefined {
+    code: ResponseCode,
+    answer: Vec<Record>,
+    ns: Vec<Record>,
+    extra: Vec<Record>,
 }
 
 /// How a query is sent: what rules' route options set.

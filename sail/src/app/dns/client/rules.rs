@@ -3,6 +3,7 @@
 
 use std::collections::HashMap;
 use std::net::IpAddr;
+use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
 use hickory_proto::op::{Edns, Message, ResponseCode};
@@ -13,7 +14,7 @@ use tracing::debug;
 use super::cache::{self, AnswerKey, Cached};
 use super::server::{Kind, Server};
 use super::{DnsClient, LookupContext, QueryOptions, Rule, RuleAction, Subnet};
-use crate::app::router::matcher::Facts;
+use crate::app::router::matcher::{Facts, ResponseFacts, Responses};
 use crate::config::model::{DnsRuleAction, DnsStrategy, Prefix, ResponseRef};
 use crate::session::{Session, SocksAddr};
 use crate::util::DnsMessageExt;
@@ -75,10 +76,23 @@ impl DnsClient {
                 DnsRuleAction::Reject => RuleAction::Reject,
                 DnsRuleAction::Predefined => {
                     let code = rule.rcode.map_or(0, |r| r.0);
-                    RuleAction::Predefined(ResponseCode::from(
-                        (code >> 4) as u8,
-                        (code & 0xf) as u8,
-                    ))
+                    let records = |texts: &[String], field: &str| {
+                        texts
+                            .iter()
+                            .enumerate()
+                            .map(|(j, text)| {
+                                crate::app::dns::parse_record(text).map_err(|e| {
+                                    anyhow!("dns.rules[{}].{}[{}]: {}", i, field, j, e)
+                                })
+                            })
+                            .collect::<Result<Vec<_>>>()
+                    };
+                    RuleAction::Predefined(Box::new(super::Predefined {
+                        code: ResponseCode::from((code >> 4) as u8, (code & 0xf) as u8),
+                        answer: records(&rule.answer, "answer")?,
+                        ns: records(&rule.ns, "ns")?,
+                        extra: records(&rule.extra, "extra")?,
+                    }))
                 }
             };
             rules.push(Rule {
@@ -87,6 +101,7 @@ impl DnsClient {
                 response: rule.match_response.clone(),
                 invert: rule.invert,
                 ip_match_all: rule.ip_match_all,
+                nested_responses: rule.rules.iter().any(|r| !r.responses().is_empty()),
                 action,
             });
         }
@@ -102,7 +117,8 @@ impl DnsClient {
                 ctx,
                 response.response_code(),
                 &addresses(response),
-            ),
+            )
+            .with_response(Arc::new(response.clone())),
             None => Facts::new(&Self::session(host, ctx), &[]).with_query_type(ty.into()),
         }
     }
@@ -137,23 +153,61 @@ impl DnsClient {
         ty: RecordType,
         ctx: &LookupContext,
         response: &Message,
+        responses: Option<&Arc<Responses>>,
     ) -> bool {
         if !rule.ip_match_all {
-            return rule
-                .matcher
-                .matches(&Self::facts(host, ty, ctx, Some(response)));
+            return rule.matcher.matches(&Self::with_responses(
+                Self::facts(host, ty, ctx, Some(response)),
+                responses,
+            ));
         }
         let ips = addresses(response);
         !ips.is_empty()
             && ips.iter().all(|ip| {
-                rule.matcher.matches(&Self::response_facts(
-                    host,
-                    ty,
-                    ctx,
-                    response.response_code(),
-                    std::slice::from_ref(ip),
+                rule.matcher.matches(&Self::with_responses(
+                    Self::response_facts(
+                        host,
+                        ty,
+                        ctx,
+                        response.response_code(),
+                        std::slice::from_ref(ip),
+                    )
+                    .with_response(Arc::new(response.clone())),
+                    responses,
                 ))
             })
+    }
+
+    /// `facts`, with the evaluated responses, if the rules a logical one
+    /// combines name some of their own.
+    fn with_responses(facts: Facts, responses: Option<&Arc<Responses>>) -> Facts {
+        match responses {
+            Some(responses) => facts.with_responses(responses.clone()),
+            None => facts,
+        }
+    }
+
+    /// The evaluated responses so far, as the rules a logical one combines
+    /// name them: the last one without a tag, and the tagged ones.
+    fn responses(
+        latest: &Option<Option<Message>>,
+        tagged: &HashMap<&str, Option<Message>>,
+    ) -> Responses {
+        let of = |response: &Option<Message>| {
+            response.as_ref().map(|m| ResponseFacts {
+                ips: addresses(m),
+                rcode: u16::from(m.response_code()),
+                message: Arc::new(m.clone()),
+            })
+        };
+        let mut responses: Responses = tagged
+            .iter()
+            .map(|(tag, response)| (ResponseRef::Tag(tag.to_string()), of(response)))
+            .collect();
+        if let Some(latest) = latest {
+            responses.insert(ResponseRef::Latest, of(latest));
+        }
+        responses
     }
 
     /// Whether the rule is for the outbound `ctx` dials for.
@@ -206,12 +260,20 @@ impl DnsClient {
                     Some(tagged.get(tag.as_str()).and_then(Option::as_ref))
                 }
             };
+            let responses = rule
+                .nested_responses
+                .then(|| Arc::new(Self::responses(&latest, &tagged)));
             let matched = match response {
                 // Without its response, a rule matches only inverted, as
                 // in sing-box.
                 Some(None) => rule.invert,
-                Some(Some(response)) => Self::matches_response(rule, &host, ty, ctx, response),
-                None => rule.matcher.matches(&Self::facts(&host, ty, ctx, None)),
+                Some(Some(response)) => {
+                    Self::matches_response(rule, &host, ty, ctx, response, responses.as_ref())
+                }
+                None => rule.matcher.matches(&Self::with_responses(
+                    Self::facts(&host, ty, ctx, None),
+                    responses.as_ref(),
+                )),
             };
             if !matched {
                 continue;
@@ -279,9 +341,12 @@ impl DnsClient {
                     debug!("dns rule {} matches {} {}: reject", i, host, ty);
                     return Ok(Walked::Refused);
                 }
-                RuleAction::Predefined(code) => {
-                    debug!("dns rule {} matches {} {}: {}", i, host, ty, code);
-                    return Ok(Walked::Response(Box::new(Self::status(request, *code))));
+                RuleAction::Predefined(predefined) => {
+                    debug!(
+                        "dns rule {} matches {} {}: {}",
+                        i, host, ty, predefined.code
+                    );
+                    return Ok(Walked::Response(Box::new(predefined.response(request))));
                 }
             }
         }
@@ -335,6 +400,7 @@ impl DnsClient {
         let facts = Self::facts(host, ty, ctx, None);
         for rule in &self.rules {
             if rule.response.is_some()
+                || rule.nested_responses
                 || !Self::for_outbound(rule, ctx)
                 || !rule.matcher.matches(&facts)
             {
@@ -344,6 +410,10 @@ impl DnsClient {
                 RuleAction::Route {
                     server, strategy, ..
                 } if !self.is_fake_ip(server) => return RuleStrategy::Sent(*strategy),
+                // One with addresses sends none, but answers with them.
+                RuleAction::Predefined(p) if !p.answer.is_empty() => {
+                    return RuleStrategy::Sent(None)
+                }
                 RuleAction::Reject | RuleAction::Predefined(_) => return RuleStrategy::Rejected,
                 _ => {}
             }
@@ -362,7 +432,7 @@ impl DnsClient {
                 continue;
             }
             // A rule on a response may match it or not.
-            let surely = rule.response.is_none();
+            let surely = rule.response.is_none() && !rule.nested_responses;
             if surely && !rule.matcher.matches(&facts) {
                 continue;
             }
@@ -559,6 +629,41 @@ pub(super) fn set_client_subnet(request: &mut Message, prefix: Prefix) {
 fn remove_client_subnet(request: &mut Message) {
     if let Some(edns) = request.extensions_mut() {
         edns.options_mut().remove(EdnsCode::Subnet);
+    }
+}
+
+impl super::Predefined {
+    /// The answer to `request`: its code, and its records, one named
+    /// `*.suffix.` taking the name asked for when it ends in the suffix, as
+    /// sing-box answers.
+    fn response(&self, request: &Message) -> Message {
+        let mut response = DnsClient::status(request, self.code);
+        response.metadata.authoritative = true;
+        let Some(question) = request.queries().first() else {
+            return response;
+        };
+        let asked = question.name();
+        let named = |records: &[hickory_proto::rr::Record]| {
+            records
+                .iter()
+                .map(|record| {
+                    let mut record = record.clone();
+                    // `*.example.` is for the names under `example.`.
+                    let base = record.name.base_name();
+                    if record.name.is_wildcard()
+                        && asked.num_labels() > base.num_labels()
+                        && base.zone_of(asked)
+                    {
+                        record.name = asked.clone();
+                    }
+                    record
+                })
+                .collect::<Vec<_>>()
+        };
+        response.answers = named(&self.answer);
+        response.authorities = named(&self.ns);
+        response.additionals = named(&self.extra);
+        response
     }
 }
 

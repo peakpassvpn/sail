@@ -74,6 +74,7 @@ fn compile(rule: &HeadlessRule, path: &str, depth: usize) -> Result<Condition> {
                 all,
                 rules,
                 invert: rule.invert,
+                response: None,
             })
         }
         Some(other) => Err(anyhow!("{}.type: unknown rule type \"{}\"", path, other)),

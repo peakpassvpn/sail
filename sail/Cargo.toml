@@ -214,7 +214,7 @@ parking_lot = "0.12"
 uuid = { version = "1", features = ["v4"] }
 
 # DNS
-hickory-proto = { version = "0.26.1", default-features = false }
+hickory-proto = { version = "0.26.1", default-features = false, features = ["std"] }
 lru = "0.18.2"
 
 # Logging

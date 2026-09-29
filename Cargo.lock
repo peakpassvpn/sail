@@ -1193,6 +1193,7 @@ dependencies = [
  "jni",
  "once_cell",
  "rand 0.10.3",
+ "ring",
  "thiserror 2.0.21",
  "tinyvec",
  "tracing",

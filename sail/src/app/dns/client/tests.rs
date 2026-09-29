@@ -440,11 +440,6 @@ mod tests {
                 serde_json::json!([{ "wifi_ssid": "home", "server": "home" }]),
                 "dns.rules[0].wifi_ssid: sail does not implement this field yet",
             ),
-            (
-                serde_json::json!([{ "domain": "a", "action": "predefined",
-                                     "answer": ["a. IN A 10.0.0.1"] }]),
-                "dns.rules[0].answer: sail does not implement this field yet",
-            ),
         ] {
             let err = with_rules(rules.clone()).err().unwrap().to_string();
             assert!(err.contains(message), "{}: {}", rules, err);
@@ -1214,15 +1209,6 @@ mod tests {
                 "dns.rules[0]: tag: not with action respond",
             ),
             (
-                serde_json::json!([
-                    { "domain": "a", "action": "evaluate", "server": "home" },
-                    { "type": "logical", "mode": "and", "server": "home",
-                      "rules": [{ "match_response": true, "ip_accept_any": true }] }
-                ]),
-                "dns.rules[1]: rules[0]: match_response: sail does not implement it in a \
-                 logical rule's rules yet",
-            ),
-            (
                 serde_json::json!([{ "domain": "a", "action": "evaluate", "server": "home",
                                      "race": true }]),
                 "dns.rules[0].race: sail does not implement this field yet",
@@ -1578,5 +1564,140 @@ mod tests {
             serde_json::json!({ "optimistic": false, "disable_cache": true }),
         )
         .unwrap();
+    }
+
+    fn rules_client(rules: serde_json::Value) -> anyhow::Result<DnsClient> {
+        let config = crate::config::Config::from_json(
+            &serde_json::json!({ "dns": {
+                "servers": [
+                    { "type": "hosts", "tag": "one", "predefined": {
+                        "a.example": "10.0.0.1", "b.example": "10.0.0.2" } },
+                    { "type": "hosts", "tag": "two", "predefined": {
+                        "a.example": "10.0.0.9", "b.example": "10.0.0.2" } },
+                    { "type": "hosts", "tag": "other", "predefined": {
+                        "a.example": "192.0.2.1", "b.example": "192.0.2.2" } },
+                ],
+                "final": "other",
+                "rules": rules,
+            } })
+            .to_string(),
+        )?;
+        DnsClient::new(&config.dns, Default::default(), &Default::default())
+    }
+
+    #[tokio::test]
+    async fn a_predefined_answer_carries_its_records() {
+        let client = rules_client(serde_json::json!([
+            { "domain_suffix": "local.example", "action": "predefined",
+              "answer": ["*.local.example. IN A 10.1.1.1", "fixed.example. 60 IN A 10.1.1.2"],
+              "ns": "local.example. IN NS ns.local.example." },
+            { "domain": "gone.example", "action": "predefined", "rcode": "NXDOMAIN" },
+        ]))
+        .unwrap();
+        let m = exchange(&client, "x.local.example", RecordType::A).await;
+        assert!(m.metadata.authoritative);
+        assert_eq!(m.answers().len(), 2);
+        // The wildcard takes the name asked for; the other keeps its own.
+        assert_eq!(m.answers()[0].name.to_utf8(), "x.local.example.");
+        assert_eq!(m.answers()[0].ttl, 3600);
+        assert_eq!(m.answers()[1].name.to_utf8(), "fixed.example.");
+        assert_eq!(m.answers()[1].ttl, 60);
+        assert_eq!(m.name_servers().len(), 1);
+        // Not under `local.example.`: the name stays.
+        let apex = exchange(&client, "local.example", RecordType::A).await;
+        assert_eq!(apex.answers()[0].name.to_utf8(), "*.local.example.");
+        // The instance's own lookups get its addresses.
+        assert_eq!(
+            client.lookup("y.local.example").await.unwrap(),
+            ips(&["10.1.1.1", "10.1.1.2"])
+        );
+        let gone = exchange(&client, "gone.example", RecordType::A).await;
+        assert_eq!(gone.response_code(), hickory_proto::op::ResponseCode::NXDomain);
+        assert!(gone.answers().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_rule_matches_the_records_of_a_response() {
+        let client = rules_client(serde_json::json!([
+            { "domain_suffix": "example", "action": "evaluate", "server": "one" },
+            { "match_response": true,
+              "response_answer": ["a.example. IN A 10.0.0.1"], "action": "respond" },
+        ]))
+        .unwrap();
+        // one answers a.example with 10.0.0.1: responded with.
+        let a = exchange(&client, "a.example", RecordType::A).await;
+        assert_eq!(answer_ips(&a), ips(&["10.0.0.1"]));
+        // b.example with 10.0.0.2: no match; final.
+        let b = exchange(&client, "b.example", RecordType::A).await;
+        assert_eq!(answer_ips(&b), ips(&["192.0.2.2"]));
+    }
+
+    #[tokio::test]
+    async fn rules_a_logical_one_combines_match_responses_of_their_own() {
+        let client = rules_client(serde_json::json!([
+            { "domain_suffix": "example", "action": "evaluate", "server": "one", "tag": "1" },
+            { "domain_suffix": "example", "action": "evaluate", "server": "two", "tag": "2" },
+            // Both agree: answer with the first's.
+            { "type": "logical", "mode": "and", "rules": [
+                { "match_response": "1", "ip_cidr": "10.0.0.2/32" },
+                { "match_response": "2", "response_answer": "b.example. IN A 10.0.0.2" },
+              ], "match_response": "1", "action": "respond" },
+            // A sub-rule naming a response that did not come matches only
+            // inverted.
+            { "type": "logical", "mode": "or", "rules": [
+                { "match_response": "1", "ip_cidr": "10.0.0.1/32", "invert": true },
+              ], "action": "route", "server": "two" },
+        ]))
+        .unwrap();
+        let b = exchange(&client, "b.example", RecordType::A).await;
+        assert_eq!(answer_ips(&b), ips(&["10.0.0.2"]));
+        // one and two disagree on a.example; one's is 10.0.0.1, so the
+        // inverted rule does not match either: final.
+        let a = exchange(&client, "a.example", RecordType::A).await;
+        assert_eq!(answer_ips(&a), ips(&["192.0.2.1"]));
+    }
+
+    #[test]
+    fn record_mistakes_name_the_field() {
+        for (rules, message) in [
+            (
+                serde_json::json!([{ "domain": "x", "action": "predefined",
+                                     "answer": ["x. IN A 1.2.3"] }]),
+                "dns.rules[0].answer[0]: record",
+            ),
+            (
+                serde_json::json!([{ "domain_suffix": "example", "action": "evaluate", "server": "one" },
+                                   { "match_response": true, "response_ns": ["bad"],
+                                     "action": "respond" }]),
+                "dns.rules[1].response_ns[0]: record",
+            ),
+            (
+                serde_json::json!([{ "domain": "x", "response_answer": "x. IN A 1.1.1.1",
+                                     "server": "one" }]),
+                "response_answer: matches an evaluated response, and needs match_response",
+            ),
+            (
+                serde_json::json!([{ "domain_suffix": "example", "action": "evaluate", "server": "one" },
+                                   { "type": "logical", "mode": "and", "rules": [
+                                       { "match_response": true, "ip_match_all": true,
+                                         "ip_cidr": "10.0.0.0/8" }],
+                                     "server": "one" }]),
+                "ip_match_all: sail takes it on a rule",
+            ),
+            (
+                serde_json::json!([{ "type": "logical", "mode": "and", "rules": [
+                                       { "match_response": "t", "ip_cidr": "10.0.0.0/8" }],
+                                     "server": "one" }]),
+                "no evaluate rule before it is tagged [t]",
+            ),
+            (
+                serde_json::json!([{ "domain": "x", "answer": "x. IN A 1.1.1.1",
+                                     "server": "one" }]),
+                "answer: not with action route",
+            ),
+        ] {
+            let err = rules_client(rules).err().unwrap().to_string();
+            assert!(err.contains(message), "{}: {}", message, err);
+        }
     }
 }

@@ -98,7 +98,12 @@ fn read_rule(reader: &mut Reader, path: &str, depth: usize) -> Result<Condition>
                 .map(|i| read_rule(reader, &format!("{}.rules[{}]", path, i), depth + 1))
                 .collect::<Result<_>>()?;
             let invert = reader.bool()?;
-            Ok(Condition::Logical { all, rules, invert })
+            Ok(Condition::Logical {
+                all,
+                rules,
+                invert,
+                response: None,
+            })
         }
         kind => Err(anyhow!("{}: unknown rule type {}", path, kind)),
     }
