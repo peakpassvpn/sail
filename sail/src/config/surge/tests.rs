@@ -617,8 +617,8 @@ fn mistakes_name_where_they_are() {
             "[Proxy Group] line 2: G: no policy or group is named \"Nowhere\"",
         ),
         (
-            "[Proxy Group]\nG = select, policy-path=https://a\n[Rule]\nFINAL,G\n",
-            "policy-path: sail does not implement this parameter yet (C.5c)",
+            "[Proxy Group]\nG = select, policy-path=ftp://a\n[Rule]\nFINAL,G\n",
+            "[Proxy Group] line 2: G: policy-path: \"ftp://a\" is neither an http(s) URL nor a file",
         ),
         (
             "[Proxy]\nA = direct\n[Proxy Group]\nG = smart, A, policy-priority=\"A:0\"\n\
@@ -783,4 +783,156 @@ fn a_profile_includes_its_sections_from_files() {
     let config = crate::config::from_file(path.to_str().unwrap()).unwrap();
     assert_eq!(outbound(&config, "HK")["type"], "trojan");
     std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// The outbound providers, as JSON.
+#[cfg(feature = "outbound-provider")]
+fn providers(config: &Config) -> Vec<Value> {
+    config
+        .outbound_providers
+        .iter()
+        .map(|p| serde_json::to_value(p).unwrap())
+        .collect()
+}
+
+#[cfg(feature = "outbound-provider")]
+#[test]
+fn policy_paths_are_providers_groups_share() {
+    let config = load(
+        "[Proxy]\nRelay = trojan, relay.example.com, 443, password=pw\n\
+         [Proxy Group]\n\
+         Pool = select, policy-path=https://sub.example.com/s?target=surge, update-interval=3600, hidden=true\n\
+         HK = smart, include-other-group=Pool, policy-regex-filter=港|HK\n\
+         US = url-test, policy-path=https://sub.example.com/s?target=surge, update-interval=3600, policy-regex-filter=US\n\
+         HK01 = select, Relay, include-other-group=HK, policy-regex-filter=01\n\
+         Plain = fallback, policy-path=https://sub.example.com/s?target=surge\n\
+         [Rule]\nFINAL,HK01\n",
+    );
+    assert_eq!(
+        providers(&config),
+        [
+            json!({
+                "type": "remote", "tag": "Pool", "url": "https://sub.example.com/s?target=surge",
+                "update_interval": "3600000ms", "download_detour": "DIRECT"
+            }),
+            json!({
+                "type": "remote", "tag": "Plain", "url": "https://sub.example.com/s?target=surge",
+                "update_interval": "86400000ms", "download_detour": "DIRECT"
+            }),
+        ]
+    );
+    let pool = outbound(&config, "Pool");
+    assert_eq!(pool["outbounds"], json!([]));
+    assert_eq!(pool["providers"], json!(["Pool"]));
+    assert_eq!(pool["empty_fallback"], "DIRECT");
+    assert!(pool.get("filter").is_none());
+    assert_eq!(outbound(&config, "HK")["filter"], json!(["港|HK"]));
+    assert_eq!(outbound(&config, "US")["providers"], json!(["Pool"]));
+    assert_eq!(outbound(&config, "US")["filter"], json!(["US"]));
+    // Every filter on the way.
+    let hk01 = outbound(&config, "HK01");
+    assert_eq!(hk01["outbounds"], json!(["Relay"]));
+    assert_eq!(hk01["providers"], json!(["Pool"]));
+    let filter = hk01["filter"][0].as_str().unwrap().to_string();
+    assert_eq!(filter, r"^(?=[\s\S]*?(?:港|HK))(?=[\s\S]*?(?:01))");
+    let filter = crate::common::name_filter::NameFilter::new(&filter).unwrap();
+    let mut w = Vec::new();
+    assert!(filter.matches("🇭🇰 HK 01", &mut w));
+    assert!(!filter.matches("🇭🇰 HK 02", &mut w));
+    assert!(!filter.matches("🇺🇸 US 01", &mut w));
+}
+
+#[cfg(feature = "outbound-provider")]
+#[test]
+fn prefix_modifier_and_underlying_proxy() {
+    let text = "[Proxy]\nRelay = trojan, relay.example.com, 443, password=pw\n\
+         NodeA = socks5, a.example.com, 1080\n\
+         [Proxy Group]\n\
+         A = select, policy-path=a.list, external-policy-name-prefix=A-, policy-regex-filter=JP, \
+         external-policy-modifier=\"underlying-proxy=Relay,skip-cert-verify=true,ip-version=v4-only,test-url=http://x/,udp-relay=true\"\n\
+         Chain = select, NodeA, Relay, A, policy-path=https://b.example.com/s, underlying-proxy=Relay\n\
+         [Rule]\nFINAL,Chain\n";
+    let config = load(text);
+    let p = providers(&config);
+    assert_eq!(
+        p[0],
+        json!({
+            "type": "local", "tag": "A", "path": "a.list", "filter": ["JP"],
+            "override": {
+                "skip-cert-verify": true, "ip-version": "ipv4", "additional-prefix": "A-"
+            },
+            "detour": "Relay"
+        })
+    );
+    assert_eq!(
+        p[1]["override"],
+        json!({ "additional-suffix": " (via Relay)" })
+    );
+    assert_eq!(p[1]["detour"], "Relay");
+    // A, a group, and Relay, not a proxy but dialled through itself, are
+    // as they are.
+    let chain = outbound(&config, "Chain");
+    assert_eq!(
+        chain["outbounds"],
+        json!(["NodeA (via Relay)", "Relay (via Relay)", "A"])
+    );
+    assert_eq!(chain["providers"], json!(["Chain"]));
+    let derived = outbound(&config, "NodeA (via Relay)");
+    assert_eq!(derived["type"], "socks");
+    assert_eq!(derived["detour"], "Relay");
+    assert_eq!(derived["server"], "a.example.com");
+    assert!(
+        config.warnings.iter().any(|w| w.contains("test-url")),
+        "{:?}",
+        config.warnings
+    );
+}
+
+#[cfg(feature = "outbound-provider")]
+#[test]
+fn policy_path_mistakes() {
+    let group = |line: &str| {
+        error(&format!(
+            "[Proxy]\nRelay = trojan, r.example.com, 443, password=pw\n\
+             [Proxy Group]\nG = select, Relay, {}\n[Rule]\nFINAL,G\n",
+            line
+        ))
+    };
+    let e = group("underlying-proxy=G");
+    assert!(e.contains("underlying-proxy: G holds the group"), "{}", e);
+    let e = group("underlying-proxy=Nowhere");
+    assert!(e.contains("underlying-proxy: no policy or group"), "{}", e);
+    let e = group("policy-path=x.list, external-policy-modifier=\"sni=a.example.com\"");
+    assert!(
+        e.contains("external-policy-modifier: sni: sail does not implement this parameter yet"),
+        "{}",
+        e
+    );
+    let e = group("policy-path=ftp://a/b");
+    assert!(e.contains("policy-path: \"ftp://a/b\" is neither"), "{}", e);
+    let e = group("policy-path=x.list, external-policy-name-prefix=a=b");
+    assert!(e.contains("holds ="), "{}", e);
+    let e = group("policy-path=x.list, external-policy-modifier=\"underlying-proxy=G\"");
+    assert!(e.contains("G takes the policies of x.list"), "{}", e);
+}
+
+/// Groups whose filters differ by provider filter in their providers.
+#[cfg(feature = "outbound-provider")]
+#[test]
+fn filters_differing_by_provider_are_the_providers() {
+    let config = load(
+        "[Proxy Group]\n\
+         A = select, policy-path=https://a.example.com/s, policy-regex-filter=HK\n\
+         B = select, policy-path=https://b.example.com/s, policy-regex-filter=JP\n\
+         All = select, include-other-group=\"A,B\"\n\
+         [Rule]\nFINAL,All\n",
+    );
+    let all = outbound(&config, "All");
+    assert_eq!(all["providers"], json!(["All", "All #2"]));
+    assert!(all.get("filter").is_none());
+    let p = providers(&config);
+    assert_eq!(p.len(), 4);
+    assert_eq!(p[2]["filter"], json!(["HK"]));
+    assert_eq!(p[3]["filter"], json!(["JP"]));
+    assert_eq!(p[3]["url"], "https://b.example.com/s");
 }

@@ -391,6 +391,27 @@ const TYPES_LATER: &[&str] = &[
     "h2-connect",
 ];
 
+/// How `external-policy-modifier` takes the parameters it does not
+/// change: those of the common ones sail does not implement as the
+/// profile's proxies take them, but the tests, which are warned of; the
+/// others, which it would change otherwise than the profile says, errors.
+pub fn modifier_tiers() -> Vec<(&'static str, Tier)> {
+    let mut tiers: Vec<(&'static str, Tier)> = COMMON
+        .iter()
+        .map(|&(key, tier)| match key {
+            "test-url" | "test-timeout" | "test-udp" => (
+                key,
+                Ignored(": sail tests a group's members with [General] proxy-test-url"),
+            ),
+            _ => (key, tier),
+        })
+        .collect();
+    for key in KNOWN.iter().chain(TLS.iter().map(|(k, _)| k)) {
+        tiers.push((key, Unsupported(" in external-policy-modifier")));
+    }
+    tiers
+}
+
 /// Whether `key` is a parameter some proxy takes.
 fn known(key: &str) -> bool {
     KNOWN.contains(&key) || COMMON.iter().chain(TLS).any(|(k, _)| *k == key)

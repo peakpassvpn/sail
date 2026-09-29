@@ -174,3 +174,52 @@ fn a_surge_host_maps_a_name() -> anyhow::Result<()> {
         result
     })
 }
+
+// app(socks) -> (socks5-listen)sail, read from a Surge profile -> (socks)sail
+// -> echo
+//
+// A select group takes its member from a local policy-path, a list of
+// Surge's policy lines: through it traffic passes, and fails where the
+// policy's server is not there.
+#[cfg(all(
+    feature = "config-surge",
+    feature = "outbound-provider",
+    feature = "inbound-socks",
+    feature = "outbound-socks",
+    feature = "outbound-direct",
+    feature = "outbound-select"
+))]
+#[test]
+fn a_surge_policy_path_routes() -> anyhow::Result<()> {
+    let dir = common::TempDir::new("surge-policy-path")?;
+    for up in [true, false] {
+        let result = common::retry_port_clash(|| {
+            let [socks, relay, closed] = common::free_ports();
+            let list = dir.join("nodes.list");
+            std::fs::write(
+                &list,
+                format!(
+                    "# the relay\nRelay = socks5, 127.0.0.1, {}\n",
+                    if up { relay } else { closed }
+                ),
+            )?;
+            let profile = format!(
+                "[General]\nloglevel = warning\nsocks5-listen = 127.0.0.1:{}\n\
+                 [Proxy Group]\nProxy = select, policy-path={}\n\
+                 [Rule]\nFINAL,Proxy\n",
+                socks,
+                list.display()
+            );
+            let server = format!(
+                r#"{{
+                    "inbounds": [{{ "type": "socks", "listen": "127.0.0.1", "listen_port": {} }}],
+                    "outbounds": [{{ "type": "direct" }}]
+                }}"#,
+                relay
+            );
+            common::test_configs(vec![profile, server], "127.0.0.1", socks)
+        });
+        assert_eq!(result.is_ok(), up, "{:?}", result);
+    }
+    Ok(())
+}

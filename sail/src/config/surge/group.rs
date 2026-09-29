@@ -2,17 +2,38 @@
 //! sail group of that type: `select`, `url-test`, `fallback` and
 //! `load-balance` and `smart`. Its members are those it names, then those
 //! of the groups `include-other-group` names, then every proxy with
-//! `include-all-proxies`, the last two as `policy-regex-filter` picks them;
-//! a group left with none is DIRECT, as Surge has it.
+//! `include-all-proxies`, then those of its `policy-path`, all but the
+//! first as `policy-regex-filter` picks them; a group left with none is
+//! DIRECT, as Surge has it.
+//!
+//! A `policy-path` is an outbound provider, remote or local, that groups
+//! whose policy-paths are alike share: its members are the group's after
+//! those of the profile, whatever order Surge would put them in, and a
+//! member named as a policy of the profile is one besides it. Its
+//! `external-policy-name-prefix` and `external-policy-modifier` are the
+//! provider's `override` (the modifier's parameters as Mihomo names them;
+//! those it has no name for are ignored, or an error where they would
+//! route or secure otherwise), `underlying-proxy` its `detour`. The
+//! `policy-regex-filter` of each group the members pass through on their
+//! way, the group's own and those of the groups including it, are the
+//! group's `filter`, and all of them must match; the provider's where a
+//! prefix is added after it, or where the groups' filters would not be
+//! the same for every provider of the group.
+//!
+//! A group's `underlying-proxy` dials its proxies through a policy, as
+//! Surge does: each is a proxy of its own, `Name (via Policy)`, and those
+//! of its policy-path are named so too.
 
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
+use std::path::Path;
 
 use anyhow::{anyhow, Result};
 use serde_json::{json, Map, Value};
 
 use super::general::General;
 use super::params::{Params, Tier};
-use super::proxy::{Kind, Proxies, Reject, BUILT_IN};
+use super::proxy::{self, Kind, Proxies, Reject, BUILT_IN};
 use super::text::{self, Line};
 use super::Lowered;
 
@@ -25,14 +46,19 @@ const PARAMS: &[(&str, Tier)] = &[
     ("no-alert", Silent),
     ("icon-url", Silent),
     ("category", Silent),
-    // No effect in Surge either, but on `policy-path`.
+    // No effect in Surge either.
     ("url", Silent),
+    // Of a group without `policy-path`.
     ("update-interval", Silent),
     ("external-policy-modifier", Silent),
     ("external-policy-name-prefix", Silent),
-    ("policy-path", Unsupported(" (C.5c)")),
-    ("underlying-proxy", Unsupported(" (C.5c)")),
 ];
+
+/// How often a remote `policy-path` is downloaded again, as Surge does it
+/// by default: a day.
+const INTERVAL: u64 = 86400;
+/// Ten years, for an interval below 0: never.
+const NEVER: u64 = 10 * 365 * 86400;
 
 /// Whether a policy carries UDP.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -55,6 +81,8 @@ pub struct Policies {
     kinds: HashMap<String, Kind>,
     /// Each group's members, as outbounds.
     groups: HashMap<String, Vec<String>>,
+    /// Each group's outbound providers.
+    providers: HashMap<String, Vec<String>>,
 }
 
 impl Policies {
@@ -82,6 +110,40 @@ impl Policies {
         }
     }
 
+    /// Whether `outbound` is the group `group`, or a group that holds it,
+    /// itself or through its members.
+    fn holds(&self, outbound: &str, group: &str) -> bool {
+        self.reaches(outbound, &mut Vec::new(), &mut |name| name == group)
+    }
+
+    /// Whether `outbound` is a group that takes the members of the
+    /// provider `provider`, itself or through its members.
+    fn takes(&self, outbound: &str, provider: &str) -> bool {
+        self.reaches(outbound, &mut Vec::new(), &mut |name| {
+            self.providers
+                .get(name)
+                .is_some_and(|p| p.iter().any(|p| p == provider))
+        })
+    }
+
+    /// Whether `found` holds of `name` or a group it holds.
+    fn reaches(
+        &self,
+        name: &str,
+        seen: &mut Vec<String>,
+        found: &mut dyn FnMut(&str) -> bool,
+    ) -> bool {
+        if found(name) {
+            return true;
+        }
+        if seen.iter().any(|s| s == name) {
+            return false;
+        }
+        seen.push(name.to_string());
+        let members = self.groups.get(name).cloned().unwrap_or_default();
+        members.iter().any(|m| self.reaches(m, seen, found))
+    }
+
     /// Whether what goes to the outbound `name` may be UDP.
     pub fn udp(&self, name: &str) -> Udp {
         self.udp_of(name, &mut Vec::new())
@@ -94,6 +156,10 @@ impl Policies {
         let Some(members) = self.groups.get(name) else {
             return Udp::Yes;
         };
+        // What a provider's members carry is known once they are read.
+        if self.providers.get(name).is_some_and(|p| !p.is_empty()) {
+            return Udp::Some;
+        }
         if seen.iter().any(|s| s == name) {
             return Udp::Yes;
         }
@@ -120,10 +186,43 @@ struct Group {
     p: Params,
 }
 
+/// The provider of a `policy-path`, but its tag: groups whose
+/// policy-paths are alike share one.
+#[derive(Debug, Clone, PartialEq)]
+struct Source {
+    /// A URL, or a file.
+    path: String,
+    remote: bool,
+    /// Seconds, of a URL.
+    interval: u64,
+    /// `external-policy-name-prefix`.
+    prefix: Option<String>,
+    /// `external-policy-modifier`, in Mihomo's override keys, but its
+    /// `underlying-proxy`.
+    overrides: Map<String, Value>,
+    /// The modifier's `underlying-proxy`.
+    modifier_via: Option<String>,
+    /// The `underlying-proxy` of the group the members are of, which names
+    /// them too.
+    via: Option<String>,
+    /// Filters on the names as the policy-path gives them, any of which
+    /// must match.
+    filter: Vec<String>,
+}
+
+/// Members a group takes from a provider: those of `source` whose names
+/// match every filter of `chain`.
+#[derive(Debug, Clone)]
+struct Entry {
+    source: Source,
+    chain: Vec<String>,
+}
+
 pub fn lower(
     lines: Vec<Line>,
     proxies: &Proxies,
     general: &General,
+    dir: Option<&Path>,
     out: &mut Lowered,
     warnings: &mut Vec<String>,
 ) -> Result<Policies> {
@@ -194,7 +293,17 @@ pub fn lower(
     let mut includes: HashMap<String, Vec<String>> = HashMap::new();
     let mut filters: HashMap<String, Option<String>> = HashMap::new();
     let mut all_proxies: HashSet<String> = HashSet::new();
+    let mut sources: HashMap<String, Source> = HashMap::new();
+    let mut vias: HashMap<String, (String, String)> = HashMap::new();
     for g in &mut groups {
+        if let Some(source) = policy_path(&mut g.p, dir, warnings)? {
+            sources.insert(g.name.clone(), source);
+        }
+        if let Some((via, at)) = g.p.take_at("underlying-proxy") {
+            if via != "DIRECT" && !via.is_empty() {
+                vias.insert(g.name.clone(), (text::unquote(&via), at));
+            }
+        }
         let at = g.p.at("include-other-group");
         let others = g.p.list("include-other-group");
         for other in &others {
@@ -214,20 +323,47 @@ pub fn lower(
         filters: &filters,
         all_proxies: &all_proxies,
         proxies,
+        sources: &sources,
+        vias: &vias,
+        derived: RefCell::new(Vec::new()),
     };
+    let mut entries: HashMap<String, Vec<Entry>> = HashMap::new();
     for g in &groups {
         let members = context.members(&g.name, &mut Vec::new(), warnings)?;
         resolved.insert(g.name.clone(), members);
+        entries.insert(g.name.clone(), context.entries(&g.name));
     }
 
     let mut kinds: HashMap<String, Kind> = proxies.kinds.clone();
+    // The proxies dialled through a group's `underlying-proxy`.
+    for Derived {
+        name,
+        base,
+        via,
+        at,
+    } in context.derived.take()
+    {
+        if kinds.contains_key(&name) || names.contains(&name) {
+            return Err(anyhow!(
+                "{}: {:?}, {} dialled through {}, names another policy or group",
+                at,
+                name,
+                base,
+                via
+            ));
+        }
+        derive(&base, &name, &via, out);
+        kinds.insert(name, kinds[&base]);
+    }
+    let mut registry = Registry::default();
     let mut outbound_members: HashMap<String, Vec<String>> = HashMap::new();
+    let mut group_providers: HashMap<String, Vec<String>> = HashMap::new();
     for mut g in groups {
         let at = g.p.path().to_string();
         let mut members = resolved.remove(&g.name).unwrap_or_default();
         for member in &members {
             let known = names.contains(member)
-                || proxies.kinds.contains_key(member)
+                || kinds.contains_key(member)
                 || matches!(
                     member.as_str(),
                     "DIRECT" | "REJECT" | "REJECT-DROP" | "REJECT-NO-DROP" | "REJECT-TINYGIF"
@@ -238,7 +374,7 @@ pub fn lower(
         }
         if g.kind == "smart" {
             // Only proxies, as Surge has it.
-            members.retain(|m| matches!(proxies.kinds.get(m), Some(Kind::Proxy { .. })));
+            members.retain(|m| matches!(kinds.get(m), Some(Kind::Proxy { .. })));
         }
         // The REJECT policies, where a group has them, reject as REJECT.
         let mut outbounds: Vec<String> = Vec::new();
@@ -252,15 +388,28 @@ pub fn lower(
                 outbounds.push(m);
             }
         }
-        if outbounds.is_empty() {
+        let (providers, filter) = registry
+            .assign(&g.name, entries.remove(&g.name).unwrap_or_default())
+            .map_err(|e| anyhow!("{}: {}", at, e))?;
+        if outbounds.is_empty() && providers.is_empty() {
             outbounds.push("DIRECT".to_string());
         }
-        let value = group(&mut g, &outbounds, general, warnings)?;
+        let mut value = group(&mut g, &outbounds, general, warnings)?;
+        if !providers.is_empty() {
+            value["providers"] = json!(providers);
+            if !filter.is_empty() {
+                value["filter"] = json!(filter);
+            }
+            // DIRECT while it has no member, as a group of none is.
+            value["empty_fallback"] = json!("DIRECT");
+        }
         g.p.finish(PARAMS, "parameter", warnings)?;
         out.outbounds.push(value);
         kinds.remove(&g.name);
-        outbound_members.insert(g.name, outbounds);
+        outbound_members.insert(g.name.clone(), outbounds);
+        group_providers.insert(g.name, providers);
     }
+    out.outbound_providers.extend(registry.providers);
     // Surge's own.
     out.outbounds
         .push(json!({ "type": "direct", "tag": "DIRECT" }));
@@ -269,8 +418,49 @@ pub fn lower(
     let policies = Policies {
         kinds,
         groups: outbound_members,
+        providers: group_providers,
     };
     cycles(&policies)?;
+    // A group's proxies, or a provider's, dialled through what holds them
+    // would go round in a loop.
+    for (group, (via, at)) in &vias {
+        match policies.target(via) {
+            Ok(Target::Outbound(_)) => {}
+            Ok(Target::Reject(_)) => {
+                return Err(anyhow!("{}: {} rejects; it dials nothing", at, via))
+            }
+            Err(e) => return Err(anyhow!("{}: {}", at, e)),
+        }
+        if policies.holds(via, group) {
+            return Err(anyhow!(
+                "{}: {} holds the group; its proxies would be dialled through themselves",
+                at,
+                via
+            ));
+        }
+    }
+    for provider in &out.outbound_providers {
+        let (Some(tag), Some(detour)) = (
+            provider["tag"].as_str(),
+            provider.get("detour").and_then(Value::as_str),
+        ) else {
+            continue;
+        };
+        if let Err(e) = policies.target(detour) {
+            return Err(anyhow!(
+                "[Proxy Group]: external-policy-modifier: underlying-proxy: {}",
+                e
+            ));
+        }
+        if policies.takes(detour, tag) {
+            return Err(anyhow!(
+                "[Proxy Group]: {} takes the policies of {}; they would be dialled through \
+                 themselves",
+                detour,
+                provider_path(provider)
+            ));
+        }
+    }
     for (at, via) in &proxies.detours {
         match policies.target(via) {
             Ok(Target::Outbound(_)) => {}
@@ -328,6 +518,23 @@ struct Context<'a> {
     filters: &'a HashMap<String, Option<String>>,
     all_proxies: &'a HashSet<String>,
     proxies: &'a Proxies,
+    /// Each group's `policy-path`.
+    sources: &'a HashMap<String, Source>,
+    /// Each group's `underlying-proxy`, and where it is.
+    vias: &'a HashMap<String, (String, String)>,
+    /// The proxies dialled through an `underlying-proxy`, as members name
+    /// them.
+    derived: RefCell<Vec<Derived>>,
+}
+
+/// A proxy dialled through a group's `underlying-proxy`.
+struct Derived {
+    /// `Base (via Policy)`.
+    name: String,
+    base: String,
+    via: String,
+    /// Where the `underlying-proxy` is.
+    at: String,
 }
 
 impl Context<'_> {
@@ -372,9 +579,346 @@ impl Context<'_> {
                 members.push(m);
             }
         }
+        if let Some((via, at)) = self.vias.get(name) {
+            members = members
+                .into_iter()
+                .map(|m| self.through(m, via, at))
+                .collect();
+        }
         stack.pop();
         Ok(members)
     }
+
+    /// The member `member` dialled through `via`, where it is a proxy: of
+    /// the profile, or dialled through another.
+    fn through(&self, member: String, via: &str, at: &str) -> String {
+        let mut derived = self.derived.borrow_mut();
+        let base = match derived.iter().find(|d| d.name == member) {
+            Some(d) => d.base.clone(),
+            None => member,
+        };
+        if !matches!(self.proxies.kinds.get(&base), Some(Kind::Proxy { .. })) {
+            return base;
+        }
+        let name = format!("{} (via {})", base, via);
+        if !derived.iter().any(|d| d.name == name) {
+            derived.push(Derived {
+                name: name.clone(),
+                base,
+                via: via.to_string(),
+                at: at.to_string(),
+            });
+        }
+        name
+    }
+
+    /// The members the group `name` takes from providers: those of the
+    /// groups it includes, then its own policy-path's, as the filters of
+    /// the groups they pass through pick them.
+    fn entries(&self, name: &str) -> Vec<Entry> {
+        self.entries_of(name, &mut Vec::new())
+    }
+
+    fn entries_of(&self, name: &str, stack: &mut Vec<String>) -> Vec<Entry> {
+        // `members` found includes that lead back.
+        if stack.iter().any(|s| s == name) {
+            return Vec::new();
+        }
+        stack.push(name.to_string());
+        let filter = self.filters[name].clone();
+        let mut entries = Vec::new();
+        for other in &self.includes[name] {
+            for mut entry in self.entries_of(other, stack) {
+                entry.chain.extend(filter.clone());
+                entries.push(entry);
+            }
+        }
+        if let Some(source) = self.sources.get(name) {
+            let mut source = source.clone();
+            // The prefix comes after the group's filter.
+            let chain = match (&source.prefix, &filter) {
+                (Some(_), Some(filter)) => {
+                    source.filter = vec![filter.clone()];
+                    Vec::new()
+                }
+                _ => filter.into_iter().collect(),
+            };
+            entries.push(Entry { source, chain });
+        }
+        if let Some((via, _)) = self.vias.get(name) {
+            for entry in &mut entries {
+                entry.source.via = Some(via.clone());
+            }
+        }
+        stack.pop();
+        entries
+    }
+}
+
+/// The providers a group takes members from, as their tags, and its
+/// filter.
+#[derive(Default)]
+struct Registry {
+    sources: Vec<(Source, String)>,
+    providers: Vec<Value>,
+}
+
+impl Registry {
+    /// The providers of `entries`, those not yet made made, for the group
+    /// `group`; and the group's filter.
+    fn assign(&mut self, group: &str, entries: Vec<Entry>) -> Result<(Vec<String>, Vec<String>)> {
+        // Each provider once, with the filters of each way it is taken:
+        // none where one takes them all.
+        let mut by: Vec<(Source, Option<Vec<String>>)> = Vec::new();
+        for Entry { source, chain } in entries {
+            let chain = (!chain.is_empty()).then(|| compose(&chain));
+            match by.iter_mut().find(|(s, _)| *s == source) {
+                Some((_, filters)) => match (filters.as_mut(), chain) {
+                    (Some(filters), Some(chain)) => {
+                        if !filters.contains(&chain) {
+                            filters.push(chain);
+                        }
+                    }
+                    _ => *filters = None,
+                },
+                None => by.push((source, chain.map(|c| vec![c]))),
+            }
+        }
+        let Some((_, first)) = by.first() else {
+            return Ok((Vec::new(), Vec::new()));
+        };
+        let first = first.clone();
+        // The group filters, where it would filter each provider alike;
+        // else each provider does.
+        let (filter, own) = if by.iter().all(|(_, f)| *f == first) {
+            (first.unwrap_or_default(), false)
+        } else {
+            (Vec::new(), true)
+        };
+        let mut providers = Vec::new();
+        for (mut source, filters) in by {
+            if own {
+                if let Some(filters) = filters {
+                    if !source.filter.is_empty() {
+                        return Err(anyhow!(
+                            "policy-regex-filter: sail cannot filter the policies of {} both \
+                             before external-policy-name-prefix names them and after, with \
+                             other groups' policies filtered otherwise",
+                            source.path
+                        ));
+                    }
+                    source.filter = filters;
+                }
+            }
+            providers.push(self.tag(source, group));
+        }
+        Ok((providers, filter))
+    }
+
+    /// The tag of the provider of `source`, made for `group` if there is
+    /// none yet.
+    fn tag(&mut self, source: Source, group: &str) -> String {
+        if let Some((_, tag)) = self.sources.iter().find(|(s, _)| *s == source) {
+            return tag.clone();
+        }
+        let mut tag = group.to_string();
+        let mut n = 1;
+        while self.sources.iter().any(|(_, t)| *t == tag) {
+            n += 1;
+            tag = format!("{} #{}", group, n);
+        }
+        let mut p = Map::new();
+        p.insert("tag".into(), json!(tag));
+        if source.remote {
+            p.insert("type".into(), json!("remote"));
+            p.insert("url".into(), json!(source.path));
+            p.insert(
+                "update_interval".into(),
+                json!(format!("{}s", source.interval)),
+            );
+            // Directly, as Surge downloads it.
+            p.insert("download_detour".into(), json!("DIRECT"));
+        } else {
+            p.insert("type".into(), json!("local"));
+            p.insert("path".into(), json!(source.path));
+        }
+        if !source.filter.is_empty() {
+            p.insert("filter".into(), json!(source.filter));
+        }
+        let mut overrides = source.overrides.clone();
+        if let Some(prefix) = &source.prefix {
+            overrides.insert("additional-prefix".into(), json!(prefix));
+        }
+        if let Some(via) = &source.via {
+            overrides.insert("additional-suffix".into(), json!(format!(" (via {})", via)));
+        }
+        if !overrides.is_empty() {
+            p.insert("override".into(), Value::Object(overrides));
+        }
+        if let Some(via) = source.via.as_ref().or(source.modifier_via.as_ref()) {
+            p.insert("detour".into(), json!(via));
+        }
+        self.providers.push(Value::Object(p));
+        self.sources.push((source, tag.clone()));
+        tag
+    }
+}
+
+/// One regular expression that matches where each of `chain` does.
+fn compose(chain: &[String]) -> String {
+    match chain {
+        [one] => one.clone(),
+        _ => {
+            let mut all = "^".to_string();
+            for filter in chain {
+                all.push_str(&format!("(?=[\\s\\S]*?(?:{}))", filter));
+            }
+            all
+        }
+    }
+}
+
+/// Where a provider's policies are, as errors write it.
+fn provider_path(provider: &Value) -> &str {
+    provider
+        .get("url")
+        .or_else(|| provider.get("path"))
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+}
+
+/// A group's `policy-path`, and the parameters of what it holds.
+fn policy_path(
+    p: &mut Params,
+    dir: Option<&Path>,
+    warnings: &mut Vec<String>,
+) -> Result<Option<Source>> {
+    let Some((path, at)) = p.take_at("policy-path") else {
+        return Ok(None);
+    };
+    let path = path.trim().to_string();
+    if path.is_empty() {
+        return Err(anyhow!("{}: empty", at));
+    }
+    let remote = path.starts_with("http://") || path.starts_with("https://");
+    if !remote && path.contains("://") {
+        return Err(anyhow!(
+            "{}: {:?} is neither an http(s) URL nor a file",
+            at,
+            path
+        ));
+    }
+    let interval = p.num::<i64>("update-interval")?;
+    let path = match dir {
+        Some(dir) if !remote && Path::new(&path).is_relative() => {
+            dir.join(&path).to_string_lossy().to_string()
+        }
+        _ => path,
+    };
+    let prefix = p.string("external-policy-name-prefix");
+    if let Some(prefix) = &prefix {
+        if prefix.contains('=') {
+            return Err(anyhow!(
+                "{}: {:?} holds =, which a prefix may not",
+                p.at("external-policy-name-prefix"),
+                prefix
+            ));
+        }
+    }
+    let (overrides, modifier_via) = match p.take_at("external-policy-modifier") {
+        Some((value, at)) => modifier(&value, &at, warnings)?,
+        None => (Map::new(), None),
+    };
+    Ok(Some(Source {
+        path,
+        remote,
+        // Below 0 never, as a rule-set's; 0 the day.
+        interval: match interval {
+            Some(seconds) if seconds > 0 => seconds as u64,
+            Some(seconds) if seconds < 0 => NEVER,
+            _ => INTERVAL,
+        },
+        prefix,
+        overrides,
+        modifier_via,
+        via: None,
+        filter: Vec::new(),
+    }))
+}
+
+/// `external-policy-modifier`, `key=value,...` of Surge's policy
+/// parameters: those with a name in Mihomo's `override`, in it, and the
+/// `underlying-proxy`.
+fn modifier(
+    value: &str,
+    at: &str,
+    warnings: &mut Vec<String>,
+) -> Result<(Map<String, Value>, Option<String>)> {
+    let mut p = Params::new(at);
+    for part in text::split(value, false) {
+        if part.is_empty() {
+            continue;
+        }
+        let (key, value, _) =
+            text::param(&part).ok_or_else(|| anyhow!("{}: {:?} is not key=value", at, part))?;
+        p.insert(&key, value, None);
+    }
+    let mut overrides = Map::new();
+    let via = p.string("underlying-proxy").filter(|v| v != "DIRECT");
+    if let Some(yes) = p.bool("skip-cert-verify")? {
+        overrides.insert("skip-cert-verify".into(), json!(yes));
+    }
+    if let Some(interface) = p.string("interface") {
+        overrides.insert("interface-name".into(), json!(interface));
+    }
+    if let Some((version, at)) = p.take_at("ip-version") {
+        let mihomo = match version.to_ascii_lowercase().as_str() {
+            "dual" => "dual",
+            "v4-only" => "ipv4",
+            "v6-only" => "ipv6",
+            "prefer-v4" => "ipv4-prefer",
+            "prefer-v6" => "ipv6-prefer",
+            _ => {
+                return Err(anyhow!(
+                    "{}: {:?} is none of dual, v4-only, v6-only, prefer-v4 and prefer-v6",
+                    at,
+                    version
+                ))
+            }
+        };
+        overrides.insert("ip-version".into(), json!(mihomo));
+    }
+    // sail carries UDP through the proxies that relay it either way.
+    p.bool("udp-relay")?;
+    if p.bool("tfo")? == Some(true) {
+        warnings.push(format!(
+            "{}: tfo: sail does not implement TCP Fast Open; ignored",
+            at
+        ));
+    }
+    if p.bool("block-quic")? == Some(true) {
+        warnings.push(format!(
+            "{}: block-quic: sail does not block QUIC; ignored, and QUIC goes through the \
+             policy",
+            at
+        ));
+    }
+    p.finish(&proxy::modifier_tiers(), "parameter", warnings)?;
+    Ok((overrides, via))
+}
+
+/// The proxy `base`, dialled through `via`, as the outbound `name`.
+fn derive(base: &str, name: &str, via: &str, out: &mut Lowered) {
+    for list in [&mut out.outbounds, &mut out.endpoints] {
+        if let Some(value) = list.iter().find(|v| v["tag"] == base) {
+            let mut value = value.clone();
+            value["tag"] = json!(name);
+            value["detour"] = json!(via);
+            list.push(value);
+            return;
+        }
+    }
+    unreachable!("a proxy is lowered")
 }
 
 /// The group, of `members`.

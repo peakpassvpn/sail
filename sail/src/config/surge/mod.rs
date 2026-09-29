@@ -10,9 +10,9 @@
 //! processing (MITM, rewrites, scripts but for rule and DNS ones) is
 //! warned of once a section.
 //!
-//! It reads the listeners, the proxies, the groups of static members, the
-//! rules and the rule-sets they name, and DNS with `[Host]`; policies from
-//! `policy-path` and URL includes come in C.5c.
+//! It reads the listeners, the proxies, the groups, with the policies of
+//! their `policy-path` as outbound providers, the rules and the rule-sets
+//! they name, and DNS with `[Host]`.
 //!
 //! Where sail does otherwise, the profile cannot say it:
 //! - A group tests its members with `proxy-test-url`, not each member's
@@ -69,6 +69,7 @@ pub fn parse_in(s: &str, dir: Option<&Path>) -> Result<Config> {
         profile.take("Proxy Group"),
         &proxies,
         &general,
+        dir,
         &mut out,
         &mut warnings,
     )?;
