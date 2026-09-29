@@ -1,5 +1,6 @@
 //! A GET over HTTP/1.1, through an outbound or directly: what downloading a rule-set
-//! takes, and no more.
+//! takes, and no more. It is what `crate::fetch` downloads with too, without an
+//! instance where it dials directly.
 
 use std::net::IpAddr;
 use std::sync::Arc;
@@ -10,7 +11,9 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::adapter::AnyStream;
 use crate::app::dispatcher::Dispatcher;
+use crate::app::SyncDnsClient;
 use crate::net::DialOptions;
+use crate::runtime::RuntimeEnv;
 use crate::session::{Network, Session, SocksAddr};
 
 /// The most a download may be: well past the largest published rule-sets.
@@ -46,6 +49,29 @@ pub(crate) enum Response {
     },
 }
 
+/// What a GET connects with: the instance's dispatcher, where there is
+/// one, else what a direct connection takes.
+pub(crate) struct Conn<'a> {
+    /// Needed to go through an outbound.
+    pub dispatcher: Option<&'a Dispatcher>,
+    pub dns: SyncDnsClient,
+    pub env: &'a RuntimeEnv,
+}
+
+/// How long a GET may take, redirects and all, and how large its body may
+/// be.
+#[derive(Clone, Copy)]
+pub(crate) struct Limits {
+    pub timeout: Duration,
+    pub max_body: usize,
+}
+
+/// A rule-set's.
+const LIMITS: Limits = Limits {
+    timeout: TIMEOUT,
+    max_body: MAX_BODY,
+};
+
 /// GETs `url` `via` an outbound or directly, following redirects; with
 /// `etag`, asks for it only if changed.
 pub(crate) async fn get(
@@ -55,21 +81,42 @@ pub(crate) async fn get(
     url: &str,
     etag: Option<&str>,
 ) -> Result<Response> {
-    tokio::time::timeout(TIMEOUT, get_following(dispatcher, via, headers, url, etag))
-        .await
-        .map_err(|_| anyhow!("timed out after {:?}", TIMEOUT))?
+    let conn = Conn {
+        dispatcher: Some(dispatcher),
+        dns: dispatcher.dns_client(),
+        env: dispatcher.env(),
+    };
+    get_with(&conn, via, headers, url, etag, LIMITS).await
 }
 
-async fn get_following(
-    dispatcher: &Dispatcher,
+/// `get`, with `conn` and within `limits`.
+pub(crate) async fn get_with(
+    conn: &Conn<'_>,
     via: &Via,
     headers: &[(String, String)],
     url: &str,
     etag: Option<&str>,
+    limits: Limits,
+) -> Result<Response> {
+    tokio::time::timeout(
+        limits.timeout,
+        get_following(conn, via, headers, url, etag, limits.max_body),
+    )
+    .await
+    .map_err(|_| anyhow!("timed out after {:?}", limits.timeout))?
+}
+
+async fn get_following(
+    conn: &Conn<'_>,
+    via: &Via,
+    headers: &[(String, String)],
+    url: &str,
+    etag: Option<&str>,
+    max_body: usize,
 ) -> Result<Response> {
     let mut url = url::Url::parse(url).map_err(|e| anyhow!("url: {}", e))?;
     for _ in 0..=MAX_REDIRECTS {
-        match get_once(dispatcher, via, headers, &url, etag).await? {
+        match get_once(conn, via, headers, &url, etag, max_body).await? {
             Step::Done(response) => return Ok(response),
             Step::Redirect(location) => {
                 url = url
@@ -87,11 +134,12 @@ enum Step {
 }
 
 async fn get_once(
-    dispatcher: &Dispatcher,
+    conn: &Conn<'_>,
     via: &Via,
     headers: &[(String, String)],
     url: &url::Url,
     etag: Option<&str>,
+    max_body: usize,
 ) -> Result<Step> {
     let tls = match url.scheme() {
         "https" => true,
@@ -116,18 +164,18 @@ async fn get_once(
         ..Default::default()
     };
     let stream = match via {
-        Via::Outbound(detour) => dispatcher
+        Via::Outbound(detour) => conn
+            .dispatcher
+            .ok_or_else(|| anyhow!("connect {} through [{}]: no instance runs", host, detour))?
             .stream_via(detour, sess)
             .await
             .map_err(|e| anyhow!("connect {} through [{}]: {}", host, detour, e))?,
-        Via::Direct(dial) => {
-            crate::net::new_tcp_stream(dispatcher.dns_client(), &host, &port, dial)
-                .await
-                .map_err(|e| anyhow!("connect {}: {}", host, e))?
-        }
+        Via::Direct(dial) => crate::net::new_tcp_stream(conn.dns.clone(), &host, &port, dial)
+            .await
+            .map_err(|e| anyhow!("connect {}: {}", host, e))?,
     };
     let mut stream = if tls {
-        handshake(&host, stream, dispatcher.env()).await?
+        handshake(&host, stream, conn.env).await?
     } else {
         stream
     };
@@ -195,13 +243,13 @@ async fn get_once(
                 .map_err(|_| anyhow!("invalid Content-Length"))
         })
         .transpose()?;
-    if length.is_some_and(|l| l > MAX_BODY) {
-        return Err(anyhow!("larger than {} bytes", MAX_BODY));
+    if length.is_some_and(|l| l > max_body) {
+        return Err(anyhow!("larger than {} bytes", max_body));
     }
     let data = if chunked {
-        read_chunked(&mut stream, rest).await?
+        read_chunked(&mut stream, rest, max_body).await?
     } else {
-        read_rest(&mut stream, &mut rest).await?;
+        read_rest(&mut stream, &mut rest, max_body).await?;
         if let Some(length) = length {
             if rest.len() < length {
                 return Err(anyhow!(
@@ -270,11 +318,11 @@ async fn read_head(stream: &mut AnyStream) -> Result<(Vec<u8>, Vec<u8>)> {
 }
 
 /// Reads to the end, which `Connection: close` puts at the body's.
-async fn read_rest(stream: &mut AnyStream, buf: &mut Vec<u8>) -> Result<()> {
+async fn read_rest(stream: &mut AnyStream, buf: &mut Vec<u8>, max_body: usize) -> Result<()> {
     let mut chunk = [0u8; 16384];
     loop {
-        if buf.len() > MAX_BODY {
-            return Err(anyhow!("larger than {} bytes", MAX_BODY));
+        if buf.len() > max_body {
+            return Err(anyhow!("larger than {} bytes", max_body));
         }
         let n = stream.read(&mut chunk).await?;
         if n == 0 {
@@ -285,7 +333,11 @@ async fn read_rest(stream: &mut AnyStream, buf: &mut Vec<u8>) -> Result<()> {
 }
 
 /// A chunked body (RFC 9112 §7.1), `buf` holding what was read already.
-async fn read_chunked(stream: &mut AnyStream, mut buf: Vec<u8>) -> Result<Vec<u8>> {
+async fn read_chunked(
+    stream: &mut AnyStream,
+    mut buf: Vec<u8>,
+    max_body: usize,
+) -> Result<Vec<u8>> {
     let mut body = Vec::new();
     let mut at = 0;
     loop {
@@ -303,8 +355,8 @@ async fn read_chunked(stream: &mut AnyStream, mut buf: Vec<u8>) -> Result<Vec<u8
         if size == 0 {
             return Ok(body);
         }
-        if body.len() + size > MAX_BODY {
-            return Err(anyhow!("larger than {} bytes", MAX_BODY));
+        if body.len() + size > max_body {
+            return Err(anyhow!("larger than {} bytes", max_body));
         }
         while buf.len() < at + size + 2 {
             more(stream, &mut buf).await?;
