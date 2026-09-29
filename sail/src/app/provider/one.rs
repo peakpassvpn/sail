@@ -112,7 +112,10 @@ impl Provider {
     ) -> Result<Self> {
         let source = match config.kind {
             OutboundProviderKind::Remote => Source::Remote {
-                url: config.url.clone().unwrap_or_default(),
+                url: env
+                    .host
+                    .download_url(config.url.as_deref().unwrap_or_default())
+                    .map_err(|e| anyhow!("url: {}", e))?,
                 client: clients.client(
                     config.http_client.as_ref(),
                     config.download_detour.as_deref(),
@@ -685,5 +688,39 @@ mod tests {
             .build(&HashMap::new(), &dns_client(), &env)
             .unwrap_err();
         assert!(err.to_string().contains("[p]"), "{:#}", err);
+    }
+
+    /// A provider of `sub.store` is downloaded from the host's Sub-Store,
+    /// and fails without one.
+    #[test]
+    fn sub_store_is_the_host_s() {
+        let config = config(serde_json::json!({
+            "type": "remote", "tag": "s", "url": "https://sub.store/download/all?target=Surge"
+        }));
+        let err = Provider::load(
+            &config,
+            &HttpClients::default(),
+            Arc::new(DialOptions::default()),
+            &RuntimeEnv::default(),
+            None,
+            Default::default(),
+        )
+        .err()
+        .unwrap();
+        assert!(format!("{:#}", err).contains("set sub_store"), "{:#}", err);
+        let env = RuntimeEnv {
+            host: crate::runtime::Host {
+                sub_store: Some("https://sub.example.com/secret".into()),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let Source::Remote { url, .. } = load(&config, &env, None).source else {
+            unreachable!("a remote provider")
+        };
+        assert_eq!(
+            url,
+            "https://sub.example.com/secret/download/all?target=Surge"
+        );
     }
 }

@@ -35,6 +35,65 @@ pub struct Host {
     pub socket_protect: Option<crate::net::dial::SocketProtect>,
     /// What the embedding host does for the instance.
     pub platform: Option<PlatformRef>,
+    /// The base URL of the operator's own Sub-Store backend (its secret
+    /// path, if any, included), which downloads from `sub.store` go to:
+    /// see [`Host::download_url`].
+    pub sub_store: Option<String>,
+}
+
+/// Sub-Store's address inside Surge, Loon and Quantumult X, which only
+/// those apps answer.
+const SUB_STORE: &str = "sub.store";
+
+impl Host {
+    /// `url` as it is downloaded (outbound providers, remote rule-sets): one
+    /// whose host is `sub.store` from `sub_store`, its path and query
+    /// kept; any other as it is. Without `sub_store`, one of `sub.store`
+    /// is an error that says what to do. Errors name the host alone, as
+    /// `sub_store` may hold a secret.
+    pub fn download_url(&self, url: &str) -> Result<String> {
+        let Some((scheme, rest)) = url.split_once("://") else {
+            return Ok(url.to_string());
+        };
+        let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+        let (authority, tail) = rest.split_at(end);
+        let host = authority.rsplit('@').next().unwrap_or_default();
+        // An IPv6 address is not it; else up to the port.
+        let host = match host.starts_with('[') {
+            true => host,
+            false => host.split(':').next().unwrap_or_default(),
+        };
+        if !host.trim_end_matches('.').eq_ignore_ascii_case(SUB_STORE)
+            || !matches!(scheme.to_ascii_lowercase().as_str(), "http" | "https")
+        {
+            return Ok(url.to_string());
+        }
+        let base = self.sub_store.as_deref().ok_or_else(|| {
+            anyhow!(
+                "{}: sub.store is Sub-Store's address inside Surge, Loon and Quantumult X, \
+                 which only they answer; set sub_store (sail --sub-store, or the host's start \
+                 settings) to the address of a Sub-Store backend of your own, or use the \
+                 subscription's own URL",
+                SUB_STORE
+            )
+        })?;
+        let base_host = base
+            .split_once("://")
+            .filter(|(scheme, rest)| {
+                matches!(scheme.to_ascii_lowercase().as_str(), "http" | "https")
+                    && !rest.is_empty()
+                    && !rest.starts_with('/')
+            })
+            .map(|(_, rest)| rest.split(['/', '?', '#']).next().unwrap_or_default())
+            .ok_or_else(|| anyhow!("sub_store: not an http(s) URL"))?;
+        if base.contains(['?', '#']) {
+            return Err(anyhow!(
+                "sub_store: {}: a base URL has no query or fragment",
+                base_host
+            ));
+        }
+        Ok(format!("{}{}", base.trim_end_matches('/'), tail))
+    }
 }
 
 /// Everything an instance runs with that is not its configuration.
@@ -102,7 +161,8 @@ impl RuntimeEnv {
 /// ```json
 /// { "profile": "mobile", "set": ["relay.buffer_size=32"],
 ///   "data_dir": "/var/lib/sail", "cache_dir": "/var/cache/sail",
-///   "log_to_system": true, "socket_protect": "/data/protect.sock" }
+///   "log_to_system": true, "socket_protect": "/data/protect.sock",
+///   "sub_store": "https://sub.example.com/secret" }
 /// ```
 #[derive(Deserialize, Debug, Default)]
 #[serde(deny_unknown_fields)]
@@ -122,6 +182,9 @@ pub struct StartSettings {
     /// A Unix socket path, or an `address:port` to connect to over TCP.
     #[serde(default)]
     pub socket_protect: Option<String>,
+    /// The base URL of a Sub-Store backend, which `sub.store` stands for.
+    #[serde(default)]
+    pub sub_store: Option<String>,
 }
 
 impl StartSettings {
@@ -151,6 +214,7 @@ impl StartSettings {
                 log_to_system: self.log_to_system.unwrap_or(false),
                 socket_protect,
                 platform: None,
+                sub_store: self.sub_store,
             },
         ))
     }
@@ -223,5 +287,37 @@ mod tests {
         );
         let err = StartSettings::from_json(r#"{ "profile": "mobile", "sett": [] }"#).unwrap_err();
         assert!(err.to_string().contains("sett"), "{}", err);
+    }
+
+    #[test]
+    fn sub_store_is_the_operator_s_backend() {
+        let host = |base: Option<&str>| Host {
+            sub_store: base.map(str::to_string),
+            ..Default::default()
+        };
+        let url = "https://sub.store/download/collection/all?target=Surge";
+        let secret = host(Some("https://sub.example.com:8443/s3cret/"));
+        assert_eq!(
+            secret.download_url(url).unwrap(),
+            "https://sub.example.com:8443/s3cret/download/collection/all?target=Surge"
+        );
+        assert_eq!(
+            secret.download_url("http://SUB.STORE:80").unwrap(),
+            "https://sub.example.com:8443/s3cret"
+        );
+        // Others as they are.
+        for other in [
+            "https://sub.store.example.com/a",
+            "https://a.example/sub.store",
+        ] {
+            assert_eq!(secret.download_url(other).unwrap(), other);
+        }
+        let err = host(None).download_url(url).unwrap_err().to_string();
+        assert!(err.contains("set sub_store"), "{}", err);
+        let err = host(Some("sub.example.com/s3cret"))
+            .download_url(url)
+            .unwrap_err()
+            .to_string();
+        assert!(!err.contains("s3cret"), "{}", err);
     }
 }
