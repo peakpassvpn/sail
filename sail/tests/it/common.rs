@@ -269,6 +269,7 @@ pub fn shutdown_instances(rt: &tokio::runtime::Runtime, ids: Vec<sail::RuntimeId
         if stopped.is_err() {
             tracing::warn!("sail instance {} did not stop within 10s", id);
         }
+        let _ = std::fs::remove_dir_all(instance_cache_dir(id));
     }
 }
 
@@ -346,6 +347,11 @@ pub fn runtime_options() -> sail::runtime::RuntimeOptions {
 }
 
 // Runs multiple sail instances.
+/// Where the instance `rt_id` of this process keeps its cache.
+fn instance_cache_dir(rt_id: sail::RuntimeId) -> std::path::PathBuf {
+    std::env::temp_dir().join(format!("sail-test-cache-{}-{}", std::process::id(), rt_id))
+}
+
 pub fn run_sail_instances(
     rt: &tokio::runtime::Runtime,
     configs: Vec<String>,
@@ -361,7 +367,12 @@ pub fn run_sail_instances(
             auto_reload: false,
             runtime_opt: sail::RuntimeOption::SingleThread,
             runtime: runtime_options(),
-            host: Default::default(),
+            // A cache of its own: instances running at once would wait on
+            // one another's cache file.
+            host: sail::runtime::Host {
+                cache_dir: Some(instance_cache_dir(rt_id)),
+                ..Default::default()
+            },
         };
         let start = rt.spawn_blocking(move || sail::start(rt_id, opts));
         // Returns once the instance runs, or with the error it failed with:
