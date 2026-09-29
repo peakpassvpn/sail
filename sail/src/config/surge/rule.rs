@@ -442,9 +442,9 @@ pub fn lower(
 /// The condition of a line of a rule-set's file, a rule without its
 /// policy. What it needs sniffed or resolved is the rule's that names the
 /// set.
-#[cfg_attr(not(test), allow(dead_code))]
+#[cfg(feature = "rule-set")]
 pub(super) fn headless(line: &str) -> Result<Map<String, Value>> {
-    let h = Headless::split(line);
+    let h = Headless::split(text::strip_comment(line));
     let mut warnings = Vec::new();
     let flags = Flags::read(&h.params, &h.kind, &h.kind, &mut warnings)?;
     if h.kind == "FINAL" || flags.pre_matching {
@@ -693,7 +693,8 @@ fn logical(kind: &str, value: &str, scope: &mut Scope, depth: usize) -> Result<C
     Ok((rule, needs))
 }
 
-/// An address or a prefix, a bare address a prefix of it alone.
+/// An address or a prefix, a bare address a prefix of it alone; the bits
+/// past the prefix are dropped, as Surge drops them.
 fn prefix(value: &str) -> Result<String> {
     let (ip, len) = match value.split_once('/') {
         Some((ip, len)) => (ip, Some(len)),
@@ -713,7 +714,14 @@ fn prefix(value: &str) -> Result<String> {
             .ok_or_else(|| anyhow!("{:?} is not an address or a prefix", value))?,
         None => max,
     };
-    Ok(format!("{}/{}", ip, len))
+    let network = cidr::IpInet::new(ip, len)
+        .map_err(|_| anyhow!("{:?} is not an address or a prefix", value))?
+        .network();
+    Ok(format!(
+        "{}/{}",
+        network.first_address(),
+        network.network_length()
+    ))
 }
 
 /// A port expression: `80`, `8000-9000`, `>=1024` and the like.
@@ -897,6 +905,7 @@ mod tests {
         assert_eq!(prefix("8.8.8.8").unwrap(), "8.8.8.8/32");
         assert_eq!(prefix("2404:6800::").unwrap(), "2404:6800::/128");
         assert!(prefix("1.2.3.4/33").is_err());
+        assert_eq!(prefix("104.244.42.0/21").unwrap(), "104.244.40.0/21");
     }
 
     #[test]
@@ -979,6 +988,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "rule-set")]
     #[test]
     fn a_rule_set_s_lines() {
         assert_eq!(

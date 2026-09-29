@@ -314,6 +314,15 @@ fn strip_word<'a>(line: &'a str, word: &str) -> Option<&'a str> {
         .then(|| rest.trim_start())
 }
 
+/// `line` without a comment after it.
+#[cfg(feature = "rule-set")]
+pub fn strip_comment(line: &str) -> &str {
+    match comment_start(line) {
+        Some(at) => line[..at].trim_end(),
+        None => line,
+    }
+}
+
 /// Where a comment after a line starts: at `#`, `;` or `//` outside
 /// quotes, with a space before it.
 fn comment_start(line: &str) -> Option<usize> {
