@@ -1211,7 +1211,7 @@ mod tests {
             (
                 serde_json::json!([{ "domain": "a", "action": "evaluate", "server": "home",
                                      "race": true }]),
-                "dns.rules[0].race: sail does not implement this field yet",
+                "dns.rules[0]: race: not with action evaluate",
             ),
         ] {
             let err = with_rules(rules.clone()).err().unwrap().to_string();
@@ -1694,6 +1694,148 @@ mod tests {
                 serde_json::json!([{ "domain": "x", "answer": "x. IN A 1.1.1.1",
                                      "server": "one" }]),
                 "answer: not with action route",
+            ),
+        ] {
+            let err = rules_client(rules).err().unwrap().to_string();
+            assert!(err.contains(message), "{}: {}", message, err);
+        }
+    }
+
+    /// A UDP server answering every A query with `ip`, or with no records
+    /// without one, after `delay`; and how many it got.
+    async fn slow_server(
+        ip: Option<&str>,
+        delay: Duration,
+    ) -> (u16, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+        let socket = std::sync::Arc::new(tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap());
+        let port = socket.local_addr().unwrap().port();
+        let count = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let (counter, ips): (_, Vec<IpAddr>) =
+            (count.clone(), ip.iter().map(|ip| ip.parse().unwrap()).collect());
+        tokio::spawn(async move {
+            let mut buf = [0u8; 1500];
+            while let Ok((n, peer)) = socket.recv_from(&mut buf).await {
+                counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                let request = Message::from_vec(&buf[..n]).unwrap();
+                let reply = DnsClient::reply(&request, &ips, 60).to_vec().unwrap();
+                let socket = socket.clone();
+                tokio::spawn(async move {
+                    tokio::time::sleep(delay).await;
+                    let _ = socket.send_to(&reply, peer).await;
+                });
+            }
+        });
+        (port, count)
+    }
+
+    /// As the published sing-box 1.14 template has it: two servers
+    /// evaluated at once, the first to answer with an address responded
+    /// with, else a route.
+    fn racing(slow: u16, fast: u16, other: u16, speculative: bool) -> DnsClient {
+        let udp = |tag: &str, port: u16| {
+            serde_json::json!({ "type": "udp", "tag": tag, "server": "127.0.0.1",
+                                "server_port": port })
+        };
+        let config = crate::config::Config::from_json(
+            &serde_json::json!({ "dns": {
+                "servers": [udp("slow", slow), udp("fast", fast), udp("other", other)],
+                "rules": [
+                    { "domain_suffix": "example", "action": "evaluate", "server": "slow",
+                      "tag": "s" },
+                    { "domain_suffix": "example", "action": "evaluate", "server": "fast",
+                      "tag": "f" },
+                    // A domain condition would satisfy the destination
+                    // on its own, as in sing-box, where ip_accept_any is
+                    // one of the destination's conditions.
+                    { "match_response": "s", "ip_accept_any": true, "action": "respond",
+                      "race": true },
+                    { "match_response": "f", "ip_accept_any": true, "action": "respond",
+                      "race": true },
+                    { "domain_suffix": "example", "action": "route", "server": "other",
+                      "speculative": speculative },
+                ],
+                "final": "other",
+            } })
+            .to_string(),
+        )
+        .unwrap();
+        DnsClient::new(&config.dns, Default::default(), &Default::default()).unwrap()
+    }
+
+    #[tokio::test]
+    async fn the_first_race_rule_to_match_decides() {
+        let (slow, _) = slow_server(Some("10.0.0.1"), Duration::from_millis(400)).await;
+        let (fast, _) = slow_server(Some("10.0.0.2"), Duration::from_millis(10)).await;
+        let (other, count) = slow_server(Some("10.0.0.3"), Duration::ZERO).await;
+        let client = racing(slow, fast, other, false);
+        let started = std::time::Instant::now();
+        let answer = exchange(&client, "a.example", RecordType::A).await;
+        // The fast one's, without waiting for the slow one.
+        assert_eq!(answer_ips(&answer), ips(&["10.0.0.2"]));
+        assert!(started.elapsed() < Duration::from_millis(300), "{:?}", started.elapsed());
+        // The route after the races was held, and never sent.
+        assert_eq!(asked(&count), 0);
+    }
+
+    #[tokio::test]
+    async fn a_race_rule_that_does_not_match_leaves_it_to_the_others() {
+        // The fast one answers with no address: the slow one's decides.
+        let (slow, _) = slow_server(Some("10.0.0.1"), Duration::from_millis(100)).await;
+        let (fast, _) = slow_server(None, Duration::ZERO).await;
+        let (other, count) = slow_server(Some("10.0.0.3"), Duration::ZERO).await;
+        let answer = exchange(&racing(slow, fast, other, false), "a.example", RecordType::A).await;
+        assert_eq!(answer_ips(&answer), ips(&["10.0.0.1"]));
+        assert_eq!(asked(&count), 0);
+
+        // Neither answers with one: the route after them, once both came.
+        let (slow, _) = slow_server(None, Duration::from_millis(100)).await;
+        let (fast, _) = slow_server(None, Duration::ZERO).await;
+        let (other, count) = slow_server(Some("10.0.0.3"), Duration::ZERO).await;
+        let answer = exchange(&racing(slow, fast, other, false), "a.example", RecordType::A).await;
+        assert_eq!(answer_ips(&answer), ips(&["10.0.0.3"]));
+        assert_eq!(asked(&count), 1);
+    }
+
+    #[tokio::test]
+    async fn a_speculative_route_is_sent_while_the_races_are_pending() {
+        // The races are lost after 300ms; the route's query went out
+        // meanwhile, and its answer is used then.
+        let (slow, _) = slow_server(None, Duration::from_millis(300)).await;
+        let (fast, _) = slow_server(None, Duration::from_millis(300)).await;
+        let (other, count) = slow_server(Some("10.0.0.3"), Duration::from_millis(250)).await;
+        let client = racing(slow, fast, other, true);
+        let started = std::time::Instant::now();
+        let answer = exchange(&client, "a.example", RecordType::A).await;
+        assert_eq!(answer_ips(&answer), ips(&["10.0.0.3"]));
+        assert_eq!(asked(&count), 1);
+        // Not 300ms and then 250ms more.
+        assert!(started.elapsed() < Duration::from_millis(500), "{:?}", started.elapsed());
+
+        // Won by a race: the speculative answer is not used.
+        let (slow, _) = slow_server(Some("10.0.0.1"), Duration::from_millis(50)).await;
+        let (fast, _) = slow_server(None, Duration::from_millis(50)).await;
+        let (other, _) = slow_server(Some("10.0.0.3"), Duration::from_millis(200)).await;
+        let answer = exchange(&racing(slow, fast, other, true), "a.example", RecordType::A).await;
+        assert_eq!(answer_ips(&answer), ips(&["10.0.0.1"]));
+    }
+
+    #[test]
+    fn race_mistakes_name_the_rule() {
+        for (rules, message) in [
+            (
+                serde_json::json!([{ "domain": "x", "server": "one", "race": true }]),
+                "race: a race rule matches an evaluated response, and needs match_response",
+            ),
+            (
+                serde_json::json!([{ "domain_suffix": "example", "action": "evaluate",
+                                     "server": "one" },
+                                   { "match_response": true, "ip_accept_any": true,
+                                     "server": "one", "race": true, "speculative": true }]),
+                "race: not with speculative",
+            ),
+            (
+                serde_json::json!([{ "domain": "x", "action": "reject", "speculative": true }]),
+                "speculative: not with action reject",
             ),
         ] {
             let err = rules_client(rules).err().unwrap().to_string();

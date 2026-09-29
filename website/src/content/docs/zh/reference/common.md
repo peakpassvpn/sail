@@ -277,6 +277,9 @@ Serde: `serde (deny_unknown_fields)`
 | `ip_accept_any` | `bool` | Default::default() | The response has an address.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
 | `ip_match_all` | `bool` | Default::default() | A sail extension: the rule's conditions on the response's addresses hold for every one of them, rather than for any; a response without one they hold for none. Mihomo's fallback filter keeps an answer so.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
 | `response_rcode` | `Option < Rcode >` | Default::default() | —<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
+| `response_answer` | `Vec < String >` | Default::default() | Records the response has among its answers, as `answer` writes them: any of them.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
+| `response_ns` | `Vec < String >` | Default::default() | Records the response has among its name servers.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
+| `response_extra` | `Vec < String >` | Default::default() | Records the response has among its additional records.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
 | `invert` | `bool` | Default::default() | —<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
 | `mode` | `Option < LogicalMode >` | Default::default() | `logical`: `and` or `or`.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
 | `rules` | `Vec < DnsRule >` | Default::default() | `logical`: the rules combined.<br/>`serde (default , skip_serializing_if = "Vec::is_empty")` |
@@ -284,7 +287,12 @@ Serde: `serde (deny_unknown_fields)`
 | `server` | `Option < String >` | Default::default() | `route`: the server a matching query goes to.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
 | `strategy` | `Option < DnsStrategy >` | Default::default() | `route`: the address families, instead of `dns.strategy`.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
 | `rcode` | `Option < Rcode >` | Default::default() | `predefined`: the code of the answer, NOERROR when unset.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
+| `answer` | `Vec < String >` | Default::default() | `predefined`: the answer's records, as a zone file writes them (`localhost. IN A 127.0.0.1`, TTL 3600 unless given), or the base64 of their wire form; one named `*.suffix.` takes the name asked for when it ends so.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
+| `ns` | `Vec < String >` | Default::default() | `predefined`: its name server records.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
+| `extra` | `Vec < String >` | Default::default() | `predefined`: its additional records.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
 | `tag` | `Option < String >` | Default::default() | `evaluate`: the name of its response, which `match_response` gives.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
+| `race` | `bool` | Default::default() | `route`, `respond`, `reject` and `predefined`, on a response: the rules after it are matched while its responses are still coming, and the first race rule to match, once they have, decides; the others' actions wait until none of the race rules before them matched. As sing-box 1.14's.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
+| `speculative` | `bool` | Default::default() | `route` and `evaluate`: the query is sent as soon as the rule matches, while race rules before it are still pending, rather than once none of them matched; its response is used only then.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
 | `disable_cache` | `bool` | Default::default() | `route`, `evaluate` and `route-options`: the query neither comes from the cache nor goes into it.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
 | `disable_optimistic_cache` | `bool` | Default::default() | An expired answer is not given while it is asked for again, though `dns.optimistic` is enabled.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
 | `rewrite_ttl` | `Option < u32 >` | Default::default() | The TTL the answer's records carry, in seconds.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
@@ -461,6 +469,10 @@ Serde: `serde (deny_unknown_fields)`
 | `ip_is_private` | `bool` | Default::default() | The destination address, or one the domain resolved to, is not a public one.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
 | `ip_accept_any` | `bool` | 必填 | A DNS rule's: the response it matches has an address.<br/>`serde (skip)` |
 | `response_rcode` | `Option < u16 >` | 可省略（None） | A DNS rule's: the response it matches has this code.<br/>`serde (skip)` |
+| `response_answer` | `Vec < String >` | 必填 | A DNS rule's: the response it matches has one of these records among its answers, as the configuration writes them; parsed when the rule is compiled.<br/>`serde (skip)` |
+| `response_ns` | `Vec < String >` | 必填 | A DNS rule's: among its name servers.<br/>`serde (skip)` |
+| `response_extra` | `Vec < String >` | 必填 | A DNS rule's: among its additional records.<br/>`serde (skip)` |
+| `match_response` | `Option < ResponseRef >` | 可省略（None） | A DNS rule's, combined by a logical one: the evaluated response it matches, rather than the one of the rule it is within.<br/>`serde (skip)` |
 | `source_port` | `Vec < u16 >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
 | `source_port_range` | `Vec < String >` | Default::default() | Inclusive port ranges, as `port_range` writes them.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
 | `port` | `Vec < u16 >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |

@@ -91,10 +91,6 @@ pub const FIELDS: &[Field] = &[
     f("dns.rules.*.source_hostname", Unsupported),
     f("dns.rules.*.preferred_by", Unsupported),
     f("dns.rules.*.rule_set_ip_cidr_accept_empty", Unsupported),
-    // Matched while its responses come: a race is won by the first rule
-    // that matches.
-    f("dns.rules.*.race", Unsupported),
-    f("dns.rules.*.speculative", Ignored),
     f("dns.rules.*.method", Ignored),
     f("dns.rules.*.no_drop", Ignored),
     // HTTP clients: a download over HTTP/1.1 is the same download.
@@ -175,7 +171,9 @@ pub const FIELDS: &[Field] = &[
     // DNS servers.
     f("dns.servers.*.method", Unsupported),
     f("dns.servers.*.prefer_go", Ignored),
-    f("dns.servers.*.neighbor_domain", Unsupported),
+    // Single-label LAN names from sing-box's neighbor resolver (DHCP
+    // leases): sail has none, and the system's resolver answers them.
+    f("dns.servers.*.neighbor_domain", Ignored),
     f("dns.servers.*.netns", Unsupported),
     f("dns.servers.*.protect_path", Unsupported),
     f("dns.servers.*.network_strategy", Unsupported),

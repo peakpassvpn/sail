@@ -6,6 +6,7 @@ use std::net::IpAddr;
 use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
+use futures::StreamExt;
 use hickory_proto::op::{Edns, Message, ResponseCode};
 use hickory_proto::rr::rdata::opt::{ClientSubnet, EdnsCode, EdnsOption};
 use hickory_proto::rr::{RData, RecordType};
@@ -39,6 +40,77 @@ enum RuleStrategy {
     /// It sends the query, with a strategy of its own or none.
     Sent(Option<DnsStrategy>),
     Rejected,
+}
+
+/// The query a walk sends.
+struct Question<'a> {
+    request: &'a Message,
+    host: &'a str,
+    ty: RecordType,
+    ctx: &'a LookupContext,
+}
+
+/// The evaluated responses a rule matches, and the `evaluate` rule each
+/// comes from, none when none before it gives it.
+type Bound = Vec<(ResponseRef, Option<usize>)>;
+
+/// The queries of the `evaluate` rules of a walk, in flight or answered.
+#[derive(Default)]
+struct Evaluations<'a> {
+    inflight:
+        futures::stream::FuturesUnordered<futures::future::BoxFuture<'a, (usize, Option<Message>)>>,
+    /// Their responses, by rule: none for a server that did not answer.
+    done: HashMap<usize, Option<Message>>,
+    /// The last `evaluate` rule without a tag, and the tagged ones.
+    latest: Option<usize>,
+    tagged: HashMap<String, usize>,
+    /// The race rules not yet judged, with the responses they match.
+    races: Vec<(usize, Bound)>,
+}
+
+impl Evaluations<'_> {
+    /// Which `evaluate` rule gives each of `needs`, as far as the walk has
+    /// come.
+    fn bind(&self, needs: &[ResponseRef]) -> Bound {
+        needs
+            .iter()
+            .map(|r| {
+                let index = match r {
+                    ResponseRef::Latest => self.latest,
+                    ResponseRef::Tag(tag) => self.tagged.get(tag).copied(),
+                };
+                (r.clone(), index)
+            })
+            .collect()
+    }
+
+    /// Whether every response `bound` names has come.
+    fn ready(&self, bound: &Bound) -> bool {
+        bound
+            .iter()
+            .all(|(_, index)| index.is_none_or(|i| self.done.contains_key(&i)))
+    }
+
+    /// The response `r` names, of those bound.
+    fn response_of(&self, bound: &Bound, r: &ResponseRef) -> Option<&Message> {
+        let (_, index) = bound.iter().find(|(named, _)| named == r)?;
+        self.done.get(&(*index)?)?.as_ref()
+    }
+
+    /// The responses bound, as the rules a logical one combines name them.
+    fn responses(&self, bound: &Bound) -> Responses {
+        bound
+            .iter()
+            .map(|(r, _)| {
+                let facts = self.response_of(bound, r).map(|m| ResponseFacts {
+                    ips: addresses(m),
+                    rcode: u16::from(m.response_code()),
+                    message: Arc::new(m.clone()),
+                });
+                (r.clone(), facts)
+            })
+            .collect()
+    }
 }
 
 impl DnsClient {
@@ -102,6 +174,13 @@ impl DnsClient {
                 invert: rule.invert,
                 ip_match_all: rule.ip_match_all,
                 nested_responses: rule.rules.iter().any(|r| !r.responses().is_empty()),
+                needs: rule
+                    .response()
+                    .into_iter()
+                    .chain(rule.rules.iter().flat_map(|r| r.responses()).cloned())
+                    .collect(),
+                race: rule.race,
+                speculative: rule.speculative,
                 action,
             });
         }
@@ -187,29 +266,6 @@ impl DnsClient {
         }
     }
 
-    /// The evaluated responses so far, as the rules a logical one combines
-    /// name them: the last one without a tag, and the tagged ones.
-    fn responses(
-        latest: &Option<Option<Message>>,
-        tagged: &HashMap<&str, Option<Message>>,
-    ) -> Responses {
-        let of = |response: &Option<Message>| {
-            response.as_ref().map(|m| ResponseFacts {
-                ips: addresses(m),
-                rcode: u16::from(m.response_code()),
-                message: Arc::new(m.clone()),
-            })
-        };
-        let mut responses: Responses = tagged
-            .iter()
-            .map(|(tag, response)| (ResponseRef::Tag(tag.to_string()), of(response)))
-            .collect();
-        if let Some(latest) = latest {
-            responses.insert(ResponseRef::Latest, of(latest));
-        }
-        responses
-    }
-
     /// Whether the rule is for the outbound `ctx` dials for.
     fn for_outbound(rule: &Rule, ctx: &LookupContext) -> bool {
         rule.outbounds.is_empty()
@@ -226,11 +282,15 @@ impl DnsClient {
     }
 
     /// Sends `request` where the rules say, as sing-box walks them: in
-    /// order, each `evaluate` rule that matches asking its server and
-    /// keeping the response for the rules after it, until one answers or
-    /// rejects; `dns.final` takes the rest. A lookup of the instance's own
-    /// (`fake_ip` false) passes over the rules that send it to the fakeip
-    /// server, whose addresses are for clients alone.
+    /// order, each `evaluate` rule that matches sending its query, whose
+    /// response the rules after it that name it wait for, until one
+    /// answers or rejects; `dns.final` takes the rest. A race rule does not
+    /// hold the walk: it is judged as its responses come, and the first to
+    /// match decides at once; the actions of the rules after a pending one
+    /// wait until none matched (a speculative one's query is sent
+    /// meanwhile). A lookup of the instance's own (`fake_ip` false) passes
+    /// over the rules that send it to the fakeip server, whose addresses
+    /// are for clients alone.
     pub(super) async fn walk(
         &self,
         request: &Message,
@@ -244,38 +304,41 @@ impl DnsClient {
         let ty = query.query_type();
         let host = query.name().to_utf8();
         let host = host.trim_end_matches('.').to_ascii_lowercase();
-        // The last response without a tag, and the tagged ones; `None` for
-        // a server that did not answer.
-        let mut latest: Option<Option<Message>> = None;
-        let mut tagged: HashMap<&str, Option<Message>> = HashMap::new();
+        let q = Question {
+            request,
+            host: &host,
+            ty,
+            ctx,
+        };
+        let mut ev = Evaluations::default();
         let mut options = QueryOptions::default();
         for (i, rule) in self.rules.iter().enumerate() {
             if !Self::for_outbound(rule, ctx) {
                 continue;
             }
-            let response = match &rule.response {
-                None => None,
-                Some(ResponseRef::Latest) => Some(latest.as_ref().and_then(Option::as_ref)),
-                Some(ResponseRef::Tag(tag)) => {
-                    Some(tagged.get(tag.as_str()).and_then(Option::as_ref))
+            if let RuleAction::Route { server, .. } = &rule.action {
+                if !fake_ip && self.is_fake_ip(server) {
+                    continue;
                 }
-            };
-            let responses = rule
-                .nested_responses
-                .then(|| Arc::new(Self::responses(&latest, &tagged)));
-            let matched = match response {
-                // Without its response, a rule matches only inverted, as
-                // in sing-box.
-                Some(None) => rule.invert,
-                Some(Some(response)) => {
-                    Self::matches_response(rule, &host, ty, ctx, response, responses.as_ref())
+            }
+            let bound = ev.bind(&rule.needs);
+            if rule.race {
+                ev.races.push((i, bound));
+                if let Some(won) = self.judge_races(&mut ev, &q) {
+                    return self
+                        .act(won, self.responds_with(won, &ev), &options, &q)
+                        .await;
                 }
-                None => rule.matcher.matches(&Self::with_responses(
-                    Self::facts(&host, ty, ctx, None),
-                    responses.as_ref(),
-                )),
-            };
-            if !matched {
+                continue;
+            }
+            for index in bound.iter().filter_map(|(_, index)| *index) {
+                if let Some(won) = self.wait(&mut ev, index, &q).await {
+                    return self
+                        .act(won, self.responds_with(won, &ev), &options, &q)
+                        .await;
+                }
+            }
+            if !self.judge(rule, &bound, &ev, &q) {
                 continue;
             }
             match &rule.action {
@@ -288,71 +351,243 @@ impl DnsClient {
                     tag,
                     options: own,
                 } => {
+                    if !ev.races.is_empty() && !rule.speculative {
+                        if let Some(won) = self.settle(&mut ev, &q).await {
+                            return self
+                                .act(won, self.responds_with(won, &ev), &options, &q)
+                                .await;
+                        }
+                    }
                     debug!(
                         "dns rule {} matches {} {}: evaluate [{}]",
                         i, host, ty, server
                     );
-                    let response = match self.resolve(server, request, &options.with(own)).await {
-                        Ok(response) => Some(response),
-                        Err(e) => {
-                            debug!("{} {}: evaluate [{}]: {}", host, ty, server, e);
-                            None
-                        }
-                    };
+                    let (server, options) = (server.clone(), options.with(own));
+                    let host = host.clone();
+                    ev.inflight.push(Box::pin(async move {
+                        let response = match self.resolve(&server, request, &options).await {
+                            Ok(response) => Some(response),
+                            Err(e) => {
+                                debug!("{} {}: evaluate [{}]: {}", host, ty, server, e);
+                                None
+                            }
+                        };
+                        (i, response)
+                    }));
                     match tag {
-                        None => latest = Some(response),
+                        None => ev.latest = Some(i),
                         Some(tag) => {
-                            tagged.insert(tag, response);
+                            ev.tagged.insert(tag.clone(), i);
                         }
                     }
                 }
-                RuleAction::Respond => {
-                    debug!("dns rule {} matches {} {}: respond", i, host, ty);
-                    let response = match &rule.response {
-                        Some(ResponseRef::Tag(tag)) => tagged.get(tag.as_str()).cloned(),
-                        _ => latest.clone(),
-                    };
-                    return match response.flatten() {
-                        Some(response) => Ok(Walked::Response(Box::new(response))),
-                        None => Err(anyhow!(
-                            "{} {}: dns rule {} responds, and there is no evaluated response",
-                            host,
-                            ty,
-                            i
-                        )),
-                    };
-                }
-                RuleAction::Route {
-                    server,
-                    options: own,
-                    ..
-                } => {
-                    if !fake_ip && self.is_fake_ip(server) {
-                        continue;
+                _ => {
+                    // A decision, which the race rules before it may yet
+                    // take from it.
+                    if ev.races.is_empty() {
+                        return self.act(i, self.responds_with(i, &ev), &options, &q).await;
                     }
-                    debug!("dns rule {} matches {} {}: [{}]", i, host, ty, server);
-                    let options = options.with(own);
-                    return self
-                        .resolve(server, request, &options)
-                        .await
-                        .map(|response| Walked::Response(Box::new(response)));
-                }
-                RuleAction::Reject => {
-                    debug!("dns rule {} matches {} {}: reject", i, host, ty);
-                    return Ok(Walked::Refused);
-                }
-                RuleAction::Predefined(predefined) => {
-                    debug!(
-                        "dns rule {} matches {} {}: {}",
-                        i, host, ty, predefined.code
-                    );
-                    return Ok(Walked::Response(Box::new(predefined.response(request))));
+                    let early = match &rule.action {
+                        RuleAction::Route {
+                            server,
+                            options: own,
+                            ..
+                        } if rule.speculative => {
+                            let options = options.with(own);
+                            Some(Box::pin(async move {
+                                self.resolve(server, request, &options).await
+                            }))
+                        }
+                        _ => None,
+                    };
+                    let Some(mut early) = early else {
+                        if let Some(won) = self.settle(&mut ev, &q).await {
+                            return self
+                                .act(won, self.responds_with(won, &ev), &options, &q)
+                                .await;
+                        }
+                        return self.act(i, self.responds_with(i, &ev), &options, &q).await;
+                    };
+                    // The speculative query goes on while the races are
+                    // judged.
+                    let (won, answered) = {
+                        let settle = self.settle(&mut ev, &q);
+                        tokio::pin!(settle);
+                        let mut answered = None;
+                        let won = loop {
+                            tokio::select! {
+                                won = &mut settle => break won,
+                                response = &mut early, if answered.is_none() => {
+                                    answered = Some(response);
+                                }
+                            }
+                        };
+                        (won, answered)
+                    };
+                    if let Some(won) = won {
+                        return self
+                            .act(won, self.responds_with(won, &ev), &options, &q)
+                            .await;
+                    }
+                    debug!("dns rule {} matches {} {}: speculative", i, host, ty);
+                    let response = match answered {
+                        Some(response) => response,
+                        None => early.await,
+                    };
+                    return response.map(|response| Walked::Response(Box::new(response)));
                 }
             }
+        }
+        if let Some(won) = self.settle(&mut ev, &q).await {
+            return self
+                .act(won, self.responds_with(won, &ev), &options, &q)
+                .await;
         }
         self.resolve(&self.final_server, request, &options)
             .await
             .map(|response| Walked::Response(Box::new(response)))
+    }
+
+    /// Whether `rule` matches, with the evaluated responses `bound` gives
+    /// it, which have come.
+    fn judge(&self, rule: &Rule, bound: &Bound, ev: &Evaluations, q: &Question) -> bool {
+        let responses = rule.nested_responses.then(|| Arc::new(ev.responses(bound)));
+        match rule.response.as_ref().map(|r| ev.response_of(bound, r)) {
+            // Without its response, a rule matches only inverted, as in
+            // sing-box.
+            Some(None) => rule.invert,
+            Some(Some(response)) => {
+                Self::matches_response(rule, q.host, q.ty, q.ctx, response, responses.as_ref())
+            }
+            None => rule.matcher.matches(&Self::with_responses(
+                Self::facts(q.host, q.ty, q.ctx, None),
+                responses.as_ref(),
+            )),
+        }
+    }
+
+    /// The first pending race rule, in order, whose responses have all
+    /// come and which matches; those that do not match go.
+    fn judge_races(&self, ev: &mut Evaluations, q: &Question) -> Option<usize> {
+        let mut k = 0;
+        while k < ev.races.len() {
+            let (i, bound) = &ev.races[k];
+            if !ev.ready(bound) {
+                k += 1;
+                continue;
+            }
+            if self.judge(&self.rules[*i], bound, ev, q) {
+                debug!("dns rule {} wins the race for {} {}", i, q.host, q.ty);
+                return Some(*i);
+            }
+            ev.races.remove(k);
+        }
+        None
+    }
+
+    /// Takes the next evaluated response to come, and a race rule that
+    /// matches then.
+    async fn advance(&self, ev: &mut Evaluations<'_>, q: &Question<'_>) -> Option<usize> {
+        let (index, response) = ev.inflight.next().await?;
+        ev.done.insert(index, response);
+        self.judge_races(ev, q)
+    }
+
+    /// Waits for the response of the `evaluate` rule `index`, unless a
+    /// race rule matches first.
+    async fn wait(
+        &self,
+        ev: &mut Evaluations<'_>,
+        index: usize,
+        q: &Question<'_>,
+    ) -> Option<usize> {
+        while !ev.done.contains_key(&index) {
+            if ev.inflight.is_empty() {
+                break;
+            }
+            if let Some(won) = self.advance(ev, q).await {
+                return Some(won);
+            }
+        }
+        None
+    }
+
+    /// Waits until the pending race rules have all been judged: the first
+    /// that matches, or none.
+    async fn settle(&self, ev: &mut Evaluations<'_>, q: &Question<'_>) -> Option<usize> {
+        loop {
+            if let Some(won) = self.judge_races(ev, q) {
+                return Some(won);
+            }
+            if ev.races.is_empty() || ev.inflight.is_empty() {
+                return None;
+            }
+            if let Some(won) = self.advance(ev, q).await {
+                return Some(won);
+            }
+        }
+    }
+
+    /// The response rule `index` answers with, if it is a `respond` one.
+    fn responds_with(&self, index: usize, ev: &Evaluations) -> Option<Message> {
+        let rule = &self.rules[index];
+        if !matches!(rule.action, RuleAction::Respond) {
+            return None;
+        }
+        let r = rule.response.as_ref()?;
+        ev.response_of(&ev.bind(std::slice::from_ref(r)), r)
+            .cloned()
+    }
+
+    /// Carries out the action of rule `index`, which decides; a `respond`
+    /// one with `responded`.
+    async fn act(
+        &self,
+        index: usize,
+        responded: Option<Message>,
+        options: &QueryOptions,
+        q: &Question<'_>,
+    ) -> Result<Walked> {
+        let rule = &self.rules[index];
+        let (host, ty) = (q.host, q.ty);
+        match &rule.action {
+            RuleAction::Respond => {
+                debug!("dns rule {} matches {} {}: respond", index, host, ty);
+                match responded {
+                    Some(response) => Ok(Walked::Response(Box::new(response))),
+                    None => Err(anyhow!(
+                        "{} {}: dns rule {} responds, and there is no evaluated response",
+                        host,
+                        ty,
+                        index
+                    )),
+                }
+            }
+            RuleAction::Route {
+                server,
+                options: own,
+                ..
+            } => {
+                debug!("dns rule {} matches {} {}: [{}]", index, host, ty, server);
+                self.resolve(server, q.request, &options.with(own))
+                    .await
+                    .map(|response| Walked::Response(Box::new(response)))
+            }
+            RuleAction::Reject => {
+                debug!("dns rule {} matches {} {}: reject", index, host, ty);
+                Ok(Walked::Refused)
+            }
+            RuleAction::Predefined(predefined) => {
+                debug!(
+                    "dns rule {} matches {} {}: {}",
+                    index, host, ty, predefined.code
+                );
+                Ok(Walked::Response(Box::new(predefined.response(q.request))))
+            }
+            RuleAction::Evaluate { .. } | RuleAction::RouteOptions(_) => {
+                unreachable!("an evaluate or route-options rule decides nothing")
+            }
+        }
     }
 
     /// The families a lookup of `host` for `ctx` asks for: what `ctx`

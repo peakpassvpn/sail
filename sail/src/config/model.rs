@@ -570,6 +570,18 @@ pub struct DnsRule {
     /// `evaluate`: the name of its response, which `match_response` gives.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tag: Option<String>,
+    /// `route`, `respond`, `reject` and `predefined`, on a response: the
+    /// rules after it are matched while its responses are still coming,
+    /// and the first race rule to match, once they have, decides; the
+    /// others' actions wait until none of the race rules before them
+    /// matched. As sing-box 1.14's.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub race: bool,
+    /// `route` and `evaluate`: the query is sent as soon as the rule
+    /// matches, while race rules before it are still pending, rather than
+    /// once none of them matched; its response is used only then.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub speculative: bool,
     /// `route`, `evaluate` and `route-options`: the query neither comes
     /// from the cache nor goes into it.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -871,6 +883,8 @@ impl DnsRule {
             ("strategy", self.strategy.is_some(), &[Route]),
             ("tag", self.tag.is_some(), &[Evaluate]),
             ("rcode", self.rcode.is_some(), &[Predefined]),
+            ("race", self.race, &[Route, Respond, Reject, Predefined]),
+            ("speculative", self.speculative, &[Route, Evaluate]),
             ("answer", !self.answer.is_empty(), &[Predefined]),
             ("ns", !self.ns.is_empty(), &[Predefined]),
             ("extra", !self.extra.is_empty(), &[Predefined]),
@@ -938,6 +952,15 @@ impl DnsRule {
         if self.ip_match_all && self.invert {
             return Err(anyhow!("ip_match_all: not with invert"));
         }
+        if self.race && self.speculative {
+            return Err(anyhow!("race: not with speculative"));
+        }
+        if self.race && self.responses().is_empty() {
+            return Err(anyhow!(
+                "race: a race rule matches an evaluated response, and needs match_response \
+                 (in the rules a logical one combines, for a logical rule)"
+            ));
+        }
         let response_fields = [
             ("ip_cidr", !self.ip_cidr.is_empty()),
             ("ip_is_private", self.ip_is_private),
@@ -980,6 +1003,8 @@ impl DnsRule {
             ("outbound", !self.outbound.is_empty()),
             ("tag", self.tag.is_some()),
             ("rcode", self.rcode.is_some()),
+            ("race", self.race),
+            ("speculative", self.speculative),
             ("disable_cache", self.disable_cache),
             ("rewrite_ttl", self.rewrite_ttl.is_some()),
             ("timeout", self.timeout.is_some()),

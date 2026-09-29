@@ -27,6 +27,13 @@ struct Rule {
     ip_match_all: bool,
     /// Whether rules it combines name evaluated responses of their own.
     nested_responses: bool,
+    /// The evaluated responses it matches: its own, and those the rules it
+    /// combines name.
+    needs: Vec<crate::config::model::ResponseRef>,
+    /// Matched as its responses come, the first such to match deciding.
+    race: bool,
+    /// Its query is sent at once, while race rules before it are pending.
+    speculative: bool,
     action: RuleAction,
 }
 
