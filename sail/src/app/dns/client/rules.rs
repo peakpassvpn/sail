@@ -19,9 +19,8 @@ use crate::util::DnsMessageExt;
 
 /// What the rules make of a query.
 pub(super) enum Walked {
-    /// A server's response, or one an `evaluate` rule kept, and whether
-    /// its addresses may be kept: not when the query is not to be cached.
-    Response(Box<Message>, bool),
+    /// A server's response, or one an `evaluate` rule kept.
+    Response(Box<Message>),
     /// A rule rejects it.
     Refused,
 }
@@ -251,7 +250,7 @@ impl DnsClient {
                         _ => latest.clone(),
                     };
                     return match response.flatten() {
-                        Some(response) => Ok(Walked::Response(Box::new(response), true)),
+                        Some(response) => Ok(Walked::Response(Box::new(response))),
                         None => Err(anyhow!(
                             "{} {}: dns rule {} responds, and there is no evaluated response",
                             host,
@@ -273,9 +272,7 @@ impl DnsClient {
                     return self
                         .resolve(server, request, &options)
                         .await
-                        .map(|response| {
-                            Walked::Response(Box::new(response), !options.disable_cache)
-                        });
+                        .map(|response| Walked::Response(Box::new(response)));
                 }
                 RuleAction::Reject => {
                     debug!("dns rule {} matches {} {}: reject", i, host, ty);
@@ -283,16 +280,13 @@ impl DnsClient {
                 }
                 RuleAction::Predefined(code) => {
                     debug!("dns rule {} matches {} {}: {}", i, host, ty, code);
-                    return Ok(Walked::Response(
-                        Box::new(Self::status(request, *code)),
-                        false,
-                    ));
+                    return Ok(Walked::Response(Box::new(Self::status(request, *code))));
                 }
             }
         }
         self.resolve(&self.final_server, request, &options)
             .await
-            .map(|response| Walked::Response(Box::new(response), !options.disable_cache))
+            .map(|response| Walked::Response(Box::new(response)))
     }
 
     /// The families a lookup of `host` for `ctx` asks for: what `ctx`

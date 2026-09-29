@@ -261,14 +261,6 @@ pub async fn tcp_connect(addr: SocketAddr, dial: &DialOptions) -> io::Result<Tcp
     Ok(stream)
 }
 
-// A single TCP dial.
-async fn tcp_dial_task(dial_addr: SocketAddr, dial: &DialOptions) -> io::Result<DialResult> {
-    Ok(DialResult {
-        stream: tcp_connect(dial_addr, dial).await?,
-        addr: dial_addr,
-    })
-}
-
 pub async fn connect_stream_outbound(
     sess: &Session,
     dns_client: SyncDnsClient,
@@ -371,11 +363,6 @@ pub async fn connect_datagram_outbound(
     }
 }
 
-struct DialResult {
-    stream: TcpStream,
-    addr: SocketAddr,
-}
-
 /// Dials a TCP stream to `address`, trying its addresses one by one.
 pub async fn new_tcp_stream(
     dns_client: SyncDnsClient,
@@ -399,14 +386,8 @@ pub async fn dial_tcp(
 
     let mut last_err = None;
     for dial_addr in resolver {
-        match tcp_dial_task(dial_addr, dial).await {
-            Ok(v) => {
-                dns_client
-                    .load_full()
-                    .optimize_cache(address.to_owned(), v.addr.ip())
-                    .await;
-                return Ok(v.stream);
-            }
+        match tcp_connect(dial_addr, dial).await {
+            Ok(stream) => return Ok(stream),
             Err(e) => last_err = Some(e),
         }
     }

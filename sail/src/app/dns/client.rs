@@ -16,7 +16,7 @@ use lru::LruCache;
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use tokio::sync::Mutex as TokioMutex;
 use tokio::time::timeout;
-use tracing::{debug, trace, Instrument};
+use tracing::{debug, Instrument};
 
 use crate::{
     adapter::*, app::dispatcher::Dispatcher, config::model::DnsStrategy, net::*, session::*,
@@ -115,8 +115,6 @@ impl DnsClient {
             servers,
             rules,
             final_server,
-            ipv4_cache: Arc::new(TokioMutex::new(LruCache::new(capacity))),
-            ipv6_cache: Arc::new(TokioMutex::new(LruCache::new(capacity))),
             ech_cache: Arc::new(TokioMutex::new(LruCache::new(capacity))),
             ech_query_locks: Arc::new(TokioMutex::new(HashMap::new())),
             answers: Arc::new(std::sync::Mutex::new(LruCache::new(capacity))),
@@ -721,7 +719,7 @@ impl DnsClient {
     // -- Reading answers -------------------------------------------------
 
     /// The addresses a response for `host` carries, kept for its TTL.
-    fn answer_entry(response: &Message, host: &str) -> Result<CacheEntry> {
+    fn answer_ips(response: &Message, host: &str) -> Result<Vec<IpAddr>> {
         match response.response_code() {
             ResponseCode::NoError => {}
             ResponseCode::NXDomain => return Err(anyhow!("{} does not exist", host)),
@@ -731,12 +729,8 @@ impl DnsClient {
         if ips.is_empty() {
             return Err(anyhow!("no address for {}", host));
         }
-        let ttl = Duration::from_secs(response.answers().first().map_or(0, |a| a.ttl).into());
-        debug!("{} is {:?}, ttl={:?}", host, ips, ttl);
-        let deadline = Instant::now()
-            .checked_add(ttl)
-            .ok_or_else(|| anyhow!("invalid ttl"))?;
-        Ok(CacheEntry { ips, deadline })
+        debug!("{} is {:?}", host, ips);
+        Ok(ips)
     }
 
     /// The ECH configs an HTTPS or SVCB answer carries.
@@ -851,7 +845,7 @@ impl DnsClient {
             return Self::reply(request, &[], LOCAL_TTL.as_secs() as u32);
         }
         match self.walk(request, ctx, true).await {
-            Ok(rules::Walked::Response(mut response, _)) => {
+            Ok(rules::Walked::Response(mut response)) => {
                 response.set_id(request.id());
                 *response
             }
@@ -908,57 +902,6 @@ impl DnsClient {
     }
 
     // -- The caches ------------------------------------------------------
-
-    async fn cache_insert(&self, host: &str, entry: CacheEntry) {
-        if entry.ips.is_empty() {
-            return;
-        }
-        match entry.ips[0] {
-            IpAddr::V4(..) => self.ipv4_cache.lock().await.put(host.to_owned(), entry),
-            IpAddr::V6(..) => self.ipv6_cache.lock().await.put(host.to_owned(), entry),
-        };
-    }
-
-    async fn get_cached(&self, host: &str, strategy: DnsStrategy) -> Option<Vec<IpAddr>> {
-        let fetch_order = match strategy {
-            DnsStrategy::Ipv4Only => vec![&self.ipv4_cache],
-            DnsStrategy::Ipv6Only => vec![&self.ipv6_cache],
-            DnsStrategy::PreferIpv4 => vec![&self.ipv4_cache, &self.ipv6_cache],
-            DnsStrategy::PreferIpv6 => vec![&self.ipv6_cache, &self.ipv4_cache],
-        };
-        let mut cached_ips = Vec::new();
-        for cache in fetch_order {
-            if let Some(entry) = cache.lock().await.get(host) {
-                if entry.deadline <= Instant::now() {
-                    return None;
-                }
-                cached_ips.extend_from_slice(&entry.ips);
-            }
-        }
-        (!cached_ips.is_empty()).then_some(cached_ips)
-    }
-
-    /// Moves `connected_ip`, which a connection to `address` just reached,
-    /// to the front of the cached addresses of `address`.
-    pub async fn optimize_cache(&self, address: String, connected_ip: IpAddr) {
-        if address.parse::<IpAddr>().is_ok() {
-            return;
-        }
-        let cache = match connected_ip {
-            IpAddr::V4(..) => &self.ipv4_cache,
-            IpAddr::V6(..) => &self.ipv6_cache,
-        };
-        let mut cache = cache.lock().await;
-        let Some(entry) = cache.get_mut(&address) else {
-            return;
-        };
-        if let Some(idx) = entry.ips.iter().position(|ip| *ip == connected_ip) {
-            if idx > 0 {
-                trace!("moves {} to the front for {}", connected_ip, address);
-                entry.ips[..=idx].rotate_right(1);
-            }
-        }
-    }
 
     async fn get_cached_ech(&self, host: &str) -> Option<String> {
         let mut cache = self.ech_cache.lock().await;
@@ -1050,31 +993,22 @@ impl DnsClient {
         strategy: DnsStrategy,
         by: By<'_>,
     ) -> Result<Vec<IpAddr>> {
-        let cached = !matches!(by, By::Server(_, options) if options.disable_cache);
-        if cached {
-            if let Some(ips) = self.get_cached(host, strategy).await {
-                return Ok(ips);
-            }
-        }
         let name = Name::from_str(&format!("{}.", host))
             .map_err(|e| anyhow!("invalid domain name [{}]: {}", host, e))?;
-        // The addresses, and whether they may be kept.
+        // Each server's answers are kept, see `resolve`.
         let query = |ty| {
             let request = Self::new_query(name.clone(), ty);
             async move {
-                let (response, keep) = match by {
+                let response = match by {
                     By::Rules(ctx) => match self.walk(&request, ctx, false).await? {
-                        rules::Walked::Response(response, keep) => (*response, keep),
+                        rules::Walked::Response(response) => *response,
                         rules::Walked::Refused => {
                             return Err(anyhow!("{} {}: rejected by a dns rule", host, ty))
                         }
                     },
-                    By::Server(tag, options) => (
-                        self.resolve(tag, &request, options).await?,
-                        !options.disable_cache,
-                    ),
+                    By::Server(tag, options) => self.resolve(tag, &request, options).await?,
                 };
-                Self::answer_entry(&response, host).map(|entry| (entry, keep))
+                Self::answer_ips(&response, host)
             }
         };
 
@@ -1084,12 +1018,7 @@ impl DnsClient {
             DnsStrategy::PreferIpv4 | DnsStrategy::PreferIpv6 => None,
         };
         if let Some(ty) = single {
-            let (entry, keep) = query(ty).await?;
-            let ips = entry.ips.clone();
-            if keep {
-                self.cache_insert(host, entry).await;
-            }
-            return Ok(ips);
+            return query(ty).await;
         }
 
         let delay = self.tuning.dualstack_delay;
@@ -1100,14 +1029,10 @@ impl DnsClient {
         } else {
             Self::dualstack_query(&mut a, &mut aaaa, delay).await?
         };
-        let mut ips = Vec::new();
-        for (entry, keep) in std::iter::once(first).chain(second) {
-            ips.extend_from_slice(&entry.ips);
-            if keep {
-                self.cache_insert(host, entry).await;
-            }
-        }
-        Ok(ips)
+        Ok(first
+            .into_iter()
+            .chain(second.into_iter().flatten())
+            .collect())
     }
 
     /// The answer of `preferred`, or of `fallback` when `preferred` has
@@ -1210,7 +1135,7 @@ impl DnsClient {
         for ty in [RecordType::HTTPS, RecordType::SVCB] {
             let request = Self::new_query(name.clone(), ty);
             match self.walk(&request, &LookupContext::default(), false).await {
-                Ok(rules::Walked::Response(response, _)) => {
+                Ok(rules::Walked::Response(response)) => {
                     match Self::ech_entry(&response, host, ty) {
                         Ok(entry) => return Ok(entry),
                         Err(e) => errors.push(format!("{}: {}", ty, e)),

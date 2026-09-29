@@ -417,16 +417,9 @@ mod tests {
             client.lookup_dial("nas.home.arpa", &dial).await.unwrap(),
             ips(&["203.0.113.9"])
         );
+        // The rules' server for the outbound, not what `final` answered
+        // before: answers are kept by server, as sing-box 1.14 keeps them.
         dial.outbound = Some("lan-proxy".into());
-        assert_eq!(
-            client.lookup_dial("nas.home.arpa", &dial).await.unwrap(),
-            ips(&["203.0.113.9"]),
-            "cached by name, as in sing-box"
-        );
-        let client = with_rules(serde_json::json!([
-            { "outbound": "lan-proxy", "server": "home" }
-        ]))
-        .unwrap();
         assert_eq!(
             client.lookup_dial("nas.home.arpa", &dial).await.unwrap(),
             ips(&["192.168.1.2", "fd00::2"])

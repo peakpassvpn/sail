@@ -1,10 +1,4 @@
 #[derive(Clone, Debug)]
-struct CacheEntry {
-    pub ips: Vec<IpAddr>,
-    pub deadline: Instant,
-}
-
-#[derive(Clone, Debug)]
 pub struct EchCacheEntry {
     pub ech_config_list: String,
     pub deadline: Instant,
@@ -283,8 +277,6 @@ pub struct DnsClient {
     rules: Vec<Rule>,
     /// `dns.final`.
     final_server: String,
-    ipv4_cache: Arc<TokioMutex<LruCache<String, CacheEntry>>>,
-    ipv6_cache: Arc<TokioMutex<LruCache<String, CacheEntry>>>,
     ech_cache: Arc<TokioMutex<LruCache<String, EchCacheEntry>>>,
     ech_query_locks: Arc<TokioMutex<HashMap<String, Arc<TokioMutex<()>>>>>,
     /// The answers `exchange` gave, by question, until they expire.
