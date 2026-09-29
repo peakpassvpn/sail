@@ -204,6 +204,23 @@ fn dependencies(tag: &str, options: &Options) -> Result<Vec<String>> {
     Ok(options.providers.dependencies(options.outbounds))
 }
 
+/// The ASN database the group `tag` of `options` reads, for
+/// `prefer_asn`; none if it reads none, or its options do not parse.
+pub(crate) fn asn_file(tag: &str, options: &Options) -> Option<String> {
+    let options: SmartOutboundOptions = parse_options("outbound", tag, options).ok()?;
+    options.asn_file().map(String::from)
+}
+
+impl SmartOutboundOptions {
+    /// `asn_file`, or `asn.mmdb`, with `prefer_asn`: relative to the data
+    /// directory.
+    fn asn_file(&self) -> Option<&str> {
+        use crate::app::router::matcher::ASN_FILE;
+        self.prefer_asn
+            .then(|| self.asn_file.as_deref().unwrap_or(ASN_FILE))
+    }
+}
+
 fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
     let options: SmartOutboundOptions = ctx.options()?;
     let tag = ctx.tag;
@@ -238,16 +255,16 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
             Ok((regex, p.factor))
         })
         .collect::<Result<Vec<_>>>()?;
-    let asn = match (options.prefer_asn, &options.asn_file) {
-        (false, Some(_)) => return Err(error("asn_file", &"only with prefer_asn")),
-        (false, None) => None,
-        (true, file) => {
-            use crate::app::router::matcher::{open_mmdb, ASN_FILE};
-            let reader = open_mmdb(ctx.env, file.as_deref().unwrap_or(ASN_FILE))
-                .map_err(|e| error("prefer_asn", &format!("needs the ASN database: {}", e)))?;
-            Some(reader)
-        }
-    };
+    if !options.prefer_asn && options.asn_file.is_some() {
+        return Err(error("asn_file", &"only with prefer_asn"));
+    }
+    let asn = options
+        .asn_file()
+        .map(|file| {
+            crate::app::router::matcher::open_mmdb(ctx.env, file)
+                .map_err(|e| error("prefer_asn", &format!("needs the ASN database: {}", e)))
+        })
+        .transpose()?;
     let probe = HttpProbe::new(&options.url, ctx.dns_client.clone(), ctx.env)
         .map_err(|e| error("url", &e))?;
 

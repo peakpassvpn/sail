@@ -1,6 +1,7 @@
 //! What an instance runs with besides its configuration: tuning, and what
 //! the host provides.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -43,6 +44,10 @@ pub struct Host {
     /// `external_ui` is empty and the configuration names no URL: the
     /// core has none of its own.
     pub ui_download_url: Option<String>,
+    /// Where each asset (`sail::assets`) is downloaded from, by its name
+    /// (`asn.mmdb`), for an update the runtime API is asked for without a
+    /// URL. The operations plane's: the core has none.
+    pub asset_sources: BTreeMap<String, String>,
 }
 
 /// The base URL of a Sub-Store backend. It may carry a secret path, so it
@@ -184,7 +189,8 @@ impl RuntimeEnv {
 /// { "profile": "mobile", "set": ["relay.buffer_size=32"],
 ///   "data_dir": "/var/lib/sail", "cache_dir": "/var/cache/sail",
 ///   "log_to_system": true, "socket_protect": "/data/protect.sock",
-///   "sub_store": "https://sub.example.com/secret" }
+///   "sub_store": "https://sub.example.com/secret",
+///   "asset_sources": { "asn.mmdb": "https://example.com/asn.mmdb" } }
 /// ```
 #[derive(Deserialize, Debug, Default)]
 #[serde(deny_unknown_fields)]
@@ -210,6 +216,9 @@ pub struct StartSettings {
     /// Where the Clash API's dashboard is downloaded from by default.
     #[serde(default)]
     pub ui_download_url: Option<String>,
+    /// Where each asset is downloaded from, by its name.
+    #[serde(default)]
+    pub asset_sources: BTreeMap<String, String>,
 }
 
 impl StartSettings {
@@ -241,6 +250,7 @@ impl StartSettings {
                 platform: None,
                 sub_store: self.sub_store,
                 ui_download_url: self.ui_download_url,
+                asset_sources: self.asset_sources,
             },
         ))
     }
@@ -292,7 +302,8 @@ mod tests {
     fn start_settings_resolve_to_tuning_and_host() {
         let (options, host) = StartSettings::from_json(
             r#"{ "profile": "router", "set": ["relay.buffer_size=2"],
-                 "data_dir": "/d", "socket_protect": "127.0.0.1:9000" }"#,
+                 "data_dir": "/d", "socket_protect": "127.0.0.1:9000",
+                 "asset_sources": { "asn.mmdb": "https://example.com/asn.mmdb" } }"#,
         )
         .unwrap()
         .resolve()
@@ -305,6 +316,10 @@ mod tests {
                 .buffer_max_size
         );
         assert_eq!(host.data_dir, Some(PathBuf::from("/d")));
+        assert_eq!(
+            host.asset_sources["asn.mmdb"],
+            "https://example.com/asn.mmdb"
+        );
         assert_eq!(
             host.socket_protect,
             Some(crate::net::dial::SocketProtect::Tcp(

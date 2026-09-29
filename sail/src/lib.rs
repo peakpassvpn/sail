@@ -23,6 +23,7 @@ use crate::app::api::api_server::ApiServer;
 
 pub mod adapter;
 pub mod app;
+pub mod assets;
 pub mod common;
 pub mod config;
 #[cfg(feature = "http-client")]
@@ -108,6 +109,8 @@ pub struct RuntimeManager {
     /// What the Clash API tells of the configuration.
     #[cfg(feature = "clash-api")]
     clash_view: arc_swap::ArcSwap<app::clash_api::ConfigView>,
+    /// The assets the configuration reads.
+    assets: Mutex<Vec<assets::Asset>>,
 }
 
 impl RuntimeManager {
@@ -166,7 +169,26 @@ impl RuntimeManager {
             rule_set_files: Mutex::new(instance.rule_sets.files()),
             #[cfg(feature = "clash-api")]
             clash_view: Default::default(),
+            assets: Default::default(),
         })
+    }
+
+    /// The assets the configuration reads, as they are now.
+    pub fn assets(&self) -> Vec<assets::Asset> {
+        let mut assets = self
+            .assets
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        for asset in &mut assets {
+            asset.present = std::path::Path::new(&asset.path).is_file();
+        }
+        assets
+    }
+
+    fn set_assets(&self, config: &config::Config) {
+        *self.assets.lock().unwrap_or_else(|e| e.into_inner()) =
+            assets::required(config, &self.env);
     }
 
     #[cfg(feature = "clash-api")]
@@ -448,6 +470,7 @@ impl RuntimeManager {
         );
         #[cfg(feature = "clash-api")]
         self.set_clash_view(&config);
+        self.set_assets(&config);
         inbounds.publish_resources(inbound_resources);
         #[cfg(feature = "auto-reload")]
         {
@@ -1126,6 +1149,7 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
         }
     }
 
+    runtime_manager.set_assets(&config);
     #[cfg(feature = "api")]
     if let Some(listener) = api_listener {
         let api_server = ApiServer::new(runtime_manager.clone());

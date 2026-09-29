@@ -7,6 +7,7 @@ use std::io::BufReader;
 use anyhow::{anyhow, Result};
 
 use super::geosite;
+use crate::assets::Kind as AssetKind;
 use crate::runtime::RuntimeEnv;
 
 /// How a domain condition compares against a destination.
@@ -20,9 +21,16 @@ pub enum DomainKind {
     Full,
 }
 
+/// The GeoIP database `geoip` and `mmdb:<code>` read, in the data
+/// directory.
+pub const GEOIP_FILE: &str = "geo.mmdb";
+/// The site lists `geosite` and `site:<code>` read, in the data directory.
+pub const GEOSITE_FILE: &str = "site.dat";
+
 /// A country in a GeoIP database.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Mmdb {
+    /// As given: a relative one is in the data directory.
     pub file: String,
     pub country_code: String,
 }
@@ -34,21 +42,22 @@ pub enum External {
 }
 
 /// `code` in the default GeoIP database.
-pub fn geoip(code: &str, env: &RuntimeEnv) -> Mmdb {
+pub fn geoip(code: &str) -> Mmdb {
     Mmdb {
-        file: env.data_path("geo.mmdb"),
+        file: GEOIP_FILE.to_string(),
         country_code: code.to_string(),
     }
 }
 
 /// The site group `code` in the default site list.
 pub fn geosite(code: &str, env: &RuntimeEnv) -> Result<Vec<(DomainKind, String)>> {
-    load_site_group(&env.data_path("site.dat"), code)
+    load_site_group(&env.data_path(GEOSITE_FILE), code)
 }
 
-/// `mmdb:<code>`, `mmdb:<file>:<code>`, `site:<code>` or `site:<file>:<code>`.
-/// A relative file is looked up in the data directory.
-pub fn load(filter: &str, env: &RuntimeEnv) -> Result<External> {
+/// `mmdb:<code>`, `mmdb:<file>:<code>`, `site:<code>` or `site:<file>:<code>`:
+/// what it reads (a relative file is in the data directory), the file,
+/// and the code.
+pub fn parse(filter: &str) -> Result<(AssetKind, &str, &str)> {
     let parts: Vec<&str> = filter.split(':').collect();
     let (kind, file, code) = match parts.as_slice() {
         [kind, code] => (*kind, None, *code),
@@ -56,14 +65,8 @@ pub fn load(filter: &str, env: &RuntimeEnv) -> Result<External> {
         _ => return Err(anyhow!("invalid external rule \"{}\"", filter)),
     };
     match kind {
-        "mmdb" => Ok(External::Mmdb(Mmdb {
-            file: env.data_path(file.unwrap_or("geo.mmdb")),
-            country_code: code.to_string(),
-        })),
-        "site" => Ok(External::Domains(load_site_group(
-            &env.data_path(file.unwrap_or("site.dat")),
-            code,
-        )?)),
+        "mmdb" => Ok((AssetKind::Mmdb, file.unwrap_or(GEOIP_FILE), code)),
+        "site" => Ok((AssetKind::Site, file.unwrap_or(GEOSITE_FILE), code)),
         _ => Err(anyhow!(
             "invalid external rule \"{}\": expected mmdb:... or site:...",
             filter
@@ -71,16 +74,34 @@ pub fn load(filter: &str, env: &RuntimeEnv) -> Result<External> {
     }
 }
 
+/// What the external rule `filter` adds.
+pub fn load(filter: &str, env: &RuntimeEnv) -> Result<External> {
+    match parse(filter)? {
+        (AssetKind::Mmdb, file, code) => Ok(External::Mmdb(Mmdb {
+            file: file.to_string(),
+            country_code: code.to_string(),
+        })),
+        (AssetKind::Site, file, code) => Ok(External::Domains(load_site_group(
+            &env.data_path(file),
+            code,
+        )?)),
+    }
+}
+
+/// The tag that starts each site group of a list: field 1, length
+/// delimited.
+const SITE_GROUP_TAG: u8 = 0x0a;
+
 /// The domains of the site group `code` in `file`.
 fn load_site_group(file: &str, code: &str) -> Result<Vec<(DomainKind, String)>> {
     // Loads SiteGroup objects one by one instead of loading the whole list.
     let mut reader = BufReader::with_capacity(
         2048,
-        File::open(file).map_err(|e| anyhow!("open site list {} failed: {}", file, e))?,
+        File::open(file).map_err(|e| crate::assets::open_error("site list", file, e))?,
     );
     let mut input = protobuf::CodedInputStream::new(&mut reader);
     while !input.eof()? {
-        let _ = input.read_raw_byte()?; // skip
+        let _ = input.read_raw_byte()?; // SITE_GROUP_TAG
         let mut site_group = input.read_message::<geosite::SiteGroup>()?;
         if site_group.tag != code.to_uppercase() {
             continue;
@@ -105,4 +126,22 @@ fn load_site_group(file: &str, code: &str) -> Result<Vec<(DomainKind, String)>> 
         return Ok(domains);
     }
     Err(anyhow!("no site group [{}] in {}", code, file))
+}
+
+/// How many site groups `data`, a whole site list, holds; an error if it
+/// is not one, or holds none.
+pub(crate) fn count_site_groups(data: &[u8]) -> Result<usize> {
+    let mut input = protobuf::CodedInputStream::from_bytes(data);
+    let mut groups = 0;
+    while !input.eof()? {
+        if input.read_raw_byte()? != SITE_GROUP_TAG {
+            return Err(anyhow!("not a site list"));
+        }
+        input.read_message::<geosite::SiteGroup>()?;
+        groups += 1;
+    }
+    match groups {
+        0 => Err(anyhow!("no site group")),
+        n => Ok(n),
+    }
 }

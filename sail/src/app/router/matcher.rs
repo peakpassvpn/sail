@@ -425,7 +425,7 @@ pub(crate) fn open_mmdb(env: &RuntimeEnv, file: &str) -> Result<Arc<maxminddb::R
     type Open = Mutex<HashMap<MmdbKey, Weak<maxminddb::Reader<Vec<u8>>>>>;
     static OPEN: OnceLock<Open> = OnceLock::new();
     let path = env.data_path(file);
-    let meta = std::fs::metadata(&path).map_err(|e| anyhow!("open {} failed: {}", path, e))?;
+    let meta = std::fs::metadata(&path).map_err(|e| crate::assets::open_error("", &path, e))?;
     let key = (path, meta.len(), meta.modified().ok());
     let mut open = OPEN
         .get_or_init(Default::default)
@@ -879,11 +879,8 @@ impl Conditions {
                 domains.insert(kind, &d);
             }
         }
-        let mut mmdbs: Vec<external_rule::Mmdb> = rule
-            .geoip
-            .iter()
-            .map(|c| external_rule::geoip(c, ctx.env))
-            .collect();
+        let mut mmdbs: Vec<external_rule::Mmdb> =
+            rule.geoip.iter().map(|c| external_rule::geoip(c)).collect();
         for filter in &rule.external {
             match external_rule::load(filter, ctx.env)
                 .map_err(|e| anyhow!("{}: {}", field("external"), e))?
