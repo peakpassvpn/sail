@@ -1921,6 +1921,21 @@ pub struct Rule {
     /// `resolve`: the address families, instead of `dns.strategy`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub strategy: Option<DnsStrategy>,
+    /// `resolve`: the answers neither come from the DNS cache nor go into
+    /// it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub disable_cache: bool,
+    /// `resolve`: an expired answer is not given while it is asked for
+    /// again, though `dns.optimistic` is enabled.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub disable_optimistic_cache: bool,
+    /// `resolve`: the TTL the answers' records carry, in seconds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rewrite_ttl: Option<u32>,
+    /// `resolve`: the EDNS Client Subnet the queries carry, instead of
+    /// `dns.client_subnet`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_subnet: Option<Prefix>,
     /// `sniff`: the protocols to look for; all of them when empty.
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
     pub sniffer: Vec<Sniffer>,
@@ -2124,6 +2139,14 @@ impl Rule {
             ("no_drop", self.no_drop, &[Reject]),
             ("server", self.server.is_some(), &[Resolve]),
             ("strategy", self.strategy.is_some(), &[Resolve]),
+            ("disable_cache", self.disable_cache, &[Resolve]),
+            (
+                "disable_optimistic_cache",
+                self.disable_optimistic_cache,
+                &[Resolve],
+            ),
+            ("rewrite_ttl", self.rewrite_ttl.is_some(), &[Resolve]),
+            ("client_subnet", self.client_subnet.is_some(), &[Resolve]),
             ("sniffer", !self.sniffer.is_empty(), &[Sniff]),
             ("timeout", self.timeout.is_some(), &[Sniff, Resolve]),
             ("ignore_failure", self.ignore_failure, &[Resolve]),

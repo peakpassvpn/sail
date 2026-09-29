@@ -309,7 +309,7 @@ impl DnsClient {
             ctx,
         };
         let mut ev = Evaluations::default();
-        let mut options = QueryOptions::default();
+        let mut options = QueryOptions::of_lookup(&ctx.options);
         for (i, rule) in self.rules.iter().enumerate() {
             if !Self::for_outbound(rule, ctx) {
                 continue;

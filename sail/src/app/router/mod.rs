@@ -355,6 +355,8 @@ struct Resolve {
     /// Whether a domain that does not resolve goes on without addresses,
     /// rather than failing the connection.
     ignore_failure: bool,
+    /// How the queries are sent: the cache, TTLs, client subnet.
+    options: crate::app::dns::LookupOptions,
 }
 
 struct Rule {
@@ -416,6 +418,12 @@ impl Rule {
                 strategy: rule.strategy,
                 timeout: rule.timeout,
                 ignore_failure: rule.ignore_failure,
+                options: crate::app::dns::LookupOptions {
+                    disable_cache: rule.disable_cache,
+                    disable_optimistic_cache: rule.disable_optimistic_cache,
+                    rewrite_ttl: rule.rewrite_ttl,
+                    client_subnet: rule.client_subnet,
+                },
             }),
             RuleAction::Sniff => {
                 if !cfg!(feature = "btls") && rule.sniffer.contains(&model::Sniffer::Quic) {
@@ -597,15 +605,7 @@ impl Router {
                 Action::Resolve(how) => {
                     if resolved.is_empty() && !sess.skip_resolve {
                         if let Some(domain) = facts.domain().map(str::to_string) {
-                            let result = self
-                                .resolve(
-                                    &domain,
-                                    sess,
-                                    how.server.as_deref(),
-                                    how.strategy,
-                                    how.timeout,
-                                )
-                                .await;
+                            let result = self.resolve(&domain, sess, how).await;
                             resolved = match result {
                                 Ok(ips) => ips,
                                 Err(e) if how.ignore_failure => {
@@ -626,30 +626,35 @@ impl Router {
     /// The addresses of `domain`. As in sing-box, a domain that does not
     /// resolve in time fails the connection rather than going on to rules
     /// that would match it without its addresses.
-    async fn resolve(
-        &self,
-        domain: &str,
-        sess: &Session,
-        server: Option<&str>,
-        strategy: Option<model::DnsStrategy>,
-        timeout: Option<Duration>,
-    ) -> Result<Vec<IpAddr>> {
+    async fn resolve(&self, domain: &str, sess: &Session, how: &Resolve) -> Result<Vec<IpAddr>> {
         let dns = self.dns_client.load_full();
         let lookup = async {
-            match server {
-                Some(server) => dns.lookup_from(server, domain, strategy).await,
+            match &how.server {
+                Some(server) => {
+                    let resolver = model::DomainResolver {
+                        server: server.clone(),
+                        strategy: how.strategy,
+                        disable_cache: how.options.disable_cache,
+                        disable_optimistic_cache: how.options.disable_optimistic_cache,
+                        rewrite_ttl: how.options.rewrite_ttl,
+                        client_subnet: how.options.client_subnet,
+                        ..Default::default()
+                    };
+                    dns.lookup_resolver(&resolver, domain).await
+                }
                 None => {
                     let ctx = crate::app::dns::LookupContext {
                         inbound: Some(sess.inbound_tag.clone()),
                         user: sess.user.clone(),
                         outbound: None,
-                        strategy,
+                        strategy: how.strategy,
+                        options: how.options.clone(),
                     };
                     dns.lookup_in(domain, &ctx).await
                 }
             }
         };
-        let result = match timeout {
+        let result = match how.timeout {
             Some(timeout) => tokio::time::timeout(timeout, lookup)
                 .await
                 .unwrap_or_else(|_| Err(anyhow!("timed out after {:?}", timeout))),
@@ -882,6 +887,95 @@ mod tests {
         };
         let decision = router.pick_route(&mut sess, &mut NoSniffer).await.unwrap();
         assert_eq!(decision, Decision::Route(Some("a".into())));
+    }
+
+    /// A UDP DNS server answering every A query with 10.0.0.1, TTL 300,
+    /// that keeps the client subnet each query carried.
+    async fn recording_server() -> (u16, std::sync::Arc<std::sync::Mutex<Vec<Option<String>>>>) {
+        use crate::util::DnsMessageExt;
+        use hickory_proto::op::{Message, MessageType};
+        use hickory_proto::rr::rdata::opt::EdnsOption;
+        use hickory_proto::rr::{rdata::A, RData, Record};
+        let socket = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let port = socket.local_addr().unwrap().port();
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let queries = seen.clone();
+        tokio::spawn(async move {
+            let mut buf = [0u8; 1500];
+            while let Ok((n, peer)) = socket.recv_from(&mut buf).await {
+                let q = Message::from_vec(&buf[..n]).unwrap();
+                let subnet = q.extensions().as_ref().and_then(|e| {
+                    e.options().as_ref().iter().find_map(|(_, o)| match o {
+                        EdnsOption::Subnet(s) => Some(format!("{:?}", s)),
+                        _ => None,
+                    })
+                });
+                queries.lock().unwrap().push(subnet);
+                let mut r = Message::new(q.id(), MessageType::Response, q.op_code());
+                for query in q.queries() {
+                    r.add_query(query.clone());
+                    r.add_answer(Record::from_rdata(
+                        query.name().clone(),
+                        300,
+                        RData::A(A::new(10, 0, 0, 1)),
+                    ));
+                }
+                let _ = socket.send_to(&r.to_vec().unwrap(), peer).await;
+            }
+        });
+        (port, seen)
+    }
+
+    #[tokio::test]
+    async fn a_resolve_rule_sends_its_queries_as_it_says() {
+        let (port, seen) = recording_server().await;
+        let config = crate::config::Config::from_json(
+            &serde_json::json!({
+                "dns": { "servers": [
+                    { "type": "udp", "tag": "up", "server": "127.0.0.1", "server_port": port }
+                ] },
+                "outbounds": [{ "type": "direct", "tag": "a" }, { "type": "direct", "tag": "b" }],
+                "route": { "rules": [
+                    { "domain": "fresh.sail", "action": "resolve", "strategy": "ipv4_only",
+                      "disable_cache": true, "client_subnet": "1.2.3.0/24" },
+                    { "domain": "named.sail", "action": "resolve", "server": "up",
+                      "strategy": "ipv4_only", "disable_cache": true },
+                    { "domain": "kept.sail", "action": "resolve", "strategy": "ipv4_only" },
+                    { "ip_cidr": ["10.0.0.0/8"], "outbound": "a" },
+                ], "final": "b" },
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let dns = DnsClient::new(&config.dns, Default::default(), &Default::default())
+            .unwrap()
+            .into_shared();
+        let router = Router::new(&config.route, dns, &RuntimeEnv::default()).unwrap();
+        let route = |domain: &str| {
+            let mut sess = Session {
+                destination: SocksAddr::Domain(domain.into(), 80),
+                ..Default::default()
+            };
+            let router = &router;
+            async move { router.pick_route(&mut sess, &mut NoSniffer).await.unwrap() }
+        };
+        for domain in ["fresh.sail", "fresh.sail", "named.sail", "named.sail"] {
+            assert_eq!(route(domain).await, Decision::Route(Some("a".into())));
+        }
+        // The cache kept: asked once.
+        for _ in 0..2 {
+            assert_eq!(route("kept.sail").await, Decision::Route(Some("a".into())));
+        }
+        let seen = seen.lock().unwrap().clone();
+        assert_eq!(seen.len(), 5, "{:?}", seen);
+        // fresh.sail's carried its client subnet; the others none.
+        assert!(
+            seen[0].as_deref().is_some_and(|s| s.contains("1.2.3.0")),
+            "{:?}",
+            seen
+        );
+        assert!(seen[1].is_some());
+        assert!(seen[2..].iter().all(Option::is_none), "{:?}", seen);
     }
 
     fn to(destination: &str) -> Session {

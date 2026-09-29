@@ -505,6 +505,10 @@ Serde: `serde (deny_unknown_fields)`
 | `no_drop` | `bool` | Default::default() | `reject`: never drops, however many connections the rule rejects.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
 | `server` | `Option < String >` | Default::default() | `resolve`: the DNS server to ask, rather than the one the DNS rules pick.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
 | `strategy` | `Option < DnsStrategy >` | Default::default() | `resolve`: the address families, instead of `dns.strategy`.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
+| `disable_cache` | `bool` | Default::default() | `resolve`: the answers neither come from the DNS cache nor go into it.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
+| `disable_optimistic_cache` | `bool` | Default::default() | `resolve`: an expired answer is not given while it is asked for again, though `dns.optimistic` is enabled.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
+| `rewrite_ttl` | `Option < u32 >` | Default::default() | `resolve`: the TTL the answers' records carry, in seconds.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
+| `client_subnet` | `Option < Prefix >` | Default::default() | `resolve`: the EDNS Client Subnet the queries carry, instead of `dns.client_subnet`.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
 | `sniffer` | `Vec < Sniffer >` | Default::default() | `sniff`: the protocols to look for; all of them when empty.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
 | `timeout` | `Option < std :: time :: Duration >` | Default::default() | `sniff`: how long to wait for the first bytes; 300ms when unset. `resolve`: how long to wait for the answer; `dns.timeout` when unset.<br/>`serde (default , with = "duration" , skip_serializing_if = "Option::is_none")` |
 | `override_destination` | `bool` | Default::default() | `sniff`, a sail extension: connects to the sniffed domain rather than to the address the client asked for.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |

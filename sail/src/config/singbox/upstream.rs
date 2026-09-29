@@ -235,10 +235,6 @@ pub const FIELDS: &[Field] = &[
     f("route.rules.*.fallback_delay", Unsupported),
     f("route.rules.*.tls_spoof", Unsupported),
     f("route.rules.*.tls_spoof_method", Unsupported),
-    f("route.rules.*.disable_cache", Unsupported),
-    f("route.rules.*.disable_optimistic_cache", Unsupported),
-    f("route.rules.*.rewrite_ttl", Unsupported),
-    f("route.rules.*.client_subnet", Unsupported),
     // Listen fields.
     f("inbounds.*.bind_interface", Unsupported),
     f("inbounds.*.routing_mark", Unsupported),

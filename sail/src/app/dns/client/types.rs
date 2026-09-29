@@ -97,6 +97,17 @@ impl QueryOptions {
         }
     }
 
+    /// How a lookup's queries are sent before the rules say otherwise.
+    fn of_lookup(options: &LookupOptions) -> Self {
+        QueryOptions {
+            disable_cache: options.disable_cache,
+            disable_optimistic_cache: options.disable_optimistic_cache,
+            rewrite_ttl: options.rewrite_ttl,
+            timeout: None,
+            client_subnet: options.client_subnet.map(Subnet::Set),
+        }
+    }
+
     /// How a `domain_resolver`'s queries are sent.
     fn of_resolver(resolver: &crate::config::model::DomainResolver) -> Self {
         QueryOptions {
@@ -132,6 +143,18 @@ pub struct LookupContext {
     pub outbound: Option<String>,
     /// The address families, over what the rules and `dns.strategy` say.
     pub strategy: Option<DnsStrategy>,
+    /// How the queries are sent, before the rules' route options: a
+    /// routing rule's `resolve` says.
+    pub options: LookupOptions,
+}
+
+/// How a lookup's queries are sent, as a routing rule's `resolve` says.
+#[derive(Debug, Clone, Default)]
+pub struct LookupOptions {
+    pub disable_cache: bool,
+    pub disable_optimistic_cache: bool,
+    pub rewrite_ttl: Option<u32>,
+    pub client_subnet: Option<crate::config::model::Prefix>,
 }
 
 

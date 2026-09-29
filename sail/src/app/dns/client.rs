@@ -980,7 +980,7 @@ impl DnsClient {
     /// The addresses of `host`, from `resolver`'s server, asked as it says:
     /// what the rules have no say in.
     #[async_recursion]
-    async fn lookup_resolver(
+    pub async fn lookup_resolver(
         &self,
         resolver: &crate::config::model::DomainResolver,
         host: &str,
