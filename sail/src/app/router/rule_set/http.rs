@@ -332,6 +332,9 @@ async fn read_rest(stream: &mut AnyStream, buf: &mut Vec<u8>, max_body: usize) -
     }
 }
 
+/// The longest chunk size line, extensions and all.
+const MAX_CHUNK_LINE: usize = 4096;
+
 /// A chunked body (RFC 9112 §7.1), `buf` holding what was read already.
 async fn read_chunked(
     stream: &mut AnyStream,
@@ -346,16 +349,27 @@ async fn read_chunked(
             if let Some(i) = buf[at..].windows(2).position(|w| w == b"\r\n") {
                 break at + i;
             }
+            if buf.len() - at > MAX_CHUNK_LINE {
+                return Err(anyhow!(
+                    "chunk size line longer than {} bytes",
+                    MAX_CHUNK_LINE
+                ));
+            }
             more(stream, &mut buf).await?;
         };
         let line = std::str::from_utf8(&buf[at..line_end]).map_err(|_| anyhow!("bad chunk"))?;
-        let size = usize::from_str_radix(line.split(';').next().unwrap_or("").trim(), 16)
-            .map_err(|_| anyhow!("bad chunk size {:?}", line))?;
+        let digits = line.split(';').next().unwrap_or("").trim();
+        // The size is the peer's: more digits than a u64 has is no size.
+        if digits.len() > 16 {
+            return Err(anyhow!("bad chunk size {:?}", line));
+        }
+        let size =
+            usize::from_str_radix(digits, 16).map_err(|_| anyhow!("bad chunk size {:?}", line))?;
         at = line_end + 2;
         if size == 0 {
             return Ok(body);
         }
-        if body.len() + size > max_body {
+        if body.len().checked_add(size).is_none_or(|n| n > max_body) {
             return Err(anyhow!("larger than {} bytes", max_body));
         }
         while buf.len() < at + size + 2 {

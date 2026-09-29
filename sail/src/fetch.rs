@@ -130,6 +130,34 @@ mod tests {
         assert!(err.contains("404"), "{}", err);
     }
 
+    #[tokio::test]
+    async fn a_chunk_size_from_the_peer_is_checked() {
+        let url =
+            serve(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\n\r\n")
+                .await;
+        assert_eq!(fetch(&url, &Options::default()).await.unwrap(), b"hello");
+
+        let url = serve(
+            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n1\r\na\r\nffffffffffffffff\r\n",
+        )
+        .await;
+        let err = fetch(&url, &Options::default())
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("larger than"), "{}", err);
+
+        let url = serve(
+            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n0000000000000000005\r\nhello\r\n",
+        )
+        .await;
+        let err = fetch(&url, &Options::default())
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("bad chunk size"), "{}", err);
+    }
+
     #[test]
     fn writes_whole() {
         let dir = std::env::temp_dir().join(format!("sail-fetch-{}", std::process::id()));
