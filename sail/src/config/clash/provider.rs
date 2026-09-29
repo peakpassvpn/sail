@@ -86,6 +86,37 @@ impl Sets {
         Ok(tag)
     }
 
+    /// Sorts an entry of Mihomo's domain lists into `patterns`, and the tags
+    /// of the rule-sets it names, `geosite:a,b` and `rule-set:a,b`, into
+    /// `tags`.
+    pub fn domain_entry(
+        &mut self,
+        entry: &str,
+        patterns: &mut Vec<String>,
+        tags: &mut Vec<String>,
+    ) -> Result<()> {
+        let lower = entry.to_ascii_lowercase();
+        if lower.starts_with("geosite:") {
+            for name in entry["geosite:".len()..].split(',') {
+                tags.push(self.geosite(name.trim())?);
+            }
+        } else if lower.starts_with("rule-set:") {
+            for name in entry["rule-set:".len()..].split(',') {
+                let name = name.trim();
+                if self.provider(name)? == ClashBehavior::Ipcidr {
+                    return Err(anyhow!(
+                        "{:?} is a rule-set of IP prefixes, not of domains",
+                        name
+                    ));
+                }
+                tags.push(name.to_string());
+            }
+        } else {
+            patterns.push(entry.to_string());
+        }
+        Ok(())
+    }
+
     /// The rule-sets of the GEOSITE and GEOIP rules, downloaded directly.
     pub fn into_geo_sets(self) -> Vec<Value> {
         self.geo
@@ -292,6 +323,21 @@ pub fn domains(patterns: &[String]) -> Map<String, Value> {
         }
     }
     rule
+}
+
+/// The conditions of a domain list's `patterns` and rule-sets `tags`, one
+/// for each kind there is: any of them holding.
+pub fn domain_conditions(patterns: Vec<String>, tags: Vec<String>) -> Vec<Map<String, Value>> {
+    let mut conditions = Vec::new();
+    if !patterns.is_empty() {
+        conditions.push(domains(&patterns));
+    }
+    if !tags.is_empty() {
+        let mut rule = Map::new();
+        rule.insert("rule_set".into(), json!(tags));
+        conditions.push(rule);
+    }
+    conditions
 }
 
 fn regex_escape(s: &str) -> String {

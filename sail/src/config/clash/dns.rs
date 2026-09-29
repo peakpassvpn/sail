@@ -37,10 +37,9 @@ use serde_json::{json, Map, Value};
 use super::fields::{Fields, Tier};
 use super::group::Policies;
 use super::node::Node;
-use super::provider::{domains, Sets};
+use super::provider::{domain_conditions, domains, Sets};
 use super::rule::{domain_rule, not};
 use super::Lowered;
-use crate::config::rule_set::ClashBehavior;
 
 use Tier::*;
 
@@ -804,43 +803,11 @@ impl Lowering<'_, '_> {
         patterns: &mut Vec<String>,
         sets: &mut Vec<String>,
     ) -> Result<()> {
-        let lower = entry.to_ascii_lowercase();
-        if lower.starts_with("geosite:") {
-            for name in entry[8..].split(',') {
-                sets.push(self.sets.geosite(name.trim())?);
-            }
-        } else if lower.starts_with("rule-set:") {
-            for name in entry[9..].split(',') {
-                sets.push(self.domain_set(name.trim())?);
-            }
-        } else {
-            patterns.push(entry.to_string());
-        }
-        Ok(())
+        self.sets.domain_entry(entry, patterns, sets)
     }
 
     fn conditions(&self, patterns: Vec<String>, sets: Vec<String>) -> Vec<Map<String, Value>> {
-        let mut conditions = Vec::new();
-        if !patterns.is_empty() {
-            conditions.push(domains(&patterns));
-        }
-        if !sets.is_empty() {
-            let mut rule = Map::new();
-            rule.insert("rule_set".into(), json!(sets));
-            conditions.push(rule);
-        }
-        conditions
-    }
-
-    /// The rule-provider `name`, which is to match domains.
-    fn domain_set(&mut self, name: &str) -> Result<String> {
-        if self.sets.provider(name)? == ClashBehavior::Ipcidr {
-            return Err(anyhow!(
-                "{:?} is a rule-set of IP prefixes, not of domains",
-                name
-            ));
-        }
-        Ok(name.to_string())
+        domain_conditions(patterns, sets)
     }
 
     /// `enhanced-mode: fake-ip`.

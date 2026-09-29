@@ -192,14 +192,10 @@ fn port_lists(ports: &[String], default: u16) -> Result<(Vec<u16>, Vec<String>)>
 /// `geosite:a,b` and `rule-set:a,b`, each an alternative.
 fn domain_conditions(entries: &[String], at: &str, sets: &mut Sets) -> Result<Vec<Value>> {
     let (patterns, tags) = domain_entries(entries, at, sets)?;
-    let mut conditions = Vec::new();
-    if !patterns.is_empty() {
-        conditions.push(Value::Object(domains(&patterns)));
-    }
-    if !tags.is_empty() {
-        conditions.push(json!({ "rule_set": tags }));
-    }
-    Ok(conditions)
+    Ok(super::provider::domain_conditions(patterns, tags)
+        .into_iter()
+        .map(Value::Object)
+        .collect())
 }
 
 /// Mihomo's domain list at `at`, split into its patterns and the tags of
@@ -211,32 +207,8 @@ fn domain_entries(
 ) -> Result<(Vec<String>, Vec<String>)> {
     let (mut patterns, mut tags) = (Vec::new(), Vec::new());
     for (i, entry) in entries.iter().enumerate() {
-        let lower = entry.to_ascii_lowercase();
-        if let Some(names) = lower.strip_prefix("geosite:") {
-            for name in names.split(',') {
-                tags.push(
-                    sets.geosite(name)
-                        .map_err(|e| anyhow!("{}[{}]: {}", at, i, e))?,
-                );
-            }
-        } else if lower.starts_with("rule-set:") {
-            for name in entry["rule-set:".len()..].split(',') {
-                let behavior = sets
-                    .provider(name)
-                    .map_err(|e| anyhow!("{}[{}]: {}", at, i, e))?;
-                if behavior == ClashBehavior::Ipcidr {
-                    return Err(anyhow!(
-                        "{}[{}]: rule-provider {:?} is of IP prefixes, not domains",
-                        at,
-                        i,
-                        name
-                    ));
-                }
-                tags.push(name.to_string());
-            }
-        } else {
-            patterns.push(entry.clone());
-        }
+        sets.domain_entry(entry, &mut patterns, &mut tags)
+            .map_err(|e| anyhow!("{}[{}]: {}", at, i, e))?;
     }
     Ok((patterns, tags))
 }
