@@ -403,6 +403,12 @@ async fn serve(listener: tokio::net::TcpListener, tag: String, dispatcher: Arc<D
                 continue;
             }
         };
+        let send_buffer = dispatcher.env().options.inbound.tcp_send_buffer * 1024;
+        if send_buffer > 0 {
+            if let Err(e) = socket2::SockRef::from(&stream).set_send_buffer_size(send_buffer) {
+                debug!("auto_redirect: send buffer: {}", e);
+            }
+        }
         let sess = match session(&stream, peer, &tag) {
             Ok(sess) => sess,
             Err(e) => {

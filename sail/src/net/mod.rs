@@ -77,6 +77,7 @@ pub struct TcpListener {
     inner: tokio::net::TcpListener,
     abort_on_close: bool,
     keepalive: Option<TcpKeepAlive>,
+    send_buffer: usize,
 }
 
 impl TcpListener {
@@ -99,6 +100,7 @@ impl TcpListener {
             inner: tokio::net::TcpListener::from_std(socket.into())?,
             abort_on_close: false,
             keepalive: Some(TcpKeepAlive::DEFAULT),
+            send_buffer: 0,
         })
     }
 
@@ -116,6 +118,13 @@ impl TcpListener {
         self
     }
 
+    /// The send buffer of accepted connections, in bytes; zero leaves it to
+    /// the system.
+    pub fn send_buffer(mut self, bytes: usize) -> Self {
+        self.send_buffer = bytes;
+        self
+    }
+
     pub fn io(&self) -> &tokio::net::TcpListener {
         &self.inner
     }
@@ -128,6 +137,9 @@ impl TcpListener {
             // anything still queued for the peer along with it. See the
             // option's own documentation for when that trade is the right one.
             SockRef::from(&stream).set_linger(Some(Duration::ZERO))?;
+        }
+        if self.send_buffer > 0 {
+            SockRef::from(&stream).set_send_buffer_size(self.send_buffer)?;
         }
         Ok((stream, addr))
     }
@@ -563,6 +575,21 @@ mod tests {
         );
         assert_eq!(TcpKeepAlive::DEFAULT.idle, Duration::from_secs(300));
         assert_eq!(TcpKeepAlive::DEFAULT.interval, Duration::from_secs(75));
+    }
+
+    /// Accepted connections get the send buffer asked for, which Linux
+    /// doubles; unasked, the system's own.
+    #[tokio::test]
+    async fn accepted_connections_get_the_send_buffer_asked_for() {
+        const ASKED: usize = 48 << 10;
+        let listener = TcpListener::bind_now(&"127.0.0.1:0".parse().unwrap())
+            .unwrap()
+            .send_buffer(ASKED);
+        let addr = listener.io().local_addr().unwrap();
+        let _client = tokio::net::TcpStream::connect(addr).await.unwrap();
+        let (accepted, _) = listener.accept().await.unwrap();
+        let size = SockRef::from(&accepted).send_buffer_size().unwrap();
+        assert!((ASKED..=2 * ASKED).contains(&size), "{}", size);
     }
 
     #[test]

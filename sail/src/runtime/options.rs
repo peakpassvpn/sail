@@ -142,6 +142,13 @@ pub struct Inbound {
     /// gracefully: sockets are reclaimed at once, and whatever is still
     /// queued for the peer is lost.
     pub tcp_abort_on_close: bool,
+    /// What an accepted TCP connection (an inbound's, or one `auto_redirect`
+    /// takes) keeps queued for a client that reads slower than it is sent
+    /// to, or not at all, in KiB; zero leaves
+    /// it to the system, which on Linux grows it up to the largest of
+    /// `net.ipv4.tcp_wmem` (4 MiB) while the connection goes fast. Linux
+    /// keeps twice what is set, for its own bookkeeping.
+    pub tcp_send_buffer: usize,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -313,6 +320,7 @@ impl RuntimeOptions {
                 handshake_timeout: Duration::from_secs(60),
                 multiplex_accept_concurrency: 256,
                 tcp_abort_on_close: false,
+                tcp_send_buffer: 0,
             },
             quic: Quic {
                 max_concurrent_streams: 1024,
