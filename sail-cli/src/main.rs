@@ -94,6 +94,16 @@ struct Args {
     #[argh(switch)]
     fetch_includes: bool,
 
+    /// downloads the assets the configuration reads that are missing (asn.mmdb,
+    /// geo.mmdb, site.dat, ...) into the data directory before it starts
+    #[argh(switch)]
+    fetch_assets: bool,
+
+    /// where an asset is downloaded from, as name=url, instead of the
+    /// default; repeatable
+    #[argh(option)]
+    asset_source: Vec<String>,
+
     /// prints version
     #[argh(switch, short = 'V')]
     version: bool,
@@ -107,6 +117,156 @@ struct Args {
 enum Command {
     Import(Import),
     Generate(Generate),
+    Assets(Assets),
+}
+
+#[derive(FromArgs)]
+/// Lists the data files (assets) a configuration reads: asn.mmdb, geo.mmdb,
+/// site.dat, or files it names; downloads them with --fetch or --update
+#[argh(subcommand, name = "assets")]
+struct Assets {
+    /// the configuration file; that of -c when not given
+    #[argh(positional)]
+    config: Option<String>,
+    /// downloads the missing ones
+    #[argh(switch)]
+    fetch: bool,
+    /// downloads them all again
+    #[argh(switch)]
+    update: bool,
+    /// where an asset is downloaded from, as name=url, instead of the
+    /// default; repeatable
+    #[argh(option)]
+    source: Vec<String>,
+}
+
+/// Where assets are downloaded from by default, by name. The core names
+/// no URL: these are sail-cli's.
+const ASSET_SOURCES: &[(&str, &str)] = &[
+    // Mihomo's (config/config.go, GeoXUrl.ASN): GeoLite2-ASN.
+    (
+        "asn.mmdb",
+        "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/GeoLite2-ASN.mmdb",
+    ),
+    // GeoLite2-Country's format, which geoip reads.
+    (
+        "geo.mmdb",
+        "https://github.com/Loyalsoldier/geoip/releases/latest/download/Country.mmdb",
+    ),
+    // V2Ray's site lists, domain-list-community and more.
+    (
+        "site.dat",
+        "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat",
+    ),
+];
+
+/// `sources`, with `overrides` (name=url) in their place.
+fn with_sources(
+    mut sources: std::collections::BTreeMap<String, String>,
+    overrides: &[String],
+) -> Result<std::collections::BTreeMap<String, String>, String> {
+    for source in overrides {
+        match source.split_once('=') {
+            Some((name, url)) if !name.is_empty() && url.contains("://") => {
+                sources.insert(name.to_string(), url.to_string());
+            }
+            _ => return Err(format!("{}: expected name=url", source)),
+        }
+    }
+    Ok(sources)
+}
+
+/// The default sources, with `overrides` (name=url) in their place.
+fn asset_sources(
+    overrides: &[String],
+) -> Result<std::collections::BTreeMap<String, String>, String> {
+    let defaults = ASSET_SOURCES
+        .iter()
+        .map(|(name, url)| (name.to_string(), url.to_string()))
+        .collect();
+    with_sources(defaults, overrides)
+}
+
+/// Downloads the assets `config` reads with `env` that are missing, or
+/// with `all` every one, from `sources`; one without a source is an error
+/// that says how to give one. Returns the assets as they are after.
+fn fetch_assets(
+    config: &str,
+    env: &sail::runtime::RuntimeEnv,
+    sources: &std::collections::BTreeMap<String, String>,
+    all: bool,
+) -> Result<Vec<sail::assets::Asset>, String> {
+    let parsed =
+        sail::config::from_file_for(config, &env.host).map_err(|e| format!("{}: {}", config, e))?;
+    let assets = sail::assets::required(&parsed, env);
+    let due: Vec<_> = assets.iter().filter(|a| all || !a.present).collect();
+    if due.is_empty() {
+        return Ok(assets);
+    }
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| format!("cannot start a runtime: {}", e))?;
+    for asset in due {
+        let url = sources.get(&asset.name).ok_or_else(|| {
+            format!(
+                "{}: no source to download it from; give one with --source {}=<url> \
+                 (sail --asset-source when starting), or place the file at {}",
+                asset.name, asset.name, asset.path
+            )
+        })?;
+        let size = rt
+            .block_on(sail::assets::download(asset, url))
+            .map_err(|e| format!("{:#}", e))?;
+        println!("fetched {} into {}: {} bytes", asset.name, asset.path, size);
+    }
+    let parsed =
+        sail::config::from_file_for(config, &env.host).map_err(|e| format!("{}: {}", config, e))?;
+    Ok(sail::assets::required(&parsed, env))
+}
+
+/// Prints the assets, a line each: name, present, path, what reads it.
+fn print_assets(assets: &[sail::assets::Asset]) {
+    if assets.is_empty() {
+        println!("the configuration reads no asset");
+        return;
+    }
+    let width = assets.iter().map(|a| a.name.len()).max().unwrap_or(0);
+    for asset in assets {
+        println!(
+            "{:width$}  {:7}  {}  {}",
+            asset.name,
+            if asset.present { "present" } else { "missing" },
+            asset.path,
+            asset.used_by.join(", "),
+            width = width
+        );
+    }
+}
+
+/// Lists, or fetches, what `sail assets` asks for, and exits.
+fn assets(args: Assets, config: &str, env: &sail::runtime::RuntimeEnv) -> ! {
+    let config = args.config.as_deref().unwrap_or(config);
+    let listed = if args.fetch || args.update {
+        with_sources(env.host.asset_sources.clone(), &args.source)
+            .and_then(|sources| fetch_assets(config, env, &sources, args.update))
+    } else if !args.source.is_empty() {
+        Err("--source is for --fetch or --update".to_string())
+    } else {
+        sail::config::from_file_for(config, &env.host)
+            .map(|parsed| sail::assets::required(&parsed, env))
+            .map_err(|e| format!("{}: {}", config, e))
+    };
+    match listed {
+        Ok(list) => {
+            print_assets(&list);
+            exit(0);
+        }
+        Err(e) => {
+            eprintln!("{}", e);
+            exit(1);
+        }
+    }
 }
 
 #[derive(FromArgs)]
@@ -314,12 +474,20 @@ fn main() {
         exit(0);
     }
 
-    match args.command {
+    let assets_command = match args.command {
         Some(Command::Import(i)) => import(i),
         Some(Command::Generate(g)) => generate(g),
-        None => {}
-    }
+        Some(Command::Assets(a)) => Some(a),
+        None => None,
+    };
 
+    let asset_sources = match asset_sources(&args.asset_source) {
+        Ok(sources) => sources,
+        Err(e) => {
+            println!("--asset-source {}", e);
+            exit(1);
+        }
+    };
     let settings = sail::runtime::StartSettings {
         profile: args.profile,
         set: args.set,
@@ -327,6 +495,7 @@ fn main() {
         cache_dir: args.cache_dir.clone().map(Into::into),
         sub_store: args.sub_store.map(sail::runtime::SubStore),
         ui_download_url: Some(args.ui_download_url).filter(|u| !u.is_empty()),
+        asset_sources,
         ..Default::default()
     };
     let (runtime, host) = match settings.resolve() {
@@ -346,6 +515,25 @@ fn main() {
         if let Err(e) = fetch_includes(&args.config, args.cache_dir.as_deref()) {
             println!("fetching includes failed: {}", e);
             exit(1);
+        }
+    }
+
+    if let Some(a) = assets_command {
+        assets(a, &args.config, &env);
+    }
+
+    if args.fetch_assets {
+        match fetch_assets(&args.config, &env, &host.asset_sources, false) {
+            Ok(list) => {
+                if let Some(missing) = list.iter().find(|a| !a.present) {
+                    println!("fetching assets failed: {} is still missing", missing.path);
+                    exit(1);
+                }
+            }
+            Err(e) => {
+                println!("fetching assets failed: {}", e);
+                exit(1);
+            }
         }
     }
 
@@ -414,5 +602,60 @@ fn main() {
     ) {
         println!("start sail failed: {}", e);
         exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn assets_takes_a_configuration_and_sources() {
+        let args = Args::from_args(
+            &["sail"],
+            &[
+                "-D",
+                "/data",
+                "assets",
+                "c.json",
+                "--fetch",
+                "--source",
+                "asn.mmdb=https://example.com/asn.mmdb",
+            ],
+        )
+        .unwrap();
+        assert_eq!(args.data_dir.as_deref(), Some("/data"));
+        let Some(Command::Assets(a)) = args.command else {
+            panic!("not assets");
+        };
+        assert_eq!(a.config.as_deref(), Some("c.json"));
+        assert!(a.fetch && !a.update);
+        assert_eq!(a.source, ["asn.mmdb=https://example.com/asn.mmdb"]);
+
+        let args = Args::from_args(
+            &["sail"],
+            &[
+                "--fetch-assets",
+                "--asset-source",
+                "site.dat=https://e/s.dat",
+            ],
+        )
+        .unwrap();
+        assert!(args.fetch_assets && args.command.is_none());
+        let sources = asset_sources(&args.asset_source).unwrap();
+        assert_eq!(sources["site.dat"], "https://e/s.dat");
+        assert!(sources["asn.mmdb"].starts_with("https://"));
+    }
+
+    #[test]
+    fn a_source_is_a_name_and_a_url() {
+        for bad in ["asn.mmdb", "=https://e/a", "asn.mmdb=e/a"] {
+            assert!(asset_sources(&[bad.to_string()]).is_err(), "{}", bad);
+        }
+        // Every default is an asset core knows by that name.
+        for (name, url) in ASSET_SOURCES {
+            assert!(["asn.mmdb", "geo.mmdb", "site.dat"].contains(name));
+            assert!(url.starts_with("https://"));
+        }
     }
 }
