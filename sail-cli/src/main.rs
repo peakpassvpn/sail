@@ -26,6 +26,9 @@ fn default_thread_stack_size() -> usize {
     256 * 1024
 }
 
+/// The dashboard downloaded by default: Mihomo's, metacubexd.
+const DEFAULT_UI: &str = "https://github.com/MetaCubeX/metacubexd/archive/refs/heads/gh-pages.zip";
+
 #[derive(FromArgs)]
 /// A lightweight and fast proxy utility
 struct Args {
@@ -79,6 +82,11 @@ struct Args {
     /// Quantumult X, stands for in subscription and rule-set URLs
     #[argh(option)]
     sub_store: Option<String>,
+
+    /// the dashboard the Clash API downloads, a ZIP, into an empty
+    /// external_ui when the configuration names none; empty for none
+    #[argh(option, default = "String::from(DEFAULT_UI)")]
+    ui_download_url: String,
 
     /// downloads the URLs a Surge profile includes (#!include https://...),
     /// and those they include, into the cache directory before it is read;
@@ -318,6 +326,7 @@ fn main() {
         data_dir: args.data_dir.map(Into::into),
         cache_dir: args.cache_dir.clone().map(Into::into),
         sub_store: args.sub_store.map(sail::runtime::SubStore),
+        ui_download_url: Some(args.ui_download_url).filter(|u| !u.is_empty()),
         ..Default::default()
     };
     let (runtime, host) = match settings.resolve() {

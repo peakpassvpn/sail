@@ -192,7 +192,7 @@ mux = ["h2", "http"]
 plugin = ["async-ffi", "libloading"]
 api = ["axum"]
 # The Clash API, which dashboards (yacd, metacubexd) control an instance through.
-clash-api = ["axum", "axum/ws", "axum/query"]
+clash-api = ["axum", "axum/ws", "axum/query", "miniz_oxide"]
 auto-reload = ["notify"]
 ctrlc = ["tokio/signal"]
 # Pure in-memory parser entry points used only by the separate cargo-fuzz

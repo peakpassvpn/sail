@@ -34,6 +34,8 @@ mod providers;
 mod proxies;
 mod streams;
 mod ui;
+#[cfg(feature = "http-client")]
+mod zip;
 
 pub(crate) use configs::ConfigView;
 
@@ -93,6 +95,16 @@ pub(crate) struct Clash {
     origins: Vec<String>,
     private_network: bool,
     ui: Option<PathBuf>,
+    /// Where the dashboard is downloaded from: the configuration's URL, or
+    /// the host's.
+    #[cfg_attr(not(feature = "http-client"), allow(dead_code))]
+    ui_url: Option<String>,
+    /// The outbound it is downloaded through; the default one when unset.
+    #[cfg_attr(not(feature = "http-client"), allow(dead_code))]
+    ui_detour: Option<String>,
+    /// One download at a time.
+    #[cfg_attr(not(feature = "http-client"), allow(dead_code))]
+    ui_downloading: tokio::sync::Mutex<()>,
     /// The delays measured of each outbound, the latest last.
     history: Mutex<HashMap<String, VecDeque<proxies::Delay>>>,
 }
@@ -109,19 +121,30 @@ pub(crate) fn serve(
         .filter(|p| !p.is_empty())
         .map(|p| PathBuf::from(rm.env().data_path(p)));
     let clash = Arc::new(Clash {
-        rm,
         secret: api.secret.clone().unwrap_or_default(),
         origins: api.access_control_allow_origin.clone(),
         private_network: api.access_control_allow_private_network,
+        ui_url: api
+            .external_ui_download_url
+            .clone()
+            .or_else(|| rm.env().host.ui_download_url.clone())
+            .filter(|u| !u.is_empty()),
+        ui_detour: api.external_ui_download_detour.clone(),
+        ui_downloading: Default::default(),
         ui,
+        rm,
         history: Default::default(),
     });
     let addr = listener.local_addr()?;
     listener.set_nonblocking(true)?;
     let listener = tokio::net::TcpListener::from_std(listener)?;
-    let app = router(clash);
+    let app = router(clash.clone());
     info!("clash_api: serving on {}", addr);
     Ok(Box::pin(async move {
+        #[cfg(feature = "http-client")]
+        tokio::spawn(async move { ui::download_if_empty(&clash).await });
+        #[cfg(not(feature = "http-client"))]
+        drop(clash);
         if let Err(e) = axum::serve(listener, app).await {
             warn!("clash_api: {}", e);
         }
@@ -180,6 +203,7 @@ fn router(clash: Arc<Clash>) -> Router {
         .route("/dns/query", get(dns::query))
         .route("/cache/fakeip/flush", post(dns::flush_fake_ips))
         .route("/cache/dns/flush", post(dns::flush_dns))
+        .route("/upgrade/ui", post(ui::upgrade))
         .route_layer(middleware::from_fn_with_state(clash.clone(), auth));
     Router::new()
         .route("/ui", get(ui::redirect))

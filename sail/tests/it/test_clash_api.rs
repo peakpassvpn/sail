@@ -506,3 +506,186 @@ fn a_dashboard_sees_the_providers_through_the_clash_api() -> anyhow::Result<()> 
         Err(panic) => std::panic::resume_unwind(panic),
     }
 }
+
+/// A ZIP of `entries`, stored.
+#[cfg(all(
+    feature = "clash-api",
+    feature = "outbound-select",
+    feature = "outbound-direct",
+    feature = "http-client",
+    feature = "inbound-socks",
+    feature = "tokio-tungstenite"
+))]
+fn stored_zip(entries: &[(&str, &[u8])]) -> Vec<u8> {
+    let (mut out, mut directory) = (Vec::new(), Vec::new());
+    for (name, body) in entries {
+        let offset = out.len() as u32;
+        let sizes = [(body.len() as u32).to_le_bytes(); 2].concat();
+        out.extend_from_slice(&0x0403_4b50u32.to_le_bytes());
+        out.extend_from_slice(&[20, 0, 0, 0, 0, 0]);
+        out.extend_from_slice(&[0; 8]);
+        out.extend_from_slice(&sizes);
+        out.extend_from_slice(&(name.len() as u16).to_le_bytes());
+        out.extend_from_slice(&[0, 0]);
+        out.extend_from_slice(name.as_bytes());
+        out.extend_from_slice(body);
+        directory.extend_from_slice(&0x0201_4b50u32.to_le_bytes());
+        directory.extend_from_slice(&[20, 0, 20, 0, 0, 0, 0, 0]);
+        directory.extend_from_slice(&[0; 8]);
+        directory.extend_from_slice(&sizes);
+        directory.extend_from_slice(&(name.len() as u16).to_le_bytes());
+        directory.extend_from_slice(&[0; 12]);
+        directory.extend_from_slice(&offset.to_le_bytes());
+        directory.extend_from_slice(name.as_bytes());
+    }
+    let offset = out.len() as u32;
+    out.extend_from_slice(&directory);
+    out.extend_from_slice(&0x0605_4b50u32.to_le_bytes());
+    out.extend_from_slice(&[0; 4]);
+    out.extend_from_slice(&[(entries.len() as u16).to_le_bytes(); 2].concat());
+    out.extend_from_slice(&(directory.len() as u32).to_le_bytes());
+    out.extend_from_slice(&offset.to_le_bytes());
+    out.extend_from_slice(&[0, 0]);
+    out
+}
+
+// dashboard -> (clash api)sail: the dashboard downloaded into an empty
+// external_ui from the host's URL, downloaded again, and the
+// configuration reloaded from its file.
+#[cfg(all(
+    feature = "clash-api",
+    feature = "outbound-select",
+    feature = "outbound-direct",
+    feature = "http-client",
+    feature = "inbound-socks",
+    feature = "tokio-tungstenite"
+))]
+#[test]
+fn a_dashboard_is_downloaded_and_the_configuration_reloaded() -> anyhow::Result<()> {
+    use std::sync::{Arc, Mutex};
+    use std::time::Duration;
+
+    let secret = sail::generate::secret();
+    let dir = common::TempDir::new("clash-ui")?;
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()?;
+    // Serves the dashboard's ZIP, which the test changes.
+    let archive = Arc::new(Mutex::new(stored_zip(&[
+        ("d-gh-pages/index.html", b"first"),
+        ("d-gh-pages/assets/app.js", b"let a;"),
+    ])));
+    let web = rt.block_on(async {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let port = listener.local_addr()?.port();
+        let archive = archive.clone();
+        tokio::spawn(async move {
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            while let Ok((mut s, _)) = listener.accept().await {
+                let body = archive.lock().unwrap().clone();
+                tokio::spawn(async move {
+                    let mut buf = [0u8; 1024];
+                    let _ = s.read(&mut buf).await;
+                    let head = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        body.len()
+                    );
+                    let _ = s.write_all(head.as_bytes()).await;
+                    let _ = s.write_all(&body).await;
+                });
+            }
+        });
+        anyhow::Ok(port)
+    })?;
+    let port = common::free_port();
+    let config = |rules: serde_json::Value| {
+        serde_json::json!({
+            "clash_api": {
+                "external_controller": format!("127.0.0.1:{}", port),
+                "secret": secret,
+                "external_ui": "ui",
+                "external_ui_download_detour": "direct",
+            },
+            "outbounds": [{ "type": "direct", "tag": "direct" }],
+            "route": { "rules": rules },
+        })
+        .to_string()
+    };
+    let path = dir.join("config.json");
+    std::fs::write(&path, config(serde_json::json!([])))?;
+    let id = 930;
+    let opts = sail::StartOptions {
+        config: sail::Config::File(path.to_string_lossy().to_string()),
+        #[cfg(feature = "auto-reload")]
+        auto_reload: false,
+        runtime_opt: sail::RuntimeOption::SingleThread,
+        runtime: common::runtime_options(),
+        host: sail::runtime::Host {
+            data_dir: Some(dir.path().to_path_buf()),
+            ui_download_url: Some(format!("http://127.0.0.1:{}/ui.zip", web)),
+            ..Default::default()
+        },
+    };
+    let start = rt.spawn_blocking(move || sail::start(id, opts));
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while !sail::is_running(id) {
+        anyhow::ensure!(!start.is_finished(), "sail stopped as soon as it started");
+        anyhow::ensure!(std::time::Instant::now() < deadline, "sail did not start");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let s = Some(secret.as_str());
+    let checked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        rt.block_on(async {
+            // Downloaded at start, without its top directory, and served
+            // without the secret.
+            let mut body = String::new();
+            for _ in 0..100 {
+                let (status, _, got) = call(port, "GET", "/ui/", None, &[], "").await?;
+                if status == 200 {
+                    body = got;
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+            assert!(body.contains("first"), "{:?}", body);
+            let (_, _, js) = call(port, "GET", "/ui/assets/app.js", None, &[], "").await?;
+            assert!(js.contains("let a;"));
+
+            // Downloaded again, in place of what was there.
+            *archive.lock().unwrap() = stored_zip(&[("index.html", b"second")]);
+            let (status, ..) = call(port, "POST", "/upgrade/ui", None, &[], "").await?;
+            assert_eq!(status, 401);
+            let (status, _, err) = call(port, "POST", "/upgrade/ui", s, &[], "").await?;
+            assert_eq!(status, 204, "{}", err);
+            let (_, _, body) = call(port, "GET", "/ui/", None, &[], "").await?;
+            assert!(body.contains("second"), "{:?}", body);
+            let (status, ..) = call(port, "GET", "/ui/assets/app.js", None, &[], "").await?;
+            assert_eq!(status, 404);
+
+            // Reloaded from the file: a mode its rules name now.
+            std::fs::write(
+                &path,
+                config(serde_json::json!([{ "clash_mode": "Custom", "outbound": "direct" }])),
+            )?;
+            let (status, _, err) = call(port, "PUT", "/configs", s, &[], "{}").await?;
+            assert_eq!(status, 204, "{}", err);
+            let (_, _, body) = call(port, "GET", "/configs", s, &[], "").await?;
+            let modes = json(&body)["mode-list"].clone();
+            assert!(
+                modes.as_array().unwrap().iter().any(|m| m == "Custom"),
+                "{}",
+                modes
+            );
+            // Another's payload or path is refused.
+            let (status, ..) = call(port, "PUT", "/configs", s, &[], r#"{"payload":"{}"}"#).await?;
+            assert_eq!(status, 400);
+            anyhow::Ok(())
+        })
+    }));
+    common::shutdown_instances(&rt, vec![id]);
+    match checked {
+        Ok(checked) => checked,
+        Err(panic) => std::panic::resume_unwind(panic),
+    }
+}

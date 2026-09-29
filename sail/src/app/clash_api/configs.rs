@@ -190,8 +190,35 @@ pub(super) async fn patch_configs(
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// Reloading from a path or a payload is not taken: the host's
-/// configuration is what the instance runs.
-pub(super) async fn put_configs() -> StatusCode {
-    StatusCode::NO_CONTENT
+/// Reloads the configuration from its file, as a dashboard's reload
+/// asks. A path or a payload of another is refused: the host says what
+/// the instance runs. What `clash_api` itself says is taken at the next
+/// start.
+pub(super) async fn put_configs(
+    State(clash): State<Arc<Clash>>,
+    body: Bytes,
+) -> Result<StatusCode, ApiError> {
+    let fields: Map<String, Value> = if body.iter().all(u8::is_ascii_whitespace) {
+        Map::new()
+    } else {
+        serde_json::from_slice(&body).map_err(|_| ApiError::bad_request("Body invalid"))?
+    };
+    for field in ["path", "payload"] {
+        if fields
+            .get(field)
+            .and_then(Value::as_str)
+            .is_some_and(|v| !v.is_empty())
+        {
+            return Err(ApiError::bad_request(format!(
+                "{}: sail reloads its own configuration file only",
+                field
+            )));
+        }
+    }
+    clash
+        .rm
+        .reload()
+        .await
+        .map_err(|e| ApiError::bad_request(e.to_string()))?;
+    Ok(StatusCode::NO_CONTENT)
 }

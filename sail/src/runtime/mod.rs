@@ -39,6 +39,10 @@ pub struct Host {
     /// path, if any, included), which downloads from `sub.store` go to:
     /// see [`Host::download_url`].
     pub sub_store: Option<SubStore>,
+    /// Where the Clash API's dashboard is downloaded from, a ZIP, when
+    /// `external_ui` is empty and the configuration names no URL: the
+    /// core has none of its own.
+    pub ui_download_url: Option<String>,
 }
 
 /// The base URL of a Sub-Store backend. It may carry a secret path, so it
@@ -203,6 +207,9 @@ pub struct StartSettings {
     /// The base URL of a Sub-Store backend, which `sub.store` stands for.
     #[serde(default)]
     pub sub_store: Option<SubStore>,
+    /// Where the Clash API's dashboard is downloaded from by default.
+    #[serde(default)]
+    pub ui_download_url: Option<String>,
 }
 
 impl StartSettings {
@@ -233,6 +240,7 @@ impl StartSettings {
                 socket_protect,
                 platform: None,
                 sub_store: self.sub_store,
+                ui_download_url: self.ui_download_url,
             },
         ))
     }
