@@ -478,8 +478,11 @@ impl Dispatcher {
                         .buffer_max_size
                         .max(self.env.options.relay.buffer_size)
                         * 1024,
-                    self.env.options.relay.uplink_timeout,
-                    self.env.options.relay.downlink_timeout,
+                    net::relay::RelayTimeouts {
+                        write_stall: self.env.options.relay.write_stall_timeout,
+                        a_to_b_idle: self.env.options.relay.uplink_idle_timeout,
+                        b_to_a_idle: self.env.options.relay.downlink_idle_timeout,
+                    },
                 )
                 .await
                 {

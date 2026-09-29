@@ -332,12 +332,15 @@ pub async fn run_udp_echo_server(
     Ok((local_addr, fut))
 }
 
-/// The tuning test instances run with: short relay timeouts, so that the
-/// half-close tests do not wait out the defaults.
+/// The tuning test instances run with: short idle timeouts after
+/// half-close, so that the half-close tests do not wait out the defaults.
 pub fn runtime_options() -> sail::runtime::RuntimeOptions {
     let mut options = sail::runtime::RuntimeOptions::default();
     options
-        .set_all(["relay.uplink_timeout=3s", "relay.downlink_timeout=3s"])
+        .set_all([
+            "relay.uplink_idle_timeout=3s",
+            "relay.downlink_idle_timeout=3s",
+        ])
         .unwrap();
     options
 }
@@ -538,11 +541,10 @@ pub fn test_tcp_half_close_on_configs(
         // The expected behaiver is, the client socket is no longer writable
         // after the shutdown, but can still read data from server socket.
         // The server socket can write data to client, a read on the server socket
-        // will return zero bytes (EOF) immediately. After TCP_DOWNLINK_TIMEOUT and
-        // reading out all previous transferred data, a read on client socket should
-        // also return zero bytes immediately even though we havn't explicitly
-        // shutdown the server socket, this verifies TCP_DOWNLINK_TIMEOUT works as
-        // expected.
+        // will return zero bytes (EOF) immediately. Data from the server keeps
+        // the connection open, and once nothing has moved for the downlink
+        // idle timeout, a read on client socket returns zero bytes even though
+        // we havn't explicitly shutdown the server socket.
         client_stream
             .shutdown()
             .await
@@ -571,7 +573,7 @@ pub fn test_tcp_half_close_on_configs(
         tokio::time::sleep(
             runtime_options()
                 .relay
-                .downlink_timeout
+                .downlink_idle_timeout
                 .checked_sub(Duration::from_secs(1))
                 .ok_or_else(|| anyhow::anyhow!("duration sub failed"))?,
         )
@@ -587,7 +589,8 @@ pub fn test_tcp_half_close_on_configs(
             .map_err(|e| anyhow::anyhow!("read buf after timeout failed: {}", e))?;
         assert_eq!(res, 5);
         let mut buf = Vec::new();
-        let n = timeout(Duration::from_secs(2), client_stream.read_buf(&mut buf))
+        // The idle timeout counts from the last "world".
+        let n = timeout(Duration::from_secs(4), client_stream.read_buf(&mut buf))
             .await
             .map_err(|e| anyhow::anyhow!("timeout read 2 failed: {}", e))?
             .map_err(|e| anyhow::anyhow!("read 2 failed: {}", e))?;
@@ -658,7 +661,7 @@ pub fn test_tcp_half_close_on_configs(
         tokio::time::sleep(
             runtime_options()
                 .relay
-                .uplink_timeout
+                .uplink_idle_timeout
                 .checked_sub(Duration::from_millis(500))
                 .ok_or_else(|| anyhow::anyhow!("duration sub failed"))?,
         )
@@ -674,7 +677,7 @@ pub fn test_tcp_half_close_on_configs(
             .map_err(|e| anyhow::anyhow!("read buf 3 failed: {}", e))?;
         assert_eq!(res, 5);
         let mut buf = Vec::new();
-        let n = timeout(Duration::from_secs(2), server_stream.read_buf(&mut buf))
+        let n = timeout(Duration::from_secs(4), server_stream.read_buf(&mut buf))
             .await
             .map_err(|e| anyhow::anyhow!("timeout read 4 failed: {}", e))?
             .map_err(|e| anyhow::anyhow!("read 4 failed: {}", e))?;

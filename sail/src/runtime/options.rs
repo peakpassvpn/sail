@@ -62,12 +62,24 @@ pub struct Relay {
     pub buffer_size: usize,
     /// The largest a direction's buffer grows to, in KiB.
     pub buffer_max_size: usize,
-    /// How long a connection stays open after the client closed its side.
+    /// A direction with data its writer does not take for this long
+    /// aborts the connection, both sides closed. Short outages stall
+    /// writes for a while and TCP recovers from them: a 90 s outage has
+    /// been seen to stall one for 123 s.
     #[serde(with = "duration")]
-    pub uplink_timeout: Duration,
-    /// How long a connection stays open after the server closed its side.
+    pub write_stall_timeout: Duration,
+    /// Idle after half-close: once the server closed its side, the
+    /// client-to-server direction is closed after this long without a
+    /// byte moving, counted from the close or the last byte. Connections
+    /// that were never half-closed have no idle timeout.
     #[serde(with = "duration")]
-    pub downlink_timeout: Duration,
+    pub uplink_idle_timeout: Duration,
+    /// Idle after half-close the other way: the server-to-client direction
+    /// once the client closed its side. Data the client sent may still be
+    /// on its way to the server, in buffers further on where the relay
+    /// cannot see it move, while the answer waits for it.
+    #[serde(with = "duration")]
+    pub downlink_idle_timeout: Duration,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -244,8 +256,9 @@ impl RuntimeOptions {
             relay: Relay {
                 buffer_size: 16,
                 buffer_max_size: 128,
-                uplink_timeout: Duration::from_secs(10),
-                downlink_timeout: Duration::from_secs(10),
+                write_stall_timeout: Duration::from_secs(300),
+                uplink_idle_timeout: Duration::from_secs(300),
+                downlink_idle_timeout: Duration::from_secs(300),
             },
             udp: Udp {
                 datagram_buffer_size: 64,
