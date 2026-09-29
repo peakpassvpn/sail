@@ -570,6 +570,8 @@ rule-providers:
   cn: { type: inline, behavior: domain, payload: [+.cn] }
 dns:
   enable: true
+  # The system's hosts, as the hosts tests have them.
+  use-system-hosts: false
   ipv6: true
   enhanced-mode: fake-ip
   fake-ip-range: 198.18.0.1/16
@@ -706,7 +708,7 @@ fn dns_of(fields: &str) -> Config {
     load(&format!(
         "proxies:\n  - {{ name: hk, type: socks5, server: 192.0.2.1, port: 1080 }}\n\
          rule-providers:\n  ips: {{ type: inline, behavior: ipcidr, payload: [10.0.0.0/8] }}\n\
-         dns:\n  enable: true\n{}",
+         dns:\n  enable: true\n  use-system-hosts: false\n{}",
         fields
     ))
 }
@@ -884,7 +886,7 @@ fn dns_mistakes_name_the_field() {
 fn what_sail_does_not_implement_of_dns_is_warned_of() {
     let config = dns_of(
         "  nameserver: ['tls://1.1.1.1#disable-reuse=true&x=1', 'https://1.1.1.1/q#ecs=nope']\n\
-         \x20 prefer-h3: true\n  use-hosts: true\n  use-system-hosts: false\n\
+         \x20 prefer-h3: true\n  use-hosts: true\n\
          \x20 listen: 0.0.0.0:53\n  ipv6-timeout: 100\n  cache-algorithm: arc\n\
          \x20 fallback-lazy-query: false\n  cache-max-size: 1000\n  cache: true\n",
     );
@@ -892,7 +894,6 @@ fn what_sail_does_not_implement_of_dns_is_warned_of() {
         config.warnings,
         [
             "dns.prefer-h3: sail does not implement this field; ignored",
-            "dns.use-hosts: sail does not implement this field; ignored",
             "dns.cache-algorithm: sail does not implement this field; ignored",
             "dns.listen: sail has no DNS listener yet; 0.0.0.0:53 is not served",
             "tls://1.1.1.1#disable-reuse=true&x=1: disable-reuse: sail does not implement this \
@@ -1352,4 +1353,81 @@ fn tun_mistakes_name_the_field() {
     } else {
         load(yaml);
     }
+}
+
+#[test]
+fn hosts_answer_before_every_server() {
+    let config = load(
+        "hosts:\n\
+         \x20 dns.google: [8.8.8.8, 8.8.4.4]\n\
+         \x20 '+.mcdn.bilivideo.com': 0.0.0.0\n\
+         \x20 services.googleapis.cn: services.googleapis.com\n\
+         dns:\n  enable: true\n  enhanced-mode: fake-ip\n  nameserver: [223.5.5.5]\n",
+    );
+    let dns = dns_json(&config);
+    let rules = dns["rules"].as_array().unwrap();
+    // Hosts, then the system's, then the fake IPs.
+    assert_eq!(rules[0]["server"], "hosts");
+    assert_eq!(rules[0]["query_type"], serde_json::json!(["A", "AAAA"]));
+    assert_eq!(rules[0]["rewrite_ttl"], 10);
+    assert_eq!(
+        rules[0]["domain"],
+        serde_json::json!(["dns.google", "services.googleapis.cn"])
+    );
+    assert_eq!(
+        rules[0]["domain_suffix"],
+        serde_json::json!(["mcdn.bilivideo.com"])
+    );
+    assert_eq!(rules[1]["action"], "evaluate");
+    assert_eq!(rules[1]["server"], "system-hosts");
+    assert_eq!(rules[2]["action"], "respond");
+    assert_eq!(rules[2]["ip_accept_any"], true);
+    assert_eq!(rules[3]["server"], "fake-ip");
+    let hosts = dns["servers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["tag"] == "hosts")
+        .unwrap();
+    assert_eq!(
+        hosts["predefined"]["services.googleapis.cn"],
+        "services.googleapis.com"
+    );
+    assert_eq!(hosts["predefined"]["+.mcdn.bilivideo.com"], "0.0.0.0");
+    // The first server stays the final one.
+    assert_eq!(dns["final"], "223.5.5.5");
+
+    // Off, the system resolver reads the system's hosts itself.
+    let config = load("hosts: { a.example: 10.0.0.1 }\ndns: { enable: false }");
+    let dns = dns_json(&config);
+    assert_eq!(dns["rules"].as_array().unwrap().len(), 1);
+    assert!(dns["servers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|s| s["tag"] != "system-hosts"));
+    // And as the DNS client builds it.
+    crate::app::dns::DnsClient::new(&config.dns, Default::default(), &Default::default()).unwrap();
+}
+
+#[test]
+fn hosts_mistakes_name_the_field() {
+    for (yaml, message) in [
+        (
+            "hosts: { a.example: { x: 1 } }",
+            "hosts.a.example: an address, addresses or a name, not a map",
+        ),
+        (
+            "hosts: { a.example: [1.2.3.4, [x]] }",
+            "hosts.a.example: addresses, not a list",
+        ),
+    ] {
+        let err = error(yaml);
+        assert!(err.contains(message), "{}\n  => {}", yaml, err);
+    }
+    let config = load("dns: { enable: true, use-hosts: false }");
+    assert!(config
+        .warnings
+        .iter()
+        .any(|w| w.contains("dns.use-hosts: false")));
 }

@@ -20,6 +20,7 @@ mod dns;
 mod fields;
 mod general;
 mod group;
+mod hosts;
 mod node;
 mod provider;
 mod proxy;
@@ -46,7 +47,9 @@ pub fn parse(s: &str) -> Result<Config> {
     let providers = proxy_provider::lower(&mut doc, &mut out, &mut warnings)?;
     let groups = group::lower(&mut doc, &proxies, &providers, &mut out, &mut warnings)?;
     let mut sets = provider::lower(&mut doc, &groups, &mut out, &mut warnings)?;
+    let hosts = hosts::read(&mut doc, &mut warnings)?;
     dns::lower(&mut doc, &groups, &mut sets, &mut out, &mut warnings)?;
+    hosts.apply(&mut out)?;
     rule::lower(&mut doc, &groups, &mut sets, &mut out, &mut warnings)?;
     sniffer::lower(&mut doc, &mut sets, &mut out, &mut warnings)?;
     tun::lower(&mut doc, fake_ip, &mut sets, &mut out, &mut warnings)?;

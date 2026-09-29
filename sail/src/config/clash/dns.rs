@@ -555,8 +555,14 @@ struct Lowering<'a, 'b> {
 impl Lowering<'_, '_> {
     fn lower(&mut self, f: &mut Fields, ipv6: bool, out: &mut Lowered) -> Result<()> {
         self.ignored(f, "prefer-h3", |v| v.as_bool() == Some(true));
-        self.ignored(f, "use-hosts", |v| v.as_bool() == Some(true));
-        self.ignored(f, "use-system-hosts", |v| v.as_bool() == Some(true));
+        // Read with `hosts`, see the hosts module.
+        if f.bool("use-hosts")? == Some(false) {
+            self.warnings.push(format!(
+                "{}: false: sail answers DNS queries from hosts too, as it dials",
+                f.at("use-hosts")
+            ));
+        }
+        f.take("use-system-hosts");
         self.ignored(f, "fallback-lazy-query", |v| v.as_bool() == Some(true));
         self.ignored(f, "cache-algorithm", |v| {
             v.as_string().is_some_and(|a| a != "lru")

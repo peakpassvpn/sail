@@ -48,7 +48,6 @@ pub const TOP: &[(&str, Tier)] = &[
     ("geodata-loader", Ignored),
     ("geosite-matcher", Ignored),
     // Later stages.
-    ("hosts", Unsupported),
     ("listeners", Unsupported),
     ("tunnels", Unsupported),
     ("tuic-server", Unsupported),
