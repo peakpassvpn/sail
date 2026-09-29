@@ -94,3 +94,120 @@ fn rule_providers_route() -> anyhow::Result<()> {
     }
     Ok(())
 }
+
+/// A plain DNS server on a port of its own, answering every A query with
+/// `answer`.
+#[cfg(feature = "config-clash")]
+async fn udp_dns_server(answer: std::net::Ipv4Addr) -> u16 {
+    use hickory_proto::op::{Message, MessageType, ResponseCode};
+    use hickory_proto::rr::{rdata::A, RData, Record, RecordType};
+
+    let socket = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let port = socket.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        let mut buf = [0u8; 1500];
+        while let Ok((n, peer)) = socket.recv_from(&mut buf).await {
+            let Ok(query) = Message::from_vec(&buf[..n]) else {
+                continue;
+            };
+            let mut resp = Message::new(
+                query.metadata.id,
+                MessageType::Response,
+                query.metadata.op_code,
+            );
+            resp.metadata.recursion_desired = query.metadata.recursion_desired;
+            resp.metadata.response_code = ResponseCode::NoError;
+            for q in &query.queries {
+                resp.add_query(q.clone());
+                if q.query_type() == RecordType::A {
+                    resp.add_answer(Record::from_rdata(
+                        q.name().clone(),
+                        60,
+                        RData::A(A(answer)),
+                    ));
+                }
+            }
+            let _ = socket.send_to(&resp.to_vec().unwrap(), peer).await;
+        }
+    });
+    port
+}
+
+// A Clash configuration's `dns`, fake IPs and a policy, answered by the
+// DNS client it lowers to: clients get fake addresses but for what the
+// filter keeps out, whose queries go to the policy's server or the
+// nameserver; the instance's own lookups get real ones.
+#[cfg(feature = "config-clash")]
+#[tokio::test]
+async fn a_clash_dns_answers_as_mihomo_s() {
+    use hickory_proto::op::{Message, MessageType, OpCode, Query, ResponseCode};
+    use hickory_proto::rr::{Name, RData, RecordType};
+    use std::net::{IpAddr, Ipv4Addr};
+
+    let nameserver = udp_dns_server(Ipv4Addr::new(10, 0, 0, 7)).await;
+    let policy = udp_dns_server(Ipv4Addr::new(10, 0, 0, 8)).await;
+    let yaml = format!(
+        "dns:\n\
+         \x20 enable: true\n\
+         \x20 enhanced-mode: fake-ip\n\
+         \x20 fake-ip-range: 198.18.0.1/16\n\
+         \x20 fake-ip-filter: ['+.real.test', '+.policy.test']\n\
+         \x20 nameserver: ['127.0.0.1:{}']\n\
+         \x20 nameserver-policy:\n\
+         \x20   '+.policy.test': '127.0.0.1:{}'\n\
+         \x20   '+.blocked.test': 'rcode://name_error'\n",
+        nameserver, policy
+    );
+    let config = sail::config::Format::Clash.parse(&yaml).unwrap();
+    let client =
+        sail::app::dns_client::DnsClient::new(&config.dns, Default::default(), &Default::default())
+            .unwrap();
+
+    let ask = |name: &str, ty: RecordType| {
+        let mut query = Message::new(7, MessageType::Query, OpCode::Query);
+        query.add_query(Query::query(
+            Name::from_ascii(format!("{}.", name)).unwrap(),
+            ty,
+        ));
+        query.metadata.recursion_desired = true;
+        let query = query.to_vec().unwrap();
+        let client = &client;
+        async move {
+            let answer = client.exchange(&query, &Default::default()).await.unwrap();
+            Message::from_vec(&answer).unwrap()
+        }
+    };
+    let ips = |message: &Message| -> Vec<IpAddr> {
+        message
+            .answers
+            .iter()
+            .filter_map(|r| match &r.data {
+                RData::A(a) => Some(IpAddr::V4(a.0)),
+                _ => None,
+            })
+            .collect()
+    };
+    let fake = ask("a.example", RecordType::A).await;
+    assert_eq!(ips(&fake), ["198.18.0.2".parse::<IpAddr>().unwrap()]);
+    // Mihomo's fake-ip-ttl, 1 unless set.
+    assert_eq!(fake.answers[0].ttl, 1);
+    let https = ask("a.example", RecordType::HTTPS).await;
+    assert_eq!(https.metadata.response_code, ResponseCode::NoError);
+    assert!(https.answers.is_empty());
+    let real = ask("www.real.test", RecordType::A).await;
+    assert_eq!(ips(&real), ["10.0.0.7".parse::<IpAddr>().unwrap()]);
+    let policy = ask("www.policy.test", RecordType::A).await;
+    assert_eq!(ips(&policy), ["10.0.0.8".parse::<IpAddr>().unwrap()]);
+    // The fake address comes first: the rcode is for the rest.
+    let blocked = ask("ads.blocked.test", RecordType::MX).await;
+    assert_eq!(blocked.metadata.response_code, ResponseCode::NXDomain);
+    // The instance's own lookups get real addresses.
+    assert_eq!(
+        client.lookup("a.example").await.unwrap(),
+        ["10.0.0.7".parse::<IpAddr>().unwrap()]
+    );
+    assert_eq!(
+        client.lookup("www.policy.test").await.unwrap(),
+        ["10.0.0.8".parse::<IpAddr>().unwrap()]
+    );
+}

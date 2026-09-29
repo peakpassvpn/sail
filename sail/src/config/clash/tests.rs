@@ -202,7 +202,10 @@ fn mistakes_name_the_field() {
         ),
         ("rules: [\"DOMAIN,a.example,Nowhere\"]", "rules[0]: no proxy or group is named \"Nowhere\""),
         ("rules: [\"DSCP,4,DIRECT\"]", "rules[0]: sail does not implement DSCP rules yet"),
-        ("dns: { enable: true }", "dns: sail does not implement Mihomo's DNS module yet"),
+        (
+            "dns: { enable: true, nameserver: ['dhcp://en0'] }",
+            "dns.nameserver[0]: sail does not implement dhcp:// servers yet",
+        ),
         ("tun: { enable: true }", "tun: sail does not implement this section yet"),
         ("mode: script", "mode: \"script\" is none of rule, global and direct"),
     ] {
@@ -551,4 +554,511 @@ fn proxy_provider_mistakes_name_the_field() {
         let err = error(yaml);
         assert!(err.contains(message), "{}\n  => {}", yaml, err);
     }
+}
+
+fn dns_json(config: &Config) -> serde_json::Value {
+    serde_json::to_value(&config.dns).unwrap()
+}
+
+/// A config as the published templates write them: fake IPs, a policy,
+/// and a fallback abroad.
+const DNS_TEMPLATE: &str = r#"
+proxies:
+  - { name: hk, type: socks5, server: hk.example.com, port: 1080 }
+proxy-groups:
+  - { name: Proxy, type: select, proxies: [hk, DIRECT] }
+rule-providers:
+  cn: { type: inline, behavior: domain, payload: [+.cn] }
+dns:
+  enable: true
+  ipv6: true
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  fake-ip-filter: ['*.lan', '+.local', 'geosite:private', 'rule-set:cn']
+  default-nameserver: [223.5.5.5, 119.29.29.29]
+  nameserver: ['https://dns.alidns.com/dns-query', 'https://doh.pub/dns-query']
+  proxy-server-nameserver: ['https://dns.alidns.com/dns-query']
+  nameserver-policy:
+    'geosite:cn,apple': ['223.5.5.5']
+    '+.google.com': 'https://dns.google/dns-query#Proxy'
+    'www.google.com': 'tls://8.8.8.8#h3=false&disable-qtype-65=true'
+    'rule-set:cn': rcode://name_error
+  fallback: ['tls://1.1.1.1#Proxy']
+  fallback-filter: { geoip: true, geoip-code: CN, ipcidr: [240.0.0.0/4], domain: ['+.twitter.com'] }
+rules:
+  - MATCH,Proxy
+"#;
+
+#[test]
+fn a_fake_ip_policy_and_fallback_config_lowers_to_rules() {
+    let config = load(DNS_TEMPLATE);
+    assert_eq!(config.warnings, Vec::<String>::new());
+    let dns = dns_json(&config);
+    let types = serde_json::json!({ "query_type": ["A", "AAAA", "CNAME"] });
+    let fallback = "tls://1.1.1.1#Proxy";
+    assert_eq!(
+        dns["rules"],
+        serde_json::json!([
+            // 1. Fake IPs, but for what the filter keeps out.
+            { "type": "logical", "mode": "and", "rules": [
+                { "query_type": ["A", "AAAA", "HTTPS", "SVCB"] },
+                { "type": "logical", "mode": "and", "invert": true, "rules": [
+                    { "type": "logical", "mode": "or", "rules": [
+                        { "domain_regex": ["^[^.]+\\.lan$"], "domain_suffix": ["local"] },
+                        { "rule_set": ["geosite:private", "cn"] }
+                    ] }
+                ] }
+              ], "server": "fake-ip", "rewrite_ttl": 1 },
+            // 2. The policy, the most specific domain first.
+            { "rule_set": ["geosite:cn", "geosite:apple"], "server": "223.5.5.5" },
+            { "type": "logical", "mode": "and", "rules": [
+                { "domain": ["www.google.com"] }, { "query_type": [65] }
+              ], "action": "predefined" },
+            { "domain": ["www.google.com"],
+              "server": "tls://8.8.8.8#h3=false&disable-qtype-65=true" },
+            { "domain_suffix": ["google.com"], "server": "https://dns.google/dns-query#Proxy" },
+            { "rule_set": ["cn"], "action": "predefined", "rcode": "NXDOMAIN" },
+            // 3. The fallback's domains, then the fallback filter.
+            { "type": "logical", "mode": "and", "rules": [
+                types, { "domain_suffix": ["twitter.com"] }
+              ], "server": fallback },
+            { "query_type": ["A", "AAAA", "CNAME"], "action": "evaluate",
+              "server": "dns.nameserver" },
+            { "match_response": true, "ip_cidr": ["240.0.0.0/4"], "server": fallback },
+            { "match_response": true, "ip_match_all": true, "ip_is_private": true,
+              "rule_set": ["geoip:cn"], "action": "respond" },
+            { "query_type": ["A", "AAAA", "CNAME"], "server": fallback }
+        ])
+    );
+    // 4. The rest.
+    assert_eq!(dns["final"], "dns.nameserver");
+    assert_eq!(dns["strategy"], "prefer_ipv4");
+    assert_eq!(dns["reverse_mapping"], true);
+    let server = |tag: &str| {
+        dns["servers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|s| s["tag"] == tag)
+            .cloned()
+            .unwrap_or_else(|| panic!("no server [{}]", tag))
+    };
+    assert_eq!(
+        server("dns.nameserver"),
+        serde_json::json!({ "type": "smart_select", "tag": "dns.nameserver",
+            "servers": ["https://dns.alidns.com/dns-query", "https://doh.pub/dns-query"] })
+    );
+    assert_eq!(
+        server("https://dns.google/dns-query#Proxy"),
+        serde_json::json!({ "type": "https", "tag": "https://dns.google/dns-query#Proxy",
+            "server": "dns.google", "server_port": 443, "path": "/dns-query",
+            "detour": "Proxy", "domain_resolver": "dns.default-nameserver" })
+    );
+    assert_eq!(
+        server("dns.default-nameserver")["servers"],
+        serde_json::json!(["223.5.5.5", "119.29.29.29"])
+    );
+    assert_eq!(
+        server("fake-ip"),
+        serde_json::json!({ "type": "fakeip", "tag": "fake-ip", "inet4_range": "198.18.0.0/16" })
+    );
+    // The proxies' servers resolve through proxy-server-nameserver, and
+    // DIRECT as a query goes.
+    assert_eq!(
+        config
+            .route
+            .default_domain_resolver
+            .as_ref()
+            .unwrap()
+            .server,
+        "https://dns.alidns.com/dns-query"
+    );
+    assert_eq!(
+        outbound(&config, "DIRECT").options["skip_default_domain_resolver"],
+        true
+    );
+}
+
+/// What the lowered DNS is checked for when it is built.
+#[cfg(feature = "rule-set")]
+#[test]
+fn a_lowered_dns_builds_and_has_no_loop() {
+    let config = load(DNS_TEMPLATE);
+    let env = crate::runtime::RuntimeEnv::default();
+    let rule_sets = crate::app::router::rule_set::RuleSets::load(
+        &config.route.rule_set,
+        &Default::default(),
+        &env,
+    )
+    .unwrap();
+    let client = crate::app::dns::DnsClient::with_rule_sets(
+        &config.dns,
+        Default::default(),
+        &env,
+        &rule_sets,
+    )
+    .unwrap();
+    client
+        .check_loops(&config.outbounds, &config.route)
+        .unwrap();
+}
+
+fn dns_of(fields: &str) -> Config {
+    load(&format!(
+        "proxies:\n  - {{ name: hk, type: socks5, server: 192.0.2.1, port: 1080 }}\n\
+         rule-providers:\n  ips: {{ type: inline, behavior: ipcidr, payload: [10.0.0.0/8] }}\n\
+         dns:\n  enable: true\n{}",
+        fields
+    ))
+}
+
+fn dns_error(fields: &str) -> String {
+    error(&format!(
+        "proxies:\n  - {{ name: hk, type: socks5, server: 192.0.2.1, port: 1080 }}\n\
+         rule-providers:\n  ips: {{ type: inline, behavior: ipcidr, payload: [10.0.0.0/8] }}\n\
+         dns:\n  enable: true\n{}",
+        fields
+    ))
+}
+
+#[test]
+fn servers_are_read_as_mihomo_reads_them() {
+    let config = dns_of(
+        "  nameserver:\n\
+         \x20   - 1.1.1.1\n\
+         \x20   - '2001:db8::1'\n\
+         \x20   - 'udp://9.9.9.9:5353'\n\
+         \x20   - 'tcp://[2001:db8::2]'\n\
+         \x20   - 'tls://dns.example:8853#hk'\n\
+         \x20   - 'https://1.0.0.1/q?x=1#h3=true&skip-cert-verify=true'\n\
+         \x20   - 'quic://94.140.14.14#en0'\n\
+         \x20   - 'https://8.8.8.8/dns-query#ecs=1.2.3.4/24&ecs-override=true'\n\
+         \x20   - system\n\
+         \x20   - 'dhcp://system'\n\
+         \x20   - '8.8.4.4#DIRECT'\n\
+         \x20   - '8.8.4.4#%E4%BB%A3%E7%90%86'\n",
+    );
+    let dns = dns_json(&config);
+    let servers: Vec<serde_json::Value> = dns["servers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|s| s["type"] != "smart_select" && s["tag"] != "114.114.114.114")
+        .cloned()
+        .collect();
+    assert_eq!(
+        serde_json::Value::Array(servers),
+        serde_json::json!([
+            { "type": "udp", "tag": "1.1.1.1", "server": "1.1.1.1", "server_port": 53 },
+            { "type": "udp", "tag": "2001:db8::1", "server": "2001:db8::1", "server_port": 53 },
+            { "type": "udp", "tag": "udp://9.9.9.9:5353", "server": "9.9.9.9",
+              "server_port": 5353 },
+            { "type": "tcp", "tag": "tcp://[2001:db8::2]", "server": "2001:db8::2",
+              "server_port": 53 },
+            // Mihomo's default resolvers, for the domain.
+            { "type": "udp", "tag": "223.5.5.5", "server": "223.5.5.5", "server_port": 53 },
+            { "type": "udp", "tag": "8.8.8.8", "server": "8.8.8.8", "server_port": 53 },
+            { "type": "udp", "tag": "1.0.0.1", "server": "1.0.0.1", "server_port": 53 },
+            { "type": "tls", "tag": "tls://dns.example:8853#hk", "server": "dns.example",
+              "server_port": 8853, "detour": "hk",
+              "domain_resolver": "dns.default-nameserver" },
+            { "type": "h3", "tag": "https://1.0.0.1/q?x=1#h3=true&skip-cert-verify=true",
+              "server": "1.0.0.1", "server_port": 443, "path": "/q",
+              "tls": { "insecure": true } },
+            // A name no proxy has is an interface's.
+            { "type": "quic", "tag": "quic://94.140.14.14#en0", "server": "94.140.14.14",
+              "server_port": 853, "bind_interface": "en0" },
+            { "type": "https", "tag": "https://8.8.8.8/dns-query#ecs=1.2.3.4/24&ecs-override=true",
+              "server": "8.8.8.8", "server_port": 443, "path": "/dns-query",
+              "client_subnet": "1.2.3.4/24" },
+            { "type": "local", "tag": "system" },
+            { "type": "udp", "tag": "8.8.4.4#DIRECT", "server": "8.8.4.4", "server_port": 53 },
+            { "type": "udp", "tag": "8.8.4.4#%E4%BB%A3%E7%90%86", "server": "8.8.4.4",
+              "server_port": 53, "bind_interface": "代理" }
+        ])
+    );
+    assert_eq!(dns["final"], "dns.nameserver");
+    // Off by default: no reverse mapping for `normal`, and IPv4 alone
+    // without `ipv6: true`.
+    assert_eq!(dns["strategy"], "ipv4_only");
+    let config = dns_of("  enhanced-mode: normal\n  nameserver: [1.1.1.1]\n");
+    let dns = dns_json(&config);
+    assert_eq!(dns["reverse_mapping"], serde_json::Value::Null);
+    assert_eq!(dns["final"], "1.1.1.1");
+}
+
+#[test]
+fn dns_mistakes_name_the_field() {
+    for (fields, message) in [
+        (
+            "  nameserver: []\n",
+            "dns.nameserver: no server, which Mihomo requires",
+        ),
+        (
+            "  nameserver: ['rcode://nope']\n",
+            "dns.nameserver[0]: rcode://nope: not a code",
+        ),
+        (
+            "  nameserver: ['rcode://refused']\n",
+            "dns.nameserver: an rcode:// server",
+        ),
+        (
+            "  nameserver: ['http://1.1.1.1/dns-query']\n",
+            "dns.nameserver[0]: sail does not implement DNS over plain HTTP",
+        ),
+        (
+            "  nameserver: ['ts://node']\n",
+            "dns.nameserver[0]: sail does not implement ts:// servers",
+        ),
+        (
+            "  nameserver: ['doq://1.1.1.1']\n",
+            "dns.nameserver[0]: \"doq\" is not a scheme",
+        ),
+        (
+            "  nameserver: ['tls://1.1.1.1#name-cert-verify=a.example']\n",
+            "dns.nameserver[0]: name-cert-verify: sail does not implement",
+        ),
+        (
+            "  nameserver: ['1.1.1.1:0']\n",
+            "dns.nameserver[0]: \"1.1.1.1:0\": \"0\" is not a port",
+        ),
+        (
+            "  default-nameserver: ['tls://dns.example']\n  nameserver: ['tls://dns.google']\n",
+            "dns.default-nameserver[0]: \"tls://dns.example\" is not an address",
+        ),
+        (
+            "  respect-rules: true\n  nameserver: [1.1.1.1]\n",
+            "dns.proxy-server-nameserver: missing, which Mihomo requires with respect-rules",
+        ),
+        (
+            "  nameserver: [1.1.1.1]\n  proxy-server-nameserver: [1.1.1.1]\n\
+             \x20 proxy-server-nameserver-policy: { '+.example': 8.8.8.8 }\n",
+            "dns.proxy-server-nameserver-policy.\"+.example\": sail does not implement this field \
+             yet",
+        ),
+        (
+            "  nameserver: [1.1.1.1]\n  nameserver-policy: { 'rule-set:ips': 8.8.8.8 }\n",
+            "dns.nameserver-policy.\"rule-set:ips\": \"ips\" is a rule-set of IP prefixes",
+        ),
+        (
+            "  nameserver: [1.1.1.1]\n  nameserver-policy: { 'rule-set:nowhere': 8.8.8.8 }\n",
+            "dns.nameserver-policy.\"rule-set:nowhere\": no rule-provider is named \"nowhere\"",
+        ),
+        (
+            "  nameserver: [1.1.1.1]\n  enhanced-mode: mapping\n",
+            "dns.enhanced-mode: \"mapping\" is none of normal, fake-ip and redir-host",
+        ),
+        (
+            "  nameserver: [1.1.1.1]\n  enhanced-mode: fake-ip\n  fake-ip-filter-mode: grey\n",
+            "dns.fake-ip-filter-mode: \"grey\" is none of blacklist, whitelist and rule",
+        ),
+        (
+            "  nameserver: [1.1.1.1]\n  enhanced-mode: fake-ip\n  fake-ip-range: ''\n",
+            "dns.fake-ip-range: missing, and so is fake-ip-range6",
+        ),
+        (
+            "  nameserver: [1.1.1.1]\n  enhanced-mode: fake-ip\n  fake-ip-range: 'fc00::/18'\n",
+            "dns.fake-ip-range: \"fc00::/18\" is not an IPv4 prefix",
+        ),
+        (
+            "  nameserver: [1.1.1.1]\n  enhanced-mode: fake-ip\n  fake-ip-filter-mode: rule\n\
+             \x20 fake-ip-filter: ['DOMAIN,a.example,proxy']\n",
+            "dns.fake-ip-filter[0]: \"proxy\" is neither fake-ip nor real-ip",
+        ),
+        (
+            "  nameserver: [1.1.1.1]\n  enhanced-mode: fake-ip\n  fake-ip-filter-mode: rule\n\
+             \x20 fake-ip-filter: ['IP-CIDR,10.0.0.0/8,real-ip']\n",
+            "dns.fake-ip-filter[0]: IP-CIDR rules match no domain",
+        ),
+        (
+            "  nameserver: [1.1.1.1]\n  enhanced-mode: fake-ip\n\
+             \x20 fake-ip-filter: ['rule-set:ips']\n",
+            "dns.fake-ip-filter[0]: \"ips\" is a rule-set of IP prefixes",
+        ),
+    ] {
+        let err = dns_error(fields);
+        assert!(err.contains(message), "{}\n  => {}", fields, err);
+    }
+}
+
+#[test]
+fn what_sail_does_not_implement_of_dns_is_warned_of() {
+    let config = dns_of(
+        "  nameserver: ['tls://1.1.1.1#disable-reuse=true&x=1', 'https://1.1.1.1/q#ecs=nope']\n\
+         \x20 prefer-h3: true\n  use-hosts: true\n  use-system-hosts: false\n\
+         \x20 listen: 0.0.0.0:53\n  ipv6-timeout: 100\n  cache-algorithm: arc\n\
+         \x20 fallback-lazy-query: false\n  cache-max-size: 1000\n  cache: true\n",
+    );
+    assert_eq!(
+        config.warnings,
+        [
+            "dns.prefer-h3: sail does not implement this field; ignored",
+            "dns.use-hosts: sail does not implement this field; ignored",
+            "dns.cache-algorithm: sail does not implement this field; ignored",
+            "dns.listen: sail has no DNS listener yet; 0.0.0.0:53 is not served",
+            "tls://1.1.1.1#disable-reuse=true&x=1: disable-reuse: sail does not implement this \
+             parameter; ignored",
+            "tls://1.1.1.1#disable-reuse=true&x=1: x: not a parameter Mihomo takes; ignored",
+            "https://1.1.1.1/q#ecs=nope: ecs=\"nope\" is no address or prefix; ignored, as by \
+             Mihomo",
+            "dns.ipv6-timeout: sail does not implement this field; ignored",
+            "dns.cache: not a field Mihomo takes; ignored",
+        ]
+    );
+    assert_eq!(config.dns.cache_capacity, Some(1000));
+}
+
+#[test]
+fn fake_ip_filter_modes() {
+    let fake = |fields: &str| {
+        let config = dns_of(&format!(
+            "  nameserver: [1.1.1.1]\n  enhanced-mode: fake-ip\n  fake-ip-ttl: 30\n{}",
+            fields
+        ));
+        let dns = dns_json(&config);
+        let rules: Vec<serde_json::Value> = dns["rules"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|r| r["server"] == "fake-ip")
+            .cloned()
+            .collect();
+        (rules, dns)
+    };
+    let types = serde_json::json!({ "query_type": ["A", "AAAA", "HTTPS", "SVCB"] });
+    // Mihomo's default filter.
+    let (rules, dns) = fake("");
+    assert_eq!(
+        rules[0]["rules"][1]["rules"][0]["domain"],
+        serde_json::json!([
+            "dns.msftnsci.com",
+            "www.msftnsci.com",
+            "www.msftconnecttest.com"
+        ])
+    );
+    assert_eq!(rules[0]["rewrite_ttl"], 30);
+    // No IPv6 range unless set.
+    let fake_ip = dns["servers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["type"] == "fakeip")
+        .unwrap();
+    assert_eq!(fake_ip["inet6_range"], serde_json::Value::Null);
+    // An empty filter keeps nothing out.
+    let (rules, _) = fake("  fake-ip-filter: []\n  fake-ip-range6: 'fdfe:dcba:9876::1/64'\n");
+    let mut all = types.clone();
+    all["server"] = "fake-ip".into();
+    all["rewrite_ttl"] = 30.into();
+    assert_eq!(rules, [all.clone()]);
+    // Whitelist: only the filter's.
+    let (rules, _) = fake("  fake-ip-filter-mode: whitelist\n  fake-ip-filter: ['+.example']\n");
+    assert_eq!(
+        rules[0]["rules"],
+        serde_json::json!([types, { "domain_suffix": ["example"] }])
+    );
+    let (rules, _) = fake("  fake-ip-filter-mode: whitelist\n  fake-ip-filter: []\n");
+    assert!(rules.is_empty());
+    // Rules, in order: a real-ip rule holds off the fake-ip ones after it.
+    let (rules, _) = fake(
+        "  fake-ip-filter-mode: rule\n  fake-ip-filter:\n\
+         \x20   - DOMAIN-SUFFIX,lan,real-ip\n\
+         \x20   - DOMAIN,a.lan.example,fake-ip\n\
+         \x20   - GEOSITE,cn,real-ip\n",
+    );
+    let not_lan = serde_json::json!({ "type": "logical", "mode": "and", "invert": true,
+        "rules": [{ "domain_suffix": ["lan"] }] });
+    assert_eq!(
+        rules,
+        [
+            serde_json::json!({ "type": "logical", "mode": "and", "rules": [
+                types, { "domain": ["a.lan.example"] }, not_lan
+            ], "server": "fake-ip", "rewrite_ttl": 30 }),
+            serde_json::json!({ "type": "logical", "mode": "and", "rules": [
+                types,
+                { "type": "logical", "mode": "and", "invert": true, "rules": [
+                    { "type": "logical", "mode": "or", "rules": [
+                        { "domain_suffix": ["lan"] }, { "rule_set": ["geosite:cn"] }
+                    ] }
+                ] }
+            ], "server": "fake-ip", "rewrite_ttl": 30 }),
+        ]
+    );
+    let (rules, _) = fake("  fake-ip-filter-mode: rule\n  fake-ip-filter: ['MATCH,fake-ip']\n");
+    assert_eq!(rules, [all]);
+    let (rules, _) = fake("  fake-ip-filter-mode: rule\n  fake-ip-filter: ['MATCH,real-ip']\n");
+    assert!(rules.is_empty());
+}
+
+#[test]
+fn respect_rules_and_where_outbounds_resolve() {
+    // The servers of queries that name no proxy go where the rules say;
+    // those that resolve outbounds' names do not.
+    let config = dns_of(
+        "  respect-rules: true\n  nameserver: [1.1.1.1, '8.8.8.8#hk']\n\
+         \x20 proxy-server-nameserver: [1.1.1.1]\n\
+         \x20 direct-nameserver: [223.5.5.5]\n",
+    );
+    let dns = dns_json(&config);
+    let tags: Vec<&str> = dns["servers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| s["tag"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        tags,
+        [
+            "1.1.1.1#RULES",
+            "8.8.8.8#hk",
+            "dns.nameserver",
+            "1.1.1.1",
+            "223.5.5.5"
+        ]
+    );
+    assert_eq!(dns["servers"][0]["respect_rules"], true);
+    assert_eq!(dns["servers"][3]["respect_rules"], serde_json::Value::Null);
+    assert_eq!(dns["rules"], serde_json::Value::Null);
+    // DIRECT resolves through direct-nameserver alone.
+    assert_eq!(
+        outbound(&config, "DIRECT").options["domain_resolver"],
+        "223.5.5.5"
+    );
+    assert_eq!(
+        outbound(&config, "COMPATIBLE").options["domain_resolver"],
+        "223.5.5.5"
+    );
+
+    // Following the policy: the policy first, then direct-nameserver.
+    let config = dns_of(
+        "  nameserver: [1.1.1.1]\n  proxy-server-nameserver: [1.1.1.1]\n\
+         \x20 direct-nameserver: [223.5.5.5]\n  direct-nameserver-follow-policy: true\n\
+         \x20 nameserver-policy: { '+.example': '9.9.9.9' }\n",
+    );
+    let dns = dns_json(&config);
+    assert_eq!(
+        dns["rules"],
+        serde_json::json!([
+            { "domain_suffix": ["example"], "server": "9.9.9.9" },
+            { "outbound": ["DIRECT", "COMPATIBLE"], "server": "223.5.5.5" }
+        ])
+    );
+    assert_eq!(
+        outbound(&config, "DIRECT").options["skip_default_domain_resolver"],
+        true
+    );
+    // Without proxy-server-nameserver, everything resolves as a query goes.
+    let config = dns_of("  nameserver: [1.1.1.1]\n");
+    assert!(config.route.default_domain_resolver.is_none());
+    assert!(outbound(&config, "DIRECT").options.is_empty());
+}
+
+#[test]
+fn off_and_ipv6() {
+    let config = load("ipv6: false\ndns: { enable: false, nameserver: [1.1.1.1] }\n");
+    assert_eq!(dns_json(&config)["strategy"], "ipv4_only");
+    let config = load("dns: { enable: true, ipv6: true, nameserver: [1.1.1.1] }\n");
+    assert_eq!(dns_json(&config)["strategy"], "prefer_ipv4");
+    let config = load("ipv6: false\ndns: { enable: true, ipv6: true, nameserver: [1.1.1.1] }\n");
+    assert_eq!(dns_json(&config)["strategy"], "ipv4_only");
 }
