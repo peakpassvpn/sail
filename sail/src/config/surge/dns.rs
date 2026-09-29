@@ -1,7 +1,7 @@
 //! The DNS keys of `[General]`, as far as this stage reads them: the
 //! servers, `dns-server` and `encrypted-dns-server`, each list asked all at
-//! once as Surge does (sail's `smart_select` asks the one that answers best,
-//! which gives the same answers); the families names resolve to; and
+//! at once, as Surge asks it, a `race` of them; the families names resolve
+//! to; and
 //! `hijack-dns`, the queries to other servers answered here.
 //!
 //! TODO(C.5b): [Host], fake addresses, `always-real-ip`,
@@ -108,14 +108,13 @@ pub fn lower(p: &mut Params, out: &mut Lowered) -> Result<Vec<Value>> {
 }
 
 /// The server `tags` are asked as one, as Surge races a list: the tag of
-/// a smart_select of them named `name` when there are several.
-// TODO: a `race` server once DNS has it, answering as Surge does.
+/// a race of them named `name` when there are several.
 fn server_list(servers: &mut Vec<Value>, name: &str, tags: Vec<String>) -> Option<String> {
     match tags.len() {
         0 => None,
         1 => tags.into_iter().next(),
         _ => {
-            servers.push(json!({ "type": "smart_select", "tag": name, "servers": tags }));
+            servers.push(json!({ "type": "race", "tag": name, "servers": tags }));
             Some(name.to_string())
         }
     }
