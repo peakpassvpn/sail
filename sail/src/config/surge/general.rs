@@ -80,13 +80,6 @@ const KEYS: &[(&str, Tier)] = &[
     ),
     ("always-raw-tcp-hosts", Silent),
     ("always-raw-tcp-keywords", Silent),
-    // DNS, C.5b's. Without fake addresses every answer is a real one, as
-    // these would have it.
-    // TODO(C.5b): read them with fake addresses.
-    ("always-real-ip", Silent),
-    ("allow-dns-svcb", Silent),
-    ("read-etc-hosts", Ignored(" until C.5b")),
-    ("use-local-host-item-for-proxy", Ignored(" until C.5b")),
 ];
 
 /// What Surge tests proxies with, by default.
@@ -112,6 +105,8 @@ pub struct General {
     /// The rules before every other: who may use the listeners, and the
     /// DNS queries answered here.
     rules: Vec<Value>,
+    /// What DNS `[Host]` is lowered with.
+    pub dns: Option<super::dns::Dns>,
 }
 
 impl General {
@@ -149,6 +144,7 @@ pub fn lower(lines: Vec<Line>, out: &mut Lowered, warnings: &mut Vec<String>) ->
         test_timeout: TEST_TIMEOUT,
         listeners: Vec::new(),
         rules: Vec::new(),
+        dns: None,
     };
     listeners(&mut p, &mut general, out)?;
     if let Some(url) = p.string("proxy-test-url") {
@@ -179,7 +175,9 @@ pub fn lower(lines: Vec<Line>, out: &mut Lowered, warnings: &mut Vec<String>) ->
             )),
         }
     }
-    general.rules.extend(super::dns::lower(&mut p, out)?);
+    let (rules, dns) = super::dns::lower(&mut p, out)?;
+    general.rules.extend(rules);
+    general.dns = Some(dns);
     p.finish(KEYS, "key", warnings)?;
     Ok(general)
 }

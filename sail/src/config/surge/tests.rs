@@ -19,12 +19,15 @@ fn outbound(config: &Config, tag: &str) -> Value {
     serde_json::to_value(o).unwrap()
 }
 
+/// The rules, but the one answering DNS queries to Surge's own
+/// addresses, which every profile has.
 fn rules(config: &Config) -> Vec<Value> {
     config
         .route
         .rules
         .iter()
         .map(|r| serde_json::to_value(r).unwrap())
+        .filter(|r| r["ip_cidr"][0] != "198.18.0.2/31")
         .collect()
 }
 
@@ -413,6 +416,169 @@ fn rule_sets_of_files_built_in_and_inline() {
 }
 
 #[test]
+fn dns_answers_as_surge_s_responder_and_host() {
+    let config = load(
+        "[General]\n\
+         dns-server = 223.5.5.5\n\
+         ipv6 = true\n\
+         always-real-ip = -*.skip.lan, *.lan, stun.l.google.com:3478, <ip-address>\n\
+         use-local-host-item-for-proxy = true\n\
+         [Proxy]\n\
+         HK = trojan, hk.example.com, 443, password=pw\n\
+         [Host]\n\
+         abc.com = 1.2.3.4, ::1\n\
+         *.dev = 6.7.8.9\n\
+         *google.com = 10.0.0.1\n\
+         foo.com = bar.com\n\
+         bar.com = server:8.8.8.8\n\
+         *.cn = server:119.29.29.29, https://doh.pub/dns-query\n\
+         nas = server:syslib\n\
+         DOMAIN-SET:https://example.com/d.txt = server:223.5.5.5\n\
+         abc.com = 5.5.5.5\n\
+         [Rule]\n\
+         FINAL,DIRECT\n",
+    );
+    let dns = serde_json::to_value(&config.dns).unwrap();
+    let rules = dns["rules"].as_array().unwrap();
+    let servers: Vec<&str> = dns["servers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| s["tag"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        servers,
+        [
+            "223.5.5.5",
+            "8.8.8.8",
+            "119.29.29.29",
+            "https://doh.pub/dns-query",
+            "system",
+            "fakeip",
+            "hosts:*.dev",
+            "hosts:*google.com",
+            "server:119.29.29.29,https://doh.pub/dns-query",
+            "hosts",
+            "system-hosts",
+        ]
+    );
+    let server = |tag: &str| {
+        dns["servers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|s| s["tag"] == tag)
+            .unwrap()
+            .clone()
+    };
+    assert_eq!(server("fakeip")["inet4_range"], "198.18.0.0/15");
+    assert_eq!(server("fakeip")["inet6_range"], "fd00:6152::/96");
+    // The first line of a name decides; a wildcard's server holds a
+    // pattern of every name it does.
+    assert_eq!(
+        server("hosts")["predefined"],
+        json!({ "abc.com": ["1.2.3.4", "::1"], "foo.com": "bar.com" })
+    );
+    assert_eq!(
+        server("hosts:*.dev")["predefined"],
+        json!({ ".dev": ["6.7.8.9"] })
+    );
+    assert_eq!(
+        server("hosts:*google.com")["predefined"],
+        json!({ "+.com": ["10.0.0.1"] })
+    );
+    // The DoH server's name resolves through the plain one.
+    assert_eq!(
+        server("https://doh.pub/dns-query")["domain_resolver"],
+        "223.5.5.5"
+    );
+    let at = |i: usize| rules[i].clone();
+    assert_eq!(at(0)["domain"], json!(["use-application-dns.net"]));
+    assert_eq!(at(1)["rcode"], "NOTIMP");
+    // Fake addresses, but for always-real-ip's names, the first deciding.
+    assert_eq!(
+        at(2),
+        json!({ "type": "logical", "mode": "and", "rules": [
+            { "query_type": ["A", "AAAA"] },
+            { "type": "logical", "mode": "and", "invert": true, "rules": [
+                { "type": "logical", "mode": "or", "rules": [
+                    { "type": "logical", "mode": "and", "rules": [
+                        { "domain_regex": ["^.*\\.lan$"] },
+                        { "type": "logical", "mode": "and", "invert": true, "rules": [
+                            { "type": "logical", "mode": "or", "rules": [
+                                { "domain_regex": ["^.*\\.skip\\.lan$"] },
+                            ] },
+                        ] },
+                    ] },
+                    { "type": "logical", "mode": "and", "rules": [
+                        { "domain": ["stun.l.google.com"] },
+                        { "type": "logical", "mode": "and", "invert": true, "rules": [
+                            { "type": "logical", "mode": "or", "rules": [
+                                { "domain_regex": ["^.*\\.skip\\.lan$"] },
+                            ] },
+                        ] },
+                    ] },
+                ] },
+            ] },
+        ], "server": "fakeip" })
+    );
+    // The proxies' servers skip [Host].
+    assert_eq!(at(3), json!({ "outbound": ["HK"], "server": "223.5.5.5" }));
+    let a_aaaa = |condition: Value, server: &str| {
+        json!({ "type": "logical", "mode": "and", "rules": [
+            condition, { "query_type": ["A", "AAAA"] },
+        ], "server": server })
+    };
+    assert_eq!(at(4), a_aaaa(json!({ "domain": ["abc.com"] }), "hosts"));
+    assert_eq!(
+        at(5),
+        a_aaaa(json!({ "domain_regex": ["^.*\\.dev$"] }), "hosts:*.dev")
+    );
+    assert_eq!(at(7), a_aaaa(json!({ "domain": ["foo.com"] }), "hosts"));
+    assert_eq!(at(8), json!({ "domain": ["bar.com"], "server": "8.8.8.8" }));
+    assert_eq!(
+        at(9)["server"],
+        "server:119.29.29.29,https://doh.pub/dns-query"
+    );
+    assert_eq!(at(10), json!({ "domain": ["nas"], "server": "system" }));
+    assert_eq!(
+        at(11),
+        json!({ "rule_set": ["https://example.com/d.txt"], "server": "223.5.5.5" })
+    );
+    // The system's hosts, then local and simple names.
+    assert_eq!(at(13)["server"], "system-hosts");
+    assert_eq!(at(15)["server"], "system");
+    assert_eq!(rules.len(), 16);
+    assert!(config
+        .route
+        .rule_set
+        .iter()
+        .any(|s| s.tag == ["https://example.com/d.txt"]));
+    let cache = serde_json::to_value(&config.experimental).unwrap();
+    assert_eq!(cache["cache_file"]["store_fakeip"], true);
+    // Surge's own DNS addresses are answered here.
+    assert!(config.route.rules[0]
+        .ip_cidr
+        .contains(&"198.18.0.2/31".to_string()));
+    let warnings = config.warnings.join("\n");
+    assert!(
+        warnings.contains("use-local-host-item-for-proxy: sail sends a proxy the name"),
+        "{}",
+        warnings
+    );
+    // Without read-etc-hosts, and with allow-dns-svcb, neither rule.
+    let config =
+        load("[General]\nread-etc-hosts = false\nallow-dns-svcb = true\n[Rule]\nFINAL,DIRECT\n");
+    let dns = serde_json::to_value(&config.dns).unwrap();
+    let text = dns["rules"].to_string();
+    assert!(
+        !text.contains("system-hosts") && !text.contains("NOTIMP"),
+        "{}",
+        text
+    );
+}
+
+#[test]
 fn mistakes_name_where_they_are() {
     for (text, expected) in [
         (
@@ -502,8 +668,20 @@ fn mistakes_name_where_they_are() {
             "[General] line 2: udp-policy-not-supported-behaviour: \"maybe\"",
         ),
         (
-            "[Host]\na.com = 1.2.3.4\n[Rule]\nFINAL,DIRECT\n",
-            "[Host] line 2: sail does not implement local DNS mappings yet (C.5b)",
+            "[Host]\na.com = script:dnspod\n[Rule]\nFINAL,DIRECT\n",
+            "[Host] line 2: a.com: sail does not run DNS scripts",
+        ),
+        (
+            "[Host]\nRULE-SET:https://a/b.list = 10.0.0.1\n[Rule]\nFINAL,DIRECT\n",
+            "[Host] line 2: RULE-SET:https://a/b.list: sail gives a set's names no addresses",
+        ),
+        (
+            "[Host]\nab* = 10.0.0.1\n[Rule]\nFINAL,DIRECT\n",
+            "[Host] line 2: ab*: sail gives addresses to a wildcard",
+        ),
+        (
+            "[Host]\na.com = server:dns.example\n[Rule]\nFINAL,DIRECT\n",
+            "[Host] line 2: a.com: \"dns.example\" is not an IP address",
         ),
         (
             "[Script]\nr = type=rule, script-path=a.js\n[Rule]\nFINAL,DIRECT\n",

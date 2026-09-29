@@ -58,7 +58,7 @@ pub fn parse_in(s: &str, dir: Option<&Path>) -> Result<Config> {
     let mut warnings = Vec::new();
     let mut profile = Profile::read(s, dir, &mut warnings)?;
     let mut out = Lowered::default();
-    let general = general::lower(profile.take("General"), &mut out, &mut warnings)?;
+    let mut general = general::lower(profile.take("General"), &mut out, &mut warnings)?;
     let proxies = proxy::lower(&mut profile, &mut out, &mut warnings)?;
     let policies = group::lower(
         profile.take("Proxy Group"),
@@ -76,7 +76,11 @@ pub fn parse_in(s: &str, dir: Option<&Path>) -> Result<Config> {
         &mut out,
         &mut warnings,
     )?;
+    let host = profile.take("Host");
     sections::lower(profile, &policies, &mut out, &mut warnings)?;
+    if let Some(dns) = general.dns.take() {
+        dns::host(host, dns, &mut sets, &mut out, &mut warnings)?;
+    }
     general.apply(&mut out);
     out.rule_sets.extend(sets.into_rule_sets());
 

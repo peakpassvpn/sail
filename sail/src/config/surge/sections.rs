@@ -39,12 +39,6 @@ pub fn lower(
     out: &mut Lowered,
     warnings: &mut Vec<String>,
 ) -> Result<()> {
-    if let Some(line) = profile.take("Host").first() {
-        return Err(anyhow!(
-            "[Host] {}: sail does not implement local DNS mappings yet (C.5b)",
-            line.loc
-        ));
-    }
     for (name, lines) in profile.take_named("Tailscale") {
         if !lines.is_empty() {
             warnings.push(format!(
