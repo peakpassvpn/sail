@@ -710,7 +710,9 @@ mod tests {
         assert!(format!("{:#}", err).contains("set sub_store"), "{:#}", err);
         let env = RuntimeEnv {
             host: crate::runtime::Host {
-                sub_store: Some("https://sub.example.com/secret".into()),
+                sub_store: Some(crate::runtime::SubStore(
+                    "https://sub.example.com/secret".into(),
+                )),
                 ..Default::default()
             },
             ..Default::default()

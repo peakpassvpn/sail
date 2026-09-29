@@ -317,7 +317,7 @@ fn main() {
         set: args.set,
         data_dir: args.data_dir.map(Into::into),
         cache_dir: args.cache_dir.clone().map(Into::into),
-        sub_store: args.sub_store,
+        sub_store: args.sub_store.map(sail::runtime::SubStore),
         ..Default::default()
     };
     let (runtime, host) = match settings.resolve() {

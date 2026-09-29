@@ -38,7 +38,21 @@ pub struct Host {
     /// The base URL of the operator's own Sub-Store backend (its secret
     /// path, if any, included), which downloads from `sub.store` go to:
     /// see [`Host::download_url`].
-    pub sub_store: Option<String>,
+    pub sub_store: Option<SubStore>,
+}
+
+/// The base URL of a Sub-Store backend. It may carry a secret path, so it
+/// prints as its host alone.
+#[derive(Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(transparent)]
+pub struct SubStore(pub String);
+
+impl std::fmt::Debug for SubStore {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let rest = self.0.split_once("://").map_or("", |(_, rest)| rest);
+        let host = rest.split(['/', '?', '#']).next().unwrap_or_default();
+        write!(f, "SubStore({:?}, path hidden)", host)
+    }
 }
 
 /// Sub-Store's address inside Surge, Loon and Quantumult X, which only
@@ -68,15 +82,19 @@ impl Host {
         {
             return Ok(url.to_string());
         }
-        let base = self.sub_store.as_deref().ok_or_else(|| {
-            anyhow!(
-                "{}: sub.store is Sub-Store's address inside Surge, Loon and Quantumult X, \
+        let base = self
+            .sub_store
+            .as_ref()
+            .map(|s| s.0.as_str())
+            .ok_or_else(|| {
+                anyhow!(
+                    "{}: sub.store is Sub-Store's address inside Surge, Loon and Quantumult X, \
                  which only they answer; set sub_store (sail --sub-store, or the host's start \
                  settings) to the address of a Sub-Store backend of your own, or use the \
                  subscription's own URL",
-                SUB_STORE
-            )
-        })?;
+                    SUB_STORE
+                )
+            })?;
         let base_host = base
             .split_once("://")
             .filter(|(scheme, rest)| {
@@ -184,7 +202,7 @@ pub struct StartSettings {
     pub socket_protect: Option<String>,
     /// The base URL of a Sub-Store backend, which `sub.store` stands for.
     #[serde(default)]
-    pub sub_store: Option<String>,
+    pub sub_store: Option<SubStore>,
 }
 
 impl StartSettings {
@@ -292,7 +310,7 @@ mod tests {
     #[test]
     fn sub_store_is_the_operator_s_backend() {
         let host = |base: Option<&str>| Host {
-            sub_store: base.map(str::to_string),
+            sub_store: base.map(|b| SubStore(b.to_string())),
             ..Default::default()
         };
         let url = "https://sub.store/download/collection/all?target=Surge";
@@ -319,5 +337,11 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(!err.contains("s3cret"), "{}", err);
+        let debug = format!("{:?}", secret);
+        assert!(
+            debug.contains("sub.example.com") && !debug.contains("s3cret"),
+            "{}",
+            debug
+        );
     }
 }
