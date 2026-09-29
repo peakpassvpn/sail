@@ -1745,14 +1745,14 @@ fn the_forks_smart_groups_are_sail_s() {
     assert_eq!(o["tolerance"], 60);
     assert_eq!(o["timeout"], "3000ms");
     assert_eq!(o["prefer_asn"], true);
-    // The fork's factor, how much more a member is wanted, inverted; a
-    // lookaround matched as text; an escaped colon kept in the pattern.
+    // The fork's factor, how much more a member is wanted, inverted; its
+    // regular expressions as they are; an escaped colon kept.
     assert_eq!(
         o["policy_priority"],
         serde_json::json!([
             { "regex": "hk", "factor": 0.5 },
             { "regex": "us", "factor": 2.0 },
-            { "regex": "\\(\\?!x\\)y", "factor": 0.25 },
+            { "regex": "(?!x)y", "factor": 0.25 },
             { "regex": "a:b", "factor": 1.0 },
         ])
     );

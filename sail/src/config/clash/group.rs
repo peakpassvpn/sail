@@ -401,9 +401,8 @@ fn pick<'a>(
 /// colon not escaped, as sail's `policy_priority`: the fork's factor is
 /// how much more a member is wanted, sail's how much longer it seems, so
 /// it is inverted. A pair the fork would pass over, with no factor or one
-/// not above 0, is passed over with a warning. A pattern sail's regular
-/// expressions do not take, lookarounds or back-references, is matched as
-/// text, as the fork matches a pattern it cannot compile.
+/// not above 0, is passed over with a warning. Patterns are the fork's
+/// regular expressions, lookarounds and all.
 fn policy_priority(value: &str, at: &str, warnings: &mut Vec<String>) -> Vec<Value> {
     let mut out = Vec::new();
     for pair in value.split(';').map(str::trim).filter(|p| !p.is_empty()) {
@@ -425,25 +424,6 @@ fn policy_priority(value: &str, at: &str, warnings: &mut Vec<String>) -> Vec<Val
                 '\\' => pattern.extend(chars.next()),
                 c => pattern.push(c),
             }
-        }
-        let fancy = ["(?=", "(?!", "(?<=", "(?<!"]
-            .iter()
-            .any(|l| pattern.contains(l))
-            || pattern
-                .as_bytes()
-                .windows(2)
-                .any(|w| w[0] == b'\\' && w[1].is_ascii_digit() && w[1] != b'0');
-        if fancy {
-            pattern = pattern
-                .chars()
-                .map(|c| {
-                    if "\\.+*?()|[]{}^$#&-~".contains(c) {
-                        format!("\\{}", c)
-                    } else {
-                        c.to_string()
-                    }
-                })
-                .collect();
         }
         out.push(json!({ "regex": pattern, "factor": 1.0 / factor }));
     }
