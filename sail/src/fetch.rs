@@ -158,6 +158,23 @@ mod tests {
         assert!(err.contains("bad chunk size"), "{}", err);
     }
 
+    #[tokio::test]
+    async fn a_bad_redirect_names_no_path() {
+        let url = serve(
+            b"HTTP/1.1 302 Found\r\nLocation: http://[bad/s3cret\r\nContent-Length: 0\r\n\r\n",
+        )
+        .await;
+        let err = fetch(&url, &Options::default())
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("bad Location") && !err.contains("s3cret"),
+            "{}",
+            err
+        );
+    }
+
     #[test]
     fn writes_whole() {
         let dir = std::env::temp_dir().join(format!("sail-fetch-{}", std::process::id()));

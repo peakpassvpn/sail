@@ -119,9 +119,11 @@ async fn get_following(
         match get_once(conn, via, headers, &url, etag, max_body).await? {
             Step::Done(response) => return Ok(response),
             Step::Redirect(location) => {
+                // Neither the location nor the URL is named: either may carry
+                // a secret path (a Sub-Store backend's).
                 url = url
                     .join(&location)
-                    .map_err(|e| anyhow!("redirect to {:?}: {}", location, e))?;
+                    .map_err(|e| anyhow!("redirect: bad Location: {}", e))?;
             }
         }
     }
@@ -148,7 +150,7 @@ async fn get_once(
     };
     let host = url
         .host_str()
-        .ok_or_else(|| anyhow!("{}: no host", url))?
+        .ok_or_else(|| anyhow!("url: no host"))?
         .trim_start_matches('[')
         .trim_end_matches(']')
         .to_string();
