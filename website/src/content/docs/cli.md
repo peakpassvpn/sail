@@ -62,6 +62,16 @@ sail -c config.json --profile server \
 
 These settings describe the host runtime, not proxy behavior. Keep protocol, DNS and routing decisions in the configuration file.
 
+The streams of multiplexed connections (sing-mux smux and yamux, AnyTLS, amux) take three of them:
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `mux.stream_window_max` | `16384` (KiB); `8192` on `mobile`, `4096` on `router` | The largest a stream's receive window grows to (yamux, amux). Windows start at 256 KiB and double while a stream is read faster than its window lets data in. |
+| `mux.stream_buffer` | `256` (KiB) | What a stream of a protocol without windows (smux, AnyTLS) holds unread before its connection stops being read. |
+| `mux.stall_timeout` | `60s` | A stream whose data nothing has read for this long is reset, alone, and logged as `event=stream_stalled`. |
+
+The API's `/api/v1/runtime/stat/mux` counts their sessions, streams and stalled streams per protocol.
+
 ## Paths and persisted state
 
 ```sh

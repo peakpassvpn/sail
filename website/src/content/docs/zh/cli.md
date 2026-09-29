@@ -42,6 +42,16 @@ sail -c config.json --profile server \
 
 这些参数描述宿主资源预算，不改变代理行为。协议、DNS 和路由仍应写入配置文件。
 
+多路复用连接（sing-mux 的 smux 与 yamux、AnyTLS、amux）上的流使用其中三项：
+
+| 参数 | 默认值 | 含义 |
+| --- | --- | --- |
+| `mux.stream_window_max` | `16384`（KiB）；`mobile` 为 `8192`，`router` 为 `4096` | 单条流接收窗口的上限（yamux、amux）。窗口从 256 KiB 起步，流读得比窗口放进来的快时翻倍。 |
+| `mux.stream_buffer` | `256`（KiB） | 无窗口协议（smux、AnyTLS）的单条流最多积压的未读数据，超过后暂停读取整条连接。 |
+| `mux.stall_timeout` | `60s` | 数据积压且这么久没人读的流被单独重置，并记录 `event=stream_stalled`。 |
+
+API 的 `/api/v1/runtime/stat/mux` 按协议给出会话数、流数和被重置的停滞流数。
+
 ## 数据与状态目录
 
 ```sh

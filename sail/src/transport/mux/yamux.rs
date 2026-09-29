@@ -2,7 +2,8 @@
 //! flags u16 | stream id u32 | length u32`, big-endian. Data frames carry
 //! `length` bytes; a window update's length is the window it grants; a
 //! ping's is its opaque value. Every stream starts with a 256 KiB window
-//! each way.
+//! each way, which this end grows as the stream is read (`muxcore`): the
+//! reference implementation takes whatever window it is granted.
 //!
 //! A server acknowledges a stream as soon as it takes it: the reference
 //! client closes the whole session if a stream is not acknowledged within
@@ -27,8 +28,8 @@ const FLAG_ACK: u16 = 2;
 const FLAG_FIN: u16 = 4;
 const FLAG_RST: u16 = 8;
 
-/// The initial window of every stream.
-pub const WINDOW: u32 = 256 << 10;
+// Every stream starts with the window the spec gives it.
+const _: () = assert!(crate::transport::muxcore::INITIAL_WINDOW == 256 << 10);
 /// The largest data frame accepted, beyond which a peer is taken to be
 /// misbehaving.
 const MAX_DATA_FRAME: u32 = 16 << 20;
@@ -62,7 +63,7 @@ impl Codec for Yamux {
     }
 
     fn flow(&self) -> Flow {
-        Flow::Window { initial: WINDOW }
+        Flow::Window
     }
 
     fn closing(&self) -> Closing {

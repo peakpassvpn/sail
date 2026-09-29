@@ -120,7 +120,14 @@ async fn serve_mux(
     use tracing::Instrument;
 
     let handshake_timeout = dispatcher.env().options.inbound.handshake_timeout;
-    let mut server = match timeout(handshake_timeout, server::Server::start(stream)).await {
+    let tuning = (&dispatcher.env().options.mux).into();
+    let label = format!(
+        "inbound={} user={}",
+        inbound_tag,
+        sess.user.as_deref().unwrap_or("-")
+    );
+    let started = server::Server::start(stream, tuning, &label);
+    let mut server = match timeout(handshake_timeout, started).await {
         Ok(Ok(server)) => server,
         Ok(Err(e)) => {
             debug!("mux connection from {}: {}", sess.source, e);

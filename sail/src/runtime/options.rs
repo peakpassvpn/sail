@@ -56,6 +56,7 @@ pub struct RuntimeOptions {
     pub ws: Ws,
     pub dns: Dns,
     pub stats: Stats,
+    pub mux: Mux,
 }
 
 /// Forwarding a TCP connection.
@@ -206,6 +207,26 @@ pub struct Stats {
     pub max_recent_connections: usize,
 }
 
+/// The streams of a multiplexed connection: sing-mux's smux and yamux,
+/// AnyTLS, amux.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct Mux {
+    /// The largest a stream's receive window grows to, in KiB (yamux,
+    /// amux). Windows start at 256 KiB and double while a stream is read
+    /// faster than its window lets data in, so that one stream can fill a
+    /// long fat link.
+    pub stream_window_max: usize,
+    /// What a stream of a protocol without windows (smux, AnyTLS) holds
+    /// unread, in KiB, before its connection stops being read.
+    pub stream_buffer: usize,
+    /// A stream whose received data nothing has read for this long is
+    /// reset, alone, so that it holds up neither its connection nor its
+    /// memory.
+    #[serde(with = "duration")]
+    pub stall_timeout: Duration,
+}
+
 impl Default for RuntimeOptions {
     fn default() -> Self {
         Self::profile(Profile::default())
@@ -260,6 +281,12 @@ impl Default for Stats {
     }
 }
 
+impl Default for Mux {
+    fn default() -> Self {
+        RuntimeOptions::default().mux
+    }
+}
+
 impl RuntimeOptions {
     /// The options a profile starts from.
     pub fn profile(profile: Profile) -> Self {
@@ -311,6 +338,11 @@ impl RuntimeOptions {
             stats: Stats {
                 max_recent_connections: 0,
             },
+            mux: Mux {
+                stream_window_max: 16 << 10,
+                stream_buffer: 256,
+                stall_timeout: Duration::from_secs(60),
+            },
         };
         match profile {
             Profile::Desktop => desktop,
@@ -342,6 +374,10 @@ impl RuntimeOptions {
                     hysteria2_receive_window: 32 << 10,
                     ..desktop.quic
                 },
+                mux: Mux {
+                    stream_window_max: 8 << 10,
+                    ..desktop.mux
+                },
                 ..desktop
             },
             Profile::Router => RuntimeOptions {
@@ -371,6 +407,10 @@ impl RuntimeOptions {
                     max_concurrent_streams: 128,
                     hysteria2_receive_window: 32 << 10,
                     ..desktop.quic
+                },
+                mux: Mux {
+                    stream_window_max: 4 << 10,
+                    ..desktop.mux
                 },
                 ..desktop
             },

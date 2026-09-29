@@ -10,7 +10,7 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::mpsc;
 
 use crate::adapter::AnyStream;
-use crate::transport::muxcore::{Session as FrameSession, Stream as MuxStream};
+use crate::transport::muxcore::{Session as FrameSession, Stream as MuxStream, Tuning};
 
 use super::h2mux::{self, H2Stream};
 use super::padding::PaddingStream;
@@ -20,20 +20,21 @@ enum Inner {
     /// The session is kept for as long as streams may come.
     Frames {
         _session: FrameSession,
-        accept: mpsc::Receiver<MuxStream>,
+        accept: mpsc::UnboundedReceiver<MuxStream>,
     },
     H2(AbortHandle, mpsc::Receiver<H2Stream>),
 }
 
-/// A mux connection being served. Dropping it closes the connection and
-/// every stream on it.
+/// A mux connection being served. Dropping it takes no more streams; with
+/// smux and yamux the streams it gave go on, with h2mux they end.
 pub struct Server {
     inner: Inner,
 }
 
 impl Server {
-    /// Reads the request that opens `conn`, and starts serving it.
-    pub async fn start(mut conn: AnyStream) -> io::Result<Server> {
+    /// Reads the request that opens `conn`, and starts serving it; `label`
+    /// says who it serves in logs, as `inbound=tag user=name`.
+    pub async fn start(mut conn: AnyStream, tuning: Tuning, label: &str) -> io::Result<Server> {
         let (protocol, padding) = read_request(&mut conn).await?;
         let conn: AnyStream = if padding {
             Box::new(PaddingStream::new(conn))
@@ -42,7 +43,7 @@ impl Server {
         };
         let inner = match protocol.codec() {
             Some(codec) => {
-                let (session, accept) = FrameSession::new(conn, codec, true);
+                let (session, accept) = FrameSession::new(conn, codec, true, tuning, label);
                 let accept = accept.ok_or_else(|| io::Error::other("mux: not a server"))?;
                 Inner::Frames {
                     _session: session,

@@ -733,6 +733,7 @@ fn layered(
             whole,
             layering.dns_client,
             options,
+            &layering.env.options.mux,
             layering.abort_handles,
         ),
         None => Ok(whole),
@@ -747,6 +748,7 @@ fn sing_mux_outbound(
     whole: AnyOutboundHandler,
     dns_client: &SyncDnsClient,
     options: SingMuxOptions,
+    tuning: &crate::runtime::options::Mux,
     abort_handles: &mut Vec<AbortHandle>,
 ) -> Result<AnyOutboundHandler> {
     #[cfg(feature = "mux")]
@@ -755,6 +757,7 @@ fn sing_mux_outbound(
         whole,
         dns_client.clone(),
         options,
+        tuning.into(),
         abort_handles,
     ));
     #[cfg(not(feature = "mux"))]

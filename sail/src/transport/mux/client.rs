@@ -15,6 +15,11 @@
 //!
 //! With `brutal`, as in sing-mux, there is one connection for all streams,
 //! and TCP Brutal is negotiated on it before it takes any (`brutal`).
+//!
+//! A stream holds its connection. A client that goes away, as an outbound
+//! a reload or a provider's refresh removes does, closes the connections
+//! without streams and makes no more; those with streams end when their
+//! last stream does.
 
 use std::io;
 use std::pin::Pin;
@@ -32,7 +37,7 @@ use tracing::{debug, Instrument};
 use crate::adapter::*;
 use crate::session::{Network, Session, SocksAddr};
 use crate::transport::layers::Connector;
-use crate::transport::muxcore::{self, Session as FrameSession};
+use crate::transport::muxcore::{self, Session as FrameSession, Tuning};
 
 use super::brutal::{self, Brutal};
 use super::h2mux::H2Client;
@@ -112,11 +117,16 @@ enum Conn {
 }
 
 impl Conn {
-    async fn open(&self) -> io::Result<AnyStream> {
-        match self {
-            Conn::Frames(session) => Ok(Box::new(session.open()?)),
-            Conn::H2(client) => Ok(Box::new(client.open().await?)),
-        }
+    /// A new stream, which holds the connection.
+    async fn open(self: &Arc<Self>) -> io::Result<AnyStream> {
+        let stream: AnyStream = match &**self {
+            Conn::Frames(session) => Box::new(session.open()?),
+            Conn::H2(client) => Box::new(client.open().await?),
+        };
+        Ok(Box::new(Held {
+            stream,
+            _conn: self.clone(),
+        }))
     }
 
     fn num_streams(&self) -> usize {
@@ -157,6 +167,9 @@ struct Entry {
 pub struct Client {
     connector: Connector,
     options: ClientOptions,
+    tuning: Tuning,
+    /// Who the connections serve, in their logs.
+    label: String,
     /// Held while a connection is made, so that streams asking at once
     /// share it rather than each making their own, as in sing-mux.
     conns: tokio::sync::Mutex<Vec<Entry>>,
@@ -167,10 +180,17 @@ pub struct Client {
 
 impl Client {
     /// The client, and the handle that stops its idle check.
-    pub fn new(connector: Connector, options: ClientOptions) -> (Arc<Client>, AbortHandle) {
+    pub fn new(
+        connector: Connector,
+        options: ClientOptions,
+        tuning: Tuning,
+        label: String,
+    ) -> (Arc<Client>, AbortHandle) {
         let client = Arc::new(Client {
             connector,
             options,
+            tuning,
+            label,
             conns: tokio::sync::Mutex::new(Vec::new()),
             cleanup: SyncMutex::new(None),
         });
@@ -271,11 +291,9 @@ impl Client {
         if conns.len() >= MAX_CONNECTIONS {
             return least.ok_or_else(|| io::Error::other("mux: every connection is full"));
         }
-        let conn = Arc::new(
-            tokio::time::timeout(CONNECT_TIMEOUT, self.connect(sess))
-                .await
-                .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "mux: connect timed out"))??,
-        );
+        let conn = tokio::time::timeout(CONNECT_TIMEOUT, self.connect(sess))
+            .await
+            .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "mux: connect timed out"))??;
         conns.push(Entry {
             conn: conn.clone(),
             idle_since: None,
@@ -283,7 +301,7 @@ impl Client {
         Ok(conn)
     }
 
-    async fn connect(&self, sess: &Session) -> io::Result<Conn> {
+    async fn connect(&self, sess: &Session) -> io::Result<Arc<Conn>> {
         let mut sess = sess.clone();
         sess.network = Network::Tcp;
         sess.destination = SocksAddr::Domain(MAGIC_DOMAIN.to_string(), MAGIC_PORT);
@@ -312,9 +330,12 @@ impl Client {
         };
         debug!("mux connection ({:?})", self.options.protocol);
         let conn = match self.options.protocol.codec() {
-            Some(codec) => Conn::Frames(FrameSession::new(conn, codec, false).0),
+            Some(codec) => Conn::Frames(
+                FrameSession::new(conn, codec, false, self.tuning, self.label.as_str()).0,
+            ),
             None => Conn::H2(H2Client::new(conn).await?),
         };
+        let conn = Arc::new(conn);
         if let Some(brutal) = &self.options.brutal {
             if let Err(e) = brutal_exchange(&conn, brutal, socket.as_ref()).await {
                 conn.close();
@@ -342,7 +363,7 @@ impl Client {
 /// server's refusal fails it: as in sing-mux, a client that cannot set the
 /// rate goes on without.
 async fn brutal_exchange(
-    conn: &Conn,
+    conn: &Arc<Conn>,
     brutal: &Brutal,
     socket: Option<&brutal::Socket>,
 ) -> io::Result<()> {
@@ -375,13 +396,37 @@ fn reuse(o: &ClientOptions, streams: usize, conns: usize) -> bool {
     }
 }
 
-impl Drop for Client {
-    fn drop(&mut self) {
-        if let Ok(conns) = self.conns.try_lock() {
-            for entry in conns.iter() {
-                entry.conn.close();
-            }
-        }
+/// A stream, and the connection it holds.
+struct Held {
+    stream: AnyStream,
+    _conn: Arc<Conn>,
+}
+
+impl AsyncRead for Held {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.get_mut().stream).poll_read(cx, buf)
+    }
+}
+
+impl AsyncWrite for Held {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        Pin::new(&mut self.get_mut().stream).poll_write(cx, buf)
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.get_mut().stream).poll_flush(cx)
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.get_mut().stream).poll_shutdown(cx)
     }
 }
 
@@ -500,9 +545,15 @@ pub fn outbound(
     layered: AnyOutboundHandler,
     dns_client: crate::app::SyncDnsClient,
     options: ClientOptions,
+    tuning: Tuning,
     abort_handles: &mut Vec<AbortHandle>,
 ) -> AnyOutboundHandler {
-    let (client, cleanup) = Client::new(Connector::around(layered, dns_client), options);
+    let (client, cleanup) = Client::new(
+        Connector::around(layered, dns_client),
+        options,
+        tuning,
+        format!("outbound={}", tag),
+    );
     abort_handles.push(cleanup);
     crate::adapter::outbound::HandlerBuilder::default()
         .tag(tag.to_owned())

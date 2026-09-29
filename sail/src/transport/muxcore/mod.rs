@@ -5,29 +5,87 @@
 //! A protocol is only its frames (`Codec`): how a stream is opened,
 //! carries data, is finished or reset, how more window is granted, and
 //! what it reads off the connection, decoded into `Event`s. The session
-//! does the rest the same way for all of them: the stream table, what a
-//! stream has received and not yet read, flow control, and the queue of
-//! what goes out.
+//! does the rest the same way for all of them:
+//!
+//! - The reader never waits for a stream. What a stream receives waits in
+//!   its inbox. With windows (yamux), the peer sends no more than the
+//!   window; windows start at `INITIAL_WINDOW` and grow, as quic-go's do,
+//!   while a stream is read faster than its window lets data come in one
+//!   round trip, up to `Tuning::window_max`. Without windows (smux), the
+//!   reader stops reading the connection while a stream holds
+//!   `Tuning::inbox` unread, and TCP holds the peer back.
+//! - A stream whose inbox holds data that nothing has read for
+//!   `Tuning::stall_timeout` is reset, alone: its data dropped, the peer
+//!   told as the protocol tells it. A stream that is read, however slowly,
+//!   never is.
+//! - Control frames -- acknowledgements, window updates, pings -- go out
+//!   ahead of data, in a queue of their own the reader never waits on.
+//! - Streams the peer opens are never turned away for being many at
+//!   once, only past `MAX_STREAMS`.
+//! - A stream holds its session: dropping the session's handle takes no
+//!   new streams and closes it once the last stream is done.
+//!
+//! How many sessions and streams there are, and how many were reset for
+//! stalling, is counted per protocol (`stats`).
 
 use std::io;
+use std::time::Duration;
 
 use bytes::{Bytes, BytesMut};
 
 mod session;
+pub mod stats;
 
 pub use session::{Session, Stream, MAX_STREAMS};
+
+/// The window every stream starts with, where there are windows.
+pub const INITIAL_WINDOW: u32 = 256 << 10;
+
+/// What sessions run with: `runtime::options::Mux`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Tuning {
+    /// The largest a stream's receive window grows to.
+    pub window_max: u32,
+    /// Without windows: what a stream holds unread before its session
+    /// stops reading the connection.
+    pub inbox: usize,
+    /// A stream whose data nothing has read for this long is reset.
+    pub stall_timeout: Duration,
+}
+
+impl Default for Tuning {
+    fn default() -> Self {
+        Tuning::from(&crate::runtime::options::Mux::default())
+    }
+}
+
+impl From<&crate::runtime::options::Mux> for Tuning {
+    fn from(mux: &crate::runtime::options::Mux) -> Self {
+        Tuning {
+            window_max: u32::try_from(mux.stream_window_max.saturating_mul(1024))
+                .unwrap_or(u32::MAX)
+                .max(INITIAL_WINDOW),
+            inbox: mux.stream_buffer.saturating_mul(1024).max(16 << 10),
+            stall_timeout: mux.stall_timeout.max(Duration::from_secs(1)),
+        }
+    }
+}
+
+impl Tuning {
+    /// How often streams are checked for stalling.
+    fn stall_check(&self) -> Duration {
+        (self.stall_timeout / 4).min(Duration::from_secs(5))
+    }
+}
 
 /// How a protocol keeps what a stream has received and not read bounded.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Flow {
     /// The peer sends a stream no more than its window, which grows as
     /// the stream is read (yamux).
-    Window {
-        /// The window every stream starts with.
-        initial: u32,
-    },
-    /// No window: the session stops reading its connection while too much
-    /// waits unread (smux).
+    Window,
+    /// No window: the session stops reading its connection while a
+    /// stream's inbox is full (smux).
     Pause,
 }
 

@@ -4,9 +4,11 @@
 //! end it. Served as `app::inbound::magic` serves it, the server's streams
 //! taken until `accept` gives none.
 //!
-//! smux has no window of its own, so its streams share `MAX_BUFFERED`;
-//! yamux and h2mux have a window a stream, and a window or a budget the
-//! connection. The ones ignored fail today.
+//! yamux has a window a stream, which bounds what waits and lets the
+//! reader go on. smux has none: a stream's full inbox stops the reader
+//! until the stream is reset for stalling, here after a second rather
+//! than a minute. h2mux has a window a stream and one the connection; the
+//! one ignored fails today.
 
 use std::time::Duration;
 
@@ -18,6 +20,7 @@ use tokio::time::timeout;
 
 use crate::adapter::AnyStream;
 use crate::session::SocksAddr;
+use crate::transport::muxcore::Tuning;
 
 use super::h2mux::H2Client;
 use super::server::{read_stream, Server};
@@ -31,6 +34,18 @@ const PATIENCE: Duration = Duration::from_secs(5);
 /// Echoed on the stream that should go on.
 const ECHO: usize = 64 << 10;
 
+/// Without windows, a stuck stream holds the reader until it is reset:
+/// a second here.
+fn tuning(protocol: Protocol) -> Tuning {
+    match protocol {
+        Protocol::Smux => Tuning {
+            stall_timeout: Duration::from_secs(1),
+            ..Tuning::default()
+        },
+        _ => Tuning::default(),
+    }
+}
+
 fn runtime() -> tokio::runtime::Runtime {
     tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
@@ -41,14 +56,16 @@ fn runtime() -> tokio::runtime::Runtime {
 
 /// A server for one connection: the streams it hands on, and a signal
 /// once it takes no more.
-async fn serve() -> (u16, mpsc::Receiver<AnyStream>, oneshot::Receiver<()>) {
+async fn serve(protocol: Protocol) -> (u16, mpsc::Receiver<AnyStream>, oneshot::Receiver<()>) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
     let (streams_tx, streams_rx) = mpsc::channel(64);
     let (ended_tx, ended_rx) = oneshot::channel();
     tokio::spawn(async move {
         let (conn, _) = listener.accept().await.unwrap();
-        let mut server = Server::start(Box::new(conn)).await.unwrap();
+        let mut server = Server::start(Box::new(conn), tuning(protocol), "test")
+            .await
+            .unwrap();
         while let Some(stream) = server.accept().await {
             let streams_tx = streams_tx.clone();
             tokio::spawn(async move {
@@ -82,7 +99,9 @@ impl Client {
             .await
             .unwrap();
         match protocol.codec() {
-            Some(codec) => Client::Frames(FrameSession::new(conn, codec, false).0),
+            Some(codec) => {
+                Client::Frames(FrameSession::new(conn, codec, false, tuning(protocol), "test").0)
+            }
             None => Client::H2(H2Client::new(conn).await.unwrap()),
         }
     }
@@ -149,7 +168,7 @@ async fn stall(
 
 /// Another stream opens and echoes while `count` streams are stuck.
 async fn others_go_on(protocol: Protocol, count: usize, flood: usize) {
-    let (port, mut streams, _ended) = serve().await;
+    let (port, mut streams, _ended) = serve(protocol).await;
     let client = Client::connect(port, protocol).await;
     let (_stuck, _floods) = stall(&client, &mut streams, count, flood).await;
 
@@ -180,7 +199,7 @@ async fn others_go_on(protocol: Protocol, count: usize, flood: usize) {
 
 /// A reset ends the connection while `count` streams are stuck.
 async fn a_reset_ends_it(protocol: Protocol, count: usize, flood: usize) {
-    let (port, mut streams, ended) = serve().await;
+    let (port, mut streams, ended) = serve(protocol).await;
     let client = Client::connect(port, protocol).await;
     let (_stuck, floods) = stall(&client, &mut streams, count, flood).await;
     for flood in floods {
@@ -194,13 +213,11 @@ async fn a_reset_ends_it(protocol: Protocol, count: usize, flood: usize) {
 }
 
 #[test]
-#[ignore = "fails: smux streams share MAX_BUFFERED, which one unread stream fills"]
 fn smux_a_stuck_stream_does_not_stall_the_others() {
     runtime().block_on(others_go_on(Protocol::Smux, 1, 8 << 20));
 }
 
 #[test]
-#[ignore = "fails: a full MAX_BUFFERED stops the reader, which then misses a reset"]
 fn smux_a_reset_ends_a_stalled_connection() {
     runtime().block_on(a_reset_ends_it(Protocol::Smux, 1, 8 << 20));
 }
@@ -215,15 +232,14 @@ fn yamux_a_reset_ends_a_connection_with_a_stuck_stream() {
     runtime().block_on(a_reset_ends_it(Protocol::Yamux, 1, 2 << 20));
 }
 
-/// Seventeen full windows of 256 KiB are more than `MAX_BUFFERED`.
+/// Seventeen full windows of 256 KiB, more than the 4 MiB a session once
+/// held for all its streams.
 #[test]
-#[ignore = "fails: 17 unread yamux streams fill MAX_BUFFERED and stop the reader"]
 fn yamux_seventeen_stuck_streams_do_not_stall_the_others() {
     runtime().block_on(others_go_on(Protocol::Yamux, 17, 1 << 20));
 }
 
 #[test]
-#[ignore = "fails: 17 unread yamux streams fill MAX_BUFFERED; a reset goes unnoticed"]
 fn yamux_a_reset_ends_a_connection_with_seventeen_stuck_streams() {
     runtime().block_on(a_reset_ends_it(Protocol::Yamux, 17, 1 << 20));
 }

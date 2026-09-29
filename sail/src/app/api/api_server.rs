@@ -222,6 +222,21 @@ mod handlers {
         Ok(Json(stats))
     }
 
+    /// The sessions and streams of every multiplexing protocol on the
+    /// session core, and the streams reset for stalling.
+    #[cfg(any(
+        feature = "mux",
+        feature = "inbound-amux",
+        feature = "outbound-amux",
+        feature = "inbound-anytls",
+        feature = "outbound-anytls"
+    ))]
+    pub async fn stat_mux_json(
+    ) -> Json<std::collections::BTreeMap<&'static str, crate::transport::muxcore::stats::Snapshot>>
+    {
+        Json(crate::transport::muxcore::stats::snapshot())
+    }
+
     pub async fn stat_recent_json(
         State(rm): State<Arc<RuntimeManager>>,
     ) -> Result<Json<Vec<models::Stat>>, Infallible> {
@@ -438,6 +453,17 @@ impl ApiServer {
                 .route("/api/v1/app/outbound/select", post(handlers::select_update))
                 .route("/api/v1/app/outbound/select", get(handlers::select_get))
                 .route("/api/v1/app/outbound/selects", get(handlers::select_list));
+        }
+
+        #[cfg(any(
+            feature = "mux",
+            feature = "inbound-amux",
+            feature = "outbound-amux",
+            feature = "inbound-anytls",
+            feature = "outbound-anytls"
+        ))]
+        {
+            app = app.route("/api/v1/runtime/stat/mux", get(handlers::stat_mux_json));
         }
 
         app = app
