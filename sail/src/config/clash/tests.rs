@@ -162,11 +162,50 @@ fn a_template_loads() {
     assert!(actions[6].contains("resolve"), "{}", actions[6]);
     assert_eq!(
         config.warnings,
-        [
-            "rules[7]: after MATCH, where no connection gets; ignored",
-            "external-controller: sail does not implement this field; ignored",
-        ]
+        ["rules[7]: after MATCH, where no connection gets; ignored"]
     );
+}
+
+#[test]
+fn the_controller_is_the_clash_api() {
+    let config = load(
+        "mode: global\n\
+         external-controller: 127.0.0.1:9090\n\
+         external-controller-tls: 127.0.0.1:9443\n\
+         secret: s3cret\n\
+         external-ui: ui\n\
+         external-ui-name: xd\n\
+         external-ui-url: https://example.com/ui.zip\n\
+         external-controller-cors: { allow-origins: [https://a.example], allow-private-network: false }\n",
+    );
+    let api = serde_json::to_value(config.clash_api.as_ref().unwrap()).unwrap();
+    assert_eq!(
+        api,
+        serde_json::json!({
+            "external_controller": "127.0.0.1:9090",
+            "secret": "s3cret",
+            "external_ui": "ui/xd",
+            "external_ui_download_url": "https://example.com/ui.zip",
+            "access_control_allow_origin": ["https://a.example"],
+            "default_mode": "Global",
+        })
+    );
+    assert_eq!(
+        config.warnings,
+        ["external-controller-tls: sail does not implement this field; ignored"]
+    );
+
+    // Mihomo's CORS defaults: any origin, and private networks.
+    let config =
+        load("external-controller: ':9090'\nexternal-controller-cors: { allow-origins: ['*'] }\n");
+    let api = config.clash_api.unwrap();
+    assert_eq!(api.external_controller.as_deref(), Some(":9090"));
+    assert!(api.access_control_allow_origin.is_empty());
+    assert!(api.access_control_allow_private_network);
+    assert_eq!(api.default_mode.as_deref(), Some("Rule"));
+
+    let err = error("external-ui: ui\nexternal-ui-name: ../x\n");
+    assert!(err.contains("external-ui-name"), "{}", err);
 }
 
 #[test]

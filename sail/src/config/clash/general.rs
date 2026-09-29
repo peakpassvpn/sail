@@ -12,18 +12,12 @@ use Tier::*;
 /// The top-level fields Mihomo takes that sail does not implement, or not
 /// yet: the sections read here only while they are off are errors when on.
 pub const TOP: &[(&str, Tier)] = &[
-    // The Clash API, and what it serves.
-    ("external-controller", Ignored),
+    // The Clash API's other listeners, and what it serves besides.
     ("external-controller-tls", Ignored),
     ("external-controller-unix", Ignored),
     ("external-controller-pipe", Ignored),
-    ("external-controller-cors", Ignored),
     ("external-controller-routing-mark", Ignored),
-    ("external-ui", Ignored),
-    ("external-ui-url", Ignored),
-    ("external-ui-name", Ignored),
     ("external-doh-server", Ignored),
-    ("secret", Ignored),
     ("tls", Ignored),
     // How connections are made and timed, not where they go.
     ("unified-delay", Ignored),
@@ -66,6 +60,7 @@ pub fn lower(doc: &mut Fields, out: &mut Lowered, warnings: &mut Vec<String>) ->
     log(doc, out)?;
     listeners(doc, out, warnings)?;
     mode(doc, out)?;
+    controller(doc, out, warnings)?;
     profile(doc, out, warnings)?;
     if let Some(name) = doc.string("interface-name")? {
         out.route.insert("default_interface".into(), json!(name));
@@ -214,6 +209,76 @@ fn prefixes(doc: &mut Fields, key: &str) -> Result<Vec<String>> {
 fn covers_everything(prefixes: &[String]) -> bool {
     let all = |p: &&String| p.trim() == "0.0.0.0/0" || p.trim() == "::/0";
     prefixes.iter().any(|p| p.trim() == "0.0.0.0/0") && prefixes.iter().all(|p| all(&p))
+}
+
+/// The Clash API, sail's `clash_api`: the plain HTTP listener, its secret
+/// (the API refuses a weak one, and says so, and the rest runs), the
+/// dashboard and CORS, whose defaults are Mihomo's: any origin, and pages
+/// on public addresses may call it. Where the dashboard is downloaded from
+/// when unset is sail's default, not Mihomo's (metacubexd).
+fn controller(doc: &mut Fields, out: &mut Lowered, warnings: &mut Vec<String>) -> Result<()> {
+    let api = &mut out.clash_api;
+    if let Some(listen) = doc.string("external-controller")? {
+        if !listen.is_empty() {
+            api.insert("external_controller".into(), json!(listen));
+        }
+    }
+    if let Some(secret) = doc.string("secret")? {
+        if !secret.is_empty() {
+            api.insert("secret".into(), json!(secret));
+        }
+    }
+    let ui = doc.string("external-ui")?.filter(|ui| !ui.is_empty());
+    let name = doc.string("external-ui-name")?.filter(|n| !n.is_empty());
+    match (ui, name) {
+        (Some(ui), Some(name)) => {
+            if !std::path::Path::new(&name)
+                .components()
+                .all(|c| matches!(c, std::path::Component::Normal(_)))
+            {
+                return Err(anyhow!(
+                    "external-ui-name: {:?} is not a directory within external-ui",
+                    name
+                ));
+            }
+            api.insert(
+                "external_ui".into(),
+                json!(format!("{}/{}", ui.trim_end_matches('/'), name)),
+            );
+        }
+        (Some(ui), None) => {
+            api.insert("external_ui".into(), json!(ui));
+        }
+        (None, Some(_)) => warnings.push(format!(
+            "{}: without external-ui; ignored",
+            doc.at("external-ui-name")
+        )),
+        (None, None) => {}
+    }
+    if let Some(url) = doc.string("external-ui-url")?.filter(|u| !u.is_empty()) {
+        api.insert("external_ui_download_url".into(), json!(url));
+    }
+    let (origins, private) = match doc.map("external-controller-cors")? {
+        Some(mut cors) => {
+            let origins = match cors.has("allow-origins") {
+                true => Some(cors.strings("allow-origins")?),
+                false => None,
+            };
+            let private = cors.bool("allow-private-network")?;
+            cors.finish(&[], |_| false, warnings)?;
+            (origins, private)
+        }
+        None => (None, None),
+    };
+    // Mihomo's default is `*`, any origin, which sail's empty list is.
+    let origins = origins.unwrap_or_default();
+    if !origins.is_empty() && !origins.iter().any(|o| o == "*") {
+        api.insert("access_control_allow_origin".into(), json!(origins));
+    }
+    if private.unwrap_or(true) {
+        api.insert("access_control_allow_private_network".into(), json!(true));
+    }
+    Ok(())
 }
 
 /// Mihomo's `mode`: `rule`, the default, or `global`, all to the `GLOBAL`
