@@ -92,6 +92,7 @@ use crate::adapter::*;
 use crate::app::healthcheck::HttpProbe;
 use crate::app::outbound::selector::{OutboundSelector, SelectedBy, Selection};
 use crate::app::SyncDnsClient;
+use crate::common::name_filter::NameFilter;
 use crate::config::model::GroupProviders;
 use crate::session::{Session, SniffedProtocol};
 
@@ -164,7 +165,8 @@ struct SmartOutboundOptions {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PolicyPriority {
-    /// Matched against the member's name.
+    /// Matched against the member's name, as Mihomo's filters are:
+    /// lookarounds included, backtracking bounded.
     regex: String,
     /// Multiplies the member's score: above 0.
     factor: f64,
@@ -232,7 +234,7 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
                 return Err(error(&format!("{}.factor", field), &"must be above 0"));
             }
             let regex =
-                regex::Regex::new(&p.regex).map_err(|e| error(&format!("{}.regex", field), &e))?;
+                NameFilter::new(&p.regex).map_err(|e| error(&format!("{}.regex", field), &e))?;
             Ok((regex, p.factor))
         })
         .collect::<Result<Vec<_>>>()?;
@@ -351,7 +353,7 @@ pub(super) struct Group {
     dns_client: SyncDnsClient,
     stats: Mutex<HashMap<MemberKey, MemberStats>>,
     sites: Mutex<LruCache<String, Site>>,
-    priorities: Vec<(regex::Regex, f64)>,
+    priorities: Vec<(NameFilter, f64)>,
     tolerance: Tolerance,
     timeout: Duration,
     asn: Option<maxminddb::Reader<Vec<u8>>>,
@@ -382,10 +384,16 @@ impl Group {
 
     /// The factor of the member named `name`.
     fn priority(&self, name: &str) -> f64 {
-        self.priorities
+        let mut warnings = Vec::new();
+        let factor = self
+            .priorities
             .iter()
-            .find(|(regex, _)| regex.is_match(name))
-            .map_or(1.0, |(_, factor)| *factor)
+            .find(|(regex, _)| regex.matches(name, &mut warnings))
+            .map_or(1.0, |(_, factor)| *factor);
+        for w in warnings {
+            debug!("smart policy_priority: {}", w);
+        }
+        factor
     }
 
     fn with_stats<R>(&self, key: &MemberKey, f: impl FnOnce(&mut MemberStats) -> R) -> R {

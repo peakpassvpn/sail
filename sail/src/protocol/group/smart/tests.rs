@@ -150,7 +150,10 @@ fn group_of(members: Vec<Member>) -> Arc<Group> {
             DEFAULT_SITE_TTL,
             16,
         )),
-        priorities: vec![(regex::Regex::new("^preferred").unwrap(), 0.5)],
+        priorities: vec![(
+            crate::common::name_filter::NameFilter::new("^preferred").unwrap(),
+            0.5,
+        )],
         tolerance: Tolerance {
             ms: 30.0,
             ratio: 0.2,
@@ -462,4 +465,13 @@ async fn probes_go_to_stale_and_failed_members_twelve_at_most() {
     picked.sort();
     // m14 to m19 by use, then the six of the rest probed longest ago.
     assert_eq!(picked, [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]);
+}
+
+#[test]
+fn policy_priority_takes_mihomo_filters_lookarounds_included() {
+    let filter = crate::common::name_filter::NameFilter::new("^(?!.*Ukraine).*HK").unwrap();
+    let mut warnings = Vec::new();
+    assert!(filter.matches("HK 01", &mut warnings));
+    assert!(!filter.matches("HK Ukraine", &mut warnings));
+    assert!(warnings.is_empty());
 }
