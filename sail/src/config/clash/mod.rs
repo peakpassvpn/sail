@@ -29,6 +29,7 @@ mod sniffer;
 /// What outbound providers read.
 #[cfg(feature = "outbound-provider")]
 pub(crate) mod subscription;
+mod tun;
 
 use fields::Fields;
 
@@ -39,6 +40,7 @@ pub fn parse(s: &str) -> Result<Config> {
     let mut doc = Fields::of(root, "")?;
     let mut warnings = Vec::new();
     let mut out = Lowered::default();
+    let fake_ip = tun::fake_ip_address(&mut doc);
     general::lower(&mut doc, &mut out, &mut warnings)?;
     let proxies = proxy::lower(&mut doc, &mut out, &mut warnings)?;
     let providers = proxy_provider::lower(&mut doc, &mut out, &mut warnings)?;
@@ -47,6 +49,7 @@ pub fn parse(s: &str) -> Result<Config> {
     dns::lower(&mut doc, &groups, &mut sets, &mut out, &mut warnings)?;
     rule::lower(&mut doc, &groups, &mut sets, &mut out, &mut warnings)?;
     sniffer::lower(&mut doc, &mut sets, &mut out, &mut warnings)?;
+    tun::lower(&mut doc, fake_ip, &mut sets, &mut out, &mut warnings)?;
     out.rule_sets.extend(sets.into_geo_sets());
     doc.finish(general::TOP, |key| holders.contains(key), &mut warnings)?;
 

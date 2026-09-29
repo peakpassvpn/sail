@@ -206,7 +206,6 @@ fn mistakes_name_the_field() {
             "dns: { enable: true, nameserver: ['dhcp://en0'] }",
             "dns.nameserver[0]: sail does not implement dhcp:// servers yet",
         ),
-        ("tun: { enable: true }", "tun: sail does not implement this section yet"),
         ("mode: script", "mode: \"script\" is none of rule, global and direct"),
     ] {
         let err = error(yaml);
@@ -1204,6 +1203,142 @@ fn sniffer_mistakes_name_the_field() {
         (
             "sniffer: { enable: true, sniff: { TLS: {} }, force-domain: [rule-set:nope] }",
             "sniffer.force-domain[0]: no rule-provider is named \"nope\"",
+        ),
+    ] {
+        let err = error(yaml);
+        assert!(err.contains(message), "{}\n  => {}", yaml, err);
+    }
+}
+
+const TUN: &str = r#"
+dns: { enable: false, fake-ip-range: 28.0.0.1/8 }
+rule-providers:
+  lan: { type: inline, behavior: ipcidr, payload: [192.168.0.0/16] }
+sniffer: { enable: true, sniff: { TLS: {} } }
+tun:
+  enable: true
+  stack: mixed
+  device: utun9
+  auto-route: true
+  auto-redirect: true
+  strict-route: true
+  auto-detect-interface: true
+  mtu: 1500
+  gso: true
+  inet6-address: [fdfe:dcba:9876::1/126]
+  dns-hijack: [any:53, tcp://any:53, udp://8.8.8.8:5353]
+  route-exclude-address: [10.0.0.0/8]
+  route-exclude-address-set: [lan, geoip:cn]
+  exclude-interface: [lo]
+  include-uid: [1000]
+rules:
+  - IN-TYPE,TUN,DIRECT
+  - MATCH,DIRECT
+"#;
+
+#[test]
+fn tun_is_a_tun_inbound_and_its_dns_hijack_a_rule_before_every_other() {
+    let config = load(TUN);
+    let tun = config
+        .inbounds
+        .iter()
+        .find(|i| i.tag == "DEFAULT-TUN")
+        .expect("the TUN inbound");
+    assert_eq!(tun.protocol, "tun");
+    let o = serde_json::Value::Object(tun.options.clone());
+    assert_eq!(o["interface_name"], "utun9");
+    // fake-ip-range's first address, as a /30.
+    assert_eq!(
+        o["address"],
+        serde_json::json!(["28.0.0.1/30", "fdfe:dcba:9876::1/126"])
+    );
+    assert_eq!(o["mtu"], 1500);
+    assert_eq!(o["auto_route"], true);
+    assert_eq!(o.get("auto_redirect").is_some(), cfg!(target_os = "linux"));
+    assert_eq!(o["strict_route"], true);
+    assert_eq!(
+        o["route_exclude_address"],
+        serde_json::json!(["10.0.0.0/8"])
+    );
+    assert_eq!(
+        o["route_exclude_address_set"],
+        serde_json::json!(["lan", "geoip:cn"])
+    );
+    assert_eq!(o["exclude_interface"], serde_json::json!(["lo"]));
+    assert_eq!(o["include_uid"], serde_json::json!([1000]));
+    assert!(config.route.auto_detect_interface);
+    assert!(config.warnings.iter().any(|w| w.contains("tun.stack")));
+    // As sail's TUN inbound takes it: on Linux, where auto_redirect takes
+    // the routes left out; elsewhere that is route management, not
+    // implemented yet.
+    #[cfg(all(feature = "inbound-tun", target_os = "linux"))]
+    {
+        let settings = crate::protocol::tun::inbound::options(tun).unwrap();
+        assert_eq!(settings.mtu, 1500);
+        assert!(settings.auto_route);
+    }
+
+    let rules = all_rules(&config);
+    let hijack = &rules[0];
+    assert_eq!(hijack["action"], "hijack-dns");
+    assert_eq!(
+        hijack["rules"][0]["inbound"],
+        serde_json::json!(["DEFAULT-TUN"])
+    );
+    let to = &hijack["rules"][1]["rules"];
+    // Port 53 anywhere; the addresses after the device's; the one listed.
+    assert_eq!(to[0], serde_json::json!({ "port": [53] }));
+    assert_eq!(to[1]["ip_cidr"], serde_json::json!(["28.0.0.2/32"]));
+    assert_eq!(
+        to[2]["ip_cidr"],
+        serde_json::json!(["fdfe:dcba:9876::2/128"])
+    );
+    assert_eq!(
+        to[3],
+        serde_json::json!({ "ip_cidr": ["8.8.8.8/32"], "port": [5353] })
+    );
+    // Then the sniffer's, then Clash's modes'.
+    assert_eq!(rules[1]["action"], "sniff");
+    assert!(rules
+        .iter()
+        .any(|r| r["inbound"] == serde_json::json!(["DEFAULT-TUN"]) && r["outbound"] == "DIRECT"));
+}
+
+#[test]
+fn a_tun_off_is_no_inbound() {
+    let config = load(
+        "tun: { enable: false, stack: gvisor, exclude-src-port: [1] }\nrules: [\"MATCH,DIRECT\"]",
+    );
+    assert!(config.inbounds.iter().all(|i| i.protocol != "tun"));
+    // Mihomo's default device address, without fake-ip-range.
+    let config = load("tun: { enable: true }\nrules: [\"MATCH,DIRECT\"]");
+    let tun = config
+        .inbounds
+        .iter()
+        .find(|i| i.protocol == "tun")
+        .unwrap();
+    assert_eq!(tun.options["address"], serde_json::json!(["198.18.0.1/30"]));
+    assert_eq!(tun.options["mtu"], 9000);
+}
+
+#[test]
+fn tun_mistakes_name_the_field() {
+    for (yaml, message) in [
+        (
+            "tun: { enable: true, exclude-src-port: [1] }",
+            "tun.exclude-src-port: sail does not implement this field yet",
+        ),
+        (
+            "tun: { enable: true, dns-hijack: [8.8.8.8] }",
+            "tun.dns-hijack[0]: \"8.8.8.8\" names no port",
+        ),
+        (
+            "tun: { enable: true, route-address-set: [nope] }",
+            "tun.route-address-set[0]: no rule-provider is named \"nope\"",
+        ),
+        (
+            "tun: { enable: true, file-descriptor: 5 }",
+            "tun.file-descriptor: 5: sail does not take a device opened elsewhere yet",
         ),
     ] {
         let err = error(yaml);

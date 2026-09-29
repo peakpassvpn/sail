@@ -5,7 +5,6 @@ use anyhow::{anyhow, Result};
 use serde_json::{json, Value};
 
 use super::fields::{Fields, Tier};
-use super::node::Node;
 use super::Lowered;
 
 use Tier::*;
@@ -78,7 +77,6 @@ pub fn lower(doc: &mut Fields, out: &mut Lowered, warnings: &mut Vec<String>) ->
     if let Some(mark) = doc.int::<u32>("routing-mark")? {
         out.route.insert("default_mark".into(), json!(mark));
     }
-    off_while_unimplemented(doc, "tun")?;
     Ok(())
 }
 
@@ -192,17 +190,4 @@ fn mode(doc: &mut Fields, out: &mut Lowered) -> Result<()> {
     };
     out.mode = Some(name.to_string());
     Ok(())
-}
-
-/// A section sail reads in a later stage: off, it changes nothing.
-fn off_while_unimplemented(doc: &mut Fields, key: &str) -> Result<()> {
-    let at = doc.at(key);
-    match doc.take(key) {
-        None => Ok(()),
-        Some(Node::Map(map)) => match map.get("enable").and_then(Node::as_bool) {
-            Some(true) => Err(anyhow!("{}: sail does not implement this section yet", at)),
-            _ => Ok(()),
-        },
-        Some(other) => Err(anyhow!("{}: a map, not {}", at, other.kind())),
-    }
 }
