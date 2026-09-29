@@ -331,10 +331,23 @@ pub struct Dns {
     /// Which address families names resolve to, and in what order.
     #[serde(default)]
     pub strategy: DnsStrategy,
-    /// Answers kept per address family; 512, or 64 on iOS, when unset.
+    /// No answer is kept: each query goes to its server.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub disable_cache: bool,
+    /// Answers kept are used however old they are, until the cache is full
+    /// or cleared.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub disable_expire: bool,
+    /// How many answers are kept; 1024 when unset, and at least that, as
+    /// in sing-box.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cache_capacity: Option<usize>,
-    /// How long one query to one server may take; 4s when unset.
+    /// An answer that has expired is still given, for up to its timeout,
+    /// while the server is asked again in the background.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub optimistic: Option<Optimistic>,
+    /// How long one query to one server may take; 10s when unset, as in
+    /// sing-box.
     #[serde(default, with = "duration", skip_serializing_if = "Option::is_none")]
     pub timeout: Option<std::time::Duration>,
     /// Remembers the domain of each address the DNS answers that pass
@@ -346,6 +359,42 @@ pub struct Dns {
     /// otherwise.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub client_subnet: Option<Prefix>,
+}
+
+/// sing-box's `optimistic`: `true`, or `{ "enabled": true, "timeout": "3d" }`.
+#[derive(Serialize, Debug, Clone, Copy, Default, PartialEq)]
+pub struct Optimistic {
+    pub enabled: bool,
+    /// How long after it expired an answer may still be given; 3d when
+    /// unset, as in sing-box.
+    #[serde(default, with = "duration", skip_serializing_if = "Option::is_none")]
+    pub timeout: Option<std::time::Duration>,
+}
+
+impl<'de> serde::Deserialize<'de> for Optimistic {
+    fn deserialize<D: serde::Deserializer<'de>>(de: D) -> std::result::Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Full {
+            #[serde(default)]
+            enabled: bool,
+            #[serde(default, with = "duration")]
+            timeout: Option<std::time::Duration>,
+        }
+        match <serde_json::Value as serde::Deserialize>::deserialize(de)? {
+            serde_json::Value::Bool(enabled) => Ok(Optimistic {
+                enabled,
+                timeout: None,
+            }),
+            value => {
+                let full = Full::deserialize(value).map_err(serde::de::Error::custom)?;
+                Ok(Optimistic {
+                    enabled: full.enabled,
+                    timeout: full.timeout,
+                })
+            }
+        }
+    }
 }
 
 /// A DNS server. What it takes beyond its type and tag belongs to its type,
@@ -499,6 +548,10 @@ pub struct DnsRule {
     /// from the cache nor goes into it.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub disable_cache: bool,
+    /// An expired answer is not given while it is asked for again, though
+    /// `dns.optimistic` is enabled.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub disable_optimistic_cache: bool,
     /// The TTL the answer's records carry, in seconds.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rewrite_ttl: Option<u32>,
@@ -756,6 +809,7 @@ impl DnsRule {
     /// Whether it sets how its query is sent.
     fn has_query_options(&self) -> bool {
         self.disable_cache
+            || self.disable_optimistic_cache
             || self.rewrite_ttl.is_some()
             || self.timeout.is_some()
             || self.client_subnet.is_some()
@@ -777,6 +831,11 @@ impl DnsRule {
             (
                 "disable_cache",
                 self.disable_cache,
+                &[Route, Evaluate, RouteOptions],
+            ),
+            (
+                "disable_optimistic_cache",
+                self.disable_optimistic_cache,
                 &[Route, Evaluate, RouteOptions],
             ),
             (
@@ -928,13 +987,22 @@ impl DnsStrategy {
 }
 
 impl Dns {
+    /// sing-box's: 1024, and a smaller one taken as that.
     pub fn cache_capacity(&self) -> usize {
-        self.cache_capacity
-            .unwrap_or(if cfg!(target_os = "ios") { 64 } else { 512 })
+        self.cache_capacity.unwrap_or(1024).max(1024)
+    }
+
+    /// How long after it expired an answer may still be given, when
+    /// `optimistic` is enabled.
+    pub fn optimistic_timeout(&self) -> Option<std::time::Duration> {
+        self.optimistic.filter(|o| o.enabled).map(|o| {
+            o.timeout
+                .unwrap_or(std::time::Duration::from_secs(3 * 24 * 3600))
+        })
     }
 
     pub fn timeout(&self) -> std::time::Duration {
-        self.timeout.unwrap_or(std::time::Duration::from_secs(4))
+        self.timeout.unwrap_or(std::time::Duration::from_secs(10))
     }
 
     /// The tags of the servers: `local` alone when none are given, for the
@@ -1483,6 +1551,8 @@ pub struct DomainResolver {
     pub timeout: Option<std::time::Duration>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub disable_cache: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub disable_optimistic_cache: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rewrite_ttl: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1502,6 +1572,8 @@ impl<'de> serde::Deserialize<'de> for DomainResolver {
             #[serde(default)]
             disable_cache: bool,
             #[serde(default)]
+            disable_optimistic_cache: bool,
+            #[serde(default)]
             rewrite_ttl: Option<u32>,
             #[serde(default)]
             client_subnet: Option<Prefix>,
@@ -1518,6 +1590,7 @@ impl<'de> serde::Deserialize<'de> for DomainResolver {
                     strategy: full.strategy,
                     timeout: full.timeout,
                     disable_cache: full.disable_cache,
+                    disable_optimistic_cache: full.disable_optimistic_cache,
                     rewrite_ttl: full.rewrite_ttl,
                     client_subnet: full.client_subnet,
                 })
@@ -2807,7 +2880,8 @@ mod tests {
         .unwrap();
         assert_eq!(config.dns.strategy, DnsStrategy::PreferIpv6);
         assert!(config.dns.strategy.ipv6());
-        assert_eq!(config.dns.cache_capacity(), 8);
+        // Less than sing-box's least, 1024, is taken as that.
+        assert_eq!(config.dns.cache_capacity(), 1024);
         assert_eq!(config.dns.timeout(), std::time::Duration::from_secs(2));
         assert_eq!(config.api.listen, Some("127.0.0.1:9090".parse().unwrap()));
         assert_eq!(
@@ -2823,7 +2897,7 @@ mod tests {
 
         let defaults = Config::from_json("{}").unwrap();
         assert_eq!(defaults.dns.strategy, DnsStrategy::PreferIpv4);
-        assert_eq!(defaults.dns.timeout(), std::time::Duration::from_secs(4));
+        assert_eq!(defaults.dns.timeout(), std::time::Duration::from_secs(10));
         assert_eq!(defaults.api.listen, None);
     }
 

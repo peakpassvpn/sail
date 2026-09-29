@@ -231,6 +231,17 @@ mod handlers {
         feature = "inbound-anytls",
         feature = "outbound-anytls"
     ))]
+    pub async fn dns_cache(
+        State(rm): State<Arc<RuntimeManager>>,
+    ) -> Json<crate::app::dns::CacheStats> {
+        Json(rm.dns_cache_stats())
+    }
+
+    pub async fn dns_cache_flush(State(rm): State<Arc<RuntimeManager>>) -> StatusCode {
+        rm.clear_dns_cache();
+        StatusCode::NO_CONTENT
+    }
+
     pub async fn stat_mux_json(
     ) -> Json<std::collections::BTreeMap<&'static str, crate::transport::muxcore::stats::Snapshot>>
     {
@@ -440,6 +451,11 @@ impl ApiServer {
             .route(
                 "/api/v1/runtime/outbounds/:tag",
                 delete(handlers::outbound_remove),
+            )
+            .route("/api/v1/runtime/dns/cache", get(handlers::dns_cache))
+            .route(
+                "/api/v1/runtime/dns/cache/flush",
+                post(handlers::dns_cache_flush),
             )
             .route("/api/v1/runtime/inbounds", post(handlers::inbound_add))
             .route(

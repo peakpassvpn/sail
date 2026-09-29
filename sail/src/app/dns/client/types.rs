@@ -200,6 +200,7 @@ enum RuleAction {
 #[derive(Debug, Clone, Default, PartialEq)]
 struct QueryOptions {
     disable_cache: bool,
+    disable_optimistic_cache: bool,
     rewrite_ttl: Option<u32>,
     timeout: Option<Duration>,
     /// Unset, `dns.client_subnet`.
@@ -217,6 +218,7 @@ impl QueryOptions {
     fn of(rule: &crate::config::model::DnsRule) -> Self {
         QueryOptions {
             disable_cache: rule.disable_cache,
+            disable_optimistic_cache: rule.disable_optimistic_cache,
             rewrite_ttl: rule.rewrite_ttl,
             timeout: rule.timeout,
             client_subnet: match (rule.client_subnet, rule.remove_client_subnet) {
@@ -231,6 +233,7 @@ impl QueryOptions {
     fn of_resolver(resolver: &crate::config::model::DomainResolver) -> Self {
         QueryOptions {
             disable_cache: resolver.disable_cache,
+            disable_optimistic_cache: resolver.disable_optimistic_cache,
             rewrite_ttl: resolver.rewrite_ttl,
             timeout: resolver.timeout,
             client_subnet: resolver.client_subnet.map(Subnet::Set),
@@ -241,6 +244,8 @@ impl QueryOptions {
     fn with(&self, later: &QueryOptions) -> QueryOptions {
         QueryOptions {
             disable_cache: self.disable_cache || later.disable_cache,
+            disable_optimistic_cache: self.disable_optimistic_cache
+                || later.disable_optimistic_cache,
             rewrite_ttl: later.rewrite_ttl.or(self.rewrite_ttl),
             timeout: later.timeout.or(self.timeout),
             client_subnet: later.client_subnet.or(self.client_subnet),
@@ -261,12 +266,6 @@ pub struct LookupContext {
     pub strategy: Option<DnsStrategy>,
 }
 
-/// A server's answers, by the server, the question (name, record type)
-/// and the client subnet asked for.
-type AnswerKey = (String, String, u16, Option<crate::config::model::Prefix>);
-
-/// Answers, with when each expires.
-type AnswerCache = LruCache<AnswerKey, (Message, Instant)>;
 
 pub struct DnsClient {
     /// Set once the dispatcher exists, and kept across reloads.
@@ -279,8 +278,12 @@ pub struct DnsClient {
     final_server: String,
     ech_cache: Arc<TokioMutex<LruCache<String, EchCacheEntry>>>,
     ech_query_locks: Arc<TokioMutex<HashMap<String, Arc<TokioMutex<()>>>>>,
-    /// The answers `exchange` gave, by question, until they expire.
-    answers: Arc<std::sync::Mutex<AnswerCache>>,
+    /// The answers each server gave, as `dns` keeps them.
+    answers: Arc<cache::Answers>,
+    /// `dns.disable_cache`.
+    disable_cache: bool,
+    /// The client itself, once shared, for what it does in the background.
+    me: Weak<DnsClient>,
     /// The fakeip server's store, when there is one.
     fake_ips: Option<Arc<fakeip::FakeIpStore>>,
     tuning: crate::runtime::options::Dns,

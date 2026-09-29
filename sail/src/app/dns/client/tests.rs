@@ -1434,4 +1434,142 @@ mod tests {
         }
         assert!(selector.is_degraded("a"));
     }
+
+    /// A UDP server answering the `n`th A query with 10.0.0.`n`, TTL
+    /// `ttl`, or with no records when `empty`; and how many it got.
+    async fn counting_server(
+        ttl: u32,
+        empty: bool,
+    ) -> (u16, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+        let socket = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let port = socket.local_addr().unwrap().port();
+        let count = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counter = count.clone();
+        tokio::spawn(async move {
+            let mut buf = [0u8; 1500];
+            while let Ok((n, peer)) = socket.recv_from(&mut buf).await {
+                let nth = counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+                let request = Message::from_vec(&buf[..n]).unwrap();
+                let ip: IpAddr = format!("10.0.0.{}", nth).parse().unwrap();
+                let ips = if empty { vec![] } else { vec![ip] };
+                let reply = DnsClient::reply(&request, &ips, ttl);
+                let _ = socket.send_to(&reply.to_vec().unwrap(), peer).await;
+            }
+        });
+        (port, count)
+    }
+
+    fn cache_client(port: u16, dns: serde_json::Value) -> anyhow::Result<std::sync::Arc<DnsClient>> {
+        let mut dns = dns;
+        dns["servers"] = serde_json::json!([
+            { "type": "udp", "server": "127.0.0.1", "server_port": port }
+        ]);
+        let mut config =
+            crate::config::Config::from_json(&serde_json::json!({ "dns": dns }).to_string())?;
+        let dns = std::mem::take(&mut config.dns);
+        Ok(DnsClient::new(&dns, Default::default(), &Default::default())?.into_arc())
+    }
+
+    fn asked(count: &std::sync::atomic::AtomicUsize) -> usize {
+        count.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    #[tokio::test]
+    async fn optimistic_gives_the_expired_answer_and_asks_again_behind() {
+        let (port, count) = counting_server(1, false).await;
+        let client = cache_client(port, serde_json::json!({ "optimistic": true })).unwrap();
+        let first = exchange(&client, "a.example", RecordType::A).await;
+        assert_eq!(answer_ips(&first), ips(&["10.0.0.1"]));
+        tokio::time::sleep(Duration::from_millis(1200)).await;
+        // Expired: given still, with a TTL of 1, while asked again.
+        let stale = exchange(&client, "a.example", RecordType::A).await;
+        assert_eq!(answer_ips(&stale), ips(&["10.0.0.1"]));
+        assert_eq!(stale.answers()[0].ttl, 1);
+        for _ in 0..100 {
+            if asked(&count) == 2 && client.cache_stats().entries == 1 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        let fresh = exchange(&client, "a.example", RecordType::A).await;
+        assert_eq!(answer_ips(&fresh), ips(&["10.0.0.2"]));
+        assert_eq!(asked(&count), 2);
+        let stats = client.cache_stats();
+        assert_eq!((stats.hits, stats.stale_hits, stats.misses), (1, 1, 1));
+    }
+
+    #[tokio::test]
+    async fn without_optimistic_an_expired_answer_is_asked_for_again() {
+        let (port, count) = counting_server(1, false).await;
+        let client = cache_client(port, serde_json::json!({})).unwrap();
+        exchange(&client, "a.example", RecordType::A).await;
+        tokio::time::sleep(Duration::from_millis(1200)).await;
+        let again = exchange(&client, "a.example", RecordType::A).await;
+        assert_eq!(answer_ips(&again), ips(&["10.0.0.2"]));
+        assert_eq!(asked(&count), 2);
+    }
+
+    #[tokio::test]
+    async fn a_rule_can_leave_the_optimistic_cache_out() {
+        let (port, count) = counting_server(1, false).await;
+        let client = cache_client(
+            port,
+            serde_json::json!({
+                "optimistic": { "enabled": true, "timeout": "1h" },
+                "rules": [{ "domain": "a.example", "action": "route-options",
+                            "disable_optimistic_cache": true }],
+            }),
+        )
+        .unwrap();
+        exchange(&client, "a.example", RecordType::A).await;
+        tokio::time::sleep(Duration::from_millis(1200)).await;
+        let again = exchange(&client, "a.example", RecordType::A).await;
+        assert_eq!(answer_ips(&again), ips(&["10.0.0.2"]));
+        assert_eq!(asked(&count), 2);
+    }
+
+    #[tokio::test]
+    async fn an_answer_without_records_or_soa_is_not_kept_nor_is_any_without_cache() {
+        let (port, count) = counting_server(300, true).await;
+        let client = cache_client(port, serde_json::json!({})).unwrap();
+        exchange(&client, "a.example", RecordType::A).await;
+        exchange(&client, "a.example", RecordType::A).await;
+        assert_eq!(asked(&count), 2);
+
+        let (port, count) = counting_server(300, false).await;
+        let client = cache_client(port, serde_json::json!({ "disable_cache": true })).unwrap();
+        exchange(&client, "a.example", RecordType::A).await;
+        exchange(&client, "a.example", RecordType::A).await;
+        assert_eq!(asked(&count), 2);
+
+        // Kept, and cleared.
+        let (port, count) = counting_server(300, false).await;
+        let client = cache_client(port, serde_json::json!({})).unwrap();
+        exchange(&client, "a.example", RecordType::A).await;
+        exchange(&client, "a.example", RecordType::A).await;
+        assert_eq!(asked(&count), 1);
+        client.clear_cache();
+        exchange(&client, "a.example", RecordType::A).await;
+        assert_eq!(asked(&count), 2);
+    }
+
+    #[test]
+    fn optimistic_is_not_with_disable_cache_or_disable_expire() {
+        for (other, message) in [
+            ("disable_cache", "not with dns.disable_cache"),
+            ("disable_expire", "not with dns.disable_expire"),
+        ] {
+            let err = cache_client(53, serde_json::json!({ "optimistic": true, other: true }))
+                .err()
+                .unwrap()
+                .to_string();
+            assert!(err.contains(message), "{}", err);
+        }
+        // Off, it is no conflict.
+        cache_client(
+            53,
+            serde_json::json!({ "optimistic": false, "disable_cache": true }),
+        )
+        .unwrap();
+    }
 }

@@ -24,11 +24,13 @@ use crate::{
 };
 include!("client/types.rs");
 
+mod cache;
 mod fakeip;
 mod rules;
 mod server;
 mod upstream;
 
+pub use cache::CacheStats;
 pub use fakeip::FakeIp;
 
 use server::{Address, Dialer, Kind, Server};
@@ -110,6 +112,13 @@ impl DnsClient {
         let rules = Self::load_rules(dns, env, rule_sets)?;
         let capacity = NonZeroUsize::new(dns.cache_capacity())
             .ok_or_else(|| anyhow!("dns.cache_capacity: must be at least 1"))?;
+        let optimistic = dns.optimistic_timeout();
+        if optimistic.is_some() && dns.disable_cache {
+            return Err(anyhow!("dns.optimistic: not with dns.disable_cache"));
+        }
+        if optimistic.is_some() && dns.disable_expire {
+            return Err(anyhow!("dns.optimistic: not with dns.disable_expire"));
+        }
         Ok(Self {
             dispatcher: Default::default(),
             servers,
@@ -117,7 +126,13 @@ impl DnsClient {
             final_server,
             ech_cache: Arc::new(TokioMutex::new(LruCache::new(capacity))),
             ech_query_locks: Arc::new(TokioMutex::new(HashMap::new())),
-            answers: Arc::new(std::sync::Mutex::new(LruCache::new(capacity))),
+            answers: Arc::new(cache::Answers::new(
+                capacity,
+                dns.disable_expire,
+                optimistic,
+            )),
+            disable_cache: dns.disable_cache,
+            me: Weak::new(),
             fake_ips: fake_ip_store,
             tuning,
             strategy: dns.strategy,
@@ -131,7 +146,28 @@ impl DnsClient {
     /// Shares the client between its users, who see it replaced whole on
     /// reload.
     pub fn into_shared(self) -> crate::app::SyncDnsClient {
-        Arc::new(arc_swap::ArcSwap::from_pointee(self))
+        Arc::new(arc_swap::ArcSwap::new(self.into_arc()))
+    }
+
+    /// The client, shared: what it does in the background, such as asking
+    /// again for an answer that expired, it does through it.
+    pub fn into_arc(self) -> Arc<Self> {
+        Arc::new_cyclic(|me| DnsClient {
+            me: me.clone(),
+            ..self
+        })
+    }
+
+    /// Forgets every answer kept: after the network changed, when those of
+    /// the one before may be wrong, or as the Clash API or a user asks.
+    pub fn clear_cache(&self) {
+        self.answers.clear();
+        debug!("dns cache cleared");
+    }
+
+    /// What the cache holds and how it served.
+    pub fn cache_stats(&self) -> CacheStats {
+        self.answers.stats()
     }
 
     /// Servers with a `detour` reach it through `dispatcher`, once it
@@ -897,43 +933,6 @@ impl DnsClient {
         let mut status = Self::reply(request, &[], 0);
         status.set_response_code(code);
         status
-    }
-
-    /// The answer cached for `key`, with `id` and what is left of its TTLs.
-    fn cached_answer(&self, key: &AnswerKey, id: u16) -> Option<Message> {
-        let mut answers = self.answers.lock().unwrap_or_else(|e| e.into_inner());
-        let (message, expires) = answers.get(key)?;
-        let now = Instant::now();
-        if *expires <= now {
-            answers.pop(key);
-            return None;
-        }
-        let left = (*expires - now).as_secs().max(1) as u32;
-        let mut message = message.clone();
-        message.set_id(id);
-        for record in message.answers_mut() {
-            record.ttl = record.ttl.min(left);
-        }
-        Some(message)
-    }
-
-    /// Keeps `message` for its shortest TTL; one with no records, a
-    /// minute.
-    fn cache_answer(&self, key: AnswerKey, message: &Message) {
-        let ttl = message
-            .answers()
-            .iter()
-            .map(|r| r.ttl)
-            .min()
-            .unwrap_or(LOCAL_TTL.as_secs() as u32);
-        if ttl == 0 {
-            return;
-        }
-        let expires = Instant::now() + Duration::from_secs(ttl.into());
-        self.answers
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .put(key, (message.clone(), expires));
     }
 
     // -- The caches ------------------------------------------------------

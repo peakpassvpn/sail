@@ -161,6 +161,16 @@ impl RuntimeManager {
         })
     }
 
+    /// What the DNS cache holds and how it served.
+    pub fn dns_cache_stats(&self) -> app::dns::CacheStats {
+        self.dns_client.load().cache_stats()
+    }
+
+    /// Forgets the DNS answers kept.
+    pub fn clear_dns_cache(&self) {
+        self.dns_client.load().clear_cache();
+    }
+
     pub fn stat_manager(&self) -> SyncStatManager {
         self.stat_manager.clone()
     }
@@ -381,7 +391,7 @@ impl RuntimeManager {
                 .lock()
                 .unwrap_or_else(|e| e.into_inner()) = rule_sets.files();
         }
-        self.dns_client.store(Arc::new(dns_client));
+        self.dns_client.store(dns_client.into_arc());
         let replaced = self.outbound_manager.swap(Arc::new(outbound_manager));
         self.router.store(Arc::new(router));
         #[cfg(all(feature = "inbound-tun", target_os = "linux"))]
@@ -558,10 +568,12 @@ impl RuntimeManager {
 
     /// Tells the TUN inbound's stack that the host's network changed: flows
     /// of the previous network stop being served, and with `mtu`, the stack
-    /// takes the new interface MTU.
+    /// takes the new interface MTU. The DNS answers kept go too: those of
+    /// the previous network may be wrong on this one.
     #[cfg(feature = "inbound-tun")]
     pub async fn network_changed(&self, mtu: Option<usize>) -> Result<(), Error> {
         let _update = self.update.lock().await;
+        self.dns_client.load().clear_cache();
         let Some(mut control) = self.tun_control.clone() else {
             return Err(Error::Config(anyhow!("there is no tun inbound")));
         };
@@ -732,6 +744,10 @@ async fn follow_default_interface(manager: Arc<RuntimeManager>) {
         let moved = tokio::task::spawn_blocking(move || auto.refresh())
             .await
             .unwrap_or(false);
+        // What was answered on the interface before may be wrong on this one.
+        if moved {
+            manager.dns_client.load().clear_cache();
+        }
         #[cfg(feature = "inbound-tun")]
         if moved && manager.tun_control.is_some() {
             if let Err(e) = manager.network_changed(None).await {

@@ -74,35 +74,8 @@ pub const FIELDS: &[Field] = &[
     f("experimental.v2ray_api", Ignored),
     f("experimental.debug", Ignored),
     // DNS.
-    f("dns.disable_cache", Ignored),
-    f("dns.disable_expire", Ignored),
+    // Each server's answers are kept apart, always: what this asked for.
     f("dns.independent_cache", Ignored),
-    f("dns.optimistic", Ignored),
-    // A domain_resolver's optimistic cache, which sail has not.
-    f(
-        "http_clients.*.domain_resolver.disable_optimistic_cache",
-        Ignored,
-    ),
-    f(
-        "route.rule_set.*.http_client.domain_resolver.disable_optimistic_cache",
-        Ignored,
-    ),
-    f(
-        "route.default_domain_resolver.disable_optimistic_cache",
-        Ignored,
-    ),
-    f(
-        "outbounds.*.domain_resolver.disable_optimistic_cache",
-        Ignored,
-    ),
-    f(
-        "endpoints.*.domain_resolver.disable_optimistic_cache",
-        Ignored,
-    ),
-    f(
-        "dns.servers.*.domain_resolver.disable_optimistic_cache",
-        Ignored,
-    ),
     // DNS rule conditions and action options.
     f("dns.rules.*.query_client_subnet", Unsupported),
     f("dns.rules.*.query_dnssec", Unsupported),
@@ -130,7 +103,6 @@ pub const FIELDS: &[Field] = &[
     f("dns.rules.*.answer", Unsupported),
     f("dns.rules.*.ns", Unsupported),
     f("dns.rules.*.extra", Unsupported),
-    f("dns.rules.*.disable_optimistic_cache", Ignored),
     f("dns.rules.*.speculative", Ignored),
     f("dns.rules.*.method", Ignored),
     f("dns.rules.*.no_drop", Ignored),

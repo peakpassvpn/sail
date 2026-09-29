@@ -17,9 +17,7 @@ pub(crate) trait DnsMessageExt {
     fn response_code(&self) -> hickory_proto::op::ResponseCode;
     fn queries(&self) -> &[hickory_proto::op::Query];
     fn answers(&self) -> &[hickory_proto::rr::Record];
-    fn answers_mut(&mut self) -> &mut [hickory_proto::rr::Record];
     fn name_servers(&self) -> &[hickory_proto::rr::Record];
-    fn name_servers_mut(&mut self) -> &mut [hickory_proto::rr::Record];
     fn extensions(&self) -> &Option<hickory_proto::op::Edns>;
     fn extensions_mut(&mut self) -> &mut Option<hickory_proto::op::Edns>;
     fn set_id(&mut self, value: u16) -> &mut Self;
@@ -56,14 +54,8 @@ impl DnsMessageExt for hickory_proto::op::Message {
     fn answers(&self) -> &[hickory_proto::rr::Record] {
         &self.answers
     }
-    fn answers_mut(&mut self) -> &mut [hickory_proto::rr::Record] {
-        &mut self.answers
-    }
     fn name_servers(&self) -> &[hickory_proto::rr::Record] {
         &self.authorities
-    }
-    fn name_servers_mut(&mut self) -> &mut [hickory_proto::rr::Record] {
-        &mut self.authorities
     }
     fn extensions(&self) -> &Option<hickory_proto::op::Edns> {
         &self.edns

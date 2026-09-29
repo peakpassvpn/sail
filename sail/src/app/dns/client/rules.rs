@@ -10,7 +10,8 @@ use hickory_proto::rr::rdata::opt::{ClientSubnet, EdnsCode, EdnsOption};
 use hickory_proto::rr::{RData, RecordType};
 use tracing::debug;
 
-use super::server::Kind;
+use super::cache::{self, AnswerKey, Cached};
+use super::server::{Kind, Server};
 use super::{DnsClient, LookupContext, QueryOptions, Rule, RuleAction, Subnet};
 use crate::app::router::matcher::Facts;
 use crate::config::model::{DnsRuleAction, DnsStrategy, Prefix, ResponseRef};
@@ -386,7 +387,8 @@ impl DnsClient {
     /// Asks the server tagged `tag` `request`, sent as `options` says: its
     /// client subnet, its time, its TTLs. An answer comes from the cache
     /// while it lasts, but a fake IP's, whose address its store may have
-    /// handed to another domain by then.
+    /// handed to another domain by then; with `dns.optimistic`, an expired
+    /// one does too, while it is asked for again in the background.
     pub(super) async fn resolve(
         &self,
         tag: &str,
@@ -403,8 +405,10 @@ impl DnsClient {
             Some(Subnet::Remove) => remove_client_subnet(&mut request),
             None => {}
         }
-        let cached = !options.disable_cache && !matches!(server.kind, Kind::FakeIp(_));
-        let key = request.queries().first().map(|q| {
+        let cached = !self.disable_cache
+            && !options.disable_cache
+            && !matches!(server.kind, Kind::FakeIp(_));
+        let key = request.queries().first().filter(|_| cached).map(|q| {
             let name = q.name().to_utf8();
             (
                 tag.to_string(),
@@ -413,35 +417,80 @@ impl DnsClient {
                 client_subnet(&request),
             )
         });
-        if let (true, Some(key)) = (cached, &key) {
-            if let Some(answer) = self.cached_answer(key, request.id()) {
-                return Ok(answer);
+        if let Some(key) = &key {
+            match self.answers.get(key, request.id()) {
+                Cached::Fresh(answer) => return Ok(answer),
+                Cached::Stale(answer) if !options.disable_optimistic_cache => {
+                    self.refresh(tag, &request, options, key.clone());
+                    return Ok(answer);
+                }
+                Cached::Stale(_) | Cached::Missing => {}
             }
         }
+        self.ask_and_keep(&server, &request, options, key).await
+    }
+
+    /// Asks `server`, and keeps the answer under `key`, if any, for its
+    /// TTL, which every record then carries, as in sing-box: its own, or
+    /// `rewrite_ttl`.
+    async fn ask_and_keep(
+        &self,
+        server: &Server,
+        request: &Message,
+        options: &QueryOptions,
+        key: Option<AnswerKey>,
+    ) -> Result<Message> {
         let timeout = options.timeout.unwrap_or(self.timeout);
-        let mut response = match self.query(&server, &request, timeout).await? {
+        let mut response = match self.query(server, request, timeout).await? {
             super::Answer::Message(message) => message,
             super::Answer::Ips(ips) => {
-                Self::reply(&request, &ips, super::LOCAL_TTL.as_secs() as u32)
+                Self::reply(request, &ips, super::LOCAL_TTL.as_secs() as u32)
             }
         };
         response.set_id(request.id());
-        if let Some(ttl) = options.rewrite_ttl {
-            for record in response.answers_mut() {
-                record.ttl = ttl;
-            }
-            for record in response.name_servers_mut() {
-                record.ttl = ttl;
-            }
-        }
+        let ttl = options
+            .rewrite_ttl
+            .unwrap_or_else(|| cache::ttl_of(&response));
+        cache::set_ttl(&mut response, ttl);
         let keeps = matches!(
             response.response_code(),
             ResponseCode::NoError | ResponseCode::NXDomain
         );
-        if let (true, true, Some(key)) = (cached, keeps, key) {
-            self.cache_answer(key, &response);
+        if let (true, Some(key)) = (keeps, key) {
+            self.answers.put(key, &response, ttl);
         }
         Ok(response)
+    }
+
+    /// Asks the server tagged `tag` `request` again in the background, for
+    /// the answer kept under `key`, which has expired: once at a time.
+    fn refresh(&self, tag: &str, request: &Message, options: &QueryOptions, key: AnswerKey) {
+        let Some(me) = self.me.upgrade() else {
+            return;
+        };
+        if !self.answers.start_refresh(&key) {
+            return;
+        }
+        let (tag, request, options) = (tag.to_owned(), request.clone(), options.clone());
+        tokio::spawn(async move {
+            let asked = match me.server(&tag) {
+                Ok(server) => {
+                    let server = server.clone();
+                    me.ask_and_keep(&server, &request, &options, Some(key.clone()))
+                        .await
+                        .map(drop)
+                }
+                Err(e) => Err(e),
+            };
+            if let Err(e) = asked {
+                debug!(
+                    "{}: optimistic refresh failed: {}",
+                    Self::question(&request),
+                    e
+                );
+            }
+            me.answers.refreshed(&key);
+        });
     }
 }
 

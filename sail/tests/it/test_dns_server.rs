@@ -181,3 +181,95 @@ fn fake_ips_outlive_a_restart_in_the_cache_file() -> anyhow::Result<()> {
     common::shutdown_instances(&rt, ids);
     Ok(())
 }
+
+// dig -> (direct)sail, hijacked -> hosts server; the API reports the DNS
+// cache, and clears it.
+#[cfg(all(feature = "inbound-direct", feature = "api"))]
+#[test]
+fn the_api_reports_the_dns_cache_and_clears_it() -> anyhow::Result<()> {
+    use std::str::FromStr;
+
+    use hickory_proto::op::{Message, MessageType, OpCode, Query};
+    use hickory_proto::rr::{Name, RecordType};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    let (ids, dns_port, api_port) = common::retry_port_clash(|| {
+        let [dns_port, api_port] = common::free_ports();
+        let config = serde_json::json!({
+            "api": { "listen": format!("127.0.0.1:{}", api_port) },
+            "dns": { "servers": [
+                { "type": "hosts", "predefined": { "one.sail": "192.0.2.1" } }
+            ] },
+            "inbounds": [{
+                "type": "direct", "tag": "dns-in",
+                "listen": "127.0.0.1", "listen_port": dns_port,
+            }],
+            "route": { "rules": [{ "inbound": "dns-in", "action": "hijack-dns" }] },
+        });
+        Ok((
+            common::run_sail_instances(&rt, vec![config.to_string()])?,
+            dns_port,
+            api_port,
+        ))
+    })?;
+    let api = |method: &str, path: &str| -> anyhow::Result<(u16, String)> {
+        rt.block_on(async {
+            let mut s = tokio::net::TcpStream::connect(("127.0.0.1", api_port)).await?;
+            let request = format!(
+                "{} {} HTTP/1.1\r\nHost: sail\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                method, path
+            );
+            s.write_all(request.as_bytes()).await?;
+            let mut reply = String::new();
+            s.read_to_string(&mut reply).await?;
+            let status = reply
+                .split(' ')
+                .nth(1)
+                .and_then(|c| c.parse().ok())
+                .unwrap_or(0);
+            let body = reply.split("\r\n\r\n").nth(1).unwrap_or("").to_owned();
+            Ok((status, body))
+        })
+    };
+    let stats = || -> anyhow::Result<serde_json::Value> {
+        let (status, body) = api("GET", "/api/v1/runtime/dns/cache")?;
+        assert_eq!(status, 200, "{}", body);
+        Ok(serde_json::from_str(&body)?)
+    };
+    let ask = || -> anyhow::Result<()> {
+        let mut m = Message::new(5, MessageType::Query, OpCode::Query);
+        m.metadata.recursion_desired = true;
+        m.add_query(Query::query(Name::from_str("one.sail.")?, RecordType::A));
+        rt.block_on(async {
+            let udp = tokio::net::UdpSocket::bind("127.0.0.1:0").await?;
+            udp.send_to(&m.to_vec()?, ("127.0.0.1", dns_port)).await?;
+            let mut buf = vec![0u8; 1500];
+            tokio::time::timeout(std::time::Duration::from_secs(5), udp.recv_from(&mut buf))
+                .await??;
+            anyhow::Ok(())
+        })
+    };
+
+    ask()?;
+    ask()?;
+    let s = stats()?;
+    assert_eq!(
+        (
+            s["entries"].as_u64(),
+            s["hits"].as_u64(),
+            s["misses"].as_u64()
+        ),
+        (Some(1), Some(1), Some(1)),
+        "{}",
+        s
+    );
+    assert_eq!(s["capacity"], 1024);
+    let (status, _) = api("POST", "/api/v1/runtime/dns/cache/flush")?;
+    assert_eq!(status, 204);
+    assert_eq!(stats()?["entries"], 0);
+    common::shutdown_instances(&rt, ids);
+    Ok(())
+}
