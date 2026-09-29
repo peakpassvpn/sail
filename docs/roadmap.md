@@ -270,7 +270,7 @@ Sail 与 sing-box 的对比已经完成。当前结果表明：
 | 4.1 | 移动端 FFI：流量统计、连接列表与关闭、日志回调、节点测速、切换节点、网络变化、运行状态、capability 查询 | `sail-ffi` | App 不经过 HTTP API 即可控制内核；回调线程、内存所有权、取消与错误消息有明确契约 |
 | 4.2 | FFI 健壮性 | `sail-ffi` | 多实例、重复启动/停止、回调重入和 App 异常退出不会死锁或泄漏；Swift/Kotlin 封装有集成测试 |
 | 4.3 | **部分完成（2026-09-29）** 服务端守护进程 | 已有非 root systemd unit、独立 TUN capability drop-in、安全安装/卸载、配置预检、便携自测与 Linux 验收脚本；真实 systemd PID 1 生命周期尚未验收，当前只支持 SIGTERM 停止而无连接排空或 `ExecReload` | 在一次性 Linux systemd 环境完成验收；优雅退出时等待连接排空；提供明确重载命令/信号且失败时保持旧配置运行 |
-| 4.4 | 路由器打包：OpenWrt 等发行版、低内存预算预设、按需裁剪 feature | `scripts/`、发布流程 | 在目标低内存设备上长时间运行不 OOM；包体积有记录 |
+| 4.4 | 路由器打包：OpenWrt 等发行版、低内存预算预设、按需裁剪 feature（待评估，均需先在测试机实测：① 内核按内存自动设的 TCP 缓冲上限（512 MB 约 4 MiB、256 MB 约 2 MiB）把单条 TCP 连接在 100 ms 往返下限在约 100–200 Mbit/s，与 mux 窗口无关；可选由 sail 以 root 只给上游代理连接设更大的接收缓冲（SO_RCVBUFFORCE），或由安装包调大 sysctl，或建议路由器优先用 Hysteria2 / TUIC（实测不受此限）；② router profile 下 Hysteria2 每流窗口固定 8 MiB，4 条卡住的流即占满 32 MiB 连接窗口、整条连接冻结至多 60 s，可改为 4 MiB，代价是 250 ms 往返下单流约 130 Mbit/s；数据见 `bench/router-profile` 分支 `scripts/bench-router/results`） | `scripts/`、发布流程 | 在目标低内存设备上长时间运行不 OOM；包体积有记录 |
 | 4.5 | Clash API 基础兼容：`/version`、`/configs`、`/proxies`、节点切换和 delay | `service/clash_api/` | yacd、metacubexd 可读取配置、展示并切换节点 |
 | 4.6 | Clash API 实时与管理接口：WebSocket `/traffic`、`/logs`、`/connections`，连接关闭、`/rules`、`/providers/proxies` | `service/clash_api/` | 用真实面板做端到端测试，而不只验证单个 URL |
 | 4.7 | API 安全与状态 | `service/`、selector、FakeIP | 默认仅监听 loopback；支持 secret/CORS；节点选择等必要状态可持久化 |
