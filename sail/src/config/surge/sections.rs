@@ -45,14 +45,6 @@ pub fn lower(
             line.loc
         ));
     }
-    for (name, lines) in profile.take_named("Ruleset") {
-        if !lines.is_empty() {
-            warnings.push(format!(
-                "[Ruleset {}]: sail does not read inline rule sets until C.5b; ignored",
-                name
-            ));
-        }
-    }
     for (name, lines) in profile.take_named("Tailscale") {
         if !lines.is_empty() {
             warnings.push(format!(

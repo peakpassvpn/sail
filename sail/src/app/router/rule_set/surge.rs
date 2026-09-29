@@ -93,7 +93,8 @@ fn classical<'a>(_: impl Iterator<Item = &'a str>, _: &RuntimeEnv) -> Result<Vec
 /// keyword or IP prefix alone, which match as any of them in one rule.
 #[cfg(feature = "config-surge")]
 fn merge(plain: &mut HeadlessRule, rule: &HeadlessRule) -> bool {
-    let fields: [(&Vec<String>, fn(&mut HeadlessRule) -> &mut Vec<String>); 4] = [
+    type Field = fn(&mut HeadlessRule) -> &mut Vec<String>;
+    let fields: [(&Vec<String>, Field); 4] = [
         (&rule.domain, |r| &mut r.domain),
         (&rule.domain_suffix, |r| &mut r.domain_suffix),
         (&rule.domain_keyword, |r| &mut r.domain_keyword),

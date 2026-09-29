@@ -42,6 +42,7 @@ mod proxy;
 mod requirement;
 mod rule;
 mod sections;
+mod sets;
 mod text;
 
 use text::Profile;
@@ -66,7 +67,7 @@ pub fn parse_in(s: &str, dir: Option<&Path>) -> Result<Config> {
         &mut out,
         &mut warnings,
     )?;
-    let mut sets = super::clash::provider::Sets::default();
+    let mut sets = sets::Sets::new(dir, profile.take_named("Ruleset"));
     rule::lower(
         profile.take("Rule"),
         &policies,
@@ -77,7 +78,7 @@ pub fn parse_in(s: &str, dir: Option<&Path>) -> Result<Config> {
     )?;
     sections::lower(profile, &policies, &mut out, &mut warnings)?;
     general.apply(&mut out);
-    out.rule_sets.extend(sets.into_geo_sets());
+    out.rule_sets.extend(sets.into_rule_sets());
 
     let value: Value = out.into_json();
     let mut config: Config = serde_path_to_error::deserialize(value).map_err(|e| {

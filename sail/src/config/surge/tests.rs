@@ -340,6 +340,79 @@ fn logical_http_and_early_rules() {
 }
 
 #[test]
+fn rule_sets_of_files_built_in_and_inline() {
+    let config = load(
+        "[Ruleset Media]\n\
+         RULE-SET,Streaming\n\
+         RULE-SET,https://example.com/music.list,no-resolve\n\
+         DOMAIN-SUFFIX,video.example // a comment\n\
+         [Ruleset Streaming]\n\
+         DOMAIN-SUFFIX,stream.example\n\
+         IP-CIDR,203.0.113.0/24\n\
+         [Rule]\n\
+         DOMAIN-SET,https://example.com/ads.txt,REJECT,update-interval=-1\n\
+         RULE-SET,SYSTEM,DIRECT\n\
+         RULE-SET,https://example.com/cn.list,DIRECT,\"update-interval=43200\"\n\
+         RULE-SET,Media,DIRECT\n\
+         RULE-SET,LAN,DIRECT,no-resolve\n\
+         FINAL,DIRECT\n",
+    );
+    let rules = rules(&config);
+    let text: Vec<String> = rules.iter().map(|r| r.to_string()).collect();
+    assert_eq!(
+        rules[0],
+        json!({ "rule_set": ["https://example.com/ads.txt"], "action": "reject" })
+    );
+    // SYSTEM's names, in place.
+    assert!(text[1].contains("\"push.apple.com\"") && text[1].contains("\"DIRECT\""));
+    assert!(!text[1].contains("trustd"));
+    // A file's rules may be of HTTP, and of addresses: sniffed and
+    // resolved first, going on where it does not resolve.
+    assert_eq!(rules[2], json!({ "action": "sniff", "sniffer": ["http"] }));
+    assert_eq!(
+        rules[3],
+        json!({ "action": "resolve", "ignore_failure": true })
+    );
+    assert_eq!(rules[4]["rule_set"], json!(["https://example.com/cn.list"]));
+    // Its own IP rule resolves again, and fails where it does not.
+    assert_eq!(rules[5], json!({ "action": "resolve" }));
+    // An inline set of an inline set, and of a file: any of them.
+    assert_eq!(
+        rules[6],
+        json!({ "type": "logical", "mode": "or", "rules": [
+            { "domain_suffix": ["video.example"] },
+            { "domain_suffix": ["stream.example"], "ip_cidr": ["203.0.113.0/24"] },
+            { "rule_set": ["https://example.com/music.list"] },
+        ], "outbound": "DIRECT" })
+    );
+    // LAN, without resolving.
+    let lan = rules.last().unwrap();
+    assert!(lan["domain_suffix"] == json!(["local"]) && lan["ip_cidr"][1] == "10.0.0.0/8");
+    let sets: Vec<Value> = config
+        .route
+        .rule_set
+        .iter()
+        .map(|s| serde_json::to_value(s).unwrap())
+        .collect();
+    assert_eq!(
+        sets,
+        [
+            json!({ "type": "remote", "tag": ["https://example.com/ads.txt"],
+                    "format": "surge-text", "behavior": "domain",
+                    "url": "https://example.com/ads.txt", "download_detour": "DIRECT",
+                    "update_interval": "315360000000ms" }),
+            json!({ "type": "remote", "tag": ["https://example.com/cn.list"],
+                    "format": "surge-text", "behavior": "classical",
+                    "url": "https://example.com/cn.list", "download_detour": "DIRECT",
+                    "update_interval": "43200000ms" }),
+            json!({ "type": "remote", "tag": ["https://example.com/music.list"],
+                    "format": "surge-text", "behavior": "classical",
+                    "url": "https://example.com/music.list", "download_detour": "DIRECT" }),
+        ]
+    );
+}
+
+#[test]
 fn mistakes_name_where_they_are() {
     for (text, expected) in [
         (
@@ -385,8 +458,19 @@ fn mistakes_name_where_they_are() {
             "holds itself",
         ),
         (
-            "[Rule]\nRULE-SET,https://a/b.list,DIRECT\nFINAL,DIRECT\n",
-            "[Rule] line 2: sail does not implement RULE-SET rules yet (C.5b)",
+            "[Rule]\nRULE-SET,https://a/b.list,DIRECT\nDOMAIN-SET,https://a/b.list,DIRECT\n\
+             FINAL,DIRECT\n",
+            "[Rule] line 3: DOMAIN-SET: https://a/b.list is a RULE-SET too, which Surge refuses",
+        ),
+        (
+            "[Ruleset A]\nRULE-SET,B\n[Ruleset B]\nDOMAIN,b\nRULE-SET,A\n\
+             [Rule]\nRULE-SET,A,DIRECT\nFINAL,DIRECT\n",
+            "[Rule] line 7: [Ruleset A] line 2: [Ruleset B] line 5: RULE-SET: A leads back to \
+             itself: A -> B -> A",
+        ),
+        (
+            "[Ruleset A]\nFINAL,DIRECT\n[Rule]\nRULE-SET,A,DIRECT\nFINAL,DIRECT\n",
+            "[Rule] line 4: [Ruleset A] line 2: FINAL and pre-matching are not for a rule-set",
         ),
         (
             "[Rule]\nURL-REGEX,(,DIRECT\nFINAL,DIRECT\n",

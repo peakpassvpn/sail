@@ -31,9 +31,9 @@ use serde_json::{json, Map, Value};
 use super::general::{General, UdpFallback};
 use super::group::{Policies, Target, Udp};
 use super::proxy::Reject;
+use super::sets::{self, Sets};
 use super::text::{self, Line};
 use super::Lowered;
-use crate::config::clash::provider::Sets;
 
 /// How deep logical rules nest, as Surge has it.
 const MAX_LOGICAL_DEPTH: usize = 10;
@@ -41,7 +41,6 @@ const MAX_LOGICAL_DEPTH: usize = 10;
 /// The rule types sail does not implement, or not yet.
 fn later(kind: &str) -> Option<&'static str> {
     match kind {
-        "RULE-SET" | "DOMAIN-SET" => Some(" yet (C.5b)"),
         "SUBNET" | "CELLULAR-RADIO" | "CELLULAR-CARRIER" | "DEVICE-NAME" | "MAC-ADDRESS"
         | "SCRIPT" => Some(""),
         _ => None,
@@ -487,6 +486,7 @@ pub(super) fn condition(
     }
     let key = match kind {
         "AND" | "OR" | "NOT" => return logical(kind, value, scope, depth).map(Some),
+        "RULE-SET" | "DOMAIN-SET" => return set(kind, value, flags, scope, depth),
         "DOMAIN" => "domain",
         "DOMAIN-SUFFIX" => "domain_suffix",
         "DOMAIN-KEYWORD" => "domain_keyword",
@@ -634,6 +634,153 @@ pub(super) fn condition(
     needs.extended = flags.extended;
     rule.insert(key.into(), json!([value.to_ascii_lowercase()]));
     Ok(Some((rule, needs)))
+}
+
+/// The condition of a `RULE-SET` or `DOMAIN-SET` rule: a built-in or
+/// inline set's rules, in place; a file's rule-set.
+fn set(
+    kind: &str,
+    value: &str,
+    flags: &Flags,
+    scope: &mut Scope,
+    depth: usize,
+) -> Result<Option<Cond>> {
+    let sets = scope
+        .sets
+        .as_deref_mut()
+        .ok_or_else(|| anyhow!("{}: a rule-set's file names no other set", kind))?;
+    let rules = match kind {
+        "RULE-SET" => sets.rules_of(value),
+        _ => None,
+    };
+    let Some(rules) = rules else {
+        let (file, needs) = match kind {
+            // Whether it has IP rules, or HTTP ones, is not known before it
+            // is read.
+            "RULE-SET" => (
+                sets::Kind::Rules,
+                Needs {
+                    resolve: if flags.no_resolve {
+                        Resolve::No
+                    } else {
+                        Resolve::Maybe
+                    },
+                    http: true,
+                    extended: flags.extended,
+                    ..Default::default()
+                },
+            ),
+            _ => (
+                sets::Kind::Domains,
+                Needs {
+                    extended: flags.extended,
+                    ..Default::default()
+                },
+            ),
+        };
+        let tag = sets.file(file, value, flags.update_interval)?;
+        let mut rule = Map::new();
+        rule.insert("rule_set".into(), json!([tag]));
+        return Ok(Some((rule, needs)));
+    };
+    if sets.stack.iter().any(|s| s == value) {
+        return Err(anyhow!(
+            "RULE-SET: {} leads back to itself: {} -> {}",
+            value,
+            sets.stack.join(" -> "),
+            value
+        ));
+    }
+    if sets.stack.len() >= sets::MAX_DEPTH {
+        scope.warnings.push(format!(
+            "RULE-SET,{}: sets name sets {} deep at most; it matches nothing, as in Surge",
+            value,
+            sets::MAX_DEPTH
+        ));
+        return Ok(Some((never(), Needs::default())));
+    }
+    sets.stack.push(value.to_string());
+    let found = set_rules(&rules, flags, scope, depth);
+    if let Some(sets) = scope.sets.as_deref_mut() {
+        sets.stack.pop();
+    }
+    found.map(Some)
+}
+
+/// The condition of a set's rules, any of which matching: the RULE-SET
+/// line's `no-resolve` and `extended-matching` hold for each.
+fn set_rules(
+    rules: &[(String, String)],
+    flags: &Flags,
+    scope: &mut Scope,
+    depth: usize,
+) -> Result<Cond> {
+    let mut plain = Map::new();
+    let mut others = Vec::new();
+    let mut needs = Needs::default();
+    for (at, line) in rules {
+        let h = Headless::split(line);
+        let mut own = Flags::read(&h.params, &h.kind, at, scope.warnings)?;
+        if h.kind == "FINAL" || own.pre_matching {
+            return Err(anyhow!(
+                "{}: FINAL and pre-matching are not for a rule-set",
+                at
+            ));
+        }
+        own.no_resolve |= flags.no_resolve;
+        own.extended |= flags.extended;
+        let Some((condition, n)) = condition(&h.kind, &h.value, &own, scope, depth)
+            .map_err(|e| anyhow!("{}: {}", at, e))?
+        else {
+            continue;
+        };
+        needs = needs.and(n);
+        // Of one list of names or prefixes: those match as any of them in
+        // one rule.
+        let plain_key = match condition.iter().next() {
+            Some((key, Value::Array(_)))
+                if condition.len() == 1
+                    && [
+                        "domain",
+                        "domain_suffix",
+                        "domain_keyword",
+                        "domain_regex",
+                        "ip_cidr",
+                    ]
+                    .contains(&key.as_str()) =>
+            {
+                Some(key.clone())
+            }
+            _ => None,
+        };
+        match plain_key {
+            Some(key) => {
+                let values = condition[&key].as_array().cloned().unwrap_or_default();
+                if let Value::Array(list) = plain.entry(key).or_insert_with(|| json!([])) {
+                    list.extend(values);
+                }
+            }
+            None => others.push(Value::Object(condition)),
+        }
+    }
+    if !plain.is_empty() {
+        others.insert(0, Value::Object(plain));
+    }
+    let rule = match others.len() {
+        0 => never(),
+        1 => match others.pop() {
+            Some(Value::Object(rule)) => rule,
+            _ => unreachable!("conditions are objects"),
+        },
+        _ => {
+            let mut rule = Map::new();
+            rule.insert("type".into(), json!("logical"));
+            rule.insert("mode".into(), json!("or"));
+            rule.insert("rules".into(), Value::Array(others));
+            rule
+        }
+    };
+    Ok((rule, needs))
 }
 
 /// A logical rule's condition: its rules, `((TYPE,value),...)`, each
