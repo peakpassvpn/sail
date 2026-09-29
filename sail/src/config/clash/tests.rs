@@ -198,7 +198,7 @@ fn mistakes_name_the_field() {
         ),
         (
             "proxy-groups: [{ name: G, type: select, use: [p], proxies: [DIRECT] }]",
-            "proxy-groups[0].use: sail does not implement this field yet",
+            "proxy-groups[0].use[0]: no proxy-provider is named \"p\"",
         ),
         ("rules: [\"DOMAIN,a.example,Nowhere\"]", "rules[0]: no proxy or group is named \"Nowhere\""),
         ("rules: [\"DSCP,4,DIRECT\"]", "rules[0]: sail does not implement DSCP rules yet"),
@@ -386,6 +386,167 @@ fn rule_provider_mistakes_name_the_field() {
         ),
         ("rules: [\"RULE-SET,nowhere,DIRECT\"]", "rules[0]: no rule-provider is named \"nowhere\""),
         ("rules: [\"GEOSITE,../x,DIRECT\"]", "is no geosite list"),
+    ] {
+        let err = error(yaml);
+        assert!(err.contains(message), "{}\n  => {}", yaml, err);
+    }
+}
+
+const PROVIDERS: &str = r#"
+proxies:
+  - { name: hk-1, type: socks5, server: 127.0.0.1, port: 1080 }
+  - { name: jp-1, type: socks5, server: 127.0.0.1, port: 1081 }
+  - { name: dns-out, type: dns }
+proxy-providers:
+  sub:
+    type: http
+    url: https://sub.example.com/clash
+    path: ./providers/sub.yaml
+    interval: 3600
+    proxy: G
+    filter: "HK|JP`US"
+    exclude-type: "vmess|ssr"
+    dialer-proxy: jp-1
+    override: { skip-cert-verify: true, additional-prefix: "[sub] " }
+    health-check: { enable: true, url: https://cp.example.com/generate_204, interval: 300 }
+  local:
+    type: file
+    path: ./local.yaml
+  held:
+    type: inline
+    exclude-filter: drop
+    override: { additional-suffix: " (held)" }
+    payload:
+      - { name: kept, type: socks5, server: 127.0.0.1, port: 1082 }
+      - { name: drop-me, type: socks5, server: 127.0.0.1, port: 1083 }
+proxy-groups:
+  - { name: G, type: select, proxies: [DIRECT] }
+  - { name: Sub, type: url-test, use: [sub], filter: HK }
+  - { name: All, type: select, include-all: true, filter: "hk", exclude-type: Direct }
+  - { name: Some, type: fallback, include-all-proxies: true, filter: "^jp", empty-fallback: hk-1 }
+rules:
+  - MATCH,G
+"#;
+
+fn provider(config: &Config, tag: &str) -> serde_json::Value {
+    let p = config
+        .outbound_providers
+        .iter()
+        .find(|p| p.tag == tag)
+        .unwrap_or_else(|| panic!("no provider [{}]", tag));
+    serde_json::to_value(p).unwrap()
+}
+
+#[test]
+fn proxy_providers_are_outbound_providers() {
+    let config = load(PROVIDERS);
+    let sub = provider(&config, "sub");
+    assert_eq!(sub["type"], "remote");
+    assert_eq!(sub["url"], "https://sub.example.com/clash");
+    assert_eq!(
+        config.outbound_providers[0].update_interval,
+        Some(std::time::Duration::from_secs(3600))
+    );
+    assert_eq!(sub["download_detour"], "G");
+    assert_eq!(sub["filter"], serde_json::json!(["HK|JP", "US"]));
+    assert_eq!(sub["exclude_type"], serde_json::json!(["vmess", "ssr"]));
+    assert_eq!(sub["detour"], "jp-1");
+    assert_eq!(sub["override"]["skip-cert-verify"], true);
+    assert!(sub.get("path").is_none());
+    let passed_over = load(
+        "proxy-providers: { p: { type: file, path: a, override: { client-fingerprint: chrome } } }",
+    );
+    assert!(
+        passed_over
+            .warnings
+            .iter()
+            .any(|w| w.contains("proxy-providers.p.override.client-fingerprint")),
+        "{:?}",
+        passed_over.warnings
+    );
+    assert!(config
+        .warnings
+        .iter()
+        .any(|w| w.contains("proxy-providers.sub.health-check")));
+
+    let local = provider(&config, "local");
+    assert_eq!(local["type"], "local");
+    assert_eq!(local["path"], "./local.yaml");
+
+    // Picked and changed here, as Mihomo does once it has read them.
+    let held = provider(&config, "held");
+    assert_eq!(held["type"], "inline");
+    let tags: Vec<&str> = held["outbounds"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|o| o["tag"].as_str().unwrap())
+        .collect();
+    assert_eq!(tags, ["kept (held)"]);
+}
+
+#[test]
+fn groups_take_the_providers_members() {
+    let config = load(PROVIDERS);
+    let options = |tag: &str| serde_json::Value::Object(outbound(&config, tag).options.clone());
+
+    let sub = options("Sub");
+    assert_eq!(sub["providers"], serde_json::json!(["sub"]));
+    assert_eq!(sub["filter"], serde_json::json!(["HK"]));
+    assert_eq!(sub["outbounds"], serde_json::json!([]));
+    assert_eq!(sub["empty_fallback"], "COMPATIBLE");
+    // The provider's health check's URL, the group naming none.
+    assert_eq!(sub["url"], "https://cp.example.com/generate_204");
+
+    // Every provider, sorted, and every proxy the filter picks; the filter
+    // then goes on to the providers' proxies.
+    let all = options("All");
+    assert_eq!(
+        all["providers"],
+        serde_json::json!(["held", "local", "sub"])
+    );
+    assert_eq!(all["outbounds"], serde_json::json!(["hk-1"]));
+    assert_eq!(all["filter"], serde_json::json!(["hk"]));
+    assert_eq!(all["exclude_type"], serde_json::json!(["Direct"]));
+
+    let some = options("Some");
+    assert_eq!(some["outbounds"], serde_json::json!(["jp-1"]));
+    assert!(some.get("providers").is_none());
+    assert!(some.get("filter").is_none());
+    assert!(some.get("empty_fallback").is_none());
+
+    // A group with nothing to take falls back as Mihomo's does.
+    let config = load(
+        "proxies: [{ name: a, type: socks5, server: 127.0.0.1, port: 1 }]\n\
+         proxy-groups: [{ name: G, type: select, include-all-proxies: true, filter: nothing }]",
+    );
+    let g = serde_json::Value::Object(outbound(&config, "G").options.clone());
+    assert_eq!(g["outbounds"], serde_json::json!(["COMPATIBLE"]));
+    assert_eq!(outbound(&config, "COMPATIBLE").protocol, "direct");
+}
+
+#[test]
+fn proxy_provider_mistakes_name_the_field() {
+    for (yaml, message) in [
+        ("proxy-providers: { p: { type: ftp } }", "proxy-providers.p.type: \"ftp\" is none of http, file and inline"),
+        ("proxy-providers: { p: { type: http } }", "proxy-providers.p.url: missing"),
+        (
+            "proxy-providers: { p: { type: http, url: 'https://x/', age-secret-key: k } }",
+            "proxy-providers.p.age-secret-key: sail does not implement this field yet",
+        ),
+        (
+            "proxy-providers: { p: { type: http, url: 'https://x/', proxy: nowhere } }",
+            "download_detour: outbound [nowhere] does not exist",
+        ),
+        (
+            "proxy-providers: { p: { type: file, path: a } }\n\
+             proxy-groups: [{ name: G, type: select, use: [p], empty-fallback: H }, { name: H, type: select, proxies: [DIRECT] }]",
+            "proxy-groups[0].empty-fallback: no proxy, not a group, is named \"H\"",
+        ),
+        (
+            "proxy-groups: [{ name: G, type: select }]",
+            "proxy-groups[0].proxies: a group of no proxies and no providers",
+        ),
     ] {
         let err = error(yaml);
         assert!(err.contains(message), "{}\n  => {}", yaml, err);

@@ -9,6 +9,7 @@ use serde_json::{json, Map, Value};
 
 use super::fields::{Fields, Tier};
 use super::proxy::{Proxies, BUILT_IN};
+use super::proxy_provider::{split, Providers};
 use super::Lowered;
 
 use Tier::*;
@@ -34,14 +35,6 @@ const COMMON: &[(&str, Tier)] = &[
     ("expected-status", Ignored),
     ("lazy", Ignored),
     ("disable-udp", Ignored),
-    // Members from providers, or filtered by name or type: later.
-    ("use", Unsupported),
-    ("include-all", Unsupported),
-    ("include-all-providers", Unsupported),
-    ("filter", Unsupported),
-    ("exclude-filter", Unsupported),
-    ("exclude-type", Unsupported),
-    ("empty-fallback", Unsupported),
 ];
 
 /// The defaults of a group's health checks, Mihomo's.
@@ -51,6 +44,7 @@ const INTERVAL: u64 = 300;
 pub fn lower(
     doc: &mut Fields,
     proxies: &Proxies,
+    providers: &Providers,
     out: &mut Lowered,
     warnings: &mut Vec<String>,
 ) -> Result<Policies> {
@@ -85,11 +79,26 @@ pub fn lower(
     let known: HashSet<String> = names
         .iter()
         .cloned()
-        .chain(["DIRECT", "REJECT", "REJECT-DROP"].map(String::from))
+        .chain(["DIRECT", "REJECT", "REJECT-DROP", "COMPATIBLE"].map(String::from))
         .collect();
+    // The proxies `include-all-proxies` takes, by name as Mihomo sorts them.
+    let mut all_proxies: Vec<&str> = proxies
+        .names
+        .iter()
+        .map(String::as_str)
+        .filter(|n| !proxies.dns.contains(*n))
+        .collect();
+    all_proxies.sort();
+    let context = Context {
+        known: &known,
+        dns: &proxies.dns,
+        groups: &group_names,
+        all_proxies: &all_proxies,
+        providers,
+    };
     for (i, node) in groups.into_iter().enumerate() {
         let mut f = Fields::of(node, &format!("proxy-groups[{}]", i))?;
-        let group = group(&mut f, &known, &proxies.dns)?;
+        let group = group(&mut f, &context, warnings)?;
         // What other kinds of group take, which Mihomo passes over, as
         // templates apply one anchor to groups of every kind; and what only
         // a dashboard shows, which sail has none of yet.
@@ -111,6 +120,9 @@ pub fn lower(
         .push(json!({ "type": "direct", "tag": "DIRECT" }));
     out.outbounds
         .push(json!({ "type": "block", "tag": "REJECT" }));
+    // What a group of no members has, as Mihomo's: a DIRECT by another name.
+    out.outbounds
+        .push(json!({ "type": "direct", "tag": "COMPATIBLE" }));
     if !group_names.iter().any(|n| n == "GLOBAL") {
         let members: Vec<&str> = ["DIRECT", "REJECT"]
             .into_iter()
@@ -135,22 +147,28 @@ pub fn lower(
     })
 }
 
-fn group(f: &mut Fields, known: &HashSet<String>, dns: &HashSet<String>) -> Result<Value> {
+/// What a group's members are named among.
+struct Context<'a> {
+    /// Proxies, groups and Mihomo's own policies.
+    known: &'a HashSet<String>,
+    /// The `dns` proxies.
+    dns: &'a HashSet<String>,
+    groups: &'a [String],
+    /// The proxies, sorted, for `include-all-proxies`.
+    all_proxies: &'a [&'a str],
+    providers: &'a Providers,
+}
+
+fn group(f: &mut Fields, cx: &Context, warnings: &mut Vec<String>) -> Result<Value> {
     let name = f.string("name")?.unwrap_or_default();
     let kind = f
         .string("type")?
         .ok_or_else(|| anyhow!("{}: missing", f.at("type")))?
         .to_ascii_lowercase();
-    let members = f.strings("proxies")?;
+    let mut members = f.strings("proxies")?;
     let proxies_at = f.at("proxies");
-    if members.is_empty() {
-        return Err(anyhow!(
-            "{}: a group of no proxies; sail does not read members from providers yet",
-            proxies_at
-        ));
-    }
     for (i, member) in members.iter().enumerate() {
-        if dns.contains(member) {
+        if cx.dns.contains(member) {
             return Err(anyhow!(
                 "{}[{}]: {} is a dns proxy, which sail takes in rules alone",
                 proxies_at,
@@ -158,7 +176,7 @@ fn group(f: &mut Fields, known: &HashSet<String>, dns: &HashSet<String>) -> Resu
                 member
             ));
         }
-        if !known.contains(member) {
+        if !cx.known.contains(member) {
             return Err(anyhow!(
                 "{}[{}]: no proxy or group is named {:?}",
                 proxies_at,
@@ -166,6 +184,59 @@ fn group(f: &mut Fields, known: &HashSet<String>, dns: &HashSet<String>) -> Resu
                 member
             ));
         }
+    }
+    let filter = split(f.string("filter")?, '`');
+    let exclude_filter = split(f.string("exclude-filter")?, '`');
+    let exclude_type = split(f.string("exclude-type")?, '|');
+    let include_all = f.bool("include-all")?.unwrap_or(false);
+    let all_providers = include_all || f.bool("include-all-providers")?.unwrap_or(false);
+    let all_proxies = include_all || f.bool("include-all-proxies")?.unwrap_or(false);
+    // `include-all-providers` takes the place of `use`, as in Mihomo.
+    let used = f.strings("use")?;
+    let use_at = f.at("use");
+    let providers: Vec<String> = if all_providers {
+        cx.providers.names.clone()
+    } else {
+        for (i, p) in used.iter().enumerate() {
+            if !cx.providers.has(p) {
+                return Err(anyhow!(
+                    "{}[{}]: no proxy-provider is named {:?}",
+                    use_at,
+                    i,
+                    p
+                ));
+            }
+        }
+        used
+    };
+    let empty_fallback = f
+        .string("empty-fallback")?
+        .unwrap_or_else(|| "COMPATIBLE".to_string());
+    if cx.groups.contains(&empty_fallback) || !cx.known.contains(&empty_fallback) {
+        return Err(anyhow!(
+            "{}: no proxy, not a group, is named {:?}",
+            f.at("empty-fallback"),
+            empty_fallback
+        ));
+    }
+    if all_proxies {
+        // The proxies whose names match a filter, or all without one.
+        let picked = pick(cx.all_proxies, &filter, warnings)
+            .map_err(|e| anyhow!("{}: {}", f.at("filter"), e))?;
+        for proxy in picked {
+            if !members.iter().any(|m| m == proxy) {
+                members.push(proxy.to_string());
+            }
+        }
+        if members.is_empty() && providers.is_empty() {
+            members.push(empty_fallback.clone());
+        }
+    }
+    if members.is_empty() && providers.is_empty() {
+        return Err(anyhow!(
+            "{}: a group of no proxies and no providers",
+            proxies_at
+        ));
     }
     // REJECT-DROP, where a group has it, rejects as REJECT does.
     let members: Vec<String> = members
@@ -181,7 +252,39 @@ fn group(f: &mut Fields, known: &HashSet<String>, dns: &HashSet<String>) -> Resu
     let mut o = Map::new();
     o.insert("tag".into(), json!(name));
     o.insert("outbounds".into(), json!(members));
-    let url = f.string("url")?.unwrap_or_else(|| URL.to_string());
+    if !providers.is_empty() {
+        // Of the providers' proxies alone; those of `include-all-proxies`
+        // were picked above.
+        if !filter.is_empty() {
+            o.insert("filter".into(), json!(filter));
+        }
+    }
+    // Mihomo has every group fall back so; only these can be left with
+    // no member.
+    let may_empty = !providers.is_empty() || !exclude_filter.is_empty() || !exclude_type.is_empty();
+    for (key, list) in [
+        ("exclude_filter", exclude_filter),
+        ("exclude_type", exclude_type),
+    ] {
+        if !list.is_empty() {
+            o.insert(key.into(), json!(list));
+        }
+    }
+    if may_empty {
+        o.insert("empty_fallback".into(), json!(empty_fallback));
+    }
+    // Without a URL of its own, the first provider's health check's, as
+    // Mihomo has it.
+    let provider_url = providers
+        .iter()
+        .find_map(|p| cx.providers.health_urls.get(p).cloned());
+    if !providers.is_empty() {
+        o.insert("providers".into(), json!(providers));
+    }
+    let url = f
+        .string("url")?
+        .or(provider_url)
+        .unwrap_or_else(|| URL.to_string());
     let interval = f.int::<u64>("interval")?.unwrap_or(INTERVAL);
     let health = |o: &mut Map<String, Value>| {
         o.insert("url".into(), json!(url));
@@ -242,4 +345,25 @@ fn group(f: &mut Fields, known: &HashSet<String>, dns: &HashSet<String>) -> Resu
         }
     }
     Ok(Value::Object(o))
+}
+
+/// The names `filters` pick of `names`, in order: any matching one, or
+/// all without filters.
+fn pick<'a>(
+    names: &[&'a str],
+    filters: &[String],
+    warnings: &mut Vec<String>,
+) -> Result<Vec<&'a str>> {
+    if filters.is_empty() {
+        return Ok(names.to_vec());
+    }
+    let filters = filters
+        .iter()
+        .map(|f| crate::common::name_filter::NameFilter::new(f))
+        .collect::<Result<Vec<_>>>()?;
+    Ok(names
+        .iter()
+        .copied()
+        .filter(|n| filters.iter().any(|f| f.matches(n, warnings)))
+        .collect())
 }

@@ -20,8 +20,7 @@ use crate::app::dispatcher::Dispatcher;
 use crate::app::router::rule_set::remote::{file_name, write_atomically};
 use crate::app::router::rule_set::{http, HttpClients};
 use crate::app::SyncDnsClient;
-use crate::common::name_filter::NameFilter;
-use crate::config::clash::subscription::{self, Override, Selection};
+use crate::config::clash::subscription::{self, Selection};
 use crate::config::model::{Outbound, OutboundProvider, OutboundProviderKind};
 use crate::net::DialOptions;
 use crate::protocol::group::members::{Member, MemberKey, Members};
@@ -133,23 +132,14 @@ impl Provider {
             OutboundProviderKind::Inline => Source::Inline,
         };
         let mut warnings = Vec::new();
-        let filters = |patterns: &[String]| {
-            patterns
-                .iter()
-                .map(|p| NameFilter::new(p))
-                .collect::<Result<Vec<_>>>()
-        };
-        let selection = Selection {
-            filters: filters(&config.filter).map_err(|e| anyhow!("filter: {}", e))?,
-            exclude: filters(&config.exclude_filter)
-                .map_err(|e| anyhow!("exclude_filter: {}", e))?,
-            exclude_types: config.exclude_type.clone(),
-            dialer_proxy: config.detour.clone(),
-            overrides: match &config.overrides {
-                Some(o) => Override::from_json(o, &mut warnings)?,
-                None => Override::default(),
-            },
-        };
+        let selection = Selection::of(
+            &config.filter,
+            &config.exclude_filter,
+            &config.exclude_type,
+            config.detour.as_deref(),
+            config.overrides.as_ref(),
+            &mut warnings,
+        )?;
         let mut provider = Provider {
             tag: config.tag.as_str().into(),
             config: config.clone(),

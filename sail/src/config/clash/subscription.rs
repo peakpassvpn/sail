@@ -30,6 +30,37 @@ pub struct Selection {
     pub overrides: Override,
 }
 
+impl Selection {
+    /// A provider's choice, as sail's JSON gives it: `filter` and
+    /// `exclude_filter` regular expressions, `exclude_type` Clash types,
+    /// `detour` the dialer-proxy, `overrides` in Mihomo's keys.
+    pub fn of(
+        filter: &[String],
+        exclude_filter: &[String],
+        exclude_type: &[String],
+        detour: Option<&str>,
+        overrides: Option<&Map<String, Value>>,
+        warnings: &mut Vec<String>,
+    ) -> Result<Self> {
+        let filters = |patterns: &[String]| {
+            patterns
+                .iter()
+                .map(|p| NameFilter::new(p))
+                .collect::<Result<Vec<_>>>()
+        };
+        Ok(Selection {
+            filters: filters(filter).map_err(|e| anyhow!("filter: {}", e))?,
+            exclude: filters(exclude_filter).map_err(|e| anyhow!("exclude_filter: {}", e))?,
+            exclude_types: exclude_type.to_vec(),
+            dialer_proxy: detour.map(str::to_string),
+            overrides: match overrides {
+                Some(o) => Override::from_json(o, warnings)?,
+                None => Override::default(),
+            },
+        })
+    }
+}
+
 /// A provider's `override`.
 #[derive(Default)]
 pub struct Override {
@@ -40,20 +71,7 @@ pub struct Override {
     suffix: Option<String>,
 }
 
-/// The `override` fields that set a proxy's own.
-const OVERRIDDEN: &[&str] = &[
-    "tfo",
-    "mptcp",
-    "udp",
-    "udp-over-tcp",
-    "up",
-    "down",
-    "dialer-proxy",
-    "skip-cert-verify",
-    "interface-name",
-    "routing-mark",
-    "ip-version",
-];
+use super::proxy_provider::{OVERRIDDEN, OVERRIDE_NAMES};
 
 impl Override {
     pub fn read(f: Option<Fields>, warnings: &mut Vec<String>) -> Result<Self> {
@@ -63,7 +81,7 @@ impl Override {
         let mut o = Override::default();
         for key in OVERRIDDEN {
             if let Some(value) = f.take(key) {
-                o.fields.insert(key.to_string(), node_json(&value));
+                o.fields.insert(key.to_string(), value.to_json());
             }
         }
         for (i, node) in f.list("proxy-name")?.into_iter().enumerate() {
@@ -93,16 +111,9 @@ impl Override {
     /// An `override` as sail's JSON gives it, an object in Mihomo's own
     /// keys: one Mihomo's does not take is an error there.
     pub fn from_json(value: &Map<String, Value>, warnings: &mut Vec<String>) -> Result<Self> {
-        const NAMES: &[&str] = &[
-            "proxy-name",
-            "additional-prefix",
-            "additional-suffix",
-            "name-cert-verify",
-            "override-expr",
-        ];
         if let Some(key) = value
             .keys()
-            .find(|k| !OVERRIDDEN.contains(&k.as_str()) && !NAMES.contains(&k.as_str()))
+            .find(|k| !OVERRIDDEN.contains(&k.as_str()) && !OVERRIDE_NAMES.contains(&k.as_str()))
         {
             return Err(anyhow!(
                 "override.{}: not a field Mihomo's override takes",
@@ -126,18 +137,6 @@ impl Override {
             name,
             self.suffix.as_deref().unwrap_or("")
         )
-    }
-}
-
-fn node_json(node: &Node) -> Value {
-    match node {
-        Node::Null => Value::Null,
-        Node::Bool(b) => json!(b),
-        Node::Int(i) => json!(i),
-        Node::Float(f) => json!(f),
-        Node::Str(s) => json!(s),
-        Node::Seq(items) => Value::Array(items.iter().map(node_json).collect()),
-        Node::Map(m) => Value::Object(m.iter().map(|(k, v)| (k.clone(), node_json(v))).collect()),
     }
 }
 
@@ -169,6 +168,20 @@ pub fn read(body: &str, selection: &Selection) -> Result<Proxies> {
         Some(proxies) => proxies,
         None => share_links(body, &mut warnings),
     };
+    select(candidates, selection, warnings)
+}
+
+/// Clash proxies a provider holds in place, its `payload`.
+pub(super) fn read_clash(items: Vec<Node>, selection: &Selection) -> Result<Proxies> {
+    select(clash_candidates(items), selection, Vec::new())
+}
+
+/// The proxies `selection` takes of `candidates`, lowered.
+fn select(
+    candidates: Vec<Candidate>,
+    selection: &Selection,
+    mut warnings: Vec<String>,
+) -> Result<Proxies> {
     // As Mihomo: each filter in turn over the proxies, so that those of the
     // first come first; a name once taken is not taken again.
     let passes: Vec<Option<&NameFilter>> = if selection.filters.is_empty() {
@@ -257,21 +270,24 @@ fn clash_proxies(body: &str) -> Result<Option<Vec<Candidate>>> {
     let Node::Seq(items) = proxies else {
         return Err(anyhow!("proxies: a list, not {}", proxies.kind()));
     };
-    Ok(Some(
-        items
-            .into_iter()
-            .filter_map(|node| {
-                let Node::Map(map) = &node else { return None };
-                let name = map.get("name")?.as_string()?;
-                let kind = map.get("type")?.as_string()?.to_ascii_lowercase();
-                Some(Candidate {
-                    name: cut(name),
-                    kind,
-                    form: Form::Clash(node),
-                })
+    Ok(Some(clash_candidates(items)))
+}
+
+/// Clash proxies, those with a name and a type.
+fn clash_candidates(items: Vec<Node>) -> Vec<Candidate> {
+    items
+        .into_iter()
+        .filter_map(|node| {
+            let Node::Map(map) = &node else { return None };
+            let name = map.get("name")?.as_string()?;
+            let kind = map.get("type")?.as_string()?.to_ascii_lowercase();
+            Some(Candidate {
+                name: cut(name),
+                kind,
+                form: Form::Clash(node),
             })
-            .collect(),
-    ))
+        })
+        .collect()
 }
 
 /// The proxies of share links.

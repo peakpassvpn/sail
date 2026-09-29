@@ -22,6 +22,7 @@ mod group;
 mod node;
 mod provider;
 mod proxy;
+mod proxy_provider;
 mod rule;
 /// What outbound providers read.
 #[cfg(feature = "outbound-provider")]
@@ -38,7 +39,8 @@ pub fn parse(s: &str) -> Result<Config> {
     let mut out = Lowered::default();
     general::lower(&mut doc, &mut out, &mut warnings)?;
     let proxies = proxy::lower(&mut doc, &mut out, &mut warnings)?;
-    let groups = group::lower(&mut doc, &proxies, &mut out, &mut warnings)?;
+    let providers = proxy_provider::lower(&mut doc, &mut out, &mut warnings)?;
+    let groups = group::lower(&mut doc, &proxies, &providers, &mut out, &mut warnings)?;
     let mut sets = provider::lower(&mut doc, &groups, &mut out, &mut warnings)?;
     rule::lower(&mut doc, &groups, &mut sets, &mut out, &mut warnings)?;
     out.rule_sets.extend(sets.into_geo_sets());
@@ -83,6 +85,7 @@ pub struct Lowered {
     pub dns: Map<String, Value>,
     pub inbounds: Vec<Value>,
     pub outbounds: Vec<Value>,
+    pub outbound_providers: Vec<Value>,
     pub rules: Vec<Value>,
     pub rule_sets: Vec<Value>,
     pub route: Map<String, Value>,
@@ -104,6 +107,9 @@ impl Lowered {
             "outbounds": self.outbounds,
             "route": route,
         });
+        if !self.outbound_providers.is_empty() {
+            config["outbound_providers"] = Value::Array(self.outbound_providers);
+        }
         if let Some(mode) = self.mode {
             config["experimental"] = json!({ "clash_api": { "default_mode": mode } });
         }

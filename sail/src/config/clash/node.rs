@@ -109,6 +109,22 @@ impl<'de> Deserialize<'de> for Node {
 }
 
 impl Node {
+    /// As JSON.
+    pub fn to_json(&self) -> serde_json::Value {
+        use serde_json::{json, Value};
+        match self {
+            Node::Null => Value::Null,
+            Node::Bool(b) => json!(b),
+            Node::Int(i) => json!(i),
+            Node::Float(f) => json!(f),
+            Node::Str(s) => json!(s),
+            Node::Seq(items) => Value::Array(items.iter().map(Node::to_json).collect()),
+            Node::Map(m) => {
+                Value::Object(m.iter().map(|(k, v)| (k.clone(), v.to_json())).collect())
+            }
+        }
+    }
+
     /// What kind of value it is, as errors name it.
     pub fn kind(&self) -> &'static str {
         match self {
