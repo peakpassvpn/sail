@@ -582,6 +582,45 @@ mod tests {
         response
     }
 
+    /// A name a hosts server gives another is answered with a CNAME and
+    /// the other's addresses, looked up as the rules say; a pattern's
+    /// names with its own.
+    #[tokio::test]
+    async fn a_hosts_alias_is_answered_with_its_names_addresses() {
+        let config = crate::config::Config::from_json(
+            &serde_json::json!({ "dns": {
+                "servers": [
+                    { "type": "hosts", "tag": "clash", "predefined": {
+                        "alias.example": "far.example",
+                        "+.plus.example": "10.0.0.2"
+                    } },
+                    { "type": "hosts", "tag": "other",
+                      "predefined": { "far.example": "10.9.9.9" } }
+                ],
+                "rules": [
+                    { "domain": ["alias.example"], "domain_suffix": ["plus.example"],
+                      "server": "clash" }
+                ],
+                "final": "other"
+            } })
+            .to_string(),
+        )
+        .unwrap();
+        let client = DnsClient::new(&config.dns, Default::default(), &Default::default()).unwrap();
+        let alias = exchange(&client, "alias.example", RecordType::A).await;
+        match &alias.answers()[0].data {
+            RData::CNAME(target) => assert_eq!(target.0.to_ascii(), "far.example."),
+            other => panic!("not a CNAME: {:?}", other),
+        }
+        assert_eq!(answer_ips(&alias), ips(&["10.9.9.9"]));
+        assert_eq!(
+            client.lookup("alias.example").await.unwrap(),
+            ips(&["10.9.9.9"])
+        );
+        let plus = exchange(&client, "a.plus.example", RecordType::A).await;
+        assert_eq!(answer_ips(&plus), ips(&["10.0.0.2"]));
+    }
+
     fn fake_ip_client() -> DnsClient {
         let config = crate::config::Config::from_json(
             &serde_json::json!({ "dns": {

@@ -536,17 +536,29 @@ impl DnsClient {
                 Ok(Answer::Ips(ips.into_iter().filter(family).collect()))
             }
             // As sing-box: the addresses of a name it has, and NXDOMAIN for
-            // a name it has not, or any other query.
+            // a name it has not, or any other query. A name another stands
+            // for, which it has no addresses of, is looked up, and answered
+            // with a CNAME, as Mihomo answers it.
             Kind::Hosts(hosts) => {
                 let family = match ty {
                     RecordType::A => Some(IpAddr::is_ipv4 as fn(&IpAddr) -> bool),
                     RecordType::AAAA => Some(IpAddr::is_ipv6 as fn(&IpAddr) -> bool),
                     _ => None,
                 };
-                Ok(Answer::Message(match (family, hosts.get(host)) {
-                    (Some(family), Some(ips)) => {
-                        let ips: Vec<IpAddr> = ips.iter().copied().filter(family).collect();
+                Ok(Answer::Message(match (family, hosts.resolve(host)) {
+                    (Some(family), Some(server::Host::Ips(ips))) => {
+                        let ips: Vec<IpAddr> = ips.into_iter().filter(family).collect();
                         Self::reply(request, &ips, HOSTS_TTL)
+                    }
+                    (Some(_), Some(server::Host::Alias(target))) => {
+                        let strategy = match ty {
+                            RecordType::A => DnsStrategy::Ipv4Only,
+                            _ => DnsStrategy::Ipv6Only,
+                        };
+                        let ips = self
+                            .lookup_by(&target, strategy, By::Rules(&LookupContext::default()))
+                            .await?;
+                        Self::alias_reply(request, &target, &ips, HOSTS_TTL)?
                     }
                     _ => Self::status(request, ResponseCode::NXDomain),
                 }))
@@ -695,6 +707,29 @@ impl DnsClient {
     }
 
     /// An answer to `request` made here: `ips` of the family asked for.
+    /// A reply that the name asked for is `target`, with its addresses.
+    fn alias_reply(request: &Message, target: &str, ips: &[IpAddr], ttl: u32) -> Result<Message> {
+        let mut reply = Self::reply(request, &[], ttl);
+        let Some(query) = request.queries().first() else {
+            return Ok(reply);
+        };
+        let target = Name::from_str(&format!("{}.", target))
+            .map_err(|e| anyhow!("invalid domain name [{}]: {}", target, e))?;
+        reply.add_answer(Record::from_rdata(
+            query.name().clone(),
+            ttl,
+            RData::CNAME(hickory_proto::rr::rdata::CNAME(target.clone())),
+        ));
+        for ip in ips {
+            let data = match ip {
+                IpAddr::V4(v4) => RData::A((*v4).into()),
+                IpAddr::V6(v6) => RData::AAAA((*v6).into()),
+            };
+            reply.add_answer(Record::from_rdata(target.clone(), ttl, data));
+        }
+        Ok(reply)
+    }
+
     fn reply(request: &Message, ips: &[IpAddr], ttl: u32) -> Message {
         let mut reply = Message::new(0, MessageType::Query, OpCode::Query);
         reply.set_id(request.id());

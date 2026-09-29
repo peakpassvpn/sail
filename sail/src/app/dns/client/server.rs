@@ -40,7 +40,7 @@ pub(super) enum Kind {
     Local,
     /// Addresses given for names: files in the hosts format, and names
     /// given in place.
-    Hosts(HashMap<String, Vec<IpAddr>>),
+    Hosts(Hosts),
     /// Fake IPs, which the connections to come back as their domains.
     FakeIp(Arc<super::fakeip::FakeIpStore>),
     /// A sail extension: the member that answers best, chosen again as they
@@ -158,6 +158,10 @@ struct HostsOptions {
     /// `predefined` are given.
     #[serde(default, with = "listable")]
     path: Vec<String>,
+    /// Names, and their addresses. A sail extension, as Mihomo's `hosts`
+    /// has it: a name may be a pattern, `+.a` for a and the names under
+    /// it, `.a` for those under it alone, a `*` label for any one label;
+    /// and it may be given another name, whose addresses it takes.
     #[serde(default)]
     predefined: HashMap<String, serde_json::Value>,
 }
@@ -474,9 +478,115 @@ fn address_and_dialer(
     ))
 }
 
+/// What a hosts server has for a name.
+#[derive(Debug, Clone, PartialEq)]
+pub(super) enum Host {
+    Ips(Vec<IpAddr>),
+    /// Another name, whose addresses it takes.
+    Alias(String),
+}
+
+/// The names a hosts server answers for: as given, and as patterns.
+#[derive(Debug, Default)]
+pub(super) struct Hosts {
+    names: HashMap<String, Host>,
+    /// Patterns, the most specific first.
+    patterns: Vec<(Pattern, Host)>,
+}
+
+/// A pattern of names, as Mihomo's hosts take them.
+#[derive(Debug)]
+enum Pattern {
+    /// The base, and the names under it: `+.a`.
+    AndUnder(String),
+    /// The names under the base alone: `.a`.
+    Under(String),
+    /// Labels, `None` for any one: `*.a`.
+    Labels(Vec<Option<String>>),
+}
+
+impl Pattern {
+    fn of(name: &str) -> Option<Self> {
+        if let Some(base) = name.strip_prefix("+.") {
+            Some(Pattern::AndUnder(base.to_string()))
+        } else if let Some(base) = name.strip_prefix('.') {
+            Some(Pattern::Under(base.to_string()))
+        } else if name.split('.').any(|l| l == "*") {
+            Some(Pattern::Labels(
+                name.split('.')
+                    .map(|l| (l != "*").then(|| l.to_string()))
+                    .collect(),
+            ))
+        } else {
+            None
+        }
+    }
+
+    fn matches(&self, name: &str) -> bool {
+        let under = |base: &str| {
+            name.len() > base.len()
+                && name.ends_with(base)
+                && name.as_bytes()[name.len() - base.len() - 1] == b'.'
+        };
+        match self {
+            Pattern::AndUnder(base) => name == base || under(base),
+            Pattern::Under(base) => under(base),
+            Pattern::Labels(labels) => {
+                let names: Vec<&str> = name.split('.').collect();
+                names.len() == labels.len()
+                    && labels
+                        .iter()
+                        .zip(names)
+                        .all(|(l, n)| l.as_deref().is_none_or(|l| l == n))
+            }
+        }
+    }
+
+    /// How specific it is: labels given, then a `*` over a `+.`.
+    fn specificity(&self) -> (usize, u8) {
+        match self {
+            Pattern::AndUnder(base) | Pattern::Under(base) => (base.split('.').count(), 0),
+            Pattern::Labels(labels) => (labels.iter().flatten().count(), 1),
+        }
+    }
+}
+
+/// How many aliases a name is followed through at most.
+const MAX_ALIASES: usize = 8;
+
+impl Hosts {
+    /// What it has for `name`: as given, or else the most specific pattern
+    /// that matches.
+    pub(super) fn get(&self, name: &str) -> Option<&Host> {
+        let name = name.trim_end_matches('.').to_ascii_lowercase();
+        self.names.get(&name).or_else(|| {
+            self.patterns
+                .iter()
+                .find(|(p, _)| p.matches(&name))
+                .map(|(_, host)| host)
+        })
+    }
+
+    /// The addresses `name` has here, through its aliases; or, where they
+    /// lead to a name it has none for, that name.
+    pub(super) fn resolve(&self, name: &str) -> Option<Host> {
+        let mut host = self.get(name)?.clone();
+        for _ in 0..MAX_ALIASES {
+            match &host {
+                Host::Ips(_) => return Some(host),
+                Host::Alias(other) => match self.get(other) {
+                    Some(next) => host = next.clone(),
+                    None => return Some(host),
+                },
+            }
+        }
+        Some(host)
+    }
+}
+
 /// The names a hosts server answers for.
-fn hosts(o: HostsOptions, env: &RuntimeEnv) -> Result<HashMap<String, Vec<IpAddr>>> {
-    let mut hosts: HashMap<String, Vec<IpAddr>> = HashMap::new();
+fn hosts(o: HostsOptions, env: &RuntimeEnv) -> Result<Hosts> {
+    let mut names: HashMap<String, Host> = HashMap::new();
     let paths = if o.path.is_empty() && o.predefined.is_empty() {
         system_hosts_file().into_iter().collect()
     } else {
@@ -485,25 +595,40 @@ fn hosts(o: HostsOptions, env: &RuntimeEnv) -> Result<HashMap<String, Vec<IpAddr
     for path in paths {
         let text = std::fs::read_to_string(&path).map_err(|e| anyhow!("path: {}: {}", path, e))?;
         for (name, ip) in parse_hosts(&text) {
-            let ips = hosts.entry(name).or_default();
-            if !ips.contains(&ip) {
-                ips.push(ip);
+            match names.entry(name).or_insert_with(|| Host::Ips(Vec::new())) {
+                Host::Ips(ips) if !ips.contains(&ip) => ips.push(ip),
+                _ => {}
             }
         }
     }
+    let mut patterns = Vec::new();
     for (name, value) in o.predefined {
         let values: Vec<String> =
             listable::deserialize(value).map_err(|e| anyhow!("predefined.{}: {}", name, e))?;
-        let ips = values
-            .iter()
-            .map(|v| {
-                v.parse::<IpAddr>()
-                    .map_err(|_| anyhow!("predefined.{}: invalid address \"{}\"", name, v))
-            })
-            .collect::<Result<Vec<_>>>()?;
-        hosts.insert(name.to_ascii_lowercase(), ips);
+        let host = match values.as_slice() {
+            [one] if one.parse::<IpAddr>().is_err() => {
+                Host::Alias(one.trim_end_matches('.').to_ascii_lowercase())
+            }
+            _ => Host::Ips(
+                values
+                    .iter()
+                    .map(|v| {
+                        v.parse::<IpAddr>()
+                            .map_err(|_| anyhow!("predefined.{}: invalid address \"{}\"", name, v))
+                    })
+                    .collect::<Result<Vec<_>>>()?,
+            ),
+        };
+        let name = name.trim_end_matches('.').to_ascii_lowercase();
+        match Pattern::of(&name) {
+            Some(pattern) => patterns.push((pattern, host)),
+            None => {
+                names.insert(name, host);
+            }
+        }
     }
-    Ok(hosts)
+    patterns.sort_by_key(|(p, _)| std::cmp::Reverse(p.specificity()));
+    Ok(Hosts { names, patterns })
 }
 
 fn system_hosts_file() -> Option<String> {
@@ -536,6 +661,37 @@ fn parse_hosts(text: &str) -> Vec<(String, IpAddr)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hosts_take_patterns_and_aliases_as_mihomo_does() {
+        let o: HostsOptions = serde_json::from_value(serde_json::json!({ "predefined": {
+            "exact.example": "10.0.0.1",
+            "+.plus.example": ["10.0.0.2", "::2"],
+            ".under.example": "10.0.0.3",
+            "*.star.example": "10.0.0.4",
+            "a.star.example": "10.0.0.5",
+            "alias.example": "exact.example",
+            "far.example": "elsewhere.example",
+        } }))
+        .unwrap();
+        let hosts = hosts(o, &RuntimeEnv::default()).unwrap();
+        let ips = |s: &[&str]| Some(Host::Ips(s.iter().map(|s| s.parse().unwrap()).collect()));
+        assert_eq!(hosts.resolve("Exact.Example."), ips(&["10.0.0.1"]));
+        assert_eq!(hosts.resolve("plus.example"), ips(&["10.0.0.2", "::2"]));
+        assert_eq!(hosts.resolve("a.b.plus.example"), ips(&["10.0.0.2", "::2"]));
+        assert_eq!(hosts.resolve("under.example"), None);
+        assert_eq!(hosts.resolve("a.under.example"), ips(&["10.0.0.3"]));
+        assert_eq!(hosts.resolve("b.star.example"), ips(&["10.0.0.4"]));
+        assert_eq!(hosts.resolve("a.b.star.example"), None);
+        // Given as it is, before any pattern.
+        assert_eq!(hosts.resolve("a.star.example"), ips(&["10.0.0.5"]));
+        // Through an alias; or to the name it leads to.
+        assert_eq!(hosts.resolve("alias.example"), ips(&["10.0.0.1"]));
+        assert_eq!(
+            hosts.resolve("far.example"),
+            Some(Host::Alias("elsewhere.example".into()))
+        );
+    }
 
     #[test]
     fn hosts_files_are_read_as_the_system_reads_them() {
