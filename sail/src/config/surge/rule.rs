@@ -4,6 +4,24 @@
 //! does not resolve fails its connection, as in Surge, unless `FINAL` has
 //! `dns-failed`.
 //!
+//! A logical rule, `AND,((TYPE,value),(TYPE,value)),POLICY`, `OR` or
+//! `NOT,((TYPE,value))`, is sail's logical rule; its rules are written as
+//! a rule-set's, without a policy, and nest ten deep at most.
+//!
+//! `USER-AGENT` and `URL-REGEX` match the plain HTTP Surge reads without
+//! MITM: the connection is sniffed for HTTP before the first of them, and
+//! for any protocol before the first `PROTOCOL` rule. `extended-matching`
+//! sniffs the TLS SNI and HTTP Host before the rule that has it; from
+//! there on the domain sniffed, where there is one, is what every domain
+//! rule matches, as sail matches a sniffed domain, where Surge matches it
+//! besides the one asked for, and only in those rules.
+//!
+//! A REJECT rule with `pre-matching` is matched before every other, as
+//! Surge matches it, for TCP; UDP, which Surge does not match early, meets
+//! it where it stands. It matches addresses without resolving a domain,
+//! as Surge's early matching, which sees only the address a connection
+//! is made to.
+//!
 //! UDP whose policy carries none (see `udp-policy-not-supported-behaviour`)
 //! is rejected, or sent directly, by a rule of its own before.
 
@@ -17,28 +35,141 @@ use super::text::{self, Line};
 use super::Lowered;
 use crate::config::clash::provider::Sets;
 
-/// A rule's parameters sail does not implement, or that change nothing in
-/// sail.
-fn parameter(key: &str) -> Option<&'static str> {
-    match key {
-        "extended-matching" => Some(
-            "sail does not match the TLS SNI and the HTTP Host until C.5b; matched by the \
-             requested name alone",
-        ),
-        "pre-matching" => Some(""),
-        _ => None,
-    }
-}
+/// How deep logical rules nest, as Surge has it.
+const MAX_LOGICAL_DEPTH: usize = 10;
 
-/// The rule types of later stages, and those sail does not implement.
+/// The rule types sail does not implement, or not yet.
 fn later(kind: &str) -> Option<&'static str> {
     match kind {
-        "RULE-SET" | "DOMAIN-SET" | "AND" | "OR" | "NOT" | "IP-ASN" | "USER-AGENT"
-        | "URL-REGEX" | "HOSTNAME-TYPE" => Some(" yet (C.5b)"),
+        "RULE-SET" | "DOMAIN-SET" => Some(" yet (C.5b)"),
         "SUBNET" | "CELLULAR-RADIO" | "CELLULAR-CARRIER" | "DEVICE-NAME" | "MAC-ADDRESS"
         | "SCRIPT" => Some(""),
         _ => None,
     }
+}
+
+/// Whether a condition matches the destination's addresses, which a domain
+/// is resolved to first.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(super) enum Resolve {
+    /// It does not.
+    #[default]
+    No,
+    /// It may: a rule-set, whose rules are not known before it is read.
+    Maybe,
+    /// It does.
+    Yes,
+}
+
+/// What must be known of a connection before a condition is matched.
+#[derive(Debug, Default, Clone, Copy)]
+pub(super) struct Needs {
+    pub resolve: Resolve,
+    /// The plain HTTP request, sniffed: `USER-AGENT`, `URL-REGEX`.
+    pub http: bool,
+    /// The protocol, sniffed: `PROTOCOL`.
+    pub protocol: bool,
+    /// The TLS SNI or HTTP Host, sniffed: `extended-matching`.
+    pub extended: bool,
+}
+
+impl Needs {
+    pub(super) fn and(self, other: Needs) -> Needs {
+        Needs {
+            resolve: self.resolve.max(other.resolve),
+            http: self.http || other.http,
+            protocol: self.protocol || other.protocol,
+            extended: self.extended || other.extended,
+        }
+    }
+}
+
+/// A condition, and what it needs.
+pub(super) type Cond = (Map<String, Value>, Needs);
+
+/// A rule's parameters, read.
+#[derive(Debug, Default, Clone)]
+pub(super) struct Flags {
+    pub no_resolve: bool,
+    pub extended: bool,
+    pub pre_matching: bool,
+    /// `update-interval`, in seconds: negative for never.
+    pub update_interval: Option<i64>,
+}
+
+impl Flags {
+    /// Reads `params`; those Surge does not take are warned of, at `at`.
+    pub(super) fn read(
+        params: &[String],
+        kind: &str,
+        at: &str,
+        warnings: &mut Vec<String>,
+    ) -> Result<Flags> {
+        let mut flags = Flags::default();
+        for param in params {
+            let param = text::unquote(param);
+            // `"update-interval=86400`, a stray quote some profiles have.
+            let param = param.trim_matches('"');
+            let (key, value) = match param.split_once('=') {
+                Some((k, v)) => (k.trim().to_ascii_lowercase(), Some(v.trim())),
+                None => (param.trim().to_ascii_lowercase(), None),
+            };
+            match key.as_str() {
+                "no-resolve" => flags.no_resolve = true,
+                "extended-matching" => flags.extended = true,
+                "pre-matching" => flags.pre_matching = true,
+                "dns-failed" if kind == "FINAL" => {}
+                "update-interval" => {
+                    flags.update_interval = Some(
+                        value
+                            .and_then(|v| v.parse().ok())
+                            .ok_or_else(|| anyhow!("{}: update-interval: not seconds", at))?,
+                    )
+                }
+                "notification-text"
+                | "notification-interval"
+                | "always-capture"
+                | "force-remote-dns" => {}
+                key => warnings.push(format!(
+                    "{}: {}: not a parameter Surge takes; ignored, as by Surge",
+                    at, key
+                )),
+            }
+        }
+        Ok(flags)
+    }
+}
+
+/// A rule without its policy, as a rule-set or a logical rule holds it:
+/// its type, value and parameters.
+pub(super) struct Headless {
+    pub kind: String,
+    pub value: String,
+    pub params: Vec<String>,
+}
+
+impl Headless {
+    pub(super) fn split(line: &str) -> Headless {
+        let parts = text::split_rule(line);
+        Headless {
+            kind: parts[0].to_ascii_uppercase(),
+            value: parts.get(1).map(|p| text::unquote(p)).unwrap_or_default(),
+            params: parts.iter().skip(2).cloned().collect(),
+        }
+    }
+}
+
+/// What conditions may name besides themselves: the listeners, and the
+/// rule-sets the rules name. A line of a rule-set's file has neither.
+pub(super) struct Scope<'a> {
+    pub general: Option<&'a General>,
+    pub sets: Option<&'a mut Sets>,
+    pub warnings: &'a mut Vec<String>,
+}
+
+/// A condition no connection meets.
+fn never() -> Map<String, Value> {
+    all(vec![network("tcp"), network("udp")])
 }
 
 /// What lowering the rules keeps track of.
@@ -46,30 +177,60 @@ struct Walk<'a> {
     policies: &'a Policies,
     general: &'a General,
     out: &'a mut Lowered,
-    /// Whether a rule before resolves the domain already.
-    resolved: bool,
+    /// How far a rule before resolves the domain already.
+    resolved: Resolve,
     /// Whether a domain that does not resolve goes on, `FINAL,dns-failed`.
     dns_failed: bool,
-    /// Whether a rule before sniffs the connection's protocol already.
-    sniffed: bool,
+    /// What a rule before sniffs already.
+    sniffed: Needs,
+    /// The rules of `pre-matching`, matched first.
+    early: Vec<Value>,
 }
 
 impl Walk<'_> {
-    /// Adds a rule of `condition` to `target`; `resolves` is whether it
-    /// matches the destination's address, which a domain is resolved to.
-    fn push(&mut self, condition: Map<String, Value>, resolves: bool, target: Target) {
-        if resolves && !self.resolved {
-            let mut resolve = json!({ "action": "resolve" });
-            if self.dns_failed {
-                resolve["ignore_failure"] = json!(true);
-            }
-            self.out.rules.push(resolve);
-            self.resolved = true;
-        }
+    /// Adds a rule of `condition` to `target`, with what it needs before.
+    fn push(&mut self, condition: Map<String, Value>, needs: Needs, target: Target) {
+        self.prepare(needs);
         self.fallback(&condition, &target);
         let mut rule = condition;
         apply(&target, &mut rule);
         self.out.rules.push(Value::Object(rule));
+    }
+
+    /// Sniffs and resolves as `needs` says, where no rule before has.
+    fn prepare(&mut self, needs: Needs) {
+        let protocol = needs.protocol && !self.sniffed.protocol;
+        let extended = needs.extended && !self.sniffed.extended;
+        if protocol || extended {
+            let sniffer = if needs.protocol {
+                json!(["http", "tls", "quic", "stun"])
+            } else {
+                json!(["http", "tls", "quic"])
+            };
+            self.out
+                .rules
+                .push(json!({ "action": "sniff", "sniffer": sniffer }));
+            self.sniffed.protocol |= needs.protocol;
+            self.sniffed.extended = true;
+            self.sniffed.http = true;
+        }
+        if needs.http && !self.sniffed.http {
+            self.out
+                .rules
+                .push(json!({ "action": "sniff", "sniffer": ["http"] }));
+            self.sniffed.http = true;
+        }
+        if needs.resolve > self.resolved {
+            let mut resolve = json!({ "action": "resolve" });
+            // A rule-set that may hold no IP rules is not worth failing
+            // for: where the domain does not resolve, its IP rules do not
+            // match. An IP rule after resolves again, and fails.
+            if self.dns_failed || needs.resolve == Resolve::Maybe {
+                resolve["ignore_failure"] = json!(true);
+            }
+            self.out.rules.push(resolve);
+            self.resolved = needs.resolve;
+        }
     }
 
     /// Before a rule to a policy of no UDP, the rule for its UDP.
@@ -84,16 +245,7 @@ impl Walk<'_> {
         let mut rule = match condition.get("network") {
             // Of TCP alone, it has no UDP to send.
             Some(network) if !network.to_string().contains("udp") => return,
-            _ if logical => {
-                let mut rule = Map::new();
-                rule.insert("type".into(), json!("logical"));
-                rule.insert("mode".into(), json!("and"));
-                rule.insert(
-                    "rules".into(),
-                    json!([Value::Object(condition.clone()), { "network": "udp" }]),
-                );
-                rule
-            }
+            _ if logical => all(vec![condition.clone(), network("udp")]),
             _ => {
                 let mut rule = condition.clone();
                 rule.insert("network".into(), json!("udp"));
@@ -107,16 +259,40 @@ impl Walk<'_> {
         self.out.rules.push(Value::Object(rule));
     }
 
-    /// A sniff of what `PROTOCOL` rules match, before the first of them.
-    fn sniff(&mut self) {
-        if !self.sniffed {
-            self.out.rules.push(json!({
-                "action": "sniff",
-                "sniffer": ["http", "tls", "quic", "stun"],
-            }));
-            self.sniffed = true;
-        }
+    /// A `pre-matching` rule's, matched first for TCP.
+    fn early(&mut self, condition: &Map<String, Value>, target: &Target) {
+        let logical = condition.get("type").and_then(Value::as_str) == Some("logical");
+        let mut rule = match condition.get("network") {
+            Some(network) if !network.to_string().contains("tcp") => return,
+            Some(_) => condition.clone(),
+            None if logical => all(vec![condition.clone(), network("tcp")]),
+            None => {
+                let mut rule = condition.clone();
+                rule.insert("network".into(), json!(["tcp"]));
+                rule
+            }
+        };
+        apply(target, &mut rule);
+        self.early.push(Value::Object(rule));
     }
+}
+
+fn network(name: &str) -> Map<String, Value> {
+    let mut rule = Map::new();
+    rule.insert("network".into(), json!(name));
+    rule
+}
+
+/// A rule that holds where all of `conditions` do.
+fn all(conditions: Vec<Map<String, Value>>) -> Map<String, Value> {
+    let mut rule = Map::new();
+    rule.insert("type".into(), json!("logical"));
+    rule.insert("mode".into(), json!("and"));
+    rule.insert(
+        "rules".into(),
+        Value::Array(conditions.into_iter().map(Value::Object).collect()),
+    );
+    rule
 }
 
 fn apply(target: &Target, rule: &mut Map<String, Value>) {
@@ -148,7 +324,7 @@ struct Split {
 }
 
 fn split(line: &str) -> Split {
-    let parts = text::split(line, true);
+    let parts = text::split_rule(line);
     let kind = parts[0].to_ascii_uppercase();
     let unquoted = |i: usize| parts.get(i).map(|p| text::unquote(p)).unwrap_or_default();
     if kind == "FINAL" {
@@ -191,14 +367,20 @@ pub fn lower(
         policies,
         general,
         out,
-        resolved: false,
+        resolved: Resolve::No,
         dns_failed,
-        sniffed: false,
+        sniffed: Needs::default(),
+        early: Vec::new(),
+    };
+    let mut scope = Scope {
+        general: Some(general),
+        sets: Some(sets),
+        warnings,
     };
     let mut ended = false;
     for (at, s) in &rules {
         if ended {
-            warnings.push(format!(
+            scope.warnings.push(format!(
                 "{}: after FINAL, where no connection gets; ignored",
                 at
             ));
@@ -207,32 +389,7 @@ pub fn lower(
         let target = policies
             .target(&s.policy)
             .map_err(|e| anyhow!("{}: {}", at, e))?;
-        let mut no_resolve = false;
-        for param in &s.params {
-            let param = text::unquote(param);
-            let key = param
-                .split_once('=')
-                .map_or(param.as_str(), |(k, _)| k)
-                .trim()
-                .to_ascii_lowercase();
-            match key.as_str() {
-                "no-resolve" => no_resolve = true,
-                "dns-failed" if s.kind == "FINAL" => {}
-                "update-interval"
-                | "notification-text"
-                | "notification-interval"
-                | "always-capture"
-                | "force-remote-dns" => {}
-                key => match parameter(key) {
-                    Some("") => {}
-                    Some(why) => warnings.push(format!("{}: {}: {}", at, key, why)),
-                    None => warnings.push(format!(
-                        "{}: {}: not a parameter Surge takes; ignored, as by Surge",
-                        at, key
-                    )),
-                },
-            }
-        }
+        let flags = Flags::read(&s.params, &s.kind, at, scope.warnings)?;
         if s.kind == "FINAL" {
             ended = true;
             match target {
@@ -242,8 +399,8 @@ pub fn lower(
                     walk.out.route.insert("final".into(), json!(tag));
                 }
                 other => {
-                    let mut rule = Map::new();
                     // A condition every connection meets.
+                    let mut rule = Map::new();
                     rule.insert("network".into(), json!(["tcp", "udp"]));
                     apply(&other, &mut rule);
                     walk.out.rules.push(Value::Object(rule));
@@ -251,53 +408,101 @@ pub fn lower(
             }
             continue;
         }
-        if s.value.is_empty() {
-            return Err(anyhow!("{}: {}: no value", at, s.kind));
-        }
-        match condition(s, no_resolve, sets, general, &mut walk)
-            .map_err(|e| anyhow!("{}: {}", at, e))?
-        {
-            Some((condition, resolves)) => walk.push(condition, resolves, target),
-            None => warnings.push(format!(
+        let found = condition(&s.kind, &s.value, &flags, &mut scope, 0)
+            .map_err(|e| anyhow!("{}: {}", at, e))?;
+        let Some((condition, needs)) = found else {
+            scope.warnings.push(format!(
                 "{}: {},{}: no connection sail sees matches it; ignored",
                 at, s.kind, s.value
-            )),
+            ));
+            continue;
+        };
+        if flags.pre_matching {
+            match &target {
+                Target::Reject(_) => walk.early(&condition, &target),
+                Target::Outbound(_) => scope.warnings.push(format!(
+                    "{}: pre-matching: only a REJECT policy's rule is matched early; matched \
+                     where it stands, as by Surge",
+                    at
+                )),
+            }
         }
+        walk.push(condition, needs, target);
     }
     if !ended {
         return Err(anyhow!(
             "[Rule]: no FINAL rule, which Surge requires at the end"
         ));
     }
+    let early = std::mem::take(&mut walk.early);
+    walk.out.rules.splice(0..0, early);
     Ok(())
 }
 
-/// The condition of a rule, and whether it matches the destination's
-/// address; none for a rule that never matches in sail.
-fn condition(
-    s: &Split,
-    no_resolve: bool,
-    sets: &mut Sets,
-    general: &General,
-    walk: &mut Walk,
-) -> Result<Option<(Map<String, Value>, bool)>> {
+/// The condition of a line of a rule-set's file, a rule without its
+/// policy. What it needs sniffed or resolved is the rule's that names the
+/// set.
+#[cfg_attr(not(test), allow(dead_code))]
+pub(super) fn headless(line: &str) -> Result<Map<String, Value>> {
+    let h = Headless::split(line);
+    let mut warnings = Vec::new();
+    let flags = Flags::read(&h.params, &h.kind, &h.kind, &mut warnings)?;
+    if h.kind == "FINAL" || flags.pre_matching {
+        return Err(anyhow!("FINAL and pre-matching are not for a rule-set"));
+    }
+    let mut scope = Scope {
+        general: None,
+        sets: None,
+        warnings: &mut warnings,
+    };
+    match condition(&h.kind, &h.value, &flags, &mut scope, 0)? {
+        Some((condition, _)) => Ok(condition),
+        None => Err(anyhow!(
+            "{},{}: no connection sail sees matches it",
+            h.kind,
+            h.value
+        )),
+    }
+}
+
+/// The condition of a rule of `kind` and `value`, and what it needs; none
+/// for a rule that never matches in sail. `depth` is how deep in logical
+/// rules it is.
+pub(super) fn condition(
+    kind: &str,
+    value: &str,
+    flags: &Flags,
+    scope: &mut Scope,
+    depth: usize,
+) -> Result<Option<Cond>> {
     let mut rule = Map::new();
-    let value = s.value.as_str();
-    let key = match s.kind.as_str() {
+    let mut needs = Needs::default();
+    let resolves = |needs: &mut Needs| {
+        if !flags.no_resolve {
+            needs.resolve = Resolve::Yes;
+        }
+    };
+    if value.is_empty() {
+        return Err(anyhow!("{}: no value", kind));
+    }
+    let key = match kind {
+        "AND" | "OR" | "NOT" => return logical(kind, value, scope, depth).map(Some),
         "DOMAIN" => "domain",
         "DOMAIN-SUFFIX" => "domain_suffix",
         "DOMAIN-KEYWORD" => "domain_keyword",
         "DOMAIN-WILDCARD" => {
             rule.insert("domain_regex".into(), json!([wildcard(value)]));
-            return Ok(Some((rule, false)));
+            needs.extended = flags.extended;
+            return Ok(Some((rule, needs)));
         }
         "IP-CIDR" | "IP-CIDR6" => {
             rule.insert("ip_cidr".into(), json!([prefix(value)?]));
-            return Ok(Some((rule, !no_resolve)));
+            resolves(&mut needs);
+            return Ok(Some((rule, needs)));
         }
         "SRC-IP" => {
             rule.insert("source_ip_cidr".into(), json!([prefix(value)?]));
-            return Ok(Some((rule, false)));
+            return Ok(Some((rule, needs)));
         }
         "GEOIP" => {
             if value.eq_ignore_ascii_case("UNKNOWN") {
@@ -305,16 +510,67 @@ fn condition(
                     "GEOIP,UNKNOWN: sail does not implement addresses of no country yet"
                 ));
             }
+            let sets = scope
+                .sets
+                .as_deref_mut()
+                .ok_or_else(|| anyhow!("GEOIP: sail reads no GEOIP rule in a rule-set"))?;
             rule.insert("rule_set".into(), json!([sets.geoip(value)?]));
-            return Ok(Some((rule, !no_resolve)));
+            resolves(&mut needs);
+            return Ok(Some((rule, needs)));
+        }
+        "IP-ASN" => {
+            if value.eq_ignore_ascii_case("UNKNOWN") {
+                return Err(anyhow!(
+                    "IP-ASN,UNKNOWN: sail does not implement addresses of no system yet"
+                ));
+            }
+            let digits = value
+                .strip_prefix("AS")
+                .or_else(|| value.strip_prefix("as"))
+                .unwrap_or(value);
+            let number: u32 = digits
+                .parse()
+                .map_err(|_| anyhow!("IP-ASN: {:?} is not a system's number", value))?;
+            rule.insert("ip_asn".into(), json!([number]));
+            resolves(&mut needs);
+            return Ok(Some((rule, needs)));
         }
         "PROCESS-NAME" => {
             let (key, pattern) = process(value);
             rule.insert(key.into(), json!([pattern]));
-            return Ok(Some((rule, false)));
+            return Ok(Some((rule, needs)));
+        }
+        "USER-AGENT" => {
+            rule.insert("http_user_agent".into(), json!([value]));
+            needs.http = true;
+            return Ok(Some((rule, needs)));
+        }
+        "URL-REGEX" => {
+            #[cfg(feature = "regex")]
+            regex::Regex::new(value).map_err(|e| anyhow!("URL-REGEX: {:?}: {}", value, e))?;
+            rule.insert("url_regex".into(), json!([value]));
+            needs.http = true;
+            return Ok(Some((rule, needs)));
+        }
+        "HOSTNAME-TYPE" => {
+            // As Surge writes them, in its case: the form of the name the
+            // connection asks for, or of the one sniffed.
+            match value {
+                "IPv4" => rule.insert("ip_version".into(), json!(4)),
+                "IPv6" => rule.insert("ip_version".into(), json!(6)),
+                "DOMAIN" => rule.insert("domain_regex".into(), json!(["\\."])),
+                "SIMPLE" => rule.insert("domain_regex".into(), json!(["^[^.]+$"])),
+                other => {
+                    return Err(anyhow!(
+                        "HOSTNAME-TYPE: {:?} is none of IPv4, IPv6, DOMAIN and SIMPLE",
+                        other
+                    ))
+                }
+            };
+            return Ok(Some((rule, needs)));
         }
         "DEST-PORT" | "SRC-PORT" => {
-            let (one, many) = if s.kind == "DEST-PORT" {
+            let (one, many) = if kind == "DEST-PORT" {
                 ("port", "port_range")
             } else {
                 ("source_port", "source_port_range")
@@ -323,9 +579,12 @@ fn condition(
                 Port::One(p) => rule.insert(one.into(), json!([p])),
                 Port::Range(r) => rule.insert(many.into(), json!([r])),
             };
-            return Ok(Some((rule, false)));
+            return Ok(Some((rule, needs)));
         }
         "IN-PORT" => {
+            let general = scope
+                .general
+                .ok_or_else(|| anyhow!("IN-PORT: sail reads no IN-PORT rule in a rule-set"))?;
             let tags: Vec<&str> = general
                 .listeners
                 .iter()
@@ -336,7 +595,7 @@ fn condition(
                 return Ok(None);
             }
             rule.insert("inbound".into(), json!(tags));
-            return Ok(Some((rule, false)));
+            return Ok(Some((rule, needs)));
         }
         "PROTOCOL" => {
             // As Surge writes them, in its case.
@@ -360,10 +619,10 @@ fn condition(
             };
             rule.insert("network".into(), json!([network]));
             if let Some(protocol) = sniffed {
-                walk.sniff();
+                needs.protocol = true;
                 rule.insert("protocol".into(), json!([protocol]));
             }
-            return Ok(Some((rule, false)));
+            return Ok(Some((rule, needs)));
         }
         other => {
             return Err(match later(other) {
@@ -372,8 +631,66 @@ fn condition(
             })
         }
     };
+    needs.extended = flags.extended;
     rule.insert(key.into(), json!([value.to_ascii_lowercase()]));
-    Ok(Some((rule, false)))
+    Ok(Some((rule, needs)))
+}
+
+/// A logical rule's condition: its rules, `((TYPE,value),...)`, each
+/// written as a rule-set's.
+fn logical(kind: &str, value: &str, scope: &mut Scope, depth: usize) -> Result<Cond> {
+    if depth >= MAX_LOGICAL_DEPTH {
+        return Err(anyhow!(
+            "{}: logical rules nest {} deep at most",
+            kind,
+            MAX_LOGICAL_DEPTH
+        ));
+    }
+    let inner = value
+        .trim()
+        .strip_prefix('(')
+        .and_then(|v| v.strip_suffix(')'))
+        .ok_or_else(|| anyhow!("{}: its rules are written ((TYPE,value),...)", kind))?;
+    let mut rules = Vec::new();
+    let mut needs = Needs::default();
+    for part in text::split(inner, true) {
+        let line = part
+            .trim()
+            .strip_prefix('(')
+            .and_then(|p| p.strip_suffix(')'))
+            .ok_or_else(|| anyhow!("{}: {:?} is not (TYPE,value)", kind, part))?;
+        let h = Headless::split(line);
+        let flags = Flags::read(&h.params, &h.kind, kind, scope.warnings)?;
+        if h.kind == "FINAL" || flags.pre_matching {
+            return Err(anyhow!("{}: FINAL and pre-matching are not within", kind));
+        }
+        let (condition, n) = condition(&h.kind, &h.value, &flags, scope, depth + 1)?
+            .unwrap_or((never(), Needs::default()));
+        rules.push(Value::Object(condition));
+        needs = needs.and(n);
+    }
+    let mut rule = Map::new();
+    rule.insert("type".into(), json!("logical"));
+    match kind {
+        "NOT" => {
+            if rules.len() != 1 {
+                return Err(anyhow!("NOT: one rule within, not {}", rules.len()));
+            }
+            rule.insert("mode".into(), json!("and"));
+            rule.insert("invert".into(), json!(true));
+        }
+        "AND" => {
+            rule.insert("mode".into(), json!("and"));
+        }
+        _ => {
+            rule.insert("mode".into(), json!("or"));
+        }
+    }
+    if rules.is_empty() {
+        return Err(anyhow!("{}: no rule within", kind));
+    }
+    rule.insert("rules".into(), Value::Array(rules));
+    Ok((rule, needs))
 }
 
 /// An address or a prefix, a bare address a prefix of it alone.
@@ -455,7 +772,7 @@ fn port(value: &str) -> Result<Port> {
 
 /// `DOMAIN-WILDCARD`: `*` any run of characters, dots too, `?` one, and
 /// `[...]` a class, without case.
-fn wildcard(pattern: &str) -> String {
+pub(super) fn wildcard(pattern: &str) -> String {
     let mut regex = String::from("^");
     let mut class = false;
     for c in pattern.to_ascii_lowercase().chars() {
@@ -580,5 +897,111 @@ mod tests {
         assert_eq!(prefix("8.8.8.8").unwrap(), "8.8.8.8/32");
         assert_eq!(prefix("2404:6800::").unwrap(), "2404:6800::/128");
         assert!(prefix("1.2.3.4/33").is_err());
+    }
+
+    #[test]
+    fn logical_rules_nest_and_say_what_they_need() {
+        let mut warnings = Vec::new();
+        let mut scope = Scope {
+            general: None,
+            sets: None,
+            warnings: &mut warnings,
+        };
+        let (rule, needs) = condition(
+            "AND",
+            "((NOT,((SRC-IP,192.168.1.110))),(OR,((DOMAIN-SUFFIX,example.com,extended-matching),\
+             (IP-CIDR,10.0.0.0/8))),(USER-AGENT,\"a,b*\"))",
+            &Flags::default(),
+            &mut scope,
+            0,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            Value::Object(rule),
+            json!({ "type": "logical", "mode": "and", "rules": [
+                { "type": "logical", "mode": "and", "invert": true, "rules": [
+                    { "source_ip_cidr": ["192.168.1.110/32"] },
+                ] },
+                { "type": "logical", "mode": "or", "rules": [
+                    { "domain_suffix": ["example.com"] },
+                    { "ip_cidr": ["10.0.0.0/8"] },
+                ] },
+                { "http_user_agent": ["a,b*"] },
+            ] })
+        );
+        assert_eq!(needs.resolve, Resolve::Yes);
+        assert!(needs.http && needs.extended && !needs.protocol);
+        // no-resolve within holds for its rule.
+        let (_, needs) = condition(
+            "OR",
+            "((IP-ASN,AS13335,no-resolve),(DOMAIN,a))",
+            &Flags::default(),
+            &mut scope,
+            0,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(needs.resolve, Resolve::No);
+        let deep = format!("{}(DOMAIN,a){}", "(NOT,(".repeat(11), "))".repeat(11));
+        let err = condition(
+            "NOT",
+            &format!("({})", deep),
+            &Flags::default(),
+            &mut scope,
+            0,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("nest 10 deep at most"), "{}", err);
+        for (kind, value, expected) in [
+            (
+                "NOT",
+                "((DOMAIN,a),(DOMAIN,b))",
+                "NOT: one rule within, not 2",
+            ),
+            ("AND", "(DOMAIN,a)", "is not (TYPE,value)"),
+            (
+                "AND",
+                "((FINAL,a))",
+                "FINAL and pre-matching are not within",
+            ),
+            (
+                "AND",
+                "((SCRIPT,a))",
+                "sail does not implement SCRIPT rules",
+            ),
+        ] {
+            let err = condition(kind, value, &Flags::default(), &mut scope, 0)
+                .unwrap_err()
+                .to_string();
+            assert!(err.contains(expected), "{}: {}", expected, err);
+        }
+    }
+
+    #[test]
+    fn a_rule_set_s_lines() {
+        assert_eq!(
+            Value::Object(headless("IP-ASN,13335,no-resolve").unwrap()),
+            json!({ "ip_asn": [13335] })
+        );
+        assert_eq!(
+            Value::Object(headless("HOSTNAME-TYPE,SIMPLE").unwrap()),
+            json!({ "domain_regex": ["^[^.]+$"] })
+        );
+        assert_eq!(
+            Value::Object(headless("URL-REGEX,\"^http://a\\.com/(x|y),z\"").unwrap()),
+            json!({ "url_regex": ["^http://a\\.com/(x|y),z"] })
+        );
+        for (line, expected) in [
+            ("GEOIP,CN", "no GEOIP rule in a rule-set"),
+            ("IN-PORT,6152", "no IN-PORT rule in a rule-set"),
+            ("DOMAIN,a,pre-matching", "not for a rule-set"),
+            ("HOSTNAME-TYPE,ipv4", "none of IPv4"),
+            ("IP-ASN,UNKNOWN", "no system yet"),
+        ] {
+            let err = headless(line).unwrap_err().to_string();
+            assert!(err.contains(expected), "{}: {}", line, err);
+        }
     }
 }

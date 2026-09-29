@@ -207,7 +207,6 @@ fn a_profile_loads() {
         "HK: tfo",
         "test-url, test-timeout, test-udp of Sock",
         "JP: vmess-aead",
-        "extended-matching",
         "after FINAL",
         "[MITM]",
         "[URL Rewrite]",
@@ -270,7 +269,7 @@ fn rules_lower_in_order() {
     );
     // Sniffed first.
     let sniff = position("\"sniff\"");
-    let quic = position("quic\"]");
+    let quic = position("\"protocol\":[\"quic\"]");
     assert!(sniff < quic);
     assert_eq!(rules[quic]["no_drop"], true);
     // UDP to a group of proxies without it is rejected.
@@ -289,6 +288,55 @@ fn rules_lower_in_order() {
     assert!(position("geoip:cn") > resolve);
     assert_eq!(config.route.final_outbound.as_deref(), Some("Proxy"));
     assert!(!text.iter().any(|r| r.contains("after.example.com")));
+}
+
+#[test]
+fn logical_http_and_early_rules() {
+    let config = load(
+        "[Rule]\n\
+         DOMAIN,a.example,DIRECT\n\
+         AND,((DOMAIN-SUFFIX,b.example),(NOT,((DEST-PORT,443)))),REJECT\n\
+         USER-AGENT,Instagram*,DIRECT\n\
+         URL-REGEX,\"^http://c\\.example/(x|y)\",REJECT\n\
+         HOSTNAME-TYPE,IPv6,REJECT\n\
+         DOMAIN-SUFFIX,d.example,DIRECT,extended-matching\n\
+         IP-ASN,AS13335,DIRECT\n\
+         DOMAIN,ad.example,REJECT-DROP,pre-matching\n\
+         OR,((PROTOCOL,UDP),(IP-CIDR,10.0.0.0/8,no-resolve)),REJECT,pre-matching\n\
+         FINAL,DIRECT\n",
+    );
+    let rules = rules(&config);
+    let expected = [
+        // The pre-matching rules first, for TCP.
+        json!({ "domain": ["ad.example"], "network": ["tcp"], "action": "reject",
+                "method": "drop" }),
+        json!({ "type": "logical", "mode": "and", "rules": [
+            { "type": "logical", "mode": "or", "rules": [
+                { "network": ["udp"] }, { "ip_cidr": ["10.0.0.0/8"] },
+            ] },
+            { "network": ["tcp"] },
+        ], "action": "reject" }),
+        json!({ "domain": ["a.example"], "outbound": "DIRECT" }),
+        json!({ "type": "logical", "mode": "and", "rules": [
+            { "domain_suffix": ["b.example"] },
+            { "type": "logical", "mode": "and", "invert": true, "rules": [{ "port": [443] }] },
+        ], "action": "reject" }),
+        // Plain HTTP, sniffed once for both.
+        json!({ "action": "sniff", "sniffer": ["http"] }),
+        json!({ "http_user_agent": ["Instagram*"], "outbound": "DIRECT" }),
+        json!({ "url_regex": ["^http://c\\.example/(x|y)"], "action": "reject" }),
+        json!({ "ip_version": 6, "action": "reject" }),
+        // The SNI and the Host.
+        json!({ "action": "sniff", "sniffer": ["http", "tls", "quic"] }),
+        json!({ "domain_suffix": ["d.example"], "outbound": "DIRECT" }),
+        json!({ "action": "resolve" }),
+        json!({ "ip_asn": [13335], "outbound": "DIRECT" }),
+        json!({ "domain": ["ad.example"], "action": "reject", "method": "drop" }),
+        json!({ "type": "logical", "mode": "or", "rules": [
+            { "network": ["udp"] }, { "ip_cidr": ["10.0.0.0/8"] },
+        ], "action": "reject" }),
+    ];
+    assert_eq!(rules, expected, "{:#?}", rules);
 }
 
 #[test]
@@ -339,6 +387,18 @@ fn mistakes_name_where_they_are() {
         (
             "[Rule]\nRULE-SET,https://a/b.list,DIRECT\nFINAL,DIRECT\n",
             "[Rule] line 2: sail does not implement RULE-SET rules yet (C.5b)",
+        ),
+        (
+            "[Rule]\nURL-REGEX,(,DIRECT\nFINAL,DIRECT\n",
+            "[Rule] line 2: URL-REGEX: \"(\"",
+        ),
+        (
+            "[Rule]\nHOSTNAME-TYPE,ipv4,DIRECT\nFINAL,DIRECT\n",
+            "[Rule] line 2: HOSTNAME-TYPE: \"ipv4\" is none of IPv4",
+        ),
+        (
+            "[Rule]\nAND,((DOMAIN,a),(SUBNET,TYPE:WIFI)),DIRECT\nFINAL,DIRECT\n",
+            "[Rule] line 2: sail does not implement SUBNET rules",
         ),
         (
             "[Rule]\nDOMAIN,a,Nowhere\nFINAL,DIRECT\n",

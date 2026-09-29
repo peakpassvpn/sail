@@ -345,6 +345,21 @@ fn comment_start(line: &str) -> Option<usize> {
 /// Splits `s` at its commas outside quotes, each part trimmed but quoted
 /// as it is. `single` takes single quotes as quotes too, as rules do.
 pub fn split(s: &str, single: bool) -> Vec<String> {
+    split_at(s, single, true)
+}
+
+/// Splits a rule, as `split` with single quotes; within parentheses only a
+/// logical rule's, which hold its rules: another's, a regular
+/// expression's say, are the value's own.
+pub fn split_rule(line: &str) -> Vec<String> {
+    let kind = line.split(',').next().unwrap_or_default().trim();
+    let logical = ["AND", "OR", "NOT"]
+        .iter()
+        .any(|k| kind.eq_ignore_ascii_case(k));
+    split_at(line, true, logical)
+}
+
+fn split_at(s: &str, single: bool, parens: bool) -> Vec<String> {
     let mut parts = Vec::new();
     let mut part = String::new();
     let mut quote: Option<char> = None;
@@ -374,11 +389,11 @@ pub fn split(s: &str, single: bool) -> Vec<String> {
                 part.push(c);
             }
             // `peer = (a = 1, b = 2)` keeps its parentheses whole.
-            '(' if quote.is_none() => {
+            '(' if quote.is_none() && parens => {
                 depth += 1;
                 part.push(c);
             }
-            ')' if quote.is_none() => {
+            ')' if quote.is_none() && parens => {
                 depth = depth.saturating_sub(1);
                 part.push(c);
             }
@@ -486,6 +501,14 @@ mod tests {
         assert_eq!(
             split("URL-REGEX,'a,b',P", true),
             ["URL-REGEX", "'a,b'", "P"]
+        );
+        assert_eq!(
+            split_rule("URL-REGEX,^http://a/\\(x,P"),
+            ["URL-REGEX", "^http://a/\\(x", "P"]
+        );
+        assert_eq!(
+            split_rule("and,((DOMAIN,a),(DEST-PORT,1)),P"),
+            ["and", "((DOMAIN,a),(DEST-PORT,1))", "P"]
         );
         assert_eq!(unquote(r#""say \"hi\", C:\\x""#), r#"say "hi", C:\x"#);
         assert_eq!(
