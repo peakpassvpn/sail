@@ -5,8 +5,9 @@
 //! neither, its one receive loop waiting on the stream with no timeout.
 //!
 //! Served as the inbound serves it: the streams come out of the handler's
-//! `Incoming`, which the listener drives until it ends. The ones ignored
-//! fail today.
+//! `Incoming`, which the listener drives until it ends. AnyTLS has no
+//! window: the stuck stream holds the session's reader until it is reset
+//! for stalling, here after a second.
 
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
@@ -22,6 +23,7 @@ use tokio::time::timeout;
 
 use crate::adapter::{AnyStream, BaseInboundTransport, InboundStreamHandler, InboundTransport};
 use crate::session::{Session as ProxySession, SocksAddr, SocksAddrWireType};
+use crate::transport::muxcore::Tuning;
 
 use super::inbound::StreamHandler;
 use super::padding::PaddingScheme;
@@ -34,6 +36,15 @@ const FLOOD: usize = 8 << 20;
 const CHUNK: usize = 16 << 10;
 /// How long another stream or the end of the session may take.
 const PATIENCE: Duration = Duration::from_secs(5);
+
+/// AnyTLS has no window: a stuck stream holds the reader until it is
+/// reset, here after a second rather than a minute.
+fn tuning() -> Tuning {
+    Tuning {
+        stall_timeout: Duration::from_secs(1),
+        ..Tuning::default()
+    }
+}
 
 fn runtime() -> tokio::runtime::Runtime {
     tokio::runtime::Builder::new_multi_thread()
@@ -58,6 +69,7 @@ async fn serve() -> (u16, mpsc::Receiver<AnyStream>, oneshot::Receiver<()>) {
             Arc::new(PaddingScheme::default_scheme()),
             Duration::from_secs(10),
             None,
+            tuning(),
         );
         let transport = handler
             .handle(ProxySession::default(), Box::new(conn))
@@ -86,7 +98,7 @@ async fn client(port: u16) -> Arc<Session> {
     let hash: [u8; 32] = Sha256::digest(PASSWORD.as_bytes()).into();
     conn.write_all(&auth(&hash, 0)).await.unwrap();
     let padding: PaddingCell = Arc::new(RwLock::new(Arc::new(PaddingScheme::default_scheme())));
-    Session::client(Box::new(conn), padding)
+    Session::client(Box::new(conn), padding, tuning(), "test")
 }
 
 async fn open(client: &Arc<Session>) -> Stream {
@@ -126,7 +138,6 @@ async fn stall(
 
 /// Another stream of the session opens and echoes while the first is stuck.
 #[test]
-#[ignore = "fails: one unread stream stalls the whole session (session.rs Reader::run)"]
 fn a_stuck_stream_does_not_stall_the_others() {
     runtime().block_on(async {
         let (port, mut streams, _ended) = serve().await;
@@ -160,7 +171,6 @@ fn a_stuck_stream_does_not_stall_the_others() {
 /// A client that resets its connection ends the session, and with it the
 /// inbound's `Incoming`, while a stream's consumer is stuck.
 #[test]
-#[ignore = "fails: a reset goes unnoticed while the receive loop waits on a stream"]
 fn a_reset_ends_a_stalled_session() {
     runtime().block_on(async {
         let (port, mut streams, ended) = serve().await;

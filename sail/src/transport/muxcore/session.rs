@@ -65,6 +65,8 @@ struct Slot {
     reset: bool,
     /// Reset by this end, for nothing read what it received.
     stalled: bool,
+    /// The peer failed to open the stream, and said why.
+    refused: Option<String>,
     /// Since when what is in the inbox has waited unread: when data came
     /// into an empty inbox, or when the stream last read.
     progress: Instant,
@@ -99,6 +101,7 @@ impl Slot {
             local_fin: false,
             reset: false,
             stalled: false,
+            refused: None,
             progress: now,
             send_window: window,
             recv_window: window,
@@ -107,6 +110,14 @@ impl Slot {
             epoch_start: now,
             epoch_read: 0,
         }
+    }
+
+    /// Whether what the peer sends is no longer taken: the stream is over
+    /// both ways, or failed.
+    fn deaf(&self, closing: Closing) -> bool {
+        self.stalled
+            || self.refused.is_some()
+            || (closing == Closing::Whole && (self.local_fin || self.remote_fin))
     }
 
     fn wake(&mut self) {
@@ -149,6 +160,8 @@ struct State {
     retired: bool,
     /// The id of the next stream this end opens.
     next_id: u32,
+    /// Stream data received, all told.
+    received: u64,
     /// Without windows: the streams whose inbox is full, which stop the
     /// reader.
     full: usize,
@@ -325,6 +338,14 @@ impl Shared {
                 }
             }
             Event::GoAway => state.going_away = true,
+            Event::Refused(id, why) => {
+                if let Some(slot) = state.streams.get_mut(&id) {
+                    slot.refused = Some(why);
+                    slot.wake();
+                }
+            }
+            Event::Reply(frame) => self.control(state, frame)?,
+            Event::Close(why) => return Err(io::Error::other(why)),
         }
         Ok(())
     }
@@ -344,7 +365,8 @@ impl Shared {
             }
             slot.recv_window -= data.len() as u32;
         }
-        if slot.stalled {
+        state.received += data.len() as u64;
+        if slot.deaf(self.closing) {
             return Ok(());
         }
         if slot.recv.is_empty() {
@@ -469,6 +491,7 @@ impl Session {
                 going_away: false,
                 retired: false,
                 next_id: codec.first_id(server),
+                received: 0,
                 full: 0,
                 grown: 0,
                 rtt: None,
@@ -493,15 +516,23 @@ impl Session {
         let (driver, task) = abortable({
             let shared = shared.clone();
             async move {
+                let writer = write_loop(&shared, w);
+                tokio::pin!(writer);
                 let reason = tokio::select! {
                     result = read_loop(&shared, r) => match result {
                         Ok(()) => "connection closed".to_string(),
                         Err(e) => e.to_string(),
                     },
-                    reason = write_loop(&shared, w) => reason,
+                    reason = &mut writer => {
+                        shared.fail(reason);
+                        return;
+                    }
                     reason = tick_loop(&shared) => reason,
                 };
                 shared.fail(reason);
+                // What the session had to say before it ended, as a reason
+                // the protocol gives the peer, still goes out.
+                let _ = tokio::time::timeout(CLOSE_GRACE, writer).await;
             }
         });
         *shared.task.lock().unwrap_or_else(|e| e.into_inner()) = Some(task);
@@ -512,6 +543,12 @@ impl Session {
 
     /// Opens a stream.
     pub fn open(&self) -> io::Result<Stream> {
+        self.open_with(&[])
+    }
+
+    /// Opens a stream whose first data, sent with what opens it, is
+    /// `first`: no more than `INITIAL_WINDOW`.
+    pub fn open_with(&self, first: &[u8]) -> io::Result<Stream> {
         let name = self.shared.codec.name();
         let mut state = self.shared.lock();
         if let Some(e) = &state.error {
@@ -529,16 +566,26 @@ impl Session {
         let id = state.next_id;
         state.next_id = id
             .checked_add(self.shared.codec.id_step())
-            .filter(|id| *id < u32::MAX - 2)
+            .filter(|id| *id <= self.shared.codec.max_id())
             .ok_or_else(|| {
                 io::Error::new(
                     io::ErrorKind::BrokenPipe,
                     format!("{}: stream ids exhausted", name),
                 )
             })?;
-        state.streams.insert(id, Slot::new(self.shared.flow));
+        let mut slot = Slot::new(self.shared.flow);
+        if self.shared.flow == Flow::Window {
+            if first.len() > slot.send_window as usize {
+                return Err(io::Error::other(format!(
+                    "{}: more to open a stream with than its window",
+                    name
+                )));
+            }
+            slot.send_window -= first.len() as u32;
+        }
+        state.streams.insert(id, slot);
         self.shared.counters.stream_opened();
-        state.data.push(self.shared.codec.open(id));
+        state.data.push(self.shared.codec.open(id, first));
         drop(state);
         self.shared.wake_writer();
         Ok(Stream {
@@ -549,6 +596,11 @@ impl Session {
 
     pub fn num_streams(&self) -> usize {
         self.shared.lock().streams.len()
+    }
+
+    /// Stream data received, all told.
+    pub fn received(&self) -> u64 {
+        self.shared.lock().received
     }
 
     pub fn is_closed(&self) -> bool {
@@ -605,13 +657,18 @@ async fn read_loop<R: AsyncRead + Unpin>(shared: &Arc<Shared>, mut r: R) -> io::
 /// and says why.
 async fn write_loop<W: AsyncWrite + Unpin>(shared: &Shared, mut w: W) -> String {
     let mut batch = BytesMut::with_capacity(WRITE_BATCH);
+    let mut shaper = shared.codec.shaper();
     loop {
         let notified = shared.writer.notified();
+        let shaped = shaper.as_mut().is_some_and(|s| s.active());
         let (ended, control, data) = {
             let mut guard = shared.lock();
             let state = &mut *guard;
-            let control = take(&mut state.control, &mut batch);
-            let data = take(&mut state.data, &mut batch);
+            let control = take(&mut state.control, &mut batch, shaped);
+            let data = match shaped && control > 0 {
+                true => 0,
+                false => take(&mut state.data, &mut batch, shaped),
+            };
             (state.error.is_some(), control, data)
         };
         if batch.is_empty() {
@@ -623,8 +680,19 @@ async fn write_loop<W: AsyncWrite + Unpin>(shared: &Shared, mut w: W) -> String 
             continue;
         }
         let result = async {
-            w.write_all(&batch).await?;
-            w.flush().await
+            match shaper.as_mut().filter(|_| shaped) {
+                Some(shaper) => {
+                    for record in shaper.shape(batch.split()) {
+                        w.write_all(&record).await?;
+                        w.flush().await?;
+                    }
+                    Ok(())
+                }
+                None => {
+                    w.write_all(&batch).await?;
+                    w.flush().await
+                }
+            }
         }
         .await;
         batch.clear();
@@ -645,12 +713,12 @@ async fn write_loop<W: AsyncWrite + Unpin>(shared: &Shared, mut w: W) -> String 
     }
 }
 
-/// Moves frames from `out` to `batch` while it has room, and says how many
-/// bytes.
-fn take(out: &mut Out, batch: &mut BytesMut) -> usize {
+/// Moves frames from `out` to `batch` while it has room, or only one,
+/// and says how many bytes.
+fn take(out: &mut Out, batch: &mut BytesMut, one: bool) -> usize {
     let mut taken = 0;
     while let Some(frame) = out.queue.front() {
-        if !batch.is_empty() && batch.len() + frame.len() > WRITE_BATCH {
+        if !batch.is_empty() && (one || batch.len() + frame.len() > WRITE_BATCH) {
             break;
         }
         taken += frame.len();
@@ -688,6 +756,19 @@ impl Stream {
         self.id
     }
 
+    /// Sends a control frame of the protocol's about this stream, ahead of
+    /// stream data.
+    pub fn send_control(&self, frame: Bytes) -> io::Result<()> {
+        let mut state = self.shared.lock();
+        if state.error.is_some() {
+            return Err(closed(&self.shared, &state));
+        }
+        state.control.push(frame);
+        drop(state);
+        self.shared.wake_writer();
+        Ok(())
+    }
+
     /// Takes the session's round trip to be `rtt`, whatever it measures.
     #[cfg(test)]
     pub fn pin_rtt(&self, rtt: Duration) {
@@ -716,6 +797,10 @@ fn closed(shared: &Shared, state: &State) -> io::Error {
             state.error.as_deref().unwrap_or("unknown")
         ),
     )
+}
+
+fn refused(why: &str) -> io::Error {
+    io::Error::new(io::ErrorKind::ConnectionRefused, why.to_string())
 }
 
 fn stalled(shared: &Shared) -> io::Error {
@@ -794,7 +879,10 @@ impl AsyncRead for Stream {
             }
             return Poll::Ready(Ok(()));
         }
-        if slot.remote_fin {
+        if let Some(why) = &slot.refused {
+            return Poll::Ready(Err(refused(why)));
+        }
+        if slot.remote_fin || (shared.closing == Closing::Whole && slot.local_fin) {
             return Poll::Ready(Ok(()));
         }
         if slot.reset {
@@ -826,11 +914,14 @@ impl AsyncWrite for Stream {
         if slot.stalled {
             return Poll::Ready(Err(stalled(shared)));
         }
+        if let Some(why) = &slot.refused {
+            return Poll::Ready(Err(refused(why)));
+        }
         if slot.reset {
             return Poll::Ready(Err(io::ErrorKind::ConnectionReset.into()));
         }
         // Without half-close, a stream the peer finished is closed.
-        if slot.local_fin || (shared.closing == Closing::OnDrop && slot.remote_fin) {
+        if slot.local_fin || (shared.closing != Closing::Half && slot.remote_fin) {
             return Poll::Ready(Err(io::ErrorKind::BrokenPipe.into()));
         }
         if buf.is_empty() {
@@ -868,8 +959,12 @@ impl AsyncWrite for Stream {
             return Poll::Ready(Ok(()));
         }
         if let Some(slot) = state.streams.get_mut(&self.id) {
-            if !slot.local_fin && !slot.reset && !slot.stalled {
+            if !slot.local_fin && !slot.reset && !slot.deaf(self.shared.closing) {
                 slot.local_fin = true;
+                // Over both ways: a read waiting sees the end.
+                if self.shared.closing == Closing::Whole {
+                    slot.wake();
+                }
                 state.data.push(self.shared.codec.fin(self.id));
                 drop(guard);
                 self.shared.wake_writer();
@@ -894,10 +989,12 @@ impl Drop for Stream {
         }
         state.grown -= u64::from(slot.window.saturating_sub(INITIAL_WINDOW));
         let last = state.retired && state.streams.is_empty();
-        if state.error.is_none() && !slot.stalled {
+        if state.error.is_none() && !slot.stalled && slot.refused.is_none() {
             let codec = &shared.codec;
             let frame = match shared.closing {
                 Closing::OnDrop => Some(codec.fin(self.id)),
+                Closing::Whole if !slot.local_fin && !slot.remote_fin => Some(codec.fin(self.id)),
+                Closing::Whole => None,
                 // Abandoned before the peer finished: reset, so that it
                 // stops sending. Otherwise finish, if not done yet.
                 Closing::Half if !slot.remote_fin && !slot.reset => Some(codec.reset(self.id)),

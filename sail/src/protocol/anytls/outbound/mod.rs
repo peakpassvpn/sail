@@ -101,6 +101,8 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
             DEFAULT_IDLE_TIMEOUT,
         )?,
         min_idle: options.min_idle_session,
+        tuning: (&ctx.env.options.mux).into(),
+        label: format!("outbound={}", tag),
     };
 
     let (client, cleanup) = Client::new(

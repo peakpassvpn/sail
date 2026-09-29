@@ -7,6 +7,7 @@ use futures::{
     task::{Context, Poll},
 };
 
+use crate::transport::muxcore::Tuning;
 use crate::{adapter::*, session::Session, session::StreamId};
 
 use super::MuxAcceptor;
@@ -18,10 +19,11 @@ pub struct Incoming {
 }
 
 impl Incoming {
-    pub fn new(sess: Session, conn: Box<dyn ProxyStream>) -> Self {
+    pub fn new(sess: Session, conn: Box<dyn ProxyStream>, tuning: Tuning) -> Self {
+        let label = format!("inbound={}", sess.inbound_tag);
         Incoming {
+            acceptor: MuxSession::acceptor(conn, tuning, &label),
             sess,
-            acceptor: MuxSession::acceptor(conn),
         }
     }
 }
@@ -42,6 +44,7 @@ impl Stream for Incoming {
 
 pub struct Handler {
     pub actors: Vec<AnyInboundHandler>,
+    pub tuning: Tuning,
 }
 
 #[async_trait]
@@ -64,7 +67,9 @@ impl InboundStreamHandler for Handler {
             }
         }
         Ok(InboundTransport::Incoming(Box::new(Incoming::new(
-            sess, stream,
+            sess,
+            stream,
+            self.tuning,
         ))))
     }
 }

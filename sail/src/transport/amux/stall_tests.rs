@@ -1,8 +1,7 @@
 //! An amux acceptor whose one stream is not read, as when its outbound is
 //! still dialing or its target reads nothing: the other streams should go
 //! on, and a client that resets the connection should end the acceptor.
-//! The receive loop hands each frame to its stream and waits for room, as
-//! the sing-anytls server did. The ones ignored fail today.
+//! Each stream has a window, so the reader never waits for one.
 
 use std::time::Duration;
 
@@ -13,6 +12,7 @@ use tokio::sync::{mpsc, oneshot};
 use tokio::time::timeout;
 
 use super::{MuxConnector, MuxSession, MuxStream};
+use crate::transport::muxcore::Tuning;
 
 /// Written on the stream nobody reads: well past its queue.
 const FLOOD: usize = 8 << 20;
@@ -36,7 +36,7 @@ async fn serve() -> (u16, mpsc::Receiver<MuxStream>, oneshot::Receiver<()>) {
     let (ended_tx, ended_rx) = oneshot::channel();
     tokio::spawn(async move {
         let (conn, _) = listener.accept().await.unwrap();
-        let mut acceptor = MuxSession::acceptor(conn);
+        let mut acceptor = MuxSession::acceptor(conn, Tuning::default(), "test");
         while let Some(stream) = acceptor.next().await {
             let _ = streams_tx.send(stream).await;
         }
@@ -52,7 +52,7 @@ async fn connect(port: u16) -> MuxConnector {
     socket2::SockRef::from(&conn)
         .set_linger(Some(Duration::ZERO))
         .unwrap();
-    MuxSession::connector(conn, 128, 16, 0, 0)
+    MuxSession::connector(conn, 128, 16, 0, 0, Tuning::default(), "test")
 }
 
 /// Opens a stream, which the acceptor sees with its first data, writes
@@ -81,7 +81,6 @@ async fn stall(
 }
 
 #[test]
-#[ignore = "fails: one unread stream stalls the receive loop (run_frame_receive_loop)"]
 fn a_stuck_stream_does_not_stall_the_others() {
     runtime().block_on(async {
         let (port, mut streams, _ended) = serve().await;
@@ -111,7 +110,6 @@ fn a_stuck_stream_does_not_stall_the_others() {
 }
 
 #[test]
-#[ignore = "fails: a reset goes unnoticed while the receive loop waits on a stream"]
 fn a_reset_ends_a_stalled_acceptor() {
     runtime().block_on(async {
         let (port, mut streams, ended) = serve().await;

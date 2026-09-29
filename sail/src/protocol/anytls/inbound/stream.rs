@@ -15,6 +15,7 @@ use tracing::debug;
 use crate::adapter::*;
 use crate::protocol::fallback::{Fallback, HEADER_TIMEOUT};
 use crate::session::{Session as ProxySession, SocksAddr, SocksAddrWireType, StreamId};
+use crate::transport::muxcore::Tuning;
 use crate::transport::uot;
 
 use super::super::padding::PaddingScheme;
@@ -31,6 +32,7 @@ pub struct Handler {
     handshake_timeout: Duration,
     /// Where what fails to authenticate goes; closed without one.
     fallback: Option<Fallback>,
+    tuning: Tuning,
 }
 
 impl Handler {
@@ -39,12 +41,14 @@ impl Handler {
         padding: Arc<PaddingScheme>,
         handshake_timeout: Duration,
         fallback: Option<Fallback>,
+        tuning: Tuning,
     ) -> Self {
         Handler {
             users,
             padding,
             handshake_timeout,
             fallback,
+            tuning,
         }
     }
 }
@@ -98,13 +102,25 @@ impl InboundStreamHandler for Handler {
         sess.user = user.clone();
         let (tx, rx) = mpsc::channel(INCOMING_QUEUE);
         let handshake_timeout = self.handshake_timeout;
-        let session = Session::server(
-            stream,
-            self.padding.clone(),
-            Box::new(move |stream| {
-                tokio::spawn(accept(stream, sess.clone(), tx.clone(), handshake_timeout));
-            }),
+        let label = format!(
+            "inbound={} user={}",
+            sess.inbound_tag,
+            sess.user.as_deref().unwrap_or("-")
         );
+        let (session, mut streams) =
+            Session::server(stream, self.padding.clone(), self.tuning, &label);
+        // Holds the session only while a stream is being handed out: the
+        // `Incoming` keeps it, and each stream its own.
+        let weak = Arc::downgrade(&session);
+        tokio::spawn(async move {
+            while let Some(stream) = streams.recv().await {
+                let Some(session) = weak.upgrade() else {
+                    return;
+                };
+                let stream = session.stream(stream);
+                tokio::spawn(accept(stream, sess.clone(), tx.clone(), handshake_timeout));
+            }
+        });
         Ok(InboundTransport::Incoming(Box::new(Incoming {
             rx,
             _session: session,

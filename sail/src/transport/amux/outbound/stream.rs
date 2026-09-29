@@ -18,6 +18,7 @@ use crate::{
     app::SyncDnsClient,
     net::*,
     session::{Session, SocksAddr},
+    transport::muxcore::Tuning,
 };
 
 use super::MuxConnector;
@@ -34,8 +35,11 @@ pub struct MuxManager {
     pub max_lifetime: u64,
     pub dns_client: SyncDnsClient,
     pub dial: Arc<crate::net::DialOptions>,
-    // TODO Verify whether the run loops in connectors are aborted after
-    // a config reload.
+    pub tuning: Tuning,
+    /// Who the sessions serve, in their logs.
+    pub label: String,
+    /// Sessions that may take more streams. One dropped, by the monitor or
+    /// with the manager on a reload, ends once its streams are done.
     pub connectors: Arc<Mutex<Vec<MuxConnector>>>,
     pub monitor_task: Mutex<Option<BoxFuture<'static, ()>>>,
 }
@@ -52,6 +56,8 @@ impl MuxManager {
         max_lifetime: u64,
         dns_client: SyncDnsClient,
         dial: Arc<crate::net::DialOptions>,
+        tuning: Tuning,
+        label: String,
     ) -> (Self, Vec<AbortHandle>) {
         let mut abort_handles = Vec::new();
         let connectors: Arc<Mutex<Vec<MuxConnector>>> = Arc::new(Mutex::new(Vec::new()));
@@ -78,6 +84,8 @@ impl MuxManager {
                 max_lifetime,
                 dns_client,
                 dial,
+                tuning,
+                label,
                 connectors,
                 monitor_task: Mutex::new(Some(monitor_task)),
             },
@@ -132,7 +140,7 @@ impl MuxManager {
         // Create the stream over this new connection.
         let mut connector = {
             if sess.new_conn_once {
-                MuxSession::connector(conn, 1, 1, 0, 0)
+                MuxSession::connector(conn, 1, 1, 0, 0, self.tuning, &self.label)
             } else {
                 MuxSession::connector(
                     conn,
@@ -140,6 +148,8 @@ impl MuxManager {
                     self.concurrency,
                     self.max_recv_bytes,
                     self.max_lifetime,
+                    self.tuning,
+                    &self.label,
                 )
             }
         };
@@ -176,6 +186,8 @@ impl Handler {
         max_lifetime: u64,
         dns_client: SyncDnsClient,
         dial: Arc<crate::net::DialOptions>,
+        tuning: Tuning,
+        label: String,
     ) -> (Self, Vec<AbortHandle>) {
         let (manager, abort_handles) = MuxManager::new(
             address,
@@ -187,6 +199,8 @@ impl Handler {
             max_lifetime,
             dns_client,
             dial,
+            tuning,
+            label,
         );
         (Handler { manager }, abort_handles)
     }

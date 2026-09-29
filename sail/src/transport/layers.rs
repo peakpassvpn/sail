@@ -708,6 +708,7 @@ fn layered(
                     under_mux,
                     layering.dns_client,
                     &dial,
+                    layering.env,
                     layering.abort_handles,
                 )?);
             }
@@ -1148,6 +1149,7 @@ fn quic_outbound(
 #[allow(unused_variables)]
 // Without `outbound-amux` nothing is pushed onto the handles.
 #[cfg_attr(not(feature = "outbound-amux"), allow(clippy::ptr_arg))]
+#[allow(clippy::too_many_arguments)]
 fn amux_outbound(
     tag: &str,
     mux: &OutboundMultiplex,
@@ -1155,6 +1157,7 @@ fn amux_outbound(
     actors: Vec<AnyOutboundHandler>,
     dns_client: &SyncDnsClient,
     dial: &Arc<DialOptions>,
+    env: &RuntimeEnv,
     abort_handles: &mut Vec<AbortHandle>,
 ) -> Result<AnyOutboundHandler> {
     let sing_mux_only = [
@@ -1183,6 +1186,8 @@ fn amux_outbound(
             mux.max_lifetime.unwrap_or(0),
             dns_client.clone(),
             dial.clone(),
+            (&env.options.mux).into(),
+            format!("outbound={}", tag),
         );
         abort_handles.append(&mut handles);
         Ok(crate::adapter::outbound::HandlerBuilder::default()
@@ -1572,7 +1577,7 @@ pub fn inbound(
             )?);
         }
         match mux {
-            Some(mux) => actors.push(amux_inbound(tag, mux, under_mux)?),
+            Some(mux) => actors.push(amux_inbound(tag, mux, under_mux, env)?),
             None => actors.extend(under_mux),
         }
     }
@@ -1886,12 +1891,14 @@ fn amux_inbound(
     tag: &str,
     mux: &InboundMultiplex,
     actors: Vec<AnyInboundHandler>,
+    env: &RuntimeEnv,
 ) -> Result<AnyInboundHandler> {
     #[cfg(feature = "inbound-amux")]
     return Ok(Arc::new(crate::adapter::inbound::Handler::new(
         format!("{}/amux", tag),
         Some(Arc::new(crate::transport::amux::inbound::StreamHandler {
             actors,
+            tuning: (&env.options.mux).into(),
         })),
         None,
     )));

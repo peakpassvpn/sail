@@ -82,8 +82,12 @@ impl Codec for Yamux {
         }
     }
 
-    fn open(&self, id: u32) -> Bytes {
-        window_update(FLAG_SYN, id, 0)
+    fn open(&self, id: u32, first: &[u8]) -> Bytes {
+        let mut buf = BytesMut::from(&window_update(FLAG_SYN, id, 0)[..]);
+        for chunk in first.chunks(MAX_FRAME_DATA) {
+            buf.extend_from_slice(&self.data(id, chunk));
+        }
+        buf.freeze()
     }
 
     fn ack(&self, id: u32) -> Option<Bytes> {

@@ -395,6 +395,7 @@ mod tests {
                     Arc::default(),
                     std::time::Duration::from_secs(1),
                     None,
+                    Default::default(),
                 ))),
                 None,
             ))

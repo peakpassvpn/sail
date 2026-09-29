@@ -59,8 +59,12 @@ impl Codec for Smux {
         }
     }
 
-    fn open(&self, id: u32) -> Bytes {
-        frame(CMD_SYN, id, &[])
+    fn open(&self, id: u32, first: &[u8]) -> Bytes {
+        let mut buf = BytesMut::from(&frame(CMD_SYN, id, &[])[..]);
+        for chunk in first.chunks(MAX_FRAME_DATA) {
+            buf.extend_from_slice(&frame(CMD_PSH, id, chunk));
+        }
+        buf.freeze()
     }
 
     fn refuse(&self, id: u32) -> Bytes {

@@ -1,35 +1,35 @@
-use std::cmp::min;
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+//! amux, sail's own multiplexer: streams over one connection of a
+//! transport (TLS, WebSocket, ...), below a proxy protocol, which runs on
+//! each stream. Both ends are sail, so the frames are its own, carried by
+//! the stream core (`transport::muxcore`), all big-endian:
+//!
+//! - `0x00 SYN | id u16`: the client opens a stream.
+//! - `0x01 DATA | id u16 | len u16 | data`.
+//! - `0x02 FIN | id u16`: no more data this way; the other goes on.
+//! - `0x03 WINDOW | id u16 | delta u32`: the sender may send `delta` more.
+//! - `0x04 RST | id u16`: the stream is abandoned both ways.
+//! - `0x05 PING | ack u8 | opaque u32`: answered with `ack` 1 and the
+//!   same `opaque`; the round trip is what windows grow with.
+//!
+//! Every stream starts with a window of `muxcore::INITIAL_WINDOW` each
+//! way, which the reader grows as it reads fast (`mux.stream_window_max`).
+//! The amux before these frames had neither windows nor resets, and a
+//! stream nobody read stalled its whole session; the two do not speak to
+//! each other.
+
+use std::io;
+use std::pin::Pin;
 use std::sync::Arc;
-use std::time::Duration;
-use std::{io, pin::Pin};
 
 use bytes::{Buf, BufMut, Bytes, BytesMut};
-use futures::future::{abortable, AbortHandle};
-use futures::sink::Sink;
-use futures::stream::SplitSink;
-use futures::stream::SplitStream;
 use futures::stream::Stream;
-use futures::SinkExt;
-use futures::StreamExt;
-use futures::{
-    ready,
-    task::{Context, Poll},
-    Future, TryFutureExt,
-};
-use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
-use tokio::sync::mpsc::{self, Receiver, Sender};
-use tokio::sync::Mutex;
-use tokio::time::{sleep, Instant};
-use tracing::{debug, trace, Instrument};
+use futures::task::{Context, Poll};
+use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::sync::mpsc;
+use tokio::time::Instant;
+use tracing::trace;
 
-/// Streams accepted on a session and not yet handed on.
-const ACCEPT_CHANNEL_SIZE: usize = 1024;
-/// Frames queued for a session's connection.
-const FRAME_CHANNEL_SIZE: usize = 32;
-/// Payloads queued for one stream's reader.
-const STREAM_CHANNEL_SIZE: usize = 16;
+use crate::transport::muxcore::{self, Closing, Codec, Decoder, Event, Flow, Framing, Tuning};
 
 #[cfg(feature = "inbound-amux")]
 pub mod inbound;
@@ -38,635 +38,194 @@ pub mod outbound;
 #[cfg(test)]
 mod stall_tests;
 
-pub const FRAME_STREAM: u8 = 0x01;
-pub const FRAME_STREAM_FIN: u8 = 0x02;
-pub const MAX_STREAM_FRAME_DATA_LEN: u16 = u16::MAX;
+const FRAME_SYN: u8 = 0x00;
+const FRAME_DATA: u8 = 0x01;
+const FRAME_FIN: u8 = 0x02;
+const FRAME_WINDOW: u8 = 0x03;
+const FRAME_RST: u8 = 0x04;
+const FRAME_PING: u8 = 0x05;
+/// The largest data frame sent.
+const MAX_FRAME_DATA: usize = 32 << 10;
 
 pub fn random_u16() -> u16 {
-    use rand::{rngs::StdRng, RngCore, SeedableRng};
-    let mut buf = [0u8; std::mem::size_of::<u16>()];
-    let mut rng = StdRng::from_entropy();
-    rng.fill_bytes(&mut buf);
-    u16::from_be_bytes(buf)
+    rand::random()
 }
 
-type StreamId = u16;
+/// A stream of an amux session.
+pub type MuxStream = muxcore::Stream;
 
-pub enum MuxFrame {
-    /// A frame to send stream data. The frame opens new stream implicitly, when
-    /// the server side receives a Stream frame with an unseen stream ID, it should
-    /// create a new stream for it.
-    Stream(StreamId, Vec<u8>), // |type(1,0x01)|id(2)|len(2)|data|
-    /// A frame to close the send half of a stream.
-    StreamFin(StreamId), // |type(1,0x02)|id(2)|
+fn short(kind: u8, id: u32) -> Bytes {
+    let mut buf = BytesMut::with_capacity(3);
+    buf.put_u8(kind);
+    buf.put_u16(id as u16);
+    buf.freeze()
 }
 
-impl MuxFrame {
-    pub fn to_bytes(&self) -> Bytes {
-        let mut buf = BytesMut::new();
-        match self {
-            MuxFrame::Stream(id, data) => {
-                buf.put_u8(FRAME_STREAM);
-                buf.put_u16(*id);
-                assert!(data.len() <= MAX_STREAM_FRAME_DATA_LEN as usize);
-                buf.put_u16(data.len() as u16);
-                buf.put_slice(data);
-            }
-            MuxFrame::StreamFin(id) => {
-                buf.put_u8(FRAME_STREAM_FIN);
-                buf.put_u16(*id);
-            }
-        }
+fn data(buf: &mut BytesMut, id: u32, data: &[u8]) {
+    for chunk in data.chunks(MAX_FRAME_DATA) {
+        buf.put_u8(FRAME_DATA);
+        buf.put_u16(id as u16);
+        buf.put_u16(chunk.len() as u16);
+        buf.put_slice(chunk);
+    }
+}
+
+/// amux's frames, for the core.
+struct Amux;
+
+impl Codec for Amux {
+    fn name(&self) -> &'static str {
+        "amux"
+    }
+
+    fn flow(&self) -> Flow {
+        Flow::Window
+    }
+
+    fn closing(&self) -> Closing {
+        Closing::Half
+    }
+
+    fn max_data(&self) -> usize {
+        MAX_FRAME_DATA
+    }
+
+    fn first_id(&self, _server: bool) -> u32 {
+        1
+    }
+
+    fn id_step(&self) -> u32 {
+        1
+    }
+
+    fn max_id(&self) -> u32 {
+        u16::MAX.into()
+    }
+
+    fn open(&self, id: u32, first: &[u8]) -> Bytes {
+        let mut buf = BytesMut::from(&short(FRAME_SYN, id)[..]);
+        data(&mut buf, id, first);
         buf.freeze()
     }
-}
 
-impl std::fmt::Display for MuxFrame {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            MuxFrame::Stream(stream_id, data) => {
-                write!(f, "Stream({}, {} bytes)", stream_id, data.len())
-            }
-            MuxFrame::StreamFin(stream_id) => {
-                write!(f, "StreamFin({})", stream_id)
-            }
-        }
+    fn refuse(&self, id: u32) -> Bytes {
+        short(FRAME_RST, id)
+    }
+
+    fn data(&self, id: u32, bytes: &[u8]) -> Bytes {
+        let mut buf = BytesMut::with_capacity(5 + bytes.len());
+        data(&mut buf, id, bytes);
+        buf.freeze()
+    }
+
+    fn fin(&self, id: u32) -> Bytes {
+        short(FRAME_FIN, id)
+    }
+
+    fn reset(&self, id: u32) -> Bytes {
+        short(FRAME_RST, id)
+    }
+
+    fn window_update(&self, id: u32, delta: u32) -> Option<Bytes> {
+        let mut buf = BytesMut::with_capacity(7);
+        buf.put_u8(FRAME_WINDOW);
+        buf.put_u16(id as u16);
+        buf.put_u32(delta);
+        Some(buf.freeze())
+    }
+
+    fn ping(&self, ack: bool, opaque: u32) -> Option<Bytes> {
+        let mut buf = BytesMut::with_capacity(6);
+        buf.put_u8(FRAME_PING);
+        buf.put_u8(ack as u8);
+        buf.put_u32(opaque);
+        Some(buf.freeze())
+    }
+
+    fn decoder(&self, _server: bool) -> Box<dyn Decoder> {
+        Box::<AmuxDecoder>::default()
     }
 }
 
-pub type Streams = Arc<Mutex<HashMap<StreamId, Sender<Vec<u8>>>>>;
-
-enum TaskState {
-    Idle,
-    Pending(Pin<Box<dyn Future<Output = io::Result<usize>> + 'static + Sync + Send>>),
+#[derive(Default)]
+struct AmuxDecoder {
+    framing: Framing,
 }
 
-pub struct MuxStream {
-    session_id: SessionId,
-    stream_id: StreamId,
-    stream_read_rx: Receiver<Vec<u8>>,
-    frame_write_tx: Sender<MuxFrame>,
-    buf: BytesMut,
-    write_state: TaskState,
-    shutdown_state: TaskState,
-    stream_end: Arc<AtomicBool>,
-}
-
-impl MuxStream {
-    pub fn new(
-        session_id: SessionId,
-        stream_id: StreamId,
-        frame_write_tx: Sender<MuxFrame>,
-        stream_end: Arc<AtomicBool>,
-    ) -> (Self, Sender<Vec<u8>>) {
-        trace!("new mux stream {} (session {})", stream_id, session_id);
-        let (stream_read_tx, stream_read_rx) = mpsc::channel::<Vec<u8>>(STREAM_CHANNEL_SIZE);
-        (
-            MuxStream {
-                session_id,
-                stream_id,
-                stream_read_rx,
-                frame_write_tx,
-                buf: BytesMut::new(),
-                write_state: TaskState::Idle,
-                shutdown_state: TaskState::Idle,
-                stream_end,
-            },
-            stream_read_tx,
-        )
-    }
-
-    pub fn id(&self) -> StreamId {
-        self.stream_id
-    }
-}
-
-impl Drop for MuxStream {
-    fn drop(&mut self) {
-        self.stream_end.store(true, Ordering::Relaxed);
-        trace!(
-            "drop mux stream {} (session {})",
-            self.stream_id,
-            self.session_id
-        );
-    }
-}
-
-fn broken_pipe() -> io::Error {
-    io::Error::new(io::ErrorKind::Interrupted, "broken pipe")
-}
-
-impl AsyncRead for MuxStream {
-    fn poll_read(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context,
-        buf: &mut ReadBuf,
-    ) -> Poll<io::Result<()>> {
-        if !self.buf.is_empty() {
-            let to_read = min(buf.remaining(), self.buf.len());
-            let for_read = self.buf.split_to(to_read);
-            buf.put_slice(&for_read[..to_read]);
-            return Poll::Ready(Ok(()));
-        }
-        Poll::Ready(
-            ready!(self.stream_read_rx.poll_recv(cx)).map_or(Err(broken_pipe()), |data| {
-                if data.is_empty() {
-                    Ok(()) // EOF
-                } else {
-                    let to_read = min(buf.remaining(), data.len());
-                    buf.put_slice(&data[..to_read]);
-                    if data.len() > to_read {
-                        self.buf.extend_from_slice(&data[to_read..]);
-                    }
-                    Ok(())
-                }
-            }),
-        )
-    }
-}
-
-impl AsyncWrite for MuxStream {
-    fn poll_write(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context,
-        buf: &[u8],
-    ) -> Poll<io::Result<usize>> {
+impl Decoder for AmuxDecoder {
+    fn decode(&mut self, buf: &mut BytesMut) -> io::Result<Option<Event>> {
         loop {
-            match self.write_state {
-                TaskState::Idle => {
-                    let to_write = min(buf.len(), MAX_STREAM_FRAME_DATA_LEN.into());
-                    let frame = MuxFrame::Stream(self.stream_id, buf[..to_write].to_vec());
-                    let tx = self.frame_write_tx.clone();
-                    let task = Box::pin(
-                        async move {
-                            tx.send(frame)
-                                .map_ok(|_| to_write)
-                                .map_err(|_| broken_pipe())
-                                .await
-                        }
-                        .instrument(tracing::Span::current()),
-                    );
-                    self.write_state = TaskState::Pending(task);
-                }
-                TaskState::Pending(ref mut task) => {
-                    let res = ready!(task.as_mut().poll(cx));
-                    self.write_state = TaskState::Idle;
-                    return Poll::Ready(res);
-                }
+            if let Some(next) = self.framing.next(buf) {
+                return Ok(next);
             }
-        }
-    }
-
-    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context) -> Poll<io::Result<()>> {
-        Poll::Ready(Ok(()))
-    }
-
-    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<io::Result<()>> {
-        loop {
-            match self.shutdown_state {
-                TaskState::Idle => {
-                    let frame = MuxFrame::StreamFin(self.stream_id);
-                    let tx = self.frame_write_tx.clone();
-                    let task = Box::pin(
-                        async move {
-                            tx.send(frame)
-                                .map_ok(|_| 0) // FIXME temp workaround the signature
-                                .map_err(|_| broken_pipe())
-                                .await
-                        }
-                        .instrument(tracing::Span::current()),
-                    );
-                    self.shutdown_state = TaskState::Pending(task);
-                }
-                TaskState::Pending(ref mut task) => {
-                    let res = ready!(task.as_mut().poll(cx).map_ok(|_| ()));
-                    self.shutdown_state = TaskState::Idle;
-                    return Poll::Ready(res);
-                }
-            }
-        }
-    }
-}
-
-pub struct MuxConnection<S> {
-    inner: S,
-    read_buf: BytesMut,
-    write_buf: BytesMut,
-    backpressure_boundary: usize,
-}
-
-fn unknown_frame(t: u8) -> io::Error {
-    io::Error::new(
-        io::ErrorKind::Interrupted,
-        format!("unknown frame type {}", t),
-    )
-}
-
-impl<S> MuxConnection<S> {
-    pub fn new(inner: S) -> Self {
-        MuxConnection {
-            inner,
-            read_buf: BytesMut::with_capacity(2 * 1024),
-            write_buf: BytesMut::new(),
-            backpressure_boundary: 2 * 1024,
-        }
-    }
-
-    pub fn decode_frame(&mut self) -> io::Result<Option<MuxFrame>> {
-        let mut buf = &self.read_buf[..];
-        if buf.is_empty() {
-            return Ok(None);
-        }
-        match buf[0] {
-            FRAME_STREAM => {
-                buf = &buf[1..];
-
-                if buf.len() < 2 {
-                    self.read_buf.reserve(3);
-                    return Ok(None);
-                }
-                let stream_id = u16::from_be_bytes([buf[0], buf[1]]);
-                buf = &buf[2..];
-
-                if buf.len() < 2 {
-                    self.read_buf.reserve(5);
-                    return Ok(None);
-                }
-                let len = u16::from_be_bytes([buf[0], buf[1]]) as usize;
-                buf = &buf[2..];
-
-                if buf.len() < len {
-                    self.read_buf.reserve(5 + len);
-                    return Ok(None);
-                }
-                let data = &buf[..len];
-
-                // TODO freeze bytes
-                let frame = MuxFrame::Stream(stream_id, data.to_vec());
-                let _ = self.read_buf.split_to(5 + len);
-
-                self.read_buf.reserve(3); // minimal frame size
-
-                Ok(Some(frame))
-            }
-            FRAME_STREAM_FIN => {
-                buf = &buf[1..];
-
-                if buf.len() < 2 {
-                    self.read_buf.reserve(3);
-                    return Ok(None);
-                }
-                let stream_id = u16::from_be_bytes([buf[0], buf[1]]);
-
-                let frame = MuxFrame::StreamFin(stream_id);
-                let _ = self.read_buf.split_to(1 + 2);
-
-                self.read_buf.reserve(3); // minimal frame size
-
-                Ok(Some(frame))
-            }
-            _ => Err(unknown_frame(buf[0])),
-        }
-    }
-
-    pub fn encode_frame(&mut self, frame: MuxFrame) -> io::Result<()> {
-        self.write_buf.extend_from_slice(&frame.to_bytes());
-        Ok(())
-    }
-}
-
-impl<S: AsyncRead + Unpin> Stream for MuxConnection<S> {
-    type Item = io::Result<MuxFrame>;
-
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        use tokio_util::io::poll_read_buf;
-        let me = &mut *self;
-        loop {
-            // Upon `None` return, the `read_buf` must have properly reserved
-            // space for further data.
-            if let Some(frame) = me.decode_frame()? {
-                return Poll::Ready(Some(Ok(frame)));
-            }
-            me.read_buf.reserve(1); // avoid spurious EOF
-            let bytect = match poll_read_buf(Pin::new(&mut me.inner), cx, &mut me.read_buf)? {
-                Poll::Ready(ct) => ct,
-                Poll::Pending => return Poll::Pending,
+            let Some(&kind) = buf.first() else {
+                return Ok(None);
             };
-            if bytect == 0 {
-                return Poll::Ready(Some(Err(broken_pipe())));
+            let len = match kind {
+                FRAME_SYN | FRAME_FIN | FRAME_RST => 3,
+                FRAME_DATA => 5,
+                FRAME_WINDOW => 7,
+                FRAME_PING => 6,
+                kind => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!("amux: unknown frame type {}", kind),
+                    ))
+                }
+            };
+            if buf.len() < len {
+                return Ok(None);
+            }
+            let mut header = buf.split_to(len);
+            header.advance(1);
+            if kind == FRAME_PING {
+                let ack = header.get_u8() != 0;
+                let opaque = header.get_u32();
+                let event = if ack {
+                    Event::Pong(opaque)
+                } else {
+                    Event::Ping(opaque)
+                };
+                self.framing.frame(&[event], None, &[]);
+                continue;
+            }
+            let id = u32::from(header.get_u16());
+            match kind {
+                FRAME_SYN => self.framing.frame(&[Event::Open(id)], None, &[]),
+                FRAME_DATA => {
+                    let len = usize::from(header.get_u16());
+                    self.framing.frame(&[], Some((id, len)), &[]);
+                }
+                FRAME_FIN => self.framing.frame(&[Event::Fin(id)], None, &[]),
+                FRAME_WINDOW => {
+                    let delta = header.get_u32();
+                    self.framing.frame(&[Event::Window(id, delta)], None, &[]);
+                }
+                _ => self.framing.frame(&[Event::Reset(id)], None, &[]),
             }
         }
     }
-}
-
-impl<S: AsyncWrite + Unpin> Sink<MuxFrame> for MuxConnection<S> {
-    type Error = io::Error;
-
-    fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        if self.write_buf.len() >= self.backpressure_boundary {
-            self.poll_flush(cx)
-        } else {
-            Poll::Ready(Ok(()))
-        }
-    }
-
-    fn start_send(mut self: Pin<&mut Self>, item: MuxFrame) -> Result<(), Self::Error> {
-        self.encode_frame(item)?;
-        Ok(())
-    }
-
-    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        let me = &mut *self;
-
-        while !me.write_buf.is_empty() {
-            let n = ready!(Pin::new(&mut me.inner).poll_write(cx, &me.write_buf))?;
-            if n == 0 {
-                return Poll::Ready(Err(broken_pipe()));
-            }
-            me.write_buf.advance(n);
-        }
-
-        ready!(Pin::new(&mut me.inner).poll_flush(cx))?;
-        Poll::Ready(Ok(()))
-    }
-
-    fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        let me = &mut *self;
-        ready!(Pin::new(&mut me.inner).poll_flush(cx))?;
-        ready!(Pin::new(&mut me.inner).poll_shutdown(cx))?;
-        Poll::Ready(Ok(()))
-    }
-}
-
-// SessionId is a local identifier for connectors and acceptors, it has nothing
-// to do with the remote peer.
-type SessionId = u16;
-
-struct Accept {
-    session_id: SessionId,
-    stream_accept_tx: Sender<MuxStream>,
-    frame_write_tx: Sender<MuxFrame>,
 }
 
 pub struct MuxSession;
 
 impl MuxSession {
-    fn run_frame_receive_loop<S>(
-        streams: Streams,
-        mut frame_stream: SplitStream<MuxConnection<S>>,
-        recv_end: Option<Arc<Mutex<bool>>>,
-        mut accept: Option<Accept>,
-        recv_bytes_counter: Option<Arc<AtomicUsize>>,
-    ) -> AbortHandle
-    where
-        S: 'static + AsyncRead + AsyncWrite + Unpin + Send,
-    {
-        let task = Box::pin(
-            async move {
-                while let Some(frame) = frame_stream.next().await {
-                    match frame {
-                        Ok(frame) => {
-                            match frame {
-                                MuxFrame::Stream(stream_id, data) => {
-                                    // In accept mode.
-                                    if let Some(Accept {
-                                        session_id,
-                                        stream_accept_tx,
-                                        frame_write_tx,
-                                    }) = accept.as_mut()
-                                    {
-                                        // Accepts new stream for an unseen stream ID.
-                                        if let std::collections::hash_map::Entry::Vacant(e) =
-                                            streams.lock().await.entry(stream_id)
-                                        {
-                                            let (mux_stream, stream_read_tx) = MuxStream::new(
-                                                *session_id,
-                                                stream_id,
-                                                frame_write_tx.clone(),
-                                                Arc::new(AtomicBool::new(false)),
-                                            );
-                                            e.insert(stream_read_tx);
-                                            if stream_accept_tx.send(mux_stream).await.is_err() {
-                                                // The `Incoming` transport has been dropped.
-                                                break;
-                                            }
-                                        }
-                                    }
-                                    // Sends data to the stream.
-                                    if let Some(stream_read_tx) =
-                                        streams.lock().await.get(&stream_id).cloned()
-                                    {
-                                        if let Some(c) = recv_bytes_counter.as_ref() {
-                                            c.fetch_add(data.len(), Ordering::Relaxed);
-                                        }
-                                        // FIXME error
-                                        let _ = stream_read_tx.send(data).await;
-                                    }
-                                }
-                                MuxFrame::StreamFin(stream_id) => {
-                                    // Send an empty buffer to indicate EOF.
-                                    if let Some(stream_read_tx) =
-                                        streams.lock().await.get(&stream_id).cloned()
-                                    {
-                                        // FIXME error
-                                        let _ = stream_read_tx.send(Vec::new()).await;
-                                    }
-                                    let streams2 = streams.clone();
-                                    tokio::spawn(async move {
-                                        sleep(Duration::from_secs(4)).await;
-                                        streams2.lock().await.remove(&stream_id);
-                                    });
-                                }
-                            }
-                        }
-                        // Borken pipe.
-                        Err(e) => {
-                            debug!("receiving frame failed: {}", e);
-                            break;
-                        }
-                    }
-                }
-                // Stop receving.
-                if let Some(recv_end) = recv_end {
-                    *recv_end.lock().await = true;
-                }
-                streams.lock().await.clear();
-            }
-            .instrument(tracing::Span::current()),
-        );
-        let (task, handle) = abortable(task);
-        tokio::spawn(task);
-        handle
-    }
-
-    fn run_frame_send_loop<S>(
-        streams: Streams,
-        mut frame_sink: SplitSink<MuxConnection<S>, MuxFrame>,
-        mut frame_write_rx: Receiver<MuxFrame>,
-        send_end: Option<Arc<Mutex<bool>>>,
-    ) -> AbortHandle
-    where
-        S: 'static + AsyncRead + AsyncWrite + Unpin + Send,
-    {
-        let task = Box::pin(
-            async move {
-                while let Some(frame) = frame_write_rx.recv().await {
-                    // Peek EOF.
-                    if let MuxFrame::StreamFin(ref stream_id) = frame {
-                        let streams2 = streams.clone();
-                        let stream_id2 = *stream_id;
-                        tokio::spawn(
-                            async move {
-                                sleep(Duration::from_secs(4)).await;
-                                streams2.lock().await.remove(&stream_id2);
-                            }
-                            .instrument(tracing::Span::current()),
-                        );
-                    }
-                    // Send
-                    if frame_sink.send(frame).await.is_err() {
-                        break;
-                    }
-                }
-                if let Some(send_end) = send_end {
-                    *send_end.lock().await = true;
-                }
-                streams.lock().await.clear();
-            }
-            .instrument(tracing::Span::current()),
-        );
-        let (task, handle) = abortable(task);
-        tokio::spawn(task);
-        handle
-    }
-
+    /// A client session over `conn`, which opens streams until one of the
+    /// limits is reached. `label` says who it serves in logs.
     pub fn connector<S>(
         conn: S,
         max_accepts: usize,
         concurrency: usize,
         max_recv_bytes: usize,
         max_lifetime: u64,
+        tuning: Tuning,
+        label: &str,
     ) -> MuxConnector
     where
         S: 'static + AsyncRead + AsyncWrite + Unpin + Send,
     {
-        let (frame_sink, frame_stream) = MuxConnection::new(conn).split();
-        let (frame_write_tx, frame_write_rx) = mpsc::channel::<MuxFrame>(FRAME_CHANNEL_SIZE);
-        let (recv_end, send_end) = (Arc::new(Mutex::new(false)), Arc::new(Mutex::new(false)));
-        let streams: Streams = Arc::new(Mutex::new(HashMap::new()));
-        let recv_bytes_counter = Arc::new(AtomicUsize::new(0));
-        let recv_handle = Self::run_frame_receive_loop(
-            streams.clone(),
-            frame_stream,
-            Some(recv_end.clone()),
-            None,
-            Some(recv_bytes_counter.clone()),
-        );
-        let send_handle = Self::run_frame_send_loop(
-            streams.clone(),
-            frame_sink,
-            frame_write_rx,
-            Some(send_end.clone()),
-        );
+        let (session, _) = muxcore::Session::new(conn, Arc::new(Amux), false, tuning, label);
         let session_id = random_u16();
-        let started_at = Instant::now();
-        MuxConnector::new(
-            max_accepts,
-            concurrency,
-            max_recv_bytes,
-            recv_bytes_counter,
-            max_lifetime,
-            started_at,
-            session_id,
-            streams,
-            frame_write_tx,
-            recv_end,
-            send_end,
-            recv_handle,
-            send_handle,
-        )
-    }
-
-    pub fn acceptor<S>(conn: S) -> MuxAcceptor
-    where
-        S: 'static + AsyncRead + AsyncWrite + Unpin + Send,
-    {
-        let (frame_sink, frame_stream) = MuxConnection::new(conn).split();
-        let (frame_write_tx, frame_write_rx) = mpsc::channel::<MuxFrame>(FRAME_CHANNEL_SIZE);
-        let streams: Streams = Arc::new(Mutex::new(HashMap::new()));
-        let (stream_accept_tx, stream_accept_rx) = mpsc::channel(ACCEPT_CHANNEL_SIZE);
-        let session_id = random_u16();
-        let recv_handle = Self::run_frame_receive_loop(
-            streams.clone(),
-            frame_stream,
-            None,
-            Some(Accept {
-                session_id,
-                stream_accept_tx,
-                frame_write_tx,
-            }),
-            None,
-        );
-        let send_handle = Self::run_frame_send_loop(streams, frame_sink, frame_write_rx, None);
-        MuxAcceptor::new(session_id, stream_accept_rx, recv_handle, send_handle)
-    }
-}
-
-pub struct MuxConnector {
-    // Maximum number of acceptable streams.
-    max_accepts: usize,
-    // Stream concurrency.
-    concurrency: usize,
-    // New streams will not be created on the connection if total received
-    // bytes of the connection exceeds this value.
-    max_recv_bytes: usize,
-    // A counter to count currently received bytes on the connection.
-    recv_bytes_counter: Arc<AtomicUsize>,
-    // New streams will not be created on the connection if the lifetime of
-    // the connection exceeds this value, in seconds.
-    max_lifetime: u64,
-    // The time the connection is started.
-    started_at: Instant,
-    // ID for debugging purposes.
-    session_id: SessionId,
-    // Counter for number of streams created.
-    total_accepted: usize,
-    // Active streams.
-    streams: Streams,
-    // To check if all streams are closed.
-    stream_ends: Vec<Arc<AtomicBool>>,
-    // Sender for sending frames from streams to the send loop.
-    frame_write_tx: Sender<MuxFrame>,
-    // Flag the end of the receive loop.
-    recv_end: Arc<Mutex<bool>>,
-    // Flag the end of the send loop.
-    send_end: Arc<Mutex<bool>>,
-    // Handle to abort the receive loop.
-    recv_handle: AbortHandle,
-    // Handle to abort the send loop.
-    send_handle: AbortHandle,
-    // Indicates the connector has no active streams and is no longer accept
-    // new stream request.
-    done: AtomicBool,
-}
-
-impl MuxConnector {
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        max_accepts: usize,
-        concurrency: usize,
-        max_recv_bytes: usize,
-        recv_bytes_counter: Arc<AtomicUsize>,
-        max_lifetime: u64,
-        started_at: Instant,
-        session_id: SessionId,
-        streams: Streams,
-        frame_write_tx: Sender<MuxFrame>,
-        recv_end: Arc<Mutex<bool>>,
-        send_end: Arc<Mutex<bool>>,
-        recv_handle: AbortHandle,
-        send_handle: AbortHandle,
-    ) -> Self {
         trace!(
             "new mux connector {} (max_accepts: {}, concurrency: {})",
             session_id,
@@ -677,141 +236,93 @@ impl MuxConnector {
             max_accepts,
             concurrency,
             max_recv_bytes,
-            recv_bytes_counter,
             max_lifetime,
-            started_at,
+            started_at: Instant::now(),
             session_id,
             total_accepted: 0,
-            streams,
-            stream_ends: Vec::new(),
-            frame_write_tx,
-            recv_end,
-            send_end,
-            recv_handle,
-            send_handle,
-            done: AtomicBool::new(false),
+            session,
         }
     }
 
-    pub fn session_id(&self) -> SessionId {
+    /// A server session over `conn`: the streams the client opens.
+    pub fn acceptor<S>(conn: S, tuning: Tuning, label: &str) -> MuxAcceptor
+    where
+        S: 'static + AsyncRead + AsyncWrite + Unpin + Send,
+    {
+        let (session, accept) = muxcore::Session::new(conn, Arc::new(Amux), true, tuning, label);
+        let session_id = random_u16();
+        trace!("new mux acceptor {}", session_id);
+        MuxAcceptor {
+            _session: session,
+            // A server's session always has somewhere to put streams.
+            accept: accept.unwrap_or_else(|| mpsc::unbounded_channel().1),
+        }
+    }
+}
+
+pub struct MuxConnector {
+    /// Streams opened at most.
+    max_accepts: usize,
+    /// Streams open at once at most.
+    concurrency: usize,
+    /// No new streams once the session has received this much (0: no
+    /// limit).
+    max_recv_bytes: usize,
+    /// No new streams once the session is this old, in seconds (0: no
+    /// limit).
+    max_lifetime: u64,
+    started_at: Instant,
+    /// For logs.
+    session_id: u16,
+    /// Streams opened so far.
+    total_accepted: usize,
+    /// Held by its streams too: dropping the connector ends the session
+    /// once they are done.
+    session: muxcore::Session,
+}
+
+impl MuxConnector {
+    pub fn session_id(&self) -> u16 {
         self.session_id
     }
 
+    /// Whether the session is spent: it takes no more streams, and has
+    /// none left.
     pub fn is_done(&self) -> bool {
-        if self.done.load(Ordering::SeqCst) {
-            true
-        } else if self.total_accepted >= self.max_accepts
-            || (self.max_recv_bytes > 0
-                && self.recv_bytes_counter.load(Ordering::Relaxed) >= self.max_recv_bytes)
-            || (self.max_lifetime > 0
-                && Instant::now().duration_since(self.started_at).as_secs() >= self.max_lifetime)
-        {
-            for end in self.stream_ends.iter() {
-                if !end.load(Ordering::Relaxed) {
-                    return false;
-                }
-            }
-            true
-        } else {
-            false
-        }
+        self.session.is_closed() || (!self.takes_more() && self.session.num_streams() == 0)
+    }
+
+    /// Whether the limits let the session take another stream, some time.
+    fn takes_more(&self) -> bool {
+        self.total_accepted < self.max_accepts
+            && (self.max_recv_bytes == 0 || self.session.received() < self.max_recv_bytes as u64)
+            && (self.max_lifetime == 0 || self.started_at.elapsed().as_secs() < self.max_lifetime)
     }
 
     pub async fn new_stream(&mut self) -> Option<MuxStream> {
-        if self.is_done() {
-            return None;
-        }
-        if *self.recv_end.lock().await {
-            self.done.store(true, Ordering::Relaxed);
-            return None;
-        }
-        if *self.send_end.lock().await {
-            self.done.store(true, Ordering::Relaxed);
-            return None;
-        }
-        if self.max_recv_bytes > 0
-            && self.recv_bytes_counter.load(Ordering::Relaxed) >= self.max_recv_bytes
+        if self.session.is_closed()
+            || !self.takes_more()
+            || self.session.num_streams() >= self.concurrency
         {
             return None;
         }
-        if self.max_lifetime > 0
-            && Instant::now().duration_since(self.started_at).as_secs() >= self.max_lifetime
-        {
-            return None;
-        }
-        if self.total_accepted >= self.max_accepts {
-            if self.streams.lock().await.is_empty() {
-                self.done.store(true, Ordering::Relaxed);
-            }
-            return None;
-        }
-        if self.streams.lock().await.len() >= self.concurrency {
-            return None;
-        }
-        let frame_write_tx = self.frame_write_tx.clone();
-        let stream_id = random_u16();
-        let stream_end = Arc::new(AtomicBool::new(false));
-        let (mux_stream, stream_read_tx) = MuxStream::new(
-            self.session_id,
-            stream_id,
-            frame_write_tx,
-            stream_end.clone(),
-        );
-        self.stream_ends.push(stream_end);
-        self.streams.lock().await.insert(stream_id, stream_read_tx);
+        let stream = self.session.open().ok()?;
         self.total_accepted += 1;
-        Some(mux_stream)
+        Some(stream)
     }
 }
 
-impl Drop for MuxConnector {
-    fn drop(&mut self) {
-        self.recv_handle.abort();
-        self.send_handle.abort();
-        trace!("drop mux connector {}", self.session_id);
-    }
-}
-
+/// The streams a client opens on a server's session. Dropping it takes no
+/// more; those taken go on.
 pub struct MuxAcceptor {
-    // ID for debugging purposes.
-    session_id: SessionId,
-    // Receiver to receive accepted streams from this acceptor.
-    stream_accept_rx: Receiver<MuxStream>,
-    // Handle to abort the receive loop.
-    recv_handle: AbortHandle,
-    // Handle to abort the send loop.
-    send_handle: AbortHandle,
-}
-
-impl MuxAcceptor {
-    pub fn new(
-        session_id: SessionId,
-        stream_accept_rx: Receiver<MuxStream>,
-        recv_handle: AbortHandle,
-        send_handle: AbortHandle,
-    ) -> Self {
-        trace!("new mux acceptor {}", session_id);
-        MuxAcceptor {
-            session_id,
-            stream_accept_rx,
-            recv_handle,
-            send_handle,
-        }
-    }
-}
-
-impl Drop for MuxAcceptor {
-    fn drop(&mut self) {
-        self.recv_handle.abort();
-        self.send_handle.abort();
-        trace!("drop mux acceptor {}", self.session_id);
-    }
+    _session: muxcore::Session,
+    accept: mpsc::UnboundedReceiver<MuxStream>,
 }
 
 impl Stream for MuxAcceptor {
     type Item = MuxStream;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        self.stream_accept_rx.poll_recv(cx)
+        self.accept.poll_recv(cx)
     }
 }

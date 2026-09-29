@@ -21,6 +21,7 @@ use tracing::{debug, Instrument};
 
 use crate::session::{Network, Session as ProxySession, SocksAddr};
 use crate::transport::layers::Connector;
+use crate::transport::muxcore::Tuning;
 
 use super::super::padding::PaddingScheme;
 use super::super::session::{auth, PaddingCell, Session, Stream};
@@ -33,6 +34,9 @@ pub struct ClientOptions {
     pub check_interval: Duration,
     pub idle_timeout: Duration,
     pub min_idle: usize,
+    pub tuning: Tuning,
+    /// Who the sessions serve, in their logs.
+    pub label: String,
 }
 
 struct Idle<S> {
@@ -189,7 +193,12 @@ impl Client {
             .unwrap_or_default();
         conn.write_all(&auth(&self.password_hash, padding)).await?;
         conn.flush().await?;
-        Ok(Session::client(conn, self.padding.clone()))
+        Ok(Session::client(
+            conn,
+            self.padding.clone(),
+            self.options.tuning,
+            &self.options.label,
+        ))
     }
 }
 

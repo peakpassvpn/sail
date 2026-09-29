@@ -82,10 +82,10 @@ impl Tuning {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Flow {
     /// The peer sends a stream no more than its window, which grows as
-    /// the stream is read (yamux).
+    /// the stream is read (yamux, amux).
     Window,
     /// No window: the session stops reading its connection while a
-    /// stream's inbox is full (smux).
+    /// stream's inbox is full (smux, AnyTLS).
     Pause,
 }
 
@@ -97,6 +97,9 @@ pub enum Closing {
     /// There is no half-close: shutting a stream down does nothing, it is
     /// finished when dropped, and a FIN ends it both ways (smux).
     OnDrop,
+    /// A FIN ends a stream both ways, sent when it is shut down: what
+    /// comes after is dropped, what came before is still read (AnyTLS).
+    Whole,
 }
 
 /// What a decoder makes of the frames it reads.
@@ -118,6 +121,12 @@ pub enum Event {
     Pong(u32),
     /// The peer takes no more streams.
     GoAway,
+    /// The peer failed to open a stream this end opened, and says why.
+    Refused(u32, String),
+    /// A frame the protocol answers with, sent ahead of stream data.
+    Reply(Bytes),
+    /// The session is over, as the protocol says why.
+    Close(String),
 }
 
 /// A protocol's frames.
@@ -133,9 +142,14 @@ pub trait Codec: Send + Sync + 'static {
     fn id_step(&self) -> u32 {
         2
     }
+    /// The largest id a stream may have.
+    fn max_id(&self) -> u32 {
+        u32::MAX - 2
+    }
 
-    /// Opens stream `id`.
-    fn open(&self, id: u32) -> Bytes;
+    /// Opens stream `id` with `first` as its first data, which is no more
+    /// than the initial window, as one write.
+    fn open(&self, id: u32, first: &[u8]) -> Bytes;
     /// Acknowledges a stream the peer opened, if the protocol does.
     fn ack(&self, _id: u32) -> Option<Bytes> {
         None
@@ -156,6 +170,20 @@ pub trait Codec: Send + Sync + 'static {
 
     /// Reads frames, for a server or a client.
     fn decoder(&self, server: bool) -> Box<dyn Decoder>;
+    /// Shapes what the session writes, if the protocol does.
+    fn shaper(&self) -> Option<Box<dyn Shaper>> {
+        None
+    }
+}
+
+/// Shapes the writes of a session, as AnyTLS pads the first of them.
+pub trait Shaper: Send {
+    /// Whether writes are still shaped. While they are, each frame, or run
+    /// of frames queued at once, is a write of its own.
+    fn active(&mut self) -> bool;
+    /// The records one write is made of, each written and flushed on its
+    /// own.
+    fn shape(&mut self, write: BytesMut) -> Vec<BytesMut>;
 }
 
 /// Reads a protocol's frames off what the connection has given so far.
