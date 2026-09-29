@@ -254,6 +254,7 @@ Serde: `serde (deny_unknown_fields)`
 | `ip_cidr` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
 | `ip_is_private` | `bool` | Default::default() | —<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
 | `ip_accept_any` | `bool` | Default::default() | The response has an address.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
+| `ip_match_all` | `bool` | Default::default() | A sail extension: the rule's conditions on the response's addresses hold for every one of them, rather than for any; a response without one they hold for none. Mihomo's fallback filter keeps an answer so.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
 | `response_rcode` | `Option < Rcode >` | Default::default() | —<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
 | `invert` | `bool` | Default::default() | —<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
 | `mode` | `Option < LogicalMode >` | Default::default() | `logical`: `and` or `or`.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
@@ -261,6 +262,7 @@ Serde: `serde (deny_unknown_fields)`
 | `action` | `Option < DnsRuleAction >` | Default::default() | `route` when unset.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
 | `server` | `Option < String >` | Default::default() | `route`: the server a matching query goes to.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
 | `strategy` | `Option < DnsStrategy >` | Default::default() | `route`: the address families, instead of `dns.strategy`.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
+| `rcode` | `Option < Rcode >` | Default::default() | `predefined`: the code of the answer, NOERROR when unset.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
 | `tag` | `Option < String >` | Default::default() | `evaluate`: the name of its response, which `match_response` gives.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
 | `disable_cache` | `bool` | Default::default() | `route`, `evaluate` and `route-options`: the query neither comes from the cache nor goes into it.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
 | `rewrite_ttl` | `Option < u32 >` | Default::default() | The TTL the answer's records carry, in seconds.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
@@ -283,6 +285,7 @@ Serde: `serde (rename_all = "kebab-case")`
 | `Respond` | Answers with the response kept. |
 | `RouteOptions` | Sets how the query is sent, for the rule that sends it; matching goes on with the next rule. |
 | `Reject` | Answers that the name does not resolve. |
+| `Predefined` | Answers with `rcode` and no records, as sing-box's `predefined` without its records, which sail does not implement. |
 
 ## DnsStrategy
 
