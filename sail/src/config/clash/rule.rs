@@ -79,10 +79,11 @@ impl Walk<'_> {
         if resolves && !self.resolved {
             // Mihomo resolves the domain at the first IP rule to match it
             // against, and a domain that does not resolve matches no IP
-            // rule; so does sail, from here on.
+            // rule; so does sail, from here on: once a rule, or a rule-set,
+            // has an address to match, not before.
             self.out
                 .rules
-                .push(json!({ "action": "resolve", "ignore_failure": true }));
+                .push(json!({ "action": "resolve", "on_demand": true, "ignore_failure": true }));
             self.resolved = true;
         }
         if let Target::Pass = target {
@@ -173,16 +174,7 @@ pub(super) fn headless(line: &str) -> Result<Map<String, Value>> {
             Err(anyhow!("{:?} is no rule a rule-provider holds", line))
         }
         _ => {
-            let (mut condition, _) = condition(&s, &mut Sets::none())?;
-            // `no-resolve` on an address condition is the rule's
-            // `no_resolve`, which an `on_demand` resolve heeds.
-            let no_resolve = s
-                .params
-                .iter()
-                .any(|p| p.eq_ignore_ascii_case("no-resolve"));
-            if no_resolve && condition.contains_key("ip_cidr") {
-                condition.insert("no_resolve".into(), json!(true));
-            }
+            let (condition, _) = condition(&s, &mut Sets::none())?;
             Ok(condition)
         }
     }
@@ -482,6 +474,9 @@ fn condition(s: &Split, sets: &mut Sets) -> Result<(Map<String, Value>, bool)> {
             // A set of addresses, or of rules that may be, resolves the
             // domain first, as in Mihomo, unless told not to.
             let resolves = behavior != ClashBehavior::Domain && !no_resolve && !source;
+            if no_resolve && behavior != ClashBehavior::Domain && !source {
+                rule.insert("no_resolve".into(), json!(true));
+            }
             return Ok((rule, resolves));
         }
         "GEOSITE" => {
@@ -493,6 +488,8 @@ fn condition(s: &Split, sets: &mut Sets) -> Result<(Map<String, Value>, bool)> {
             let source = source || s.kind == "SRC-GEOIP";
             if source {
                 rule.insert("rule_set_ip_cidr_match_source".into(), json!(true));
+            } else if no_resolve {
+                rule.insert("no_resolve".into(), json!(true));
             }
             return Ok((rule, !no_resolve && !source));
         }
@@ -507,6 +504,9 @@ fn condition(s: &Split, sets: &mut Sets) -> Result<(Map<String, Value>, bool)> {
         "IP-CIDR" | "IP-CIDR6" if source => "source_ip_cidr",
         "IP-CIDR" | "IP-CIDR6" => {
             resolves = !no_resolve;
+            if no_resolve {
+                rule.insert("no_resolve".into(), json!(true));
+            }
             "ip_cidr"
         }
         "SRC-IP-CIDR" => "source_ip_cidr",

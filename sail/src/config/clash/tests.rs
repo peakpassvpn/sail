@@ -239,6 +239,25 @@ fn rules(config: &Config) -> Vec<serde_json::Value> {
 }
 
 #[test]
+fn no_resolve_reaches_the_resolve_on_demand() {
+    let config = load(
+        "rules:\n\
+         - IP-CIDR,10.0.0.0/8,DIRECT,no-resolve\n\
+         - AND,((IP-CIDR,172.16.0.0/12,no-resolve),(NETWORK,TCP)),REJECT\n\
+         - IP-CIDR,192.168.0.0/16,DIRECT\n",
+    );
+    let rules = rules(&config);
+    assert_eq!(rules[0]["no_resolve"], true);
+    assert_eq!(rules[1]["rules"][0]["no_resolve"], true);
+    // Only a rule that would resolve arms it.
+    assert_eq!(
+        rules[2],
+        serde_json::json!({ "action": "resolve", "on_demand": true, "ignore_failure": true })
+    );
+    assert!(rules[3].get("no_resolve").is_none());
+}
+
+#[test]
 fn logical_rules_are_sail_s() {
     let config = load(
         "rules:\n\
@@ -253,8 +272,10 @@ fn logical_rules_are_sail_s() {
     assert_eq!(rules[0]["rules"][1]["network"], serde_json::json!(["udp"]));
     assert_eq!(rules[1]["mode"], "or");
     assert_eq!(rules[1]["rules"][1]["rules"][1]["invert"], true);
-    // The NOT of an IP rule resolves first.
+    // The NOT of an IP rule resolves first, once it has an address to
+    // match.
     assert_eq!(rules[2]["action"], "resolve");
+    assert_eq!(rules[2]["on_demand"], true);
     assert_eq!(rules[3]["invert"], true);
     assert_eq!(
         rules[4]["domain_regex"],
@@ -368,6 +389,13 @@ fn rule_providers_are_rule_sets() {
     let rules = rules(&config);
     let resolve = rules.iter().position(|r| r["action"] == "resolve").unwrap();
     assert_eq!(rules[resolve + 1]["rule_set"], serde_json::json!(["local"]));
+    // A resolve armed from there still skips a no-resolve set.
+    assert_eq!(rules[resolve - 1]["no_resolve"], true);
+    assert!(rules[resolve + 1].get("no_resolve").is_none());
+    let geoip = rules
+        .iter()
+        .find(|r| r["rule_set"] == serde_json::json!(["geoip:private"]));
+    assert!(geoip.unwrap().get("no_resolve").is_none());
     assert_eq!(
         config.warnings,
         ["rule-providers.ips.size-limit: sail does not implement this field; ignored"]
