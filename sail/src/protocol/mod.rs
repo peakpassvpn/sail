@@ -3,7 +3,7 @@
 
 #[cfg(any(feature = "inbound-anytls", feature = "outbound-anytls"))]
 pub mod anytls;
-#[cfg(feature = "outbound-direct")]
+#[cfg(any(feature = "inbound-direct", feature = "outbound-direct"))]
 pub mod direct;
 #[cfg(feature = "outbound-drop")]
 pub mod drop;

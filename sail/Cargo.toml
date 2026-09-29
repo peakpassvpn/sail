@@ -46,6 +46,7 @@ all-endpoints = [
     "inbound-hysteria2",
     "inbound-tuic",
     "inbound-anytls",
+    "inbound-direct",
     "inbound-redirect",
     "inbound-tproxy",
     "inbound-vless",
@@ -168,6 +169,7 @@ inbound-reality = ["tls", "hkdf", "sha2", "hmac", "aes-gcm", "hex", "base64"]
 inbound-chain = []
 inbound-cat = ["tokio/io-std"]
 inbound-nf = ["libloading"]
+inbound-direct = []
 inbound-redirect = []
 inbound-tproxy = []
 

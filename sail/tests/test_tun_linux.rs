@@ -1,6 +1,7 @@
 //! The TUN inbound end to end on Linux, as root: sockets of this host reach
 //! servers in another network namespace through the TUN, the netstack, the
-//! dispatcher and a direct outbound, over IPv4 and IPv6.
+//! dispatcher and a direct outbound, over IPv4 and IPv6; DNS queries to
+//! port 53 through it, over UDP and TCP, are hijacked and answered by sail.
 //!
 //! The servers' addresses are routed into the TUN for every socket but
 //! those the direct outbound marks, which take the veth to the namespace, so
@@ -171,8 +172,17 @@ impl Sail {
                     "mtu": 1500,
                     "udp_timeout": "{udp_timeout}"
                 }}],
-                "outbounds": [{{ "type": "direct", "tag": "direct", "routing_mark": {TABLE} }}]
-            }}"#
+                "outbounds": [{{ "type": "direct", "tag": "direct", "routing_mark": {TABLE} }}],
+                "dns": {{ "servers": [{{ "type": "hosts", "predefined": {{
+                    "one.sail": ["192.0.2.1", "2001:db8::1"],
+                    "many.sail": [{many}]
+                }} }}] }},
+                "route": {{ "rules": [{{ "port": 53, "action": "hijack-dns" }}] }}
+            }}"#,
+            many = (1..=60)
+                .map(|i| format!("\"2001:db8::{i:x}\""))
+                .collect::<Vec<_>>()
+                .join(", ")
         );
         let mut runtime = sail::runtime::RuntimeOptions::default();
         runtime.udp.session_check_interval = session_check;
@@ -231,6 +241,85 @@ fn pattern(len: usize, seed: u8) -> Vec<u8> {
     (0..len)
         .map(|index| u8::try_from(index % 251).unwrap() ^ seed)
         .collect()
+}
+
+fn dns_query(name: &str, ty: hickory_proto::rr::RecordType) -> Vec<u8> {
+    use hickory_proto::op::{Message, MessageType, OpCode, Query};
+    let mut m = Message::new(0x5a1, MessageType::Query, OpCode::Query);
+    m.metadata.recursion_desired = true;
+    m.add_query(Query::query(
+        hickory_proto::rr::Name::from_ascii(name).unwrap(),
+        ty,
+    ));
+    m.to_vec().unwrap()
+}
+
+/// The answer's TC bit and addresses.
+fn dns_answer(reply: &[u8]) -> Result<(bool, Vec<IpAddr>)> {
+    use hickory_proto::rr::RData;
+    let m = hickory_proto::op::Message::from_vec(reply)?;
+    ensure!(m.metadata.id == 0x5a1, "the answer has another ID");
+    let ips = m
+        .answers
+        .iter()
+        .filter_map(|r| match &r.data {
+            RData::A(a) => Some(IpAddr::V4(a.0)),
+            RData::AAAA(a) => Some(IpAddr::V6(a.0)),
+            _ => None,
+        })
+        .collect();
+    Ok((m.metadata.truncation, ips))
+}
+
+/// Queries to port 53 of `server`, which serves no DNS, are answered by
+/// sail's hosts server: over UDP, cut to 512 bytes with TC when too big;
+/// over TCP, in full.
+async fn dns_hijacked(server: IpAddr) -> Result<()> {
+    use hickory_proto::rr::RecordType;
+    let target = SocketAddr::new(server, 53);
+    let socket = udp_socket(server).await?;
+    let ask = async |name: &str, ty| -> Result<(usize, bool, Vec<IpAddr>)> {
+        socket.send_to(&dns_query(name, ty), target).await?;
+        let mut buf = vec![0_u8; 65_536];
+        let (n, from) = timeout(Duration::from_secs(3), socket.recv_from(&mut buf))
+            .await
+            .map_err(|_| anyhow!("no DNS answer over UDP from {target}"))??;
+        ensure!(from == target, "the DNS answer came from {from}");
+        let (truncated, ips) = dns_answer(&buf[..n])?;
+        Ok((n, truncated, ips))
+    };
+    let (_, truncated, ips) = ask("one.sail.", RecordType::A).await?;
+    ensure!(
+        !truncated && ips == ["192.0.2.1".parse::<IpAddr>()?],
+        "A: {ips:?}"
+    );
+    let (_, truncated, ips) = ask("one.sail.", RecordType::AAAA).await?;
+    ensure!(
+        !truncated && ips == ["2001:db8::1".parse::<IpAddr>()?],
+        "AAAA: {ips:?}"
+    );
+    let (n, truncated, ips) = ask("many.sail.", RecordType::AAAA).await?;
+    ensure!(
+        n <= 512 && truncated && !ips.is_empty() && ips.len() < 60,
+        "{n} bytes, TC {truncated}, {} addresses",
+        ips.len()
+    );
+    let mut tcp = timeout(Duration::from_secs(5), TcpStream::connect(target))
+        .await
+        .map_err(|_| anyhow!("connecting to {target} timed out"))??;
+    let query = dns_query("many.sail.", RecordType::AAAA);
+    tcp.write_u16(u16::try_from(query.len())?).await?;
+    tcp.write_all(&query).await?;
+    let len = timeout(Duration::from_secs(3), tcp.read_u16()).await??;
+    let mut reply = vec![0_u8; len.into()];
+    tcp.read_exact(&mut reply).await?;
+    let (truncated, ips) = dns_answer(&reply)?;
+    ensure!(
+        !truncated && ips.len() == 60,
+        "TCP: {} addresses",
+        ips.len()
+    );
+    Ok(())
 }
 
 /// Sends `size` bytes while reading the echo, closes the sending half, and
@@ -325,6 +414,12 @@ async fn tun_inbound_carries_tcp_udp_and_icmp_over_ipv4_and_ipv6() -> Result<()>
                     answer.iter().zip(&question).position(|(a, b)| a != b)
                 );
             }
+        }
+
+        for server in servers {
+            dns_hijacked(server)
+                .await
+                .with_context(|| format!("DNS to {server}"))?;
         }
 
         // Several connections at once, over both families.

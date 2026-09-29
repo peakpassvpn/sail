@@ -25,7 +25,7 @@ pub(crate) static OUTBOUNDS: LazyLock<OutboundRegistry> = LazyLock::new(|| {
     let mut registry = Registry::new("outbound");
 
     #[cfg(feature = "outbound-direct")]
-    crate::protocol::direct::register(&mut registry);
+    crate::protocol::direct::outbound::register(&mut registry);
     #[cfg(feature = "outbound-drop")]
     crate::protocol::drop::register(&mut registry);
     #[cfg(feature = "outbound-redirect")]
@@ -72,6 +72,8 @@ pub(crate) static INBOUNDS: LazyLock<InboundRegistry> = LazyLock::new(|| {
     #[allow(unused_mut)]
     let mut registry = Registry::new("inbound");
 
+    #[cfg(feature = "inbound-direct")]
+    crate::protocol::direct::inbound::register(&mut registry);
     #[cfg(feature = "inbound-socks")]
     crate::protocol::socks::inbound::register(&mut registry);
     #[cfg(feature = "inbound-http")]

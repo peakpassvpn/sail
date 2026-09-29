@@ -1,36 +1,8 @@
-use std::sync::Arc;
+//! `direct`: the outbound connects to the destination itself; the inbound
+//! takes connections and datagrams sent to its listener, and routes them
+//! to the listener's address, or to the one it overrides that with.
 
-use anyhow::Result;
-use serde_derive::Deserialize;
-
-use crate::adapter::outbound::HandlerBuilder;
-use crate::adapter::registry::{OutboundContext, OutboundFactory, OutboundRegistry};
-use crate::adapter::AnyOutboundHandler;
-use crate::transport::layers::Blocks;
-
-pub mod datagram;
-pub mod stream;
-
-pub use datagram::Handler as DatagramHandler;
-pub use stream::Handler as StreamHandler;
-
-pub(crate) fn register(registry: &mut OutboundRegistry) {
-    registry.register(
-        "direct",
-        OutboundFactory::standalone(build).with_blocks(Blocks::DIAL),
-    );
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct DirectOptions {}
-
-fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
-    let DirectOptions {} = ctx.options()?;
-    Ok(HandlerBuilder::default()
-        .tag(ctx.tag.to_owned())
-        .stream_handler(Arc::new(StreamHandler))
-        .datagram_handler(Arc::new(DatagramHandler))
-        .is_direct(true)
-        .build())
-}
+#[cfg(feature = "inbound-direct")]
+pub mod inbound;
+#[cfg(feature = "outbound-direct")]
+pub mod outbound;

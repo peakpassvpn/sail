@@ -31,6 +31,29 @@ Serde: `serde (deny_unknown_fields)`
 | `name` | `Option < String >` | Default::default() | Who the user is to routing (`auth_user`), statistics and logs.<br/>`serde (default)` |
 | `password` | `String` | Required | — |
 
+## DirectInboundOptions
+
+[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/direct/inbound.rs)
+
+Serde: `serde (deny_unknown_fields)`
+
+| Field | Type | Omission / flattening | Source notes |
+| --- | --- | --- | --- |
+| `network` | `Option < DirectNetwork >` | Default::default() | Only `tcp`, or only `udp`; both when unset.<br/>`serde (default)` |
+| `override_address` | `Option < String >` | Default::default() | Where what comes in goes, instead of the listener's address.<br/>`serde (default)` |
+| `override_port` | `Option < u16 >` | Default::default() | The port it goes to, instead of the listener's.<br/>`serde (default)` |
+
+## DirectNetwork
+
+[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/direct/inbound.rs)
+
+Serde: `serde (rename_all = "lowercase")`
+
+| Value / shape | Source notes |
+| --- | --- |
+| `tcp` | — |
+| `udp` | — |
+
 ## HcInboundOptions
 
 [Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/hc/inbound/mod.rs)

@@ -7,6 +7,7 @@ use std::io;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use hickory_proto::op::Message;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::sync::mpsc;
 use tracing::debug;
@@ -127,7 +128,7 @@ impl OutboundDatagramSendHalf for SendHalf {
         // Answered apart, so that a slow query holds up none after it.
         tokio::spawn(async move {
             if let Some(reply) = answer(&dns, &query, &sess).await {
-                let _ = answers.send((reply, target)).await;
+                let _ = answers.send((fit_datagram(&query, reply), target)).await;
             }
         });
         Ok(buf.len())
@@ -135,6 +136,73 @@ impl OutboundDatagramSendHalf for SendHalf {
 
     async fn close(&mut self) -> io::Result<()> {
         Ok(())
+    }
+}
+
+/// `reply`, cut down to what the client that sent `query` takes over UDP:
+/// what its EDNS OPT record says, or 512 bytes without one (RFC 6891). As
+/// Mihomo's and sing-box's (miekg/dns `Msg.Truncate`): as many answer
+/// records as fit, then authority and additional ones, and TC set when an
+/// answer was left out, so the client asks again over TCP.
+fn fit_datagram(query: &[u8], reply: Vec<u8>) -> Vec<u8> {
+    let limit = Message::from_vec(query).map_or(512, |q| q.max_payload()) as usize;
+    if reply.len() <= limit {
+        return reply;
+    }
+    let Ok(mut full) = Message::from_vec(&reply) else {
+        return reply;
+    };
+    let (answers, authorities, additionals) = (
+        std::mem::take(&mut full.answers),
+        std::mem::take(&mut full.authorities),
+        std::mem::take(&mut full.additionals),
+    );
+    let answer_count = answers.len();
+    let mut fitted = full;
+    for (records, section) in [
+        (answers, Section::Answers),
+        (authorities, Section::Authorities),
+        (additionals, Section::Additionals),
+    ] {
+        // The most of `records` that fit, found by bisection: each try
+        // encodes the whole message, as name compression makes a record's
+        // size depend on what comes before it.
+        let fits = |n: usize, m: &Message| {
+            let mut m = m.clone();
+            section.of(&mut m).extend_from_slice(&records[..n]);
+            m.to_vec().is_ok_and(|v| v.len() <= limit)
+        };
+        let (mut lo, mut hi) = (0, records.len());
+        while lo < hi {
+            let mid = (lo + hi).div_ceil(2);
+            if fits(mid, &fitted) {
+                lo = mid;
+            } else {
+                hi = mid - 1;
+            }
+        }
+        section.of(&mut fitted).extend(records.into_iter().take(lo));
+    }
+    if fitted.answers.len() < answer_count {
+        fitted.metadata.truncation = true;
+    }
+    fitted.to_vec().unwrap_or(reply)
+}
+
+#[derive(Clone, Copy)]
+enum Section {
+    Answers,
+    Authorities,
+    Additionals,
+}
+
+impl Section {
+    fn of(self, m: &mut Message) -> &mut Vec<hickory_proto::rr::Record> {
+        match self {
+            Section::Answers => &mut m.answers,
+            Section::Authorities => &mut m.authorities,
+            Section::Additionals => &mut m.additionals,
+        }
     }
 }
 
@@ -272,5 +340,60 @@ mod tests {
             addresses(&buf[..n]).1,
             vec!["127.0.0.1".parse::<IpAddr>().unwrap()]
         );
+    }
+
+    fn many(name: &str, n: u16) -> SyncDnsClient {
+        let addresses: Vec<String> = (1..=n).map(|i| format!("2001:db8::{:x}", i)).collect();
+        let config = crate::config::Config::from_json(
+            &serde_json::json!({
+                "dns": { "servers": [
+                    { "type": "hosts", "predefined": { name: addresses } }
+                ] },
+            })
+            .to_string(),
+        )
+        .unwrap();
+        DnsClient::new(&config.dns, Default::default(), &Default::default())
+            .unwrap()
+            .into_shared()
+    }
+
+    fn with_edns(query: &[u8], payload: u16) -> Vec<u8> {
+        let mut m = Message::from_vec(query).unwrap();
+        let mut edns = hickory_proto::op::Edns::new();
+        edns.set_max_payload(payload);
+        m.set_edns(edns);
+        m.to_vec().unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_datagram_answer_fits_what_the_client_takes() {
+        let dns = many("big.sail", 60);
+        let sess = Session::default();
+        let plain = query("big.sail.", RecordType::AAAA);
+        let full = answer(&dns, &plain, &sess).await.unwrap();
+        assert!(full.len() > 1232, "{}", full.len());
+
+        // No OPT record: 512 bytes, as many answers as fit, and TC.
+        let cut = fit_datagram(&plain, full.clone());
+        assert!(cut.len() <= 512, "{}", cut.len());
+        let m = Message::from_vec(&cut).unwrap();
+        assert!(m.metadata.truncation);
+        assert!(!m.answers.is_empty() && m.answers.len() < 60);
+        assert_eq!(m.id(), 7);
+        assert_eq!(m.queries().len(), 1);
+
+        // What the OPT record says it takes.
+        let edns = with_edns(&plain, 1232);
+        let full = answer(&dns, &edns, &sess).await.unwrap();
+        let cut = fit_datagram(&edns, full.clone());
+        assert!(cut.len() <= 1232 && cut.len() > 512, "{}", cut.len());
+        assert!(Message::from_vec(&cut).unwrap().metadata.truncation);
+
+        // Room for all of it: as it was.
+        let edns = with_edns(&plain, 4096);
+        let full = answer(&dns, &edns, &sess).await.unwrap();
+        assert_eq!(fit_datagram(&edns, full.clone()), full);
+        assert!(!Message::from_vec(&full).unwrap().metadata.truncation);
     }
 }

@@ -24,7 +24,7 @@ Serde: `serde (deny_unknown_fields)`
 
 ## DirectOptions
 
-[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/direct/mod.rs)
+[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/direct/outbound/mod.rs)
 
 Serde: `serde (deny_unknown_fields)`
 

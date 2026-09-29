@@ -31,6 +31,29 @@ Serde: `serde (deny_unknown_fields)`
 | `name` | `Option < String >` | Default::default() | Who the user is to routing (`auth_user`), statistics and logs.<br/>`serde (default)` |
 | `password` | `String` | 必填 | — |
 
+## DirectInboundOptions
+
+[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/direct/inbound.rs)
+
+Serde: `serde (deny_unknown_fields)`
+
+| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
+| --- | --- | --- | --- |
+| `network` | `Option < DirectNetwork >` | Default::default() | Only `tcp`, or only `udp`; both when unset.<br/>`serde (default)` |
+| `override_address` | `Option < String >` | Default::default() | Where what comes in goes, instead of the listener's address.<br/>`serde (default)` |
+| `override_port` | `Option < u16 >` | Default::default() | The port it goes to, instead of the listener's.<br/>`serde (default)` |
+
+## DirectNetwork
+
+[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/direct/inbound.rs)
+
+Serde: `serde (rename_all = "lowercase")`
+
+| 可选值 / 形态 | 源码说明 |
+| --- | --- |
+| `tcp` | — |
+| `udp` | — |
+
 ## HcInboundOptions
 
 [配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/hc/inbound/mod.rs)
