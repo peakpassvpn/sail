@@ -143,119 +143,15 @@ pub fn lower(
     let mut tested = Vec::new();
     let mut used_sections = Vec::new();
     for line in lines {
-        let at = format!("[Proxy] {}", line.loc);
-        let (name, rest) = text::key_value(&line.text)
-            .ok_or_else(|| anyhow!("{}: {:?} is not Name = type, ...", at, line.text))?;
-        let name = text::unquote(&name);
-        if name == "DIRECT" {
-            continue;
-        }
-        if BUILT_IN.contains(&name.as_str()) {
-            return Err(anyhow!("{}: {} is Surge's own policy", at, name));
-        }
-        if proxies.kinds.contains_key(&name) {
-            return Err(anyhow!("{}: another proxy is named {:?}", at, name));
-        }
-        let at = format!("{}: {}", at, name);
-        let read = read(&rest, &at, warnings)?;
-        let Read {
-            kind,
-            mut p,
-            positional,
-        } = read;
-        if p.has("test-url") || p.has("test-timeout") || p.has("test-udp") {
-            tested.push(name.clone());
-        }
-        let proxy = Proxy {
-            name: &name,
-            at: &at,
-            positional,
-        };
-        let (value, kind_of, known) = match kind.as_str() {
-            "direct" => {
-                let mut o = obj("direct", &name);
-                dial(&mut p, &mut o, false)?;
-                (Value::Object(o), Kind::Direct, &[][..])
-            }
-            "reject" | "reject-tinygif" | "reject-drop" | "reject-no-drop" => {
-                let how = match kind.as_str() {
-                    "reject-drop" => Reject::Drop,
-                    "reject-no-drop" => Reject::NoDrop,
-                    _ => Reject::Plain,
-                };
-                (
-                    json!({ "type": "block", "tag": name }),
-                    Kind::Reject(how),
-                    &[][..],
-                )
-            }
-            "ss" | "custom" => shadowsocks(&proxy, &kind, &mut p, &mut proxies)?,
-            "vmess" => vmess(&proxy, &mut p, &mut proxies, warnings)?,
-            "trojan" => trojan(&proxy, &mut p, &mut proxies)?,
-            "http" | "https" => http(&proxy, &kind, &mut p, &mut proxies)?,
-            "socks5" | "socks5-tls" => socks5(&proxy, &kind, &mut p, &mut proxies)?,
-            "hysteria2" => hysteria2(&proxy, &mut p, &mut proxies)?,
-            "tuic-v5" => tuic(&proxy, &mut p, &mut proxies)?,
-            "anytls" => anytls(&proxy, &mut p, &mut proxies, warnings)?,
-            "wireguard" => {
-                let section = p
-                    .string("section-name")
-                    .ok_or_else(|| anyhow!("{}: section-name: missing", at))?;
-                let lines = sections.get(&section).cloned().ok_or_else(|| {
-                    anyhow!("{}: section-name: there is no [WireGuard {}]", at, section)
-                })?;
-                used_sections.push(section.clone());
-                let mut endpoint = wireguard(&section, lines, warnings)?;
-                endpoint.insert("tag".into(), json!(name));
-                if let Some(via) = p.string("underlying-proxy") {
-                    if via != "DIRECT" {
-                        proxies
-                            .detours
-                            .push((p.at("underlying-proxy"), via.clone()));
-                        endpoint.insert("detour".into(), json!(via));
-                    }
-                }
-                if let Some(version) = p.string("ip-version") {
-                    if let Some(strategy) = ip_version(&version, &p.at("ip-version"))? {
-                        endpoint.insert("domain_strategy".into(), json!(strategy));
-                    }
-                }
-                p.take_at("interface").into_iter().for_each(|(_, at)| {
-                    warnings.push(format!(
-                        "{}: Surge binds no WireGuard policy to an interface; ignored",
-                        at
-                    ))
-                });
-                out.endpoints.push(Value::Object(endpoint));
-                p.finish(COMMON, "parameter", warnings)?;
-                proxies.names.push(name.clone());
-                proxies.kinds.insert(name, Kind::Proxy { udp: true });
-                continue;
-            }
-            _ => unreachable!("a type read checks"),
-        };
-        if let Some((value, at)) = p.take_at("block-quic") {
-            if matches!(value.to_ascii_lowercase().as_str(), "on" | "true") {
-                warnings.push(format!(
-                    "{}: sail does not block QUIC; ignored, and QUIC goes through the policy",
-                    at
-                ));
-            }
-        }
-        if let Some((value, at)) = p.take_at("tfo") {
-            if matches!(value.to_ascii_lowercase().as_str(), "true" | "on") {
-                warnings.push(format!(
-                    "{}: sail does not implement TCP Fast Open; ignored",
-                    at
-                ));
-            }
-        }
-        let mut all = known.to_vec();
-        all.extend_from_slice(COMMON);
-        p.finish(&all, "parameter", warnings)?;
-        out.outbounds.push(value);
-        proxies.names.push(name.clone());
-        proxies.kinds.insert(name, kind_of);
+        one(
+            line,
+            &sections,
+            &mut used_sections,
+            &mut tested,
+            &mut proxies,
+            out,
+            warnings,
+        )?;
     }
     if !tested.is_empty() {
         warnings.push(format!(
@@ -271,6 +167,229 @@ pub fn lower(
     }
     Ok(proxies)
 }
+
+/// A policy a `policy-path` holds: its name, and its outbound, or why
+/// sail cannot use it.
+pub struct External {
+    pub name: String,
+    pub outbound: Result<Value>,
+}
+
+/// The policies of what a `policy-path` holds, as Surge reads it: a list
+/// of `[Proxy]` lines, or a profile whose `[Proxy]` section, with its
+/// `[WireGuard <name>]` sections, holds them. None when it is neither, no
+/// line of it being a policy. A line that does not read is not taken, as
+/// by Surge; the warnings of those that do are `warnings`.
+pub fn external(body: &str, warnings: &mut Vec<String>) -> Result<Option<Vec<External>>> {
+    let policy = |line: &str| {
+        let line = line.trim();
+        line.eq_ignore_ascii_case("[Proxy]")
+            || text::key_value(line).is_some_and(|(_, rest)| {
+                let kind = rest.split(',').next().unwrap_or_default().trim();
+                let kind = kind.to_ascii_lowercase();
+                TYPES.contains(&kind.as_str()) || TYPES_LATER.contains(&kind.as_str())
+            })
+    };
+    if !body.lines().any(policy) {
+        return Ok(None);
+    }
+    let mut profile = Profile::read_list(body, "Proxy", warnings)?;
+    let lines = profile.take("Proxy");
+    let sections: HashMap<String, Vec<Line>> =
+        profile.take_named("WireGuard").into_iter().collect();
+    let mut policies = Vec::new();
+    for line in lines {
+        let name = text::key_value(&line.text)
+            .map(|(name, _)| text::unquote(&name))
+            .unwrap_or_default();
+        let mut proxies = Proxies {
+            names: Vec::new(),
+            kinds: HashMap::new(),
+            detours: Vec::new(),
+        };
+        let mut out = Lowered::default();
+        let read = one(
+            line,
+            &sections,
+            &mut Vec::new(),
+            &mut Vec::new(),
+            &mut proxies,
+            &mut out,
+            warnings,
+        );
+        let outbound = match read {
+            Err(e) => Err(e),
+            // `DIRECT`, which names Surge's own.
+            Ok(()) if proxies.names.is_empty() => continue,
+            Ok(()) if !out.endpoints.is_empty() => Err(anyhow!(
+                "sail does not implement WireGuard policies of a policy-path yet"
+            )),
+            Ok(()) => Ok(out.outbounds.remove(0)),
+        };
+        policies.push(External { name, outbound });
+    }
+    Ok(Some(policies))
+}
+
+/// A `[Proxy]` line, lowered onto `out` and named in `proxies`; a
+/// `wireguard` one of a section of `sections`, which it marks used.
+fn one(
+    line: Line,
+    sections: &HashMap<String, Vec<Line>>,
+    used_sections: &mut Vec<String>,
+    tested: &mut Vec<String>,
+    proxies: &mut Proxies,
+    out: &mut Lowered,
+    warnings: &mut Vec<String>,
+) -> Result<()> {
+    let at = format!("[Proxy] {}", line.loc);
+    let (name, rest) = text::key_value(&line.text)
+        .ok_or_else(|| anyhow!("{}: {:?} is not Name = type, ...", at, line.text))?;
+    let name = text::unquote(&name);
+    if name == "DIRECT" {
+        return Ok(());
+    }
+    if BUILT_IN.contains(&name.as_str()) {
+        return Err(anyhow!("{}: {} is Surge's own policy", at, name));
+    }
+    if proxies.kinds.contains_key(&name) {
+        return Err(anyhow!("{}: another proxy is named {:?}", at, name));
+    }
+    let at = format!("{}: {}", at, name);
+    let read = read(&rest, &at, warnings)?;
+    let Read {
+        kind,
+        mut p,
+        positional,
+    } = read;
+    if p.has("test-url") || p.has("test-timeout") || p.has("test-udp") {
+        tested.push(name.clone());
+    }
+    let proxy = Proxy {
+        name: &name,
+        at: &at,
+        positional,
+    };
+    let (value, kind_of, known) = match kind.as_str() {
+        "direct" => {
+            let mut o = obj("direct", &name);
+            dial(&mut p, &mut o, false)?;
+            (Value::Object(o), Kind::Direct, &[][..])
+        }
+        "reject" | "reject-tinygif" | "reject-drop" | "reject-no-drop" => {
+            let how = match kind.as_str() {
+                "reject-drop" => Reject::Drop,
+                "reject-no-drop" => Reject::NoDrop,
+                _ => Reject::Plain,
+            };
+            (
+                json!({ "type": "block", "tag": name }),
+                Kind::Reject(how),
+                &[][..],
+            )
+        }
+        "ss" | "custom" => shadowsocks(&proxy, &kind, &mut p, proxies)?,
+        "vmess" => vmess(&proxy, &mut p, proxies, warnings)?,
+        "trojan" => trojan(&proxy, &mut p, proxies)?,
+        "http" | "https" => http(&proxy, &kind, &mut p, proxies)?,
+        "socks5" | "socks5-tls" => socks5(&proxy, &kind, &mut p, proxies)?,
+        "hysteria2" => hysteria2(&proxy, &mut p, proxies)?,
+        "tuic-v5" => tuic(&proxy, &mut p, proxies)?,
+        "anytls" => anytls(&proxy, &mut p, proxies, warnings)?,
+        "wireguard" => {
+            let section = p
+                .string("section-name")
+                .ok_or_else(|| anyhow!("{}: section-name: missing", at))?;
+            let lines = sections.get(&section).cloned().ok_or_else(|| {
+                anyhow!("{}: section-name: there is no [WireGuard {}]", at, section)
+            })?;
+            used_sections.push(section.clone());
+            let mut endpoint = wireguard(&section, lines, warnings)?;
+            endpoint.insert("tag".into(), json!(name));
+            if let Some(via) = p.string("underlying-proxy") {
+                if via != "DIRECT" {
+                    proxies
+                        .detours
+                        .push((p.at("underlying-proxy"), via.clone()));
+                    endpoint.insert("detour".into(), json!(via));
+                }
+            }
+            if let Some(version) = p.string("ip-version") {
+                if let Some(strategy) = ip_version(&version, &p.at("ip-version"))? {
+                    endpoint.insert("domain_strategy".into(), json!(strategy));
+                }
+            }
+            p.take_at("interface").into_iter().for_each(|(_, at)| {
+                warnings.push(format!(
+                    "{}: Surge binds no WireGuard policy to an interface; ignored",
+                    at
+                ))
+            });
+            out.endpoints.push(Value::Object(endpoint));
+            p.finish(COMMON, "parameter", warnings)?;
+            proxies.names.push(name.clone());
+            proxies.kinds.insert(name, Kind::Proxy { udp: true });
+            return Ok(());
+        }
+        _ => unreachable!("a type read checks"),
+    };
+    if let Some((value, at)) = p.take_at("block-quic") {
+        if matches!(value.to_ascii_lowercase().as_str(), "on" | "true") {
+            warnings.push(format!(
+                "{}: sail does not block QUIC; ignored, and QUIC goes through the policy",
+                at
+            ));
+        }
+    }
+    if let Some((value, at)) = p.take_at("tfo") {
+        if matches!(value.to_ascii_lowercase().as_str(), "true" | "on") {
+            warnings.push(format!(
+                "{}: sail does not implement TCP Fast Open; ignored",
+                at
+            ));
+        }
+    }
+    let mut all = known.to_vec();
+    all.extend_from_slice(COMMON);
+    p.finish(&all, "parameter", warnings)?;
+    out.outbounds.push(value);
+    proxies.names.push(name.clone());
+    proxies.kinds.insert(name, kind_of);
+    Ok(())
+}
+
+/// The policy types sail reads.
+const TYPES: &[&str] = &[
+    "direct",
+    "reject",
+    "reject-tinygif",
+    "reject-drop",
+    "reject-no-drop",
+    "ss",
+    "custom",
+    "vmess",
+    "trojan",
+    "http",
+    "https",
+    "socks5",
+    "socks5-tls",
+    "hysteria2",
+    "tuic-v5",
+    "anytls",
+    "wireguard",
+];
+
+/// The policy types Surge takes that sail does not implement yet.
+const TYPES_LATER: &[&str] = &[
+    "snell",
+    "tuic",
+    "ssh",
+    "trust-tunnel",
+    "masque",
+    "external",
+    "tailscale",
+    "h2-connect",
+];
 
 /// Whether `key` is a parameter some proxy takes.
 fn known(key: &str) -> bool {
@@ -305,11 +424,8 @@ fn read(rest: &str, at: &str, warnings: &mut Vec<String>) -> Result<Read> {
         return Err(anyhow!("{}: no type", at));
     }
     match kind.as_str() {
-        "direct" | "reject" | "reject-tinygif" | "reject-drop" | "reject-no-drop" | "ss"
-        | "custom" | "vmess" | "trojan" | "http" | "https" | "socks5" | "socks5-tls"
-        | "hysteria2" | "tuic-v5" | "anytls" | "wireguard" => {}
-        "snell" | "tuic" | "ssh" | "trust-tunnel" | "masque" | "external" | "tailscale"
-        | "h2-connect" => {
+        kind if TYPES.contains(&kind) => {}
+        kind if TYPES_LATER.contains(&kind) => {
             return Err(anyhow!(
                 "{}: sail does not implement {} policies yet (C.5d)",
                 at,

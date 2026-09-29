@@ -1,5 +1,8 @@
 //! What a proxy-provider holds, as Mihomo reads it: Clash's YAML, its
-//! `proxies`, or else share links, a line each and maybe in base64. Its
+//! `proxies`, or else share links, a line each and maybe in base64; or
+//! what a Surge `policy-path` holds, Surge's policy lines or a profile's
+//! `[Proxy]` section, as Surge reads it, a line that does not read left
+//! out with a warning. Its
 //! `filter`, `exclude-filter` and `exclude-type` pick the proxies, by the
 //! names and types the subscription gives them, and its `override` then
 //! changes them.
@@ -166,7 +169,10 @@ pub fn read(body: &str, selection: &Selection) -> Result<Proxies> {
     let mut warnings = Vec::new();
     let candidates = match clash_proxies(body)? {
         Some(proxies) => proxies,
-        None => share_links(body, &mut warnings),
+        None => match surge_policies(body, &mut warnings)? {
+            Some(policies) => policies,
+            None => share_links(body, &mut warnings),
+        },
     };
     select(candidates, selection, warnings)
 }
@@ -193,6 +199,8 @@ fn select(
     let mut proxies = Vec::new();
     let mut left_out = 0usize;
     let mut first_left_out = None;
+    let mut unread = 0usize;
+    let mut first_unread = None;
     for filter in passes {
         for candidate in &candidates {
             let name = candidate.name.as_str();
@@ -218,6 +226,11 @@ fn select(
             if !taken.insert(name.to_string()) {
                 continue;
             }
+            if let Form::Unread(why) = &candidate.form {
+                unread += 1;
+                first_unread.get_or_insert_with(|| why.clone());
+                continue;
+            }
             match candidate.lower(selection) {
                 Ok(proxy) => proxies.push(proxy),
                 Err(e) if e.to_string().contains("sail does not implement") => {
@@ -232,6 +245,12 @@ fn select(
         warnings.push(format!(
             "{} proxies left out, as sail does not implement them yet; the first, {}",
             left_out, first
+        ));
+    }
+    if let Some(first) = first_unread {
+        warnings.push(format!(
+            "{} policies left out, as they do not read, as Surge leaves them; the first, {}",
+            unread, first
         ));
     }
     if proxies.is_empty() {
@@ -255,8 +274,10 @@ struct Candidate {
 enum Form {
     /// A Clash proxy, still to be lowered.
     Clash(Node),
-    /// An outbound, from a share link.
+    /// An outbound, from a share link or a Surge policy line.
     Outbound(Value),
+    /// A Surge policy line that does not read, and why.
+    Unread(String),
 }
 
 /// The proxies of Clash's YAML: none when it is not that.
@@ -290,6 +311,57 @@ fn clash_candidates(items: Vec<Node>) -> Vec<Candidate> {
         .collect()
 }
 
+/// The policies of what a Surge `policy-path` holds: none when it holds
+/// no policy line.
+#[cfg(feature = "config-surge")]
+fn surge_policies(body: &str, warnings: &mut Vec<String>) -> Result<Option<Vec<Candidate>>> {
+    let mut read = Vec::new();
+    let Some(policies) = crate::config::surge::external(body, &mut read)? else {
+        return Ok(None);
+    };
+    // One warning of many alike: a subscription's lines are.
+    if let Some(first) = read.first() {
+        warnings.push(match read.len() {
+            1 => first.clone(),
+            n => format!("{} (and {} more warnings)", first, n - 1),
+        });
+    }
+    let candidates = policies
+        .into_iter()
+        .map(|policy| {
+            let (kind, form) = match policy.outbound {
+                Ok(outbound) => (clash_type(&outbound), Form::Outbound(outbound)),
+                Err(e) => (String::new(), Form::Unread(format!("{:#}", e))),
+            };
+            Candidate {
+                name: cut(policy.name),
+                kind,
+                form,
+            }
+        })
+        .collect();
+    Ok(Some(candidates))
+}
+
+#[cfg(not(feature = "config-surge"))]
+fn surge_policies(_: &str, _: &mut Vec<String>) -> Result<Option<Vec<Candidate>>> {
+    Ok(None)
+}
+
+/// The Clash type of an outbound, which `exclude_type` goes by.
+fn clash_type(outbound: &Value) -> String {
+    match outbound
+        .get("type")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+    {
+        "shadowsocks" => "ss",
+        "socks" => "socks5",
+        other => other,
+    }
+    .to_string()
+}
+
 /// The proxies of share links.
 fn share_links(body: &str, warnings: &mut Vec<String>) -> Vec<Candidate> {
     let (outbounds, link_warnings) = crate::config::share_link::parse_subscription(body);
@@ -298,12 +370,7 @@ fn share_links(body: &str, warnings: &mut Vec<String>) -> Vec<Candidate> {
         .into_iter()
         .filter_map(|outbound| {
             let name = outbound.get("tag")?.as_str()?.to_string();
-            let kind = match outbound.get("type")?.as_str()? {
-                "shadowsocks" => "ss",
-                "socks" => "socks5",
-                other => other,
-            }
-            .to_string();
+            let kind = clash_type(&outbound);
             Some(Candidate {
                 name: cut(name),
                 kind,
@@ -350,6 +417,7 @@ impl Candidate {
                 outbound["tag"] = json!(name);
                 outbound
             }
+            Form::Unread(why) => return Err(anyhow!("{}", why)),
         };
         Ok((name, outbound))
     }
@@ -501,5 +569,69 @@ proxies:
             .unwrap_err()
             .to_string()
             .contains("cipher"));
+    }
+
+    const SURGE: &str = "# nodes\n\
+        🇭🇰 HK 01 = ss, hk.example.com, 8388, encrypt-method=aes-128-gcm, password=pw, udp-relay=true\n\
+        🇯🇵 JP 01 = trojan, jp.example.com, 443, password=pw, sni=jp.example.com\n\
+        Old = snell, s.example.com, 443, psk=x\n\
+        Bad = vmess, b.example.com, 443\n\
+        // skipped\n\
+        🇭🇰 HK 01 = socks5, dup.example.com, 1080\n";
+
+    #[cfg(feature = "config-surge")]
+    #[test]
+    fn a_surge_policy_list_is_read() {
+        let proxies = read(SURGE, &Selection::default()).unwrap();
+        assert_eq!(names(&proxies), ["🇭🇰 HK 01", "🇯🇵 JP 01"]);
+        assert_eq!(proxies.proxies[0].1["type"], "shadowsocks");
+        assert_eq!(proxies.proxies[0].1["server"], "hk.example.com");
+        assert_eq!(proxies.proxies[1].1["tls"]["server_name"], "jp.example.com");
+        let warnings = proxies.warnings.join("\n");
+        assert!(
+            warnings.contains("2 policies left out, as they do not read")
+                && warnings.contains("snell"),
+            "{}",
+            warnings
+        );
+
+        // As a provider of Surge's group takes them: a prefix, a detour,
+        // the modifier's in Mihomo's names.
+        let mut w = Vec::new();
+        let overrides = serde_json::json!({
+            "additional-prefix": "A-", "skip-cert-verify": true, "ip-version": "ipv4"
+        });
+        let selection = Selection::of(
+            &["JP".into()],
+            &[],
+            &[],
+            Some("relay"),
+            overrides.as_object(),
+            &mut w,
+        )
+        .unwrap();
+        let proxies = read(SURGE, &selection).unwrap();
+        assert_eq!(names(&proxies), ["A-🇯🇵 JP 01"]);
+        let jp = &proxies.proxies[0].1;
+        assert_eq!(jp["tag"], "A-🇯🇵 JP 01");
+        assert_eq!(jp["detour"], "relay");
+        assert_eq!(jp["tls"]["insecure"], true);
+        assert_eq!(jp["domain_strategy"], "ipv4_only");
+    }
+
+    #[cfg(feature = "config-surge")]
+    #[test]
+    fn a_surge_profile_s_proxy_section_is_read() {
+        let profile = "#!MANAGED-CONFIG https://example.com/p.conf\n[General]\nloglevel = notify\n\
+                       [Proxy]\nA = http, a.example.com, 80\nDIRECT = direct\n\
+                       [Proxy Group]\nG = select, A\n[Rule]\nFINAL,G\n";
+        let proxies = read(profile, &Selection::default()).unwrap();
+        assert_eq!(names(&proxies), ["A"]);
+        // Share links are not taken for policy lines.
+        let links = "trojan://p@a.example:443#A%20HK\n";
+        assert_eq!(
+            names(&read(links, &Selection::default()).unwrap()),
+            ["A HK"]
+        );
     }
 }

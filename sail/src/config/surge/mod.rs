@@ -49,6 +49,7 @@ mod sections;
 mod sets;
 mod text;
 
+pub(crate) use proxy::external;
 use text::Profile;
 
 /// Reads a Surge profile, which includes no files.

@@ -57,8 +57,21 @@ impl Profile {
         let mut reader = Reader {
             warnings,
             stack: Vec::new(),
+            list: None,
         };
         let sections = reader.file(text, None, dir)?;
+        Ok(Profile { sections })
+    }
+
+    /// Reads a list, lines of the section `section` without its header
+    /// (a `policy-path`'s policies), as a profile; it includes no files.
+    pub fn read_list(text: &str, section: &str, warnings: &mut Vec<String>) -> Result<Self> {
+        let mut reader = Reader {
+            warnings,
+            stack: Vec::new(),
+            list: Some(section),
+        };
+        let sections = reader.file(text, None, None)?;
         Ok(Profile { sections })
     }
 
@@ -112,6 +125,8 @@ struct Reader<'a> {
     warnings: &'a mut Vec<String>,
     /// The files being read, for includes that lead back to one.
     stack: Vec<PathBuf>,
+    /// The section lines outside any are of, in a list.
+    list: Option<&'a str>,
 }
 
 impl Reader<'_> {
@@ -171,6 +186,14 @@ impl Reader<'_> {
                     lines: Vec::new(),
                 });
                 continue;
+            }
+            if sections.is_empty() {
+                if let Some(name) = self.list {
+                    sections.push(Section {
+                        name: name.to_string(),
+                        lines: Vec::new(),
+                    });
+                }
             }
             match sections.last_mut() {
                 Some(section) => section.lines.push(Line { text: content, loc }),
