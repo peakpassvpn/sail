@@ -167,7 +167,7 @@ Sail 与 sing-box 的对比已经完成。当前结果表明：
 | 1.5 | **已完成（2026-09-26）** Hysteria2 入站与出站，含 Salamander 混淆、端口跳跃、带宽与拥塞控制参数（Brutal 为近似实现，quinn 无 pacing 钩子） | `protocol/hysteria2/`，评估复用现有 quinn | 与官方实现双向互通；TCP、UDP、弱网和连接迁移场景可用 |
 | 1.6 | **已完成（2026-09-26）** TUIC 入站与出站（含 `udp_over_stream` 与 0-RTT） | `protocol/tuic/` | 与主流实现双向互通；TCP、UDP 和拥塞控制参数生效 |
 | 1.7 | **已完成（2026-09-26）** V2Ray 传输层：HTTP、gRPC、HTTPUpgrade；补齐 WebSocket early-data；入站和出站都支持（HTTP/2 传输按分级不支持；gRPC 出站暂为一流一连接） | `transport/` | VLESS / VMess / Trojan 与 Xray、sing-box 双向互通 |
-| 1.8 | **已完成（2026-09-26）** 通用多路复用：smux / yamux / h2mux，入站和出站；TCP Brutal（兼容 sing-mux，默认 h2mux；含 UoT v2；TCP Brutal 按 sing-mux 协商，设置拥塞控制仅限 Linux 且需 tcp-brutal 内核模块） | `transport/mux/` | 与 sing-box / Mihomo 互通；高并发下不会因池化叠加导致内存失控 |
+| 1.8 | **已完成（2026-09-26）** 通用多路复用：smux / yamux / h2mux，入站和出站；TCP Brutal（兼容 sing-mux，默认 h2mux；含 UoT v2；TCP Brutal 按 sing-mux 协商，设置拥塞控制仅限 Linux 且需 tcp-brutal 内核模块） ；2026-09-29 统一流核心 `transport/muxcore`：smux / yamux / AnyTLS / amux 共用一个会话实现（读循环不再等任何单条流；yamux / amux 窗口按 quic-go 规则自适应，256 KiB 起、上限随 profile 16/8/4 MiB；无窗口协议单流积压 256 KiB 时暂停读连接；数据 60 s 无人读的流单独重置并记 `event=stream_stalled`，h2mux 与 QUIC 流同样适用；控制帧优先队列；1000 条突发流全部接受；流持有会话，出站被 reload / provider 移除时在途流跑完再释放；amux 改为自有新帧格式，与旧版不互通；`/api/v1/runtime/stat/mux` 计数） | `transport/mux/`、`transport/muxcore/` | 与 sing-box / Mihomo 互通；高并发下不会因池化叠加导致内存失控 |
 | 1.9 | **已完成（2026-09-26）** 出站组：默认启用 select，补齐 URLTest、fallback、load-balance 和选择持久化（selector / urltest / fallback / load-balance；failover 并入 fallback，static 已删除） | `protocol/group/` | 手动选择、自动测速、故障切换和重启恢复都有测试 |
 | 1.10 | 统一拨号选项：IP 策略、接口绑定、detour、连接/空闲超时、TCP Fast Open、MPTCP、UDP over TCP | `net/`、共享 Dial options | 各协议共享同一实现，按出站配置，不重复实现 socket 与网络选择逻辑 |
 | 1.11 | **已完成（2026-09-26）** 入站防探测与回落：Trojan / VLESS fallback，鉴权失败时的行为可配置（字段对齐 sing-box `fallback` / `fallback_for_alpn`） | `protocol/trojan/`、`protocol/vless/` | 未通过鉴权的连接可回落到指定目标；主动探测下行为与主流实现一致 |
@@ -286,7 +286,7 @@ Sail 与 sing-box 的对比已经完成。当前结果表明：
 | 5.2 | **部分完成（2026-09-26）** 补测试 | 协议双向互操作（对 sing-box 1.13.12 / Xray）、Reality、多用户、回落、DNS 上游已有自动测试；测试全部使用系统分配的端口和独立临时目录，可并行运行；路由、TUN、网络生命周期仍缺 | DNS、路由、TUN、Reality、协议双向互操作、多用户和网络生命周期都有自动测试 |
 | 5.3 | **已完成基线（2026-09-29）** 模糊测试 | 独立 `fuzz-config` workspace 有配置、订阅、source/binary 规则集、DNS、嗅探、TUIC/XUDP 入站解析共 8 个 cargo-fuzz target；有界语料、稳定回归、ASan campaign/replay 和留存证据 | 持续延长 campaign、扩充真实且脱敏的协议语料；新 crash 先最小化并固化为默认回归 |
 | 5.4 | 性能回归 CI | 目前为手动 benchmark | 移动端、桌面、服务端、路由器四种预算都有可比较基线；吞吐、CPU、内存或分配次数超阈值即告警 |
-| 5.5 | 长稳与弱网测试 | 无 | 24 小时运行，以及延迟、丢包、乱序、断网重连、高并发和半关闭场景通过 |
+| 5.5 | 长稳与弱网测试 | 无（2026-09-29 已有多路复用参数的 netns 弱网基准 `scripts/bench-mux`，在 bench/mux-params 分支） | 24 小时运行，以及延迟、丢包、乱序、断网重连、高并发和半关闭场景通过 |
 | 5.6 | **部分完成（2026-09-29）** 安全 | 已有依赖来源、RustSec、许可证门禁和只读 CI；根锁文件纳入版本控制，3 个漏洞和直接 `lru` unsound 路径已升级，audit 无漏洞；第一方统一 Apache-2.0，`webpki-root-certs/CDLA` 与 `tun/WTFPL` 采用精确例外并随发布提供全文；`quinn-btls -> lru 0.16.4` 和 `paste` 警告仍未闭环 | 推进 fork/TUN 上游依赖；补入站抗探测和资源耗尽防护、订阅和规则下载限流/大小限制/超时/路径约束、日志脱敏 |
 | 5.7 | 配置参考文档 | 只有 README 和 MPTP 文档 | 原生格式（sing-box JSON 及 sail 扩展字段）有逐字段文档、示例和 schema，由 options 类型生成；Clash 与 Surge 用 C.6 生成的支持表；变更采用一次性迁移，不保留并行版本 |
 | 5.8 | 跨平台发布 | 已有部分 Apple/Android 构建脚本 | 自动产出 XCFramework、AAR、桌面、服务端和路由器二进制；记录符号、包体积、依赖和可重复构建信息 |
