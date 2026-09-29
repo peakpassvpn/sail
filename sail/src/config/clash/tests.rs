@@ -1228,7 +1228,7 @@ tun:
   inet6-address: [fdfe:dcba:9876::1/126]
   dns-hijack: [any:53, tcp://any:53, udp://8.8.8.8:5353]
   route-exclude-address: [10.0.0.0/8]
-  route-exclude-address-set: [lan, geoip:cn]
+  route-exclude-address-set: [lan]
   exclude-interface: [lo]
   include-uid: [1000]
 rules:
@@ -1260,9 +1260,12 @@ fn tun_is_a_tun_inbound_and_its_dns_hijack_a_rule_before_every_other() {
         o["route_exclude_address"],
         serde_json::json!(["10.0.0.0/8"])
     );
+    // With auto-redirect alone, as Mihomo takes it.
     assert_eq!(
-        o["route_exclude_address_set"],
-        serde_json::json!(["lan", "geoip:cn"])
+        o.get("route_exclude_address_set"),
+        cfg!(target_os = "linux")
+            .then(|| serde_json::json!(["lan"]))
+            .as_ref()
     );
     assert_eq!(o["exclude_interface"], serde_json::json!(["lo"]));
     assert_eq!(o["include_uid"], serde_json::json!([1000]));
@@ -1333,15 +1336,20 @@ fn tun_mistakes_name_the_field() {
             "tun.dns-hijack[0]: \"8.8.8.8\" names no port",
         ),
         (
-            "tun: { enable: true, route-address-set: [nope] }",
-            "tun.route-address-set[0]: no rule-provider is named \"nope\"",
-        ),
-        (
             "tun: { enable: true, file-descriptor: 5 }",
             "tun.file-descriptor: 5: sail does not take a device opened elsewhere yet",
         ),
     ] {
         let err = error(yaml);
         assert!(err.contains(message), "{}\n  => {}", yaml, err);
+    }
+    // Taken, and so checked, with auto-redirect alone, on Linux.
+    let yaml = "tun: { enable: true, auto-redirect: true, route-address-set: [nope] }";
+    if cfg!(target_os = "linux") {
+        assert!(
+            error(yaml).contains("tun.route-address-set[0]: no rule-provider is named \"nope\"")
+        );
+    } else {
+        load(yaml);
     }
 }

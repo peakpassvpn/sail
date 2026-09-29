@@ -6,7 +6,9 @@
 //!
 //! The device's IPv4 address is Mihomo's: the first of `fake-ip-range`,
 //! 198.18.0.1 without one, as a /30. `auto-redirect` is taken on Linux
-//! alone, and passed over elsewhere, as Mihomo does.
+//! alone, and passed over elsewhere, as Mihomo does; and with it alone
+//! `route-address-set` and `route-exclude-address-set`, as Mihomo takes
+//! them.
 
 use std::net::IpAddr;
 
@@ -191,22 +193,26 @@ pub fn lower(
     if !exclude.is_empty() {
         tun.insert("route_exclude_address".into(), json!(exclude));
     }
+    // As Mihomo, which turns it off where the system has no redirect.
+    if !cfg!(target_os = "linux") {
+        tun.retain(|key, _| !key.starts_with("auto_redirect"));
+    }
+    // Mihomo takes the rule-providers these name with auto-redirect alone,
+    // and passes them over without.
+    let redirect = tun.get("auto_redirect") == Some(&json!(true));
     for (key, name) in [
         ("route-address-set", "route_address_set"),
         ("route-exclude-address-set", "route_exclude_address_set"),
     ] {
         let at = f.at(key);
-        let mut tags = Vec::new();
-        for (i, set) in f.strings(key)?.iter().enumerate() {
-            tags.push(address_set(set, sets).map_err(|e| anyhow!("{}[{}]: {}", at, i, e))?);
+        let names = f.strings(key)?;
+        if !redirect || names.is_empty() {
+            continue;
         }
-        if !tags.is_empty() {
-            tun.insert(name.into(), json!(tags));
+        for (i, set) in names.iter().enumerate() {
+            address_set(set, sets).map_err(|e| anyhow!("{}[{}]: {}", at, i, e))?;
         }
-    }
-    // As Mihomo, which turns it off where the system has no redirect.
-    if !cfg!(target_os = "linux") {
-        tun.retain(|key, _| !key.starts_with("auto_redirect"));
+        tun.insert(name.into(), json!(names));
     }
     if f.bool("auto-detect-interface")?.unwrap_or(false) {
         out.route
@@ -228,18 +234,15 @@ pub fn lower(
     Ok(())
 }
 
-/// The rule-set `set` names: a rule-provider of IP prefixes, or
-/// `geoip:<code>`.
-fn address_set(set: &str, sets: &mut Sets) -> Result<String> {
-    if let Some(code) = set.strip_prefix("geoip:") {
-        return sets.geoip(code);
-    }
+/// Checks that `set` names a rule-provider of IP prefixes, as Mihomo
+/// looks it up: by its name alone.
+fn address_set(set: &str, sets: &mut Sets) -> Result<()> {
     match sets.provider(set)? {
         ClashBehavior::Domain => Err(anyhow!(
             "rule-provider {:?} is of domains, not IP prefixes",
             set
         )),
-        _ => Ok(set.to_string()),
+        _ => Ok(()),
     }
 }
 
