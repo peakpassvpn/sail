@@ -77,7 +77,7 @@ Proxy = select, Auto, HK, JP, DIRECT, REJECT-DROP, icon-url=https://example.com/
 Auto = url-test, HK, JP, US, interval=300, tolerance=50, timeout=5
 Fall = fallback, US, JP, timeout=2
 Balance = load-balance, HK, JP, persistent=true
-Smart = smart, HK, JP, DIRECT, Proxy
+Smart = smart, HK, JP, DIRECT, Proxy, policy-priority="H.:0.5;J:1.3", interval=300, timeout=1.5, evaluate-before-use=true
 All = select, include-all-proxies=true, policy-regex-filter=^(HK|JP)$
 Mixed = select, Web, include-other-group="All, Fall"
 NoUdp = select, Web, Sock
@@ -178,7 +178,16 @@ fn a_profile_loads() {
         "consistent-hashing"
     );
     // Proxies alone.
-    assert_eq!(outbound(&config, "Smart")["outbounds"], json!(["HK", "JP"]));
+    let smart = outbound(&config, "Smart");
+    assert_eq!(smart["type"], "smart");
+    assert_eq!(smart["outbounds"], json!(["HK", "JP"]));
+    assert_eq!(
+        smart["policy_priority"],
+        json!([{ "regex": "H.", "factor": 0.5 }, { "regex": "J", "factor": 1.3 }])
+    );
+    assert_eq!(smart["timeout"], "1500ms");
+    assert_eq!(smart["evaluate_before_use"], true);
+    assert!(smart.get("interval").is_none());
     assert_eq!(outbound(&config, "All")["outbounds"], json!(["HK", "JP"]));
     assert_eq!(
         outbound(&config, "Mixed")["outbounds"],
@@ -198,7 +207,6 @@ fn a_profile_loads() {
         "HK: tfo",
         "test-url, test-timeout, test-udp of Sock",
         "JP: vmess-aead",
-        "sail approximates smart groups",
         "extended-matching",
         "after FINAL",
         "[MITM]",
@@ -314,6 +322,11 @@ fn mistakes_name_where_they_are() {
         (
             "[Proxy Group]\nG = select, policy-path=https://a\n[Rule]\nFINAL,G\n",
             "policy-path: sail does not implement this parameter yet (C.5c)",
+        ),
+        (
+            "[Proxy]\nA = direct\n[Proxy Group]\nG = smart, A, policy-priority=\"A:0\"\n\
+             [Rule]\nFINAL,G\n",
+            "[Proxy Group] line 4: G: policy-priority: \"A:0\": a factor is above 0",
         ),
         (
             "[Proxy Group]\nG = subnet, default=DIRECT\n[Rule]\nFINAL,G\n",

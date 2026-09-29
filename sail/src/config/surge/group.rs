@@ -1,9 +1,9 @@
 //! `[Proxy Group]`: each line `Name = type, member, ..., key=value` a
 //! sail group of that type: `select`, `url-test`, `fallback` and
-//! `load-balance`, and `smart` as a `url-test`. Its members are those it
-//! names, then those of the groups `include-other-group` names, then every
-//! proxy with `include-all-proxies`, the last two as `policy-regex-filter`
-//! picks them; a group left with none is DIRECT, as Surge has it.
+//! `load-balance` and `smart`. Its members are those it names, then those
+//! of the groups `include-other-group` names, then every proxy with
+//! `include-all-proxies`, the last two as `policy-regex-filter` picks them;
+//! a group left with none is DIRECT, as Surge has it.
 
 use std::collections::{HashMap, HashSet};
 
@@ -30,7 +30,6 @@ const PARAMS: &[(&str, Tier)] = &[
     ("update-interval", Silent),
     ("external-policy-modifier", Silent),
     ("external-policy-name-prefix", Silent),
-    ("policy-priority", Silent),
     ("policy-path", Unsupported(" (C.5c)")),
     ("underlying-proxy", Unsupported(" (C.5c)")),
 ];
@@ -396,21 +395,42 @@ fn group(
             o.insert("interval".into(), json!(format!("{}s", interval)));
         }
     };
-    let evaluate = p.take_at("evaluate-before-use");
+    // A smart group's is its own; the others test first as they always do.
+    let evaluate = match g.kind.as_str() {
+        "smart" => None,
+        _ => p.take_at("evaluate-before-use"),
+    };
     match g.kind.as_str() {
         "select" => {
             o.insert("type".into(), json!("selector"));
             // What only an automatic group takes, as a template may give it.
             p.take_at("persistent");
         }
-        "url-test" | "smart" => {
-            if g.kind == "smart" {
-                warnings.push(format!(
-                    "{}: smart: sail approximates smart groups with url-test until its smart \
-                     group lands",
-                    p.path()
-                ));
+        "smart" => {
+            o.insert("type".into(), json!("smart"));
+            // It tests its members every five minutes, whatever `interval`
+            // says, as Surge's does.
+            o.insert("url".into(), json!(general.test_url));
+            if let Some(tolerance) = p.num::<u16>("tolerance")? {
+                o.insert("tolerance".into(), json!(tolerance));
             }
+            if let Some(seconds) = p.num::<f64>("timeout")? {
+                o.insert(
+                    "timeout".into(),
+                    json!(format!("{}ms", (seconds * 1000.0).ceil().max(1.0) as u64)),
+                );
+            }
+            if let Some((value, at)) = p.take_at("policy-priority") {
+                o.insert(
+                    "policy_priority".into(),
+                    priorities(&value).map_err(|e| anyhow!("{}: {}", at, e))?,
+                );
+            }
+            if let Some(yes) = p.bool("evaluate-before-use")? {
+                o.insert("evaluate_before_use".into(), json!(yes));
+            }
+        }
+        "url-test" => {
             o.insert("type".into(), json!("urltest"));
             health(&mut o);
             o.insert(
@@ -463,4 +483,26 @@ fn group(
         p.take_at(key);
     }
     Ok(Value::Object(o))
+}
+
+/// `policy-priority`: `regex:factor` pairs separated by `;`, each factor
+/// above 0.
+fn priorities(value: &str) -> Result<Value> {
+    let mut list = Vec::new();
+    for pair in value.split(';').map(str::trim).filter(|p| !p.is_empty()) {
+        let (regex, factor) = pair
+            .rsplit_once(':')
+            .ok_or_else(|| anyhow!("{:?} is not regex:factor", pair))?;
+        let factor: f64 = factor
+            .trim()
+            .parse()
+            .ok()
+            .filter(|f: &f64| f.is_finite())
+            .ok_or_else(|| anyhow!("{:?}: {:?} is not a number", pair, factor))?;
+        if factor <= 0.0 {
+            return Err(anyhow!("{:?}: a factor is above 0", pair));
+        }
+        list.push(json!({ "regex": regex, "factor": factor }));
+    }
+    Ok(Value::Array(list))
 }
