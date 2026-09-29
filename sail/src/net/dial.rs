@@ -10,6 +10,24 @@ use tracing::debug;
 /// The default time a TCP connect may take.
 pub const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_secs(8);
 
+pub use super::TcpKeepAlive;
+
+/// The keepalive sing-box's fields ask for: `disable_tcp_keep_alive`,
+/// `tcp_keep_alive` and `tcp_keep_alive_interval`, the defaults where they
+/// are unset.
+pub fn tcp_keep_alive(
+    disable: bool,
+    idle: Option<Duration>,
+    interval: Option<Duration>,
+) -> Option<TcpKeepAlive> {
+    // Zero is unset, as in sing-box.
+    let set = |d: Option<Duration>| d.filter(|d| !d.is_zero());
+    (!disable).then(|| TcpKeepAlive {
+        idle: set(idle).unwrap_or(TcpKeepAlive::DEFAULT.idle),
+        interval: set(interval).unwrap_or(TcpKeepAlive::DEFAULT.interval),
+    })
+}
+
 /// How the host keeps outbound sockets out of its VPN (Android).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SocketProtect {
@@ -50,6 +68,13 @@ pub struct DialOptions {
     pub strategy: Option<crate::config::model::DnsStrategy>,
     /// The outbound these options are for, which DNS rules can match.
     pub outbound: Option<String>,
+    /// TCP keepalive: how long a connection is idle before the first probe;
+    /// [`TcpKeepAlive::DEFAULT`]'s when unset.
+    pub tcp_keep_alive: Option<Duration>,
+    /// Between probes; [`TcpKeepAlive::DEFAULT`]'s when unset.
+    pub tcp_keep_alive_interval: Option<Duration>,
+    /// No keepalive at all.
+    pub disable_tcp_keep_alive: bool,
 }
 
 impl Default for DialOptions {
@@ -65,6 +90,9 @@ impl Default for DialOptions {
             domain_resolver: None,
             strategy: None,
             outbound: None,
+            tcp_keep_alive: None,
+            tcp_keep_alive_interval: None,
+            disable_tcp_keep_alive: false,
         }
     }
 }
@@ -111,7 +139,21 @@ impl DialOptions {
             }),
             strategy: self.strategy,
             outbound: self.outbound.clone(),
+            tcp_keep_alive: self.tcp_keep_alive.or(defaults.tcp_keep_alive),
+            tcp_keep_alive_interval: self
+                .tcp_keep_alive_interval
+                .or(defaults.tcp_keep_alive_interval),
+            disable_tcp_keep_alive: self.disable_tcp_keep_alive || defaults.disable_tcp_keep_alive,
         }
+    }
+
+    /// The keepalive TCP connections dialled with these options get.
+    pub fn tcp_keep_alive(&self) -> Option<TcpKeepAlive> {
+        tcp_keep_alive(
+            self.disable_tcp_keep_alive,
+            self.tcp_keep_alive,
+            self.tcp_keep_alive_interval,
+        )
     }
 
     /// The local address for a UDP socket that is not bound to anything in

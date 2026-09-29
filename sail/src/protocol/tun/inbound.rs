@@ -936,6 +936,9 @@ mod tests {
             listen: None,
             listen_port: None,
             udp_timeout: None,
+            tcp_keep_alive: None,
+            tcp_keep_alive_interval: None,
+            disable_tcp_keep_alive: false,
             options: options.as_object().unwrap().clone(),
         }
     }

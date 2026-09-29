@@ -480,6 +480,48 @@ mod tests {
     }
 
     #[test]
+    fn tcp_keep_alive_fields_are_read() {
+        use crate::net::TcpKeepAlive;
+        use std::time::Duration;
+
+        let config = parse(
+            r#"{ "inbounds": [{ "type": "mixed", "listen_port": 1080,
+                   "tcp_keep_alive": "1m", "tcp_keep_alive_interval": "10s" }],
+                 "outbounds": [{ "type": "direct", "tcp_keep_alive": "2m",
+                   "tcp_keep_alive_interval": "20s" },
+                   { "type": "direct", "tag": "off", "disable_tcp_keep_alive": true }] }"#,
+        )
+        .unwrap();
+        assert!(config.warnings.is_empty(), "{:?}", config.warnings);
+        assert_eq!(
+            config.inbounds[0].tcp_keep_alive(),
+            Some(TcpKeepAlive {
+                idle: Duration::from_secs(60),
+                interval: Duration::from_secs(10),
+            })
+        );
+        let dial = |i: usize| {
+            let (_, blocks) =
+                crate::transport::layers::Blocks::DIAL.split(&config.outbounds[i].options);
+            crate::config::model::parse_options::<crate::transport::layers::OutboundBlocks>(
+                "outbound", "t", &blocks,
+            )
+            .unwrap()
+            .dial("t")
+            .unwrap()
+            .tcp_keep_alive()
+        };
+        assert_eq!(
+            dial(0),
+            Some(TcpKeepAlive {
+                idle: Duration::from_secs(120),
+                interval: Duration::from_secs(20),
+            })
+        );
+        assert_eq!(dial(1), None);
+    }
+
+    #[test]
     fn a_field_sing_box_does_not_know_is_a_mistake() {
         let err = parse(r#"{ "outbounds": [{ "type": "direct" }], "dsn": {} }"#).unwrap_err();
         assert!(err.to_string().contains("dsn"), "{}", err);

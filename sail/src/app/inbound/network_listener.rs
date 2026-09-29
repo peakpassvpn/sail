@@ -299,6 +299,8 @@ async fn handle_udp_listen(
 
 pub struct NetworkInboundListener {
     pub address: SocketAddr,
+    /// Of the TCP connections it accepts.
+    pub keepalive: Option<crate::net::TcpKeepAlive>,
     pub handler: AnyInboundHandler,
     pub dispatcher: Arc<Dispatcher>,
     pub nat_manager: Arc<NatManager>,
@@ -324,7 +326,8 @@ impl NetworkInboundListener {
         if self.handler.stream().is_ok() {
             let listener = crate::net::TcpListener::bind_now(&listen_addr)
                 .map_err(|e| bind_failed("tcp", e))?
-                .abort_on_close(self.dispatcher.env().options.inbound.tcp_abort_on_close);
+                .abort_on_close(self.dispatcher.env().options.inbound.tcp_abort_on_close)
+                .keepalive(self.keepalive);
             crate::net::mark_listener(socket2::SockRef::from(listener.io()), self.dispatcher.env())
                 .map_err(|e| bind_failed("tcp", e))?;
             self.handler

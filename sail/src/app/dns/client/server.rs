@@ -403,6 +403,8 @@ fn address_and_dialer(
         domain_resolver: None,
         strategy: None,
         outbound: None,
+        // DNS servers do not take sing-box's keepalive fields yet.
+        ..Default::default()
     };
     if let Some(detour) = &o.detour {
         let set = own.bind_interface.is_some()

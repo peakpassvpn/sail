@@ -26,7 +26,7 @@ use crate::runtime::RuntimeEnv;
 pub struct Blocks {
     /// The dial fields: `bind_interface`, `inet4_bind_address`,
     /// `inet6_bind_address`, `routing_mark`, `connect_timeout`,
-    /// `domain_resolver`.
+    /// `domain_resolver`, and TCP keepalive's.
     pub dial: bool,
     pub detour: bool,
     pub tls: bool,
@@ -35,7 +35,7 @@ pub struct Blocks {
 }
 
 /// The fields `Blocks::dial` covers.
-const DIAL_FIELDS: [&str; 7] = [
+const DIAL_FIELDS: [&str; 10] = [
     "bind_interface",
     "inet4_bind_address",
     "inet6_bind_address",
@@ -43,6 +43,9 @@ const DIAL_FIELDS: [&str; 7] = [
     "connect_timeout",
     "domain_resolver",
     "domain_strategy",
+    "tcp_keep_alive",
+    "tcp_keep_alive_interval",
+    "disable_tcp_keep_alive",
 ];
 
 impl Blocks {
@@ -157,6 +160,15 @@ pub struct OutboundBlocks {
     /// sing-box's deprecated field for the families they resolve to.
     #[serde(default)]
     pub domain_strategy: Option<crate::config::model::DnsStrategy>,
+    /// How long a TCP connection is idle before keepalive probes it; 5m
+    /// when unset.
+    #[serde(default, with = "crate::config::model::duration")]
+    pub tcp_keep_alive: Option<std::time::Duration>,
+    /// Between keepalive probes; 75s when unset.
+    #[serde(default, with = "crate::config::model::duration")]
+    pub tcp_keep_alive_interval: Option<std::time::Duration>,
+    #[serde(default)]
+    pub disable_tcp_keep_alive: bool,
     #[serde(default)]
     pub tls: Option<OutboundTls>,
     #[serde(default)]
@@ -462,6 +474,9 @@ impl OutboundBlocks {
             }),
             strategy: self.domain_strategy,
             outbound: Some(tag.to_string()),
+            tcp_keep_alive: self.tcp_keep_alive,
+            tcp_keep_alive_interval: self.tcp_keep_alive_interval,
+            disable_tcp_keep_alive: self.disable_tcp_keep_alive,
         };
         if let Some(detour) = &self.detour {
             let set = [
@@ -470,6 +485,12 @@ impl OutboundBlocks {
                 ("inet6_bind_address", dial.inet6_bind_address.is_some()),
                 ("routing_mark", dial.routing_mark.is_some()),
                 ("connect_timeout", self.connect_timeout.is_some()),
+                ("tcp_keep_alive", self.tcp_keep_alive.is_some()),
+                (
+                    "tcp_keep_alive_interval",
+                    self.tcp_keep_alive_interval.is_some(),
+                ),
+                ("disable_tcp_keep_alive", self.disable_tcp_keep_alive),
             ];
             if let Some((field, _)) = set.iter().find(|(_, set)| *set) {
                 return Err(anyhow!(

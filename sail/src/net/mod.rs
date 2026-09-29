@@ -11,10 +11,6 @@ use tokio::time::timeout;
 use tracing::{debug, trace};
 
 #[cfg(unix)]
-use std::os::unix::io::AsFd;
-#[cfg(windows)]
-use std::os::windows::io::AsSocket;
-#[cfg(unix)]
 use {
     std::os::unix::io::{AsRawFd, RawFd},
     tokio::io::AsyncWriteExt,
@@ -79,6 +75,7 @@ async fn protect_socket(fd: RawFd, dial: &DialOptions) -> io::Result<()> {
 pub struct TcpListener {
     inner: tokio::net::TcpListener,
     abort_on_close: bool,
+    keepalive: Option<TcpKeepAlive>,
 }
 
 impl TcpListener {
@@ -100,7 +97,14 @@ impl TcpListener {
         Ok(Self {
             inner: tokio::net::TcpListener::from_std(socket.into())?,
             abort_on_close: false,
+            keepalive: Some(TcpKeepAlive::DEFAULT),
         })
+    }
+
+    /// Keepalive for accepted connections, none if unset.
+    pub fn keepalive(mut self, keepalive: Option<TcpKeepAlive>) -> Self {
+        self.keepalive = keepalive;
+        self
     }
 
     /// Resets accepted connections on close instead of closing them
@@ -117,7 +121,7 @@ impl TcpListener {
 
     pub async fn accept(&self) -> io::Result<(TcpStream, SocketAddr)> {
         let (stream, addr) = self.inner.accept().await?;
-        apply_socket_opts(&stream)?;
+        apply_socket_opts(SockRef::from(&stream), self.keepalive)?;
         if self.abort_on_close {
             // Reclaims the socket the moment it is closed, and discards
             // anything still queued for the peer along with it. See the
@@ -176,20 +180,50 @@ pub async fn new_udp_socket(indicator: &SocketAddr, dial: &DialOptions) -> io::R
     UdpSocket::from_std(socket.into())
 }
 
-fn apply_socket_opts_internal(s: SockRef) -> io::Result<()> {
-    s.set_keepalive(true)?;
-    s.set_nodelay(true)
+/// TCP keepalive: probes once a connection has carried nothing for `idle`,
+/// then every `interval` until the peer answers or the system gives up on
+/// it (after 9 probes on Linux, 8 on macOS, 10 on Windows).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TcpKeepAlive {
+    pub idle: Duration,
+    pub interval: Duration,
 }
 
-#[cfg(unix)]
-fn apply_socket_opts<S: AsFd>(socket: &S) -> io::Result<()> {
-    let sock_ref = SockRef::from(socket);
-    apply_socket_opts_internal(sock_ref)
+impl TcpKeepAlive {
+    /// sing-box's: a dead peer is found within about 15 minutes, where the
+    /// systems' own two hours find it practically never.
+    pub const DEFAULT: TcpKeepAlive = TcpKeepAlive {
+        idle: Duration::from_secs(5 * 60),
+        interval: Duration::from_secs(75),
+    };
+
+    fn apply(&self, s: &SockRef) -> io::Result<()> {
+        let keepalive = socket2::TcpKeepalive::new().with_time(self.idle);
+        #[cfg(any(
+            target_os = "android",
+            target_os = "freebsd",
+            target_os = "ios",
+            target_os = "linux",
+            target_os = "macos",
+            target_os = "netbsd",
+            target_os = "tvos",
+            target_os = "visionos",
+            target_os = "watchos",
+            target_os = "windows",
+        ))]
+        let keepalive = keepalive.with_interval(self.interval);
+        s.set_tcp_keepalive(&keepalive)
+    }
 }
-#[cfg(windows)]
-fn apply_socket_opts<S: AsSocket>(socket: &S) -> io::Result<()> {
-    let sock_ref = SockRef::from(socket);
-    apply_socket_opts_internal(sock_ref)
+
+/// What every TCP connection sail makes or accepts gets: no Nagle delay,
+/// and keepalive as `keepalive` says, none if unset.
+fn apply_socket_opts(s: SockRef, keepalive: Option<TcpKeepAlive>) -> io::Result<()> {
+    match keepalive {
+        Some(keepalive) => keepalive.apply(&s)?,
+        None => s.set_keepalive(false)?,
+    }
+    s.set_nodelay(true)
 }
 
 /// A TCP connection to `addr`, opened as `dial` says.
@@ -216,7 +250,7 @@ pub async fn tcp_connect(addr: SocketAddr, dial: &DialOptions) -> io::Result<Tcp
         })??;
     let elapsed = tokio::time::Instant::now().duration_since(start);
 
-    apply_socket_opts(&stream)?;
+    apply_socket_opts(SockRef::from(&stream), dial.tcp_keep_alive())?;
 
     debug!(
         "tcp {} <-> {} connected in {}ms",
@@ -461,6 +495,92 @@ mod tests {
                 }
             });
         }
+    }
+
+    /// Dialled and accepted connections probe a dead peer after 5 minutes
+    /// idle, every 75 s, unless told otherwise.
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn tcp_connections_get_keepalive() {
+        let custom = TcpKeepAlive {
+            idle: Duration::from_secs(40),
+            interval: Duration::from_secs(7),
+        };
+        let check = |s: SockRef, want: Option<TcpKeepAlive>| {
+            assert_eq!(s.keepalive().unwrap(), want.is_some());
+            if let Some(want) = want {
+                assert_eq!(s.keepalive_time().unwrap(), want.idle);
+                assert_eq!(s.keepalive_interval().unwrap(), want.interval);
+            }
+        };
+        for (listen, dial) in [
+            (None, DialOptions::default()),
+            (
+                Some(custom),
+                DialOptions {
+                    tcp_keep_alive: Some(custom.idle),
+                    tcp_keep_alive_interval: Some(custom.interval),
+                    ..Default::default()
+                },
+            ),
+            (
+                None,
+                DialOptions {
+                    disable_tcp_keep_alive: true,
+                    ..Default::default()
+                },
+            ),
+        ] {
+            runtime().block_on(async {
+                let listener = TcpListener::bind(&"127.0.0.1:0".parse().unwrap())
+                    .await
+                    .unwrap();
+                let listener = match listen {
+                    Some(k) => listener.keepalive(Some(k)),
+                    None => listener,
+                };
+                let addr = listener.io().local_addr().unwrap();
+                let dialling = dial.clone();
+                let dialled = tokio::spawn(async move { tcp_connect(addr, &dialling).await });
+                let (accepted, _) = listener.accept().await.unwrap();
+                let dialled = dialled.await.unwrap().unwrap();
+                check(
+                    SockRef::from(&accepted),
+                    Some(listen.unwrap_or(TcpKeepAlive::DEFAULT)),
+                );
+                let want = if dial.disable_tcp_keep_alive {
+                    None
+                } else if dial.tcp_keep_alive.is_some() {
+                    Some(custom)
+                } else {
+                    Some(TcpKeepAlive::DEFAULT)
+                };
+                check(SockRef::from(&dialled), want);
+            });
+        }
+    }
+
+    #[test]
+    fn keepalive_fields_read_as_in_sing_box() {
+        use dial::tcp_keep_alive;
+        assert_eq!(
+            tcp_keep_alive(false, None, None),
+            Some(TcpKeepAlive::DEFAULT)
+        );
+        // Zero is unset.
+        assert_eq!(
+            tcp_keep_alive(false, Some(Duration::ZERO), Some(Duration::from_secs(9))),
+            Some(TcpKeepAlive {
+                idle: TcpKeepAlive::DEFAULT.idle,
+                interval: Duration::from_secs(9),
+            })
+        );
+        assert_eq!(
+            tcp_keep_alive(true, Some(Duration::from_secs(9)), None),
+            None
+        );
+        assert_eq!(TcpKeepAlive::DEFAULT.idle, Duration::from_secs(300));
+        assert_eq!(TcpKeepAlive::DEFAULT.interval, Duration::from_secs(75));
     }
 
     #[test]

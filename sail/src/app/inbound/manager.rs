@@ -138,6 +138,7 @@ impl InboundManager {
         for (inbound, address) in plan_listeners(inbounds, &handlers)? {
             let listener = NetworkInboundListener {
                 address,
+                keepalive: inbound.tcp_keep_alive(),
                 handler: handlers[&inbound.tag].clone(),
                 dispatcher: dispatcher.clone(),
                 nat_manager: nat_manager.clone(),
@@ -369,6 +370,7 @@ impl InboundManager {
         if let Some((_, address)) = planned.first() {
             let listener = NetworkInboundListener {
                 address: *address,
+                keepalive: inbound.tcp_keep_alive(),
                 handler: handlers[&inbound.tag].clone(),
                 dispatcher: self.dispatcher.clone(),
                 nat_manager: self.nat_manager.clone(),

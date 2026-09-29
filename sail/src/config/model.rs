@@ -1020,6 +1020,15 @@ pub struct Inbound {
     /// 5m when unset, as in sing-box.
     #[serde(default, with = "duration", skip_serializing_if = "Option::is_none")]
     pub udp_timeout: Option<std::time::Duration>,
+    /// How long an accepted TCP connection is idle before keepalive probes
+    /// it; 5m when unset.
+    #[serde(default, with = "duration", skip_serializing_if = "Option::is_none")]
+    pub tcp_keep_alive: Option<std::time::Duration>,
+    /// Between keepalive probes; 75s when unset.
+    #[serde(default, with = "duration", skip_serializing_if = "Option::is_none")]
+    pub tcp_keep_alive_interval: Option<std::time::Duration>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub disable_tcp_keep_alive: bool,
     #[serde(flatten)]
     pub options: Options,
 }
@@ -1027,6 +1036,15 @@ pub struct Inbound {
 impl Inbound {
     pub fn udp_timeout(&self) -> std::time::Duration {
         self.udp_timeout.unwrap_or(DEFAULT_UDP_TIMEOUT)
+    }
+
+    /// The keepalive of the TCP connections it accepts.
+    pub fn tcp_keep_alive(&self) -> Option<crate::net::dial::TcpKeepAlive> {
+        crate::net::dial::tcp_keep_alive(
+            self.disable_tcp_keep_alive,
+            self.tcp_keep_alive,
+            self.tcp_keep_alive_interval,
+        )
     }
 }
 
@@ -1067,6 +1085,9 @@ impl Endpoint {
             listen: None,
             listen_port: None,
             udp_timeout: self.udp_timeout,
+            tcp_keep_alive: None,
+            tcp_keep_alive_interval: None,
+            disable_tcp_keep_alive: false,
             options: Options::new(),
         }
     }

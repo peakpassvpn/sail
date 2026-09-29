@@ -944,6 +944,9 @@ mod tests {
             listen: None,
             listen_port: None,
             udp_timeout: None,
+            tcp_keep_alive: None,
+            tcp_keep_alive_interval: None,
+            disable_tcp_keep_alive: false,
             options: Options::new(),
         };
         let unknown = inbound("in-1", "no-such-protocol");
