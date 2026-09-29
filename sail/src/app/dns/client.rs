@@ -130,6 +130,7 @@ impl DnsClient {
                 capacity,
                 dns.disable_expire,
                 optimistic,
+                env.cache_file.get().filter(|file| file.store_dns),
             )),
             disable_cache: dns.disable_cache,
             me: Weak::new(),

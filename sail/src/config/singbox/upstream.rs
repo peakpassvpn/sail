@@ -52,8 +52,6 @@ pub const FIELDS: &[Field] = &[
     // fields, which sail does not have; deprecated in sing-box 1.14.
     f("experimental.cache_file.store_rdrc", Ignored),
     f("experimental.cache_file.rdrc_timeout", Ignored),
-    // Only a warm DNS cache after a restart.
-    f("experimental.cache_file.store_dns", Ignored),
     // The Clash API is not served yet; its mode is kept.
     f("experimental.clash_api.external_controller", Ignored),
     f("experimental.clash_api.external_ui", Ignored),

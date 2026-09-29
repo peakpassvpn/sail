@@ -131,6 +131,7 @@ Serde: `serde (deny_unknown_fields)`
 | `path` | `Option < String >` | Default::default() | `cache.db` when unset. A relative path is in the host's cache directory, or the data directory.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
 | `cache_id` | `Option < String >` | Default::default() | What this configuration keeps is kept apart, under this name, from what others sharing the file keep.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
 | `store_fakeip` | `bool` | Default::default() | —<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
+| `store_dns` | `bool` | Default::default() | The DNS answers kept are kept in the file too, and outlive a restart.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
 
 ## ClashApi
 
@@ -209,8 +210,11 @@ Serde: `serde (deny_unknown_fields)`
 | `rules` | `Vec < DnsRule >` | Default::default() | Which server a query goes to, matched in order.<br/>`serde (default , skip_serializing_if = "Vec::is_empty")` |
 | `final` | `Option < String >` | Default::default() | The server of the queries no rule matches; the first one when unset.<br/>`serde (rename = "final" , default , skip_serializing_if = "Option::is_none")` |
 | `strategy` | `DnsStrategy` | Default::default() | Which address families names resolve to, and in what order.<br/>`serde (default)` |
-| `cache_capacity` | `Option < usize >` | Default::default() | Answers kept per address family; 512, or 64 on iOS, when unset.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `timeout` | `Option < std :: time :: Duration >` | Default::default() | How long one query to one server may take; 4s when unset.<br/>`serde (default , with = "duration" , skip_serializing_if = "Option::is_none")` |
+| `disable_cache` | `bool` | Default::default() | No answer is kept: each query goes to its server.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
+| `disable_expire` | `bool` | Default::default() | Answers kept are used however old they are, until the cache is full or cleared.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
+| `cache_capacity` | `Option < usize >` | Default::default() | How many answers are kept; 1024 when unset, and at least that, as in sing-box.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
+| `optimistic` | `Option < Optimistic >` | Default::default() | An answer that has expired is still given, for up to its timeout, while the server is asked again in the background.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
+| `timeout` | `Option < std :: time :: Duration >` | Default::default() | How long one query to one server may take; 10s when unset, as in sing-box.<br/>`serde (default , with = "duration" , skip_serializing_if = "Option::is_none")` |
 | `reverse_mapping` | `bool` | Default::default() | Remembers the domain of each address the DNS answers that pass through carry, so that connections to the address are routed by the domain.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
 | `client_subnet` | `Option < Prefix >` | Default::default() | The EDNS Client Subnet each query carries, unless a rule says otherwise.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
 
@@ -281,6 +285,7 @@ Serde: `serde (deny_unknown_fields)`
 | `rcode` | `Option < Rcode >` | Default::default() | `predefined`: the code of the answer, NOERROR when unset.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
 | `tag` | `Option < String >` | Default::default() | `evaluate`: the name of its response, which `match_response` gives.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
 | `disable_cache` | `bool` | Default::default() | `route`, `evaluate` and `route-options`: the query neither comes from the cache nor goes into it.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
+| `disable_optimistic_cache` | `bool` | Default::default() | An expired answer is not given while it is asked for again, though `dns.optimistic` is enabled.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
 | `rewrite_ttl` | `Option < u32 >` | Default::default() | The TTL the answer's records carry, in seconds.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
 | `timeout` | `Option < std :: time :: Duration >` | Default::default() | How long the query may take, instead of `dns.timeout`.<br/>`serde (default , with = "duration" , skip_serializing_if = "Option::is_none")` |
 | `client_subnet` | `Option < Prefix >` | Default::default() | The EDNS Client Subnet the query carries, instead of `dns.client_subnet`.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |

@@ -242,6 +242,10 @@ pub struct CacheFileOptions {
     pub cache_id: Option<String>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub store_fakeip: bool,
+    /// The DNS answers kept are kept in the file too, and outlive a
+    /// restart.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub store_dns: bool,
 }
 
 impl Experimental {

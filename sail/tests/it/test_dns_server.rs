@@ -273,3 +273,108 @@ fn the_api_reports_the_dns_cache_and_clears_it() -> anyhow::Result<()> {
     common::shutdown_instances(&rt, ids);
     Ok(())
 }
+
+// dig -> (direct)sail, hijacked -> a UDP server; sail stopped and started
+// again with the same cache file
+//
+// With `store_dns`, the answers kept outlive the restart: the server is not
+// asked again for what it answered before.
+#[cfg(feature = "inbound-direct")]
+#[test]
+fn dns_answers_outlive_a_restart_in_the_cache_file() -> anyhow::Result<()> {
+    use std::str::FromStr;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    use hickory_proto::op::{Message, MessageType, OpCode, Query};
+    use hickory_proto::rr::{rdata::A, Name, RData, Record, RecordType};
+
+    let dir = common::TempDir::new("dns-cache")?;
+    let cache = dir.join("cache.db");
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()?;
+    // An upstream answering every A query with 10.0.0.7 for an hour.
+    let asked = Arc::new(AtomicUsize::new(0));
+    let upstream = rt.block_on(async {
+        let socket = tokio::net::UdpSocket::bind("127.0.0.1:0").await?;
+        let port = socket.local_addr()?.port();
+        let asked = asked.clone();
+        tokio::spawn(async move {
+            let mut buf = [0u8; 1500];
+            while let Ok((n, peer)) = socket.recv_from(&mut buf).await {
+                let Ok(q) = Message::from_vec(&buf[..n]) else {
+                    continue;
+                };
+                asked.fetch_add(1, Ordering::SeqCst);
+                let mut r = Message::new(q.metadata.id, MessageType::Response, OpCode::Query);
+                for query in &q.queries {
+                    r.add_query(query.clone());
+                    r.add_answer(Record::from_rdata(
+                        query.name().clone(),
+                        3600,
+                        RData::A(A::new(10, 0, 0, 7)),
+                    ));
+                }
+                let _ = socket.send_to(&r.to_vec().unwrap(), peer).await;
+            }
+        });
+        anyhow::Ok(port)
+    })?;
+    let ask = |port: u16| -> anyhow::Result<u32> {
+        let mut m = Message::new(4, MessageType::Query, OpCode::Query);
+        m.metadata.recursion_desired = true;
+        m.add_query(Query::query(
+            Name::from_str("kept.example.")?,
+            RecordType::A,
+        ));
+        rt.block_on(async {
+            let udp = tokio::net::UdpSocket::bind("127.0.0.1:0").await?;
+            udp.send_to(&m.to_vec()?, ("127.0.0.1", port)).await?;
+            let mut buf = vec![0u8; 1500];
+            let (n, _) =
+                tokio::time::timeout(std::time::Duration::from_secs(5), udp.recv_from(&mut buf))
+                    .await??;
+            let reply = Message::from_vec(&buf[..n])?;
+            Ok(reply.answers.first().map(|r| r.ttl).unwrap_or(0))
+        })
+    };
+    let start = || {
+        common::retry_port_clash(|| {
+            let [port] = common::free_ports();
+            let config = serde_json::json!({
+                "experimental": { "cache_file": {
+                    "enabled": true,
+                    "path": cache.to_str().unwrap(),
+                    "store_dns": true,
+                } },
+                "dns": { "servers": [
+                    { "type": "udp", "server": "127.0.0.1", "server_port": upstream }
+                ] },
+                "inbounds": [{
+                    "type": "direct", "tag": "dns-in",
+                    "listen": "127.0.0.1", "listen_port": port,
+                }],
+                "outbounds": [{ "type": "direct" }],
+                "route": { "rules": [{ "inbound": "dns-in", "action": "hijack-dns" }] },
+            });
+            Ok((
+                common::run_sail_instances(&rt, vec![config.to_string()])?,
+                port,
+            ))
+        })
+    };
+
+    let (ids, port) = start()?;
+    assert_eq!(ask(port)?, 3600);
+    assert_eq!(asked.load(Ordering::SeqCst), 1);
+    common::shutdown_instances(&rt, ids);
+
+    let (ids, port) = start()?;
+    let ttl = ask(port)?;
+    assert!(ttl > 3500 && ttl <= 3600, "{}", ttl);
+    assert_eq!(asked.load(Ordering::SeqCst), 1);
+    common::shutdown_instances(&rt, ids);
+    Ok(())
+}

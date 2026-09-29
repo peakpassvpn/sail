@@ -4,18 +4,21 @@
 //! TTL, less what has passed. With `disable_expire`, they are kept until
 //! the cache is full or cleared. With `optimistic`, an answer that has
 //! expired is still given, with a TTL of 1, for up to its timeout, while
-//! the server is asked again in the background.
+//! the server is asked again in the background. With the cache file's
+//! `store_dns`, every answer kept is written there as well, and one not in
+//! memory is looked for there, so that answers outlive a restart.
 
 use std::collections::HashSet;
 use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant, SystemTime};
 
 use hickory_proto::op::Message;
 use hickory_proto::rr::{RData, RecordType};
 use lru::LruCache;
 
+use crate::runtime::cache_file::CacheFile;
 use crate::util::DnsMessageExt;
 use serde_derive::Serialize;
 
@@ -35,6 +38,8 @@ pub(super) struct Answers {
     entries: Mutex<LruCache<AnswerKey, (Message, Instant)>>,
     disable_expire: bool,
     optimistic: Option<Duration>,
+    /// The cache file, when it keeps DNS answers.
+    file: Option<Arc<CacheFile>>,
     /// Questions being asked again in the background: one at a time each.
     refreshing: Mutex<HashSet<AnswerKey>>,
     hits: AtomicU64,
@@ -51,6 +56,9 @@ pub struct CacheStats {
     /// Expired answers given while asked for again.
     pub stale_hits: u64,
     pub misses: u64,
+    /// Kept in the cache file, with `store_dns`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stored: Option<u64>,
 }
 
 impl Answers {
@@ -58,11 +66,16 @@ impl Answers {
         capacity: NonZeroUsize,
         disable_expire: bool,
         optimistic: Option<Duration>,
+        file: Option<Arc<CacheFile>>,
     ) -> Self {
+        if let Some(file) = &file {
+            file.prune_dns(optimistic.unwrap_or_default());
+        }
         Answers {
             entries: Mutex::new(LruCache::new(capacity)),
             disable_expire,
             optimistic,
+            file,
             refreshing: Default::default(),
             hits: Default::default(),
             stale_hits: Default::default(),
@@ -70,9 +83,15 @@ impl Answers {
         }
     }
 
-    /// The answer kept for `key`, with `id`.
+    /// The answer kept for `key`, with `id`: in memory, or else in the
+    /// cache file.
     pub(super) fn get(&self, key: &AnswerKey, id: u16) -> Cached {
         let mut entries = self.entries.lock().unwrap_or_else(|e| e.into_inner());
+        if !entries.contains(key) {
+            if let Some(kept) = self.load(key) {
+                entries.put(key.clone(), kept);
+            }
+        }
         let Some((message, expires)) = entries.get(key) else {
             self.misses.fetch_add(1, Ordering::Relaxed);
             return Cached::Missing;
@@ -107,12 +126,34 @@ impl Answers {
         }
     }
 
+    /// The answer the cache file keeps for `key`, with when it expires.
+    fn load(&self, key: &AnswerKey) -> Option<(Message, Instant)> {
+        let file = self.file.as_ref()?;
+        let (bytes, expires) = file
+            .load_dns(&file_key(key))
+            .inspect_err(|e| tracing::debug!("{}", e))
+            .ok()??;
+        let message = Message::from_vec(&bytes).ok()?;
+        let now = (Instant::now(), SystemTime::now());
+        let expires = match expires.duration_since(now.1) {
+            Ok(left) => now.0 + left,
+            Err(past) => now.0.checked_sub(past.duration())?,
+        };
+        Some((message, expires))
+    }
+
     /// Keeps `message` for `ttl` seconds; not at all for none.
     pub(super) fn put(&self, key: AnswerKey, message: &Message, ttl: u32) {
         if ttl == 0 {
             return;
         }
-        let expires = Instant::now() + Duration::from_secs(ttl.into());
+        let life = Duration::from_secs(ttl.into());
+        if let Some(file) = &self.file {
+            if let Ok(bytes) = message.to_vec() {
+                file.store_dns(file_key(&key), bytes, SystemTime::now() + life);
+            }
+        }
+        let expires = Instant::now() + life;
         self.entries
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -135,12 +176,15 @@ impl Answers {
             .remove(key);
     }
 
-    /// Forgets every answer.
+    /// Forgets every answer, in the cache file too.
     pub(super) fn clear(&self) {
         self.entries
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .clear();
+        if let Some(file) = &self.file {
+            file.clear_dns();
+        }
     }
 
     pub(super) fn stats(&self) -> CacheStats {
@@ -151,8 +195,15 @@ impl Answers {
             hits: self.hits.load(Ordering::Relaxed),
             stale_hits: self.stale_hits.load(Ordering::Relaxed),
             misses: self.misses.load(Ordering::Relaxed),
+            stored: self.file.as_ref().and_then(|f| f.dns_entries().ok()),
         }
     }
+}
+
+/// `key`, as the cache file keeps it.
+fn file_key((server, name, ty, subnet): &AnswerKey) -> String {
+    let subnet = subnet.map(|s| s.to_string()).unwrap_or_default();
+    format!("{}\0{}\0{}\0{}", server, name, ty, subnet)
 }
 
 /// How long `response` may be kept, as sing-box has it: a negative answer
@@ -243,7 +294,12 @@ mod tests {
     }
 
     fn cache(disable_expire: bool, optimistic: Option<Duration>) -> Answers {
-        Answers::new(NonZeroUsize::new(4).unwrap(), disable_expire, optimistic)
+        Answers::new(
+            NonZeroUsize::new(4).unwrap(),
+            disable_expire,
+            optimistic,
+            None,
+        )
     }
 
     fn age(answers: &Answers, key: &AnswerKey, by: Duration) {
@@ -276,7 +332,8 @@ mod tests {
                 capacity: 4,
                 hits: 1,
                 stale_hits: 0,
-                misses: 3
+                misses: 3,
+                stored: None,
             }
         );
     }

@@ -14,16 +14,22 @@
 //! Fake IPs are written by a thread of the file's own, as they are handed
 //! out: what has queued up is committed in one transaction, the addresses
 //! with the cursor, so that the file always holds a state the store was in.
+//! With `store_dns`, the DNS answers kept are written by it too, and those
+//! long expired are pruned as sing-box prunes them.
 
 use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread::JoinHandle;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{anyhow, Context, Result};
 use arc_swap::ArcSwapOption;
-use redb::{Database, DatabaseError, ReadableDatabase, ReadableTable, TableDefinition};
+use redb::{
+    Database, DatabaseError, ReadableDatabase, ReadableTable, ReadableTableMetadata,
+    TableDefinition,
+};
 use tracing::{debug, warn};
 
 use super::RuntimeEnv;
@@ -42,6 +48,9 @@ const META: &str = "meta";
 const FAKEIP: &str = "fakeip";
 /// 4 or 6 to the last address of that family handed out.
 const FAKEIP_CURSOR: &str = "fakeip_cursor";
+/// A DNS answer's key (server, name, type, client subnet) to the message
+/// and when it expires, in milliseconds since the Unix epoch.
+const DNS: &str = "dns";
 
 /// The instance's cache file, as its configuration has it; none without
 /// one. Shared by what the instance builds, and replaced by a reload.
@@ -83,6 +92,7 @@ impl CacheFileSlot {
                     shared,
                     id: options.cache_id.clone().unwrap_or_default(),
                     store_fakeip: options.store_fakeip,
+                    store_dns: options.store_dns,
                 }))
             }
         };
@@ -153,6 +163,8 @@ pub struct CacheFile {
     id: String,
     /// Whether fake IPs are kept.
     pub store_fakeip: bool,
+    /// Whether DNS answers are kept.
+    pub store_dns: bool,
 }
 
 /// The open database, which reloads with the same file go on with.
@@ -162,9 +174,12 @@ struct Shared {
     path: PathBuf,
     /// None once closed.
     db: Arc<RwLock<Option<Database>>>,
-    /// Feeds the thread that writes fake IPs; taken on close, which ends
-    /// it.
-    writes: Mutex<Option<mpsc::Sender<FakeIpWrite>>>,
+    /// Feeds the thread that writes fake IPs and DNS answers; taken on
+    /// close, which ends it.
+    writes: Mutex<Option<mpsc::Sender<Write>>>,
+    /// The DNS tables pruned, with how long after expiring an answer is
+    /// still of use: the optimistic timeout.
+    pruned: Arc<Mutex<std::collections::HashMap<String, Duration>>>,
     writer: Mutex<Option<JoinHandle<()>>>,
 }
 
@@ -214,11 +229,12 @@ impl Shared {
         debug!("cache_file: {}", path.display());
         let db = Arc::new(RwLock::new(Some(db)));
         let (writes, queue) = mpsc::channel();
+        let pruned = Arc::new(Mutex::new(std::collections::HashMap::new()));
         let writer = std::thread::Builder::new()
             .name("sail-cache-file".into())
             .spawn({
-                let db = db.clone();
-                move || write_fake_ips(&db, queue)
+                let (db, pruned) = (db.clone(), pruned.clone());
+                move || write(&db, queue, &pruned)
             })
             .context("cache_file: start its writer")?;
         static SERIAL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -227,6 +243,7 @@ impl Shared {
             path,
             db,
             writes: Mutex::new(Some(writes)),
+            pruned,
             writer: Mutex::new(Some(writer)),
         }))
     }
@@ -365,10 +382,13 @@ impl CacheFile {
 
     /// Queues what a fake IP store did, to be written in turn.
     pub(crate) fn write_fake_ips(&self, ops: Vec<FakeIpOp>) {
-        let write = FakeIpWrite {
+        self.queue(Write::FakeIps {
             id: self.id.clone(),
             ops,
-        };
+        });
+    }
+
+    fn queue(&self, write: Write) {
         if let Some(writes) = self
             .shared
             .writes
@@ -379,6 +399,73 @@ impl CacheFile {
             let _ = writes.send(write);
         }
     }
+
+    /// Prunes the DNS answers kept that expired more than `window` ago,
+    /// now and from time to time, as sing-box does.
+    pub(crate) fn prune_dns(&self, window: Duration) {
+        let table = self.table(DNS);
+        self.shared
+            .pruned
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(table.clone(), window);
+        self.queue(Write::DnsPrune { table, window });
+    }
+
+    /// The DNS answer kept under `key`, and when it expires.
+    pub(crate) fn load_dns(&self, key: &str) -> Result<Option<(Vec<u8>, SystemTime)>> {
+        let table = self.table(DNS);
+        self.shared.with(|db| {
+            let tx = db.begin_read()?;
+            let table = match tx.open_table(TableDefinition::<&str, (&[u8], u64)>::new(&table)) {
+                Ok(table) => table,
+                Err(redb::TableError::TableDoesNotExist(_)) => return Ok(None),
+                Err(e) => return Err(e.into()),
+            };
+            Ok(table.get(key)?.map(|v| {
+                let (message, expires) = v.value();
+                (
+                    message.to_vec(),
+                    UNIX_EPOCH + Duration::from_millis(expires),
+                )
+            }))
+        })
+    }
+
+    /// Keeps `message` under `key` until `expires`, written in turn.
+    pub(crate) fn store_dns(&self, key: String, message: Vec<u8>, expires: SystemTime) {
+        self.queue(Write::DnsPut {
+            table: self.table(DNS),
+            key,
+            message,
+            expires: millis(expires),
+        });
+    }
+
+    /// Forgets every DNS answer kept.
+    pub(crate) fn clear_dns(&self) {
+        self.queue(Write::DnsClear {
+            table: self.table(DNS),
+        });
+    }
+
+    /// How many DNS answers are kept.
+    pub(crate) fn dns_entries(&self) -> Result<u64> {
+        let table = self.table(DNS);
+        self.shared.with(|db| {
+            let tx = db.begin_read()?;
+            match tx.open_table(TableDefinition::<&str, (&[u8], u64)>::new(&table)) {
+                Ok(table) => Ok(table.len()?),
+                Err(redb::TableError::TableDoesNotExist(_)) => Ok(0),
+                Err(e) => Err(e.into()),
+            }
+        })
+    }
+}
+
+fn millis(time: SystemTime) -> u64 {
+    time.duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() as u64)
 }
 
 fn table(name: &str, id: &str) -> String {
@@ -431,10 +518,25 @@ pub(crate) enum FakeIpOp {
     Clear { ranges: String },
 }
 
-struct FakeIpWrite {
-    /// The `cache_id` the tables are of.
-    id: String,
-    ops: Vec<FakeIpOp>,
+enum Write {
+    FakeIps {
+        /// The `cache_id` the tables are of.
+        id: String,
+        ops: Vec<FakeIpOp>,
+    },
+    DnsPut {
+        table: String,
+        key: String,
+        message: Vec<u8>,
+        expires: u64,
+    },
+    DnsClear {
+        table: String,
+    },
+    DnsPrune {
+        table: String,
+        window: Duration,
+    },
 }
 
 /// Empties the fake IP tables of `id`, now kept for `ranges`.
@@ -448,49 +550,110 @@ fn clear_fake_ips(tx: &redb::WriteTransaction, id: &str, ranges: &str) -> Result
     Ok(())
 }
 
+/// How often the DNS answers kept are pruned: half the optimistic timeout,
+/// or hourly without one, as sing-box prunes them.
+fn prune_interval(pruned: &Mutex<std::collections::HashMap<String, Duration>>) -> Duration {
+    pruned
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .values()
+        .filter(|w| !w.is_zero())
+        .map(|w| *w / 2)
+        .min()
+        .unwrap_or(Duration::from_secs(3600))
+}
+
 /// Writes what is queued, in one transaction for as much as has queued up
-/// while the last committed, until the file closes.
-fn write_fake_ips(db: &RwLock<Option<Database>>, queue: mpsc::Receiver<FakeIpWrite>) {
-    while let Ok(first) = queue.recv() {
-        let mut writes = vec![first];
+/// while the last committed, until the file closes; and prunes the DNS
+/// answers kept when nothing was queued for a while.
+fn write(
+    db: &RwLock<Option<Database>>,
+    queue: mpsc::Receiver<Write>,
+    pruned: &Mutex<std::collections::HashMap<String, Duration>>,
+) {
+    let mut last_pruned = std::time::Instant::now();
+    loop {
+        let interval = prune_interval(pruned);
+        let wait = interval.saturating_sub(last_pruned.elapsed());
+        let mut writes = match queue.recv_timeout(wait) {
+            Ok(first) => vec![first],
+            Err(mpsc::RecvTimeoutError::Timeout) => Vec::new(),
+            Err(mpsc::RecvTimeoutError::Disconnected) => return,
+        };
         writes.extend(queue.try_iter());
-        if let Err(e) = with(db, |db| commit_fake_ips(db, &writes)) {
-            warn!("cache_file: fake IPs not kept: {}", e);
+        if last_pruned.elapsed() >= interval {
+            last_pruned = std::time::Instant::now();
+            let tables = pruned.lock().unwrap_or_else(|e| e.into_inner()).clone();
+            writes.extend(
+                tables
+                    .into_iter()
+                    .map(|(table, window)| Write::DnsPrune { table, window }),
+            );
+        }
+        if writes.is_empty() {
+            continue;
+        }
+        if let Err(e) = with(db, |db| commit(db, &writes)) {
+            warn!("cache_file: not written: {}", e);
         }
     }
 }
 
-fn commit_fake_ips(db: &Database, writes: &[FakeIpWrite]) -> Result<()> {
+fn commit(db: &Database, writes: &[Write]) -> Result<()> {
     let tx = db.begin_write()?;
     for write in writes {
-        let (fakeip, cursor) = (table(FAKEIP, &write.id), table(FAKEIP_CURSOR, &write.id));
-        let (fakeip, cursor) = (
-            TableDefinition::<&[u8], (&str, u64)>::new(&fakeip),
-            TableDefinition::<u8, u128>::new(&cursor),
-        );
-        for op in &write.ops {
-            match op {
-                FakeIpOp::Put {
-                    address,
-                    domain,
-                    order,
-                } => {
-                    tx.open_table(fakeip)?
-                        .insert(bytes_of(*address).as_slice(), (domain.as_str(), *order))?;
-                }
-                FakeIpOp::Remove(address) => {
-                    tx.open_table(fakeip)?
-                        .remove(bytes_of(*address).as_slice())?;
-                }
-                FakeIpOp::Cursor { v6, current } => {
-                    tx.open_table(cursor)?
-                        .insert(if *v6 { 6 } else { 4 }, *current)?;
-                }
-                FakeIpOp::Clear { ranges } => clear_fake_ips(&tx, &write.id, ranges)?,
+        match write {
+            Write::FakeIps { id, ops } => commit_fake_ips(&tx, id, ops)?,
+            Write::DnsPut {
+                table,
+                key,
+                message,
+                expires,
+            } => {
+                tx.open_table(TableDefinition::<&str, (&[u8], u64)>::new(table))?
+                    .insert(key.as_str(), (message.as_slice(), *expires))?;
+            }
+            Write::DnsClear { table } => {
+                tx.delete_table(TableDefinition::<&str, (&[u8], u64)>::new(table))?;
+            }
+            Write::DnsPrune { table, window } => {
+                let before = millis(SystemTime::now()).saturating_sub(window.as_millis() as u64);
+                tx.open_table(TableDefinition::<&str, (&[u8], u64)>::new(table))?
+                    .retain(|_, (_, expires)| expires >= before)?;
             }
         }
     }
     tx.commit()?;
+    Ok(())
+}
+
+fn commit_fake_ips(tx: &redb::WriteTransaction, id: &str, ops: &[FakeIpOp]) -> Result<()> {
+    let (fakeip, cursor) = (table(FAKEIP, id), table(FAKEIP_CURSOR, id));
+    let (fakeip, cursor) = (
+        TableDefinition::<&[u8], (&str, u64)>::new(&fakeip),
+        TableDefinition::<u8, u128>::new(&cursor),
+    );
+    for op in ops {
+        match op {
+            FakeIpOp::Put {
+                address,
+                domain,
+                order,
+            } => {
+                tx.open_table(fakeip)?
+                    .insert(bytes_of(*address).as_slice(), (domain.as_str(), *order))?;
+            }
+            FakeIpOp::Remove(address) => {
+                tx.open_table(fakeip)?
+                    .remove(bytes_of(*address).as_slice())?;
+            }
+            FakeIpOp::Cursor { v6, current } => {
+                tx.open_table(cursor)?
+                    .insert(if *v6 { 6 } else { 4 }, *current)?;
+            }
+            FakeIpOp::Clear { ranges } => clear_fake_ips(tx, id, ranges)?,
+        }
+    }
     Ok(())
 }
 
@@ -663,6 +826,45 @@ pub(crate) mod tests {
         assert_eq!(cache.load_fake_ips("b").unwrap(), None);
         assert_eq!(cache.load_fake_ips("b").unwrap(), Some(FakeIps::default()));
         drop(cache);
+        slot.replace(None, &env).unwrap().keep();
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn dns_answers_are_kept_cleared_and_pruned() {
+        let dir = temp_dir("dns");
+        let env = env(&dir);
+        let slot = CacheFileSlot::default();
+        let options = CacheFileOptions {
+            store_dns: true,
+            ..enabled()
+        };
+        slot.replace(Some(&options), &env).unwrap().keep();
+        let cache = slot.get().unwrap();
+        let now = SystemTime::now();
+        let expires = UNIX_EPOCH + Duration::from_millis(millis(now + Duration::from_secs(60)));
+        cache.store_dns("fresh".into(), vec![1, 2], expires);
+        cache.store_dns("old".into(), vec![3], now - Duration::from_secs(600));
+        cache.store_dns("recent".into(), vec![4], now - Duration::from_secs(5));
+        // Pruned: what expired over a minute ago.
+        cache.prune_dns(Duration::from_secs(60));
+        drop(cache);
+        slot.replace(None, &env).unwrap().keep();
+
+        slot.replace(Some(&options), &env).unwrap().keep();
+        let cache = slot.get().unwrap();
+        assert_eq!(
+            cache.load_dns("fresh").unwrap(),
+            Some((vec![1, 2], expires))
+        );
+        assert_eq!(cache.load_dns("old").unwrap(), None);
+        assert!(cache.load_dns("recent").unwrap().is_some());
+        assert_eq!(cache.dns_entries().unwrap(), 2);
+        cache.clear_dns();
+        drop(cache);
+        slot.replace(None, &env).unwrap().keep();
+        slot.replace(Some(&options), &env).unwrap().keep();
+        assert_eq!(slot.get().unwrap().dns_entries().unwrap(), 0);
         slot.replace(None, &env).unwrap().keep();
         std::fs::remove_dir_all(&dir).unwrap();
     }
