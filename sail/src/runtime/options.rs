@@ -10,6 +10,10 @@ use std::time::Duration;
 use anyhow::{anyhow, Result};
 use serde_derive::{Deserialize, Serialize};
 
+/// Whether sail is built for a phone, for what cannot see the profile it
+/// runs with: the profile says so where it can be seen.
+pub const MOBILE: bool = cfg!(any(target_os = "ios", target_os = "android"));
+
 /// A resource budget to start from.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Profile {
@@ -156,6 +160,13 @@ pub struct Quic {
     /// Zero sends none.
     #[serde(with = "duration")]
     pub server_keep_alive_interval: Duration,
+    /// What a Hysteria2 connection's peer may send ahead of what is read,
+    /// all streams together, in KiB. At eight times a stream's 8 MiB,
+    /// streams nobody reads do not hold up the rest.
+    pub hysteria2_receive_window: usize,
+    /// What a Hysteria2 connection keeps sent and not yet acknowledged, in
+    /// KiB: the memory it may take for what it sends.
+    pub hysteria2_send_window: usize,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -285,6 +296,8 @@ impl RuntimeOptions {
                 client_keep_alive_interval: Duration::from_secs(3),
                 server_idle_timeout: Duration::from_secs(120),
                 server_keep_alive_interval: Duration::ZERO,
+                hysteria2_receive_window: 64 << 10,
+                hysteria2_send_window: 16 << 10,
             },
             ws: Ws { half_close: false },
             dns: Dns {
@@ -326,6 +339,7 @@ impl RuntimeOptions {
                 },
                 quic: Quic {
                     max_concurrent_streams: 256,
+                    hysteria2_receive_window: 32 << 10,
                     ..desktop.quic
                 },
                 ..desktop
@@ -355,6 +369,7 @@ impl RuntimeOptions {
                 },
                 quic: Quic {
                     max_concurrent_streams: 128,
+                    hysteria2_receive_window: 32 << 10,
                     ..desktop.quic
                 },
                 ..desktop

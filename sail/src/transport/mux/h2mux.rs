@@ -21,8 +21,12 @@ use tracing::debug;
 
 use super::session::MAX_STREAMS;
 
-const STREAM_WINDOW: u32 = 1 << 20;
-const CONNECTION_WINDOW: u32 = 4 << 20;
+const STREAM_WINDOW: u32 = if crate::runtime::options::MOBILE {
+    2 << 20
+} else {
+    4 << 20
+};
+const CONNECTION_WINDOW: u32 = 8 * STREAM_WINDOW;
 /// Written into one stream's send buffer at once.
 const MAX_WRITE: usize = 32 << 10;
 /// Streams accepted and not yet taken by the server.

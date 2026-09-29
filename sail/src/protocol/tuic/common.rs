@@ -52,6 +52,9 @@ pub fn transport_config(
     // TUIC keeps a connection alive with heartbeats while it relays, and
     // lets it go idle otherwise.
     config.keep_alive_interval(None);
+    // Flow control stays quinn's: 1.25 MB a stream, a connection without
+    // a bound of its own, so streams nobody reads never hold up the rest,
+    // and 10 MB sent and not yet acknowledged, apart from what is received.
     config
 }
 
