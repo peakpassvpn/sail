@@ -14,6 +14,10 @@
 //! their `policy-path` as outbound providers, the rules and the rule-sets
 //! they name, and DNS with `[Host]`.
 //!
+//! Fetching the profile is the host's (the operations plane's), as is
+//! fetching what it includes from URLs: sail reads the copies a host keeps
+//! in `includes_dir`, and a `#!MANAGED-CONFIG` profile as it is.
+//!
 //! Where sail does otherwise, the profile cannot say it:
 //! - A group tests its members with `proxy-test-url`, not each member's
 //!   `test-url`.
@@ -51,6 +55,13 @@ mod text;
 
 pub(crate) use proxy::external;
 use text::Profile;
+pub use text::{include_path, remote_includes};
+
+/// Where a host keeps the URLs Surge profiles include, fetched, in its
+/// cache directory `cache_dir`.
+pub fn includes_dir(cache_dir: &Path) -> std::path::PathBuf {
+    cache_dir.join("surge-include")
+}
 
 /// Reads a Surge profile, which includes no files.
 pub fn parse(s: &str) -> Result<Config> {
@@ -60,8 +71,14 @@ pub fn parse(s: &str) -> Result<Config> {
 /// Reads a Surge profile in the directory `dir`, which the files it
 /// includes are named relative to.
 pub fn parse_in(s: &str, dir: Option<&Path>) -> Result<Config> {
+    parse_with(s, dir, None)
+}
+
+/// Reads a Surge profile, as `parse_in`; the URLs it includes are the
+/// copies a host fetched into `fetched`, each at its `include_path`.
+pub fn parse_with(s: &str, dir: Option<&Path>, fetched: Option<&Path>) -> Result<Config> {
     let mut warnings = Vec::new();
-    let mut profile = Profile::read(s, dir, &mut warnings)?;
+    let mut profile = Profile::read_with(s, dir, fetched, &mut warnings)?;
     let mut out = Lowered::default();
     let mut general = general::lower(profile.take("General"), &mut out, &mut warnings)?;
     let proxies = proxy::lower(&mut profile, &mut out, &mut warnings)?;

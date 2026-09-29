@@ -696,7 +696,7 @@ fn mistakes_name_where_they_are() {
         ),
         (
             "[Rule]\nDOMAIN,a,DIRECT\n#!include more.conf\nFINAL,DIRECT\n",
-            "a profile read from text includes no files",
+            "a profile read from text, or a file included from a URL, includes no files",
         ),
     ] {
         let err = error(text);

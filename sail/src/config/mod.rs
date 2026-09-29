@@ -86,11 +86,19 @@ pub fn from_string(s: &str) -> Result<Config> {
 /// Reads a configuration file, in the format its extension names. A Surge
 /// profile includes files next to it.
 pub fn from_file(path: &str) -> Result<Config> {
+    from_file_for(path, &crate::runtime::Host::default())
+}
+
+/// Reads a configuration file, as `from_file`, for `host`: a Surge
+/// profile includes the URLs the host fetched into its cache directory.
+#[cfg_attr(not(feature = "config-surge"), allow(unused_variables))]
+pub fn from_file_for(path: &str, host: &crate::runtime::Host) -> Result<Config> {
     let format = Format::of_file(path)?;
     let text = std::fs::read_to_string(path)?;
     #[cfg(feature = "config-surge")]
     if format == Format::Surge {
-        return surge::parse_in(&text, Path::new(path).parent());
+        let fetched = host.cache_dir.as_deref().map(surge::includes_dir);
+        return surge::parse_with(&text, Path::new(path).parent(), fetched.as_deref());
     }
     format.parse(&text)
 }

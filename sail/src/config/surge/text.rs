@@ -53,11 +53,19 @@ const MAX_DEPTH: usize = 8;
 impl Profile {
     /// Reads a profile. `dir` is the directory it is in, which the files
     /// it includes are named relative to; without one, it includes none.
-    pub fn read(text: &str, dir: Option<&Path>, warnings: &mut Vec<String>) -> Result<Self> {
+    /// The URLs it includes are the copies a host fetched into `fetched`
+    /// (see `include_path`).
+    pub fn read_with(
+        text: &str,
+        dir: Option<&Path>,
+        fetched: Option<&Path>,
+        warnings: &mut Vec<String>,
+    ) -> Result<Self> {
         let mut reader = Reader {
             warnings,
             stack: Vec::new(),
             list: None,
+            fetched,
         };
         let sections = reader.file(text, None, dir)?;
         Ok(Profile { sections })
@@ -70,6 +78,7 @@ impl Profile {
             warnings,
             stack: Vec::new(),
             list: Some(section),
+            fetched: None,
         };
         let sections = reader.file(text, None, None)?;
         Ok(Profile { sections })
@@ -127,6 +136,8 @@ struct Reader<'a> {
     stack: Vec<PathBuf>,
     /// The section lines outside any are of, in a list.
     list: Option<&'a str>,
+    /// Where the host keeps the URLs included, fetched.
+    fetched: Option<&'a Path>,
 }
 
 impl Reader<'_> {
@@ -166,8 +177,8 @@ impl Reader<'_> {
             }
             if strip_word(line, "#!MANAGED-CONFIG").is_some() {
                 self.warnings.push(format!(
-                    "{}: #!MANAGED-CONFIG: sail does not update managed profiles yet; read as \
-                     it is",
+                    "{}: #!MANAGED-CONFIG: the profile's own updates are its host's to make; \
+                     read as it is",
                     loc
                 ));
                 continue;
@@ -264,22 +275,20 @@ impl Reader<'_> {
             return Ok(());
         }
         for target in targets {
-            if target.contains("://") {
-                return Err(anyhow!(
-                    "{}: #!include {}: sail does not fetch included URLs yet",
-                    loc,
-                    target
-                ));
-            }
-            let dir = dir.ok_or_else(|| {
-                anyhow!(
-                    "{}: #!include {}: a profile read from text includes no files; read it \
-                     from its file",
-                    loc,
-                    target
-                )
-            })?;
-            let path = dir.join(target);
+            let remote = target.contains("://");
+            let path = if remote {
+                self.fetched(target, loc)?
+            } else {
+                let dir = dir.ok_or_else(|| {
+                    anyhow!(
+                        "{}: #!include {}: a profile read from text, or a file included from a \
+                         URL, includes no files by path; read it from its file",
+                        loc,
+                        target
+                    )
+                })?;
+                dir.join(target)
+            };
             if self.stack.contains(&path) || self.stack.len() >= MAX_DEPTH {
                 return Err(anyhow!(
                     "{}: #!include {}: includes lead back to it, or nest too deep",
@@ -290,7 +299,11 @@ impl Reader<'_> {
             let text = std::fs::read_to_string(&path)
                 .map_err(|e| anyhow!("{}: #!include {}: {}", loc, target, e))?;
             self.stack.push(path.clone());
-            let inner_dir = path.parent().map(Path::to_path_buf);
+            // What a URL includes by path is nowhere.
+            let inner_dir = match remote {
+                true => None,
+                false => path.parent().map(Path::to_path_buf),
+            };
             let included = self.file(&text, Some(Rc::from(target)), inner_dir.as_deref());
             self.stack.pop();
             let included = included?;
@@ -327,6 +340,70 @@ impl Reader<'_> {
         }
         Ok(())
     }
+}
+
+impl Reader<'_> {
+    /// The copy of the URL `url` a host fetched.
+    fn fetched(&self, url: &str, loc: &Loc) -> Result<PathBuf> {
+        if !url.starts_with("http://") && !url.starts_with("https://") {
+            return Err(anyhow!("{}: #!include {}: not an http(s) URL", loc, url));
+        }
+        let path = self.fetched.map(|dir| include_path(dir, url));
+        match path {
+            Some(path) if path.is_file() => Ok(path),
+            _ => Err(anyhow!(
+                "{}: #!include {}: sail does not download a profile's includes itself; the \
+                 host does: `sail --fetch-includes` keeps them in the cache directory",
+                loc,
+                url
+            )),
+        }
+    }
+}
+
+/// Where a host keeps the copy of `url`, a URL a profile includes, in the
+/// directory `dir`: a file named for the URL.
+pub fn include_path(dir: &Path, url: &str) -> PathBuf {
+    let mut name: String = url
+        .chars()
+        .map(|c| match c {
+            c if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') => c,
+            _ => '_',
+        })
+        .collect();
+    // Within a file name's length, and still the URL's own.
+    if name.len() > 160 {
+        // FNV-1a, which is the same everywhere and in every version.
+        let hash = url.bytes().fold(0xcbf29ce484222325u64, |h, b| {
+            (h ^ u64::from(b)).wrapping_mul(0x100000001b3)
+        });
+        name.truncate(140);
+        name.push_str(&format!("-{:016x}", hash));
+    }
+    dir.join(name.trim_start_matches('.'))
+}
+
+/// The URLs `text`, a profile or a file it includes, includes: what a host
+/// fetches for it.
+pub fn remote_includes(text: &str) -> Vec<String> {
+    let mut urls = Vec::new();
+    for line in text.lines() {
+        let line = line.trim();
+        // After a requirement, which the host does not weigh.
+        let line = match strip_word(line, "#!REQUIREMENT") {
+            Some(rest) => requirement::split(rest).1.trim(),
+            None => line,
+        };
+        let Some(list) = strip_word(line, "#!include") else {
+            continue;
+        };
+        for target in list.split(',').map(|t| t.trim().trim_matches('"')) {
+            if target.contains("://") && !urls.iter().any(|u| u == target) {
+                urls.push(target.to_string());
+            }
+        }
+    }
+    urls
 }
 
 /// `line` past `word` and the space after it, whatever the case.
@@ -500,7 +577,7 @@ mod tests {
 
     fn read(text: &str) -> (Profile, Vec<String>) {
         let mut warnings = Vec::new();
-        let profile = Profile::read(text, None, &mut warnings).unwrap();
+        let profile = Profile::read_with(text, None, None, &mut warnings).unwrap();
         (profile, warnings)
     }
 
@@ -577,9 +654,10 @@ mod tests {
         )
         .unwrap();
         let mut warnings = Vec::new();
-        let mut p = Profile::read(
+        let mut p = Profile::read_with(
             "[Rule]\nDOMAIN,a,DIRECT\n#!include rules.dconf\nFINAL,DIRECT\n",
             Some(&dir),
+            None,
             &mut warnings,
         )
         .unwrap();
@@ -591,14 +669,57 @@ mod tests {
         assert_eq!(rules, ["line 2", "rules.dconf line 2", "line 4"]);
         // Only the section it stands in.
         assert!(p.take("Proxy").is_empty());
-        let err = Profile::read("[Rule]\n#!include rules.dconf\n", None, &mut warnings)
+        let err = Profile::read_with("[Rule]\n#!include rules.dconf\n", None, None, &mut warnings)
             .unwrap_err()
             .to_string();
         assert!(err.contains("line 2: #!include rules.dconf"), "{}", err);
-        let err = Profile::read("[Host]\n#!include rules.dconf\n", Some(&dir), &mut warnings)
+        let err = Profile::read_with(
+            "[Host]\n#!include rules.dconf\n",
+            Some(&dir),
+            None,
+            &mut warnings,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("has no [Host] section"), "{}", err);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_url_included_is_the_host_s_copy() {
+        let dir = std::env::temp_dir().join(format!("sail-surge-fetched-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let url = "https://example.com/rules/Common.conf?x=1";
+        let profile = format!("[Rule]\n#!include {}\nFINAL,DIRECT\n", url);
+        assert_eq!(remote_includes(&profile), [url]);
+        assert_eq!(
+            remote_includes("#!REQUIREMENT CORE_VERSION>=22 #!include a.conf, \"http://b/c\"\n"),
+            ["http://b/c"]
+        );
+        let mut warnings = Vec::new();
+        let err = Profile::read_with(&profile, None, Some(&dir), &mut warnings)
             .unwrap_err()
             .to_string();
-        assert!(err.contains("has no [Host] section"), "{}", err);
+        assert!(err.contains("sail --fetch-includes"), "{}", err);
+
+        let path = include_path(&dir, url);
+        assert_eq!(
+            path.file_name().unwrap(),
+            "https___example.com_rules_Common.conf_x_1"
+        );
+        // What it includes by path is nowhere.
+        std::fs::write(&path, "[Rule]\nDOMAIN,a,DIRECT\n").unwrap();
+        let mut p = Profile::read_with(&profile, None, Some(&dir), &mut warnings).unwrap();
+        let rules: Vec<String> = p.take("Rule").into_iter().map(|l| l.text).collect();
+        assert_eq!(rules, ["DOMAIN,a,DIRECT", "FINAL,DIRECT"]);
+        std::fs::write(&path, "[Rule]\n#!include b.conf\n").unwrap();
+        let err = Profile::read_with(&profile, None, Some(&dir), &mut warnings)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("includes no files by path"), "{}", err);
+
+        let long = format!("https://example.com/{}", "a".repeat(300));
+        assert!(include_path(&dir, &long).file_name().unwrap().len() < 200);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

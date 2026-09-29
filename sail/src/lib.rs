@@ -336,7 +336,7 @@ impl RuntimeManager {
         };
         let _update = self.update.lock().await;
         info!("reloading from config file: {}", config_path);
-        let config = config::from_file(config_path).map_err(Error::Config)?;
+        let config = config::from_file_for(config_path, &self.env.host).map_err(Error::Config)?;
         let inbound_resources = self
             .inbound_manager
             .lock()
@@ -941,7 +941,7 @@ pub fn test_config(config_path: &str) -> Result<(), Error> {
 
 /// `test_config`, with the tuning and host the instance would run with.
 pub fn test_config_with(config_path: &str, env: &runtime::RuntimeEnv) -> Result<(), Error> {
-    let config = config::from_file(config_path).map_err(Error::Config)?;
+    let config = config::from_file_for(config_path, &env.host).map_err(Error::Config)?;
     check_config(&config, env).map_err(Error::Config)
 }
 
@@ -1032,7 +1032,7 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
     };
 
     let config = match opts.config {
-        Config::File(p) => config::from_file(&p).map_err(Error::Config)?,
+        Config::File(p) => config::from_file_for(&p, &opts.host).map_err(Error::Config)?,
         Config::Str(s) => config::from_string(&s).map_err(Error::Config)?,
         Config::Internal(c) => *c,
     };
