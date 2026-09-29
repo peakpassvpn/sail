@@ -109,6 +109,41 @@ Serde: `serde (deny_unknown_fields)`
 | `default` | `Option < String >` | Default::default() | Selected when nothing was selected before, or what was is no longer a member; defaults to the first. It may be a member a provider gives, the first so named.<br/>`serde (default)` |
 | `interrupt_exist_connections` | `bool` | Default::default() | Ends the connections through the member selected before once another is selected, rather than leaving them on it.<br/>`serde (default)` |
 
+## SmartOutboundOptions
+
+[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/group/smart/mod.rs)
+
+Serde: `serde (deny_unknown_fields)`
+
+| Field | Type | Omission / flattening | Source notes |
+| --- | --- | --- | --- |
+| `outbounds` | `Vec < String >` | Default::default() | Its members; none may be when its providers give others.<br/>`serde (default)` |
+| `providers` | `GroupProviders` | Flattened into this object | Members from outbound providers too.<br/>`serde (flatten)` |
+| `url` | `String` | default: default_url() | What is requested through each member to probe it.<br/>`serde (default = "default_url")` |
+| `interval` | `Option < Duration >` | Default::default() | How often members nothing told of lately are probed; 5 minutes.<br/>`serde (default , with = "crate::config::model::duration")` |
+| `timeout` | `Option < Duration >` | Default::default() | How long a probe, or a connection attempt that has a member left to try, may take before its member counts as failed; 5 seconds.<br/>`serde (default , with = "crate::config::model::duration")` |
+| `idle_timeout` | `Option < Duration >` | Default::default() | Probes pause once the group has not been used for this long; 30 minutes.<br/>`serde (default , with = "crate::config::model::duration")` |
+| `tolerance` | `u16` | default: default_tolerance() | Milliseconds: a member whose score is within this of the best may be picked.<br/>`serde (default = "default_tolerance")` |
+| `tolerance_ratio` | `f32` | default: default_tolerance_ratio() | A member whose score is within this fraction of the best may be picked too, whichever of the two is the wider.<br/>`serde (default = "default_tolerance_ratio")` |
+| `policy_priority` | `Vec < PolicyPriority >` | Default::default() | Factors of the scores of the members whose names match a regular expression, the first that matches: below 1 prefers them, above 1 avoids them. 1 for the others.<br/>`serde (default)` |
+| `site_ttl` | `Option < Duration >` | Default::default() | How long a site is kept on its member after its last connection; an hour.<br/>`serde (default , with = "crate::config::model::duration")` |
+| `site_capacity` | `usize` | default: default_site_capacity() | How many sites are kept at most; the least recently used goes first.<br/>`serde (default = "default_site_capacity")` |
+| `prefer_asn` | `bool` | Default::default() | Destinations known by address alone are sites by their autonomous system, but those of CDNs, rather than by their network. Needs an ASN database: `asn.mmdb` in the asset directory, or `asn_file`.<br/>`serde (default)` |
+| `asn_file` | `Option < String >` | Default::default() | The ASN database, for `prefer_asn`; relative to the asset directory.<br/>`serde (default)` |
+| `evaluate_before_use` | `bool` | Default::default() | The first connection waits for the first probes, `timeout` at most, rather than going through a member not measured yet.<br/>`serde (default)` |
+| `interrupt_exist_connections` | `bool` | Default::default() | Ends the connections through a member once it leaves the group.<br/>`serde (default)` |
+
+## PolicyPriority
+
+[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/group/smart/mod.rs)
+
+Serde: `serde (deny_unknown_fields)`
+
+| Field | Type | Omission / flattening | Source notes |
+| --- | --- | --- | --- |
+| `regex` | `String` | Required | Matched against the member's name. |
+| `factor` | `f64` | Required | Multiplies the member's score: above 0. |
+
 ## TryAllOutboundOptions
 
 [Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/group/tryall/mod.rs)

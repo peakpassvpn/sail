@@ -147,7 +147,7 @@ Sail 与 sing-box 的对比已经完成。当前结果表明：
 
 | 优先级 | 项目 |
 | --- | --- |
-| 高 | select 默认启用；URLTest（含 tolerance）；load-balance（一致性哈希、sticky-sessions） |
+| 高 | select 默认启用；URLTest（含 tolerance）；load-balance（一致性哈希、sticky-sessions）；smart（Surge smart、Mihomo 分支 Smart，按真实连接打分） |
 | 中 | chain 中各协议的 UDP 贯通 |
 
 ### 私有协议整合
@@ -168,7 +168,7 @@ Sail 与 sing-box 的对比已经完成。当前结果表明：
 | 1.6 | **已完成（2026-09-26）** TUIC 入站与出站（含 `udp_over_stream` 与 0-RTT） | `protocol/tuic/` | 与主流实现双向互通；TCP、UDP 和拥塞控制参数生效 |
 | 1.7 | **已完成（2026-09-26）** V2Ray 传输层：HTTP、gRPC、HTTPUpgrade；补齐 WebSocket early-data；入站和出站都支持（HTTP/2 传输按分级不支持；gRPC 出站暂为一流一连接） | `transport/` | VLESS / VMess / Trojan 与 Xray、sing-box 双向互通 |
 | 1.8 | **已完成（2026-09-26）** 通用多路复用：smux / yamux / h2mux，入站和出站；TCP Brutal（兼容 sing-mux，默认 h2mux；含 UoT v2；TCP Brutal 按 sing-mux 协商，设置拥塞控制仅限 Linux 且需 tcp-brutal 内核模块） ；2026-09-29 统一流核心 `transport/muxcore`：smux / yamux / AnyTLS / amux 共用一个会话实现（读循环不再等任何单条流；yamux / amux 窗口按 quic-go 规则自适应，256 KiB 起、上限随 profile 16/8/8 MiB（desktop、server / mobile / router）；无窗口协议单流积压 256 KiB 时暂停读连接；数据 60 s 无人读的流单独重置并记 `event=stream_stalled`，h2mux 与 QUIC 流同样适用；控制帧优先队列；1000 条突发流全部接受；流持有会话，出站被 reload / provider 移除时在途流跑完再释放；amux 改为自有新帧格式，与旧版不互通；`/api/v1/runtime/stat/mux` 计数） | `transport/mux/`、`transport/muxcore/` | 与 sing-box / Mihomo 互通；高并发下不会因池化叠加导致内存失控 |
-| 1.9 | **已完成（2026-09-26）** 出站组：默认启用 select，补齐 URLTest、fallback、load-balance 和选择持久化（selector / urltest / fallback / load-balance；failover 并入 fallback，static 已删除） | `protocol/group/` | 手动选择、自动测速、故障切换和重启恢复都有测试 |
+| 1.9 | **已完成（2026-09-26）** 出站组：默认启用 select，补齐 URLTest、fallback、load-balance 和选择持久化（selector / urltest / fallback / load-balance；failover 并入 fallback，static 已删除）；2026-09-29 补 sail 扩展 `smart` 组（`outbound-smart` 特性，默认启用）：成员按真实连接打分——连接耗时，TLS/QUIC 的握手首包往返（其余连接的首包时间只按 0.2 权重记录、从不算失败，因含服务器处理时间），加连续失败的指数惩罚（10 分钟减半、成功清零），乘 `policy_priority` 系数；同一站点（窄规则集 ≤2000 域名且无 IP、可注册域名、/24 或 /64，`prefer_asn` 时按 ASN）固定到对它可用的成员，否则在 `tolerance`（毫秒）/`tolerance_ratio` 内随机选；连不上或 TLS/QUIC 握手超时（max(3s, 3×连接均值)）时在客户端尚未收到字节前换下一个成员重放首包（16 KiB 内，最多 3 个成员）；全部失败则不怪任何成员、只尽快探测；不因打分关闭其他连接。未做：Happy Eyeballs 竞速、TCP_INFO 丢包、站点记忆持久化 | `protocol/group/` | 手动选择、自动测速、故障切换和重启恢复都有测试 |
 | 1.10 | 统一拨号选项：IP 策略、接口绑定、detour、连接/空闲超时、TCP Fast Open、MPTCP、UDP over TCP | `net/`、共享 Dial options | 各协议共享同一实现，按出站配置，不重复实现 socket 与网络选择逻辑 |
 | 1.11 | **已完成（2026-09-26）** 入站防探测与回落：Trojan / VLESS fallback，鉴权失败时的行为可配置（字段对齐 sing-box `fallback` / `fallback_for_alpn`） | `protocol/trojan/`、`protocol/vless/` | 未通过鉴权的连接可回落到指定目标；主动探测下行为与主流实现一致 |
 | 1.12 | **已完成（2026-09-28）** 分享链接导入：`ss://`、`trojan://`、`vless://`、`vmess://`、`hy2://`、`tuic://`（另有 `hysteria2://`、`anytls://`；`share_link::parse` / `parse_subscription` 输出 sing-box 出站，`Config::from_json` 可直接加载；订阅为 base64（标准或 URL-safe，有无填充、换行均可）或逐行文本，重名按 “name 2” 去重；CLI `sail import`，FFI `sail_import_share_links`；sail 不支持的传输（HTTP/2、XHTTP、mKCP、QUIC、gRPC multi）、VMess alterId > 0、TUIC v4、证书哈希固定、缺少的加密方式与指纹都按行报错；WireGuard 链接是端点，不导入；尚未接入运行时配置加载，Clash proxy-providers 由 C.4 调用） | `config/` | 真实节点语料可导入；错误字段有可诊断提示；敏感信息不进入日志 |

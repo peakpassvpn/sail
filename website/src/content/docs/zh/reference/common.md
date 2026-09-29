@@ -403,7 +403,7 @@ Serde: `serde (rename_all = "snake_case")`
 
 [配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
 
-The members a group takes from outbound providers, after its own `outbounds`, and those it leaves out: a sail extension, as Mihomo's proxy groups take them (`use`, `filter`, `exclude-filter`, `exclude-type`, `empty-fallback`). Of `selector`, `urltest`, `fallback` and `load-balance`; it needs the outbound-provider feature.
+The members a group takes from outbound providers, after its own `outbounds`, and those it leaves out: a sail extension, as Mihomo's proxy groups take them (`use`, `filter`, `exclude-filter`, `exclude-type`, `empty-fallback`). Of `selector`, `urltest`, `fallback`, `load-balance` and `smart`; it needs the outbound-provider feature.
 
 | 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
 | --- | --- | --- | --- |
