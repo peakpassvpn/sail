@@ -77,14 +77,22 @@ pub enum RuleSetFormat {
     ClashYaml,
     /// Clash's text, a line each.
     ClashText,
+    /// A sail extension, for Surge's `RULE-SET` and `DOMAIN-SET` files: a
+    /// rule without its policy a line (`classical`), or a domain, `.x` for
+    /// `x` and every name under it (`domain`).
+    SurgeText,
 }
 
 impl RuleSetFormat {
-    /// Whether it is one of Clash's, which take a behavior.
+    /// Whether it is one of Clash's, or Surge's text, which take a
+    /// behavior.
     pub fn is_clash(self) -> bool {
         matches!(
             self,
-            RuleSetFormat::Mrs | RuleSetFormat::ClashYaml | RuleSetFormat::ClashText
+            RuleSetFormat::Mrs
+                | RuleSetFormat::ClashYaml
+                | RuleSetFormat::ClashText
+                | RuleSetFormat::SurgeText
         )
     }
 }
@@ -202,6 +210,11 @@ impl RuleSet {
             }
             (Some(RuleSetFormat::Mrs), Some(ClashBehavior::Classical)) => {
                 return Err(anyhow!("behavior: an mrs rule-set is domain or ipcidr"));
+            }
+            (Some(RuleSetFormat::SurgeText), Some(ClashBehavior::Ipcidr)) => {
+                return Err(anyhow!(
+                    "behavior: a surge-text rule-set is domain or classical"
+                ));
             }
             _ => {}
         }

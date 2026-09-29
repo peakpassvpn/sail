@@ -66,6 +66,7 @@ impl Remote {
             RuleSetFormat::Mrs => "mrs",
             RuleSetFormat::ClashYaml => "yaml",
             RuleSetFormat::ClashText => "txt",
+            RuleSetFormat::SurgeText => "list",
         };
         // Kept across restarts only where the host keeps things.
         let cache = env.host.cache_dir.as_ref().map(|dir| {

@@ -92,5 +92,13 @@ pub fn parse_in(s: &str, dir: Option<&Path>) -> Result<Config> {
     Ok(config)
 }
 
+/// A line of a Surge rule-set's file, a rule without its policy, as a
+/// rule-set's rule.
+#[cfg(feature = "rule-set")]
+pub(crate) fn headless(line: &str) -> Result<super::rule_set::HeadlessRule> {
+    let rule = rule::headless(line)?;
+    serde_json::from_value(Value::Object(rule)).map_err(|e| anyhow!("{}", e))
+}
+
 #[cfg(test)]
 mod tests;

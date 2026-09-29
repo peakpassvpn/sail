@@ -42,8 +42,8 @@ pub(crate) fn read(
         }
         RuleSetFormat::ClashText => text(data)?,
         RuleSetFormat::ClashYaml => yaml(data)?,
-        RuleSetFormat::Source | RuleSetFormat::Binary => {
-            unreachable!("sing-box's formats are read apart")
+        RuleSetFormat::Source | RuleSetFormat::Binary | RuleSetFormat::SurgeText => {
+            unreachable!("sing-box's and Surge's formats are read apart")
         }
     };
     from_lines(&lines, behavior, env)

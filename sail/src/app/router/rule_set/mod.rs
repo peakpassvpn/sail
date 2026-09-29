@@ -26,6 +26,7 @@ pub(crate) mod remote;
 pub(crate) mod rule;
 mod srs;
 pub(crate) mod succinct;
+mod surge;
 
 /// The domains of a binary rule-set, matched in their compact form:
 /// sing-box's (`.srs`) or Mihomo's (`.mrs`).
@@ -104,6 +105,10 @@ impl RuleSet {
             RuleSetFormat::Mrs | RuleSetFormat::ClashYaml | RuleSetFormat::ClashText => {
                 let behavior = behavior.ok_or_else(|| anyhow!("behavior: missing"))?;
                 Ok(Self::new(clash::read(data, format, behavior, env)?))
+            }
+            RuleSetFormat::SurgeText => {
+                let behavior = behavior.ok_or_else(|| anyhow!("behavior: missing"))?;
+                Ok(Self::new(surge::read(data, behavior, env)?))
             }
             RuleSetFormat::Binary => Ok(Self::new(srs::read(data, env)?)),
             RuleSetFormat::Source => {
