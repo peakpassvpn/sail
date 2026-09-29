@@ -1062,3 +1062,145 @@ fn off_and_ipv6() {
     let config = load("ipv6: false\ndns: { enable: true, ipv6: true, nameserver: [1.1.1.1] }\n");
     assert_eq!(dns_json(&config)["strategy"], "ipv4_only");
 }
+
+const SNIFFER: &str = r#"
+rule-providers:
+  lan: { type: inline, behavior: ipcidr, payload: [192.168.0.0/16] }
+sniffer:
+  enable: true
+  sniff:
+    HTTP: { ports: [80, 8080-8880], override-destination: true }
+    QUIC: { ports: [443] }
+    TLS: { ports: [443, 8443] }
+  override-destination: false
+  force-domain: [+.v2ex.com]
+  skip-domain: [Mijia Cloud, +.push.apple.com]
+  skip-src-address: [rule-set:lan]
+  skip-dst-address: [10.0.0.0/8]
+rules:
+  - MATCH,DIRECT
+"#;
+
+/// Every rule, Clash's modes' among them.
+fn all_rules(config: &Config) -> Vec<serde_json::Value> {
+    config
+        .route
+        .rules
+        .iter()
+        .map(|r| serde_json::to_value(r).unwrap())
+        .collect()
+}
+
+#[test]
+fn the_sniffer_is_sniff_rules_before_every_other() {
+    let config = load(SNIFFER);
+    let rules = all_rules(&config);
+    // TLS, HTTP and QUIC, as Mihomo tries them, before Clash's modes.
+    let sniffers: Vec<&serde_json::Value> = rules.iter().take(3).map(|r| &r["sniffer"]).collect();
+    assert_eq!(
+        sniffers,
+        [
+            &serde_json::json!(["tls"]),
+            &serde_json::json!(["http"]),
+            &serde_json::json!(["quic"])
+        ]
+    );
+    let http = &rules[1];
+    assert_eq!(http["action"], "sniff");
+    assert_eq!(http["override_destination"], true);
+    assert!(rules[0].get("override_destination").is_none());
+    assert_eq!(
+        http["skip_rule_set"],
+        serde_json::json!(["sniffer:skip-domain"])
+    );
+    let conditions = http["rules"].as_array().unwrap();
+    // An address, or a name force-domain matches.
+    assert_eq!(conditions[0]["mode"], "or");
+    assert_eq!(
+        conditions[0]["rules"][0]["ip_cidr"],
+        serde_json::json!(["0.0.0.0/0", "::/0"])
+    );
+    assert_eq!(
+        conditions[0]["rules"][1]["domain_suffix"],
+        serde_json::json!(["v2ex.com"])
+    );
+    // From and to none of the addresses skipped.
+    assert_eq!(conditions[1]["rule_set"], serde_json::json!(["lan"]));
+    assert_eq!(conditions[1]["rule_set_ip_cidr_match_source"], true);
+    assert_eq!(conditions[1]["invert"], true);
+    assert_eq!(conditions[2]["ip_cidr"], serde_json::json!(["10.0.0.0/8"]));
+    assert_eq!(conditions[2]["invert"], true);
+    assert_eq!(conditions[3]["network"], serde_json::json!(["tcp"]));
+    assert_eq!(conditions[3]["port"], serde_json::json!([80]));
+    assert_eq!(
+        conditions[3]["port_range"],
+        serde_json::json!(["8080:8880"])
+    );
+    assert_eq!(rules[2]["rules"][3]["network"], serde_json::json!(["udp"]));
+    assert!(config
+        .route
+        .rule_set
+        .iter()
+        .any(|s| s.tag.contains(&"sniffer:skip-domain".to_string())));
+
+    // A router takes them, skip_rule_set and all.
+    let env = crate::runtime::RuntimeEnv::default();
+    let sets = crate::app::router::rule_set::RuleSets::load(
+        &config.route.rule_set,
+        &Default::default(),
+        &env,
+    )
+    .unwrap();
+    let dns = crate::app::dns_client::DnsClient::new(&config.dns, Default::default(), &env)
+        .unwrap()
+        .into_shared();
+    crate::app::router::Router::with_rule_sets(&config.route, dns, &env, &sets).unwrap();
+}
+
+#[test]
+fn a_sniffer_off_or_unset_is_no_rule() {
+    for yaml in [
+        "sniffer: { enable: false, sniff: { NOPE: {} } }\nrules: [\"MATCH,DIRECT\"]",
+        "rules: [\"MATCH,DIRECT\"]",
+    ] {
+        let config = load(yaml);
+        assert!(
+            all_rules(&config).iter().all(|r| r["action"] != "sniff"),
+            "{}",
+            yaml
+        );
+    }
+    // Deprecated, and still read.
+    let config = load("sniffer: { enable: true, sniffing: [tls], port-whitelist: [443] }\nrules: [\"MATCH,DIRECT\"]");
+    assert_eq!(all_rules(&config)[0]["sniffer"], serde_json::json!(["tls"]));
+    // parse-pure-ip and force-dns-mapping off, and no force-domain: nothing is sniffed.
+    let config = load(
+        "sniffer: { enable: true, parse-pure-ip: false, force-dns-mapping: false, sniff: { TLS: {} } }\nrules: [\"MATCH,DIRECT\"]",
+    );
+    assert!(all_rules(&config).iter().all(|r| r["action"] != "sniff"));
+}
+
+#[test]
+fn sniffer_mistakes_name_the_field() {
+    for (yaml, message) in [
+        (
+            "sniffer: { enable: true, sniff: { SSH: {} } }",
+            "sniffer.sniff.SSH: \"SSH\" is none of TLS, HTTP and QUIC",
+        ),
+        (
+            "sniffer: { enable: true, sniff: { TLS: { ports: [x] } } }",
+            "\"x\" is not a port",
+        ),
+        (
+            "sniffer: { enable: true, sniff: { TLS: {} }, skip-dst-address: [10.0.0.1] }",
+            "sniffer.skip-dst-address[0]: \"10.0.0.1\" is not an IP prefix",
+        ),
+        (
+            "sniffer: { enable: true, sniff: { TLS: {} }, force-domain: [rule-set:nope] }",
+            "sniffer.force-domain[0]: no rule-provider is named \"nope\"",
+        ),
+    ] {
+        let err = error(yaml);
+        assert!(err.contains(message), "{}\n  => {}", yaml, err);
+    }
+}

@@ -79,7 +79,6 @@ pub fn lower(doc: &mut Fields, out: &mut Lowered, warnings: &mut Vec<String>) ->
         out.route.insert("default_mark".into(), json!(mark));
     }
     off_while_unimplemented(doc, "tun")?;
-    off_while_unimplemented(doc, "sniffer")?;
     Ok(())
 }
 

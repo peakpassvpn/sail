@@ -775,6 +775,47 @@ mod tests {
         assert_eq!(sess.sniffed_domain(), Some("www.example.com"));
     }
 
+    /// As the Clash front-end lowers Mihomo's sniffer: only a connection to
+    /// an address, not to a name, and none from an address skipped.
+    #[tokio::test]
+    async fn a_sniff_rule_on_any_address_leaves_a_name_alone() {
+        let router = router(serde_json::json!([
+            {
+                "type": "logical", "mode": "and",
+                "rules": [
+                    { "ip_cidr": ["0.0.0.0/0", "::/0"] },
+                    { "source_ip_cidr": ["192.168.0.0/16"], "invert": true },
+                    { "network": ["tcp"], "port": [443] }
+                ],
+                "action": "sniff", "sniffer": ["tls"]
+            },
+            { "domain_suffix": ["example.com"], "outbound": "a" },
+        ]));
+        let sniffed = |sess: Session| {
+            let router = &router;
+            async move {
+                let mut sess = sess;
+                let mut sniffer = FakeSniffer {
+                    domain: "www.example.com",
+                    calls: 0,
+                };
+                router.pick_route(&mut sess, &mut sniffer).await.unwrap();
+                sniffer.calls
+            }
+        };
+        assert_eq!(sniffed(to_ip()).await, 1);
+        let to_name = Session {
+            destination: SocksAddr::Domain("example.org".into(), 443),
+            ..Default::default()
+        };
+        assert_eq!(sniffed(to_name).await, 0);
+        let from_lan = Session {
+            source: "192.168.1.2:5000".parse().unwrap(),
+            ..to_ip()
+        };
+        assert_eq!(sniffed(from_lan).await, 0);
+    }
+
     #[tokio::test]
     async fn without_a_sniff_rule_nothing_is_sniffed() {
         let router = router(serde_json::json!([

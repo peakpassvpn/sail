@@ -25,6 +25,7 @@ mod provider;
 mod proxy;
 mod proxy_provider;
 mod rule;
+mod sniffer;
 /// What outbound providers read.
 #[cfg(feature = "outbound-provider")]
 pub(crate) mod subscription;
@@ -45,6 +46,7 @@ pub fn parse(s: &str) -> Result<Config> {
     let mut sets = provider::lower(&mut doc, &groups, &mut out, &mut warnings)?;
     dns::lower(&mut doc, &groups, &mut sets, &mut out, &mut warnings)?;
     rule::lower(&mut doc, &groups, &mut sets, &mut out, &mut warnings)?;
+    sniffer::lower(&mut doc, &mut sets, &mut out, &mut warnings)?;
     out.rule_sets.extend(sets.into_geo_sets());
     doc.finish(general::TOP, |key| holders.contains(key), &mut warnings)?;
 
