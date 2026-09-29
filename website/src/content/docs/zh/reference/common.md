@@ -491,6 +491,7 @@ Serde: `serde (deny_unknown_fields)`
 | `user_id` | `Vec < i32 >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
 | `rule_set` | `Vec < String >` | Default::default() | Tags of rule-sets, any of whose rules matching matches.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
 | `rule_set_ip_cidr_match_source` | `bool` | Default::default() | The rule-sets' `ip_cidr` match the source address, not the destination.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
+| `no_resolve` | `bool` | Default::default() | A sail extension, Surge's and Clash's `no-resolve`: the rule's conditions on the destination's addresses (`ip_cidr`, `ip_is_private`, `ip_asn`, `geoip`, those of its rule-sets and of the rules within) match only addresses already known, and never have an `on_demand` resolve resolve the domain for them. Only for a rule with such conditions.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
 | `invert` | `bool` | Default::default() | —<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
 | `mode` | `Option < LogicalMode >` | Default::default() | `logical`: `and` or `or`.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
 | `rules` | `Vec < Rule >` | Default::default() | `logical`: the rules combined. They take no action of their own.<br/>`serde (default , skip_serializing_if = "Vec::is_empty")` |
@@ -517,6 +518,7 @@ Serde: `serde (deny_unknown_fields)`
 | `override_destination` | `bool` | Default::default() | `sniff`, a sail extension: connects to the sniffed domain rather than to the address the client asked for.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
 | `skip_rule_set` | `Vec < String >` | Default::default() | `sniff`, a sail extension: a domain found that one of these rule-sets matches is not taken, neither matched nor connected to, as Mihomo's sniffer `skip-domain` has it.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
 | `ignore_failure` | `bool` | Default::default() | `resolve`, a sail extension: a domain that does not resolve, or not in time, has no addresses, and matching goes on, as Mihomo's IP rules have it; rather than the connection failing, as in sing-box.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
+| `on_demand` | `bool` | Default::default() | `resolve`, `sniff`, a sail extension: the rule does not act where it stands but arms its action, with its options, and matching goes on. The action is taken the first time a later rule needs what it learns, just before that rule is matched: a resolve for a rule with conditions on the destination's addresses, while the destination is a domain; a sniff for one on the protocol, the plain HTTP request, or a domain while the destination is an address. A connection no later rule needs it for is never resolved or sniffed, as Surge and Mihomo have it. A later rule arming the same action replaces its options.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
 
 ## RuleType
 
