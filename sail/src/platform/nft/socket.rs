@@ -30,12 +30,17 @@ impl AsRawFd for Socket {
 
 impl Socket {
     pub(in crate::platform) fn open() -> io::Result<Socket> {
+        Socket::open_protocol(libc::NETLINK_NETFILTER)
+    }
+
+    /// A socket of another netlink family: `NETLINK_ROUTE` for rtnetlink.
+    pub(in crate::platform) fn open_protocol(protocol: libc::c_int) -> io::Result<Socket> {
         // SAFETY: plain socket(2); the result is checked and owned.
         let fd = unsafe {
             libc::socket(
                 libc::AF_NETLINK,
                 libc::SOCK_RAW | libc::SOCK_CLOEXEC,
-                libc::NETLINK_NETFILTER,
+                protocol,
             )
         };
         if fd < 0 {

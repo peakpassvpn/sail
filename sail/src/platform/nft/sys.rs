@@ -10,7 +10,11 @@ pub const NLMSG_DONE: u16 = 0x3;
 pub const NLM_F_REQUEST: u16 = 0x1;
 pub const NLM_F_MULTI: u16 = 0x2;
 pub const NLM_F_ACK: u16 = 0x4;
+/// In a dump's parts: the dump was interrupted by a change, and is
+/// inconsistent.
+pub const NLM_F_DUMP_INTR: u16 = 0x10;
 pub const NLM_F_DUMP: u16 = 0x300;
+pub const NLM_F_EXCL: u16 = 0x200;
 pub const NLM_F_CREATE: u16 = 0x400;
 pub const NLM_F_APPEND: u16 = 0x800;
 /// In an error message: the original message was cut to its header.

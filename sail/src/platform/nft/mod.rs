@@ -151,7 +151,7 @@ impl From<std::io::Error> for Error {
 }
 
 /// The symbol of an errno nf_tables is known to answer with.
-fn errno_name(errno: i32) -> Option<&'static str> {
+pub(in crate::platform) fn errno_name(errno: i32) -> Option<&'static str> {
     #[cfg(target_os = "linux")]
     {
         use libc::*;

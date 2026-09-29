@@ -41,6 +41,11 @@ pub(crate) mod openwrt;
 #[cfg(any(target_os = "linux", test))]
 pub mod nfqueue;
 
+// Routes, rules, links and addresses over netlink, Linux only; its encoder
+// builds everywhere under test, like nft's, whose framing it uses.
+#[cfg(any(target_os = "linux", test))]
+pub mod rtnetlink;
+
 // The nftables ruleset of the TUN's auto_redirect; built everywhere under
 // test, like nft.
 #[cfg(any(target_os = "linux", test))]

@@ -3,7 +3,8 @@
 //!
 //! Header fields and attribute headers are in the host's byte order, as
 //! netlink has them; the nf_tables values inside are big-endian unless a
-//! caller says otherwise.
+//! caller says otherwise. rtnetlink (`platform::rtnetlink`) frames its
+//! messages with these too, and its values are in the host's order.
 
 use super::sys::*;
 
@@ -33,6 +34,15 @@ impl Attrs {
         Attrs { buf }
     }
 
+    /// Starts a body with a fixed header, as rtnetlink messages begin with
+    /// their family's struct (`rtmsg`, `ifinfomsg`, ...). It is padded to
+    /// 4 bytes, as the attributes that follow must be aligned.
+    pub fn with_header(header: &[u8]) -> Attrs {
+        let mut buf = header.to_vec();
+        buf.resize(align(buf.len()), 0);
+        Attrs { buf }
+    }
+
     pub fn bytes(&mut self, ty: u16, data: &[u8]) -> &mut Attrs {
         let len = NLA_HDRLEN + data.len();
         self.buf.extend_from_slice(&(len as u16).to_ne_bytes());
@@ -44,6 +54,11 @@ impl Attrs {
 
     pub fn u8(&mut self, ty: u16, value: u8) -> &mut Attrs {
         self.bytes(ty, &[value])
+    }
+
+    /// A u32 in the host's byte order.
+    pub fn ne32(&mut self, ty: u16, value: u32) -> &mut Attrs {
+        self.bytes(ty, &value.to_ne_bytes())
     }
 
     pub fn be16(&mut self, ty: u16, value: u16) -> &mut Attrs {
@@ -166,6 +181,11 @@ pub fn attr_str(payload: &[u8]) -> String {
 /// A big-endian u32 attribute.
 pub fn attr_be32(payload: &[u8]) -> Option<u32> {
     Some(u32::from_be_bytes(payload.get(..4)?.try_into().ok()?))
+}
+
+/// A u32 attribute in the host's byte order.
+pub fn attr_ne32(payload: &[u8]) -> Option<u32> {
+    Some(u32::from_ne_bytes(payload.get(..4)?.try_into().ok()?))
 }
 
 #[cfg(test)]
