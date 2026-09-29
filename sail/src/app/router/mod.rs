@@ -473,6 +473,9 @@ impl Rule {
 
 pub struct Router {
     rules: Vec<Rule>,
+    /// The rule-sets its rules name, for the Clash API to list.
+    #[cfg(all(feature = "clash-api", feature = "rule-set"))]
+    rule_sets: rule_set::RuleSets,
     final_outbound: Option<String>,
     dns_client: SyncDnsClient,
 }
@@ -504,6 +507,8 @@ impl Router {
     ) -> Result<Self> {
         Ok(Router {
             rules: Self::load_rules(route, env, rule_sets)?,
+            #[cfg(all(feature = "clash-api", feature = "rule-set"))]
+            rule_sets: rule_sets.clone(),
             final_outbound: route.final_outbound.clone(),
             dns_client,
         })
@@ -516,6 +521,12 @@ impl Router {
                 Action::Route(t, _) | Action::Bypass(Some((t, _))) => t == tag,
                 _ => false,
             })
+    }
+
+    /// The rule-sets its rules may name.
+    #[cfg(all(feature = "clash-api", feature = "rule-set"))]
+    pub(crate) fn rule_sets(&self) -> &rule_set::RuleSets {
+        &self.rule_sets
     }
 
     /// The rules, told, in order.

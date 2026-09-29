@@ -13,6 +13,7 @@ use axum::Json;
 use serde_json::{json, Map, Value};
 
 use super::{ApiError, Clash};
+use crate::adapter::AnyOutboundHandler;
 use crate::app::healthcheck::{HttpProbe, DEFAULT_URL};
 
 /// The delays measured of an outbound kept, the latest last; Mihomo's.
@@ -79,11 +80,49 @@ impl Clash {
             .unwrap_or_default()
     }
 
-    /// `tag` as Mihomo shows an outbound or a group; none if there is none.
-    async fn proxy(&self, tag: &str, latencies: &HashMap<String, Duration>) -> Option<Value> {
+    /// The outbound `name`, or else the first member of an outbound
+    /// provider so named, with its type as Mihomo names it, and whether it
+    /// is an outbound of the configuration.
+    pub(super) fn find(&self, name: &str) -> Option<(AnyOutboundHandler, &'static str, bool)> {
         let om = self.rm.outbound_manager();
-        let handler = om.get(tag)?;
-        let protocol = om.protocol(tag).unwrap_or_default().to_string();
+        if let Some(handler) = om.get(name) {
+            return Some((
+                handler,
+                clash_type(om.protocol(name).unwrap_or_default()),
+                true,
+            ));
+        }
+        #[cfg(feature = "outbound-provider")]
+        for provider in om.providers().all() {
+            if let Some(member) = provider.members().load().find(name) {
+                return Some((member.handler.clone(), member.kind, false));
+            }
+        }
+        None
+    }
+
+    /// `tag` as Mihomo shows an outbound or a group; none if there is none.
+    pub(super) async fn proxy(
+        &self,
+        tag: &str,
+        latencies: &HashMap<String, Duration>,
+    ) -> Option<Value> {
+        let (handler, kind, outbound) = self.find(tag)?;
+        self.describe(tag, &handler, kind, outbound, latencies)
+            .await
+    }
+
+    /// The outbound, or provider member, `tag` of `handler`, as Mihomo
+    /// shows it; a group's selection with it, for an `outbound` of the
+    /// configuration.
+    pub(super) async fn describe(
+        &self,
+        tag: &str,
+        handler: &AnyOutboundHandler,
+        kind: &'static str,
+        outbound: bool,
+        latencies: &HashMap<String, Duration>,
+    ) -> Option<Value> {
         let mut history = self.history_of(tag);
         // A group's own checks, where nothing was measured here.
         if history.is_empty() {
@@ -97,7 +136,7 @@ impl Clash {
         let alive = history.last().is_none_or(|d| d.delay > 0);
         let mut proxy = Map::new();
         proxy.insert("name".into(), json!(tag));
-        proxy.insert("type".into(), json!(clash_type(&protocol)));
+        proxy.insert("type".into(), json!(kind));
         proxy.insert("udp".into(), json!(handler.datagram().is_ok()));
         proxy.insert("xudp".into(), json!(false));
         proxy.insert("tfo".into(), json!(false));
@@ -112,8 +151,13 @@ impl Clash {
             ),
         );
         proxy.insert("extra".into(), json!({}));
+        #[cfg(not(feature = "outbound-select"))]
+        let _ = outbound;
         #[cfg(feature = "outbound-select")]
-        if let Some(selector) = om.get_selector(tag) {
+        if let Some(selector) = outbound
+            .then(|| self.rm.outbound_manager().get_selector(tag))
+            .flatten()
+        {
             let selector = selector.read().await;
             proxy.insert("now".into(), json!(selector.get_selected_tag()));
             proxy.insert("all".into(), json!(selector.get_available_tags()));
@@ -150,15 +194,22 @@ impl Clash {
 
     /// Measures the delay of `tag` with an HTTP request to `url`.
     async fn measure(&self, tag: &str, url: &str, timeout: Duration) -> Result<Duration, ApiError> {
-        let handler = self
-            .rm
-            .outbound_manager()
-            .get(tag)
-            .ok_or_else(ApiError::not_found)?;
+        let (handler, ..) = self.find(tag).ok_or_else(ApiError::not_found)?;
+        self.probe(tag, &handler, url, timeout).await
+    }
+
+    /// Measures the delay of `handler`, keeping it as `tag`'s.
+    pub(super) async fn probe(
+        &self,
+        tag: &str,
+        handler: &AnyOutboundHandler,
+        url: &str,
+        timeout: Duration,
+    ) -> Result<Duration, ApiError> {
         let dns = self.rm.dns_client();
         let probe = HttpProbe::new(url, dns.clone(), &self.rm.env())
             .map_err(|e| ApiError::bad_request(e.to_string()))?;
-        let measured = match tokio::time::timeout(timeout, probe.run(dns, &handler)).await {
+        let measured = match tokio::time::timeout(timeout, probe.run(dns, handler)).await {
             Ok(Ok(delay)) => Ok(delay),
             Ok(Err(_)) => Err(ApiError(
                 StatusCode::SERVICE_UNAVAILABLE,
@@ -172,7 +223,9 @@ impl Clash {
 }
 
 /// The URL and timeout of a delay test, as dashboards give them.
-fn test_params(params: &HashMap<String, String>) -> Result<(String, Duration), ApiError> {
+pub(super) fn test_params(
+    params: &HashMap<String, String>,
+) -> Result<(String, Duration), ApiError> {
     let timeout: u64 = params
         .get("timeout")
         .and_then(|t| t.parse().ok())
@@ -194,6 +247,23 @@ pub(super) async fn list(State(clash): State<Arc<Clash>>) -> Json<Value> {
     for tag in &tags {
         if let Some(proxy) = clash.proxy(tag, &latencies).await {
             proxies.insert(tag.clone(), proxy);
+        }
+    }
+    // The members of outbound providers, by name, as Mihomo lists them,
+    // for the groups that take them; an outbound so named comes first.
+    #[cfg(feature = "outbound-provider")]
+    for provider in om.providers().all() {
+        for member in provider.members().load().members.iter() {
+            let name = member.key.name.to_string();
+            if proxies.contains_key(&name) {
+                continue;
+            }
+            if let Some(proxy) = clash
+                .describe(&name, &member.handler, member.kind, false, &latencies)
+                .await
+            {
+                proxies.insert(name, proxy);
+            }
         }
     }
     // Mihomo's GLOBAL group, as sing-box shows it, unless an outbound is so
@@ -369,14 +439,4 @@ pub(super) async fn group_delay(
         .filter_map(|(m, d)| d.map(|d| (m, json!(d.as_millis().max(1) as u64))))
         .collect();
     Ok(Json(Value::Object(map)))
-}
-
-/// The outbound providers; filled in by the providers stage.
-pub(super) async fn providers() -> Json<Value> {
-    Json(json!({ "providers": {} }))
-}
-
-/// The rule providers; filled in by the providers stage.
-pub(super) async fn rule_providers() -> Json<Value> {
-    Json(json!({ "providers": {} }))
 }

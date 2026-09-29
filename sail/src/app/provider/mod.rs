@@ -33,7 +33,7 @@ use crate::runtime::RuntimeEnv;
 
 mod one;
 
-use one::Provider;
+pub(crate) use one::Provider;
 
 /// How often members retired are checked on, to stop their tasks once
 /// nothing holds them.
@@ -85,6 +85,12 @@ impl Providers {
             retired.take_over(&previous.retired);
         }
         Ok(Self { providers, retired })
+    }
+
+    /// Each provider, in the configuration's order.
+    #[cfg(feature = "clash-api")]
+    pub(crate) fn all(&self) -> &[Arc<Provider>] {
+        &self.providers
     }
 
     /// The members of each provider, by its tag.

@@ -180,6 +180,15 @@ impl RuntimeManager {
         self.dns_client.clone()
     }
 
+    /// The dispatcher, while the instance runs.
+    #[cfg(all(
+        feature = "clash-api",
+        any(feature = "outbound-provider", feature = "rule-set")
+    ))]
+    pub(crate) fn dispatcher(&self) -> Option<Arc<app::dispatcher::Dispatcher>> {
+        self.dispatcher.upgrade()
+    }
+
     #[cfg(feature = "clash-api")]
     pub(crate) fn router(&self) -> Arc<app::router::Router> {
         self.router.load_full()

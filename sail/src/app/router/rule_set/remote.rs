@@ -129,6 +129,12 @@ impl Remote {
         self.state.lock().unwrap_or_else(|e| e.into_inner())
     }
 
+    /// When it was downloaded, or last found unchanged.
+    #[cfg(feature = "clash-api")]
+    pub(crate) fn updated(&self) -> Option<SystemTime> {
+        self.state().updated
+    }
+
     pub(crate) fn is_loaded(&self) -> bool {
         self.state().loaded
     }

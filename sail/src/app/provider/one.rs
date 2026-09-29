@@ -228,8 +228,24 @@ impl Provider {
         &self.config
     }
 
-    pub(super) fn members(&self) -> Arc<Members> {
+    pub(crate) fn members(&self) -> Arc<Members> {
         self.members.clone()
+    }
+
+    /// Where it comes from, as Mihomo names it: `HTTP`, `File`, `Inline`.
+    #[cfg(feature = "clash-api")]
+    pub(crate) fn vehicle(&self) -> &'static str {
+        match self.source {
+            Source::Remote { .. } => "HTTP",
+            Source::Local { .. } => "File",
+            Source::Inline => "Inline",
+        }
+    }
+
+    /// When it was last downloaded, or found unchanged, or its file read.
+    #[cfg(feature = "clash-api")]
+    pub(crate) fn updated(&self) -> Option<SystemTime> {
+        self.state().meta.updated
     }
 
     pub(super) fn is_loaded(&self) -> bool {
@@ -272,7 +288,7 @@ impl Provider {
 
     /// Downloads it, or reads its file, again, and builds and publishes
     /// the members of what it now holds, if that changed.
-    pub(super) async fn update(&self, dispatcher: &Dispatcher) -> Result<()> {
+    pub(crate) async fn update(&self, dispatcher: &Dispatcher) -> Result<()> {
         let _updating = self.updating.lock().await;
         let result = match &self.source {
             Source::Remote { .. } => self.download(dispatcher).await,

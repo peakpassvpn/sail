@@ -30,6 +30,7 @@ use crate::RuntimeManager;
 mod configs;
 mod connections;
 mod dns;
+mod providers;
 mod proxies;
 mod streams;
 mod ui;
@@ -148,8 +149,25 @@ fn router(clash: Arc<Clash>) -> Router {
         .route("/group", get(proxies::groups))
         .route("/group/:name", get(proxies::group))
         .route("/group/:name/delay", get(proxies::group_delay))
-        .route("/providers/proxies", get(proxies::providers))
-        .route("/providers/rules", get(proxies::rule_providers))
+        .route("/providers/proxies", get(providers::proxy_providers))
+        .route(
+            "/providers/proxies/:name",
+            get(providers::proxy_provider).put(providers::update_proxy_provider),
+        )
+        .route(
+            "/providers/proxies/:name/healthcheck",
+            get(providers::health_check),
+        )
+        .route("/providers/proxies/:name/:proxy", get(providers::member))
+        .route(
+            "/providers/proxies/:name/:proxy/healthcheck",
+            get(providers::member_delay),
+        )
+        .route("/providers/rules", get(providers::rule_providers))
+        .route(
+            "/providers/rules/:name",
+            axum::routing::put(providers::update_rule_provider),
+        )
         .route(
             "/connections",
             get(connections::list).delete(connections::close_all),

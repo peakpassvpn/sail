@@ -383,3 +383,126 @@ fn a_dashboard_controls_the_instance_through_the_clash_api() -> anyhow::Result<(
         Err(panic) => std::panic::resume_unwind(panic),
     }
 }
+
+// dashboard -> (clash api)sail: the outbound providers, their members
+// among the proxies, and the rule-sets, as Mihomo's providers.
+#[cfg(all(
+    feature = "clash-api",
+    feature = "outbound-select",
+    feature = "outbound-direct",
+    feature = "outbound-provider",
+    feature = "rule-set",
+    feature = "inbound-socks",
+    feature = "tokio-tungstenite"
+))]
+#[test]
+fn a_dashboard_sees_the_providers_through_the_clash_api() -> anyhow::Result<()> {
+    let secret = sail::generate::secret();
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()?;
+    let web = rt.block_on(async {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let port = listener.local_addr()?.port();
+        tokio::spawn(async move {
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            while let Ok((mut s, _)) = listener.accept().await {
+                tokio::spawn(async move {
+                    let mut buf = [0u8; 1024];
+                    let _ = s.read(&mut buf).await;
+                    let _ = s
+                        .write_all(b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\n\r\n")
+                        .await;
+                });
+            }
+        });
+        anyhow::Ok(port)
+    })?;
+    let (ids, port) = common::retry_port_clash(|| {
+        let [port] = common::free_ports();
+        let config = serde_json::json!({
+            "clash_api": {
+                "external_controller": format!("127.0.0.1:{}", port),
+                "secret": secret,
+            },
+            "outbounds": [
+                { "type": "selector", "tag": "g", "providers": "p" },
+                { "type": "direct", "tag": "direct" },
+            ],
+            "outbound_providers": [{
+                "type": "inline", "tag": "p",
+                "outbounds": [{ "type": "direct", "tag": "m1" }, { "type": "direct", "tag": "m2" }]
+            }],
+            "route": {
+                "rule_set": [{
+                    "type": "inline", "tag": "r",
+                    "rules": [{ "domain_suffix": ["a.example", "b.example"] }]
+                }],
+                "rules": [{ "rule_set": "r", "outbound": "direct" }],
+            },
+        });
+        Ok((
+            common::run_sail_instances(&rt, vec![config.to_string()])?,
+            port,
+        ))
+    })?;
+    let s = Some(secret.as_str());
+    let checked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        rt.block_on(async {
+            // The members among the proxies, for the group that takes them.
+            let (_, _, body) = call(port, "GET", "/proxies", s, &[], "").await?;
+            let proxies = json(&body)["proxies"].clone();
+            assert_eq!(proxies["g"]["all"], serde_json::json!(["m1", "m2"]));
+            assert_eq!(proxies["m1"]["type"], "Direct", "{}", proxies);
+
+            // The provider, and one of its members.
+            let (_, _, body) = call(port, "GET", "/providers/proxies", s, &[], "").await?;
+            let p = json(&body)["providers"]["p"].clone();
+            assert_eq!(p["type"], "Proxy");
+            assert_eq!(p["vehicleType"], "Inline");
+            let names: Vec<&str> = p["proxies"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter_map(|m| m["name"].as_str())
+                .collect();
+            assert_eq!(names, ["m1", "m2"]);
+            let (_, _, body) = call(port, "GET", "/providers/proxies/p/m2", s, &[], "").await?;
+            assert_eq!(json(&body)["name"], "m2");
+            let (status, ..) = call(port, "GET", "/providers/proxies/nope", s, &[], "").await?;
+            assert_eq!(status, 404);
+
+            // Measuring a member, and updating (an inline one is as it is).
+            let path = format!(
+                "/providers/proxies/p/m1/healthcheck?timeout=3000&url=http://127.0.0.1:{}/",
+                web
+            );
+            let (status, _, body) = call(port, "GET", &path, s, &[], "").await?;
+            assert_eq!(status, 200, "{}", body);
+            assert!(json(&body)["delay"].as_u64().unwrap() > 0);
+            let (_, _, body) = call(port, "GET", "/proxies/m1", s, &[], "").await?;
+            assert_eq!(json(&body)["history"].as_array().unwrap().len(), 1);
+            let (status, ..) = call(port, "PUT", "/providers/proxies/p", s, &[], "").await?;
+            assert_eq!(status, 204);
+
+            // The rule-sets.
+            let (_, _, body) = call(port, "GET", "/providers/rules", s, &[], "").await?;
+            let r = json(&body)["providers"]["r"].clone();
+            assert_eq!(r["type"], "Rule");
+            assert_eq!(r["vehicleType"], "Inline");
+            assert_eq!(r["behavior"], "Classical");
+            assert_eq!(r["ruleCount"], 2, "{}", r);
+            let (status, ..) = call(port, "PUT", "/providers/rules/r", s, &[], "").await?;
+            assert_eq!(status, 204);
+            let (status, ..) = call(port, "PUT", "/providers/rules/nope", s, &[], "").await?;
+            assert_eq!(status, 404);
+            anyhow::Ok(())
+        })
+    }));
+    common::shutdown_instances(&rt, ids);
+    match checked {
+        Ok(checked) => checked,
+        Err(panic) => std::panic::resume_unwind(panic),
+    }
+}

@@ -101,6 +101,17 @@ impl RuleSet {
         Ok(Self::new(rules))
     }
 
+    /// How many entries it has, as Mihomo counts a rule-set's: its
+    /// domains and address ranges, or else its rules.
+    #[cfg(feature = "clash-api")]
+    pub(crate) fn size(&self) -> usize {
+        let domains: usize = self.rules.iter().filter_map(|r| r.domain_count()).sum();
+        match domains + self.ip_ranges().len() {
+            0 => self.rules.len(),
+            n => n,
+        }
+    }
+
     /// Whether it is narrow: see `narrow`.
     pub(crate) fn is_narrow(&self) -> bool {
         self.narrow
@@ -239,6 +250,19 @@ impl HttpClients {
     }
 }
 
+/// A rule-set, as the Clash API lists it.
+#[cfg(feature = "clash-api")]
+pub(crate) struct Listed {
+    pub tag: String,
+    pub kind: RuleSetKind,
+    pub format: Option<RuleSetFormat>,
+    pub behavior: Option<ClashBehavior>,
+    /// Its entries, see `RuleSet::size`.
+    pub size: usize,
+    /// When a remote one was downloaded, or last found unchanged.
+    pub updated: Option<std::time::SystemTime>,
+}
+
 /// A rule-set by tag, replaced whole when a download brings a new one.
 pub(crate) type SharedRuleSet = HotResource<RuleSet>;
 
@@ -247,6 +271,9 @@ pub(crate) type SharedRuleSet = HotResource<RuleSet>;
 pub(crate) struct RuleSets {
     sets: HashMap<String, SharedRuleSet>,
     remotes: Vec<Arc<remote::Remote>>,
+    /// Each rule-set's tag and configuration, in order, for the Clash API.
+    #[cfg(feature = "clash-api")]
+    configs: Vec<(String, Arc<config::RuleSet>)>,
     #[cfg(feature = "auto-reload")]
     files: Vec<std::path::PathBuf>,
 }
@@ -263,8 +290,14 @@ impl RuleSets {
         let mut remotes = Vec::new();
         #[cfg(feature = "auto-reload")]
         let mut files = Vec::new();
+        #[cfg(feature = "clash-api")]
+        let mut listed = Vec::new();
         for (i, config) in configs.iter().enumerate() {
+            #[cfg(feature = "clash-api")]
+            let shared = Arc::new(config.clone());
             for tag in &config.tag {
+                #[cfg(feature = "clash-api")]
+                listed.push((tag.clone(), shared.clone()));
                 #[cfg(feature = "auto-reload")]
                 if config.kind == RuleSetKind::Local {
                     files.push(
@@ -298,6 +331,8 @@ impl RuleSets {
         Ok(Self {
             sets,
             remotes,
+            #[cfg(feature = "clash-api")]
+            configs: listed,
             #[cfg(feature = "auto-reload")]
             files,
         })
@@ -384,6 +419,36 @@ impl RuleSets {
     #[allow(dead_code)]
     pub(crate) fn subscribe(&self, tag: &str) -> Result<tokio::sync::watch::Receiver<u64>> {
         Ok(self.get(tag)?.subscribe())
+    }
+
+    /// Each rule-set, in order, as the Clash API lists it.
+    #[cfg(feature = "clash-api")]
+    pub(crate) fn list(&self) -> Vec<Listed> {
+        self.configs
+            .iter()
+            .map(|(tag, config)| Listed {
+                tag: tag.clone(),
+                kind: config.kind,
+                format: config.format(),
+                behavior: config.behavior,
+                size: self.sets.get(tag).map_or(0, |set| set.load().size()),
+                updated: self
+                    .remotes
+                    .iter()
+                    .find(|r| r.tag == *tag)
+                    .and_then(|r| r.updated()),
+            })
+            .collect()
+    }
+
+    /// Downloads the remote rule-set `tag` again; one of another kind is
+    /// as it is. False when there is none so tagged.
+    #[cfg(feature = "clash-api")]
+    pub(crate) async fn update(&self, tag: &str, dispatcher: &Dispatcher) -> Result<bool> {
+        if let Some(remote) = self.remotes.iter().find(|r| r.tag == tag) {
+            remote.update(dispatcher).await?;
+        }
+        Ok(self.sets.contains_key(tag))
     }
 
     pub(crate) fn get(&self, tag: &str) -> Result<SharedRuleSet> {
