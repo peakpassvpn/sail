@@ -141,7 +141,7 @@ Serde: `serde (deny_unknown_fields)`
 
 | 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
 | --- | --- | --- | --- |
-| `regex` | `String` | 必填 | Matched against the member's name. |
+| `regex` | `String` | 必填 | Matched against the member's name, as Mihomo's filters are: lookarounds included, backtracking bounded. |
 | `factor` | `f64` | 必填 | Multiplies the member's score: above 0. |
 
 ## TryAllOutboundOptions

@@ -141,7 +141,7 @@ Serde: `serde (deny_unknown_fields)`
 
 | Field | Type | Omission / flattening | Source notes |
 | --- | --- | --- | --- |
-| `regex` | `String` | Required | Matched against the member's name. |
+| `regex` | `String` | Required | Matched against the member's name, as Mihomo's filters are: lookarounds included, backtracking bounded. |
 | `factor` | `f64` | Required | Multiplies the member's score: above 0. |
 
 ## TryAllOutboundOptions
