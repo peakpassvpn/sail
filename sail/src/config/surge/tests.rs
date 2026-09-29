@@ -282,13 +282,17 @@ fn rules_lower_in_order() {
         json!({ "domain": ["web.example.com"], "network": ["udp"], "action": "reject" })
     );
     assert_eq!(rules[web + 1]["outbound"], "NoUdp");
-    // Resolved at the first IP rule without no-resolve, going on when it
-    // fails, as FINAL has dns-failed.
+    // Resolved when a rule needs addresses, going on when it fails, as
+    // FINAL has dns-failed; not for one with no-resolve.
     let resolve = position("resolve");
-    assert!(resolve > position("10.0.0.0/8"));
-    assert_eq!(rules[resolve]["ignore_failure"], true);
-    assert!(position("2001:db8::1/128") > resolve);
-    assert!(position("geoip:cn") > resolve);
+    assert_eq!(
+        rules[resolve],
+        json!({ "action": "resolve", "on_demand": true, "ignore_failure": true })
+    );
+    assert_eq!(rules[position("10.0.0.0/8")]["no_resolve"], true);
+    assert!(rules[position("2001:db8::1/128")]
+        .get("no_resolve")
+        .is_none());
     assert_eq!(config.route.final_outbound.as_deref(), Some("Proxy"));
     assert!(!text.iter().any(|r| r.contains("after.example.com")));
 }
@@ -315,7 +319,7 @@ fn logical_http_and_early_rules() {
                 "method": "drop" }),
         json!({ "type": "logical", "mode": "and", "rules": [
             { "type": "logical", "mode": "or", "rules": [
-                { "network": ["udp"] }, { "ip_cidr": ["10.0.0.0/8"] },
+                { "network": ["udp"] }, { "ip_cidr": ["10.0.0.0/8"], "no_resolve": true },
             ] },
             { "network": ["tcp"] },
         ], "action": "reject" }),
@@ -324,19 +328,22 @@ fn logical_http_and_early_rules() {
             { "domain_suffix": ["b.example"] },
             { "type": "logical", "mode": "and", "invert": true, "rules": [{ "port": [443] }] },
         ], "action": "reject" }),
-        // Plain HTTP, sniffed once for both.
-        json!({ "action": "sniff", "sniffer": ["http"] }),
+        // Sniffed where a rule needs it, from here on.
+        json!({ "action": "sniff", "on_demand": true,
+                "sniffer": ["http", "tls", "quic", "stun"] }),
         json!({ "http_user_agent": ["Instagram*"], "outbound": "DIRECT" }),
         json!({ "url_regex": ["^http://c\\.example/(x|y)"], "action": "reject" }),
         json!({ "ip_version": 6, "action": "reject" }),
         // The SNI and the Host.
         json!({ "action": "sniff", "sniffer": ["http", "tls", "quic"] }),
         json!({ "domain_suffix": ["d.example"], "outbound": "DIRECT" }),
-        json!({ "action": "resolve" }),
+        // Resolved where a rule needs addresses, from the first that may;
+        // failing where it does not resolve, as FINAL has no dns-failed.
+        json!({ "action": "resolve", "on_demand": true }),
         json!({ "ip_asn": [13335], "outbound": "DIRECT" }),
         json!({ "domain": ["ad.example"], "action": "reject", "method": "drop" }),
         json!({ "type": "logical", "mode": "or", "rules": [
-            { "network": ["udp"] }, { "ip_cidr": ["10.0.0.0/8"] },
+            { "network": ["udp"] }, { "ip_cidr": ["10.0.0.0/8"], "no_resolve": true },
         ], "action": "reject" }),
     ];
     assert_eq!(rules, expected, "{:#?}", rules);
@@ -362,35 +369,36 @@ fn rule_sets_of_files_built_in_and_inline() {
     );
     let rules = rules(&config);
     let text: Vec<String> = rules.iter().map(|r| r.to_string()).collect();
+    assert_eq!(rules[0], json!({ "action": "resolve", "on_demand": true }));
     assert_eq!(
-        rules[0],
+        rules[1],
         json!({ "rule_set": ["https://example.com/ads.txt"], "action": "reject" })
     );
     // SYSTEM's names, in place.
-    assert!(text[1].contains("\"push.apple.com\"") && text[1].contains("\"DIRECT\""));
-    assert!(!text[1].contains("trustd"));
-    // A file's rules may be of HTTP, and of addresses: sniffed and
-    // resolved first, going on where it does not resolve.
-    assert_eq!(rules[2], json!({ "action": "sniff", "sniffer": ["http"] }));
+    assert!(text[2].contains("\"push.apple.com\"") && text[2].contains("\"DIRECT\""));
+    assert!(!text[2].contains("trustd"));
+    // A file's rules may be of HTTP: sniffed where one needs it. What they
+    // need resolved the router knows once it is read.
     assert_eq!(
         rules[3],
-        json!({ "action": "resolve", "ignore_failure": true })
+        json!({ "action": "sniff", "on_demand": true,
+                "sniffer": ["http", "tls", "quic", "stun"] })
     );
     assert_eq!(rules[4]["rule_set"], json!(["https://example.com/cn.list"]));
-    // Its own IP rule resolves again, and fails where it does not.
-    assert_eq!(rules[5], json!({ "action": "resolve" }));
     // An inline set of an inline set, and of a file: any of them.
     assert_eq!(
-        rules[6],
+        rules[5],
         json!({ "type": "logical", "mode": "or", "rules": [
             { "domain_suffix": ["video.example"] },
             { "domain_suffix": ["stream.example"], "ip_cidr": ["203.0.113.0/24"] },
-            { "rule_set": ["https://example.com/music.list"] },
+            { "rule_set": ["https://example.com/music.list"], "no_resolve": true },
         ], "outbound": "DIRECT" })
     );
     // LAN, without resolving.
     let lan = rules.last().unwrap();
-    assert!(lan["domain_suffix"] == json!(["local"]) && lan["ip_cidr"][1] == "10.0.0.0/8");
+    assert_eq!(lan["rules"][0]["domain_suffix"], json!(["local"]));
+    assert_eq!(lan["rules"][1]["ip_cidr"][1], "10.0.0.0/8");
+    assert_eq!(lan["rules"][1]["no_resolve"], true);
     let sets: Vec<Value> = config
         .route
         .rule_set
@@ -762,7 +770,10 @@ fn a_final_reject_is_a_rule() {
     );
     // Without dns-failed, a name that does not resolve fails.
     let config = load("[Rule]\nGEOIP,CN,DIRECT\nFINAL,DIRECT\n");
-    assert_eq!(rules(&config)[0], json!({ "action": "resolve" }));
+    assert_eq!(
+        rules(&config)[0],
+        json!({ "action": "resolve", "on_demand": true })
+    );
 }
 
 #[test]

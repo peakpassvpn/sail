@@ -1,7 +1,9 @@
 //! `[Rule]`: `TYPE,VALUE,POLICY[,parameter...]`, matched top-down, to the
 //! `FINAL` rule every list ends with. A domain goes to its addresses at the
-//! first IP rule without `no-resolve`, where Surge resolves it; one that
-//! does not resolve fails its connection, as in Surge, unless `FINAL` has
+//! first rule on addresses without `no-resolve`, a rule-set's line among
+//! them, where Surge resolves it: an `on_demand` resolve armed before the
+//! rules, which a rule's `no_resolve` does not take. One that does not
+//! resolve fails its connection, as in Surge, unless `FINAL` has
 //! `dns-failed`.
 //!
 //! A logical rule, `AND,((TYPE,value),(TYPE,value)),POLICY`, `OR` or
@@ -9,12 +11,14 @@
 //! a rule-set's, without a policy, and nest ten deep at most.
 //!
 //! `USER-AGENT` and `URL-REGEX` match the plain HTTP Surge reads without
-//! MITM: the connection is sniffed for HTTP before the first of them, and
-//! for any protocol before the first `PROTOCOL` rule. `extended-matching`
-//! sniffs the TLS SNI and HTTP Host before the rule that has it; from
-//! there on the domain sniffed, where there is one, is what every domain
+//! MITM, `PROTOCOL` the protocol: an `on_demand` sniff, armed before the
+//! first of them or of the rule-sets of files, which may hold them, sniffs
+//! the connection when a rule needs it, and before a domain rule while the
+//! destination is an address. `extended-matching` sniffs the TLS SNI and
+//! HTTP Host before the rule that has it, whatever the destination. From
+//! a sniff on the domain sniffed, where there is one, is what every domain
 //! rule matches, as sail matches a sniffed domain, where Surge matches it
-//! besides the one asked for, and only in those rules.
+//! besides the one asked for, and only in rules with `extended-matching`.
 //!
 //! A REJECT rule with `pre-matching` is matched before every other, as
 //! Surge matches it, for TCP; UDP, which Surge does not match early, meets
@@ -47,37 +51,22 @@ fn later(kind: &str) -> Option<&'static str> {
     }
 }
 
-/// Whether a condition matches the destination's addresses, which a domain
-/// is resolved to first.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub(super) enum Resolve {
-    /// It does not.
-    #[default]
-    No,
-    /// It may: a rule-set, whose rules are not known before it is read.
-    Maybe,
-    /// It does.
-    Yes,
-}
-
-/// What must be known of a connection before a condition is matched.
+/// What must be sniffed of a connection before a condition is matched;
+/// what must be resolved the router finds itself.
 #[derive(Debug, Default, Clone, Copy)]
 pub(super) struct Needs {
-    pub resolve: Resolve,
-    /// The plain HTTP request, sniffed: `USER-AGENT`, `URL-REGEX`.
-    pub http: bool,
-    /// The protocol, sniffed: `PROTOCOL`.
-    pub protocol: bool,
-    /// The TLS SNI or HTTP Host, sniffed: `extended-matching`.
+    /// The protocol or the plain HTTP request, when a rule needs them:
+    /// `PROTOCOL`, `USER-AGENT`, `URL-REGEX`, and a rule-set's file, which
+    /// may hold them.
+    pub sniff: bool,
+    /// The TLS SNI or HTTP Host, before the rule: `extended-matching`.
     pub extended: bool,
 }
 
 impl Needs {
     pub(super) fn and(self, other: Needs) -> Needs {
         Needs {
-            resolve: self.resolve.max(other.resolve),
-            http: self.http || other.http,
-            protocol: self.protocol || other.protocol,
+            sniff: self.sniff || other.sniff,
             extended: self.extended || other.extended,
         }
     }
@@ -176,12 +165,13 @@ struct Walk<'a> {
     policies: &'a Policies,
     general: &'a General,
     out: &'a mut Lowered,
-    /// How far a rule before resolves the domain already.
-    resolved: Resolve,
-    /// Whether a domain that does not resolve goes on, `FINAL,dns-failed`.
-    dns_failed: bool,
-    /// What a rule before sniffs already.
-    sniffed: Needs,
+    /// The resolve to arm before the first rule that may need addresses,
+    /// until it is.
+    resolve: Option<Value>,
+    /// Whether a rule before arms the sniff already.
+    armed: bool,
+    /// Whether a rule before sniffs the SNI and Host already.
+    extended: bool,
     /// The rules of `pre-matching`, matched first.
     early: Vec<Value>,
 }
@@ -189,6 +179,9 @@ struct Walk<'a> {
 impl Walk<'_> {
     /// Adds a rule of `condition` to `target`, with what it needs before.
     fn push(&mut self, condition: Map<String, Value>, needs: Needs, target: Target) {
+        if self.resolve.is_some() && addresses(&condition) {
+            self.out.rules.extend(self.resolve.take());
+        }
         self.prepare(needs);
         self.fallback(&condition, &target);
         let mut rule = condition;
@@ -196,39 +189,21 @@ impl Walk<'_> {
         self.out.rules.push(Value::Object(rule));
     }
 
-    /// Sniffs and resolves as `needs` says, where no rule before has.
+    /// Sniffs, or arms the sniff, as `needs` says, where no rule before
+    /// has.
     fn prepare(&mut self, needs: Needs) {
-        let protocol = needs.protocol && !self.sniffed.protocol;
-        let extended = needs.extended && !self.sniffed.extended;
-        if protocol || extended {
-            let sniffer = if needs.protocol {
-                json!(["http", "tls", "quic", "stun"])
-            } else {
-                json!(["http", "tls", "quic"])
-            };
+        if needs.extended && !self.extended {
             self.out
                 .rules
-                .push(json!({ "action": "sniff", "sniffer": sniffer }));
-            self.sniffed.protocol |= needs.protocol;
-            self.sniffed.extended = true;
-            self.sniffed.http = true;
+                .push(json!({ "action": "sniff", "sniffer": ["http", "tls", "quic"] }));
+            self.extended = true;
         }
-        if needs.http && !self.sniffed.http {
-            self.out
-                .rules
-                .push(json!({ "action": "sniff", "sniffer": ["http"] }));
-            self.sniffed.http = true;
-        }
-        if needs.resolve > self.resolved {
-            let mut resolve = json!({ "action": "resolve" });
-            // A rule-set that may hold no IP rules is not worth failing
-            // for: where the domain does not resolve, its IP rules do not
-            // match. An IP rule after resolves again, and fails.
-            if self.dns_failed || needs.resolve == Resolve::Maybe {
-                resolve["ignore_failure"] = json!(true);
-            }
-            self.out.rules.push(resolve);
-            self.resolved = needs.resolve;
+        if needs.sniff && !self.armed {
+            self.out.rules.push(json!({
+                "action": "sniff", "on_demand": true,
+                "sniffer": ["http", "tls", "quic", "stun"]
+            }));
+            self.armed = true;
         }
     }
 
@@ -274,6 +249,20 @@ impl Walk<'_> {
         apply(target, &mut rule);
         self.early.push(Value::Object(rule));
     }
+}
+
+/// Whether a condition, or one within, is on the destination's addresses,
+/// or names a rule-set, whose rules may be.
+fn addresses(condition: &Map<String, Value>) -> bool {
+    condition
+        .iter()
+        .any(|(key, value)| match (key.as_str(), value) {
+            ("ip_cidr" | "ip_asn" | "rule_set", _) => true,
+            ("rules", Value::Array(rules)) => {
+                rules.iter().any(|r| r.as_object().is_some_and(addresses))
+            }
+            _ => false,
+        })
 }
 
 fn network(name: &str) -> Map<String, Value> {
@@ -362,13 +351,19 @@ pub fn lower(
                 .iter()
                 .any(|p| p.trim().eq_ignore_ascii_case("dns-failed"))
         });
+    // Resolved when a rule needs its addresses; going on where it does not
+    // resolve with dns-failed, else failing.
+    let mut resolve = json!({ "action": "resolve", "on_demand": true });
+    if dns_failed {
+        resolve["ignore_failure"] = json!(true);
+    }
     let mut walk = Walk {
         policies,
         general,
         out,
-        resolved: Resolve::No,
-        dns_failed,
-        sniffed: Needs::default(),
+        resolve: Some(resolve),
+        armed: false,
+        extended: false,
         early: Vec::new(),
     };
     let mut scope = Scope {
@@ -456,16 +451,7 @@ pub(super) fn headless(line: &str) -> Result<Map<String, Value>> {
         warnings: &mut warnings,
     };
     match condition(&h.kind, &h.value, &flags, &mut scope, 0)? {
-        Some((mut condition, _)) => {
-            if flags.no_resolve
-                && ["ip_cidr", "ip_asn"]
-                    .iter()
-                    .any(|k| condition.contains_key(*k))
-            {
-                condition.insert("no_resolve".into(), json!(true));
-            }
-            Ok(condition)
-        }
+        Some((condition, _)) => Ok(condition),
         None => Err(anyhow!(
             "{},{}: no connection sail sees matches it",
             h.kind,
@@ -486,9 +472,11 @@ pub(super) fn condition(
 ) -> Result<Option<Cond>> {
     let mut rule = Map::new();
     let mut needs = Needs::default();
-    let resolves = |needs: &mut Needs| {
-        if !flags.no_resolve {
-            needs.resolve = Resolve::Yes;
+    // `no-resolve` on a condition on addresses: they match only where
+    // known, and the domain is not resolved for them.
+    let resolves = |rule: &mut Map<String, Value>| {
+        if flags.no_resolve {
+            rule.insert("no_resolve".into(), json!(true));
         }
     };
     if value.is_empty() {
@@ -507,7 +495,7 @@ pub(super) fn condition(
         }
         "IP-CIDR" | "IP-CIDR6" => {
             rule.insert("ip_cidr".into(), json!([prefix(value)?]));
-            resolves(&mut needs);
+            resolves(&mut rule);
             return Ok(Some((rule, needs)));
         }
         "SRC-IP" => {
@@ -525,7 +513,7 @@ pub(super) fn condition(
                 .as_deref_mut()
                 .ok_or_else(|| anyhow!("GEOIP: sail reads no GEOIP rule in a rule-set"))?;
             rule.insert("rule_set".into(), json!([sets.geoip(value)?]));
-            resolves(&mut needs);
+            resolves(&mut rule);
             return Ok(Some((rule, needs)));
         }
         "IP-ASN" => {
@@ -542,7 +530,7 @@ pub(super) fn condition(
                 .parse()
                 .map_err(|_| anyhow!("IP-ASN: {:?} is not a system's number", value))?;
             rule.insert("ip_asn".into(), json!([number]));
-            resolves(&mut needs);
+            resolves(&mut rule);
             return Ok(Some((rule, needs)));
         }
         "PROCESS-NAME" => {
@@ -552,14 +540,14 @@ pub(super) fn condition(
         }
         "USER-AGENT" => {
             rule.insert("http_user_agent".into(), json!([value]));
-            needs.http = true;
+            needs.sniff = true;
             return Ok(Some((rule, needs)));
         }
         "URL-REGEX" => {
             #[cfg(feature = "regex")]
             regex::Regex::new(value).map_err(|e| anyhow!("URL-REGEX: {:?}: {}", value, e))?;
             rule.insert("url_regex".into(), json!([value]));
-            needs.http = true;
+            needs.sniff = true;
             return Ok(Some((rule, needs)));
         }
         "HOSTNAME-TYPE" => {
@@ -629,7 +617,7 @@ pub(super) fn condition(
             };
             rule.insert("network".into(), json!([network]));
             if let Some(protocol) = sniffed {
-                needs.protocol = true;
+                needs.sniff = true;
                 rule.insert("protocol".into(), json!([protocol]));
             }
             return Ok(Some((rule, needs)));
@@ -665,19 +653,13 @@ fn set(
     };
     let Some(rules) = rules else {
         let (file, needs) = match kind {
-            // Whether it has IP rules, or HTTP ones, is not known before it
-            // is read.
+            // Whether it has HTTP rules is not known before it is read;
+            // the router knows what it needs resolved once it is.
             "RULE-SET" => (
                 sets::Kind::Rules,
                 Needs {
-                    resolve: if flags.no_resolve {
-                        Resolve::No
-                    } else {
-                        Resolve::Maybe
-                    },
-                    http: true,
+                    sniff: true,
                     extended: flags.extended,
-                    ..Default::default()
                 },
             ),
             _ => (
@@ -691,6 +673,9 @@ fn set(
         let tag = sets.file(file, value, flags.update_interval)?;
         let mut rule = Map::new();
         rule.insert("rule_set".into(), json!([tag]));
+        if flags.no_resolve && file == sets::Kind::Rules {
+            rule.insert("no_resolve".into(), json!(true));
+        }
         return Ok(Some((rule, needs)));
     };
     if sets.stack.iter().any(|s| s == value) {
@@ -726,6 +711,8 @@ fn set_rules(
     depth: usize,
 ) -> Result<Cond> {
     let mut plain = Map::new();
+    // Prefixes with `no-resolve`, as one rule of their own.
+    let mut plain_known = Map::new();
     let mut others = Vec::new();
     let mut needs = Needs::default();
     for (at, line) in rules {
@@ -747,9 +734,10 @@ fn set_rules(
         needs = needs.and(n);
         // Of one list of names or prefixes: those match as any of them in
         // one rule.
-        let plain_key = match condition.iter().next() {
+        let known = condition.get("no_resolve") == Some(&json!(true));
+        let plain_key = match condition.iter().find(|(key, _)| *key != "no_resolve") {
             Some((key, Value::Array(_)))
-                if condition.len() == 1
+                if condition.len() == 1 + usize::from(known)
                     && [
                         "domain",
                         "domain_suffix",
@@ -766,12 +754,17 @@ fn set_rules(
         match plain_key {
             Some(key) => {
                 let values = condition[&key].as_array().cloned().unwrap_or_default();
+                let plain = if known { &mut plain_known } else { &mut plain };
                 if let Value::Array(list) = plain.entry(key).or_insert_with(|| json!([])) {
                     list.extend(values);
                 }
             }
             None => others.push(Value::Object(condition)),
         }
+    }
+    if !plain_known.is_empty() {
+        plain_known.insert("no_resolve".into(), json!(true));
+        others.insert(0, Value::Object(plain_known));
     }
     if !plain.is_empty() {
         others.insert(0, Value::Object(plain));
@@ -1096,10 +1089,9 @@ mod tests {
                 { "http_user_agent": ["a,b*"] },
             ] })
         );
-        assert_eq!(needs.resolve, Resolve::Yes);
-        assert!(needs.http && needs.extended && !needs.protocol);
+        assert!(needs.sniff && needs.extended);
         // no-resolve within holds for its rule.
-        let (_, needs) = condition(
+        let (rule, needs) = condition(
             "OR",
             "((IP-ASN,AS13335,no-resolve),(DOMAIN,a))",
             &Flags::default(),
@@ -1108,7 +1100,11 @@ mod tests {
         )
         .unwrap()
         .unwrap();
-        assert_eq!(needs.resolve, Resolve::No);
+        assert_eq!(
+            rule["rules"][0],
+            json!({ "ip_asn": [13335], "no_resolve": true })
+        );
+        assert!(!needs.sniff && !needs.extended);
         let deep = format!("{}(DOMAIN,a){}", "(NOT,(".repeat(11), "))".repeat(11));
         let err = condition(
             "NOT",
