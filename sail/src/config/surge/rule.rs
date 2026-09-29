@@ -440,7 +440,8 @@ pub fn lower(
 
 /// The condition of a line of a rule-set's file, a rule without its
 /// policy. What it needs sniffed or resolved is the rule's that names the
-/// set.
+/// set; a line's `no-resolve` on an address condition is the rule's
+/// `no_resolve`, which an `on_demand` resolve heeds.
 #[cfg(feature = "rule-set")]
 pub(super) fn headless(line: &str) -> Result<Map<String, Value>> {
     let h = Headless::split(text::strip_comment(line));
@@ -455,7 +456,16 @@ pub(super) fn headless(line: &str) -> Result<Map<String, Value>> {
         warnings: &mut warnings,
     };
     match condition(&h.kind, &h.value, &flags, &mut scope, 0)? {
-        Some((condition, _)) => Ok(condition),
+        Some((mut condition, _)) => {
+            if flags.no_resolve
+                && ["ip_cidr", "ip_asn"]
+                    .iter()
+                    .any(|k| condition.contains_key(*k))
+            {
+                condition.insert("no_resolve".into(), json!(true));
+            }
+            Ok(condition)
+        }
         None => Err(anyhow!(
             "{},{}: no connection sail sees matches it",
             h.kind,
@@ -1140,7 +1150,7 @@ mod tests {
     fn a_rule_set_s_lines() {
         assert_eq!(
             Value::Object(headless("IP-ASN,13335,no-resolve").unwrap()),
-            json!({ "ip_asn": [13335] })
+            json!({ "ip_asn": [13335], "no_resolve": true })
         );
         assert_eq!(
             Value::Object(headless("HOSTNAME-TYPE,SIMPLE").unwrap()),

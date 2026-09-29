@@ -205,6 +205,26 @@ mod tests {
         }
     }
 
+    /// A line's no-resolve on an address is the rule's: its addresses
+    /// need no resolve.
+    #[cfg(feature = "config-clash")]
+    #[test]
+    fn no_resolve_lines_need_no_addresses() {
+        let needs = |lines: &[&str]| {
+            let lines: Vec<String> = lines.iter().map(|s| s.to_string()).collect();
+            from_lines(&lines, ClashBehavior::Classical, &RuntimeEnv::default())
+                .unwrap()
+                .iter()
+                .any(|r| r.needs(false).ip)
+        };
+        assert!(!needs(&[
+            "IP-CIDR,10.0.0.0/8,no-resolve",
+            "DOMAIN,a.test",
+            "IP-CIDR,11.0.0.0/8,src"
+        ]));
+        assert!(needs(&["IP-CIDR,10.0.0.0/8"]));
+    }
+
     #[test]
     fn text_passes_over_comments() {
         assert_eq!(

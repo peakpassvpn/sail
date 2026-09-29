@@ -5,7 +5,8 @@
 //! is passed over, as Surge passes over a line it does not take.
 //!
 //! The plain lines of a set, of domains, keywords and IP prefixes, are
-//! matched as one rule; each of the others as a rule of its own.
+//! matched as one rule, and the IP prefixes with `no-resolve` as another;
+//! each of the others as a rule of its own.
 
 use anyhow::{anyhow, Result};
 use tracing::debug;
@@ -85,6 +86,11 @@ fn classical_lines<'a>(
     env: &RuntimeEnv,
 ) -> Result<(Vec<Condition>, Passed)> {
     let mut plain = HeadlessRule::default();
+    // The plain IP prefixes with `no-resolve`.
+    let mut unresolved = HeadlessRule {
+        no_resolve: true,
+        ..Default::default()
+    };
     let mut rules = Vec::new();
     let mut passed = Vec::new();
     for (i, line) in lines.enumerate() {
@@ -96,7 +102,12 @@ fn classical_lines<'a>(
                 continue;
             }
         };
-        if merge(&mut plain, &rule) {
+        let into = if rule.no_resolve {
+            &mut unresolved
+        } else {
+            &mut plain
+        };
+        if merge(into, &rule) {
             continue;
         }
         match rule::from_source(&rule, &format!("rules[{}]", i), env) {
@@ -106,6 +117,9 @@ fn classical_lines<'a>(
                 passed.push((line.to_string(), e.to_string()));
             }
         }
+    }
+    if !unresolved.ip_cidr.is_empty() {
+        rules.insert(0, rule::from_source(&unresolved, "rules[0]", env)?);
     }
     if plain != HeadlessRule::default() {
         rules.insert(0, rule::from_source(&plain, "rules[0]", env)?);
@@ -121,7 +135,8 @@ fn classical<'a>(_: impl Iterator<Item = &'a str>, _: &RuntimeEnv) -> Result<Vec
 }
 
 /// Adds `rule` to `plain` when it is a plain one: of one domain, suffix,
-/// keyword or IP prefix alone, which match as any of them in one rule.
+/// keyword or IP prefix alone, which match as any of them in one rule;
+/// `plain` is of the rules as `no_resolve` as it is.
 #[cfg(feature = "config-surge")]
 fn merge(plain: &mut HeadlessRule, rule: &HeadlessRule) -> bool {
     type Field = fn(&mut HeadlessRule) -> &mut Vec<String>;
@@ -135,7 +150,10 @@ fn merge(plain: &mut HeadlessRule, rule: &HeadlessRule) -> bool {
         if values.is_empty() {
             continue;
         }
-        let mut only = HeadlessRule::default();
+        let mut only = HeadlessRule {
+            no_resolve: plain.no_resolve,
+            ..Default::default()
+        };
         field(&mut only).clone_from(values);
         if *rule != only {
             return false;
@@ -204,6 +222,23 @@ mod tests {
         .is_ok());
     }
 
+    /// A line's no-resolve on an address is the rule's: its addresses
+    /// need no resolve.
+    #[test]
+    fn no_resolve_lines_need_no_addresses() {
+        let needs = |data: &[u8]| {
+            let rules = read(data, ClashBehavior::Classical, &RuntimeEnv::default()).unwrap();
+            rules.iter().any(|r| r.needs(false).ip)
+        };
+        assert!(!needs(
+            b"IP-CIDR,10.0.0.0/8,no-resolve\nIP-CIDR,11.0.0.0/8,no-resolve\nDOMAIN,a.test\n\
+              DOMAIN,b.test,no-resolve\n"
+        ));
+        assert!(needs(
+            b"IP-CIDR,10.0.0.0/8,no-resolve\nIP-CIDR,11.0.0.0/8\n"
+        ));
+    }
+
     #[test]
     fn a_rule_set_s_lines_are_surge_rules() {
         let rules = read(
@@ -215,8 +250,9 @@ mod tests {
             &RuntimeEnv::default(),
         )
         .unwrap();
-        // The plain ones as one, and the wildcard and the logical one.
-        assert_eq!(rules.len(), 3);
+        // The plain ones as one, those with no-resolve as another, and the
+        // wildcard and the logical one.
+        assert_eq!(rules.len(), 4);
         for (to, want) in [
             (domain("a.example.com"), true),
             (domain("exact.org"), true),

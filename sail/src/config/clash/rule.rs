@@ -172,7 +172,19 @@ pub(super) fn headless(line: &str) -> Result<Map<String, Value>> {
         "" | "MATCH" | "SUB-RULE" | "RULE-SET" => {
             Err(anyhow!("{:?} is no rule a rule-provider holds", line))
         }
-        _ => condition(&s, &mut Sets::none()).map(|(condition, _)| condition),
+        _ => {
+            let (mut condition, _) = condition(&s, &mut Sets::none())?;
+            // `no-resolve` on an address condition is the rule's
+            // `no_resolve`, which an `on_demand` resolve heeds.
+            let no_resolve = s
+                .params
+                .iter()
+                .any(|p| p.eq_ignore_ascii_case("no-resolve"));
+            if no_resolve && condition.contains_key("ip_cidr") {
+                condition.insert("no_resolve".into(), json!(true));
+            }
+            Ok(condition)
+        }
     }
 }
 
