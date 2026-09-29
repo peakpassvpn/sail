@@ -42,7 +42,7 @@ fn the_first_member_is_selected_unless_a_default_is_given() {
 
 #[test]
 fn a_selection_survives_a_restart() {
-    let instance = env("selector-restart");
+    let instance = cached_env("selector-restart");
     let rt = rt();
     let m = manager(selector(json!({ "default": "a" })), &instance).unwrap();
     rt.block_on(async {
@@ -51,19 +51,37 @@ fn a_selection_survives_a_restart() {
     });
     drop(m);
 
-    // The same instance directory, as after a restart: the selection is
-    // back, over the default.
+    // The same cache file, after a restart: the selection is back, over
+    // the default.
+    restart(&instance);
     let m = manager(selector(json!({ "default": "a" })), &instance).unwrap();
     assert_eq!(selected(&m, "sel"), "b");
 
     // Another instance, with a directory of its own, does not see it.
-    let m = manager(selector(json!({ "default": "a" })), &env("selector-other")).unwrap();
+    let other = cached_env("selector-other");
+    let m = manager(selector(json!({ "default": "a" })), &other).unwrap();
     assert_eq!(selected(&m, "sel"), "a");
+    instance.cache_file.close();
+    other.cache_file.close();
+}
+
+#[test]
+fn without_a_cache_file_nothing_is_kept() {
+    let instance = env("selector-uncached");
+    let m = manager(selector(json!({ "default": "a" })), &instance).unwrap();
+    rt().block_on(async {
+        let selector = m.get_selector("sel").unwrap();
+        selector.write().await.set_selected("b").unwrap();
+    });
+    drop(m);
+    let m = manager(selector(json!({ "default": "a" })), &instance).unwrap();
+    assert_eq!(selected(&m, "sel"), "a");
+    assert!(!instance.host.cache_dir.unwrap().exists());
 }
 
 #[test]
 fn a_kept_selection_that_is_no_longer_a_member_falls_back_to_the_default() {
-    let env = env("selector-stale");
+    let env = cached_env("selector-stale");
     let rt = rt();
     let m = manager(selector(json!({})), &env).unwrap();
     rt.block_on(async {
@@ -77,8 +95,10 @@ fn a_kept_selection_that_is_no_longer_a_member_falls_back_to_the_default() {
         member("a", UNSERVED),
         member("b", UNSERVED),
     ]);
+    restart(&env);
     let m = manager(without_c, &env).unwrap();
     assert_eq!(selected(&m, "sel"), "b");
+    env.cache_file.close();
 }
 
 #[test]
@@ -86,7 +106,8 @@ fn a_corrupt_cache_is_ignored() {
     let env = env("selector-corrupt");
     let dir = env.host.cache_dir.clone().unwrap();
     std::fs::create_dir_all(&dir).unwrap();
-    std::fs::write(dir.join("selector.cache"), b"\xff\xff\xff not protobuf").unwrap();
+    std::fs::write(dir.join("cache.db"), b"\xff\xff\xff not a database").unwrap();
+    open_cache_file(&env);
     let m = manager(selector(json!({ "default": "b" })), &env).unwrap();
     assert_eq!(selected(&m, "sel"), "b");
     // And is replaced by the next selection.
@@ -94,8 +115,10 @@ fn a_corrupt_cache_is_ignored() {
         let selector = m.get_selector("sel").unwrap();
         selector.write().await.set_selected("c").unwrap();
     });
+    restart(&env);
     let m = manager(selector(json!({ "default": "b" })), &env).unwrap();
     assert_eq!(selected(&m, "sel"), "c");
+    env.cache_file.close();
 }
 
 #[test]

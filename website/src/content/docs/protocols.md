@@ -57,7 +57,7 @@ Not every endpoint accepts every layer. Sail validates shared fields against the
 
 | Type | Selection behavior |
 | --- | --- |
-| Selector | Manual member selection; state can persist in `cache_dir` |
+| Selector | Manual member selection; kept across restarts with `experimental.cache_file` |
 | URLTest | Periodically selects the fastest healthy member |
 | Fallback | Uses the first healthy member in declared order |
 | TryAll | Attempts members until one succeeds |

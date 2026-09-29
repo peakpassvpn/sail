@@ -17,19 +17,5 @@ fn main() {
             )
             .run()
             .expect("Protobuf code gen failed");
-
-        protobuf_codegen::Codegen::new()
-            .protoc_path(&protoc)
-            .out_dir("src/app/outbound")
-            .includes(["src/app/outbound"])
-            .inputs(["src/app/outbound/selector_cache.proto"])
-            .customize(
-                protobuf_codegen::Customize::default()
-                    .generate_accessors(false)
-                    .gen_mod_rs(false)
-                    .lite_runtime(true),
-            )
-            .run()
-            .expect("Protobuf code gen failed");
     }
 }

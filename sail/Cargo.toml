@@ -191,6 +191,8 @@ fuzzing = ["rule-set"]
 # Common
 tokio = { version = "1", features = ["sync", "io-util", "net", "time", "rt", "rt-multi-thread", "macros"] }
 protobuf = "3.7.2"
+# sing-box's cache_file: selections, the Clash mode and fake IPs kept across restarts.
+redb = "4.3"
 thiserror = "1.0"
 futures = "0.3"
 async-trait = "0.1"

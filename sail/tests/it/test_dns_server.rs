@@ -99,3 +99,85 @@ fn a_direct_inbound_hijacked_is_a_dns_server() -> anyhow::Result<()> {
     common::shutdown_instances(&rt, ids);
     Ok(())
 }
+
+// dig -> (direct)sail, hijacked -> fakeip server; sail stopped and started
+// again with the same cache file
+//
+// With `store_fakeip`, the fake IPs handed out before a restart are what
+// the domains have after it: a domain asked for again gets the address it
+// had, not the next one free.
+#[cfg(feature = "inbound-direct")]
+#[test]
+fn fake_ips_outlive_a_restart_in_the_cache_file() -> anyhow::Result<()> {
+    use std::net::IpAddr;
+    use std::str::FromStr;
+
+    use hickory_proto::op::{Message, MessageType, OpCode, Query};
+    use hickory_proto::rr::{Name, RData, RecordType};
+
+    let dir = common::TempDir::new("fakeip-cache")?;
+    let cache = dir.join("cache.db");
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    let ask = |port: u16, name: &str| -> anyhow::Result<IpAddr> {
+        let mut m = Message::new(3, MessageType::Query, OpCode::Query);
+        m.metadata.recursion_desired = true;
+        m.add_query(Query::query(Name::from_str(name)?, RecordType::A));
+        rt.block_on(async {
+            let udp = tokio::net::UdpSocket::bind("127.0.0.1:0").await?;
+            udp.send_to(&m.to_vec()?, ("127.0.0.1", port)).await?;
+            let mut buf = vec![0u8; 1500];
+            let (n, _) =
+                tokio::time::timeout(std::time::Duration::from_secs(5), udp.recv_from(&mut buf))
+                    .await??;
+            let reply = Message::from_vec(&buf[..n])?;
+            match reply.answers.first().map(|r| &r.data) {
+                Some(RData::A(a)) => Ok(IpAddr::V4(a.0)),
+                other => Err(anyhow::anyhow!("{}: {:?}", name, other)),
+            }
+        })
+    };
+    let start = || {
+        common::retry_port_clash(|| {
+            let [port] = common::free_ports();
+            let config = serde_json::json!({
+                "experimental": { "cache_file": {
+                    "enabled": true,
+                    "path": cache.to_str().unwrap(),
+                    "store_fakeip": true,
+                } },
+                "dns": { "servers": [
+                    { "type": "fakeip", "tag": "fake", "inet4_range": "198.18.0.0/15" }
+                ] },
+                "inbounds": [{
+                    "type": "direct", "tag": "dns-in",
+                    "listen": "127.0.0.1", "listen_port": port,
+                }],
+                "route": { "rules": [{ "inbound": "dns-in", "action": "hijack-dns" }] },
+            });
+            Ok((
+                common::run_sail_instances(&rt, vec![config.to_string()])?,
+                port,
+            ))
+        })
+    };
+
+    let (ids, port) = start()?;
+    let a = ask(port, "a.example.")?;
+    let b = ask(port, "b.example.")?;
+    assert_ne!(a, b);
+    common::shutdown_instances(&rt, ids);
+    // Closed as the instance stopped, not when the last of what used it
+    // goes: free at once for the next start.
+    drop(redb::Database::create(&cache)?);
+
+    let (ids, port) = start()?;
+    // b first: without the file, it would get the first address, a's.
+    assert_eq!(ask(port, "b.example.")?, b);
+    assert_eq!(ask(port, "a.example.")?, a);
+    let c = ask(port, "c.example.")?;
+    assert!(c != a && c != b, "{}", c);
+    common::shutdown_instances(&rt, ids);
+    Ok(())
+}

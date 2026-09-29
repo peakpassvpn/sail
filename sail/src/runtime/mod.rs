@@ -4,6 +4,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+pub mod cache_file;
 pub mod options;
 pub mod platform;
 pub(crate) mod resource;
@@ -22,7 +23,9 @@ pub struct Host {
     /// Data files (`geo.mmdb`, `site.dat`), certificates given by relative
     /// path, and the cache live here. Defaults to the executable's directory.
     pub data_dir: Option<PathBuf>,
-    /// Keeps state across restarts, such as selected outbounds, when set.
+    /// Where the cache file is when the configuration gives it no absolute
+    /// path, and remote rule-sets are kept; the data directory's when
+    /// unset.
     pub cache_dir: Option<PathBuf>,
     /// Sends logs to the platform's system log rather than to standard
     /// output; needs a platform.
@@ -42,6 +45,9 @@ pub struct RuntimeEnv {
     /// The Clash API's mode, which rules can match: what the instance
     /// runs in, not what it is configured with.
     pub clash_mode: crate::app::clash_mode::ClashMode,
+    /// `experimental.cache_file`: what is kept across restarts, when
+    /// enabled.
+    pub cache_file: cache_file::CacheFileSlot,
     /// The root certificates servers are checked against, as the
     /// configuration's `certificate` chose them.
     #[cfg(feature = "tls")]

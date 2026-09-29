@@ -248,11 +248,16 @@ impl Server {
                 let o: FakeIpOptions = parse_options("dns server", tag, &config.options)?;
                 let ranges = (o.inet4_range.clone(), o.inet6_range.clone());
                 let store = match fake_ips.filter(|s| s.ranges == ranges) {
-                    Some(store) => store.clone(),
+                    Some(store) => {
+                        // To the cache file the reload put in place.
+                        store.sync();
+                        store.clone()
+                    }
                     None => Arc::new(
                         super::fakeip::FakeIpStore::new(
                             o.inet4_range.as_deref(),
                             o.inet6_range.as_deref(),
+                            env.cache_file.clone(),
                         )
                         .map_err(err)?,
                     ),

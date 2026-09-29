@@ -223,7 +223,7 @@ mod tests {
         let config = parse(
             r#"{
                 "$schema": "https://example.com/schema.json",
-                "experimental": { "cache_file": { "enabled": true } },
+                "experimental": { "cache_file": { "enabled": true, "store_rdrc": true } },
                 "outbounds": [{ "type": "direct", "tcp_fast_open": true }]
             }"#,
         )
@@ -231,7 +231,7 @@ mod tests {
         assert_eq!(
             config.warnings,
             [
-                "experimental.cache_file: sail does not implement this field; ignored",
+                "experimental.cache_file.store_rdrc: sail does not implement this field; ignored",
                 "outbounds[0].tcp_fast_open: sail does not implement this field; ignored",
             ]
         );

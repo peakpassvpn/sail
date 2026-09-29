@@ -55,7 +55,7 @@ Sail 的目标是一套 Rust 核心承载主流代理配置生态中的协议、
 
 | 类型 | 选择行为 |
 | --- | --- |
-| Selector | 手动选择成员，可在 `cache_dir` 持久化 |
+| Selector | 手动选择成员，开启 `experimental.cache_file` 后跨重启保留 |
 | URLTest | 周期性选择最快的健康成员 |
 | Fallback | 按声明顺序使用第一个健康成员 |
 | TryAll | 依次尝试直至成功 |

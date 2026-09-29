@@ -284,6 +284,13 @@ impl RuntimeManager {
             .prepare_resources(&config.inbounds)
             .map_err(Error::Config)?;
         let dial_defaults = dial_defaults(&config, &self.env).map_err(Error::Config)?;
+        // What is built from here on keeps its state in the new cache file;
+        // a reload that fails puts the old one back.
+        let cache_file = self
+            .env
+            .cache_file
+            .replace(config.experimental.cache_file.as_ref(), &self.env)
+            .map_err(Error::Config)?;
         // What is built from here on trusts the new roots; a reload that
         // fails puts the old ones back.
         #[cfg(feature = "tls")]
@@ -361,9 +368,10 @@ impl RuntimeManager {
             inbounds.prepared_resource_files(&inbound_resources),
             rule_sets.files(),
         )?;
-        self.env
-            .clash_mode
-            .configure(config.experimental.clash_api.as_ref());
+        self.env.clash_mode.configure(
+            config.experimental.clash_api.as_ref(),
+            self.env.cache_file.get().as_deref(),
+        );
         inbounds.publish_resources(inbound_resources);
         #[cfg(feature = "auto-reload")]
         {
@@ -409,6 +417,7 @@ impl RuntimeManager {
         replaced.abort_tasks_replaced_by(&self.outbound_manager.load());
         #[cfg(feature = "tls")]
         roots.keep();
+        cache_file.keep();
         info!("reloaded from config file: {}", config_path);
         Ok(())
     }

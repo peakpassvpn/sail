@@ -219,7 +219,29 @@ pub enum CertificateStore {
 #[serde(deny_unknown_fields)]
 pub struct Experimental {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_file: Option<CacheFileOptions>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub clash_api: Option<ClashApi>,
+}
+
+/// sing-box's `cache_file`: what is kept across restarts. The selections
+/// of selector groups and the Clash API's mode, and the fake IPs handed
+/// out with `store_fakeip`; nothing without it.
+#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct CacheFileOptions {
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub enabled: bool,
+    /// `cache.db` when unset. A relative path is in the host's cache
+    /// directory, or the data directory.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    /// What this configuration keeps is kept apart, under this name, from
+    /// what others sharing the file keep.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_id: Option<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub store_fakeip: bool,
 }
 
 impl Experimental {

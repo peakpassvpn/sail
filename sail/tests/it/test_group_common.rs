@@ -24,8 +24,8 @@ pub fn rt() -> tokio::runtime::Runtime {
         .unwrap()
 }
 
-/// An instance environment whose selections are kept in a directory of
-/// the test's own, empty at first.
+/// An instance environment with a cache directory of the test's own,
+/// empty at first; nothing is kept in it without a cache file.
 pub fn env(name: &str) -> sail::runtime::RuntimeEnv {
     let dir = std::env::temp_dir().join(format!("sail-{}-{}", name, std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
@@ -36,6 +36,29 @@ pub fn env(name: &str) -> sail::runtime::RuntimeEnv {
         },
         ..Default::default()
     }
+}
+
+/// Opens the cache file of `env`, as a start with `experimental.cache_file`
+/// enabled does.
+pub fn open_cache_file(env: &sail::runtime::RuntimeEnv) {
+    let options = sail::config::model::CacheFileOptions {
+        enabled: true,
+        ..Default::default()
+    };
+    env.cache_file.replace(Some(&options), env).unwrap().keep();
+}
+
+/// `env` with its cache file open.
+pub fn cached_env(name: &str) -> sail::runtime::RuntimeEnv {
+    let env = env(name);
+    open_cache_file(&env);
+    env
+}
+
+/// What a restart does to the cache file: closed, and opened again.
+pub fn restart(env: &sail::runtime::RuntimeEnv) {
+    env.cache_file.close();
+    open_cache_file(env);
 }
 
 pub fn manager(

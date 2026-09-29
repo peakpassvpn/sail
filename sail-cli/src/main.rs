@@ -70,7 +70,7 @@ struct Args {
     #[argh(option, short = 'D')]
     data_dir: Option<String>,
 
-    /// keeps state such as selected outbounds across restarts
+    /// holds the cache file (selections, fake IPs) by default, and remote rule-sets
     #[argh(option)]
     cache_dir: Option<String>,
 

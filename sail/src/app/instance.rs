@@ -66,8 +66,14 @@ impl Instance {
         env: SyncRuntimeEnv,
         dial_defaults: Arc<DialOptions>,
     ) -> Result<Self> {
-        env.clash_mode
-            .configure(config.experimental.clash_api.as_ref());
+        // Closed again if the build fails.
+        let cache_file = env
+            .cache_file
+            .replace(config.experimental.cache_file.as_ref(), &env)?;
+        env.clash_mode.configure(
+            config.experimental.clash_api.as_ref(),
+            env.cache_file.get().as_deref(),
+        );
         #[cfg(feature = "tls")]
         env.tls_roots.set(crate::transport::tls::roots::configured(
             config.certificate.as_ref(),
@@ -148,6 +154,7 @@ impl Instance {
             .filter(|(_, settings)| {
                 settings.auto_redirect.is_some() || (settings.auto_route && !host_opens_tun(&env))
             });
+        cache_file.keep();
         Ok(Instance {
             env,
             dns_client,
@@ -263,6 +270,8 @@ impl Instance {
 
     /// Undoes what `start` did to the system.
     pub fn stop(&mut self) {
+        // What it kept is written, and the file freed for the next start.
+        self.env.cache_file.close();
         // Before the device goes, as sing-box closes it.
         #[cfg(all(feature = "inbound-tun", target_os = "linux"))]
         drop(self.tun_routing.take());

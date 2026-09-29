@@ -1,62 +1,15 @@
-use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use arc_swap::{ArcSwap, Guard};
-use protobuf::Message;
 use tokio::sync::watch;
 use tracing::warn;
 
 use anyhow::{anyhow, Result};
 
 use crate::protocol::group::members::{MemberKey, MemberLatencies, Members, Snapshot};
-use crate::runtime::RuntimeEnv;
-
-/// The file selections are kept in: in the host's cache directory when it
-/// gives one, in the instance's data directory otherwise. Both belong to
-/// the instance, so two instances with their own directories never share
-/// selections.
-pub fn cache_file(env: &RuntimeEnv) -> PathBuf {
-    env.host
-        .cache_dir
-        .clone()
-        .unwrap_or_else(|| env.data_dir())
-        .join("selector.cache")
-}
-
-/// Serialises the read-modify-write of the cache file: every selector of
-/// the process writes to it, and two writing at once would lose one.
-static CACHE_FILE_LOCK: Mutex<()> = Mutex::new(());
-
-pub fn get_selected_from_cache(cache_file: &Path, id: &str) -> Result<Option<String>> {
-    let _guard = CACHE_FILE_LOCK.lock().map_err(|_| anyhow!("poisoned"))?;
-    if !cache_file.exists() {
-        return Ok(None);
-    }
-    let content = std::fs::read(cache_file)?;
-    let cache = super::selector_cache::SelectorCache::parse_from_bytes(&content)?;
-    Ok(cache.items.get(id).cloned())
-}
-
-pub fn persist_selected_to_cache(cache_file: &Path, id: String, selected: String) -> Result<()> {
-    let _guard = CACHE_FILE_LOCK.lock().map_err(|_| anyhow!("poisoned"))?;
-    // A cache that cannot be read is replaced rather than kept broken.
-    let mut cache = std::fs::read(cache_file)
-        .ok()
-        .and_then(|content| super::selector_cache::SelectorCache::parse_from_bytes(&content).ok())
-        .unwrap_or_default();
-    cache.items.insert(id, selected);
-    let content = cache.write_to_bytes()?;
-    if let Some(dir) = cache_file.parent() {
-        std::fs::create_dir_all(dir)?;
-    }
-    // Written aside and renamed, so a crash mid-write leaves the old file.
-    let tmp = cache_file.with_extension("cache.tmp");
-    std::fs::write(&tmp, content)?;
-    std::fs::rename(&tmp, cache_file)?;
-    Ok(())
-}
+use crate::runtime::cache_file::CacheFile;
 
 /// Which member a group sends its connections to, shared by the group's
 /// handlers and its selector. It names the member: one selected that is
@@ -163,8 +116,8 @@ impl Selection {
 /// How a group's member comes to be selected.
 pub enum SelectedBy {
     /// By hand, through the API; the choice is kept across restarts in
-    /// the file given, if any.
-    Hand { cache_file: Option<PathBuf> },
+    /// the cache file, if there is one.
+    Hand { cache_file: Option<Arc<CacheFile>> },
     /// By the group itself, from its checks; it cannot be selected by
     /// hand.
     Checks,
@@ -266,8 +219,7 @@ impl OutboundSelector {
         };
         self.selected.set(member);
         if let Some(cache_file) = cache_file {
-            if let Err(e) = persist_selected_to_cache(cache_file, self.id.clone(), tag.to_string())
-            {
+            if let Err(e) = cache_file.store_selected(&self.id, tag) {
                 warn!("[{}] selection will not be kept: {}", self.id, e);
             }
         }
@@ -366,8 +318,13 @@ mod tests {
     #[test]
     fn a_reload_keeps_a_selection_absent_and_the_cache() {
         let dir = std::env::temp_dir().join(format!("sail-selector-{}", std::process::id()));
-        let cache_file = dir.join("selector.cache");
         let _ = std::fs::remove_dir_all(&dir);
+        let env = crate::runtime::cache_file::tests::env(&dir);
+        env.cache_file
+            .replace(Some(&crate::runtime::cache_file::tests::enabled()), &env)
+            .unwrap()
+            .keep();
+        let cache_file = env.cache_file.get().unwrap();
         let members = outbounds(&["a", "b"]);
         let mut old = OutboundSelector::new(
             "g".to_string(),
@@ -394,14 +351,11 @@ mod tests {
         );
         new.restore(&old);
         assert_eq!(*selection.get(), key("b"));
-        assert_eq!(
-            get_selected_from_cache(&cache_file, "g")
-                .unwrap()
-                .as_deref(),
-            Some("b")
-        );
+        assert_eq!(cache_file.load_selected("g").unwrap().as_deref(), Some("b"));
         members.publish(vec![member(None, "a"), member(None, "b")]);
         assert_eq!(new.get_selected_tag(), "b");
+        drop((old, new, cache_file));
+        env.cache_file.replace(None, &env).unwrap().keep();
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

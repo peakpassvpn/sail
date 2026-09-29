@@ -13,7 +13,7 @@ use crate::adapter::registry::{
     parse_options, Options, OutboundContext, OutboundFactory, OutboundRegistry,
 };
 use crate::adapter::AnyOutboundHandler;
-use crate::app::outbound::selector::{self, OutboundSelector, SelectedBy, Selection};
+use crate::app::outbound::selector::{OutboundSelector, SelectedBy, Selection};
 use crate::config::model::GroupProviders;
 use crate::protocol::group::members::{MemberKey, Snapshot};
 use crate::protocol::group::merge;
@@ -83,14 +83,14 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
 
     // What was selected before the restart, if it is still a member: the
     // configuration may have changed since.
-    let cache_file = selector::cache_file(ctx.env);
-    let cached = match selector::get_selected_from_cache(&cache_file, ctx.tag) {
-        Ok(cached) => cached,
-        Err(e) => {
+    let cache_file = ctx.env.cache_file.get();
+    let cached = match cache_file.as_ref().map(|c| c.load_selected(ctx.tag)) {
+        None => None,
+        Some(Ok(cached)) => cached,
+        Some(Err(e)) => {
             tracing::warn!(
-                "[{}] outbound: selection kept in {} not read: {}",
+                "[{}] outbound: selection kept in the cache file not read: {}",
                 ctx.tag,
-                cache_file.display(),
                 e
             );
             None
@@ -128,9 +128,7 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
         ctx.tag.to_owned(),
         members.clone(),
         selected.clone(),
-        SelectedBy::Hand {
-            cache_file: Some(cache_file),
-        },
+        SelectedBy::Hand { cache_file },
         None,
     );
     ctx.selectors

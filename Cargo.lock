@@ -2468,6 +2468,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "redb"
+version = "4.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fb338a6c67830a61bed824b78c2bb034ab1ff401a20616bd7957524f4fdc2f22"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "redox_syscall"
 version = "0.5.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2679,6 +2688,7 @@ dependencies = [
  "quinn-proto",
  "rand 0.8.8",
  "rcgen",
+ "redb",
  "regex",
  "rustls-native-certs",
  "ruzstd",

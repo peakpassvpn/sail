@@ -48,7 +48,12 @@ pub const FIELDS: &[Field] = &[
     f("ntp", Ignored),
     f("certificate_providers", Unsupported),
     f("network_namespaces", Unsupported),
-    f("experimental.cache_file", Ignored),
+    // Only the rejected-response cache of the legacy address filter
+    // fields, which sail does not have; deprecated in sing-box 1.14.
+    f("experimental.cache_file.store_rdrc", Ignored),
+    f("experimental.cache_file.rdrc_timeout", Ignored),
+    // Only a warm DNS cache after a restart.
+    f("experimental.cache_file.store_dns", Ignored),
     // The Clash API is not served yet; its mode is kept.
     f("experimental.clash_api.external_controller", Ignored),
     f("experimental.clash_api.external_ui", Ignored),

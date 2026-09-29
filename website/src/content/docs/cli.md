@@ -100,5 +100,5 @@ Sail uses a multi-threaded runtime by default. `--single-thread` is useful for c
 | `--profile` | `mobile`, `desktop`, `server` or `router` |
 | `--set` | Override one runtime tuning value; repeatable |
 | `-D`, `--data-dir` | Assets and relative certificate base directory |
-| `--cache-dir` | Persistent runtime state directory |
+| `--cache-dir` | Where `experimental.cache_file` is by default, and remote rule-sets are cached |
 | `-V`, `--version` | Print version and exit |

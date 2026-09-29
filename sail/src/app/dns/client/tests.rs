@@ -362,7 +362,8 @@ mod tests {
         assert_eq!(config.experimental.clash_api.as_ref().unwrap().default_mode.as_deref(), Some("Direct"));
         assert_eq!(config.warnings.len(), 1, "{:?}", config.warnings);
         let env = crate::runtime::RuntimeEnv::default();
-        env.clash_mode.configure(config.experimental.clash_api.as_ref());
+        env.clash_mode
+            .configure(config.experimental.clash_api.as_ref(), None);
         let client = DnsClient::new(&config.dns, Default::default(), &env).unwrap();
         assert_eq!(client.lookup("a.example").await.unwrap(), ips(&["10.0.0.1"]));
     }

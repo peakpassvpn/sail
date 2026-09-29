@@ -74,6 +74,6 @@ sail -c config.json \
 | `--profile` | `mobile`、`desktop`、`server` 或 `router` |
 | `--set` | 覆盖一个运行时参数，可重复 |
 | `-D`, `--data-dir` | 资源与相对证书目录 |
-| `--cache-dir` | 持久化运行状态目录 |
+| `--cache-dir` | `experimental.cache_file` 的默认位置，远程规则集也缓存在这里 |
 | `--single-thread` | 使用单线程运行时 |
 | `-V`, `--version` | 显示版本 |

@@ -114,7 +114,23 @@ Serde: `serde (deny_unknown_fields)`
 
 | 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
 | --- | --- | --- | --- |
+| `cache_file` | `Option < CacheFileOptions >` | Default::default() | —<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
 | `clash_api` | `Option < ClashApi >` | Default::default() | —<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
+
+## CacheFileOptions
+
+[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+
+sing-box's `cache_file`: what is kept across restarts. The selections of selector groups and the Clash API's mode, and the fake IPs handed out with `store_fakeip`; nothing without it.
+
+Serde: `serde (deny_unknown_fields)`
+
+| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
+| --- | --- | --- | --- |
+| `enabled` | `bool` | Default::default() | —<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
+| `path` | `Option < String >` | Default::default() | `cache.db` when unset. A relative path is in the host's cache directory, or the data directory.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
+| `cache_id` | `Option < String >` | Default::default() | What this configuration keeps is kept apart, under this name, from what others sharing the file keep.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
+| `store_fakeip` | `bool` | Default::default() | —<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
 
 ## ClashApi
 

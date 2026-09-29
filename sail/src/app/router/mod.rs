@@ -725,10 +725,12 @@ mod tests {
             Decision::Route(Some("b".into()))
         );
 
-        env.clash_mode
-            .configure(Some(&crate::config::model::ClashApi {
+        env.clash_mode.configure(
+            Some(&crate::config::model::ClashApi {
                 default_mode: Some("Direct".into()),
-            }));
+            }),
+            None,
+        );
         assert_eq!(
             pick(route(&rules, &env)).await,
             Decision::Route(Some("a".into()))

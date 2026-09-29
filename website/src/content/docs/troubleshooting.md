@@ -78,7 +78,7 @@ Begin with two healthy paths, confirm the server can reach targets directly, the
 
 ## Reload does not change behavior
 
-Validate the new file separately and confirm `--auto-reload` is enabled or the host called the reload API. Some state, such as selector choice, can be restored from `cache_dir`; clear or change it only when that persisted state is intentionally no longer wanted.
+Validate the new file separately and confirm `--auto-reload` is enabled or the host called the reload API. With `experimental.cache_file` enabled, some state, such as selector choice, the Clash mode and (with `store_fakeip`) fake IPs, is restored from the cache file; delete the file only when that persisted state is intentionally no longer wanted.
 
 ## Report a reproducible issue
 
