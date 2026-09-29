@@ -27,6 +27,7 @@ pub mod common;
 pub mod config;
 #[cfg(feature = "fuzzing")]
 pub mod fuzzing;
+pub mod generate;
 mod include;
 pub mod net;
 pub mod platform;

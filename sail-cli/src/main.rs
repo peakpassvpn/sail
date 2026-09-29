@@ -86,6 +86,111 @@ struct Args {
 #[argh(subcommand)]
 enum Command {
     Import(Import),
+    Generate(Generate),
+}
+
+#[derive(FromArgs)]
+/// Generates keys and passwords for configurations
+#[argh(subcommand, name = "generate")]
+struct Generate {
+    #[argh(subcommand)]
+    kind: GenerateKind,
+}
+
+#[derive(FromArgs)]
+#[argh(subcommand)]
+enum GenerateKind {
+    Rand(GenerateRand),
+    Uuid(GenerateUuid),
+    RealityKeypair(GenerateRealityKeypair),
+    WgKeypair(GenerateWgKeypair),
+    Ss2022(GenerateSs2022),
+    Secret(GenerateSecret),
+}
+
+#[derive(FromArgs)]
+/// Random bytes: raw, or with --base64 or --hex written so
+#[argh(subcommand, name = "rand")]
+struct GenerateRand {
+    /// how many bytes
+    #[argh(positional)]
+    length: usize,
+    /// as base64
+    #[argh(switch)]
+    base64: bool,
+    /// as hex
+    #[argh(switch)]
+    hex: bool,
+}
+
+#[derive(FromArgs)]
+/// A random UUID, as VLESS, VMess and TUIC users take
+#[argh(subcommand, name = "uuid")]
+struct GenerateUuid {}
+
+#[derive(FromArgs)]
+/// A REALITY key pair: the server's private key, the clients' public key
+#[argh(subcommand, name = "reality-keypair")]
+struct GenerateRealityKeypair {}
+
+#[derive(FromArgs)]
+/// A WireGuard key pair
+#[argh(subcommand, name = "wg-keypair")]
+struct GenerateWgKeypair {}
+
+#[derive(FromArgs)]
+/// A key for a Shadowsocks 2022 method, of the length it takes
+#[argh(subcommand, name = "ss2022")]
+struct GenerateSs2022 {
+    /// 2022-blake3-aes-128-gcm, 2022-blake3-aes-256-gcm or
+    /// 2022-blake3-chacha20-poly1305
+    #[argh(positional)]
+    method: String,
+}
+
+#[derive(FromArgs)]
+/// A secret for the Clash API (clash_api.secret)
+#[argh(subcommand, name = "secret")]
+struct GenerateSecret {}
+
+/// Prints what `generate` asks for, and exits.
+fn generate(generate: Generate) -> ! {
+    use sail::generate as g;
+    match generate.kind {
+        GenerateKind::Rand(r) => {
+            let bytes = g::random(r.length);
+            match (r.base64, r.hex) {
+                (true, true) => {
+                    eprintln!("--base64 or --hex, not both");
+                    exit(1);
+                }
+                (true, false) => println!("{}", g::base64(&bytes, g::Alphabet::Standard)),
+                (false, true) => println!("{}", g::hex(&bytes)),
+                (false, false) => {
+                    use std::io::Write;
+                    let _ = std::io::stdout().write_all(&bytes);
+                }
+            }
+        }
+        GenerateKind::Uuid(_) => println!("{}", g::uuid()),
+        GenerateKind::RealityKeypair(_) => {
+            let (private, public) = g::reality_keypair();
+            println!("PrivateKey: {}\nPublicKey: {}", private, public);
+        }
+        GenerateKind::WgKeypair(_) => {
+            let (private, public) = g::wireguard_keypair();
+            println!("PrivateKey: {}\nPublicKey: {}", private, public);
+        }
+        GenerateKind::Ss2022(s) => match g::ss2022_key(&s.method) {
+            Ok(key) => println!("{}", key),
+            Err(e) => {
+                eprintln!("{}", e);
+                exit(1);
+            }
+        },
+        GenerateKind::Secret(_) => println!("{}", g::secret()),
+    }
+    exit(0);
 }
 
 #[derive(FromArgs)]
@@ -144,8 +249,10 @@ fn main() {
         exit(0);
     }
 
-    if let Some(Command::Import(i)) = args.command {
-        import(i);
+    match args.command {
+        Some(Command::Import(i)) => import(i),
+        Some(Command::Generate(g)) => generate(g),
+        None => {}
     }
 
     let settings = sail::runtime::StartSettings {
