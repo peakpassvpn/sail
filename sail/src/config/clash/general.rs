@@ -48,7 +48,6 @@ pub const TOP: &[(&str, Tier)] = &[
     ("geodata-loader", Ignored),
     ("geosite-matcher", Ignored),
     // Later stages.
-    ("listeners", Unsupported),
     ("tunnels", Unsupported),
     ("tuic-server", Unsupported),
     ("ss-config", Unsupported),
@@ -142,6 +141,8 @@ fn listeners(doc: &mut Fields, out: &mut Lowered, warnings: &mut Vec<String>) ->
                 .to_string(),
         );
     }
+    // `listeners` take them too, where they name none of their own.
+    out.authentication = users.clone();
     for (key, kind, tag) in LISTENERS {
         let Some(port) = doc.int::<u16>(key)? else {
             continue;

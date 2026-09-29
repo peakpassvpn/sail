@@ -1464,3 +1464,115 @@ fn dns_listen_is_a_direct_inbound_hijacked() {
         err
     );
 }
+
+const LISTENERS_CONFIG: &str = r#"
+authentication: ["alice:secret"]
+proxies:
+  - { name: hk, type: socks5, server: 127.0.0.1, port: 1080 }
+proxy-groups:
+  - { name: HK, type: select, proxies: [hk] }
+sniffer: { enable: true, sniff: { TLS: {} } }
+listeners:
+  - { name: MIXED-HK, type: mixed, port: 50000, proxy: HK }
+  - { name: SOCKS-OPEN, type: socks, port: "50001", listen: 127.0.0.1, users: [], udp: true }
+  - { name: HTTP-IN, type: http, port: 50002 }
+  - { name: SS-IN, type: shadowsocks, listen: "::", port: 10000, udp: true, password: pw, cipher: aes-256-gcm }
+  - { name: BLOCKED, type: redir, port: 50003, proxy: REJECT }
+rules:
+  - IN-TYPE,MIXED,DIRECT
+  - MATCH,HK
+"#;
+
+#[test]
+fn listeners_are_inbounds_and_their_proxy_a_rule() {
+    let config = load(LISTENERS_CONFIG);
+    let inbound = |tag: &str| {
+        config
+            .inbounds
+            .iter()
+            .find(|i| i.tag == tag)
+            .unwrap_or_else(|| panic!("no inbound [{}]", tag))
+    };
+    let mixed = inbound("MIXED-HK");
+    assert_eq!(mixed.protocol, "mixed");
+    assert_eq!(mixed.listen.as_deref(), Some("0.0.0.0"));
+    assert_eq!(mixed.listen_port, Some(50000));
+    // authentication's users, where it names none of its own.
+    assert_eq!(
+        mixed.options["users"],
+        serde_json::json!([{ "username": "alice", "password": "secret" }])
+    );
+    // An empty list: anyone.
+    let socks = inbound("SOCKS-OPEN");
+    assert_eq!(socks.listen.as_deref(), Some("127.0.0.1"));
+    assert!(socks.options.get("users").is_none());
+    let ss = inbound("SS-IN");
+    assert_eq!(ss.protocol, "shadowsocks");
+    assert_eq!(ss.options["method"], "aes-256-gcm");
+    assert_eq!(ss.options["password"], "pw");
+    assert_eq!(inbound("BLOCKED").protocol, "redirect");
+
+    let rules = all_rules(&config);
+    // The sniffer's, then the listeners' proxies, then Clash's modes'.
+    assert_eq!(rules[0]["action"], "sniff");
+    assert_eq!(rules[1]["inbound"], serde_json::json!(["MIXED-HK"]));
+    assert_eq!(rules[1]["outbound"], "HK");
+    assert_eq!(rules[2]["inbound"], serde_json::json!(["BLOCKED"]));
+    assert_eq!(rules[2]["action"], "reject");
+    assert_eq!(rules[3]["clash_mode"], "Global");
+    // IN-TYPE names Mihomo's own listeners and those of its type.
+    assert!(rules.iter().any(
+        |r| r["inbound"] == serde_json::json!(["DEFAULT-MIXED", "MIXED-HK"])
+            && r["outbound"] == "DIRECT"
+    ));
+    // Mihomo's are TCP alone without udp: true.
+    assert!(config
+        .warnings
+        .iter()
+        .any(|w| w.contains("listeners[0].udp: not true")));
+    assert!(!config
+        .warnings
+        .iter()
+        .any(|w| w.contains("listeners[1].udp")));
+}
+
+#[test]
+fn listener_mistakes_name_the_field() {
+    for (yaml, message) in [
+        (
+            "listeners: [{ name: A, type: vmess, port: 1 }]",
+            "listeners[0].type: sail does not implement \"vmess\" listeners yet",
+        ),
+        (
+            "listeners: [{ type: mixed, port: 1 }]",
+            "listeners[0].name: missing",
+        ),
+        (
+            "listeners: [{ name: A, type: mixed, port: 1 }, { name: A, type: socks, port: 2 }]",
+            "listeners[1].name: another listener is named \"A\"",
+        ),
+        (
+            "listeners: [{ name: DEFAULT-MIXED, type: mixed, port: 1 }]",
+            "another listener is named \"DEFAULT-MIXED\"",
+        ),
+        (
+            "listeners: [{ name: A, type: mixed, port: 100-200 }]",
+            "listeners[0].port: \"100-200\": sail takes one port, not ranges, yet",
+        ),
+        (
+            "listeners: [{ name: A, type: mixed, port: 1, proxy: nowhere }]",
+            "listeners[0].proxy: no proxy or group is named \"nowhere\"",
+        ),
+        (
+            "listeners: [{ name: A, type: mixed, port: 1, rule: sub }]",
+            "listeners[0].rule: sail does not implement this field yet",
+        ),
+        (
+            "listeners: [{ name: A, type: shadowsocks, port: 1, password: p }]",
+            "listeners[0].cipher: missing",
+        ),
+    ] {
+        let err = error(yaml);
+        assert!(err.contains(message), "{}\n  => {}", yaml, err);
+    }
+}

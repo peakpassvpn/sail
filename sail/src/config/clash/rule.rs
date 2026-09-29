@@ -398,7 +398,7 @@ pub fn lower(
 }
 
 /// Where a rule sends what it matches.
-enum Target {
+pub(super) enum Target {
     Outbound(String),
     Reject,
     Drop,
@@ -408,7 +408,7 @@ enum Target {
 }
 
 impl Target {
-    fn apply(self, rule: &mut Map<String, Value>) {
+    pub(super) fn apply(self, rule: &mut Map<String, Value>) {
         match self {
             Target::Outbound(tag) => {
                 rule.insert("outbound".into(), json!(tag));
@@ -428,7 +428,7 @@ impl Target {
     }
 }
 
-fn target(name: &str, policies: &Policies) -> Result<Target> {
+pub(super) fn target(name: &str, policies: &Policies) -> Result<Target> {
     match name {
         "" => Err(anyhow!("no policy to send what it matches to")),
         "REJECT" => Ok(Target::Reject),
@@ -539,6 +539,7 @@ fn condition(s: &Split, sets: &mut Sets) -> Result<(Map<String, Value>, bool)> {
                 "MIXED" => "mixed",
                 "REDIR" => "redirect",
                 "TPROXY" => "tproxy",
+                "SHADOWSOCKS" => "shadowsocks",
                 "TUN" => {
                     rule.insert("inbound".into(), json!([super::tun::TAG]));
                     return Ok((rule, false));
@@ -546,7 +547,7 @@ fn condition(s: &Split, sets: &mut Sets) -> Result<(Map<String, Value>, bool)> {
                 other => {
                     return Err(anyhow!(
                         "IN-TYPE: sail does not implement {:?} yet, only HTTP, SOCKS5, MIXED, \
-                         REDIR, TPROXY and TUN",
+                         REDIR, TPROXY, SHADOWSOCKS and TUN",
                         other
                     ))
                 }
@@ -555,6 +556,7 @@ fn condition(s: &Split, sets: &mut Sets) -> Result<(Map<String, Value>, bool)> {
                 .iter()
                 .filter(|(_, k, _)| *k == kind)
                 .map(|(_, _, tag)| *tag)
+                .chain(sets.inbounds_of(kind))
                 .collect();
             rule.insert("inbound".into(), json!(tags));
             return Ok((rule, false));

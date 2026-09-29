@@ -31,6 +31,9 @@ pub struct Sets {
     /// Whether rule-sets may be named at all: not within a classical
     /// rule-provider.
     closed: bool,
+    /// The listeners, each its inbound type and name: what `IN-TYPE`
+    /// rules name besides Mihomo's own listeners.
+    inbounds: Vec<(String, String)>,
 }
 
 impl Sets {
@@ -51,6 +54,18 @@ impl Sets {
             .get(name)
             .copied()
             .ok_or_else(|| anyhow!("no rule-provider is named {:?}", name))
+    }
+
+    pub fn set_inbounds(&mut self, inbounds: Vec<(String, String)>) {
+        self.inbounds = inbounds;
+    }
+
+    /// The listeners of inbound type `kind`, by name.
+    pub fn inbounds_of<'a>(&'a self, kind: &'a str) -> impl Iterator<Item = &'a str> + 'a {
+        self.inbounds
+            .iter()
+            .filter(move |(k, _)| k == kind)
+            .map(|(_, name)| name.as_str())
     }
 
     /// The tag of the rule-set of the site list `name`.

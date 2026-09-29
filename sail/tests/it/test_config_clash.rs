@@ -39,6 +39,35 @@ fn a_clash_configuration_routes() -> anyhow::Result<()> {
     Ok(())
 }
 
+// app(socks) -> (listener)sail -> echo
+//
+// A listener with a proxy sends everything there, the rules, which reject
+// everything, notwithstanding; one without follows the rules.
+#[cfg(all(
+    feature = "config-clash",
+    feature = "inbound-mixed",
+    feature = "inbound-socks",
+    feature = "outbound-direct",
+    feature = "outbound-drop"
+))]
+#[test]
+fn a_listener_s_proxy_goes_before_the_rules() -> anyhow::Result<()> {
+    for (proxy, rejected) in [("proxy: DIRECT, ", false), ("", true)] {
+        let result = common::retry_port_clash(|| {
+            let [port] = common::free_ports();
+            let yaml = format!(
+                "log-level: silent\n\
+                 listeners:\n  - {{ name: IN, type: socks, listen: 127.0.0.1, {}port: {}, udp: true }}\n\
+                 rules:\n  - MATCH,REJECT\n",
+                proxy, port
+            );
+            common::test_configs(vec![yaml], "127.0.0.1", port)
+        });
+        assert_eq!(result.is_err(), rejected, "{:?}: {:?}", proxy, result);
+    }
+    Ok(())
+}
+
 // The same, by rule-providers read from files: Mihomo's binary (MRS) and
 // text forms of a set holding the loopback range.
 #[cfg(all(

@@ -21,6 +21,7 @@ mod fields;
 mod general;
 mod group;
 mod hosts;
+mod listeners;
 mod node;
 mod provider;
 mod proxy;
@@ -50,7 +51,10 @@ pub fn parse(s: &str) -> Result<Config> {
     let hosts = hosts::read(&mut doc, &mut warnings)?;
     dns::lower(&mut doc, &groups, &mut sets, &mut out, &mut warnings)?;
     hosts.apply(&mut out)?;
+    let listeners = listeners::lower(&mut doc, &groups, &mut out, &mut warnings)?;
+    sets.set_inbounds(listeners.kinds.clone());
     rule::lower(&mut doc, &groups, &mut sets, &mut out, &mut warnings)?;
+    listeners.apply(&mut out);
     sniffer::lower(&mut doc, &mut sets, &mut out, &mut warnings)?;
     tun::lower(&mut doc, fake_ip, &mut sets, &mut out, &mut warnings)?;
     out.rule_sets.extend(sets.into_geo_sets());
@@ -101,6 +105,8 @@ pub struct Lowered {
     pub route: Map<String, Value>,
     /// Mihomo's `mode`, which the Clash API may change.
     pub mode: Option<String>,
+    /// The users of `authentication`, which listeners take too.
+    pub authentication: Vec<Value>,
 }
 
 impl Lowered {
