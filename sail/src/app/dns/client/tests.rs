@@ -617,19 +617,19 @@ mod tests {
         let client = fake_ip_client();
         // Fake IPs, in turn, for as long as the domain has one.
         let a = exchange(&client, "a.example", RecordType::A).await;
-        assert_eq!(answer_ips(&a), ips(&["198.18.0.2"]));
+        assert_eq!(answer_ips(&a), ips(&["198.18.0.4"]));
         assert_eq!(a.answers()[0].ttl, 600);
         let b = exchange(&client, "b.example", RecordType::A).await;
-        assert_eq!(answer_ips(&b), ips(&["198.18.0.3"]));
+        assert_eq!(answer_ips(&b), ips(&["198.18.0.5"]));
         let again = exchange(&client, "a.example", RecordType::A).await;
-        assert_eq!(answer_ips(&again), ips(&["198.18.0.2"]));
+        assert_eq!(answer_ips(&again), ips(&["198.18.0.4"]));
         // No inet6_range: no records, and no error.
         let aaaa = exchange(&client, "a.example", RecordType::AAAA).await;
         assert_eq!(aaaa.response_code(), ResponseCode::NoError);
         assert!(aaaa.answers().is_empty());
         // What connections to them become.
         assert_eq!(
-            client.fake_ip("198.18.0.2".parse().unwrap()),
+            client.fake_ip("198.18.0.4".parse().unwrap()),
             super::FakeIp::Domain("a.example".into())
         );
         assert_eq!(
@@ -642,7 +642,7 @@ mod tests {
         );
         assert_eq!(
             client.fake_ip_of("b.example", false),
-            Some("198.18.0.3".parse().unwrap())
+            Some("198.18.0.5".parse().unwrap())
         );
 
         let refused = exchange(&client, "blocked.example", RecordType::A).await;
@@ -672,7 +672,7 @@ mod tests {
             .reloaded(&config.dns, Default::default(), &Default::default(), &Default::default())
             .unwrap();
         assert_eq!(
-            reloaded.fake_ip("198.18.0.2".parse().unwrap()),
+            reloaded.fake_ip("198.18.0.4".parse().unwrap()),
             super::FakeIp::Domain("a.example".into())
         );
         // Other ranges: a store of their own.
@@ -687,7 +687,7 @@ mod tests {
             .reloaded(&config.dns, Default::default(), &Default::default(), &Default::default())
             .unwrap();
         assert_eq!(
-            other.fake_ip("198.18.0.2".parse().unwrap()),
+            other.fake_ip("198.18.0.4".parse().unwrap()),
             super::FakeIp::NotFake
         );
     }
@@ -759,7 +759,7 @@ mod tests {
         let home = exchange(&client, "home.example", RecordType::A).await;
         assert_eq!(answer_ips(&home), ips(&["1.2.2.2"]));
         let away = exchange(&client, "away.example", RecordType::A).await;
-        assert_eq!(answer_ips(&away), ips(&["198.18.0.2"]));
+        assert_eq!(answer_ips(&away), ips(&["198.18.0.4"]));
         // The instance's own lookup passes over the fakeip server.
         let client = evaluating(serde_json::json!([
             { "query_type": "A", "action": "evaluate", "server": "abroad" },

@@ -1,6 +1,12 @@
 //! Fake IPs, as sing-box's `fakeip` server hands them out: an address of
 //! its ranges for each domain asked for, taken in turn, and the domain
 //! back for an address, so that a connection to one goes to the domain.
+//!
+//! As Mihomo's: the first four addresses of a range, its network's, the
+//! gateway a TUN device takes and the two after, are never handed out,
+//! nor taken for fake ones, so that a device and its DNS address may sit
+//! at the start of the range, as Mihomo puts them. sing-box starts handing
+//! out at the third.
 
 use std::collections::{HashMap, VecDeque};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
@@ -8,6 +14,9 @@ use std::sync::Mutex;
 
 use anyhow::{anyhow, Result};
 use cidr::IpCidr;
+
+/// The addresses at the start of a range that are not fake.
+const RESERVED: u128 = 4;
 
 /// The most domains each family keeps: an IPv6 range would otherwise grow
 /// without end, never coming round to its first address again.
@@ -37,17 +46,17 @@ impl Pool {
         Pool {
             first,
             last,
-            // As sing-box: the network's address and the next are not
-            // handed out, and the first handed out is the one after.
-            current: first + 1,
+            // The first handed out is the one after those reserved.
+            current: first + RESERVED - 1,
             domains: HashMap::new(),
             order: VecDeque::new(),
             v6,
         }
     }
 
+    /// Whether `n` is of the addresses it may hand out.
     fn contains(&self, n: u128) -> bool {
-        (self.first..=self.last).contains(&n)
+        (self.first + RESERVED..=self.last).contains(&n)
     }
 
     fn addr(&self, n: u128) -> IpAddr {
@@ -94,10 +103,10 @@ impl FakeIpStore {
             if cidr.is_ipv6() != v6 {
                 return Err(anyhow!("{}: \"{}\" is of the other family", field, range));
             }
-            // The network's address, the next, and the last are not handed
-            // out: at least one more is needed.
+            // Those reserved and the last are not handed out: at least one
+            // more is needed.
             let size_bits = if v6 { 128 } else { 32 } - cidr.network_length();
-            if size_bits < 2 {
+            if size_bits < 3 {
                 return Err(anyhow!("{}: \"{}\" is too small", field, range));
             }
             Ok(Some(Pool::new(cidr)))
@@ -146,7 +155,7 @@ impl FakeIpStore {
         }
         let mut next = pool.current + 1;
         if next >= pool.last {
-            next = pool.first + 2;
+            next = pool.first + RESERVED;
         }
         pool.current = next;
         // Taken again: its old domain goes, and its entry in `order` when
@@ -203,34 +212,29 @@ mod tests {
 
     #[test]
     fn addresses_are_handed_out_in_turn_and_come_round() {
-        let store = FakeIpStore::new(Some("198.18.0.0/30"), Some("fc00::/126")).unwrap();
-        // 198.18.0.0/30: .0 and .1 are not handed out, nor .3, the last.
+        let store = FakeIpStore::new(Some("198.18.0.0/29"), Some("fc00::/125")).unwrap();
+        let ip = |s: &str| s.parse::<IpAddr>().unwrap();
+        // 198.18.0.0/29: .0 to .3 are not handed out, nor .7, the last.
+        assert_eq!(store.create("a.example", false).unwrap(), ip("198.18.0.4"));
+        assert_eq!(store.create("a.example", false).unwrap(), ip("198.18.0.4"));
+        assert_eq!(store.create("b.example", false).unwrap(), ip("198.18.0.5"));
+        assert_eq!(store.create("c.example", false).unwrap(), ip("198.18.0.6"));
+        assert_eq!(store.create("d.example", false).unwrap(), ip("198.18.0.4"));
+        // d took a's address: a is forgotten.
         assert_eq!(
-            store.create("a.example", false).unwrap(),
-            "198.18.0.2".parse::<IpAddr>().unwrap()
-        );
-        assert_eq!(
-            store.create("a.example", false).unwrap(),
-            "198.18.0.2".parse::<IpAddr>().unwrap()
-        );
-        assert_eq!(
-            store.create("b.example", false).unwrap(),
-            "198.18.0.2".parse::<IpAddr>().unwrap()
-        );
-        // b took a's address: a is forgotten.
-        assert_eq!(
-            store.lookup("198.18.0.2".parse().unwrap()),
-            FakeIp::Domain("b.example".into())
+            store.lookup(ip("198.18.0.4")),
+            FakeIp::Domain("d.example".into())
         );
         assert_eq!(store.address_of("a.example", false), None);
+        assert_eq!(store.create("e.example", true).unwrap(), ip("fc00::4"));
+        assert_eq!(store.lookup(ip("fc00::5")), FakeIp::Unknown);
+        // Those reserved, a device's and its DNS address, are not fake.
+        assert_eq!(store.lookup(ip("198.18.0.1")), FakeIp::NotFake);
+        assert_eq!(store.lookup(ip("198.18.0.2")), FakeIp::NotFake);
+        assert_eq!(store.lookup(ip("fc00::1")), FakeIp::NotFake);
+        assert_eq!(store.lookup(ip("10.0.0.1")), FakeIp::NotFake);
         assert_eq!(
-            store.create("c.example", true).unwrap(),
-            "fc00::2".parse::<IpAddr>().unwrap()
-        );
-        assert_eq!(store.lookup("fc00::1".parse().unwrap()), FakeIp::Unknown);
-        assert_eq!(store.lookup("10.0.0.1".parse().unwrap()), FakeIp::NotFake);
-        assert_eq!(
-            store.lookup("::ffff:198.18.0.2".parse().unwrap()),
+            store.lookup(ip("::ffff:198.18.0.5")),
             FakeIp::Domain("b.example".into())
         );
     }
@@ -240,7 +244,7 @@ mod tests {
         for (v4, v6, message) in [
             (None, None, "set inet4_range"),
             (Some("fc00::/18"), None, "the other family"),
-            (Some("198.18.0.0/31"), None, "too small"),
+            (Some("198.18.0.0/30"), None, "too small"),
             (Some("198.18.0.0/40"), None, "invalid range"),
         ] {
             let err = FakeIpStore::new(v4, v6).err().unwrap().to_string();

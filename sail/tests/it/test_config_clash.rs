@@ -188,7 +188,7 @@ async fn a_clash_dns_answers_as_mihomo_s() {
             .collect()
     };
     let fake = ask("a.example", RecordType::A).await;
-    assert_eq!(ips(&fake), ["198.18.0.2".parse::<IpAddr>().unwrap()]);
+    assert_eq!(ips(&fake), ["198.18.0.4".parse::<IpAddr>().unwrap()]);
     // Mihomo's fake-ip-ttl, 1 unless set.
     assert_eq!(fake.answers[0].ttl, 1);
     let https = ask("a.example", RecordType::HTTPS).await;
