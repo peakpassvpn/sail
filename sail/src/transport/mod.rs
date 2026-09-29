@@ -14,6 +14,14 @@ pub mod grpc;
 pub mod httpupgrade;
 #[cfg(feature = "mux")]
 pub mod mux;
+#[cfg(any(
+    feature = "mux",
+    feature = "inbound-amux",
+    feature = "outbound-amux",
+    feature = "inbound-anytls",
+    feature = "outbound-anytls"
+))]
+pub mod muxcore;
 #[cfg(feature = "outbound-obfs")]
 pub mod obfs;
 #[cfg(feature = "quic")]

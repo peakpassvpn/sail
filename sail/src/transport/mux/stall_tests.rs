@@ -21,8 +21,8 @@ use crate::session::SocksAddr;
 
 use super::h2mux::H2Client;
 use super::server::{read_stream, Server};
-use super::session::{Flavor, FrameSession};
 use super::{encode_request, Protocol, StreamRequest};
+use crate::transport::muxcore::Session as FrameSession;
 
 /// Written at once.
 const CHUNK: usize = 16 << 10;
@@ -81,10 +81,9 @@ impl Client {
         conn.write_all(&encode_request(protocol, false))
             .await
             .unwrap();
-        match protocol {
-            Protocol::Smux => Client::Frames(FrameSession::new(conn, Flavor::Smux, false).0),
-            Protocol::Yamux => Client::Frames(FrameSession::new(conn, Flavor::Yamux, false).0),
-            Protocol::H2Mux => Client::H2(H2Client::new(conn).await.unwrap()),
+        match protocol.codec() {
+            Some(codec) => Client::Frames(FrameSession::new(conn, codec, false).0),
+            None => Client::H2(H2Client::new(conn).await.unwrap()),
         }
     }
 

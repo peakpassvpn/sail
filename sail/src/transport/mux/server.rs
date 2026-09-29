@@ -10,11 +10,11 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::mpsc;
 
 use crate::adapter::AnyStream;
+use crate::transport::muxcore::{Session as FrameSession, Stream as MuxStream};
 
 use super::h2mux::{self, H2Stream};
 use super::padding::PaddingStream;
-use super::session::{Flavor, FrameSession, MuxStream};
-use super::{read_request, Protocol, StreamRequest, STATUS_SUCCESS};
+use super::{read_request, StreamRequest, STATUS_SUCCESS};
 
 enum Inner {
     /// The session is kept for as long as streams may come.
@@ -40,21 +40,16 @@ impl Server {
         } else {
             conn
         };
-        let inner = match protocol {
-            Protocol::Smux | Protocol::Yamux => {
-                let flavor = if protocol == Protocol::Smux {
-                    Flavor::Smux
-                } else {
-                    Flavor::Yamux
-                };
-                let (session, accept) = FrameSession::new(conn, flavor, true);
+        let inner = match protocol.codec() {
+            Some(codec) => {
+                let (session, accept) = FrameSession::new(conn, codec, true);
                 let accept = accept.ok_or_else(|| io::Error::other("mux: not a server"))?;
                 Inner::Frames {
                     _session: session,
                     accept,
                 }
             }
-            Protocol::H2Mux => {
+            None => {
                 let (handle, accept) = h2mux::serve(conn);
                 Inner::H2(handle, accept)
             }

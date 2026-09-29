@@ -11,7 +11,7 @@
 //! while there are fewer than that many and the least busy carries at
 //! least `min_streams`; with `max_streams`, when every connection carries
 //! that many. Hard limits stand behind both: `MAX_CONNECTIONS` connections,
-//! `session::MAX_STREAMS` streams on one.
+//! `muxcore::MAX_STREAMS` streams on one.
 //!
 //! With `brutal`, as in sing-mux, there is one connection for all streams,
 //! and TCP Brutal is negotiated on it before it takes any (`brutal`).
@@ -32,12 +32,12 @@ use tracing::{debug, Instrument};
 use crate::adapter::*;
 use crate::session::{Network, Session, SocksAddr};
 use crate::transport::layers::Connector;
+use crate::transport::muxcore::{self, Session as FrameSession};
 
 use super::brutal::{self, Brutal};
 use super::h2mux::H2Client;
 use super::packet::ClientDatagram;
 use super::padding::PaddingStream;
-use super::session::{Flavor, FrameSession};
 use super::{
     encode_request, read_status, Protocol, StreamRequest, MAGIC_DOMAIN, MAGIC_PORT, STATUS_SUCCESS,
 };
@@ -84,10 +84,10 @@ impl ClientOptions {
         if max_connections.is_some_and(|n| n > MAX_CONNECTIONS) {
             return Err(format!("max_connections cannot exceed {}", MAX_CONNECTIONS));
         }
-        if max_streams.is_some_and(|n| n > super::session::MAX_STREAMS) {
+        if max_streams.is_some_and(|n| n > muxcore::MAX_STREAMS) {
             return Err(format!(
                 "max_streams cannot exceed {}",
-                super::session::MAX_STREAMS
+                muxcore::MAX_STREAMS
             ));
         }
         let (max_connections, min_streams) = match max_streams {
@@ -135,7 +135,7 @@ impl Conn {
 
     fn can_take_new_request(&self) -> bool {
         match self {
-            Conn::Frames(session) => session.num_streams() < super::session::MAX_STREAMS,
+            Conn::Frames(session) => session.num_streams() < muxcore::MAX_STREAMS,
             Conn::H2(client) => client.can_take_new_request(),
         }
     }
@@ -311,10 +311,9 @@ impl Client {
             conn
         };
         debug!("mux connection ({:?})", self.options.protocol);
-        let conn = match self.options.protocol {
-            Protocol::Smux => Conn::Frames(FrameSession::new(conn, Flavor::Smux, false).0),
-            Protocol::Yamux => Conn::Frames(FrameSession::new(conn, Flavor::Yamux, false).0),
-            Protocol::H2Mux => Conn::H2(H2Client::new(conn).await?),
+        let conn = match self.options.protocol.codec() {
+            Some(codec) => Conn::Frames(FrameSession::new(conn, codec, false).0),
+            None => Conn::H2(H2Client::new(conn).await?),
         };
         if let Some(brutal) = &self.options.brutal {
             if let Err(e) = brutal_exchange(&conn, brutal, socket.as_ref()).await {

@@ -37,7 +37,8 @@ pub mod inbound;
 pub mod packet;
 mod padding;
 pub mod server;
-mod session;
+#[cfg(test)]
+mod session_tests;
 mod smux;
 #[cfg(test)]
 mod stall_tests;
@@ -61,6 +62,16 @@ pub enum Protocol {
 }
 
 impl Protocol {
+    /// The frames of a protocol the session core carries; h2mux has
+    /// sessions of its own.
+    fn codec(self) -> Option<std::sync::Arc<dyn crate::transport::muxcore::Codec>> {
+        match self {
+            Protocol::Smux => Some(std::sync::Arc::new(smux::Smux)),
+            Protocol::Yamux => Some(std::sync::Arc::new(yamux::Yamux)),
+            Protocol::H2Mux => None,
+        }
+    }
+
     pub fn from_name(name: &str) -> Option<Protocol> {
         match name {
             "smux" => Some(Protocol::Smux),

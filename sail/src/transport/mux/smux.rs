@@ -6,21 +6,21 @@
 //! See <https://github.com/SagerNet/smux>.
 
 use std::io;
-use std::sync::Arc;
 
-use bytes::{BufMut, Bytes, BytesMut};
-use tokio::io::{AsyncRead, AsyncReadExt};
+use bytes::{Buf, BufMut, Bytes, BytesMut};
 
-use super::session::{refuse_frame, Flavor, Shared};
+use crate::transport::muxcore::{Closing, Codec, Decoder, Event, Flow, Framing};
 
 const VERSION: u8 = 1;
-pub const CMD_SYN: u8 = 0;
-pub const CMD_FIN: u8 = 1;
-pub const CMD_PSH: u8 = 2;
-pub const CMD_NOP: u8 = 3;
+const CMD_SYN: u8 = 0;
+const CMD_FIN: u8 = 1;
+const CMD_PSH: u8 = 2;
+const CMD_NOP: u8 = 3;
 const HEADER: usize = 8;
+/// The largest data frame sent.
+const MAX_FRAME_DATA: usize = 32 << 10;
 
-pub fn frame(cmd: u8, id: u32, data: &[u8]) -> Bytes {
+fn frame(cmd: u8, id: u32, data: &[u8]) -> Bytes {
     let mut buf = BytesMut::with_capacity(HEADER + data.len());
     buf.put_u8(VERSION);
     buf.put_u8(cmd);
@@ -30,55 +30,95 @@ pub fn frame(cmd: u8, id: u32, data: &[u8]) -> Bytes {
     buf.freeze()
 }
 
-pub async fn read_loop<R: AsyncRead + Unpin>(shared: &Arc<Shared>, mut r: R) -> io::Result<()> {
-    let mut header = [0u8; HEADER];
-    loop {
-        shared.wait_for_room().await;
-        match r.read_exact(&mut header).await {
-            Ok(_) => {}
-            Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => return Ok(()),
-            Err(e) => return Err(e),
+pub struct Smux;
+
+impl Codec for Smux {
+    fn name(&self) -> &'static str {
+        "smux"
+    }
+
+    fn flow(&self) -> Flow {
+        Flow::Pause
+    }
+
+    fn closing(&self) -> Closing {
+        Closing::OnDrop
+    }
+
+    fn max_data(&self) -> usize {
+        MAX_FRAME_DATA
+    }
+
+    /// smux counts from 1 on a client and from 0 on a server, and opens
+    /// with the next.
+    fn first_id(&self, server: bool) -> u32 {
+        if server {
+            2
+        } else {
+            3
         }
-        if header[0] != VERSION {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("smux: unsupported version {}", header[0]),
-            ));
-        }
-        let len = u16::from_le_bytes([header[2], header[3]]) as usize;
-        let id = u32::from_le_bytes([header[4], header[5], header[6], header[7]]);
-        match header[1] {
-            CMD_NOP => {}
-            CMD_SYN => {
-                let mut state = shared.lock();
-                if !state.streams.contains_key(&id) && !shared.accept(&mut state, id) {
-                    state.out.push(refuse_frame(Flavor::Smux, id));
-                    shared.check_out(&mut state)?;
-                    drop(state);
-                    shared.wake_writer();
-                }
+    }
+
+    fn open(&self, id: u32) -> Bytes {
+        frame(CMD_SYN, id, &[])
+    }
+
+    fn refuse(&self, id: u32) -> Bytes {
+        frame(CMD_FIN, id, &[])
+    }
+
+    fn data(&self, id: u32, data: &[u8]) -> Bytes {
+        frame(CMD_PSH, id, data)
+    }
+
+    fn fin(&self, id: u32) -> Bytes {
+        frame(CMD_FIN, id, &[])
+    }
+
+    fn reset(&self, id: u32) -> Bytes {
+        frame(CMD_FIN, id, &[])
+    }
+
+    fn decoder(&self, _server: bool) -> Box<dyn Decoder> {
+        Box::<SmuxDecoder>::default()
+    }
+}
+
+#[derive(Default)]
+struct SmuxDecoder {
+    framing: Framing,
+}
+
+impl Decoder for SmuxDecoder {
+    fn decode(&mut self, buf: &mut BytesMut) -> io::Result<Option<Event>> {
+        loop {
+            if let Some(next) = self.framing.next(buf) {
+                return Ok(next);
             }
-            CMD_FIN => {
-                let mut state = shared.lock();
-                if let Some(slot) = state.streams.get_mut(&id) {
-                    slot.remote_fin = true;
-                    slot.wake();
-                }
+            if buf.len() < HEADER {
+                return Ok(None);
             }
-            CMD_PSH => {
-                if len == 0 {
-                    continue;
-                }
-                let mut data = BytesMut::zeroed(len);
-                r.read_exact(&mut data).await?;
-                let mut state = shared.lock();
-                shared.deliver(&mut state, id, data.freeze());
-            }
-            cmd => {
+            if buf[0] != VERSION {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
-                    format!("smux: unknown command {}", cmd),
-                ))
+                    format!("smux: unsupported version {}", buf[0]),
+                ));
+            }
+            let cmd = buf[1];
+            let len = u16::from_le_bytes([buf[2], buf[3]]) as usize;
+            let id = u32::from_le_bytes([buf[4], buf[5], buf[6], buf[7]]);
+            buf.advance(HEADER);
+            match cmd {
+                CMD_NOP => {}
+                CMD_SYN => self.framing.frame(&[Event::Open(id)], None, &[]),
+                CMD_FIN => self.framing.frame(&[Event::Fin(id)], None, &[]),
+                CMD_PSH => self.framing.frame(&[], Some((id, len)), &[]),
+                cmd => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!("smux: unknown command {}", cmd),
+                    ))
+                }
             }
         }
     }

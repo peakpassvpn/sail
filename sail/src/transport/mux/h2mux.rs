@@ -19,7 +19,7 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::mpsc;
 use tracing::debug;
 
-use super::session::MAX_STREAMS;
+use crate::transport::muxcore::MAX_STREAMS;
 
 const STREAM_WINDOW: u32 = if crate::runtime::options::MOBILE {
     2 << 20
