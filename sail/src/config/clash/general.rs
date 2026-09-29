@@ -25,7 +25,6 @@ pub const TOP: &[(&str, Tier)] = &[
     ("external-doh-server", Ignored),
     ("secret", Ignored),
     ("tls", Ignored),
-    ("profile", Ignored),
     // How connections are made and timed, not where they go.
     ("unified-delay", Ignored),
     ("tcp-concurrent", Ignored),
@@ -67,11 +66,37 @@ pub fn lower(doc: &mut Fields, out: &mut Lowered, warnings: &mut Vec<String>) ->
     log(doc, out)?;
     listeners(doc, out, warnings)?;
     mode(doc, out)?;
+    profile(doc, out, warnings)?;
     if let Some(name) = doc.string("interface-name")? {
         out.route.insert("default_interface".into(), json!(name));
     }
     if let Some(mark) = doc.int::<u32>("routing-mark")? {
         out.route.insert("default_mark".into(), json!(mark));
+    }
+    Ok(())
+}
+
+/// `profile`, as sing-box's cache file: kept with `store-selected`, as by
+/// default, or `store-fake-ip`, fake IPs too with the latter. Where sail
+/// does otherwise: the file keeps the selections with it, and Clash's
+/// mode, even with `store-selected: false`.
+fn profile(doc: &mut Fields, out: &mut Lowered, warnings: &mut Vec<String>) -> Result<()> {
+    let (selected, fake_ip) = match doc.map("profile")? {
+        None => (true, false),
+        Some(mut f) => {
+            let selected = f.bool("store-selected")?.unwrap_or(true);
+            let fake_ip = f.bool("store-fake-ip")?.unwrap_or(false);
+            f.finish(&[], |_| false, warnings)?;
+            (selected, fake_ip)
+        }
+    };
+    if selected || fake_ip {
+        let mut cache = serde_json::Map::new();
+        cache.insert("enabled".into(), json!(true));
+        if fake_ip {
+            cache.insert("store_fakeip".into(), json!(true));
+        }
+        out.cache_file = Some(cache);
     }
     Ok(())
 }

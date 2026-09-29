@@ -109,6 +109,8 @@ pub struct Lowered {
     pub route: Map<String, Value>,
     /// Mihomo's `mode`, which the Clash API may change.
     pub mode: Option<String>,
+    /// What is kept across restarts, as `profile` says.
+    pub cache_file: Option<Map<String, Value>>,
     /// The users of `authentication`, which listeners take too.
     pub authentication: Vec<Value>,
     /// The inbounds that authenticate as `authentication` says, which
@@ -136,8 +138,15 @@ impl Lowered {
         if !self.outbound_providers.is_empty() {
             config["outbound_providers"] = Value::Array(self.outbound_providers);
         }
+        let mut experimental = Map::new();
         if let Some(mode) = self.mode {
-            config["experimental"] = json!({ "clash_api": { "default_mode": mode } });
+            experimental.insert("clash_api".into(), json!({ "default_mode": mode }));
+        }
+        if let Some(cache) = self.cache_file {
+            experimental.insert("cache_file".into(), Value::Object(cache));
+        }
+        if !experimental.is_empty() {
+            config["experimental"] = Value::Object(experimental);
         }
         config
     }

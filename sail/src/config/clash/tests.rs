@@ -1694,3 +1694,27 @@ fn process_name_regex_and_path_in_bundle() {
         .iter()
         .any(|w| w.contains("rule-providers.cn.path-in-bundle")));
 }
+
+#[test]
+fn the_profile_is_sing_box_s_cache_file() {
+    let cache = |yaml: &str| {
+        let config = load(yaml);
+        serde_json::to_value(&config.experimental).unwrap()["cache_file"].clone()
+    };
+    // Selections kept, as Mihomo keeps them by default.
+    assert_eq!(
+        cache("rules: [\"MATCH,DIRECT\"]"),
+        serde_json::json!({ "enabled": true })
+    );
+    assert_eq!(
+        cache("profile: { store-fake-ip: true }\nrules: [\"MATCH,DIRECT\"]"),
+        serde_json::json!({ "enabled": true, "store_fakeip": true })
+    );
+    assert!(cache("profile: { store-selected: false }\nrules: [\"MATCH,DIRECT\"]").is_null());
+    let config =
+        load("profile: { store-selected: true, tracing: true }\nrules: [\"MATCH,DIRECT\"]");
+    assert!(config
+        .warnings
+        .iter()
+        .any(|w| w.contains("profile.tracing: not a field Mihomo takes")));
+}
