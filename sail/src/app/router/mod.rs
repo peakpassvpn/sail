@@ -1039,6 +1039,54 @@ mod tests {
         assert!(seen[2..].iter().all(Option::is_none), "{:?}", seen);
     }
 
+    /// An armed resolve sends its queries as the rule that armed it says,
+    /// and asks once however many rules on addresses follow.
+    #[tokio::test]
+    async fn an_on_demand_resolve_sends_its_queries_as_it_says() {
+        let (port, seen) = recording_server().await;
+        let config = crate::config::Config::from_json(
+            &serde_json::json!({
+                "dns": { "servers": [
+                    { "type": "udp", "tag": "up", "server": "127.0.0.1", "server_port": port }
+                ] },
+                "outbounds": [{ "type": "direct", "tag": "a" }, { "type": "direct", "tag": "b" }],
+                "route": { "rules": [
+                    { "action": "resolve", "on_demand": true, "strategy": "ipv4_only",
+                      "disable_cache": true, "client_subnet": "1.2.3.0/24" },
+                    { "domain": "early.sail", "outbound": "b" },
+                    { "ip_cidr": ["192.0.2.0/24"], "outbound": "b" },
+                    { "ip_cidr": ["10.0.0.0/8"], "outbound": "a" },
+                ], "final": "b" },
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let dns = DnsClient::new(&config.dns, Default::default(), &Default::default())
+            .unwrap()
+            .into_shared();
+        let router = Router::new(&config.route, dns, &RuntimeEnv::default()).unwrap();
+        assert_eq!(
+            pick(&router, &mut to("early.sail:80")).await,
+            Decision::Route(Some("b".into()))
+        );
+        assert!(seen.lock().unwrap().is_empty());
+        for _ in 0..2 {
+            assert_eq!(
+                pick(&router, &mut to("late.sail:80")).await,
+                Decision::Route(Some("a".into()))
+            );
+        }
+        // Uncached, asked each time, once, with the client subnet.
+        let seen = seen.lock().unwrap().clone();
+        assert_eq!(seen.len(), 2, "{:?}", seen);
+        assert!(
+            seen.iter()
+                .all(|s| s.as_deref().is_some_and(|s| s.contains("1.2.3.0"))),
+            "{:?}",
+            seen
+        );
+    }
+
     fn to(destination: &str) -> Session {
         Session {
             destination: match destination.parse::<std::net::SocketAddr>() {
