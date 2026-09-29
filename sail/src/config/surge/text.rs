@@ -73,6 +73,7 @@ impl Profile {
 
     /// Reads a list, lines of the section `section` without its header
     /// (a `policy-path`'s policies), as a profile; it includes no files.
+    #[cfg(feature = "outbound-provider")]
     pub fn read_list(text: &str, section: &str, warnings: &mut Vec<String>) -> Result<Self> {
         let mut reader = Reader {
             warnings,

@@ -277,6 +277,7 @@ enum Form {
     /// An outbound, from a share link or a Surge policy line.
     Outbound(Value),
     /// A Surge policy line that does not read, and why.
+    #[cfg_attr(not(feature = "config-surge"), allow(dead_code))]
     Unread(String),
 }
 
@@ -571,6 +572,7 @@ proxies:
             .contains("cipher"));
     }
 
+    #[cfg(feature = "config-surge")]
     const SURGE: &str = "# nodes\n\
         🇭🇰 HK 01 = ss, hk.example.com, 8388, encrypt-method=aes-128-gcm, password=pw, udp-relay=true\n\
         🇯🇵 JP 01 = trojan, jp.example.com, 443, password=pw, sni=jp.example.com\n\

@@ -170,6 +170,7 @@ pub fn lower(
 
 /// A policy a `policy-path` holds: its name, and its outbound, or why
 /// sail cannot use it.
+#[cfg(feature = "outbound-provider")]
 pub struct External {
     pub name: String,
     pub outbound: Result<Value>,
@@ -180,6 +181,7 @@ pub struct External {
 /// `[WireGuard <name>]` sections, holds them. None when it is neither, no
 /// line of it being a policy. A line that does not read is not taken, as
 /// by Surge; the warnings of those that do are `warnings`.
+#[cfg(feature = "outbound-provider")]
 pub fn external(body: &str, warnings: &mut Vec<String>) -> Result<Option<Vec<External>>> {
     // Not a share link, whose query may read `?type=http`.
     let policy = |line: &str| {

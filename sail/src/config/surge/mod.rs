@@ -53,6 +53,7 @@ mod sections;
 mod sets;
 mod text;
 
+#[cfg(feature = "outbound-provider")]
 pub(crate) use proxy::external;
 use text::Profile;
 pub use text::{include_path, remote_includes};
