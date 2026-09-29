@@ -28,12 +28,25 @@
 //! How many sessions and streams there are, and how many were reset for
 //! stalling, is counted per protocol (`stats`).
 
+// Without a protocol on the core, only the stall timer is used (QUIC).
+#![cfg_attr(
+    not(any(
+        feature = "mux",
+        feature = "inbound-amux",
+        feature = "outbound-amux",
+        feature = "inbound-anytls",
+        feature = "outbound-anytls"
+    )),
+    allow(dead_code, unused_imports)
+)]
+
 use std::io;
 use std::time::Duration;
 
 use bytes::{Bytes, BytesMut};
 
 mod session;
+pub mod stall;
 pub mod stats;
 
 pub use session::{Session, Stream, MAX_STREAMS};
@@ -51,6 +64,9 @@ pub struct Tuning {
     pub inbox: usize,
     /// A stream whose data nothing has read for this long is reset.
     pub stall_timeout: Duration,
+    /// h2mux: every stream's window, which does not grow; the
+    /// connection's is eight times as much.
+    pub h2_stream_window: u32,
 }
 
 impl Default for Tuning {
@@ -67,6 +83,11 @@ impl From<&crate::runtime::options::Mux> for Tuning {
                 .max(INITIAL_WINDOW),
             inbox: mux.stream_buffer.saturating_mul(1024).max(16 << 10),
             stall_timeout: mux.stall_timeout.max(Duration::from_secs(1)),
+            // A quarter of what a window grows to: 4 MiB, 2 on the mobile
+            // profile, 1 on the router one.
+            h2_stream_window: u32::try_from(mux.stream_window_max.saturating_mul(1024) / 4)
+                .unwrap_or(u32::MAX)
+                .max(1 << 20),
         }
     }
 }
@@ -74,7 +95,7 @@ impl From<&crate::runtime::options::Mux> for Tuning {
 impl Tuning {
     /// How often streams are checked for stalling.
     fn stall_check(&self) -> Duration {
-        (self.stall_timeout / 4).min(Duration::from_secs(5))
+        stall::check_interval(self.stall_timeout)
     }
 }
 

@@ -10,10 +10,6 @@ use std::time::Duration;
 use anyhow::{anyhow, Result};
 use serde_derive::{Deserialize, Serialize};
 
-/// Whether sail is built for a phone, for what cannot see the profile it
-/// runs with: the profile says so where it can be seen.
-pub const MOBILE: bool = cfg!(any(target_os = "ios", target_os = "android"));
-
 /// A resource budget to start from.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Profile {
@@ -215,7 +211,8 @@ pub struct Mux {
     /// The largest a stream's receive window grows to, in KiB (yamux,
     /// amux). Windows start at 256 KiB and double while a stream is read
     /// faster than its window lets data in, so that one stream can fill a
-    /// long fat link.
+    /// long fat link. h2mux's windows, which do not grow, are a quarter of
+    /// it a stream and twice it a connection.
     pub stream_window_max: usize,
     /// What a stream of a protocol without windows (smux, AnyTLS) holds
     /// unread, in KiB, before its connection stops being read.

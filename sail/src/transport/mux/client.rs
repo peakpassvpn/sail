@@ -333,7 +333,7 @@ impl Client {
             Some(codec) => Conn::Frames(
                 FrameSession::new(conn, codec, false, self.tuning, self.label.as_str()).0,
             ),
-            None => Conn::H2(H2Client::new(conn).await?),
+            None => Conn::H2(H2Client::new(conn, self.tuning, &self.label).await?),
         };
         let conn = Arc::new(conn);
         if let Some(brutal) = &self.options.brutal {

@@ -19,7 +19,8 @@ pub mod mux;
     feature = "inbound-amux",
     feature = "outbound-amux",
     feature = "inbound-anytls",
-    feature = "outbound-anytls"
+    feature = "outbound-anytls",
+    feature = "quic"
 ))]
 pub mod muxcore;
 #[cfg(feature = "outbound-obfs")]

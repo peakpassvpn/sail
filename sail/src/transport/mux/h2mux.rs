@@ -1,8 +1,10 @@
 //! h2mux: every stream is an HTTP/2 CONNECT request, its body one way and
 //! the response's the other, as sing-mux carries streams over HTTP/2.
 //!
-//! HTTP/2 flow control bounds what waits unread: `STREAM_WINDOW` a stream,
-//! `CONNECTION_WINDOW` a connection.
+//! HTTP/2 flow control bounds what waits unread: `Tuning::h2_stream_window`
+//! a stream, eight times that a connection. A stream whose data nothing
+//! reads for the stall timeout is reset, alone (`muxcore::stall`), and
+//! gives its connection its window back.
 
 use std::io;
 use std::pin::Pin;
@@ -19,14 +21,11 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::mpsc;
 use tracing::debug;
 
-use crate::transport::muxcore::MAX_STREAMS;
+use crate::transport::muxcore::stall::{Guarded, Stallable};
+use crate::transport::muxcore::{Tuning, MAX_STREAMS};
 
-const STREAM_WINDOW: u32 = if crate::runtime::options::MOBILE {
-    2 << 20
-} else {
-    4 << 20
-};
-const CONNECTION_WINDOW: u32 = 8 * STREAM_WINDOW;
+/// A connection's window, in stream windows.
+const CONNECTION_WINDOWS: u32 = 8;
 /// Written into one stream's send buffer at once.
 const MAX_WRITE: usize = 32 << 10;
 /// Streams accepted and not yet taken by the server.
@@ -57,19 +56,22 @@ impl Drop for Active {
 
 pub struct H2Client {
     send: h2::client::SendRequest<Bytes>,
+    tuning: Tuning,
+    label: Arc<str>,
     closed: Arc<AtomicBool>,
     active: Arc<AtomicUsize>,
     task: AbortHandle,
 }
 
 impl H2Client {
-    pub async fn new<S>(conn: S) -> io::Result<Self>
+    /// A client over `conn`; `label` says who it serves in logs.
+    pub async fn new<S>(conn: S, tuning: Tuning, label: &str) -> io::Result<Self>
     where
         S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
     {
         let (send, connection) = h2::client::Builder::new()
-            .initial_window_size(STREAM_WINDOW)
-            .initial_connection_window_size(CONNECTION_WINDOW)
+            .initial_window_size(tuning.h2_stream_window)
+            .initial_connection_window_size(CONNECTION_WINDOWS * tuning.h2_stream_window)
             .max_concurrent_streams(0)
             .handshake(conn)
             .await
@@ -87,6 +89,8 @@ impl H2Client {
         tokio::spawn(driver);
         Ok(H2Client {
             send,
+            tuning,
+            label: label.into(),
             closed,
             active: Arc::new(AtomicUsize::new(0)),
             task,
@@ -101,14 +105,15 @@ impl H2Client {
             .body(())
             .map_err(io::Error::other)?;
         let (response, stream) = send.send_request(request, false).map_err(h2_error)?;
-        Ok(H2Stream {
+        let stream = H2Inner {
             response: Some(response),
             recv: None,
             send: stream,
             received: Bytes::new(),
             ended: false,
             _active: Active::new(&self.active),
-        })
+        };
+        Ok(guard(stream, &self.tuning, self.label.clone()))
     }
 
     pub fn num_streams(&self) -> usize {
@@ -137,16 +142,17 @@ impl Drop for H2Client {
 }
 
 /// Serves HTTP/2 on `conn`: the streams come out of the receiver. The
-/// handle stops serving.
-pub fn serve<S>(conn: S) -> (AbortHandle, mpsc::Receiver<H2Stream>)
+/// handle stops serving. `label` says who it serves in logs.
+pub fn serve<S>(conn: S, tuning: Tuning, label: &str) -> (AbortHandle, mpsc::Receiver<H2Stream>)
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
     let (tx, rx) = mpsc::channel(ACCEPT_QUEUE);
+    let label: Arc<str> = label.into();
     let (task, handle) = abortable(async move {
         let mut connection = match h2::server::Builder::new()
-            .initial_window_size(STREAM_WINDOW)
-            .initial_connection_window_size(CONNECTION_WINDOW)
+            .initial_window_size(tuning.h2_stream_window)
+            .initial_connection_window_size(CONNECTION_WINDOWS * tuning.h2_stream_window)
             .max_concurrent_streams(MAX_STREAMS as u32)
             .handshake::<_, Bytes>(conn)
             .await
@@ -187,7 +193,7 @@ where
             if status != StatusCode::OK {
                 continue;
             }
-            let stream = H2Stream {
+            let stream = H2Inner {
                 response: None,
                 recv: Some(request.into_body()),
                 send,
@@ -195,6 +201,7 @@ where
                 ended: false,
                 _active: Active::new(&active),
             };
+            let stream = guard(stream, &tuning, label.clone());
             if tx.try_send(stream).is_err() {
                 debug!("h2mux: too many streams waiting, one refused");
             }
@@ -204,8 +211,15 @@ where
     (handle, rx)
 }
 
-/// One stream: a CONNECT request, from either end.
-pub struct H2Stream {
+/// One stream: a CONNECT request, from either end, watched by the stall
+/// timer.
+pub type H2Stream = Guarded<H2Inner>;
+
+fn guard(stream: H2Inner, tuning: &Tuning, label: Arc<str>) -> H2Stream {
+    Guarded::new(stream, "h2mux", tuning.stall_timeout, label)
+}
+
+pub struct H2Inner {
     /// On a client, until the response comes.
     response: Option<ResponseFuture>,
     recv: Option<RecvStream>,
@@ -216,7 +230,31 @@ pub struct H2Stream {
     _active: Active,
 }
 
-impl AsyncRead for H2Stream {
+impl Stallable for H2Inner {
+    fn id(&mut self) -> u64 {
+        u64::from(u32::from(self.send.stream_id()))
+    }
+
+    fn buffered(&mut self) -> Option<usize> {
+        let held = self
+            .recv
+            .as_mut()
+            .map_or(0, |recv| recv.flow_control().used_capacity());
+        Some(self.received.len() + held)
+    }
+
+    /// RST_STREAM: what the stream holds is dropped, and its window goes
+    /// back to the connection.
+    fn reset(&mut self) {
+        self.send.send_reset(h2::Reason::CANCEL);
+        self.recv = None;
+        self.response = None;
+        self.received = Bytes::new();
+        self.ended = true;
+    }
+}
+
+impl AsyncRead for H2Inner {
     fn poll_read(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -259,7 +297,7 @@ impl AsyncRead for H2Stream {
     }
 }
 
-impl AsyncWrite for H2Stream {
+impl AsyncWrite for H2Inner {
     fn poll_write(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,

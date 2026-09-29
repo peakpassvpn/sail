@@ -7,8 +7,8 @@
 //! yamux has a window a stream, which bounds what waits and lets the
 //! reader go on. smux has none: a stream's full inbox stops the reader
 //! until the stream is reset for stalling, here after a second rather
-//! than a minute. h2mux has a window a stream and one the connection; the
-//! one ignored fails today.
+//! than a minute. h2mux has a window a stream and one the connection,
+//! which stuck streams give back when they are reset.
 
 use std::time::Duration;
 
@@ -34,15 +34,16 @@ const PATIENCE: Duration = Duration::from_secs(5);
 /// Echoed on the stream that should go on.
 const ECHO: usize = 64 << 10;
 
-/// Without windows, a stuck stream holds the reader until it is reset:
-/// a second here.
+/// Without windows, a stuck stream holds the reader until it is reset;
+/// with h2mux's, stuck streams hold the connection's window until they
+/// are. A second here.
 fn tuning(protocol: Protocol) -> Tuning {
     match protocol {
-        Protocol::Smux => Tuning {
+        Protocol::Smux | Protocol::H2Mux => Tuning {
             stall_timeout: Duration::from_secs(1),
             ..Tuning::default()
         },
-        _ => Tuning::default(),
+        Protocol::Yamux => Tuning::default(),
     }
 }
 
@@ -102,7 +103,7 @@ impl Client {
             Some(codec) => {
                 Client::Frames(FrameSession::new(conn, codec, false, tuning(protocol), "test").0)
             }
-            None => Client::H2(H2Client::new(conn).await.unwrap()),
+            None => Client::H2(H2Client::new(conn, tuning(protocol), "test").await.unwrap()),
         }
     }
 
@@ -249,11 +250,16 @@ fn h2mux_a_stuck_stream_does_not_stall_the_others() {
     runtime().block_on(others_go_on(Protocol::H2Mux, 1, 4 << 20));
 }
 
-/// Five full stream windows of 1 MiB are more than the connection's.
 #[test]
-#[ignore = "fails: 5 unread h2mux streams take the whole 4 MiB connection window"]
 fn h2mux_five_stuck_streams_do_not_stall_the_others() {
     runtime().block_on(others_go_on(Protocol::H2Mux, 5, 2 << 20));
+}
+
+/// Seventeen streams of 2 MiB unread take more than the connection's
+/// 32 MiB window, until they are reset for stalling and give it back.
+#[test]
+fn h2mux_seventeen_stuck_streams_give_their_window_back() {
+    runtime().block_on(others_go_on(Protocol::H2Mux, 17, 2 << 20));
 }
 
 #[test]

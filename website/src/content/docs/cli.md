@@ -66,9 +66,9 @@ The streams of multiplexed connections (sing-mux smux and yamux, AnyTLS, amux) t
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
-| `mux.stream_window_max` | `16384` (KiB); `8192` on `mobile`, `4096` on `router` | The largest a stream's receive window grows to (yamux, amux). Windows start at 256 KiB and double while a stream is read faster than its window lets data in. |
+| `mux.stream_window_max` | `16384` (KiB); `8192` on `mobile`, `4096` on `router` | The largest a stream's receive window grows to (yamux, amux). Windows start at 256 KiB and double while a stream is read faster than its window lets data in. h2mux takes a quarter of it a stream and twice it a connection. |
 | `mux.stream_buffer` | `256` (KiB) | What a stream of a protocol without windows (smux, AnyTLS) holds unread before its connection stops being read. |
-| `mux.stall_timeout` | `60s` | A stream whose data nothing has read for this long is reset, alone, and logged as `event=stream_stalled`. |
+| `mux.stall_timeout` | `60s` | A stream whose data nothing has read for this long is reset, alone, and logged as `event=stream_stalled`; h2mux streams too. QUIC streams (Hysteria2, TUIC) are reset after 60 s. |
 
 The API's `/api/v1/runtime/stat/mux` counts their sessions, streams and stalled streams per protocol.
 

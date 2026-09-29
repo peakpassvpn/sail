@@ -23,7 +23,7 @@ use futures::future::{abortable, AbortHandle};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
 use tokio::sync::{mpsc, Notify};
 use tokio::time::Instant;
-use tracing::{debug, trace, warn};
+use tracing::{debug, trace};
 
 use super::stats::{self, Counters};
 use super::{Closing, Codec, Event, Flow, Tuning, INITIAL_WINDOW};
@@ -401,13 +401,12 @@ impl Shared {
             if idle < self.tuning.stall_timeout {
                 continue;
             }
-            warn!(
-                "event=stream_stalled protocol={} {} stream={} buffered={} idle={}s",
+            super::stall::log(
                 self.codec.name(),
-                self.label,
-                id,
-                slot.inbox,
-                idle.as_secs()
+                &self.label,
+                u64::from(*id),
+                Some(slot.inbox),
+                idle,
             );
             if self.flow == Flow::Pause && slot.inbox >= self.tuning.inbox {
                 state.full -= 1;

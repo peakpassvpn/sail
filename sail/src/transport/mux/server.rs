@@ -51,7 +51,7 @@ impl Server {
                 }
             }
             None => {
-                let (handle, accept) = h2mux::serve(conn);
+                let (handle, accept) = h2mux::serve(conn, tuning, label);
                 Inner::H2(handle, accept)
             }
         };

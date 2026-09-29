@@ -22,6 +22,7 @@ use crate::net::DialOptions;
 use crate::runtime::options::Quic as Tuning;
 use crate::runtime::RuntimeEnv;
 use crate::transport::layers::{trusted_certificate, InboundTls, Listable, OutboundTls};
+use crate::transport::muxcore::stall::{Guarded, Stallable, STALL_TIMEOUT};
 use crate::transport::tls::client::{load_certificates, load_private_key};
 
 /// The ALPNs of a `tls` block's `alpn`, or `default` when it lists none.
@@ -259,9 +260,12 @@ pub fn endpoint_on(
 /// the stream, a reset or a STOP_SENDING fails with `ConnectionReset`, a
 /// lost connection with `NotConnected`. Shutting down finishes our side,
 /// and so does dropping the stream.
+///
+/// A stream whose reader has not come back for data for the stall timeout
+/// is reset both ways, alone (`muxcore::stall`): what it holds would
+/// otherwise count against its connection's window for as long.
 pub struct QuicStream<G = ()> {
-    send: quinn::SendStream,
-    recv: quinn::RecvStream,
+    io: Guarded<Halves>,
     _guard: G,
 }
 
@@ -274,14 +278,37 @@ impl QuicStream {
 impl<G> QuicStream<G> {
     pub fn guarded(send: quinn::SendStream, recv: quinn::RecvStream, guard: G) -> Self {
         Self {
-            send,
-            recv,
+            io: Guarded::new(Halves { send, recv }, "quic", STALL_TIMEOUT, "".into()),
             _guard: guard,
         }
     }
 }
 
-impl<G: Unpin> AsyncRead for QuicStream<G> {
+/// A QUIC stream's two halves.
+struct Halves {
+    send: quinn::SendStream,
+    recv: quinn::RecvStream,
+}
+
+impl Stallable for Halves {
+    fn id(&mut self) -> u64 {
+        self.send.id().index()
+    }
+
+    /// quinn does not say.
+    fn buffered(&mut self) -> Option<usize> {
+        None
+    }
+
+    /// STOP_SENDING and RESET_STREAM: what the stream holds is dropped,
+    /// and its credit goes back to the connection.
+    fn reset(&mut self) {
+        let _ = self.recv.stop(0u32.into());
+        let _ = self.send.reset(0u32.into());
+    }
+}
+
+impl AsyncRead for Halves {
     fn poll_read(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -291,7 +318,7 @@ impl<G: Unpin> AsyncRead for QuicStream<G> {
     }
 }
 
-impl<G: Unpin> AsyncWrite for QuicStream<G> {
+impl AsyncWrite for Halves {
     fn poll_write(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -309,6 +336,34 @@ impl<G: Unpin> AsyncWrite for QuicStream<G> {
 
     fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         Pin::new(&mut self.send).poll_shutdown(cx)
+    }
+}
+
+impl<G: Unpin> AsyncRead for QuicStream<G> {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.io).poll_read(cx, buf)
+    }
+}
+
+impl<G: Unpin> AsyncWrite for QuicStream<G> {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        Pin::new(&mut self.io).poll_write(cx, buf)
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.io).poll_flush(cx)
+    }
+
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.io).poll_shutdown(cx)
     }
 }
 
