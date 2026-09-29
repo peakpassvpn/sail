@@ -80,9 +80,12 @@ unsafe fn start_settings(
             ERR_SETTINGS
         })?
     };
-    parsed
-        .log_to_system
-        .get_or_insert(cfg!(any(target_os = "ios", target_os = "android")));
+    let phone = cfg!(any(target_os = "ios", target_os = "android"));
+    parsed.log_to_system.get_or_insert(phone);
+    // A phone runs with the phone's budget unless the host says otherwise.
+    if phone {
+        parsed.profile.get_or_insert_with(|| "mobile".to_string());
+    }
     let (options, mut host) = parsed.resolve().map_err(|e| {
         eprintln!("{}", e);
         ERR_SETTINGS
@@ -176,7 +179,8 @@ fn to_errno(e: sail::Error) -> i32 {
 /// @param stack_size Sets stack size of the runtime worker threads, takes effect when
 ///                   multi_thread is true.
 /// @param settings Tuning and host options as a JSON object, or null for the
-///                 defaults: `{"profile": "mobile", "set": ["relay.buffer_size=32"],
+///                 defaults (on iOS and Android, the "mobile" profile and the
+///                 system log): `{"profile": "mobile", "set": ["relay.buffer_size=32"],
 ///                 "data_dir": "...", "cache_dir": "...", "log_to_system": true,
 ///                 "socket_protect": "/path/or/host:port"}`.
 /// @return ERR_OK on finish running, any other errors means a startup failure.
@@ -231,7 +235,8 @@ pub unsafe extern "C" fn sail_run_with_options(
 /// @param config_path The path of the config file: .json for sing-box's format
 ///                    (Clash's .yaml / .yml and Surge's .conf are to follow).
 /// @param settings Tuning and host options as a JSON object, or null for the
-///                 defaults: `{"profile": "mobile", "set": ["relay.buffer_size=32"],
+///                 defaults (on iOS and Android, the "mobile" profile and the
+///                 system log): `{"profile": "mobile", "set": ["relay.buffer_size=32"],
 ///                 "data_dir": "...", "cache_dir": "...", "log_to_system": true,
 ///                 "socket_protect": "/path/or/host:port"}`.
 /// @return ERR_OK on finish running, any other errors means a startup failure.
@@ -267,7 +272,8 @@ pub unsafe extern "C" fn sail_run(
 
 /// Starts sail like `sail_run`, with the configuration given as a string.
 /// @param settings Tuning and host options as a JSON object, or null for the
-///                 defaults: `{"profile": "mobile", "set": ["relay.buffer_size=32"],
+///                 defaults (on iOS and Android, the "mobile" profile and the
+///                 system log): `{"profile": "mobile", "set": ["relay.buffer_size=32"],
 ///                 "data_dir": "...", "cache_dir": "...", "log_to_system": true,
 ///                 "socket_protect": "/path/or/host:port"}`.
 #[no_mangle]
