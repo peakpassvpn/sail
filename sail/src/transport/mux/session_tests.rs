@@ -329,3 +329,77 @@ fn windows_grow_while_read_fast() {
         });
     }
 }
+
+/// Sends `len` bytes on `stream`, then keeps it open, idle.
+fn send(
+    mut stream: crate::transport::muxcore::Stream,
+    len: usize,
+) -> tokio::task::JoinHandle<crate::transport::muxcore::Stream> {
+    tokio::spawn(async move {
+        let chunk = vec![7u8; 16 << 10];
+        for _ in 0..len / chunk.len() {
+            stream.write_all(&chunk).await.unwrap();
+        }
+        stream
+    })
+}
+
+/// A download on a new stream: the server sends 16 MiB and the client
+/// reads it all, fast enough for its window to grow. Both ends are kept.
+async fn download(
+    client: &Session,
+    accept: &mut tokio::sync::mpsc::UnboundedReceiver<crate::transport::muxcore::Stream>,
+) -> (
+    crate::transport::muxcore::Stream,
+    crate::transport::muxcore::Stream,
+) {
+    let mut stream = client.open().unwrap();
+    stream.write_all(b"x").await.unwrap();
+    stream.pin_rtt(Duration::from_secs(1));
+    let served = accept.recv().await.unwrap();
+    let sender = send(served, 16 << 20);
+    let mut buf = vec![0u8; 64 << 10];
+    for _ in 0..(16 << 20) / buf.len() {
+        stream.read_exact(&mut buf).await.unwrap();
+    }
+    (stream, sender.await.unwrap())
+}
+
+/// Windows that grew on streams now idle go back to the session's growth
+/// budget once another stream needs it: a keep-alive connection that once
+/// downloaded fast does not keep the next download at a small window.
+#[tokio::test(start_paused = true)]
+async fn idle_streams_give_their_grown_windows_back() {
+    const MAX: u32 = 2 << 20;
+    let tuning = Tuning {
+        window_max: MAX,
+        ..Tuning::default()
+    };
+    let (a, b) = tokio::io::duplex(64 << 10);
+    let (client, _) = Session::new(a, Flavor::Yamux.codec(), false, tuning, "test");
+    let (_server, accept) = Session::new(b, Flavor::Yamux.codec(), true, tuning, "test");
+    let mut accept = accept.unwrap();
+    // As many as the budget lets grow all the way, then left idle.
+    let mut idle = Vec::new();
+    for _ in 0..4 {
+        let (stream, served) = download(&client, &mut accept).await;
+        assert_eq!(stream.window(), MAX);
+        idle.push((stream, served));
+    }
+    tokio::time::sleep(Duration::from_secs(30)).await;
+    let (stream, _served) = download(&client, &mut accept).await;
+    assert_eq!(stream.window(), MAX, "the budget went to idle streams");
+    // A stream whose window was taken back still reads all it is sent,
+    // its peer held to what it was granted.
+    let taken = idle
+        .iter()
+        .position(|(stream, _)| stream.window() == 256 << 10)
+        .expect("no idle stream gave its window back");
+    let (mut stream, served) = idle.swap_remove(taken);
+    let sender = send(served, 16 << 20);
+    let mut buf = vec![0u8; 64 << 10];
+    for _ in 0..(16 << 20) / buf.len() {
+        stream.read_exact(&mut buf).await.unwrap();
+    }
+    sender.await.unwrap();
+}

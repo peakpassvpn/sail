@@ -46,6 +46,10 @@ const MAX_SEND_WINDOW: u32 = 1 << 30;
 /// The windows of a session's streams grow, together, by no more than this
 /// many times `Tuning::window_max`.
 const SESSION_GROWTH: u64 = 4;
+/// A stream that has read nothing for this long, and holds nothing
+/// unread, gives what its window grew by back to the session once another
+/// stream needs it to grow.
+const RECLAIM_IDLE: Duration = Duration::from_secs(1);
 /// How long a closed session has to write what it has left.
 const CLOSE_GRACE: Duration = Duration::from_secs(5);
 
@@ -787,6 +791,38 @@ impl Stream {
     }
 }
 
+/// Takes `growth` more window for stream `id` out of the session's
+/// budget, if there is room, or once the idle streams' grown windows are
+/// taken back: back to `INITIAL_WINDOW`, which their peers are held to as
+/// they use up what they were granted before.
+fn make_room(state: &mut State, id: u32, growth: u32, tuning: &Tuning, now: Instant) -> bool {
+    let budget = SESSION_GROWTH * u64::from(tuning.window_max);
+    let need = u64::from(growth);
+    if state.grown + need > budget {
+        for (other, slot) in state.streams.iter_mut() {
+            if *other == id
+                || slot.window <= INITIAL_WINDOW
+                || slot.inbox > 0
+                || now.saturating_duration_since(slot.progress) < RECLAIM_IDLE
+            {
+                continue;
+            }
+            state.grown -= u64::from(slot.window - INITIAL_WINDOW);
+            slot.window = INITIAL_WINDOW;
+            slot.epoch_start = now;
+            slot.epoch_read = 0;
+            if state.grown + need <= budget {
+                break;
+            }
+        }
+    }
+    if state.grown + need > budget {
+        return false;
+    }
+    state.grown += need;
+    true
+}
+
 fn closed(shared: &Shared, state: &State) -> io::Error {
     io::Error::new(
         io::ErrorKind::ConnectionAborted,
@@ -850,29 +886,42 @@ impl AsyncRead for Stream {
                 // read, and twice the window if half of it was read in
                 // less than what it takes to come in two round trips.
                 if slot.consumed >= slot.window / 4 {
-                    let mut delta = slot.consumed;
+                    let mut growth = 0;
                     if slot.epoch_read > u64::from(slot.window / 2) {
-                        let budget = SESSION_GROWTH * u64::from(shared.tuning.window_max);
                         if let Some(rtt) = state.rtt {
                             let fraction = slot.epoch_read as f64 / f64::from(slot.window);
                             let fast = now.saturating_duration_since(slot.epoch_start)
                                 < rtt.mul_f64(4.0 * fraction);
                             let grown = slot.window.saturating_mul(2).min(shared.tuning.window_max);
-                            let growth = grown.saturating_sub(slot.window);
-                            if fast && growth > 0 && state.grown + u64::from(growth) <= budget {
-                                state.grown += u64::from(growth);
-                                delta += growth;
-                                slot.window = grown;
+                            if fast {
+                                growth = grown.saturating_sub(slot.window);
                             }
                         }
                         slot.epoch_start = now;
                         slot.epoch_read = 0;
                     }
+                    let id = self.id;
+                    if growth > 0 && !make_room(state, id, growth, &shared.tuning, now) {
+                        growth = 0;
+                    }
+                    let Some(slot) = state.streams.get_mut(&id) else {
+                        return Poll::Ready(Ok(()));
+                    };
+                    slot.window += growth;
                     slot.consumed = 0;
-                    slot.recv_window += delta;
-                    if let Some(frame) = shared.codec.window_update(self.id, delta) {
-                        state.control.push(frame);
-                        shared.wake_writer();
+                    // Topped up to the window: all that was read, and what
+                    // it grew by; less, or nothing, while the peer still
+                    // has more than the window to send, once the stream's
+                    // growth was taken back.
+                    let delta = slot
+                        .window
+                        .saturating_sub(slot.recv_window.saturating_add(slot.inbox as u32));
+                    if delta > 0 {
+                        slot.recv_window += delta;
+                        if let Some(frame) = shared.codec.window_update(id, delta) {
+                            state.control.push(frame);
+                            shared.wake_writer();
+                        }
                     }
                 }
             }

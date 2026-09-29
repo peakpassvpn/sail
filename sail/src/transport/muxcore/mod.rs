@@ -11,7 +11,9 @@
 //!   its inbox. With windows (yamux), the peer sends no more than the
 //!   window; windows start at `INITIAL_WINDOW` and grow, as quic-go's do,
 //!   while a stream is read faster than its window lets data come in one
-//!   round trip, up to `Tuning::window_max`. Without windows (smux), the
+//!   round trip, up to `Tuning::window_max`; a session's windows together
+//!   grow by a bounded budget, and a stream idle for a while gives its
+//!   growth back when another needs it. Without windows (smux), the
 //!   reader stops reading the connection while a stream holds
 //!   `Tuning::inbox` unread, and TCP holds the peer back.
 //! - A stream whose inbox holds data that nothing has read for
