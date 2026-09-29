@@ -25,6 +25,8 @@ pub mod adapter;
 pub mod app;
 pub mod common;
 pub mod config;
+#[cfg(feature = "rule-set")]
+pub mod fetch;
 #[cfg(feature = "fuzzing")]
 pub mod fuzzing;
 pub mod generate;
