@@ -335,6 +335,14 @@ pub struct Dns {
     /// Which address families names resolve to, and in what order.
     #[serde(default)]
     pub strategy: DnsStrategy,
+    /// A sail extension: the address families the answers to clients'
+    /// queries (hijack-dns, a DNS listener) carry, besides what `strategy`
+    /// and the rules leave out: a family either leaves out is answered
+    /// with no records. The instance's own lookups keep `strategy`. As
+    /// Mihomo's `dns.ipv6: false` answers clients, while its connections
+    /// still resolve IPv6.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_strategy: Option<DnsStrategy>,
     /// No answer is kept: each query goes to its server.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub disable_cache: bool,

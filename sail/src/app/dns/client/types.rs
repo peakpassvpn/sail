@@ -157,6 +157,8 @@ pub struct DnsClient {
     tuning: crate::runtime::options::Dns,
     /// `dns.strategy`.
     strategy: crate::config::model::DnsStrategy,
+    /// `dns.client_strategy`.
+    client_strategy: Option<crate::config::model::DnsStrategy>,
     /// `dns.timeout`: how long one query to one server may take.
     timeout: Duration,
     /// `dns.reverse_mapping`.

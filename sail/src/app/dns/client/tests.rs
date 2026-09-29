@@ -1842,4 +1842,28 @@ mod tests {
             assert!(err.contains(message), "{}: {}", message, err);
         }
     }
+
+    #[tokio::test]
+    async fn client_strategy_leaves_a_family_out_of_clients_answers_alone() {
+        let config = crate::config::Config::from_json(
+            &serde_json::json!({ "dns": {
+                "servers": [{ "type": "hosts", "predefined": {
+                    "a.example": ["10.0.0.1", "fd00::1"] } }],
+                "client_strategy": "ipv4_only",
+            } })
+            .to_string(),
+        )
+        .unwrap();
+        let client = DnsClient::new(&config.dns, Default::default(), &Default::default()).unwrap();
+        // A client asking for AAAA gets none, as Mihomo's dns.ipv6: false.
+        let aaaa = exchange(&client, "a.example", RecordType::AAAA).await;
+        assert!(aaaa.answers().is_empty());
+        let a = exchange(&client, "a.example", RecordType::A).await;
+        assert_eq!(answer_ips(&a), ips(&["10.0.0.1"]));
+        // The instance's own lookups keep dns.strategy: both families.
+        assert_eq!(
+            client.lookup("a.example").await.unwrap(),
+            ips(&["10.0.0.1", "fd00::1"])
+        );
+    }
 }

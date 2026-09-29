@@ -137,6 +137,7 @@ impl DnsClient {
             fake_ips: fake_ip_store,
             tuning,
             strategy: dns.strategy,
+            client_strategy: dns.client_strategy,
             timeout: dns.timeout(),
             reverse_mapping: dns.reverse_mapping,
             client_subnet: dns.client_subnet,
@@ -880,10 +881,13 @@ impl DnsClient {
         let host = query.name().to_utf8();
         let host = host.trim_end_matches('.').to_ascii_lowercase();
         let strategy = self.query_strategy(&host, ty, ctx);
-        // A family the strategy leaves out has no records.
-        if (ty == RecordType::AAAA && strategy == DnsStrategy::Ipv4Only)
-            || (ty == RecordType::A && strategy == DnsStrategy::Ipv6Only)
-        {
+        // A family the strategy, or `client_strategy`, leaves out has no
+        // records.
+        let leaves_out = |strategy: DnsStrategy| {
+            (ty == RecordType::AAAA && strategy == DnsStrategy::Ipv4Only)
+                || (ty == RecordType::A && strategy == DnsStrategy::Ipv6Only)
+        };
+        if leaves_out(strategy) || self.client_strategy.is_some_and(leaves_out) {
             return Self::reply(request, &[], LOCAL_TTL.as_secs() as u32);
         }
         match self.walk(request, ctx, true).await {
