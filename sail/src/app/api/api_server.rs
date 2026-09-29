@@ -68,6 +68,16 @@ mod models {
         pub since_last_peer_active: Option<u32>,
     }
 
+    /// Where an asset is downloaded from, and through; the host's source
+    /// for it, and the default outbound, when not given.
+    #[cfg(feature = "http-client")]
+    #[derive(Debug, Default, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct AssetUpdate {
+        pub url: Option<String>,
+        pub detour: Option<String>,
+    }
+
     #[derive(Debug, Serialize, Deserialize)]
     pub struct OutboundHealthCheck {
         pub tag: String,
@@ -181,6 +191,38 @@ mod handlers {
             Ok(()) => (StatusCode::OK, String::new()),
             Err(e) => (StatusCode::BAD_REQUEST, e.to_string()),
         }
+    }
+
+    /// The assets the configuration reads.
+    pub async fn assets(State(rm): State<Arc<RuntimeManager>>) -> Json<Vec<crate::assets::Asset>> {
+        Json(rm.assets())
+    }
+
+    /// Downloads an asset, puts it in place and reloads. The body, JSON,
+    /// may be empty.
+    #[cfg(feature = "http-client")]
+    pub async fn asset_update(
+        State(rm): State<Arc<RuntimeManager>>,
+        Path(name): Path<String>,
+        body: axum::body::Bytes,
+    ) -> Result<Json<crate::assets::Updated>, (StatusCode, String)> {
+        use crate::assets::UpdateError;
+        let body: models::AssetUpdate = match body.is_empty() {
+            true => Default::default(),
+            false => serde_json::from_slice(&body)
+                .map_err(|e| (StatusCode::BAD_REQUEST, format!("body: {}", e)))?,
+        };
+        crate::assets::update(&rm, &name, body.url.as_deref(), body.detour.as_deref())
+            .await
+            .map(Json)
+            .map_err(|e| {
+                let status = match e {
+                    UpdateError::Unknown(_) => StatusCode::NOT_FOUND,
+                    UpdateError::NoSource(_) => StatusCode::BAD_REQUEST,
+                    UpdateError::Failed(_) => StatusCode::BAD_GATEWAY,
+                };
+                (status, e.to_string())
+            })
     }
 
     pub async fn runtime_shutdown(
@@ -461,7 +503,16 @@ impl ApiServer {
             .route(
                 "/api/v1/runtime/inbounds/:tag",
                 delete(handlers::inbound_remove),
+            )
+            .route("/api/v1/runtime/assets", get(handlers::assets));
+
+        #[cfg(feature = "http-client")]
+        {
+            app = app.route(
+                "/api/v1/runtime/assets/:name/update",
+                post(handlers::asset_update),
             );
+        }
 
         #[cfg(feature = "outbound-select")]
         {

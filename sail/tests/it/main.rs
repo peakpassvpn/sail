@@ -12,6 +12,7 @@ mod test_group_common;
 
 mod test_amux_trojan;
 mod test_anytls;
+mod test_assets;
 mod test_clash_api;
 mod test_components;
 mod test_config_clash;
