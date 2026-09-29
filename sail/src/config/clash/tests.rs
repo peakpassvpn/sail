@@ -1144,6 +1144,12 @@ fn the_sniffer_is_sniff_rules_before_every_other() {
         .any(|s| s.tag.contains(&"sniffer:skip-domain".to_string())));
 
     // A router takes them, skip_rule_set and all.
+    #[cfg(feature = "rule-set")]
+    router_takes(&config);
+}
+
+#[cfg(feature = "rule-set")]
+fn router_takes(config: &Config) {
     let env = crate::runtime::RuntimeEnv::default();
     let sets = crate::app::router::rule_set::RuleSets::load(
         &config.route.rule_set,

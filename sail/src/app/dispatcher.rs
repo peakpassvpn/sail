@@ -857,6 +857,7 @@ mod tests {
         assert_eq!(read, request);
     }
 
+    #[cfg(feature = "rule-set")]
     #[tokio::test]
     async fn a_domain_a_skip_rule_set_matches_is_not_taken() {
         let skip = crate::app::router::rule_set::RuleSet::from_rules(&[serde_json::from_value(

@@ -16,6 +16,9 @@ pub(crate) mod rule_set {
     #[derive(Default, Clone)]
     pub(crate) struct RuleSets;
 
+    /// A rule-set, by tag: there is none to get.
+    pub(crate) type SharedRuleSet = ();
+
     /// The domain matchers of binary rule-sets, of which there are none.
     pub(crate) enum SuccinctSet {}
 
@@ -154,6 +157,13 @@ impl SniffSkip {
     }
 
     /// Whether one of the rule-sets matches `domain`.
+    #[cfg(not(feature = "rule-set"))]
+    pub fn matches(&self, _domain: &str) -> bool {
+        false
+    }
+
+    /// Whether one of the rule-sets matches `domain`.
+    #[cfg(feature = "rule-set")]
     pub fn matches(&self, domain: &str) -> bool {
         if self.0.is_empty() {
             return false;
