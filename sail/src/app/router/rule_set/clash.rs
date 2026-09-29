@@ -10,12 +10,14 @@ use super::rule::{self, Parts};
 use super::{mrs, SuccinctSet};
 use crate::app::router::matcher::Condition;
 use crate::config::rule_set::{ClashBehavior, HeadlessRule, RuleSetFormat};
+use crate::runtime::RuntimeEnv;
 
 /// Reads a rule-set of one of Clash's formats.
 pub(crate) fn read(
     data: &[u8],
     format: RuleSetFormat,
     behavior: ClashBehavior,
+    env: &RuntimeEnv,
 ) -> Result<Vec<Condition>> {
     let lines = match format {
         RuleSetFormat::Mrs => {
@@ -26,6 +28,7 @@ pub(crate) fn read(
                         ..Default::default()
                     },
                     "rules[0]",
+                    env,
                 )?]),
                 mrs::Set::Ranges(ranges) => Ok(vec![rule::default(
                     Parts {
@@ -33,6 +36,7 @@ pub(crate) fn read(
                         ..Default::default()
                     },
                     "rules[0]",
+                    env,
                 )?]),
             }
         }
@@ -42,13 +46,17 @@ pub(crate) fn read(
             unreachable!("sing-box's formats are read apart")
         }
     };
-    from_lines(&lines, behavior)
+    from_lines(&lines, behavior, env)
 }
 
-/// The rules of `lines`, each what `behavior` says.
-pub(crate) fn from_lines(lines: &[String], behavior: ClashBehavior) -> Result<Vec<Condition>> {
+/// The rules of `lines`, each what `behavior` says, of `env`'s data files.
+pub(crate) fn from_lines(
+    lines: &[String],
+    behavior: ClashBehavior,
+    env: &RuntimeEnv,
+) -> Result<Vec<Condition>> {
     match behavior {
-        ClashBehavior::Domain => Ok(vec![domain_set(lines.iter())?]),
+        ClashBehavior::Domain => Ok(vec![domain_set(lines.iter(), env)?]),
         ClashBehavior::Ipcidr => {
             let prefixes: Vec<String> = lines
                 .iter()
@@ -66,18 +74,18 @@ pub(crate) fn from_lines(lines: &[String], behavior: ClashBehavior) -> Result<Ve
                 ip_cidr: prefixes,
                 ..Default::default()
             };
-            Ok(vec![rule::from_source(&rule, "rules[0]")?])
+            Ok(vec![rule::from_source(&rule, "rules[0]", env)?])
         }
-        ClashBehavior::Classical => classical(lines),
+        ClashBehavior::Classical => classical(lines, env),
     }
 }
 
 #[cfg(feature = "config-clash")]
-fn classical(lines: &[String]) -> Result<Vec<Condition>> {
+fn classical(lines: &[String], env: &RuntimeEnv) -> Result<Vec<Condition>> {
     let mut rules = Vec::new();
     for (i, line) in lines.iter().enumerate() {
         let compiled = crate::config::clash::headless(line)
-            .and_then(|rule| rule::from_source(&rule, &format!("rules[{}]", i)));
+            .and_then(|rule| rule::from_source(&rule, &format!("rules[{}]", i), env));
         match compiled {
             Ok(rule) => rules.push(rule),
             Err(e) => debug!("rule-set: {:?}: {}; passed over", line, e),
@@ -87,7 +95,7 @@ fn classical(lines: &[String]) -> Result<Vec<Condition>> {
 }
 
 #[cfg(not(feature = "config-clash"))]
-fn classical(_: &[String]) -> Result<Vec<Condition>> {
+fn classical(_: &[String], _: &RuntimeEnv) -> Result<Vec<Condition>> {
     Err(anyhow!(
         "a classical Clash rule-set needs the config-clash feature, which is not compiled in"
     ))
@@ -122,7 +130,10 @@ fn yaml(_: &[u8]) -> Result<Vec<String>> {
 /// The domains of a domain rule-set, as Mihomo writes them: `+.x` is `x`
 /// and every name under it, `.x` every name under it, a label `*` any one
 /// label, and a plain name itself alone.
-fn domain_set<'a>(entries: impl Iterator<Item = &'a String>) -> Result<Condition> {
+fn domain_set<'a>(
+    entries: impl Iterator<Item = &'a String>,
+    env: &RuntimeEnv,
+) -> Result<Condition> {
     let mut rule = HeadlessRule::default();
     for entry in entries {
         let entry = entry.trim().to_ascii_lowercase();
@@ -140,7 +151,7 @@ fn domain_set<'a>(entries: impl Iterator<Item = &'a String>) -> Result<Condition
             rule.domain.push(entry);
         }
     }
-    rule::from_source(&rule, "rules[0]")
+    rule::from_source(&rule, "rules[0]", env)
 }
 
 /// A domain with `*` labels as a regular expression, each `*` one label.
@@ -178,7 +189,7 @@ mod tests {
             .iter()
             .map(|s| s.to_string())
             .collect();
-        let rules = from_lines(&lines, ClashBehavior::Domain).unwrap();
+        let rules = from_lines(&lines, ClashBehavior::Domain, &RuntimeEnv::default()).unwrap();
         for (host, want) in [
             ("google.com", true),
             ("www.google.com", true),

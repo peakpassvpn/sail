@@ -252,6 +252,10 @@ pub struct HeadlessRule {
     pub source_ip_cidr: Vec<String>,
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
     pub ip_cidr: Vec<String>,
+    /// A sail extension, as a routing rule's: autonomous systems, of
+    /// `asn.mmdb` in the asset directory.
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub ip_asn: Vec<u32>,
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
     pub source_port: Vec<u16>,
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]

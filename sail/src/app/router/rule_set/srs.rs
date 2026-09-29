@@ -12,6 +12,7 @@ use super::succinct::Succinct;
 use super::SuccinctSet;
 use crate::app::router::matcher::Condition;
 use crate::config::rule_set::MAX_VERSION;
+use crate::runtime::RuntimeEnv;
 
 const MAGIC: &[u8; 3] = b"SRS";
 /// The most a rule-set may inflate to: well past the largest published
@@ -53,7 +54,7 @@ fn unsupported(item: u8) -> Option<&'static str> {
     })
 }
 
-pub(crate) fn read(data: &[u8]) -> Result<Vec<Condition>> {
+pub(crate) fn read(data: &[u8], env: &RuntimeEnv) -> Result<Vec<Condition>> {
     let rest = data
         .strip_prefix(MAGIC.as_slice())
         .ok_or_else(|| anyhow!("not a sing-box binary rule-set"))?;
@@ -77,16 +78,20 @@ pub(crate) fn read(data: &[u8]) -> Result<Vec<Condition>> {
     let mut reader = Reader::new(&inflated);
     let count = reader.count(1)?;
     (0..count)
-        .map(|i| read_rule(&mut reader, &format!("rules[{}]", i), 0))
+        .map(|i| read_rule(&mut reader, &format!("rules[{}]", i), 0, env))
         .collect()
 }
 
-fn read_rule(reader: &mut Reader, path: &str, depth: usize) -> Result<Condition> {
+fn read_rule(reader: &mut Reader, path: &str, depth: usize, env: &RuntimeEnv) -> Result<Condition> {
     if depth > MAX_DEPTH {
         return Err(anyhow!("{}: logical rules nested too deep", path));
     }
     match reader.u8().with_context(|| path.to_string())? {
-        0 => super::rule::default(read_plain(reader).with_context(|| path.to_string())?, path),
+        0 => super::rule::default(
+            read_plain(reader).with_context(|| path.to_string())?,
+            path,
+            env,
+        ),
         1 => {
             let all = match reader.u8()? {
                 0 => true,
@@ -95,7 +100,7 @@ fn read_rule(reader: &mut Reader, path: &str, depth: usize) -> Result<Condition>
             };
             let count = reader.count(1)?;
             let rules = (0..count)
-                .map(|i| read_rule(reader, &format!("{}.rules[{}]", path, i), depth + 1))
+                .map(|i| read_rule(reader, &format!("{}.rules[{}]", path, i), depth + 1, env))
                 .collect::<Result<_>>()?;
             let invert = reader.bool()?;
             Ok(Condition::Logical {

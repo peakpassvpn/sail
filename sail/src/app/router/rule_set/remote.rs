@@ -29,6 +29,8 @@ pub(crate) struct Remote {
     client: http::Client,
     /// Where the downloaded copy is kept; none when there is nowhere to.
     cache: Option<PathBuf>,
+    /// Whose data files its rules name.
+    env: RuntimeEnv,
     pub set: SharedRuleSet,
     state: Mutex<State>,
 }
@@ -78,13 +80,14 @@ impl Remote {
             interval: config.update_interval.unwrap_or(DEFAULT_INTERVAL),
             client,
             cache: cache.clone(),
+            env: env.clone(),
             set: HotResource::new(RuleSet::new(Vec::new())),
             state: Mutex::new(State::default()),
         };
         // A cached copy that does not read is as good as none.
         if let Some(Ok(data)) = cache.as_ref().map(std::fs::read) {
             let cache = cache.as_ref().expect("read from it");
-            match RuleSet::read(&data, format, config.behavior) {
+            match RuleSet::read(&data, format, config.behavior, env) {
                 Ok(set) => {
                     let mut state: State = std::fs::read(meta_path(cache))
                         .ok()
@@ -103,7 +106,7 @@ impl Remote {
             let path = env.data_path(&config::RuleSet::for_tag(initial, tag));
             let data =
                 std::fs::read(&path).map_err(|e| anyhow!("initial_path: {}: {}", path, e))?;
-            let set = RuleSet::read(&data, format, config.behavior)
+            let set = RuleSet::read(&data, format, config.behavior, env)
                 .map_err(|e| anyhow!("initial_path: {}: {}", path, e))?;
             remote.set.publish(Arc::new(set));
             remote
@@ -175,7 +178,7 @@ impl Remote {
                 self.state().updated = Some(SystemTime::now());
             }
             http::Response::Body { data, etag } => {
-                let set = RuleSet::read(&data, self.format, self.behavior)?;
+                let set = RuleSet::read(&data, self.format, self.behavior, &self.env)?;
                 self.set.publish(Arc::new(set));
                 {
                     let mut state = self.state();

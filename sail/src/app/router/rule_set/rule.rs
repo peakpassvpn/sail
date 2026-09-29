@@ -25,12 +25,13 @@ pub(crate) struct Parts {
     pub query_types: Vec<u16>,
 }
 
-/// Compiles a rule of the source format, found at `path`.
-pub(crate) fn from_source(rule: &HeadlessRule, path: &str) -> Result<Condition> {
-    compile(rule, path, 0)
+/// Compiles a rule of the source format, found at `path`; the data files
+/// its conditions name (`ip_asn`'s) are `env`'s.
+pub(crate) fn from_source(rule: &HeadlessRule, path: &str, env: &RuntimeEnv) -> Result<Condition> {
+    compile(rule, path, 0, env)
 }
 
-fn compile(rule: &HeadlessRule, path: &str, depth: usize) -> Result<Condition> {
+fn compile(rule: &HeadlessRule, path: &str, depth: usize, env: &RuntimeEnv) -> Result<Condition> {
     if depth > MAX_DEPTH {
         return Err(anyhow!("{}: logical rules nested too deep", path));
     }
@@ -52,6 +53,7 @@ fn compile(rule: &HeadlessRule, path: &str, depth: usize) -> Result<Condition> {
                     ..Default::default()
                 },
                 path,
+                env,
             )
         }
         Some("logical") => {
@@ -68,7 +70,7 @@ fn compile(rule: &HeadlessRule, path: &str, depth: usize) -> Result<Condition> {
                 .rules
                 .iter()
                 .enumerate()
-                .map(|(i, r)| compile(r, &format!("{}.rules[{}]", path, i), depth + 1))
+                .map(|(i, r)| compile(r, &format!("{}.rules[{}]", path, i), depth + 1, env))
                 .collect::<Result<_>>()?;
             Ok(Condition::Logical {
                 all,
@@ -81,8 +83,8 @@ fn compile(rule: &HeadlessRule, path: &str, depth: usize) -> Result<Condition> {
     }
 }
 
-/// Compiles a default rule, found at `path`.
-pub(crate) fn default(parts: Parts, path: &str) -> Result<Condition> {
+/// Compiles a default rule, found at `path`, of `env`'s data files.
+pub(crate) fn default(parts: Parts, path: &str, env: &RuntimeEnv) -> Result<Condition> {
     let rule = &parts.rule;
     if let Some(field) = rule.unsupported() {
         return Err(anyhow!("{}.{}: sail does not match it yet", path, field));
@@ -96,6 +98,7 @@ pub(crate) fn default(parts: Parts, path: &str) -> Result<Condition> {
         domain_regex: rule.domain_regex.clone(),
         source_ip_cidr: rule.source_ip_cidr.clone(),
         ip_cidr: rule.ip_cidr.clone(),
+        ip_asn: rule.ip_asn.clone(),
         source_port: rule.source_port.clone(),
         source_port_range: rule.source_port_range.clone(),
         port: rule.port.clone(),
@@ -115,10 +118,9 @@ pub(crate) fn default(parts: Parts, path: &str) -> Result<Condition> {
         source_ip_ranges: parts.source_ip_ranges,
         query_types: parts.query_types,
     };
-    let env = RuntimeEnv::default();
     let mut ctx = Context {
         readers: &mut Readers::new(),
-        env: &env,
+        env,
         rule_sets: &Default::default(),
     };
     let compiled = Conditions::compile(&conditions, extras, path, &mut ctx)?;

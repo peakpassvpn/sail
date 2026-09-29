@@ -396,6 +396,67 @@ impl Mmdb {
 /// Mmdb readers by file, shared by the rules that use the same database.
 pub(crate) type Readers = HashMap<String, Arc<maxminddb::Reader<Vec<u8>>>>;
 
+/// The ASN database `ip_asn` looks addresses up in, in the asset directory.
+pub(crate) const ASN_FILE: &str = "asn.mmdb";
+
+/// The MaxMind database `file`, a data file (`env.data_path`), opened once:
+/// every rule, rule-set or group that opens the same path while one still
+/// holds it shares it. A file that does not open is an error naming its
+/// path.
+pub(crate) fn open_mmdb(env: &RuntimeEnv, file: &str) -> Result<Arc<maxminddb::Reader<Vec<u8>>>> {
+    use std::sync::{Mutex, OnceLock, Weak};
+    type Open = Mutex<HashMap<String, Weak<maxminddb::Reader<Vec<u8>>>>>;
+    static OPEN: OnceLock<Open> = OnceLock::new();
+    let path = env.data_path(file);
+    let mut open = OPEN
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    if let Some(reader) = open.get(&path).and_then(Weak::upgrade) {
+        return Ok(reader);
+    }
+    let reader = Arc::new(
+        maxminddb::Reader::open_readfile(&path)
+            .map_err(|e| anyhow!("open {} failed: {}", path, e))?,
+    );
+    open.retain(|_, r| r.strong_count() > 0);
+    open.insert(path, Arc::downgrade(&reader));
+    Ok(reader)
+}
+
+/// `ip_asn`: autonomous systems, of an ASN database.
+struct Asns {
+    reader: Arc<maxminddb::Reader<Vec<u8>>>,
+    /// Sorted.
+    numbers: Vec<u32>,
+}
+
+/// An ASN database's record: GeoLite2-ASN's number, or ipinfo's `AS`
+/// string.
+#[derive(serde_derive::Deserialize)]
+struct AsnRecord<'a> {
+    autonomous_system_number: Option<u32>,
+    asn: Option<&'a str>,
+}
+
+impl Asns {
+    fn contains(&self, ip: IpAddr) -> bool {
+        let Ok(Some(record)) = self
+            .reader
+            .lookup(ip)
+            .and_then(|result| result.decode::<AsnRecord>())
+        else {
+            return false;
+        };
+        let number = record.autonomous_system_number.or_else(|| {
+            record
+                .asn
+                .and_then(|a| a.strip_prefix("AS").unwrap_or(a).parse().ok())
+        });
+        number.is_some_and(|n| self.numbers.binary_search(&n).is_ok())
+    }
+}
+
 /// A regular expression, when sail is built with them.
 #[cfg(feature = "regex")]
 type Pattern = regex::Regex;
@@ -658,6 +719,7 @@ pub(crate) struct Conditions {
     source_ip_is_private: bool,
     ip_cidr: CidrIndex,
     mmdbs: Vec<Mmdb>,
+    asns: Option<Asns>,
     ip_is_private: bool,
     /// Any address matches, of a DNS response.
     ip_accept_any: bool,
@@ -750,6 +812,20 @@ impl Conditions {
                 })
             })
             .collect::<Result<_>>()?;
+
+        let asns = match rule.ip_asn.is_empty() {
+            true => None,
+            false => {
+                let mut numbers = rule.ip_asn.clone();
+                numbers.sort_unstable();
+                numbers.dedup();
+                Some(Asns {
+                    reader: open_mmdb(ctx.env, ASN_FILE)
+                        .map_err(|e| anyhow!("{}: {}", field("ip_asn"), e))?,
+                    numbers,
+                })
+            }
+        };
 
         #[cfg(feature = "rule-set")]
         let rule_sets = rule
@@ -857,6 +933,7 @@ impl Conditions {
             source_ip_is_private: rule.source_ip_is_private,
             ip_cidr: cidrs(&rule.ip_cidr, &extras.ip_ranges, "ip_cidr")?,
             mmdbs,
+            asns,
             ip_is_private: rule.ip_is_private,
             ip_accept_any: rule.ip_accept_any,
             response_rcode: rule.response_rcode,
@@ -987,6 +1064,7 @@ impl Conditions {
     pub(crate) fn has_ip_cidr(&self) -> bool {
         !self.ip_cidr.is_empty()
             || !self.mmdbs.is_empty()
+            || self.asns.is_some()
             || self.ip_is_private
             || self.ip_accept_any
     }
@@ -1013,6 +1091,7 @@ impl Conditions {
         let by_ip = |ip: IpAddr| {
             self.ip_cidr.contains(ip)
                 || self.mmdbs.iter().any(|m| m.contains(ip))
+                || self.asns.as_ref().is_some_and(|a| a.contains(ip))
                 || (self.ip_is_private && is_private(ip))
                 || self.ip_accept_any
         };
@@ -1022,6 +1101,7 @@ impl Conditions {
             let matched = source_ip.is_some_and(|ip| self.ip_cidr.contains(ip))
                 || facts.ips().iter().any(|&ip| {
                     self.mmdbs.iter().any(|m| m.contains(ip))
+                        || self.asns.as_ref().is_some_and(|a| a.contains(ip))
                         || (self.ip_is_private && is_private(ip))
                 });
             groups.require(Groups::SOURCE_ADDRESS, matched);
@@ -1214,7 +1294,7 @@ pub(crate) fn port_range(value: &str) -> Result<(u16, u16)> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::session::SocksAddr;
 
@@ -1749,6 +1829,144 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// A MaxMind database of IPv4 prefixes, each with the record whose
+    /// encoding is given, as the format has it: a search tree of 24-bit
+    /// records, 16 zero bytes, the records, then the metadata.
+    pub(crate) fn mmdb(entries: &[(&str, Vec<u8>)]) -> Vec<u8> {
+        const EMPTY: u64 = u64::MAX;
+        // Each node's two records: another node, a record, or none.
+        enum To {
+            Node(usize),
+            Data(usize),
+            Empty,
+        }
+        let mut nodes: Vec<[To; 2]> = vec![[To::Empty, To::Empty]];
+        let mut data = Vec::new();
+        for (prefix, record) in entries {
+            let net: cidr::Ipv4Cidr = prefix.parse().unwrap();
+            let bits = u32::from(net.first_address());
+            let offset = data.len();
+            data.extend_from_slice(record);
+            let mut node = 0;
+            for i in 0..net.network_length() {
+                let bit = ((bits >> (31 - i)) & 1) as usize;
+                if i + 1 == net.network_length() {
+                    nodes[node][bit] = To::Data(offset);
+                    break;
+                }
+                node = match nodes[node][bit] {
+                    To::Node(next) => next,
+                    _ => {
+                        nodes.push([To::Empty, To::Empty]);
+                        let next = nodes.len() - 1;
+                        nodes[node][bit] = To::Node(next);
+                        next
+                    }
+                };
+            }
+        }
+        let count = nodes.len() as u64;
+        let mut out = Vec::new();
+        for node in &nodes {
+            for to in node {
+                let value = match to {
+                    To::Node(n) => *n as u64,
+                    To::Data(offset) => count + 16 + *offset as u64,
+                    To::Empty => EMPTY,
+                };
+                let value = if value == EMPTY { count } else { value };
+                out.extend_from_slice(&value.to_be_bytes()[5..]);
+            }
+        }
+        out.extend_from_slice(&[0; 16]);
+        out.extend_from_slice(&data);
+        out.extend_from_slice(b"\xab\xcd\xefMaxMind.com");
+        let string = |s: &str| {
+            let mut v = vec![0x40 | s.len() as u8];
+            v.extend_from_slice(s.as_bytes());
+            v
+        };
+        let mut meta = vec![0xe0 | 9];
+        for (key, value) in [
+            ("binary_format_major_version", vec![0xa1, 2]),
+            ("binary_format_minor_version", vec![0xa0]),
+            ("build_epoch", vec![0x00, 0x02]),
+            ("database_type", string("Test-ASN")),
+            ("description", vec![0xe0]),
+            ("ip_version", vec![0xa1, 4]),
+            ("languages", vec![0x00, 0x04]),
+            ("node_count", vec![0xc1, count as u8]),
+            ("record_size", vec![0xa1, 24]),
+        ] {
+            meta.extend(string(key));
+            meta.extend(value);
+        }
+        out.extend(meta);
+        out
+    }
+
+    /// A record of GeoLite2-ASN's, and one of ipinfo's.
+    pub(crate) fn asn_records(geolite: u16, ipinfo: &str) -> (Vec<u8>, Vec<u8>) {
+        let mut a = vec![0xe1, 0x40 | 24];
+        a.extend_from_slice(b"autonomous_system_number");
+        a.push(0xc2);
+        a.extend_from_slice(&geolite.to_be_bytes());
+        let mut b = vec![0xe1, 0x43];
+        b.extend_from_slice(b"asn");
+        b.push(0x40 | ipinfo.len() as u8);
+        b.extend_from_slice(ipinfo.as_bytes());
+        (a, b)
+    }
+
+    #[test]
+    fn autonomous_systems_are_looked_up_in_the_asn_database() {
+        let dir = std::env::temp_dir().join(format!("sail-asn-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (geolite, ipinfo) = asn_records(13335, "AS15169");
+        std::fs::write(
+            dir.join(ASN_FILE),
+            mmdb(&[("1.0.0.0/8", geolite), ("8.8.0.0/16", ipinfo)]),
+        )
+        .unwrap();
+        let env = RuntimeEnv {
+            host: crate::runtime::Host {
+                data_dir: Some(dir.clone()),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let rule: model::Rule =
+            serde_json::from_value(serde_json::json!({ "ip_asn": [15169, 13335] })).unwrap();
+        let m = Matcher::new(&rule, &mut Readers::new(), &env, &Default::default()).unwrap();
+        assert!(m.matches(&ip("1.1.1.1", 443)));
+        assert!(m.matches(&ip("8.8.8.8", 53)));
+        assert!(!m.matches(&ip("8.9.8.8", 53)));
+        assert!(!m.matches(&ip("2001:db8::1", 53)));
+        // A domain, by the addresses it resolved to.
+        let resolved = Facts::new(
+            &Session {
+                destination: SocksAddr::Domain("one.example".into(), 443),
+                ..Default::default()
+            },
+            &["1.0.0.1".parse().unwrap()],
+        );
+        assert!(m.matches(&resolved));
+        assert!(!m.matches(&domain("one.example", 443)));
+        // Opened once.
+        assert!(Arc::ptr_eq(
+            &open_mmdb(&env, ASN_FILE).unwrap(),
+            &open_mmdb(&env, ASN_FILE).unwrap()
+        ));
+        std::fs::remove_dir_all(&dir).unwrap();
+        // Without the database, the rule is an error naming it.
+        let err = compile_err(serde_json::json!({ "ip_asn": 13335 }));
+        assert!(
+            err.starts_with("route.rules[3].ip_asn: open ") && err.contains("asn.mmdb"),
+            "{}",
+            err
+        );
     }
 
     #[test]

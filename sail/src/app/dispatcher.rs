@@ -866,10 +866,13 @@ mod tests {
     #[cfg(feature = "rule-set")]
     #[tokio::test]
     async fn a_domain_a_skip_rule_set_matches_is_not_taken() {
-        let skip = crate::app::router::rule_set::RuleSet::from_rules(&[serde_json::from_value(
-            serde_json::json!({ "domain_suffix": ["push.apple.com"] }),
+        let skip = crate::app::router::rule_set::RuleSet::from_rules(
+            &[
+                serde_json::from_value(serde_json::json!({ "domain_suffix": ["push.apple.com"] }))
+                    .unwrap(),
+            ],
+            &Default::default(),
         )
-        .unwrap()])
         .unwrap();
         let action = SniffAction {
             skip: super::super::router::SniffSkip::of(vec![(

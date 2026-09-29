@@ -292,7 +292,9 @@ mod tests {
             .filter(|l| !l.is_empty() && !l.starts_with('#'))
             .map(str::to_string)
             .collect();
-        let index = super::super::clash::from_lines(&lines, ClashBehavior::Domain).unwrap();
+        let index =
+            super::super::clash::from_lines(&lines, ClashBehavior::Domain, &Default::default())
+                .unwrap();
         for query in queries(list) {
             let facts = crate::app::router::matcher::Facts::new(
                 &crate::session::Session {

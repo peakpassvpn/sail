@@ -77,11 +77,12 @@ impl RuleSet {
         Self { rules, narrow }
     }
 
-    pub(crate) fn from_rules(rules: &[config::HeadlessRule]) -> Result<Self> {
+    /// The rules of the source format, of `env`'s data files.
+    pub(crate) fn from_rules(rules: &[config::HeadlessRule], env: &RuntimeEnv) -> Result<Self> {
         let rules = rules
             .iter()
             .enumerate()
-            .map(|(i, r)| rule::from_source(r, &format!("rules[{}]", i)))
+            .map(|(i, r)| rule::from_source(r, &format!("rules[{}]", i), env))
             .collect::<Result<_>>()?;
         Ok(Self::new(rules))
     }
@@ -92,18 +93,19 @@ impl RuleSet {
     }
 
     /// Reads a rule-set of `format` from `data`; one of Clash's formats is
-    /// of `behavior`.
+    /// of `behavior`. The data files its rules name are `env`'s.
     pub(crate) fn read(
         data: &[u8],
         format: RuleSetFormat,
         behavior: Option<ClashBehavior>,
+        env: &RuntimeEnv,
     ) -> Result<Self> {
         match format {
             RuleSetFormat::Mrs | RuleSetFormat::ClashYaml | RuleSetFormat::ClashText => {
                 let behavior = behavior.ok_or_else(|| anyhow!("behavior: missing"))?;
-                Ok(Self::new(clash::read(data, format, behavior)?))
+                Ok(Self::new(clash::read(data, format, behavior, env)?))
             }
-            RuleSetFormat::Binary => Ok(Self::new(srs::read(data)?)),
+            RuleSetFormat::Binary => Ok(Self::new(srs::read(data, env)?)),
             RuleSetFormat::Source => {
                 let source: config::SourceRuleSet = serde_json::from_slice(data)
                     .map_err(|e| anyhow!("invalid source rule-set: {}", e))?;
@@ -114,7 +116,7 @@ impl RuleSet {
                         MAX_VERSION
                     ));
                 }
-                Self::from_rules(&source.rules)
+                Self::from_rules(&source.rules, env)
             }
         }
     }
@@ -336,13 +338,13 @@ impl RuleSets {
 
     fn load_one(config: &config::RuleSet, tag: &str, env: &RuntimeEnv) -> Result<RuleSet> {
         match config.kind {
-            RuleSetKind::Inline => RuleSet::from_rules(&config.rules),
+            RuleSetKind::Inline => RuleSet::from_rules(&config.rules, env),
             RuleSetKind::Local => {
                 let path = env.data_path(&config::RuleSet::for_tag(
                     config.path.as_deref().unwrap_or_default(),
                     tag,
                 ));
-                read_file(&path, config)
+                read_file(&path, config, env)
             }
             RuleSetKind::Remote => unreachable!("remote rule-sets are loaded apart"),
         }
@@ -368,11 +370,11 @@ impl RuleSets {
     }
 }
 
-fn read_file(path: &str, config: &config::RuleSet) -> Result<RuleSet> {
+fn read_file(path: &str, config: &config::RuleSet, env: &RuntimeEnv) -> Result<RuleSet> {
     let data = std::fs::read(path).map_err(|e| anyhow!("{}: {}", path, e))?;
     // Checked with the configuration.
     let format = config.format().unwrap_or(RuleSetFormat::Source);
-    RuleSet::read(&data, format, config.behavior).map_err(|e| anyhow!("{}: {}", path, e))
+    RuleSet::read(&data, format, config.behavior, env).map_err(|e| anyhow!("{}: {}", path, e))
 }
 
 #[cfg(test)]
@@ -392,7 +394,7 @@ mod tests {
             .map(|b| serde_json::from_value(serde_json::json!(b)).unwrap());
         let data = std::fs::read(&file).unwrap();
         let start = std::time::Instant::now();
-        let set = RuleSet::read(&data, format, behavior).unwrap();
+        let set = RuleSet::read(&data, format, behavior, &RuntimeEnv::default()).unwrap();
         println!("{}: loaded in {:?}", file, start.elapsed());
         std::hint::black_box(set);
     }
@@ -428,8 +430,13 @@ mod tests {
                 (format!("{}/{}.json", FIXTURES, name), RuleSetFormat::Source),
                 (format!("{}/{}.srs", FIXTURES, name), RuleSetFormat::Binary),
             ] {
-                let set = RuleSet::read(&std::fs::read(&file).unwrap(), format, None)
-                    .unwrap_or_else(|e| panic!("{}: {}", file, e));
+                let set = RuleSet::read(
+                    &std::fs::read(&file).unwrap(),
+                    format,
+                    None,
+                    &RuntimeEnv::default(),
+                )
+                .unwrap_or_else(|e| panic!("{}: {}", file, e));
                 let wrong: Vec<&String> = probes
                     .iter()
                     .filter(|(probe, matched)| set.matches(&facts(probe), false) != **matched)
@@ -458,8 +465,13 @@ mod tests {
                 .unwrap();
         for (name, probes) in &expected {
             let file = format!("{}/{}.srs", dir, name);
-            let set = RuleSet::read(&std::fs::read(&file).unwrap(), RuleSetFormat::Binary, None)
-                .unwrap_or_else(|e| panic!("{}: {}", file, e));
+            let set = RuleSet::read(
+                &std::fs::read(&file).unwrap(),
+                RuleSetFormat::Binary,
+                None,
+                &RuntimeEnv::default(),
+            )
+            .unwrap_or_else(|e| panic!("{}: {}", file, e));
             let wrong: Vec<&String> = probes
                 .iter()
                 .filter(|(probe, matched)| set.matches(&facts(probe), false) != **matched)
@@ -572,7 +584,9 @@ mod tests {
 
         let narrow = |rules: serde_json::Value| {
             let rules: Vec<config::HeadlessRule> = serde_json::from_value(rules).unwrap();
-            RuleSet::from_rules(&rules).unwrap().is_narrow()
+            RuleSet::from_rules(&rules, &RuntimeEnv::default())
+                .unwrap()
+                .is_narrow()
         };
         assert!(narrow(serde_json::json!([{ "domain": ["a.test"] }])));
         assert!(!narrow(serde_json::json!([])));
@@ -600,7 +614,9 @@ mod tests {
             .collect();
         let rules: Vec<config::HeadlessRule> =
             serde_json::from_value(serde_json::json!([{ "domain": many }])).unwrap();
-        set.publish(Arc::new(RuleSet::from_rules(&rules).unwrap()));
+        set.publish(Arc::new(
+            RuleSet::from_rules(&rules, &RuntimeEnv::default()).unwrap(),
+        ));
         assert!(!set.load().is_narrow());
     }
 
@@ -609,7 +625,7 @@ mod tests {
     fn binary_sets_are_measured_too() {
         let read = |file: &str, format, behavior| {
             let data = std::fs::read(format!("{}/{}", FIXTURES, file)).unwrap();
-            RuleSet::read(&data, format, behavior).unwrap()
+            RuleSet::read(&data, format, behavior, &RuntimeEnv::default()).unwrap()
         };
         let count =
             |set: &RuleSet| -> usize { set.rules.iter().filter_map(|r| r.domain_count()).sum() };
@@ -721,6 +737,38 @@ mod tests {
     }
 
     #[test]
+    fn a_rule_set_s_autonomous_systems_are_its_data_directory_s() {
+        use crate::app::router::matcher::tests::{asn_records, mmdb};
+        let dir = std::env::temp_dir().join(format!("sail-rs-asn-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (geolite, _) = asn_records(13335, "");
+        std::fs::write(dir.join("asn.mmdb"), mmdb(&[("1.0.0.0/8", geolite)])).unwrap();
+        let env = RuntimeEnv {
+            host: crate::runtime::Host {
+                data_dir: Some(dir.clone()),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let rules = [serde_json::from_value(serde_json::json!({ "ip_asn": 13335 })).unwrap()];
+        let set = RuleSet::from_rules(&rules, &env).unwrap();
+        let at = |ip: &str| {
+            let sess = crate::session::Session {
+                destination: crate::session::SocksAddr::from((
+                    ip.parse::<std::net::IpAddr>().unwrap(),
+                    443,
+                )),
+                ..Default::default()
+            };
+            set.matches(&Facts::new(&sess, &[]), false)
+        };
+        assert!(at("1.1.1.1"));
+        assert!(!at("9.9.9.9"));
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert!(RuleSet::from_rules(&rules, &RuntimeEnv::default()).is_err());
+    }
+
+    #[test]
     fn logical_rules_combine() {
         let m = rule(
             serde_json::json!({ "rule_set": "l", "outbound": "x" }),
@@ -783,14 +831,32 @@ mod tests {
     #[test]
     fn a_damaged_binary_is_an_error_not_a_panic() {
         let data = std::fs::read(format!("{}/domains.srs", FIXTURES)).unwrap();
-        assert!(RuleSet::read(&data[..data.len() / 2], RuleSetFormat::Binary, None).is_err());
-        assert!(RuleSet::read(b"SRS\x09", RuleSetFormat::Binary, None).is_err());
-        assert!(RuleSet::read(b"XYZ\x01", RuleSetFormat::Binary, None).is_err());
+        assert!(RuleSet::read(
+            &data[..data.len() / 2],
+            RuleSetFormat::Binary,
+            None,
+            &RuntimeEnv::default()
+        )
+        .is_err());
+        assert!(RuleSet::read(
+            b"SRS\x09",
+            RuleSetFormat::Binary,
+            None,
+            &RuntimeEnv::default()
+        )
+        .is_err());
+        assert!(RuleSet::read(
+            b"XYZ\x01",
+            RuleSetFormat::Binary,
+            None,
+            &RuntimeEnv::default()
+        )
+        .is_err());
         // Each byte flipped in turn: never a panic.
         for i in 4..data.len().min(600) {
             let mut bad = data.clone();
             bad[i] ^= 0x5a;
-            let _ = RuleSet::read(&bad, RuleSetFormat::Binary, None);
+            let _ = RuleSet::read(&bad, RuleSetFormat::Binary, None, &RuntimeEnv::default());
         }
     }
 }

@@ -12,6 +12,7 @@ pub fn rule_set_source(data: &[u8]) {
         data,
         RuleSetFormat::Source,
         None,
+        &Default::default(),
     ));
 }
 
@@ -21,6 +22,7 @@ pub fn rule_set_binary(data: &[u8]) {
         data,
         RuleSetFormat::Binary,
         None,
+        &Default::default(),
     ));
 }
 
@@ -31,6 +33,7 @@ pub fn rule_set_mrs(data: &[u8]) {
             data,
             RuleSetFormat::Mrs,
             Some(behavior),
+            &Default::default(),
         ));
     }
 }
