@@ -75,7 +75,13 @@ impl Remote {
         });
         let mut remote = Remote {
             tag: tag.to_string(),
-            url: config::RuleSet::for_tag(config.url.as_deref().unwrap_or_default(), tag),
+            url: env
+                .host
+                .download_url(&config::RuleSet::for_tag(
+                    config.url.as_deref().unwrap_or_default(),
+                    tag,
+                ))
+                .map_err(|e| anyhow!("url: {}", e))?,
             format,
             behavior: config.behavior,
             interval: config.update_interval.unwrap_or(DEFAULT_INTERVAL),
