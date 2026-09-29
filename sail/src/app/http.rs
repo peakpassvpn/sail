@@ -1,6 +1,10 @@
-//! A GET over HTTP/1.1, through an outbound or directly: what downloading a rule-set
-//! takes, and no more. It is what `crate::fetch` downloads with too, without an
-//! instance where it dials directly.
+//! A GET over HTTP/1.1, through an outbound or directly: what downloading a
+//! remote rule-set or an outbound provider takes, and no more. It is what
+//! `crate::fetch` downloads with too, without an instance where it dials
+//! directly.
+// With fetch alone, the conditional GET and the per-download clients
+// go unused.
+#![cfg_attr(not(feature = "rule-set"), allow(dead_code))]
 
 use std::net::IpAddr;
 use std::sync::Arc;
@@ -12,6 +16,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use crate::adapter::AnyStream;
 use crate::app::dispatcher::Dispatcher;
 use crate::app::SyncDnsClient;
+use crate::config::model::{HttpClient, HttpClientRef};
 use crate::net::DialOptions;
 use crate::runtime::RuntimeEnv;
 use crate::session::{Network, Session, SocksAddr};
@@ -393,4 +398,99 @@ async fn more(stream: &mut AnyStream, buf: &mut Vec<u8>) -> Result<()> {
     }
     buf.extend_from_slice(&chunk[..n]);
     Ok(())
+}
+
+/// Writes `data` to `path` whole or not at all: a download's cache.
+pub(crate) fn write_atomically(path: &std::path::Path, data: &[u8]) -> Result<()> {
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let partial = path.with_extension("partial");
+    std::fs::write(&partial, data)?;
+    std::fs::rename(&partial, path)?;
+    Ok(())
+}
+
+/// A tag as a file name: what could leave the directory, or trouble a
+/// file system, becomes `_`.
+pub(crate) fn file_name(tag: &str) -> String {
+    let name: String = tag
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    match name.trim_start_matches('.') {
+        "" => "_".to_string(),
+        name => name.to_string(),
+    }
+}
+
+/// What downloads go with: `http_clients`, and the dial options of those
+/// that dial directly. Remote rule-sets and outbound providers take theirs
+/// from it.
+#[derive(Default)]
+pub(crate) struct HttpClients {
+    clients: Vec<HttpClient>,
+    default: Option<String>,
+    dial: Arc<DialOptions>,
+}
+
+impl HttpClients {
+    pub(crate) fn new(config: &crate::config::Config, dial: Arc<DialOptions>) -> Self {
+        Self {
+            clients: config.http_clients.clone(),
+            default: config.route.default_http_client.clone(),
+            dial,
+        }
+    }
+
+    fn get(&self, tag: &str) -> Result<&HttpClient> {
+        self.clients
+            .iter()
+            .find(|c| c.tag == tag)
+            .ok_or_else(|| anyhow!("http client [{}] does not exist", tag))
+    }
+
+    /// How what names `http_client` and `download_detour` is downloaded,
+    /// a remote rule-set or outbound provider, as sing-box has it: with its
+    /// `http_client`, or through its `download_detour`, or with the default
+    /// client; none, through the default outbound.
+    pub(crate) fn client(
+        &self,
+        http_client: Option<&HttpClientRef>,
+        download_detour: Option<&str>,
+    ) -> Result<Client> {
+        let client = match http_client {
+            Some(HttpClientRef::Tag(tag)) => self.get(tag)?,
+            Some(HttpClientRef::Inline(client)) => client,
+            None => {
+                if let Some(detour) = download_detour {
+                    return Ok(Client {
+                        via: Some(Via::Outbound(detour.to_string())),
+                        headers: Vec::new(),
+                    });
+                }
+                match &self.default {
+                    Some(tag) => self.get(tag)?,
+                    None => match self.clients.first() {
+                        Some(client) => client,
+                        None => return Ok(Client::default()),
+                    },
+                }
+            }
+        };
+        let via = match &client.detour {
+            Some(detour) => Via::Outbound(detour.clone()),
+            None => Via::Direct(Arc::new(client.dial(&self.dial))),
+        };
+        Ok(Client {
+            via: Some(via),
+            headers: client.header_lines(),
+        })
+    }
 }

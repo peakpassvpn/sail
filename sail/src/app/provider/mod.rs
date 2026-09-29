@@ -24,7 +24,7 @@ use futures::future::AbortHandle;
 
 use crate::adapter::AnyOutboundHandler;
 use crate::app::dispatcher::Dispatcher;
-use crate::app::router::rule_set::HttpClients;
+use crate::app::http::HttpClients;
 use crate::app::SyncDnsClient;
 use crate::config::model::OutboundProvider;
 use crate::net::DialOptions;

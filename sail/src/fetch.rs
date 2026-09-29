@@ -11,7 +11,7 @@ use std::time::Duration;
 
 use anyhow::{anyhow, Result};
 
-use crate::app::router::rule_set::http::{self, Conn, Limits, Response, Via};
+use crate::app::http::{self, Conn, Limits, Response, Via};
 use crate::net::DialOptions;
 use crate::runtime::RuntimeEnv;
 use crate::RuntimeManager;
@@ -88,7 +88,7 @@ async fn get(conn: &Conn<'_>, via: &Via, url: &str, options: &Options) -> Result
 /// Writes `data` to `path` whole or not at all: to a file beside it, then
 /// in its place. The directory is made if it is not there.
 pub fn write_atomically(path: &Path, data: &[u8]) -> Result<()> {
-    crate::app::router::rule_set::remote::write_atomically(path, data)
+    crate::app::http::write_atomically(path, data)
 }
 
 #[cfg(test)]

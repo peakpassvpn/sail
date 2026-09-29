@@ -25,7 +25,7 @@ pub mod adapter;
 pub mod app;
 pub mod common;
 pub mod config;
-#[cfg(feature = "rule-set")]
+#[cfg(feature = "http-client")]
 pub mod fetch;
 #[cfg(feature = "fuzzing")]
 pub mod fuzzing;
@@ -372,7 +372,7 @@ impl RuntimeManager {
             transport::tls::roots::configured(config.certificate.as_ref(), &self.env)
                 .map_err(Error::Config)?,
         );
-        let http_clients = app::router::rule_set::HttpClients::new(&config, dial_defaults.clone());
+        let http_clients = app::http::HttpClients::new(&config, dial_defaults.clone());
         let rule_sets =
             app::router::rule_set::RuleSets::load(&config.route.rule_set, &http_clients, &self.env)
                 .map_err(Error::Config)?;

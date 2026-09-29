@@ -5,6 +5,23 @@ use tokio::sync::RwLock;
 pub mod dispatcher;
 pub mod dns;
 pub mod healthcheck;
+#[cfg(feature = "http-client")]
+pub(crate) mod http;
+/// Without a client, downloads cannot be configured.
+#[cfg(not(feature = "http-client"))]
+pub(crate) mod http {
+    /// What downloads would go with.
+    pub(crate) struct HttpClients;
+
+    impl HttpClients {
+        pub(crate) fn new(
+            _config: &crate::config::Config,
+            _dial: std::sync::Arc<crate::net::DialOptions>,
+        ) -> Self {
+            HttpClients
+        }
+    }
+}
 pub mod inbound;
 pub mod instance;
 pub mod logger;

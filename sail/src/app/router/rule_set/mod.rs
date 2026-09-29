@@ -9,17 +9,15 @@ use crate::runtime::resource::HotResource;
 use anyhow::{anyhow, Context, Result};
 
 use crate::app::dispatcher::Dispatcher;
+use crate::app::http::HttpClients;
 use crate::app::router::matcher::{Condition, Facts, Groups, Needs};
-use crate::config::model::{HttpClient, HttpClientRef};
 use crate::config::rule_set::{
     self as config, ClashBehavior, RuleSetFormat, RuleSetKind, MAX_VERSION,
 };
-use crate::net::DialOptions;
 use crate::runtime::RuntimeEnv;
 
 mod clash;
 pub(crate) mod domain_set;
-pub(crate) mod http;
 mod mrs;
 mod reader;
 pub(crate) mod remote;
@@ -183,70 +181,6 @@ impl RuleSet {
             }
         }
         outer.done() && self.matches(facts, ip_match_source)
-    }
-}
-
-/// What remote rule-sets are downloaded with: `http_clients`, and the dial
-/// options of those that dial directly.
-#[derive(Default)]
-pub(crate) struct HttpClients {
-    clients: Vec<HttpClient>,
-    default: Option<String>,
-    dial: Arc<DialOptions>,
-}
-
-impl HttpClients {
-    pub(crate) fn new(config: &crate::config::Config, dial: Arc<DialOptions>) -> Self {
-        Self {
-            clients: config.http_clients.clone(),
-            default: config.route.default_http_client.clone(),
-            dial,
-        }
-    }
-
-    fn get(&self, tag: &str) -> Result<&HttpClient> {
-        self.clients
-            .iter()
-            .find(|c| c.tag == tag)
-            .ok_or_else(|| anyhow!("http client [{}] does not exist", tag))
-    }
-
-    /// How what names `http_client` and `download_detour` is downloaded,
-    /// a remote rule-set or outbound provider, as sing-box has it: with its
-    /// `http_client`, or through its `download_detour`, or with the default
-    /// client; none, through the default outbound.
-    pub(crate) fn client(
-        &self,
-        http_client: Option<&HttpClientRef>,
-        download_detour: Option<&str>,
-    ) -> Result<http::Client> {
-        let client = match http_client {
-            Some(HttpClientRef::Tag(tag)) => self.get(tag)?,
-            Some(HttpClientRef::Inline(client)) => client,
-            None => {
-                if let Some(detour) = download_detour {
-                    return Ok(http::Client {
-                        via: Some(http::Via::Outbound(detour.to_string())),
-                        headers: Vec::new(),
-                    });
-                }
-                match &self.default {
-                    Some(tag) => self.get(tag)?,
-                    None => match self.clients.first() {
-                        Some(client) => client,
-                        None => return Ok(http::Client::default()),
-                    },
-                }
-            }
-        };
-        let via = match &client.detour {
-            Some(detour) => http::Via::Outbound(detour.clone()),
-            None => http::Via::Direct(Arc::new(client.dial(&self.dial))),
-        };
-        Ok(http::Client {
-            via: Some(via),
-            headers: client.header_lines(),
-        })
     }
 }
 

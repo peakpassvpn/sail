@@ -1,7 +1,8 @@
 //! An instance: the components a configuration describes, built in
 //! dependency order, started in stages, and stopped in reverse.
 
-use crate::app::router::rule_set::{HttpClients, RuleSets};
+use crate::app::http::HttpClients;
+use crate::app::router::rule_set::RuleSets;
 use std::sync::Arc;
 
 use anyhow::Result;

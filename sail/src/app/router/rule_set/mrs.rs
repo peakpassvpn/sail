@@ -16,7 +16,7 @@ const MAGIC: &[u8; 4] = b"MRS\x01";
 
 /// The most an MRS file may hold once decompressed: what a download of a
 /// rule-set may be.
-pub(crate) const MAX_DECOMPRESSED: usize = super::http::MAX_BODY;
+pub(crate) const MAX_DECOMPRESSED: usize = crate::app::http::MAX_BODY;
 
 /// What an MRS file holds.
 pub(crate) enum Set {

@@ -11,8 +11,9 @@ use anyhow::{anyhow, Result};
 use serde_derive::{Deserialize, Serialize};
 use tracing::{debug, info, warn};
 
-use super::{http, RuleSet, SharedRuleSet};
+use super::{RuleSet, SharedRuleSet};
 use crate::app::dispatcher::Dispatcher;
+use crate::app::http::{self, file_name, write_atomically};
 use crate::config::rule_set::{self as config, RuleSetFormat};
 use crate::runtime::RuntimeEnv;
 
@@ -229,37 +230,8 @@ impl Remote {
     }
 }
 
-pub(crate) fn write_atomically(path: &std::path::Path, data: &[u8]) -> Result<()> {
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)?;
-    }
-    let partial = path.with_extension("partial");
-    std::fs::write(&partial, data)?;
-    std::fs::rename(&partial, path)?;
-    Ok(())
-}
-
 fn meta_path(cache: &std::path::Path) -> PathBuf {
     cache.with_extension("meta.json")
-}
-
-/// A tag as a file name: what could leave the directory, or trouble a
-/// file system, becomes `_`.
-pub(crate) fn file_name(tag: &str) -> String {
-    let name: String = tag
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect();
-    match name.trim_start_matches('.') {
-        "" => "_".to_string(),
-        name => name.to_string(),
-    }
 }
 
 #[cfg(test)]

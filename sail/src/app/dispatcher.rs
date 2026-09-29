@@ -539,7 +539,7 @@ impl Dispatcher {
     }
 
     /// The DNS client what dials directly resolves with.
-    #[cfg(feature = "rule-set")]
+    #[cfg(feature = "http-client")]
     pub(crate) fn dns_client(&self) -> SyncDnsClient {
         self.dns_client.clone()
     }
