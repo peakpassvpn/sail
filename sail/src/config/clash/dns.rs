@@ -754,9 +754,12 @@ impl Lowering<'_, '_> {
         if mode != "normal" {
             dns.insert("reverse_mapping".into(), json!(true));
         }
-        if let Some(size) = f.int::<usize>("cache-max-size")?.filter(|s| *s > 0) {
-            dns.insert("cache_capacity".into(), json!(size));
-        }
+        // Mihomo keeps 4096 answers unless told; sail keeps 1024 at least.
+        let size = f
+            .int::<usize>("cache-max-size")?
+            .filter(|s| *s > 0)
+            .unwrap_or(4096);
+        dns.insert("cache_capacity".into(), json!(size.max(1024)));
         out.dns = dns;
         Ok(())
     }

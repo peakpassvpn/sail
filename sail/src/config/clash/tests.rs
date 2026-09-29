@@ -904,7 +904,10 @@ fn what_sail_does_not_implement_of_dns_is_warned_of() {
             "dns.cache: not a field Mihomo takes; ignored",
         ]
     );
-    assert_eq!(config.dns.cache_capacity, Some(1000));
+    // cache-max-size, but sail keeps 1024 answers at least.
+    assert_eq!(config.dns.cache_capacity, Some(1024));
+    // Unset, Mihomo's 4096.
+    assert_eq!(dns_of("").dns.cache_capacity, Some(4096));
 }
 
 #[test]
