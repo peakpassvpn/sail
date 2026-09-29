@@ -316,25 +316,22 @@ pub(crate) fn rules(o: &RuleOptions) -> Vec<Rule> {
     rules
 }
 
-/// The prefixes of one family routed into the TUN's table: `include`
-/// (`route_address` and the rule-sets of `route_address_set`), or all
-/// addresses without it, less `exclude`; merged, so a prefix twice is
-/// routed once.
+/// The prefixes of one family routed into the TUN: `include`
+/// (`route_address` and the rule-sets of `route_address_set`), or `all`
+/// without it, less `exclude`; merged, so a prefix twice is routed once.
 pub(crate) fn routes(
     v6: bool,
     include: &[(IpAddr, u8)],
     exclude: &[(IpAddr, u8)],
+    all: &[(IpAddr, u8)],
 ) -> Vec<(IpAddr, u8)> {
     let mut set = RangeSet::new(v6);
     let of_family = |&&(address, _): &&(IpAddr, u8)| address.is_ipv6() == v6;
     let mut included = include.iter().filter(of_family).peekable();
     if included.peek().is_none() {
-        let all: IpAddr = if v6 {
-            Ipv6Addr::UNSPECIFIED.into()
-        } else {
-            Ipv4Addr::UNSPECIFIED.into()
-        };
-        set.add((all, 0));
+        for &prefix in all.iter().filter(of_family) {
+            set.add(prefix);
+        }
     }
     for &prefix in included {
         set.add(prefix);
@@ -508,13 +505,15 @@ mod tests {
                 .map(|(a, l)| format!("{}/{}", a, l))
                 .collect::<Vec<_>>()
         };
-        assert_eq!(show(routes(false, &[], &[])), ["0.0.0.0/0"]);
-        assert_eq!(show(routes(true, &[p("10.0.0.0/8")], &[])), ["::/0"]);
+        let all = [p("0.0.0.0/0"), p("::/0")];
+        assert_eq!(show(routes(false, &[], &[], &all)), ["0.0.0.0/0"]);
+        assert_eq!(show(routes(true, &[p("10.0.0.0/8")], &[], &all)), ["::/0"]);
         assert_eq!(
             show(routes(
                 false,
                 &[p("10.0.0.0/8"), p("10.1.0.0/16"), p("2001:db8::/32")],
-                &[p("10.128.0.0/9")]
+                &[p("10.128.0.0/9")],
+                &all
             )),
             ["10.0.0.0/9"]
         );

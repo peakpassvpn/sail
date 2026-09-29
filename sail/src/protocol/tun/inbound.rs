@@ -661,10 +661,11 @@ fn route_selection(options: &TunInboundOptions) -> std::result::Result<RouteSele
                 !options.route_exclude_address_set.is_empty(),
             ),
         ];
-        if let Some(field) = set(&routes).filter(|_| !cfg!(target_os = "linux")) {
+        let routed_here = cfg!(any(target_os = "linux", target_os = "macos"));
+        if let Some(field) = set(&routes).filter(|_| !routed_here) {
             return Err(format!(
-                "{field}: sail takes it with auto_route on Linux, or auto_redirect; on this \
-                 system it is route management, not implemented yet"
+                "{field}: sail takes it with auto_route on Linux and macOS, or auto_redirect; \
+                 on this system it is route management, not implemented yet"
             ));
         }
     }
@@ -868,10 +869,10 @@ pub(crate) fn new(
     let tun = tun::create_as_async(&cfg).map_err(|e| anyhow!("create tun failed: {}", e))?;
     #[cfg(target_os = "macos")]
     if let Some(ipv6) = settings.ipv6.filter(|_| cfg_opened_here(&dispatcher)) {
-        crate::platform::cmd::add_interface_ipv6_address(
+        crate::platform::utun::add_ipv6_address(
             &settings.name,
             ipv6.address(),
-            i32::from(ipv6.network_length()),
+            ipv6.network_length(),
         )?;
     }
     let io = TunPacketIo::new(tun, mtu, netstack.batch_size)?;
@@ -1075,21 +1076,27 @@ mod tests {
             err.contains("`auto_route` is required by `auto_redirect`"),
             "{err}"
         );
-        // With auto_route alone: Linux's rules and routes take them;
-        // elsewhere they are refused, and what only auto_redirect does is
-        // refused everywhere.
-        for (field, value, elsewhere) in [
+        // With auto_route alone: the routes take route_address on Linux and
+        // macOS, Linux's rules the uids; elsewhere they are refused, and
+        // what only auto_redirect does is refused everywhere.
+        for (field, value, elsewhere, here) in [
             (
                 "route_address",
                 serde_json::json!("10.0.0.0/8"),
                 "route management",
+                cfg!(any(target_os = "linux", target_os = "macos")),
             ),
-            ("include_uid", serde_json::json!(1000), "Linux only"),
+            (
+                "include_uid",
+                serde_json::json!(1000),
+                "Linux only",
+                cfg!(target_os = "linux"),
+            ),
         ] {
             let taken = options(&tun(serde_json::json!({
                 "address": "172.19.0.1/30", "auto_route": true, field: value
             })));
-            if cfg!(target_os = "linux") {
+            if here {
                 taken.unwrap();
             } else {
                 let err = taken.unwrap_err().to_string();

@@ -100,7 +100,7 @@ pub struct RuntimeManager {
     #[cfg(feature = "auto-reload")]
     rule_set_files: Mutex<Vec<std::path::PathBuf>>,
     /// Where a reload's rule-sets go for the TUN's routing.
-    #[cfg(all(feature = "inbound-tun", target_os = "linux"))]
+    #[cfg(all(feature = "inbound-tun", any(target_os = "linux", target_os = "macos")))]
     tun_rule_sets: Option<app::instance::TunRuleSets>,
 }
 
@@ -135,7 +135,7 @@ impl RuntimeManager {
             stat_manager: instance.stat_manager.clone(),
             env: instance.env.clone(),
             dispatcher: Arc::downgrade(&instance.dispatcher),
-            #[cfg(all(feature = "inbound-tun", target_os = "linux"))]
+            #[cfg(all(feature = "inbound-tun", any(target_os = "linux", target_os = "macos")))]
             tun_rule_sets: instance.tun_rule_sets(),
             rule_set_updater: Mutex::new(
                 instance
@@ -363,7 +363,7 @@ impl RuntimeManager {
         outbound_manager
             .restore_selected(&self.outbound_manager.load())
             .await;
-        #[cfg(all(feature = "inbound-tun", target_os = "linux"))]
+        #[cfg(all(feature = "inbound-tun", any(target_os = "linux", target_os = "macos")))]
         if let Some(feed) = &self.tun_rule_sets {
             feed.check(&rule_sets).map_err(Error::Config)?;
         }
@@ -394,7 +394,7 @@ impl RuntimeManager {
         self.dns_client.store(dns_client.into_arc());
         let replaced = self.outbound_manager.swap(Arc::new(outbound_manager));
         self.router.store(Arc::new(router));
-        #[cfg(all(feature = "inbound-tun", target_os = "linux"))]
+        #[cfg(all(feature = "inbound-tun", any(target_os = "linux", target_os = "macos")))]
         if let Some(feed) = &self.tun_rule_sets {
             feed.publish(rule_sets.clone());
         }

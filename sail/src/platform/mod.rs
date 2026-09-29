@@ -1,14 +1,6 @@
 //! Operating-system integration: routes, interfaces and forwarding that the
 //! host needs set up around the core.
 
-#[cfg(target_os = "macos")]
-pub mod cmd_macos;
-#[cfg(target_os = "macos")]
-pub use cmd_macos as cmd;
-
-#[cfg(all(feature = "inbound-tun", target_os = "macos"))]
-pub(crate) mod tun_setup;
-
 // Linux only; its encoder builds everywhere under test so it is tested on
 // any host.
 #[cfg(any(target_os = "linux", test))]
@@ -27,17 +19,28 @@ pub(crate) mod policy_route;
 ))]
 pub(crate) mod original_dst;
 
-#[cfg(all(feature = "inbound-tun", any(target_os = "linux", test)))]
+#[cfg(all(
+    feature = "inbound-tun",
+    any(target_os = "linux", target_os = "macos", test)
+))]
 pub(crate) mod ip_ranges;
 
 // auto_route's rules without auto_redirect; built everywhere under test.
-#[cfg(all(feature = "inbound-tun", any(target_os = "linux", test)))]
+#[cfg(all(
+    feature = "inbound-tun",
+    any(target_os = "linux", target_os = "macos", test)
+))]
 pub(crate) mod auto_route;
 
 #[cfg(target_os = "linux")]
 pub(crate) mod addr_monitor;
+
 #[cfg(all(target_os = "linux", feature = "inbound-tun"))]
 pub(crate) mod openwrt;
+#[cfg(target_os = "macos")]
+pub(crate) mod route_socket;
+#[cfg(all(target_os = "macos", feature = "inbound-tun"))]
+pub(crate) mod utun;
 
 // Linux only, like nft, whose netlink framing it uses.
 #[cfg(any(target_os = "linux", test))]
@@ -56,28 +59,17 @@ pub mod auto_redirect;
 #[cfg(target_os = "windows")]
 pub(crate) mod windows;
 
-#[cfg(any(not(target_os = "linux"), feature = "inbound-tun"))]
+#[cfg(any(
+    all(target_os = "linux", feature = "inbound-tun"),
+    not(any(target_os = "linux", target_os = "macos"))
+))]
 use anyhow::{anyhow, Result};
 
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
 use crate::net::DialOptions;
 
-/// Runs a command that changes the system. Failing to run it at all is an
-/// error; a failure it reports is logged, as the change may well be there
-/// already -- a route left by an earlier run, say.
-#[cfg(target_os = "macos")]
-fn run(cmd: &mut std::process::Command) -> Result<()> {
-    let status = cmd
-        .status()
-        .map_err(|e| anyhow!("cannot run {:?}: {}", cmd.get_program(), e))?;
-    if !status.success() {
-        tracing::warn!("{:?} failed: {}", cmd, status);
-    }
-    Ok(())
-}
-
 /// Runs a command that reads the system, and returns what it printed.
-#[cfg(any(target_os = "macos", all(target_os = "linux", feature = "inbound-tun")))]
+#[cfg(all(target_os = "linux", feature = "inbound-tun"))]
 fn output(cmd: &mut std::process::Command) -> Result<String> {
     let out = cmd
         .output()
@@ -93,22 +85,13 @@ fn output(cmd: &mut std::process::Command) -> Result<String> {
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
-/// A sysctl flag as `sysctl -n` prints it: whether it is not 0.
-#[cfg(target_os = "macos")]
-fn sysctl_flag(name: &str) -> Result<bool> {
-    let out = output(std::process::Command::new("sysctl").arg("-n").arg(name))?;
-    let value = out
-        .trim()
-        .parse::<i64>()
-        .map_err(|_| anyhow!("sysctl {}: unexpected value \"{}\"", name, out.trim()))?;
-    Ok(value != 0)
-}
-
 /// The name of the interface the system's default route goes through,
 /// for `auto_detect_interface`.
+/// On macOS, the IPv4 default route's in the routing table: asking where
+/// 1.1.1.1 goes would answer the TUN once it routes.
 #[cfg(target_os = "macos")]
 pub fn detect_default_interface() -> std::io::Result<String> {
-    cmd::get_default_interface().map_err(|e| std::io::Error::other(format!("{:#}", e)))
+    route_socket::default_interface()
 }
 
 /// On Linux, the main table's default route with the lowest metric, IPv4's

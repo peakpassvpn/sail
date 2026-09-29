@@ -61,6 +61,8 @@ Sail 从上到下评估路由规则。`route` 和 `reject` 会停止匹配；`sn
 
 在 Linux 上，`auto_route` 不改主路由表：TUN 的路由放在表 2022（`iproute2_table_index`），从优先级 9000（`iproute2_rule_index`）开始的 ip 规则把流量引过去。设备消失时内核会一并删掉这些路由，崩溃留下的规则会在下次启动时清掉。`route_address`、`route_exclude_address` 及其规则集形式、`include_interface`/`exclude_interface`、`include_uid`/`exclude_uid` 和 `strict_route` 决定接管哪些流量，含义和 sing-box 相同。配置了 `route_address` 或 `route_exclude_address` 时，列出的前缀会优先于局域网自己的路由，所以局域网需要显式排除。
 
+在 macOS 上，`auto_route` 经 utun 添加比默认路由更具体的路由：1.0.0.0/8、2.0.0.0/7 … 128.0.0.0/1，IPv6 同样按这种方式对半切分；配置了 `route_address` 时改为添加这些前缀。`route_exclude_address` 及其规则集形式会在这些路由中挖出空洞。默认路由本身始终不变，utun 消失时这些路由也随之消失。`strict_route`、网卡列表和 uid 列表在 macOS 上不起作用，与 sing-box 相同。
+
 ## 在内核中绕过（Linux `auto_redirect`）
 
 开启 `auto_redirect` 后，Linux TUN 入站不改主路由表：nftables 把系统的 TCP 重定向到本地监听器，UDP 和 ICMP 通过标记路由进 TUN。Sail 自己的套接字带输出标记，不会被接管，因此不需要 `auto_detect_interface`。

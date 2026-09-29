@@ -112,6 +112,8 @@ A TUN inbound with `auto_route` takes the system's traffic, and Sail's own outbo
 
 On Linux, `auto_route` never touches the main routing table. The TUN's routes live in table 2022 (`iproute2_table_index`), and ip rules from priority 9000 (`iproute2_rule_index`) send traffic there. The kernel removes the routes with the device, and the next start removes rules left by a crash. `route_address`, `route_exclude_address`, their rule-set forms, `include_interface`/`exclude_interface`, `include_uid`/`exclude_uid` and `strict_route` select what is taken, as in sing-box. With `route_address` or `route_exclude_address`, the listed prefixes win over the LAN's own routes, so exclude the LAN explicitly.
 
+On macOS, `auto_route` adds routes through the utun that are more specific than the default route: 1.0.0.0/8, 2.0.0.0/7 … 128.0.0.0/1, and the same halves of IPv6. With `route_address`, it adds those prefixes instead. `route_exclude_address` and the rule-set forms carve holes in these routes. The default route itself is never changed, and the routes disappear with the utun. `strict_route`, the interface lists and the uid lists do nothing on macOS, as in sing-box.
+
 ## Bypass in the kernel (Linux `auto_redirect`)
 
 With `auto_redirect`, a Linux TUN inbound leaves the main routing table alone. nftables sends the system's TCP to a local listener, and a mark sends UDP and ICMP into the TUN. Sail's own sockets carry the output mark and are never taken, so `auto_detect_interface` is not needed:
