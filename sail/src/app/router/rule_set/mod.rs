@@ -498,7 +498,7 @@ mod tests {
         let configs: Vec<config::RuleSet> = serde_json::from_value(sets).unwrap();
         let env = RuntimeEnv::default();
         let sets = RuleSets::load(&configs, &HttpClients::default(), &env).unwrap();
-        Matcher::new(&rule, &mut Default::default(), &env, &sets).unwrap()
+        Matcher::new(&rule, &env, &sets).unwrap()
     }
 
     fn at(domain: &str, port: u16, network: crate::session::Network) -> Facts {

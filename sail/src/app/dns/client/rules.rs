@@ -119,13 +119,11 @@ impl DnsClient {
         env: &crate::runtime::RuntimeEnv,
         rule_sets: &crate::app::router::rule_set::RuleSets,
     ) -> Result<Vec<Rule>> {
-        let mut readers = crate::app::router::matcher::Readers::new();
         let mut rules = Vec::new();
         for (i, rule) in dns.rules.iter().enumerate() {
             let matcher = crate::app::router::matcher::Matcher::at(
                 &rule.conditions(),
                 &format!("dns.rules[{}]", i),
-                &mut readers,
                 env,
                 rule_sets,
             )?;

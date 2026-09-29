@@ -113,7 +113,7 @@ use crate::config::model::{self, RejectMethod, RuleAction};
 use crate::runtime::RuntimeEnv;
 use crate::session::{Session, SocksAddr, TlsFragment};
 
-use matcher::{Facts, Matcher, Readers};
+use matcher::{Facts, Matcher};
 
 /// What the pre-match of a connection's first packet decides.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -381,7 +381,6 @@ impl Rule {
     fn new(
         rule: &model::Rule,
         path: &str,
-        readers: &mut Readers,
         env: &RuntimeEnv,
         rule_sets: &rule_set::RuleSets,
     ) -> Result<Self> {
@@ -445,7 +444,7 @@ impl Rule {
             }
         };
         Ok(Rule {
-            matcher: Matcher::at(rule, path, readers, env, rule_sets)?,
+            matcher: Matcher::at(rule, path, env, rule_sets)?,
             action,
         })
     }
@@ -463,20 +462,11 @@ impl Router {
         env: &RuntimeEnv,
         rule_sets: &rule_set::RuleSets,
     ) -> Result<Vec<Rule>> {
-        let mut readers = Readers::new();
         route
             .rules
             .iter()
             .enumerate()
-            .map(|(i, rule)| {
-                Rule::new(
-                    rule,
-                    &format!("route.rules[{}]", i),
-                    &mut readers,
-                    env,
-                    rule_sets,
-                )
-            })
+            .map(|(i, rule)| Rule::new(rule, &format!("route.rules[{}]", i), env, rule_sets))
             .collect()
     }
 

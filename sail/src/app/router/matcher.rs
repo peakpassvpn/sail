@@ -407,34 +407,39 @@ impl Mmdb {
     }
 }
 
-/// Mmdb readers by file, shared by the rules that use the same database.
-pub(crate) type Readers = HashMap<String, Arc<maxminddb::Reader<Vec<u8>>>>;
-
 /// The ASN database `ip_asn` looks addresses up in, in the asset directory.
 pub(crate) const ASN_FILE: &str = "asn.mmdb";
 
-/// The MaxMind database `file`, a data file (`env.data_path`), opened once:
-/// every rule, rule-set or group that opens the same path while one still
-/// holds it shares it. A file that does not open is an error naming its
-/// path.
+/// A MaxMind database file as it is now: its path, length and time of
+/// change. A file replaced is another.
+type MmdbKey = (String, u64, Option<std::time::SystemTime>);
+
+/// The MaxMind database `file`, a data file (`env.data_path`; a path given
+/// whole stays as it is), opened once: every rule, rule-set or group that
+/// opens the same file while one still holds it shares it. A file replaced
+/// since, of another length or time of change, is opened again, so that a
+/// reload reads the new one while the old rules keep the old. A file that
+/// does not open is an error naming its path.
 pub(crate) fn open_mmdb(env: &RuntimeEnv, file: &str) -> Result<Arc<maxminddb::Reader<Vec<u8>>>> {
     use std::sync::{Mutex, OnceLock, Weak};
-    type Open = Mutex<HashMap<String, Weak<maxminddb::Reader<Vec<u8>>>>>;
+    type Open = Mutex<HashMap<MmdbKey, Weak<maxminddb::Reader<Vec<u8>>>>>;
     static OPEN: OnceLock<Open> = OnceLock::new();
     let path = env.data_path(file);
+    let meta = std::fs::metadata(&path).map_err(|e| anyhow!("open {} failed: {}", path, e))?;
+    let key = (path, meta.len(), meta.modified().ok());
     let mut open = OPEN
         .get_or_init(Default::default)
         .lock()
         .unwrap_or_else(|e| e.into_inner());
-    if let Some(reader) = open.get(&path).and_then(Weak::upgrade) {
+    if let Some(reader) = open.get(&key).and_then(Weak::upgrade) {
         return Ok(reader);
     }
     let reader = Arc::new(
-        maxminddb::Reader::open_readfile(&path)
-            .map_err(|e| anyhow!("open {} failed: {}", path, e))?,
+        maxminddb::Reader::open_readfile(&key.0)
+            .map_err(|e| anyhow!("open {} failed: {}", key.0, e))?,
     );
     open.retain(|_, r| r.strong_count() > 0);
-    open.insert(path, Arc::downgrade(&reader));
+    open.insert(key, Arc::downgrade(&reader));
     Ok(reader)
 }
 
@@ -574,7 +579,6 @@ pub(crate) fn sniffed_protocol(field: &str, name: &str) -> Result<SniffedProtoco
 
 /// What building a condition needs from outside it.
 pub(crate) struct Context<'a> {
-    pub readers: &'a mut Readers,
     pub env: &'a RuntimeEnv,
     pub rule_sets: &'a super::rule_set::RuleSets,
 }
@@ -841,16 +845,8 @@ impl Conditions {
         let mmdbs = mmdbs
             .into_iter()
             .map(|mmdb| {
-                let reader = match ctx.readers.get(&mmdb.file) {
-                    Some(r) => r.clone(),
-                    None => {
-                        let r = Arc::new(maxminddb::Reader::open_readfile(&mmdb.file).map_err(
-                            |e| anyhow!("{}: open {} failed: {}", field("geoip"), mmdb.file, e),
-                        )?);
-                        ctx.readers.insert(mmdb.file.clone(), r.clone());
-                        r
-                    }
-                };
+                let reader = open_mmdb(ctx.env, &mmdb.file)
+                    .map_err(|e| anyhow!("{}: {}", field("geoip"), e))?;
                 Ok(Mmdb {
                     reader,
                     country_code: mmdb.country_code.to_ascii_uppercase(),
@@ -1282,11 +1278,10 @@ impl Matcher {
     #[cfg(test)]
     pub fn new(
         rule: &model::Rule,
-        readers: &mut Readers,
         env: &RuntimeEnv,
         rule_sets: &super::rule_set::RuleSets,
     ) -> Result<Self> {
-        Self::at(rule, "", readers, env, rule_sets)
+        Self::at(rule, "", env, rule_sets)
     }
 
     /// Compiles the conditions of `rule`, found at `path`, which errors
@@ -1294,15 +1289,10 @@ impl Matcher {
     pub fn at(
         rule: &model::Rule,
         path: &str,
-        readers: &mut Readers,
         env: &RuntimeEnv,
         rule_sets: &super::rule_set::RuleSets,
     ) -> Result<Self> {
-        let mut ctx = Context {
-            readers,
-            env,
-            rule_sets,
-        };
+        let mut ctx = Context { env, rule_sets };
         Condition::compile(rule, path, &mut ctx).map(Matcher)
     }
 
@@ -1363,13 +1353,7 @@ pub(crate) mod tests {
     use crate::session::SocksAddr;
 
     fn matcher(rule: model::Rule) -> Matcher {
-        Matcher::new(
-            &rule,
-            &mut Readers::new(),
-            &RuntimeEnv::default(),
-            &Default::default(),
-        )
-        .unwrap()
+        Matcher::new(&rule, &RuntimeEnv::default(), &Default::default()).unwrap()
     }
 
     fn to(destination: SocksAddr) -> Facts {
@@ -1527,14 +1511,9 @@ pub(crate) mod tests {
                 "network: unknown network",
             ),
         ] {
-            let err = Matcher::new(
-                &rule,
-                &mut Readers::new(),
-                &RuntimeEnv::default(),
-                &Default::default(),
-            )
-            .err()
-            .unwrap();
+            let err = Matcher::new(&rule, &RuntimeEnv::default(), &Default::default())
+                .err()
+                .unwrap();
             assert!(err.to_string().starts_with(message), "{}", err);
         }
         for bad in ["22", "22:21", ":", "22-23", "22:abc", "22:23:24"] {
@@ -1556,7 +1535,6 @@ pub(crate) mod tests {
         let err = Matcher::at(
             &rule,
             "route.rules[3]",
-            &mut Readers::new(),
             &RuntimeEnv::default(),
             &Default::default(),
         )
@@ -2003,7 +1981,7 @@ pub(crate) mod tests {
         };
         let rule: model::Rule =
             serde_json::from_value(serde_json::json!({ "ip_asn": [15169, 13335] })).unwrap();
-        let m = Matcher::new(&rule, &mut Readers::new(), &env, &Default::default()).unwrap();
+        let m = Matcher::new(&rule, &env, &Default::default()).unwrap();
         assert!(m.matches(&ip("1.1.1.1", 443)));
         assert!(m.matches(&ip("8.8.8.8", 53)));
         assert!(!m.matches(&ip("8.9.8.8", 53)));
@@ -2019,10 +1997,21 @@ pub(crate) mod tests {
         assert!(m.matches(&resolved));
         assert!(!m.matches(&domain("one.example", 443)));
         // Opened once.
-        assert!(Arc::ptr_eq(
-            &open_mmdb(&env, ASN_FILE).unwrap(),
-            &open_mmdb(&env, ASN_FILE).unwrap()
-        ));
+        let old = open_mmdb(&env, ASN_FILE).unwrap();
+        assert!(Arc::ptr_eq(&old, &open_mmdb(&env, ASN_FILE).unwrap()));
+        // Replaced, as before a reload, it is opened again; the rules
+        // compiled before keep the old one.
+        let (geolite, _) = asn_records(64512, "");
+        std::fs::write(
+            dir.join(ASN_FILE),
+            mmdb(&[("1.0.0.0/8", geolite), ("9.0.0.0/8", asn_records(1, "").0)]),
+        )
+        .unwrap();
+        let new = open_mmdb(&env, ASN_FILE).unwrap();
+        assert!(!Arc::ptr_eq(&old, &new));
+        let reloaded = Matcher::new(&rule, &env, &Default::default()).unwrap();
+        assert!(!reloaded.matches(&ip("1.1.1.1", 443)));
+        assert!(m.matches(&ip("1.1.1.1", 443)));
         std::fs::remove_dir_all(&dir).unwrap();
         // Without the database, the rule is an error naming it.
         let err = compile_err(serde_json::json!({ "ip_asn": 13335 }));
@@ -2031,6 +2020,25 @@ pub(crate) mod tests {
             "{}",
             err
         );
+    }
+
+    #[cfg(not(feature = "regex"))]
+    #[test]
+    fn without_regular_expressions_http_patterns_are_errors() {
+        for (rule, field) in [
+            (
+                serde_json::json!({ "http_user_agent": "a*" }),
+                "http_user_agent",
+            ),
+            (serde_json::json!({ "url_regex": "^http://" }), "url_regex"),
+        ] {
+            let err = compile_err(rule);
+            assert!(
+                err.starts_with(&format!("route.rules[3].{}: not supported", field)),
+                "{}",
+                err
+            );
+        }
     }
 
     #[cfg(feature = "regex")]

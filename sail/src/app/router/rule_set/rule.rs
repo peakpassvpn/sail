@@ -7,9 +7,7 @@ use std::net::IpAddr;
 use anyhow::{anyhow, Result};
 
 use super::SuccinctSet;
-use crate::app::router::matcher::{
-    query_type, Condition, Conditions, Context, Extras, Readers, MAX_DEPTH,
-};
+use crate::app::router::matcher::{query_type, Condition, Conditions, Context, Extras, MAX_DEPTH};
 use crate::config::model;
 use crate::config::rule_set::HeadlessRule;
 use crate::runtime::RuntimeEnv;
@@ -121,7 +119,6 @@ pub(crate) fn default(parts: Parts, path: &str, env: &RuntimeEnv) -> Result<Cond
         query_types: parts.query_types,
     };
     let mut ctx = Context {
-        readers: &mut Readers::new(),
         env,
         rule_sets: &Default::default(),
     };
