@@ -21,7 +21,7 @@ use crate::net::DialOptions;
 use crate::runtime::SyncRuntimeEnv;
 use crate::Runner;
 
-#[cfg(all(feature = "inbound-tun", any(target_os = "macos", target_os = "linux")))]
+#[cfg(all(feature = "inbound-tun", target_os = "macos"))]
 use crate::platform::tun_setup;
 
 pub struct Instance {
@@ -38,19 +38,20 @@ pub struct Instance {
     nat_manager: Arc<NatManager>,
     /// The routes a TUN with `auto` takes, and once started, what they
     /// replaced.
-    #[cfg(all(feature = "inbound-tun", any(target_os = "macos", target_os = "linux")))]
+    #[cfg(all(feature = "inbound-tun", target_os = "macos"))]
     tun_route: Option<tun_setup::TunRoute>,
-    #[cfg(all(feature = "inbound-tun", any(target_os = "macos", target_os = "linux")))]
+    #[cfg(all(feature = "inbound-tun", target_os = "macos"))]
     net_info: Option<tun_setup::NetInfo>,
     /// Controls the TUN inbound's stack once it is started.
     #[cfg(feature = "inbound-tun")]
     pub(crate) tun_control: Option<crate::net::netstack::NativeRuntimeControl>,
-    /// A TUN inbound's tag and settings, with `auto_redirect`; once
-    /// started, what it set up.
+    /// A TUN inbound's tag and settings, when the instance routes into it
+    /// (Linux: auto_redirect, or auto_route alone); once started, what
+    /// that set up.
     #[cfg(all(feature = "inbound-tun", target_os = "linux"))]
-    redirected_tun: Option<(String, crate::protocol::tun::inbound::TunSettings)>,
+    routed_tun: Option<(String, crate::protocol::tun::inbound::TunSettings)>,
     #[cfg(all(feature = "inbound-tun", target_os = "linux"))]
-    auto_redirect: Option<crate::protocol::tun::auto_redirect::AutoRedirect>,
+    tun_routing: Option<TunRouting>,
 }
 
 impl Instance {
@@ -65,14 +66,6 @@ impl Instance {
         env: SyncRuntimeEnv,
         dial_defaults: Arc<DialOptions>,
     ) -> Result<Self> {
-        // Only a host that opens the TUN routes it; another platform (a
-        // desktop app through the FFI, say) leaves the routes to the instance.
-        let host_routes = env
-            .host
-            .platform
-            .as_ref()
-            .is_some_and(|platform| platform.opens_tun());
-        config.check_tun_route(host_routes)?;
         env.clash_mode
             .configure(config.experimental.clash_api.as_ref());
         #[cfg(feature = "tls")]
@@ -141,10 +134,10 @@ impl Instance {
             dispatcher.clone(),
             nat_manager.clone(),
         )?));
-        #[cfg(all(feature = "inbound-tun", any(target_os = "macos", target_os = "linux")))]
+        #[cfg(all(feature = "inbound-tun", target_os = "macos"))]
         let tun_route = tun_setup::TunRoute::from_config(config, &env.host)?;
         #[cfg(all(feature = "inbound-tun", target_os = "linux"))]
-        let redirected_tun = config
+        let routed_tun = config
             .inbounds
             .iter()
             .find(|i| i.protocol == "tun")
@@ -152,7 +145,9 @@ impl Instance {
                 crate::protocol::tun::inbound::options(i).map(|settings| (i.tag.clone(), settings))
             })
             .transpose()?
-            .filter(|(_, settings)| settings.auto_redirect.is_some());
+            .filter(|(_, settings)| {
+                settings.auto_redirect.is_some() || (settings.auto_route && !host_opens_tun(&env))
+            });
         Ok(Instance {
             env,
             dns_client,
@@ -163,16 +158,16 @@ impl Instance {
             rule_sets,
             inbound_manager,
             nat_manager,
-            #[cfg(all(feature = "inbound-tun", any(target_os = "macos", target_os = "linux")))]
+            #[cfg(all(feature = "inbound-tun", target_os = "macos"))]
             tun_route,
-            #[cfg(all(feature = "inbound-tun", any(target_os = "macos", target_os = "linux")))]
+            #[cfg(all(feature = "inbound-tun", target_os = "macos"))]
             net_info: None,
             #[cfg(feature = "inbound-tun")]
             tun_control: None,
             #[cfg(all(feature = "inbound-tun", target_os = "linux"))]
-            redirected_tun,
+            routed_tun,
             #[cfg(all(feature = "inbound-tun", target_os = "linux"))]
-            auto_redirect: None,
+            tun_routing: None,
         })
     }
 
@@ -192,7 +187,7 @@ impl Instance {
         }
 
         // What the routes replace is read before the device takes them.
-        #[cfg(all(feature = "inbound-tun", any(target_os = "macos", target_os = "linux")))]
+        #[cfg(all(feature = "inbound-tun", target_os = "macos"))]
         let net_info = self
             .tun_route
             .clone()
@@ -208,7 +203,7 @@ impl Instance {
         if let Some(runner) = inbounds.get_cat_runner() {
             runners.push(runner?);
         }
-        #[cfg(all(feature = "inbound-tun", any(target_os = "macos", target_os = "linux")))]
+        #[cfg(all(feature = "inbound-tun", target_os = "macos"))]
         if let Some(net_info) = net_info {
             if let Err(e) = tun_setup::post_tun_creation_setup(&net_info) {
                 // The routes are restored already. The TUN runner has not
@@ -224,18 +219,27 @@ impl Instance {
         }
         // After the device, whose routes it adds; what fails is undone.
         #[cfg(all(feature = "inbound-tun", target_os = "linux"))]
-        if let Some((tag, settings)) = &self.redirected_tun {
-            let options = settings.auto_redirect.as_ref().expect("filtered on it");
-            match crate::protocol::tun::auto_redirect::AutoRedirect::start(
-                tag,
-                settings,
-                options,
-                self.dispatcher.clone(),
-                &self.rule_sets,
-            ) {
-                Ok((auto_redirect, runner)) => {
+        if let Some((tag, settings)) = &self.routed_tun {
+            let started = match &settings.auto_redirect {
+                Some(options) => crate::protocol::tun::auto_redirect::AutoRedirect::start(
+                    tag,
+                    settings,
+                    options,
+                    self.dispatcher.clone(),
+                    &self.rule_sets,
+                )
+                .map(|(routing, runner)| (TunRouting::Redirect(routing), runner)),
+                None => crate::protocol::tun::auto_route::AutoRoute::start(
+                    tag,
+                    settings,
+                    &self.rule_sets,
+                )
+                .map(|(routing, runner)| (TunRouting::Route(routing), runner)),
+            };
+            match started {
+                Ok((routing, runner)) => {
                     runners.push(runner);
-                    self.auto_redirect = Some(auto_redirect);
+                    self.tun_routing = Some(routing);
                 }
                 Err(e) => {
                     self.tun_control = None;
@@ -247,21 +251,22 @@ impl Instance {
         Ok(runners)
     }
 
-    /// What a reload hands its rule-sets to, when the TUN runs
-    /// auto_redirect.
+    /// What a reload hands its rule-sets to, when the instance routes
+    /// into the TUN.
     #[cfg(all(feature = "inbound-tun", target_os = "linux"))]
-    pub(crate) fn auto_redirect_rule_sets(
-        &self,
-    ) -> Option<crate::protocol::tun::auto_redirect::RuleSetFeed> {
-        self.auto_redirect.as_ref().map(|a| a.rule_set_feed())
+    pub(crate) fn tun_rule_sets(&self) -> Option<TunRuleSets> {
+        self.tun_routing.as_ref().map(|routing| match routing {
+            TunRouting::Redirect(r) => TunRuleSets::Redirect(r.rule_set_feed()),
+            TunRouting::Route(r) => TunRuleSets::Route(r.rule_set_feed()),
+        })
     }
 
     /// Undoes what `start` did to the system.
     pub fn stop(&mut self) {
         // Before the device goes, as sing-box closes it.
         #[cfg(all(feature = "inbound-tun", target_os = "linux"))]
-        drop(self.auto_redirect.take());
-        #[cfg(all(feature = "inbound-tun", any(target_os = "macos", target_os = "linux")))]
+        drop(self.tun_routing.take());
+        #[cfg(all(feature = "inbound-tun", target_os = "macos"))]
         if let Some(net_info) = self.net_info.take() {
             tun_setup::post_tun_completion_setup(&net_info);
         }
@@ -271,5 +276,47 @@ impl Instance {
 impl Drop for Instance {
     fn drop(&mut self) {
         self.stop();
+    }
+}
+
+/// Whether a host that runs the VPN opens the TUN, and routes it.
+#[cfg(all(feature = "inbound-tun", target_os = "linux"))]
+fn host_opens_tun(env: &crate::runtime::RuntimeEnv) -> bool {
+    env.host
+        .platform
+        .as_ref()
+        .is_some_and(|platform| platform.opens_tun())
+}
+
+/// How the instance routes into the TUN (Linux).
+#[cfg(all(feature = "inbound-tun", target_os = "linux"))]
+enum TunRouting {
+    Redirect(crate::protocol::tun::auto_redirect::AutoRedirect),
+    Route(crate::protocol::tun::auto_route::AutoRoute),
+}
+
+/// Where a reload's rule-sets go for the TUN's routing.
+#[cfg(all(feature = "inbound-tun", target_os = "linux"))]
+#[derive(Clone)]
+pub(crate) enum TunRuleSets {
+    Redirect(crate::protocol::tun::auto_redirect::RuleSetFeed),
+    Route(crate::protocol::tun::auto_route::RouteSetFeed),
+}
+
+#[cfg(all(feature = "inbound-tun", target_os = "linux"))]
+impl TunRuleSets {
+    /// Whether `rule_sets` has every rule-set the TUN names.
+    pub(crate) fn check(&self, rule_sets: &RuleSets) -> Result<()> {
+        match self {
+            TunRuleSets::Redirect(feed) => feed.check(rule_sets),
+            TunRuleSets::Route(feed) => feed.check(rule_sets),
+        }
+    }
+
+    pub(crate) fn publish(&self, rule_sets: RuleSets) {
+        match self {
+            TunRuleSets::Redirect(feed) => feed.publish(rule_sets),
+            TunRuleSets::Route(feed) => feed.publish(rule_sets),
+        }
     }
 }

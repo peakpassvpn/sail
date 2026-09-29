@@ -1,13 +1,14 @@
 //! The policy routing of a TUN with `auto_redirect`, as sing-tun's mark
-//! mode has it: the main table carries everything unmarked; a packet
-//! marked for input, or one main has no route for, is looked up in a table
-//! of the TUN's own; one marked as sail's own output skips that table.
+//! mode has it (v0.9.6): the main table carries everything unmarked; a
+//! packet marked for input, or one main and default have no route for, is
+//! looked up in a table of the TUN's own; one marked as sail's own output
+//! skips that table.
 //!
 //! ```text
 //! 9000:  from all fwmark OUTPUT goto 9002
 //! 9001:  from all fwmark INPUT lookup TABLE
 //! 9002:  from all nop
-//! 32768: from all lookup TABLE
+//! 32768: not from all fwmark OUTPUT lookup TABLE
 //! ```
 //!
 //! for each family the TUN has an address of, and in the table a route of
@@ -16,12 +17,13 @@
 //! through to the rules after it.
 #![cfg_attr(not(target_os = "linux"), allow(dead_code))]
 
-use std::process::Command;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
+#[cfg(target_os = "linux")]
 use anyhow::{anyhow, Result};
 use cidr::IpInet;
 
-use super::output;
+use super::rtnetlink::{Family, Prefix, Route, RouteKind, Rule, RuleAction};
 
 /// What the rules and routes are made of.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -42,128 +44,122 @@ pub(crate) struct PolicyRoutes {
 const RULE_SPAN: u32 = 10;
 
 impl PolicyRoutes {
-    fn families(&self) -> impl Iterator<Item = bool> + '_ {
-        [(false, self.ipv4), (true, self.ipv6)]
+    fn families(&self) -> impl Iterator<Item = Family> + '_ {
+        [(Family::V4, self.ipv4), (Family::V6, self.ipv6)]
             .into_iter()
-            .filter_map(|(v6, on)| on.then_some(v6))
+            .filter_map(|(family, on)| on.then_some(family))
     }
 
-    /// The `ip` commands that set it up, in order.
-    pub(crate) fn setup_commands(&self) -> Vec<Vec<String>> {
-        let mut commands = Vec::new();
-        for v6 in self.families() {
-            let family = if v6 { "-6" } else { "-4" };
-            let rule = |priority: u32, what: &[String]| {
-                let mut args = vec![
-                    family.to_string(),
-                    "rule".into(),
-                    "add".into(),
-                    "priority".into(),
-                    priority.to_string(),
-                ];
-                args.extend_from_slice(what);
-                args
-            };
+    /// The rules, in the order they are added.
+    pub(crate) fn rules(&self) -> Vec<Rule> {
+        let mut rules = Vec::new();
+        for family in self.families() {
             let start = self.rule_index;
-            commands.push(rule(
-                start,
-                &[
-                    "fwmark".into(),
-                    format!("{:#x}", self.output_mark),
-                    "goto".into(),
-                    (start + 2).to_string(),
-                ],
-            ));
-            commands.push(rule(
-                start + 1,
-                &[
-                    "fwmark".into(),
-                    format!("{:#x}", self.input_mark),
-                    "lookup".into(),
-                    self.table.to_string(),
-                ],
-            ));
-            commands.push(rule(start + 2, &["nop".into()]));
-            commands.push(rule(
-                self.fallback_rule_index,
-                &["lookup".into(), self.table.to_string()],
-            ));
+            rules.push(Rule {
+                fwmark: Some((self.output_mark, u32::MAX)),
+                ..Rule::new(family, start, RuleAction::Goto(start + 2))
+            });
+            rules.push(Rule {
+                fwmark: Some((self.input_mark, u32::MAX)),
+                ..Rule::new(family, start + 1, RuleAction::Lookup(self.table))
+            });
+            rules.push(Rule::new(family, start + 2, RuleAction::Nop));
+            // After main (32766) and default (32767): only what they have
+            // no route for, and never sail's own.
+            rules.push(Rule {
+                invert: true,
+                fwmark: Some((self.output_mark, u32::MAX)),
+                ..Rule::new(
+                    family,
+                    self.fallback_rule_index,
+                    RuleAction::Lookup(self.table),
+                )
+            });
+        }
+        rules
+    }
 
+    /// The routes of the table, given the TUN's index.
+    pub(crate) fn routes(&self, tun: u32) -> Vec<Route> {
+        let mut routes = Vec::new();
+        for family in self.families() {
+            let v6 = family == Family::V6;
             let of_family = |inet: &&IpInet| inet.is_ipv6() == v6;
-            let mut included: Vec<String> = self
+            let mut included: Vec<Prefix> = self
                 .route_address
                 .iter()
                 .filter(of_family)
-                .map(|inet| inet.network().to_string())
+                .map(|inet| Prefix::new(inet.first_address(), inet.network_length()))
                 .collect();
             if included.is_empty() {
-                included.push(if v6 { "::/0" } else { "0.0.0.0/0" }.into());
+                let all: IpAddr = if v6 {
+                    Ipv6Addr::UNSPECIFIED.into()
+                } else {
+                    Ipv4Addr::UNSPECIFIED.into()
+                };
+                included.push(Prefix::new(all, 0));
             }
             for prefix in included {
-                commands.push(vec![
-                    family.into(),
-                    "route".into(),
-                    "add".into(),
-                    prefix,
-                    "dev".into(),
-                    self.tun.clone(),
-                    "table".into(),
-                    self.table.to_string(),
-                ]);
+                routes.push(Route::new(prefix, self.table).oif(tun));
             }
             for inet in self.route_exclude_address.iter().filter(of_family) {
-                commands.push(vec![
-                    family.into(),
-                    "route".into(),
-                    "add".into(),
-                    "throw".into(),
-                    inet.network().to_string(),
-                    "table".into(),
-                    self.table.to_string(),
-                ]);
+                routes.push(
+                    Route::new(
+                        Prefix::new(inet.first_address(), inet.network_length()),
+                        self.table,
+                    )
+                    .kind(RouteKind::Throw),
+                );
             }
         }
-        commands
+        routes
     }
 
-    /// Sets it up, after removing what an earlier run left. A command that
-    /// fails fails the setup, and what was done is removed again.
+    /// Sets it up, after removing what an earlier run left. What fails
+    /// fails the setup, and what was done is removed again.
+    #[cfg(target_os = "linux")]
     pub(crate) fn setup(&self) -> Result<()> {
-        self.cleanup();
-        for args in self.setup_commands() {
-            if let Err(e) = output(Command::new("ip").args(&args)) {
-                self.cleanup();
-                return Err(anyhow!("auto_redirect: routing: {:#}", e));
+        let netlink = super::rtnetlink::Netlink::open()
+            .map_err(|e| anyhow!("auto_redirect: routing: {}", e))?;
+        self.cleanup_with(&netlink);
+        let result = (|| -> std::io::Result<()> {
+            let tun = netlink.link_index(&self.tun)?;
+            for route in self.routes(tun) {
+                netlink.add_route(&route)?;
             }
+            for rule in self.rules() {
+                netlink.add_rule(&rule)?;
+            }
+            Ok(())
+        })();
+        if let Err(e) = result {
+            self.cleanup_with(&netlink);
+            return Err(anyhow!("auto_redirect: routing: {}", e));
         }
         Ok(())
     }
 
     /// Removes every rule of either family at the priorities sail uses,
     /// whatever made it, as sing-tun does, and the table's routes.
+    #[cfg(target_os = "linux")]
     pub(crate) fn cleanup(&self) {
-        for family in ["-4", "-6"] {
+        match super::rtnetlink::Netlink::open() {
+            Ok(netlink) => self.cleanup_with(&netlink),
+            Err(e) => tracing::warn!("auto_redirect: removing the routing: {}", e),
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    fn cleanup_with(&self, netlink: &super::rtnetlink::Netlink) {
+        for family in [Family::V4, Family::V6] {
             let priorities =
                 (self.rule_index..=self.rule_index + RULE_SPAN).chain([self.fallback_rule_index]);
             for priority in priorities {
-                // Several rules may share a priority: remove until none is left.
-                for _ in 0..16 {
-                    let removed = Command::new("ip")
-                        .args([family, "rule", "del", "priority", &priority.to_string()])
-                        .stdout(std::process::Stdio::null())
-                        .stderr(std::process::Stdio::null())
-                        .status()
-                        .is_ok_and(|s| s.success());
-                    if !removed {
-                        break;
-                    }
-                }
+                let _ = netlink.del_rules_at(family, priority);
             }
-            let _ = Command::new("ip")
-                .args([family, "route", "flush", "table", &self.table.to_string()])
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .status();
+            for route in netlink.routes_in(family, self.table).unwrap_or_default() {
+                let _ = netlink.del_route(&route);
+            }
         }
     }
 }
@@ -187,31 +183,48 @@ mod tests {
         }
     }
 
-    fn lines(routes: &PolicyRoutes) -> Vec<String> {
-        routes
-            .setup_commands()
-            .iter()
-            .map(|args| args.join(" "))
-            .collect()
-    }
-
     #[test]
     fn sing_tun_s_mark_mode_rules_for_each_family() {
-        assert_eq!(
-            lines(&routes()),
-            [
-                "-4 rule add priority 9000 fwmark 0x2024 goto 9002",
-                "-4 rule add priority 9001 fwmark 0x2023 lookup 2022",
-                "-4 rule add priority 9002 nop",
-                "-4 rule add priority 32768 lookup 2022",
-                "-4 route add 0.0.0.0/0 dev tun0 table 2022",
-                "-6 rule add priority 9000 fwmark 0x2024 goto 9002",
-                "-6 rule add priority 9001 fwmark 0x2023 lookup 2022",
-                "-6 rule add priority 9002 nop",
-                "-6 rule add priority 32768 lookup 2022",
-                "-6 route add ::/0 dev tun0 table 2022",
-            ]
-        );
+        let rules = routes().rules();
+        assert_eq!(rules.len(), 8);
+        for (family, rules) in [(Family::V4, &rules[..4]), (Family::V6, &rules[4..])] {
+            let summary: Vec<_> = rules
+                .iter()
+                .map(|r| (r.family, r.priority, r.invert, r.fwmark, r.action))
+                .collect();
+            assert_eq!(
+                summary,
+                [
+                    (
+                        family,
+                        9000,
+                        false,
+                        Some((0x2024, u32::MAX)),
+                        RuleAction::Goto(9002)
+                    ),
+                    (
+                        family,
+                        9001,
+                        false,
+                        Some((0x2023, u32::MAX)),
+                        RuleAction::Lookup(2022)
+                    ),
+                    (family, 9002, false, None, RuleAction::Nop),
+                    (
+                        family,
+                        32768,
+                        true,
+                        Some((0x2024, u32::MAX)),
+                        RuleAction::Lookup(2022)
+                    ),
+                ]
+            );
+        }
+        let routes = routes().routes(7);
+        assert_eq!(routes.len(), 2);
+        assert!(routes
+            .iter()
+            .all(|r| r.dst.len == 0 && r.oif == Some(7) && r.table == 2022));
     }
 
     #[test]
@@ -224,13 +237,17 @@ mod tests {
             ],
             route_exclude_address: vec!["10.9.0.0/16".parse().unwrap()],
             ..routes()
-        };
-        let lines = lines(&routes);
+        }
+        .routes(7);
+        let summary: Vec<_> = routes
+            .iter()
+            .map(|r| (r.dst.addr.to_string(), r.dst.len, r.kind))
+            .collect();
         assert_eq!(
-            &lines[4..],
+            summary,
             [
-                "-4 route add 10.0.0.0/8 dev tun0 table 2022",
-                "-4 route add throw 10.9.0.0/16 table 2022",
+                ("10.0.0.0".to_string(), 8, RouteKind::Unicast),
+                ("10.9.0.0".to_string(), 16, RouteKind::Throw),
             ]
         );
     }

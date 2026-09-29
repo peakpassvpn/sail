@@ -11,8 +11,24 @@ pub(crate) struct AddressMonitor {
 }
 
 impl AddressMonitor {
-    /// Needs a Tokio runtime.
+    /// Tells of interfaces and addresses. Needs a Tokio runtime.
+    #[cfg_attr(not(feature = "inbound-tun"), allow(dead_code))]
     pub(crate) fn open() -> io::Result<AddressMonitor> {
+        Self::open_groups(libc::RTMGRP_LINK | libc::RTMGRP_IPV4_IFADDR | libc::RTMGRP_IPV6_IFADDR)
+    }
+
+    /// Tells of routes too, which move the default interface.
+    pub(crate) fn open_with_routes() -> io::Result<AddressMonitor> {
+        Self::open_groups(
+            libc::RTMGRP_LINK
+                | libc::RTMGRP_IPV4_IFADDR
+                | libc::RTMGRP_IPV6_IFADDR
+                | libc::RTMGRP_IPV4_ROUTE
+                | libc::RTMGRP_IPV6_ROUTE,
+        )
+    }
+
+    fn open_groups(groups: libc::c_int) -> io::Result<AddressMonitor> {
         // SAFETY: plain socket(2); the descriptor is owned from here on.
         let raw = unsafe {
             libc::socket(
@@ -29,8 +45,7 @@ impl AddressMonitor {
         // SAFETY: zeroed sockaddr_nl is valid; the fields set are its own.
         let mut addr: libc::sockaddr_nl = unsafe { std::mem::zeroed() };
         addr.nl_family = libc::AF_NETLINK as libc::sa_family_t;
-        addr.nl_groups =
-            (libc::RTMGRP_LINK | libc::RTMGRP_IPV4_IFADDR | libc::RTMGRP_IPV6_IFADDR) as u32;
+        addr.nl_groups = groups as u32;
         // SAFETY: `addr` is a sockaddr_nl of the length given.
         let bound = unsafe {
             libc::bind(

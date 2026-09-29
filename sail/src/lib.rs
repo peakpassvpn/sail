@@ -99,9 +99,9 @@ pub struct RuntimeManager {
     watch_events: Mutex<Option<runtime::watch::ReloadEvents>>,
     #[cfg(feature = "auto-reload")]
     rule_set_files: Mutex<Vec<std::path::PathBuf>>,
-    /// Where a reload's rule-sets go for the TUN's auto_redirect.
+    /// Where a reload's rule-sets go for the TUN's routing.
     #[cfg(all(feature = "inbound-tun", target_os = "linux"))]
-    auto_redirect_rule_sets: Option<protocol::tun::auto_redirect::RuleSetFeed>,
+    tun_rule_sets: Option<app::instance::TunRuleSets>,
 }
 
 impl RuntimeManager {
@@ -136,7 +136,7 @@ impl RuntimeManager {
             env: instance.env.clone(),
             dispatcher: Arc::downgrade(&instance.dispatcher),
             #[cfg(all(feature = "inbound-tun", target_os = "linux"))]
-            auto_redirect_rule_sets: instance.auto_redirect_rule_sets(),
+            tun_rule_sets: instance.tun_rule_sets(),
             rule_set_updater: Mutex::new(
                 instance
                     .rule_sets
@@ -347,7 +347,7 @@ impl RuntimeManager {
             .restore_selected(&self.outbound_manager.load())
             .await;
         #[cfg(all(feature = "inbound-tun", target_os = "linux"))]
-        if let Some(feed) = &self.auto_redirect_rule_sets {
+        if let Some(feed) = &self.tun_rule_sets {
             feed.check(&rule_sets).map_err(Error::Config)?;
         }
         // Acquire the last fallible lock before publishing anything. No
@@ -377,7 +377,7 @@ impl RuntimeManager {
         let replaced = self.outbound_manager.swap(Arc::new(outbound_manager));
         self.router.store(Arc::new(router));
         #[cfg(all(feature = "inbound-tun", target_os = "linux"))]
-        if let Some(feed) = &self.auto_redirect_rule_sets {
+        if let Some(feed) = &self.tun_rule_sets {
             feed.publish(rule_sets.clone());
         }
         {
@@ -695,6 +695,45 @@ pub fn network_changed(key: RuntimeId, mtu: Option<usize>) -> Result<(), Error> 
     }
 }
 
+/// Looks at the default interface again when interfaces, addresses or
+/// routes change, a second after the last change, as sing-box does; when
+/// it moved, the TUN's flows, bound to the old one, are reset.
+#[cfg(target_os = "linux")]
+async fn follow_default_interface(manager: Arc<RuntimeManager>) {
+    let monitor = match platform::addr_monitor::AddressMonitor::open_with_routes() {
+        Ok(monitor) => monitor,
+        Err(e) => {
+            warn!("auto_detect_interface: not following changes: {}", e);
+            return;
+        }
+    };
+    loop {
+        if let Err(e) = monitor.changed().await {
+            warn!("auto_detect_interface: not following changes: {}", e);
+            return;
+        }
+        // Take every notice of the change before looking.
+        while let Ok(Ok(())) =
+            tokio::time::timeout(std::time::Duration::from_secs(1), monitor.changed()).await
+        {
+        }
+        let Some(auto) = manager.dial_defaults.load().auto_interface.clone() else {
+            continue;
+        };
+        let moved = tokio::task::spawn_blocking(move || auto.refresh())
+            .await
+            .unwrap_or(false);
+        #[cfg(feature = "inbound-tun")]
+        if moved && manager.tun_control.is_some() {
+            if let Err(e) = manager.network_changed(None).await {
+                warn!("auto_detect_interface: resetting the tun's flows: {}", e);
+            }
+        }
+        #[cfg(not(feature = "inbound-tun"))]
+        let _ = moved;
+    }
+}
+
 /// Stops the TUN inbound's stack, so that its flows are reset rather than
 /// left open, before the instance goes.
 #[cfg(feature = "inbound-tun")]
@@ -775,20 +814,46 @@ pub(crate) fn dial_defaults(
         _ => env.host.socket_protect.clone(),
     };
     defaults.ipv6 = config.dns.strategy.ipv6();
-    if !route.auto_detect_interface {
+    let host_routes = env
+        .host
+        .platform
+        .as_ref()
+        .is_some_and(|platform| platform.opens_tun());
+    // A TUN that takes the default route takes sail's own traffic too,
+    // unless it goes out bound to the physical interface: auto_route turns
+    // detection on where nothing else says where to send.
+    let implicit = route.default_interface.is_none() && config.tun_takes_own_traffic(host_routes);
+    if !route.auto_detect_interface && !implicit {
         return Ok(Arc::new(defaults));
     }
-    let detected = platform::default_interface()?;
-    info!(
-        "outbound traffic goes through the default interface: {}",
-        detected
-            .bind_interface
-            .clone()
-            .or_else(|| detected.inet4_bind_address.map(|a| a.to_string()))
-            .or_else(|| detected.inet6_bind_address.map(|a| a.to_string()))
-            .unwrap_or_default()
-    );
-    Ok(Arc::new(detected.or(&defaults)))
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    {
+        let skip = config
+            .inbounds
+            .iter()
+            .filter(|i| i.protocol == "tun")
+            .filter_map(|i| i.options.get("interface_name")?.as_str().map(str::to_owned))
+            .collect();
+        defaults.auto_interface = Some(net::interface::AutoInterface::new(
+            skip,
+            platform::detect_default_interface,
+        ));
+        Ok(Arc::new(defaults))
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    {
+        let detected = platform::default_interface()?;
+        info!(
+            "outbound traffic goes through the default interface: {}",
+            detected
+                .bind_interface
+                .clone()
+                .or_else(|| detected.inet4_bind_address.map(|a| a.to_string()))
+                .or_else(|| detected.inet6_bind_address.map(|a| a.to_string()))
+                .unwrap_or_default()
+        );
+        Ok(Arc::new(detected.or(&defaults)))
+    }
 }
 
 /// Checks a configuration file by building everything in it, short of
@@ -913,6 +978,8 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
     let mut tasks: Vec<Runner> = Vec::new();
 
     let dial_defaults = dial_defaults(&config, &env).map_err(Error::Config)?;
+    #[cfg(target_os = "linux")]
+    let follows_interface = dial_defaults.auto_interface.is_some();
     let mut instance = app::instance::Instance::build(&config, env.clone(), dial_defaults.clone())
         .map_err(Error::Config)?;
     // The API server joins them, when it is compiled in.
@@ -988,6 +1055,12 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
             }
         }
     }));
+
+    // auto_detect_interface follows the default interface as it moves.
+    #[cfg(target_os = "linux")]
+    if follows_interface {
+        tasks.push(Box::pin(follow_default_interface(runtime_manager.clone())));
+    }
 
     // Monitor network changes the host reports.
     #[cfg(feature = "inbound-tun")]

@@ -399,6 +399,9 @@ pub(crate) struct TunSettings {
     pub mtu: u16,
     pub auto_route: bool,
     pub auto_redirect: Option<AutoRedirectSettings>,
+    /// Routed by the instance on Linux; elsewhere only checked, for now.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    pub route: RouteSelection,
     /// Android apps and users the host's VPN takes in or leaves out.
     pub include_android_user: Vec<u32>,
     pub include_package: Vec<String>,
@@ -432,15 +435,23 @@ pub(crate) struct AutoRedirectSettings {
     /// A connection pre-match rejects: reset by the kernel.
     pub reset_mark: u32,
     pub nfqueue: u16,
-    pub table_index: u32,
-    pub rule_index: u32,
     pub fallback_rule_index: u32,
     pub exclude_mptcp: bool,
-    pub strict_route: bool,
     pub loopback_address: Vec<IpAddr>,
+}
+
+/// What traffic `auto_route` takes into the device, and the table and
+/// rules it does it with (Linux), with sing-box's defaults filled in:
+/// auto_redirect's nftables rules enforce it, or the routes and ip rules
+/// of auto_route alone.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RouteSelection {
+    pub table_index: u32,
+    pub rule_index: u32,
+    pub strict_route: bool,
     pub route_address: Vec<IpInet>,
     pub route_exclude_address: Vec<IpInet>,
-    /// Rule sets whose IP CIDRs are what is redirected, or what is not.
+    /// Rule sets whose IP CIDRs are what is taken, or what is not.
     pub route_address_set: Vec<String>,
     pub route_exclude_address_set: Vec<String>,
     pub include_interface: Vec<String>,
@@ -563,6 +574,7 @@ pub(crate) fn options(inbound: &Inbound) -> Result<TunSettings> {
         .filter(|mtu| *mtu >= minimum)
         .ok_or_else(|| error(format!("mtu {} is outside {minimum} to 65535", options.mtu)))?;
     let auto_redirect = auto_redirect(&options).map_err(error)?;
+    let route = route_selection(&options).map_err(error)?;
     Ok(TunSettings {
         name: options
             .interface_name
@@ -572,6 +584,7 @@ pub(crate) fn options(inbound: &Inbound) -> Result<TunSettings> {
         mtu,
         auto_route: options.auto_route,
         auto_redirect,
+        route,
         include_android_user: options.include_android_user,
         include_package: options.include_package,
         exclude_package: options.exclude_package,
@@ -583,18 +596,14 @@ pub(crate) fn options(inbound: &Inbound) -> Result<TunSettings> {
 /// sing-box takes it and it changes nothing, as in sail.
 const STRICT_ROUTE_ACTS: bool = cfg!(any(target_os = "linux", target_os = "windows"));
 
-/// The auto_redirect settings, with sing-box's defaults. What chooses the
-/// traffic the TUN takes (route_address, the interface and uid lists,
-/// strict_route, loopback_address) is enforced by auto_redirect's nftables
-/// rules; with auto_route alone it is route management, which sail does not
-/// do yet, so it is refused there rather than ignored.
-fn auto_redirect(
-    options: &TunInboundOptions,
-) -> std::result::Result<Option<AutoRedirectSettings>, String> {
-    let selects = [
+/// What `auto_route` takes, checked against what this system does: every
+/// field that chooses traffic is enforced or refused, never ignored.
+fn route_selection(options: &TunInboundOptions) -> std::result::Result<RouteSelection, String> {
+    let set =
+        |fields: &[(&'static str, bool)]| fields.iter().find(|(_, set)| *set).map(|(f, _)| *f);
+    // Choosing what auto_route takes, which needs auto_route.
+    let choosing = [
         ("strict_route", options.strict_route && STRICT_ROUTE_ACTS),
-        ("exclude_mptcp", options.exclude_mptcp),
-        ("loopback_address", !options.loopback_address.is_empty()),
         ("route_address", !options.route_address.is_empty()),
         (
             "route_exclude_address",
@@ -612,45 +621,52 @@ fn auto_redirect(
         ("exclude_uid", !options.exclude_uid.is_empty()),
         ("exclude_uid_range", !options.exclude_uid_range.is_empty()),
         (
-            "auto_redirect_input_mark",
-            options.auto_redirect_input_mark.is_some(),
-        ),
-        (
-            "auto_redirect_output_mark",
-            options.auto_redirect_output_mark.is_some(),
-        ),
-        (
-            "auto_redirect_reset_mark",
-            options.auto_redirect_reset_mark.is_some(),
-        ),
-        (
-            "auto_redirect_nfqueue",
-            options.auto_redirect_nfqueue.is_some(),
-        ),
-        (
             "iproute2_table_index",
             options.iproute2_table_index.is_some(),
         ),
         ("iproute2_rule_index", options.iproute2_rule_index.is_some()),
-        (
-            "auto_redirect_iproute2_fallback_rule_index",
-            options.auto_redirect_iproute2_fallback_rule_index.is_some(),
-        ),
     ];
+    if let Some(field) = set(&choosing).filter(|_| !options.auto_route) {
+        return Err(format!("{field}: needs `auto_route`"));
+    }
     if !options.auto_redirect {
-        if let Some((field, _)) = selects.iter().find(|(_, set)| *set) {
+        // The ip rules are Linux's; elsewhere sing-box has none of these.
+        let rules = [
+            ("include_interface", !options.include_interface.is_empty()),
+            ("exclude_interface", !options.exclude_interface.is_empty()),
+            ("include_uid", !options.include_uid.is_empty()),
+            ("include_uid_range", !options.include_uid_range.is_empty()),
+            ("exclude_uid", !options.exclude_uid.is_empty()),
+            ("exclude_uid_range", !options.exclude_uid_range.is_empty()),
+            (
+                "iproute2_table_index",
+                options.iproute2_table_index.is_some(),
+            ),
+            ("iproute2_rule_index", options.iproute2_rule_index.is_some()),
+        ];
+        if let Some(field) = set(&rules).filter(|_| !cfg!(target_os = "linux")) {
+            return Err(format!("{field}: Linux only"));
+        }
+        // Route management of this system, not done yet.
+        let routes = [
+            ("strict_route", options.strict_route && STRICT_ROUTE_ACTS),
+            ("route_address", !options.route_address.is_empty()),
+            (
+                "route_exclude_address",
+                !options.route_exclude_address.is_empty(),
+            ),
+            ("route_address_set", !options.route_address_set.is_empty()),
+            (
+                "route_exclude_address_set",
+                !options.route_exclude_address_set.is_empty(),
+            ),
+        ];
+        if let Some(field) = set(&routes).filter(|_| !cfg!(target_os = "linux")) {
             return Err(format!(
-                "{field}: sail takes it with auto_redirect only; with auto_route alone it is \
-                 route management, not implemented yet"
+                "{field}: sail takes it with auto_route on Linux, or auto_redirect; on this \
+                 system it is route management, not implemented yet"
             ));
         }
-        return Ok(None);
-    }
-    if !options.auto_route {
-        return Err("`auto_route` is required by `auto_redirect`".into());
-    }
-    if !cfg!(target_os = "linux") {
-        return Err("auto_redirect: Linux only".into());
     }
     if !options.include_interface.is_empty() && !options.exclude_interface.is_empty() {
         return Err("include_interface and exclude_interface exclude each other".into());
@@ -667,20 +683,7 @@ fn auto_redirect(
             })
             .collect::<std::result::Result<Vec<_>, _>>()
     };
-    Ok(Some(AutoRedirectSettings {
-        input_mark: options
-            .auto_redirect_input_mark
-            .unwrap_or(DEFAULT_INPUT_MARK),
-        output_mark: options
-            .auto_redirect_output_mark
-            .unwrap_or(DEFAULT_OUTPUT_MARK),
-        reset_mark: options
-            .auto_redirect_reset_mark
-            .unwrap_or(DEFAULT_RESET_MARK),
-        nfqueue: options
-            .auto_redirect_nfqueue
-            .filter(|queue| *queue != 0)
-            .unwrap_or(DEFAULT_NFQUEUE),
+    Ok(RouteSelection {
         table_index: options
             .iproute2_table_index
             .filter(|index| *index != 0)
@@ -689,13 +692,7 @@ fn auto_redirect(
             .iproute2_rule_index
             .filter(|index| *index != 0)
             .unwrap_or(DEFAULT_RULE_INDEX),
-        fallback_rule_index: options
-            .auto_redirect_iproute2_fallback_rule_index
-            .filter(|index| *index != 0)
-            .unwrap_or(DEFAULT_FALLBACK_RULE_INDEX),
-        exclude_mptcp: options.exclude_mptcp,
         strict_route: options.strict_route,
-        loopback_address: options.loopback_address.clone(),
         route_address: prefixes("route_address", &options.route_address)?,
         route_exclude_address: prefixes("route_exclude_address", &options.route_exclude_address)?,
         route_address_set: options.route_address_set.clone(),
@@ -712,6 +709,70 @@ fn auto_redirect(
             &options.exclude_uid_range,
             "exclude_uid",
         )?,
+    })
+}
+
+/// The auto_redirect settings, with sing-box's defaults; what only
+/// auto_redirect does is refused without it.
+fn auto_redirect(
+    options: &TunInboundOptions,
+) -> std::result::Result<Option<AutoRedirectSettings>, String> {
+    let redirect_only = [
+        ("exclude_mptcp", options.exclude_mptcp),
+        ("loopback_address", !options.loopback_address.is_empty()),
+        (
+            "auto_redirect_input_mark",
+            options.auto_redirect_input_mark.is_some(),
+        ),
+        (
+            "auto_redirect_output_mark",
+            options.auto_redirect_output_mark.is_some(),
+        ),
+        (
+            "auto_redirect_reset_mark",
+            options.auto_redirect_reset_mark.is_some(),
+        ),
+        (
+            "auto_redirect_nfqueue",
+            options.auto_redirect_nfqueue.is_some(),
+        ),
+        (
+            "auto_redirect_iproute2_fallback_rule_index",
+            options.auto_redirect_iproute2_fallback_rule_index.is_some(),
+        ),
+    ];
+    if !options.auto_redirect {
+        if let Some((field, _)) = redirect_only.iter().find(|(_, set)| *set) {
+            return Err(format!("{field}: sail takes it with auto_redirect only"));
+        }
+        return Ok(None);
+    }
+    if !options.auto_route {
+        return Err("`auto_route` is required by `auto_redirect`".into());
+    }
+    if !cfg!(target_os = "linux") {
+        return Err("auto_redirect: Linux only".into());
+    }
+    Ok(Some(AutoRedirectSettings {
+        input_mark: options
+            .auto_redirect_input_mark
+            .unwrap_or(DEFAULT_INPUT_MARK),
+        output_mark: options
+            .auto_redirect_output_mark
+            .unwrap_or(DEFAULT_OUTPUT_MARK),
+        reset_mark: options
+            .auto_redirect_reset_mark
+            .unwrap_or(DEFAULT_RESET_MARK),
+        nfqueue: options
+            .auto_redirect_nfqueue
+            .filter(|queue| *queue != 0)
+            .unwrap_or(DEFAULT_NFQUEUE),
+        fallback_rule_index: options
+            .auto_redirect_iproute2_fallback_rule_index
+            .filter(|index| *index != 0)
+            .unwrap_or(DEFAULT_FALLBACK_RULE_INDEX),
+        exclude_mptcp: options.exclude_mptcp,
+        loopback_address: options.loopback_address.clone(),
     }))
 }
 
@@ -951,14 +1012,14 @@ mod tests {
         );
 
         // Fields that choose which traffic enters the TUN are not ignored:
-        // auto_redirect enforces them, and without it they are an error.
+        // without auto_route, which takes it, they are an error.
         let config = crate::config::Config::from_json(
             r#"{ "inbounds": [{ "type": "tun", "address": "172.18.0.1/30", "route_address": "10.0.0.0/8" }] }"#,
         )
         .unwrap();
         let err = options(&config.inbounds[0]).unwrap_err().to_string();
         assert!(
-            err.contains("route_address") && err.contains("auto_redirect"),
+            err.contains("route_address") && err.contains("auto_route"),
             "{err}"
         );
         // strict_route too, where sing-box acts on it; elsewhere it is taken
@@ -968,7 +1029,7 @@ mod tests {
         )
         .unwrap();
         let strict = options(&config.inbounds[0]);
-        if STRICT_ROUTE_ACTS {
+        if cfg!(target_os = "windows") {
             let err = strict.unwrap_err().to_string();
             assert!(err.contains("strict_route"), "{err}");
         } else {
@@ -1014,22 +1075,37 @@ mod tests {
             err.contains("`auto_route` is required by `auto_redirect`"),
             "{err}"
         );
-        for field in ["route_address", "include_uid", "auto_redirect_output_mark"] {
-            let value = match field {
-                "route_address" => serde_json::json!("10.0.0.0/8"),
-                "include_uid" => serde_json::json!(1000),
-                _ => serde_json::json!("0x100"),
-            };
-            let err = options(&tun(serde_json::json!({
+        // With auto_route alone: Linux's rules and routes take them;
+        // elsewhere they are refused, and what only auto_redirect does is
+        // refused everywhere.
+        for (field, value, elsewhere) in [
+            (
+                "route_address",
+                serde_json::json!("10.0.0.0/8"),
+                "route management",
+            ),
+            ("include_uid", serde_json::json!(1000), "Linux only"),
+        ] {
+            let taken = options(&tun(serde_json::json!({
                 "address": "172.19.0.1/30", "auto_route": true, field: value
-            })))
-            .unwrap_err()
-            .to_string();
-            assert!(
-                err.contains(field) && err.contains("auto_redirect"),
-                "{err}"
-            );
+            })));
+            if cfg!(target_os = "linux") {
+                taken.unwrap();
+            } else {
+                let err = taken.unwrap_err().to_string();
+                assert!(err.contains(field) && err.contains(elsewhere), "{err}");
+            }
         }
+        let err = options(&tun(serde_json::json!({
+            "address": "172.19.0.1/30", "auto_route": true,
+            "auto_redirect_output_mark": "0x100"
+        })))
+        .unwrap_err()
+        .to_string();
+        assert!(
+            err.contains("auto_redirect_output_mark") && err.contains("auto_redirect only"),
+            "{err}"
+        );
     }
 
     #[cfg(target_os = "linux")]
@@ -1051,29 +1127,28 @@ mod tests {
         assert_eq!(redirect.nfqueue, 100);
         assert_eq!(
             (
-                redirect.table_index,
-                redirect.rule_index,
+                settings.route.table_index,
+                settings.route.rule_index,
                 redirect.fallback_rule_index
             ),
             (2022, 9000, 32768)
         );
 
-        let redirect = options(&tun(serde_json::json!({
+        let settings = options(&tun(serde_json::json!({
             "address": "172.19.0.1/30", "auto_route": true, "auto_redirect": true,
             "auto_redirect_output_mark": "0x99", "auto_redirect_nfqueue": 7,
             "route_address": ["10.0.0.0/8", "fd00::/8"], "exclude_interface": "docker0",
             "exclude_uid": 1000, "exclude_uid_range": ["2000:2999"],
             "loopback_address": "10.7.0.1", "strict_route": true
         })))
-        .unwrap()
-        .auto_redirect
         .unwrap();
+        let redirect = settings.auto_redirect.unwrap();
         assert_eq!(redirect.output_mark, 0x99);
         assert_eq!(redirect.nfqueue, 7);
-        assert_eq!(redirect.route_address.len(), 2);
-        assert_eq!(redirect.exclude_interface, ["docker0"]);
-        assert_eq!(redirect.exclude_uid, [1000..=1000, 2000..=2999]);
-        assert!(redirect.strict_route);
+        assert_eq!(settings.route.route_address.len(), 2);
+        assert_eq!(settings.route.exclude_interface, ["docker0"]);
+        assert_eq!(settings.route.exclude_uid, [1000..=1000, 2000..=2999]);
+        assert!(settings.route.strict_route);
 
         let err = options(&tun(serde_json::json!({
             "address": "172.19.0.1/30", "auto_route": true, "auto_redirect": true,

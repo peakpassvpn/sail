@@ -57,16 +57,9 @@ Sail 从上到下评估路由规则。`route` 和 `reject` 会停止匹配；`sn
 
 ## 防止 TUN 回环
 
-```json
-{
-  "route": {
-    "auto_detect_interface": true,
-    "final": "secure"
-  }
-}
-```
+开了 `auto_route` 的 TUN 入站会接管系统流量，Sail 自己的出站套接字本会绕回 TUN。Sail 把它们绑定到物理网卡：目标所在网段的那块网卡，否则是默认网卡。网络变化时 Sail 会跟着切换，默认网卡变了就重置 TUN 上的连接。开了 `auto_route` 时，即使没写 `route.auto_detect_interface`，这个机制也会自动开启；出口必须固定时改用 `route.default_interface`。
 
-TUN 安装默认路由时，Sail 的出站套接字可能重新进入 TUN。优先使用自动检测；出口必须固定时改用 `default_interface`，二者不要同时设置。
+在 Linux 上，`auto_route` 不改主路由表：TUN 的路由放在表 2022（`iproute2_table_index`），从优先级 9000（`iproute2_rule_index`）开始的 ip 规则把流量引过去。设备消失时内核会一并删掉这些路由，崩溃留下的规则会在下次启动时清掉。`route_address`、`route_exclude_address` 及其规则集形式、`include_interface`/`exclude_interface`、`include_uid`/`exclude_uid` 和 `strict_route` 决定接管哪些流量，含义和 sing-box 相同。配置了 `route_address` 或 `route_exclude_address` 时，列出的前缀会优先于局域网自己的路由，所以局域网需要显式排除。
 
 ## 在内核中绕过（Linux `auto_redirect`）
 

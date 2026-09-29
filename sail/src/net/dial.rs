@@ -46,6 +46,9 @@ pub enum SocketProtect {
 pub struct DialOptions {
     /// The interface to send through, by name.
     pub bind_interface: Option<String>,
+    /// Without `bind_interface`: the interface `auto_detect_interface`
+    /// finds for each destination, as the system changes.
+    pub auto_interface: Option<std::sync::Arc<super::interface::AutoInterface>>,
     /// The local address for IPv4 destinations.
     pub inet4_bind_address: Option<Ipv4Addr>,
     /// The local address for IPv6 destinations.
@@ -84,6 +87,7 @@ impl Default for DialOptions {
     fn default() -> Self {
         Self {
             bind_interface: None,
+            auto_interface: None,
             inet4_bind_address: None,
             inet6_bind_address: None,
             routing_mark: None,
@@ -110,6 +114,11 @@ impl DialOptions {
         DialOptions {
             // An outbound bound to an address is not also bound to the
             // default interface, which could contradict it.
+            auto_interface: if binds_itself {
+                None
+            } else {
+                defaults.auto_interface.clone()
+            },
             bind_interface: self.bind_interface.clone().or_else(|| {
                 if binds_itself {
                     None
@@ -204,6 +213,7 @@ impl DialOptions {
     /// Whether any option would be applied to a socket.
     fn binds(&self) -> bool {
         self.bind_interface.is_some()
+            || self.auto_interface.is_some()
             || self.inet4_bind_address.is_some()
             || self.inet6_bind_address.is_some()
             || self.routing_mark.is_some()
@@ -232,7 +242,16 @@ pub(crate) fn bind(
     if !dial.binds() {
         return Ok(false);
     }
-    if let Some(iface) = &dial.bind_interface {
+    let detected = match (&dial.bind_interface, &dial.auto_interface) {
+        (None, Some(auto)) => Some(auto.for_target(target.ip()).ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NetworkUnreachable,
+                "auto_detect_interface: no interface to send through",
+            )
+        })?),
+        _ => None,
+    };
+    if let Some(iface) = dial.bind_interface.as_ref().or(detected.as_ref()) {
         bind_interface(socket, target, iface)
             .map_err(|e| io::Error::new(e.kind(), format!("bind to interface {}: {}", iface, e)))?;
         debug!("socket bind {}", iface);

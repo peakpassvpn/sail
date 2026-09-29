@@ -108,18 +108,9 @@ Place this before the IP-based rules that need the result. DNS strategy and cach
 
 ## TUN loop prevention
 
-When a TUN inbound installs the default route, Sail's own outbound sockets can otherwise re-enter that TUN. Prefer automatic detection:
+A TUN inbound with `auto_route` takes the system's traffic, and Sail's own outbound sockets would go back into it. Sail binds them to the physical interface: the one the destination's network is on, or the default one. It follows that interface as the network changes, and resets the TUN's connections when it moves. With `auto_route`, this is on even without `route.auto_detect_interface`; set `route.default_interface` instead when the egress interface must be fixed.
 
-```json
-{
-  "route": {
-    "auto_detect_interface": true,
-    "final": "secure"
-  }
-}
-```
-
-Use `default_interface` instead when the egress interface must be fixed. Do not set both.
+On Linux, `auto_route` never touches the main routing table. The TUN's routes live in table 2022 (`iproute2_table_index`), and ip rules from priority 9000 (`iproute2_rule_index`) send traffic there. The kernel removes the routes with the device, and the next start removes rules left by a crash. `route_address`, `route_exclude_address`, their rule-set forms, `include_interface`/`exclude_interface`, `include_uid`/`exclude_uid` and `strict_route` select what is taken, as in sing-box. With `route_address` or `route_exclude_address`, the listed prefixes win over the LAN's own routes, so exclude the LAN explicitly.
 
 ## Bypass in the kernel (Linux `auto_redirect`)
 

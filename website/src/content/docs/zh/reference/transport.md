@@ -37,6 +37,9 @@ Serde: `serde (deny_unknown_fields)`
 | `domain_resolver` | `Option < crate :: config :: model :: DomainResolver >` | Default::default() | The DNS server that resolves the names this outbound dials.<br/>`serde (default)` |
 | `skip_default_domain_resolver` | `bool` | Default::default() | A sail extension: without a `domain_resolver` of its own, the names it dials resolve as the DNS rules say, not as `route.default_domain_resolver` does; as Mihomo's DIRECT resolves apart from the proxies' servers.<br/>`serde (default)` |
 | `domain_strategy` | `Option < crate :: config :: model :: DnsStrategy >` | Default::default() | sing-box's deprecated field for the families they resolve to.<br/>`serde (default)` |
+| `tcp_keep_alive` | `Option < std :: time :: Duration >` | Default::default() | How long a TCP connection is idle before keepalive probes it; 5m when unset.<br/>`serde (default , with = "crate::config::model::duration")` |
+| `tcp_keep_alive_interval` | `Option < std :: time :: Duration >` | Default::default() | Between keepalive probes; 75s when unset.<br/>`serde (default , with = "crate::config::model::duration")` |
+| `disable_tcp_keep_alive` | `bool` | Default::default() | —<br/>`serde (default)` |
 | `tls` | `Option < OutboundTls >` | Default::default() | —<br/>`serde (default)` |
 | `transport` | `Option < OutboundTransport >` | Default::default() | —<br/>`serde (default)` |
 | `multiplex` | `Option < OutboundMultiplex >` | Default::default() | —<br/>`serde (default)` |

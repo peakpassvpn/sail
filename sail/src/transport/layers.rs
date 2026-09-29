@@ -465,6 +465,7 @@ impl OutboundBlocks {
     pub fn dial(&self, tag: &str) -> Result<DialOptions> {
         let dial = DialOptions {
             bind_interface: self.bind_interface.clone(),
+            auto_interface: None,
             inet4_bind_address: self.inet4_bind_address,
             inet6_bind_address: self.inet6_bind_address,
             routing_mark: self.routing_mark,
@@ -1273,6 +1274,7 @@ impl RealityHandshake {
     fn dial(&self, tag: &str) -> Result<DialOptions> {
         let dial = DialOptions {
             bind_interface: self.bind_interface.clone(),
+            auto_interface: None,
             inet4_bind_address: self.inet4_bind_address,
             inet6_bind_address: self.inet6_bind_address,
             routing_mark: self.routing_mark,

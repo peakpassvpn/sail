@@ -313,6 +313,9 @@ Serde: `serde (rename_all = "snake_case")`
 | `listen` | `Option < String >` | Default::default() | The address to listen on; defaults to `127.0.0.1`.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
 | `listen_port` | `Option < u16 >` | Default::default() | The port to listen on. An inbound without one does not listen, and is only useful as a part of another inbound.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
 | `udp_timeout` | `Option < std :: time :: Duration >` | Default::default() | How long a UDP session through this inbound lives without traffic; 5m when unset, as in sing-box.<br/>`serde (default , with = "duration" , skip_serializing_if = "Option::is_none")` |
+| `tcp_keep_alive` | `Option < std :: time :: Duration >` | Default::default() | How long an accepted TCP connection is idle before keepalive probes it; 5m when unset.<br/>`serde (default , with = "duration" , skip_serializing_if = "Option::is_none")` |
+| `tcp_keep_alive_interval` | `Option < std :: time :: Duration >` | Default::default() | Between keepalive probes; 75s when unset.<br/>`serde (default , with = "duration" , skip_serializing_if = "Option::is_none")` |
+| `disable_tcp_keep_alive` | `bool` | Default::default() | —<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
 | `options` | `Options` | Flattened into this object | —<br/>`serde (flatten)` |
 
 ## Outbound
@@ -469,6 +472,7 @@ Serde: `serde (deny_unknown_fields)`
 | `sniffer` | `Vec < Sniffer >` | Default::default() | `sniff`: the protocols to look for; all of them when empty.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
 | `timeout` | `Option < std :: time :: Duration >` | Default::default() | `sniff`: how long to wait for the first bytes; 300ms when unset. `resolve`: how long to wait for the answer; `dns.timeout` when unset.<br/>`serde (default , with = "duration" , skip_serializing_if = "Option::is_none")` |
 | `override_destination` | `bool` | Default::default() | `sniff`, a sail extension: connects to the sniffed domain rather than to the address the client asked for.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
+| `skip_rule_set` | `Vec < String >` | Default::default() | `sniff`, a sail extension: a domain found that one of these rule-sets matches is not taken, neither matched nor connected to, as Mihomo's sniffer `skip-domain` has it.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
 | `ignore_failure` | `bool` | Default::default() | `resolve`, a sail extension: a domain that does not resolve, or not in time, has no addresses, and matching goes on, as Mihomo's IP rules have it; rather than the connection failing, as in sing-box.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
 
 ## RuleType

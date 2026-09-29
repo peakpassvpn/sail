@@ -22,6 +22,7 @@ use crate::app::dispatcher::Dispatcher;
 use crate::app::router::rule_set::RuleSets;
 use crate::platform::addr_monitor::AddressMonitor;
 use crate::platform::auto_redirect::{self as ruleset, AddressSet, RulesetOptions};
+use crate::platform::ip_ranges::range_prefixes;
 use crate::platform::nfqueue::Queue;
 use crate::platform::openwrt;
 use crate::platform::original_dst::{original_destination, unmapped};
@@ -98,8 +99,8 @@ impl AutoRedirect {
             .map_err(|e| anyhow!("auto_redirect: watching addresses: {}", e))?;
         let address_sets = AddressSets {
             tun: tag.to_owned(),
-            include: options.route_address_set.clone(),
-            exclude: options.route_exclude_address_set.clone(),
+            include: settings.route.route_address_set.clone(),
+            exclude: settings.route.route_exclude_address_set.clone(),
         };
         let (include, exclude) = address_sets.load(rule_sets)?;
         let (sender, feed) = watch::channel(rule_sets.clone());
@@ -330,16 +331,21 @@ fn ruleset_options(
         redirect_port,
         dns_hijack: true,
         exclude_mptcp: options.exclude_mptcp,
-        strict_route: options.strict_route,
+        strict_route: settings.route.strict_route,
         loopback_address: options.loopback_address.clone(),
-        route_address: options.route_address.iter().map(prefix).collect(),
-        route_exclude_address: options.route_exclude_address.iter().map(prefix).collect(),
+        route_address: settings.route.route_address.iter().map(prefix).collect(),
+        route_exclude_address: settings
+            .route
+            .route_exclude_address
+            .iter()
+            .map(prefix)
+            .collect(),
         route_address_set,
         route_exclude_address_set,
-        include_interface: options.include_interface.clone(),
-        exclude_interface: options.exclude_interface.clone(),
-        include_uid: options.include_uid.clone(),
-        exclude_uid: options.exclude_uid.clone(),
+        include_interface: settings.route.include_interface.clone(),
+        exclude_interface: settings.route.exclude_interface.clone(),
+        include_uid: settings.route.include_uid.clone(),
+        exclude_uid: settings.route.exclude_uid.clone(),
         local_prefixes: local_prefixes(),
     }
 }
@@ -349,13 +355,13 @@ fn policy_routes(settings: &TunSettings, options: &AutoRedirectSettings) -> Poli
         tun: settings.name.clone(),
         ipv4: settings.ipv4.is_some(),
         ipv6: settings.ipv6.is_some(),
-        table: options.table_index,
-        rule_index: options.rule_index,
+        table: settings.route.table_index,
+        rule_index: settings.route.rule_index,
         fallback_rule_index: options.fallback_rule_index,
         input_mark: options.input_mark,
         output_mark: options.output_mark,
-        route_address: options.route_address.clone(),
-        route_exclude_address: options.route_exclude_address.clone(),
+        route_address: settings.route.route_address.clone(),
+        route_exclude_address: settings.route.route_exclude_address.clone(),
     }
 }
 
@@ -470,84 +476,9 @@ fn is_global_unicast(ip: IpAddr) -> bool {
     }
 }
 
-/// The fewest prefixes that cover the inclusive range `first..=last` of
-/// one family.
-fn range_prefixes(first: IpAddr, last: IpAddr) -> Vec<(IpAddr, u8)> {
-    let (v6, mut first, last) = match (first, last) {
-        _ if first > last => return Vec::new(),
-        (IpAddr::V4(a), IpAddr::V4(b)) => {
-            (false, u128::from(u32::from(a)), u128::from(u32::from(b)))
-        }
-        (IpAddr::V6(a), IpAddr::V6(b)) => (true, u128::from(a), u128::from(b)),
-        _ => return Vec::new(),
-    };
-    let bits: u32 = if v6 { 128 } else { 32 };
-    let address = |n: u128| -> IpAddr {
-        if v6 {
-            Ipv6Addr::from(n).into()
-        } else {
-            Ipv4Addr::from(n as u32).into()
-        }
-    };
-    // The last address of the block of 2^`size` from `first`, which is
-    // aligned to it.
-    let block_end = |first: u128, size: u32| {
-        if size >= 128 {
-            u128::MAX
-        } else {
-            first + ((1u128 << size) - 1)
-        }
-    };
-    let mut prefixes = Vec::new();
-    loop {
-        // The largest aligned block from `first` that ends by `last`.
-        let mut size = first.trailing_zeros().min(bits);
-        while block_end(first, size) > last {
-            size -= 1;
-        }
-        prefixes.push((address(first), (bits - size) as u8));
-        let end = block_end(first, size);
-        if end >= last {
-            break;
-        }
-        first = end + 1;
-    }
-    prefixes
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn prefixes(first: &str, last: &str) -> Vec<String> {
-        range_prefixes(first.parse().unwrap(), last.parse().unwrap())
-            .into_iter()
-            .map(|(ip, len)| format!("{}/{}", ip, len))
-            .collect()
-    }
-
-    #[test]
-    fn ranges_become_the_fewest_prefixes() {
-        assert_eq!(prefixes("10.0.0.0", "10.255.255.255"), ["10.0.0.0/8"]);
-        assert_eq!(prefixes("1.1.1.1", "1.1.1.1"), ["1.1.1.1/32"]);
-        assert_eq!(
-            prefixes("10.0.0.1", "10.0.0.6"),
-            ["10.0.0.1/32", "10.0.0.2/31", "10.0.0.4/31", "10.0.0.6/32"]
-        );
-        assert_eq!(prefixes("0.0.0.0", "255.255.255.255"), ["0.0.0.0/0"]);
-        assert_eq!(
-            prefixes("::", "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"),
-            ["::/0"]
-        );
-        assert_eq!(
-            prefixes("255.255.255.254", "255.255.255.255"),
-            ["255.255.255.254/31"]
-        );
-        assert_eq!(
-            prefixes("2001:db8::", "2001:db8:ffff:ffff:ffff:ffff:ffff:ffff"),
-            ["2001:db8::/32"]
-        );
-    }
 
     #[test]
     fn global_unicast_as_go_has_it() {

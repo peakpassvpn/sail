@@ -30,8 +30,7 @@ impl TunRoute {
             .platform
             .as_ref()
             .is_some_and(|platform| platform.opens_tun());
-        // auto_redirect routes by marks, in a table of its own.
-        if !settings.auto_route || host_opens || settings.auto_redirect.is_some() {
+        if !settings.auto_route || host_opens {
             return Ok(None);
         }
         let Some(ipv4) = settings.ipv4 else {
@@ -62,9 +61,6 @@ pub struct NetInfo {
     pub default_interface: Option<String>,
     /// The route set up, which is undone by the same description.
     pub route: Option<TunRoute>,
-    /// The default routes the TUN replaces, as they were (Linux).
-    pub saved_routes: Vec<String>,
-    pub saved_routes6: Vec<String>,
 }
 
 /// Reads the default routes the TUN's routes replace. Fails without an IPv4
@@ -118,18 +114,6 @@ pub fn get_net_info(route: TunRoute) -> Result<NetInfo> {
         None
     };
 
-    #[cfg(target_os = "linux")]
-    let (saved_routes, saved_routes6) = (
-        super::cmd::get_default_routes(false).unwrap_or_default(),
-        if ipv6 {
-            super::cmd::get_default_routes(true).unwrap_or_default()
-        } else {
-            Vec::new()
-        },
-    );
-    #[cfg(not(target_os = "linux"))]
-    let (saved_routes, saved_routes6) = (Vec::new(), Vec::new());
-
     Ok(NetInfo {
         default_ipv4_gateway: Some(ipv4_gw),
         default_ipv6_gateway: ipv6_gw,
@@ -137,8 +121,6 @@ pub fn get_net_info(route: TunRoute) -> Result<NetInfo> {
         default_ipv6_address: ipv6_addr,
         default_interface: Some(iface),
         route: Some(route),
-        saved_routes,
-        saved_routes6,
     })
 }
 
@@ -178,11 +160,6 @@ fn route_into_tun(net_info: &NetInfo) -> Result<()> {
     super::cmd::add_default_ipv4_route(route.gateway, iface.clone(), true)?;
     super::cmd::add_default_ipv4_route(*ipv4_gw, iface.clone(), false)?;
 
-    #[cfg(target_os = "linux")]
-    if let Some(a) = ipv4_addr {
-        super::cmd::add_default_ipv4_rule(*a)?;
-    }
-
     if let Some((address, gateway, prefix)) = route.ipv6 {
         super::cmd::add_interface_ipv6_address(&route.name, address, i32::from(prefix))?;
 
@@ -190,11 +167,6 @@ fn route_into_tun(net_info: &NetInfo) -> Result<()> {
             super::cmd::delete_default_ipv6_route(None)?;
             super::cmd::add_default_ipv6_route(gateway, iface.clone(), true)?;
             super::cmd::add_default_ipv6_route(*ipv6_gw, iface.clone(), false)?;
-        }
-
-        #[cfg(target_os = "linux")]
-        if let Some(a) = ipv6_addr {
-            super::cmd::add_default_ipv6_rule(*a)?;
         }
     }
     Ok(())
@@ -218,8 +190,6 @@ pub fn post_tun_completion_setup(net_info: &NetInfo) {
         default_ipv6_address: ipv6_addr,
         default_interface: Some(iface),
         route: Some(route),
-        saved_routes,
-        saved_routes6,
     } = net_info
     else {
         return;
@@ -232,14 +202,10 @@ pub fn post_tun_completion_setup(net_info: &NetInfo) {
         "delete the scoped default route",
         super::cmd::delete_default_ipv4_route(Some(iface.clone())),
     );
-    restore_default_route(false, saved_routes, || {
-        super::cmd::add_default_ipv4_route(*ipv4_gw, iface.clone(), true)
-    });
-
-    #[cfg(target_os = "linux")]
-    if let Some(a) = ipv4_addr {
-        best_effort("delete the rule", super::cmd::delete_default_ipv4_rule(*a));
-    }
+    best_effort(
+        "restore the default route",
+        super::cmd::add_default_ipv4_route(*ipv4_gw, iface.clone(), true),
+    );
 
     if route.ipv6.is_some() {
         if let Some(ipv6_gw) = ipv6_gw {
@@ -251,33 +217,10 @@ pub fn post_tun_completion_setup(net_info: &NetInfo) {
                 "delete the scoped IPv6 default route",
                 super::cmd::delete_default_ipv6_route(Some(iface.clone())),
             );
-            restore_default_route(true, saved_routes6, || {
-                super::cmd::add_default_ipv6_route(*ipv6_gw, iface.clone(), true)
-            });
-        }
-
-        #[cfg(target_os = "linux")]
-        if let Some(a) = ipv6_addr {
             best_effort(
-                "delete the IPv6 rule",
-                super::cmd::delete_default_ipv6_rule(*a),
+                "restore the IPv6 default route",
+                super::cmd::add_default_ipv6_route(*ipv6_gw, iface.clone(), true),
             );
         }
-    }
-}
-
-/// Puts back the default route the TUN took: exactly as it was where it
-/// was saved (Linux), otherwise through `fallback`, from its gateway.
-#[cfg_attr(not(target_os = "linux"), allow(unused_variables))]
-fn restore_default_route(v6: bool, saved: &[String], fallback: impl FnOnce() -> Result<()>) {
-    #[cfg(target_os = "linux")]
-    if !saved.is_empty() {
-        match super::cmd::restore_default_routes(v6, saved) {
-            Ok(()) => return,
-            Err(e) => tracing::warn!("{}; adding a plain default route instead", e),
-        }
-    }
-    if let Err(e) = fallback() {
-        tracing::warn!("could not restore the default route: {}", e);
     }
 }

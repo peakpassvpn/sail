@@ -27,6 +27,7 @@ use resolver::Resolver;
 
 pub mod datagram;
 pub mod dial;
+pub mod interface;
 #[cfg(feature = "netstack")]
 pub mod netstack;
 pub mod relay;
