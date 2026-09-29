@@ -17,6 +17,7 @@ use bytes::Bytes;
 use futures::stream::Stream;
 use tokio::io::AsyncReadExt;
 use tokio::sync::{mpsc, watch};
+use tokio::task::JoinSet;
 use tokio::time::timeout;
 use tracing::{debug, trace, warn};
 
@@ -114,18 +115,21 @@ impl InboundDatagramHandler for Server {
         let (accepted, accepted_rx) = mpsc::channel(ACCEPT_CHANNEL_SIZE);
         let resource = self.resource.clone();
         tokio::spawn(async move {
+            // The connections, stopped when the inbound stops.
+            let mut connections = JoinSet::new();
             loop {
                 let incoming = tokio::select! {
                     incoming = endpoint.accept() => incoming,
                     // Nobody takes what is accepted any more.
                     _ = accepted.closed() => None,
+                    Some(_) = connections.join_next(), if !connections.is_empty() => continue,
                 };
                 let Some(incoming) = incoming else {
                     break;
                 };
                 let generation = resource.load();
                 let accepted = accepted.clone();
-                tokio::spawn(async move {
+                connections.spawn(async move {
                     let remote = incoming.remote_address();
                     if let Err(e) = serve(
                         generation.settings.clone(),
@@ -186,12 +190,14 @@ async fn serve(
 ) -> Result<()> {
     let remote = incoming.remote_address();
     let connecting = incoming.accept_with(Arc::new(server_config))?;
+    // What the connection runs besides its streams, stopped with it.
+    let mut tasks = JoinSet::new();
     let conn = if settings.zero_rtt {
         // 0-RTT data is taken before the handshake is done; the
         // `Authenticate` it must wait for comes only after it anyway.
         match connecting.into_0rtt() {
             Ok((conn, accepted)) => {
-                tokio::spawn(async move {
+                tasks.spawn(async move {
                     let accepted = accepted.await;
                     debug!(
                         "tuic 0-RTT from {} {}",
@@ -218,14 +224,14 @@ async fn serve(
         accepted,
     });
 
-    tokio::spawn(heartbeat(
+    tasks.spawn(heartbeat(
         conn.conn.clone(),
         conn.activity.clone(),
         settings.heartbeat,
     ));
     {
         let conn = conn.clone();
-        tokio::spawn(async move {
+        tasks.spawn(async move {
             tokio::select! {
                 _ = tokio::time::sleep(conn.settings.auth_timeout) => {}
                 _ = conn.conn.closed() => return,
@@ -261,10 +267,20 @@ impl Conn {
         }
     }
 
+    /// The streams are read within the task that accepts them, so that
+    /// stopping it lets them go: a stream kept keeps its connection open.
     async fn accept_uni(self: Arc<Self>) {
-        while let Ok(recv) = self.conn.accept_uni().await {
+        let mut streams = JoinSet::new();
+        loop {
+            let recv = tokio::select! {
+                accepted = self.conn.accept_uni() => match accepted {
+                    Ok(recv) => recv,
+                    Err(_) => return,
+                },
+                Some(_) = streams.join_next(), if !streams.is_empty() => continue,
+            };
             let conn = self.clone();
-            tokio::spawn(async move {
+            streams.spawn(async move {
                 if let Err(e) = conn.uni(recv).await {
                     debug!("tuic stream from {} failed: {}", conn.remote, e);
                 }
@@ -344,10 +360,20 @@ impl Conn {
         Ok(())
     }
 
+    /// Reads each stream's command, and hands the stream on; as with
+    /// [`Conn::accept_uni`], within the task.
     async fn accept_bi(self: Arc<Self>) {
-        while let Ok((send, recv)) = self.conn.accept_bi().await {
+        let mut streams = JoinSet::new();
+        loop {
+            let (send, recv) = tokio::select! {
+                accepted = self.conn.accept_bi() => match accepted {
+                    Ok(stream) => stream,
+                    Err(_) => return,
+                },
+                Some(_) = streams.join_next(), if !streams.is_empty() => continue,
+            };
             let conn = self.clone();
-            tokio::spawn(async move {
+            streams.spawn(async move {
                 if let Err(e) = conn.bi(send, recv).await {
                     debug!("tuic stream from {} failed: {}", conn.remote, e);
                 }

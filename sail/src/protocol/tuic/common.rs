@@ -165,6 +165,7 @@ pub async fn send_packet(
 
 /// A bidirectional stream, relaying one TCP connection, counted while it
 /// lives.
+#[cfg(feature = "inbound-tuic")]
 pub type QuicStream = crate::transport::quic::QuicStream<ActiveGuard>;
 
 #[cfg(test)]

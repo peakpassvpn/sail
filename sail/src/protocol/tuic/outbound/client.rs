@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 use async_trait::async_trait;
 use bytes::Bytes;
 use tokio::sync::mpsc;
+use tokio::task::JoinSet;
 use tokio::time::timeout;
 use tracing::{debug, trace};
 
@@ -17,12 +18,11 @@ use crate::adapter::*;
 use crate::app::SyncDnsClient;
 use crate::net::{peek_tcp_one_off, DialOptions};
 use crate::session::{Session, SocksAddr};
-use crate::transport::quic::{bind, endpoint, ClientTls, Side};
+use crate::transport::quic::{bind, endpoint, ClientTls, QuicStream, Side};
 
 use super::super::common::{
     heartbeat, send_packet, token, transport_config, ActiveGuard, Activity, CongestionControl,
-    QuicStream, UdpRelayMode, ASSOCIATION_QUEUE, FRAGMENT_TIMEOUT, MAX_PENDING_PACKETS,
-    UNI_STREAM_TIMEOUT,
+    UdpRelayMode, ASSOCIATION_QUEUE, FRAGMENT_TIMEOUT, MAX_PENDING_PACKETS, UNI_STREAM_TIMEOUT,
 };
 use super::super::frag::Reassembler;
 use super::super::proto::{
@@ -103,7 +103,7 @@ impl Client {
     }
 
     /// The connection in use, if any.
-    #[cfg(test)]
+    #[cfg(all(test, feature = "inbound-tuic"))]
     pub(crate) async fn current(&self) -> Option<quinn::Connection> {
         self.conn.lock().await.as_ref().map(|c| c.conn.clone())
     }
@@ -111,7 +111,7 @@ impl Client {
     /// Whether the connection in use was resumed with 0-RTT that the
     /// server took; None if it was not resumed with 0-RTT, or its
     /// handshake is not done.
-    #[cfg(test)]
+    #[cfg(all(test, feature = "inbound-tuic"))]
     pub(crate) async fn zero_rtt_accepted(&self) -> Option<bool> {
         self.conn.lock().await.as_ref()?.zero_rtt.get().copied()
     }
@@ -161,21 +161,19 @@ impl Client {
         };
         trace!("tuic connected to {}", server);
 
-        let client = Arc::new(ClientConn {
-            conn: conn.clone(),
-            associations: Mutex::new(Associations {
-                map: HashMap::new(),
-                next_id: 0,
-            }),
-            activity: Activity::default(),
-            zero_rtt: OnceLock::new(),
-            _endpoint: endpoint,
-        });
-
+        let associations = Arc::new(Mutex::new(Associations {
+            map: HashMap::new(),
+            next_id: 0,
+        }));
+        let activity = Activity::default();
+        let zero_rtt = Arc::new(OnceLock::new());
+        // The tasks hold what they need of the connection, never the
+        // connection itself, which stops them when it goes.
+        let mut tasks = JoinSet::new();
         let uuid = self.uuid;
         let password = self.password.clone();
-        let early = client.clone();
-        tokio::spawn(async move {
+        let (early, authed) = (zero_rtt.clone(), conn.clone());
+        tasks.spawn(async move {
             if let Some(done) = handshake_done {
                 let accepted = done.await;
                 debug!(
@@ -183,22 +181,24 @@ impl Client {
                     server,
                     if accepted { "accepted" } else { "rejected" }
                 );
-                let _ = early.zero_rtt.set(accepted);
+                let _ = early.set(accepted);
             }
-            drop(early);
-            if let Err(e) = authenticate(&conn, &uuid, &password).await {
+            if let Err(e) = authenticate(&authed, &uuid, &password).await {
                 debug!("tuic authenticate failed: {}", e);
-                conn.close(quinn::VarInt::from_u32(0), b"");
+                authed.close(quinn::VarInt::from_u32(0), b"");
             }
         });
-        tokio::spawn(heartbeat(
-            client.conn.clone(),
-            client.activity.clone(),
-            self.heartbeat,
-        ));
-        tokio::spawn(client.clone().read_datagrams());
-        tokio::spawn(client.clone().accept_uni());
-        Ok(client)
+        tasks.spawn(heartbeat(conn.clone(), activity.clone(), self.heartbeat));
+        tasks.spawn(read_datagrams(conn.clone(), associations.clone()));
+        tasks.spawn(accept_uni(conn.clone(), associations.clone()));
+        Ok(Arc::new(ClientConn {
+            conn,
+            associations,
+            activity,
+            zero_rtt,
+            _endpoint: endpoint,
+            _tasks: tasks,
+        }))
     }
 }
 
@@ -224,14 +224,26 @@ struct Associations {
     next_id: u16,
 }
 
+/// A connection to the server, held by the client while it is the one in
+/// use, and by every stream and association on it: when all are gone, it
+/// closes, and its tasks stop with it.
 struct ClientConn {
     conn: quinn::Connection,
-    associations: Mutex<Associations>,
+    associations: Arc<Mutex<Associations>>,
     activity: Activity,
     /// Whether the server took the 0-RTT data, once the handshake says so;
     /// never set when the connection was not resumed with 0-RTT.
-    zero_rtt: OnceLock<bool>,
+    #[cfg_attr(not(all(test, feature = "inbound-tuic")), allow(dead_code))]
+    zero_rtt: Arc<OnceLock<bool>>,
     _endpoint: quinn::Endpoint,
+    /// Aborted when dropped.
+    _tasks: JoinSet<()>,
+}
+
+impl Drop for ClientConn {
+    fn drop(&mut self) {
+        self.conn.close(quinn::VarInt::from_u32(0), b"");
+    }
 }
 
 impl ClientConn {
@@ -255,63 +267,74 @@ impl ClientConn {
         );
         Ok((id, rx))
     }
+}
 
-    fn packet(&self, header: PacketHeader, payload: Bytes) {
-        let mut associations = self.associations.lock().unwrap_or_else(|e| e.into_inner());
-        let assoc_id = header.assoc_id;
-        let Some(association) = associations.map.get_mut(&assoc_id) else {
-            trace!("tuic packet for unknown association {}", assoc_id);
-            return;
+/// Hands a packet to its association, once all its fragments are there.
+fn packet(associations: &Mutex<Associations>, header: PacketHeader, payload: Bytes) {
+    let mut associations = associations.lock().unwrap_or_else(|e| e.into_inner());
+    let assoc_id = header.assoc_id;
+    let Some(association) = associations.map.get_mut(&assoc_id) else {
+        trace!("tuic packet for unknown association {}", assoc_id);
+        return;
+    };
+    if let Some(packet) = association
+        .reassembler
+        .feed(header, payload, Instant::now())
+    {
+        if association.packets.try_send(packet).is_err() {
+            trace!("tuic association {} queue full, packet dropped", assoc_id);
+        }
+    }
+}
+
+async fn read_datagrams(conn: quinn::Connection, associations: Arc<Mutex<Associations>>) {
+    while let Ok(data) = conn.read_datagram().await {
+        match decode_datagram(data) {
+            Ok(Datagram::Packet(header, payload)) => packet(&associations, header, payload),
+            Ok(Datagram::Heartbeat) => {}
+            Err(e) => debug!("tuic datagram dropped: {}", e),
+        }
+    }
+    // The connection is gone: its associations end, so that whoever
+    // waits for their packets hears so.
+    associations
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .map
+        .clear();
+}
+
+/// Packets the server sends back in `quic` mode. The streams are read
+/// within this task, so that stopping it lets them go: a stream kept keeps
+/// its connection open.
+async fn accept_uni(conn: quinn::Connection, associations: Arc<Mutex<Associations>>) {
+    let mut streams = JoinSet::new();
+    loop {
+        let mut recv = tokio::select! {
+            accepted = conn.accept_uni() => match accepted {
+                Ok(recv) => recv,
+                Err(_) => return,
+            },
+            Some(_) = streams.join_next(), if !streams.is_empty() => continue,
         };
-        if let Some(packet) = association
-            .reassembler
-            .feed(header, payload, Instant::now())
-        {
-            if association.packets.try_send(packet).is_err() {
-                trace!("tuic association {} queue full, packet dropped", assoc_id);
-            }
-        }
-    }
-
-    async fn read_datagrams(self: Arc<Self>) {
-        while let Ok(data) = self.conn.read_datagram().await {
-            match decode_datagram(data) {
-                Ok(Datagram::Packet(header, payload)) => self.packet(header, payload),
-                Ok(Datagram::Heartbeat) => {}
-                Err(e) => debug!("tuic datagram dropped: {}", e),
-            }
-        }
-        // The connection is gone: its associations end, so that whoever
-        // waits for their packets hears so.
-        self.associations
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .map
-            .clear();
-    }
-
-    /// Packets the server sends back in `quic` mode.
-    async fn accept_uni(self: Arc<Self>) {
-        while let Ok(mut recv) = self.conn.accept_uni().await {
-            let conn = self.clone();
-            tokio::spawn(async move {
-                let packet = async {
-                    let cmd = read_command(&mut recv).await?;
-                    if cmd != CMD_PACKET {
-                        return Err(io::Error::other(format!(
-                            "unexpected command {:#04x} from the server",
-                            cmd
-                        )));
-                    }
-                    read_packet(&mut recv).await
-                };
-                match timeout(UNI_STREAM_TIMEOUT, packet).await {
-                    Ok(Ok((header, payload))) => conn.packet(header, payload),
-                    Ok(Err(e)) => debug!("tuic stream from the server failed: {}", e),
-                    Err(_) => debug!("tuic stream from the server timed out"),
+        let associations = associations.clone();
+        streams.spawn(async move {
+            let packet_read = async {
+                let cmd = read_command(&mut recv).await?;
+                if cmd != CMD_PACKET {
+                    return Err(io::Error::other(format!(
+                        "unexpected command {:#04x} from the server",
+                        cmd
+                    )));
                 }
-            });
-        }
+                read_packet(&mut recv).await
+            };
+            match timeout(UNI_STREAM_TIMEOUT, packet_read).await {
+                Ok(Ok((header, payload))) => packet(&associations, header, payload),
+                Ok(Err(e)) => debug!("tuic stream from the server failed: {}", e),
+                Err(_) => debug!("tuic stream from the server timed out"),
+            }
+        });
     }
 }
 
@@ -334,11 +357,8 @@ impl OutboundStreamHandler for StreamHandler {
         let payload = peek_tcp_one_off(lhs).await;
         send.write_all(&encode_connect(&sess.destination, &payload)?)
             .await?;
-        Ok(Box::new(QuicStream::guarded(
-            send,
-            recv,
-            conn.activity.start(),
-        )))
+        let active = conn.activity.start();
+        Ok(Box::new(QuicStream::guarded(send, recv, (active, conn))))
     }
 }
 

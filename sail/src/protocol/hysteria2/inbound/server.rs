@@ -13,9 +13,9 @@ use std::time::Duration;
 use anyhow::anyhow;
 use async_trait::async_trait;
 use bytes::Bytes;
-use futures::future::Either;
 use futures::stream::Stream;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Notify};
+use tokio::task::JoinSet;
 use tokio::time::timeout;
 use tracing::{debug, trace};
 
@@ -108,13 +108,14 @@ impl InboundDatagramHandler for DatagramHandler {
         let (tx, rx) = mpsc::channel(ACCEPT_QUEUE);
         let resource = self.resource.clone();
         tokio::spawn(async move {
+            // The connections, stopped when the inbound stops.
+            let mut connections = JoinSet::new();
             loop {
-                let accept = std::pin::pin!(endpoint.accept());
-                let closed = std::pin::pin!(tx.closed());
-                let incoming = match futures::future::select(accept, closed).await {
-                    Either::Left((incoming, _)) => incoming,
+                let incoming = tokio::select! {
+                    incoming = endpoint.accept() => incoming,
                     // Nobody takes what we accept any more.
-                    Either::Right(_) => None,
+                    _ = tx.closed() => None,
+                    Some(_) = connections.join_next(), if !connections.is_empty() => continue,
                 };
                 let Some(incoming) = incoming else {
                     break;
@@ -126,7 +127,7 @@ impl InboundDatagramHandler for DatagramHandler {
                     local_addr,
                 };
                 let config = generation.server_config.clone();
-                tokio::spawn(async move {
+                connections.spawn(async move {
                     let remote = incoming.remote_address();
                     if let Err(e) = conn.serve(incoming, config).await {
                         debug!("hysteria2 connection from {}: {}", remote, e);
@@ -165,7 +166,10 @@ impl Conn {
             conn.remote_address()
         );
         let _control = quic::open_control_stream(&conn).await?;
-        let drain = tokio::spawn(quic::drain_uni_streams(conn.clone()));
+        // What the connection runs, stopped with it: its streams' requests
+        // among them.
+        let mut tasks = JoinSet::new();
+        tasks.spawn(quic::drain_uni_streams(conn.clone()));
 
         let state = Arc::new(ConnState {
             server: self.server,
@@ -175,13 +179,22 @@ impl Conn {
             congestion,
             user: OnceLock::new(),
             udp_started: AtomicBool::new(false),
+            start_udp: Notify::new(),
             sessions: Arc::new(UdpSessions::default()),
         });
-        let result = loop {
-            match conn.accept_bi().await {
+        loop {
+            let accepted = tokio::select! {
+                accepted = conn.accept_bi() => accepted,
+                _ = state.start_udp.notified() => {
+                    tasks.spawn(state.clone().serve_datagrams());
+                    continue;
+                }
+                Some(_) = tasks.join_next(), if !tasks.is_empty() => continue,
+            };
+            match accepted {
                 Ok((send, recv)) => {
                     let state = state.clone();
-                    tokio::spawn(async move {
+                    tasks.spawn(async move {
                         if let Err(e) = state.handle_stream(send, recv).await {
                             debug!("hysteria2 stream: {}", e);
                         }
@@ -189,12 +202,10 @@ impl Conn {
                 }
                 Err(quinn::ConnectionError::ApplicationClosed(_))
                 | Err(quinn::ConnectionError::LocallyClosed)
-                | Err(quinn::ConnectionError::TimedOut) => break Ok(()),
-                Err(e) => break Err(io::Error::other(e)),
+                | Err(quinn::ConnectionError::TimedOut) => return Ok(()),
+                Err(e) => return Err(io::Error::other(e)),
             }
-        };
-        drain.abort();
-        result
+        }
     }
 }
 
@@ -207,6 +218,8 @@ struct ConnState {
     /// Set once the connection authenticated: the user, by name.
     user: OnceLock<Option<Arc<str>>>,
     udp_started: AtomicBool,
+    /// Tells the connection to serve UDP, once authenticated.
+    start_udp: Notify,
     sessions: Arc<UdpSessions>,
 }
 
@@ -322,7 +335,7 @@ impl ConnState {
         .await?;
         let _ = send.finish();
         if !self.udp_started.swap(true, Ordering::Relaxed) {
-            tokio::spawn(self.clone().serve_datagrams());
+            self.start_udp.notify_one();
         }
         Ok(())
     }

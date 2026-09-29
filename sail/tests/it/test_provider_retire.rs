@@ -3,8 +3,9 @@ use crate::common;
 
 // A member a provider's refresh removes leaves nothing running once its
 // connections close: the members that keep state of their own in the
-// background, a Hysteria2 one (its QUIC endpoint and connection) and a
-// sing-mux one (its mux connections and their drivers).
+// background, a Hysteria2 one and a TUIC one (their QUIC endpoints and
+// connections) and a sing-mux one (its mux connections and their
+// drivers).
 //
 // The client runs on a current-thread runtime of its own, so that the
 // tasks alive on it are its own: the provider starts with a member that
@@ -19,6 +20,7 @@ use crate::common;
     feature = "outbound-direct",
     any(
         all(feature = "inbound-hysteria2", feature = "outbound-hysteria2"),
+        all(feature = "inbound-tuic", feature = "outbound-tuic"),
         all(
             feature = "mux",
             feature = "inbound-shadowsocks",
@@ -225,25 +227,27 @@ mod harness {
     }
 }
 
-/// The Hysteria2 member's QUIC connection and endpoint: its tasks stop,
-/// and its socket is closed.
+/// A UDP relay in front of a QUIC server, which learns the address the
+/// client's endpoint sends from: the socket that, once closed, can be
+/// bound again.
 #[cfg(all(
     feature = "outbound-provider",
     feature = "outbound-select",
     feature = "outbound-direct",
-    feature = "inbound-hysteria2",
-    feature = "outbound-hysteria2"
+    any(
+        all(feature = "inbound-hysteria2", feature = "outbound-hysteria2"),
+        all(feature = "inbound-tuic", feature = "outbound-tuic")
+    )
 ))]
-#[test]
-fn a_hysteria2_member_retired_leaves_nothing_running() -> anyhow::Result<()> {
+mod quic_relay {
     use std::net::SocketAddr;
     use std::sync::{Arc, Mutex};
 
-    use serde_json::json;
+    use super::harness;
 
     /// Relays between the client and the server, and learns the address
     /// the client's endpoint sends from.
-    struct UdpRelay {
+    pub struct UdpRelay {
         client: Arc<Mutex<Option<SocketAddr>>>,
     }
 
@@ -263,7 +267,7 @@ fn a_hysteria2_member_retired_leaves_nothing_running() -> anyhow::Result<()> {
         }
     }
 
-    async fn relay(server: SocketAddr) -> anyhow::Result<(u16, UdpRelay)> {
+    pub async fn relay(server: SocketAddr) -> anyhow::Result<(u16, UdpRelay)> {
         let front = Arc::new(tokio::net::UdpSocket::bind("127.0.0.1:0").await?);
         let back = Arc::new(tokio::net::UdpSocket::bind("127.0.0.1:0").await?);
         back.connect(server).await?;
@@ -294,6 +298,24 @@ fn a_hysteria2_member_retired_leaves_nothing_running() -> anyhow::Result<()> {
         });
         Ok((port, UdpRelay { client }))
     }
+}
+
+/// The Hysteria2 member's QUIC connection and endpoint: its tasks stop,
+/// and its socket is closed.
+#[cfg(all(
+    feature = "outbound-provider",
+    feature = "outbound-select",
+    feature = "outbound-direct",
+    feature = "inbound-hysteria2",
+    feature = "outbound-hysteria2"
+))]
+#[test]
+fn a_hysteria2_member_retired_leaves_nothing_running() -> anyhow::Result<()> {
+    use std::net::SocketAddr;
+
+    use serde_json::json;
+
+    use quic_relay::relay;
 
     let cert = rcgen::generate_simple_self_signed(vec!["localhost".into()])?;
     let servers = tokio::runtime::Builder::new_multi_thread()
@@ -330,6 +352,68 @@ fn a_hysteria2_member_retired_leaves_nothing_running() -> anyhow::Result<()> {
         common::shutdown_instances(&servers, ids);
         result
     })
+}
+
+/// The TUIC member's QUIC connection and endpoint, in either UDP relay
+/// mode: its tasks (heartbeats, datagrams, the server's streams) stop, and
+/// its socket is closed.
+#[cfg(all(
+    feature = "outbound-provider",
+    feature = "outbound-select",
+    feature = "outbound-direct",
+    feature = "inbound-tuic",
+    feature = "outbound-tuic"
+))]
+#[test]
+fn a_tuic_member_retired_leaves_nothing_running() -> anyhow::Result<()> {
+    use std::net::SocketAddr;
+
+    use serde_json::json;
+
+    use quic_relay::relay;
+
+    const UUID: &str = "2dd61d93-75d8-4da4-ac0e-6aece7eac365";
+
+    let cert = rcgen::generate_simple_self_signed(vec!["localhost".into()])?;
+    let servers = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+    let echo = harness::Echo::start(&servers)?;
+    for mode in ["native", "quic"] {
+        common::retry_port_clash(|| {
+            let [port] = common::free_ports();
+            let server = json!({
+                "inbounds": [{
+                    "type": "tuic",
+                    "listen": "127.0.0.1",
+                    "listen_port": port,
+                    "users": [{ "name": "alice", "uuid": UUID, "password": "tuic" }],
+                    "tls": {
+                        "enabled": true,
+                        "certificate": cert.cert.pem(),
+                        "key": cert.key_pair.serialize_pem(),
+                    },
+                }],
+                "outbounds": [{ "type": "direct" }],
+            });
+            let ids = common::run_sail_instances(&servers, vec![server.to_string()])?;
+            let result = (|| {
+                let (relay_port, relay) =
+                    servers.block_on(relay(SocketAddr::from(([127, 0, 0, 1], port))))?;
+                let member = format!(
+                    "  - {{ name: X, type: tuic, server: 127.0.0.1, port: {}, uuid: {}, \
+                     password: tuic, sni: localhost, skip-cert-verify: true, \
+                     udp-relay-mode: {} }}\n",
+                    relay_port, UUID, mode
+                );
+                harness::member_retired(&member, &echo, &relay)
+            })()
+            .map_err(|e| anyhow::anyhow!("{}: {:#}", mode, e));
+            common::shutdown_instances(&servers, ids);
+            result
+        })?;
+    }
+    Ok(())
 }
 
 /// A sing-mux member, framed (smux) and over HTTP/2 (h2mux): its
