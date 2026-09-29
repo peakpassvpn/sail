@@ -614,6 +614,46 @@ pub unsafe extern "C" fn sail_import_share_links(input: *const c_char) -> *mut c
     })
 }
 
+/// Lists the data files (assets) a configuration reads: `asn.mmdb`,
+/// `geo.mmdb`, `site.dat`, or files it names. sail downloads none of them;
+/// the host fetches the missing ones into the data directory, or passes
+/// their URLs as the start settings' `asset_sources` for the runtime API's
+/// `POST /api/v1/runtime/assets/{name}/update`.
+///
+/// @param config_path The path of the config file.
+/// @param settings The start settings the instance would run with (its
+///                 `data_dir` places the files), or null.
+/// @return A JSON object: `{"assets": [{"name", "kind" ("mmdb" or
+///         "site"), "path", "used_by": [the fields that read it],
+///         "present"}]}`, or `{"error": "..."}` if the configuration or
+///         the settings do not read. The string is sail's: free it with
+///         sail_free_string. Null if an argument is null (but `settings`)
+///         or not UTF-8.
+#[no_mangle]
+pub unsafe extern "C" fn sail_required_assets(
+    config_path: *const c_char,
+    settings: *const c_char,
+) -> *mut c_char {
+    guard(std::ptr::null_mut(), || {
+        let Ok(config_path) = (unsafe { c_str(config_path, ERR_CONFIG_PATH) }) else {
+            return std::ptr::null_mut();
+        };
+        let json = match unsafe { start_env(settings) } {
+            Err(_) => serde_json::json!({ "error": "invalid start settings" }),
+            Ok(env) => match sail::config::from_file_for(config_path, &env.host) {
+                Ok(config) => {
+                    serde_json::json!({ "assets": sail::assets::required(&config, &env) })
+                }
+                Err(e) => serde_json::json!({ "error": format!("{}: {}", config_path, e) }),
+            },
+        };
+        match std::ffi::CString::new(json.to_string()) {
+            Ok(s) => s.into_raw(),
+            Err(_) => std::ptr::null_mut(),
+        }
+    })
+}
+
 /// Frees a string sail returned, as sail_import_share_links does. Null is
 /// ignored.
 ///
@@ -694,6 +734,37 @@ mod tests {
             assert_eq!(value["warnings"].as_array().unwrap().len(), 2);
             sail_free_string(std::ptr::null_mut());
         }
+    }
+
+    #[test]
+    fn required_assets_are_json_the_caller_frees() {
+        let dir = std::env::temp_dir().join(format!("sail-ffi-assets-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let config = dir.join("c.json");
+        std::fs::write(
+            &config,
+            r#"{ "outbounds": [{ "type": "direct" }],
+                 "route": { "rules": [{ "ip_asn": 1, "outbound": "direct" }] } }"#,
+        )
+        .unwrap();
+        let path = std::ffi::CString::new(config.to_str().unwrap()).unwrap();
+        let settings =
+            std::ffi::CString::new(serde_json::json!({ "data_dir": dir }).to_string()).unwrap();
+        unsafe {
+            assert!(sail_required_assets(std::ptr::null(), std::ptr::null()).is_null());
+            let json = sail_required_assets(path.as_ptr(), settings.as_ptr());
+            let value: serde_json::Value =
+                serde_json::from_str(CStr::from_ptr(json).to_str().unwrap()).unwrap();
+            sail_free_string(json);
+            assert_eq!(value["assets"][0]["name"], "asn.mmdb", "{}", value);
+            assert_eq!(value["assets"][0]["present"], false);
+            let json = sail_required_assets(c"/nonexistent/c.json".as_ptr(), std::ptr::null());
+            let value: serde_json::Value =
+                serde_json::from_str(CStr::from_ptr(json).to_str().unwrap()).unwrap();
+            sail_free_string(json);
+            assert!(value["error"].is_string(), "{}", value);
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
