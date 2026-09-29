@@ -256,6 +256,11 @@ pub struct HeadlessRule {
     /// `asn.mmdb` in the asset directory.
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
     pub ip_asn: Vec<u32>,
+    /// Sail extensions, as a routing rule's: of a plain HTTP request.
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub http_user_agent: Vec<String>,
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub url_regex: Vec<String>,
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
     pub source_port: Vec<u16>,
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]

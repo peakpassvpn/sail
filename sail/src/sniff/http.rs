@@ -67,6 +67,111 @@ pub fn sniff(buf: &[u8]) -> Sniff {
     Sniff::NeedMore
 }
 
+/// How much of a request's URL is kept, and of its User-Agent.
+pub const MAX_URL: usize = 2048;
+pub const MAX_USER_AGENT: usize = 512;
+
+/// What a plain HTTP/1 request says of itself that rules match: its URL,
+/// `http://host/path?query`, and its User-Agent. A sail extension, for
+/// Surge's `URL-REGEX` and `USER-AGENT`. Either may carry secrets, so
+/// neither is shown when the request is printed.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Request {
+    pub url: Option<Bounded>,
+    pub user_agent: Option<Bounded>,
+}
+
+/// A value kept up to a bound: one longer is cut there, and marked cut, so
+/// that no condition matches it, a prefix of it least of all.
+#[derive(Clone, PartialEq, Eq)]
+pub struct Bounded {
+    value: String,
+    whole: bool,
+}
+
+impl std::fmt::Debug for Bounded {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Bounded")
+            .field("len", &self.value.len())
+            .field("whole", &self.whole)
+            .finish()
+    }
+}
+
+impl Bounded {
+    fn new(value: &str, max: usize) -> Self {
+        if value.len() <= max {
+            return Bounded {
+                value: value.to_string(),
+                whole: true,
+            };
+        }
+        let mut end = max;
+        while !value.is_char_boundary(end) {
+            end -= 1;
+        }
+        Bounded {
+            value: value[..end].to_string(),
+            whole: false,
+        }
+    }
+
+    /// The value, unless it was cut.
+    pub fn whole(&self) -> Option<&str> {
+        self.whole.then_some(self.value.as_str())
+    }
+}
+
+/// The URL and the User-Agent of the request `buf` begins with, as far as
+/// its headers have been read: the URL of an absolute target as it is, of
+/// any other `http://` and the Host header before the target; none for
+/// CONNECT, whose target is no URL.
+pub fn request(buf: &[u8]) -> Request {
+    let buf = &buf[..buf.len().min(MAX_SNIFF_LEN)];
+    let mut lines = buf
+        .split(|c| *c == b'\n')
+        .map(|l| l.strip_suffix(b"\r").unwrap_or(l));
+    let Some((method, target)) = lines.next().and_then(request_line) else {
+        return Request::default();
+    };
+    let mut host = None;
+    let mut user_agent = None;
+    // Complete lines alone: the last may be cut short.
+    let complete = buf
+        .iter()
+        .filter(|c| **c == b'\n')
+        .count()
+        .saturating_sub(1);
+    for line in lines.take(complete.min(MAX_HEADERS)) {
+        if line.is_empty() {
+            break;
+        }
+        let Some(colon) = line.iter().position(|c| *c == b':') else {
+            break;
+        };
+        let (name, value) = (&line[..colon], line[colon + 1..].trim_ascii());
+        let Ok(value) = std::str::from_utf8(value) else {
+            continue;
+        };
+        if name.eq_ignore_ascii_case(b"host") && host.is_none() {
+            host = Some(value);
+        } else if name.eq_ignore_ascii_case(b"user-agent") && user_agent.is_none() {
+            user_agent = Some(Bounded::new(value, MAX_USER_AGENT));
+        }
+    }
+    let target = std::str::from_utf8(target).ok();
+    let url = match target {
+        _ if method == b"CONNECT" => None,
+        Some(t) if absolute_authority(t.as_bytes()).is_some() => Some(t.to_string()),
+        Some(t) if t.starts_with('/') => host.map(|h| format!("http://{}{}", h, t)),
+        _ => None,
+    };
+    Request {
+        url: url.map(|u| Bounded::new(&u, MAX_URL)),
+        user_agent,
+    }
+}
+
 /// Whether `line`, a request line cut short, may yet become one.
 fn request_line_prefix(line: &[u8]) -> bool {
     let line = line.strip_suffix(b"\r").unwrap_or(line);
@@ -205,6 +310,50 @@ mod tests {
             sniff(b"GET / HTTP/1.1\r\nHost: 10.0.0.1\r\n\r\n"),
             Sniff::Found(None)
         );
+    }
+
+    #[test]
+    fn a_request_s_url_and_user_agent() {
+        let r = request(
+            b"GET /a/b?c=1 HTTP/1.1\r\nHost: example.com:8080\r\nUser-Agent: Instagram 1.0\r\n\r\n",
+        );
+        assert_eq!(
+            r.url.as_ref().and_then(Bounded::whole),
+            Some("http://example.com:8080/a/b?c=1")
+        );
+        assert_eq!(
+            r.user_agent.as_ref().and_then(Bounded::whole),
+            Some("Instagram 1.0")
+        );
+        // A proxy's request names its URL whole.
+        let r = request(b"GET http://a.example/x HTTP/1.1\r\nHost: b.example\r\n\r\n");
+        assert_eq!(
+            r.url.as_ref().and_then(Bounded::whole),
+            Some("http://a.example/x")
+        );
+        assert_eq!(r.user_agent, None);
+        // CONNECT has no URL; a header cut short is not read.
+        let r = request(b"CONNECT a.example:443 HTTP/1.1\r\nUser-Agent: x\r\nUser-Ag");
+        assert_eq!(r.url, None);
+        assert_eq!(r.user_agent.as_ref().and_then(Bounded::whole), Some("x"));
+        let r = request(b"GET / HTTP/1.1\r\nUser-Agent: cut sh");
+        assert_eq!(r.user_agent, None);
+        assert_eq!(request(b"\x16\x03\x01"), Request::default());
+    }
+
+    #[test]
+    fn a_value_too_long_is_cut_and_matches_nothing() {
+        let long = "a".repeat(MAX_USER_AGENT + 1);
+        let r = request(format!("GET / HTTP/1.1\r\nUser-Agent: {}\r\n\r\n", long).as_bytes());
+        let ua = r.user_agent.unwrap();
+        assert_eq!(ua.whole(), None);
+        assert_eq!(ua.value.len(), MAX_USER_AGENT);
+        let path = format!("/{}", "p".repeat(MAX_URL));
+        let r = request(format!("GET {} HTTP/1.1\r\nHost: a\r\n\r\n", path).as_bytes());
+        assert_eq!(r.url.unwrap().whole(), None);
+        // Printed, it shows no value.
+        let r = request(b"GET /secret HTTP/1.1\r\nHost: a\r\n\r\n");
+        assert!(!format!("{:?}", r).contains("secret"));
     }
 
     #[test]

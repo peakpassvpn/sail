@@ -58,6 +58,11 @@ where
         }
     }
 
+    /// What has been read looking for the protocol, and not read again yet.
+    pub fn buffered(&self) -> &[u8] {
+        &self.buf
+    }
+
     /// Looks for `protocols` in the first bytes, reading more for at most
     /// `wait` while one of them may yet be found. A second sniff, for other
     /// protocols, looks at what the first read before it reads more.

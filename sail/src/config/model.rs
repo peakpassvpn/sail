@@ -1784,6 +1784,16 @@ pub struct Rule {
     /// public one.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub ip_is_private: bool,
+    /// A sail extension, for Surge's `USER-AGENT`: patterns the User-Agent
+    /// of a plain HTTP request a `sniff` rule read matches, whole and with
+    /// case, `*` any run of characters and `?` any one.
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub http_user_agent: Vec<String>,
+    /// A sail extension, for Surge's `URL-REGEX`: regular expressions found
+    /// in the URL of a plain HTTP request a `sniff` rule read,
+    /// `http://host/path?query`.
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub url_regex: Vec<String>,
     /// A sail extension, for Surge's `IP-ASN`: the autonomous systems the
     /// destination address, or one the domain resolved to, belongs to, as
     /// `asn.mmdb` in the asset directory (GeoLite2-ASN's format, or
@@ -2046,6 +2056,8 @@ impl Rule {
             ("ip_cidr", !self.ip_cidr.is_empty()),
             ("ip_is_private", self.ip_is_private),
             ("ip_asn", !self.ip_asn.is_empty()),
+            ("http_user_agent", !self.http_user_agent.is_empty()),
+            ("url_regex", !self.url_regex.is_empty()),
             ("ip_accept_any", self.ip_accept_any),
             ("response_rcode", self.response_rcode.is_some()),
             ("response_answer", !self.response_answer.is_empty()),

@@ -142,6 +142,12 @@ where
         };
         if let Some((protocol, domain)) = sniffing.sniff(protocols, action.timeout).await? {
             record_sniffed(sess, action, protocol, domain);
+            // What rules match of a plain HTTP request: its URL and
+            // User-Agent, never logged.
+            if protocol == SniffedProtocol::Http {
+                let request = sniff::http::request(sniffing.buffered());
+                sess.sniffed_http = Some(std::sync::Arc::new(request));
+            }
         }
         Ok(())
     }
@@ -839,7 +845,7 @@ mod tests {
     #[tokio::test]
     async fn a_stream_is_sniffed_once_its_protocol_is_known() {
         let (mut client, server) = tokio::io::duplex(4096);
-        let request = b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n";
+        let request = b"GET /a HTTP/1.1\r\nHost: example.com\r\nUser-Agent: t/1\r\n\r\n";
         client.write_all(request).await.unwrap();
         let mut sess = to_ip(Network::Tcp);
         let mut sniffer = StreamSniffer::new(server);
@@ -849,6 +855,16 @@ mod tests {
         assert_eq!(
             sess.sniffed_domain_from(SniffedFrom::Http),
             Some("example.com")
+        );
+        // Its URL and User-Agent, for the rules.
+        let http = sess.sniffed_http.clone().unwrap();
+        assert_eq!(
+            http.url.as_ref().and_then(|u| u.whole()),
+            Some("http://example.com/a")
+        );
+        assert_eq!(
+            http.user_agent.as_ref().and_then(|u| u.whole()),
+            Some("t/1")
         );
         assert_eq!(
             sess.destination,

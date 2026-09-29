@@ -329,6 +329,9 @@ pub struct Session {
     pub sniffed: Option<(SniffedFrom, String)>,
     /// The protocol sniffing recognized, which a rule's `protocol` matches.
     pub sniffed_protocol: Option<SniffedProtocol>,
+    /// The URL and User-Agent of the plain HTTP request sniffing read,
+    /// which `url_regex` and `http_user_agent` match.
+    pub sniffed_http: Option<std::sync::Arc<crate::sniff::http::Request>>,
     /// State the layers of this connection share.
     pub state: ConnectionState,
     /// The protocol of the inbound this session came in through.
@@ -391,6 +394,7 @@ impl Clone for Session {
             new_conn_once: self.new_conn_once,
             sniffed: self.sniffed.clone(),
             sniffed_protocol: self.sniffed_protocol,
+            sniffed_http: self.sniffed_http.clone(),
             state: self.state.clone(),
             inbound_type: self.inbound_type,
             user: self.user.clone(),
@@ -421,6 +425,7 @@ impl Default for Session {
             new_conn_once: false,
             sniffed: None,
             sniffed_protocol: None,
+            sniffed_http: None,
             state: ConnectionState::default(),
             inbound_type: "",
             user: None,
@@ -487,6 +492,7 @@ impl Session {
     pub fn forget_sniffed(&mut self) {
         self.sniffed = None;
         self.sniffed_protocol = None;
+        self.sniffed_http = None;
     }
 }
 

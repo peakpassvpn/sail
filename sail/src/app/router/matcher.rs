@@ -34,6 +34,8 @@ pub(crate) struct Facts {
     user: Option<std::sync::Arc<str>>,
     /// The protocol sniffing found.
     protocol: Option<SniffedProtocol>,
+    /// The plain HTTP request sniffing read.
+    http: Option<Arc<crate::sniff::http::Request>>,
     /// The path of the program the connection comes from.
     process_path: Option<String>,
     source: std::net::SocketAddr,
@@ -80,6 +82,7 @@ impl Facts {
             inbound: sess.inbound_tag.clone(),
             user: sess.user.clone(),
             protocol: sess.sniffed_protocol,
+            http: sess.sniffed_http.clone(),
             process_path: sess.process_name.clone(),
             source: sess.source,
             query_type: None,
@@ -159,6 +162,17 @@ impl Facts {
 
     pub fn query_type(&self) -> Option<u16> {
         self.query_type
+    }
+
+    /// The URL of the plain HTTP request sniffed, unless it was too long
+    /// to keep.
+    fn url(&self) -> Option<&str> {
+        self.http.as_ref()?.url.as_ref()?.whole()
+    }
+
+    /// Its User-Agent, likewise.
+    fn user_agent(&self) -> Option<&str> {
+        self.http.as_ref()?.user_agent.as_ref()?.whole()
     }
 }
 
@@ -472,6 +486,34 @@ impl Pattern {
     }
 }
 
+/// A User-Agent pattern, as Surge's `USER-AGENT` has it, as a regular
+/// expression: `*` any run of characters, `?` any one, everything else
+/// itself.
+fn user_agent_regex(pattern: &str) -> String {
+    let mut regex = String::from("^");
+    let mut literal = [0u8; 4];
+    for c in pattern.chars() {
+        match c {
+            '*' => regex.push_str("(?s:.*)"),
+            '?' => regex.push_str("(?s:.)"),
+            c => regex.push_str(&regex_escape(c.encode_utf8(&mut literal))),
+        }
+    }
+    regex.push('$');
+    regex
+}
+
+#[cfg(feature = "regex")]
+fn regex_escape(s: &str) -> String {
+    regex::escape(s)
+}
+
+/// Without regular expressions, no pattern is compiled.
+#[cfg(not(feature = "regex"))]
+fn regex_escape(s: &str) -> String {
+    s.to_string()
+}
+
 fn patterns(field: &str, values: &[String]) -> Result<Vec<Pattern>> {
     #[cfg(feature = "regex")]
     {
@@ -737,6 +779,9 @@ pub(crate) struct Conditions {
     process_paths: Vec<String>,
     process_path_regex: Vec<Pattern>,
     process_name_regex: Vec<Pattern>,
+    /// Of the plain HTTP request sniffed.
+    http_user_agent: Vec<Pattern>,
+    url_regex: Vec<Pattern>,
     query_types: Vec<u16>,
     /// Each by its tag.
     #[cfg(feature = "rule-set")]
@@ -951,6 +996,15 @@ impl Conditions {
             process_paths: rule.process_path.clone(),
             process_path_regex: patterns(&field("process_path_regex"), &rule.process_path_regex)?,
             process_name_regex: patterns(&field("process_name_regex"), &rule.process_name_regex)?,
+            http_user_agent: patterns(
+                &field("http_user_agent"),
+                &rule
+                    .http_user_agent
+                    .iter()
+                    .map(|p| user_agent_regex(p))
+                    .collect::<Vec<_>>(),
+            )?,
+            url_regex: patterns(&field("url_regex"), &rule.url_regex)?,
             clash_mode: rule
                 .clash_mode
                 .clone()
@@ -993,6 +1047,8 @@ impl Conditions {
             && self.process_paths.is_empty()
             && self.process_path_regex.is_empty()
             && self.process_name_regex.is_empty()
+            && self.http_user_agent.is_empty()
+            && self.url_regex.is_empty()
             && self.query_types.is_empty()
             && self.response_rcode.is_none()
             && self.response_answer.is_empty()
@@ -1161,6 +1217,14 @@ impl Conditions {
                 || facts
                     .process_name()
                     .is_some_and(|name| self.process_name_regex.iter().any(|r| r.is_match(name))))
+            && (self.http_user_agent.is_empty()
+                || facts
+                    .user_agent()
+                    .is_some_and(|ua| self.http_user_agent.iter().any(|r| r.is_match(ua))))
+            && (self.url_regex.is_empty()
+                || facts
+                    .url()
+                    .is_some_and(|url| self.url_regex.iter().any(|r| r.is_match(url))))
             && (self.query_types.is_empty()
                 || facts
                     .query_type()
@@ -1967,6 +2031,49 @@ pub(crate) mod tests {
             "{}",
             err
         );
+    }
+
+    #[cfg(feature = "regex")]
+    #[test]
+    fn a_plain_http_request_s_user_agent_and_url() {
+        let request = |head: &str| {
+            let sess = Session {
+                destination: SocksAddr::Domain("example.com".into(), 80),
+                sniffed_http: Some(Arc::new(crate::sniff::http::request(head.as_bytes()))),
+                ..Default::default()
+            };
+            Facts::new(&sess, &[])
+        };
+        let ua = json(serde_json::json!({ "http_user_agent": ["Instagram*", "a?c.(x)"] }));
+        let get = |ua: &str| request(&format!("GET / HTTP/1.1\r\nUser-Agent: {}\r\n\r\n", ua));
+        assert!(ua.matches(&get("Instagram 300.0")));
+        assert!(!ua.matches(&get("instagram 300.0")));
+        assert!(!ua.matches(&get("My Instagram")));
+        assert!(ua.matches(&get("abc.(x)")));
+        assert!(!ua.matches(&get("abc.(xx)")));
+        assert!(!ua.matches(&get("abcx(x)")));
+        // Nothing sniffed, nothing matched; nor one cut short.
+        assert!(!ua.matches(&domain("example.com", 80)));
+        let long = format!(
+            "Instagram{}",
+            "x".repeat(crate::sniff::http::MAX_USER_AGENT)
+        );
+        assert!(!ua.matches(&get(&long)));
+
+        let url = json(serde_json::json!({ "url_regex": "^http://example\\.com/api/" }));
+        let at = |path: &str| {
+            request(&format!(
+                "GET {} HTTP/1.1\r\nHost: example.com\r\n\r\n",
+                path
+            ))
+        };
+        assert!(url.matches(&at("/api/v1?x=1")));
+        assert!(!url.matches(&at("/web/api/")));
+        // Found anywhere, unless anchored.
+        let anywhere = json(serde_json::json!({ "url_regex": "token=" }));
+        assert!(anywhere.matches(&at("/a?token=1")));
+        assert!(compile_err(serde_json::json!({ "url_regex": "(" }))
+            .starts_with("route.rules[3].url_regex: \"(\""));
     }
 
     #[test]

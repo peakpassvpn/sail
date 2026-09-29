@@ -99,6 +99,8 @@ pub(crate) fn default(parts: Parts, path: &str, env: &RuntimeEnv) -> Result<Cond
         source_ip_cidr: rule.source_ip_cidr.clone(),
         ip_cidr: rule.ip_cidr.clone(),
         ip_asn: rule.ip_asn.clone(),
+        http_user_agent: rule.http_user_agent.clone(),
+        url_regex: rule.url_regex.clone(),
         source_port: rule.source_port.clone(),
         source_port_range: rule.source_port_range.clone(),
         port: rule.port.clone(),
