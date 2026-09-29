@@ -1872,7 +1872,7 @@ mod tests {
     #[cfg(target_os = "linux")]
     #[tokio::test]
     #[ignore = "requires Linux /dev/net/tun and CAP_NET_ADMIN"]
-    async fn linux_default_native_process_dispatcher_nat_fakedns_round_trips() -> anyhow::Result<()>
+    async fn linux_default_native_process_dispatcher_nat_fakeip_round_trips() -> anyhow::Result<()>
     {
         let tcp_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
         let tcp_port = tcp_listener.local_addr()?.port();
@@ -1907,6 +1907,8 @@ mod tests {
             Ok::<_, io::Error>(())
         });
 
+        // The fake IPs are inside the TUN's prefix, apart from its DNS
+        // address, which would otherwise be taken for a fake IP.
         let runtime_id = 60_001;
         anyhow::ensure!(!crate::is_running(runtime_id), "test runtime ID is in use");
         let config = r#"{
@@ -1915,15 +1917,22 @@ mod tests {
                     "tag": "native-process-test",
                     "interface_name": "sailns-e2e",
                     "address": "198.19.255.254/15",
-                    "mtu": 1500,
-                    "fake_dns_include": ["*"]
+                    "mtu": 1500
                 }],
                 "outbounds": [{ "type": "direct", "tag": "direct" }],
+                "route": {
+                    "rules": [{ "port": 53, "action": "hijack-dns" }]
+                },
                 "dns": {
-                    "servers": [{
-                        "type": "hosts",
-                        "predefined": { "netstack.test": "127.0.0.1" }
-                    }]
+                    "servers": [
+                        {
+                            "type": "hosts", "tag": "hosts",
+                            "predefined": { "netstack.test": "127.0.0.1" }
+                        },
+                        { "type": "fakeip", "tag": "fake", "inet4_range": "198.18.0.0/16" }
+                    ],
+                    "rules": [{ "domain": "netstack.test", "server": "fake" }],
+                    "final": "hosts"
                 }
             }"#
         .to_string();
@@ -1952,12 +1961,14 @@ mod tests {
 
             let dns_socket = tokio::net::UdpSocket::bind("0.0.0.0:0").await?;
             let dns_server = SocketAddr::from((Ipv4Addr::new(198, 19, 255, 252), 53));
-            let _reserved_network_address =
-                fake_dns_lookup(&dns_socket, dns_server, 0x7001, "prime.invalid.").await?;
+            // hijack-dns answers from the DNS rules: a fake IP, which the
+            // dispatcher turns back into the domain.
             let fake_ip =
                 fake_dns_lookup(&dns_socket, dns_server, 0x7002, "netstack.test.").await?;
             anyhow::ensure!(
-                fake_ip == Ipv4Addr::new(198, 18, 0, 1),
+                "198.18.0.0/16"
+                    .parse::<cidr::Ipv4Cidr>()?
+                    .contains(&fake_ip),
                 "unexpected fake address {fake_ip}"
             );
 
@@ -1999,7 +2010,7 @@ mod tests {
                 fake_dns_lookup(&dns_socket, dns_server, 0x7003, "netstack.test.").await?;
             anyhow::ensure!(
                 remapped == fake_ip,
-                "network reset changed the stable FakeDNS mapping"
+                "network reset changed the stable FakeIP mapping"
             );
             Ok::<_, anyhow::Error>(())
         }

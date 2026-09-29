@@ -713,6 +713,12 @@ impl Dispatcher {
         }
     }
 
+    /// The fake IP handed out for `domain`, of the family asked for: where
+    /// a reply from the domain appears to come from.
+    pub fn fake_ip_of(&self, domain: &str, ipv6: bool) -> Option<std::net::IpAddr> {
+        self.dns_client.load().fake_ip_of(domain, ipv6)
+    }
+
     /// A destination that is a fake IP becomes the domain it was handed out
     /// for, as sing-box's router has it. One the fakeip server does not
     /// know, handed out before a restart say, is an error: it cannot go

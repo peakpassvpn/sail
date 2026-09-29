@@ -298,7 +298,7 @@ Serde: `serde (deny_unknown_fields)`
 | `iproute2_rule_index` | `Option < u32 >` | Default::default() | The first of auto_redirect's ip rules (9000); the rules from it to 10 after it are sail's, and removed at start and stop.<br/>`serde (default)` |
 | `auto_redirect_iproute2_fallback_rule_index` | `Option < u32 >` | Default::default() | The ip rule that sends what the main table has no route for into the device (32768).<br/>`serde (default)` |
 | `exclude_mptcp` | `bool` | Default::default() | Lets MPTCP go past sail rather than dropping it, which makes clients fall back to TCP.<br/>`serde (default)` |
-| `strict_route` | `bool` | Default::default() | With one family on the device, rejects the other rather than let it go past sail.<br/>`serde (default)` |
+| `strict_route` | `bool` | Default::default() | With one family on the device, rejects the other rather than let it go past sail. Linux: with auto_redirect only, for now. Windows: not yet. Elsewhere it changes nothing, as in sing-box.<br/>`serde (default)` |
 | `loopback_address` | `Vec < IpAddr >` | Default::default() | Addresses whose TCP goes into the device rather than to the redirect listener: a destination sail's own listeners use, say.<br/>`serde (default , with = "crate::config::model::listable")` |
 | `route_address` | `Vec < String >` | Default::default() | Only these destinations are taken...<br/>`serde (default , with = "crate::config::model::listable")` |
 | `route_exclude_address` | `Vec < String >` | Default::default() | ...and not these.<br/>`serde (default , with = "crate::config::model::listable")` |
@@ -313,8 +313,6 @@ Serde: `serde (deny_unknown_fields)`
 | `include_android_user` | `Vec < u32 >` | Default::default() | Android: what the host's VPN takes in, applied by the host.<br/>`serde (default , with = "crate::config::model::listable")` |
 | `include_package` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "crate::config::model::listable")` |
 | `exclude_package` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "crate::config::model::listable")` |
-| `fake_dns_exclude` | `Vec < String >` | Default::default() | Until the DNS section serves fake IPs, the domains that get one, or those that do not.<br/>`serde (default)` |
-| `fake_dns_include` | `Vec < String >` | Default::default() | —<br/>`serde (default)` |
 
 ## VlessInboundOptions
 

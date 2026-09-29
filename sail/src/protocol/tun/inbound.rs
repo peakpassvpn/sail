@@ -16,7 +16,6 @@ use tracing::{debug, error, info, warn};
 
 use crate::{
     app::dispatcher::Dispatcher,
-    app::fake_dns::{FakeDns, FakeDnsMode},
     app::nat_manager::{NatManager, UdpPacket},
     config::model::{parse_options, Inbound},
     runtime::options::{Netstack, NetstackBudget},
@@ -54,9 +53,9 @@ async fn handle_stream(
     remote_addr: SocketAddr,
     inbound_tag: String,
     dispatcher: Arc<Dispatcher>,
-    fakedns: Option<Arc<FakeDns>>,
 ) {
-    let mut sess = Session {
+    // A fake IP destination becomes its domain in the dispatcher.
+    let sess = Session {
         network: Network::Tcp,
         source: local_addr,
         local_addr: remote_addr,
@@ -64,23 +63,6 @@ async fn handle_stream(
         inbound_tag,
         ..Default::default()
     };
-    // Whether to override the destination according to Fake DNS.
-    if let Some(fakedns) = fakedns {
-        if fakedns.is_fake_ip(&remote_addr.ip()).await {
-            if let Some(domain) = fakedns.query_domain(&remote_addr.ip()).await {
-                sess.destination = SocksAddr::Domain(domain, remote_addr.port());
-            } else if remote_addr.port() != 443 && remote_addr.port() != 80 {
-                // Although requests targeting fake IPs are assumed never to
-                // happen in real traffic, poisoned DNS cache records cause
-                // them; TLS and HTTP may still be sniffed in the dispatcher.
-                debug!(
-                    "No paired domain found for this fake IP: {}, connection is rejected.",
-                    remote_addr.ip()
-                );
-                return;
-            }
-        }
-    }
     dispatcher.dispatch_stream(sess, stream).await;
 }
 
@@ -89,7 +71,7 @@ async fn handle_datagrams(
     mut reply: NativeUdpReplyHandle,
     inbound_tag: String,
     nat_manager: Arc<NatManager>,
-    fakedns: Option<Arc<FakeDns>>,
+    dispatcher: Arc<Dispatcher>,
     flow_capacity: usize,
 ) {
     let (downlink_tx, mut downlink_rx): (TokioSender<UdpPacket>, TokioReceiver<UdpPacket>) =
@@ -108,44 +90,9 @@ async fn handle_datagrams(
                 flows.put((datagram.source, datagram.destination), datagram.token);
                 let payload = datagram.payload.to_vec();
 
-                if datagram.destination.port() == 53 {
-                    if let Some(fakedns) = &fakedns {
-                        match fakedns.generate_fake_response(&payload).await {
-                            Ok(response) => {
-                                if let Err(e) = reply
-                                    .send(datagram.token, datagram.destination, response)
-                                    .await
-                                {
-                                    warn!("A fake DNS response failed to reach the netstack: {}", e);
-                                }
-                                continue;
-                            }
-                            Err(e) => debug!("generate fake ip failed: {}", e),
-                        }
-                    }
-                }
-
-                // A fake IP destination becomes its domain. Real UDP only
-                // carries addresses, so a direct outbound resolves it again
-                // and a proxy outbound needs a server that takes domains.
-                let destination = if let Some(fakedns) = &fakedns {
-                    if fakedns.is_fake_ip(&datagram.destination.ip()).await {
-                        let Some(domain) = fakedns.query_domain(&datagram.destination.ip()).await
-                        else {
-                            debug!(
-                                "No paired domain found for this fake IP: {}, datagram is rejected.",
-                                datagram.destination.ip()
-                            );
-                            continue;
-                        };
-                        SocksAddr::Domain(domain, datagram.destination.port())
-                    } else {
-                        SocksAddr::Ip(datagram.destination)
-                    }
-                } else {
-                    SocksAddr::Ip(datagram.destination)
-                };
-
+                // A fake IP destination becomes its domain in the NAT, on
+                // each datagram; DNS is hijacked by the routing rules.
+                let destination = SocksAddr::Ip(datagram.destination);
                 let source = DatagramSource::new(datagram.source, None);
                 let packet = UdpPacket::new(payload, SocksAddr::Ip(datagram.source), destination);
                 nat_manager
@@ -165,17 +112,12 @@ async fn handle_datagrams(
                 };
                 let source = match packet.src_addr {
                     SocksAddr::Ip(address) => address,
+                    // A reply from a domain comes from the fake IP the
+                    // client sent to.
                     SocksAddr::Domain(domain, port) => {
-                        let Some(fakedns) = &fakedns else {
-                            warn!(
-                                "Received datagram with source address {}:{} but fake DNS is disabled.",
-                                domain, port
-                            );
-                            continue;
-                        };
-                        let Some(ip) = fakedns.query_fake_ip(&domain).await else {
-                            warn!(
-                                "Received datagram with source address {}:{} without paired fake IP found.",
+                        let Some(ip) = dispatcher.fake_ip_of(&domain, client.is_ipv6()) else {
+                            debug!(
+                                "A datagram from {}:{}, which has no fake IP, is dropped.",
                                 domain, port
                             );
                             continue;
@@ -199,7 +141,6 @@ fn run<I: sail_netstack::PacketIo + 'static>(
     inbound: Inbound,
     dispatcher: Arc<Dispatcher>,
     nat_manager: Arc<NatManager>,
-    fakedns: Option<Arc<FakeDns>>,
     queues: Vec<I>,
     mtu: usize,
     netstack: &Netstack,
@@ -235,7 +176,7 @@ fn run<I: sail_netstack::PacketIo + 'static>(
     let runner = Box::pin(async move {
         let inbound_tag = inbound.tag;
         let datagram_tag = inbound_tag.clone();
-        let datagram_fakedns = fakedns.clone();
+        let datagram_dispatcher = dispatcher.clone();
         let accept_loop = async move {
             while let Some(accepted) = accepted.recv().await {
                 tokio::spawn(handle_stream(
@@ -244,7 +185,6 @@ fn run<I: sail_netstack::PacketIo + 'static>(
                     accepted.connection.destination,
                     inbound_tag.clone(),
                     dispatcher.clone(),
-                    fakedns.clone(),
                 ));
             }
         };
@@ -253,7 +193,7 @@ fn run<I: sail_netstack::PacketIo + 'static>(
             udp_reply,
             datagram_tag,
             nat_manager,
-            datagram_fakedns,
+            datagram_dispatcher,
             udp_flow_capacity,
         );
         let mut runtime = Box::pin(runtime.run());
@@ -448,12 +388,6 @@ struct TunInboundOptions {
     include_package: Vec<String>,
     #[serde(default, with = "crate::config::model::listable")]
     exclude_package: Vec<String>,
-    /// Until the DNS section serves fake IPs, the domains that get one, or
-    /// those that do not.
-    #[serde(default)]
-    fake_dns_exclude: Vec<String>,
-    #[serde(default)]
-    fake_dns_include: Vec<String>,
 }
 
 /// A TUN inbound's options, checked.
@@ -469,8 +403,6 @@ pub(crate) struct TunSettings {
     pub include_android_user: Vec<u32>,
     pub include_package: Vec<String>,
     pub exclude_package: Vec<String>,
-    pub fake_dns_exclude: Vec<String>,
-    pub fake_dns_include: Vec<String>,
 }
 
 impl TunSettings {
@@ -630,11 +562,6 @@ pub(crate) fn options(inbound: &Inbound) -> Result<TunSettings> {
         .ok()
         .filter(|mtu| *mtu >= minimum)
         .ok_or_else(|| error(format!("mtu {} is outside {minimum} to 65535", options.mtu)))?;
-    if !options.fake_dns_exclude.is_empty() && !options.fake_dns_include.is_empty() {
-        return Err(error(
-            "fake DNS runs either in include mode or in exclude mode".into(),
-        ));
-    }
     let auto_redirect = auto_redirect(&options).map_err(error)?;
     Ok(TunSettings {
         name: options
@@ -648,8 +575,6 @@ pub(crate) fn options(inbound: &Inbound) -> Result<TunSettings> {
         include_android_user: options.include_android_user,
         include_package: options.include_package,
         exclude_package: options.exclude_package,
-        fake_dns_exclude: options.fake_dns_exclude,
-        fake_dns_include: options.fake_dns_include,
     })
 }
 
@@ -798,19 +723,6 @@ pub(crate) fn new(
     tracing::debug!("Create TUN inbound");
 
     let settings = options(&inbound)?;
-    let fakedns = if !settings.fake_dns_include.is_empty() {
-        Some(Arc::new(FakeDns::new(
-            FakeDnsMode::Include,
-            settings.fake_dns_include.clone(),
-        )))
-    } else if !settings.fake_dns_exclude.is_empty() {
-        Some(Arc::new(FakeDns::new(
-            FakeDnsMode::Exclude,
-            settings.fake_dns_exclude.clone(),
-        )))
-    } else {
-        None
-    };
     let netstack = &dispatcher.env().options.netstack;
     let mtu = usize::from(settings.mtu);
 
@@ -855,7 +767,6 @@ pub(crate) fn new(
                 inbound,
                 dispatcher.clone(),
                 nat_manager,
-                fakedns,
                 queues,
                 mtu,
                 netstack,
@@ -907,7 +818,6 @@ pub(crate) fn new(
         inbound,
         dispatcher.clone(),
         nat_manager,
-        fakedns,
         vec![io],
         mtu,
         netstack,
