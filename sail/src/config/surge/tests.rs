@@ -492,7 +492,10 @@ fn dns_answers_as_surge_s_responder_and_host() {
     );
     let at = |i: usize| rules[i].clone();
     assert_eq!(at(0)["domain"], json!(["use-application-dns.net"]));
-    assert_eq!(at(1)["rcode"], "NOTIMP");
+    assert_eq!(
+        at(1),
+        json!({ "query_type": ["HTTPS", "SVCB"], "server": "fakeip" })
+    );
     // Fake addresses, but for always-real-ip's names, the first deciding.
     assert_eq!(
         at(2),
@@ -579,7 +582,7 @@ fn dns_answers_as_surge_s_responder_and_host() {
     let dns = serde_json::to_value(&config.dns).unwrap();
     let text = dns["rules"].to_string();
     assert!(
-        !text.contains("system-hosts") && !text.contains("NOTIMP"),
+        !text.contains("system-hosts") && !text.contains("SVCB"),
         "{}",
         text
     );

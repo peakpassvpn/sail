@@ -8,8 +8,9 @@
 //! Surge's DNS responder answers it, in this order:
 //!
 //! 1. `use-application-dns.net`, Firefox's canary, does not exist.
-//! 2. Without `allow-dns-svcb`, HTTPS and SVCB queries are refused as not
-//!    implemented, whose hints would pass the fake addresses by.
+//! 2. Without `allow-dns-svcb`, HTTPS and SVCB queries have no records,
+//!    whose hints would pass the fake addresses by; Surge refuses them as
+//!    not implemented, which clients take alike.
 //! 3. A and AAAA queries get a fake address, of `198.18.0.0/15` (and
 //!    `fd00:6152::/96` with `ipv6`), but for the names `always-real-ip`
 //!    lists; the addresses are kept across restarts, as Surge keeps them.
@@ -441,9 +442,10 @@ pub fn host(
         "rcode": "NXDOMAIN",
     }));
     if !dns.svcb {
+        // The fake address server answers them with no records; sail's
+        // own queries, of ECH configurations say, skip it.
         let mut rule = query_types(&["HTTPS", "SVCB"]);
-        rule.insert("action".into(), json!("predefined"));
-        rule.insert("rcode".into(), json!("NOTIMP"));
+        rule.insert("server".into(), json!(FAKE_IP));
         rules.push(Value::Object(rule));
     }
     // 3. Fake addresses, but for always-real-ip's names.
