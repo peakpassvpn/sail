@@ -284,8 +284,10 @@ impl AsyncWrite for NativeTcpStream {
 }
 
 impl Drop for NativeTcpStream {
+    /// Tells the runtime the stream is gone: one closed first is let go of,
+    /// to finish its close alone; any other is aborted.
     fn drop(&mut self) {
-        if !self.closed && self.cleanup_active.swap(false, Ordering::AcqRel) {
+        if self.cleanup_active.swap(false, Ordering::AcqRel) {
             match self.cleanup.try_send(self.token) {
                 Ok(()) | Err(tokio_mpsc::error::TrySendError::Closed(_)) => {}
                 Err(tokio_mpsc::error::TrySendError::Full(_)) => {

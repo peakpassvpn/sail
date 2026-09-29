@@ -93,6 +93,8 @@ pub enum TimerEvent {
     Persist,
     Keepalive,
     TimeWaitExpired,
+    /// An orphaned flow waited too long in FIN-WAIT-2 for the peer's FIN.
+    FinWait2Timeout,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -971,7 +973,8 @@ impl TcpTcb {
             TimerEvent::DelayedAck
             | TimerEvent::Persist
             | TimerEvent::Keepalive
-            | TimerEvent::TimeWaitExpired => Ok(Vec::new()),
+            | TimerEvent::TimeWaitExpired
+            | TimerEvent::FinWait2Timeout => Ok(Vec::new()),
         }
     }
 

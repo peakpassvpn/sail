@@ -271,6 +271,8 @@ struct FlowBridge {
     reserved_write_bytes: usize,
     pending_write: Option<(Vec<u8>, oneshot::Sender<io::Result<usize>>)>,
     pending_close: Option<oneshot::Sender<io::Result<()>>>,
+    /// The application's close went through: its FIN is queued.
+    closed: bool,
 }
 
 impl FlowBridge {
@@ -284,6 +286,7 @@ impl FlowBridge {
             reserved_write_bytes: 0,
             pending_write: None,
             pending_close: None,
+            closed: false,
         }
     }
 
@@ -422,7 +425,7 @@ impl<I: PacketIo> NativeRuntime<I> {
                     self.fail_all("native TCP command channel closed");
                     return Ok(());
                 }
-                Wake::Cleanup(Some(token)) => self.abort_flow(token),
+                Wake::Cleanup(Some(token)) => self.drop_flow(token),
                 Wake::Cleanup(None) => {}
                 Wake::CleanupOverflow => self.cleanup_dropped_streams(),
                 Wake::Step(Ok(outcome)) => self.handle_outcome(outcome),
@@ -803,6 +806,7 @@ impl<I: PacketIo> NativeRuntime<I> {
         flow.reserved_write_bytes = 0;
         match self.runner.close_tcp(token) {
             Ok(_) => {
+                flow.closed = true;
                 let _ = response.send(Ok(()));
             }
             Err(error) if retryable(&error) => flow.pending_close = Some(response),
@@ -857,7 +861,21 @@ impl<I: PacketIo> NativeRuntime<I> {
             })
             .collect::<Vec<_>>();
         for token in dropped {
-            self.abort_flow(token);
+            self.drop_flow(token);
+        }
+    }
+
+    /// The application dropped its stream: a flow it closed finishes its
+    /// close alone, bounded by the stack's timers; any other is aborted.
+    fn drop_flow(&mut self, token: TcpFlowToken) {
+        match self.flows.get(&token) {
+            Some(flow) if flow.closed => {
+                if let Some(flow) = self.flows.remove(&token) {
+                    flow.fail("TCP stream released");
+                }
+                let _ = self.runner.release_tcp(token);
+            }
+            _ => self.abort_flow(token),
         }
     }
 
@@ -1206,6 +1224,92 @@ mod tests {
         })
         .await
         .expect("dropped stream did not release its TCP flow");
+
+        runtime_task.abort();
+    }
+
+    /// A stream shut down and then dropped is let go of, not reset: its
+    /// flow finishes the close alone, and leaves FIN-WAIT-2 after the
+    /// timeout when the peer never sends its FIN.
+    #[tokio::test]
+    async fn a_closed_stream_dropped_leaves_fin_wait2_after_the_timeout() {
+        let (inbound_tx, inbound_rx) = tokio_mpsc::channel(4);
+        let (outbound_tx, mut outbound_rx) = tokio_mpsc::channel(4);
+        let io = ChannelPacketIo::new(inbound_rx, outbound_tx, 1);
+        let ledger = ResourceLedger::new(BudgetProfile::Mobile.budget()).unwrap();
+        let mut config = RunnerConfig::default();
+        config.tcp.fin_wait2_timeout_ms = 200;
+        let (runtime, mut accepted, _datagrams, _udp_reply) =
+            NativeRuntime::new(io, Arc::clone(&ledger), config, 4, 4, 1).unwrap();
+        let runtime_task = tokio::spawn(runtime.run());
+        let source = SocketAddr::from((Ipv4Addr::new(10, 8, 4, 2), 40_000));
+        let destination = SocketAddr::from((Ipv4Addr::new(10, 8, 4, 1), 443));
+        let next = |outbound_rx: &mut tokio_mpsc::Receiver<Vec<u8>>| {
+            let packet = outbound_rx.try_recv().ok()?;
+            Some(
+                parse_tcp_segment(parse_ip_packet(&packet, true).unwrap(), true)
+                    .unwrap()
+                    .meta,
+            )
+        };
+
+        inbound_tx
+            .send(tcp_packet(source, destination, 100, 0, TcpFlags::SYN, &[]))
+            .await
+            .unwrap();
+        let syn_ack = timeout(Duration::from_secs(1), outbound_rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        let syn_ack = parse_tcp_segment(parse_ip_packet(&syn_ack, true).unwrap(), true).unwrap();
+        let server_next = syn_ack.meta.sequence.wrapping_add(1).get();
+        inbound_tx
+            .send(tcp_packet(
+                source,
+                destination,
+                101,
+                server_next,
+                TcpFlags::ACK,
+                &[],
+            ))
+            .await
+            .unwrap();
+        let mut accepted = timeout(Duration::from_secs(1), accepted.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        accepted.stream.shutdown().await.unwrap();
+        let fin = timeout(Duration::from_secs(1), outbound_rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        let fin = parse_tcp_segment(parse_ip_packet(&fin, true).unwrap(), true).unwrap();
+        assert!(fin.meta.flags.contains(TcpFlags::FIN));
+        // The peer ACKs the FIN and never sends its own.
+        inbound_tx
+            .send(tcp_packet(
+                source,
+                destination,
+                101,
+                server_next.wrapping_add(1),
+                TcpFlags::ACK,
+                &[],
+            ))
+            .await
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        drop(accepted);
+
+        timeout(Duration::from_secs(3), async {
+            while ledger.snapshot().used(ResourceKind::TcpFlows) != 0 {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("the released flow stayed in FIN-WAIT-2");
+        while let Some(meta) = next(&mut outbound_rx) {
+            assert!(!meta.flags.contains(TcpFlags::RST), "reset: {:?}", meta);
+        }
 
         runtime_task.abort();
     }

@@ -1275,6 +1275,19 @@ impl<I: PacketIo> SingleShardRunner<I> {
         self.finish_tcp_output(allocation, output)
     }
 
+    /// Lets go of a TCP flow the application has closed: see
+    /// [`crate::TcpTable::release`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for stale state.
+    pub fn release_tcp(&mut self, token: TcpFlowToken) -> Result<TcpIngress, RunnerError> {
+        self.ensure_open()?;
+        let allocation = self.reserve_tcp_control()?;
+        let output = self.tcp.release(token)?;
+        self.finish_tcp_output(allocation, output)
+    }
+
     /// Aborts a TCP flow and queues RST before releasing it.
     ///
     /// # Errors
@@ -1987,6 +2000,7 @@ impl<I: PacketIo> SingleShardRunner<I> {
                 self.cancel_tcp_timer(token, TimerEvent::Persist);
                 self.cancel_tcp_timer(token, TimerEvent::Keepalive);
                 self.cancel_tcp_timer(token, TimerEvent::TimeWaitExpired);
+                self.cancel_tcp_timer(token, TimerEvent::FinWait2Timeout);
             }
         }
         for request in timers {

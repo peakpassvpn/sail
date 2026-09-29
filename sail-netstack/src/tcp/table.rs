@@ -35,6 +35,10 @@ pub struct TcpTableConfig {
     pub receive_credit_bytes: usize,
     pub max_segment_payload_bytes: usize,
     pub time_wait_ms: u64,
+    /// How long a flow the application has let go of waits in FIN-WAIT-2
+    /// for the peer's FIN, as Linux's `tcp_fin_timeout`. A flow the
+    /// application still holds, half-closed, waits as long as it does.
+    pub fin_wait2_timeout_ms: u64,
     pub delayed_ack_ms: u64,
     pub persist_initial_ms: u64,
     pub persist_max_ms: u64,
@@ -63,6 +67,7 @@ impl Default for TcpTableConfig {
             max_segment_payload_bytes: 1_200,
             hop_limit: 64,
             time_wait_ms: 60_000,
+            fin_wait2_timeout_ms: 60_000,
             delayed_ack_ms: 40,
             persist_initial_ms: 1_000,
             persist_max_ms: 60_000,
@@ -127,6 +132,10 @@ struct TcpFlow {
     pending_send: Option<PendingSend>,
     persist_backoff_ms: u64,
     keepalive_probes_sent: u8,
+    /// The application has let go of the flow: nothing reads or writes it.
+    orphaned: bool,
+    /// The FIN-WAIT-2 timer of an orphaned flow is set.
+    fin_wait2_armed: bool,
     retransmission_timeouts: u8,
     max_send_segment_bytes: usize,
     sack_permitted: bool,
@@ -300,6 +309,7 @@ pub struct TcpTableStats {
     pub persist_probes: u64,
     pub keepalive_probes: u64,
     pub keepalive_timeouts: u64,
+    pub fin_wait2_timeouts: u64,
     pub nagle_buffered_writes: u64,
     pub sack_recovery_events: u64,
     pub sack_retransmitted_segments: u64,
@@ -477,6 +487,10 @@ impl TcpTable {
             "TCP maximum segment payload must be non-zero"
         );
         assert!(config.time_wait_ms > 0, "TCP TIME-WAIT must be non-zero");
+        assert!(
+            config.fin_wait2_timeout_ms > 0,
+            "TCP FIN-WAIT-2 timeout must be non-zero"
+        );
         assert!(
             config.delayed_ack_ms > 0,
             "TCP delayed ACK must be non-zero"
@@ -799,6 +813,8 @@ impl TcpTable {
                 pending_send: None,
                 persist_backoff_ms: 0,
                 keepalive_probes_sent: 0,
+                orphaned: false,
+                fin_wait2_armed: false,
                 retransmission_timeouts: 0,
                 max_send_segment_bytes: self.config.max_segment_payload_bytes.min(default_peer_mss),
                 sack_permitted: false,
@@ -988,6 +1004,8 @@ impl TcpTable {
                 pending_send: None,
                 persist_backoff_ms: 0,
                 keepalive_probes_sent: 0,
+                orphaned: false,
+                fin_wait2_armed: false,
                 retransmission_timeouts: 0,
                 max_send_segment_bytes,
                 sack_permitted: options.sack_permitted,
@@ -1222,6 +1240,7 @@ impl TcpTable {
         }
         if !closed && !enters_time_wait {
             self.arm_keepalive_if_active(key, &mut output)?;
+            self.arm_fin_wait2_if_orphaned(key, &mut output)?;
         }
         if became_writable && !closed {
             output
@@ -1472,6 +1491,27 @@ impl TcpTable {
         self.apply_app_event(token, crate::AppEvent::Close)
     }
 
+    /// The application lets go of a flow it has closed: nothing will read
+    /// or write it again. Once in FIN-WAIT-2, it waits
+    /// `fin_wait2_timeout_ms` for the peer's FIN, then leaves the table
+    /// (Linux's orphan `tcp_fin_timeout`). Other states end by themselves:
+    /// retransmission bounds FIN-WAIT-1, CLOSING and LAST-ACK.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`TcpTableError::StaleToken`] for a stale or unknown token.
+    pub fn release(&mut self, token: TcpFlowToken) -> Result<TcpIngress, TcpTableError> {
+        let key = self.key_for(token)?;
+        let mut output = TcpIngress::default();
+        let Some(flow) = self.by_key.get_mut(&key) else {
+            // In TIME-WAIT, which ends by itself.
+            return Ok(output);
+        };
+        flow.orphaned = true;
+        self.arm_fin_wait2_if_orphaned(key, &mut output)?;
+        Ok(output)
+    }
+
     /// Aborts a connection and releases it after emitting RST.
     ///
     /// # Errors
@@ -1548,6 +1588,21 @@ impl TcpTable {
         }
         if event == TimerEvent::Keepalive {
             return self.on_keepalive_timer(key);
+        }
+        if event == TimerEvent::FinWait2Timeout {
+            let flow = self.by_key.get(&key).ok_or(TcpTableError::StaleToken)?;
+            if !(flow.orphaned && flow.tcb.state() == TcpState::FinWait2) {
+                return Ok(TcpIngress::default());
+            }
+            // As Linux: gone without a word; a segment from the peer later
+            // finds no flow and is answered with RST.
+            self.remove(key);
+            self.stats.fin_wait2_timeouts = self.stats.fin_wait2_timeouts.saturating_add(1);
+            self.refresh_structural_stats();
+            return Ok(TcpIngress {
+                events: vec![TcpEvent::Closed(token)],
+                ..TcpIngress::default()
+            });
         }
         if event == TimerEvent::Retransmission {
             let flow = self.by_key.get_mut(&key).ok_or(TcpTableError::StaleToken)?;
@@ -1975,6 +2030,26 @@ impl TcpTable {
                 token: TcpFlowToken::new_on_shard(flow.id, self.generation, self.shard),
                 event: TimerEvent::Keepalive,
                 after_ms,
+            });
+        }
+        Ok(())
+    }
+
+    fn arm_fin_wait2_if_orphaned(
+        &mut self,
+        key: TcpFlowKey,
+        output: &mut TcpIngress,
+    ) -> Result<(), TcpTableError> {
+        let flow = self
+            .by_key
+            .get_mut(&key)
+            .ok_or(TcpTableError::UnknownFlow)?;
+        if flow.orphaned && !flow.fin_wait2_armed && flow.tcb.state() == TcpState::FinWait2 {
+            flow.fin_wait2_armed = true;
+            output.timers.push(TcpTimerRequest {
+                token: TcpFlowToken::new_on_shard(flow.id, self.generation, self.shard),
+                event: TimerEvent::FinWait2Timeout,
+                after_ms: self.config.fin_wait2_timeout_ms,
             });
         }
         Ok(())
@@ -3477,6 +3552,101 @@ mod tests {
         payload: &[u8],
     ) -> Vec<u8> {
         emit_tcp_segment(source, destination, control, payload, 64, 1).unwrap()
+    }
+
+    /// A flow in FIN-WAIT-2, the peer having acknowledged our FIN, and its token;
+    /// `release_first` lets go of it while in FIN-WAIT-1.
+    fn in_fin_wait2(release_first: bool) -> (TcpTable, TcpFlowToken, TcpIngress) {
+        let ledger = ResourceLedger::new(BudgetProfile::Router.budget()).unwrap();
+        let mut table = TcpTable::new(ledger, NetworkGeneration::new(1), TcpTableConfig::default());
+        let peer = SocketAddr::from((Ipv4Addr::new(10, 7, 0, 2), 40_001));
+        let local = SocketAddr::from((Ipv4Addr::new(10, 7, 0, 1), 443));
+        let control = |sequence: u32, acknowledgment: u32, flags: TcpFlags| SendControl {
+            sequence: SeqNumber::new(sequence),
+            acknowledgment: SeqNumber::new(acknowledgment),
+            flags,
+            window: 4_096,
+        };
+        let syn_ack = table
+            .ingest(&segment(peer, local, control(100, 0, TcpFlags::SYN), &[]))
+            .unwrap();
+        let syn_ack =
+            parse_tcp_segment(parse_ip_packet(&syn_ack.outgoing[0], true).unwrap(), true).unwrap();
+        let server_next = syn_ack.meta.sequence.wrapping_add(1).get();
+        let accepted = table
+            .ingest(&segment(
+                peer,
+                local,
+                control(101, server_next, TcpFlags::ACK),
+                &[],
+            ))
+            .unwrap();
+        let Some(TcpEvent::Accepted(connection)) = accepted.events.first() else {
+            panic!("no connection: {:?}", accepted.events);
+        };
+        let token = connection.token;
+        table.accept(token).unwrap();
+        let fin = table.close(token).unwrap();
+        assert_eq!(fin.outgoing.len(), 1);
+        if release_first {
+            let released = table.release(token).unwrap();
+            assert!(released.timers.is_empty(), "armed in FIN-WAIT-1");
+        }
+        let acked = table
+            .ingest(&segment(
+                peer,
+                local,
+                control(101, server_next.wrapping_add(1), TcpFlags::ACK),
+                &[],
+            ))
+            .unwrap();
+        (table, token, acked)
+    }
+
+    fn fin_wait2_timer(output: &TcpIngress) -> Option<&TcpTimerRequest> {
+        output
+            .timers
+            .iter()
+            .find(|timer| timer.event == TimerEvent::FinWait2Timeout)
+    }
+
+    /// Half-closed and still held, a flow waits in FIN-WAIT-2 as long as
+    /// the application does: there is no timer, and a stray one does not
+    /// end it.
+    #[test]
+    fn a_held_half_closed_flow_waits_in_fin_wait2() {
+        let (mut table, token, acked) = in_fin_wait2(false);
+        assert!(fin_wait2_timer(&acked).is_none());
+        let fired = table.on_timer(token, TimerEvent::FinWait2Timeout).unwrap();
+        assert!(fired.events.is_empty());
+        assert_eq!(table.stats().active_flows, 1);
+    }
+
+    /// Let go of, it waits `fin_wait2_timeout_ms` for the peer's FIN, then
+    /// leaves the table without a segment, as Linux's orphans do.
+    #[test]
+    fn a_released_flow_leaves_fin_wait2_after_the_timeout() {
+        let (mut table, token, acked) = in_fin_wait2(false);
+        assert!(fin_wait2_timer(&acked).is_none());
+        let released = table.release(token).unwrap();
+        let timer = fin_wait2_timer(&released).expect("no FIN-WAIT-2 timer");
+        assert_eq!(timer.after_ms, 60_000);
+        // Set once.
+        assert!(fin_wait2_timer(&table.release(token).unwrap()).is_none());
+        let fired = table.on_timer(token, TimerEvent::FinWait2Timeout).unwrap();
+        assert!(fired.outgoing.is_empty());
+        assert!(matches!(fired.events[..], [TcpEvent::Closed(closed)] if closed == token));
+        assert_eq!(table.stats().active_flows, 0);
+        assert_eq!(table.stats().fin_wait2_timeouts, 1);
+    }
+
+    /// Let go of in FIN-WAIT-1, the timer is set when the peer's ACK brings
+    /// it to FIN-WAIT-2.
+    #[test]
+    fn a_flow_released_in_fin_wait1_is_timed_from_fin_wait2() {
+        let (_table, _token, acked) = in_fin_wait2(true);
+        let timer = fin_wait2_timer(&acked).expect("no FIN-WAIT-2 timer");
+        assert_eq!(timer.after_ms, 60_000);
     }
 
     /// A held write that the answer to the last ACK had no room to carry is
