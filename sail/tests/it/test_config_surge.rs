@@ -78,3 +78,99 @@ fn a_forwarded_port_reaches_its_target() -> anyhow::Result<()> {
         result
     })
 }
+
+// app(socks) -> (socks5-listen)sail, read from a Surge profile -> echo
+//
+// Rule-sets decide: a local RULE-SET file, an inline [Ruleset], LAN, and a
+// DOMAIN-SET that matches nothing here.
+#[cfg(all(
+    feature = "config-surge",
+    feature = "rule-set",
+    feature = "inbound-socks",
+    feature = "outbound-direct",
+    feature = "outbound-drop",
+    feature = "outbound-select"
+))]
+#[test]
+fn a_surge_profile_s_rule_sets_route() -> anyhow::Result<()> {
+    let dir = common::TempDir::new("surge-sets")?;
+    let local = dir.join("local.list");
+    std::fs::write(
+        &local,
+        "# the echo server\nIP-CIDR,127.0.0.0/8,no-resolve // loopback\n",
+    )?;
+    let domains = dir.join("domains.txt");
+    std::fs::write(&domains, ".example.com\nexact.example\n")?;
+    for (rules, rejected) in [
+        (format!("RULE-SET,{},REJECT\n", local.display()), true),
+        (format!("DOMAIN-SET,{},REJECT\n", domains.display()), false),
+        ("RULE-SET,Loopback,REJECT\n".to_string(), true),
+        ("RULE-SET,LAN,REJECT,no-resolve\n".to_string(), true),
+        ("RULE-SET,SYSTEM,REJECT\n".to_string(), false),
+    ] {
+        let result = common::retry_port_clash(|| {
+            let [socks] = common::free_ports();
+            let profile = format!(
+                "[General]\nloglevel = warning\nsocks5-listen = 127.0.0.1:{}\n\
+                 [Ruleset Loopback]\nAND,((IP-CIDR,127.0.0.1/32,no-resolve),(PROTOCOL,TCP))\n\
+                 [Rule]\n{}FINAL,DIRECT\n",
+                socks, rules
+            );
+            common::test_configs(vec![profile], "127.0.0.1", socks)
+        });
+        assert_eq!(result.is_err(), rejected, "{}: {:?}", rules, result);
+    }
+    Ok(())
+}
+
+// app(socks, to a name) -> (socks5-listen)sail -> echo: [Host] gives the
+// name the echo server's address, which DIRECT dials; the first line that
+// matches decides.
+#[cfg(all(
+    feature = "config-surge",
+    feature = "inbound-socks",
+    feature = "outbound-direct",
+    feature = "outbound-socks"
+))]
+#[test]
+fn a_surge_host_maps_a_name() -> anyhow::Result<()> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+    let (echo, echo_fut) = rt.block_on(common::run_tcp_echo_server("127.0.0.1:0"))?;
+    rt.spawn(echo_fut);
+    common::retry_port_clash(|| {
+        let [socks] = common::free_ports();
+        let profile = format!(
+            "[General]\nloglevel = warning\nsocks5-listen = 127.0.0.1:{}\n\
+             [Host]\necho.surge.invalid = 127.0.0.1\n*.surge.invalid = 10.255.255.1\n\
+             [Rule]\nFINAL,DIRECT\n",
+            socks
+        );
+        let ids = common::run_sail_instances(&rt, vec![profile])?;
+        let result = rt.block_on(async {
+            let sess = sail::session::Session {
+                destination: sail::session::SocksAddr::Domain(
+                    "echo.surge.invalid".into(),
+                    echo.port(),
+                ),
+                ..Default::default()
+            };
+            let mut stream =
+                common::new_socks_stream("127.0.0.1", socks, &sess, None, None).await?;
+            stream.write_all(b"mapped").await?;
+            let mut buf = [0u8; 6];
+            tokio::time::timeout(
+                std::time::Duration::from_secs(5),
+                stream.read_exact(&mut buf),
+            )
+            .await??;
+            anyhow::ensure!(&buf == b"mapped", "echoed {:?}", buf);
+            Ok(())
+        });
+        common::shutdown_instances(&rt, ids);
+        result
+    })
+}

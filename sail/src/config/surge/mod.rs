@@ -10,13 +10,11 @@
 //! processing (MITM, rewrites, scripts but for rule and DNS ones) is
 //! warned of once a section.
 //!
-//! This stage reads the listeners, the proxies, the groups of static
-//! members and the rules of single conditions; rule-sets, logical rules
-//! and the rest of DNS ([Host], fake addresses) come in C.5b, policies
-//! from `policy-path` and URL includes in C.5c.
+//! It reads the listeners, the proxies, the groups of static members, the
+//! rules and the rule-sets they name, and DNS with `[Host]`; policies from
+//! `policy-path` and URL includes come in C.5c.
 //!
 //! Where sail does otherwise, the profile cannot say it:
-//! - Names resolve to real addresses: sail answers no fake ones yet.
 //! - A group tests its members with `proxy-test-url`, not each member's
 //!   `test-url`.
 //! - `udp-policy-not-supported-behaviour` holds for a rule whose policy is,
@@ -25,6 +23,12 @@
 //!   picks, as the proxy may or may not relay it.
 //! - `FINAL,dns-failed`: a name that does not resolve matches no IP rule,
 //!   and the rules after go on; Surge goes to FINAL at once.
+//! - A sniffed domain is what domain rules match from the sniff on (see
+//!   the rule module), and a rule-set file is taken to hold IP and HTTP
+//!   rules until read; the DNS module says what its answers do
+//!   otherwise.
+//! - `IP-ASN` needs `asn.mmdb` (GeoLite2-ASN's format) in the asset
+//!   directory, where Surge has its own.
 
 use std::path::Path;
 
