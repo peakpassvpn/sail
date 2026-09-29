@@ -779,9 +779,16 @@ fn servers_are_read_as_mihomo_reads_them() {
         ])
     );
     assert_eq!(dns["final"], "dns.nameserver");
-    // Off by default: no reverse mapping for `normal`, and IPv4 alone
-    // without `ipv6: true`.
-    assert_eq!(dns["strategy"], "ipv4_only");
+    // The instance resolves IPv6 too, with the top-level `ipv6` on by
+    // default; its clients get IPv4 alone without `dns.ipv6: true`.
+    assert_eq!(dns["strategy"], "prefer_ipv4");
+    assert_eq!(dns["client_strategy"], "ipv4_only");
+    let both = dns_json(&dns_of(
+        "  ipv6: true
+  nameserver: [1.1.1.1]
+",
+    ));
+    assert!(both.get("client_strategy").is_none());
     let config = dns_of("  enhanced-mode: normal\n  nameserver: [1.1.1.1]\n");
     let dns = dns_json(&config);
     assert_eq!(dns["reverse_mapping"], serde_json::Value::Null);

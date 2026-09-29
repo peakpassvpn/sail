@@ -23,9 +23,7 @@
 //!
 //! Where sail does otherwise: within a run of plain domain keys of `nameserver-policy`,
 //! Mihomo's domain tree prefers the most specific; sail tries the keys
-//! most specific first. `dns.ipv6: false` leaves the instance's own
-//! lookups without IPv6 too, where Mihomo still resolves them for the
-//! connections it makes. `ecs` always replaces the query's own client
+//! most specific first. `ecs` always replaces the query's own client
 //! subnet, as with `ecs-override`.
 
 use std::collections::{HashMap, HashSet};
@@ -741,14 +739,15 @@ impl Lowering<'_, '_> {
             Value::Array(std::mem::take(&mut self.rules)),
         );
         dns.insert("final".into(), json!(main_tag));
+        // `ipv6` is what the instance resolves; `dns.ipv6`, what its
+        // clients are answered, as Mihomo has them.
         dns.insert(
             "strategy".into(),
-            json!(if ipv6 && dns_ipv6 {
-                "prefer_ipv4"
-            } else {
-                "ipv4_only"
-            }),
+            json!(if ipv6 { "prefer_ipv4" } else { "ipv4_only" }),
         );
+        if !(ipv6 && dns_ipv6) {
+            dns.insert("client_strategy".into(), json!("ipv4_only"));
+        }
         // Mihomo's `redir-host` and `fake-ip` both map the addresses
         // answered back to their domains.
         if mode != "normal" {
