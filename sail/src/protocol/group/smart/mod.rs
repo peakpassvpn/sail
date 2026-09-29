@@ -242,13 +242,9 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
         (false, Some(_)) => return Err(error("asn_file", &"only with prefer_asn")),
         (false, None) => None,
         (true, file) => {
-            let path = ctx.env.data_path(file.as_deref().unwrap_or("asn.mmdb"));
-            let reader = maxminddb::Reader::open_readfile(&path).map_err(|e| {
-                error(
-                    "prefer_asn",
-                    &format!("needs the ASN database {}: {}", path, e),
-                )
-            })?;
+            use crate::app::router::matcher::{open_mmdb, ASN_FILE};
+            let reader = open_mmdb(ctx.env, file.as_deref().unwrap_or(ASN_FILE))
+                .map_err(|e| error("prefer_asn", &format!("needs the ASN database: {}", e)))?;
             Some(reader)
         }
     };
@@ -356,7 +352,7 @@ pub(super) struct Group {
     priorities: Vec<(NameFilter, f64)>,
     tolerance: Tolerance,
     timeout: Duration,
-    asn: Option<maxminddb::Reader<Vec<u8>>>,
+    asn: Option<Arc<maxminddb::Reader<Vec<u8>>>>,
     interrupt: bool,
     /// The member shown as selected: the one used most lately.
     selected: Arc<Selection>,
