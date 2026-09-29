@@ -47,6 +47,11 @@ mod harness {
         fn used(&self) -> bool;
         /// Why not, while it is not.
         fn freed(&self) -> Result<(), String>;
+        /// Whether a stream open through the member goes on after it is
+        /// retired, until it is closed.
+        fn in_flight_survives(&self) -> bool {
+            false
+        }
     }
 
     /// The echo servers the member's connections go to: TCP and UDP.
@@ -201,6 +206,24 @@ mod harness {
 
             write(&[keep])?;
             members_become(&["keep"]).await?;
+            if evidence.in_flight_survives() {
+                // Past the check that stops what the retired held.
+                tokio::time::sleep(Duration::from_millis(1500)).await;
+                timeout(Duration::from_secs(10), async {
+                    stream.write_all(b"still").await?;
+                    let mut buf = [0u8; 5];
+                    stream.read_exact(&mut buf).await?;
+                    ensure!(&buf == b"still", "echoed {:?}", buf);
+                    anyhow::Ok(())
+                })
+                .await
+                .map_err(|_| anyhow!("the stream in flight stalled once X was retired"))?
+                .map_err(|e| anyhow!("the stream in flight failed once X was retired: {}", e))?;
+                ensure!(
+                    evidence.freed().is_err(),
+                    "X's connection closed under a stream still in flight"
+                );
+            }
             drop((stream, recv, send));
 
             // The retired are checked on every second.
@@ -416,9 +439,10 @@ fn a_tuic_member_retired_leaves_nothing_running() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// A sing-mux member, framed (smux) and over HTTP/2 (h2mux): its
-/// connections' drivers and its idle check stop, and the server sees its
-/// connections close.
+/// A sing-mux member, framed (smux, yamux) and over HTTP/2 (h2mux): a
+/// stream open through it goes on after it is retired, and once that is
+/// closed its connections' drivers and its idle check stop, and the server
+/// sees its connections close.
 #[cfg(all(
     feature = "outbound-provider",
     feature = "outbound-select",
@@ -455,6 +479,10 @@ fn a_mux_member_retired_leaves_nothing_running() -> anyhow::Result<()> {
                 n => Err(format!("{} of its connections open", n)),
             }
         }
+
+        fn in_flight_survives(&self) -> bool {
+            true
+        }
     }
 
     async fn relay(server: u16) -> anyhow::Result<(u16, TcpRelay)> {
@@ -485,7 +513,7 @@ fn a_mux_member_retired_leaves_nothing_running() -> anyhow::Result<()> {
         .enable_all()
         .build()?;
     let echo = harness::Echo::start(&servers)?;
-    for protocol in ["smux", "h2mux"] {
+    for protocol in ["smux", "yamux", "h2mux"] {
         common::retry_port_clash(|| {
             let [port] = common::free_ports();
             let server = json!({
