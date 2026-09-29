@@ -86,7 +86,7 @@ impl From<&crate::runtime::options::Mux> for Tuning {
             inbox: mux.stream_buffer.saturating_mul(1024).max(16 << 10),
             stall_timeout: mux.stall_timeout.max(Duration::from_secs(1)),
             // A quarter of what a window grows to: 4 MiB, 2 on the mobile
-            // profile, 1 on the router one.
+            // and router profiles.
             h2_stream_window: u32::try_from(mux.stream_window_max.saturating_mul(1024) / 4)
                 .unwrap_or(u32::MAX)
                 .max(1 << 20),
@@ -282,5 +282,25 @@ impl Framing {
             return Some(Some(Event::Data(id, data)));
         }
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::runtime::options::{Profile, RuntimeOptions};
+
+    #[test]
+    fn windows_grow_to_16_mib_or_8_on_small_devices() {
+        let tuning = |profile| Tuning::from(&RuntimeOptions::profile(profile).mux);
+        for (profile, max, h2) in [
+            (Profile::Desktop, 16 << 20, 4 << 20),
+            (Profile::Server, 16 << 20, 4 << 20),
+            (Profile::Mobile, 8 << 20, 2 << 20),
+            (Profile::Router, 8 << 20, 2 << 20),
+        ] {
+            assert_eq!(tuning(profile).window_max, max, "{:?}", profile);
+            assert_eq!(tuning(profile).h2_stream_window, h2, "{:?}", profile);
+        }
     }
 }

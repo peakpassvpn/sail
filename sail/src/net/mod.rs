@@ -593,6 +593,20 @@ mod tests {
     }
 
     #[test]
+    fn only_the_router_profile_caps_the_send_buffer() {
+        use crate::runtime::options::{Profile, RuntimeOptions};
+        for profile in [Profile::Desktop, Profile::Mobile, Profile::Server] {
+            assert_eq!(RuntimeOptions::profile(profile).inbound.tcp_send_buffer, 0);
+        }
+        assert_eq!(
+            RuntimeOptions::profile(Profile::Router)
+                .inbound
+                .tcp_send_buffer,
+            256
+        );
+    }
+
+    #[test]
     fn abort_on_close_is_off_unless_asked_for() {
         assert!(
             !crate::runtime::RuntimeOptions::default()

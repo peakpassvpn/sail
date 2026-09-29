@@ -406,6 +406,10 @@ impl RuntimeOptions {
                 },
                 inbound: Inbound {
                     multiplex_accept_concurrency: 32,
+                    // Twenty LAN clients that stopped reading hold 6 MiB
+                    // with it, 50 without (measured); twice this, what
+                    // Linux keeps, carries 200 Mbit/s at 20 ms.
+                    tcp_send_buffer: 256,
                     ..desktop.inbound
                 },
                 quic: Quic {
@@ -413,8 +417,15 @@ impl RuntimeOptions {
                     hysteria2_receive_window: 32 << 10,
                     ..desktop.quic
                 },
+                // As mobile's: with the kernel's TCP buffers of a 256 or
+                // 512 MB router, one connection is held to 100 or 200
+                // Mbit/s at 100 ms whatever the window (measured), and a
+                // session's windows grow by four times this at most, which
+                // at 4 MiB twenty stuck streams used up, holding four
+                // downloads to 82 Mbit/s instead of 185 (measured); h2mux
+                // follows, at 2 MiB a stream.
                 mux: Mux {
-                    stream_window_max: 4 << 10,
+                    stream_window_max: 8 << 10,
                     ..desktop.mux
                 },
                 ..desktop
