@@ -343,6 +343,10 @@ enum Action {
     HijackDns,
     Sniff(SniffAction),
     Resolve(Resolve),
+    /// `on_demand` sniff: taken when a later rule needs it.
+    ArmSniff(SniffAction),
+    /// `on_demand` resolve, likewise.
+    ArmResolve(Resolve),
 }
 
 /// How a `resolve` rule resolves.
@@ -451,6 +455,11 @@ impl Rule {
                 })
             }
         };
+        let action = match action {
+            Action::Resolve(how) if rule.on_demand => Action::ArmResolve(how),
+            Action::Sniff(how) if rule.on_demand => Action::ArmSniff(how),
+            action => action,
+        };
         Ok(Rule {
             matcher: Matcher::at(rule, path, env, rule_sets)?,
             action,
@@ -546,7 +555,8 @@ impl Router {
     }
 
     /// The one walk over the rules, for routing (with a sniffer) or for
-    /// pre-match (without one, where nothing is read).
+    /// pre-match (without one, where nothing is read, and an armed sniff
+    /// is never taken).
     async fn walk(
         &self,
         sess: &mut Session,
@@ -555,7 +565,39 @@ impl Router {
         let pre_match = sniffer.is_none();
         let mut resolved: Vec<IpAddr> = Vec::new();
         let mut facts = Facts::new(sess, &resolved);
+        // The on_demand actions armed and not yet taken, and whether an
+        // armed resolve was, which it is at most once for a destination.
+        let mut armed_sniff: Option<&SniffAction> = None;
+        let mut armed_resolve: Option<&Resolve> = None;
+        let mut resolve_taken = false;
         for (i, rule) in self.rules.iter().enumerate() {
+            if armed_sniff.is_some() || armed_resolve.is_some() {
+                let needs = rule.matcher.needs();
+                if let Some(action) = armed_sniff {
+                    if needs.sniff || (needs.domain && facts.domain().is_none()) {
+                        armed_sniff = None;
+                        if let Some(sniffer) = sniffer.as_mut() {
+                            debug!("rule {} needs the connection sniffed", i);
+                            sniffer
+                                .sniff(sess, action)
+                                .await
+                                .map_err(|e| anyhow!("sniff: {}", e))?;
+                            facts = Facts::new(sess, &resolved);
+                        }
+                    }
+                }
+                if let Some(how) = armed_resolve {
+                    if needs.ip && resolved.is_empty() && !resolve_taken && !sess.skip_resolve {
+                        if let Some(domain) = sess.destination.domain().cloned() {
+                            debug!("rule {} needs {} resolved", i, domain);
+                            armed_resolve = None;
+                            resolve_taken = true;
+                            resolved = self.resolve_as(how, &domain, sess).await?;
+                            facts = Facts::new(sess, &resolved);
+                        }
+                    }
+                }
+            }
             if !rule.matcher.matches(&facts) {
                 continue;
             }
@@ -583,6 +625,7 @@ impl Router {
                     debug!("rule {} sets route options", i);
                     if options.override_address.is_some() {
                         resolved.clear();
+                        resolve_taken = false;
                     }
                     options.apply(sess);
                 }
@@ -605,22 +648,40 @@ impl Router {
                 Action::Resolve(how) => {
                     if resolved.is_empty() && !sess.skip_resolve {
                         if let Some(domain) = facts.domain().map(str::to_string) {
-                            let result = self.resolve(&domain, sess, how).await;
-                            resolved = match result {
-                                Ok(ips) => ips,
-                                Err(e) if how.ignore_failure => {
-                                    debug!("resolve {}: {}; matching goes on", domain, e);
-                                    Vec::new()
-                                }
-                                Err(e) => return Err(anyhow!("resolve {}: {}", domain, e)),
-                            };
+                            resolved = self.resolve_as(how, &domain, sess).await?;
                         }
                     }
+                }
+                Action::ArmSniff(action) => {
+                    // Pre-match reads nothing: the rules that would need
+                    // the sniff match without it.
+                    if !pre_match {
+                        debug!("rule {} arms a sniff", i);
+                        armed_sniff = Some(action);
+                    }
+                }
+                Action::ArmResolve(how) => {
+                    debug!("rule {} arms a resolve", i);
+                    armed_resolve = Some(how);
                 }
             }
             facts = Facts::new(sess, &resolved);
         }
         Ok(Stop::Final)
+    }
+
+    /// The addresses of `domain`, as the resolve rule `how` says: none,
+    /// with matching going on, for one that does not resolve when it
+    /// ignores the failure.
+    async fn resolve_as(&self, how: &Resolve, domain: &str, sess: &Session) -> Result<Vec<IpAddr>> {
+        match self.resolve(domain, sess, how).await {
+            Ok(ips) => Ok(ips),
+            Err(e) if how.ignore_failure => {
+                debug!("resolve {}: {}; matching goes on", domain, e);
+                Ok(Vec::new())
+            }
+            Err(e) => Err(anyhow!("resolve {}: {}", domain, e)),
+        }
     }
 
     /// The addresses of `domain`. As in sing-box, a domain that does not
@@ -1340,6 +1401,369 @@ mod tests {
             pick(&router, &mut to_ip()).await,
             Decision::Route(Some("b".into()))
         );
+    }
+
+    /// A router of `rules`, with the rule-sets `sets` and the DNS servers
+    /// of `router`.
+    #[cfg(feature = "rule-set")]
+    fn router_with_sets(
+        sets: serde_json::Value,
+        rules: serde_json::Value,
+    ) -> (Router, rule_set::RuleSets) {
+        let config = crate::config::Config::from_json(
+            &serde_json::json!({
+                "dns": { "servers": [
+                    { "type": "hosts", "predefined": { "test.sail": "127.0.0.1" } },
+                    { "type": "udp", "tag": "slow", "server": "192.0.2.1" }
+                ] },
+                "outbounds": [{ "type": "direct", "tag": "a" }, { "type": "direct", "tag": "b" }],
+                "route": { "rule_set": sets, "rules": rules, "final": "b" },
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let env = RuntimeEnv::default();
+        let sets =
+            rule_set::RuleSets::load(&config.route.rule_set, &Default::default(), &env).unwrap();
+        let dns = DnsClient::new(&config.dns, Default::default(), &env)
+            .unwrap()
+            .into_shared();
+        let router = Router::with_rule_sets(&config.route, dns, &env, &sets).unwrap();
+        (router, sets)
+    }
+
+    /// An on_demand resolve that would fail the connection were it taken:
+    /// its server never answers.
+    fn failing_resolve() -> serde_json::Value {
+        serde_json::json!({
+            "action": "resolve", "on_demand": true, "server": "slow", "timeout": "1ms"
+        })
+    }
+
+    /// Whether routing `destination` resolved it, by `failing_resolve`
+    /// failing it; else where it went.
+    async fn resolved(router: &Router, destination: &str) -> std::result::Result<Decision, ()> {
+        match router
+            .pick_route(&mut to(destination), &mut NoSniffer)
+            .await
+        {
+            Ok(decision) => Ok(decision),
+            Err(e) => {
+                assert!(e.to_string().starts_with("resolve "), "{}", e);
+                Err(())
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn an_on_demand_resolve_waits_for_a_rule_on_addresses() {
+        let router = router(serde_json::json!([
+            failing_resolve(),
+            { "domain_suffix": "early.test", "outbound": "a" },
+            { "port": 81, "outbound": "a" },
+            { "ip_cidr": "10.0.0.0/8", "outbound": "a" },
+        ]));
+        // Matched before any rule on addresses: never resolved.
+        assert_eq!(
+            resolved(&router, "www.early.test:80").await,
+            Ok(Decision::Route(Some("a".into())))
+        );
+        assert_eq!(
+            resolved(&router, "x.test:81").await,
+            Ok(Decision::Route(Some("a".into())))
+        );
+        // Resolved right before the rule on addresses.
+        assert_eq!(resolved(&router, "x.test:80").await, Err(()));
+        // An address is not resolved.
+        assert_eq!(
+            resolved(&router, "10.1.1.1:80").await,
+            Ok(Decision::Route(Some("a".into())))
+        );
+
+        // Armed with a server that answers, the rule matches the address.
+        let router = self::router(serde_json::json!([
+            { "action": "resolve", "on_demand": true },
+            { "domain": "other.test", "outbound": "b" },
+            { "ip_cidr": "127.0.0.0/8", "outbound": "a" },
+        ]));
+        assert_eq!(
+            pick(&router, &mut to("test.sail:80")).await,
+            Decision::Route(Some("a".into()))
+        );
+    }
+
+    /// The arm takes its own options: `ignore_failure` goes on without
+    /// addresses. Taken once, an armed resolve is not again, however
+    /// often armed after.
+    #[tokio::test]
+    async fn an_on_demand_resolve_keeps_its_options_and_is_taken_once() {
+        let router = router(serde_json::json!([
+            { "action": "resolve", "on_demand": true, "server": "slow", "timeout": "1ms",
+              "ignore_failure": true },
+            { "ip_cidr": "192.0.2.0/24", "outbound": "a" },
+            failing_resolve(),
+            { "ip_cidr": "198.51.100.0/24", "outbound": "a" },
+            { "domain_suffix": "sail", "outbound": "b" },
+        ]));
+        assert_eq!(
+            resolved(&router, "test.sail:80").await,
+            Ok(Decision::Route(Some("b".into())))
+        );
+        // Without ignore_failure, it fails the connection, as the eager
+        // resolve does.
+        let router = self::router(serde_json::json!([
+            { "action": "resolve", "on_demand": true, "ignore_failure": true },
+            failing_resolve(),
+            { "ip_cidr": "192.0.2.0/24", "outbound": "a" },
+        ]));
+        assert_eq!(resolved(&router, "test.sail:80").await, Err(()));
+        // Resolved already, it is not taken.
+        let router = self::router(serde_json::json!([
+            { "action": "resolve" },
+            failing_resolve(),
+            { "ip_cidr": "127.0.0.0/8", "outbound": "a" },
+        ]));
+        assert_eq!(
+            resolved(&router, "test.sail:80").await,
+            Ok(Decision::Route(Some("a".into())))
+        );
+        // Not for the lookups the DNS client makes for itself.
+        let router = self::router(serde_json::json!([
+            failing_resolve(),
+            { "ip_cidr": "127.0.0.0/8", "outbound": "a" },
+        ]));
+        let mut sess = to("test.sail:80");
+        sess.skip_resolve = true;
+        assert_eq!(
+            pick(&router, &mut sess).await,
+            Decision::Route(Some("b".into()))
+        );
+    }
+
+    /// A rule that is no_resolve, or a logical one within which the rule
+    /// on addresses is, matches only the addresses known.
+    #[tokio::test]
+    async fn a_no_resolve_rule_takes_no_on_demand_resolve() {
+        let router = router(serde_json::json!([
+            failing_resolve(),
+            { "ip_cidr": "127.0.0.0/8", "no_resolve": true, "outbound": "a" },
+            { "type": "logical", "mode": "and", "outbound": "a", "rules": [
+                { "ip_is_private": true, "no_resolve": true }, { "port": 80 }
+            ] },
+            { "domain_suffix": "sail", "outbound": "b" },
+        ]));
+        assert_eq!(
+            resolved(&router, "test.sail:80").await,
+            Ok(Decision::Route(Some("b".into())))
+        );
+        assert_eq!(
+            resolved(&router, "127.0.0.1:443").await,
+            Ok(Decision::Route(Some("a".into())))
+        );
+        // Resolved by a rule before, the addresses are known.
+        let router = self::router(serde_json::json!([
+            { "action": "resolve" },
+            { "ip_cidr": "127.0.0.0/8", "no_resolve": true, "outbound": "a" },
+        ]));
+        assert_eq!(
+            pick(&router, &mut to("test.sail:80")).await,
+            Decision::Route(Some("a".into()))
+        );
+    }
+
+    #[cfg(feature = "rule-set")]
+    #[tokio::test]
+    async fn a_rule_set_needs_addresses_only_for_lines_that_resolve() {
+        let (router, _) = router_with_sets(
+            serde_json::json!([
+                { "tag": "names", "type": "inline",
+                  "rules": [{ "domain_suffix": "names.test" }, { "port": 81 }] },
+                { "tag": "lan", "type": "inline",
+                  "rules": [{ "ip_cidr": "127.0.0.0/8", "no_resolve": true }] },
+                { "tag": "nets", "type": "inline",
+                  "rules": [{ "domain": "x.test" }, { "ip_cidr": "10.0.0.0/8" }] },
+            ]),
+            serde_json::json!([
+                failing_resolve(),
+                { "rule_set": "names", "outbound": "a" },
+                { "rule_set": "lan", "outbound": "a" },
+                { "domain_suffix": "sail", "outbound": "b" },
+                { "rule_set": "nets", "outbound": "a" },
+            ]),
+        );
+        assert_eq!(
+            resolved(&router, "www.names.test:80").await,
+            Ok(Decision::Route(Some("a".into())))
+        );
+        // Past the set of names alone, and the set whose addresses are
+        // no_resolve, no resolve.
+        assert_eq!(
+            resolved(&router, "test.sail:80").await,
+            Ok(Decision::Route(Some("b".into())))
+        );
+        assert_eq!(
+            resolved(&router, "127.0.0.1:80").await,
+            Ok(Decision::Route(Some("a".into())))
+        );
+        // A set with an address rule that resolves.
+        assert_eq!(resolved(&router, "y.test:80").await, Err(()));
+    }
+
+    /// A downloaded rule-set replaced by one with other lines needs what
+    /// the new lines need.
+    #[cfg(feature = "rule-set")]
+    #[tokio::test]
+    async fn a_rule_set_replaced_needs_what_its_new_rules_need() {
+        let (router, sets) = router_with_sets(
+            serde_json::json!([
+                { "tag": "s", "type": "inline", "rules": [{ "domain": "a.test" }] },
+            ]),
+            serde_json::json!([
+                failing_resolve(),
+                { "rule_set": "s", "outbound": "a" },
+            ]),
+        );
+        assert_eq!(
+            resolved(&router, "test.sail:80").await,
+            Ok(Decision::Route(Some("b".into())))
+        );
+        let rules: Vec<crate::config::rule_set::HeadlessRule> =
+            serde_json::from_value(serde_json::json!([{ "ip_cidr": "10.0.0.0/8" }])).unwrap();
+        let set = rule_set::RuleSet::from_rules(&rules, &RuntimeEnv::default()).unwrap();
+        sets.get("s").unwrap().publish(std::sync::Arc::new(set));
+        assert_eq!(resolved(&router, "test.sail:80").await, Err(()));
+    }
+
+    #[tokio::test]
+    async fn an_on_demand_sniff_waits_for_a_rule_that_needs_it() {
+        let router = router(serde_json::json!([
+            { "action": "sniff", "on_demand": true },
+            { "port": 80, "outbound": "b" },
+            { "domain_suffix": "example.com", "outbound": "a" },
+        ]));
+        let sniffed = |sess: Session| {
+            let router = &router;
+            async move {
+                let mut sess = sess;
+                let mut sniffer = FakeSniffer {
+                    domain: "www.example.com",
+                    calls: 0,
+                };
+                let decision = router.pick_route(&mut sess, &mut sniffer).await.unwrap();
+                (decision, sniffer.calls)
+            }
+        };
+        // To an address, a domain rule needs the domain sniffed.
+        assert_eq!(
+            sniffed(to_ip()).await,
+            (Decision::Route(Some("a".into())), 1)
+        );
+        // Decided before it: never sniffed.
+        assert_eq!(
+            sniffed(to("1.2.3.4:80")).await,
+            (Decision::Route(Some("b".into())), 0)
+        );
+        // To a domain, the domain rule matches the domain asked for.
+        assert_eq!(
+            sniffed(to("www.example.com:443")).await,
+            (Decision::Route(Some("a".into())), 0)
+        );
+    }
+
+    #[tokio::test]
+    async fn protocol_and_http_rules_take_an_on_demand_sniff() {
+        let mut rules = vec![serde_json::json!({ "protocol": "tls", "outbound": "a" })];
+        if cfg!(feature = "regex") {
+            rules.push(serde_json::json!({ "http_user_agent": "curl*", "outbound": "a" }));
+            rules.push(serde_json::json!({ "url_regex": "^http://x/", "outbound": "a" }));
+        }
+        for rule in rules {
+            let router = router(serde_json::json!([
+                { "action": "sniff", "on_demand": true, "sniffer": "tls" },
+                rule,
+            ]));
+            let mut sniffer = FakeSniffer {
+                domain: "www.example.com",
+                calls: 0,
+            };
+            router
+                .pick_route(&mut to("www.example.com:443"), &mut sniffer)
+                .await
+                .unwrap();
+            assert_eq!(sniffer.calls, 1, "{}", rule);
+        }
+    }
+
+    /// Pre-match reads nothing: an armed sniff is never taken there, and
+    /// the rules that would need it match without; an armed resolve is.
+    #[tokio::test]
+    async fn pre_match_takes_an_on_demand_resolve_but_no_sniff() {
+        let router = router(serde_json::json!([
+            { "action": "sniff", "on_demand": true },
+            { "domain_suffix": "example.com", "action": "reject" },
+            { "action": "resolve", "on_demand": true },
+            { "ip_cidr": "127.0.0.0/8", "action": "bypass" },
+            { "port": 443, "action": "bypass" },
+        ]));
+        assert_eq!(
+            router.pre_match(&mut to("1.2.3.4:443")).await,
+            PreMatch::Bypass
+        );
+        assert_eq!(
+            router.pre_match(&mut to("test.sail:80")).await,
+            PreMatch::Bypass
+        );
+        assert_eq!(
+            router.pre_match(&mut to("1.2.3.4:80")).await,
+            PreMatch::Proceed
+        );
+    }
+
+    #[test]
+    fn needs_are_the_conditions_and_those_within() {
+        let needs = |rule: serde_json::Value| {
+            let rule: model::Rule = serde_json::from_value(rule).unwrap();
+            Matcher::new(&rule, &RuntimeEnv::default(), &Default::default())
+                .unwrap()
+                .needs()
+        };
+        use matcher::Needs;
+        let ip = Needs {
+            ip: true,
+            ..Default::default()
+        };
+        let domain = Needs {
+            domain: true,
+            ..Default::default()
+        };
+        let sniff = Needs {
+            sniff: true,
+            ..Default::default()
+        };
+        assert_eq!(needs(serde_json::json!({ "port": 1 })), Needs::default());
+        // An address's family is the destination's, never resolved.
+        assert_eq!(
+            needs(serde_json::json!({ "ip_version": 4 })),
+            Needs::default()
+        );
+        assert_eq!(needs(serde_json::json!({ "ip_is_private": true })), ip);
+        assert_eq!(
+            needs(serde_json::json!({ "ip_cidr": "10.0.0.0/8", "no_resolve": true })),
+            Needs::default()
+        );
+        assert_eq!(needs(serde_json::json!({ "domain_regex": "x" })), domain);
+        assert_eq!(needs(serde_json::json!({ "protocol": "tls" })), sniff);
+        let logical = serde_json::json!({ "type": "logical", "mode": "and", "invert": true,
+            "rules": [
+                { "domain": "a.test", "invert": true },
+                { "type": "logical", "mode": "or", "rules": [
+                    { "ip_cidr": "10.0.0.0/8" }, { "protocol": "http" }
+                ] }
+            ] });
+        assert_eq!(needs(logical.clone()), ip.or(domain).or(sniff));
+        let mut unresolved = logical;
+        unresolved["no_resolve"] = serde_json::json!(true);
+        assert_eq!(needs(unresolved), domain.or(sniff));
     }
 
     #[test]

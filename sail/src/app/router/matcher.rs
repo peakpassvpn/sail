@@ -604,6 +604,38 @@ fn at(path: &str, field: &str) -> String {
 /// Rules nested deeper than this are refused, as sing-box refuses them.
 pub(crate) const MAX_DEPTH: usize = 100;
 
+/// What a rule's conditions need learnt of a connection, beyond what it
+/// comes with, to match as they would with it: what an `on_demand`
+/// resolve or sniff is taken for.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Needs {
+    /// The destination's addresses: a domain's, resolved. Conditions
+    /// that are `no_resolve` do not need them.
+    pub ip: bool,
+    /// A domain: sniffed, when the destination is an address.
+    pub domain: bool,
+    /// What sniffing alone tells: the protocol, the plain HTTP request.
+    pub sniff: bool,
+}
+
+impl Needs {
+    pub(crate) fn or(self, other: Needs) -> Needs {
+        Needs {
+            ip: self.ip || other.ip,
+            domain: self.domain || other.domain,
+            sniff: self.sniff || other.sniff,
+        }
+    }
+
+    /// These needs, of conditions that are `no_resolve` when `no_resolve`.
+    fn resolving(self, no_resolve: bool) -> Needs {
+        Needs {
+            ip: self.ip && !no_resolve,
+            ..self
+        }
+    }
+}
+
 /// A rule's conditions, compiled.
 pub(crate) enum Condition {
     /// A default rule: conditions of its own.
@@ -614,6 +646,8 @@ pub(crate) enum Condition {
         all: bool,
         rules: Vec<Condition>,
         invert: bool,
+        /// Its rules' conditions on addresses never need them resolved.
+        no_resolve: bool,
         /// A DNS rule's own `match_response`, within a logical one.
         response: Option<model::ResponseRef>,
     },
@@ -658,6 +692,7 @@ impl Condition {
                     all,
                     rules,
                     invert: rule.invert,
+                    no_resolve: rule.no_resolve,
                     response: rule.match_response.clone(),
                 })
             }
@@ -674,6 +709,7 @@ impl Condition {
                 rules,
                 invert,
                 response,
+                ..
             } => {
                 // On a response it names, which it matches only inverted
                 // without, as in sing-box.
@@ -695,6 +731,21 @@ impl Condition {
                 };
                 matched != *invert
             }
+        }
+    }
+
+    /// What its conditions need learnt of a connection, however deep,
+    /// with a rule-set's `ip_cidr` on the source when `ip_match_source`;
+    /// an inverted rule needs what it would without.
+    pub(crate) fn needs(&self, ip_match_source: bool) -> Needs {
+        match self {
+            Condition::Default(c) => c.needs(ip_match_source),
+            Condition::Logical {
+                rules, no_resolve, ..
+            } => rules
+                .iter()
+                .fold(Needs::default(), |n, r| n.or(r.needs(ip_match_source)))
+                .resolving(*no_resolve),
         }
     }
 
@@ -792,6 +843,9 @@ pub(crate) struct Conditions {
     rule_sets: Vec<(std::sync::Arc<str>, super::rule_set::SharedRuleSet)>,
     #[cfg(feature = "rule-set")]
     ip_match_source: bool,
+    /// Its conditions on addresses, and its rule-sets', never need them
+    /// resolved.
+    no_resolve: bool,
     invert: bool,
     /// Whether it has no conditions at all, and so matches everything,
     /// inverted or not, as in sing-box.
@@ -1018,6 +1072,7 @@ impl Conditions {
             rule_sets,
             #[cfg(feature = "rule-set")]
             ip_match_source: rule.rule_set_ip_cidr_match_source,
+            no_resolve: rule.no_resolve,
             invert: rule.invert,
             empty: false,
         };
@@ -1110,6 +1165,30 @@ impl Conditions {
             let set = set.load();
             (set.is_narrow() && set.matches(facts, self.ip_match_source)).then(|| tag.clone())
         })
+    }
+
+    /// What its conditions, and its rule-sets' as they are now, need
+    /// learnt of a connection; its own `ip_cidr` looks at the source when
+    /// `ip_match_source`, and needs nothing resolved then.
+    fn needs(&self, ip_match_source: bool) -> Needs {
+        let ip = if ip_match_source {
+            !self.mmdbs.is_empty() || self.asns.is_some() || self.ip_is_private
+        } else {
+            self.has_ip_cidr()
+        };
+        #[allow(unused_mut)]
+        let mut needs = Needs {
+            ip,
+            domain: self.has_domains(),
+            sniff: !self.protocols.is_empty()
+                || !self.http_user_agent.is_empty()
+                || !self.url_regex.is_empty(),
+        };
+        #[cfg(feature = "rule-set")]
+        for (_, set) in &self.rule_sets {
+            needs = needs.or(set.load().needs(self.ip_match_source));
+        }
+        needs.resolving(self.no_resolve)
     }
 
     /// Whether it has conditions on a destination address given as IPs.
@@ -1298,6 +1377,12 @@ impl Matcher {
 
     pub fn matches(&self, facts: &Facts) -> bool {
         self.0.matches(facts, false)
+    }
+
+    /// What its conditions need learnt of a connection, its rule-sets'
+    /// as they are now.
+    pub fn needs(&self) -> Needs {
+        self.0.needs(false)
     }
 
     /// The tag of a narrow rule-set (see `RuleSet::is_narrow`) the rule

@@ -107,6 +107,7 @@ fn read_rule(reader: &mut Reader, path: &str, depth: usize, env: &RuntimeEnv) ->
                 all,
                 rules,
                 invert,
+                no_resolve: false,
                 response: None,
             })
         }

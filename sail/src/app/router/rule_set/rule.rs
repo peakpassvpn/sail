@@ -33,6 +33,12 @@ fn compile(rule: &HeadlessRule, path: &str, depth: usize, env: &RuntimeEnv) -> R
     if depth > MAX_DEPTH {
         return Err(anyhow!("{}: logical rules nested too deep", path));
     }
+    if rule.no_resolve && !rule.on_addresses() {
+        return Err(anyhow!(
+            "{}.no_resolve: the rule has no condition on the destination's addresses",
+            path
+        ));
+    }
     match rule.kind.as_deref() {
         None | Some("default") => {
             if rule.mode.is_some() || !rule.rules.is_empty() {
@@ -74,6 +80,7 @@ fn compile(rule: &HeadlessRule, path: &str, depth: usize, env: &RuntimeEnv) -> R
                 all,
                 rules,
                 invert: rule.invert,
+                no_resolve: rule.no_resolve,
                 response: None,
             })
         }
@@ -109,6 +116,7 @@ pub(crate) fn default(parts: Parts, path: &str, env: &RuntimeEnv) -> Result<Cond
         process_name_regex: rule.process_name_regex.clone(),
         package_name: rule.package_name.clone(),
         package_name_regex: rule.package_name_regex.clone(),
+        no_resolve: rule.no_resolve,
         invert: rule.invert,
         ..Default::default()
     };

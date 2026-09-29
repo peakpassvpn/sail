@@ -9,7 +9,7 @@ use crate::runtime::resource::HotResource;
 use anyhow::{anyhow, Context, Result};
 
 use crate::app::dispatcher::Dispatcher;
-use crate::app::router::matcher::{Condition, Facts, Groups};
+use crate::app::router::matcher::{Condition, Facts, Groups, Needs};
 use crate::config::model::{HttpClient, HttpClientRef};
 use crate::config::rule_set::{
     self as config, ClashBehavior, RuleSetFormat, RuleSetKind, MAX_VERSION,
@@ -62,6 +62,10 @@ pub(crate) struct RuleSet {
     /// some domains, at most `NARROW_DOMAINS`, and no addresses. The smart
     /// group keeps the sites of a narrow rule-set on one member.
     narrow: bool,
+    /// What its rules need learnt of a connection, as the rule naming it
+    /// matches them: with their `ip_cidr` on the destination, and on the
+    /// source.
+    needs: [Needs; 2],
 }
 
 impl RuleSet {
@@ -75,7 +79,16 @@ impl RuleSet {
             }
         }
         let narrow = !addresses && (1..=NARROW_DOMAINS).contains(&domains);
-        Self { rules, narrow }
+        let needs = [false, true].map(|source| {
+            rules
+                .iter()
+                .fold(Needs::default(), |n, r| n.or(r.needs(source)))
+        });
+        Self {
+            rules,
+            narrow,
+            needs,
+        }
     }
 
     /// The rules of the source format, of `env`'s data files.
@@ -91,6 +104,12 @@ impl RuleSet {
     /// Whether it is narrow: see `narrow`.
     pub(crate) fn is_narrow(&self) -> bool {
         self.narrow
+    }
+
+    /// What its rules need learnt of a connection, their `ip_cidr` on the
+    /// source when `ip_match_source`.
+    pub(crate) fn needs(&self, ip_match_source: bool) -> Needs {
+        self.needs[usize::from(ip_match_source)]
     }
 
     /// Reads a rule-set of `format` from `data`; one of Clash's formats is

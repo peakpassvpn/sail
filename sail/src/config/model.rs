@@ -1862,6 +1862,14 @@ pub struct Rule {
     /// destination.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub rule_set_ip_cidr_match_source: bool,
+    /// A sail extension, Surge's and Clash's `no-resolve`: the rule's
+    /// conditions on the destination's addresses (`ip_cidr`,
+    /// `ip_is_private`, `ip_asn`, `geoip`, those of its rule-sets and of
+    /// the rules within) match only addresses already known, and never
+    /// have an `on_demand` resolve resolve the domain for them. Only for a
+    /// rule with such conditions.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub no_resolve: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub invert: bool,
     /// `logical`: `and` or `or`.
@@ -1958,6 +1966,18 @@ pub struct Rule {
     /// have it; rather than the connection failing, as in sing-box.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub ignore_failure: bool,
+    /// `resolve`, `sniff`, a sail extension: the rule does not act where
+    /// it stands but arms its action, with its options, and matching goes
+    /// on. The action is taken the first time a later rule needs what it
+    /// learns, just before that rule is matched: a resolve for a rule
+    /// with conditions on the destination's addresses, while the
+    /// destination is a domain; a sniff for one on the protocol, the plain
+    /// HTTP request, or a domain while the destination is an address. A
+    /// connection no later rule needs it for is never resolved or sniffed,
+    /// as Surge and Mihomo have it. A later rule arming the same action
+    /// replaces its options.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub on_demand: bool,
 }
 
 /// A rule's kind.
@@ -2152,6 +2172,7 @@ impl Rule {
             ("ignore_failure", self.ignore_failure, &[Resolve]),
             ("override_destination", self.override_destination, &[Sniff]),
             ("skip_rule_set", !self.skip_rule_set.is_empty(), &[Sniff]),
+            ("on_demand", self.on_demand, &[Resolve, Sniff]),
         ]
         .into_iter()
         .filter(|(_, set, _)| *set)
@@ -2294,8 +2315,21 @@ impl Rule {
                         return Err(anyhow!("{}.ip_version: 4 or 6, not {}", path, version));
                     }
                 }
+                if self.no_resolve && !self.on_addresses() {
+                    return Err(anyhow!(
+                        "{}.no_resolve: the rule has no condition on the destination's addresses",
+                        path
+                    ));
+                }
             }
             RuleType::Logical => {
+                if self.no_resolve && !self.on_addresses() {
+                    return Err(anyhow!(
+                        "{}.no_resolve: none of its rules has a condition on the destination's \
+                         addresses",
+                        path
+                    ));
+                }
                 if let Some(field) = self.first_condition() {
                     return Err(anyhow!(
                         "{}.{}: a logical rule's conditions are its rules",
@@ -2315,6 +2349,23 @@ impl Rule {
             }
         }
         Ok(())
+    }
+
+    /// Whether the rule, or a rule within, has conditions that may be on
+    /// the destination's addresses: those of a rule-set are not known
+    /// before it is read.
+    fn on_addresses(&self) -> bool {
+        match self.kind {
+            RuleType::Default => {
+                !self.ip_cidr.is_empty()
+                    || self.ip_is_private
+                    || !self.ip_asn.is_empty()
+                    || !self.geoip.is_empty()
+                    || !self.external.is_empty()
+                    || !self.rule_set.is_empty()
+            }
+            RuleType::Logical => self.rules.iter().any(Rule::on_addresses),
+        }
     }
 
     /// The rule-sets the rule and the rules nested in it name, each with
@@ -2888,6 +2939,30 @@ mod tests {
             (
                 r#"[{ "port": 1, "outbound": "direct", "ignore_failure": true }]"#,
                 "route.rules[0].ignore_failure: not for a route rule",
+            ),
+            (
+                r#"[{ "port": 1, "outbound": "direct", "on_demand": true }]"#,
+                "route.rules[0].on_demand: not for a route rule",
+            ),
+            (
+                r#"[{ "port": 1, "action": "route-options", "udp_connect": true,
+                      "on_demand": true }]"#,
+                "route.rules[0].on_demand: not for a route-options rule",
+            ),
+            (
+                r#"[{ "domain": "a.test", "outbound": "direct", "no_resolve": true }]"#,
+                "route.rules[0].no_resolve: the rule has no condition on the destination's \
+                 addresses",
+            ),
+            (
+                r#"[{ "type": "logical", "mode": "or", "outbound": "direct", "rules": [
+                      { "port": 1 }, { "domain": "a.test", "no_resolve": true }] }]"#,
+                "route.rules[0].rules[1].no_resolve: the rule has no condition",
+            ),
+            (
+                r#"[{ "type": "logical", "mode": "or", "outbound": "direct",
+                      "no_resolve": true, "rules": [{ "port": 1 }] }]"#,
+                "route.rules[0].no_resolve: none of its rules has a condition",
             ),
         ] {
             let err = config(rules).unwrap_err().to_string();

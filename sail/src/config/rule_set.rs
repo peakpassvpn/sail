@@ -315,6 +315,13 @@ pub struct HeadlessRule {
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
     pub default_interface_address: Vec<String>,
 
+    /// A sail extension, as a routing rule's, and Surge's and Clash's
+    /// `no-resolve` on a line of a set: the rule's `ip_cidr` and `ip_asn`,
+    /// and those of the rules within, match only addresses already known,
+    /// and never have an `on_demand` resolve resolve the domain for them.
+    /// Only for a rule with such conditions.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub no_resolve: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub invert: bool,
     /// `logical`: `and` or `or`.
@@ -326,6 +333,14 @@ pub struct HeadlessRule {
 }
 
 impl HeadlessRule {
+    /// Whether the rule, or a rule within, has conditions on the
+    /// destination's addresses.
+    pub fn on_addresses(&self) -> bool {
+        !self.ip_cidr.is_empty()
+            || !self.ip_asn.is_empty()
+            || self.rules.iter().any(HeadlessRule::on_addresses)
+    }
+
     /// The first condition set that sail does not match yet.
     pub fn unsupported(&self) -> Option<&'static str> {
         [
