@@ -132,6 +132,29 @@ fn a_tunnel_forwards_to_its_target() -> anyhow::Result<()> {
     })
 }
 
+// app(socks) -> (mixed)sail -> smart group -> DIRECT -> echo: sail's smart
+// group takes what a fork's smart group lowers to.
+#[cfg(all(
+    feature = "config-clash",
+    feature = "inbound-mixed",
+    feature = "outbound-direct",
+    feature = "outbound-smart"
+))]
+#[test]
+fn a_smart_group_routes() -> anyhow::Result<()> {
+    common::retry_port_clash(|| {
+        let [port] = common::free_ports();
+        let yaml = format!(
+            "mixed-port: {}\nlog-level: silent\n\
+             proxies:\n  - {{ name: direct, type: direct }}\n\
+             proxy-groups:\n  - {{ name: Auto, type: smart, proxies: [direct], policy-priority: 'direct:2' }}\n\
+             rules:\n  - MATCH,Auto\n",
+            port
+        );
+        common::test_configs(vec![yaml], "127.0.0.1", port)
+    })
+}
+
 // The same, by rule-providers read from files: Mihomo's binary (MRS) and
 // text forms of a set holding the loopback range.
 #[cfg(all(

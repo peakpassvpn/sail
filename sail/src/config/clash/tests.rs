@@ -1721,3 +1721,50 @@ fn the_profile_is_sing_box_s_cache_file() {
         .iter()
         .any(|w| w.contains("profile.tracing: not a field Mihomo takes")));
 }
+
+#[test]
+fn the_forks_smart_groups_are_sail_s() {
+    let config = load(
+        "proxies:\n\
+         \x20 - { name: hk, type: socks5, server: 127.0.0.1, port: 1080 }\n\
+         \x20 - { name: us, type: socks5, server: 127.0.0.1, port: 1081 }\n\
+         proxy-groups:\n\
+         \x20 - name: Auto\n\
+         \x20   type: smart\n\
+         \x20   proxies: [hk, us]\n\
+         \x20   policy-priority: 'hk:2;us:0.5;bad;zero:0;(?!x)y:4;a\\:b:1'\n\
+         \x20   tolerance: 60\n\
+         \x20   timeout: 3000\n\
+         \x20   prefer-asn: true\n\
+         \x20   uselightgbm: true\n\
+         rules: [\"MATCH,Auto\"]",
+    );
+    let auto = outbound(&config, "Auto");
+    assert_eq!(auto.protocol, "smart");
+    let o = serde_json::Value::Object(auto.options.clone());
+    assert_eq!(o["tolerance"], 60);
+    assert_eq!(o["timeout"], "3000ms");
+    assert_eq!(o["prefer_asn"], true);
+    // The fork's factor, how much more a member is wanted, inverted; a
+    // lookaround matched as text; an escaped colon kept in the pattern.
+    assert_eq!(
+        o["policy_priority"],
+        serde_json::json!([
+            { "regex": "hk", "factor": 0.5 },
+            { "regex": "us", "factor": 2.0 },
+            { "regex": "\\(\\?!x\\)y", "factor": 0.25 },
+            { "regex": "a:b", "factor": 1.0 },
+        ])
+    );
+    for field in ["policy-priority", "uselightgbm"] {
+        assert!(
+            config
+                .warnings
+                .iter()
+                .any(|w| w.contains(&format!("proxy-groups[0].{}", field))),
+            "{}: {:?}",
+            field,
+            config.warnings
+        );
+    }
+}

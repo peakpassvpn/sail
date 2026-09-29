@@ -329,7 +329,36 @@ fn group(f: &mut Fields, cx: &Context, warnings: &mut Vec<String>) -> Result<Val
                 }
             }
         }
-        "relay" | "smart" => {
+        // The Mihomo forks' (vernesong's), as sail's own smart group.
+        "smart" => {
+            o.insert("type".into(), json!("smart"));
+            health(&mut o);
+            if let Some(ms) = f.int::<u16>("tolerance")? {
+                o.insert("tolerance".into(), json!(ms));
+            }
+            if let Some(ms) = f.int::<u64>("timeout")?.filter(|ms| *ms > 0) {
+                o.insert("timeout".into(), json!(format!("{}ms", ms)));
+            }
+            if f.bool("prefer-asn")?.unwrap_or(false) {
+                o.insert("prefer_asn".into(), json!(true));
+            }
+            let at = f.at("policy-priority");
+            if let Some(priority) = f.string("policy-priority")? {
+                let priority = policy_priority(&priority, &at, warnings);
+                if !priority.is_empty() {
+                    o.insert("policy_priority".into(), Value::Array(priority));
+                }
+            }
+            for key in ["uselightgbm", "collectdata", "sample-rate", "strategy"] {
+                if f.take(key).is_some() {
+                    warnings.push(format!(
+                        "{}: sail's smart group has no model; ignored",
+                        f.at(key)
+                    ));
+                }
+            }
+        }
+        "relay" => {
             return Err(anyhow!(
                 "{}: sail does not implement \"{}\" groups yet",
                 f.at("type"),
@@ -338,7 +367,7 @@ fn group(f: &mut Fields, cx: &Context, warnings: &mut Vec<String>) -> Result<Val
         }
         other => {
             return Err(anyhow!(
-                "{}: {:?} is none of select, url-test, fallback and load-balance",
+                "{}: {:?} is none of select, url-test, fallback, load-balance and smart",
                 f.at("type"),
                 other
             ))
@@ -366,4 +395,57 @@ fn pick<'a>(
         .copied()
         .filter(|n| filters.iter().any(|f| f.matches(n, warnings)))
         .collect())
+}
+
+/// The fork's `policy-priority`, `pattern:factor;…` split at the last
+/// colon not escaped, as sail's `policy_priority`: the fork's factor is
+/// how much more a member is wanted, sail's how much longer it seems, so
+/// it is inverted. A pair the fork would pass over, with no factor or one
+/// not above 0, is passed over with a warning. A pattern sail's regular
+/// expressions do not take, lookarounds or back-references, is matched as
+/// text, as the fork matches a pattern it cannot compile.
+fn policy_priority(value: &str, at: &str, warnings: &mut Vec<String>) -> Vec<Value> {
+    let mut out = Vec::new();
+    for pair in value.split(';').map(str::trim).filter(|p| !p.is_empty()) {
+        let colon = pair.char_indices().rev().find(|&(i, c)| {
+            c == ':' && pair[..i].chars().rev().take_while(|c| *c == '\\').count() % 2 == 0
+        });
+        let factor = colon.and_then(|(i, _)| pair[i + 1..].trim().parse::<f64>().ok());
+        let (Some((i, _)), Some(factor)) = (colon, factor.filter(|f| *f > 0.0)) else {
+            warnings.push(format!(
+                "{}: {:?} is not pattern:factor, the factor above 0; passed over, as by Mihomo",
+                at, pair
+            ));
+            continue;
+        };
+        let mut pattern = String::new();
+        let mut chars = pair[..i].trim().chars();
+        while let Some(c) = chars.next() {
+            match c {
+                '\\' => pattern.extend(chars.next()),
+                c => pattern.push(c),
+            }
+        }
+        let fancy = ["(?=", "(?!", "(?<=", "(?<!"]
+            .iter()
+            .any(|l| pattern.contains(l))
+            || pattern
+                .as_bytes()
+                .windows(2)
+                .any(|w| w[0] == b'\\' && w[1].is_ascii_digit() && w[1] != b'0');
+        if fancy {
+            pattern = pattern
+                .chars()
+                .map(|c| {
+                    if "\\.+*?()|[]{}^$#&-~".contains(c) {
+                        format!("\\{}", c)
+                    } else {
+                        c.to_string()
+                    }
+                })
+                .collect();
+        }
+        out.push(json!({ "regex": pattern, "factor": 1.0 / factor }));
+    }
+    out
 }
