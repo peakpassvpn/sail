@@ -58,19 +58,30 @@ async fn a_server_that_respects_the_rules_goes_where_they_say() {
     use sail::app::stat_manager::StatManager;
 
     let (port, count) = udp_server().await;
-    for (rule, reached) in [
+    for (rules, reached) in [
         (
-            serde_json::json!({ "port": port, "outbound": "direct" }),
+            serde_json::json!([{ "port": port, "outbound": "direct" }]),
             true,
         ),
         (
-            serde_json::json!({ "port": port, "outbound": "blocked" }),
+            serde_json::json!([{ "port": port, "outbound": "blocked" }]),
             false,
         ),
         // The rules see the server's domain.
         (
-            serde_json::json!({ "domain": "dns.sail.test", "outbound": "blocked" }),
+            serde_json::json!([{ "domain": "dns.sail.test", "outbound": "blocked" }]),
             false,
+        ),
+        // A sniff finds nothing, there being no connection yet; a resolve
+        // does not resolve, which would ask this very server: its answer,
+        // 10.0.0.7, would have it blocked, if the lookup came back at all.
+        (
+            serde_json::json!([
+                { "action": "sniff" },
+                { "action": "resolve" },
+                { "ip_cidr": ["10.0.0.7/32"], "outbound": "blocked" },
+            ]),
+            true,
         ),
     ] {
         let config = sail::config::Config::from_json(
@@ -79,10 +90,14 @@ async fn a_server_that_respects_the_rules_goes_where_they_say() {
                     "servers": [
                         { "type": "udp", "tag": "ruled", "server": "dns.sail.test",
                           "server_port": port, "respect_rules": true,
-                          "domain_resolver": "hosts" },
+                          // Uncached, that a resolve rule asks again.
+                          "domain_resolver": { "server": "hosts", "disable_cache": true } },
                         { "type": "hosts", "tag": "hosts",
                           "predefined": { "dns.sail.test": "127.0.0.1" } }
                     ],
+                    // Resolving the server's own name asks the server: what
+                    // a resolve rule before its route must not do.
+                    "rules": [{ "domain": ["dns.sail.test"], "server": "ruled" }],
                     "strategy": "ipv4_only",
                     "timeout": "1s"
                 },
@@ -90,7 +105,7 @@ async fn a_server_that_respects_the_rules_goes_where_they_say() {
                     { "type": "direct", "tag": "direct" },
                     { "type": "block", "tag": "blocked" }
                 ],
-                "route": { "rules": [rule], "final": "direct" }
+                "route": { "rules": rules, "final": "direct" }
             })
             .to_string(),
         )
@@ -121,14 +136,19 @@ async fn a_server_that_respects_the_rules_goes_where_they_say() {
             .set_dispatcher(Arc::downgrade(&dispatcher));
 
         let before = count.load(Ordering::SeqCst);
-        let result = dns_client.load().lookup("a.example").await;
-        assert_eq!(result.is_ok(), reached, "{}: {:?}", rule, result);
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            dns_client.load().lookup("a.example"),
+        )
+        .await
+        .unwrap_or_else(|_| panic!("{}: the lookup came back to itself", rules));
+        assert_eq!(result.is_ok(), reached, "{}: {:?}", rules, result);
         if reached {
             assert_eq!(
                 result.unwrap(),
                 vec!["10.0.0.7".parse::<std::net::IpAddr>().unwrap()]
             );
         }
-        assert_eq!(count.load(Ordering::SeqCst) > before, reached, "{}", rule);
+        assert_eq!(count.load(Ordering::SeqCst) > before, reached, "{}", rules);
     }
 }
