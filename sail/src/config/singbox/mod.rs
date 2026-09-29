@@ -346,13 +346,10 @@ mod tests {
                    "client_subnet": "2001:db8::/48" } } }"#,
         )
         .unwrap();
-        assert_eq!(
-            config.warnings,
-            [
-                "outbounds[0].domain_resolver.disable_optimistic_cache: sail does not implement \
-              this field; ignored"
-            ]
-        );
+        assert!(config.warnings.is_empty(), "{:?}", config.warnings);
+        let resolver: crate::config::model::DomainResolver =
+            serde_json::from_value(config.outbounds[0].options["domain_resolver"].clone()).unwrap();
+        assert!(resolver.disable_optimistic_cache);
         let resolver = config.route.default_domain_resolver.unwrap();
         assert_eq!(resolver.client_subnet, "2001:db8::/48".parse().ok());
     }
