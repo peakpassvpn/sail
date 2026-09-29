@@ -56,15 +56,43 @@ pub(crate) fn read(
     }
 }
 
+/// The rules of `lines`; a line that does not read, or whose rule sail
+/// cannot compile (a regular expression over the regex crate's size
+/// limit, say: a downloaded set is not trusted), is passed over, and
+/// those passed over are warned of once, the first named.
 #[cfg(feature = "config-surge")]
 fn classical<'a>(lines: impl Iterator<Item = &'a str>, env: &RuntimeEnv) -> Result<Vec<Condition>> {
+    let (rules, passed) = classical_lines(lines, env)?;
+    if let Some((line, e)) = passed.first() {
+        tracing::warn!(
+            "rule-set: {} line(s) passed over, as Surge passes over them; the first, {:?}: {}",
+            passed.len(),
+            line,
+            e
+        );
+    }
+    Ok(rules)
+}
+
+/// Lines passed over, each with why.
+#[cfg(feature = "config-surge")]
+type Passed = Vec<(String, String)>;
+
+/// The rules of `lines`, and each line passed over with why.
+#[cfg(feature = "config-surge")]
+fn classical_lines<'a>(
+    lines: impl Iterator<Item = &'a str>,
+    env: &RuntimeEnv,
+) -> Result<(Vec<Condition>, Passed)> {
     let mut plain = HeadlessRule::default();
     let mut rules = Vec::new();
+    let mut passed = Vec::new();
     for (i, line) in lines.enumerate() {
         let rule = match crate::config::surge::headless(line) {
             Ok(rule) => rule,
             Err(e) => {
                 debug!("rule-set: {:?}: {}; passed over", line, e);
+                passed.push((line.to_string(), e.to_string()));
                 continue;
             }
         };
@@ -73,13 +101,16 @@ fn classical<'a>(lines: impl Iterator<Item = &'a str>, env: &RuntimeEnv) -> Resu
         }
         match rule::from_source(&rule, &format!("rules[{}]", i), env) {
             Ok(rule) => rules.push(rule),
-            Err(e) => debug!("rule-set: {:?}: {}; passed over", line, e),
+            Err(e) => {
+                debug!("rule-set: {:?}: {}; passed over", line, e);
+                passed.push((line.to_string(), e.to_string()));
+            }
         }
     }
     if plain != HeadlessRule::default() {
         rules.insert(0, rule::from_source(&plain, "rules[0]", env)?);
     }
-    Ok(rules)
+    Ok((rules, passed))
 }
 
 #[cfg(not(feature = "config-surge"))]
@@ -153,6 +184,24 @@ mod tests {
         ] {
             assert_eq!(matches(&rules, domain(host)), want, "{}", host);
         }
+    }
+
+    #[cfg(feature = "regex")]
+    #[test]
+    fn a_pattern_too_large_or_wrong_is_its_line_alone() {
+        let data = "URL-REGEX,(?:\\w{1000}){1000}\nUSER-AGENT,ok*\nURL-REGEX,(\nDOMAIN,a.example\n";
+        let (rules, passed) = classical_lines(data.lines(), &RuntimeEnv::default()).unwrap();
+        // The name, and the User-Agent.
+        assert_eq!(rules.len(), 2);
+        assert_eq!(passed.len(), 2, "{:?}", passed);
+        assert!(passed[0].1.contains("size limit"), "{:?}", passed);
+        assert!(matches(&rules, domain("a.example")));
+        assert!(read(
+            data.as_bytes(),
+            ClashBehavior::Classical,
+            &RuntimeEnv::default()
+        )
+        .is_ok());
     }
 
     #[test]
