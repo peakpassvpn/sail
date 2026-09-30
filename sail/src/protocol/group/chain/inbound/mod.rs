@@ -84,7 +84,6 @@ async fn run_actors(
 }
 
 impl Stream for Incoming {
-    // TODO io::Result<(...)>
     type Item = AnyBaseInboundTransport;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
