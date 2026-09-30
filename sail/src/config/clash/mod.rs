@@ -164,4 +164,6 @@ impl Lowered {
 }
 
 #[cfg(test)]
+mod registry;
+#[cfg(test)]
 mod tests;
