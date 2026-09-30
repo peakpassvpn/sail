@@ -61,6 +61,12 @@ Sail 的格式已经与 leaf 分化。leaf、Surge、Clash 与 sing-box 配置�
 
 `strategy` 可取 `ipv4_only`、`ipv6_only`、`prefer_ipv4` 或 `prefer_ipv6`。反向映射让后续仅携带 IP 的连接仍有机会命中域名规则。
 
+### 本地链路上的名字（mDNS）
+
+`mdns` 服务器（`{ "type": "mdns", "tag": "lan", "interface": ["en0"] }`，`interface` 为空时用所有支持组播的网卡）以组播 DNS 解析 `.local` 名字和链路本地的反向区。非 Apple 系统上，`local` 服务器遇到这些名字也会自己走 mDNS；Apple 系统上交给系统解析器。DNS 规则的 `preferred_by` 列出服务器，匹配它们自己能回答的名字：`hosts` 服务器的条目，`local` 的 hosts 文件与 mDNS 名字，`mdns` 的 mDNS 名字。
+
+与 sing-box 不同，sail 的查询要求单播回复（RFC 6762 的 QU 位）：Windows 只回答这种查询，所以 sing-box 解析不到 Windows 机器的 `.local` 名字，sail 可以。另外，任一网卡答到就立即返回，不必等满一秒。
+
 ## 重要验证规则
 
 - `route.final`、规则、策略组和 detour 引用的标签必须存在。

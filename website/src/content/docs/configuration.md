@@ -102,6 +102,12 @@ Available shared dial fields are `bind_interface`, `inet4_bind_address`, `inet6_
 
 `strategy` is one of `ipv4_only`, `ipv6_only`, `prefer_ipv4` or `prefer_ipv6`. Reverse mapping remembers the domain associated with DNS answers so later connections to those addresses can still match domain rules.
 
+### Names on the local link (mDNS)
+
+An `mdns` server (`{ "type": "mdns", "tag": "lan", "interface": ["en0"] }`, every multicast interface when `interface` is empty) resolves `.local` names and the link-local reverse zones by multicast DNS. Off Apple's systems a `local` server does the same for those names on its own; on Apple's the system resolver does. A DNS rule's `preferred_by` names servers and matches the names they answer for themselves: a `hosts` server its entries, `local` its hosts file and the mDNS names, `mdns` the mDNS names.
+
+Unlike sing-box, sail's queries ask for a unicast reply (the QU bit of RFC 6762): Windows answers no other query, so sing-box cannot resolve a Windows machine's `.local` name, and sail can. sail also returns as soon as one interface answers instead of waiting out the whole second.
+
 ## Logging and control API
 
 ```json
