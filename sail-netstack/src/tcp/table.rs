@@ -3415,7 +3415,11 @@ fn grow_receive_window(
             increment_counter(growths);
             debug_assert_eq!(
                 flow._receive_credit.amount()
-                    + flow.receive_growth.iter().map(BudgetLease::amount).sum::<usize>(),
+                    + flow
+                        .receive_growth
+                        .iter()
+                        .map(BudgetLease::amount)
+                        .sum::<usize>(),
                 flow.tcb.receive_capacity(),
                 "receive capacity is reserved in full"
             );

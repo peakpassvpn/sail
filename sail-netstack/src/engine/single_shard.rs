@@ -136,7 +136,9 @@ impl RunnerConfig {
             return Err(RunnerError::InvalidConfig("timer tick must be non-zero"));
         }
         if self.packets_per_step == 0 {
-            return Err(RunnerError::InvalidConfig("packets per step must be non-zero"));
+            return Err(RunnerError::InvalidConfig(
+                "packets per step must be non-zero",
+            ));
         }
         if self.debug_trace_capacity > MAX_DEBUG_TRACE_EVENTS {
             return Err(RunnerError::InvalidConfig(
@@ -1002,7 +1004,9 @@ impl<I: PacketIo> SingleShardRunner<I> {
             && (!self.tx.is_empty() || !self.tx_pending.is_empty())
         {
             let before = outcome.sent_packets;
-            if poll_once(self.flush_tx(&mut outcome)).transpose()?.is_none()
+            if poll_once(self.flush_tx(&mut outcome))
+                .transpose()?
+                .is_none()
                 || outcome.sent_packets == before
             {
                 break;

@@ -1345,8 +1345,8 @@ fn fill_and_read(
     table.advance_clock(elapsed_ms).unwrap();
     let read = table.read(token, 1_024).unwrap();
     assert_eq!(read.bytes.len(), 1_024);
-    let update = parse_tcp_segment(parse_ip_packet(&read.outgoing[0], true).unwrap(), true)
-        .unwrap();
+    let update =
+        parse_tcp_segment(parse_ip_packet(&read.outgoing[0], true).unwrap(), true).unwrap();
     (
         update.meta.window,
         table.stats().receive_window_growths,
