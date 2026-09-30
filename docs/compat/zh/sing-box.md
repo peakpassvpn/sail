@@ -22,12 +22,12 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `http_clients` | 80 | 21 | 15 | 44 |
 | `network_namespaces` | 6 | 0 | 0 | 6 |
 | `endpoints` | 433 | 51 | 32 | 350 |
-| `inbounds` | 1367 | 493 | 187 | 687 |
-| `outbounds` | 1228 | 564 | 140 | 524 |
+| `inbounds` | 1367 | 507 | 187 | 673 |
+| `outbounds` | 1228 | 588 | 140 | 500 |
 | `route` | 268 | 144 | 21 | 103 |
 | `services` | 751 | 1 | 166 | 584 |
 | `experimental` | 34 | 16 | 18 | 0 |
-| **全部** | **5002** | **1592** | **687** | **2723** |
+| **全部** | **5002** | **1630** | **687** | **2685** |
 
 ## `log`
 
@@ -833,10 +833,10 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `tls.server_name` | 支持 |  |
 | `tls.insecure` | 警告 | Only relaxes checks a server's TLS does not make |
 | `tls.alpn` | 支持 |  |
-| `tls.min_version` | 报错 | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.max_version` | 报错 | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.cipher_suites` | 报错 | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.curve_preferences` | 报错 | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
+| `tls.min_version` | 支持 |  |
+| `tls.max_version` | 支持 |  |
+| `tls.cipher_suites` | 报错 | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
+| `tls.curve_preferences` | 报错 | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
 | `tls.certificate` | 支持 |  |
 | `tls.certificate_path` | 支持 |  |
 | `tls.client_authentication` | 报错 | Verifying clients' certificates: an inbound would take clients it should refuse |
@@ -945,10 +945,10 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `tls.server_name` | 支持 |  |
 | `tls.insecure` | 警告 | Only relaxes checks a server's TLS does not make |
 | `tls.alpn` | 支持 |  |
-| `tls.min_version` | 报错 | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.max_version` | 报错 | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.cipher_suites` | 报错 | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.curve_preferences` | 报错 | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
+| `tls.min_version` | 支持 |  |
+| `tls.max_version` | 支持 |  |
+| `tls.cipher_suites` | 报错 | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
+| `tls.curve_preferences` | 报错 | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
 | `tls.certificate` | 支持 |  |
 | `tls.certificate_path` | 支持 |  |
 | `tls.client_authentication` | 报错 | Verifying clients' certificates: an inbound would take clients it should refuse |
@@ -1037,10 +1037,10 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `tls.server_name` | 支持 |  |
 | `tls.insecure` | 警告 | Only relaxes checks a server's TLS does not make |
 | `tls.alpn` | 支持 |  |
-| `tls.min_version` | 报错 | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.max_version` | 报错 | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.cipher_suites` | 报错 | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.curve_preferences` | 报错 | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
+| `tls.min_version` | 支持 |  |
+| `tls.max_version` | 支持 |  |
+| `tls.cipher_suites` | 报错 | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
+| `tls.curve_preferences` | 报错 | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
 | `tls.certificate` | 支持 |  |
 | `tls.certificate_path` | 支持 |  |
 | `tls.client_authentication` | 报错 | Verifying clients' certificates: an inbound would take clients it should refuse |
@@ -1313,10 +1313,10 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `tls.server_name` | 支持 |  |
 | `tls.insecure` | 警告 | Only relaxes checks a server's TLS does not make |
 | `tls.alpn` | 支持 |  |
-| `tls.min_version` | 报错 | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.max_version` | 报错 | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.cipher_suites` | 报错 | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.curve_preferences` | 报错 | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
+| `tls.min_version` | 支持 |  |
+| `tls.max_version` | 支持 |  |
+| `tls.cipher_suites` | 报错 | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
+| `tls.curve_preferences` | 报错 | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
 | `tls.certificate` | 支持 |  |
 | `tls.certificate_path` | 支持 |  |
 | `tls.client_authentication` | 报错 | Verifying clients' certificates: an inbound would take clients it should refuse |
@@ -1431,10 +1431,10 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `tls.server_name` | 支持 |  |
 | `tls.insecure` | 警告 | Only relaxes checks a server's TLS does not make |
 | `tls.alpn` | 支持 |  |
-| `tls.min_version` | 报错 | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.max_version` | 报错 | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.cipher_suites` | 报错 | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.curve_preferences` | 报错 | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
+| `tls.min_version` | 支持 |  |
+| `tls.max_version` | 支持 |  |
+| `tls.cipher_suites` | 报错 | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
+| `tls.curve_preferences` | 报错 | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
 | `tls.certificate` | 支持 |  |
 | `tls.certificate_path` | 支持 |  |
 | `tls.client_authentication` | 报错 | Verifying clients' certificates: an inbound would take clients it should refuse |
@@ -1568,10 +1568,10 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `tls.server_name` | 支持 |  |
 | `tls.insecure` | 警告 | Only relaxes checks a server's TLS does not make |
 | `tls.alpn` | 支持 |  |
-| `tls.min_version` | 报错 | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.max_version` | 报错 | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.cipher_suites` | 报错 | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.curve_preferences` | 报错 | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
+| `tls.min_version` | 支持 |  |
+| `tls.max_version` | 支持 |  |
+| `tls.cipher_suites` | 报错 | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
+| `tls.curve_preferences` | 报错 | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
 | `tls.certificate` | 支持 |  |
 | `tls.certificate_path` | 支持 |  |
 | `tls.client_authentication` | 报错 | Verifying clients' certificates: an inbound would take clients it should refuse |
@@ -1678,10 +1678,10 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `tls.server_name` | 支持 |  |
 | `tls.insecure` | 警告 | Only relaxes checks a server's TLS does not make |
 | `tls.alpn` | 支持 |  |
-| `tls.min_version` | 报错 | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.max_version` | 报错 | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.cipher_suites` | 报错 | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.curve_preferences` | 报错 | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
+| `tls.min_version` | 支持 |  |
+| `tls.max_version` | 支持 |  |
+| `tls.cipher_suites` | 报错 | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
+| `tls.curve_preferences` | 报错 | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
 | `tls.certificate` | 支持 |  |
 | `tls.certificate_path` | 支持 |  |
 | `tls.client_authentication` | 报错 | Verifying clients' certificates: an inbound would take clients it should refuse |
@@ -1822,13 +1822,13 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `tls.server_name` | 支持 |  |
 | `tls.insecure` | 支持 |  |
 | `tls.alpn` | 支持 |  |
-| `tls.min_version` | 报错 | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.max_version` | 报错 | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.cipher_suites` | 报错 | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.curve_preferences` | 报错 | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
+| `tls.min_version` | 支持 |  |
+| `tls.max_version` | 支持 |  |
+| `tls.cipher_suites` | 报错 | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
+| `tls.curve_preferences` | 报错 | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
 | `tls.certificate` | 支持 |  |
 | `tls.certificate_path` | 支持 |  |
-| `tls.certificate_public_key_sha256` | 报错 | Pinning the server's key: a server that should be refused would be taken |
+| `tls.certificate_public_key_sha256` | 支持 |  |
 | `tls.client_certificate` | 支持 |  |
 | `tls.client_certificate_path` | 支持 |  |
 | `tls.client_key` | 支持 |  |
@@ -1945,13 +1945,13 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `tls.server_name` | 支持 |  |
 | `tls.insecure` | 支持 |  |
 | `tls.alpn` | 支持 |  |
-| `tls.min_version` | 报错 | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.max_version` | 报错 | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.cipher_suites` | 报错 | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.curve_preferences` | 报错 | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
+| `tls.min_version` | 支持 |  |
+| `tls.max_version` | 支持 |  |
+| `tls.cipher_suites` | 报错 | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
+| `tls.curve_preferences` | 报错 | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
 | `tls.certificate` | 支持 |  |
 | `tls.certificate_path` | 支持 |  |
-| `tls.certificate_public_key_sha256` | 报错 | Pinning the server's key: a server that should be refused would be taken |
+| `tls.certificate_public_key_sha256` | 支持 |  |
 | `tls.client_certificate` | 支持 |  |
 | `tls.client_certificate_path` | 支持 |  |
 | `tls.client_key` | 支持 |  |
@@ -2035,13 +2035,13 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `tls.server_name` | 支持 |  |
 | `tls.insecure` | 支持 |  |
 | `tls.alpn` | 支持 |  |
-| `tls.min_version` | 报错 | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.max_version` | 报错 | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.cipher_suites` | 报错 | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.curve_preferences` | 报错 | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
+| `tls.min_version` | 支持 |  |
+| `tls.max_version` | 支持 |  |
+| `tls.cipher_suites` | 报错 | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
+| `tls.curve_preferences` | 报错 | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
 | `tls.certificate` | 支持 |  |
 | `tls.certificate_path` | 支持 |  |
-| `tls.certificate_public_key_sha256` | 报错 | Pinning the server's key: a server that should be refused would be taken |
+| `tls.certificate_public_key_sha256` | 支持 |  |
 | `tls.client_certificate` | 支持 |  |
 | `tls.client_certificate_path` | 支持 |  |
 | `tls.client_key` | 支持 |  |
@@ -2186,13 +2186,13 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `tls.server_name` | 支持 |  |
 | `tls.insecure` | 支持 |  |
 | `tls.alpn` | 支持 |  |
-| `tls.min_version` | 报错 | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.max_version` | 报错 | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.cipher_suites` | 报错 | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.curve_preferences` | 报错 | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
+| `tls.min_version` | 支持 |  |
+| `tls.max_version` | 支持 |  |
+| `tls.cipher_suites` | 报错 | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
+| `tls.curve_preferences` | 报错 | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
 | `tls.certificate` | 支持 |  |
 | `tls.certificate_path` | 支持 |  |
-| `tls.certificate_public_key_sha256` | 报错 | Pinning the server's key: a server that should be refused would be taken |
+| `tls.certificate_public_key_sha256` | 支持 |  |
 | `tls.client_certificate` | 支持 |  |
 | `tls.client_certificate_path` | 支持 |  |
 | `tls.client_key` | 支持 |  |
@@ -2307,13 +2307,13 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `tls.server_name` | 支持 |  |
 | `tls.insecure` | 支持 |  |
 | `tls.alpn` | 支持 |  |
-| `tls.min_version` | 报错 | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.max_version` | 报错 | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.cipher_suites` | 报错 | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.curve_preferences` | 报错 | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
+| `tls.min_version` | 支持 |  |
+| `tls.max_version` | 支持 |  |
+| `tls.cipher_suites` | 报错 | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
+| `tls.curve_preferences` | 报错 | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
 | `tls.certificate` | 支持 |  |
 | `tls.certificate_path` | 支持 |  |
-| `tls.certificate_public_key_sha256` | 报错 | Pinning the server's key: a server that should be refused would be taken |
+| `tls.certificate_public_key_sha256` | 支持 |  |
 | `tls.client_certificate` | 支持 |  |
 | `tls.client_certificate_path` | 支持 |  |
 | `tls.client_key` | 支持 |  |
@@ -2420,13 +2420,13 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `tls.server_name` | 支持 |  |
 | `tls.insecure` | 支持 |  |
 | `tls.alpn` | 支持 |  |
-| `tls.min_version` | 报错 | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.max_version` | 报错 | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.cipher_suites` | 报错 | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.curve_preferences` | 报错 | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
+| `tls.min_version` | 支持 |  |
+| `tls.max_version` | 支持 |  |
+| `tls.cipher_suites` | 报错 | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
+| `tls.curve_preferences` | 报错 | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
 | `tls.certificate` | 支持 |  |
 | `tls.certificate_path` | 支持 |  |
-| `tls.certificate_public_key_sha256` | 报错 | Pinning the server's key: a server that should be refused would be taken |
+| `tls.certificate_public_key_sha256` | 支持 |  |
 | `tls.client_certificate` | 支持 |  |
 | `tls.client_certificate_path` | 支持 |  |
 | `tls.client_key` | 支持 |  |
@@ -2515,13 +2515,13 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `tls.server_name` | 支持 |  |
 | `tls.insecure` | 支持 |  |
 | `tls.alpn` | 支持 |  |
-| `tls.min_version` | 报错 | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.max_version` | 报错 | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.cipher_suites` | 报错 | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.curve_preferences` | 报错 | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
+| `tls.min_version` | 支持 |  |
+| `tls.max_version` | 支持 |  |
+| `tls.cipher_suites` | 报错 | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
+| `tls.curve_preferences` | 报错 | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
 | `tls.certificate` | 支持 |  |
 | `tls.certificate_path` | 支持 |  |
-| `tls.certificate_public_key_sha256` | 报错 | Pinning the server's key: a server that should be refused would be taken |
+| `tls.certificate_public_key_sha256` | 支持 |  |
 | `tls.client_certificate` | 支持 |  |
 | `tls.client_certificate_path` | 支持 |  |
 | `tls.client_key` | 支持 |  |
@@ -2627,13 +2627,13 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `tls.server_name` | 支持 |  |
 | `tls.insecure` | 支持 |  |
 | `tls.alpn` | 支持 |  |
-| `tls.min_version` | 报错 | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.max_version` | 报错 | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.cipher_suites` | 报错 | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.curve_preferences` | 报错 | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
+| `tls.min_version` | 支持 |  |
+| `tls.max_version` | 支持 |  |
+| `tls.cipher_suites` | 报错 | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
+| `tls.curve_preferences` | 报错 | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
 | `tls.certificate` | 支持 |  |
 | `tls.certificate_path` | 支持 |  |
-| `tls.certificate_public_key_sha256` | 报错 | Pinning the server's key: a server that should be refused would be taken |
+| `tls.certificate_public_key_sha256` | 支持 |  |
 | `tls.client_certificate` | 支持 |  |
 | `tls.client_certificate_path` | 支持 |  |
 | `tls.client_key` | 支持 |  |

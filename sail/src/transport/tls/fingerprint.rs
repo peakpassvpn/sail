@@ -9,8 +9,10 @@ use std::io::{self, Read, Write};
 use anyhow::{anyhow, Result};
 use btls::ssl::{
     CertificateCompressionAlgorithm, CertificateCompressor, ExtensionType, KeyShare,
-    SslConnectorBuilder, SslOptions, SslRef, SslSignatureAlgorithm, SslVersion,
+    SslConnectorBuilder, SslOptions, SslRef, SslSignatureAlgorithm,
 };
+
+use super::options::Version;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Fingerprint {
@@ -69,10 +71,13 @@ impl Fingerprint {
         &["h2", "http/1.1"]
     }
 
+    /// The TLS versions every profile offers, as the browsers do.
+    pub const VERSIONS: (Version, Version) = (Version::Tls12, Version::Tls13);
+
     /// Settings shared by every connection of a client.
     pub(crate) fn configure(self, builder: &mut SslConnectorBuilder) -> Result<()> {
-        builder.set_min_proto_version(Some(SslVersion::TLS1_2))?;
-        builder.set_max_proto_version(Some(SslVersion::TLS1_3))?;
+        builder.set_min_proto_version(Some(Self::VERSIONS.0.ssl()))?;
+        builder.set_max_proto_version(Some(Self::VERSIONS.1.ssl()))?;
         match self {
             Self::Chrome => chrome::configure(builder),
             Self::Firefox => firefox::configure(builder),

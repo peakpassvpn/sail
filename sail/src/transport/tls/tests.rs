@@ -12,6 +12,9 @@ use crate::transport::vision::VisionState;
 struct Server {
     acceptor: SslAcceptor,
     cert_pem: String,
+    /// The pin of its certificate's key, as `certificate_public_key_sha256`
+    /// takes it.
+    pin: String,
 }
 
 /// The roots tests trust when they give no certificate: Mozilla's.
@@ -43,7 +46,34 @@ fn server_with(configure: impl FnOnce(&mut btls::ssl::SslAcceptorBuilder)) -> Se
     Server {
         acceptor: builder.build(),
         cert_pem: cert.pem(),
+        pin: spki_pin(&key_pair.public_key_der()),
     }
+}
+
+/// The pin of a SubjectPublicKeyInfo: its SHA-256, base64. What rcgen
+/// writes, not what BoringSSL reads back, so that the two are checked
+/// against each other.
+pub(crate) fn spki_pin(spki_der: &[u8]) -> String {
+    btls::base64::encode_block(&btls::sha::sha256(spki_der))
+}
+
+/// A client with `options`, trusting the bundled roots only, or any
+/// certificate if `insecure`.
+pub(crate) fn client_with(
+    insecure: bool,
+    fingerprint: Option<super::Fingerprint>,
+    options: &super::ClientOptions,
+) -> TlsClient {
+    TlsClient::with_options(
+        &[],
+        None,
+        insecure,
+        fingerprint,
+        &test_roots(),
+        None,
+        options,
+    )
+    .unwrap()
 }
 
 impl Server {
@@ -572,5 +602,117 @@ fn test_client_hello_without_sni() {
             "{:?}",
             fingerprint
         );
+    }
+}
+
+/// Options pinning `pins`.
+fn pinning(pins: &[&str]) -> super::ClientOptions {
+    let pins: Vec<String> = pins.iter().map(|p| p.to_string()).collect();
+    super::ClientOptions {
+        pins: super::PublicKeyPins::parse(&pins).unwrap(),
+        ..Default::default()
+    }
+}
+
+// The server's certificate is taken by the key it pins, in place of the
+// roots and of the name, as sing-box takes it: self-signed, and for
+// localhost while example.com is asked for.
+#[tokio::test]
+async fn test_pinned_key_connects() {
+    let server = server();
+    let other = btls::base64::encode_block(&[9; 32]);
+    for fingerprint in [None, Some(super::Fingerprint::Chrome)] {
+        for insecure in [false, true] {
+            let client = client_with(insecure, fingerprint, &pinning(&[&other, &server.pin]));
+            for name in ["localhost", "example.com"] {
+                let (c, s) = pair(&server, &client, name, None, None).await;
+                let (mut c, mut s) = (c.unwrap(), s.unwrap());
+                c.write_all(b"ping").await.unwrap();
+                c.flush().await.unwrap();
+                let mut buf = [0; 4];
+                s.read_exact(&mut buf).await.unwrap();
+                assert_eq!(&buf, b"ping");
+            }
+        }
+    }
+}
+
+// A key not pinned fails the handshake, saying which key it was; with
+// `insecure` too, as in sing-box, where the pins are checked whatever
+// `insecure` says.
+#[tokio::test]
+async fn test_unpinned_key_fails() {
+    let server = server();
+    let other = btls::base64::encode_block(&[9; 32]);
+    for fingerprint in [None, Some(super::Fingerprint::Chrome)] {
+        for insecure in [false, true] {
+            let client = client_with(insecure, fingerprint, &pinning(&[&other]));
+            let (c, s) = pair(&server, &client, "localhost", None, None).await;
+            let err = c.err().expect("an unpinned key is refused").to_string();
+            assert!(
+                err.contains("certificate_public_key_sha256: the server's public key")
+                    && err.contains(&server.pin)
+                    && err.contains("is not pinned"),
+                "{}",
+                err
+            );
+            // The server is told, with an alert.
+            assert!(s.is_err());
+        }
+    }
+    // The certificate trusted, all the same.
+    let client = TlsClient::with_options(
+        &[],
+        Some(&server.cert_pem),
+        false,
+        None,
+        &test_roots(),
+        None,
+        &pinning(&[&other]),
+    )
+    .unwrap();
+    let (c, _) = pair(&server, &client, "localhost", None, None).await;
+    assert!(c.is_err());
+}
+
+/// The TLS version `client` and `server` settle on, or the handshake's
+/// error.
+async fn negotiated(server: &Server, client: &TlsClient) -> Result<&'static str, String> {
+    let (c, s) = pair(server, client, "localhost", None, None).await;
+    let c = c.map_err(|e| e.to_string())?;
+    s.map_err(|e| e.to_string())?;
+    Ok(c.conn().ssl().version_str())
+}
+
+#[tokio::test]
+async fn test_version_range() {
+    use super::options::Version;
+    use super::TlsVersionRange;
+    let insecure = |fingerprint, min, max| {
+        client_with(
+            true,
+            fingerprint,
+            &super::ClientOptions {
+                versions: TlsVersionRange { min, max },
+                pins: None,
+            },
+        )
+    };
+    let server = server();
+    let tls12_server = server_with(|builder| {
+        builder
+            .set_max_proto_version(Some(btls::ssl::SslVersion::TLS1_2))
+            .unwrap();
+    });
+    for fingerprint in [None, Some(super::Fingerprint::Chrome)] {
+        let default = insecure(fingerprint, None, None);
+        assert_eq!(negotiated(&server, &default).await, Ok("TLSv1.3"));
+        assert_eq!(negotiated(&tls12_server, &default).await, Ok("TLSv1.2"));
+        // A range set is kept to, the fingerprint's or not.
+        let tls12 = insecure(fingerprint, None, Some(Version::Tls12));
+        assert_eq!(negotiated(&server, &tls12).await, Ok("TLSv1.2"));
+        let tls13 = insecure(fingerprint, Some(Version::Tls13), None);
+        assert_eq!(negotiated(&server, &tls13).await, Ok("TLSv1.3"));
+        assert!(negotiated(&tls12_server, &tls13).await.is_err());
     }
 }

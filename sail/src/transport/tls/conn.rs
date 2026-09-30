@@ -168,7 +168,11 @@ impl BoringConnection {
             Err(e) if e.code() == ErrorCode::WANT_READ || e.code() == ErrorCode::WANT_WRITE => {
                 Ok(())
             }
-            Err(e) => Err(tls_error(e)),
+            Err(e) => Err(match super::options::pin_failure(self.ssl.ssl()) {
+                // BoringSSL's error says no more than that verification failed.
+                Some(why) => io::Error::new(ErrorKind::InvalidData, format!("TLS Error: {}", why)),
+                None => tls_error(e),
+            }),
         }
     }
 }

@@ -84,13 +84,17 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
     let identity = tls
         .client_identity(ctx.env)
         .map_err(|e| anyhow!("[{}] outbound: tls.{}", tag, e))?;
-    let mut client = TlsClient::with_identity(
+    let tls_options = tls
+        .stream_options(&format!("[{}] outbound", tag))
+        .map_err(|e| anyhow!("[{}] outbound: tls.{}", tag, e))?;
+    let mut client = TlsClient::with_options(
         &tls.alpn.clone().map(Listable::into_vec).unwrap_or_default(),
         trusted_certificate(&tls, ctx.env).as_deref(),
         tls.insecure,
         tls.fingerprint(tag)?,
         &ctx.env.tls_roots.get()?,
         identity.as_ref(),
+        &tls_options,
     )
     .map_err(|e| anyhow!("[{}] outbound: tls: {}", tag, e))?;
     if tls.disable_sni {

@@ -75,9 +75,10 @@ pub struct ClientTls {
 
 impl ClientTls {
     /// From `tls`, for the server at `server`, offering `default_alpn`
-    /// unless `alpn` is set, and presenting the client certificate if
-    /// set. Whatever `unsupported` finds is the caller's to refuse; this
-    /// reads none of it.
+    /// unless `alpn` is set, presenting the client certificate if set, and
+    /// taking the server by the pinned keys if set. A version range without
+    /// TLS 1.3 is an error: QUIC is TLS 1.3 only. Whatever `unsupported`
+    /// finds is the caller's to refuse; this reads none of it.
     pub fn new(
         tls: &OutboundTls,
         server: &str,
@@ -97,6 +98,7 @@ impl ClientTls {
         if let Some(identity) = tls.client_identity(env)? {
             present(&mut crypto, &identity)?;
         }
+        tls.client_options()?.apply_quic(&mut crypto)?;
         Ok(Self {
             server_name: tls.server_name.clone().unwrap_or_else(|| server.to_owned()),
             crypto,
@@ -166,13 +168,17 @@ pub fn server_crypto(
 }
 
 /// [`server_crypto`] from an inbound's `tls` block, its errors as the
-/// inbound `tag`'s.
+/// inbound `tag`'s. A version range without TLS 1.3 is an error: QUIC is
+/// TLS 1.3 only.
 pub fn inbound_crypto(
     tag: &str,
     tls: &InboundTls,
     env: &RuntimeEnv,
     alpns: &[Vec<u8>],
 ) -> Result<quinn_btls::ServerConfig> {
+    tls.versions(tag)?
+        .require_tls13("QUIC")
+        .map_err(|e| anyhow!("[{}] inbound: tls.{}", tag, e))?;
     let certificate = tls.certificate(tag, env)?;
     let key = tls.key(tag, env)?;
     server_crypto(&certificate, &key, alpns).map_err(|e| anyhow!("[{}] inbound: tls: {}", tag, e))
@@ -504,6 +510,70 @@ mod tests {
         .await
         .expect("the handshake fails, not hangs");
         assert!(result.is_err(), "{:?}", result);
+    }
+
+    // The pins take a server as over TCP: by its key, in place of the
+    // roots, the name and `insecure`.
+    #[tokio::test]
+    async fn pinned_keys_over_quic() {
+        let cert = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
+        let server = server_crypto(&cert.cert.pem(), &cert.key_pair.serialize_pem(), &[]).unwrap();
+        let server = endpoint(
+            std::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap(),
+            Some(server_config(server).unwrap()),
+        )
+        .unwrap();
+        let pin = crate::transport::tls::tests::spki_pin(&cert.key_pair.public_key_der());
+        let other = btls::base64::encode_block(&[9; 32]);
+        let env = RuntimeEnv::default();
+        let crypto = |pins: &[&str], insecure: bool| {
+            let tls: OutboundTls = serde_json::from_value(serde_json::json!({
+                "enabled": true, "insecure": insecure,
+                "certificate_public_key_sha256": pins,
+            }))
+            .unwrap();
+            ClientTls::new(&tls, "example.com", &["h3"], &env)
+                .unwrap()
+                .crypto
+        };
+        for insecure in [false, true] {
+            let sni = dial(&server, crypto(&[&other, &pin], insecure), "example.com").await;
+            assert_eq!(sni.unwrap(), Some("example.com".into()));
+            let refused = tokio::time::timeout(
+                std::time::Duration::from_secs(5),
+                dial(&server, crypto(&[&other], insecure), "example.com"),
+            )
+            .await
+            .expect("the handshake fails, not hangs");
+            assert!(refused.is_err(), "insecure {}: {:?}", insecure, refused);
+        }
+    }
+
+    #[test]
+    fn versions_over_quic() {
+        let client = |json: serde_json::Value| {
+            let tls: OutboundTls = serde_json::from_value(json).unwrap();
+            ClientTls::new(&tls, "localhost", &[], &RuntimeEnv::default())
+                .map(|_| ())
+                .map_err(|e| e.to_string())
+        };
+        assert!(client(serde_json::json!({"enabled": true, "min_version": "1.3"})).is_ok());
+        assert!(client(serde_json::json!({"enabled": true, "min_version": "1.0"})).is_ok());
+        assert_eq!(
+            client(serde_json::json!({"enabled": true, "max_version": "1.2"})),
+            Err("max_version: QUIC is TLS 1.3 only, and 1.2 leaves it out".into())
+        );
+        let tls: InboundTls = serde_json::from_value(serde_json::json!({
+            "enabled": true, "max_version": "1.2", "certificate": "x", "key": "y",
+        }))
+        .unwrap();
+        let err = inbound_crypto("i", &tls, &RuntimeEnv::default(), &[])
+            .err()
+            .unwrap();
+        assert_eq!(
+            err.to_string(),
+            "[i] inbound: tls.max_version: QUIC is TLS 1.3 only, and 1.2 leaves it out"
+        );
     }
 
     #[test]

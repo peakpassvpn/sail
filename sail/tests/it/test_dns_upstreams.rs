@@ -705,6 +705,7 @@ mod doh {
                 cert.cert_pem.clone(),
                 cert.key_pem.clone(),
                 alpn.iter().map(|p| p.to_string()).collect(),
+                Default::default(),
             )
             .unwrap(),
         );

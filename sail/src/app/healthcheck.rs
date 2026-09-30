@@ -151,6 +151,7 @@ impl HttpProbe {
                 None,
                 dns_client,
                 &env.tls_roots.get()?,
+                &Default::default(),
             )?)
         } else {
             None

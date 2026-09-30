@@ -80,6 +80,8 @@ const PROTECT: &str =
 const SOCKET: &str = "Socket tuning: connections go the same way without it";
 const TLS_VERSIONS: &str =
     "TLS versions and cipher suites: sail's TLS would negotiate others than asked";
+const TLS_CIPHERS: &str =
+    "TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked";
 const TLS_TUNING: &str =
     "The TLS stack, kernel TLS and the handshake's timeout: the same TLS without them";
 const TLS_FRAGMENT: &str = "Fragmenting or spoofing the TLS handshake against censorship";
@@ -443,14 +445,9 @@ pub const GROUPS: &[Group] = &[
     ),
     // TLS, both ways.
     g(
-        TLS_VERSIONS,
+        TLS_CIPHERS,
         Unsupported,
-        &[
-            "*.*.tls.min_version",
-            "*.*.tls.max_version",
-            "*.*.tls.cipher_suites",
-            "*.*.tls.curve_preferences",
-        ],
+        &["*.*.tls.cipher_suites", "*.*.tls.curve_preferences"],
     ),
     g(
         TLS_TUNING,
@@ -537,11 +534,6 @@ pub const GROUPS: &[Group] = &[
         "The TLS stack: sail has one",
         Ignored,
         &["outbounds.*.tls.engine"],
-    ),
-    g(
-        "Pinning the server's key: a server that should be refused would be taken",
-        Unsupported,
-        &["outbounds.*.tls.certificate_public_key_sha256"],
     ),
     g(
         TLS_FRAGMENT,

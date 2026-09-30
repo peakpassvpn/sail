@@ -4,6 +4,7 @@ use btls::ssl::{AlpnError, Ssl, SslAcceptor, SslMethod, SslVersion};
 
 use super::super::client::{load_certificates, load_private_key};
 use super::super::conn::BoringConnection;
+use super::super::options::TlsVersionRange;
 use crate::{
     adapter::*,
     session::Session,
@@ -18,12 +19,19 @@ impl Handler {
     /// `certificate` (the chain, leaf first) and `certificate_key` are inline
     /// PEM or paths. `alpn` is what the server speaks, most preferred
     /// first: the first a client offers too is selected, and a client that
-    /// offers none of them gets no ALPN rather than an alert.
-    pub fn new(certificate: String, certificate_key: String, alpn: Vec<String>) -> Result<Self> {
+    /// offers none of them gets no ALPN rather than an alert. `versions` are
+    /// those accepted.
+    pub fn new(
+        certificate: String,
+        certificate_key: String,
+        alpn: Vec<String>,
+        versions: TlsVersionRange,
+    ) -> Result<Self> {
         let certs = load_certificates(&certificate)?;
         let key = load_private_key(&certificate_key)?;
         let mut builder = SslAcceptor::mozilla_intermediate_v5(SslMethod::tls())?;
         builder.set_min_proto_version(Some(SslVersion::TLS1_2))?;
+        versions.apply(&mut builder)?;
         let mut certs = certs.into_iter();
         builder.set_certificate(&certs.next().expect("load_certificates returns one or more"))?;
         for cert in certs {
@@ -106,13 +114,25 @@ mod tests {
     fn test_new_with_generated_certificate() {
         let rcgen::CertifiedKey { cert, key_pair } =
             rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
-        assert!(Handler::new(cert.pem(), key_pair.serialize_pem(), vec![]).is_ok());
+        assert!(Handler::new(
+            cert.pem(),
+            key_pair.serialize_pem(),
+            vec![],
+            Default::default()
+        )
+        .is_ok());
     }
 
     #[test]
     fn test_new_with_mismatched_key_fails() {
         let a = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
         let b = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
-        assert!(Handler::new(a.cert.pem(), b.key_pair.serialize_pem(), vec![]).is_err());
+        assert!(Handler::new(
+            a.cert.pem(),
+            b.key_pair.serialize_pem(),
+            vec![],
+            Default::default()
+        )
+        .is_err());
     }
 }

@@ -6,6 +6,7 @@ use tracing::trace;
 
 use super::super::client::{Identity, TlsClient};
 use super::super::fingerprint::Fingerprint;
+use super::super::options::ClientOptions;
 use crate::{adapter::*, app::SyncDnsClient, session::Session, transport::vision::VisionState};
 
 pub struct Handler {
@@ -36,17 +37,19 @@ impl Handler {
         ech_config_list: Option<String>,
         dns_client: SyncDnsClient,
         roots: &crate::transport::tls::roots::Roots,
+        options: &ClientOptions,
     ) -> Result<Self> {
         if let Some(list) = ech_config_list.as_deref() {
             decode_ech_config_list(list)?;
         }
-        let mut client = TlsClient::with_identity(
+        let mut client = TlsClient::with_options(
             &alpns,
             certificate.as_deref(),
             insecure,
             fingerprint,
             roots,
             identity,
+            options,
         )?;
         if disable_sni {
             client = client.without_sni();
@@ -434,6 +437,7 @@ mod tests {
             Some("$$$".to_string()),
             new_test_dns_client(),
             &crate::transport::tls::tests::test_roots(),
+            &Default::default(),
         );
         assert!(result.is_err());
     }

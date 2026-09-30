@@ -164,12 +164,23 @@ pub struct OutboundTls {
     pub insecure: bool,
     #[serde(default)]
     pub alpn: Option<Listable>,
+    /// The lowest TLS version to negotiate, `1.0` to `1.3`; unset, 1.2.
+    #[serde(default)]
+    pub min_version: Option<String>,
+    /// The highest; unset, 1.3.
+    #[serde(default)]
+    pub max_version: Option<String>,
     /// An inline PEM certificate to trust.
     #[serde(default)]
     pub certificate: Option<Listable>,
     /// A PEM certificate to trust, by path.
     #[serde(default)]
     pub certificate_path: Option<String>,
+    /// The SHA-256 hashes, base64, of the public keys to take a server's
+    /// certificate by, in place of the certificates trusted, the name and
+    /// `insecure`.
+    #[serde(default)]
+    pub certificate_public_key_sha256: Option<Listable>,
     /// An inline PEM certificate, its chain after it, presented when the
     /// server asks for one; with `client_key`.
     #[serde(default)]
@@ -230,6 +241,117 @@ impl OutboundTls {
                 .map(Some)
                 .map_err(|e| anyhow!("[{}] outbound: tls.utls.fingerprint: {}", tag, e)),
         }
+    }
+
+    /// The versions and the pinned keys set, checked against each other and
+    /// against the certificate to trust, which pins replace, as in
+    /// sing-box. Errors name the field, under `tls`.
+    #[cfg(feature = "tls")]
+    #[cfg_attr(
+        not(any(
+            feature = "outbound-tls",
+            feature = "quic",
+            feature = "outbound-shadowtls",
+            feature = "outbound-reality"
+        )),
+        allow(dead_code)
+    )]
+    pub(crate) fn client_options(&self) -> Result<crate::transport::tls::ClientOptions> {
+        use crate::transport::tls::{ClientOptions, PublicKeyPins, TlsVersionRange};
+        let versions =
+            TlsVersionRange::parse(self.min_version.as_deref(), self.max_version.as_deref())?;
+        let pins = match &self.certificate_public_key_sha256 {
+            Some(hashes) => PublicKeyPins::parse(&hashes.clone().into_vec())?,
+            None => None,
+        };
+        if pins.is_some() && (self.certificate.is_some() || self.certificate_path.is_some()) {
+            return Err(anyhow!(
+                "certificate_public_key_sha256: not with certificate or certificate_path"
+            ));
+        }
+        Ok(ClientOptions { versions, pins })
+    }
+
+    /// `client_options`, as a handshake over TCP takes them beside REALITY,
+    /// ECH and the browser fingerprint, each as sing-box does. `context`
+    /// begins the warnings, such as `[tag] outbound`.
+    ///
+    /// REALITY verifies the server by its own means and offers the
+    /// browser's versions: both are ignored. ECH is TLS 1.3 only: a range
+    /// set below it is an error, where sing-box fails every handshake. With
+    /// `utls` enabled, as with sing-box's uTLS, the browser's versions are
+    /// offered whatever the range. With no `utls` block, where sing-box's
+    /// own TLS would negotiate the range, it is negotiated, in a ClientHello
+    /// that is then not quite the browser's.
+    #[cfg(feature = "tls")]
+    #[cfg_attr(
+        not(any(
+            feature = "outbound-tls",
+            feature = "outbound-shadowtls",
+            feature = "outbound-reality"
+        )),
+        allow(dead_code)
+    )]
+    pub(crate) fn stream_options(
+        &self,
+        context: &str,
+    ) -> Result<crate::transport::tls::ClientOptions> {
+        use crate::transport::tls::options::Version;
+        use crate::transport::tls::{ClientOptions, Fingerprint, TlsVersionRange};
+        let mut options = self.client_options()?;
+        let versions = options.versions;
+        if self.reality.as_ref().is_some_and(|r| r.enabled) {
+            if versions.is_set() {
+                tracing::warn!(
+                    "{}: tls.min_version, tls.max_version: ignored with tls.reality, whose \
+                     handshake offers the browser's versions",
+                    context
+                );
+            }
+            if options.pins.is_some() {
+                tracing::warn!(
+                    "{}: tls.certificate_public_key_sha256: ignored with tls.reality, which \
+                     verifies the server by its public_key",
+                    context
+                );
+            }
+            return Ok(ClientOptions::default());
+        }
+        if self.ech.as_ref().is_some_and(|e| e.enabled) {
+            for (field, version) in [("min_version", versions.min), ("max_version", versions.max)] {
+                if version.is_some_and(|v| v < Version::Tls13) {
+                    return Err(anyhow!(
+                        "{}: ECH is TLS 1.3 only: 1.3, or unset, with tls.ech",
+                        field
+                    ));
+                }
+            }
+        }
+        let (lowest, highest) = Fingerprint::VERSIONS;
+        match &self.utls {
+            Some(utls) if utls.enabled => {
+                if !versions.is(lowest, highest) {
+                    tracing::warn!(
+                        "{}: tls.min_version, tls.max_version: ignored with tls.utls, which \
+                         offers the browser's TLS {} to {}",
+                        context,
+                        lowest,
+                        highest
+                    );
+                }
+                options.versions = TlsVersionRange::default();
+            }
+            Some(_) => {}
+            None if !versions.is(lowest, highest) => tracing::warn!(
+                "{}: tls.min_version, tls.max_version: the ClientHello, offering TLS {} to {}, \
+                 is no longer the one the default browser fingerprint sends",
+                context,
+                versions.lowest(),
+                versions.highest()
+            ),
+            None => {}
+        }
+        Ok(options)
     }
 
     /// Whether a client certificate or its key is set.
@@ -967,6 +1089,9 @@ fn tls_outbound(
             ));
         }
         #[cfg(feature = "outbound-reality")]
+        tls.stream_options(&format!("[{}] outbound", tag))
+            .map_err(|e| anyhow!("[{}] outbound: tls.{}", tag, e))?;
+        #[cfg(feature = "outbound-reality")]
         return Ok(HandlerBuilder::default()
             .tag(format!("{}/reality", tag))
             .stream_handler(Arc::new(
@@ -1010,6 +1135,9 @@ fn tls_outbound(
         let identity = tls
             .client_identity(env)
             .map_err(|e| anyhow!("[{}] outbound: tls.{}", tag, e))?;
+        let options = tls
+            .stream_options(&format!("[{}] outbound", tag))
+            .map_err(|e| anyhow!("[{}] outbound: tls.{}", tag, e))?;
         // Browsers send the name of a domain: a ClientHello without it is
         // one no browser sends, whatever it imitates otherwise.
         if tls.disable_sni && tls.utls.as_ref().is_some_and(|u| u.enabled) {
@@ -1032,6 +1160,7 @@ fn tls_outbound(
             ech_config_list,
             dns_client.clone(),
             &env.tls_roots.get()?,
+            &options,
         )?;
         Ok(HandlerBuilder::default()
             .tag(format!("{}/tls", tag))
@@ -1276,6 +1405,12 @@ pub struct InboundTls {
     pub key_path: Option<String>,
     #[serde(default)]
     pub alpn: Option<Listable>,
+    /// The lowest TLS version to accept, `1.0` to `1.3`; unset, 1.2.
+    #[serde(default)]
+    pub min_version: Option<String>,
+    /// The highest; unset, 1.3.
+    #[serde(default)]
+    pub max_version: Option<String>,
     /// The name REALITY clients must ask for; only REALITY uses it.
     #[serde(default)]
     pub server_name: Option<String>,
@@ -1494,6 +1629,20 @@ impl InboundBlocks {
 
 #[cfg_attr(not(any(feature = "inbound-tls", feature = "quic")), allow(dead_code))]
 impl InboundTls {
+    /// `min_version` and `max_version`, errors as the inbound `tag`'s.
+    #[cfg(feature = "tls")]
+    #[cfg_attr(
+        not(any(feature = "inbound-tls", feature = "quic", feature = "inbound-reality")),
+        allow(dead_code)
+    )]
+    pub(crate) fn versions(&self, tag: &str) -> Result<crate::transport::tls::TlsVersionRange> {
+        crate::transport::tls::TlsVersionRange::parse(
+            self.min_version.as_deref(),
+            self.max_version.as_deref(),
+        )
+        .map_err(|e| anyhow!("[{}] inbound: tls.{}", tag, e))
+    }
+
     /// The certificate to present: inline, or by path.
     pub(crate) fn certificate(&self, tag: &str, env: &RuntimeEnv) -> Result<String> {
         match (&self.certificate, &self.certificate_path) {
@@ -1754,6 +1903,7 @@ fn tls_inbound(
             tls.certificate(tag, env)?,
             tls.key(tag, env)?,
             alpn,
+            tls.versions(tag)?,
         )
         .map_err(|e| anyhow!("[{}] inbound: tls: {}", tag, e))?;
         Ok(Arc::new(crate::adapter::inbound::Handler::new(
@@ -1785,6 +1935,11 @@ fn reality_inbound(
     }
     #[cfg(feature = "inbound-reality")]
     {
+        // REALITY's handshake is TLS 1.3, as sing-box's server (Xray's)
+        // makes it; a range that allows it changes nothing.
+        tls.versions(tag)?
+            .require_tls13("REALITY")
+            .map_err(|e| anyhow!("[{}] inbound: tls.{}", tag, e))?;
         let server_name = tls
             .server_name
             .clone()
@@ -2215,5 +2370,112 @@ mod tests {
                 Err("[t] outbound: tls.client_key: needed with client_certificate".into())
             );
         }
+    }
+
+    #[test]
+    fn test_versions_and_pins() {
+        use crate::transport::tls::options::Version;
+        use crate::transport::tls::TlsVersionRange;
+        use serde_json::json;
+        let dns = crate::app::dns::DnsClient::new(
+            &crate::config::Dns::default(),
+            Default::default(),
+            &Default::default(),
+        )
+        .unwrap()
+        .into_shared();
+        let env = crate::runtime::RuntimeEnv::default();
+        let build = |json: serde_json::Value| {
+            let tls: OutboundTls = serde_json::from_value(json).unwrap();
+            super::tls_outbound("t", &tls, &dns, &env)
+                .map(|_| ())
+                .map_err(|e| e.to_string())
+        };
+        let options = |json: serde_json::Value| {
+            let tls: OutboundTls = serde_json::from_value(json).unwrap();
+            tls.stream_options("[t] outbound")
+                .map_err(|e| e.to_string())
+        };
+        let pin = btls::base64::encode_block(&[1; 32]);
+
+        // Mistakes are errors, naming the field.
+        assert_eq!(
+            build(json!({"enabled": true, "min_version": "1.4"})),
+            Err(
+                "[t] outbound: tls.min_version: unknown TLS version \"1.4\", \
+                 one of 1.0, 1.1, 1.2, 1.3"
+                    .into()
+            )
+        );
+        assert_eq!(
+            build(json!({"enabled": true, "min_version": "1.3", "max_version": "1.2"})),
+            Err("[t] outbound: tls.min_version: 1.3 is above max_version 1.2".into())
+        );
+        let err = build(json!({"enabled": true, "certificate_public_key_sha256": [pin, "x"]}))
+            .unwrap_err();
+        assert!(
+            err.starts_with("[t] outbound: tls.certificate_public_key_sha256[1]: not base64"),
+            "{}",
+            err
+        );
+        let err =
+            build(json!({"enabled": true, "certificate_public_key_sha256": "AAAA"})).unwrap_err();
+        assert!(
+            err.starts_with("[t] outbound: tls.certificate_public_key_sha256[0]: 3 bytes"),
+            "{}",
+            err
+        );
+        // A pin replaces the certificate to trust, as in sing-box.
+        assert_eq!(
+            build(
+                json!({"enabled": true, "certificate_public_key_sha256": pin,
+                "certificate_path": "ca.pem"})
+            ),
+            Err("[t] outbound: tls.certificate_public_key_sha256: \
+                 not with certificate or certificate_path"
+                .into())
+        );
+
+        // With REALITY both are ignored, as sing-box's REALITY client does.
+        let reality = json!({"enabled": true, "public_key": "x"});
+        let ignored = options(json!({"enabled": true, "reality": reality,
+            "max_version": "1.2", "certificate_public_key_sha256": pin}))
+        .unwrap();
+        assert!(!ignored.versions.is_set() && ignored.pins.is_none());
+
+        // With sing-box's uTLS, the browser's versions are offered.
+        let utls = options(json!({"enabled": true, "utls": {"enabled": true},
+            "min_version": "1.3", "certificate_public_key_sha256": pin}))
+        .unwrap();
+        assert!(!utls.versions.is_set());
+        assert!(utls.pins.is_some(), "pins apply with any ClientHello");
+        // Without, as with sing-box's own TLS, they are negotiated, with
+        // the default fingerprint or none.
+        for json in [
+            json!({"enabled": true, "min_version": "1.3"}),
+            json!({"enabled": true, "min_version": "1.3", "utls": {"enabled": false}}),
+        ] {
+            assert_eq!(
+                options(json).unwrap().versions,
+                TlsVersionRange {
+                    min: Some(Version::Tls13),
+                    max: None
+                }
+            );
+        }
+        #[cfg(feature = "outbound-tls")]
+        assert!(build(json!({"enabled": true, "max_version": "1.2"})).is_ok());
+
+        // ECH is TLS 1.3 only: sing-box fails every handshake below it.
+        let ech = json!({"enabled": true, "config": "AAT+DQBB"});
+        assert_eq!(
+            options(json!({"enabled": true, "ech": ech, "min_version": "1.2"})).map(|_| ()),
+            Err("min_version: ECH is TLS 1.3 only: 1.3, or unset, with tls.ech".into())
+        );
+        assert_eq!(
+            options(json!({"enabled": true, "ech": ech, "max_version": "1.2"})).map(|_| ()),
+            Err("max_version: ECH is TLS 1.3 only: 1.3, or unset, with tls.ech".into())
+        );
+        assert!(options(json!({"enabled": true, "ech": ech, "min_version": "1.3"})).is_ok());
     }
 }

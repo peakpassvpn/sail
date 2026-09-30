@@ -14,6 +14,7 @@ use tokio::io::{AsyncRead, AsyncWrite};
 
 use super::conn::BoringConnection;
 use super::fingerprint::Fingerprint;
+use super::options::ClientOptions;
 use crate::transport::tls_stream::TlsStream;
 use crate::transport::vision::VisionState;
 
@@ -81,11 +82,37 @@ impl TlsClient {
         roots: &super::roots::Roots,
         identity: Option<&Identity>,
     ) -> Result<Self> {
+        Self::with_options(
+            alpn,
+            certificate,
+            insecure,
+            fingerprint,
+            roots,
+            identity,
+            &ClientOptions::default(),
+        )
+    }
+
+    /// `with_identity`, with the versions and pins of `options`. A range
+    /// set there replaces the fingerprint's, the ClientHello then differing
+    /// from the browser's: whether it should is the caller's to settle, as
+    /// `OutboundTls::stream_options` does. Pins replace the certificates
+    /// trusted and `insecure`.
+    pub fn with_options(
+        alpn: &[String],
+        certificate: Option<&str>,
+        insecure: bool,
+        fingerprint: Option<Fingerprint>,
+        roots: &super::roots::Roots,
+        identity: Option<&Identity>,
+        options: &ClientOptions,
+    ) -> Result<Self> {
         let mut builder = SslConnector::bare_builder(SslMethod::tls())?;
         builder.set_min_proto_version(Some(SslVersion::TLS1_2))?;
         if let Some(fingerprint) = fingerprint {
             fingerprint.configure(&mut builder)?;
         }
+        options.versions.apply(&mut builder)?;
         let alpn: Vec<String> = match fingerprint {
             Some(fingerprint) if alpn.is_empty() => fingerprint
                 .default_alpn()
@@ -94,7 +121,9 @@ impl TlsClient {
                 .collect(),
             _ => alpn.to_vec(),
         };
-        if insecure {
+        if let Some(pins) = &options.pins {
+            pins.apply(&mut builder);
+        } else if insecure {
             builder.set_verify(SslVerifyMode::NONE);
         } else {
             builder.set_verify(SslVerifyMode::PEER);

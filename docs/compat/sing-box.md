@@ -22,12 +22,12 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `http_clients` | 80 | 21 | 15 | 44 |
 | `network_namespaces` | 6 | 0 | 0 | 6 |
 | `endpoints` | 433 | 51 | 32 | 350 |
-| `inbounds` | 1367 | 493 | 187 | 687 |
-| `outbounds` | 1228 | 564 | 140 | 524 |
+| `inbounds` | 1367 | 507 | 187 | 673 |
+| `outbounds` | 1228 | 588 | 140 | 500 |
 | `route` | 268 | 144 | 21 | 103 |
 | `services` | 751 | 1 | 166 | 584 |
 | `experimental` | 34 | 16 | 18 | 0 |
-| **All** | **5002** | **1592** | **687** | **2723** |
+| **All** | **5002** | **1630** | **687** | **2685** |
 
 ## `log`
 
@@ -833,10 +833,10 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `tls.server_name` | Supported |  |
 | `tls.insecure` | Warned | Only relaxes checks a server's TLS does not make |
 | `tls.alpn` | Supported |  |
-| `tls.min_version` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.max_version` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.cipher_suites` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.curve_preferences` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
+| `tls.min_version` | Supported |  |
+| `tls.max_version` | Supported |  |
+| `tls.cipher_suites` | Error | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
+| `tls.curve_preferences` | Error | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
 | `tls.certificate` | Supported |  |
 | `tls.certificate_path` | Supported |  |
 | `tls.client_authentication` | Error | Verifying clients' certificates: an inbound would take clients it should refuse |
@@ -945,10 +945,10 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `tls.server_name` | Supported |  |
 | `tls.insecure` | Warned | Only relaxes checks a server's TLS does not make |
 | `tls.alpn` | Supported |  |
-| `tls.min_version` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.max_version` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.cipher_suites` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.curve_preferences` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
+| `tls.min_version` | Supported |  |
+| `tls.max_version` | Supported |  |
+| `tls.cipher_suites` | Error | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
+| `tls.curve_preferences` | Error | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
 | `tls.certificate` | Supported |  |
 | `tls.certificate_path` | Supported |  |
 | `tls.client_authentication` | Error | Verifying clients' certificates: an inbound would take clients it should refuse |
@@ -1037,10 +1037,10 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `tls.server_name` | Supported |  |
 | `tls.insecure` | Warned | Only relaxes checks a server's TLS does not make |
 | `tls.alpn` | Supported |  |
-| `tls.min_version` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.max_version` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.cipher_suites` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.curve_preferences` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
+| `tls.min_version` | Supported |  |
+| `tls.max_version` | Supported |  |
+| `tls.cipher_suites` | Error | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
+| `tls.curve_preferences` | Error | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
 | `tls.certificate` | Supported |  |
 | `tls.certificate_path` | Supported |  |
 | `tls.client_authentication` | Error | Verifying clients' certificates: an inbound would take clients it should refuse |
@@ -1313,10 +1313,10 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `tls.server_name` | Supported |  |
 | `tls.insecure` | Warned | Only relaxes checks a server's TLS does not make |
 | `tls.alpn` | Supported |  |
-| `tls.min_version` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.max_version` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.cipher_suites` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.curve_preferences` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
+| `tls.min_version` | Supported |  |
+| `tls.max_version` | Supported |  |
+| `tls.cipher_suites` | Error | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
+| `tls.curve_preferences` | Error | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
 | `tls.certificate` | Supported |  |
 | `tls.certificate_path` | Supported |  |
 | `tls.client_authentication` | Error | Verifying clients' certificates: an inbound would take clients it should refuse |
@@ -1431,10 +1431,10 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `tls.server_name` | Supported |  |
 | `tls.insecure` | Warned | Only relaxes checks a server's TLS does not make |
 | `tls.alpn` | Supported |  |
-| `tls.min_version` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.max_version` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.cipher_suites` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.curve_preferences` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
+| `tls.min_version` | Supported |  |
+| `tls.max_version` | Supported |  |
+| `tls.cipher_suites` | Error | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
+| `tls.curve_preferences` | Error | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
 | `tls.certificate` | Supported |  |
 | `tls.certificate_path` | Supported |  |
 | `tls.client_authentication` | Error | Verifying clients' certificates: an inbound would take clients it should refuse |
@@ -1568,10 +1568,10 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `tls.server_name` | Supported |  |
 | `tls.insecure` | Warned | Only relaxes checks a server's TLS does not make |
 | `tls.alpn` | Supported |  |
-| `tls.min_version` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.max_version` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.cipher_suites` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.curve_preferences` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
+| `tls.min_version` | Supported |  |
+| `tls.max_version` | Supported |  |
+| `tls.cipher_suites` | Error | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
+| `tls.curve_preferences` | Error | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
 | `tls.certificate` | Supported |  |
 | `tls.certificate_path` | Supported |  |
 | `tls.client_authentication` | Error | Verifying clients' certificates: an inbound would take clients it should refuse |
@@ -1678,10 +1678,10 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `tls.server_name` | Supported |  |
 | `tls.insecure` | Warned | Only relaxes checks a server's TLS does not make |
 | `tls.alpn` | Supported |  |
-| `tls.min_version` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.max_version` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.cipher_suites` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.curve_preferences` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
+| `tls.min_version` | Supported |  |
+| `tls.max_version` | Supported |  |
+| `tls.cipher_suites` | Error | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
+| `tls.curve_preferences` | Error | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
 | `tls.certificate` | Supported |  |
 | `tls.certificate_path` | Supported |  |
 | `tls.client_authentication` | Error | Verifying clients' certificates: an inbound would take clients it should refuse |
@@ -1822,13 +1822,13 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `tls.server_name` | Supported |  |
 | `tls.insecure` | Supported |  |
 | `tls.alpn` | Supported |  |
-| `tls.min_version` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.max_version` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.cipher_suites` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.curve_preferences` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
+| `tls.min_version` | Supported |  |
+| `tls.max_version` | Supported |  |
+| `tls.cipher_suites` | Error | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
+| `tls.curve_preferences` | Error | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
 | `tls.certificate` | Supported |  |
 | `tls.certificate_path` | Supported |  |
-| `tls.certificate_public_key_sha256` | Error | Pinning the server's key: a server that should be refused would be taken |
+| `tls.certificate_public_key_sha256` | Supported |  |
 | `tls.client_certificate` | Supported |  |
 | `tls.client_certificate_path` | Supported |  |
 | `tls.client_key` | Supported |  |
@@ -1945,13 +1945,13 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `tls.server_name` | Supported |  |
 | `tls.insecure` | Supported |  |
 | `tls.alpn` | Supported |  |
-| `tls.min_version` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.max_version` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.cipher_suites` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.curve_preferences` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
+| `tls.min_version` | Supported |  |
+| `tls.max_version` | Supported |  |
+| `tls.cipher_suites` | Error | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
+| `tls.curve_preferences` | Error | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
 | `tls.certificate` | Supported |  |
 | `tls.certificate_path` | Supported |  |
-| `tls.certificate_public_key_sha256` | Error | Pinning the server's key: a server that should be refused would be taken |
+| `tls.certificate_public_key_sha256` | Supported |  |
 | `tls.client_certificate` | Supported |  |
 | `tls.client_certificate_path` | Supported |  |
 | `tls.client_key` | Supported |  |
@@ -2035,13 +2035,13 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `tls.server_name` | Supported |  |
 | `tls.insecure` | Supported |  |
 | `tls.alpn` | Supported |  |
-| `tls.min_version` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.max_version` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.cipher_suites` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.curve_preferences` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
+| `tls.min_version` | Supported |  |
+| `tls.max_version` | Supported |  |
+| `tls.cipher_suites` | Error | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
+| `tls.curve_preferences` | Error | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
 | `tls.certificate` | Supported |  |
 | `tls.certificate_path` | Supported |  |
-| `tls.certificate_public_key_sha256` | Error | Pinning the server's key: a server that should be refused would be taken |
+| `tls.certificate_public_key_sha256` | Supported |  |
 | `tls.client_certificate` | Supported |  |
 | `tls.client_certificate_path` | Supported |  |
 | `tls.client_key` | Supported |  |
@@ -2186,13 +2186,13 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `tls.server_name` | Supported |  |
 | `tls.insecure` | Supported |  |
 | `tls.alpn` | Supported |  |
-| `tls.min_version` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.max_version` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.cipher_suites` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.curve_preferences` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
+| `tls.min_version` | Supported |  |
+| `tls.max_version` | Supported |  |
+| `tls.cipher_suites` | Error | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
+| `tls.curve_preferences` | Error | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
 | `tls.certificate` | Supported |  |
 | `tls.certificate_path` | Supported |  |
-| `tls.certificate_public_key_sha256` | Error | Pinning the server's key: a server that should be refused would be taken |
+| `tls.certificate_public_key_sha256` | Supported |  |
 | `tls.client_certificate` | Supported |  |
 | `tls.client_certificate_path` | Supported |  |
 | `tls.client_key` | Supported |  |
@@ -2307,13 +2307,13 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `tls.server_name` | Supported |  |
 | `tls.insecure` | Supported |  |
 | `tls.alpn` | Supported |  |
-| `tls.min_version` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.max_version` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.cipher_suites` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.curve_preferences` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
+| `tls.min_version` | Supported |  |
+| `tls.max_version` | Supported |  |
+| `tls.cipher_suites` | Error | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
+| `tls.curve_preferences` | Error | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
 | `tls.certificate` | Supported |  |
 | `tls.certificate_path` | Supported |  |
-| `tls.certificate_public_key_sha256` | Error | Pinning the server's key: a server that should be refused would be taken |
+| `tls.certificate_public_key_sha256` | Supported |  |
 | `tls.client_certificate` | Supported |  |
 | `tls.client_certificate_path` | Supported |  |
 | `tls.client_key` | Supported |  |
@@ -2420,13 +2420,13 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `tls.server_name` | Supported |  |
 | `tls.insecure` | Supported |  |
 | `tls.alpn` | Supported |  |
-| `tls.min_version` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.max_version` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.cipher_suites` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.curve_preferences` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
+| `tls.min_version` | Supported |  |
+| `tls.max_version` | Supported |  |
+| `tls.cipher_suites` | Error | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
+| `tls.curve_preferences` | Error | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
 | `tls.certificate` | Supported |  |
 | `tls.certificate_path` | Supported |  |
-| `tls.certificate_public_key_sha256` | Error | Pinning the server's key: a server that should be refused would be taken |
+| `tls.certificate_public_key_sha256` | Supported |  |
 | `tls.client_certificate` | Supported |  |
 | `tls.client_certificate_path` | Supported |  |
 | `tls.client_key` | Supported |  |
@@ -2515,13 +2515,13 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `tls.server_name` | Supported |  |
 | `tls.insecure` | Supported |  |
 | `tls.alpn` | Supported |  |
-| `tls.min_version` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.max_version` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.cipher_suites` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.curve_preferences` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
+| `tls.min_version` | Supported |  |
+| `tls.max_version` | Supported |  |
+| `tls.cipher_suites` | Error | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
+| `tls.curve_preferences` | Error | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
 | `tls.certificate` | Supported |  |
 | `tls.certificate_path` | Supported |  |
-| `tls.certificate_public_key_sha256` | Error | Pinning the server's key: a server that should be refused would be taken |
+| `tls.certificate_public_key_sha256` | Supported |  |
 | `tls.client_certificate` | Supported |  |
 | `tls.client_certificate_path` | Supported |  |
 | `tls.client_key` | Supported |  |
@@ -2627,13 +2627,13 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `tls.server_name` | Supported |  |
 | `tls.insecure` | Supported |  |
 | `tls.alpn` | Supported |  |
-| `tls.min_version` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.max_version` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.cipher_suites` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.curve_preferences` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
+| `tls.min_version` | Supported |  |
+| `tls.max_version` | Supported |  |
+| `tls.cipher_suites` | Error | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
+| `tls.curve_preferences` | Error | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
 | `tls.certificate` | Supported |  |
 | `tls.certificate_path` | Supported |  |
-| `tls.certificate_public_key_sha256` | Error | Pinning the server's key: a server that should be refused would be taken |
+| `tls.certificate_public_key_sha256` | Supported |  |
 | `tls.client_certificate` | Supported |  |
 | `tls.client_certificate_path` | Supported |  |
 | `tls.client_key` | Supported |  |

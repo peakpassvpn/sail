@@ -1080,7 +1080,7 @@
     "warnings": 0
   },
   "sing-box/0110.json": {
-    "error": "outbounds[2].tls.min_version: sail does not implement this field yet"
+    "error": "outbounds[2].network: sail does not implement this field yet"
   },
   "sing-box/0111.json": {
     "error": "dns.servers[0].detour: sail does not implement this field yet"
@@ -1115,10 +1115,10 @@
     "error": "[Group 25] outbound: filter[0]: invalid type: map, expected a string"
   },
   "sing-box/0121.json": {
-    "error": "outbounds[0].tls.certificate_public_key_sha256: sail does not implement this field yet"
+    "error": "route.rule_set[0].update_interval: invalid duration \"1d\", expected e.g. 500ms, 5s, 1m30s"
   },
   "sing-box/0122.json": {
-    "error": "outbounds[1].tls.certificate_public_key_sha256: sail does not implement this field yet"
+    "error": "outbounds[0].network: sail does not implement this field yet"
   },
   "sing-box/0123.json": {
     "error": "dns.fakeip: unknown field `fakeip`, expected one of `servers`, `rules`, `final`, `strategy`, `client_strategy`, `disable_cache`, `disable_expire`, `cache_capacity`, `optimistic`, `timeout`, `reverse_mapping`, `client_subnet`"
