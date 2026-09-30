@@ -755,7 +755,7 @@
     "warnings": 0
   },
   "sing-box/0010.json": {
-    "error": "route.rule_set[0].update_interval: invalid duration \"1d\", expected e.g. 500ms, 5s, 1m30s"
+    "error": "dns.rules[6]: the rule has no conditions; dns.final is where everything else goes"
   },
   "sing-box/0011.json": {
     "error": "dns.fakeip: unknown field `fakeip`, expected one of `servers`, `rules`, `final`, `strategy`, `client_strategy`, `disable_cache`, `disable_expire`, `cache_capacity`, `optimistic`, `timeout`, `reverse_mapping`, `client_subnet`"
@@ -927,7 +927,8 @@
     "error": "dns.rules[17]: the rule has no conditions; dns.final is where everything else goes"
   },
   "sing-box/0063.json": {
-    "error": "route.rule_set[0].update_interval: invalid duration \"5d\", expected e.g. 500ms, 5s, 1m30s"
+    "ok": true,
+    "warnings": 1
   },
   "sing-box/0064.json": {
     "error": "dns.rules[2].geoip: sail does not implement this field yet"
@@ -983,7 +984,7 @@
     "error": "dns.servers[0]: missing field `type`"
   },
   "sing-box/0081.json": {
-    "error": "route.rule_set[0].update_interval: invalid duration \"1d\", expected e.g. 500ms, 5s, 1m30s"
+    "error": "route.rules[0]: outbound [Proxy 3] does not exist"
   },
   "sing-box/0082.json": {
     "error": "dns.servers[0]: missing field `type`"
@@ -1143,7 +1144,8 @@
     "error": "dns.fakeip: unknown field `fakeip`, expected one of `servers`, `rules`, `final`, `strategy`, `client_strategy`, `disable_cache`, `disable_expire`, `cache_capacity`, `optimistic`, `timeout`, `reverse_mapping`, `client_subnet`"
   },
   "sing-box/0130.json": {
-    "error": "route.rule_set[0].update_interval: invalid duration \"1d\", expected e.g. 500ms, 5s, 1m30s"
+    "ok": true,
+    "warnings": 1
   },
   "sing-box/0131.json": {
     "error": "dns.servers[2].detour: sail does not implement this field yet"

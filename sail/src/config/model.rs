@@ -3023,13 +3023,16 @@ fn group_members(group: &Outbound) -> Vec<(String, &str)> {
 }
 
 /// Parses a duration as sing-box writes them: a sequence of numbers with
-/// units, `500ms`, `5s`, `1m30s`, `2h`.
+/// units, `500ms`, `5s`, `1m30s`, `2h`, `7d`; or `0`.
 pub fn parse_duration(s: &str) -> Result<std::time::Duration> {
     let invalid = || anyhow!("invalid duration \"{}\", expected e.g. 500ms, 5s, 1m30s", s);
     let mut total = std::time::Duration::ZERO;
     let mut rest = s.trim();
     if rest.is_empty() {
         return Err(invalid());
+    }
+    if rest == "0" {
+        return Ok(total);
     }
     while !rest.is_empty() {
         let digits = rest
@@ -3042,11 +3045,13 @@ pub fn parse_duration(s: &str) -> Result<std::time::Duration> {
             .unwrap_or(rest.len());
         let seconds = match &rest[..unit_len] {
             "ns" => 1e-9,
-            "us" | "µs" => 1e-6,
+            // The micro sign, and the Greek mu.
+            "us" | "\u{b5}s" | "\u{3bc}s" => 1e-6,
             "ms" => 1e-3,
             "s" => 1.0,
             "m" => 60.0,
             "h" => 3600.0,
+            "d" => 86400.0,
             _ => return Err(invalid()),
         };
         let part =
@@ -3504,6 +3509,20 @@ mod tests {
         assert_eq!(parse_duration("5s").unwrap(), Duration::from_secs(5));
         assert_eq!(parse_duration("1m30s").unwrap(), Duration::from_secs(90));
         assert_eq!(parse_duration("1.5h").unwrap(), Duration::from_secs(5400));
+        // Days, as sing-box's options take them.
+        assert_eq!(
+            parse_duration("7d").unwrap(),
+            Duration::from_secs(7 * 86400)
+        );
+        assert_eq!(
+            parse_duration("1d2h").unwrap(),
+            Duration::from_secs(86400 + 7200)
+        );
+        assert_eq!(parse_duration("0").unwrap(), Duration::ZERO);
+        assert_eq!(
+            parse_duration("3\u{3bc}s").unwrap(),
+            Duration::from_micros(3)
+        );
         for bad in ["", "5", "s", "5 s", "5x", "-1s"] {
             assert!(parse_duration(bad).is_err(), "{:?}", bad);
         }
