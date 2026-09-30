@@ -201,7 +201,8 @@ pub fn external(body: &str, warnings: &mut Vec<String>) -> Result<Option<Vec<Ext
                 let kind = rest.split(',').next().unwrap_or_default().trim();
                 let kind = kind.to_ascii_lowercase();
                 !name.contains("://")
-                    && (TYPES.contains(&kind.as_str()) || TYPES_LATER.contains(&kind.as_str()))
+                    && (TYPES.contains(&kind.as_str())
+                        || TYPES_LATER.iter().any(|(k, _)| *k == kind))
             })
     };
     if !body.lines().any(policy) {
@@ -479,16 +480,33 @@ const TYPES: &[&str] = &[
     "wireguard",
 ];
 
-/// The policy types Surge takes that sail does not implement yet.
-const TYPES_LATER: &[&str] = &[
-    "snell",
-    "tuic",
-    "ssh",
-    "trust-tunnel",
-    "masque",
-    "external",
-    "tailscale",
-    "h2-connect",
+/// The policy types Surge takes that sail does not implement, and why.
+const TYPES_LATER: &[(&str, &str)] = &[
+    (
+        "snell",
+        "sail does not implement Snell: versions 4 and 5, which most \
+         servers run, have no public specification",
+    ),
+    ("tuic", "TUIC v4 is not supported; use tuic-v5"),
+    ("ssh", "sail does not implement SSH policies yet"),
+    (
+        "trust-tunnel",
+        "sail does not implement TrustTunnel policies yet",
+    ),
+    ("masque", "sail does not implement MASQUE policies yet"),
+    (
+        "external",
+        "sail does not run external proxy programs; run the program and \
+         point a socks5 policy at it",
+    ),
+    (
+        "tailscale",
+        "sail does not implement Tailscale policies yet",
+    ),
+    (
+        "h2-connect",
+        "sail does not implement HTTP/2 CONNECT policies yet",
+    ),
 ];
 
 /// How `external-policy-modifier` takes the parameters it does not
@@ -546,12 +564,12 @@ fn read(rest: &str, at: &str, warnings: &mut Vec<String>) -> Result<Read> {
     }
     match kind.as_str() {
         kind if TYPES.contains(&kind) => {}
-        kind if TYPES_LATER.contains(&kind) => {
-            return Err(anyhow!(
-                "{}: sail does not implement {} policies yet (C.5d)",
-                at,
-                kind
-            ))
+        kind if TYPES_LATER.iter().any(|(k, _)| *k == kind) => {
+            let why = TYPES_LATER
+                .iter()
+                .find(|(k, _)| *k == kind)
+                .map_or("", |(_, why)| why);
+            return Err(anyhow!("{}: {}", at, why));
         }
         other => {
             return Err(anyhow!(

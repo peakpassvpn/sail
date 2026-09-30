@@ -605,7 +605,7 @@ fn mistakes_name_where_they_are() {
         ),
         (
             "[Proxy]\nA = snell, a, 1, psk=p\n[Rule]\nFINAL,DIRECT\n",
-            "[Proxy] line 2: A: sail does not implement snell policies yet (C.5d)",
+            "[Proxy] line 2: A: sail does not implement Snell: versions 4 and 5",
         ),
         (
             "[Proxy]\nREJECT = direct\n",
