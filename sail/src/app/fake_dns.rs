@@ -101,7 +101,6 @@ impl FakeDnsImpl {
 
         let raw_name = query.name();
 
-        // TODO check if a valid domain
         let domain = if raw_name.is_fqdn() {
             let fqdn = raw_name.to_ascii();
             fqdn[..fqdn.len() - 1].to_string()

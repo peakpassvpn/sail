@@ -389,8 +389,6 @@ impl RuntimeManager {
     /// are all built before any is replaced: a configuration that fails to
     /// build changes nothing. Connections already routed keep what they
     /// were routed with.
-    //
-    // TODO Reload FakeDns.
     pub async fn reload(&self) -> Result<(), Error> {
         let config_path = if let Some(p) = self.config_path.as_ref() {
             p
