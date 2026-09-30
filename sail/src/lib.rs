@@ -266,7 +266,7 @@ impl RuntimeManager {
         let _update = self.update.lock().await;
         self.dns_client.load().network_changed().await;
         // Every connection, until each tells the interface it is bound to.
-        let closed = self.stat_manager.read().await.close_all();
+        let closed = self.stat_manager.close_all();
         // What the outbounds keep of the network before: every outbound,
         // endpoint and provider member hears of it once.
         let outbounds = self.outbound_manager.load_full();
@@ -453,7 +453,7 @@ impl RuntimeManager {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .stop_listening();
-        let open = self.stat_manager.read().await.open_streams();
+        let open = self.stat_manager.open_streams();
         if open == 0 {
             return;
         }
@@ -465,7 +465,7 @@ impl RuntimeManager {
             // How soon the stop follows the last connection; judgment, as
             // it costs one count a tick.
             let mut tick = tokio::time::interval(std::time::Duration::from_millis(100));
-            while self.stat_manager.read().await.open_streams() > 0 {
+            while self.stat_manager.open_streams() > 0 {
                 tick.tick().await;
             }
         };
@@ -473,7 +473,7 @@ impl RuntimeManager {
             _ = finished => info!("stopping: every connection finished"),
             _ = tokio::time::sleep(timeout) => info!(
                 "stopping: {} connections still open after {:?} are closed",
-                self.stat_manager.read().await.open_streams(),
+                self.stat_manager.open_streams(),
                 timeout
             ),
             signal = interrupted => info!("{} again: stopping now", signal),
