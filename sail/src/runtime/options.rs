@@ -118,6 +118,14 @@ pub struct Netstack {
     pub command_channel_size: usize,
     /// Datagrams queued from the stack towards NAT.
     pub udp_uplink_channel_size: usize,
+    /// The receive window a TCP connection of the stack starts with, in
+    /// KiB, reserved from the budget when it opens: the budget's TCP bytes
+    /// over this bound how many connections the stack holds at once.
+    pub receive_window: usize,
+    /// The most a connection's receive window grows to while it is read as
+    /// fast as it arrives, in KiB, each step reserved when granted; equal to
+    /// `receive_window`, windows do not grow.
+    pub receive_window_max: usize,
 }
 
 /// A budget preset of the TUN inbound's stack.
@@ -304,6 +312,10 @@ impl RuntimeOptions {
                 offload: false,
                 command_channel_size: 512,
                 udp_uplink_channel_size: 256,
+                // As the server profile's, whose measurement this shares the code of;
+                // 2000 connections opened with it (measured).
+                receive_window: 16,
+                receive_window_max: 256,
             },
             inbound: Inbound {
                 handshake_timeout: Duration::from_secs(60),
@@ -354,6 +366,12 @@ impl RuntimeOptions {
                     offload: false,
                     command_channel_size: 256,
                     udp_uplink_channel_size: 128,
+                    // Measured over a Linux TUN, one upload stream: windows fixed at 16 KiB
+                    // carried 414 Mbit/s, growing from 4 KiB to 64 KiB 1056 and to 256 KiB
+                    // 1124 (medians of 3). Starting at 4 KiB, 2000 connections reserve 8 MiB
+                    // of the budget's 12; at 16 KiB only 653 of 2000 opened.
+                    receive_window: 4,
+                    receive_window_max: 64,
                 },
                 inbound: Inbound {
                     multiplex_accept_concurrency: 64,
@@ -388,6 +406,11 @@ impl RuntimeOptions {
                     offload: false,
                     command_channel_size: 128,
                     udp_uplink_channel_size: 64,
+                    // As mobile's: at 16 KiB 436 of 2000 connections opened, at 4 KiB 1753,
+                    // which another budget than the TCP bytes then bounds (2 KiB opened
+                    // 1736); one upload stream carried 590 to 736 Mbit/s (measured).
+                    receive_window: 4,
+                    receive_window_max: 64,
                 },
                 inbound: Inbound {
                     multiplex_accept_concurrency: 32,
@@ -432,6 +455,10 @@ impl RuntimeOptions {
                     offload: true,
                     command_channel_size: 1024,
                     udp_uplink_channel_size: 1024,
+                    // Measured as mobile's: fixed at 16 KiB, one upload stream carried 319
+                    // Mbit/s; growing to 256 KiB, 1811; to 1024 KiB, 1693.
+                    receive_window: 16,
+                    receive_window_max: 256,
                 },
                 inbound: Inbound {
                     multiplex_accept_concurrency: 1024,

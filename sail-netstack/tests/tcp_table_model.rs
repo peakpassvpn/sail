@@ -1310,6 +1310,62 @@ fn defensive_ack_limiter_bounds_unacceptable_segment_responses() {
     assert_eq!(table.stats().defensive_acks_sent, 3);
 }
 
+/// Fills the receive window of a fresh flow, lets `elapsed_ms` pass, reads
+/// it all, and returns the window the read's update announces, the growths
+/// counted, and the payload bytes the ledger holds.
+fn fill_and_read(
+    tcp_payload_bytes: usize,
+    max_receive_credit_bytes: Option<usize>,
+    elapsed_ms: u64,
+) -> (u32, u64, usize) {
+    let mut budget = BudgetProfile::Router.budget();
+    budget.tcp_payload_bytes = tcp_payload_bytes;
+    let ledger = ResourceLedger::new(budget).unwrap();
+    let mut table = TcpTable::new(
+        Arc::clone(&ledger),
+        NetworkGeneration::new(1),
+        TcpTableConfig {
+            receive_credit_bytes: 1_024,
+            max_receive_credit_bytes,
+            ..TcpTableConfig::default()
+        },
+    );
+    let (source, destination) = endpoints(40);
+    let (token, server_next) = handshake(&mut table, source, destination);
+    table.accept(token).unwrap();
+    let data = packet(
+        source,
+        destination,
+        101,
+        server_next,
+        TcpFlags::ACK,
+        &[7; 1_024],
+    );
+    table.ingest(&data).unwrap();
+    table.advance_clock(elapsed_ms).unwrap();
+    let read = table.read(token, 1_024).unwrap();
+    assert_eq!(read.bytes.len(), 1_024);
+    let update = parse_tcp_segment(parse_ip_packet(&read.outgoing[0], true).unwrap(), true)
+        .unwrap();
+    (
+        update.meta.window,
+        table.stats().receive_window_growths,
+        ledger.snapshot().used[ResourceKind::TcpPayloadBytes as usize],
+    )
+}
+
+/// A flow whose application reads its whole window within a round trip
+/// gets a window twice as large, reserved before it is announced; without
+/// a ceiling, before a round trip passed, or when the budget refuses the
+/// step, the window stays.
+#[test]
+fn a_receive_window_the_reader_keeps_up_with_doubles_within_its_budget() {
+    assert_eq!(fill_and_read(1 << 20, Some(4_096), 1), (2_048, 1, 2_048));
+    assert_eq!(fill_and_read(1 << 20, None, 1), (1_024, 0, 1_024));
+    assert_eq!(fill_and_read(1 << 20, Some(4_096), 0), (1_024, 0, 1_024));
+    assert_eq!(fill_and_read(1_024, Some(4_096), 1), (1_024, 0, 1_024));
+}
+
 #[test]
 fn handshake_reserves_credit_before_advertising_and_bounds_accept_queue() {
     let mut budget = BudgetProfile::Router.budget();

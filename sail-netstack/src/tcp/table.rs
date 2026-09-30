@@ -40,7 +40,12 @@ pub enum AcceptOverflowPolicy {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct TcpTableConfig {
+    /// The receive window a flow starts with, reserved when it opens.
     pub receive_credit_bytes: usize,
+    /// The most a flow's receive window grows to while the application
+    /// reads as fast as it arrives, each step reserved when granted; with
+    /// none, the window stays as it started.
+    pub max_receive_credit_bytes: Option<usize>,
     /// The most payload one segment carries, whatever the link allows.
     pub max_segment_payload_bytes: usize,
     /// The MTU of the link the table's packets cross, when known. Each flow
@@ -77,6 +82,7 @@ impl Default for TcpTableConfig {
     fn default() -> Self {
         Self {
             receive_credit_bytes: 16 * 1024,
+            max_receive_credit_bytes: None,
             max_segment_payload_bytes: 1_200,
             link_mtu: None,
             hop_limit: 64,
@@ -168,6 +174,12 @@ struct TcpFlow {
     _flow_lease: BudgetLease,
     _metadata_lease: BudgetLease,
     _receive_credit: BudgetLease,
+    /// Receive capacity added since the flow opened, one lease a step.
+    receive_growth: Vec<BudgetLease>,
+    /// When the current measure of the application's reading began, and
+    /// what it has read since.
+    read_measure_start_ms: u64,
+    read_measure_bytes: usize,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -300,6 +312,8 @@ pub struct TcpRead {
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct TcpTableStats {
+    /// Times a flow's receive window grew.
+    pub receive_window_growths: u64,
     pub active_flows: usize,
     pub peak_active_flows: usize,
     pub time_wait: usize,
@@ -495,6 +509,12 @@ impl TcpTable {
         assert!(
             config.receive_credit_bytes > 0,
             "TCP receive credit must be non-zero"
+        );
+        assert!(
+            config
+                .max_receive_credit_bytes
+                .is_none_or(|max| max >= config.receive_credit_bytes),
+            "TCP receive window ceiling must not be below its start"
         );
         assert!(
             config.max_segment_payload_bytes > 0,
@@ -799,7 +819,7 @@ impl TcpTable {
         let id = FlowId::new(self.next_flow_id);
         let isn = self.initial_sequence(key, id);
         let timestamp_offset = self.timestamp_offset(key);
-        let local_window_scale = window_scale_for(self.config.receive_credit_bytes);
+        let local_window_scale = window_scale_for(self.receive_window_ceiling());
         let local_mss = self.local_mss(remote);
         let (tcb, actions) = TcpTcb::connect(
             isn,
@@ -845,6 +865,9 @@ impl TcpTable {
                 _flow_lease: flow_lease,
                 _metadata_lease: metadata_lease,
                 _receive_credit: receive_credit,
+                receive_growth: Vec::new(),
+                read_measure_start_ms: self.now_ms,
+                read_measure_bytes: 0,
             },
         );
         self.by_id.insert(id, key);
@@ -991,7 +1014,7 @@ impl TcpTable {
         let max_send_segment_bytes = self.passive_segment_bytes(key, &options);
         let local_window_scale = options
             .window_scale
-            .map_or(0, |_| window_scale_for(self.config.receive_credit_bytes));
+            .map_or(0, |_| window_scale_for(self.receive_window_ceiling()));
         let (tcb, actions) = TcpTcb::from_syn_with_options(
             segment,
             isn,
@@ -1041,6 +1064,9 @@ impl TcpTable {
                 _flow_lease: flow_lease,
                 _metadata_lease: metadata_lease,
                 _receive_credit: receive_credit,
+                receive_growth: Vec::new(),
+                read_measure_start_ms: self.now_ms,
+                read_measure_bytes: 0,
             },
         );
         self.by_id.insert(id, key);
@@ -1382,6 +1408,14 @@ impl TcpTable {
                 flow.receive.pop_front();
             }
         }
+        grow_receive_window(
+            &self.ledger,
+            flow,
+            amount,
+            self.now_ms,
+            self.config.max_receive_credit_bytes,
+            &mut self.stats.receive_window_growths,
+        );
         let actions = flow.tcb.on_app_event(crate::AppEvent::Consumed(amount))?;
         let id = flow.id;
         let rendered = self.render_actions(key, id, &actions)?;
@@ -1698,6 +1732,14 @@ impl TcpTable {
     #[must_use]
     pub const fn max_segment_payload_bytes(&self) -> usize {
         self.config.max_segment_payload_bytes
+    }
+
+    /// The most receive window a flow may reach, which its window scale must
+    /// be able to announce.
+    fn receive_window_ceiling(&self) -> usize {
+        self.config
+            .max_receive_credit_bytes
+            .unwrap_or(self.config.receive_credit_bytes)
     }
 
     /// Sets the MTU flows opened from now on size their segments by; flows
@@ -3337,6 +3379,50 @@ fn pending_resegment_control(flow: &TcpFlow, old_send_unacked: SeqNumber) -> Opt
         flags: TcpFlags::ACK,
         window: flow.tcb.advertised_window(),
     })
+}
+
+/// Doubles a flow's receive window, up to `max`, when the application read
+/// at least half of it within one round trip: the window, not the reader,
+/// may be what holds the peer back. This is the test Linux's receive buffer
+/// autotuning makes (`tcp_rcv_space_adjust`), with a window that grows but
+/// never shrinks. Each step is reserved first; when the budget refuses it,
+/// the window stays.
+fn grow_receive_window(
+    ledger: &Arc<ResourceLedger>,
+    flow: &mut TcpFlow,
+    read: usize,
+    now_ms: u64,
+    max: Option<usize>,
+    growths: &mut u64,
+) {
+    let Some(max) = max else {
+        return;
+    };
+    flow.read_measure_bytes = flow.read_measure_bytes.saturating_add(read);
+    // The table's clock counts milliseconds: a round trip within one is
+    // measured over one.
+    let round_trip_ms = flow.tcb.smoothed_rtt_ms().unwrap_or(0).max(1);
+    if now_ms.saturating_sub(flow.read_measure_start_ms) < round_trip_ms {
+        return;
+    }
+    let capacity = flow.tcb.receive_capacity();
+    let ceiling = max.min(flow.tcb.announceable_receive_capacity());
+    if flow.read_measure_bytes.saturating_mul(2) >= capacity && capacity < ceiling {
+        let additional = capacity.min(ceiling - capacity);
+        if let Ok(lease) = ledger.try_acquire(ResourceKind::TcpPayloadBytes, additional) {
+            flow.receive_growth.push(lease);
+            flow.tcb.grow_receive_capacity(additional);
+            increment_counter(growths);
+            debug_assert_eq!(
+                flow._receive_credit.amount()
+                    + flow.receive_growth.iter().map(BudgetLease::amount).sum::<usize>(),
+                flow.tcb.receive_capacity(),
+                "receive capacity is reserved in full"
+            );
+        }
+    }
+    flow.read_measure_start_ms = now_ms;
+    flow.read_measure_bytes = 0;
 }
 
 fn flow_became_writable(

@@ -534,6 +534,35 @@ impl TcpTcb {
     }
 
     #[must_use]
+    pub const fn receive_capacity(&self) -> usize {
+        self.recv_capacity
+    }
+
+    /// The most receive capacity this connection can announce: a window of
+    /// 16 bits, in units of its window scale (RFC 7323 2.2).
+    #[must_use]
+    pub fn announceable_receive_capacity(&self) -> usize {
+        advertisable_receive_capacity(usize::MAX, self.receive_window_scale)
+    }
+
+    #[must_use]
+    pub const fn smoothed_rtt_ms(&self) -> Option<u64> {
+        self.rto.smoothed_rtt_ms()
+    }
+
+    /// Adds receive capacity the caller has reserved. The window never
+    /// shrinks, so capacity only grows; the larger window goes out with the
+    /// next window update.
+    pub(crate) fn grow_receive_capacity(&mut self, additional: usize) {
+        self.recv_capacity += additional;
+        self.window_update_threshold = window_update_threshold(
+            self.congestion.maximum_segment_size(),
+            self.recv_capacity,
+            self.receive_window_scale,
+        );
+    }
+
+    #[must_use]
     pub const fn receive_available(&self) -> usize {
         self.recv_capacity - self.recv_buffered
     }

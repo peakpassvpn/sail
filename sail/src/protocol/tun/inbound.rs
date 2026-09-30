@@ -137,6 +137,22 @@ async fn handle_datagrams(
     }
 }
 
+/// Packets a step of the stack sends, and receives, while the TUN takes or
+/// has them at once; see `RunnerConfig::packets_per_step`. Measured on a
+/// Linux TUN at MTU 9000 with the mobile profile's one-packet batches: one
+/// took 24.9 s of CPU a GiB downloaded (median of 5), 8 to 64 took 9.7 to
+/// 11.0 s and could not be told apart; 64 and 256 held uploads lower in a
+/// first run. Sixteen sits within that range.
+const PACKETS_PER_STEP: usize = 16;
+
+/// A connection's receive window: where it starts, reserved when it opens,
+/// and how far it may grow.
+fn set_receive_window(tcp: &mut sail_netstack::TcpTableConfig, netstack: &Netstack) {
+    tcp.receive_credit_bytes = netstack.receive_window.max(1) << 10;
+    tcp.max_receive_credit_bytes = (netstack.receive_window_max > netstack.receive_window)
+        .then_some(netstack.receive_window_max << 10);
+}
+
 fn run<I: sail_netstack::PacketIo + 'static>(
     inbound: Inbound,
     dispatcher: Arc<Dispatcher>,
@@ -160,6 +176,8 @@ fn run<I: sail_netstack::PacketIo + 'static>(
     let udp_idle = inbound.udp_timeout() + dispatcher.env().options.udp.session_check_interval;
     config.udp_idle_timeout_ms = u64::try_from(udp_idle.as_millis()).unwrap_or(u64::MAX);
     config.tcp.keepalive_idle_ms = Some(2 * 60 * 60 * 1_000);
+    config.packets_per_step = PACKETS_PER_STEP;
+    set_receive_window(&mut config.tcp, netstack);
     let (runtime, mut accepted, datagrams, udp_reply, mut control) = NativeRuntimeGroup::new(
         queues,
         ledger,
@@ -897,6 +915,66 @@ fn cfg_opened_here(dispatcher: &Dispatcher) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The mobile profile's stack takes 2000 connections at once. Every
+    /// connection reserves its starting receive window from the budget, and
+    /// at 16 KiB a window the budget's 12 MiB of TCP bytes held only about
+    /// 700 (653 of 2000 over a Linux TUN, measured).
+    #[test]
+    fn the_mobile_stack_holds_two_thousand_connections() {
+        use sail_netstack::{
+            emit_tcp_segment, parse_ip_packet, parse_tcp_segment, NetworkGeneration, SendControl,
+            SeqNumber, TcpEvent, TcpFlags, TcpTable, TcpTableConfig,
+        };
+        let netstack =
+            crate::runtime::RuntimeOptions::profile(crate::runtime::Profile::Mobile).netstack;
+        let ledger = ResourceLedger::new(budget_profile(netstack.budget).budget()).unwrap();
+        let mut config = TcpTableConfig::default();
+        set_receive_window(&mut config, &netstack);
+        let mut table = TcpTable::new(ledger, NetworkGeneration::new(1), config);
+        let destination = SocketAddr::from(([10, 96, 0, 1], 443));
+        let segment = |source, sequence, acknowledgment, flags| {
+            emit_tcp_segment(
+                source,
+                destination,
+                SendControl {
+                    sequence: SeqNumber::new(sequence),
+                    acknowledgment: SeqNumber::new(acknowledgment),
+                    flags,
+                    window: 65_535,
+                },
+                &[],
+                64,
+                1,
+            )
+            .unwrap()
+        };
+        for index in 0..2_000_u16 {
+            let source = SocketAddr::from(([172, 19, 0, 1], 10_000 + index));
+            let syn_ack = table
+                .ingest(&segment(source, 100, 0, TcpFlags::SYN))
+                .unwrap()
+                .outgoing
+                .pop()
+                .unwrap_or_else(|| panic!("connection {index}: no SYN-ACK"));
+            let syn_ack = parse_tcp_segment(parse_ip_packet(&syn_ack, true).unwrap(), true)
+                .unwrap()
+                .meta;
+            let ack = segment(
+                source,
+                101,
+                syn_ack.sequence.wrapping_add(1).get(),
+                TcpFlags::ACK,
+            );
+            match table.ingest(&ack).unwrap().events.as_slice() {
+                [TcpEvent::Accepted(connection)] => {
+                    table.accept(connection.token).unwrap();
+                }
+                events => panic!("connection {index} did not open: {events:?}"),
+            }
+        }
+        assert_eq!(table.stats().active_flows, 2_000);
+    }
 
     fn tun(options: serde_json::Value) -> Inbound {
         Inbound {
