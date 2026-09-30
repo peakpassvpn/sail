@@ -169,6 +169,15 @@ impl Answers {
             .insert(key.clone())
     }
 
+    /// How many questions are being asked again in the background now.
+    #[cfg(test)]
+    pub(super) fn refreshing(&self) -> usize {
+        self.refreshing
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .len()
+    }
+
     pub(super) fn refreshed(&self, key: &AnswerKey) {
         self.refreshing
             .lock()

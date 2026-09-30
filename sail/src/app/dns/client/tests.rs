@@ -1521,8 +1521,10 @@ mod tests {
         let stale = exchange(&client, "a.example", RecordType::A).await;
         assert_eq!(answer_ips(&stale), ips(&["10.0.0.1"]));
         assert_eq!(stale.answers()[0].ttl, 1);
-        for _ in 0..100 {
-            if asked(&count) == 2 && client.cache_stats().entries == 1 {
+        // Until the answer asked for behind is in the cache: asked, and
+        // put. A loaded machine takes its time.
+        for _ in 0..1000 {
+            if asked(&count) == 2 && client.answers.refreshing() == 0 {
                 break;
             }
             tokio::time::sleep(Duration::from_millis(10)).await;
