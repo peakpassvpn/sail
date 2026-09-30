@@ -267,6 +267,18 @@ impl RuntimeManager {
         self.dns_client.load().network_changed().await;
         // Every connection, until each tells the interface it is bound to.
         let closed = self.stat_manager.read().await.close_all();
+        // What the outbounds keep of the network before: every outbound,
+        // endpoint and provider member hears of it once.
+        let outbounds = self.outbound_manager.load_full();
+        for handler in outbounds.handlers() {
+            handler.network_changed(change);
+        }
+        #[cfg(feature = "outbound-provider")]
+        for members in outbounds.providers().members().values() {
+            for member in members.load().members.iter() {
+                member.handler.network_changed(change);
+            }
+        }
         #[cfg(feature = "inbound-tun")]
         if self.tun_control.is_some() {
             if let Err(e) = self.reset_tun_flows().await {

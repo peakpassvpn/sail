@@ -58,6 +58,12 @@ pub trait OutboundHandler: BaseHandler {
     fn is_pass(&self) -> bool {
         false
     }
+
+    /// The network changed so that connections made on the one before do
+    /// not survive: what the handler keeps of it (pooled sessions,
+    /// connections, measurements) is dropped or made anew, as sing-box's
+    /// InterfaceUpdated. Connections open are closed by the instance.
+    fn network_changed(&self, _change: &crate::net::network::NetworkChange) {}
 }
 
 pub type AnyOutboundHandler = Arc<dyn OutboundHandler>;
@@ -92,6 +98,12 @@ pub trait OutboundStreamHandler: Send + Sync + Unpin {
         lhs: Option<&mut AnyStream>,
         stream: Option<AnyStream>,
     ) -> io::Result<AnyStream>;
+
+    /// The network changed so that connections made on the one before do
+    /// not survive: what the handler keeps of it (pooled sessions,
+    /// connections, measurements) is dropped or made anew, as sing-box's
+    /// InterfaceUpdated. Connections open are closed by the instance.
+    fn network_changed(&self, _change: &crate::net::network::NetworkChange) {}
 }
 
 pub type AnyOutboundStreamHandler = Arc<dyn OutboundStreamHandler>;
@@ -145,6 +157,12 @@ pub trait OutboundDatagramHandler: Send + Sync + Unpin {
         sess: &'a Session,
         transport: Option<AnyOutboundTransport>,
     ) -> io::Result<AnyOutboundDatagram>;
+
+    /// The network changed so that connections made on the one before do
+    /// not survive: what the handler keeps of it (pooled sessions,
+    /// connections, measurements) is dropped or made anew, as sing-box's
+    /// InterfaceUpdated. Connections open are closed by the instance.
+    fn network_changed(&self, _change: &crate::net::network::NetworkChange) {}
 }
 
 pub type AnyOutboundDatagramHandler = Arc<dyn OutboundDatagramHandler>;

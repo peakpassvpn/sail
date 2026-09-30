@@ -53,6 +53,16 @@ impl OutboundHandler for Handler {
     fn is_pass(&self) -> bool {
         self.is_pass
     }
+
+    /// Both its handlers hear of it; one that is both hears twice.
+    fn network_changed(&self, change: &crate::net::network::NetworkChange) {
+        if let Some(stream) = &self.stream_handler {
+            stream.network_changed(change);
+        }
+        if let Some(datagram) = &self.datagram_handler {
+            datagram.network_changed(change);
+        }
+    }
 }
 
 impl Tag for Handler {
@@ -120,5 +130,55 @@ impl HandlerBuilder {
 impl Default for HandlerBuilder {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use super::*;
+    use crate::net::network::{ChangeReason, NetworkChange};
+
+    /// Counts the changes it hears of.
+    #[derive(Default)]
+    struct Heard(AtomicUsize);
+
+    #[async_trait]
+    impl OutboundStreamHandler for Heard {
+        fn connect_addr(&self) -> OutboundConnect {
+            OutboundConnect::Unknown
+        }
+
+        async fn handle<'a>(
+            &'a self,
+            _sess: &'a Session,
+            _lhs: Option<&mut AnyStream>,
+            _stream: Option<AnyStream>,
+        ) -> io::Result<AnyStream> {
+            Err(io::Error::other("not dialled here"))
+        }
+
+        fn network_changed(&self, _change: &NetworkChange) {
+            self.0.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    /// An outbound's handlers hear of a change of network.
+    #[test]
+    fn a_change_of_network_reaches_the_protocol() {
+        let heard = Arc::new(Heard::default());
+        let handler = HandlerBuilder::default()
+            .tag("t".into())
+            .stream_handler(heard.clone())
+            .build();
+        let change = NetworkChange {
+            generation: 1,
+            reason: ChangeReason::HostPush,
+            old: Default::default(),
+            new: Default::default(),
+        };
+        handler.network_changed(&change);
+        assert_eq!(heard.0.load(Ordering::SeqCst), 1);
     }
 }
