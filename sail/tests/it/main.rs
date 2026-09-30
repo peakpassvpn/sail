@@ -61,6 +61,7 @@ mod test_route_on_demand;
 mod test_route_sing_box;
 mod test_rule_set;
 mod test_shadowsocks;
+mod test_shadowtls;
 mod test_socks;
 mod test_socks_udp;
 mod test_ss2022;
