@@ -12,6 +12,7 @@
 //! a thread adds to a stripe of its own, and a read sums them.
 
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::future::Future;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::{io, pin::Pin};
@@ -411,26 +412,47 @@ impl Drop for Accounts {
 }
 
 /// A stream, counted. `client` when it is the client's side, whose reads
-/// are what is sent on.
+/// are what is sent on. With a rate-limited user, it reads and writes at
+/// most a millisecond of its rate at once, and after each waits for what the rate says
+/// before the next that way.
 pub struct Stream {
     inner: AnyStream,
     accounts: Accounts,
     client: bool,
+    read_wait: Option<Pin<Box<tokio::time::Sleep>>>,
+    write_wait: Option<Pin<Box<tokio::time::Sleep>>>,
 }
 
 impl Stream {
-    fn read(&self, n: u64) {
-        match self.client {
-            false => self.accounts.recvd(n),
-            true => self.accounts.sent(n),
+    fn new(inner: AnyStream, accounts: Accounts, client: bool) -> Self {
+        Stream {
+            inner,
+            accounts,
+            client,
+            read_wait: None,
+            write_wait: None,
         }
     }
 
-    fn written(&self, n: u64) {
-        match self.client {
-            false => self.accounts.sent(n),
-            true => self.accounts.recvd(n),
+    /// Whether what it reads goes up, to where the connection goes.
+    fn reads_up(&self) -> bool {
+        self.client
+    }
+
+    /// Counts `n` bytes read or written, `up` or down: how long what comes
+    /// next that way must wait.
+    fn count(&self, up: bool, n: u64) -> Option<std::time::Duration> {
+        match up {
+            true => self.accounts.sent(n),
+            false => self.accounts.recvd(n),
         }
+        let user = self.accounts.user.as_ref()?;
+        user.shape(up, n)
+    }
+
+    /// How much at most to read or write at once, `up` or down.
+    fn chunk(&self, up: bool) -> Option<usize> {
+        self.accounts.user.as_ref()?.chunk(up)
     }
 
     /// Marks the direction it reads, or writes, finished.
@@ -444,6 +466,19 @@ impl Stream {
     }
 }
 
+/// Waits out `wait`, if there is one, clearing it once over.
+fn poll_wait(wait: &mut Option<Pin<Box<tokio::time::Sleep>>>, cx: &mut Context) -> Poll<()> {
+    if let Some(sleep) = wait {
+        ready!(sleep.as_mut().poll(cx));
+        *wait = None;
+    }
+    Poll::Ready(())
+}
+
+fn sleep(wait: Option<std::time::Duration>) -> Option<Pin<Box<tokio::time::Sleep>>> {
+    wait.map(|wait| Box::pin(tokio::time::sleep(wait)))
+}
+
 impl AsyncRead for Stream {
     fn poll_read(
         mut self: Pin<&mut Self>,
@@ -453,12 +488,28 @@ impl AsyncRead for Stream {
         if self.accounts.counter.closer.poll_read_closed(cx) {
             return Poll::Ready(Err(closed_by_api()));
         }
-        let len = buf.filled().len();
+        ready!(poll_wait(&mut self.read_wait, cx));
+        let up = self.reads_up();
         let remaining = buf.remaining();
-        ready!(Pin::new(&mut self.inner).poll_read(cx, buf))?;
-        let new_len = buf.filled().len();
-        if new_len > len {
-            self.read((new_len - len) as u64);
+        let n = match self.chunk(up) {
+            None => {
+                let len = buf.filled().len();
+                ready!(Pin::new(&mut self.inner).poll_read(cx, buf))?;
+                buf.filled().len() - len
+            }
+            Some(chunk) => {
+                let mut part = buf.take(chunk);
+                ready!(Pin::new(&mut self.inner).poll_read(cx, &mut part))?;
+                let n = part.filled().len();
+                // What `part` filled is `buf`'s unfilled room.
+                unsafe { buf.assume_init(n) };
+                buf.advance(n);
+                n
+            }
+        };
+        if n > 0 {
+            let wait = self.count(up, n as u64);
+            self.read_wait = sleep(wait);
         } else if remaining > 0 {
             self.completed(true);
         }
@@ -475,22 +526,38 @@ impl AsyncWrite for Stream {
         if self.accounts.counter.closer.poll_write_closed(cx) {
             return Poll::Ready(Err(closed_by_api()));
         }
+        ready!(poll_wait(&mut self.write_wait, cx));
+        let up = !self.reads_up();
+        let buf = match self.chunk(up) {
+            Some(chunk) => &buf[..buf.len().min(chunk)],
+            None => buf,
+        };
         let n = ready!(Pin::new(&mut self.inner).poll_write(cx, buf))?;
-        self.written(n as u64);
+        let wait = self.count(up, n as u64);
+        self.write_wait = sleep(wait);
         Poll::Ready(Ok(n))
     }
 
-    // Forwarded so TLS can hand several records to one writev.
+    // Forwarded so TLS can hand several records to one writev; a user
+    // whose rate is limited writes a chunk of the first at once.
     fn poll_write_vectored(
         mut self: Pin<&mut Self>,
         cx: &mut Context,
         bufs: &[io::IoSlice<'_>],
     ) -> Poll<io::Result<usize>> {
+        let up = !self.reads_up();
+        if self.chunk(up).is_some() {
+            let first = bufs
+                .iter()
+                .find(|b| !b.is_empty())
+                .map_or(&[][..], |b| &**b);
+            return self.poll_write(cx, first);
+        }
         if self.accounts.counter.closer.poll_write_closed(cx) {
             return Poll::Ready(Err(closed_by_api()));
         }
         let n = ready!(Pin::new(&mut self.inner).poll_write_vectored(cx, bufs))?;
-        self.written(n as u64);
+        self.count(up, n as u64);
         Poll::Ready(Ok(n))
     }
 
@@ -543,11 +610,22 @@ impl Drop for DatagramRecvHalf {
 impl OutboundDatagramRecvHalf for DatagramRecvHalf {
     async fn recv_from(&mut self, buf: &mut [u8]) -> io::Result<(usize, SocksAddr)> {
         let accounts = self.1.clone();
-        let received = tokio::select! {
-            received = self.0.recv_from(buf) => received,
-            () = accounts.counter.closer.closed() => Err(closed_by_api()),
-        };
-        received.inspect(|&(n, _)| accounts.recvd(n as u64))
+        loop {
+            let received = tokio::select! {
+                received = self.0.recv_from(buf) => received,
+                () = accounts.counter.closer.closed() => Err(closed_by_api()),
+            }?;
+            // Over its user's rate: dropped, and not counted.
+            if accounts
+                .user
+                .as_ref()
+                .is_some_and(|user| !user.police(false, received.0 as u64))
+            {
+                continue;
+            }
+            accounts.recvd(received.0 as u64);
+            return Ok(received);
+        }
     }
 }
 
@@ -564,6 +642,15 @@ impl OutboundDatagramSendHalf for DatagramSendHalf {
     async fn send_to(&mut self, buf: &[u8], target: &SocksAddr) -> io::Result<usize> {
         if self.1.counter.closer.is_closed() {
             return Err(closed_by_api());
+        }
+        // Over its user's rate: dropped, and not counted.
+        if self
+            .1
+            .user
+            .as_ref()
+            .is_some_and(|user| !user.police(true, buf.len() as u64))
+        {
+            return Ok(buf.len());
         }
         self.0
             .send_to(buf, target)
@@ -765,21 +852,13 @@ impl StatManager {
 
     /// Counts `stream`, the outbound's side of a TCP connection.
     pub fn stat_stream(&self, stream: AnyStream, sess: Session) -> AnyStream {
-        Box::new(Stream {
-            inner: stream,
-            accounts: self.register(sess),
-            client: false,
-        })
+        Box::new(Stream::new(stream, self.register(sess), false))
     }
 
     /// Counts `stream`, the client's side of a TCP connection, for an
     /// outbound that gives no stream of its own.
     pub fn stat_inbound_stream(&self, stream: AnyStream, sess: Session) -> AnyStream {
-        Box::new(Stream {
-            inner: stream,
-            accounts: self.register(sess),
-            client: true,
-        })
+        Box::new(Stream::new(stream, self.register(sess), true))
     }
 
     /// Counts `dgram`, the outbound's side of a UDP session.

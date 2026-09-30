@@ -30,7 +30,12 @@ use std::time::SystemTime;
 use crate::app::stat_manager::{Counter, Counts};
 
 mod limits;
+mod rate;
 pub use limits::{Limits, Status};
+
+/// Bytes a second in a megabit a second, as sing-box's Hysteria2 counts
+/// `up_mbps`.
+const MBPS: u64 = 125_000;
 
 /// What sail keeps of a user while it runs.
 pub struct UserState {
@@ -44,6 +49,12 @@ pub struct UserState {
     quota_base: AtomicU64,
     /// What shuts the user out, as `Status` bits; none when it may connect.
     status: AtomicU8,
+    /// Its rates, bytes a second, up and down; 0 for none. Read on the
+    /// data path, where `limits` is not.
+    up_bps: AtomicU64,
+    down_bps: AtomicU64,
+    up_rate: rate::Gcra,
+    down_rate: rate::Gcra,
     /// The live connections, by id.
     live: Mutex<HashMap<u64, Arc<Counter>>>,
     /// The connections that carry others, a QUIC connection or a
@@ -94,6 +105,10 @@ impl UserState {
             quota_at: AtomicU64::new(u64::MAX),
             quota_base: AtomicU64::new(0),
             status: AtomicU8::new(0),
+            up_bps: AtomicU64::new(0),
+            down_bps: AtomicU64::new(0),
+            up_rate: rate::Gcra::default(),
+            down_rate: rate::Gcra::default(),
             live: Mutex::default(),
             carriers: Mutex::default(),
             removed: Mutex::default(),
@@ -251,6 +266,11 @@ impl UserState {
             None => u64::MAX,
         };
         let expired = limits.expire_at.is_some_and(|at| at <= now);
+        // The state of the rates is kept: a reload gives no new burst.
+        let bps = |mbps: Option<u64>| mbps.map_or(0, |mbps| mbps.saturating_mul(MBPS));
+        self.up_bps.store(bps(limits.up_mbps), Ordering::Relaxed);
+        self.down_bps
+            .store(bps(limits.down_mbps), Ordering::Relaxed);
         *self.limits.lock().unwrap_or_else(|e| e.into_inner()) = limits;
         self.quota_at.store(at, Ordering::Relaxed);
         let c = self.traffic.counts();
@@ -266,6 +286,48 @@ impl UserState {
         }
         self.clear(clear);
         self.shut(shut);
+    }
+
+    /// How much a stream of its reads or writes at once `up` or down, when
+    /// its rate that way is limited.
+    pub(crate) fn chunk(&self, up: bool) -> Option<usize> {
+        match self.bps(up) {
+            0 => None,
+            bps => Some(rate::chunk(bps)),
+        }
+    }
+
+    fn bps(&self, up: bool) -> u64 {
+        match up {
+            true => &self.up_bps,
+            false => &self.down_bps,
+        }
+        .load(Ordering::Relaxed)
+    }
+
+    fn rate(&self, up: bool) -> &rate::Gcra {
+        match up {
+            true => &self.up_rate,
+            false => &self.down_rate,
+        }
+    }
+
+    /// Counts `n` bytes against its rate `up` or down: how long what comes
+    /// next that way must wait. TCP is shaped.
+    pub(crate) fn shape(&self, up: bool, n: u64) -> Option<std::time::Duration> {
+        match self.bps(up) {
+            0 => None,
+            bps => self.rate(up).take(n, bps),
+        }
+    }
+
+    /// Whether a datagram of `n` bytes may go `up` or down within its rate;
+    /// one that may not is dropped. UDP is policed.
+    pub(crate) fn police(&self, up: bool, n: u64) -> bool {
+        match self.bps(up) {
+            0 => true,
+            bps => self.rate(up).admit(n, bps),
+        }
     }
 
     /// Resets the quota: what was used so far no longer counts.
@@ -965,6 +1027,145 @@ mod tests {
             assert_eq!(closes.load(Ordering::SeqCst), before + 1);
         }
 
+        /// A user's TCP goes at its rate, a burst ahead at most, in reads
+        /// and writes of a chunk at most; others' are not held back.
+        #[tokio::test]
+        async fn tcp_is_shaped_to_the_rate() {
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            let users = UserRegistry::default();
+            let alice = users.bind("alice");
+            let bob = users.bind("bob");
+            // 1 Mbps: 125 kB/s, a burst of 12.5 kB.
+            limited(
+                &users,
+                "alice",
+                Limits {
+                    up_mbps: Some(1),
+                    down_mbps: Some(1),
+                    ..Default::default()
+                },
+            );
+            let sm = StatManager::new(0, users.clone());
+
+            let (a, mut far) = tokio::io::duplex(1 << 20);
+            let mut s = sm.stat_stream(Box::new(a), session(&alice));
+            let started = std::time::Instant::now();
+            s.write_all(&[0u8; 50_000]).await.unwrap();
+            let took = started.elapsed();
+            // (50 kB - the burst) at 125 kB/s: 0.3 s.
+            assert!(
+                took >= Duration::from_millis(250) && took < Duration::from_secs(1),
+                "{:?}",
+                took
+            );
+
+            far.write_all(&[0u8; 100_000]).await.unwrap();
+            let mut buf = vec![0u8; 100_000];
+            // A millisecond at 1 Mbps, 125 bytes, is less than the least.
+            let n = s.read(&mut buf).await.unwrap();
+            assert_eq!(n, 1024);
+
+            let (b, mut bfar) = tokio::io::duplex(1 << 20);
+            let mut free = sm.stat_stream(Box::new(b), session(&bob));
+            let started = std::time::Instant::now();
+            free.write_all(&[0u8; 500_000]).await.unwrap();
+            assert!(started.elapsed() < Duration::from_millis(200));
+            bfar.write_all(&[0u8; 100_000]).await.unwrap();
+            assert_eq!(free.read(&mut buf).await.unwrap(), 100_000);
+        }
+
+        /// A rate too large to count in bytes a second is no limit, not a
+        /// wrapped one.
+        #[tokio::test]
+        async fn an_enormous_rate_saturates() {
+            use tokio::io::AsyncWriteExt;
+            let users = UserRegistry::default();
+            let alice = users.bind("alice");
+            limited(
+                &users,
+                "alice",
+                Limits {
+                    up_mbps: Some(u64::MAX),
+                    down_mbps: Some(u64::MAX),
+                    ..Default::default()
+                },
+            );
+            let sm = StatManager::new(0, users.clone());
+            let (a, _far) = tokio::io::duplex(1 << 22);
+            let mut s = sm.stat_stream(Box::new(a), session(&alice));
+            let started = std::time::Instant::now();
+            s.write_all(&vec![0u8; 1 << 21]).await.unwrap();
+            assert!(started.elapsed() < Duration::from_secs(1));
+            assert!(alice.police(true, 65_535));
+            assert_eq!(alice.shape(true, 65_535), None);
+        }
+
+        /// A user's datagrams over its rate and burst are dropped, and not
+        /// counted.
+        #[tokio::test]
+        async fn udp_over_the_rate_is_dropped() {
+            use crate::adapter::{
+                OutboundDatagram, OutboundDatagramRecvHalf, OutboundDatagramSendHalf,
+            };
+            use crate::session::SocksAddr;
+            struct Sink(Arc<AtomicU64>);
+            #[async_trait::async_trait]
+            impl OutboundDatagramSendHalf for Sink {
+                async fn send_to(&mut self, buf: &[u8], _: &SocksAddr) -> std::io::Result<usize> {
+                    self.0.fetch_add(buf.len() as u64, Ordering::Relaxed);
+                    Ok(buf.len())
+                }
+                async fn close(&mut self) -> std::io::Result<()> {
+                    Ok(())
+                }
+            }
+            struct Never;
+            #[async_trait::async_trait]
+            impl OutboundDatagramRecvHalf for Never {
+                async fn recv_from(&mut self, _: &mut [u8]) -> std::io::Result<(usize, SocksAddr)> {
+                    std::future::pending().await
+                }
+            }
+            struct Datagram(Arc<AtomicU64>);
+            impl OutboundDatagram for Datagram {
+                fn split(
+                    self: Box<Self>,
+                ) -> (
+                    Box<dyn OutboundDatagramRecvHalf>,
+                    Box<dyn OutboundDatagramSendHalf>,
+                ) {
+                    (Box::new(Never), Box::new(Sink(self.0)))
+                }
+            }
+            let users = UserRegistry::default();
+            let alice = users.bind("alice");
+            limited(
+                &users,
+                "alice",
+                Limits {
+                    up_mbps: Some(1),
+                    ..Default::default()
+                },
+            );
+            let sm = StatManager::new(0, users.clone());
+            let sent = Arc::new(AtomicU64::new(0));
+            let mut sess = session(&alice);
+            sess.network = Network::Udp;
+            let (_r, mut s) = sm
+                .stat_outbound_datagram(Box::new(Datagram(sent.clone())), sess)
+                .split();
+            for _ in 0..100 {
+                assert_eq!(
+                    s.send_to(&[0u8; 1200], &SocksAddr::any()).await.unwrap(),
+                    1200
+                );
+            }
+            // The 12.5 kB burst, and the one datagram it overlaps.
+            let sent = sent.load(Ordering::Relaxed);
+            assert!((12_000..=14_400).contains(&sent), "{}", sent);
+            assert_eq!(alice.traffic().counts().up, sent);
+        }
+
         #[test]
         fn a_user_made_after_the_limits_is_limited_by_them() {
             let users = UserRegistry::default();
@@ -1006,7 +1207,8 @@ mod tests {
         fn user_limits_are_read_and_checked() {
             let c = with_limits(
                 r#"{"alice": {"max_connections": 3, "quota_bytes": 100,
-                              "expire_at": "2026-12-31T16:00:00+08:00"},
+                              "expire_at": "2026-12-31T16:00:00+08:00",
+                              "up_mbps": 5, "down_mbps": 50},
                     "bob": {}}"#,
                 true,
             )
@@ -1018,6 +1220,8 @@ mod tests {
                     max_connections: Some(3),
                     quota_bytes: Some(100),
                     expire_at: Some(SystemTime::UNIX_EPOCH + Duration::from_secs(1_798_704_000)),
+                    up_mbps: Some(5),
+                    down_mbps: Some(50),
                 }
             );
             assert_eq!(limits["bob"], Limits::default());
@@ -1037,6 +1241,16 @@ mod tests {
                     r#"{"alice": {"quota_bytes": 0}}"#,
                     true,
                     "user_limits.alice.quota_bytes: must be more than 0",
+                ),
+                (
+                    r#"{"alice": {"up_mbps": 0}}"#,
+                    true,
+                    "user_limits.alice.up_mbps: must be more than 0",
+                ),
+                (
+                    r#"{"alice": {"down_mbps": 0}}"#,
+                    true,
+                    "user_limits.alice.down_mbps: must be more than 0",
                 ),
                 (
                     r#"{"alice": {"quota_bytes": 1}}"#,

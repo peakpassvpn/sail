@@ -353,6 +353,13 @@ pub struct UserLimits {
     /// When it may no longer connect, in RFC 3339.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expire_at: Option<String>,
+    /// Its rate up, what its clients send, in Mbps: the unit of
+    /// sing-box's Hysteria2 `up_mbps`, not its direction.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub up_mbps: Option<u64>,
+    /// Its rate down, what its clients receive, in Mbps.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub down_mbps: Option<u64>,
 }
 
 impl UserLimits {
@@ -371,6 +378,14 @@ impl UserLimits {
                 "{}: must be more than 0; leave it out for no limit",
                 field("max_connections")
             ));
+        }
+        for (name, mbps) in [("up_mbps", self.up_mbps), ("down_mbps", self.down_mbps)] {
+            if mbps == Some(0) {
+                return Err(anyhow!(
+                    "{}: must be more than 0; leave it out for no limit",
+                    field(name)
+                ));
+            }
         }
         if self.quota_bytes == Some(0) {
             return Err(anyhow!(

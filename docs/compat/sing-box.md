@@ -3065,7 +3065,7 @@ Fields and types sail accepts that sing-box does not.
 | `api` | The control API |
 | `clash_api` | The Clash API at the top level, as well as under `experimental` |
 | `outbound_providers` | Outbounds given together, downloaded or in place, for groups to take (Mihomo's proxy-providers) |
-| `user_limits` | What each user, by name, may do across its inbounds: `max_connections`, `quota_bytes` (up and down together; needs `cache_file`) and `expire_at` |
+| `user_limits` | What each user, by name, may do across its inbounds: `max_connections`, `quota_bytes` (up and down together; needs `cache_file`), `expire_at`, and `up_mbps` and `down_mbps` |
 | `log.format` | `compact` writes the message alone |
 | `dns.client_strategy` | The address families of the answers to clients' queries |
 | `dns.servers[race].servers` | A server that asks its members at once and takes the first good answer |

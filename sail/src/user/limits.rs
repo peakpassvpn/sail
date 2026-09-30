@@ -18,6 +18,10 @@ pub struct Limits {
     pub quota_bytes: Option<u64>,
     /// When it may no longer connect.
     pub expire_at: Option<SystemTime>,
+    /// Its rate up, what its clients send, in Mbps.
+    pub up_mbps: Option<u64>,
+    /// Its rate down, what its clients receive, in Mbps.
+    pub down_mbps: Option<u64>,
 }
 
 impl Limits {
@@ -27,6 +31,8 @@ impl Limits {
             max_connections: limits.max_connections,
             quota_bytes: limits.quota_bytes,
             expire_at: limits.expire_at().map(SystemTime::from),
+            up_mbps: limits.up_mbps,
+            down_mbps: limits.down_mbps,
         }
     }
 }
