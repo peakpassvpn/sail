@@ -221,6 +221,11 @@ impl RuntimeManager {
         self.env.clone()
     }
 
+    /// The network the host is on, as it tells or sail detects it.
+    pub fn network(&self) -> &net::network::Network {
+        &self.env.network
+    }
+
     /// What the Clash API tells of the configuration.
     #[cfg(feature = "clash-api")]
     pub(crate) fn clash_view(&self) -> app::clash_api::ConfigView {
@@ -787,6 +792,19 @@ pub fn shutdown(key: RuntimeId) -> bool {
         return m.blocking_shutdown();
     }
     false
+}
+
+/// Tells runtime `key` what network the host is on (JSON, as
+/// [`net::network::NetworkState`] reads it); sail's own detection is left
+/// from then on.
+pub fn set_network_state(key: RuntimeId, json: &str) -> Result<(), Error> {
+    let manager = runtime_managers()
+        .get(&key)
+        .cloned()
+        .ok_or(Error::RuntimeManager)?;
+    let state = net::network::NetworkState::from_json(json).map_err(Error::Config)?;
+    manager.network().push(state);
+    Ok(())
 }
 
 /// Tells the TUN inbound of runtime `key` that the host's network changed,

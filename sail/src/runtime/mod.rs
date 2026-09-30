@@ -131,6 +131,9 @@ pub struct RuntimeEnv {
     /// The Clash API's mode, which rules can match: what the instance
     /// runs in, not what it is configured with.
     pub clash_mode: crate::app::clash_mode::ClashMode,
+    /// The network the host is on, which rules and groups match; kept
+    /// across reloads.
+    pub network: crate::net::network::Network,
     /// `experimental.cache_file`: what is kept across restarts, when
     /// enabled.
     pub cache_file: cache_file::CacheFileSlot,

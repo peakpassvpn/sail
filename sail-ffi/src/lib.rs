@@ -351,6 +351,35 @@ pub extern "C" fn sail_network_changed(rt_id: u16, mtu: u16) -> i32 {
     })
 }
 
+/// Tells the instance what network the host is on, whenever it changes:
+/// the rules on the network (`wifi_ssid`, `network_type`, …) and the
+/// `network` groups match it. Once a host tells it, sail's own detection
+/// is left.
+///
+/// @param rt_id The ID of the instance.
+/// @param state The state as JSON: `{"type": "wifi"|"cellular"|"ethernet"|
+///              "other", "interface", "ssid", "bssid", "gateway",
+///              "addresses": ["192.168.1.2/24"], "mcc_mnc", "expensive",
+///              "constrained"}`, every field optional.
+/// @return ERR_OK on success, ERR_CONFIG for a state that does not read.
+///
+/// # Safety
+///
+/// `state` must be a valid NUL-terminated string.
+#[no_mangle]
+pub unsafe extern "C" fn sail_set_network_state(rt_id: u16, state: *const c_char) -> i32 {
+    guard(ERR_PANIC, || {
+        let state = match unsafe { c_str(state, ERR_CONFIG) } {
+            Ok(state) => state,
+            Err(e) => return e,
+        };
+        match sail::set_network_state(rt_id, state) {
+            Ok(()) => ERR_OK,
+            Err(e) => to_errno(e),
+        }
+    })
+}
+
 /// Tests the configuration.
 ///
 /// @param config_path The path of the config file: .json for sing-box's format

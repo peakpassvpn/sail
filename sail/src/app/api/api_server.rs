@@ -193,6 +193,25 @@ mod handlers {
         }
     }
 
+    /// The network the host is on, as it told or sail detected it.
+    pub async fn network(
+        State(rm): State<Arc<RuntimeManager>>,
+    ) -> Json<crate::net::network::NetworkState> {
+        Json((*rm.network().snapshot()).clone())
+    }
+
+    /// The host tells what network it is on; sail's own detection is left
+    /// from then on.
+    pub async fn network_put(
+        State(rm): State<Arc<RuntimeManager>>,
+        body: String,
+    ) -> Result<StatusCode, (StatusCode, String)> {
+        let state = crate::net::network::NetworkState::from_json(&body)
+            .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+        rm.network().push(state);
+        Ok(StatusCode::NO_CONTENT)
+    }
+
     /// The assets the configuration reads.
     pub async fn assets(State(rm): State<Arc<RuntimeManager>>) -> Json<Vec<crate::assets::Asset>> {
         Json(rm.assets())
@@ -506,7 +525,11 @@ impl ApiServer {
                 "/api/v1/runtime/inbounds/:tag",
                 delete(handlers::inbound_remove),
             )
-            .route("/api/v1/runtime/assets", get(handlers::assets));
+            .route("/api/v1/runtime/assets", get(handlers::assets))
+            .route(
+                "/api/v1/runtime/network",
+                get(handlers::network).put(handlers::network_put),
+            );
 
         #[cfg(feature = "http-client")]
         {

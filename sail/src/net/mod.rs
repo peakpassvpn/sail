@@ -30,6 +30,7 @@ pub mod dial;
 pub mod interface;
 #[cfg(feature = "netstack")]
 pub mod netstack;
+pub mod network;
 pub mod relay;
 pub mod resolver;
 
