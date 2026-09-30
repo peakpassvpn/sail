@@ -5,7 +5,7 @@ use futures::{
     ready,
     task::{Context, Poll},
 };
-use rand::{rngs::StdRng, Rng, RngCore, SeedableRng};
+use rand::{rngs::StdRng, RngCore, SeedableRng};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tracing::debug;
 
@@ -402,14 +402,10 @@ impl ShadowedDatagram {
 
         let salt_size = self.cipher.key_len();
 
-        let mut buffer = BytesMut::new(); // TODO optimize
+        // The salt, then the sealed payload and its tag, allocated once.
+        let mut buffer = BytesMut::with_capacity(salt_size + buf.len() + self.cipher.tag_len());
         buffer.resize(salt_size, 0);
-
-        // generate random salt
-        let mut rng = StdRng::from_entropy();
-        for i in 0..salt_size {
-            buffer[i] = rng.gen();
-        }
+        StdRng::from_entropy().fill_bytes(&mut buffer[..salt_size]);
 
         let key = hkdf_sha1(
             &self.psk,
@@ -429,5 +425,22 @@ impl ShadowedDatagram {
         buffer.extend_from_slice(&buf[..]);
 
         Ok(buffer.freeze())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_datagram_round_trip() {
+        let datagram = ShadowedDatagram::new("aes-128-gcm", "password").unwrap();
+        let sealed = datagram
+            .encrypt(BytesMut::from(&b"hello, world"[..]))
+            .unwrap();
+        // The salt, the payload, the tag: nothing more.
+        assert_eq!(sealed.len(), 16 + 12 + 16);
+        let opened = datagram.decrypt(BytesMut::from(&sealed[..])).unwrap();
+        assert_eq!(&opened[..], b"hello, world");
     }
 }
