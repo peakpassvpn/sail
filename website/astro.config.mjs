@@ -79,10 +79,14 @@ export default defineConfig({
           label: 'Configuration reference',
           translations: { 'zh-CN': '配置参考' },
           items: [
+            { slug: 'reference/compatibility' },
             { slug: 'reference/common' },
+            { slug: 'reference/dns' },
             { slug: 'reference/inbounds' },
             { slug: 'reference/outbounds' },
-            { slug: 'reference/transport' },
+            { slug: 'reference/endpoints' },
+            { slug: 'reference/route' },
+            { slug: 'reference/shared' },
           ],
         },
         {

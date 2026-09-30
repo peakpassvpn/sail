@@ -1,441 +1,939 @@
 ---
-title: 入站配置
-description: 从 Sail 配置源码自动提取的字段、类型与序列化规则。
+title: "入站"
+description: "sail 原生配置格式（sing-box v1.14.2 JSON 与 sail 扩展）的逐字段参考。"
 ---
 
-本页由 Rust 语法树自动生成，请修改源码注释后重新构建。类型使用源码记法；`Option<T>` 表示可省略，`Vec<T>` 表示数组。源码注释保留原文。
-
-本表反映反序列化声明，不是完整的运行时校验 schema。条件编译可能限制当前平台或构建可用的协议；复杂默认值、组合支持及跨字段约束请结合[配置指南](/sail/zh/configuration/)与所链接源码，并执行 `sail -c config.json -T` 验证。
-
-## AnyTlsInboundOptions
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/anytls/inbound/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `users` | `Vec < AnyTlsUser >` | 必填 | — |
-| `padding_scheme` | `Option < Listable >` | Default::default() | The padding scheme, as lines. Unset, the default.<br/>`serde (default)` |
-| `fallback` | `Option < FallbackServer >` | Default::default() | Where a connection that fails to authenticate is relayed.<br/>`serde (default)` |
-| `fallback_for_alpn` | `HashMap < String , FallbackServer >` | Default::default() | The same, by the ALPN the connection's TLS negotiated; the ones it does not name go to `fallback`.<br/>`serde (default)` |
-
-## AnyTlsUser
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/anytls/inbound/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `name` | `Option < String >` | Default::default() | Who the user is to routing (`auth_user`), statistics and logs.<br/>`serde (default)` |
-| `password` | `String` | 必填 | — |
-
-## DirectInboundOptions
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/direct/inbound.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `network` | `Option < DirectNetwork >` | Default::default() | Only `tcp`, or only `udp`; both when unset.<br/>`serde (default)` |
-| `override_address` | `Option < String >` | Default::default() | Where what comes in goes, instead of the listener's address.<br/>`serde (default)` |
-| `override_port` | `Option < u16 >` | Default::default() | The port it goes to, instead of the listener's.<br/>`serde (default)` |
-
-## DirectNetwork
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/direct/inbound.rs)
-
-Serde: `serde (rename_all = "lowercase")`
-
-| 可选值 / 形态 | 源码说明 |
-| --- | --- |
-| `tcp` | — |
-| `udp` | — |
-
-## HcInboundOptions
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/hc/inbound/mod.rs)
-
-Answers health checks: `request` on `path` gets `response`.
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `path` | `String` | 必填 | — |
-| `request` | `String` | Default::default() | —<br/>`serde (default)` |
-| `response` | `String` | 必填 | — |
-
-## HttpInboundOptions
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/http/inbound/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `users` | `Vec < HttpUser >` | Default::default() | Clients must authenticate as one of these with `Proxy-Authorization: Basic`; anyone may connect when there are none.<br/>`serde (default)` |
-
-## HttpUser
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/http/inbound/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `username` | `String` | 必填 | — |
-| `password` | `String` | 必填 | — |
-
-## MasqueradeOptions
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/hysteria2/inbound/masquerade.rs)
-
-The `masquerade` field, as sing-box takes it: an `http://` URL to proxy to, or an object.
-
-Serde: `serde (untagged)`
-
-| 可选值 / 形态 | 源码说明 |
-| --- | --- |
-| `(String)` | — |
-| `(MasqueradeObject)` | — |
-
-## MasqueradeObject
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/hysteria2/inbound/masquerade.rs)
-
-Serde: `serde (tag = "type" , rename_all = "lowercase" , deny_unknown_fields)`
-
-| 可选值 / 形态 | 源码说明 |
-| --- | --- |
-| `proxy { url : String , # [doc = " Sends the site's own host instead of the one asked for."] # [serde (default)] rewrite_host : bool , }` | — |
-| `string { # [serde (default)] status_code : Option < u16 > , # [serde (default)] headers : HashMap < String , String > , content : String , }` | — |
-
-## Hysteria2InboundOptions
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/hysteria2/inbound/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `up_mbps` | `Option < u64 >` | Default::default() | What the server may send at, at most, to each client.<br/>`serde (default)` |
-| `down_mbps` | `Option < u64 >` | Default::default() | What the server can receive at, told to clients.<br/>`serde (default)` |
-| `obfs` | `Option < Obfs >` | Default::default() | —<br/>`serde (default)` |
-| `users` | `Vec < User >` | 必填 | — |
-| `ignore_client_bandwidth` | `bool` | Default::default() | Ignores the rate clients say they receive at, and has them find their own: BBR both ways.<br/>`serde (default)` |
-| `tls` | `InboundTls` | 必填 | — |
-| `masquerade` | `Option < MasqueradeOptions >` | Default::default() | What anyone without a password is served.<br/>`serde (default)` |
-
-## User
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/hysteria2/inbound/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `name` | `Option < String >` | Default::default() | Who the user is to routing (`auth_user`), statistics and logs.<br/>`serde (default)` |
-| `password` | `String` | 必填 | — |
-
-## MixedInboundOptions
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/mixed/inbound/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `users` | `Vec < MixedUser >` | Default::default() | Clients must authenticate as one of these, by SOCKS5 username/password or HTTP Basic; anyone may connect when there are none.<br/>`serde (default)` |
-
-## MixedUser
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/mixed/inbound/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `username` | `String` | 必填 | — |
-| `password` | `String` | 必填 | — |
-
-## MptpInboundOptions
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/mptp/inbound/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-
-## NfInboundOptions
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/nf/inbound/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `driver_name` | `String` | 必填 | — |
-| `nfapi` | `String` | default: default_nfapi() | —<br/>`serde (default = "default_nfapi")` |
-| `fake_dns_exclude` | `Vec < String >` | Default::default() | —<br/>`serde (default)` |
-| `fake_dns_include` | `Vec < String >` | Default::default() | —<br/>`serde (default)` |
-
-## RedirectInboundOptions
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/redirect/inbound/mod.rs)
-
-It has nothing of its own to configure: the listen fields are common to every inbound.
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-
-## ShadowsocksInboundOptions
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/shadowsocks/inbound/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `method` | `String` | 必填 | — |
-| `password` | `String` | 必填 | The PSK with a 2022 method; with `users`, the server's identity PSK. |
-| `users` | `Option < Vec < ShadowsocksUser > >` | Default::default() | Shadowsocks 2022 users, told apart by identity headers.<br/>`serde (default)` |
-
-## ShadowsocksUser
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/shadowsocks/inbound/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `name` | `Option < String >` | Default::default() | Who the user is to routing (`auth_user`), statistics and logs.<br/>`serde (default)` |
-| `password` | `String` | 必填 | The user's base64 PSK. |
-
-## ShadowTlsInboundOptions
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/shadowtls/inbound.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `version` | `u32` | default: version_one() | Must be 3: versions 1 and 2 are not supported. sing-box's default is 1.<br/>`serde (default = "version_one")` |
-| `password` | `Option < String >` | Default::default() | Version 2's, and an error: version 3 takes `users`.<br/>`serde (default)` |
-| `users` | `Vec < ShadowTlsUser >` | Default::default() | At least one.<br/>`serde (default)` |
-| `handshake` | `Option < ShadowTlsHandshake >` | Default::default() | The site whose handshake is relayed, for everyone the other fields do not send elsewhere. Needed unless `wildcard_sni` is on.<br/>`serde (default)` |
-| `handshake_for_server_name` | `HashMap < String , ShadowTlsHandshake >` | Default::default() | Handshake servers by the server name the ClientHello asks for.<br/>`serde (default)` |
-| `strict_mode` | `bool` | Default::default() | Relays a ServerHello that does not pick TLS 1.3 as it would an unauthenticated client.<br/>`serde (default)` |
-| `wildcard_sni` | `WildcardSni` | Default::default() | —<br/>`serde (default)` |
-| `detour` | `Option < String >` | Default::default() | The inbound connections go to after the handshake, by tag: needed.<br/>`serde (default)` |
-
-## ShadowTlsUser
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/shadowtls/inbound.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `name` | `String` | Default::default() | Who the user is to routing (`auth_user`), statistics and logs.<br/>`serde (default)` |
-| `password` | `String` | 必填 | — |
-
-## ShadowTlsHandshake
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/shadowtls/inbound.rs)
-
-A server and port, and sing-box's dial fields, which it is dialled with over the instance's defaults, as REALITY's handshake server is.
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `server` | `String` | Default::default() | —<br/>`serde (default)` |
-| `server_port` | `u16` | Default::default() | —<br/>`serde (default)` |
-| `dial` | `crate :: net :: dial :: DialFields` | 展开到当前对象，不是独立键 | —<br/>`serde (flatten)` |
-
-## WildcardSni
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/shadowtls/inbound.rs)
-
-Whether the handshake server is the one the ClientHello names, on port 443, when no `handshake_for_server_name` entry does.
-
-Serde: `serde (rename_all = "lowercase")`
-
-| 可选值 / 形态 | 源码说明 |
-| --- | --- |
-| `off` (default) | — |
-| `authed` | For authenticated clients; the others go to `handshake`. |
-| `all` | — |
-
-## SocksInboundOptions
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/socks/inbound/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `users` | `Vec < SocksUser >` | Default::default() | Clients must authenticate as one of these; anyone may connect when there are none.<br/>`serde (default)` |
-
-## SocksUser
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/socks/inbound/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `username` | `String` | 必填 | — |
-| `password` | `String` | 必填 | — |
-
-## TproxyInboundOptions
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/tproxy/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `network` | `Option < TproxyNetwork >` | Default::default() | Only `tcp`, or only `udp`; both when unset.<br/>`serde (default)` |
-
-## TrojanInboundOptions
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/trojan/inbound/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `users` | `Vec < TrojanUser >` | 必填 | — |
-| `fallback` | `Option < FallbackServer >` | Default::default() | Where a connection that fails to authenticate is relayed.<br/>`serde (default)` |
-| `fallback_for_alpn` | `HashMap < String , FallbackServer >` | Default::default() | The same, by the ALPN the connection's TLS negotiated; the ones it does not name go to `fallback`.<br/>`serde (default)` |
-
-## TrojanUser
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/trojan/inbound/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `name` | `Option < String >` | Default::default() | Who the user is to routing (`auth_user`), statistics and logs.<br/>`serde (default)` |
-| `password` | `String` | 必填 | — |
-
-## TuicInboundOptions
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/tuic/inbound/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `users` | `Vec < TuicUser >` | 必填 | — |
-| `congestion_control` | `CongestionControl` | Default::default() | —<br/>`serde (default)` |
-| `auth_timeout` | `Option < Duration >` | Default::default() | How long a connection may go without authenticating. 3s, as in sing-box, when not set.<br/>`serde (default , with = "crate::config::model::duration")` |
-| `zero_rtt_handshake` | `bool` | Default::default() | —<br/>`serde (default)` |
-| `heartbeat` | `Option < Duration >` | Default::default() | —<br/>`serde (default , with = "crate::config::model::duration")` |
-| `tls` | `InboundTls` | 必填 | — |
-
-## TuicUser
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/tuic/inbound/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `name` | `Option < String >` | Default::default() | Who the user is to routing (`auth_user`), statistics and logs.<br/>`serde (default)` |
-| `uuid` | `String` | 必填 | — |
-| `password` | `String` | Default::default() | —<br/>`serde (default)` |
-
-## TunInboundOptions
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/tun/inbound.rs)
-
-The options of a TUN inbound, as sing-box's `tun` inbound names them.
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `interface_name` | `Option < String >` | Default::default() | The device's name; the system picks one without it.<br/>`serde (default)` |
-| `address` | `Vec < String >` | Default::default() | The device's addresses with their prefixes: one IPv4, one IPv6, or one of each.<br/>`serde (default , with = "crate::config::model::listable")` |
-| `mtu` | `u32` | default: default_mtu() | 9000 when omitted, as sing-box has it on Android.<br/>`serde (default = "default_mtu")` |
-| `auto_route` | `bool` | Default::default() | Routes the system's traffic into the device.<br/>`serde (default)` |
-| `auto_redirect` | `bool` | Default::default() | Linux: redirects TCP to sail with nftables and marks the rest into the device, and lets rules bypass sail before a connection is set up (sing-box 1.13).<br/>`serde (default)` |
-| `auto_redirect_input_mark` | `Option < u32 >` | Default::default() | The mark that routes a packet into the device (0x2023). Marks are numbers, or strings of hexadecimal ("0x2023"); 0 is the default.<br/>`serde (default , with = "fw_mark")` |
-| `auto_redirect_output_mark` | `Option < u32 >` | Default::default() | The mark sail's own sockets carry, and flows that bypass it (0x2024). `route.default_mark` and `routing_mark` conflict with it.<br/>`serde (default , with = "fw_mark")` |
-| `auto_redirect_reset_mark` | `Option < u32 >` | Default::default() | The mark of a connection pre-match rejects, which the kernel resets (0x2025).<br/>`serde (default , with = "fw_mark")` |
-| `auto_redirect_nfqueue` | `Option < u16 >` | Default::default() | The NFQUEUE pre-match reads first packets from (100). If it cannot be bound, sail runs without pre-match: `bypass` rules are skipped.<br/>`serde (default)` |
-| `iproute2_table_index` | `Option < u32 >` | Default::default() | The routing table of the device's routes (2022).<br/>`serde (default)` |
-| `iproute2_rule_index` | `Option < u32 >` | Default::default() | The first of auto_redirect's ip rules (9000); the rules from it to 10 after it are sail's, and removed at start and stop.<br/>`serde (default)` |
-| `auto_redirect_iproute2_fallback_rule_index` | `Option < u32 >` | Default::default() | The ip rule that sends what the main table has no route for into the device (32768).<br/>`serde (default)` |
-| `exclude_mptcp` | `bool` | Default::default() | Lets MPTCP go past sail rather than dropping it, which makes clients fall back to TCP.<br/>`serde (default)` |
-| `strict_route` | `bool` | Default::default() | With one family on the device, rejects the other rather than let it go past sail. Linux: with auto_redirect only, for now. Windows: not yet. Elsewhere it changes nothing, as in sing-box.<br/>`serde (default)` |
-| `loopback_address` | `Vec < IpAddr >` | Default::default() | Addresses whose TCP goes into the device rather than to the redirect listener: a destination sail's own listeners use, say.<br/>`serde (default , with = "crate::config::model::listable")` |
-| `route_address` | `Vec < String >` | Default::default() | Only these destinations are taken...<br/>`serde (default , with = "crate::config::model::listable")` |
-| `route_exclude_address` | `Vec < String >` | Default::default() | ...and not these.<br/>`serde (default , with = "crate::config::model::listable")` |
-| `route_address_set` | `Vec < String >` | Default::default() | Rule-sets whose destination `ip_cidr` alone are taken, kept up to date as they are downloaded again.<br/>`serde (default , with = "crate::config::model::listable")` |
-| `route_exclude_address_set` | `Vec < String >` | Default::default() | Rule-sets whose destination `ip_cidr` are not taken.<br/>`serde (default , with = "crate::config::model::listable")` |
-| `include_interface` | `Vec < String >` | Default::default() | Forwarded traffic is taken only from these interfaces...<br/>`serde (default , with = "crate::config::model::listable")` |
-| `exclude_interface` | `Vec < String >` | Default::default() | ...or not from these. Naming `lo` in either leaves the host's own traffic out.<br/>`serde (default , with = "crate::config::model::listable")` |
-| `include_uid` | `Vec < u32 >` | Default::default() | The host's traffic is taken only from these users...<br/>`serde (default , with = "crate::config::model::listable")` |
-| `include_uid_range` | `Vec < String >` | Default::default() | ...and from these ranges, as "1000:2000".<br/>`serde (default , with = "crate::config::model::listable")` |
-| `exclude_uid` | `Vec < u32 >` | Default::default() | The host's traffic of these users is not taken...<br/>`serde (default , with = "crate::config::model::listable")` |
-| `exclude_uid_range` | `Vec < String >` | Default::default() | ...nor of these ranges.<br/>`serde (default , with = "crate::config::model::listable")` |
-| `include_android_user` | `Vec < u32 >` | Default::default() | Android: what the host's VPN takes in, applied by the host.<br/>`serde (default , with = "crate::config::model::listable")` |
-| `include_package` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "crate::config::model::listable")` |
-| `exclude_package` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "crate::config::model::listable")` |
-
-## VlessInboundOptions
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/vless/inbound/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `users` | `Vec < VlessUser >` | 必填 | — |
-| `fallback` | `Option < FallbackServer >` | Default::default() | Where a connection that fails to authenticate is relayed.<br/>`serde (default)` |
-| `fallback_for_alpn` | `HashMap < String , FallbackServer >` | Default::default() | The same, by the ALPN the connection's TLS negotiated; the ones it does not name go to `fallback`.<br/>`serde (default)` |
-
-## VlessUser
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/vless/inbound/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `name` | `Option < String >` | Default::default() | Who the user is to routing (`auth_user`), statistics and logs.<br/>`serde (default)` |
-| `uuid` | `String` | 必填 | — |
-| `flow` | `String` | Default::default() | `""` or `xtls-rprx-vision`.<br/>`serde (default)` |
-
-## VMessInboundOptions
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/vmess/inbound/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `users` | `Vec < VMessUser >` | 必填 | — |
-
-## VMessUser
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/vmess/inbound/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `name` | `Option < String >` | Default::default() | Who the user is to routing (`auth_user`), statistics and logs.<br/>`serde (default)` |
-| `uuid` | `String` | 必填 | — |
-| `alterId` | `u32` | Default::default() | Only 0: AEAD headers. Legacy VMess is not served.<br/>`serde (default , rename = "alterId")` |
+本页由 `website/scripts/build-config.mjs` 生成，请勿手改：它读取 sail 的配置类型（Rust 源码）、sing-box 字段注册表（`sail/src/config/singbox/fields.json`，sing-box v1.14.2）及注册表测试实测的分级（`fields.tiers.json`）。修改源码注释或上述文件后在 `website/` 下执行 `npm run docs:config`。
+
+- **状态**：sing-box 的字段按注册表测试逐一实测：**支持**（读取并生效，不接受的取值仍报错）、**警告**（忽略并警告）、**报错**（拒绝该配置），并附理由；**sail 扩展** 为 sing-box 没有的字段与类型。
+- **类型**：sing-box 字段取 sing-box 的 JSON 类型；扩展字段取自 sail 的 Rust 定义。
+- **默认**：取自 sail 的 serde 声明；“未设置”表示可省略，省略时的行为见说明。只有 sail 读取的字段才列默认值。
+- **说明**：sail 源码注释，保留原文；没有注释的扩展字段取注册表测试的说明。
+- **构建条件**：Rust 源码中的 `cfg` 条件（Cargo feature 与平台）。
+
+用 `sail -c config.json -T` 校验配置。Clash 与 Surge 的支持表见[兼容性](/sail/zh/reference/compatibility/)。
+
+<a id="inbounds"></a>
+
+## `inbounds[]`
+
+Rust 定义：[`Inbound`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `type` | string, 取值 `anytls`, `cloudflared`, `direct`, `http`, `hysteria`, `hysteria2`, `mixed`, `naive`, `redirect`, `shadowsocks`, `shadowtls`, `snell`, `socks`, `tproxy`, `trojan`, `tuic`, `tun`, `vless`, `vmess` | 必填 | 支持 | — |
+
+<a id="inbounds-anytls"></a>
+
+## `inbounds[anytls]`
+
+Rust 定义：[`AnyTlsInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/anytls/inbound/mod.rs) · 构建条件：`feature = "inbound-anytls"`
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | 支持 | Defaults to the type. |
+| `listen` | string | 未设置 | 支持 | The address to listen on; defaults to `127.0.0.1`. |
+| `listen_port` | number | 未设置 | 支持 | The port to listen on. An inbound without one does not listen, and is only useful as a part of another inbound. |
+| `bind_interface` | string | — | 报错：Where and how an inbound listens: it would take connections otherwise | — |
+| `routing_mark` | number\|string | — | 报错：Where and how an inbound listens: it would take connections otherwise | — |
+| `reuse_addr` | bool | — | 警告：Socket tuning: connections go the same way without it | — |
+| `netns` | string | — | 报错：Where and how an inbound listens: it would take connections otherwise | — |
+| `disable_tcp_keep_alive` | bool | `false` | 支持 | — |
+| `tcp_keep_alive` | duration | 未设置 | 支持 | How long an accepted TCP connection is idle before keepalive probes it; 5m when unset. |
+| `tcp_keep_alive_interval` | duration | 未设置 | 支持 | Between keepalive probes; 75s when unset. |
+| `tcp_fast_open` | bool | — | 警告：Socket tuning: connections go the same way without it | — |
+| `tcp_multi_path` | bool | — | 警告：Socket tuning: connections go the same way without it | — |
+| `udp_fragment` | bool | — | 警告：Socket tuning: connections go the same way without it | — |
+| `udp_timeout` | number\|duration | 未设置 | 支持 | How long a UDP session through this inbound lives without traffic; 5m when unset, as in sing-box. A number is of seconds. |
+| `detour` | string | — | 报错：Handing an inbound's connections to another inbound | — |
+| `tls` | object → [对象](#inbounds-anytls-tls) | — | 支持 | — |
+| `users` | array → [[]](#inbounds-anytls-users) | 必填 | 支持 | — |
+| `padding_scheme` | listable-string | 未设置 | 支持 | The padding scheme, as lines. Unset, the default. |
+
+<a id="inbounds-anytls-tls"></a>
+
+### `inbounds[anytls].tls`
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `enabled` | bool | — | 支持 | — |
+| `server_name` | string | — | 支持 | — |
+| `insecure` | bool | — | 警告：Only relaxes checks a server's TLS does not make | — |
+| `alpn` | listable-string | — | 支持 | — |
+| `min_version` | string, 取值 `1.0`, `1.1`, `1.2`, `1.3` | — | 支持 | — |
+| `max_version` | string, 取值 `1.0`, `1.1`, `1.2`, `1.3` | — | 支持 | — |
+| `cipher_suites` | listable-string | — | 报错：TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked | — |
+| `curve_preferences` | listable-string, 取值 `P256`, `P384`, `P521`, `X25519`, `X25519MLKEM768` | — | 报错：TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked | — |
+| `certificate` | listable-string | — | 支持 | — |
+| `certificate_path` | string | — | 支持 | — |
+| `client_authentication` | string, 取值 `no`, `request`, `require-any`, `verify-if-given`, `require-and-verify` | — | 报错：Verifying clients' certificates: an inbound would take clients it should refuse | — |
+| `client_certificate` | listable-string | — | 报错：Verifying clients' certificates: an inbound would take clients it should refuse | — |
+| `client_certificate_path` | listable-string | — | 报错：Verifying clients' certificates: an inbound would take clients it should refuse | — |
+| `client_certificate_public_key_sha256` | listable-string\|array | — | 报错：Verifying clients' certificates: an inbound would take clients it should refuse | — |
+| `key` | listable-string | — | 支持 | — |
+| `key_path` | string | — | 支持 | — |
+| `kernel_tx` | bool | — | 警告：The TLS stack, kernel TLS and the handshake's timeout: the same TLS without them | — |
+| `kernel_rx` | bool | — | 警告：The TLS stack, kernel TLS and the handshake's timeout: the same TLS without them | — |
+| `handshake_timeout` | duration | — | 警告：The TLS stack, kernel TLS and the handshake's timeout: the same TLS without them | — |
+| `certificate_provider` | string\|object | — | 报错：A certificate from a provider or ACME: the inbound would have none | — |
+| `ech` | object → [对象](/sail/zh/reference/shared/#ech-inbounds) | — | 报错：Encrypted Client Hello on an inbound | — |
+| `reality` | object → [对象](#inbounds-anytls-tls-reality) | — | 支持 | — |
+| `acme` | object | — | 报错：A certificate from a provider or ACME: the inbound would have none (sing-box 已弃用) | — |
+
+<a id="inbounds-anytls-tls-reality"></a>
+
+### `inbounds[anytls].tls.reality`
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `enabled` | bool | — | 支持 | — |
+| `handshake` | object → [对象](#inbounds-anytls-tls-reality-handshake) | — | 支持 | — |
+| `private_key` | string | — | 支持 | — |
+| `short_id` | listable-string | — | 支持 | — |
+| `max_time_difference` | duration | — | 支持 | — |
+
+<a id="inbounds-anytls-tls-reality-handshake"></a>
+
+### `inbounds[anytls].tls.reality.handshake`
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `server` | string | — | 支持 | — |
+| `server_port` | number | — | 支持 | — |
+| `detour` | string | — | 报错：A detour to the REALITY handshake server: it would be reached otherwise | — |
+| `bind_interface` | string | — | 支持 | — |
+| `inet4_bind_address` | string | — | 支持 | — |
+| `inet6_bind_address` | string | — | 支持 | — |
+| `bind_address_no_port` | bool | — | 警告：Socket tuning: connections go the same way without it | — |
+| `protect_path` | string | — | 报错：Android's socket protection and Linux network namespaces: sockets would leave another way | — |
+| `routing_mark` | number\|string | — | 支持 | — |
+| `reuse_addr` | bool | — | 警告：Socket tuning: connections go the same way without it | — |
+| `netns` | string | — | 报错：Android's socket protection and Linux network namespaces: sockets would leave another way | — |
+| `connect_timeout` | duration | — | 支持 | — |
+| `tcp_fast_open` | bool | — | 警告：Socket tuning: connections go the same way without it | — |
+| `tcp_multi_path` | bool | — | 警告：Socket tuning: connections go the same way without it | — |
+| `disable_tcp_keep_alive` | bool | — | 支持 | — |
+| `tcp_keep_alive` | duration | — | 支持 | — |
+| `tcp_keep_alive_interval` | duration | — | 支持 | — |
+| `udp_fragment` | bool | — | 警告：Socket tuning: connections go the same way without it | — |
+| `domain_resolver` | string\|object → [对象](/sail/zh/reference/shared/#domain-resolver-inbounds-route-rule-set) | — | 支持 | — |
+| `network_strategy` | string, 取值 `default`, `fallback`, `hybrid` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | — |
+| `network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | — |
+| `fallback_network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | — |
+| `fallback_delay` | duration | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | — |
+| `domain_strategy` | string | — | 支持 (sing-box 已弃用) | — |
+
+<a id="inbounds-anytls-users"></a>
+
+### `inbounds[anytls].users[]`
+
+Rust 定义：[`AnyTlsUser`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/anytls/inbound/mod.rs) · 构建条件：`feature = "inbound-anytls"`
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `name` | string | 未设置 | 支持 | Who the user is to routing (`auth_user`), statistics and logs. |
+| `password` | string | 必填 | 支持 | — |
+
+<a id="inbounds-direct"></a>
+
+## `inbounds[direct]`
+
+Rust 定义：[`DirectInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/direct/inbound.rs) · 构建条件：`feature = "inbound-direct"`
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | 支持 | Defaults to the type. |
+| `listen` | string | 未设置 | 支持 | The address to listen on; defaults to `127.0.0.1`. |
+| `listen_port` | number | 未设置 | 支持 | The port to listen on. An inbound without one does not listen, and is only useful as a part of another inbound. |
+| `bind_interface` | string | — | 报错：Where and how an inbound listens: it would take connections otherwise | — |
+| `routing_mark` | number\|string | — | 报错：Where and how an inbound listens: it would take connections otherwise | — |
+| `reuse_addr` | bool | — | 警告：Socket tuning: connections go the same way without it | — |
+| `netns` | string | — | 报错：Where and how an inbound listens: it would take connections otherwise | — |
+| `disable_tcp_keep_alive` | bool | `false` | 支持 | — |
+| `tcp_keep_alive` | duration | 未设置 | 支持 | How long an accepted TCP connection is idle before keepalive probes it; 5m when unset. |
+| `tcp_keep_alive_interval` | duration | 未设置 | 支持 | Between keepalive probes; 75s when unset. |
+| `tcp_fast_open` | bool | — | 警告：Socket tuning: connections go the same way without it | — |
+| `tcp_multi_path` | bool | — | 警告：Socket tuning: connections go the same way without it | — |
+| `udp_fragment` | bool | — | 警告：Socket tuning: connections go the same way without it | — |
+| `udp_timeout` | number\|duration | 未设置 | 支持 | How long a UDP session through this inbound lives without traffic; 5m when unset, as in sing-box. A number is of seconds. |
+| `detour` | string | — | 报错：Handing an inbound's connections to another inbound | — |
+| `network` | listable-string, 取值 `tcp`, `udp` | 未设置 | 支持 | Only `tcp`, or only `udp`; both when unset. |
+| `override_address` | string | 未设置 | 支持 | Where what comes in goes, instead of the listener's address. |
+| `override_port` | number | 未设置 | 支持 | The port it goes to, instead of the listener's. |
+
+<a id="inbounds-hc"></a>
+
+## `inbounds[hc]`
+
+Rust 定义：[`HcInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/hc/inbound/mod.rs) · 构建条件：`feature = "inbound-hc"` · **sail 扩展**
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | sail 扩展 | Defaults to the type. |
+| `listen` | string | 未设置 | sail 扩展 | The address to listen on; defaults to `127.0.0.1`. |
+| `listen_port` | number | 未设置 | sail 扩展 | The port to listen on. An inbound without one does not listen, and is only useful as a part of another inbound. |
+| `udp_timeout` | 时长，或秒数 | 未设置 | sail 扩展 | How long a UDP session through this inbound lives without traffic; 5m when unset, as in sing-box. A number is of seconds. |
+| `tcp_keep_alive` | duration | 未设置 | sail 扩展 | How long an accepted TCP connection is idle before keepalive probes it; 5m when unset. |
+| `tcp_keep_alive_interval` | duration | 未设置 | sail 扩展 | Between keepalive probes; 75s when unset. |
+| `disable_tcp_keep_alive` | bool | `false` | sail 扩展 | — |
+| `path` | string | 必填 | sail 扩展 | — |
+| `request` | string | `""` | sail 扩展 | — |
+| `response` | string | 必填 | sail 扩展 | — |
+
+<a id="inbounds-http"></a>
+
+## `inbounds[http]`
+
+Rust 定义：[`HttpInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/http/inbound/mod.rs) · 构建条件：`feature = "inbound-http"`
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | 支持 | Defaults to the type. |
+| `listen` | string | 未设置 | 支持 | The address to listen on; defaults to `127.0.0.1`. |
+| `listen_port` | number | 未设置 | 支持 | The port to listen on. An inbound without one does not listen, and is only useful as a part of another inbound. |
+| `bind_interface` | string | — | 报错：Where and how an inbound listens: it would take connections otherwise | — |
+| `routing_mark` | number\|string | — | 报错：Where and how an inbound listens: it would take connections otherwise | — |
+| `reuse_addr` | bool | — | 警告：Socket tuning: connections go the same way without it | — |
+| `netns` | string | — | 报错：Where and how an inbound listens: it would take connections otherwise | — |
+| `disable_tcp_keep_alive` | bool | `false` | 支持 | — |
+| `tcp_keep_alive` | duration | 未设置 | 支持 | How long an accepted TCP connection is idle before keepalive probes it; 5m when unset. |
+| `tcp_keep_alive_interval` | duration | 未设置 | 支持 | Between keepalive probes; 75s when unset. |
+| `tcp_fast_open` | bool | — | 警告：Socket tuning: connections go the same way without it | — |
+| `tcp_multi_path` | bool | — | 警告：Socket tuning: connections go the same way without it | — |
+| `udp_fragment` | bool | — | 警告：Socket tuning: connections go the same way without it | — |
+| `udp_timeout` | number\|duration | 未设置 | 支持 | How long a UDP session through this inbound lives without traffic; 5m when unset, as in sing-box. A number is of seconds. |
+| `detour` | string | — | 报错：Handing an inbound's connections to another inbound | — |
+| `users` | array → [[]](#inbounds-http-users) | `[]` | 支持 | Clients must authenticate as one of these with `Proxy-Authorization: Basic`; anyone may connect when there are none. |
+| `domain_resolver` | string\|object → [对象](/sail/zh/reference/shared/#domain-resolver-inbounds) | — | 报错：Resolving requested names with a resolver of its own: another server would answer | — |
+| `set_system_proxy` | bool | — | 警告：The platform proxy is the host's to set | — |
+| `tls` | object → [对象](/sail/zh/reference/shared/#tls-inbounds) | 未设置 | 支持 | — |
+
+<a id="inbounds-http-users"></a>
+
+### `inbounds[http].users[]`
+
+Rust 定义：[`HttpUser`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/http/inbound/mod.rs) · 构建条件：`feature = "inbound-http"`
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `username` | string | 必填 | 支持 | — |
+| `password` | string | 必填 | 支持 | — |
+
+<a id="inbounds-hysteria2"></a>
+
+## `inbounds[hysteria2]`
+
+Rust 定义：[`Hysteria2InboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/hysteria2/inbound/mod.rs) · 构建条件：`feature = "inbound-hysteria2"`
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | 支持 | Defaults to the type. |
+| `listen` | string | 未设置 | 支持 | The address to listen on; defaults to `127.0.0.1`. |
+| `listen_port` | number | 未设置 | 支持 | The port to listen on. An inbound without one does not listen, and is only useful as a part of another inbound. |
+| `bind_interface` | string | — | 报错：Where and how an inbound listens: it would take connections otherwise | — |
+| `routing_mark` | number\|string | — | 报错：Where and how an inbound listens: it would take connections otherwise | — |
+| `reuse_addr` | bool | — | 警告：Socket tuning: connections go the same way without it | — |
+| `netns` | string | — | 报错：Where and how an inbound listens: it would take connections otherwise | — |
+| `disable_tcp_keep_alive` | bool | `false` | 支持 | — |
+| `tcp_keep_alive` | duration | 未设置 | 支持 | How long an accepted TCP connection is idle before keepalive probes it; 5m when unset. |
+| `tcp_keep_alive_interval` | duration | 未设置 | 支持 | Between keepalive probes; 75s when unset. |
+| `tcp_fast_open` | bool | — | 警告：Socket tuning: connections go the same way without it | — |
+| `tcp_multi_path` | bool | — | 警告：Socket tuning: connections go the same way without it | — |
+| `udp_fragment` | bool | — | 警告：Socket tuning: connections go the same way without it | — |
+| `udp_timeout` | number\|duration | 未设置 | 支持 | How long a UDP session through this inbound lives without traffic; 5m when unset, as in sing-box. A number is of seconds. |
+| `detour` | string | — | 报错：Handing an inbound's connections to another inbound | — |
+| `up_mbps` | number | 未设置 | 支持 | What the server may send at, at most, to each client. |
+| `down_mbps` | number | 未设置 | 支持 | What the server can receive at, told to clients. |
+| `obfs` | object → [对象](/sail/zh/reference/shared/#obfs), [[gecko]](/sail/zh/reference/shared/#obfs-gecko), [[salamander]](/sail/zh/reference/shared/#obfs-salamander) | 未设置 | 支持 | — |
+| `users` | array → [[]](#inbounds-hysteria2-users) | 必填 | 支持 | — |
+| `ignore_client_bandwidth` | bool | `false` | 支持 | Ignores the rate clients say they receive at, and has them find their own: BBR both ways. |
+| `tls` | object → [对象](/sail/zh/reference/shared/#tls-inbounds) | 必填 | 支持 | — |
+| `idle_timeout` | duration | — | 警告：QUIC tuning: the same connection without it | — |
+| `keep_alive_period` | duration | — | 警告：QUIC tuning: the same connection without it | — |
+| `stream_receive_window` | number\|string | — | 警告：QUIC tuning: the same connection without it | — |
+| `connection_receive_window` | number\|string | — | 警告：QUIC tuning: the same connection without it | — |
+| `max_concurrent_streams` | number | — | 警告：QUIC tuning: the same connection without it | — |
+| `initial_packet_size` | number | — | 警告：QUIC tuning: the same connection without it | — |
+| `disable_path_mtu_discovery` | bool | — | 警告：QUIC tuning: the same connection without it | — |
+| `masquerade` | string\|object | 未设置 | 支持 | What anyone without a password is served. |
+| `bbr_profile` | string, 取值 `standard`, `conservative`, `aggressive` | — | 警告：Hysteria's congestion tuning and debugging, the longest hop interval, and its QUIC fingerprint: the same traffic | — |
+| `brutal_debug` | bool | — | 警告：Hysteria's congestion tuning and debugging, the longest hop interval, and its QUIC fingerprint: the same traffic | — |
+| `realm` | object → [对象](#inbounds-hysteria2-realm) | — | 报错：Meeting peers through a Hysteria realm: connections would be made otherwise | — |
+
+<a id="inbounds-hysteria2-users"></a>
+
+### `inbounds[hysteria2].users[]`
+
+Rust 定义：[`User`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/hysteria2/inbound/mod.rs) · 构建条件：`feature = "inbound-hysteria2"`
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `name` | string | 未设置 | 支持 | Who the user is to routing (`auth_user`), statistics and logs. |
+| `password` | string | 必填 | 支持 | — |
+
+<a id="inbounds-hysteria2-realm"></a>
+
+### `inbounds[hysteria2].realm`
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `server_url` | string | — | 报错：Meeting peers through a Hysteria realm: connections would be made otherwise | — |
+| `token` | string | — | 报错：Meeting peers through a Hysteria realm: connections would be made otherwise | — |
+| `realm_id` | string | — | 报错：Meeting peers through a Hysteria realm: connections would be made otherwise | — |
+| `stun_servers` | listable-string | — | 报错：Meeting peers through a Hysteria realm: connections would be made otherwise | — |
+| `ip_version` | number, 取值 `0`, `4`, `6` | — | 报错：Meeting peers through a Hysteria realm: connections would be made otherwise | — |
+| `port_mapping` | object → [对象](/sail/zh/reference/shared/#port-mapping) | — | 报错：Meeting peers through a Hysteria realm: connections would be made otherwise | — |
+| `http_client` | string\|object → [对象](/sail/zh/reference/shared/#http-client) | — | 报错：Meeting peers through a Hysteria realm: connections would be made otherwise | — |
+| `stun_domain_resolver` | string\|object → [对象](/sail/zh/reference/shared/#domain-resolver-stun-domain-resolver) | — | 报错：Meeting peers through a Hysteria realm: connections would be made otherwise | — |
+
+<a id="inbounds-mixed"></a>
+
+## `inbounds[mixed]`
+
+Rust 定义：[`MixedInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/mixed/inbound/mod.rs) · 构建条件：`feature = "inbound-mixed"`
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | 支持 | Defaults to the type. |
+| `listen` | string | 未设置 | 支持 | The address to listen on; defaults to `127.0.0.1`. |
+| `listen_port` | number | 未设置 | 支持 | The port to listen on. An inbound without one does not listen, and is only useful as a part of another inbound. |
+| `bind_interface` | string | — | 报错：Where and how an inbound listens: it would take connections otherwise | — |
+| `routing_mark` | number\|string | — | 报错：Where and how an inbound listens: it would take connections otherwise | — |
+| `reuse_addr` | bool | — | 警告：Socket tuning: connections go the same way without it | — |
+| `netns` | string | — | 报错：Where and how an inbound listens: it would take connections otherwise | — |
+| `disable_tcp_keep_alive` | bool | `false` | 支持 | — |
+| `tcp_keep_alive` | duration | 未设置 | 支持 | How long an accepted TCP connection is idle before keepalive probes it; 5m when unset. |
+| `tcp_keep_alive_interval` | duration | 未设置 | 支持 | Between keepalive probes; 75s when unset. |
+| `tcp_fast_open` | bool | — | 警告：Socket tuning: connections go the same way without it | — |
+| `tcp_multi_path` | bool | — | 警告：Socket tuning: connections go the same way without it | — |
+| `udp_fragment` | bool | — | 警告：Socket tuning: connections go the same way without it | — |
+| `udp_timeout` | number\|duration | 未设置 | 支持 | How long a UDP session through this inbound lives without traffic; 5m when unset, as in sing-box. A number is of seconds. |
+| `detour` | string | — | 报错：Handing an inbound's connections to another inbound | — |
+| `users` | array → [[]](#inbounds-mixed-users) | `[]` | 支持 | Clients must authenticate as one of these, by SOCKS5 username/password or HTTP Basic; anyone may connect when there are none. |
+| `domain_resolver` | string\|object → [对象](/sail/zh/reference/shared/#domain-resolver-inbounds) | — | 报错：Resolving requested names with a resolver of its own: another server would answer | — |
+| `set_system_proxy` | bool | — | 警告：The platform proxy is the host's to set | — |
+| `tls` | object → [对象](#inbounds-mixed-tls) | — | 报错：TLS on a mixed inbound: it would take plain connections | — |
+
+<a id="inbounds-mixed-users"></a>
+
+### `inbounds[mixed].users[]`
+
+Rust 定义：[`MixedUser`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/mixed/inbound/mod.rs) · 构建条件：`feature = "inbound-mixed"`
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `username` | string | 必填 | 支持 | — |
+| `password` | string | 必填 | 支持 | — |
+
+<a id="inbounds-mixed-tls"></a>
+
+### `inbounds[mixed].tls`
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `enabled` | bool | — | 报错：TLS on a mixed inbound: it would take plain connections | — |
+| `server_name` | string | — | 报错：TLS on a mixed inbound: it would take plain connections | — |
+| `insecure` | bool | — | 报错：TLS on a mixed inbound: it would take plain connections | — |
+| `alpn` | listable-string | — | 报错：TLS on a mixed inbound: it would take plain connections | — |
+| `min_version` | string, 取值 `1.0`, `1.1`, `1.2`, `1.3` | — | 报错：TLS on a mixed inbound: it would take plain connections | — |
+| `max_version` | string, 取值 `1.0`, `1.1`, `1.2`, `1.3` | — | 报错：TLS on a mixed inbound: it would take plain connections | — |
+| `cipher_suites` | listable-string | — | 报错：TLS on a mixed inbound: it would take plain connections | — |
+| `curve_preferences` | listable-string, 取值 `P256`, `P384`, `P521`, `X25519`, `X25519MLKEM768` | — | 报错：TLS on a mixed inbound: it would take plain connections | — |
+| `certificate` | listable-string | — | 报错：TLS on a mixed inbound: it would take plain connections | — |
+| `certificate_path` | string | — | 报错：TLS on a mixed inbound: it would take plain connections | — |
+| `client_authentication` | string, 取值 `no`, `request`, `require-any`, `verify-if-given`, `require-and-verify` | — | 报错：TLS on a mixed inbound: it would take plain connections | — |
+| `client_certificate` | listable-string | — | 报错：TLS on a mixed inbound: it would take plain connections | — |
+| `client_certificate_path` | listable-string | — | 报错：TLS on a mixed inbound: it would take plain connections | — |
+| `client_certificate_public_key_sha256` | listable-string\|array | — | 报错：TLS on a mixed inbound: it would take plain connections | — |
+| `key` | listable-string | — | 报错：TLS on a mixed inbound: it would take plain connections | — |
+| `key_path` | string | — | 报错：TLS on a mixed inbound: it would take plain connections | — |
+| `kernel_tx` | bool | — | 报错：TLS on a mixed inbound: it would take plain connections | — |
+| `kernel_rx` | bool | — | 报错：TLS on a mixed inbound: it would take plain connections | — |
+| `handshake_timeout` | duration | — | 报错：TLS on a mixed inbound: it would take plain connections | — |
+| `certificate_provider` | string\|object | — | 报错：TLS on a mixed inbound: it would take plain connections | — |
+| `ech` | object → [对象](#inbounds-mixed-tls-ech) | — | 报错：TLS on a mixed inbound: it would take plain connections | — |
+| `reality` | object → [对象](#inbounds-mixed-tls-reality) | — | 报错：TLS on a mixed inbound: it would take plain connections | — |
+| `acme` | object | — | 报错：TLS on a mixed inbound: it would take plain connections (sing-box 已弃用) | — |
+
+<a id="inbounds-mixed-tls-ech"></a>
+
+### `inbounds[mixed].tls.ech`
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `enabled` | bool | — | 报错：TLS on a mixed inbound: it would take plain connections | — |
+| `key` | listable-string | — | 报错：TLS on a mixed inbound: it would take plain connections | — |
+| `key_path` | string | — | 报错：TLS on a mixed inbound: it would take plain connections | — |
+
+<a id="inbounds-mixed-tls-reality"></a>
+
+### `inbounds[mixed].tls.reality`
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `enabled` | bool | — | 报错：TLS on a mixed inbound: it would take plain connections | — |
+| `handshake` | object → [对象](#inbounds-mixed-tls-reality-handshake) | — | 报错：TLS on a mixed inbound: it would take plain connections | — |
+| `private_key` | string | — | 报错：TLS on a mixed inbound: it would take plain connections | — |
+| `short_id` | listable-string | — | 报错：TLS on a mixed inbound: it would take plain connections | — |
+| `max_time_difference` | duration | — | 报错：TLS on a mixed inbound: it would take plain connections | — |
+
+<a id="inbounds-mixed-tls-reality-handshake"></a>
+
+### `inbounds[mixed].tls.reality.handshake`
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `server` | string | — | 报错：TLS on a mixed inbound: it would take plain connections | — |
+| `server_port` | number | — | 报错：TLS on a mixed inbound: it would take plain connections | — |
+| `detour` | string | — | 报错：TLS on a mixed inbound: it would take plain connections | — |
+| `bind_interface` | string | — | 报错：TLS on a mixed inbound: it would take plain connections | — |
+| `inet4_bind_address` | string | — | 报错：TLS on a mixed inbound: it would take plain connections | — |
+| `inet6_bind_address` | string | — | 报错：TLS on a mixed inbound: it would take plain connections | — |
+| `bind_address_no_port` | bool | — | 报错：TLS on a mixed inbound: it would take plain connections | — |
+| `protect_path` | string | — | 报错：TLS on a mixed inbound: it would take plain connections | — |
+| `routing_mark` | number\|string | — | 报错：TLS on a mixed inbound: it would take plain connections | — |
+| `reuse_addr` | bool | — | 报错：TLS on a mixed inbound: it would take plain connections | — |
+| `netns` | string | — | 报错：TLS on a mixed inbound: it would take plain connections | — |
+| `connect_timeout` | duration | — | 报错：TLS on a mixed inbound: it would take plain connections | — |
+| `tcp_fast_open` | bool | — | 报错：TLS on a mixed inbound: it would take plain connections | — |
+| `tcp_multi_path` | bool | — | 报错：TLS on a mixed inbound: it would take plain connections | — |
+| `disable_tcp_keep_alive` | bool | — | 报错：TLS on a mixed inbound: it would take plain connections | — |
+| `tcp_keep_alive` | duration | — | 报错：TLS on a mixed inbound: it would take plain connections | — |
+| `tcp_keep_alive_interval` | duration | — | 报错：TLS on a mixed inbound: it would take plain connections | — |
+| `udp_fragment` | bool | — | 报错：TLS on a mixed inbound: it would take plain connections | — |
+| `domain_resolver` | string\|object → [对象](#inbounds-mixed-tls-reality-handshake-domain-resolver) | — | 报错：TLS on a mixed inbound: it would take plain connections | — |
+| `network_strategy` | string, 取值 `default`, `fallback`, `hybrid` | — | 报错：TLS on a mixed inbound: it would take plain connections | — |
+| `network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 报错：TLS on a mixed inbound: it would take plain connections | — |
+| `fallback_network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 报错：TLS on a mixed inbound: it would take plain connections | — |
+| `fallback_delay` | duration | — | 报错：TLS on a mixed inbound: it would take plain connections | — |
+| `domain_strategy` | string | — | 报错：TLS on a mixed inbound: it would take plain connections (sing-box 已弃用) | — |
+
+<a id="inbounds-mixed-tls-reality-handshake-domain-resolver"></a>
+
+### `inbounds[mixed].tls.reality.handshake.domain_resolver`
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `server` | string | 必填 | 报错：TLS on a mixed inbound: it would take plain connections | — |
+| `timeout` | duration | — | 报错：TLS on a mixed inbound: it would take plain connections | — |
+| `strategy` | string, 取值 `as_is`, `prefer_ipv4`, `prefer_ipv6`, `ipv4_only`, `ipv6_only` | — | 报错：TLS on a mixed inbound: it would take plain connections | — |
+| `disable_cache` | bool | — | 报错：TLS on a mixed inbound: it would take plain connections | — |
+| `disable_optimistic_cache` | bool | — | 报错：TLS on a mixed inbound: it would take plain connections | — |
+| `rewrite_ttl` | number | — | 报错：TLS on a mixed inbound: it would take plain connections | — |
+| `client_subnet` | string | — | 报错：TLS on a mixed inbound: it would take plain connections | — |
+
+<a id="inbounds-mptp"></a>
+
+## `inbounds[mptp]`
+
+Rust 定义：[`MptpInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/mptp/inbound/mod.rs) · 构建条件：`feature = "outbound-mptp"` 且 `feature = "inbound-mptp"` · **sail 扩展**
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | sail 扩展 | Defaults to the type. |
+| `listen` | string | 未设置 | sail 扩展 | The address to listen on; defaults to `127.0.0.1`. |
+| `listen_port` | number | 未设置 | sail 扩展 | The port to listen on. An inbound without one does not listen, and is only useful as a part of another inbound. |
+| `udp_timeout` | 时长，或秒数 | 未设置 | sail 扩展 | How long a UDP session through this inbound lives without traffic; 5m when unset, as in sing-box. A number is of seconds. |
+| `tcp_keep_alive` | duration | 未设置 | sail 扩展 | How long an accepted TCP connection is idle before keepalive probes it; 5m when unset. |
+| `tcp_keep_alive_interval` | duration | 未设置 | sail 扩展 | Between keepalive probes; 75s when unset. |
+| `disable_tcp_keep_alive` | bool | `false` | sail 扩展 | — |
+
+<a id="inbounds-nf"></a>
+
+## `inbounds[nf]`
+
+Rust 定义：[`NfInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/nf/inbound/mod.rs) · 构建条件：`all (feature = "inbound-nf" , windows)` · **sail 扩展**
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | sail 扩展 | Defaults to the type. |
+| `listen` | string | 未设置 | sail 扩展 | The address to listen on; defaults to `127.0.0.1`. |
+| `listen_port` | number | 未设置 | sail 扩展 | The port to listen on. An inbound without one does not listen, and is only useful as a part of another inbound. |
+| `udp_timeout` | 时长，或秒数 | 未设置 | sail 扩展 | How long a UDP session through this inbound lives without traffic; 5m when unset, as in sing-box. A number is of seconds. |
+| `tcp_keep_alive` | duration | 未设置 | sail 扩展 | How long an accepted TCP connection is idle before keepalive probes it; 5m when unset. |
+| `tcp_keep_alive_interval` | duration | 未设置 | sail 扩展 | Between keepalive probes; 75s when unset. |
+| `disable_tcp_keep_alive` | bool | `false` | sail 扩展 | — |
+| `driver_name` | string | 必填 | sail 扩展 | — |
+| `nfapi` | string | `"nfapi.dll"` | sail 扩展 | — |
+| `fake_dns_exclude` | 数组，元素为 string | `[]` | sail 扩展 | — |
+| `fake_dns_include` | 数组，元素为 string | `[]` | sail 扩展 | — |
+
+<a id="inbounds-redirect"></a>
+
+## `inbounds[redirect]`
+
+Rust 定义：[`RedirectInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/redirect/inbound/mod.rs) · 构建条件：`feature = "inbound-redirect"`
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | 支持 | Defaults to the type. |
+| `listen` | string | 未设置 | 支持 | The address to listen on; defaults to `127.0.0.1`. |
+| `listen_port` | number | 未设置 | 支持 | The port to listen on. An inbound without one does not listen, and is only useful as a part of another inbound. |
+| `bind_interface` | string | — | 报错：Where and how an inbound listens: it would take connections otherwise | — |
+| `routing_mark` | number\|string | — | 报错：Where and how an inbound listens: it would take connections otherwise | — |
+| `reuse_addr` | bool | — | 警告：Socket tuning: connections go the same way without it | — |
+| `netns` | string | — | 报错：Where and how an inbound listens: it would take connections otherwise | — |
+| `disable_tcp_keep_alive` | bool | `false` | 支持 | — |
+| `tcp_keep_alive` | duration | 未设置 | 支持 | How long an accepted TCP connection is idle before keepalive probes it; 5m when unset. |
+| `tcp_keep_alive_interval` | duration | 未设置 | 支持 | Between keepalive probes; 75s when unset. |
+| `tcp_fast_open` | bool | — | 警告：Socket tuning: connections go the same way without it | — |
+| `tcp_multi_path` | bool | — | 警告：Socket tuning: connections go the same way without it | — |
+| `udp_fragment` | bool | — | 警告：Socket tuning: connections go the same way without it | — |
+| `udp_timeout` | number\|duration | 未设置 | 支持 | How long a UDP session through this inbound lives without traffic; 5m when unset, as in sing-box. A number is of seconds. |
+| `detour` | string | — | 报错：Handing an inbound's connections to another inbound | — |
+
+<a id="inbounds-shadowsocks"></a>
+
+## `inbounds[shadowsocks]`
+
+Rust 定义：[`ShadowsocksInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/shadowsocks/inbound/mod.rs) · 构建条件：`feature = "inbound-shadowsocks"`
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | 支持 | Defaults to the type. |
+| `listen` | string | 未设置 | 支持 | The address to listen on; defaults to `127.0.0.1`. |
+| `listen_port` | number | 未设置 | 支持 | The port to listen on. An inbound without one does not listen, and is only useful as a part of another inbound. |
+| `bind_interface` | string | — | 报错：Where and how an inbound listens: it would take connections otherwise | — |
+| `routing_mark` | number\|string | — | 报错：Where and how an inbound listens: it would take connections otherwise | — |
+| `reuse_addr` | bool | — | 警告：Socket tuning: connections go the same way without it | — |
+| `netns` | string | — | 报错：Where and how an inbound listens: it would take connections otherwise | — |
+| `disable_tcp_keep_alive` | bool | `false` | 支持 | — |
+| `tcp_keep_alive` | duration | 未设置 | 支持 | How long an accepted TCP connection is idle before keepalive probes it; 5m when unset. |
+| `tcp_keep_alive_interval` | duration | 未设置 | 支持 | Between keepalive probes; 75s when unset. |
+| `tcp_fast_open` | bool | — | 警告：Socket tuning: connections go the same way without it | — |
+| `tcp_multi_path` | bool | — | 警告：Socket tuning: connections go the same way without it | — |
+| `udp_fragment` | bool | — | 警告：Socket tuning: connections go the same way without it | — |
+| `udp_timeout` | number\|duration | 未设置 | 支持 | How long a UDP session through this inbound lives without traffic; 5m when unset, as in sing-box. A number is of seconds. |
+| `detour` | string | — | 报错：Handing an inbound's connections to another inbound | — |
+| `network` | listable-string, 取值 `tcp`, `udp` | — | 报错：Which networks a Shadowsocks inbound serves: it would serve others | — |
+| `method` | string, 取值 `none`, `aes-128-gcm`, `aes-192-gcm`, `aes-256-gcm`, `chacha20-ietf-poly1305`, `xchacha20-ietf-poly1305`, `2022-blake3-aes-128-gcm`, `2022-blake3-aes-256-gcm`, `2022-blake3-chacha20-poly1305` | 必填 | 支持 | — |
+| `password` | string | 必填 | 支持 | The PSK with a 2022 method; with `users`, the server's identity PSK. |
+| `users` | array → [[]](#inbounds-shadowsocks-users) | 未设置 | 支持 | Shadowsocks 2022 users, told apart by identity headers. |
+| `destinations` | array → [[]](#inbounds-shadowsocks-destinations) | — | 报错：Relaying to other Shadowsocks servers | — |
+| `multiplex` | object → [对象](/sail/zh/reference/shared/#multiplex-inbounds) | 未设置 | 支持 | — |
+| `managed` | bool | — | 警告：Users managed through the SSM API, a service sail does not run | — |
+
+<a id="inbounds-shadowsocks-users"></a>
+
+### `inbounds[shadowsocks].users[]`
+
+Rust 定义：[`ShadowsocksUser`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/shadowsocks/inbound/mod.rs) · 构建条件：`feature = "inbound-shadowsocks"`
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `name` | string | 未设置 | 支持 | Who the user is to routing (`auth_user`), statistics and logs. |
+| `password` | string | 必填 | 支持 | The user's base64 PSK. |
+
+<a id="inbounds-shadowsocks-destinations"></a>
+
+### `inbounds[shadowsocks].destinations[]`
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `name` | string | — | 报错：Relaying to other Shadowsocks servers | — |
+| `password` | string | — | 报错：Relaying to other Shadowsocks servers | — |
+| `server` | string | — | 报错：Relaying to other Shadowsocks servers | — |
+| `server_port` | number | — | 报错：Relaying to other Shadowsocks servers | — |
+
+<a id="inbounds-shadowtls"></a>
+
+## `inbounds[shadowtls]`
+
+Rust 定义：[`ShadowTlsInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/shadowtls/inbound.rs) · 构建条件：`feature = "inbound-shadowtls"`
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | 支持 | Defaults to the type. |
+| `listen` | string | 未设置 | 支持 | The address to listen on; defaults to `127.0.0.1`. |
+| `listen_port` | number | 未设置 | 支持 | The port to listen on. An inbound without one does not listen, and is only useful as a part of another inbound. |
+| `bind_interface` | string | — | 报错：Where and how an inbound listens: it would take connections otherwise | — |
+| `routing_mark` | number\|string | — | 报错：Where and how an inbound listens: it would take connections otherwise | — |
+| `reuse_addr` | bool | — | 警告：Socket tuning: connections go the same way without it | — |
+| `netns` | string | — | 报错：Where and how an inbound listens: it would take connections otherwise | — |
+| `disable_tcp_keep_alive` | bool | `false` | 支持 | — |
+| `tcp_keep_alive` | duration | 未设置 | 支持 | How long an accepted TCP connection is idle before keepalive probes it; 5m when unset. |
+| `tcp_keep_alive_interval` | duration | 未设置 | 支持 | Between keepalive probes; 75s when unset. |
+| `tcp_fast_open` | bool | — | 警告：Socket tuning: connections go the same way without it | — |
+| `tcp_multi_path` | bool | — | 警告：Socket tuning: connections go the same way without it | — |
+| `udp_fragment` | bool | — | 警告：Socket tuning: connections go the same way without it | — |
+| `udp_timeout` | number\|duration | 未设置 | 支持 | How long a UDP session through this inbound lives without traffic; 5m when unset, as in sing-box. A number is of seconds. |
+| `detour` | string | 未设置 | 支持 | The inbound connections go to after the handshake, by tag: needed. |
+| `version` | number, 取值 `1`, `2`, `3` | `1` | 支持 | Must be 3: versions 1 and 2 are not supported. sing-box's default is 1. |
+| `password` | string | 未设置 | 支持 | Version 2's, and an error: version 3 takes `users`. |
+| `users` | array → [[]](#inbounds-shadowtls-users) | `[]` | 支持 | At least one. |
+| `handshake` | object → [对象](#inbounds-shadowtls-handshake) | 未设置 | 支持 | The site whose handshake is relayed, for everyone the other fields do not send elsewhere. Needed unless `wildcard_sni` is on. |
+| `handshake_for_server_name` | map | `{}` | 支持 | Handshake servers by the server name the ClientHello asks for. |
+| `strict_mode` | bool | `false` | 支持 | Relays a ServerHello that does not pick TLS 1.3 as it would an unauthenticated client. |
+| `wildcard_sni` | string, 取值 `off`, `authed`, `all` | `off` | 支持 | — |
+
+<a id="inbounds-shadowtls-users"></a>
+
+### `inbounds[shadowtls].users[]`
+
+Rust 定义：[`ShadowTlsUser`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/shadowtls/inbound.rs) · 构建条件：`feature = "inbound-shadowtls"`
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `name` | string | `""` | 支持 | Who the user is to routing (`auth_user`), statistics and logs. |
+| `password` | string | 必填 | 支持 | — |
+
+<a id="inbounds-shadowtls-handshake"></a>
+
+### `inbounds[shadowtls].handshake`
+
+Rust 定义：[`ShadowTlsHandshake`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/shadowtls/inbound.rs) · 构建条件：`feature = "inbound-shadowtls"`
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `server` | string | `""` | 支持 | — |
+| `server_port` | number | `0` | 支持 | — |
+| `detour` | string | — | 报错：The protocol's own check: not implemented yet | The outbound to dial through, in place of a socket of its own. |
+| `bind_interface` | string | 未设置 | 支持 | The interface to send through, by name. |
+| `inet4_bind_address` | string | 未设置 | 支持 | The local address for IPv4 destinations. |
+| `inet6_bind_address` | string | 未设置 | 支持 | The local address for IPv6 destinations. |
+| `bind_address_no_port` | bool | — | 报错：The protocol's own check: not implemented yet | Not implemented yet. |
+| `protect_path` | string | — | 报错：The protocol's own check: not implemented yet | Not implemented yet. |
+| `routing_mark` | number\|string | 未设置 | 支持 | `SO_MARK`, Linux only. |
+| `reuse_addr` | bool | — | 报错：The protocol's own check: not implemented yet | Not implemented yet. |
+| `netns` | string | — | 报错：The protocol's own check: not implemented yet | Not implemented yet. |
+| `connect_timeout` | duration | 未设置 | 支持 | How long a TCP connect to one address may take; 5s when unset. |
+| `tcp_fast_open` | bool | — | 报错：The protocol's own check: not implemented yet | Not implemented yet. |
+| `tcp_multi_path` | bool | — | 报错：The protocol's own check: not implemented yet | Not implemented yet. |
+| `disable_tcp_keep_alive` | bool | `false` | 支持 | No TCP keepalive at all. |
+| `tcp_keep_alive` | duration | 未设置 | 支持 | How long a TCP connection is idle before keepalive probes it; 5m when unset. |
+| `tcp_keep_alive_interval` | duration | 未设置 | 支持 | Between keepalive probes; 75s when unset. |
+| `udp_fragment` | bool | — | 报错：The protocol's own check: not implemented yet | Not implemented yet. |
+| `domain_resolver` | string\|object → [对象](/sail/zh/reference/shared/#domain-resolver-default-domain-resolver) | 未设置 | 支持 | The DNS server that resolves the names dialled. |
+| `network_strategy` | string, 取值 `default`, `fallback`, `hybrid` | — | 报错：The protocol's own check: not implemented yet | Not implemented yet. |
+| `network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 报错：The protocol's own check: not implemented yet | Not implemented yet. |
+| `fallback_network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 报错：The protocol's own check: not implemented yet | Not implemented yet. |
+| `fallback_delay` | duration | — | 报错：The protocol's own check: not implemented yet | Not implemented yet. |
+| `domain_strategy` | string | 未设置 | 支持 (sing-box 已弃用) | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
+
+<a id="inbounds-socks"></a>
+
+## `inbounds[socks]`
+
+Rust 定义：[`SocksInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/socks/inbound/mod.rs) · 构建条件：`feature = "inbound-socks"`
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | 支持 | Defaults to the type. |
+| `listen` | string | 未设置 | 支持 | The address to listen on; defaults to `127.0.0.1`. |
+| `listen_port` | number | 未设置 | 支持 | The port to listen on. An inbound without one does not listen, and is only useful as a part of another inbound. |
+| `bind_interface` | string | — | 报错：Where and how an inbound listens: it would take connections otherwise | — |
+| `routing_mark` | number\|string | — | 报错：Where and how an inbound listens: it would take connections otherwise | — |
+| `reuse_addr` | bool | — | 警告：Socket tuning: connections go the same way without it | — |
+| `netns` | string | — | 报错：Where and how an inbound listens: it would take connections otherwise | — |
+| `disable_tcp_keep_alive` | bool | `false` | 支持 | — |
+| `tcp_keep_alive` | duration | 未设置 | 支持 | How long an accepted TCP connection is idle before keepalive probes it; 5m when unset. |
+| `tcp_keep_alive_interval` | duration | 未设置 | 支持 | Between keepalive probes; 75s when unset. |
+| `tcp_fast_open` | bool | — | 警告：Socket tuning: connections go the same way without it | — |
+| `tcp_multi_path` | bool | — | 警告：Socket tuning: connections go the same way without it | — |
+| `udp_fragment` | bool | — | 警告：Socket tuning: connections go the same way without it | — |
+| `udp_timeout` | number\|duration | 未设置 | 支持 | How long a UDP session through this inbound lives without traffic; 5m when unset, as in sing-box. A number is of seconds. |
+| `detour` | string | — | 报错：Handing an inbound's connections to another inbound | — |
+| `users` | array → [[]](#inbounds-socks-users) | `[]` | 支持 | Clients must authenticate as one of these; anyone may connect when there are none. |
+| `domain_resolver` | string\|object → [对象](/sail/zh/reference/shared/#domain-resolver-inbounds) | — | 报错：Resolving requested names with a resolver of its own: another server would answer | — |
+
+<a id="inbounds-socks-users"></a>
+
+### `inbounds[socks].users[]`
+
+Rust 定义：[`SocksUser`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/socks/inbound/mod.rs) · 构建条件：`feature = "inbound-socks"`
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `username` | string | 必填 | 支持 | — |
+| `password` | string | 必填 | 支持 | — |
+
+<a id="inbounds-tproxy"></a>
+
+## `inbounds[tproxy]`
+
+Rust 定义：[`TproxyInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/tproxy/mod.rs) · 构建条件：`feature = "inbound-tproxy"`
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | 支持 | Defaults to the type. |
+| `listen` | string | 未设置 | 支持 | The address to listen on; defaults to `127.0.0.1`. |
+| `listen_port` | number | 未设置 | 支持 | The port to listen on. An inbound without one does not listen, and is only useful as a part of another inbound. |
+| `bind_interface` | string | — | 报错：Where and how an inbound listens: it would take connections otherwise | — |
+| `routing_mark` | number\|string | — | 报错：Where and how an inbound listens: it would take connections otherwise | — |
+| `reuse_addr` | bool | — | 警告：Socket tuning: connections go the same way without it | — |
+| `netns` | string | — | 报错：Where and how an inbound listens: it would take connections otherwise | — |
+| `disable_tcp_keep_alive` | bool | `false` | 支持 | — |
+| `tcp_keep_alive` | duration | 未设置 | 支持 | How long an accepted TCP connection is idle before keepalive probes it; 5m when unset. |
+| `tcp_keep_alive_interval` | duration | 未设置 | 支持 | Between keepalive probes; 75s when unset. |
+| `tcp_fast_open` | bool | — | 警告：Socket tuning: connections go the same way without it | — |
+| `tcp_multi_path` | bool | — | 警告：Socket tuning: connections go the same way without it | — |
+| `udp_fragment` | bool | — | 警告：Socket tuning: connections go the same way without it | — |
+| `udp_timeout` | number\|duration | 未设置 | 支持 | How long a UDP session through this inbound lives without traffic; 5m when unset, as in sing-box. A number is of seconds. |
+| `detour` | string | — | 报错：Handing an inbound's connections to another inbound | — |
+| `network` | listable-string, 取值 `tcp`, `udp` | 未设置 | 支持 | Only `tcp`, or only `udp`; both when unset. |
+| `udp_mapping` | string, 取值 `endpoint_independent`, `address_dependent`, `address_and_port_dependent` | — | 警告：How UDP mappings are made and how many are kept: the same traffic | — |
+| `udp_filtering` | string, 取值 `endpoint_independent`, `address_dependent`, `address_and_port_dependent` | — | 报错：Which remote addresses may answer through a UDP mapping: others would | — |
+| `udp_nat_max` | number | — | 警告：How UDP mappings are made and how many are kept: the same traffic | — |
+
+<a id="inbounds-trojan"></a>
+
+## `inbounds[trojan]`
+
+Rust 定义：[`TrojanInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/trojan/inbound/mod.rs) · 构建条件：`feature = "inbound-trojan"`
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | 支持 | Defaults to the type. |
+| `listen` | string | 未设置 | 支持 | The address to listen on; defaults to `127.0.0.1`. |
+| `listen_port` | number | 未设置 | 支持 | The port to listen on. An inbound without one does not listen, and is only useful as a part of another inbound. |
+| `bind_interface` | string | — | 报错：Where and how an inbound listens: it would take connections otherwise | — |
+| `routing_mark` | number\|string | — | 报错：Where and how an inbound listens: it would take connections otherwise | — |
+| `reuse_addr` | bool | — | 警告：Socket tuning: connections go the same way without it | — |
+| `netns` | string | — | 报错：Where and how an inbound listens: it would take connections otherwise | — |
+| `disable_tcp_keep_alive` | bool | `false` | 支持 | — |
+| `tcp_keep_alive` | duration | 未设置 | 支持 | How long an accepted TCP connection is idle before keepalive probes it; 5m when unset. |
+| `tcp_keep_alive_interval` | duration | 未设置 | 支持 | Between keepalive probes; 75s when unset. |
+| `tcp_fast_open` | bool | — | 警告：Socket tuning: connections go the same way without it | — |
+| `tcp_multi_path` | bool | — | 警告：Socket tuning: connections go the same way without it | — |
+| `udp_fragment` | bool | — | 警告：Socket tuning: connections go the same way without it | — |
+| `udp_timeout` | number\|duration | 未设置 | 支持 | How long a UDP session through this inbound lives without traffic; 5m when unset, as in sing-box. A number is of seconds. |
+| `detour` | string | — | 报错：Handing an inbound's connections to another inbound | — |
+| `users` | array → [[]](#inbounds-trojan-users) | 必填 | 支持 | — |
+| `tls` | object → [对象](/sail/zh/reference/shared/#tls-inbounds) | 未设置 | 支持 | — |
+| `fallback` | object → [对象](#inbounds-trojan-fallback) | 未设置 | 支持 | Where a connection that fails to authenticate is relayed. |
+| `fallback_for_alpn` | map | `{}` | 支持 | The same, by the ALPN the connection's TLS negotiated; the ones it does not name go to `fallback`. |
+| `multiplex` | object → [对象](/sail/zh/reference/shared/#multiplex-inbounds) | 未设置 | 支持 | — |
+| `transport` | object → [对象](/sail/zh/reference/shared/#transport-inbounds), [[grpc]](/sail/zh/reference/shared/#transport-grpc-inbounds), [[http]](/sail/zh/reference/shared/#transport-http-inbounds), [[httpupgrade]](/sail/zh/reference/shared/#transport-httpupgrade-inbounds), [[ws]](/sail/zh/reference/shared/#transport-ws-inbounds) | 未设置 | 支持 | — |
+
+<a id="inbounds-trojan-users"></a>
+
+### `inbounds[trojan].users[]`
+
+Rust 定义：[`TrojanUser`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/trojan/inbound/mod.rs) · 构建条件：`feature = "inbound-trojan"`
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `name` | string | 未设置 | 支持 | Who the user is to routing (`auth_user`), statistics and logs. |
+| `password` | string | 必填 | 支持 | — |
+
+<a id="inbounds-trojan-fallback"></a>
+
+### `inbounds[trojan].fallback`
+
+Rust 定义：[`FallbackServer`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/fallback.rs) · 构建条件：`any (feature = "inbound-anytls" , feature = "inbound-trojan" , feature = "inbound-vless" , feature = "inbound-shadowtls")`
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `server` | string | 必填 | 支持 | — |
+| `server_port` | number | 必填 | 支持 | — |
+
+<a id="inbounds-tuic"></a>
+
+## `inbounds[tuic]`
+
+Rust 定义：[`TuicInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/tuic/inbound/mod.rs) · 构建条件：`feature = "inbound-tuic"`
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | 支持 | Defaults to the type. |
+| `listen` | string | 未设置 | 支持 | The address to listen on; defaults to `127.0.0.1`. |
+| `listen_port` | number | 未设置 | 支持 | The port to listen on. An inbound without one does not listen, and is only useful as a part of another inbound. |
+| `bind_interface` | string | — | 报错：Where and how an inbound listens: it would take connections otherwise | — |
+| `routing_mark` | number\|string | — | 报错：Where and how an inbound listens: it would take connections otherwise | — |
+| `reuse_addr` | bool | — | 警告：Socket tuning: connections go the same way without it | — |
+| `netns` | string | — | 报错：Where and how an inbound listens: it would take connections otherwise | — |
+| `disable_tcp_keep_alive` | bool | `false` | 支持 | — |
+| `tcp_keep_alive` | duration | 未设置 | 支持 | How long an accepted TCP connection is idle before keepalive probes it; 5m when unset. |
+| `tcp_keep_alive_interval` | duration | 未设置 | 支持 | Between keepalive probes; 75s when unset. |
+| `tcp_fast_open` | bool | — | 警告：Socket tuning: connections go the same way without it | — |
+| `tcp_multi_path` | bool | — | 警告：Socket tuning: connections go the same way without it | — |
+| `udp_fragment` | bool | — | 警告：Socket tuning: connections go the same way without it | — |
+| `udp_timeout` | number\|duration | 未设置 | 支持 | How long a UDP session through this inbound lives without traffic; 5m when unset, as in sing-box. A number is of seconds. |
+| `detour` | string | — | 报错：Handing an inbound's connections to another inbound | — |
+| `users` | array → [[]](#inbounds-tuic-users) | 必填 | 支持 | — |
+| `congestion_control` | string, 取值 `cubic`, `new_reno`, `bbr` | `cubic` | 支持 | — |
+| `auth_timeout` | duration | 未设置 | 支持 | How long a connection may go without authenticating. 3s, as in sing-box, when not set. |
+| `zero_rtt_handshake` | bool | `false` | 支持 | — |
+| `heartbeat` | duration | 未设置 | 支持 | — |
+| `tls` | object → [对象](/sail/zh/reference/shared/#tls-inbounds) | 必填 | 支持 | — |
+| `idle_timeout` | duration | — | 警告：QUIC tuning: the same connection without it | — |
+| `keep_alive_period` | duration | — | 警告：QUIC tuning: the same connection without it | — |
+| `stream_receive_window` | number\|string | — | 警告：QUIC tuning: the same connection without it | — |
+| `connection_receive_window` | number\|string | — | 警告：QUIC tuning: the same connection without it | — |
+| `max_concurrent_streams` | number | — | 警告：QUIC tuning: the same connection without it | — |
+| `initial_packet_size` | number | — | 警告：QUIC tuning: the same connection without it | — |
+| `disable_path_mtu_discovery` | bool | — | 警告：QUIC tuning: the same connection without it | — |
+
+<a id="inbounds-tuic-users"></a>
+
+### `inbounds[tuic].users[]`
+
+Rust 定义：[`TuicUser`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/tuic/inbound/mod.rs) · 构建条件：`feature = "inbound-tuic"`
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `name` | string | 未设置 | 支持 | Who the user is to routing (`auth_user`), statistics and logs. |
+| `uuid` | string | 必填 | 支持 | — |
+| `password` | string | `""` | 支持 | — |
+
+<a id="inbounds-tun"></a>
+
+## `inbounds[tun]`
+
+Rust 定义：[`TunInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/tun/inbound.rs) · 构建条件：`feature = "inbound-tun"`
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | 支持 | Defaults to the type. |
+| `interface_name` | string | 未设置 | 支持 | The device's name; the system picks one without it. |
+| `netns` | string | — | 报错：Where and how an inbound listens: it would take connections otherwise | — |
+| `mtu` | number | `9000` | 支持 | 9000 when omitted, as sing-box has it on Android. |
+| `address` | listable-string | `[]` | 支持 | The device's addresses with their prefixes: one IPv4, one IPv6, or one of each. |
+| `dns_mode` | string, 取值 `disabled`, `native`, `hijack` | — | 报错：The TUN's own DNS handling: queries would be answered otherwise | — |
+| `dns_address` | listable-string | — | 报错：The TUN's own DNS handling: queries would be answered otherwise | — |
+| `auto_route` | bool | `false` | 支持 | Routes the system's traffic into the device. |
+| `iproute2_table_index` | number | 未设置 | 支持 | The routing table of the device's routes (2022). |
+| `iproute2_rule_index` | number | 未设置 | 支持 | The first of auto_redirect's ip rules (9000); the rules from it to 10 after it are sail's, and removed at start and stop. |
+| `auto_redirect` | bool | `false` | 支持 | Linux: redirects TCP to sail with nftables and marks the rest into the device, and lets rules bypass sail before a connection is set up (sing-box 1.13). |
+| `auto_redirect_input_mark` | number\|string | 未设置 | 支持 | The mark that routes a packet into the device (0x2023). Marks are numbers, or strings of hexadecimal ("0x2023"); 0 is the default. |
+| `auto_redirect_output_mark` | number\|string | 未设置 | 支持 | The mark sail's own sockets carry, and flows that bypass it (0x2024). `route.default_mark` and `routing_mark` conflict with it. |
+| `auto_redirect_reset_mark` | number\|string | 未设置 | 支持 | The mark of a connection pre-match rejects, which the kernel resets (0x2025). |
+| `auto_redirect_nfqueue` | number | 未设置 | 支持 | The NFQUEUE pre-match reads first packets from (100). If it cannot be bound, sail runs without pre-match: `bypass` rules are skipped. |
+| `auto_redirect_iproute2_fallback_rule_index` | number | 未设置 | 支持 | The ip rule that sends what the main table has no route for into the device (32768). |
+| `exclude_mptcp` | bool | `false` | 支持 | Lets MPTCP go past sail rather than dropping it, which makes clients fall back to TCP. |
+| `loopback_address` | listable-string | `[]` | 支持 | Addresses whose TCP goes into the device rather than to the redirect listener: a destination sail's own listeners use, say. |
+| `strict_route` | bool | `false` | 支持 | With one family on the device, rejects the other rather than let it go past sail. Linux: with auto_redirect only, for now. Windows: not yet. Elsewhere it changes nothing, as in sing-box. |
+| `route_address` | listable-string | `[]` | 支持 | Only these destinations are taken... |
+| `route_address_set` | listable-string | `[]` | 支持 | Rule-sets whose destination `ip_cidr` alone are taken, kept up to date as they are downloaded again. |
+| `route_exclude_address` | listable-string | `[]` | 支持 | ...and not these. |
+| `route_exclude_address_set` | listable-string | `[]` | 支持 | Rule-sets whose destination `ip_cidr` are not taken. |
+| `include_interface` | listable-string | `[]` | 支持 | Forwarded traffic is taken only from these interfaces... |
+| `exclude_interface` | listable-string | `[]` | 支持 | ...or not from these. Naming `lo` in either leaves the host's own traffic out. |
+| `include_uid` | listable-number | `[]` | 支持 | The host's traffic is taken only from these users... |
+| `include_uid_range` | listable-string | `[]` | 支持 | ...and from these ranges, as "1000:2000". |
+| `exclude_uid` | listable-number | `[]` | 支持 | The host's traffic of these users is not taken... |
+| `exclude_uid_range` | listable-string | `[]` | 支持 | ...nor of these ranges. |
+| `include_android_user` | listable-number | `[]` | 支持 | Android: what the host's VPN takes in, applied by the host. |
+| `include_package` | listable-string | `[]` | 支持 | — |
+| `exclude_package` | listable-string | `[]` | 支持 | — |
+| `include_mac_address` | listable-string | — | 报错：Filtering LAN clients by MAC address | — |
+| `exclude_mac_address` | listable-string | — | 报错：Filtering LAN clients by MAC address | — |
+| `udp_timeout` | number\|duration | 未设置 | 支持 | How long a UDP session through this inbound lives without traffic; 5m when unset, as in sing-box. A number is of seconds. |
+| `udp_mapping` | string, 取值 `endpoint_independent`, `address_dependent`, `address_and_port_dependent` | — | 警告：How UDP mappings are made and how many are kept: the same traffic | — |
+| `udp_filtering` | string, 取值 `endpoint_independent`, `address_dependent`, `address_and_port_dependent` | — | 报错：Which remote addresses may answer through a UDP mapping: others would | — |
+| `udp_nat_max` | number | — | 警告：How UDP mappings are made and how many are kept: the same traffic | — |
+| `stack` | string, 取值 `system`, `gvisor`, `mixed` | — | 警告：One stack serves every `stack`; the platform proxy is the host's to set | — |
+| `platform` | object → [对象](#inbounds-tun-platform) | — | 警告：One stack serves every `stack`; the platform proxy is the host's to set | — |
+| `endpoint_independent_nat` | bool | — | 警告：One stack serves every `stack`; the platform proxy is the host's to set (sing-box 已弃用) | — |
+
+<a id="inbounds-tun-platform"></a>
+
+### `inbounds[tun].platform`
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `http_proxy` | object → [对象](#inbounds-tun-platform-http-proxy) | — | 警告：One stack serves every `stack`; the platform proxy is the host's to set | — |
+
+<a id="inbounds-tun-platform-http-proxy"></a>
+
+### `inbounds[tun].platform.http_proxy`
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `enabled` | bool | — | 警告：One stack serves every `stack`; the platform proxy is the host's to set | — |
+| `server` | string | — | 警告：One stack serves every `stack`; the platform proxy is the host's to set | — |
+| `server_port` | number | — | 警告：One stack serves every `stack`; the platform proxy is the host's to set | — |
+| `bypass_domain` | listable-string | — | 警告：One stack serves every `stack`; the platform proxy is the host's to set | — |
+| `match_domain` | listable-string | — | 警告：One stack serves every `stack`; the platform proxy is the host's to set | — |
+
+<a id="inbounds-vless"></a>
+
+## `inbounds[vless]`
+
+Rust 定义：[`VlessInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/vless/inbound/mod.rs) · 构建条件：`feature = "inbound-vless"`
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | 支持 | Defaults to the type. |
+| `listen` | string | 未设置 | 支持 | The address to listen on; defaults to `127.0.0.1`. |
+| `listen_port` | number | 未设置 | 支持 | The port to listen on. An inbound without one does not listen, and is only useful as a part of another inbound. |
+| `bind_interface` | string | — | 报错：Where and how an inbound listens: it would take connections otherwise | — |
+| `routing_mark` | number\|string | — | 报错：Where and how an inbound listens: it would take connections otherwise | — |
+| `reuse_addr` | bool | — | 警告：Socket tuning: connections go the same way without it | — |
+| `netns` | string | — | 报错：Where and how an inbound listens: it would take connections otherwise | — |
+| `disable_tcp_keep_alive` | bool | `false` | 支持 | — |
+| `tcp_keep_alive` | duration | 未设置 | 支持 | How long an accepted TCP connection is idle before keepalive probes it; 5m when unset. |
+| `tcp_keep_alive_interval` | duration | 未设置 | 支持 | Between keepalive probes; 75s when unset. |
+| `tcp_fast_open` | bool | — | 警告：Socket tuning: connections go the same way without it | — |
+| `tcp_multi_path` | bool | — | 警告：Socket tuning: connections go the same way without it | — |
+| `udp_fragment` | bool | — | 警告：Socket tuning: connections go the same way without it | — |
+| `udp_timeout` | number\|duration | 未设置 | 支持 | How long a UDP session through this inbound lives without traffic; 5m when unset, as in sing-box. A number is of seconds. |
+| `detour` | string | — | 报错：Handing an inbound's connections to another inbound | — |
+| `users` | array → [[]](#inbounds-vless-users) | 必填 | 支持 | — |
+| `tls` | object → [对象](/sail/zh/reference/shared/#tls-inbounds) | 未设置 | 支持 | — |
+| `multiplex` | object → [对象](/sail/zh/reference/shared/#multiplex-inbounds) | 未设置 | 支持 | — |
+| `transport` | object → [对象](/sail/zh/reference/shared/#transport-inbounds), [[grpc]](/sail/zh/reference/shared/#transport-grpc-inbounds), [[http]](/sail/zh/reference/shared/#transport-http-inbounds), [[httpupgrade]](/sail/zh/reference/shared/#transport-httpupgrade-inbounds), [[ws]](/sail/zh/reference/shared/#transport-ws-inbounds) | 未设置 | 支持 | — |
+
+<a id="inbounds-vless-users"></a>
+
+### `inbounds[vless].users[]`
+
+Rust 定义：[`VlessUser`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/vless/inbound/mod.rs) · 构建条件：`feature = "inbound-vless"`
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `name` | string | 未设置 | 支持 | Who the user is to routing (`auth_user`), statistics and logs. |
+| `uuid` | string | 必填 | 支持 | — |
+| `flow` | string | `""` | 支持 | `""` or `xtls-rprx-vision`. |
+
+<a id="inbounds-vmess"></a>
+
+## `inbounds[vmess]`
+
+Rust 定义：[`VMessInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/vmess/inbound/mod.rs) · 构建条件：`feature = "inbound-vmess"`
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | 支持 | Defaults to the type. |
+| `listen` | string | 未设置 | 支持 | The address to listen on; defaults to `127.0.0.1`. |
+| `listen_port` | number | 未设置 | 支持 | The port to listen on. An inbound without one does not listen, and is only useful as a part of another inbound. |
+| `bind_interface` | string | — | 报错：Where and how an inbound listens: it would take connections otherwise | — |
+| `routing_mark` | number\|string | — | 报错：Where and how an inbound listens: it would take connections otherwise | — |
+| `reuse_addr` | bool | — | 警告：Socket tuning: connections go the same way without it | — |
+| `netns` | string | — | 报错：Where and how an inbound listens: it would take connections otherwise | — |
+| `disable_tcp_keep_alive` | bool | `false` | 支持 | — |
+| `tcp_keep_alive` | duration | 未设置 | 支持 | How long an accepted TCP connection is idle before keepalive probes it; 5m when unset. |
+| `tcp_keep_alive_interval` | duration | 未设置 | 支持 | Between keepalive probes; 75s when unset. |
+| `tcp_fast_open` | bool | — | 警告：Socket tuning: connections go the same way without it | — |
+| `tcp_multi_path` | bool | — | 警告：Socket tuning: connections go the same way without it | — |
+| `udp_fragment` | bool | — | 警告：Socket tuning: connections go the same way without it | — |
+| `udp_timeout` | number\|duration | 未设置 | 支持 | How long a UDP session through this inbound lives without traffic; 5m when unset, as in sing-box. A number is of seconds. |
+| `detour` | string | — | 报错：Handing an inbound's connections to another inbound | — |
+| `users` | array → [[]](#inbounds-vmess-users) | 必填 | 支持 | — |
+| `tls` | object → [对象](/sail/zh/reference/shared/#tls-inbounds) | 未设置 | 支持 | — |
+| `multiplex` | object → [对象](/sail/zh/reference/shared/#multiplex-inbounds) | 未设置 | 支持 | — |
+| `transport` | object → [对象](/sail/zh/reference/shared/#transport-inbounds), [[grpc]](/sail/zh/reference/shared/#transport-grpc-inbounds), [[http]](/sail/zh/reference/shared/#transport-http-inbounds), [[httpupgrade]](/sail/zh/reference/shared/#transport-httpupgrade-inbounds), [[ws]](/sail/zh/reference/shared/#transport-ws-inbounds) | 未设置 | 支持 | — |
+
+<a id="inbounds-vmess-users"></a>
+
+### `inbounds[vmess].users[]`
+
+Rust 定义：[`VMessUser`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/vmess/inbound/mod.rs) · 构建条件：`feature = "inbound-vmess"`
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `name` | string | 未设置 | 支持 | Who the user is to routing (`auth_user`), statistics and logs. |
+| `uuid` | string | 必填 | 支持 | — |
+| `alterId` | number | `0` | 支持 | Only 0: AEAD headers. Legacy VMess is not served. |
+
+<a id="inbounds-missing"></a>
+
+## sail 未实现的类型：`inbounds`
+
+| 类型 | 状态 | 字段数 |
+| --- | --- | --: |
+| `inbounds[cloudflared]` | 报错：A protocol sail does not implement | 69 |
+| `inbounds[hysteria]` | 报错：A protocol sail does not implement | 98 |
+| `inbounds[naive]` | 报错：A protocol sail does not implement | 83 |
+| `inbounds[snell]` | 报错：A protocol sail does not implement | 22 |
 

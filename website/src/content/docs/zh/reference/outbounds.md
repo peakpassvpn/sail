@@ -1,474 +1,877 @@
 ---
-title: 出站与策略组
-description: 从 Sail 配置源码自动提取的字段、类型与序列化规则。
+title: "出站与策略组"
+description: "sail 原生配置格式（sing-box v1.14.2 JSON 与 sail 扩展）的逐字段参考。"
 ---
 
-本页由 Rust 语法树自动生成，请修改源码注释后重新构建。类型使用源码记法；`Option<T>` 表示可省略，`Vec<T>` 表示数组。源码注释保留原文。
-
-本表反映反序列化声明，不是完整的运行时校验 schema。条件编译可能限制当前平台或构建可用的协议；复杂默认值、组合支持及跨字段约束请结合[配置指南](/sail/zh/configuration/)与所链接源码，并执行 `sail -c config.json -T` 验证。
-
-## AnyTlsOutboundOptions
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/anytls/outbound/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `server` | `String` | 必填 | — |
-| `server_port` | `u16` | 必填 | — |
-| `password` | `String` | 必填 | — |
-| `idle_session_check_interval` | `Option < Duration >` | Default::default() | —<br/>`serde (default , with = "crate::config::model::duration")` |
-| `idle_session_timeout` | `Option < Duration >` | Default::default() | —<br/>`serde (default , with = "crate::config::model::duration")` |
-| `min_idle_session` | `usize` | Default::default() | —<br/>`serde (default)` |
-
-## DirectOptions
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/direct/outbound/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-
-## BlockOptions
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/drop/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-
-## FallbackServer
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/fallback.rs)
-
-Where a fallback goes, as sing-box writes it.
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `server` | `String` | 必填 | — |
-| `server_port` | `u16` | 必填 | — |
-
-## FallbackOutboundOptions
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/group/fallback/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `outbounds` | `Vec < String >` | Default::default() | Its members, in order; none may be when its providers give others.<br/>`serde (default)` |
-| `providers` | `GroupProviders` | 展开到当前对象，不是独立键 | Members from outbound providers too, a sail extension.<br/>`serde (flatten)` |
-| `url` | `String` | default: default_url() | What is requested through each member to test it.<br/>`serde (default = "default_url")` |
-| `interval` | `Option < Duration >` | Default::default() | —<br/>`serde (default , with = "crate::config::model::duration")` |
-| `timeout` | `Option < Duration >` | Default::default() | How long a test, or a connection attempt that has a member left to fall back to, may take before its member counts as failed.<br/>`serde (default , with = "crate::config::model::duration")` |
-| `lazy` | `bool` | default: default_lazy() | Tests only while the group is in use: not when it was not used since the last ones.<br/>`serde (default = "default_lazy")` |
-| `interrupt_exist_connections` | `bool` | Default::default() | Ends the connections through the member left once the group switches.<br/>`serde (default)` |
-
-## StrategyKind
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/group/load_balance/mod.rs)
-
-Serde: `serde (rename_all = "kebab-case")`
-
-| 可选值 / 形态 | 源码说明 |
-| --- | --- |
-| `ConsistentHashing` (default) | — |
-| `RoundRobin` | — |
-| `StickySessions` | — |
-
-## LoadBalanceOutboundOptions
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/group/load_balance/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `outbounds` | `Vec < String >` | Default::default() | Its members; none may be when its providers give others.<br/>`serde (default)` |
-| `providers` | `GroupProviders` | 展开到当前对象，不是独立键 | Members from outbound providers too, a sail extension.<br/>`serde (flatten)` |
-| `strategy` | `StrategyKind` | Default::default() | —<br/>`serde (default)` |
-| `url` | `String` | default: default_url() | What is requested through each member to test it.<br/>`serde (default = "default_url")` |
-| `interval` | `Option < Duration >` | Default::default() | —<br/>`serde (default , with = "crate::config::model::duration")` |
-| `lazy` | `bool` | default: default_lazy() | Tests only while the group is in use: not when it was not used since the last ones.<br/>`serde (default = "default_lazy")` |
-
-## NetworkGroupOptions
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/group/network/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `branches` | `Vec < Branch >` | 必填 | Tried in order: the first whose conditions the network matches takes the connection. |
-| `default` | `String` | 必填 | Where connections go when no branch matches. |
-
-## Branch
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/group/network/mod.rs)
-
-An outbound, and the network it is for: conditions as a routing rule's, each of which must match, a list when any of its values does. A condition on something not known of the network does not match.
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `outbound` | `String` | 必填 | — |
-| `wifi_ssid` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "listable")` |
-| `wifi_bssid` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "listable")` |
-| `network_type` | `Vec < String >` | Default::default() | `wifi`, `cellular`, `ethernet`, `other`.<br/>`serde (default , with = "listable")` |
-| `network_is_expensive` | `bool` | Default::default() | —<br/>`serde (default)` |
-| `network_is_constrained` | `bool` | Default::default() | —<br/>`serde (default)` |
-| `wifi_ssid_regex` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "listable")` |
-| `wifi_bssid_regex` | `Vec < String >` | Default::default() | Matched whatever the case.<br/>`serde (default , with = "listable")` |
-| `network_gateway` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "listable")` |
-| `network_mcc_mnc` | `Vec < String >` | Default::default() | Only off Wi-Fi.<br/>`serde (default , with = "listable")` |
-
-## SelectorOutboundOptions
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/group/selector/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `outbounds` | `Vec < String >` | Default::default() | Its members; none may be when its providers give others.<br/>`serde (default)` |
-| `providers` | `GroupProviders` | 展开到当前对象，不是独立键 | Members from outbound providers too, a sail extension.<br/>`serde (flatten)` |
-| `default` | `Option < String >` | Default::default() | Selected when nothing was selected before, or what was is no longer a member; defaults to the first. It may be a member a provider gives, the first so named.<br/>`serde (default)` |
-| `interrupt_exist_connections` | `bool` | Default::default() | Ends the connections through the member selected before once another is selected, rather than leaving them on it.<br/>`serde (default)` |
-
-## SmartOutboundOptions
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/group/smart/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `outbounds` | `Vec < String >` | Default::default() | Its members; none may be when its providers give others.<br/>`serde (default)` |
-| `providers` | `GroupProviders` | 展开到当前对象，不是独立键 | Members from outbound providers too.<br/>`serde (flatten)` |
-| `url` | `String` | default: default_url() | What is requested through each member to probe it.<br/>`serde (default = "default_url")` |
-| `interval` | `Option < Duration >` | Default::default() | How often members nothing told of lately are probed; 5 minutes.<br/>`serde (default , with = "crate::config::model::duration")` |
-| `timeout` | `Option < Duration >` | Default::default() | How long a probe, or a connection attempt that has a member left to try, may take before its member counts as failed; 5 seconds.<br/>`serde (default , with = "crate::config::model::duration")` |
-| `idle_timeout` | `Option < Duration >` | Default::default() | Probes pause once the group has not been used for this long; 30 minutes.<br/>`serde (default , with = "crate::config::model::duration")` |
-| `tolerance` | `u16` | default: default_tolerance() | Milliseconds: a member whose score is within this of the best may be picked.<br/>`serde (default = "default_tolerance")` |
-| `tolerance_ratio` | `f32` | default: default_tolerance_ratio() | A member whose score is within this fraction of the best may be picked too, whichever of the two is the wider.<br/>`serde (default = "default_tolerance_ratio")` |
-| `policy_priority` | `Vec < PolicyPriority >` | Default::default() | Factors of the scores of the members whose names match a regular expression, the first that matches: below 1 prefers them, above 1 avoids them. 1 for the others.<br/>`serde (default)` |
-| `site_ttl` | `Option < Duration >` | Default::default() | How long a site is kept on its member after its last connection; an hour.<br/>`serde (default , with = "crate::config::model::duration")` |
-| `site_capacity` | `usize` | default: default_site_capacity() | How many sites are kept at most; the least recently used goes first.<br/>`serde (default = "default_site_capacity")` |
-| `prefer_asn` | `bool` | Default::default() | Destinations known by address alone are sites by their autonomous system, but those of CDNs, rather than by their network. Needs an ASN database: `asn.mmdb` in the asset directory, or `asn_file`.<br/>`serde (default)` |
-| `asn_file` | `Option < String >` | Default::default() | The ASN database, for `prefer_asn`; relative to the asset directory.<br/>`serde (default)` |
-| `evaluate_before_use` | `bool` | Default::default() | The first connection waits for the first probes, `timeout` at most, rather than going through a member not measured yet.<br/>`serde (default)` |
-| `interrupt_exist_connections` | `bool` | Default::default() | Ends the connections through a member once it leaves the group.<br/>`serde (default)` |
-
-## PolicyPriority
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/group/smart/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `regex` | `String` | 必填 | Matched against the member's name, as Mihomo's filters are: lookarounds included, backtracking bounded. |
-| `factor` | `f64` | 必填 | Multiplies the member's score: above 0. |
-
-## TryAllOutboundOptions
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/group/tryall/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `outbounds` | `Vec < String >` | 必填 | — |
-| `delay_base` | `u32` | Default::default() | Milliseconds to wait before trying each next outbound.<br/>`serde (default)` |
-
-## UrlTestOutboundOptions
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/group/urltest/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `outbounds` | `Vec < String >` | Default::default() | Its members; none may be when its providers give others.<br/>`serde (default)` |
-| `providers` | `GroupProviders` | 展开到当前对象，不是独立键 | Members from outbound providers too, a sail extension.<br/>`serde (flatten)` |
-| `url` | `String` | default: default_url() | What is requested through each member; sing-box's default.<br/>`serde (default = "default_url")` |
-| `interval` | `Option < Duration >` | Default::default() | —<br/>`serde (default , with = "crate::config::model::duration")` |
-| `tolerance` | `u16` | default: default_tolerance() | Milliseconds.<br/>`serde (default = "default_tolerance")` |
-| `idle_timeout` | `Option < Duration >` | Default::default() | Tests pause once the group has not been used for this long.<br/>`serde (default , with = "crate::config::model::duration")` |
-| `interrupt_exist_connections` | `bool` | Default::default() | Ends the connections through the member left once the group switches.<br/>`serde (default)` |
-
-## HttpOutboundOptions
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/http/outbound/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `server` | `String` | 必填 | — |
-| `server_port` | `u16` | 必填 | — |
-| `username` | `Option < String >` | Default::default() | —<br/>`serde (default)` |
-| `password` | `Option < String >` | Default::default() | —<br/>`serde (default)` |
-| `path` | `Option < String >` | Default::default() | The request target instead of the destination, which then goes only in `Host`, as sing-box sends it.<br/>`serde (default)` |
-| `headers` | `BTreeMap < String , Listable >` | Default::default() | Sent with every `CONNECT`.<br/>`serde (default)` |
-
-## Obfs
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/hysteria2/mod.rs)
-
-The `obfs` field: `{"type": "salamander", "password": "..."}`.
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `r#type` | `String` | 必填 | — |
-| `password` | `String` | Default::default() | —<br/>`serde (default)` |
-
-## Hysteria2OutboundOptions
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/hysteria2/outbound/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `server` | `String` | 必填 | — |
-| `server_port` | `Option < u16 >` | Default::default() | The one port; with `server_ports`, not needed.<br/>`serde (default)` |
-| `server_ports` | `Option < Listable >` | Default::default() | Ports or ranges ("20000:30000") to hop between.<br/>`serde (default)` |
-| `hop_interval` | `Option < Duration >` | Default::default() | How often to hop, 30s unless set.<br/>`serde (default , with = "crate::config::model::duration")` |
-| `up_mbps` | `Option < u64 >` | Default::default() | What we may send at; set, it selects Brutal.<br/>`serde (default)` |
-| `down_mbps` | `Option < u64 >` | Default::default() | What we can receive at, told to the server.<br/>`serde (default)` |
-| `obfs` | `Option < Obfs >` | Default::default() | —<br/>`serde (default)` |
-| `password` | `String` | 必填 | — |
-| `tls` | `OutboundTls` | 必填 | — |
-| `network` | `Option < Listable >` | Default::default() | "tcp" or "udp", or both, as unset.<br/>`serde (default)` |
-
-## MptpOutboundOptions
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/mptp/outbound/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `outbounds` | `Vec < String >` | 必填 | — |
-| `server` | `String` | 必填 | — |
-| `server_port` | `u16` | 必填 | — |
-
-## PassOptions
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/pass/mod.rs)
-
-A pass outbound has nothing to configure but its tag.
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-
-## RedirectOptions
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/redirect/outbound/mod.rs)
-
-Sends every connection to one fixed address.
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `server` | `String` | 必填 | — |
-| `server_port` | `u16` | 必填 | — |
-
-## ShadowsocksOutboundOptions
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/shadowsocks/outbound/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `server` | `String` | 必填 | — |
-| `server_port` | `u16` | 必填 | — |
-| `method` | `String` | 必填 | — |
-| `password` | `String` | 必填 | With a 2022 method, the base64 PSK, or `iPSK:uPSK` for a server with users. |
-| `prefix` | `Option < String >` | Default::default() | Bytes sent before the first payload, percent-encoded.<br/>`serde (default)` |
-| `plugin` | `Option < String >` | Default::default() | Only `obfs-local` (simple-obfs) is supported.<br/>`serde (default)` |
-| `plugin_opts` | `Option < String >` | Default::default() | `obfs=http\|tls;obfs-host=<host>;obfs-uri=<path>`, as simple-obfs takes them.<br/>`serde (default)` |
-| `udp_over_tcp` | `Option < uot :: UdpOverTcpOptions >` | Default::default() | UDP over its TCP, to `sp.v2.udp-over-tcp.arpa`, instead of its own UDP.<br/>`serde (default)` |
-
-## ShadowTlsOutboundOptions
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/shadowtls/outbound.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `server` | `String` | 必填 | — |
-| `server_port` | `u16` | 必填 | — |
-| `version` | `u32` | default: version_one() | Must be 3: versions 1 and 2 are not supported. sing-box's default is 1.<br/>`serde (default = "version_one")` |
-| `password` | `String` | Default::default() | Cannot be empty.<br/>`serde (default)` |
-| `tls` | `Option < OutboundTls >` | Default::default() | Must be enabled: the handshake with the site the server imitates, `server_name` being the site's (the server's address when unset). A browser fingerprint, disable_sni and a client certificate apply as for TLS; REALITY and ECH do not.<br/>`serde (default)` |
-
-## SocksOutboundOptions
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/socks/outbound/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `server` | `String` | 必填 | — |
-| `server_port` | `u16` | 必填 | — |
-| `username` | `String` | Default::default() | —<br/>`serde (default)` |
-| `password` | `String` | Default::default() | —<br/>`serde (default)` |
-| `udp_over_tcp` | `Option < uot :: UdpOverTcpOptions >` | Default::default() | UDP over its TCP, to `sp.v2.udp-over-tcp.arpa`, instead of UDP ASSOCIATE.<br/>`serde (default)` |
-
-## TproxyNetwork
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/tproxy/mod.rs)
-
-Serde: `serde (rename_all = "lowercase")`
-
-| 可选值 / 形态 | 源码说明 |
-| --- | --- |
-| `tcp` | — |
-| `udp` | — |
-
-## TrojanOutboundOptions
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/trojan/outbound/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `server` | `String` | 必填 | — |
-| `server_port` | `u16` | 必填 | — |
-| `password` | `String` | 必填 | — |
-
-## UdpRelayMode
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/tuic/common.rs)
-
-Which way UDP packets travel.
-
-Serde: `serde (rename_all = "snake_case")`
-
-| 可选值 / 形态 | 源码说明 |
-| --- | --- |
-| `native` (default) | QUIC datagrams, fragmented to fit. |
-| `quic` | One unidirectional stream per packet. |
-
-## TuicOutboundOptions
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/tuic/outbound/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `server` | `String` | 必填 | — |
-| `server_port` | `u16` | 必填 | — |
-| `uuid` | `String` | 必填 | — |
-| `password` | `String` | Default::default() | —<br/>`serde (default)` |
-| `congestion_control` | `CongestionControl` | Default::default() | —<br/>`serde (default)` |
-| `udp_relay_mode` | `Option < UdpRelayMode >` | Default::default() | —<br/>`serde (default)` |
-| `udp_over_stream` | `bool` | Default::default() | UDP over TCP (v2), as sing-box has it: each UDP session a `Connect` stream to `sp.v2.udp-over-tcp.arpa`, instead of TUIC's own relay.<br/>`serde (default)` |
-| `zero_rtt_handshake` | `bool` | Default::default() | —<br/>`serde (default)` |
-| `heartbeat` | `Option < Duration >` | Default::default() | —<br/>`serde (default , with = "crate::config::model::duration")` |
-| `network` | `Option < Network >` | Default::default() | `tcp` or `udp`; both when not set.<br/>`serde (default)` |
-| `tls` | `OutboundTls` | 必填 | — |
-
-## Network
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/tuic/outbound/mod.rs)
-
-Serde: `serde (rename_all = "lowercase")`
-
-| 可选值 / 形态 | 源码说明 |
-| --- | --- |
-| `tcp` | — |
-| `udp` | — |
-
-## VlessOutboundOptions
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/vless/outbound/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `server` | `String` | 必填 | — |
-| `server_port` | `u16` | 必填 | — |
-| `uuid` | `String` | 必填 | — |
-| `flow` | `String` | Default::default() | `""` or `xtls-rprx-vision`.<br/>`serde (default)` |
-| `packet_encoding` | `Option < String >` | Default::default() | How UDP travels: unset means `xudp`, as in sing-box; `""` is VLESS's own UDP, one destination per connection.<br/>`serde (default)` |
-
-## VMessOutboundOptions
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/vmess/outbound/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `server` | `String` | 必填 | — |
-| `server_port` | `u16` | 必填 | — |
-| `uuid` | `String` | 必填 | — |
-| `security` | `String` | default: default_security() | `auto`, `aes-128-gcm`, `chacha20-poly1305`, `none` or `zero`.<br/>`serde (default = "default_security")` |
-| `alter_id` | `u32` | Default::default() | Only 0: legacy VMess is not spoken.<br/>`serde (default)` |
-| `global_padding` | `bool` | Default::default() | Random padding after each chunk, as v2ray pads.<br/>`serde (default)` |
-| `packet_encoding` | `String` | Default::default() | `""` (VMess's own UDP) or `xudp`.<br/>`serde (default)` |
-
-## WireGuardOptions
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/wireguard/endpoint/options.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `system` | `bool` | Default::default() | A system interface instead of the userspace stack: not supported.<br/>`serde (default)` |
-| `name` | `Option < String >` | Default::default() | The system interface's name, for `system` only.<br/>`serde (default)` |
-| `mtu` | `Option < u32 >` | Default::default() | —<br/>`serde (default)` |
-| `address` | `Vec < String >` | 必填 | The endpoint's own addresses in the tunnel, as prefixes. |
-| `private_key` | `String` | 必填 | — |
-| `listen_port` | `Option < u16 >` | Default::default() | —<br/>`serde (default)` |
-| `peers` | `Vec < PeerOptions >` | 必填 | — |
-| `workers` | `Option < u32 >` | Default::default() | sing-box's worker count; sail has no use for it.<br/>`serde (default)` |
-
-## PeerOptions
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/wireguard/endpoint/options.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `address` | `Option < String >` | Default::default() | Where the peer is: an address or a domain. Without it, it is learnt from the peer's handshake, as a server's peers are.<br/>`serde (default)` |
-| `port` | `Option < u16 >` | Default::default() | —<br/>`serde (default)` |
-| `public_key` | `String` | 必填 | — |
-| `pre_shared_key` | `Option < String >` | Default::default() | —<br/>`serde (default)` |
-| `allowed_ips` | `Vec < String >` | 必填 | — |
-| `persistent_keepalive_interval` | `Option < u16 >` | Default::default() | Seconds; 0 or unset is off.<br/>`serde (default)` |
-| `reserved` | `Option < Reserved >` | Default::default() | Three bytes, or their base64: Cloudflare WARP's client identifier.<br/>`serde (default)` |
-
-## Reserved
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/wireguard/endpoint/options.rs)
-
-Serde: `serde (untagged)`
-
-| 可选值 / 形态 | 源码说明 |
-| --- | --- |
-| `(Vec < u8 >)` | — |
-| `(String)` | — |
+本页由 `website/scripts/build-config.mjs` 生成，请勿手改：它读取 sail 的配置类型（Rust 源码）、sing-box 字段注册表（`sail/src/config/singbox/fields.json`，sing-box v1.14.2）及注册表测试实测的分级（`fields.tiers.json`）。修改源码注释或上述文件后在 `website/` 下执行 `npm run docs:config`。
+
+- **状态**：sing-box 的字段按注册表测试逐一实测：**支持**（读取并生效，不接受的取值仍报错）、**警告**（忽略并警告）、**报错**（拒绝该配置），并附理由；**sail 扩展** 为 sing-box 没有的字段与类型。
+- **类型**：sing-box 字段取 sing-box 的 JSON 类型；扩展字段取自 sail 的 Rust 定义。
+- **默认**：取自 sail 的 serde 声明；“未设置”表示可省略，省略时的行为见说明。只有 sail 读取的字段才列默认值。
+- **说明**：sail 源码注释，保留原文；没有注释的扩展字段取注册表测试的说明。
+- **构建条件**：Rust 源码中的 `cfg` 条件（Cargo feature 与平台）。
+
+用 `sail -c config.json -T` 校验配置。Clash 与 Surge 的支持表见[兼容性](/sail/zh/reference/compatibility/)。
+
+<a id="outbounds"></a>
+
+## `outbounds[]`
+
+Rust 定义：[`Outbound`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `type` | string, 取值 `anytls`, `block`, `bridge`, `direct`, `http`, `hysteria`, `hysteria2`, `naive`, `selector`, `shadowsocks`, `shadowtls`, `snell`, `socks`, `ssh`, `tor`, `trojan`, `tuic`, `urltest`, `vless`, `vmess` | 必填 | 支持 | — |
+
+<a id="outbounds-anytls"></a>
+
+## `outbounds[anytls]`
+
+Rust 定义：[`AnyTlsOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/anytls/outbound/mod.rs) · 构建条件：`feature = "outbound-anytls"`
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | 支持 | Defaults to the type. |
+| `detour` | string | 未设置 | 支持 | The outbound to dial through, in place of a socket of its own. |
+| `bind_interface` | string | 未设置 | 支持 | The interface to send through, by name. |
+| `inet4_bind_address` | string | 未设置 | 支持 | The local address for IPv4 destinations. |
+| `inet6_bind_address` | string | 未设置 | 支持 | The local address for IPv6 destinations. |
+| `bind_address_no_port` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `protect_path` | string | — | 报错：Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
+| `routing_mark` | number\|string | 未设置 | 支持 | `SO_MARK`, Linux only. |
+| `reuse_addr` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `netns` | string | — | 报错：Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
+| `connect_timeout` | duration | 未设置 | 支持 | How long a TCP connect to one address may take; 5s when unset. |
+| `tcp_fast_open` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `tcp_multi_path` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `disable_tcp_keep_alive` | bool | `false` | 支持 | No TCP keepalive at all. |
+| `tcp_keep_alive` | duration | 未设置 | 支持 | How long a TCP connection is idle before keepalive probes it; 5m when unset. |
+| `tcp_keep_alive_interval` | duration | 未设置 | 支持 | Between keepalive probes; 75s when unset. |
+| `udp_fragment` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `domain_resolver` | string\|object → [对象](/sail/zh/reference/shared/#domain-resolver-default-domain-resolver) | 未设置 | 支持 | The DNS server that resolves the names dialled. |
+| `network_strategy` | string, 取值 `default`, `fallback`, `hybrid` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `fallback_network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `fallback_delay` | duration | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `server` | string | 必填 | 支持 | — |
+| `server_port` | number | 必填 | 支持 | — |
+| `tls` | object → [对象](/sail/zh/reference/shared/#tls-outbounds) | 未设置 | 支持 | — |
+| `password` | string | 必填 | 支持 | — |
+| `idle_session_check_interval` | duration | 未设置 | 支持 | — |
+| `idle_session_timeout` | duration | 未设置 | 支持 | — |
+| `min_idle_session` | number | `0` | 支持 | — |
+| `client_metadata` | string | — | 警告：Metadata the client tells the server: the connection goes the same way without it | — |
+| `domain_strategy` | string | 未设置 | 支持 (sing-box 已弃用) | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
+
+<a id="outbounds-block"></a>
+
+## `outbounds[block]`
+
+Rust 定义：[`BlockOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/drop/mod.rs) · 构建条件：`feature = "outbound-drop"`
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | 支持 | Defaults to the type. |
+
+<a id="outbounds-direct"></a>
+
+## `outbounds[direct]`
+
+Rust 定义：[`DirectOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/direct/outbound/mod.rs) · 构建条件：`feature = "outbound-direct"`
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | 支持 | Defaults to the type. |
+| `detour` | string | — | 报错：A detour for a direct outbound, which sing-box refuses too | The outbound to dial through, in place of a socket of its own. |
+| `bind_interface` | string | 未设置 | 支持 | The interface to send through, by name. |
+| `inet4_bind_address` | string | 未设置 | 支持 | The local address for IPv4 destinations. |
+| `inet6_bind_address` | string | 未设置 | 支持 | The local address for IPv6 destinations. |
+| `bind_address_no_port` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `protect_path` | string | — | 报错：Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
+| `routing_mark` | number\|string | 未设置 | 支持 | `SO_MARK`, Linux only. |
+| `reuse_addr` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `netns` | string | — | 报错：Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
+| `connect_timeout` | duration | 未设置 | 支持 | How long a TCP connect to one address may take; 5s when unset. |
+| `tcp_fast_open` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `tcp_multi_path` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `disable_tcp_keep_alive` | bool | `false` | 支持 | No TCP keepalive at all. |
+| `tcp_keep_alive` | duration | 未设置 | 支持 | How long a TCP connection is idle before keepalive probes it; 5m when unset. |
+| `tcp_keep_alive_interval` | duration | 未设置 | 支持 | Between keepalive probes; 75s when unset. |
+| `udp_fragment` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `domain_resolver` | string\|object → [对象](/sail/zh/reference/shared/#domain-resolver-default-domain-resolver) | 未设置 | 支持 | The DNS server that resolves the names dialled. |
+| `network_strategy` | string, 取值 `default`, `fallback`, `hybrid` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `fallback_network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `fallback_delay` | duration | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `domain_strategy` | string | 未设置 | 支持 (sing-box 已弃用) | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
+| `skip_default_domain_resolver` | bool | `false` | sail 扩展 | A sail extension: without a `domain_resolver` of its own, the names dialled resolve as the DNS rules say, not as `route.default_domain_resolver` does; as Mihomo's DIRECT resolves apart from the proxies' servers. |
+
+<a id="outbounds-fallback"></a>
+
+## `outbounds[fallback]`
+
+Rust 定义：[`FallbackOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/group/fallback/mod.rs) · 构建条件：`feature = "outbound-fallback"` · **sail 扩展**
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | sail 扩展 | Defaults to the type. |
+| `outbounds` | 数组，元素为 string | `[]` | sail 扩展 | Its members, in order; none may be when its providers give others. |
+| `providers` | string 或 数组，元素为 string | `[]` | sail 扩展 | The outbound providers, by tag, whose outbounds join the group's own, in this order. |
+| `filter` | string 或 数组，元素为 string | `[]` | sail 扩展 | Regular expressions, as Mihomo's `filter`: of the providers' outbounds, only those whose names match one are members, those of the first first. The group's own outbounds are not filtered. |
+| `exclude_filter` | string 或 数组，元素为 string | `[]` | sail 扩展 | Regular expressions no member's name may match, the group's own outbounds' too. |
+| `exclude_type` | string 或 数组，元素为 string | `[]` | sail 扩展 | The types no member may be of, the group's own outbounds too, in Mihomo's names for them, without case: `Shadowsocks`, `Vmess`, `Socks5`, `Direct`, ... |
+| `empty_fallback` | string | 未设置 | sail 扩展 | An outbound, not a group, that is the member while there is none else. Without it such a group has none, and its connections fail. |
+| `url` | string | `default_url()` | sail 扩展 | What is requested through each member to test it. |
+| `interval` | duration | 未设置 | sail 扩展 | — |
+| `timeout` | duration | 未设置 | sail 扩展 | How long a test, or a connection attempt that has a member left to fall back to, may take before its member counts as failed. |
+| `lazy` | bool | `true` | sail 扩展 | Tests only while the group is in use: not when it was not used since the last ones. |
+| `interrupt_exist_connections` | bool | `false` | sail 扩展 | Ends the connections through the member left once the group switches. |
+
+<a id="outbounds-http"></a>
+
+## `outbounds[http]`
+
+Rust 定义：[`HttpOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/http/outbound/mod.rs) · 构建条件：`feature = "outbound-http"`
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | 支持 | Defaults to the type. |
+| `detour` | string | 未设置 | 支持 | The outbound to dial through, in place of a socket of its own. |
+| `bind_interface` | string | 未设置 | 支持 | The interface to send through, by name. |
+| `inet4_bind_address` | string | 未设置 | 支持 | The local address for IPv4 destinations. |
+| `inet6_bind_address` | string | 未设置 | 支持 | The local address for IPv6 destinations. |
+| `bind_address_no_port` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `protect_path` | string | — | 报错：Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
+| `routing_mark` | number\|string | 未设置 | 支持 | `SO_MARK`, Linux only. |
+| `reuse_addr` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `netns` | string | — | 报错：Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
+| `connect_timeout` | duration | 未设置 | 支持 | How long a TCP connect to one address may take; 5s when unset. |
+| `tcp_fast_open` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `tcp_multi_path` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `disable_tcp_keep_alive` | bool | `false` | 支持 | No TCP keepalive at all. |
+| `tcp_keep_alive` | duration | 未设置 | 支持 | How long a TCP connection is idle before keepalive probes it; 5m when unset. |
+| `tcp_keep_alive_interval` | duration | 未设置 | 支持 | Between keepalive probes; 75s when unset. |
+| `udp_fragment` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `domain_resolver` | string\|object → [对象](/sail/zh/reference/shared/#domain-resolver-default-domain-resolver) | 未设置 | 支持 | The DNS server that resolves the names dialled. |
+| `network_strategy` | string, 取值 `default`, `fallback`, `hybrid` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `fallback_network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `fallback_delay` | duration | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `server` | string | 必填 | 支持 | — |
+| `server_port` | number | 必填 | 支持 | — |
+| `username` | string | 未设置 | 支持 | — |
+| `password` | string | 未设置 | 支持 | — |
+| `tls` | object → [对象](/sail/zh/reference/shared/#tls-outbounds) | 未设置 | 支持 | — |
+| `path` | string | 未设置 | 支持 | The request target instead of the destination, which then goes only in `Host`, as sing-box sends it. |
+| `headers` | map | `{}` | 支持 | Sent with every `CONNECT`. |
+| `domain_strategy` | string | 未设置 | 支持 (sing-box 已弃用) | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
+
+<a id="outbounds-hysteria2"></a>
+
+## `outbounds[hysteria2]`
+
+Rust 定义：[`Hysteria2OutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/hysteria2/outbound/mod.rs) · 构建条件：`feature = "outbound-hysteria2"`
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | 支持 | Defaults to the type. |
+| `detour` | string | 未设置 | 支持 | The outbound to dial through, in place of a socket of its own. |
+| `bind_interface` | string | 未设置 | 支持 | The interface to send through, by name. |
+| `inet4_bind_address` | string | 未设置 | 支持 | The local address for IPv4 destinations. |
+| `inet6_bind_address` | string | 未设置 | 支持 | The local address for IPv6 destinations. |
+| `bind_address_no_port` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `protect_path` | string | — | 报错：Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
+| `routing_mark` | number\|string | 未设置 | 支持 | `SO_MARK`, Linux only. |
+| `reuse_addr` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `netns` | string | — | 报错：Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
+| `connect_timeout` | duration | 未设置 | 支持 | How long a TCP connect to one address may take; 5s when unset. |
+| `tcp_fast_open` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `tcp_multi_path` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `disable_tcp_keep_alive` | bool | `false` | 支持 | No TCP keepalive at all. |
+| `tcp_keep_alive` | duration | 未设置 | 支持 | How long a TCP connection is idle before keepalive probes it; 5m when unset. |
+| `tcp_keep_alive_interval` | duration | 未设置 | 支持 | Between keepalive probes; 75s when unset. |
+| `udp_fragment` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `domain_resolver` | string\|object → [对象](/sail/zh/reference/shared/#domain-resolver-default-domain-resolver) | 未设置 | 支持 | The DNS server that resolves the names dialled. |
+| `network_strategy` | string, 取值 `default`, `fallback`, `hybrid` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `fallback_network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `fallback_delay` | duration | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `server` | string | 必填 | 支持 | — |
+| `server_port` | number | 未设置 | 支持 | The one port; with `server_ports`, not needed. |
+| `server_ports` | listable-string | 未设置 | 支持 | Ports or ranges ("20000:30000") to hop between. |
+| `hop_interval` | duration | 未设置 | 支持 | How often to hop, 30s unless set. |
+| `hop_interval_max` | duration | — | 警告：Hysteria's congestion tuning and debugging, the longest hop interval, and its QUIC fingerprint: the same traffic | — |
+| `up_mbps` | number | 未设置 | 支持 | What we may send at; set, it selects Brutal. |
+| `down_mbps` | number | 未设置 | 支持 | What we can receive at, told to the server. |
+| `obfs` | object → [对象](/sail/zh/reference/shared/#obfs), [[gecko]](/sail/zh/reference/shared/#obfs-gecko), [[salamander]](/sail/zh/reference/shared/#obfs-salamander) | 未设置 | 支持 | — |
+| `password` | string | 必填 | 支持 | — |
+| `network` | listable-string, 取值 `tcp`, `udp` | 未设置 | 支持 | "tcp" or "udp", or both, as unset. |
+| `tls` | object → [对象](#outbounds-hysteria2-tls) | 必填 | 支持 | — |
+| `idle_timeout` | duration | — | 警告：QUIC tuning: the same connection without it | — |
+| `keep_alive_period` | duration | — | 警告：QUIC tuning: the same connection without it | — |
+| `stream_receive_window` | number\|string | — | 警告：QUIC tuning: the same connection without it | — |
+| `connection_receive_window` | number\|string | — | 警告：QUIC tuning: the same connection without it | — |
+| `max_concurrent_streams` | number | — | 警告：QUIC tuning: the same connection without it | — |
+| `initial_packet_size` | number | — | 警告：QUIC tuning: the same connection without it | — |
+| `disable_path_mtu_discovery` | bool | — | 警告：QUIC tuning: the same connection without it | — |
+| `bbr_profile` | string, 取值 `standard`, `conservative`, `aggressive` | — | 警告：Hysteria's congestion tuning and debugging, the longest hop interval, and its QUIC fingerprint: the same traffic | — |
+| `brutal_debug` | bool | — | 警告：Hysteria's congestion tuning and debugging, the longest hop interval, and its QUIC fingerprint: the same traffic | — |
+| `disable_chrome_parrot` | bool | — | 警告：Hysteria's congestion tuning and debugging, the longest hop interval, and its QUIC fingerprint: the same traffic | — |
+| `realm` | object → [对象](#outbounds-hysteria2-realm) | — | 报错：Meeting peers through a Hysteria realm: connections would be made otherwise | — |
+| `domain_strategy` | string | 未设置 | 支持 (sing-box 已弃用) | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
+
+<a id="outbounds-hysteria2-tls"></a>
+
+### `outbounds[hysteria2].tls`
+
+Rust 定义：[`OutboundTls`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `enabled` | bool | `false` | 支持 | — |
+| `engine` | string, 取值 `go`, `apple`, `windows` | — | 警告：The TLS stack: sail has one | — |
+| `disable_sni` | bool | `false` | 支持 | Sends no SNI. The certificate is still verified against `server_name`, unless `insecure`. |
+| `server_name` | string | 未设置 | 支持 | Defaults to the server's address. |
+| `insecure` | bool | `false` | 支持 | — |
+| `alpn` | listable-string | 未设置 | 支持 | — |
+| `min_version` | string, 取值 `1.0`, `1.1`, `1.2`, `1.3` | 未设置 | 支持 | The lowest TLS version to negotiate, `1.0` to `1.3`; unset, 1.2. |
+| `max_version` | string, 取值 `1.0`, `1.1`, `1.2`, `1.3` | 未设置 | 支持 | The highest; unset, 1.3. |
+| `cipher_suites` | listable-string | — | 报错：TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked | — |
+| `curve_preferences` | listable-string, 取值 `P256`, `P384`, `P521`, `X25519`, `X25519MLKEM768` | — | 报错：TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked | — |
+| `certificate` | listable-string | 未设置 | 支持 | An inline PEM certificate to trust. |
+| `certificate_path` | string | 未设置 | 支持 | A PEM certificate to trust, by path. |
+| `certificate_public_key_sha256` | listable-string\|array | 未设置 | 支持 | The SHA-256 hashes, base64, of the public keys to take a server's certificate by, in place of the certificates trusted, the name and `insecure`. |
+| `client_certificate` | listable-string | 未设置 | 支持 | An inline PEM certificate, its chain after it, presented when the server asks for one; with `client_key`. |
+| `client_certificate_path` | string | 未设置 | 支持 | `client_certificate`, by path. |
+| `client_key` | listable-string | 未设置 | 支持 | The inline PEM key of the client certificate. |
+| `client_key_path` | string | 未设置 | 支持 | `client_key`, by path. |
+| `fragment` | bool | — | 报错：Fragmenting or spoofing the TLS handshake against censorship | — |
+| `fragment_fallback_delay` | duration | — | 报错：Fragmenting or spoofing the TLS handshake against censorship | — |
+| `record_fragment` | bool | — | 报错：Fragmenting or spoofing the TLS handshake against censorship | — |
+| `spoof` | string | — | 报错：Fragmenting or spoofing the TLS handshake against censorship | — |
+| `spoof_method` | string, 取值 `wrong-sequence`, `wrong-checksum`, `wrong-ack`, `wrong-md5`, `wrong-timestamp` | — | 报错：Fragmenting or spoofing the TLS handshake against censorship | — |
+| `kernel_tx` | bool | — | 警告：The TLS stack, kernel TLS and the handshake's timeout: the same TLS without them | — |
+| `kernel_rx` | bool | — | 警告：The TLS stack, kernel TLS and the handshake's timeout: the same TLS without them | — |
+| `handshake_timeout` | duration | — | 警告：The TLS stack, kernel TLS and the handshake's timeout: the same TLS without them | — |
+| `ech` | object → [对象](/sail/zh/reference/shared/#ech-outbounds) | 未设置 | 支持 | — |
+| `utls` | object → [对象](#outbounds-hysteria2-tls-utls) | — | 报错：Not supported over QUIC | The browser the ClientHello imitates. Unset, it is Chrome's. |
+| `reality` | object → [对象](/sail/zh/reference/shared/#reality-outbounds) | 未设置 | 支持 | — |
+
+<a id="outbounds-hysteria2-tls-utls"></a>
+
+### `outbounds[hysteria2].tls.utls`
+
+Rust 定义：[`OutboundUtls`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `enabled` | bool | `true` | 支持 | — |
+| `fingerprint` | string, 取值 `chrome_psk`, `chrome_psk_shuffle`, `chrome_padding_psk_shuffle`, `chrome_pq`, `chrome_pq_psk`, `chrome`, `firefox`, `edge`, `safari`, `360`, `qq`, `ios`, `android`, `random`, `randomized` | — | 报错：Not supported over QUIC | — |
+
+<a id="outbounds-hysteria2-realm"></a>
+
+### `outbounds[hysteria2].realm`
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `server_url` | string | — | 报错：Meeting peers through a Hysteria realm: connections would be made otherwise | — |
+| `token` | string | — | 报错：Meeting peers through a Hysteria realm: connections would be made otherwise | — |
+| `realm_id` | string | — | 报错：Meeting peers through a Hysteria realm: connections would be made otherwise | — |
+| `stun_servers` | listable-string | — | 报错：Meeting peers through a Hysteria realm: connections would be made otherwise | — |
+| `ip_version` | number, 取值 `0`, `4`, `6` | — | 报错：Meeting peers through a Hysteria realm: connections would be made otherwise | — |
+| `port_mapping` | object → [对象](/sail/zh/reference/shared/#port-mapping) | — | 报错：Meeting peers through a Hysteria realm: connections would be made otherwise | — |
+| `http_client` | string\|object → [对象](/sail/zh/reference/shared/#http-client) | — | 报错：Meeting peers through a Hysteria realm: connections would be made otherwise | — |
+
+<a id="outbounds-load-balance"></a>
+
+## `outbounds[load-balance]`
+
+Rust 定义：[`LoadBalanceOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/group/load_balance/mod.rs) · 构建条件：`feature = "outbound-load-balance"` · **sail 扩展**
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | sail 扩展 | Defaults to the type. |
+| `outbounds` | 数组，元素为 string | `[]` | sail 扩展 | Its members; none may be when its providers give others. |
+| `providers` | string 或 数组，元素为 string | `[]` | sail 扩展 | The outbound providers, by tag, whose outbounds join the group's own, in this order. |
+| `filter` | string 或 数组，元素为 string | `[]` | sail 扩展 | Regular expressions, as Mihomo's `filter`: of the providers' outbounds, only those whose names match one are members, those of the first first. The group's own outbounds are not filtered. |
+| `exclude_filter` | string 或 数组，元素为 string | `[]` | sail 扩展 | Regular expressions no member's name may match, the group's own outbounds' too. |
+| `exclude_type` | string 或 数组，元素为 string | `[]` | sail 扩展 | The types no member may be of, the group's own outbounds too, in Mihomo's names for them, without case: `Shadowsocks`, `Vmess`, `Socks5`, `Direct`, ... |
+| `empty_fallback` | string | 未设置 | sail 扩展 | An outbound, not a group, that is the member while there is none else. Without it such a group has none, and its connections fail. |
+| `strategy` | string, 取值 `consistent-hashing`, `round-robin`, `sticky-sessions` | `consistent-hashing` | sail 扩展 | — |
+| `url` | string | `default_url()` | sail 扩展 | What is requested through each member to test it. |
+| `interval` | duration | 未设置 | sail 扩展 | — |
+| `lazy` | bool | `true` | sail 扩展 | Tests only while the group is in use: not when it was not used since the last ones. |
+
+<a id="outbounds-mptp"></a>
+
+## `outbounds[mptp]`
+
+Rust 定义：[`MptpOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/mptp/outbound/mod.rs) · 构建条件：`feature = "outbound-mptp"` · **sail 扩展**
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | sail 扩展 | Defaults to the type. |
+| `outbounds` | 数组，元素为 string | 必填 | sail 扩展 | — |
+| `server` | string | 必填 | sail 扩展 | — |
+| `server_port` | number | 必填 | sail 扩展 | — |
+
+<a id="outbounds-network"></a>
+
+## `outbounds[network]`
+
+Rust 定义：[`NetworkGroupOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/group/network/mod.rs) · 构建条件：`feature = "outbound-network-group"` · **sail 扩展**
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | sail 扩展 | Defaults to the type. |
+| `branches` | 数组，元素为 对象 → [[]](#outbounds-network-branches) | 必填 | sail 扩展 | Tried in order: the first whose conditions the network matches takes the connection. |
+| `default` | string | 必填 | sail 扩展 | Where connections go when no branch matches. |
+
+<a id="outbounds-network-branches"></a>
+
+### `outbounds[network].branches[]`
+
+Rust 定义：[`Branch`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/group/network/mod.rs) · 构建条件：`feature = "outbound-network-group"` · **sail 扩展**
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `outbound` | string | 必填 | sail 扩展 | — |
+| `wifi_ssid` | string 或 数组，元素为 string | `[]` | sail 扩展 | — |
+| `wifi_bssid` | string 或 数组，元素为 string | `[]` | sail 扩展 | — |
+| `network_type` | string 或 数组，元素为 string | `[]` | sail 扩展 | `wifi`, `cellular`, `ethernet`, `other`. |
+| `network_is_expensive` | bool | `false` | sail 扩展 | — |
+| `network_is_constrained` | bool | `false` | sail 扩展 | — |
+| `wifi_ssid_regex` | string 或 数组，元素为 string | `[]` | sail 扩展 | — |
+| `wifi_bssid_regex` | string 或 数组，元素为 string | `[]` | sail 扩展 | Matched whatever the case. |
+| `network_gateway` | string 或 数组，元素为 string | `[]` | sail 扩展 | — |
+| `network_mcc_mnc` | string 或 数组，元素为 string | `[]` | sail 扩展 | Only off Wi-Fi. |
+
+<a id="outbounds-pass"></a>
+
+## `outbounds[pass]`
+
+Rust 定义：[`PassOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/pass/mod.rs) · 构建条件：`feature = "outbound-pass"` · **sail 扩展**
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | sail 扩展 | Defaults to the type. |
+
+<a id="outbounds-plugin"></a>
+
+## `outbounds[plugin]`
+
+Rust 定义：[`PluginOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/app/outbound/plugin.rs) · 构建条件：`feature = "outbound-select"` 且 `feature = "plugin"` · **sail 扩展**
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | sail 扩展 | Defaults to the type. |
+| `path` | string | 必填 | sail 扩展 | The shared library to load. |
+| `args` | string | `""` | sail 扩展 | — |
+
+<a id="outbounds-redirect"></a>
+
+## `outbounds[redirect]`
+
+Rust 定义：[`RedirectOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/redirect/outbound/mod.rs) · 构建条件：`feature = "outbound-redirect"` · **sail 扩展**
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | sail 扩展 | Defaults to the type. |
+| `detour` | string | 未设置 | sail 扩展 | The outbound to dial through, in place of a socket of its own. |
+| `bind_interface` | string | 未设置 | sail 扩展 | The interface to send through, by name. |
+| `inet4_bind_address` | string | 未设置 | sail 扩展 | The local address for IPv4 destinations. |
+| `inet6_bind_address` | string | 未设置 | sail 扩展 | The local address for IPv6 destinations. |
+| `bind_address_no_port` | 任意 JSON | 未设置 | sail 扩展 | Not implemented yet. |
+| `protect_path` | 任意 JSON | 未设置 | sail 扩展 | Not implemented yet. |
+| `routing_mark` | number | 未设置 | sail 扩展 | `SO_MARK`, Linux only. |
+| `reuse_addr` | 任意 JSON | 未设置 | sail 扩展 | Not implemented yet. |
+| `netns` | 任意 JSON | 未设置 | sail 扩展 | Not implemented yet. |
+| `connect_timeout` | duration | 未设置 | sail 扩展 | How long a TCP connect to one address may take; 5s when unset. |
+| `tcp_fast_open` | 任意 JSON | 未设置 | sail 扩展 | Not implemented yet. |
+| `tcp_multi_path` | 任意 JSON | 未设置 | sail 扩展 | Not implemented yet. |
+| `disable_tcp_keep_alive` | bool | `false` | sail 扩展 | No TCP keepalive at all. |
+| `tcp_keep_alive` | duration | 未设置 | sail 扩展 | How long a TCP connection is idle before keepalive probes it; 5m when unset. |
+| `tcp_keep_alive_interval` | duration | 未设置 | sail 扩展 | Between keepalive probes; 75s when unset. |
+| `udp_fragment` | 任意 JSON | 未设置 | sail 扩展 | Not implemented yet. |
+| `domain_resolver` | 对象 → [对象](#outbounds-redirect-domain-resolver) | 未设置 | sail 扩展 | The DNS server that resolves the names dialled. |
+| `skip_default_domain_resolver` | bool | `false` | sail 扩展 | A sail extension: without a `domain_resolver` of its own, the names dialled resolve as the DNS rules say, not as `route.default_domain_resolver` does; as Mihomo's DIRECT resolves apart from the proxies' servers. |
+| `domain_strategy` | string, 取值 `prefer_ipv4`, `prefer_ipv6`, `ipv4_only`, `ipv6_only` | 未设置 | sail 扩展 | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
+| `network_strategy` | 任意 JSON | 未设置 | sail 扩展 | Not implemented yet. |
+| `network_type` | 任意 JSON | 未设置 | sail 扩展 | Not implemented yet. |
+| `fallback_network_type` | 任意 JSON | 未设置 | sail 扩展 | Not implemented yet. |
+| `fallback_delay` | 任意 JSON | 未设置 | sail 扩展 | Not implemented yet. |
+| `detour` | string | 未设置 | sail 扩展 | The outbound to dial through, in place of a socket of its own. |
+| `bind_interface` | string | 未设置 | sail 扩展 | The interface to send through, by name. |
+| `inet4_bind_address` | string | 未设置 | sail 扩展 | The local address for IPv4 destinations. |
+| `inet6_bind_address` | string | 未设置 | sail 扩展 | The local address for IPv6 destinations. |
+| `bind_address_no_port` | 任意 JSON | 未设置 | sail 扩展 | Not implemented yet. |
+| `protect_path` | 任意 JSON | 未设置 | sail 扩展 | Not implemented yet. |
+| `routing_mark` | number | 未设置 | sail 扩展 | `SO_MARK`, Linux only. |
+| `reuse_addr` | 任意 JSON | 未设置 | sail 扩展 | Not implemented yet. |
+| `netns` | 任意 JSON | 未设置 | sail 扩展 | Not implemented yet. |
+| `connect_timeout` | duration | 未设置 | sail 扩展 | How long a TCP connect to one address may take; 5s when unset. |
+| `tcp_fast_open` | 任意 JSON | 未设置 | sail 扩展 | Not implemented yet. |
+| `tcp_multi_path` | 任意 JSON | 未设置 | sail 扩展 | Not implemented yet. |
+| `disable_tcp_keep_alive` | bool | `false` | sail 扩展 | No TCP keepalive at all. |
+| `tcp_keep_alive` | duration | 未设置 | sail 扩展 | How long a TCP connection is idle before keepalive probes it; 5m when unset. |
+| `tcp_keep_alive_interval` | duration | 未设置 | sail 扩展 | Between keepalive probes; 75s when unset. |
+| `udp_fragment` | 任意 JSON | 未设置 | sail 扩展 | Not implemented yet. |
+| `domain_resolver` | 对象 → [对象](#outbounds-redirect-domain-resolver) | 未设置 | sail 扩展 | The DNS server that resolves the names dialled. |
+| `skip_default_domain_resolver` | bool | `false` | sail 扩展 | A sail extension: without a `domain_resolver` of its own, the names dialled resolve as the DNS rules say, not as `route.default_domain_resolver` does; as Mihomo's DIRECT resolves apart from the proxies' servers. |
+| `domain_strategy` | string, 取值 `prefer_ipv4`, `prefer_ipv6`, `ipv4_only`, `ipv6_only` | 未设置 | sail 扩展 | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
+| `network_strategy` | 任意 JSON | 未设置 | sail 扩展 | Not implemented yet. |
+| `network_type` | 任意 JSON | 未设置 | sail 扩展 | Not implemented yet. |
+| `fallback_network_type` | 任意 JSON | 未设置 | sail 扩展 | Not implemented yet. |
+| `fallback_delay` | 任意 JSON | 未设置 | sail 扩展 | Not implemented yet. |
+| `server` | string | 必填 | sail 扩展 | — |
+| `server_port` | number | 必填 | sail 扩展 | — |
+
+<a id="outbounds-redirect-domain-resolver"></a>
+
+### `outbounds[redirect].domain_resolver`
+
+Rust 定义：[`DomainResolver`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs) · **sail 扩展**
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `server` | string | 必填 | sail 扩展 | — |
+| `strategy` | string, 取值 `prefer_ipv4`, `prefer_ipv6`, `ipv4_only`, `ipv6_only` | 未设置 | sail 扩展 | — |
+| `timeout` | duration | 未设置 | sail 扩展 | — |
+| `disable_cache` | bool | `false` | sail 扩展 | — |
+| `disable_optimistic_cache` | bool | `false` | sail 扩展 | — |
+| `rewrite_ttl` | number | 未设置 | sail 扩展 | — |
+| `client_subnet` | 对象 → [对象](/sail/zh/reference/shared/#client-subnet) | 未设置 | sail 扩展 | — |
+
+<a id="outbounds-selector"></a>
+
+## `outbounds[selector]`
+
+Rust 定义：[`SelectorOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/group/selector/mod.rs) · 构建条件：`feature = "outbound-select"`
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | 支持 | Defaults to the type. |
+| `outbounds` | array | `[]` | 支持 | Its members; none may be when its providers give others. |
+| `default` | string | 未设置 | 支持 | Selected when nothing was selected before, or what was is no longer a member; defaults to the first. It may be a member a provider gives, the first so named. |
+| `interrupt_exist_connections` | bool | `false` | 支持 | Ends the connections through the member selected before once another is selected, rather than leaving them on it. |
+
+<a id="outbounds-shadowsocks"></a>
+
+## `outbounds[shadowsocks]`
+
+Rust 定义：[`ShadowsocksOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/shadowsocks/outbound/mod.rs) · 构建条件：`feature = "outbound-shadowsocks"`
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | 支持 | Defaults to the type. |
+| `detour` | string | 未设置 | 支持 | The outbound to dial through, in place of a socket of its own. |
+| `bind_interface` | string | 未设置 | 支持 | The interface to send through, by name. |
+| `inet4_bind_address` | string | 未设置 | 支持 | The local address for IPv4 destinations. |
+| `inet6_bind_address` | string | 未设置 | 支持 | The local address for IPv6 destinations. |
+| `bind_address_no_port` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `protect_path` | string | — | 报错：Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
+| `routing_mark` | number\|string | 未设置 | 支持 | `SO_MARK`, Linux only. |
+| `reuse_addr` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `netns` | string | — | 报错：Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
+| `connect_timeout` | duration | 未设置 | 支持 | How long a TCP connect to one address may take; 5s when unset. |
+| `tcp_fast_open` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `tcp_multi_path` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `disable_tcp_keep_alive` | bool | `false` | 支持 | No TCP keepalive at all. |
+| `tcp_keep_alive` | duration | 未设置 | 支持 | How long a TCP connection is idle before keepalive probes it; 5m when unset. |
+| `tcp_keep_alive_interval` | duration | 未设置 | 支持 | Between keepalive probes; 75s when unset. |
+| `udp_fragment` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `domain_resolver` | string\|object → [对象](/sail/zh/reference/shared/#domain-resolver-default-domain-resolver) | 未设置 | 支持 | The DNS server that resolves the names dialled. |
+| `network_strategy` | string, 取值 `default`, `fallback`, `hybrid` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `fallback_network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `fallback_delay` | duration | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `server` | string | 必填 | 支持 | — |
+| `server_port` | number | 必填 | 支持 | — |
+| `method` | string, 取值 `none`, `aes-128-gcm`, `aes-192-gcm`, `aes-256-gcm`, `chacha20-ietf-poly1305`, `xchacha20-ietf-poly1305`, `2022-blake3-aes-128-gcm`, `2022-blake3-aes-256-gcm`, `2022-blake3-chacha20-poly1305`, `aes-128-ctr`, `aes-192-ctr`, `aes-256-ctr`, `aes-128-cfb`, `aes-192-cfb`, `aes-256-cfb`, `rc4-md5`, `chacha20-ietf`, `xchacha20` | 必填 | 支持 | — |
+| `password` | string | 必填 | 支持 | With a 2022 method, the base64 PSK, or `iPSK:uPSK` for a server with users. |
+| `plugin` | string | 未设置 | 支持 | Only `obfs-local` (simple-obfs) is supported. |
+| `plugin_opts` | string | 未设置 | 支持 | `obfs=http\|tls;obfs-host=<host>;obfs-uri=<path>`, as simple-obfs takes them. |
+| `network` | listable-string, 取值 `tcp`, `udp` | — | 报错：Which networks an outbound carries: connections it should refuse would go through it | — |
+| `udp_over_tcp` | bool\|object → [对象](/sail/zh/reference/shared/#udp-over-tcp) | 未设置 | 支持 | UDP over its TCP, to `sp.v2.udp-over-tcp.arpa`, instead of its own UDP. |
+| `multiplex` | object → [对象](/sail/zh/reference/shared/#multiplex-outbounds) | 未设置 | 支持 | — |
+| `domain_strategy` | string | 未设置 | 支持 (sing-box 已弃用) | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
+
+<a id="outbounds-shadowtls"></a>
+
+## `outbounds[shadowtls]`
+
+Rust 定义：[`ShadowTlsOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/shadowtls/outbound.rs) · 构建条件：`feature = "outbound-shadowtls"`
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | 支持 | Defaults to the type. |
+| `detour` | string | 未设置 | 支持 | The outbound to dial through, in place of a socket of its own. |
+| `bind_interface` | string | 未设置 | 支持 | The interface to send through, by name. |
+| `inet4_bind_address` | string | 未设置 | 支持 | The local address for IPv4 destinations. |
+| `inet6_bind_address` | string | 未设置 | 支持 | The local address for IPv6 destinations. |
+| `bind_address_no_port` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `protect_path` | string | — | 报错：Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
+| `routing_mark` | number\|string | 未设置 | 支持 | `SO_MARK`, Linux only. |
+| `reuse_addr` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `netns` | string | — | 报错：Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
+| `connect_timeout` | duration | 未设置 | 支持 | How long a TCP connect to one address may take; 5s when unset. |
+| `tcp_fast_open` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `tcp_multi_path` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `disable_tcp_keep_alive` | bool | `false` | 支持 | No TCP keepalive at all. |
+| `tcp_keep_alive` | duration | 未设置 | 支持 | How long a TCP connection is idle before keepalive probes it; 5m when unset. |
+| `tcp_keep_alive_interval` | duration | 未设置 | 支持 | Between keepalive probes; 75s when unset. |
+| `udp_fragment` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `domain_resolver` | string\|object → [对象](/sail/zh/reference/shared/#domain-resolver-default-domain-resolver) | 未设置 | 支持 | The DNS server that resolves the names dialled. |
+| `network_strategy` | string, 取值 `default`, `fallback`, `hybrid` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `fallback_network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `fallback_delay` | duration | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `server` | string | 必填 | 支持 | — |
+| `server_port` | number | 必填 | 支持 | — |
+| `version` | number, 取值 `1`, `2`, `3` | `1` | 支持 | Must be 3: versions 1 and 2 are not supported. sing-box's default is 1. |
+| `password` | string | `""` | 支持 | Cannot be empty. |
+| `tls` | object → [对象](/sail/zh/reference/shared/#tls-outbounds) | 未设置 | 支持 | Must be enabled: the handshake with the site the server imitates, `server_name` being the site's (the server's address when unset). A browser fingerprint, disable_sni and a client certificate apply as for TLS; REALITY and ECH do not. |
+| `domain_strategy` | string | 未设置 | 支持 (sing-box 已弃用) | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
+
+<a id="outbounds-smart"></a>
+
+## `outbounds[smart]`
+
+Rust 定义：[`SmartOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/group/smart/mod.rs) · 构建条件：`feature = "outbound-smart"` · **sail 扩展**
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | sail 扩展 | Defaults to the type. |
+| `outbounds` | 数组，元素为 string | `[]` | sail 扩展 | Its members; none may be when its providers give others. |
+| `providers` | string 或 数组，元素为 string | `[]` | sail 扩展 | The outbound providers, by tag, whose outbounds join the group's own, in this order. |
+| `filter` | string 或 数组，元素为 string | `[]` | sail 扩展 | Regular expressions, as Mihomo's `filter`: of the providers' outbounds, only those whose names match one are members, those of the first first. The group's own outbounds are not filtered. |
+| `exclude_filter` | string 或 数组，元素为 string | `[]` | sail 扩展 | Regular expressions no member's name may match, the group's own outbounds' too. |
+| `exclude_type` | string 或 数组，元素为 string | `[]` | sail 扩展 | The types no member may be of, the group's own outbounds too, in Mihomo's names for them, without case: `Shadowsocks`, `Vmess`, `Socks5`, `Direct`, ... |
+| `empty_fallback` | string | 未设置 | sail 扩展 | An outbound, not a group, that is the member while there is none else. Without it such a group has none, and its connections fail. |
+| `url` | string | `default_url()` | sail 扩展 | What is requested through each member to probe it. |
+| `interval` | duration | 未设置 | sail 扩展 | How often members nothing told of lately are probed; 5 minutes. |
+| `timeout` | duration | 未设置 | sail 扩展 | How long a probe, or a connection attempt that has a member left to try, may take before its member counts as failed; 5 seconds. |
+| `idle_timeout` | duration | 未设置 | sail 扩展 | Probes pause once the group has not been used for this long; 30 minutes. |
+| `tolerance` | number | `30` | sail 扩展 | Milliseconds: a member whose score is within this of the best may be picked. |
+| `tolerance_ratio` | number | `0.2` | sail 扩展 | A member whose score is within this fraction of the best may be picked too, whichever of the two is the wider. |
+| `policy_priority` | 数组，元素为 对象 → [[]](#outbounds-smart-policy-priority) | `[]` | sail 扩展 | Factors of the scores of the members whose names match a regular expression, the first that matches: below 1 prefers them, above 1 avoids them. 1 for the others. |
+| `site_ttl` | duration | 未设置 | sail 扩展 | How long a site is kept on its member after its last connection; an hour. |
+| `site_capacity` | number | `4096` | sail 扩展 | How many sites are kept at most; the least recently used goes first. |
+| `prefer_asn` | bool | `false` | sail 扩展 | Destinations known by address alone are sites by their autonomous system, but those of CDNs, rather than by their network. Needs an ASN database: `asn.mmdb` in the asset directory, or `asn_file`. |
+| `asn_file` | string | 未设置 | sail 扩展 | The ASN database, for `prefer_asn`; relative to the asset directory. |
+| `evaluate_before_use` | bool | `false` | sail 扩展 | The first connection waits for the first probes, `timeout` at most, rather than going through a member not measured yet. |
+| `interrupt_exist_connections` | bool | `false` | sail 扩展 | Ends the connections through a member once it leaves the group. |
+
+<a id="outbounds-smart-policy-priority"></a>
+
+### `outbounds[smart].policy_priority[]`
+
+Rust 定义：[`PolicyPriority`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/group/smart/mod.rs) · 构建条件：`feature = "outbound-smart"` · **sail 扩展**
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `regex` | string | 必填 | sail 扩展 | Matched against the member's name, as Mihomo's filters are: lookarounds included, backtracking bounded. |
+| `factor` | number | 必填 | sail 扩展 | Multiplies the member's score: above 0. |
+
+<a id="outbounds-socks"></a>
+
+## `outbounds[socks]`
+
+Rust 定义：[`SocksOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/socks/outbound/mod.rs) · 构建条件：`feature = "outbound-socks"`
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | 支持 | Defaults to the type. |
+| `detour` | string | 未设置 | 支持 | The outbound to dial through, in place of a socket of its own. |
+| `bind_interface` | string | 未设置 | 支持 | The interface to send through, by name. |
+| `inet4_bind_address` | string | 未设置 | 支持 | The local address for IPv4 destinations. |
+| `inet6_bind_address` | string | 未设置 | 支持 | The local address for IPv6 destinations. |
+| `bind_address_no_port` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `protect_path` | string | — | 报错：Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
+| `routing_mark` | number\|string | 未设置 | 支持 | `SO_MARK`, Linux only. |
+| `reuse_addr` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `netns` | string | — | 报错：Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
+| `connect_timeout` | duration | 未设置 | 支持 | How long a TCP connect to one address may take; 5s when unset. |
+| `tcp_fast_open` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `tcp_multi_path` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `disable_tcp_keep_alive` | bool | `false` | 支持 | No TCP keepalive at all. |
+| `tcp_keep_alive` | duration | 未设置 | 支持 | How long a TCP connection is idle before keepalive probes it; 5m when unset. |
+| `tcp_keep_alive_interval` | duration | 未设置 | 支持 | Between keepalive probes; 75s when unset. |
+| `udp_fragment` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `domain_resolver` | string\|object → [对象](/sail/zh/reference/shared/#domain-resolver-default-domain-resolver) | 未设置 | 支持 | The DNS server that resolves the names dialled. |
+| `network_strategy` | string, 取值 `default`, `fallback`, `hybrid` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `fallback_network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `fallback_delay` | duration | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `server` | string | 必填 | 支持 | — |
+| `server_port` | number | 必填 | 支持 | — |
+| `version` | string, 取值 `4`, `4a`, `5` | — | 警告：sail speaks SOCKS 5, the default, and drops the field; 4 and 4a are errors | — |
+| `username` | string | `""` | 支持 | — |
+| `password` | string | `""` | 支持 | — |
+| `network` | listable-string, 取值 `tcp`, `udp` | — | 报错：Which networks an outbound carries: connections it should refuse would go through it | — |
+| `udp_over_tcp` | bool\|object → [对象](/sail/zh/reference/shared/#udp-over-tcp) | 未设置 | 支持 | UDP over its TCP, to `sp.v2.udp-over-tcp.arpa`, instead of UDP ASSOCIATE. |
+| `domain_strategy` | string | 未设置 | 支持 (sing-box 已弃用) | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
+
+<a id="outbounds-trojan"></a>
+
+## `outbounds[trojan]`
+
+Rust 定义：[`TrojanOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/trojan/outbound/mod.rs) · 构建条件：`feature = "outbound-trojan"`
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | 支持 | Defaults to the type. |
+| `detour` | string | 未设置 | 支持 | The outbound to dial through, in place of a socket of its own. |
+| `bind_interface` | string | 未设置 | 支持 | The interface to send through, by name. |
+| `inet4_bind_address` | string | 未设置 | 支持 | The local address for IPv4 destinations. |
+| `inet6_bind_address` | string | 未设置 | 支持 | The local address for IPv6 destinations. |
+| `bind_address_no_port` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `protect_path` | string | — | 报错：Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
+| `routing_mark` | number\|string | 未设置 | 支持 | `SO_MARK`, Linux only. |
+| `reuse_addr` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `netns` | string | — | 报错：Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
+| `connect_timeout` | duration | 未设置 | 支持 | How long a TCP connect to one address may take; 5s when unset. |
+| `tcp_fast_open` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `tcp_multi_path` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `disable_tcp_keep_alive` | bool | `false` | 支持 | No TCP keepalive at all. |
+| `tcp_keep_alive` | duration | 未设置 | 支持 | How long a TCP connection is idle before keepalive probes it; 5m when unset. |
+| `tcp_keep_alive_interval` | duration | 未设置 | 支持 | Between keepalive probes; 75s when unset. |
+| `udp_fragment` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `domain_resolver` | string\|object → [对象](/sail/zh/reference/shared/#domain-resolver-default-domain-resolver) | 未设置 | 支持 | The DNS server that resolves the names dialled. |
+| `network_strategy` | string, 取值 `default`, `fallback`, `hybrid` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `fallback_network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `fallback_delay` | duration | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `server` | string | 必填 | 支持 | — |
+| `server_port` | number | 必填 | 支持 | — |
+| `password` | string | 必填 | 支持 | — |
+| `network` | listable-string, 取值 `tcp`, `udp` | — | 报错：Which networks an outbound carries: connections it should refuse would go through it | — |
+| `tls` | object → [对象](/sail/zh/reference/shared/#tls-outbounds) | 未设置 | 支持 | — |
+| `multiplex` | object → [对象](/sail/zh/reference/shared/#multiplex-outbounds) | 未设置 | 支持 | — |
+| `transport` | object → [对象](/sail/zh/reference/shared/#transport-outbounds), [[grpc]](/sail/zh/reference/shared/#transport-grpc-outbounds), [[http]](/sail/zh/reference/shared/#transport-http-outbounds), [[httpupgrade]](/sail/zh/reference/shared/#transport-httpupgrade-outbounds), [[ws]](/sail/zh/reference/shared/#transport-ws-outbounds) | 未设置 | 支持 | — |
+| `domain_strategy` | string | 未设置 | 支持 (sing-box 已弃用) | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
+
+<a id="outbounds-tryall"></a>
+
+## `outbounds[tryall]`
+
+Rust 定义：[`TryAllOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/group/tryall/mod.rs) · 构建条件：`feature = "outbound-tryall"` · **sail 扩展**
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | sail 扩展 | Defaults to the type. |
+| `outbounds` | 数组，元素为 string | 必填 | sail 扩展 | A group trying its members at once |
+| `delay_base` | number | `0` | sail 扩展 | Milliseconds to wait before trying each next outbound. |
+
+<a id="outbounds-tuic"></a>
+
+## `outbounds[tuic]`
+
+Rust 定义：[`TuicOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/tuic/outbound/mod.rs) · 构建条件：`feature = "outbound-tuic"`
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | 支持 | Defaults to the type. |
+| `detour` | string | 未设置 | 支持 | The outbound to dial through, in place of a socket of its own. |
+| `bind_interface` | string | 未设置 | 支持 | The interface to send through, by name. |
+| `inet4_bind_address` | string | 未设置 | 支持 | The local address for IPv4 destinations. |
+| `inet6_bind_address` | string | 未设置 | 支持 | The local address for IPv6 destinations. |
+| `bind_address_no_port` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `protect_path` | string | — | 报错：Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
+| `routing_mark` | number\|string | 未设置 | 支持 | `SO_MARK`, Linux only. |
+| `reuse_addr` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `netns` | string | — | 报错：Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
+| `connect_timeout` | duration | 未设置 | 支持 | How long a TCP connect to one address may take; 5s when unset. |
+| `tcp_fast_open` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `tcp_multi_path` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `disable_tcp_keep_alive` | bool | `false` | 支持 | No TCP keepalive at all. |
+| `tcp_keep_alive` | duration | 未设置 | 支持 | How long a TCP connection is idle before keepalive probes it; 5m when unset. |
+| `tcp_keep_alive_interval` | duration | 未设置 | 支持 | Between keepalive probes; 75s when unset. |
+| `udp_fragment` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `domain_resolver` | string\|object → [对象](/sail/zh/reference/shared/#domain-resolver-default-domain-resolver) | 未设置 | 支持 | The DNS server that resolves the names dialled. |
+| `network_strategy` | string, 取值 `default`, `fallback`, `hybrid` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `fallback_network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `fallback_delay` | duration | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `server` | string | 必填 | 支持 | — |
+| `server_port` | number | 必填 | 支持 | — |
+| `uuid` | string | 必填 | 支持 | — |
+| `password` | string | `""` | 支持 | — |
+| `congestion_control` | string, 取值 `cubic`, `new_reno`, `bbr` | `cubic` | 支持 | — |
+| `udp_relay_mode` | string, 取值 `native`, `quic` | 未设置 | 支持 | — |
+| `udp_over_stream` | bool | `false` | 支持 | UDP over TCP (v2), as sing-box has it: each UDP session a `Connect` stream to `sp.v2.udp-over-tcp.arpa`, instead of TUIC's own relay. |
+| `zero_rtt_handshake` | bool | `false` | 支持 | — |
+| `heartbeat` | duration | 未设置 | 支持 | — |
+| `network` | listable-string, 取值 `tcp`, `udp` | 未设置 | 支持 | `tcp` or `udp`; both when not set. |
+| `tls` | object → [对象](#outbounds-tuic-tls) | 必填 | 支持 | — |
+| `idle_timeout` | duration | — | 警告：QUIC tuning: the same connection without it | — |
+| `keep_alive_period` | duration | — | 警告：QUIC tuning: the same connection without it | — |
+| `stream_receive_window` | number\|string | — | 警告：QUIC tuning: the same connection without it | — |
+| `connection_receive_window` | number\|string | — | 警告：QUIC tuning: the same connection without it | — |
+| `max_concurrent_streams` | number | — | 警告：QUIC tuning: the same connection without it | — |
+| `initial_packet_size` | number | — | 警告：QUIC tuning: the same connection without it | — |
+| `disable_path_mtu_discovery` | bool | — | 警告：QUIC tuning: the same connection without it | — |
+| `domain_strategy` | string | 未设置 | 支持 (sing-box 已弃用) | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
+
+<a id="outbounds-tuic-tls"></a>
+
+### `outbounds[tuic].tls`
+
+Rust 定义：[`OutboundTls`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `enabled` | bool | `false` | 支持 | — |
+| `engine` | string, 取值 `go`, `apple`, `windows` | — | 警告：The TLS stack: sail has one | — |
+| `disable_sni` | bool | `false` | 支持 | Sends no SNI. The certificate is still verified against `server_name`, unless `insecure`. |
+| `server_name` | string | 未设置 | 支持 | Defaults to the server's address. |
+| `insecure` | bool | `false` | 支持 | — |
+| `alpn` | listable-string | 未设置 | 支持 | — |
+| `min_version` | string, 取值 `1.0`, `1.1`, `1.2`, `1.3` | 未设置 | 支持 | The lowest TLS version to negotiate, `1.0` to `1.3`; unset, 1.2. |
+| `max_version` | string, 取值 `1.0`, `1.1`, `1.2`, `1.3` | 未设置 | 支持 | The highest; unset, 1.3. |
+| `cipher_suites` | listable-string | — | 报错：TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked | — |
+| `curve_preferences` | listable-string, 取值 `P256`, `P384`, `P521`, `X25519`, `X25519MLKEM768` | — | 报错：TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked | — |
+| `certificate` | listable-string | 未设置 | 支持 | An inline PEM certificate to trust. |
+| `certificate_path` | string | 未设置 | 支持 | A PEM certificate to trust, by path. |
+| `certificate_public_key_sha256` | listable-string\|array | 未设置 | 支持 | The SHA-256 hashes, base64, of the public keys to take a server's certificate by, in place of the certificates trusted, the name and `insecure`. |
+| `client_certificate` | listable-string | 未设置 | 支持 | An inline PEM certificate, its chain after it, presented when the server asks for one; with `client_key`. |
+| `client_certificate_path` | string | 未设置 | 支持 | `client_certificate`, by path. |
+| `client_key` | listable-string | 未设置 | 支持 | The inline PEM key of the client certificate. |
+| `client_key_path` | string | 未设置 | 支持 | `client_key`, by path. |
+| `fragment` | bool | — | 报错：Fragmenting or spoofing the TLS handshake against censorship | — |
+| `fragment_fallback_delay` | duration | — | 报错：Fragmenting or spoofing the TLS handshake against censorship | — |
+| `record_fragment` | bool | — | 报错：Fragmenting or spoofing the TLS handshake against censorship | — |
+| `spoof` | string | — | 报错：Fragmenting or spoofing the TLS handshake against censorship | — |
+| `spoof_method` | string, 取值 `wrong-sequence`, `wrong-checksum`, `wrong-ack`, `wrong-md5`, `wrong-timestamp` | — | 报错：Fragmenting or spoofing the TLS handshake against censorship | — |
+| `kernel_tx` | bool | — | 警告：The TLS stack, kernel TLS and the handshake's timeout: the same TLS without them | — |
+| `kernel_rx` | bool | — | 警告：The TLS stack, kernel TLS and the handshake's timeout: the same TLS without them | — |
+| `handshake_timeout` | duration | — | 警告：The TLS stack, kernel TLS and the handshake's timeout: the same TLS without them | — |
+| `ech` | object → [对象](/sail/zh/reference/shared/#ech-outbounds) | 未设置 | 支持 | — |
+| `utls` | object → [对象](#outbounds-tuic-tls-utls) | — | 报错：Not supported with TUIC | The browser the ClientHello imitates. Unset, it is Chrome's. |
+| `reality` | object → [对象](/sail/zh/reference/shared/#reality-outbounds) | 未设置 | 支持 | — |
+
+<a id="outbounds-tuic-tls-utls"></a>
+
+### `outbounds[tuic].tls.utls`
+
+Rust 定义：[`OutboundUtls`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `enabled` | bool | `true` | 支持 | — |
+| `fingerprint` | string, 取值 `chrome_psk`, `chrome_psk_shuffle`, `chrome_padding_psk_shuffle`, `chrome_pq`, `chrome_pq_psk`, `chrome`, `firefox`, `edge`, `safari`, `360`, `qq`, `ios`, `android`, `random`, `randomized` | — | 报错：Not supported with TUIC | — |
+
+<a id="outbounds-urltest"></a>
+
+## `outbounds[urltest]`
+
+Rust 定义：[`UrlTestOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/group/urltest/mod.rs) · 构建条件：`feature = "outbound-urltest"`
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | 支持 | Defaults to the type. |
+| `outbounds` | array | `[]` | 支持 | Its members; none may be when its providers give others. |
+| `url` | string | `default_url()` | 支持 | What is requested through each member; sing-box's default. |
+| `interval` | duration | 未设置 | 支持 | — |
+| `tolerance` | number | `50` | 支持 | Milliseconds. |
+| `idle_timeout` | duration | 未设置 | 支持 | Tests pause once the group has not been used for this long. |
+| `interrupt_exist_connections` | bool | `false` | 支持 | Ends the connections through the member left once the group switches. |
+
+<a id="outbounds-vless"></a>
+
+## `outbounds[vless]`
+
+Rust 定义：[`VlessOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/vless/outbound/mod.rs) · 构建条件：`feature = "outbound-vless"`
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | 支持 | Defaults to the type. |
+| `detour` | string | 未设置 | 支持 | The outbound to dial through, in place of a socket of its own. |
+| `bind_interface` | string | 未设置 | 支持 | The interface to send through, by name. |
+| `inet4_bind_address` | string | 未设置 | 支持 | The local address for IPv4 destinations. |
+| `inet6_bind_address` | string | 未设置 | 支持 | The local address for IPv6 destinations. |
+| `bind_address_no_port` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `protect_path` | string | — | 报错：Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
+| `routing_mark` | number\|string | 未设置 | 支持 | `SO_MARK`, Linux only. |
+| `reuse_addr` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `netns` | string | — | 报错：Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
+| `connect_timeout` | duration | 未设置 | 支持 | How long a TCP connect to one address may take; 5s when unset. |
+| `tcp_fast_open` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `tcp_multi_path` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `disable_tcp_keep_alive` | bool | `false` | 支持 | No TCP keepalive at all. |
+| `tcp_keep_alive` | duration | 未设置 | 支持 | How long a TCP connection is idle before keepalive probes it; 5m when unset. |
+| `tcp_keep_alive_interval` | duration | 未设置 | 支持 | Between keepalive probes; 75s when unset. |
+| `udp_fragment` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `domain_resolver` | string\|object → [对象](/sail/zh/reference/shared/#domain-resolver-default-domain-resolver) | 未设置 | 支持 | The DNS server that resolves the names dialled. |
+| `network_strategy` | string, 取值 `default`, `fallback`, `hybrid` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `fallback_network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `fallback_delay` | duration | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `server` | string | 必填 | 支持 | — |
+| `server_port` | number | 必填 | 支持 | — |
+| `uuid` | string | 必填 | 支持 | — |
+| `flow` | string | `""` | 支持 | `""` or `xtls-rprx-vision`. |
+| `network` | listable-string, 取值 `tcp`, `udp` | — | 报错：Which networks an outbound carries: connections it should refuse would go through it | — |
+| `tls` | object → [对象](/sail/zh/reference/shared/#tls-outbounds) | 未设置 | 支持 | — |
+| `multiplex` | object → [对象](/sail/zh/reference/shared/#multiplex-outbounds) | 未设置 | 支持 | — |
+| `transport` | object → [对象](/sail/zh/reference/shared/#transport-outbounds), [[grpc]](/sail/zh/reference/shared/#transport-grpc-outbounds), [[http]](/sail/zh/reference/shared/#transport-http-outbounds), [[httpupgrade]](/sail/zh/reference/shared/#transport-httpupgrade-outbounds), [[ws]](/sail/zh/reference/shared/#transport-ws-outbounds) | 未设置 | 支持 | — |
+| `packet_encoding` | string | 未设置 | 支持 | How UDP travels: unset means `xudp`, as in sing-box; `""` is VLESS's own UDP, one destination per connection. |
+| `domain_strategy` | string | 未设置 | 支持 (sing-box 已弃用) | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
+
+<a id="outbounds-vmess"></a>
+
+## `outbounds[vmess]`
+
+Rust 定义：[`VMessOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/vmess/outbound/mod.rs) · 构建条件：`feature = "outbound-vmess"`
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | 支持 | Defaults to the type. |
+| `detour` | string | 未设置 | 支持 | The outbound to dial through, in place of a socket of its own. |
+| `bind_interface` | string | 未设置 | 支持 | The interface to send through, by name. |
+| `inet4_bind_address` | string | 未设置 | 支持 | The local address for IPv4 destinations. |
+| `inet6_bind_address` | string | 未设置 | 支持 | The local address for IPv6 destinations. |
+| `bind_address_no_port` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `protect_path` | string | — | 报错：Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
+| `routing_mark` | number\|string | 未设置 | 支持 | `SO_MARK`, Linux only. |
+| `reuse_addr` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `netns` | string | — | 报错：Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
+| `connect_timeout` | duration | 未设置 | 支持 | How long a TCP connect to one address may take; 5s when unset. |
+| `tcp_fast_open` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `tcp_multi_path` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `disable_tcp_keep_alive` | bool | `false` | 支持 | No TCP keepalive at all. |
+| `tcp_keep_alive` | duration | 未设置 | 支持 | How long a TCP connection is idle before keepalive probes it; 5m when unset. |
+| `tcp_keep_alive_interval` | duration | 未设置 | 支持 | Between keepalive probes; 75s when unset. |
+| `udp_fragment` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `domain_resolver` | string\|object → [对象](/sail/zh/reference/shared/#domain-resolver-default-domain-resolver) | 未设置 | 支持 | The DNS server that resolves the names dialled. |
+| `network_strategy` | string, 取值 `default`, `fallback`, `hybrid` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `fallback_network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `fallback_delay` | duration | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `server` | string | 必填 | 支持 | — |
+| `server_port` | number | 必填 | 支持 | — |
+| `uuid` | string | 必填 | 支持 | — |
+| `security` | string, 取值 `auto`, `none`, `zero`, `aes-128-cfb`, `aes-128-gcm`, `chacha20-poly1305` | `"auto"` | 支持 | `auto`, `aes-128-gcm`, `chacha20-poly1305`, `none` or `zero`. |
+| `alter_id` | number | `0` | 支持 | Only 0: legacy VMess is not spoken. |
+| `global_padding` | bool | `false` | 支持 | Random padding after each chunk, as v2ray pads. |
+| `authenticated_length` | bool | — | 报错：VMess's authenticated length: sail would speak VMess otherwise | — |
+| `network` | listable-string, 取值 `tcp`, `udp` | — | 报错：Which networks an outbound carries: connections it should refuse would go through it | — |
+| `tls` | object → [对象](/sail/zh/reference/shared/#tls-outbounds) | 未设置 | 支持 | — |
+| `packet_encoding` | string, 取值 `packetaddr`, `xudp` | `""` | 支持 | `""` (VMess's own UDP) or `xudp`. |
+| `multiplex` | object → [对象](/sail/zh/reference/shared/#multiplex-outbounds) | 未设置 | 支持 | — |
+| `transport` | object → [对象](/sail/zh/reference/shared/#transport-outbounds), [[grpc]](/sail/zh/reference/shared/#transport-grpc-outbounds), [[http]](/sail/zh/reference/shared/#transport-http-outbounds), [[httpupgrade]](/sail/zh/reference/shared/#transport-httpupgrade-outbounds), [[ws]](/sail/zh/reference/shared/#transport-ws-outbounds) | 未设置 | 支持 | — |
+| `domain_strategy` | string | 未设置 | 支持 (sing-box 已弃用) | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
+
+<a id="outbounds-missing"></a>
+
+## sail 未实现的类型：`outbounds`
+
+| 类型 | 状态 | 字段数 |
+| --- | --- | --: |
+| `outbounds[bridge]` | 报错：A protocol sail does not implement | 5 |
+| `outbounds[hysteria]` | 报错：A protocol sail does not implement | 90 |
+| `outbounds[naive]` | 报错：A protocol sail does not implement | 81 |
+| `outbounds[snell]` | 报错：A protocol sail does not implement | 40 |
+| `outbounds[ssh]` | 报错：A protocol sail does not implement | 43 |
+| `outbounds[tor]` | 报错：A protocol sail does not implement | 34 |
 

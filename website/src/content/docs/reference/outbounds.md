@@ -1,474 +1,877 @@
 ---
-title: Outbounds and groups
-description: Fields, types and serialization rules extracted from Sail configuration source.
+title: "Outbounds and groups"
+description: "Field-by-field reference of sail's native format: sing-box v1.14.2 JSON and sail's extensions."
 ---
 
-Generated from the Rust syntax tree. Update source comments and rebuild to change this page. `Option<T>` is optional; `Vec<T>` is an array. Comments retain their source language.
-
-These declarations are not a complete runtime validation schema. Features and platform gates affect availability. Consult the [configuration guide](/sail/configuration/) and linked source for computed defaults, supported combinations and cross-field constraints; validate with `sail -c config.json -T`.
-
-## AnyTlsOutboundOptions
-
-[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/anytls/outbound/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| Field | Type | Omission / flattening | Source notes |
-| --- | --- | --- | --- |
-| `server` | `String` | Required | — |
-| `server_port` | `u16` | Required | — |
-| `password` | `String` | Required | — |
-| `idle_session_check_interval` | `Option < Duration >` | Default::default() | —<br/>`serde (default , with = "crate::config::model::duration")` |
-| `idle_session_timeout` | `Option < Duration >` | Default::default() | —<br/>`serde (default , with = "crate::config::model::duration")` |
-| `min_idle_session` | `usize` | Default::default() | —<br/>`serde (default)` |
-
-## DirectOptions
-
-[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/direct/outbound/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| Field | Type | Omission / flattening | Source notes |
-| --- | --- | --- | --- |
-
-## BlockOptions
-
-[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/drop/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| Field | Type | Omission / flattening | Source notes |
-| --- | --- | --- | --- |
-
-## FallbackServer
-
-[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/fallback.rs)
-
-Where a fallback goes, as sing-box writes it.
-
-Serde: `serde (deny_unknown_fields)`
-
-| Field | Type | Omission / flattening | Source notes |
-| --- | --- | --- | --- |
-| `server` | `String` | Required | — |
-| `server_port` | `u16` | Required | — |
-
-## FallbackOutboundOptions
-
-[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/group/fallback/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| Field | Type | Omission / flattening | Source notes |
-| --- | --- | --- | --- |
-| `outbounds` | `Vec < String >` | Default::default() | Its members, in order; none may be when its providers give others.<br/>`serde (default)` |
-| `providers` | `GroupProviders` | Flattened into this object | Members from outbound providers too, a sail extension.<br/>`serde (flatten)` |
-| `url` | `String` | default: default_url() | What is requested through each member to test it.<br/>`serde (default = "default_url")` |
-| `interval` | `Option < Duration >` | Default::default() | —<br/>`serde (default , with = "crate::config::model::duration")` |
-| `timeout` | `Option < Duration >` | Default::default() | How long a test, or a connection attempt that has a member left to fall back to, may take before its member counts as failed.<br/>`serde (default , with = "crate::config::model::duration")` |
-| `lazy` | `bool` | default: default_lazy() | Tests only while the group is in use: not when it was not used since the last ones.<br/>`serde (default = "default_lazy")` |
-| `interrupt_exist_connections` | `bool` | Default::default() | Ends the connections through the member left once the group switches.<br/>`serde (default)` |
-
-## StrategyKind
-
-[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/group/load_balance/mod.rs)
-
-Serde: `serde (rename_all = "kebab-case")`
-
-| Value / shape | Source notes |
-| --- | --- |
-| `ConsistentHashing` (default) | — |
-| `RoundRobin` | — |
-| `StickySessions` | — |
-
-## LoadBalanceOutboundOptions
-
-[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/group/load_balance/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| Field | Type | Omission / flattening | Source notes |
-| --- | --- | --- | --- |
-| `outbounds` | `Vec < String >` | Default::default() | Its members; none may be when its providers give others.<br/>`serde (default)` |
-| `providers` | `GroupProviders` | Flattened into this object | Members from outbound providers too, a sail extension.<br/>`serde (flatten)` |
-| `strategy` | `StrategyKind` | Default::default() | —<br/>`serde (default)` |
-| `url` | `String` | default: default_url() | What is requested through each member to test it.<br/>`serde (default = "default_url")` |
-| `interval` | `Option < Duration >` | Default::default() | —<br/>`serde (default , with = "crate::config::model::duration")` |
-| `lazy` | `bool` | default: default_lazy() | Tests only while the group is in use: not when it was not used since the last ones.<br/>`serde (default = "default_lazy")` |
-
-## NetworkGroupOptions
-
-[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/group/network/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| Field | Type | Omission / flattening | Source notes |
-| --- | --- | --- | --- |
-| `branches` | `Vec < Branch >` | Required | Tried in order: the first whose conditions the network matches takes the connection. |
-| `default` | `String` | Required | Where connections go when no branch matches. |
-
-## Branch
-
-[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/group/network/mod.rs)
-
-An outbound, and the network it is for: conditions as a routing rule's, each of which must match, a list when any of its values does. A condition on something not known of the network does not match.
-
-Serde: `serde (deny_unknown_fields)`
-
-| Field | Type | Omission / flattening | Source notes |
-| --- | --- | --- | --- |
-| `outbound` | `String` | Required | — |
-| `wifi_ssid` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "listable")` |
-| `wifi_bssid` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "listable")` |
-| `network_type` | `Vec < String >` | Default::default() | `wifi`, `cellular`, `ethernet`, `other`.<br/>`serde (default , with = "listable")` |
-| `network_is_expensive` | `bool` | Default::default() | —<br/>`serde (default)` |
-| `network_is_constrained` | `bool` | Default::default() | —<br/>`serde (default)` |
-| `wifi_ssid_regex` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "listable")` |
-| `wifi_bssid_regex` | `Vec < String >` | Default::default() | Matched whatever the case.<br/>`serde (default , with = "listable")` |
-| `network_gateway` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "listable")` |
-| `network_mcc_mnc` | `Vec < String >` | Default::default() | Only off Wi-Fi.<br/>`serde (default , with = "listable")` |
-
-## SelectorOutboundOptions
-
-[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/group/selector/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| Field | Type | Omission / flattening | Source notes |
-| --- | --- | --- | --- |
-| `outbounds` | `Vec < String >` | Default::default() | Its members; none may be when its providers give others.<br/>`serde (default)` |
-| `providers` | `GroupProviders` | Flattened into this object | Members from outbound providers too, a sail extension.<br/>`serde (flatten)` |
-| `default` | `Option < String >` | Default::default() | Selected when nothing was selected before, or what was is no longer a member; defaults to the first. It may be a member a provider gives, the first so named.<br/>`serde (default)` |
-| `interrupt_exist_connections` | `bool` | Default::default() | Ends the connections through the member selected before once another is selected, rather than leaving them on it.<br/>`serde (default)` |
-
-## SmartOutboundOptions
-
-[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/group/smart/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| Field | Type | Omission / flattening | Source notes |
-| --- | --- | --- | --- |
-| `outbounds` | `Vec < String >` | Default::default() | Its members; none may be when its providers give others.<br/>`serde (default)` |
-| `providers` | `GroupProviders` | Flattened into this object | Members from outbound providers too.<br/>`serde (flatten)` |
-| `url` | `String` | default: default_url() | What is requested through each member to probe it.<br/>`serde (default = "default_url")` |
-| `interval` | `Option < Duration >` | Default::default() | How often members nothing told of lately are probed; 5 minutes.<br/>`serde (default , with = "crate::config::model::duration")` |
-| `timeout` | `Option < Duration >` | Default::default() | How long a probe, or a connection attempt that has a member left to try, may take before its member counts as failed; 5 seconds.<br/>`serde (default , with = "crate::config::model::duration")` |
-| `idle_timeout` | `Option < Duration >` | Default::default() | Probes pause once the group has not been used for this long; 30 minutes.<br/>`serde (default , with = "crate::config::model::duration")` |
-| `tolerance` | `u16` | default: default_tolerance() | Milliseconds: a member whose score is within this of the best may be picked.<br/>`serde (default = "default_tolerance")` |
-| `tolerance_ratio` | `f32` | default: default_tolerance_ratio() | A member whose score is within this fraction of the best may be picked too, whichever of the two is the wider.<br/>`serde (default = "default_tolerance_ratio")` |
-| `policy_priority` | `Vec < PolicyPriority >` | Default::default() | Factors of the scores of the members whose names match a regular expression, the first that matches: below 1 prefers them, above 1 avoids them. 1 for the others.<br/>`serde (default)` |
-| `site_ttl` | `Option < Duration >` | Default::default() | How long a site is kept on its member after its last connection; an hour.<br/>`serde (default , with = "crate::config::model::duration")` |
-| `site_capacity` | `usize` | default: default_site_capacity() | How many sites are kept at most; the least recently used goes first.<br/>`serde (default = "default_site_capacity")` |
-| `prefer_asn` | `bool` | Default::default() | Destinations known by address alone are sites by their autonomous system, but those of CDNs, rather than by their network. Needs an ASN database: `asn.mmdb` in the asset directory, or `asn_file`.<br/>`serde (default)` |
-| `asn_file` | `Option < String >` | Default::default() | The ASN database, for `prefer_asn`; relative to the asset directory.<br/>`serde (default)` |
-| `evaluate_before_use` | `bool` | Default::default() | The first connection waits for the first probes, `timeout` at most, rather than going through a member not measured yet.<br/>`serde (default)` |
-| `interrupt_exist_connections` | `bool` | Default::default() | Ends the connections through a member once it leaves the group.<br/>`serde (default)` |
-
-## PolicyPriority
-
-[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/group/smart/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| Field | Type | Omission / flattening | Source notes |
-| --- | --- | --- | --- |
-| `regex` | `String` | Required | Matched against the member's name, as Mihomo's filters are: lookarounds included, backtracking bounded. |
-| `factor` | `f64` | Required | Multiplies the member's score: above 0. |
-
-## TryAllOutboundOptions
-
-[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/group/tryall/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| Field | Type | Omission / flattening | Source notes |
-| --- | --- | --- | --- |
-| `outbounds` | `Vec < String >` | Required | — |
-| `delay_base` | `u32` | Default::default() | Milliseconds to wait before trying each next outbound.<br/>`serde (default)` |
-
-## UrlTestOutboundOptions
-
-[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/group/urltest/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| Field | Type | Omission / flattening | Source notes |
-| --- | --- | --- | --- |
-| `outbounds` | `Vec < String >` | Default::default() | Its members; none may be when its providers give others.<br/>`serde (default)` |
-| `providers` | `GroupProviders` | Flattened into this object | Members from outbound providers too, a sail extension.<br/>`serde (flatten)` |
-| `url` | `String` | default: default_url() | What is requested through each member; sing-box's default.<br/>`serde (default = "default_url")` |
-| `interval` | `Option < Duration >` | Default::default() | —<br/>`serde (default , with = "crate::config::model::duration")` |
-| `tolerance` | `u16` | default: default_tolerance() | Milliseconds.<br/>`serde (default = "default_tolerance")` |
-| `idle_timeout` | `Option < Duration >` | Default::default() | Tests pause once the group has not been used for this long.<br/>`serde (default , with = "crate::config::model::duration")` |
-| `interrupt_exist_connections` | `bool` | Default::default() | Ends the connections through the member left once the group switches.<br/>`serde (default)` |
-
-## HttpOutboundOptions
-
-[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/http/outbound/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| Field | Type | Omission / flattening | Source notes |
-| --- | --- | --- | --- |
-| `server` | `String` | Required | — |
-| `server_port` | `u16` | Required | — |
-| `username` | `Option < String >` | Default::default() | —<br/>`serde (default)` |
-| `password` | `Option < String >` | Default::default() | —<br/>`serde (default)` |
-| `path` | `Option < String >` | Default::default() | The request target instead of the destination, which then goes only in `Host`, as sing-box sends it.<br/>`serde (default)` |
-| `headers` | `BTreeMap < String , Listable >` | Default::default() | Sent with every `CONNECT`.<br/>`serde (default)` |
-
-## Obfs
-
-[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/hysteria2/mod.rs)
-
-The `obfs` field: `{"type": "salamander", "password": "..."}`.
-
-Serde: `serde (deny_unknown_fields)`
-
-| Field | Type | Omission / flattening | Source notes |
-| --- | --- | --- | --- |
-| `r#type` | `String` | Required | — |
-| `password` | `String` | Default::default() | —<br/>`serde (default)` |
-
-## Hysteria2OutboundOptions
-
-[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/hysteria2/outbound/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| Field | Type | Omission / flattening | Source notes |
-| --- | --- | --- | --- |
-| `server` | `String` | Required | — |
-| `server_port` | `Option < u16 >` | Default::default() | The one port; with `server_ports`, not needed.<br/>`serde (default)` |
-| `server_ports` | `Option < Listable >` | Default::default() | Ports or ranges ("20000:30000") to hop between.<br/>`serde (default)` |
-| `hop_interval` | `Option < Duration >` | Default::default() | How often to hop, 30s unless set.<br/>`serde (default , with = "crate::config::model::duration")` |
-| `up_mbps` | `Option < u64 >` | Default::default() | What we may send at; set, it selects Brutal.<br/>`serde (default)` |
-| `down_mbps` | `Option < u64 >` | Default::default() | What we can receive at, told to the server.<br/>`serde (default)` |
-| `obfs` | `Option < Obfs >` | Default::default() | —<br/>`serde (default)` |
-| `password` | `String` | Required | — |
-| `tls` | `OutboundTls` | Required | — |
-| `network` | `Option < Listable >` | Default::default() | "tcp" or "udp", or both, as unset.<br/>`serde (default)` |
-
-## MptpOutboundOptions
-
-[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/mptp/outbound/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| Field | Type | Omission / flattening | Source notes |
-| --- | --- | --- | --- |
-| `outbounds` | `Vec < String >` | Required | — |
-| `server` | `String` | Required | — |
-| `server_port` | `u16` | Required | — |
-
-## PassOptions
-
-[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/pass/mod.rs)
-
-A pass outbound has nothing to configure but its tag.
-
-Serde: `serde (deny_unknown_fields)`
-
-| Field | Type | Omission / flattening | Source notes |
-| --- | --- | --- | --- |
-
-## RedirectOptions
-
-[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/redirect/outbound/mod.rs)
-
-Sends every connection to one fixed address.
-
-Serde: `serde (deny_unknown_fields)`
-
-| Field | Type | Omission / flattening | Source notes |
-| --- | --- | --- | --- |
-| `server` | `String` | Required | — |
-| `server_port` | `u16` | Required | — |
-
-## ShadowsocksOutboundOptions
-
-[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/shadowsocks/outbound/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| Field | Type | Omission / flattening | Source notes |
-| --- | --- | --- | --- |
-| `server` | `String` | Required | — |
-| `server_port` | `u16` | Required | — |
-| `method` | `String` | Required | — |
-| `password` | `String` | Required | With a 2022 method, the base64 PSK, or `iPSK:uPSK` for a server with users. |
-| `prefix` | `Option < String >` | Default::default() | Bytes sent before the first payload, percent-encoded.<br/>`serde (default)` |
-| `plugin` | `Option < String >` | Default::default() | Only `obfs-local` (simple-obfs) is supported.<br/>`serde (default)` |
-| `plugin_opts` | `Option < String >` | Default::default() | `obfs=http\|tls;obfs-host=<host>;obfs-uri=<path>`, as simple-obfs takes them.<br/>`serde (default)` |
-| `udp_over_tcp` | `Option < uot :: UdpOverTcpOptions >` | Default::default() | UDP over its TCP, to `sp.v2.udp-over-tcp.arpa`, instead of its own UDP.<br/>`serde (default)` |
-
-## ShadowTlsOutboundOptions
-
-[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/shadowtls/outbound.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| Field | Type | Omission / flattening | Source notes |
-| --- | --- | --- | --- |
-| `server` | `String` | Required | — |
-| `server_port` | `u16` | Required | — |
-| `version` | `u32` | default: version_one() | Must be 3: versions 1 and 2 are not supported. sing-box's default is 1.<br/>`serde (default = "version_one")` |
-| `password` | `String` | Default::default() | Cannot be empty.<br/>`serde (default)` |
-| `tls` | `Option < OutboundTls >` | Default::default() | Must be enabled: the handshake with the site the server imitates, `server_name` being the site's (the server's address when unset). A browser fingerprint, disable_sni and a client certificate apply as for TLS; REALITY and ECH do not.<br/>`serde (default)` |
-
-## SocksOutboundOptions
-
-[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/socks/outbound/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| Field | Type | Omission / flattening | Source notes |
-| --- | --- | --- | --- |
-| `server` | `String` | Required | — |
-| `server_port` | `u16` | Required | — |
-| `username` | `String` | Default::default() | —<br/>`serde (default)` |
-| `password` | `String` | Default::default() | —<br/>`serde (default)` |
-| `udp_over_tcp` | `Option < uot :: UdpOverTcpOptions >` | Default::default() | UDP over its TCP, to `sp.v2.udp-over-tcp.arpa`, instead of UDP ASSOCIATE.<br/>`serde (default)` |
-
-## TproxyNetwork
-
-[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/tproxy/mod.rs)
-
-Serde: `serde (rename_all = "lowercase")`
-
-| Value / shape | Source notes |
-| --- | --- |
-| `tcp` | — |
-| `udp` | — |
-
-## TrojanOutboundOptions
-
-[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/trojan/outbound/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| Field | Type | Omission / flattening | Source notes |
-| --- | --- | --- | --- |
-| `server` | `String` | Required | — |
-| `server_port` | `u16` | Required | — |
-| `password` | `String` | Required | — |
-
-## UdpRelayMode
-
-[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/tuic/common.rs)
-
-Which way UDP packets travel.
-
-Serde: `serde (rename_all = "snake_case")`
-
-| Value / shape | Source notes |
-| --- | --- |
-| `native` (default) | QUIC datagrams, fragmented to fit. |
-| `quic` | One unidirectional stream per packet. |
-
-## TuicOutboundOptions
-
-[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/tuic/outbound/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| Field | Type | Omission / flattening | Source notes |
-| --- | --- | --- | --- |
-| `server` | `String` | Required | — |
-| `server_port` | `u16` | Required | — |
-| `uuid` | `String` | Required | — |
-| `password` | `String` | Default::default() | —<br/>`serde (default)` |
-| `congestion_control` | `CongestionControl` | Default::default() | —<br/>`serde (default)` |
-| `udp_relay_mode` | `Option < UdpRelayMode >` | Default::default() | —<br/>`serde (default)` |
-| `udp_over_stream` | `bool` | Default::default() | UDP over TCP (v2), as sing-box has it: each UDP session a `Connect` stream to `sp.v2.udp-over-tcp.arpa`, instead of TUIC's own relay.<br/>`serde (default)` |
-| `zero_rtt_handshake` | `bool` | Default::default() | —<br/>`serde (default)` |
-| `heartbeat` | `Option < Duration >` | Default::default() | —<br/>`serde (default , with = "crate::config::model::duration")` |
-| `network` | `Option < Network >` | Default::default() | `tcp` or `udp`; both when not set.<br/>`serde (default)` |
-| `tls` | `OutboundTls` | Required | — |
-
-## Network
-
-[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/tuic/outbound/mod.rs)
-
-Serde: `serde (rename_all = "lowercase")`
-
-| Value / shape | Source notes |
-| --- | --- |
-| `tcp` | — |
-| `udp` | — |
-
-## VlessOutboundOptions
-
-[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/vless/outbound/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| Field | Type | Omission / flattening | Source notes |
-| --- | --- | --- | --- |
-| `server` | `String` | Required | — |
-| `server_port` | `u16` | Required | — |
-| `uuid` | `String` | Required | — |
-| `flow` | `String` | Default::default() | `""` or `xtls-rprx-vision`.<br/>`serde (default)` |
-| `packet_encoding` | `Option < String >` | Default::default() | How UDP travels: unset means `xudp`, as in sing-box; `""` is VLESS's own UDP, one destination per connection.<br/>`serde (default)` |
-
-## VMessOutboundOptions
-
-[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/vmess/outbound/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| Field | Type | Omission / flattening | Source notes |
-| --- | --- | --- | --- |
-| `server` | `String` | Required | — |
-| `server_port` | `u16` | Required | — |
-| `uuid` | `String` | Required | — |
-| `security` | `String` | default: default_security() | `auto`, `aes-128-gcm`, `chacha20-poly1305`, `none` or `zero`.<br/>`serde (default = "default_security")` |
-| `alter_id` | `u32` | Default::default() | Only 0: legacy VMess is not spoken.<br/>`serde (default)` |
-| `global_padding` | `bool` | Default::default() | Random padding after each chunk, as v2ray pads.<br/>`serde (default)` |
-| `packet_encoding` | `String` | Default::default() | `""` (VMess's own UDP) or `xudp`.<br/>`serde (default)` |
-
-## WireGuardOptions
-
-[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/wireguard/endpoint/options.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| Field | Type | Omission / flattening | Source notes |
-| --- | --- | --- | --- |
-| `system` | `bool` | Default::default() | A system interface instead of the userspace stack: not supported.<br/>`serde (default)` |
-| `name` | `Option < String >` | Default::default() | The system interface's name, for `system` only.<br/>`serde (default)` |
-| `mtu` | `Option < u32 >` | Default::default() | —<br/>`serde (default)` |
-| `address` | `Vec < String >` | Required | The endpoint's own addresses in the tunnel, as prefixes. |
-| `private_key` | `String` | Required | — |
-| `listen_port` | `Option < u16 >` | Default::default() | —<br/>`serde (default)` |
-| `peers` | `Vec < PeerOptions >` | Required | — |
-| `workers` | `Option < u32 >` | Default::default() | sing-box's worker count; sail has no use for it.<br/>`serde (default)` |
-
-## PeerOptions
-
-[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/wireguard/endpoint/options.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| Field | Type | Omission / flattening | Source notes |
-| --- | --- | --- | --- |
-| `address` | `Option < String >` | Default::default() | Where the peer is: an address or a domain. Without it, it is learnt from the peer's handshake, as a server's peers are.<br/>`serde (default)` |
-| `port` | `Option < u16 >` | Default::default() | —<br/>`serde (default)` |
-| `public_key` | `String` | Required | — |
-| `pre_shared_key` | `Option < String >` | Default::default() | —<br/>`serde (default)` |
-| `allowed_ips` | `Vec < String >` | Required | — |
-| `persistent_keepalive_interval` | `Option < u16 >` | Default::default() | Seconds; 0 or unset is off.<br/>`serde (default)` |
-| `reserved` | `Option < Reserved >` | Default::default() | Three bytes, or their base64: Cloudflare WARP's client identifier.<br/>`serde (default)` |
-
-## Reserved
-
-[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/wireguard/endpoint/options.rs)
-
-Serde: `serde (untagged)`
-
-| Value / shape | Source notes |
-| --- | --- |
-| `(Vec < u8 >)` | — |
-| `(String)` | — |
+Generated by `website/scripts/build-config.mjs`; do not edit. It reads sail's configuration types (its Rust source), sing-box's field registry (`sail/src/config/singbox/fields.json`, sing-box v1.14.2) and the tiers the registry test measured (`fields.tiers.json`). Change the source comments or those files, then run `npm run docs:config` in `website/`.
+
+- **Status**: each sing-box field as the registry test measured it: **Supported** (read and acted on; a value sail cannot take is still an error), **Warned** (dropped with a warning) or **Error** (the configuration is refused), with the reason; **sail extension** marks fields and types sing-box does not have.
+- **Type**: sing-box's JSON type for its fields; from sail's Rust definitions for extensions.
+- **Default**: from sail's serde declarations; *unset* means the field may be left out, and the description says what applies then. Only fields sail reads have one.
+- **Description**: sail's source comments, in their source language; for an extension without one, the registry test's note.
+- **Build**: the `cfg` conditions in the Rust source (Cargo features and platforms).
+
+Validate a configuration with `sail -c config.json -T`. The Clash and Surge support tables are under [Compatibility](/sail/reference/compatibility/).
+
+<a id="outbounds"></a>
+
+## `outbounds[]`
+
+Rust: [`Outbound`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `type` | string, one of `anytls`, `block`, `bridge`, `direct`, `http`, `hysteria`, `hysteria2`, `naive`, `selector`, `shadowsocks`, `shadowtls`, `snell`, `socks`, `ssh`, `tor`, `trojan`, `tuic`, `urltest`, `vless`, `vmess` | required | Supported | — |
+
+<a id="outbounds-anytls"></a>
+
+## `outbounds[anytls]`
+
+Rust: [`AnyTlsOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/anytls/outbound/mod.rs) · Build: `feature = "outbound-anytls"`
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | Supported | Defaults to the type. |
+| `detour` | string | unset | Supported | The outbound to dial through, in place of a socket of its own. |
+| `bind_interface` | string | unset | Supported | The interface to send through, by name. |
+| `inet4_bind_address` | string | unset | Supported | The local address for IPv4 destinations. |
+| `inet6_bind_address` | string | unset | Supported | The local address for IPv6 destinations. |
+| `bind_address_no_port` | bool | — | Warned: Socket tuning: connections go the same way without it | Not implemented yet. |
+| `protect_path` | string | — | Error: Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
+| `routing_mark` | number\|string | unset | Supported | `SO_MARK`, Linux only. |
+| `reuse_addr` | bool | — | Warned: Socket tuning: connections go the same way without it | Not implemented yet. |
+| `netns` | string | — | Error: Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
+| `connect_timeout` | duration | unset | Supported | How long a TCP connect to one address may take; 5s when unset. |
+| `tcp_fast_open` | bool | — | Warned: Socket tuning: connections go the same way without it | Not implemented yet. |
+| `tcp_multi_path` | bool | — | Warned: Socket tuning: connections go the same way without it | Not implemented yet. |
+| `disable_tcp_keep_alive` | bool | `false` | Supported | No TCP keepalive at all. |
+| `tcp_keep_alive` | duration | unset | Supported | How long a TCP connection is idle before keepalive probes it; 5m when unset. |
+| `tcp_keep_alive_interval` | duration | unset | Supported | Between keepalive probes; 75s when unset. |
+| `udp_fragment` | bool | — | Warned: Socket tuning: connections go the same way without it | Not implemented yet. |
+| `domain_resolver` | string\|object → [object](/sail/reference/shared/#domain-resolver-default-domain-resolver) | unset | Supported | The DNS server that resolves the names dialled. |
+| `network_strategy` | string, one of `default`, `fallback`, `hybrid` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `fallback_network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `fallback_delay` | duration | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `server` | string | required | Supported | — |
+| `server_port` | number | required | Supported | — |
+| `tls` | object → [object](/sail/reference/shared/#tls-outbounds) | unset | Supported | — |
+| `password` | string | required | Supported | — |
+| `idle_session_check_interval` | duration | unset | Supported | — |
+| `idle_session_timeout` | duration | unset | Supported | — |
+| `min_idle_session` | number | `0` | Supported | — |
+| `client_metadata` | string | — | Warned: Metadata the client tells the server: the connection goes the same way without it | — |
+| `domain_strategy` | string | unset | Supported (deprecated in sing-box) | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
+
+<a id="outbounds-block"></a>
+
+## `outbounds[block]`
+
+Rust: [`BlockOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/drop/mod.rs) · Build: `feature = "outbound-drop"`
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | Supported | Defaults to the type. |
+
+<a id="outbounds-direct"></a>
+
+## `outbounds[direct]`
+
+Rust: [`DirectOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/direct/outbound/mod.rs) · Build: `feature = "outbound-direct"`
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | Supported | Defaults to the type. |
+| `detour` | string | — | Error: A detour for a direct outbound, which sing-box refuses too | The outbound to dial through, in place of a socket of its own. |
+| `bind_interface` | string | unset | Supported | The interface to send through, by name. |
+| `inet4_bind_address` | string | unset | Supported | The local address for IPv4 destinations. |
+| `inet6_bind_address` | string | unset | Supported | The local address for IPv6 destinations. |
+| `bind_address_no_port` | bool | — | Warned: Socket tuning: connections go the same way without it | Not implemented yet. |
+| `protect_path` | string | — | Error: Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
+| `routing_mark` | number\|string | unset | Supported | `SO_MARK`, Linux only. |
+| `reuse_addr` | bool | — | Warned: Socket tuning: connections go the same way without it | Not implemented yet. |
+| `netns` | string | — | Error: Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
+| `connect_timeout` | duration | unset | Supported | How long a TCP connect to one address may take; 5s when unset. |
+| `tcp_fast_open` | bool | — | Warned: Socket tuning: connections go the same way without it | Not implemented yet. |
+| `tcp_multi_path` | bool | — | Warned: Socket tuning: connections go the same way without it | Not implemented yet. |
+| `disable_tcp_keep_alive` | bool | `false` | Supported | No TCP keepalive at all. |
+| `tcp_keep_alive` | duration | unset | Supported | How long a TCP connection is idle before keepalive probes it; 5m when unset. |
+| `tcp_keep_alive_interval` | duration | unset | Supported | Between keepalive probes; 75s when unset. |
+| `udp_fragment` | bool | — | Warned: Socket tuning: connections go the same way without it | Not implemented yet. |
+| `domain_resolver` | string\|object → [object](/sail/reference/shared/#domain-resolver-default-domain-resolver) | unset | Supported | The DNS server that resolves the names dialled. |
+| `network_strategy` | string, one of `default`, `fallback`, `hybrid` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `fallback_network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `fallback_delay` | duration | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `domain_strategy` | string | unset | Supported (deprecated in sing-box) | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
+| `skip_default_domain_resolver` | bool | `false` | sail extension | A sail extension: without a `domain_resolver` of its own, the names dialled resolve as the DNS rules say, not as `route.default_domain_resolver` does; as Mihomo's DIRECT resolves apart from the proxies' servers. |
+
+<a id="outbounds-fallback"></a>
+
+## `outbounds[fallback]`
+
+Rust: [`FallbackOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/group/fallback/mod.rs) · Build: `feature = "outbound-fallback"` · **sail extension**
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | sail extension | Defaults to the type. |
+| `outbounds` | array of string | `[]` | sail extension | Its members, in order; none may be when its providers give others. |
+| `providers` | string or array of string | `[]` | sail extension | The outbound providers, by tag, whose outbounds join the group's own, in this order. |
+| `filter` | string or array of string | `[]` | sail extension | Regular expressions, as Mihomo's `filter`: of the providers' outbounds, only those whose names match one are members, those of the first first. The group's own outbounds are not filtered. |
+| `exclude_filter` | string or array of string | `[]` | sail extension | Regular expressions no member's name may match, the group's own outbounds' too. |
+| `exclude_type` | string or array of string | `[]` | sail extension | The types no member may be of, the group's own outbounds too, in Mihomo's names for them, without case: `Shadowsocks`, `Vmess`, `Socks5`, `Direct`, ... |
+| `empty_fallback` | string | unset | sail extension | An outbound, not a group, that is the member while there is none else. Without it such a group has none, and its connections fail. |
+| `url` | string | `default_url()` | sail extension | What is requested through each member to test it. |
+| `interval` | duration | unset | sail extension | — |
+| `timeout` | duration | unset | sail extension | How long a test, or a connection attempt that has a member left to fall back to, may take before its member counts as failed. |
+| `lazy` | bool | `true` | sail extension | Tests only while the group is in use: not when it was not used since the last ones. |
+| `interrupt_exist_connections` | bool | `false` | sail extension | Ends the connections through the member left once the group switches. |
+
+<a id="outbounds-http"></a>
+
+## `outbounds[http]`
+
+Rust: [`HttpOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/http/outbound/mod.rs) · Build: `feature = "outbound-http"`
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | Supported | Defaults to the type. |
+| `detour` | string | unset | Supported | The outbound to dial through, in place of a socket of its own. |
+| `bind_interface` | string | unset | Supported | The interface to send through, by name. |
+| `inet4_bind_address` | string | unset | Supported | The local address for IPv4 destinations. |
+| `inet6_bind_address` | string | unset | Supported | The local address for IPv6 destinations. |
+| `bind_address_no_port` | bool | — | Warned: Socket tuning: connections go the same way without it | Not implemented yet. |
+| `protect_path` | string | — | Error: Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
+| `routing_mark` | number\|string | unset | Supported | `SO_MARK`, Linux only. |
+| `reuse_addr` | bool | — | Warned: Socket tuning: connections go the same way without it | Not implemented yet. |
+| `netns` | string | — | Error: Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
+| `connect_timeout` | duration | unset | Supported | How long a TCP connect to one address may take; 5s when unset. |
+| `tcp_fast_open` | bool | — | Warned: Socket tuning: connections go the same way without it | Not implemented yet. |
+| `tcp_multi_path` | bool | — | Warned: Socket tuning: connections go the same way without it | Not implemented yet. |
+| `disable_tcp_keep_alive` | bool | `false` | Supported | No TCP keepalive at all. |
+| `tcp_keep_alive` | duration | unset | Supported | How long a TCP connection is idle before keepalive probes it; 5m when unset. |
+| `tcp_keep_alive_interval` | duration | unset | Supported | Between keepalive probes; 75s when unset. |
+| `udp_fragment` | bool | — | Warned: Socket tuning: connections go the same way without it | Not implemented yet. |
+| `domain_resolver` | string\|object → [object](/sail/reference/shared/#domain-resolver-default-domain-resolver) | unset | Supported | The DNS server that resolves the names dialled. |
+| `network_strategy` | string, one of `default`, `fallback`, `hybrid` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `fallback_network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `fallback_delay` | duration | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `server` | string | required | Supported | — |
+| `server_port` | number | required | Supported | — |
+| `username` | string | unset | Supported | — |
+| `password` | string | unset | Supported | — |
+| `tls` | object → [object](/sail/reference/shared/#tls-outbounds) | unset | Supported | — |
+| `path` | string | unset | Supported | The request target instead of the destination, which then goes only in `Host`, as sing-box sends it. |
+| `headers` | map | `{}` | Supported | Sent with every `CONNECT`. |
+| `domain_strategy` | string | unset | Supported (deprecated in sing-box) | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
+
+<a id="outbounds-hysteria2"></a>
+
+## `outbounds[hysteria2]`
+
+Rust: [`Hysteria2OutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/hysteria2/outbound/mod.rs) · Build: `feature = "outbound-hysteria2"`
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | Supported | Defaults to the type. |
+| `detour` | string | unset | Supported | The outbound to dial through, in place of a socket of its own. |
+| `bind_interface` | string | unset | Supported | The interface to send through, by name. |
+| `inet4_bind_address` | string | unset | Supported | The local address for IPv4 destinations. |
+| `inet6_bind_address` | string | unset | Supported | The local address for IPv6 destinations. |
+| `bind_address_no_port` | bool | — | Warned: Socket tuning: connections go the same way without it | Not implemented yet. |
+| `protect_path` | string | — | Error: Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
+| `routing_mark` | number\|string | unset | Supported | `SO_MARK`, Linux only. |
+| `reuse_addr` | bool | — | Warned: Socket tuning: connections go the same way without it | Not implemented yet. |
+| `netns` | string | — | Error: Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
+| `connect_timeout` | duration | unset | Supported | How long a TCP connect to one address may take; 5s when unset. |
+| `tcp_fast_open` | bool | — | Warned: Socket tuning: connections go the same way without it | Not implemented yet. |
+| `tcp_multi_path` | bool | — | Warned: Socket tuning: connections go the same way without it | Not implemented yet. |
+| `disable_tcp_keep_alive` | bool | `false` | Supported | No TCP keepalive at all. |
+| `tcp_keep_alive` | duration | unset | Supported | How long a TCP connection is idle before keepalive probes it; 5m when unset. |
+| `tcp_keep_alive_interval` | duration | unset | Supported | Between keepalive probes; 75s when unset. |
+| `udp_fragment` | bool | — | Warned: Socket tuning: connections go the same way without it | Not implemented yet. |
+| `domain_resolver` | string\|object → [object](/sail/reference/shared/#domain-resolver-default-domain-resolver) | unset | Supported | The DNS server that resolves the names dialled. |
+| `network_strategy` | string, one of `default`, `fallback`, `hybrid` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `fallback_network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `fallback_delay` | duration | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `server` | string | required | Supported | — |
+| `server_port` | number | unset | Supported | The one port; with `server_ports`, not needed. |
+| `server_ports` | listable-string | unset | Supported | Ports or ranges ("20000:30000") to hop between. |
+| `hop_interval` | duration | unset | Supported | How often to hop, 30s unless set. |
+| `hop_interval_max` | duration | — | Warned: Hysteria's congestion tuning and debugging, the longest hop interval, and its QUIC fingerprint: the same traffic | — |
+| `up_mbps` | number | unset | Supported | What we may send at; set, it selects Brutal. |
+| `down_mbps` | number | unset | Supported | What we can receive at, told to the server. |
+| `obfs` | object → [object](/sail/reference/shared/#obfs), [[gecko]](/sail/reference/shared/#obfs-gecko), [[salamander]](/sail/reference/shared/#obfs-salamander) | unset | Supported | — |
+| `password` | string | required | Supported | — |
+| `network` | listable-string, one of `tcp`, `udp` | unset | Supported | "tcp" or "udp", or both, as unset. |
+| `tls` | object → [object](#outbounds-hysteria2-tls) | required | Supported | — |
+| `idle_timeout` | duration | — | Warned: QUIC tuning: the same connection without it | — |
+| `keep_alive_period` | duration | — | Warned: QUIC tuning: the same connection without it | — |
+| `stream_receive_window` | number\|string | — | Warned: QUIC tuning: the same connection without it | — |
+| `connection_receive_window` | number\|string | — | Warned: QUIC tuning: the same connection without it | — |
+| `max_concurrent_streams` | number | — | Warned: QUIC tuning: the same connection without it | — |
+| `initial_packet_size` | number | — | Warned: QUIC tuning: the same connection without it | — |
+| `disable_path_mtu_discovery` | bool | — | Warned: QUIC tuning: the same connection without it | — |
+| `bbr_profile` | string, one of `standard`, `conservative`, `aggressive` | — | Warned: Hysteria's congestion tuning and debugging, the longest hop interval, and its QUIC fingerprint: the same traffic | — |
+| `brutal_debug` | bool | — | Warned: Hysteria's congestion tuning and debugging, the longest hop interval, and its QUIC fingerprint: the same traffic | — |
+| `disable_chrome_parrot` | bool | — | Warned: Hysteria's congestion tuning and debugging, the longest hop interval, and its QUIC fingerprint: the same traffic | — |
+| `realm` | object → [object](#outbounds-hysteria2-realm) | — | Error: Meeting peers through a Hysteria realm: connections would be made otherwise | — |
+| `domain_strategy` | string | unset | Supported (deprecated in sing-box) | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
+
+<a id="outbounds-hysteria2-tls"></a>
+
+### `outbounds[hysteria2].tls`
+
+Rust: [`OutboundTls`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `enabled` | bool | `false` | Supported | — |
+| `engine` | string, one of `go`, `apple`, `windows` | — | Warned: The TLS stack: sail has one | — |
+| `disable_sni` | bool | `false` | Supported | Sends no SNI. The certificate is still verified against `server_name`, unless `insecure`. |
+| `server_name` | string | unset | Supported | Defaults to the server's address. |
+| `insecure` | bool | `false` | Supported | — |
+| `alpn` | listable-string | unset | Supported | — |
+| `min_version` | string, one of `1.0`, `1.1`, `1.2`, `1.3` | unset | Supported | The lowest TLS version to negotiate, `1.0` to `1.3`; unset, 1.2. |
+| `max_version` | string, one of `1.0`, `1.1`, `1.2`, `1.3` | unset | Supported | The highest; unset, 1.3. |
+| `cipher_suites` | listable-string | — | Error: TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked | — |
+| `curve_preferences` | listable-string, one of `P256`, `P384`, `P521`, `X25519`, `X25519MLKEM768` | — | Error: TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked | — |
+| `certificate` | listable-string | unset | Supported | An inline PEM certificate to trust. |
+| `certificate_path` | string | unset | Supported | A PEM certificate to trust, by path. |
+| `certificate_public_key_sha256` | listable-string\|array | unset | Supported | The SHA-256 hashes, base64, of the public keys to take a server's certificate by, in place of the certificates trusted, the name and `insecure`. |
+| `client_certificate` | listable-string | unset | Supported | An inline PEM certificate, its chain after it, presented when the server asks for one; with `client_key`. |
+| `client_certificate_path` | string | unset | Supported | `client_certificate`, by path. |
+| `client_key` | listable-string | unset | Supported | The inline PEM key of the client certificate. |
+| `client_key_path` | string | unset | Supported | `client_key`, by path. |
+| `fragment` | bool | — | Error: Fragmenting or spoofing the TLS handshake against censorship | — |
+| `fragment_fallback_delay` | duration | — | Error: Fragmenting or spoofing the TLS handshake against censorship | — |
+| `record_fragment` | bool | — | Error: Fragmenting or spoofing the TLS handshake against censorship | — |
+| `spoof` | string | — | Error: Fragmenting or spoofing the TLS handshake against censorship | — |
+| `spoof_method` | string, one of `wrong-sequence`, `wrong-checksum`, `wrong-ack`, `wrong-md5`, `wrong-timestamp` | — | Error: Fragmenting or spoofing the TLS handshake against censorship | — |
+| `kernel_tx` | bool | — | Warned: The TLS stack, kernel TLS and the handshake's timeout: the same TLS without them | — |
+| `kernel_rx` | bool | — | Warned: The TLS stack, kernel TLS and the handshake's timeout: the same TLS without them | — |
+| `handshake_timeout` | duration | — | Warned: The TLS stack, kernel TLS and the handshake's timeout: the same TLS without them | — |
+| `ech` | object → [object](/sail/reference/shared/#ech-outbounds) | unset | Supported | — |
+| `utls` | object → [object](#outbounds-hysteria2-tls-utls) | — | Error: Not supported over QUIC | The browser the ClientHello imitates. Unset, it is Chrome's. |
+| `reality` | object → [object](/sail/reference/shared/#reality-outbounds) | unset | Supported | — |
+
+<a id="outbounds-hysteria2-tls-utls"></a>
+
+### `outbounds[hysteria2].tls.utls`
+
+Rust: [`OutboundUtls`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `enabled` | bool | `true` | Supported | — |
+| `fingerprint` | string, one of `chrome_psk`, `chrome_psk_shuffle`, `chrome_padding_psk_shuffle`, `chrome_pq`, `chrome_pq_psk`, `chrome`, `firefox`, `edge`, `safari`, `360`, `qq`, `ios`, `android`, `random`, `randomized` | — | Error: Not supported over QUIC | — |
+
+<a id="outbounds-hysteria2-realm"></a>
+
+### `outbounds[hysteria2].realm`
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `server_url` | string | — | Error: Meeting peers through a Hysteria realm: connections would be made otherwise | — |
+| `token` | string | — | Error: Meeting peers through a Hysteria realm: connections would be made otherwise | — |
+| `realm_id` | string | — | Error: Meeting peers through a Hysteria realm: connections would be made otherwise | — |
+| `stun_servers` | listable-string | — | Error: Meeting peers through a Hysteria realm: connections would be made otherwise | — |
+| `ip_version` | number, one of `0`, `4`, `6` | — | Error: Meeting peers through a Hysteria realm: connections would be made otherwise | — |
+| `port_mapping` | object → [object](/sail/reference/shared/#port-mapping) | — | Error: Meeting peers through a Hysteria realm: connections would be made otherwise | — |
+| `http_client` | string\|object → [object](/sail/reference/shared/#http-client) | — | Error: Meeting peers through a Hysteria realm: connections would be made otherwise | — |
+
+<a id="outbounds-load-balance"></a>
+
+## `outbounds[load-balance]`
+
+Rust: [`LoadBalanceOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/group/load_balance/mod.rs) · Build: `feature = "outbound-load-balance"` · **sail extension**
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | sail extension | Defaults to the type. |
+| `outbounds` | array of string | `[]` | sail extension | Its members; none may be when its providers give others. |
+| `providers` | string or array of string | `[]` | sail extension | The outbound providers, by tag, whose outbounds join the group's own, in this order. |
+| `filter` | string or array of string | `[]` | sail extension | Regular expressions, as Mihomo's `filter`: of the providers' outbounds, only those whose names match one are members, those of the first first. The group's own outbounds are not filtered. |
+| `exclude_filter` | string or array of string | `[]` | sail extension | Regular expressions no member's name may match, the group's own outbounds' too. |
+| `exclude_type` | string or array of string | `[]` | sail extension | The types no member may be of, the group's own outbounds too, in Mihomo's names for them, without case: `Shadowsocks`, `Vmess`, `Socks5`, `Direct`, ... |
+| `empty_fallback` | string | unset | sail extension | An outbound, not a group, that is the member while there is none else. Without it such a group has none, and its connections fail. |
+| `strategy` | string, one of `consistent-hashing`, `round-robin`, `sticky-sessions` | `consistent-hashing` | sail extension | — |
+| `url` | string | `default_url()` | sail extension | What is requested through each member to test it. |
+| `interval` | duration | unset | sail extension | — |
+| `lazy` | bool | `true` | sail extension | Tests only while the group is in use: not when it was not used since the last ones. |
+
+<a id="outbounds-mptp"></a>
+
+## `outbounds[mptp]`
+
+Rust: [`MptpOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/mptp/outbound/mod.rs) · Build: `feature = "outbound-mptp"` · **sail extension**
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | sail extension | Defaults to the type. |
+| `outbounds` | array of string | required | sail extension | — |
+| `server` | string | required | sail extension | — |
+| `server_port` | number | required | sail extension | — |
+
+<a id="outbounds-network"></a>
+
+## `outbounds[network]`
+
+Rust: [`NetworkGroupOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/group/network/mod.rs) · Build: `feature = "outbound-network-group"` · **sail extension**
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | sail extension | Defaults to the type. |
+| `branches` | array of object → [[]](#outbounds-network-branches) | required | sail extension | Tried in order: the first whose conditions the network matches takes the connection. |
+| `default` | string | required | sail extension | Where connections go when no branch matches. |
+
+<a id="outbounds-network-branches"></a>
+
+### `outbounds[network].branches[]`
+
+Rust: [`Branch`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/group/network/mod.rs) · Build: `feature = "outbound-network-group"` · **sail extension**
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `outbound` | string | required | sail extension | — |
+| `wifi_ssid` | string or array of string | `[]` | sail extension | — |
+| `wifi_bssid` | string or array of string | `[]` | sail extension | — |
+| `network_type` | string or array of string | `[]` | sail extension | `wifi`, `cellular`, `ethernet`, `other`. |
+| `network_is_expensive` | bool | `false` | sail extension | — |
+| `network_is_constrained` | bool | `false` | sail extension | — |
+| `wifi_ssid_regex` | string or array of string | `[]` | sail extension | — |
+| `wifi_bssid_regex` | string or array of string | `[]` | sail extension | Matched whatever the case. |
+| `network_gateway` | string or array of string | `[]` | sail extension | — |
+| `network_mcc_mnc` | string or array of string | `[]` | sail extension | Only off Wi-Fi. |
+
+<a id="outbounds-pass"></a>
+
+## `outbounds[pass]`
+
+Rust: [`PassOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/pass/mod.rs) · Build: `feature = "outbound-pass"` · **sail extension**
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | sail extension | Defaults to the type. |
+
+<a id="outbounds-plugin"></a>
+
+## `outbounds[plugin]`
+
+Rust: [`PluginOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/app/outbound/plugin.rs) · Build: `feature = "outbound-select"` and `feature = "plugin"` · **sail extension**
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | sail extension | Defaults to the type. |
+| `path` | string | required | sail extension | The shared library to load. |
+| `args` | string | `""` | sail extension | — |
+
+<a id="outbounds-redirect"></a>
+
+## `outbounds[redirect]`
+
+Rust: [`RedirectOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/redirect/outbound/mod.rs) · Build: `feature = "outbound-redirect"` · **sail extension**
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | sail extension | Defaults to the type. |
+| `detour` | string | unset | sail extension | The outbound to dial through, in place of a socket of its own. |
+| `bind_interface` | string | unset | sail extension | The interface to send through, by name. |
+| `inet4_bind_address` | string | unset | sail extension | The local address for IPv4 destinations. |
+| `inet6_bind_address` | string | unset | sail extension | The local address for IPv6 destinations. |
+| `bind_address_no_port` | any JSON | unset | sail extension | Not implemented yet. |
+| `protect_path` | any JSON | unset | sail extension | Not implemented yet. |
+| `routing_mark` | number | unset | sail extension | `SO_MARK`, Linux only. |
+| `reuse_addr` | any JSON | unset | sail extension | Not implemented yet. |
+| `netns` | any JSON | unset | sail extension | Not implemented yet. |
+| `connect_timeout` | duration | unset | sail extension | How long a TCP connect to one address may take; 5s when unset. |
+| `tcp_fast_open` | any JSON | unset | sail extension | Not implemented yet. |
+| `tcp_multi_path` | any JSON | unset | sail extension | Not implemented yet. |
+| `disable_tcp_keep_alive` | bool | `false` | sail extension | No TCP keepalive at all. |
+| `tcp_keep_alive` | duration | unset | sail extension | How long a TCP connection is idle before keepalive probes it; 5m when unset. |
+| `tcp_keep_alive_interval` | duration | unset | sail extension | Between keepalive probes; 75s when unset. |
+| `udp_fragment` | any JSON | unset | sail extension | Not implemented yet. |
+| `domain_resolver` | object → [object](#outbounds-redirect-domain-resolver) | unset | sail extension | The DNS server that resolves the names dialled. |
+| `skip_default_domain_resolver` | bool | `false` | sail extension | A sail extension: without a `domain_resolver` of its own, the names dialled resolve as the DNS rules say, not as `route.default_domain_resolver` does; as Mihomo's DIRECT resolves apart from the proxies' servers. |
+| `domain_strategy` | string, one of `prefer_ipv4`, `prefer_ipv6`, `ipv4_only`, `ipv6_only` | unset | sail extension | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
+| `network_strategy` | any JSON | unset | sail extension | Not implemented yet. |
+| `network_type` | any JSON | unset | sail extension | Not implemented yet. |
+| `fallback_network_type` | any JSON | unset | sail extension | Not implemented yet. |
+| `fallback_delay` | any JSON | unset | sail extension | Not implemented yet. |
+| `detour` | string | unset | sail extension | The outbound to dial through, in place of a socket of its own. |
+| `bind_interface` | string | unset | sail extension | The interface to send through, by name. |
+| `inet4_bind_address` | string | unset | sail extension | The local address for IPv4 destinations. |
+| `inet6_bind_address` | string | unset | sail extension | The local address for IPv6 destinations. |
+| `bind_address_no_port` | any JSON | unset | sail extension | Not implemented yet. |
+| `protect_path` | any JSON | unset | sail extension | Not implemented yet. |
+| `routing_mark` | number | unset | sail extension | `SO_MARK`, Linux only. |
+| `reuse_addr` | any JSON | unset | sail extension | Not implemented yet. |
+| `netns` | any JSON | unset | sail extension | Not implemented yet. |
+| `connect_timeout` | duration | unset | sail extension | How long a TCP connect to one address may take; 5s when unset. |
+| `tcp_fast_open` | any JSON | unset | sail extension | Not implemented yet. |
+| `tcp_multi_path` | any JSON | unset | sail extension | Not implemented yet. |
+| `disable_tcp_keep_alive` | bool | `false` | sail extension | No TCP keepalive at all. |
+| `tcp_keep_alive` | duration | unset | sail extension | How long a TCP connection is idle before keepalive probes it; 5m when unset. |
+| `tcp_keep_alive_interval` | duration | unset | sail extension | Between keepalive probes; 75s when unset. |
+| `udp_fragment` | any JSON | unset | sail extension | Not implemented yet. |
+| `domain_resolver` | object → [object](#outbounds-redirect-domain-resolver) | unset | sail extension | The DNS server that resolves the names dialled. |
+| `skip_default_domain_resolver` | bool | `false` | sail extension | A sail extension: without a `domain_resolver` of its own, the names dialled resolve as the DNS rules say, not as `route.default_domain_resolver` does; as Mihomo's DIRECT resolves apart from the proxies' servers. |
+| `domain_strategy` | string, one of `prefer_ipv4`, `prefer_ipv6`, `ipv4_only`, `ipv6_only` | unset | sail extension | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
+| `network_strategy` | any JSON | unset | sail extension | Not implemented yet. |
+| `network_type` | any JSON | unset | sail extension | Not implemented yet. |
+| `fallback_network_type` | any JSON | unset | sail extension | Not implemented yet. |
+| `fallback_delay` | any JSON | unset | sail extension | Not implemented yet. |
+| `server` | string | required | sail extension | — |
+| `server_port` | number | required | sail extension | — |
+
+<a id="outbounds-redirect-domain-resolver"></a>
+
+### `outbounds[redirect].domain_resolver`
+
+Rust: [`DomainResolver`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs) · **sail extension**
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `server` | string | required | sail extension | — |
+| `strategy` | string, one of `prefer_ipv4`, `prefer_ipv6`, `ipv4_only`, `ipv6_only` | unset | sail extension | — |
+| `timeout` | duration | unset | sail extension | — |
+| `disable_cache` | bool | `false` | sail extension | — |
+| `disable_optimistic_cache` | bool | `false` | sail extension | — |
+| `rewrite_ttl` | number | unset | sail extension | — |
+| `client_subnet` | object → [object](/sail/reference/shared/#client-subnet) | unset | sail extension | — |
+
+<a id="outbounds-selector"></a>
+
+## `outbounds[selector]`
+
+Rust: [`SelectorOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/group/selector/mod.rs) · Build: `feature = "outbound-select"`
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | Supported | Defaults to the type. |
+| `outbounds` | array | `[]` | Supported | Its members; none may be when its providers give others. |
+| `default` | string | unset | Supported | Selected when nothing was selected before, or what was is no longer a member; defaults to the first. It may be a member a provider gives, the first so named. |
+| `interrupt_exist_connections` | bool | `false` | Supported | Ends the connections through the member selected before once another is selected, rather than leaving them on it. |
+
+<a id="outbounds-shadowsocks"></a>
+
+## `outbounds[shadowsocks]`
+
+Rust: [`ShadowsocksOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/shadowsocks/outbound/mod.rs) · Build: `feature = "outbound-shadowsocks"`
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | Supported | Defaults to the type. |
+| `detour` | string | unset | Supported | The outbound to dial through, in place of a socket of its own. |
+| `bind_interface` | string | unset | Supported | The interface to send through, by name. |
+| `inet4_bind_address` | string | unset | Supported | The local address for IPv4 destinations. |
+| `inet6_bind_address` | string | unset | Supported | The local address for IPv6 destinations. |
+| `bind_address_no_port` | bool | — | Warned: Socket tuning: connections go the same way without it | Not implemented yet. |
+| `protect_path` | string | — | Error: Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
+| `routing_mark` | number\|string | unset | Supported | `SO_MARK`, Linux only. |
+| `reuse_addr` | bool | — | Warned: Socket tuning: connections go the same way without it | Not implemented yet. |
+| `netns` | string | — | Error: Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
+| `connect_timeout` | duration | unset | Supported | How long a TCP connect to one address may take; 5s when unset. |
+| `tcp_fast_open` | bool | — | Warned: Socket tuning: connections go the same way without it | Not implemented yet. |
+| `tcp_multi_path` | bool | — | Warned: Socket tuning: connections go the same way without it | Not implemented yet. |
+| `disable_tcp_keep_alive` | bool | `false` | Supported | No TCP keepalive at all. |
+| `tcp_keep_alive` | duration | unset | Supported | How long a TCP connection is idle before keepalive probes it; 5m when unset. |
+| `tcp_keep_alive_interval` | duration | unset | Supported | Between keepalive probes; 75s when unset. |
+| `udp_fragment` | bool | — | Warned: Socket tuning: connections go the same way without it | Not implemented yet. |
+| `domain_resolver` | string\|object → [object](/sail/reference/shared/#domain-resolver-default-domain-resolver) | unset | Supported | The DNS server that resolves the names dialled. |
+| `network_strategy` | string, one of `default`, `fallback`, `hybrid` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `fallback_network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `fallback_delay` | duration | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `server` | string | required | Supported | — |
+| `server_port` | number | required | Supported | — |
+| `method` | string, one of `none`, `aes-128-gcm`, `aes-192-gcm`, `aes-256-gcm`, `chacha20-ietf-poly1305`, `xchacha20-ietf-poly1305`, `2022-blake3-aes-128-gcm`, `2022-blake3-aes-256-gcm`, `2022-blake3-chacha20-poly1305`, `aes-128-ctr`, `aes-192-ctr`, `aes-256-ctr`, `aes-128-cfb`, `aes-192-cfb`, `aes-256-cfb`, `rc4-md5`, `chacha20-ietf`, `xchacha20` | required | Supported | — |
+| `password` | string | required | Supported | With a 2022 method, the base64 PSK, or `iPSK:uPSK` for a server with users. |
+| `plugin` | string | unset | Supported | Only `obfs-local` (simple-obfs) is supported. |
+| `plugin_opts` | string | unset | Supported | `obfs=http\|tls;obfs-host=<host>;obfs-uri=<path>`, as simple-obfs takes them. |
+| `network` | listable-string, one of `tcp`, `udp` | — | Error: Which networks an outbound carries: connections it should refuse would go through it | — |
+| `udp_over_tcp` | bool\|object → [object](/sail/reference/shared/#udp-over-tcp) | unset | Supported | UDP over its TCP, to `sp.v2.udp-over-tcp.arpa`, instead of its own UDP. |
+| `multiplex` | object → [object](/sail/reference/shared/#multiplex-outbounds) | unset | Supported | — |
+| `domain_strategy` | string | unset | Supported (deprecated in sing-box) | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
+
+<a id="outbounds-shadowtls"></a>
+
+## `outbounds[shadowtls]`
+
+Rust: [`ShadowTlsOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/shadowtls/outbound.rs) · Build: `feature = "outbound-shadowtls"`
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | Supported | Defaults to the type. |
+| `detour` | string | unset | Supported | The outbound to dial through, in place of a socket of its own. |
+| `bind_interface` | string | unset | Supported | The interface to send through, by name. |
+| `inet4_bind_address` | string | unset | Supported | The local address for IPv4 destinations. |
+| `inet6_bind_address` | string | unset | Supported | The local address for IPv6 destinations. |
+| `bind_address_no_port` | bool | — | Warned: Socket tuning: connections go the same way without it | Not implemented yet. |
+| `protect_path` | string | — | Error: Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
+| `routing_mark` | number\|string | unset | Supported | `SO_MARK`, Linux only. |
+| `reuse_addr` | bool | — | Warned: Socket tuning: connections go the same way without it | Not implemented yet. |
+| `netns` | string | — | Error: Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
+| `connect_timeout` | duration | unset | Supported | How long a TCP connect to one address may take; 5s when unset. |
+| `tcp_fast_open` | bool | — | Warned: Socket tuning: connections go the same way without it | Not implemented yet. |
+| `tcp_multi_path` | bool | — | Warned: Socket tuning: connections go the same way without it | Not implemented yet. |
+| `disable_tcp_keep_alive` | bool | `false` | Supported | No TCP keepalive at all. |
+| `tcp_keep_alive` | duration | unset | Supported | How long a TCP connection is idle before keepalive probes it; 5m when unset. |
+| `tcp_keep_alive_interval` | duration | unset | Supported | Between keepalive probes; 75s when unset. |
+| `udp_fragment` | bool | — | Warned: Socket tuning: connections go the same way without it | Not implemented yet. |
+| `domain_resolver` | string\|object → [object](/sail/reference/shared/#domain-resolver-default-domain-resolver) | unset | Supported | The DNS server that resolves the names dialled. |
+| `network_strategy` | string, one of `default`, `fallback`, `hybrid` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `fallback_network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `fallback_delay` | duration | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `server` | string | required | Supported | — |
+| `server_port` | number | required | Supported | — |
+| `version` | number, one of `1`, `2`, `3` | `1` | Supported | Must be 3: versions 1 and 2 are not supported. sing-box's default is 1. |
+| `password` | string | `""` | Supported | Cannot be empty. |
+| `tls` | object → [object](/sail/reference/shared/#tls-outbounds) | unset | Supported | Must be enabled: the handshake with the site the server imitates, `server_name` being the site's (the server's address when unset). A browser fingerprint, disable_sni and a client certificate apply as for TLS; REALITY and ECH do not. |
+| `domain_strategy` | string | unset | Supported (deprecated in sing-box) | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
+
+<a id="outbounds-smart"></a>
+
+## `outbounds[smart]`
+
+Rust: [`SmartOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/group/smart/mod.rs) · Build: `feature = "outbound-smart"` · **sail extension**
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | sail extension | Defaults to the type. |
+| `outbounds` | array of string | `[]` | sail extension | Its members; none may be when its providers give others. |
+| `providers` | string or array of string | `[]` | sail extension | The outbound providers, by tag, whose outbounds join the group's own, in this order. |
+| `filter` | string or array of string | `[]` | sail extension | Regular expressions, as Mihomo's `filter`: of the providers' outbounds, only those whose names match one are members, those of the first first. The group's own outbounds are not filtered. |
+| `exclude_filter` | string or array of string | `[]` | sail extension | Regular expressions no member's name may match, the group's own outbounds' too. |
+| `exclude_type` | string or array of string | `[]` | sail extension | The types no member may be of, the group's own outbounds too, in Mihomo's names for them, without case: `Shadowsocks`, `Vmess`, `Socks5`, `Direct`, ... |
+| `empty_fallback` | string | unset | sail extension | An outbound, not a group, that is the member while there is none else. Without it such a group has none, and its connections fail. |
+| `url` | string | `default_url()` | sail extension | What is requested through each member to probe it. |
+| `interval` | duration | unset | sail extension | How often members nothing told of lately are probed; 5 minutes. |
+| `timeout` | duration | unset | sail extension | How long a probe, or a connection attempt that has a member left to try, may take before its member counts as failed; 5 seconds. |
+| `idle_timeout` | duration | unset | sail extension | Probes pause once the group has not been used for this long; 30 minutes. |
+| `tolerance` | number | `30` | sail extension | Milliseconds: a member whose score is within this of the best may be picked. |
+| `tolerance_ratio` | number | `0.2` | sail extension | A member whose score is within this fraction of the best may be picked too, whichever of the two is the wider. |
+| `policy_priority` | array of object → [[]](#outbounds-smart-policy-priority) | `[]` | sail extension | Factors of the scores of the members whose names match a regular expression, the first that matches: below 1 prefers them, above 1 avoids them. 1 for the others. |
+| `site_ttl` | duration | unset | sail extension | How long a site is kept on its member after its last connection; an hour. |
+| `site_capacity` | number | `4096` | sail extension | How many sites are kept at most; the least recently used goes first. |
+| `prefer_asn` | bool | `false` | sail extension | Destinations known by address alone are sites by their autonomous system, but those of CDNs, rather than by their network. Needs an ASN database: `asn.mmdb` in the asset directory, or `asn_file`. |
+| `asn_file` | string | unset | sail extension | The ASN database, for `prefer_asn`; relative to the asset directory. |
+| `evaluate_before_use` | bool | `false` | sail extension | The first connection waits for the first probes, `timeout` at most, rather than going through a member not measured yet. |
+| `interrupt_exist_connections` | bool | `false` | sail extension | Ends the connections through a member once it leaves the group. |
+
+<a id="outbounds-smart-policy-priority"></a>
+
+### `outbounds[smart].policy_priority[]`
+
+Rust: [`PolicyPriority`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/group/smart/mod.rs) · Build: `feature = "outbound-smart"` · **sail extension**
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `regex` | string | required | sail extension | Matched against the member's name, as Mihomo's filters are: lookarounds included, backtracking bounded. |
+| `factor` | number | required | sail extension | Multiplies the member's score: above 0. |
+
+<a id="outbounds-socks"></a>
+
+## `outbounds[socks]`
+
+Rust: [`SocksOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/socks/outbound/mod.rs) · Build: `feature = "outbound-socks"`
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | Supported | Defaults to the type. |
+| `detour` | string | unset | Supported | The outbound to dial through, in place of a socket of its own. |
+| `bind_interface` | string | unset | Supported | The interface to send through, by name. |
+| `inet4_bind_address` | string | unset | Supported | The local address for IPv4 destinations. |
+| `inet6_bind_address` | string | unset | Supported | The local address for IPv6 destinations. |
+| `bind_address_no_port` | bool | — | Warned: Socket tuning: connections go the same way without it | Not implemented yet. |
+| `protect_path` | string | — | Error: Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
+| `routing_mark` | number\|string | unset | Supported | `SO_MARK`, Linux only. |
+| `reuse_addr` | bool | — | Warned: Socket tuning: connections go the same way without it | Not implemented yet. |
+| `netns` | string | — | Error: Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
+| `connect_timeout` | duration | unset | Supported | How long a TCP connect to one address may take; 5s when unset. |
+| `tcp_fast_open` | bool | — | Warned: Socket tuning: connections go the same way without it | Not implemented yet. |
+| `tcp_multi_path` | bool | — | Warned: Socket tuning: connections go the same way without it | Not implemented yet. |
+| `disable_tcp_keep_alive` | bool | `false` | Supported | No TCP keepalive at all. |
+| `tcp_keep_alive` | duration | unset | Supported | How long a TCP connection is idle before keepalive probes it; 5m when unset. |
+| `tcp_keep_alive_interval` | duration | unset | Supported | Between keepalive probes; 75s when unset. |
+| `udp_fragment` | bool | — | Warned: Socket tuning: connections go the same way without it | Not implemented yet. |
+| `domain_resolver` | string\|object → [object](/sail/reference/shared/#domain-resolver-default-domain-resolver) | unset | Supported | The DNS server that resolves the names dialled. |
+| `network_strategy` | string, one of `default`, `fallback`, `hybrid` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `fallback_network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `fallback_delay` | duration | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `server` | string | required | Supported | — |
+| `server_port` | number | required | Supported | — |
+| `version` | string, one of `4`, `4a`, `5` | — | Warned: sail speaks SOCKS 5, the default, and drops the field; 4 and 4a are errors | — |
+| `username` | string | `""` | Supported | — |
+| `password` | string | `""` | Supported | — |
+| `network` | listable-string, one of `tcp`, `udp` | — | Error: Which networks an outbound carries: connections it should refuse would go through it | — |
+| `udp_over_tcp` | bool\|object → [object](/sail/reference/shared/#udp-over-tcp) | unset | Supported | UDP over its TCP, to `sp.v2.udp-over-tcp.arpa`, instead of UDP ASSOCIATE. |
+| `domain_strategy` | string | unset | Supported (deprecated in sing-box) | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
+
+<a id="outbounds-trojan"></a>
+
+## `outbounds[trojan]`
+
+Rust: [`TrojanOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/trojan/outbound/mod.rs) · Build: `feature = "outbound-trojan"`
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | Supported | Defaults to the type. |
+| `detour` | string | unset | Supported | The outbound to dial through, in place of a socket of its own. |
+| `bind_interface` | string | unset | Supported | The interface to send through, by name. |
+| `inet4_bind_address` | string | unset | Supported | The local address for IPv4 destinations. |
+| `inet6_bind_address` | string | unset | Supported | The local address for IPv6 destinations. |
+| `bind_address_no_port` | bool | — | Warned: Socket tuning: connections go the same way without it | Not implemented yet. |
+| `protect_path` | string | — | Error: Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
+| `routing_mark` | number\|string | unset | Supported | `SO_MARK`, Linux only. |
+| `reuse_addr` | bool | — | Warned: Socket tuning: connections go the same way without it | Not implemented yet. |
+| `netns` | string | — | Error: Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
+| `connect_timeout` | duration | unset | Supported | How long a TCP connect to one address may take; 5s when unset. |
+| `tcp_fast_open` | bool | — | Warned: Socket tuning: connections go the same way without it | Not implemented yet. |
+| `tcp_multi_path` | bool | — | Warned: Socket tuning: connections go the same way without it | Not implemented yet. |
+| `disable_tcp_keep_alive` | bool | `false` | Supported | No TCP keepalive at all. |
+| `tcp_keep_alive` | duration | unset | Supported | How long a TCP connection is idle before keepalive probes it; 5m when unset. |
+| `tcp_keep_alive_interval` | duration | unset | Supported | Between keepalive probes; 75s when unset. |
+| `udp_fragment` | bool | — | Warned: Socket tuning: connections go the same way without it | Not implemented yet. |
+| `domain_resolver` | string\|object → [object](/sail/reference/shared/#domain-resolver-default-domain-resolver) | unset | Supported | The DNS server that resolves the names dialled. |
+| `network_strategy` | string, one of `default`, `fallback`, `hybrid` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `fallback_network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `fallback_delay` | duration | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `server` | string | required | Supported | — |
+| `server_port` | number | required | Supported | — |
+| `password` | string | required | Supported | — |
+| `network` | listable-string, one of `tcp`, `udp` | — | Error: Which networks an outbound carries: connections it should refuse would go through it | — |
+| `tls` | object → [object](/sail/reference/shared/#tls-outbounds) | unset | Supported | — |
+| `multiplex` | object → [object](/sail/reference/shared/#multiplex-outbounds) | unset | Supported | — |
+| `transport` | object → [object](/sail/reference/shared/#transport-outbounds), [[grpc]](/sail/reference/shared/#transport-grpc-outbounds), [[http]](/sail/reference/shared/#transport-http-outbounds), [[httpupgrade]](/sail/reference/shared/#transport-httpupgrade-outbounds), [[ws]](/sail/reference/shared/#transport-ws-outbounds) | unset | Supported | — |
+| `domain_strategy` | string | unset | Supported (deprecated in sing-box) | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
+
+<a id="outbounds-tryall"></a>
+
+## `outbounds[tryall]`
+
+Rust: [`TryAllOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/group/tryall/mod.rs) · Build: `feature = "outbound-tryall"` · **sail extension**
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | sail extension | Defaults to the type. |
+| `outbounds` | array of string | required | sail extension | A group trying its members at once |
+| `delay_base` | number | `0` | sail extension | Milliseconds to wait before trying each next outbound. |
+
+<a id="outbounds-tuic"></a>
+
+## `outbounds[tuic]`
+
+Rust: [`TuicOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/tuic/outbound/mod.rs) · Build: `feature = "outbound-tuic"`
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | Supported | Defaults to the type. |
+| `detour` | string | unset | Supported | The outbound to dial through, in place of a socket of its own. |
+| `bind_interface` | string | unset | Supported | The interface to send through, by name. |
+| `inet4_bind_address` | string | unset | Supported | The local address for IPv4 destinations. |
+| `inet6_bind_address` | string | unset | Supported | The local address for IPv6 destinations. |
+| `bind_address_no_port` | bool | — | Warned: Socket tuning: connections go the same way without it | Not implemented yet. |
+| `protect_path` | string | — | Error: Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
+| `routing_mark` | number\|string | unset | Supported | `SO_MARK`, Linux only. |
+| `reuse_addr` | bool | — | Warned: Socket tuning: connections go the same way without it | Not implemented yet. |
+| `netns` | string | — | Error: Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
+| `connect_timeout` | duration | unset | Supported | How long a TCP connect to one address may take; 5s when unset. |
+| `tcp_fast_open` | bool | — | Warned: Socket tuning: connections go the same way without it | Not implemented yet. |
+| `tcp_multi_path` | bool | — | Warned: Socket tuning: connections go the same way without it | Not implemented yet. |
+| `disable_tcp_keep_alive` | bool | `false` | Supported | No TCP keepalive at all. |
+| `tcp_keep_alive` | duration | unset | Supported | How long a TCP connection is idle before keepalive probes it; 5m when unset. |
+| `tcp_keep_alive_interval` | duration | unset | Supported | Between keepalive probes; 75s when unset. |
+| `udp_fragment` | bool | — | Warned: Socket tuning: connections go the same way without it | Not implemented yet. |
+| `domain_resolver` | string\|object → [object](/sail/reference/shared/#domain-resolver-default-domain-resolver) | unset | Supported | The DNS server that resolves the names dialled. |
+| `network_strategy` | string, one of `default`, `fallback`, `hybrid` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `fallback_network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `fallback_delay` | duration | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `server` | string | required | Supported | — |
+| `server_port` | number | required | Supported | — |
+| `uuid` | string | required | Supported | — |
+| `password` | string | `""` | Supported | — |
+| `congestion_control` | string, one of `cubic`, `new_reno`, `bbr` | `cubic` | Supported | — |
+| `udp_relay_mode` | string, one of `native`, `quic` | unset | Supported | — |
+| `udp_over_stream` | bool | `false` | Supported | UDP over TCP (v2), as sing-box has it: each UDP session a `Connect` stream to `sp.v2.udp-over-tcp.arpa`, instead of TUIC's own relay. |
+| `zero_rtt_handshake` | bool | `false` | Supported | — |
+| `heartbeat` | duration | unset | Supported | — |
+| `network` | listable-string, one of `tcp`, `udp` | unset | Supported | `tcp` or `udp`; both when not set. |
+| `tls` | object → [object](#outbounds-tuic-tls) | required | Supported | — |
+| `idle_timeout` | duration | — | Warned: QUIC tuning: the same connection without it | — |
+| `keep_alive_period` | duration | — | Warned: QUIC tuning: the same connection without it | — |
+| `stream_receive_window` | number\|string | — | Warned: QUIC tuning: the same connection without it | — |
+| `connection_receive_window` | number\|string | — | Warned: QUIC tuning: the same connection without it | — |
+| `max_concurrent_streams` | number | — | Warned: QUIC tuning: the same connection without it | — |
+| `initial_packet_size` | number | — | Warned: QUIC tuning: the same connection without it | — |
+| `disable_path_mtu_discovery` | bool | — | Warned: QUIC tuning: the same connection without it | — |
+| `domain_strategy` | string | unset | Supported (deprecated in sing-box) | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
+
+<a id="outbounds-tuic-tls"></a>
+
+### `outbounds[tuic].tls`
+
+Rust: [`OutboundTls`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `enabled` | bool | `false` | Supported | — |
+| `engine` | string, one of `go`, `apple`, `windows` | — | Warned: The TLS stack: sail has one | — |
+| `disable_sni` | bool | `false` | Supported | Sends no SNI. The certificate is still verified against `server_name`, unless `insecure`. |
+| `server_name` | string | unset | Supported | Defaults to the server's address. |
+| `insecure` | bool | `false` | Supported | — |
+| `alpn` | listable-string | unset | Supported | — |
+| `min_version` | string, one of `1.0`, `1.1`, `1.2`, `1.3` | unset | Supported | The lowest TLS version to negotiate, `1.0` to `1.3`; unset, 1.2. |
+| `max_version` | string, one of `1.0`, `1.1`, `1.2`, `1.3` | unset | Supported | The highest; unset, 1.3. |
+| `cipher_suites` | listable-string | — | Error: TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked | — |
+| `curve_preferences` | listable-string, one of `P256`, `P384`, `P521`, `X25519`, `X25519MLKEM768` | — | Error: TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked | — |
+| `certificate` | listable-string | unset | Supported | An inline PEM certificate to trust. |
+| `certificate_path` | string | unset | Supported | A PEM certificate to trust, by path. |
+| `certificate_public_key_sha256` | listable-string\|array | unset | Supported | The SHA-256 hashes, base64, of the public keys to take a server's certificate by, in place of the certificates trusted, the name and `insecure`. |
+| `client_certificate` | listable-string | unset | Supported | An inline PEM certificate, its chain after it, presented when the server asks for one; with `client_key`. |
+| `client_certificate_path` | string | unset | Supported | `client_certificate`, by path. |
+| `client_key` | listable-string | unset | Supported | The inline PEM key of the client certificate. |
+| `client_key_path` | string | unset | Supported | `client_key`, by path. |
+| `fragment` | bool | — | Error: Fragmenting or spoofing the TLS handshake against censorship | — |
+| `fragment_fallback_delay` | duration | — | Error: Fragmenting or spoofing the TLS handshake against censorship | — |
+| `record_fragment` | bool | — | Error: Fragmenting or spoofing the TLS handshake against censorship | — |
+| `spoof` | string | — | Error: Fragmenting or spoofing the TLS handshake against censorship | — |
+| `spoof_method` | string, one of `wrong-sequence`, `wrong-checksum`, `wrong-ack`, `wrong-md5`, `wrong-timestamp` | — | Error: Fragmenting or spoofing the TLS handshake against censorship | — |
+| `kernel_tx` | bool | — | Warned: The TLS stack, kernel TLS and the handshake's timeout: the same TLS without them | — |
+| `kernel_rx` | bool | — | Warned: The TLS stack, kernel TLS and the handshake's timeout: the same TLS without them | — |
+| `handshake_timeout` | duration | — | Warned: The TLS stack, kernel TLS and the handshake's timeout: the same TLS without them | — |
+| `ech` | object → [object](/sail/reference/shared/#ech-outbounds) | unset | Supported | — |
+| `utls` | object → [object](#outbounds-tuic-tls-utls) | — | Error: Not supported with TUIC | The browser the ClientHello imitates. Unset, it is Chrome's. |
+| `reality` | object → [object](/sail/reference/shared/#reality-outbounds) | unset | Supported | — |
+
+<a id="outbounds-tuic-tls-utls"></a>
+
+### `outbounds[tuic].tls.utls`
+
+Rust: [`OutboundUtls`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `enabled` | bool | `true` | Supported | — |
+| `fingerprint` | string, one of `chrome_psk`, `chrome_psk_shuffle`, `chrome_padding_psk_shuffle`, `chrome_pq`, `chrome_pq_psk`, `chrome`, `firefox`, `edge`, `safari`, `360`, `qq`, `ios`, `android`, `random`, `randomized` | — | Error: Not supported with TUIC | — |
+
+<a id="outbounds-urltest"></a>
+
+## `outbounds[urltest]`
+
+Rust: [`UrlTestOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/group/urltest/mod.rs) · Build: `feature = "outbound-urltest"`
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | Supported | Defaults to the type. |
+| `outbounds` | array | `[]` | Supported | Its members; none may be when its providers give others. |
+| `url` | string | `default_url()` | Supported | What is requested through each member; sing-box's default. |
+| `interval` | duration | unset | Supported | — |
+| `tolerance` | number | `50` | Supported | Milliseconds. |
+| `idle_timeout` | duration | unset | Supported | Tests pause once the group has not been used for this long. |
+| `interrupt_exist_connections` | bool | `false` | Supported | Ends the connections through the member left once the group switches. |
+
+<a id="outbounds-vless"></a>
+
+## `outbounds[vless]`
+
+Rust: [`VlessOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/vless/outbound/mod.rs) · Build: `feature = "outbound-vless"`
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | Supported | Defaults to the type. |
+| `detour` | string | unset | Supported | The outbound to dial through, in place of a socket of its own. |
+| `bind_interface` | string | unset | Supported | The interface to send through, by name. |
+| `inet4_bind_address` | string | unset | Supported | The local address for IPv4 destinations. |
+| `inet6_bind_address` | string | unset | Supported | The local address for IPv6 destinations. |
+| `bind_address_no_port` | bool | — | Warned: Socket tuning: connections go the same way without it | Not implemented yet. |
+| `protect_path` | string | — | Error: Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
+| `routing_mark` | number\|string | unset | Supported | `SO_MARK`, Linux only. |
+| `reuse_addr` | bool | — | Warned: Socket tuning: connections go the same way without it | Not implemented yet. |
+| `netns` | string | — | Error: Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
+| `connect_timeout` | duration | unset | Supported | How long a TCP connect to one address may take; 5s when unset. |
+| `tcp_fast_open` | bool | — | Warned: Socket tuning: connections go the same way without it | Not implemented yet. |
+| `tcp_multi_path` | bool | — | Warned: Socket tuning: connections go the same way without it | Not implemented yet. |
+| `disable_tcp_keep_alive` | bool | `false` | Supported | No TCP keepalive at all. |
+| `tcp_keep_alive` | duration | unset | Supported | How long a TCP connection is idle before keepalive probes it; 5m when unset. |
+| `tcp_keep_alive_interval` | duration | unset | Supported | Between keepalive probes; 75s when unset. |
+| `udp_fragment` | bool | — | Warned: Socket tuning: connections go the same way without it | Not implemented yet. |
+| `domain_resolver` | string\|object → [object](/sail/reference/shared/#domain-resolver-default-domain-resolver) | unset | Supported | The DNS server that resolves the names dialled. |
+| `network_strategy` | string, one of `default`, `fallback`, `hybrid` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `fallback_network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `fallback_delay` | duration | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `server` | string | required | Supported | — |
+| `server_port` | number | required | Supported | — |
+| `uuid` | string | required | Supported | — |
+| `flow` | string | `""` | Supported | `""` or `xtls-rprx-vision`. |
+| `network` | listable-string, one of `tcp`, `udp` | — | Error: Which networks an outbound carries: connections it should refuse would go through it | — |
+| `tls` | object → [object](/sail/reference/shared/#tls-outbounds) | unset | Supported | — |
+| `multiplex` | object → [object](/sail/reference/shared/#multiplex-outbounds) | unset | Supported | — |
+| `transport` | object → [object](/sail/reference/shared/#transport-outbounds), [[grpc]](/sail/reference/shared/#transport-grpc-outbounds), [[http]](/sail/reference/shared/#transport-http-outbounds), [[httpupgrade]](/sail/reference/shared/#transport-httpupgrade-outbounds), [[ws]](/sail/reference/shared/#transport-ws-outbounds) | unset | Supported | — |
+| `packet_encoding` | string | unset | Supported | How UDP travels: unset means `xudp`, as in sing-box; `""` is VLESS's own UDP, one destination per connection. |
+| `domain_strategy` | string | unset | Supported (deprecated in sing-box) | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
+
+<a id="outbounds-vmess"></a>
+
+## `outbounds[vmess]`
+
+Rust: [`VMessOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/vmess/outbound/mod.rs) · Build: `feature = "outbound-vmess"`
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | Supported | Defaults to the type. |
+| `detour` | string | unset | Supported | The outbound to dial through, in place of a socket of its own. |
+| `bind_interface` | string | unset | Supported | The interface to send through, by name. |
+| `inet4_bind_address` | string | unset | Supported | The local address for IPv4 destinations. |
+| `inet6_bind_address` | string | unset | Supported | The local address for IPv6 destinations. |
+| `bind_address_no_port` | bool | — | Warned: Socket tuning: connections go the same way without it | Not implemented yet. |
+| `protect_path` | string | — | Error: Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
+| `routing_mark` | number\|string | unset | Supported | `SO_MARK`, Linux only. |
+| `reuse_addr` | bool | — | Warned: Socket tuning: connections go the same way without it | Not implemented yet. |
+| `netns` | string | — | Error: Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
+| `connect_timeout` | duration | unset | Supported | How long a TCP connect to one address may take; 5s when unset. |
+| `tcp_fast_open` | bool | — | Warned: Socket tuning: connections go the same way without it | Not implemented yet. |
+| `tcp_multi_path` | bool | — | Warned: Socket tuning: connections go the same way without it | Not implemented yet. |
+| `disable_tcp_keep_alive` | bool | `false` | Supported | No TCP keepalive at all. |
+| `tcp_keep_alive` | duration | unset | Supported | How long a TCP connection is idle before keepalive probes it; 5m when unset. |
+| `tcp_keep_alive_interval` | duration | unset | Supported | Between keepalive probes; 75s when unset. |
+| `udp_fragment` | bool | — | Warned: Socket tuning: connections go the same way without it | Not implemented yet. |
+| `domain_resolver` | string\|object → [object](/sail/reference/shared/#domain-resolver-default-domain-resolver) | unset | Supported | The DNS server that resolves the names dialled. |
+| `network_strategy` | string, one of `default`, `fallback`, `hybrid` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `fallback_network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `fallback_delay` | duration | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `server` | string | required | Supported | — |
+| `server_port` | number | required | Supported | — |
+| `uuid` | string | required | Supported | — |
+| `security` | string, one of `auto`, `none`, `zero`, `aes-128-cfb`, `aes-128-gcm`, `chacha20-poly1305` | `"auto"` | Supported | `auto`, `aes-128-gcm`, `chacha20-poly1305`, `none` or `zero`. |
+| `alter_id` | number | `0` | Supported | Only 0: legacy VMess is not spoken. |
+| `global_padding` | bool | `false` | Supported | Random padding after each chunk, as v2ray pads. |
+| `authenticated_length` | bool | — | Error: VMess's authenticated length: sail would speak VMess otherwise | — |
+| `network` | listable-string, one of `tcp`, `udp` | — | Error: Which networks an outbound carries: connections it should refuse would go through it | — |
+| `tls` | object → [object](/sail/reference/shared/#tls-outbounds) | unset | Supported | — |
+| `packet_encoding` | string, one of `packetaddr`, `xudp` | `""` | Supported | `""` (VMess's own UDP) or `xudp`. |
+| `multiplex` | object → [object](/sail/reference/shared/#multiplex-outbounds) | unset | Supported | — |
+| `transport` | object → [object](/sail/reference/shared/#transport-outbounds), [[grpc]](/sail/reference/shared/#transport-grpc-outbounds), [[http]](/sail/reference/shared/#transport-http-outbounds), [[httpupgrade]](/sail/reference/shared/#transport-httpupgrade-outbounds), [[ws]](/sail/reference/shared/#transport-ws-outbounds) | unset | Supported | — |
+| `domain_strategy` | string | unset | Supported (deprecated in sing-box) | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
+
+<a id="outbounds-missing"></a>
+
+## Types sail does not implement: `outbounds`
+
+| Type | Status | Fields |
+| --- | --- | --: |
+| `outbounds[bridge]` | Error: A protocol sail does not implement | 5 |
+| `outbounds[hysteria]` | Error: A protocol sail does not implement | 90 |
+| `outbounds[naive]` | Error: A protocol sail does not implement | 81 |
+| `outbounds[snell]` | Error: A protocol sail does not implement | 40 |
+| `outbounds[ssh]` | Error: A protocol sail does not implement | 43 |
+| `outbounds[tor]` | Error: A protocol sail does not implement | 34 |
 

@@ -9,7 +9,7 @@ Sail's format has diverged from leaf. Treat leaf and Surge-style examples as mig
 
 ## Top-level model
 
-For individual fields, see the generated [common configuration](/sail/reference/common/), [inbounds](/sail/reference/inbounds/), [outbounds and groups](/sail/reference/outbounds/), and [transport](/sail/reference/transport/) references. These pages follow configuration source definitions, not internal Rust APIs.
+For individual fields, see the generated reference: [top level and common](/sail/reference/common/), [DNS](/sail/reference/dns/), [inbounds](/sail/reference/inbounds/), [outbounds and groups](/sail/reference/outbounds/), [endpoints](/sail/reference/endpoints/), [route](/sail/reference/route/) and [shared objects](/sail/reference/shared/), with each field's status against sing-box; the Clash and Surge support tables are under [compatibility](/sail/reference/compatibility/).
 
 | Field | Purpose | Default |
 | --- | --- | --- |

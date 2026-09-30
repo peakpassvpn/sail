@@ -1,654 +1,361 @@
 ---
-title: 通用配置
-description: 从 Sail 配置源码自动提取的字段、类型与序列化规则。
+title: "顶层与通用"
+description: "sail 原生配置格式（sing-box v1.14.2 JSON 与 sail 扩展）的逐字段参考。"
 ---
 
-本页由 Rust 语法树自动生成，请修改源码注释后重新构建。类型使用源码记法；`Option<T>` 表示可省略，`Vec<T>` 表示数组。源码注释保留原文。
+本页由 `website/scripts/build-config.mjs` 生成，请勿手改：它读取 sail 的配置类型（Rust 源码）、sing-box 字段注册表（`sail/src/config/singbox/fields.json`，sing-box v1.14.2）及注册表测试实测的分级（`fields.tiers.json`）。修改源码注释或上述文件后在 `website/` 下执行 `npm run docs:config`。
+
+- **状态**：sing-box 的字段按注册表测试逐一实测：**支持**（读取并生效，不接受的取值仍报错）、**警告**（忽略并警告）、**报错**（拒绝该配置），并附理由；**sail 扩展** 为 sing-box 没有的字段与类型。
+- **类型**：sing-box 字段取 sing-box 的 JSON 类型；扩展字段取自 sail 的 Rust 定义。
+- **默认**：取自 sail 的 serde 声明；“未设置”表示可省略，省略时的行为见说明。只有 sail 读取的字段才列默认值。
+- **说明**：sail 源码注释，保留原文；没有注释的扩展字段取注册表测试的说明。
+- **构建条件**：Rust 源码中的 `cfg` 条件（Cargo feature 与平台）。
+
+用 `sail -c config.json -T` 校验配置。Clash 与 Surge 的支持表见[兼容性](/sail/zh/reference/compatibility/)。
+
+<a id="top"></a>
+
+## 顶层
+
+Rust 定义：[`Config`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `log` | object → [对象](#log) | 各字段取默认值 | 支持 | — |
+| `dns` | object → [对象](/sail/zh/reference/dns/#dns) | 各字段取默认值 | 支持 | — |
+| `ntp` | object → [对象](#ntp) | — | 警告：sail keeps the system's clock | — |
+| `certificate` | object → [对象](#certificate) | 未设置 | 支持 | The root certificates servers are checked against; the system's when unset. |
+| `certificate_providers` | array → [[]](#certificate-providers), [[acme]](#certificate-providers-missing), [[cloudflare-origin-ca]](#certificate-providers-missing), [[tailscale]](#certificate-providers-missing) | — | 报错：Certificates from ACME and other providers: the inbounds would serve none | — |
+| `http_clients` | array → [[]](#http-clients) | `[]` | 支持 | How sail fetches over HTTP, rule-sets for one, by tag. |
+| `network_namespaces` | array → [[]](#network-namespaces), [[unshare]](#network-namespaces-missing) | — | 报错：Linux network namespaces to listen and dial in | — |
+| `endpoints` | array → [[]](/sail/zh/reference/endpoints/#endpoints), [[openconnect]](/sail/zh/reference/endpoints/#endpoints-missing), [[openvpn-client]](/sail/zh/reference/endpoints/#endpoints-missing), [[openvpn-server]](/sail/zh/reference/endpoints/#endpoints-missing), [[tailscale]](/sail/zh/reference/endpoints/#endpoints-missing), [[wireguard]](/sail/zh/reference/endpoints/#endpoints-wireguard) | `[]` | 支持 | Both an inbound and an outbound under one tag, as sing-box's endpoints: connections routed to the tag go out through it, and what comes in through it is routed with the tag as its inbound. |
+| `inbounds` | array → [[]](/sail/zh/reference/inbounds/#inbounds), [[anytls]](/sail/zh/reference/inbounds/#inbounds-anytls), [[cloudflared]](/sail/zh/reference/inbounds/#inbounds-missing), [[direct]](/sail/zh/reference/inbounds/#inbounds-direct), [[hc]](/sail/zh/reference/inbounds/#inbounds-hc), [[http]](/sail/zh/reference/inbounds/#inbounds-http), [[hysteria]](/sail/zh/reference/inbounds/#inbounds-missing), [[hysteria2]](/sail/zh/reference/inbounds/#inbounds-hysteria2), [[mixed]](/sail/zh/reference/inbounds/#inbounds-mixed), [[mptp]](/sail/zh/reference/inbounds/#inbounds-mptp), [[naive]](/sail/zh/reference/inbounds/#inbounds-missing), [[nf]](/sail/zh/reference/inbounds/#inbounds-nf), [[redirect]](/sail/zh/reference/inbounds/#inbounds-redirect), [[shadowsocks]](/sail/zh/reference/inbounds/#inbounds-shadowsocks), [[shadowtls]](/sail/zh/reference/inbounds/#inbounds-shadowtls), [[snell]](/sail/zh/reference/inbounds/#inbounds-missing), [[socks]](/sail/zh/reference/inbounds/#inbounds-socks), [[tproxy]](/sail/zh/reference/inbounds/#inbounds-tproxy), [[trojan]](/sail/zh/reference/inbounds/#inbounds-trojan), [[tuic]](/sail/zh/reference/inbounds/#inbounds-tuic), [[tun]](/sail/zh/reference/inbounds/#inbounds-tun), [[vless]](/sail/zh/reference/inbounds/#inbounds-vless), [[vmess]](/sail/zh/reference/inbounds/#inbounds-vmess) | `[]` | 支持 | — |
+| `outbounds` | array → [[]](/sail/zh/reference/outbounds/#outbounds), [[anytls]](/sail/zh/reference/outbounds/#outbounds-anytls), [[block]](/sail/zh/reference/outbounds/#outbounds-block), [[bridge]](/sail/zh/reference/outbounds/#outbounds-missing), [[direct]](/sail/zh/reference/outbounds/#outbounds-direct), [[fallback]](/sail/zh/reference/outbounds/#outbounds-fallback), [[http]](/sail/zh/reference/outbounds/#outbounds-http), [[hysteria]](/sail/zh/reference/outbounds/#outbounds-missing), [[hysteria2]](/sail/zh/reference/outbounds/#outbounds-hysteria2), [[load-balance]](/sail/zh/reference/outbounds/#outbounds-load-balance), [[mptp]](/sail/zh/reference/outbounds/#outbounds-mptp), [[naive]](/sail/zh/reference/outbounds/#outbounds-missing), [[network]](/sail/zh/reference/outbounds/#outbounds-network), [[pass]](/sail/zh/reference/outbounds/#outbounds-pass), [[plugin]](/sail/zh/reference/outbounds/#outbounds-plugin), [[redirect]](/sail/zh/reference/outbounds/#outbounds-redirect), [[selector]](/sail/zh/reference/outbounds/#outbounds-selector), [[shadowsocks]](/sail/zh/reference/outbounds/#outbounds-shadowsocks), [[shadowtls]](/sail/zh/reference/outbounds/#outbounds-shadowtls), [[smart]](/sail/zh/reference/outbounds/#outbounds-smart), [[snell]](/sail/zh/reference/outbounds/#outbounds-missing), [[socks]](/sail/zh/reference/outbounds/#outbounds-socks), [[ssh]](/sail/zh/reference/outbounds/#outbounds-missing), [[tor]](/sail/zh/reference/outbounds/#outbounds-missing), [[trojan]](/sail/zh/reference/outbounds/#outbounds-trojan), [[tryall]](/sail/zh/reference/outbounds/#outbounds-tryall), [[tuic]](/sail/zh/reference/outbounds/#outbounds-tuic), [[urltest]](/sail/zh/reference/outbounds/#outbounds-urltest), [[vless]](/sail/zh/reference/outbounds/#outbounds-vless), [[vmess]](/sail/zh/reference/outbounds/#outbounds-vmess) | `[]` | 支持 | — |
+| `route` | object → [对象](/sail/zh/reference/route/#route) | 各字段取默认值 | 支持 | — |
+| `services` | array → [[]](#services), [[api]](#services-missing), [[ccm]](#services-missing), [[derp]](#services-missing), [[hysteria-realm]](#services-missing), [[ocm]](#services-missing), [[oom-killer]](#services-missing), [[resolved]](#services-missing), [[ssm-api]](#services-missing), [[usbip-client]](#services-missing), [[usbip-server]](#services-missing) | — | 支持 | — |
+| `experimental` | object → [对象](#experimental) | 各字段取默认值 | 支持 | — |
+| `api` | 对象 → [对象](#api) | 各字段取默认值 | sail 扩展 | The control API |
+| `clash_api` | 对象 → [对象](#clash-api) | 未设置 | sail 扩展 | The Clash API, which dashboards (yacd, metacubexd) and clients control the instance through. sing-box has it under `experimental`, which is read too, as the same. |
+| `outbound_providers` | 数组，元素为 对象 → [[]](#outbound-providers) | `[]` | sail 扩展 | A sail extension: outbounds given together, downloaded, read from a file or written in place, that groups take as members, as Mihomo's proxy groups take a proxy-provider's proxies. |
+
+<a id="log"></a>
+
+## `log`
+
+Rust 定义：[`Log`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `disabled` | bool | `false` | 支持 | Logs nothing. |
+| `level` | string, 取值 `trace`, `debug`, `info`, `warn`, `warning`, `error`, `fatal`, `panic` | `info` | 支持 | — |
+| `output` | string | 未设置 | 支持 | A file to append to. Logs go to the console when it is not set. |
+| `timestamp` | bool | `false` | 支持 | Starts each line with the time. |
+| `format` | string, 取值 `full`, `compact` | `full` | sail 扩展 | A sail extension: `compact` writes the message alone. |
+
+<a id="certificate"></a>
+
+## `certificate`
+
+Rust 定义：[`CertificateOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `store` | string, 取值 `system`, `mozilla`, `chrome`, `none` | `system` | 支持 | — |
+| `certificate` | listable-string | `[]` | 支持 | Inline PEM, its lines one to an entry or all in one. |
+| `certificate_path` | listable-string | `[]` | 支持 | — |
+| `certificate_directory_path` | listable-string | `[]` | 支持 | Directories, every file of which holds certificates. |
+
+<a id="http-clients"></a>
+
+## `http_clients[]`
+
+Rust 定义：[`HttpClient`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | 支持 | Of one in `http_clients`; none inline. |
+| `engine` | string, 取值 `go`, `apple` | — | 警告：HTTP/2 and HTTP/3 tuning: a download over HTTP/1.1 is the same download | — |
+| `version` | number, 取值 `0`, `1`, `2`, `3` | — | 警告：HTTP/2 and HTTP/3 tuning: a download over HTTP/1.1 is the same download | — |
+| `disable_version_fallback` | bool | — | 警告：HTTP/2 and HTTP/3 tuning: a download over HTTP/1.1 is the same download | — |
+| `headers` | map | `{}` | 支持 | Sent with each request, over sail's own of the same name. |
+| `tls` | object → [对象](/sail/zh/reference/shared/#tls-http-clients-route-rule-set) | — | 报错：TLS options of an HTTP client's own: its downloads would be checked otherwise | — |
+| `detour` | string | 未设置 | 支持 | The outbound to dial through, in place of a socket of its own. |
+| `bind_interface` | string | 未设置 | 支持 | The interface to send through, by name. |
+| `inet4_bind_address` | string | 未设置 | 支持 | The local address for IPv4 destinations. |
+| `inet6_bind_address` | string | 未设置 | 支持 | The local address for IPv6 destinations. |
+| `bind_address_no_port` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `protect_path` | string | — | 报错：Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
+| `routing_mark` | number\|string | 未设置 | 支持 | `SO_MARK`, Linux only. |
+| `reuse_addr` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `netns` | string | — | 报错：Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
+| `connect_timeout` | duration | 未设置 | 支持 | How long a TCP connect to one address may take; 5s when unset. |
+| `tcp_fast_open` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `tcp_multi_path` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `disable_tcp_keep_alive` | bool | `false` | 支持 | No TCP keepalive at all. |
+| `tcp_keep_alive` | duration | 未设置 | 支持 | How long a TCP connection is idle before keepalive probes it; 5m when unset. |
+| `tcp_keep_alive_interval` | duration | 未设置 | 支持 | Between keepalive probes; 75s when unset. |
+| `udp_fragment` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `domain_resolver` | string\|object → [对象](/sail/zh/reference/shared/#domain-resolver-default-domain-resolver) | 未设置 | 支持 | The DNS server that resolves the names dialled. |
+| `network_strategy` | string, 取值 `default`, `fallback`, `hybrid` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `fallback_network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `fallback_delay` | duration | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `idle_timeout` | duration | — | 警告：HTTP/2 and HTTP/3 tuning: a download over HTTP/1.1 is the same download | — |
+| `keep_alive_period` | duration | — | 警告：HTTP/2 and HTTP/3 tuning: a download over HTTP/1.1 is the same download | — |
+| `stream_receive_window` | number\|string | — | 警告：HTTP/2 and HTTP/3 tuning: a download over HTTP/1.1 is the same download | — |
+| `connection_receive_window` | number\|string | — | 警告：HTTP/2 and HTTP/3 tuning: a download over HTTP/1.1 is the same download | — |
+| `max_concurrent_streams` | number | — | 警告：HTTP/2 and HTTP/3 tuning: a download over HTTP/1.1 is the same download | — |
+| `initial_packet_size` | number | — | 警告：HTTP/2 and HTTP/3 tuning: a download over HTTP/1.1 is the same download | — |
+| `disable_path_mtu_discovery` | bool | — | 警告：HTTP/2 and HTTP/3 tuning: a download over HTTP/1.1 is the same download | — |
+| `domain_strategy` | string | 未设置 | 支持 (sing-box 已弃用) | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
+
+<a id="ntp"></a>
+
+## `ntp`
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `enabled` | bool | — | 警告：sail keeps the system's clock | — |
+| `interval` | duration | — | 警告：sail keeps the system's clock | — |
+| `write_to_system` | bool | — | 警告：sail keeps the system's clock | — |
+| `server` | string | — | 警告：sail keeps the system's clock | — |
+| `server_port` | number | — | 警告：sail keeps the system's clock | — |
+| `detour` | string | — | 警告：sail keeps the system's clock | — |
+| `bind_interface` | string | — | 警告：sail keeps the system's clock | — |
+| `inet4_bind_address` | string | — | 警告：sail keeps the system's clock | — |
+| `inet6_bind_address` | string | — | 警告：sail keeps the system's clock | — |
+| `bind_address_no_port` | bool | — | 警告：sail keeps the system's clock | — |
+| `protect_path` | string | — | 警告：sail keeps the system's clock | — |
+| `routing_mark` | number\|string | — | 警告：sail keeps the system's clock | — |
+| `reuse_addr` | bool | — | 警告：sail keeps the system's clock | — |
+| `netns` | string | — | 警告：sail keeps the system's clock | — |
+| `connect_timeout` | duration | — | 警告：sail keeps the system's clock | — |
+| `tcp_fast_open` | bool | — | 警告：sail keeps the system's clock | — |
+| `tcp_multi_path` | bool | — | 警告：sail keeps the system's clock | — |
+| `disable_tcp_keep_alive` | bool | — | 警告：sail keeps the system's clock | — |
+| `tcp_keep_alive` | duration | — | 警告：sail keeps the system's clock | — |
+| `tcp_keep_alive_interval` | duration | — | 警告：sail keeps the system's clock | — |
+| `udp_fragment` | bool | — | 警告：sail keeps the system's clock | — |
+| `domain_resolver` | string\|object → [对象](#ntp-domain-resolver) | — | 警告：sail keeps the system's clock | — |
+| `network_strategy` | string, 取值 `default`, `fallback`, `hybrid` | — | 警告：sail keeps the system's clock | — |
+| `network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 警告：sail keeps the system's clock | — |
+| `fallback_network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 警告：sail keeps the system's clock | — |
+| `fallback_delay` | duration | — | 警告：sail keeps the system's clock | — |
+| `domain_strategy` | string | — | 警告：sail keeps the system's clock (sing-box 已弃用) | — |
+
+<a id="ntp-domain-resolver"></a>
+
+### `ntp.domain_resolver`
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `server` | string | 必填 | 警告：sail keeps the system's clock | — |
+| `timeout` | duration | — | 警告：sail keeps the system's clock | — |
+| `strategy` | string, 取值 `as_is`, `prefer_ipv4`, `prefer_ipv6`, `ipv4_only`, `ipv6_only` | — | 警告：sail keeps the system's clock | — |
+| `disable_cache` | bool | — | 警告：sail keeps the system's clock | — |
+| `disable_optimistic_cache` | bool | — | 警告：sail keeps the system's clock | — |
+| `rewrite_ttl` | number | — | 警告：sail keeps the system's clock | — |
+| `client_subnet` | string | — | 警告：sail keeps the system's clock | — |
+
+<a id="experimental"></a>
+
+## `experimental`
+
+Rust 定义：[`Experimental`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `cache_file` | object → [对象](#experimental-cache-file) | 未设置 | 支持 | — |
+| `clash_api` | object → [对象](#experimental-clash-api) | 未设置 | 支持 | sing-box's place for the Clash API: taken to `clash_api` when the configuration is validated. |
+| `v2ray_api` | object → [对象](#experimental-v2ray-api) | — | 警告：V2Ray's statistics API, for watching the instance | — |
+| `debug` | object → [对象](#experimental-debug) | — | 警告：Go runtime tuning and debugging: sail is not Go | — |
+
+<a id="experimental-cache-file"></a>
+
+### `experimental.cache_file`
+
+Rust 定义：[`CacheFileOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `enabled` | bool | `false` | 支持 | — |
+| `path` | string | 未设置 | 支持 | `cache.db` when unset. A relative path is in the host's cache directory, or the data directory. |
+| `cache_id` | string | 未设置 | 支持 | What this configuration keeps is kept apart, under this name, from what others sharing the file keep. |
+| `store_fakeip` | bool | `false` | 支持 | — |
+| `rdrc_timeout` | duration | — | 警告：The cache of the legacy address filter's rejected responses, which sail does not have; deprecated in sing-box 1.14 | — |
+| `store_dns` | bool | `false` | 支持 | The DNS answers kept are kept in the file too, and outlive a restart. |
+| `store_rdrc` | bool | — | 警告：The cache of the legacy address filter's rejected responses, which sail does not have; deprecated in sing-box 1.14 (sing-box 已弃用) | — |
+
+<a id="experimental-clash-api"></a>
+
+### `experimental.clash_api`
+
+Rust 定义：[`ClashApi`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `external_controller` | string | 未设置 | 支持 | Where it listens, `host:port`; an empty host is every address, as in Mihomo. Unset, it is not served, though `default_mode` still sets the mode rules match. |
+| `external_ui` | string | 未设置 | 支持 | A directory of a dashboard's files, served at `/ui/`; relative to the data directory. |
+| `external_ui_download_url` | string | 未设置 | 支持 | Where the dashboard is downloaded from, a ZIP, when `external_ui` is empty. The core has none of its own: unset, nothing is downloaded, and a warning says so; a host, such as sail-cli, may give one. |
+| `external_ui_download_detour` | string | 未设置 | 支持 | The outbound the download goes through; the default one when unset. |
+| `secret` | string | 未设置 | 支持 | What callers authenticate with, `Authorization: Bearer`, or a WebSocket's `?token=`. The API is served only with a strong one (at least 32 characters, 10 distinct): `sail generate secret` makes one. |
+| `default_mode` | string | 未设置 | 支持 | The mode rules match at the start, `Rule` when unset. |
+| `access_control_allow_origin` | listable-string | `[]` | 支持 | The origins browsers may call it from (CORS); any when empty. |
+| `access_control_allow_private_network` | bool | `false` | 支持 | Pages on public addresses may call it on a private one (Private Network Access). |
+
+<a id="experimental-v2ray-api"></a>
+
+### `experimental.v2ray_api`
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `listen` | string | — | 警告：V2Ray's statistics API, for watching the instance | — |
+| `stats` | object → [对象](#experimental-v2ray-api-stats) | — | 警告：V2Ray's statistics API, for watching the instance | — |
+
+<a id="experimental-v2ray-api-stats"></a>
+
+### `experimental.v2ray_api.stats`
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `enabled` | bool | — | 警告：V2Ray's statistics API, for watching the instance | — |
+| `inbounds` | array | — | 警告：V2Ray's statistics API, for watching the instance | — |
+| `outbounds` | array | — | 警告：V2Ray's statistics API, for watching the instance | — |
+| `users` | array | — | 警告：V2Ray's statistics API, for watching the instance | — |
+
+<a id="experimental-debug"></a>
+
+### `experimental.debug`
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `listen` | string | — | 警告：Go runtime tuning and debugging: sail is not Go | — |
+| `gc_percent` | number | — | 警告：Go runtime tuning and debugging: sail is not Go | — |
+| `max_stack` | number | — | 警告：Go runtime tuning and debugging: sail is not Go | — |
+| `max_threads` | number | — | 警告：Go runtime tuning and debugging: sail is not Go | — |
+| `panic_on_fault` | bool | — | 警告：Go runtime tuning and debugging: sail is not Go | — |
+| `trace_back` | string | — | 警告：Go runtime tuning and debugging: sail is not Go | — |
+| `memory_limit` | number\|string | — | 警告：Go runtime tuning and debugging: sail is not Go | — |
+| `oom_killer` | bool | — | 报错：Removed in sing-box 1.13, which refuses it: the oom-killer service took its place | — |
+
+<a id="api"></a>
+
+## `api`
+
+Rust 定义：[`Api`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs) · **sail 扩展**
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `listen` | string | 未设置 | sail 扩展 | Where the API listens; it is not served when unset. |
 
-本表反映反序列化声明，不是完整的运行时校验 schema。条件编译可能限制当前平台或构建可用的协议；复杂默认值、组合支持及跨字段约束请结合[配置指南](/sail/zh/configuration/)与所链接源码，并执行 `sail -c config.json -T` 验证。
-
-## Config
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `log` | `Log` | Default::default() | —<br/>`serde (default)` |
-| `dns` | `Dns` | Default::default() | —<br/>`serde (default)` |
-| `inbounds` | `Vec < Inbound >` | Default::default() | —<br/>`serde (default , skip_serializing_if = "Vec::is_empty")` |
-| `outbounds` | `Vec < Outbound >` | Default::default() | —<br/>`serde (default , skip_serializing_if = "Vec::is_empty")` |
-| `endpoints` | `Vec < Endpoint >` | Default::default() | Both an inbound and an outbound under one tag, as sing-box's endpoints: connections routed to the tag go out through it, and what comes in through it is routed with the tag as its inbound.<br/>`serde (default , skip_serializing_if = "Vec::is_empty")` |
-| `route` | `Route` | Default::default() | —<br/>`serde (default)` |
-| `api` | `Api` | Default::default() | —<br/>`serde (default , skip_serializing_if = "Api::is_default")` |
-| `clash_api` | `Option < ClashApi >` | Default::default() | The Clash API, which dashboards (yacd, metacubexd) and clients control the instance through. sing-box has it under `experimental`, which is read too, as the same.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `experimental` | `Experimental` | Default::default() | —<br/>`serde (default , skip_serializing_if = "Experimental::is_default")` |
-| `certificate` | `Option < CertificateOptions >` | Default::default() | The root certificates servers are checked against; the system's when unset.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `http_clients` | `Vec < HttpClient >` | Default::default() | How sail fetches over HTTP, rule-sets for one, by tag.<br/>`serde (default , skip_serializing_if = "Vec::is_empty")` |
-| `outbound_providers` | `Vec < OutboundProvider >` | Default::default() | A sail extension: outbounds given together, downloaded, read from a file or written in place, that groups take as members, as Mihomo's proxy groups take a proxy-provider's proxies.<br/>`serde (default , skip_serializing_if = "Vec::is_empty")` |
-| `warnings` | `Vec < String >` | 必填 | What the configuration sets that sail ignores, one line each; the start logs them.<br/>`serde (skip)` |
-
-## HttpClient
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
-
-An HTTP client: the outbound it fetches through, or, with none, the dial fields it connects with itself.
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `tag` | `String` | Default::default() | Of one in `http_clients`; none inline.<br/>`serde (default , skip_serializing_if = "String::is_empty")` |
-| `dial` | `crate :: net :: dial :: DialFields` | 展开到当前对象，不是独立键 | How it connects, `detour` among them.<br/>`serde (flatten)` |
-| `headers` | `BTreeMap < String , HeaderValues >` | Default::default() | Sent with each request, over sail's own of the same name.<br/>`serde (default , skip_serializing_if = "BTreeMap::is_empty")` |
-
-## HeaderValues
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
-
-The values of a header: one, or a list.
-
-Serde: `serde (transparent)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `` | `Vec < String >` | 必填 | —<br/>`serde (with = "listable")` |
-
-## HttpClientRef
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
-
-An HTTP client named by tag, or given in place; in place, its tag is no name, as in sing-box.
-
-Serde: `serde (untagged)`
-
-| 可选值 / 形态 | 源码说明 |
-| --- | --- |
-| `(String)` | — |
-| `(Box < HttpClient >)` | — |
-
-## CertificateOptions
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
-
-sing-box's top-level `certificate`: a store of root certificates, and certificates of one's own besides.
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `store` | `CertificateStore` | Default::default() | —<br/>`serde (default)` |
-| `certificate` | `Vec < String >` | Default::default() | Inline PEM, its lines one to an entry or all in one.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `certificate_path` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `certificate_directory_path` | `Vec < String >` | Default::default() | Directories, every file of which holds certificates.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-
-## CertificateStore
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
-
-Which roots: the system's, or Mozilla's or Chrome's included lists (without the certificate authorities of China, as sing-box's), or none.
-
-Serde: `serde (rename_all = "snake_case")`
-
-| 可选值 / 形态 | 源码说明 |
-| --- | --- |
-| `system` (default) | — |
-| `mozilla` | — |
-| `chrome` | — |
-| `none` | — |
-
-## Experimental
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
-
-sing-box's `experimental`: what sail takes of it.
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `cache_file` | `Option < CacheFileOptions >` | Default::default() | —<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `clash_api` | `Option < ClashApi >` | Default::default() | sing-box's place for the Clash API: taken to `clash_api` when the configuration is validated.<br/>`serde (default , skip_serializing)` |
-
-## CacheFileOptions
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
-
-sing-box's `cache_file`: what is kept across restarts. The selections of selector groups and the Clash API's mode, and the fake IPs handed out with `store_fakeip`; nothing without it.
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `enabled` | `bool` | Default::default() | —<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
-| `path` | `Option < String >` | Default::default() | `cache.db` when unset. A relative path is in the host's cache directory, or the data directory.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `cache_id` | `Option < String >` | Default::default() | What this configuration keeps is kept apart, under this name, from what others sharing the file keep.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `store_fakeip` | `bool` | Default::default() | —<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
-| `store_dns` | `bool` | Default::default() | The DNS answers kept are kept in the file too, and outlive a restart.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
-
-## ClashApi
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
-
-The Clash API, as sing-box's `clash_api` has it, and Mihomo's `external-controller` and the fields about it.
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `external_controller` | `Option < String >` | Default::default() | Where it listens, `host:port`; an empty host is every address, as in Mihomo. Unset, it is not served, though `default_mode` still sets the mode rules match.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `secret` | `Option < String >` | Default::default() | What callers authenticate with, `Authorization: Bearer`, or a WebSocket's `?token=`. The API is served only with a strong one (at least 32 characters, 10 distinct): `sail generate secret` makes one.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `external_ui` | `Option < String >` | Default::default() | A directory of a dashboard's files, served at `/ui/`; relative to the data directory.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `external_ui_download_url` | `Option < String >` | Default::default() | Where the dashboard is downloaded from, a ZIP, when `external_ui` is empty. The core has none of its own: unset, nothing is downloaded, and a warning says so; a host, such as sail-cli, may give one.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `external_ui_download_detour` | `Option < String >` | Default::default() | The outbound the download goes through; the default one when unset.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `access_control_allow_origin` | `Vec < String >` | Default::default() | The origins browsers may call it from (CORS); any when empty.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `access_control_allow_private_network` | `bool` | Default::default() | Pages on public addresses may call it on a private one (Private Network Access).<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
-| `default_mode` | `Option < String >` | Default::default() | The mode rules match at the start, `Rule` when unset.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-
-## Api
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
-
-The control API; a sail extension.
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `listen` | `Option < std :: net :: SocketAddr >` | Default::default() | Where the API listens; it is not served when unset.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-
-## LogLevel
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
-
-Serde: `serde (rename_all = "lowercase")`
-
-| 可选值 / 形态 | 源码说明 |
-| --- | --- |
-| `trace` | — |
-| `debug` | — |
-| `info` (default) | — |
-| `warn` | Also `warning`, as sing-box takes it. |
-| `error` | — |
-| `fatal` | As `error`: sail logs nothing more severe. |
-| `panic` | As `error`. |
-
-## LogFormat
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
-
-Serde: `serde (rename_all = "lowercase")`
-
-| 可选值 / 形态 | 源码说明 |
-| --- | --- |
-| `full` (default) | — |
-| `compact` | — |
-
-## Log
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `disabled` | `bool` | Default::default() | Logs nothing.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
-| `level` | `LogLevel` | Default::default() | —<br/>`serde (default)` |
-| `output` | `Option < String >` | Default::default() | A file to append to. Logs go to the console when it is not set.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `timestamp` | `bool` | Default::default() | Starts each line with the time.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
-| `format` | `LogFormat` | Default::default() | A sail extension: `compact` writes the message alone.<br/>`serde (default)` |
-
-## Dns
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `servers` | `Vec < DnsServer >` | Default::default() | The servers, each by its tag. None is the system's resolver alone.<br/>`serde (default , skip_serializing_if = "Vec::is_empty")` |
-| `rules` | `Vec < DnsRule >` | Default::default() | Which server a query goes to, matched in order.<br/>`serde (default , skip_serializing_if = "Vec::is_empty")` |
-| `final` | `Option < String >` | Default::default() | The server of the queries no rule matches; the first one when unset.<br/>`serde (rename = "final" , default , skip_serializing_if = "Option::is_none")` |
-| `strategy` | `DnsStrategy` | Default::default() | Which address families names resolve to, and in what order.<br/>`serde (default)` |
-| `client_strategy` | `Option < DnsStrategy >` | Default::default() | A sail extension: the address families the answers to clients' queries (hijack-dns, a DNS listener) carry, besides what `strategy` and the rules leave out: a family either leaves out is answered with no records. The instance's own lookups keep `strategy`. As Mihomo's `dns.ipv6: false` answers clients, while its connections still resolve IPv6.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `disable_cache` | `bool` | Default::default() | No answer is kept: each query goes to its server.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
-| `disable_expire` | `bool` | Default::default() | Answers kept are used however old they are, until the cache is full or cleared.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
-| `cache_capacity` | `Option < usize >` | Default::default() | How many answers are kept; 1024 when unset, and at least that, as in sing-box.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `optimistic` | `Option < Optimistic >` | Default::default() | An answer that has expired is still given, for up to its timeout, while the server is asked again in the background.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `timeout` | `Option < std :: time :: Duration >` | Default::default() | How long one query to one server may take; 10s when unset, as in sing-box.<br/>`serde (default , with = "duration" , skip_serializing_if = "Option::is_none")` |
-| `reverse_mapping` | `bool` | Default::default() | Remembers the domain of each address the DNS answers that pass through carry, so that connections to the address are routed by the domain.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
-| `client_subnet` | `Option < Prefix >` | Default::default() | The EDNS Client Subnet each query carries, unless a rule says otherwise.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-
-## DnsServer
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
-
-A DNS server. What it takes beyond its type and tag belongs to its type, and is read when the DNS client is built, as an outbound's options are.
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `type` | `String` | 必填 | `udp`, `tcp`, `tls`, `https`, `quic`, `h3`, `local`, `hosts`, or sail's `race`.<br/>`serde (rename = "type")` |
-| `tag` | `String` | Default::default() | Defaults to the type.<br/>`serde (default)` |
-| `options` | `Options` | 展开到当前对象，不是独立键 | —<br/>`serde (flatten)` |
-
-## DnsRule
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
-
-A DNS rule, matched in order against each query. Its conditions are a routing rule's, matched as they are there, and `query_type` and `outbound` besides; a logical one (`type: logical`) combines others, which take no action of their own.
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `type` | `RuleType` | Default::default() | `default`, or `logical`.<br/>`serde (rename = "type" , default , skip_serializing_if = "RuleType::is_default")` |
-| `query_type` | `Vec < serde_json :: Value >` | Default::default() | Record types, by name (`A`, `AAAA`, `HTTPS`) or number.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `preferred_by` | `Vec < String >` | Default::default() | Tags of DNS servers: matches a name one of them prefers, one it answers for itself, as sing-box's `preferred_by`.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `inbound` | `Vec < String >` | Default::default() | Tags of the inbounds the connection that needs the name came in through.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `clash_mode` | `Option < String >` | Default::default() | The mode of Clash's API, as in a routing rule.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `ip_version` | `Option < u8 >` | Default::default() | —<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `network` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `auth_user` | `Vec < String >` | Default::default() | Names of the users an inbound authenticated.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `protocol` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `domain` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `domain_suffix` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `domain_keyword` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `domain_regex` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `geosite` | `Vec < String >` | Default::default() | A sail extension, as in a routing rule.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `external` | `Vec < String >` | Default::default() | A sail extension, as in a routing rule: `site:<file>:<code>`.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `source_ip_cidr` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `source_ip_is_private` | `bool` | Default::default() | —<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
-| `source_port` | `Vec < u16 >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `source_port_range` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `port` | `Vec < u16 >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `port_range` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `process_name` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `process_path` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `process_path_regex` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `process_name_regex` | `Vec < String >` | Default::default() | A sail extension, as Mihomo's `PROCESS-NAME-REGEX`: regular expressions the program's name, its path's last part, matches.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `package_name` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `package_name_regex` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `user` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `user_id` | `Vec < i32 >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `wifi_ssid` | `Vec < String >` | Default::default() | The network the host is on, as the routing rules match it.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `wifi_bssid` | `Vec < String >` | Default::default() | The address of the Wi-Fi access point, `aa:bb:cc:dd:ee:ff`, in any case, with `:` or `-`, or as 12 hex digits.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `network_type` | `Vec < String >` | Default::default() | The kind of network: `wifi`, `cellular`, `ethernet`, `other`.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `network_is_expensive` | `bool` | Default::default() | The network is metered, as the system says.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
-| `network_is_constrained` | `bool` | Default::default() | The network is in a low data mode, as the system says.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
-| `wifi_ssid_regex` | `Vec < String >` | Default::default() | A sail extension, for Surge's `SSID:`: regular expressions found in the Wi-Fi network's name, with case.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `wifi_bssid_regex` | `Vec < String >` | Default::default() | A sail extension, for Surge's `BSSID:`: regular expressions found in the access point's address as `aa:bb:cc:dd:ee:ff`, whatever the case.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `network_gateway` | `Vec < String >` | Default::default() | A sail extension, for Surge's `ROUTER:`: the address of the default gateway.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `network_mcc_mnc` | `Vec < String >` | Default::default() | A sail extension, for Surge's `MCCMNC:` and `CELLULAR-CARRIER`: the cellular carrier, its MCC and MNC as 5 or 6 digits; only off Wi-Fi.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `outbound` | `Vec < String >` | Default::default() | Tags of the outbounds that dial the name; of the rule itself, not of a rule a logical one combines.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `rule_set` | `Vec < String >` | Default::default() | Tags of rule-sets, any of whose rules matching matches. Their `ip_cidr` rules match no query, which has no address yet.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `rule_set_ip_cidr_match_source` | `bool` | Default::default() | The rule-sets' `ip_cidr` match the source address.<br/>`serde (default , alias = "rule_set_ipcidr_match_source" , skip_serializing_if = "std::ops::Not::not")` |
-| `match_response` | `Option < ResponseRef >` | Default::default() | The response of an `evaluate` rule before it, which the rule then matches: its addresses are what `ip_cidr`, `ip_is_private`, `ip_accept_any` and the rule-sets' `ip_cidr` match. With none, the rule matches only inverted.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `ip_cidr` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `ip_is_private` | `bool` | Default::default() | —<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
-| `ip_accept_any` | `bool` | Default::default() | The response has an address.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
-| `ip_match_all` | `bool` | Default::default() | A sail extension: the rule's conditions on the response's addresses hold for every one of them, rather than for any; a response without one they hold for none. Mihomo's fallback filter keeps an answer so.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
-| `response_rcode` | `Option < Rcode >` | Default::default() | —<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `response_answer` | `Vec < String >` | Default::default() | Records the response has among its answers, as `answer` writes them: any of them.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `response_ns` | `Vec < String >` | Default::default() | Records the response has among its name servers.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `response_extra` | `Vec < String >` | Default::default() | Records the response has among its additional records.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `invert` | `bool` | Default::default() | —<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
-| `mode` | `Option < LogicalMode >` | Default::default() | `logical`: `and` or `or`.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `rules` | `Vec < DnsRule >` | Default::default() | `logical`: the rules combined.<br/>`serde (default , skip_serializing_if = "Vec::is_empty")` |
-| `action` | `Option < DnsRuleAction >` | Default::default() | `route` when unset.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `server` | `Option < String >` | Default::default() | `route`: the server a matching query goes to.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `strategy` | `Option < DnsStrategy >` | Default::default() | `route`: the address families, instead of `dns.strategy`.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `rcode` | `Option < Rcode >` | Default::default() | `predefined`: the code of the answer, NOERROR when unset.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `answer` | `Vec < String >` | Default::default() | `predefined`: the answer's records, as a zone file writes them (`localhost. IN A 127.0.0.1`, TTL 3600 unless given), or the base64 of their wire form; one named `*.suffix.` takes the name asked for when it ends so.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `ns` | `Vec < String >` | Default::default() | `predefined`: its name server records.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `extra` | `Vec < String >` | Default::default() | `predefined`: its additional records.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `tag` | `Option < String >` | Default::default() | `evaluate`: the name of its response, which `match_response` gives.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `race` | `bool` | Default::default() | `route`, `respond`, `reject` and `predefined`, on a response: the rules after it are matched while its responses are still coming, and the first race rule to match, once they have, decides; the others' actions wait until none of the race rules before them matched. As sing-box 1.14's.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
-| `speculative` | `bool` | Default::default() | `route` and `evaluate`: the query is sent as soon as the rule matches, while race rules before it are still pending, rather than once none of them matched; its response is used only then.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
-| `disable_cache` | `bool` | Default::default() | `route`, `evaluate` and `route-options`: the query neither comes from the cache nor goes into it.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
-| `disable_optimistic_cache` | `bool` | Default::default() | An expired answer is not given while it is asked for again, though `dns.optimistic` is enabled.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
-| `rewrite_ttl` | `Option < u32 >` | Default::default() | The TTL the answer's records carry, in seconds.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `timeout` | `Option < std :: time :: Duration >` | Default::default() | How long the query may take, instead of `dns.timeout`.<br/>`serde (default , with = "duration" , skip_serializing_if = "Option::is_none")` |
-| `client_subnet` | `Option < Prefix >` | Default::default() | The EDNS Client Subnet the query carries, instead of `dns.client_subnet`.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `remove_client_subnet` | `bool` | Default::default() | The query carries no EDNS Client Subnet, whatever it or `dns.client_subnet` has.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
-
-## DnsRuleAction
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
-
-What a matching DNS rule does.
-
-Serde: `serde (rename_all = "kebab-case")`
-
-| 可选值 / 形态 | 源码说明 |
-| --- | --- |
-| `Route` (default) | Sends the query to `server`. |
-| `Evaluate` | Sends the query to `server` and keeps the response for the rules after it to match, which goes on with the next rule. |
-| `Respond` | Answers with the response kept. |
-| `RouteOptions` | Sets how the query is sent, for the rule that sends it; matching goes on with the next rule. |
-| `Reject` | Answers that the name does not resolve. |
-| `Predefined` | Answers with `rcode` and no records, as sing-box's `predefined` without its records, which sail does not implement. |
-
-## DnsStrategy
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
-
-Which address families names resolve to, as sing-box names them.
-
-Serde: `serde (rename_all = "snake_case")`
-
-| 可选值 / 形态 | 源码说明 |
-| --- | --- |
-| `prefer_ipv4` (default) | Both, IPv4 first: sing-box's default. |
-| `prefer_ipv6` | Both, IPv6 first. |
-| `ipv4_only` | IPv4 addresses only. |
-| `ipv6_only` | IPv6 addresses only. |
-
-## Inbound
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `type` | `String` | 必填 | —<br/>`serde (rename = "type")` |
-| `tag` | `String` | Default::default() | Defaults to the type.<br/>`serde (default)` |
-| `listen` | `Option < String >` | Default::default() | The address to listen on; defaults to `127.0.0.1`.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `listen_port` | `Option < u16 >` | Default::default() | The port to listen on. An inbound without one does not listen, and is only useful as a part of another inbound.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `udp_timeout` | `Option < std :: time :: Duration >` | Default::default() | How long a UDP session through this inbound lives without traffic; 5m when unset, as in sing-box. A number is of seconds.<br/>`serde (default , with = "duration_or_seconds" , skip_serializing_if = "Option::is_none")` |
-| `tcp_keep_alive` | `Option < std :: time :: Duration >` | Default::default() | How long an accepted TCP connection is idle before keepalive probes it; 5m when unset.<br/>`serde (default , with = "duration" , skip_serializing_if = "Option::is_none")` |
-| `tcp_keep_alive_interval` | `Option < std :: time :: Duration >` | Default::default() | Between keepalive probes; 75s when unset.<br/>`serde (default , with = "duration" , skip_serializing_if = "Option::is_none")` |
-| `disable_tcp_keep_alive` | `bool` | Default::default() | —<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
-| `options` | `Options` | 展开到当前对象，不是独立键 | —<br/>`serde (flatten)` |
-
-## Outbound
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `type` | `String` | 必填 | —<br/>`serde (rename = "type")` |
-| `tag` | `String` | Default::default() | Defaults to the type.<br/>`serde (default)` |
-| `options` | `Options` | 展开到当前对象，不是独立键 | —<br/>`serde (flatten)` |
-
-## Endpoint
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
-
-An endpoint: an outbound, and an inbound, under one tag. Like an outbound's, its options belong to its protocol.
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `type` | `String` | 必填 | —<br/>`serde (rename = "type")` |
-| `tag` | `String` | Default::default() | Defaults to the type.<br/>`serde (default)` |
-| `udp_timeout` | `Option < std :: time :: Duration >` | Default::default() | How long a UDP session coming in through this endpoint lives without traffic; 5m when unset, as for an inbound.<br/>`serde (default , with = "duration" , skip_serializing_if = "Option::is_none")` |
-| `options` | `Options` | 展开到当前对象，不是独立键 | —<br/>`serde (flatten)` |
-
-## OutboundProvider
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
-
-Outbounds given together, for groups to take as members (their `providers`): a sail extension, with the semantics of Mihomo's proxy-providers. A subscription or a file holds what Mihomo reads from one: Clash's YAML with its `proxies`, or share links, a line each and maybe in base64. It needs the outbound-provider feature.
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `type` | `OutboundProviderKind` | 必填 | —<br/>`serde (rename = "type")` |
-| `tag` | `String` | 必填 | Its members' keys name it, and groups' `providers`. |
-| `url` | `Option < String >` | Default::default() | `remote`: where it is downloaded from.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `path` | `Option < String >` | Default::default() | `local`: the file, in the data directory unless absolute.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `update_interval` | `Option < std :: time :: Duration >` | Default::default() | `remote`: how often it is downloaded again, 1d when unset. `local`: how often the file is read again, never when unset.<br/>`serde (default , with = "duration" , skip_serializing_if = "Option::is_none")` |
-| `download_detour` | `Option < String >` | Default::default() | `remote`: the outbound it is downloaded through, as a remote rule-set's.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `http_client` | `Option < HttpClientRef >` | Default::default() | `remote`: the HTTP client it is downloaded with, as a remote rule-set's.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `filter` | `Vec < String >` | Default::default() | `remote`, `local`: regular expressions, as Mihomo's `filter`; only the outbounds whose names match one are taken, those of the first first.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `exclude_filter` | `Vec < String >` | Default::default() | `remote`, `local`: regular expressions no name taken may match.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `exclude_type` | `Vec < String >` | Default::default() | `remote`, `local`: the Clash types (`ss`, `vmess`, ...) not taken, without case.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `override` | `Option < serde_json :: Map < String , serde_json :: Value > >` | Default::default() | `remote`, `local`: what is changed in every outbound taken, in the keys of Mihomo's `override` (`skip-cert-verify`, `additional-prefix`, `proxy-name`, ...).<br/>`serde (rename = "override" , default , skip_serializing_if = "Option::is_none")` |
-| `detour` | `Option < String >` | Default::default() | `remote`, `local`: the outbound every outbound taken dials through, as Mihomo's `dialer-proxy`.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `outbounds` | `Vec < Outbound >` | Default::default() | `inline`: the outbounds, their tags their names as members.<br/>`serde (default , skip_serializing_if = "Vec::is_empty")` |
-
-## OutboundProviderKind
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
-
-Serde: `serde (rename_all = "snake_case")`
-
-| 可选值 / 形态 | 源码说明 |
-| --- | --- |
-| `remote` | — |
-| `local` | — |
-| `inline` | — |
-
-## GroupProviders
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
-
-The members a group takes from outbound providers, after its own `outbounds`, and those it leaves out: a sail extension, as Mihomo's proxy groups take them (`use`, `filter`, `exclude-filter`, `exclude-type`, `empty-fallback`). Of `selector`, `urltest`, `fallback`, `load-balance` and `smart`; it needs the outbound-provider feature.
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `providers` | `Vec < String >` | Default::default() | The outbound providers, by tag, whose outbounds join the group's own, in this order.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `filter` | `Vec < String >` | Default::default() | Regular expressions, as Mihomo's `filter`: of the providers' outbounds, only those whose names match one are members, those of the first first. The group's own outbounds are not filtered.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `exclude_filter` | `Vec < String >` | Default::default() | Regular expressions no member's name may match, the group's own outbounds' too.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `exclude_type` | `Vec < String >` | Default::default() | The types no member may be of, the group's own outbounds too, in Mihomo's names for them, without case: `Shadowsocks`, `Vmess`, `Socks5`, `Direct`, ...<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `empty_fallback` | `Option < String >` | Default::default() | An outbound, not a group, that is the member while there is none else. Without it such a group has none, and its connections fail.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-
-## Route
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `rules` | `Vec < Rule >` | Default::default() | —<br/>`serde (default , skip_serializing_if = "Vec::is_empty")` |
-| `rule_set` | `Vec < super :: rule_set :: RuleSet >` | Default::default() | The rule-sets rules name, by tag.<br/>`serde (default , skip_serializing_if = "Vec::is_empty")` |
-| `final` | `Option < String >` | Default::default() | The outbound for connections no rule matches; defaults to the first outbound.<br/>`serde (rename = "final" , default , skip_serializing_if = "Option::is_none")` |
-| `default_interface` | `Option < String >` | Default::default() | The interface outbounds that name none of their own send through.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `default_mark` | `Option < u32 >` | Default::default() | The routing mark (`SO_MARK`, Linux) of outbounds that set none.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `auto_detect_interface` | `bool` | Default::default() | Sends outbounds that name no interface of their own through the system's default interface, found at start. Needed when a TUN inbound routes everything, or outbound traffic would loop back into it.<br/>`serde (default)` |
-| `default_domain_resolver` | `Option < DomainResolver >` | Default::default() | The DNS server that resolves the names outbounds dial, for those that name no `domain_resolver` of their own. Unset, the DNS rules decide.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `default_http_client` | `Option < String >` | Default::default() | The HTTP client of what names none, by tag; the first of `http_clients` when unset, or with none, the default outbound.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-
-## Rule
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
-
-A routing rule, matched in order, as sing-box has it. A default rule sets conditions on the things a connection is known by: of the conditions on one thing (the source's address, its port, the destination's address, its port) any matching will do, and the rule matches when each thing it has conditions on matches and every other condition does. A condition listing several values matches when any of them does. A logical rule (`type: logical`) combines the rules in `rules`, all of them (`mode: and`) or any (`mode: or`); `invert` turns either kind's result around.  `route`, `reject` and `hijack-dns` end the matching. `route-options`, `sniff` and `resolve` learn more about the connection or say how it is to be carried, and matching goes on with the next rule.
-
-Serde: `serde (deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `type` | `RuleType` | Default::default() | `default`, or `logical`.<br/>`serde (rename = "type" , default , skip_serializing_if = "RuleType::is_default")` |
-| `query_type` | `Vec < serde_json :: Value >` | Default::default() | Record types, by name (`A`, `AAAA`, `HTTPS`) or number: of a DNS query, and so never of a connection.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `preferred_by` | `Vec < String >` | Default::default() | Tags of DNS servers, one of which prefers the name: of a DNS query, and so never of a connection.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `clash_mode` | `Option < String >` | Default::default() | The mode of Clash's API: matches while it is that, whatever the case; never without an API.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `inbound` | `Vec < String >` | Default::default() | Tags of the inbounds a connection came in through.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `ip_version` | `Option < u8 >` | Default::default() | 4 or 6: the family of the destination address.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `network` | `Vec < String >` | Default::default() | `tcp`, `udp`.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `auth_user` | `Vec < String >` | Default::default() | Names of the users an inbound authenticated.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `protocol` | `Vec < String >` | Default::default() | The protocols a `sniff` rule found, by sing-box's names: `tls`, `http`, `quic`, `dns`, `stun`, `bittorrent`, `dtls`.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `domain` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `domain_suffix` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `domain_keyword` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `domain_regex` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `geosite` | `Vec < String >` | Default::default() | Site groups, looked up in `site.dat` in the asset directory. A sail extension: sing-box has dropped its GeoIP and GeoSite databases.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `geoip` | `Vec < String >` | Default::default() | Country codes, looked up in `geo.mmdb` in the asset directory; a sail extension, as `geosite` is.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `external` | `Vec < String >` | Default::default() | A sail extension: `mmdb:<file>:<code>` or `site:<file>:<code>`, for data files other than the default ones.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `source_ip_cidr` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `source_ip_is_private` | `bool` | Default::default() | The source address is not a public one.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
-| `ip_cidr` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `ip_is_private` | `bool` | Default::default() | The destination address, or one the domain resolved to, is not a public one.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
-| `http_user_agent` | `Vec < String >` | Default::default() | A sail extension, for Surge's `USER-AGENT`: patterns the User-Agent of a plain HTTP request a `sniff` rule read matches, whole and with case, `*` any run of characters and `?` any one.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `url_regex` | `Vec < String >` | Default::default() | A sail extension, for Surge's `URL-REGEX`: regular expressions found in the URL of a plain HTTP request a `sniff` rule read, `http://host/path?query`.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `ip_asn` | `Vec < u32 >` | Default::default() | A sail extension, for Surge's `IP-ASN`: the autonomous systems the destination address, or one the domain resolved to, belongs to, as `asn.mmdb` in the asset directory (GeoLite2-ASN's format, or ipinfo's) has them.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `ip_accept_any` | `bool` | 必填 | A DNS rule's: the response it matches has an address.<br/>`serde (skip)` |
-| `response_rcode` | `Option < u16 >` | 可省略（None） | A DNS rule's: the response it matches has this code.<br/>`serde (skip)` |
-| `response_answer` | `Vec < String >` | 必填 | A DNS rule's: the response it matches has one of these records among its answers, as the configuration writes them; parsed when the rule is compiled.<br/>`serde (skip)` |
-| `response_ns` | `Vec < String >` | 必填 | A DNS rule's: among its name servers.<br/>`serde (skip)` |
-| `response_extra` | `Vec < String >` | 必填 | A DNS rule's: among its additional records.<br/>`serde (skip)` |
-| `match_response` | `Option < ResponseRef >` | 可省略（None） | A DNS rule's, combined by a logical one: the evaluated response it matches, rather than the one of the rule it is within.<br/>`serde (skip)` |
-| `source_port` | `Vec < u16 >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `source_port_range` | `Vec < String >` | Default::default() | Inclusive port ranges, as `port_range` writes them.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `port` | `Vec < u16 >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `port_range` | `Vec < String >` | Default::default() | Inclusive port ranges, as sing-box writes them: `1000:2000`, `:1024`, `8000:`.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `process_name` | `Vec < String >` | Default::default() | The name of the program a connection comes from, its path's last part.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `process_path` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `process_path_regex` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `process_name_regex` | `Vec < String >` | Default::default() | A sail extension, as Mihomo's `PROCESS-NAME-REGEX`: regular expressions the program's name, its path's last part, matches.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `package_name` | `Vec < String >` | Default::default() | Android packages; no platform sail runs on tells them yet.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `package_name_regex` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `user` | `Vec < String >` | Default::default() | The user a connection's process runs as, by name and by id; no platform sail runs on tells them yet.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `user_id` | `Vec < i32 >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `wifi_ssid` | `Vec < String >` | Default::default() | The name of the Wi-Fi network the host is on, whole and with case. This and the other conditions on the network match the network as the host tells it or sail detects it at the time; one on something not known of it does not match.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `wifi_bssid` | `Vec < String >` | Default::default() | The address of the Wi-Fi access point, `aa:bb:cc:dd:ee:ff`, in any case, with `:` or `-`, or as 12 hex digits.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `network_type` | `Vec < String >` | Default::default() | The kind of network: `wifi`, `cellular`, `ethernet`, `other`.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `network_is_expensive` | `bool` | Default::default() | The network is metered, as the system says.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
-| `network_is_constrained` | `bool` | Default::default() | The network is in a low data mode, as the system says.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
-| `wifi_ssid_regex` | `Vec < String >` | Default::default() | A sail extension, for Surge's `SSID:`: regular expressions found in the Wi-Fi network's name, with case.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `wifi_bssid_regex` | `Vec < String >` | Default::default() | A sail extension, for Surge's `BSSID:`: regular expressions found in the access point's address as `aa:bb:cc:dd:ee:ff`, whatever the case.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `network_gateway` | `Vec < String >` | Default::default() | A sail extension, for Surge's `ROUTER:`: the address of the default gateway.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `network_mcc_mnc` | `Vec < String >` | Default::default() | A sail extension, for Surge's `MCCMNC:` and `CELLULAR-CARRIER`: the cellular carrier, its MCC and MNC as 5 or 6 digits; only off Wi-Fi.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `rule_set` | `Vec < String >` | Default::default() | Tags of rule-sets, any of whose rules matching matches.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `rule_set_ip_cidr_match_source` | `bool` | Default::default() | The rule-sets' `ip_cidr` match the source address, not the destination.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
-| `no_resolve` | `bool` | Default::default() | A sail extension, Surge's and Clash's `no-resolve`: the rule's conditions on the destination's addresses (`ip_cidr`, `ip_is_private`, `ip_asn`, `geoip`, those of its rule-sets and of the rules within) match only addresses already known, and never have an `on_demand` resolve resolve the domain for them. Only for a rule with such conditions.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
-| `invert` | `bool` | Default::default() | —<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
-| `mode` | `Option < LogicalMode >` | Default::default() | `logical`: `and` or `or`.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `rules` | `Vec < Rule >` | Default::default() | `logical`: the rules combined. They take no action of their own.<br/>`serde (default , skip_serializing_if = "Vec::is_empty")` |
-| `action` | `Option < RuleAction >` | Default::default() | `route` when unset.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `outbound` | `Option < String >` | Default::default() | `route`: where a matching connection goes.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `override_address` | `Option < String >` | Default::default() | `route`, `route-options`: connects to this address, an IP or a domain, instead of the one asked for, on the same port.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `override_port` | `Option < u16 >` | Default::default() | `route`, `route-options`: connects to this port instead.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `udp_disable_domain_unmapping` | `bool` | Default::default() | `route`, `route-options`: answers to UDP sent to a domain come back from the address it resolved to, not from the domain.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
-| `udp_connect` | `bool` | Default::default() | `route`, `route-options`: a direct outbound sends UDP from a connected socket.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
-| `udp_timeout` | `Option < std :: time :: Duration >` | Default::default() | `route`, `route-options`: how long a UDP session lasts idle, instead of its inbound's `udp_timeout`.<br/>`serde (default , with = "duration" , skip_serializing_if = "Option::is_none")` |
-| `tls_fragment` | `bool` | Default::default() | `route`, `route-options`: sends the TLS ClientHello in pieces, cut in the server name, each in a TCP segment of its own.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
-| `tls_fragment_fallback_delay` | `Option < std :: time :: Duration >` | Default::default() | `route`, `route-options`: how long to wait between the pieces; 500ms when unset.<br/>`serde (default , with = "duration" , skip_serializing_if = "Option::is_none")` |
-| `tls_record_fragment` | `bool` | Default::default() | `route`, `route-options`: sends the TLS ClientHello as several TLS records, cut in the server name.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
-| `method` | `Option < RejectMethod >` | Default::default() | `reject`: how.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `no_drop` | `bool` | Default::default() | `reject`: never drops, however many connections the rule rejects.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
-| `server` | `Option < String >` | Default::default() | `resolve`: the DNS server to ask, rather than the one the DNS rules pick.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `strategy` | `Option < DnsStrategy >` | Default::default() | `resolve`: the address families, instead of `dns.strategy`.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `disable_cache` | `bool` | Default::default() | `resolve`: the answers neither come from the DNS cache nor go into it.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
-| `disable_optimistic_cache` | `bool` | Default::default() | `resolve`: an expired answer is not given while it is asked for again, though `dns.optimistic` is enabled.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
-| `rewrite_ttl` | `Option < u32 >` | Default::default() | `resolve`: the TTL the answers' records carry, in seconds.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `client_subnet` | `Option < Prefix >` | Default::default() | `resolve`: the EDNS Client Subnet the queries carry, instead of `dns.client_subnet`.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `sniffer` | `Vec < Sniffer >` | Default::default() | `sniff`: the protocols to look for; all of them when empty.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `timeout` | `Option < std :: time :: Duration >` | Default::default() | `sniff`: how long to wait for the first bytes; 300ms when unset. `resolve`: how long to wait for the answer; `dns.timeout` when unset.<br/>`serde (default , with = "duration" , skip_serializing_if = "Option::is_none")` |
-| `override_destination` | `bool` | Default::default() | `sniff`, a sail extension: connects to the sniffed domain rather than to the address the client asked for.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
-| `skip_rule_set` | `Vec < String >` | Default::default() | `sniff`, a sail extension: a domain found that one of these rule-sets matches is not taken, neither matched nor connected to, as Mihomo's sniffer `skip-domain` has it.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
-| `ignore_failure` | `bool` | Default::default() | `resolve`, a sail extension: a domain that does not resolve, or not in time, has no addresses, and matching goes on, as Mihomo's IP rules have it; rather than the connection failing, as in sing-box.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
-| `on_demand` | `bool` | Default::default() | `resolve`, `sniff`, a sail extension: the rule does not act where it stands but arms its action, with its options, and matching goes on. The action is taken the first time a later rule needs what it learns, just before that rule is matched: a resolve for a rule with conditions on the destination's addresses, while the destination is a domain; a sniff for one on the protocol, the plain HTTP request, or a domain while the destination is an address. A connection no later rule needs it for is never resolved or sniffed, as Surge and Mihomo have it. A later rule arming the same action replaces its options.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
-
-## RuleType
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
-
-A rule's kind.
-
-Serde: `serde (rename_all = "snake_case")`
-
-| 可选值 / 形态 | 源码说明 |
-| --- | --- |
-| `default` (default) | Conditions of its own. |
-| `logical` | Other rules, combined. |
-
-## LogicalMode
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
-
-How a logical rule combines its rules.
-
-Serde: `serde (rename_all = "snake_case")`
-
-| 可选值 / 形态 | 源码说明 |
-| --- | --- |
-| `and` | All of them match. |
-| `or` | Any of them does. |
-
-## RuleAction
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
-
-What a matching rule does.
-
-Serde: `serde (rename_all = "kebab-case")`
-
-| 可选值 / 形态 | 源码说明 |
-| --- | --- |
-| `Route` (default) | Sends the connection to `outbound`. |
-| `RouteOptions` | Sets how the connection is carried, and lets the next rules decide where it goes. |
-| `Reject` | Closes the connection. |
-| `HijackDns` | Answers the DNS queries the connection carries. |
-| `Sniff` | Reads the domain from the first bytes of a TCP connection (TLS SNI, HTTP Host), so that later rules match it. |
-| `Resolve` | Resolves the domain, so that later rules match its addresses; a domain that does not resolve fails the connection. |
-| `Bypass` | As sing-box 1.13: lets the kernel carry the connection past the proxy where TUN's auto_redirect matches it before it is set up. Elsewhere it routes to `outbound` like `route`, and without one the rule is skipped. |
-
-## RejectMethod
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
-
-How a `reject` rule closes a connection.
-
-Serde: `serde (rename_all = "snake_case")`
-
-| 可选值 / 形态 | 源码说明 |
-| --- | --- |
-| `default` (default) | At once; dropped instead when the rule rejects more than 50 connections in 30 seconds, unless `no_drop`. |
-| `drop` | Left unanswered. |
-| `reply` | With an ICMP message, for ICMP; sail routes none. |
-
-## Sniffer
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
-
-A protocol a `sniff` rule looks for, by sing-box's name. TLS, HTTP and QUIC name the domain too (QUIC's needs the `btls` crypto compiled in); DNS, STUN, BitTorrent and DTLS are only recognized.
-
-Serde: `serde (rename_all = "snake_case")`
-
-| 可选值 / 形态 | 源码说明 |
-| --- | --- |
-| `tls` | — |
-| `http` | — |
-| `quic` | — |
-| `dns` | — |
-| `stun` | — |
-| `bittorrent` | — |
-| `dtls` | — |
-
-## DialFields
-
-[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/net/dial/fields.rs)
-
-How something dials: sing-box's dial fields (`DialerOptions` in 1.14), by their names, and one sail extension. Outbounds and endpoints, DNS servers, HTTP clients and REALITY's handshake take them, flattened into their own objects, and each checks them with [`DialFields::check`] against the fields it implements.  The fields sail does not implement yet are read as any value, so that a place names them as such rather than as unknown; a sing-box configuration has them sorted out before, as `config::singbox::upstream` says.
-
-Serde: `serde (remote = "Self" , deny_unknown_fields)`
-
-| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
-| --- | --- | --- | --- |
-| `detour` | `Option < String >` | Default::default() | The outbound to dial through, in place of a socket of its own.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `bind_interface` | `Option < String >` | Default::default() | The interface to send through, by name. Loopback destinations still go over loopback, where sing-box applies the bind to them as well.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `inet4_bind_address` | `Option < Ipv4Addr >` | Default::default() | The local address for IPv4 destinations, loopback ones aside: as `bind_interface`.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `inet6_bind_address` | `Option < Ipv6Addr >` | Default::default() | The local address for IPv6 destinations, loopback ones aside: as `bind_interface`.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `bind_address_no_port` | `bool` | Default::default() | `IP_BIND_ADDRESS_NO_PORT` on TCP sockets bound to an address, so that the port is picked at connect: Linux only.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
-| `protect_path` | `Option < Value >` | Default::default() | Not implemented yet.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `routing_mark` | `Option < u32 >` | Default::default() | `SO_MARK`, Linux only.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `reuse_addr` | `bool` | Default::default() | `SO_REUSEADDR`, and `SO_REUSEPORT` on Unix, on UDP sockets.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
-| `netns` | `Option < Value >` | Default::default() | Not implemented yet.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `connect_timeout` | `Option < Duration >` | Default::default() | How long a TCP connect to one address may take; 5s when unset.<br/>`serde (default , with = "crate::config::model::duration" , skip_serializing_if = "Option::is_none")` |
-| `tcp_fast_open` | `bool` | Default::default() | TCP Fast Open: the first data written goes with the SYN. Its addresses are then tried one by one, not raced.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
-| `tcp_multi_path` | `Option < Value >` | Default::default() | Not implemented yet.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `disable_tcp_keep_alive` | `bool` | Default::default() | No TCP keepalive at all.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
-| `tcp_keep_alive` | `Option < Duration >` | Default::default() | How long a TCP connection is idle before keepalive probes it; 5m when unset.<br/>`serde (default , with = "crate::config::model::duration" , skip_serializing_if = "Option::is_none")` |
-| `tcp_keep_alive_interval` | `Option < Duration >` | Default::default() | Between keepalive probes; 75s when unset.<br/>`serde (default , with = "crate::config::model::duration" , skip_serializing_if = "Option::is_none")` |
-| `udp_fragment` | `Option < bool >` | Default::default() | Whether UDP datagrams may be fragmented on the way; unset, as the place says, see `udp_fragment_default`.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `udp_fragment_default` | `bool` | 必填 | What `udp_fragment` is when unset: sing-box's hidden `UDPFragmentDefault`, which direct, hysteria2 and tuic set. Not read from a configuration.<br/>`serde (skip)` |
-| `domain_resolver` | `Option < DomainResolver >` | Default::default() | The DNS server that resolves the names dialled.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `skip_default_domain_resolver` | `bool` | Default::default() | A sail extension: without a `domain_resolver` of its own, the names dialled resolve as the DNS rules say, not as `route.default_domain_resolver` does; as Mihomo's DIRECT resolves apart from the proxies' servers.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
-| `domain_strategy` | `Option < DnsStrategy >` | Default::default() | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `network_strategy` | `Option < Value >` | Default::default() | Not implemented yet.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `network_type` | `Option < Value >` | Default::default() | Not implemented yet.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `fallback_network_type` | `Option < Value >` | Default::default() | Not implemented yet.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `fallback_delay` | `Option < Duration >` | Default::default() | How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs); 300ms when unset.<br/>`serde (default , with = "crate::config::model::duration" , skip_serializing_if = "Option::is_none")` |
+<a id="clash-api"></a>
+
+## `clash_api`
+
+Rust 定义：[`ClashApi`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs) · **sail 扩展**
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `external_controller` | string | 未设置 | sail 扩展 | Where it listens, `host:port`; an empty host is every address, as in Mihomo. Unset, it is not served, though `default_mode` still sets the mode rules match. |
+| `secret` | string | 未设置 | sail 扩展 | What callers authenticate with, `Authorization: Bearer`, or a WebSocket's `?token=`. The API is served only with a strong one (at least 32 characters, 10 distinct): `sail generate secret` makes one. |
+| `external_ui` | string | 未设置 | sail 扩展 | A directory of a dashboard's files, served at `/ui/`; relative to the data directory. |
+| `external_ui_download_url` | string | 未设置 | sail 扩展 | Where the dashboard is downloaded from, a ZIP, when `external_ui` is empty. The core has none of its own: unset, nothing is downloaded, and a warning says so; a host, such as sail-cli, may give one. |
+| `external_ui_download_detour` | string | 未设置 | sail 扩展 | The outbound the download goes through; the default one when unset. |
+| `access_control_allow_origin` | string 或 数组，元素为 string | `[]` | sail 扩展 | The origins browsers may call it from (CORS); any when empty. |
+| `access_control_allow_private_network` | bool | `false` | sail 扩展 | Pages on public addresses may call it on a private one (Private Network Access). |
+| `default_mode` | string | 未设置 | sail 扩展 | The mode rules match at the start, `Rule` when unset. |
+
+<a id="outbound-providers"></a>
+
+## `outbound_providers[]`
+
+Rust 定义：[`OutboundProvider`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs) · **sail 扩展**
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `type` | string, 取值 `remote`, `local`, `inline` | 必填 | sail 扩展 | — |
+| `tag` | string | 必填 | sail 扩展 | Its members' keys name it, and groups' `providers`. |
+| `url` | string | 未设置 | sail 扩展 | `remote`: where it is downloaded from. |
+| `path` | string | 未设置 | sail 扩展 | `local`: the file, in the data directory unless absolute. |
+| `update_interval` | duration | 未设置 | sail 扩展 | `remote`: how often it is downloaded again, 1d when unset. `local`: how often the file is read again, never when unset. |
+| `download_detour` | string | 未设置 | sail 扩展 | `remote`: the outbound it is downloaded through, as a remote rule-set's. |
+| `http_client` | string 或 对象 | 未设置 | sail 扩展 | `remote`: the HTTP client it is downloaded with, as a remote rule-set's. |
+| `filter` | string 或 数组，元素为 string | `[]` | sail 扩展 | `remote`, `local`: regular expressions, as Mihomo's `filter`; only the outbounds whose names match one are taken, those of the first first. |
+| `exclude_filter` | string 或 数组，元素为 string | `[]` | sail 扩展 | `remote`, `local`: regular expressions no name taken may match. |
+| `exclude_type` | string 或 数组，元素为 string | `[]` | sail 扩展 | `remote`, `local`: the Clash types (`ss`, `vmess`, ...) not taken, without case. |
+| `override` | 对象，值为 任意 JSON | 未设置 | sail 扩展 | `remote`, `local`: what is changed in every outbound taken, in the keys of Mihomo's `override` (`skip-cert-verify`, `additional-prefix`, `proxy-name`, ...). |
+| `detour` | string | 未设置 | sail 扩展 | `remote`, `local`: the outbound every outbound taken dials through, as Mihomo's `dialer-proxy`. |
+| `outbounds` | 数组，元素为 对象 → [[]](#outbound-providers-outbounds) | `[]` | sail 扩展 | `inline`: the outbounds, their tags their names as members. |
+
+<a id="outbound-providers-outbounds"></a>
+
+### `outbound_providers[].outbounds[]`
+
+Rust 定义：[`Outbound`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs) · **sail 扩展**
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `type` | string | 必填 | sail 扩展 | — |
+| `tag` | string | `""` | sail 扩展 | Defaults to the type. |
+
+<a id="certificate-providers"></a>
+
+## `certificate_providers[]`
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `type` | string, 取值 `acme`, `cloudflare-origin-ca`, `tailscale` | — | 报错：Certificates from ACME and other providers: the inbounds would serve none | — |
+
+<a id="network-namespaces"></a>
+
+## `network_namespaces[]`
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `type` | string, 取值 `default`, `unshare` | — | 报错：Linux network namespaces to listen and dial in | — |
+| `tag` | string | 必填 | 报错：Linux network namespaces to listen and dial in | — |
+| `path` | string | — | 报错：Linux network namespaces to listen and dial in | — |
+
+<a id="services"></a>
+
+## `services[]`
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `type` | string, 取值 `api`, `ccm`, `derp`, `hysteria-realm`, `ocm`, `oom-killer`, `resolved`, `ssm-api`, `usbip-client`, `usbip-server` | — | 警告：A service: sail runs none besides its inbounds | — |
+
+<a id="certificate-providers-missing"></a>
+
+## sail 未实现的类型：`certificate_providers`
+
+| 类型 | 状态 | 字段数 |
+| --- | --- | --: |
+| `certificate_providers[acme]` | 报错：Certificates from ACME and other providers: the inbounds would serve none | 122 |
+| `certificate_providers[cloudflare-origin-ca]` | 报错：Certificates from ACME and other providers: the inbounds would serve none | 86 |
+| `certificate_providers[tailscale]` | 报错：Certificates from ACME and other providers: the inbounds would serve none | 2 |
+
+<a id="network-namespaces-missing"></a>
+
+## sail 未实现的类型：`network_namespaces`
+
+| 类型 | 状态 | 字段数 |
+| --- | --- | --: |
+| `network_namespaces[unshare]` | 报错：Linux network namespaces to listen and dial in | 2 |
+
+<a id="services-missing"></a>
+
+## sail 未实现的类型：`services`
+
+| 类型 | 状态 | 字段数 |
+| --- | --- | --: |
+| `services[api]` | 警告：sing-box's gRPC API, for its clients and dashboard to watch and control the instance | 165 |
+| `services[ccm]` | 报错：A service: sail runs none besides its inbounds | 84 |
+| `services[derp]` | 报错：A service: sail runs none besides its inbounds | 171 |
+| `services[hysteria-realm]` | 报错：A service: sail runs none besides its inbounds | 87 |
+| `services[ocm]` | 报错：A service: sail runs none besides its inbounds | 84 |
+| `services[oom-killer]` | 报错：A service: sail runs none besides its inbounds | 5 |
+| `services[resolved]` | 报错：A service: sail runs none besides its inbounds | 15 |
+| `services[ssm-api]` | 报错：A service: sail runs none besides its inbounds | 80 |
+| `services[usbip-client]` | 报错：A service: sail runs none besides its inbounds | 37 |
+| `services[usbip-server]` | 报错：A service: sail runs none besides its inbounds | 21 |
 

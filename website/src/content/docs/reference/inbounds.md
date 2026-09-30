@@ -1,441 +1,939 @@
 ---
-title: Inbound configuration
-description: Fields, types and serialization rules extracted from Sail configuration source.
+title: "Inbounds"
+description: "Field-by-field reference of sail's native format: sing-box v1.14.2 JSON and sail's extensions."
 ---
 
-Generated from the Rust syntax tree. Update source comments and rebuild to change this page. `Option<T>` is optional; `Vec<T>` is an array. Comments retain their source language.
-
-These declarations are not a complete runtime validation schema. Features and platform gates affect availability. Consult the [configuration guide](/sail/configuration/) and linked source for computed defaults, supported combinations and cross-field constraints; validate with `sail -c config.json -T`.
-
-## AnyTlsInboundOptions
-
-[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/anytls/inbound/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| Field | Type | Omission / flattening | Source notes |
-| --- | --- | --- | --- |
-| `users` | `Vec < AnyTlsUser >` | Required | — |
-| `padding_scheme` | `Option < Listable >` | Default::default() | The padding scheme, as lines. Unset, the default.<br/>`serde (default)` |
-| `fallback` | `Option < FallbackServer >` | Default::default() | Where a connection that fails to authenticate is relayed.<br/>`serde (default)` |
-| `fallback_for_alpn` | `HashMap < String , FallbackServer >` | Default::default() | The same, by the ALPN the connection's TLS negotiated; the ones it does not name go to `fallback`.<br/>`serde (default)` |
-
-## AnyTlsUser
-
-[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/anytls/inbound/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| Field | Type | Omission / flattening | Source notes |
-| --- | --- | --- | --- |
-| `name` | `Option < String >` | Default::default() | Who the user is to routing (`auth_user`), statistics and logs.<br/>`serde (default)` |
-| `password` | `String` | Required | — |
-
-## DirectInboundOptions
-
-[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/direct/inbound.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| Field | Type | Omission / flattening | Source notes |
-| --- | --- | --- | --- |
-| `network` | `Option < DirectNetwork >` | Default::default() | Only `tcp`, or only `udp`; both when unset.<br/>`serde (default)` |
-| `override_address` | `Option < String >` | Default::default() | Where what comes in goes, instead of the listener's address.<br/>`serde (default)` |
-| `override_port` | `Option < u16 >` | Default::default() | The port it goes to, instead of the listener's.<br/>`serde (default)` |
-
-## DirectNetwork
-
-[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/direct/inbound.rs)
-
-Serde: `serde (rename_all = "lowercase")`
-
-| Value / shape | Source notes |
-| --- | --- |
-| `tcp` | — |
-| `udp` | — |
-
-## HcInboundOptions
-
-[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/hc/inbound/mod.rs)
-
-Answers health checks: `request` on `path` gets `response`.
-
-Serde: `serde (deny_unknown_fields)`
-
-| Field | Type | Omission / flattening | Source notes |
-| --- | --- | --- | --- |
-| `path` | `String` | Required | — |
-| `request` | `String` | Default::default() | —<br/>`serde (default)` |
-| `response` | `String` | Required | — |
-
-## HttpInboundOptions
-
-[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/http/inbound/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| Field | Type | Omission / flattening | Source notes |
-| --- | --- | --- | --- |
-| `users` | `Vec < HttpUser >` | Default::default() | Clients must authenticate as one of these with `Proxy-Authorization: Basic`; anyone may connect when there are none.<br/>`serde (default)` |
-
-## HttpUser
-
-[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/http/inbound/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| Field | Type | Omission / flattening | Source notes |
-| --- | --- | --- | --- |
-| `username` | `String` | Required | — |
-| `password` | `String` | Required | — |
-
-## MasqueradeOptions
-
-[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/hysteria2/inbound/masquerade.rs)
-
-The `masquerade` field, as sing-box takes it: an `http://` URL to proxy to, or an object.
-
-Serde: `serde (untagged)`
-
-| Value / shape | Source notes |
-| --- | --- |
-| `(String)` | — |
-| `(MasqueradeObject)` | — |
-
-## MasqueradeObject
-
-[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/hysteria2/inbound/masquerade.rs)
-
-Serde: `serde (tag = "type" , rename_all = "lowercase" , deny_unknown_fields)`
-
-| Value / shape | Source notes |
-| --- | --- |
-| `proxy { url : String , # [doc = " Sends the site's own host instead of the one asked for."] # [serde (default)] rewrite_host : bool , }` | — |
-| `string { # [serde (default)] status_code : Option < u16 > , # [serde (default)] headers : HashMap < String , String > , content : String , }` | — |
-
-## Hysteria2InboundOptions
-
-[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/hysteria2/inbound/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| Field | Type | Omission / flattening | Source notes |
-| --- | --- | --- | --- |
-| `up_mbps` | `Option < u64 >` | Default::default() | What the server may send at, at most, to each client.<br/>`serde (default)` |
-| `down_mbps` | `Option < u64 >` | Default::default() | What the server can receive at, told to clients.<br/>`serde (default)` |
-| `obfs` | `Option < Obfs >` | Default::default() | —<br/>`serde (default)` |
-| `users` | `Vec < User >` | Required | — |
-| `ignore_client_bandwidth` | `bool` | Default::default() | Ignores the rate clients say they receive at, and has them find their own: BBR both ways.<br/>`serde (default)` |
-| `tls` | `InboundTls` | Required | — |
-| `masquerade` | `Option < MasqueradeOptions >` | Default::default() | What anyone without a password is served.<br/>`serde (default)` |
-
-## User
-
-[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/hysteria2/inbound/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| Field | Type | Omission / flattening | Source notes |
-| --- | --- | --- | --- |
-| `name` | `Option < String >` | Default::default() | Who the user is to routing (`auth_user`), statistics and logs.<br/>`serde (default)` |
-| `password` | `String` | Required | — |
-
-## MixedInboundOptions
-
-[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/mixed/inbound/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| Field | Type | Omission / flattening | Source notes |
-| --- | --- | --- | --- |
-| `users` | `Vec < MixedUser >` | Default::default() | Clients must authenticate as one of these, by SOCKS5 username/password or HTTP Basic; anyone may connect when there are none.<br/>`serde (default)` |
-
-## MixedUser
-
-[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/mixed/inbound/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| Field | Type | Omission / flattening | Source notes |
-| --- | --- | --- | --- |
-| `username` | `String` | Required | — |
-| `password` | `String` | Required | — |
-
-## MptpInboundOptions
-
-[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/mptp/inbound/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| Field | Type | Omission / flattening | Source notes |
-| --- | --- | --- | --- |
-
-## NfInboundOptions
-
-[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/nf/inbound/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| Field | Type | Omission / flattening | Source notes |
-| --- | --- | --- | --- |
-| `driver_name` | `String` | Required | — |
-| `nfapi` | `String` | default: default_nfapi() | —<br/>`serde (default = "default_nfapi")` |
-| `fake_dns_exclude` | `Vec < String >` | Default::default() | —<br/>`serde (default)` |
-| `fake_dns_include` | `Vec < String >` | Default::default() | —<br/>`serde (default)` |
-
-## RedirectInboundOptions
-
-[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/redirect/inbound/mod.rs)
-
-It has nothing of its own to configure: the listen fields are common to every inbound.
-
-Serde: `serde (deny_unknown_fields)`
-
-| Field | Type | Omission / flattening | Source notes |
-| --- | --- | --- | --- |
-
-## ShadowsocksInboundOptions
-
-[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/shadowsocks/inbound/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| Field | Type | Omission / flattening | Source notes |
-| --- | --- | --- | --- |
-| `method` | `String` | Required | — |
-| `password` | `String` | Required | The PSK with a 2022 method; with `users`, the server's identity PSK. |
-| `users` | `Option < Vec < ShadowsocksUser > >` | Default::default() | Shadowsocks 2022 users, told apart by identity headers.<br/>`serde (default)` |
-
-## ShadowsocksUser
-
-[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/shadowsocks/inbound/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| Field | Type | Omission / flattening | Source notes |
-| --- | --- | --- | --- |
-| `name` | `Option < String >` | Default::default() | Who the user is to routing (`auth_user`), statistics and logs.<br/>`serde (default)` |
-| `password` | `String` | Required | The user's base64 PSK. |
-
-## ShadowTlsInboundOptions
-
-[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/shadowtls/inbound.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| Field | Type | Omission / flattening | Source notes |
-| --- | --- | --- | --- |
-| `version` | `u32` | default: version_one() | Must be 3: versions 1 and 2 are not supported. sing-box's default is 1.<br/>`serde (default = "version_one")` |
-| `password` | `Option < String >` | Default::default() | Version 2's, and an error: version 3 takes `users`.<br/>`serde (default)` |
-| `users` | `Vec < ShadowTlsUser >` | Default::default() | At least one.<br/>`serde (default)` |
-| `handshake` | `Option < ShadowTlsHandshake >` | Default::default() | The site whose handshake is relayed, for everyone the other fields do not send elsewhere. Needed unless `wildcard_sni` is on.<br/>`serde (default)` |
-| `handshake_for_server_name` | `HashMap < String , ShadowTlsHandshake >` | Default::default() | Handshake servers by the server name the ClientHello asks for.<br/>`serde (default)` |
-| `strict_mode` | `bool` | Default::default() | Relays a ServerHello that does not pick TLS 1.3 as it would an unauthenticated client.<br/>`serde (default)` |
-| `wildcard_sni` | `WildcardSni` | Default::default() | —<br/>`serde (default)` |
-| `detour` | `Option < String >` | Default::default() | The inbound connections go to after the handshake, by tag: needed.<br/>`serde (default)` |
-
-## ShadowTlsUser
-
-[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/shadowtls/inbound.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| Field | Type | Omission / flattening | Source notes |
-| --- | --- | --- | --- |
-| `name` | `String` | Default::default() | Who the user is to routing (`auth_user`), statistics and logs.<br/>`serde (default)` |
-| `password` | `String` | Required | — |
-
-## ShadowTlsHandshake
-
-[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/shadowtls/inbound.rs)
-
-A server and port, and sing-box's dial fields, which it is dialled with over the instance's defaults, as REALITY's handshake server is.
-
-Serde: `serde (deny_unknown_fields)`
-
-| Field | Type | Omission / flattening | Source notes |
-| --- | --- | --- | --- |
-| `server` | `String` | Default::default() | —<br/>`serde (default)` |
-| `server_port` | `u16` | Default::default() | —<br/>`serde (default)` |
-| `dial` | `crate :: net :: dial :: DialFields` | Flattened into this object | —<br/>`serde (flatten)` |
-
-## WildcardSni
-
-[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/shadowtls/inbound.rs)
-
-Whether the handshake server is the one the ClientHello names, on port 443, when no `handshake_for_server_name` entry does.
-
-Serde: `serde (rename_all = "lowercase")`
-
-| Value / shape | Source notes |
-| --- | --- |
-| `off` (default) | — |
-| `authed` | For authenticated clients; the others go to `handshake`. |
-| `all` | — |
-
-## SocksInboundOptions
-
-[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/socks/inbound/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| Field | Type | Omission / flattening | Source notes |
-| --- | --- | --- | --- |
-| `users` | `Vec < SocksUser >` | Default::default() | Clients must authenticate as one of these; anyone may connect when there are none.<br/>`serde (default)` |
-
-## SocksUser
-
-[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/socks/inbound/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| Field | Type | Omission / flattening | Source notes |
-| --- | --- | --- | --- |
-| `username` | `String` | Required | — |
-| `password` | `String` | Required | — |
-
-## TproxyInboundOptions
-
-[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/tproxy/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| Field | Type | Omission / flattening | Source notes |
-| --- | --- | --- | --- |
-| `network` | `Option < TproxyNetwork >` | Default::default() | Only `tcp`, or only `udp`; both when unset.<br/>`serde (default)` |
-
-## TrojanInboundOptions
-
-[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/trojan/inbound/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| Field | Type | Omission / flattening | Source notes |
-| --- | --- | --- | --- |
-| `users` | `Vec < TrojanUser >` | Required | — |
-| `fallback` | `Option < FallbackServer >` | Default::default() | Where a connection that fails to authenticate is relayed.<br/>`serde (default)` |
-| `fallback_for_alpn` | `HashMap < String , FallbackServer >` | Default::default() | The same, by the ALPN the connection's TLS negotiated; the ones it does not name go to `fallback`.<br/>`serde (default)` |
-
-## TrojanUser
-
-[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/trojan/inbound/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| Field | Type | Omission / flattening | Source notes |
-| --- | --- | --- | --- |
-| `name` | `Option < String >` | Default::default() | Who the user is to routing (`auth_user`), statistics and logs.<br/>`serde (default)` |
-| `password` | `String` | Required | — |
-
-## TuicInboundOptions
-
-[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/tuic/inbound/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| Field | Type | Omission / flattening | Source notes |
-| --- | --- | --- | --- |
-| `users` | `Vec < TuicUser >` | Required | — |
-| `congestion_control` | `CongestionControl` | Default::default() | —<br/>`serde (default)` |
-| `auth_timeout` | `Option < Duration >` | Default::default() | How long a connection may go without authenticating. 3s, as in sing-box, when not set.<br/>`serde (default , with = "crate::config::model::duration")` |
-| `zero_rtt_handshake` | `bool` | Default::default() | —<br/>`serde (default)` |
-| `heartbeat` | `Option < Duration >` | Default::default() | —<br/>`serde (default , with = "crate::config::model::duration")` |
-| `tls` | `InboundTls` | Required | — |
-
-## TuicUser
-
-[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/tuic/inbound/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| Field | Type | Omission / flattening | Source notes |
-| --- | --- | --- | --- |
-| `name` | `Option < String >` | Default::default() | Who the user is to routing (`auth_user`), statistics and logs.<br/>`serde (default)` |
-| `uuid` | `String` | Required | — |
-| `password` | `String` | Default::default() | —<br/>`serde (default)` |
-
-## TunInboundOptions
-
-[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/tun/inbound.rs)
-
-The options of a TUN inbound, as sing-box's `tun` inbound names them.
-
-Serde: `serde (deny_unknown_fields)`
-
-| Field | Type | Omission / flattening | Source notes |
-| --- | --- | --- | --- |
-| `interface_name` | `Option < String >` | Default::default() | The device's name; the system picks one without it.<br/>`serde (default)` |
-| `address` | `Vec < String >` | Default::default() | The device's addresses with their prefixes: one IPv4, one IPv6, or one of each.<br/>`serde (default , with = "crate::config::model::listable")` |
-| `mtu` | `u32` | default: default_mtu() | 9000 when omitted, as sing-box has it on Android.<br/>`serde (default = "default_mtu")` |
-| `auto_route` | `bool` | Default::default() | Routes the system's traffic into the device.<br/>`serde (default)` |
-| `auto_redirect` | `bool` | Default::default() | Linux: redirects TCP to sail with nftables and marks the rest into the device, and lets rules bypass sail before a connection is set up (sing-box 1.13).<br/>`serde (default)` |
-| `auto_redirect_input_mark` | `Option < u32 >` | Default::default() | The mark that routes a packet into the device (0x2023). Marks are numbers, or strings of hexadecimal ("0x2023"); 0 is the default.<br/>`serde (default , with = "fw_mark")` |
-| `auto_redirect_output_mark` | `Option < u32 >` | Default::default() | The mark sail's own sockets carry, and flows that bypass it (0x2024). `route.default_mark` and `routing_mark` conflict with it.<br/>`serde (default , with = "fw_mark")` |
-| `auto_redirect_reset_mark` | `Option < u32 >` | Default::default() | The mark of a connection pre-match rejects, which the kernel resets (0x2025).<br/>`serde (default , with = "fw_mark")` |
-| `auto_redirect_nfqueue` | `Option < u16 >` | Default::default() | The NFQUEUE pre-match reads first packets from (100). If it cannot be bound, sail runs without pre-match: `bypass` rules are skipped.<br/>`serde (default)` |
-| `iproute2_table_index` | `Option < u32 >` | Default::default() | The routing table of the device's routes (2022).<br/>`serde (default)` |
-| `iproute2_rule_index` | `Option < u32 >` | Default::default() | The first of auto_redirect's ip rules (9000); the rules from it to 10 after it are sail's, and removed at start and stop.<br/>`serde (default)` |
-| `auto_redirect_iproute2_fallback_rule_index` | `Option < u32 >` | Default::default() | The ip rule that sends what the main table has no route for into the device (32768).<br/>`serde (default)` |
-| `exclude_mptcp` | `bool` | Default::default() | Lets MPTCP go past sail rather than dropping it, which makes clients fall back to TCP.<br/>`serde (default)` |
-| `strict_route` | `bool` | Default::default() | With one family on the device, rejects the other rather than let it go past sail. Linux: with auto_redirect only, for now. Windows: not yet. Elsewhere it changes nothing, as in sing-box.<br/>`serde (default)` |
-| `loopback_address` | `Vec < IpAddr >` | Default::default() | Addresses whose TCP goes into the device rather than to the redirect listener: a destination sail's own listeners use, say.<br/>`serde (default , with = "crate::config::model::listable")` |
-| `route_address` | `Vec < String >` | Default::default() | Only these destinations are taken...<br/>`serde (default , with = "crate::config::model::listable")` |
-| `route_exclude_address` | `Vec < String >` | Default::default() | ...and not these.<br/>`serde (default , with = "crate::config::model::listable")` |
-| `route_address_set` | `Vec < String >` | Default::default() | Rule-sets whose destination `ip_cidr` alone are taken, kept up to date as they are downloaded again.<br/>`serde (default , with = "crate::config::model::listable")` |
-| `route_exclude_address_set` | `Vec < String >` | Default::default() | Rule-sets whose destination `ip_cidr` are not taken.<br/>`serde (default , with = "crate::config::model::listable")` |
-| `include_interface` | `Vec < String >` | Default::default() | Forwarded traffic is taken only from these interfaces...<br/>`serde (default , with = "crate::config::model::listable")` |
-| `exclude_interface` | `Vec < String >` | Default::default() | ...or not from these. Naming `lo` in either leaves the host's own traffic out.<br/>`serde (default , with = "crate::config::model::listable")` |
-| `include_uid` | `Vec < u32 >` | Default::default() | The host's traffic is taken only from these users...<br/>`serde (default , with = "crate::config::model::listable")` |
-| `include_uid_range` | `Vec < String >` | Default::default() | ...and from these ranges, as "1000:2000".<br/>`serde (default , with = "crate::config::model::listable")` |
-| `exclude_uid` | `Vec < u32 >` | Default::default() | The host's traffic of these users is not taken...<br/>`serde (default , with = "crate::config::model::listable")` |
-| `exclude_uid_range` | `Vec < String >` | Default::default() | ...nor of these ranges.<br/>`serde (default , with = "crate::config::model::listable")` |
-| `include_android_user` | `Vec < u32 >` | Default::default() | Android: what the host's VPN takes in, applied by the host.<br/>`serde (default , with = "crate::config::model::listable")` |
-| `include_package` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "crate::config::model::listable")` |
-| `exclude_package` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "crate::config::model::listable")` |
-
-## VlessInboundOptions
-
-[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/vless/inbound/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| Field | Type | Omission / flattening | Source notes |
-| --- | --- | --- | --- |
-| `users` | `Vec < VlessUser >` | Required | — |
-| `fallback` | `Option < FallbackServer >` | Default::default() | Where a connection that fails to authenticate is relayed.<br/>`serde (default)` |
-| `fallback_for_alpn` | `HashMap < String , FallbackServer >` | Default::default() | The same, by the ALPN the connection's TLS negotiated; the ones it does not name go to `fallback`.<br/>`serde (default)` |
-
-## VlessUser
-
-[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/vless/inbound/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| Field | Type | Omission / flattening | Source notes |
-| --- | --- | --- | --- |
-| `name` | `Option < String >` | Default::default() | Who the user is to routing (`auth_user`), statistics and logs.<br/>`serde (default)` |
-| `uuid` | `String` | Required | — |
-| `flow` | `String` | Default::default() | `""` or `xtls-rprx-vision`.<br/>`serde (default)` |
-
-## VMessInboundOptions
-
-[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/vmess/inbound/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| Field | Type | Omission / flattening | Source notes |
-| --- | --- | --- | --- |
-| `users` | `Vec < VMessUser >` | Required | — |
-
-## VMessUser
-
-[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/vmess/inbound/mod.rs)
-
-Serde: `serde (deny_unknown_fields)`
-
-| Field | Type | Omission / flattening | Source notes |
-| --- | --- | --- | --- |
-| `name` | `Option < String >` | Default::default() | Who the user is to routing (`auth_user`), statistics and logs.<br/>`serde (default)` |
-| `uuid` | `String` | Required | — |
-| `alterId` | `u32` | Default::default() | Only 0: AEAD headers. Legacy VMess is not served.<br/>`serde (default , rename = "alterId")` |
+Generated by `website/scripts/build-config.mjs`; do not edit. It reads sail's configuration types (its Rust source), sing-box's field registry (`sail/src/config/singbox/fields.json`, sing-box v1.14.2) and the tiers the registry test measured (`fields.tiers.json`). Change the source comments or those files, then run `npm run docs:config` in `website/`.
+
+- **Status**: each sing-box field as the registry test measured it: **Supported** (read and acted on; a value sail cannot take is still an error), **Warned** (dropped with a warning) or **Error** (the configuration is refused), with the reason; **sail extension** marks fields and types sing-box does not have.
+- **Type**: sing-box's JSON type for its fields; from sail's Rust definitions for extensions.
+- **Default**: from sail's serde declarations; *unset* means the field may be left out, and the description says what applies then. Only fields sail reads have one.
+- **Description**: sail's source comments, in their source language; for an extension without one, the registry test's note.
+- **Build**: the `cfg` conditions in the Rust source (Cargo features and platforms).
+
+Validate a configuration with `sail -c config.json -T`. The Clash and Surge support tables are under [Compatibility](/sail/reference/compatibility/).
+
+<a id="inbounds"></a>
+
+## `inbounds[]`
+
+Rust: [`Inbound`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `type` | string, one of `anytls`, `cloudflared`, `direct`, `http`, `hysteria`, `hysteria2`, `mixed`, `naive`, `redirect`, `shadowsocks`, `shadowtls`, `snell`, `socks`, `tproxy`, `trojan`, `tuic`, `tun`, `vless`, `vmess` | required | Supported | — |
+
+<a id="inbounds-anytls"></a>
+
+## `inbounds[anytls]`
+
+Rust: [`AnyTlsInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/anytls/inbound/mod.rs) · Build: `feature = "inbound-anytls"`
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | Supported | Defaults to the type. |
+| `listen` | string | unset | Supported | The address to listen on; defaults to `127.0.0.1`. |
+| `listen_port` | number | unset | Supported | The port to listen on. An inbound without one does not listen, and is only useful as a part of another inbound. |
+| `bind_interface` | string | — | Error: Where and how an inbound listens: it would take connections otherwise | — |
+| `routing_mark` | number\|string | — | Error: Where and how an inbound listens: it would take connections otherwise | — |
+| `reuse_addr` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `netns` | string | — | Error: Where and how an inbound listens: it would take connections otherwise | — |
+| `disable_tcp_keep_alive` | bool | `false` | Supported | — |
+| `tcp_keep_alive` | duration | unset | Supported | How long an accepted TCP connection is idle before keepalive probes it; 5m when unset. |
+| `tcp_keep_alive_interval` | duration | unset | Supported | Between keepalive probes; 75s when unset. |
+| `tcp_fast_open` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `tcp_multi_path` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `udp_fragment` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `udp_timeout` | number\|duration | unset | Supported | How long a UDP session through this inbound lives without traffic; 5m when unset, as in sing-box. A number is of seconds. |
+| `detour` | string | — | Error: Handing an inbound's connections to another inbound | — |
+| `tls` | object → [object](#inbounds-anytls-tls) | — | Supported | — |
+| `users` | array → [[]](#inbounds-anytls-users) | required | Supported | — |
+| `padding_scheme` | listable-string | unset | Supported | The padding scheme, as lines. Unset, the default. |
+
+<a id="inbounds-anytls-tls"></a>
+
+### `inbounds[anytls].tls`
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `enabled` | bool | — | Supported | — |
+| `server_name` | string | — | Supported | — |
+| `insecure` | bool | — | Warned: Only relaxes checks a server's TLS does not make | — |
+| `alpn` | listable-string | — | Supported | — |
+| `min_version` | string, one of `1.0`, `1.1`, `1.2`, `1.3` | — | Supported | — |
+| `max_version` | string, one of `1.0`, `1.1`, `1.2`, `1.3` | — | Supported | — |
+| `cipher_suites` | listable-string | — | Error: TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked | — |
+| `curve_preferences` | listable-string, one of `P256`, `P384`, `P521`, `X25519`, `X25519MLKEM768` | — | Error: TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked | — |
+| `certificate` | listable-string | — | Supported | — |
+| `certificate_path` | string | — | Supported | — |
+| `client_authentication` | string, one of `no`, `request`, `require-any`, `verify-if-given`, `require-and-verify` | — | Error: Verifying clients' certificates: an inbound would take clients it should refuse | — |
+| `client_certificate` | listable-string | — | Error: Verifying clients' certificates: an inbound would take clients it should refuse | — |
+| `client_certificate_path` | listable-string | — | Error: Verifying clients' certificates: an inbound would take clients it should refuse | — |
+| `client_certificate_public_key_sha256` | listable-string\|array | — | Error: Verifying clients' certificates: an inbound would take clients it should refuse | — |
+| `key` | listable-string | — | Supported | — |
+| `key_path` | string | — | Supported | — |
+| `kernel_tx` | bool | — | Warned: The TLS stack, kernel TLS and the handshake's timeout: the same TLS without them | — |
+| `kernel_rx` | bool | — | Warned: The TLS stack, kernel TLS and the handshake's timeout: the same TLS without them | — |
+| `handshake_timeout` | duration | — | Warned: The TLS stack, kernel TLS and the handshake's timeout: the same TLS without them | — |
+| `certificate_provider` | string\|object | — | Error: A certificate from a provider or ACME: the inbound would have none | — |
+| `ech` | object → [object](/sail/reference/shared/#ech-inbounds) | — | Error: Encrypted Client Hello on an inbound | — |
+| `reality` | object → [object](#inbounds-anytls-tls-reality) | — | Supported | — |
+| `acme` | object | — | Error: A certificate from a provider or ACME: the inbound would have none (deprecated in sing-box) | — |
+
+<a id="inbounds-anytls-tls-reality"></a>
+
+### `inbounds[anytls].tls.reality`
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `enabled` | bool | — | Supported | — |
+| `handshake` | object → [object](#inbounds-anytls-tls-reality-handshake) | — | Supported | — |
+| `private_key` | string | — | Supported | — |
+| `short_id` | listable-string | — | Supported | — |
+| `max_time_difference` | duration | — | Supported | — |
+
+<a id="inbounds-anytls-tls-reality-handshake"></a>
+
+### `inbounds[anytls].tls.reality.handshake`
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `server` | string | — | Supported | — |
+| `server_port` | number | — | Supported | — |
+| `detour` | string | — | Error: A detour to the REALITY handshake server: it would be reached otherwise | — |
+| `bind_interface` | string | — | Supported | — |
+| `inet4_bind_address` | string | — | Supported | — |
+| `inet6_bind_address` | string | — | Supported | — |
+| `bind_address_no_port` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `protect_path` | string | — | Error: Android's socket protection and Linux network namespaces: sockets would leave another way | — |
+| `routing_mark` | number\|string | — | Supported | — |
+| `reuse_addr` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `netns` | string | — | Error: Android's socket protection and Linux network namespaces: sockets would leave another way | — |
+| `connect_timeout` | duration | — | Supported | — |
+| `tcp_fast_open` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `tcp_multi_path` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `disable_tcp_keep_alive` | bool | — | Supported | — |
+| `tcp_keep_alive` | duration | — | Supported | — |
+| `tcp_keep_alive_interval` | duration | — | Supported | — |
+| `udp_fragment` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `domain_resolver` | string\|object → [object](/sail/reference/shared/#domain-resolver-inbounds-route-rule-set) | — | Supported | — |
+| `network_strategy` | string, one of `default`, `fallback`, `hybrid` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | — |
+| `network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | — |
+| `fallback_network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | — |
+| `fallback_delay` | duration | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | — |
+| `domain_strategy` | string | — | Supported (deprecated in sing-box) | — |
+
+<a id="inbounds-anytls-users"></a>
+
+### `inbounds[anytls].users[]`
+
+Rust: [`AnyTlsUser`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/anytls/inbound/mod.rs) · Build: `feature = "inbound-anytls"`
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `name` | string | unset | Supported | Who the user is to routing (`auth_user`), statistics and logs. |
+| `password` | string | required | Supported | — |
+
+<a id="inbounds-direct"></a>
+
+## `inbounds[direct]`
+
+Rust: [`DirectInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/direct/inbound.rs) · Build: `feature = "inbound-direct"`
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | Supported | Defaults to the type. |
+| `listen` | string | unset | Supported | The address to listen on; defaults to `127.0.0.1`. |
+| `listen_port` | number | unset | Supported | The port to listen on. An inbound without one does not listen, and is only useful as a part of another inbound. |
+| `bind_interface` | string | — | Error: Where and how an inbound listens: it would take connections otherwise | — |
+| `routing_mark` | number\|string | — | Error: Where and how an inbound listens: it would take connections otherwise | — |
+| `reuse_addr` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `netns` | string | — | Error: Where and how an inbound listens: it would take connections otherwise | — |
+| `disable_tcp_keep_alive` | bool | `false` | Supported | — |
+| `tcp_keep_alive` | duration | unset | Supported | How long an accepted TCP connection is idle before keepalive probes it; 5m when unset. |
+| `tcp_keep_alive_interval` | duration | unset | Supported | Between keepalive probes; 75s when unset. |
+| `tcp_fast_open` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `tcp_multi_path` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `udp_fragment` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `udp_timeout` | number\|duration | unset | Supported | How long a UDP session through this inbound lives without traffic; 5m when unset, as in sing-box. A number is of seconds. |
+| `detour` | string | — | Error: Handing an inbound's connections to another inbound | — |
+| `network` | listable-string, one of `tcp`, `udp` | unset | Supported | Only `tcp`, or only `udp`; both when unset. |
+| `override_address` | string | unset | Supported | Where what comes in goes, instead of the listener's address. |
+| `override_port` | number | unset | Supported | The port it goes to, instead of the listener's. |
+
+<a id="inbounds-hc"></a>
+
+## `inbounds[hc]`
+
+Rust: [`HcInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/hc/inbound/mod.rs) · Build: `feature = "inbound-hc"` · **sail extension**
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | sail extension | Defaults to the type. |
+| `listen` | string | unset | sail extension | The address to listen on; defaults to `127.0.0.1`. |
+| `listen_port` | number | unset | sail extension | The port to listen on. An inbound without one does not listen, and is only useful as a part of another inbound. |
+| `udp_timeout` | duration, or a number of seconds | unset | sail extension | How long a UDP session through this inbound lives without traffic; 5m when unset, as in sing-box. A number is of seconds. |
+| `tcp_keep_alive` | duration | unset | sail extension | How long an accepted TCP connection is idle before keepalive probes it; 5m when unset. |
+| `tcp_keep_alive_interval` | duration | unset | sail extension | Between keepalive probes; 75s when unset. |
+| `disable_tcp_keep_alive` | bool | `false` | sail extension | — |
+| `path` | string | required | sail extension | — |
+| `request` | string | `""` | sail extension | — |
+| `response` | string | required | sail extension | — |
+
+<a id="inbounds-http"></a>
+
+## `inbounds[http]`
+
+Rust: [`HttpInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/http/inbound/mod.rs) · Build: `feature = "inbound-http"`
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | Supported | Defaults to the type. |
+| `listen` | string | unset | Supported | The address to listen on; defaults to `127.0.0.1`. |
+| `listen_port` | number | unset | Supported | The port to listen on. An inbound without one does not listen, and is only useful as a part of another inbound. |
+| `bind_interface` | string | — | Error: Where and how an inbound listens: it would take connections otherwise | — |
+| `routing_mark` | number\|string | — | Error: Where and how an inbound listens: it would take connections otherwise | — |
+| `reuse_addr` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `netns` | string | — | Error: Where and how an inbound listens: it would take connections otherwise | — |
+| `disable_tcp_keep_alive` | bool | `false` | Supported | — |
+| `tcp_keep_alive` | duration | unset | Supported | How long an accepted TCP connection is idle before keepalive probes it; 5m when unset. |
+| `tcp_keep_alive_interval` | duration | unset | Supported | Between keepalive probes; 75s when unset. |
+| `tcp_fast_open` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `tcp_multi_path` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `udp_fragment` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `udp_timeout` | number\|duration | unset | Supported | How long a UDP session through this inbound lives without traffic; 5m when unset, as in sing-box. A number is of seconds. |
+| `detour` | string | — | Error: Handing an inbound's connections to another inbound | — |
+| `users` | array → [[]](#inbounds-http-users) | `[]` | Supported | Clients must authenticate as one of these with `Proxy-Authorization: Basic`; anyone may connect when there are none. |
+| `domain_resolver` | string\|object → [object](/sail/reference/shared/#domain-resolver-inbounds) | — | Error: Resolving requested names with a resolver of its own: another server would answer | — |
+| `set_system_proxy` | bool | — | Warned: The platform proxy is the host's to set | — |
+| `tls` | object → [object](/sail/reference/shared/#tls-inbounds) | unset | Supported | — |
+
+<a id="inbounds-http-users"></a>
+
+### `inbounds[http].users[]`
+
+Rust: [`HttpUser`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/http/inbound/mod.rs) · Build: `feature = "inbound-http"`
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `username` | string | required | Supported | — |
+| `password` | string | required | Supported | — |
+
+<a id="inbounds-hysteria2"></a>
+
+## `inbounds[hysteria2]`
+
+Rust: [`Hysteria2InboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/hysteria2/inbound/mod.rs) · Build: `feature = "inbound-hysteria2"`
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | Supported | Defaults to the type. |
+| `listen` | string | unset | Supported | The address to listen on; defaults to `127.0.0.1`. |
+| `listen_port` | number | unset | Supported | The port to listen on. An inbound without one does not listen, and is only useful as a part of another inbound. |
+| `bind_interface` | string | — | Error: Where and how an inbound listens: it would take connections otherwise | — |
+| `routing_mark` | number\|string | — | Error: Where and how an inbound listens: it would take connections otherwise | — |
+| `reuse_addr` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `netns` | string | — | Error: Where and how an inbound listens: it would take connections otherwise | — |
+| `disable_tcp_keep_alive` | bool | `false` | Supported | — |
+| `tcp_keep_alive` | duration | unset | Supported | How long an accepted TCP connection is idle before keepalive probes it; 5m when unset. |
+| `tcp_keep_alive_interval` | duration | unset | Supported | Between keepalive probes; 75s when unset. |
+| `tcp_fast_open` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `tcp_multi_path` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `udp_fragment` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `udp_timeout` | number\|duration | unset | Supported | How long a UDP session through this inbound lives without traffic; 5m when unset, as in sing-box. A number is of seconds. |
+| `detour` | string | — | Error: Handing an inbound's connections to another inbound | — |
+| `up_mbps` | number | unset | Supported | What the server may send at, at most, to each client. |
+| `down_mbps` | number | unset | Supported | What the server can receive at, told to clients. |
+| `obfs` | object → [object](/sail/reference/shared/#obfs), [[gecko]](/sail/reference/shared/#obfs-gecko), [[salamander]](/sail/reference/shared/#obfs-salamander) | unset | Supported | — |
+| `users` | array → [[]](#inbounds-hysteria2-users) | required | Supported | — |
+| `ignore_client_bandwidth` | bool | `false` | Supported | Ignores the rate clients say they receive at, and has them find their own: BBR both ways. |
+| `tls` | object → [object](/sail/reference/shared/#tls-inbounds) | required | Supported | — |
+| `idle_timeout` | duration | — | Warned: QUIC tuning: the same connection without it | — |
+| `keep_alive_period` | duration | — | Warned: QUIC tuning: the same connection without it | — |
+| `stream_receive_window` | number\|string | — | Warned: QUIC tuning: the same connection without it | — |
+| `connection_receive_window` | number\|string | — | Warned: QUIC tuning: the same connection without it | — |
+| `max_concurrent_streams` | number | — | Warned: QUIC tuning: the same connection without it | — |
+| `initial_packet_size` | number | — | Warned: QUIC tuning: the same connection without it | — |
+| `disable_path_mtu_discovery` | bool | — | Warned: QUIC tuning: the same connection without it | — |
+| `masquerade` | string\|object | unset | Supported | What anyone without a password is served. |
+| `bbr_profile` | string, one of `standard`, `conservative`, `aggressive` | — | Warned: Hysteria's congestion tuning and debugging, the longest hop interval, and its QUIC fingerprint: the same traffic | — |
+| `brutal_debug` | bool | — | Warned: Hysteria's congestion tuning and debugging, the longest hop interval, and its QUIC fingerprint: the same traffic | — |
+| `realm` | object → [object](#inbounds-hysteria2-realm) | — | Error: Meeting peers through a Hysteria realm: connections would be made otherwise | — |
+
+<a id="inbounds-hysteria2-users"></a>
+
+### `inbounds[hysteria2].users[]`
+
+Rust: [`User`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/hysteria2/inbound/mod.rs) · Build: `feature = "inbound-hysteria2"`
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `name` | string | unset | Supported | Who the user is to routing (`auth_user`), statistics and logs. |
+| `password` | string | required | Supported | — |
+
+<a id="inbounds-hysteria2-realm"></a>
+
+### `inbounds[hysteria2].realm`
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `server_url` | string | — | Error: Meeting peers through a Hysteria realm: connections would be made otherwise | — |
+| `token` | string | — | Error: Meeting peers through a Hysteria realm: connections would be made otherwise | — |
+| `realm_id` | string | — | Error: Meeting peers through a Hysteria realm: connections would be made otherwise | — |
+| `stun_servers` | listable-string | — | Error: Meeting peers through a Hysteria realm: connections would be made otherwise | — |
+| `ip_version` | number, one of `0`, `4`, `6` | — | Error: Meeting peers through a Hysteria realm: connections would be made otherwise | — |
+| `port_mapping` | object → [object](/sail/reference/shared/#port-mapping) | — | Error: Meeting peers through a Hysteria realm: connections would be made otherwise | — |
+| `http_client` | string\|object → [object](/sail/reference/shared/#http-client) | — | Error: Meeting peers through a Hysteria realm: connections would be made otherwise | — |
+| `stun_domain_resolver` | string\|object → [object](/sail/reference/shared/#domain-resolver-stun-domain-resolver) | — | Error: Meeting peers through a Hysteria realm: connections would be made otherwise | — |
+
+<a id="inbounds-mixed"></a>
+
+## `inbounds[mixed]`
+
+Rust: [`MixedInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/mixed/inbound/mod.rs) · Build: `feature = "inbound-mixed"`
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | Supported | Defaults to the type. |
+| `listen` | string | unset | Supported | The address to listen on; defaults to `127.0.0.1`. |
+| `listen_port` | number | unset | Supported | The port to listen on. An inbound without one does not listen, and is only useful as a part of another inbound. |
+| `bind_interface` | string | — | Error: Where and how an inbound listens: it would take connections otherwise | — |
+| `routing_mark` | number\|string | — | Error: Where and how an inbound listens: it would take connections otherwise | — |
+| `reuse_addr` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `netns` | string | — | Error: Where and how an inbound listens: it would take connections otherwise | — |
+| `disable_tcp_keep_alive` | bool | `false` | Supported | — |
+| `tcp_keep_alive` | duration | unset | Supported | How long an accepted TCP connection is idle before keepalive probes it; 5m when unset. |
+| `tcp_keep_alive_interval` | duration | unset | Supported | Between keepalive probes; 75s when unset. |
+| `tcp_fast_open` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `tcp_multi_path` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `udp_fragment` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `udp_timeout` | number\|duration | unset | Supported | How long a UDP session through this inbound lives without traffic; 5m when unset, as in sing-box. A number is of seconds. |
+| `detour` | string | — | Error: Handing an inbound's connections to another inbound | — |
+| `users` | array → [[]](#inbounds-mixed-users) | `[]` | Supported | Clients must authenticate as one of these, by SOCKS5 username/password or HTTP Basic; anyone may connect when there are none. |
+| `domain_resolver` | string\|object → [object](/sail/reference/shared/#domain-resolver-inbounds) | — | Error: Resolving requested names with a resolver of its own: another server would answer | — |
+| `set_system_proxy` | bool | — | Warned: The platform proxy is the host's to set | — |
+| `tls` | object → [object](#inbounds-mixed-tls) | — | Error: TLS on a mixed inbound: it would take plain connections | — |
+
+<a id="inbounds-mixed-users"></a>
+
+### `inbounds[mixed].users[]`
+
+Rust: [`MixedUser`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/mixed/inbound/mod.rs) · Build: `feature = "inbound-mixed"`
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `username` | string | required | Supported | — |
+| `password` | string | required | Supported | — |
+
+<a id="inbounds-mixed-tls"></a>
+
+### `inbounds[mixed].tls`
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `enabled` | bool | — | Error: TLS on a mixed inbound: it would take plain connections | — |
+| `server_name` | string | — | Error: TLS on a mixed inbound: it would take plain connections | — |
+| `insecure` | bool | — | Error: TLS on a mixed inbound: it would take plain connections | — |
+| `alpn` | listable-string | — | Error: TLS on a mixed inbound: it would take plain connections | — |
+| `min_version` | string, one of `1.0`, `1.1`, `1.2`, `1.3` | — | Error: TLS on a mixed inbound: it would take plain connections | — |
+| `max_version` | string, one of `1.0`, `1.1`, `1.2`, `1.3` | — | Error: TLS on a mixed inbound: it would take plain connections | — |
+| `cipher_suites` | listable-string | — | Error: TLS on a mixed inbound: it would take plain connections | — |
+| `curve_preferences` | listable-string, one of `P256`, `P384`, `P521`, `X25519`, `X25519MLKEM768` | — | Error: TLS on a mixed inbound: it would take plain connections | — |
+| `certificate` | listable-string | — | Error: TLS on a mixed inbound: it would take plain connections | — |
+| `certificate_path` | string | — | Error: TLS on a mixed inbound: it would take plain connections | — |
+| `client_authentication` | string, one of `no`, `request`, `require-any`, `verify-if-given`, `require-and-verify` | — | Error: TLS on a mixed inbound: it would take plain connections | — |
+| `client_certificate` | listable-string | — | Error: TLS on a mixed inbound: it would take plain connections | — |
+| `client_certificate_path` | listable-string | — | Error: TLS on a mixed inbound: it would take plain connections | — |
+| `client_certificate_public_key_sha256` | listable-string\|array | — | Error: TLS on a mixed inbound: it would take plain connections | — |
+| `key` | listable-string | — | Error: TLS on a mixed inbound: it would take plain connections | — |
+| `key_path` | string | — | Error: TLS on a mixed inbound: it would take plain connections | — |
+| `kernel_tx` | bool | — | Error: TLS on a mixed inbound: it would take plain connections | — |
+| `kernel_rx` | bool | — | Error: TLS on a mixed inbound: it would take plain connections | — |
+| `handshake_timeout` | duration | — | Error: TLS on a mixed inbound: it would take plain connections | — |
+| `certificate_provider` | string\|object | — | Error: TLS on a mixed inbound: it would take plain connections | — |
+| `ech` | object → [object](#inbounds-mixed-tls-ech) | — | Error: TLS on a mixed inbound: it would take plain connections | — |
+| `reality` | object → [object](#inbounds-mixed-tls-reality) | — | Error: TLS on a mixed inbound: it would take plain connections | — |
+| `acme` | object | — | Error: TLS on a mixed inbound: it would take plain connections (deprecated in sing-box) | — |
+
+<a id="inbounds-mixed-tls-ech"></a>
+
+### `inbounds[mixed].tls.ech`
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `enabled` | bool | — | Error: TLS on a mixed inbound: it would take plain connections | — |
+| `key` | listable-string | — | Error: TLS on a mixed inbound: it would take plain connections | — |
+| `key_path` | string | — | Error: TLS on a mixed inbound: it would take plain connections | — |
+
+<a id="inbounds-mixed-tls-reality"></a>
+
+### `inbounds[mixed].tls.reality`
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `enabled` | bool | — | Error: TLS on a mixed inbound: it would take plain connections | — |
+| `handshake` | object → [object](#inbounds-mixed-tls-reality-handshake) | — | Error: TLS on a mixed inbound: it would take plain connections | — |
+| `private_key` | string | — | Error: TLS on a mixed inbound: it would take plain connections | — |
+| `short_id` | listable-string | — | Error: TLS on a mixed inbound: it would take plain connections | — |
+| `max_time_difference` | duration | — | Error: TLS on a mixed inbound: it would take plain connections | — |
+
+<a id="inbounds-mixed-tls-reality-handshake"></a>
+
+### `inbounds[mixed].tls.reality.handshake`
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `server` | string | — | Error: TLS on a mixed inbound: it would take plain connections | — |
+| `server_port` | number | — | Error: TLS on a mixed inbound: it would take plain connections | — |
+| `detour` | string | — | Error: TLS on a mixed inbound: it would take plain connections | — |
+| `bind_interface` | string | — | Error: TLS on a mixed inbound: it would take plain connections | — |
+| `inet4_bind_address` | string | — | Error: TLS on a mixed inbound: it would take plain connections | — |
+| `inet6_bind_address` | string | — | Error: TLS on a mixed inbound: it would take plain connections | — |
+| `bind_address_no_port` | bool | — | Error: TLS on a mixed inbound: it would take plain connections | — |
+| `protect_path` | string | — | Error: TLS on a mixed inbound: it would take plain connections | — |
+| `routing_mark` | number\|string | — | Error: TLS on a mixed inbound: it would take plain connections | — |
+| `reuse_addr` | bool | — | Error: TLS on a mixed inbound: it would take plain connections | — |
+| `netns` | string | — | Error: TLS on a mixed inbound: it would take plain connections | — |
+| `connect_timeout` | duration | — | Error: TLS on a mixed inbound: it would take plain connections | — |
+| `tcp_fast_open` | bool | — | Error: TLS on a mixed inbound: it would take plain connections | — |
+| `tcp_multi_path` | bool | — | Error: TLS on a mixed inbound: it would take plain connections | — |
+| `disable_tcp_keep_alive` | bool | — | Error: TLS on a mixed inbound: it would take plain connections | — |
+| `tcp_keep_alive` | duration | — | Error: TLS on a mixed inbound: it would take plain connections | — |
+| `tcp_keep_alive_interval` | duration | — | Error: TLS on a mixed inbound: it would take plain connections | — |
+| `udp_fragment` | bool | — | Error: TLS on a mixed inbound: it would take plain connections | — |
+| `domain_resolver` | string\|object → [object](#inbounds-mixed-tls-reality-handshake-domain-resolver) | — | Error: TLS on a mixed inbound: it would take plain connections | — |
+| `network_strategy` | string, one of `default`, `fallback`, `hybrid` | — | Error: TLS on a mixed inbound: it would take plain connections | — |
+| `network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | — | Error: TLS on a mixed inbound: it would take plain connections | — |
+| `fallback_network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | — | Error: TLS on a mixed inbound: it would take plain connections | — |
+| `fallback_delay` | duration | — | Error: TLS on a mixed inbound: it would take plain connections | — |
+| `domain_strategy` | string | — | Error: TLS on a mixed inbound: it would take plain connections (deprecated in sing-box) | — |
+
+<a id="inbounds-mixed-tls-reality-handshake-domain-resolver"></a>
+
+### `inbounds[mixed].tls.reality.handshake.domain_resolver`
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `server` | string | required | Error: TLS on a mixed inbound: it would take plain connections | — |
+| `timeout` | duration | — | Error: TLS on a mixed inbound: it would take plain connections | — |
+| `strategy` | string, one of `as_is`, `prefer_ipv4`, `prefer_ipv6`, `ipv4_only`, `ipv6_only` | — | Error: TLS on a mixed inbound: it would take plain connections | — |
+| `disable_cache` | bool | — | Error: TLS on a mixed inbound: it would take plain connections | — |
+| `disable_optimistic_cache` | bool | — | Error: TLS on a mixed inbound: it would take plain connections | — |
+| `rewrite_ttl` | number | — | Error: TLS on a mixed inbound: it would take plain connections | — |
+| `client_subnet` | string | — | Error: TLS on a mixed inbound: it would take plain connections | — |
+
+<a id="inbounds-mptp"></a>
+
+## `inbounds[mptp]`
+
+Rust: [`MptpInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/mptp/inbound/mod.rs) · Build: `feature = "outbound-mptp"` and `feature = "inbound-mptp"` · **sail extension**
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | sail extension | Defaults to the type. |
+| `listen` | string | unset | sail extension | The address to listen on; defaults to `127.0.0.1`. |
+| `listen_port` | number | unset | sail extension | The port to listen on. An inbound without one does not listen, and is only useful as a part of another inbound. |
+| `udp_timeout` | duration, or a number of seconds | unset | sail extension | How long a UDP session through this inbound lives without traffic; 5m when unset, as in sing-box. A number is of seconds. |
+| `tcp_keep_alive` | duration | unset | sail extension | How long an accepted TCP connection is idle before keepalive probes it; 5m when unset. |
+| `tcp_keep_alive_interval` | duration | unset | sail extension | Between keepalive probes; 75s when unset. |
+| `disable_tcp_keep_alive` | bool | `false` | sail extension | — |
+
+<a id="inbounds-nf"></a>
+
+## `inbounds[nf]`
+
+Rust: [`NfInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/nf/inbound/mod.rs) · Build: `all (feature = "inbound-nf" , windows)` · **sail extension**
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | sail extension | Defaults to the type. |
+| `listen` | string | unset | sail extension | The address to listen on; defaults to `127.0.0.1`. |
+| `listen_port` | number | unset | sail extension | The port to listen on. An inbound without one does not listen, and is only useful as a part of another inbound. |
+| `udp_timeout` | duration, or a number of seconds | unset | sail extension | How long a UDP session through this inbound lives without traffic; 5m when unset, as in sing-box. A number is of seconds. |
+| `tcp_keep_alive` | duration | unset | sail extension | How long an accepted TCP connection is idle before keepalive probes it; 5m when unset. |
+| `tcp_keep_alive_interval` | duration | unset | sail extension | Between keepalive probes; 75s when unset. |
+| `disable_tcp_keep_alive` | bool | `false` | sail extension | — |
+| `driver_name` | string | required | sail extension | — |
+| `nfapi` | string | `"nfapi.dll"` | sail extension | — |
+| `fake_dns_exclude` | array of string | `[]` | sail extension | — |
+| `fake_dns_include` | array of string | `[]` | sail extension | — |
+
+<a id="inbounds-redirect"></a>
+
+## `inbounds[redirect]`
+
+Rust: [`RedirectInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/redirect/inbound/mod.rs) · Build: `feature = "inbound-redirect"`
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | Supported | Defaults to the type. |
+| `listen` | string | unset | Supported | The address to listen on; defaults to `127.0.0.1`. |
+| `listen_port` | number | unset | Supported | The port to listen on. An inbound without one does not listen, and is only useful as a part of another inbound. |
+| `bind_interface` | string | — | Error: Where and how an inbound listens: it would take connections otherwise | — |
+| `routing_mark` | number\|string | — | Error: Where and how an inbound listens: it would take connections otherwise | — |
+| `reuse_addr` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `netns` | string | — | Error: Where and how an inbound listens: it would take connections otherwise | — |
+| `disable_tcp_keep_alive` | bool | `false` | Supported | — |
+| `tcp_keep_alive` | duration | unset | Supported | How long an accepted TCP connection is idle before keepalive probes it; 5m when unset. |
+| `tcp_keep_alive_interval` | duration | unset | Supported | Between keepalive probes; 75s when unset. |
+| `tcp_fast_open` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `tcp_multi_path` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `udp_fragment` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `udp_timeout` | number\|duration | unset | Supported | How long a UDP session through this inbound lives without traffic; 5m when unset, as in sing-box. A number is of seconds. |
+| `detour` | string | — | Error: Handing an inbound's connections to another inbound | — |
+
+<a id="inbounds-shadowsocks"></a>
+
+## `inbounds[shadowsocks]`
+
+Rust: [`ShadowsocksInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/shadowsocks/inbound/mod.rs) · Build: `feature = "inbound-shadowsocks"`
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | Supported | Defaults to the type. |
+| `listen` | string | unset | Supported | The address to listen on; defaults to `127.0.0.1`. |
+| `listen_port` | number | unset | Supported | The port to listen on. An inbound without one does not listen, and is only useful as a part of another inbound. |
+| `bind_interface` | string | — | Error: Where and how an inbound listens: it would take connections otherwise | — |
+| `routing_mark` | number\|string | — | Error: Where and how an inbound listens: it would take connections otherwise | — |
+| `reuse_addr` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `netns` | string | — | Error: Where and how an inbound listens: it would take connections otherwise | — |
+| `disable_tcp_keep_alive` | bool | `false` | Supported | — |
+| `tcp_keep_alive` | duration | unset | Supported | How long an accepted TCP connection is idle before keepalive probes it; 5m when unset. |
+| `tcp_keep_alive_interval` | duration | unset | Supported | Between keepalive probes; 75s when unset. |
+| `tcp_fast_open` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `tcp_multi_path` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `udp_fragment` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `udp_timeout` | number\|duration | unset | Supported | How long a UDP session through this inbound lives without traffic; 5m when unset, as in sing-box. A number is of seconds. |
+| `detour` | string | — | Error: Handing an inbound's connections to another inbound | — |
+| `network` | listable-string, one of `tcp`, `udp` | — | Error: Which networks a Shadowsocks inbound serves: it would serve others | — |
+| `method` | string, one of `none`, `aes-128-gcm`, `aes-192-gcm`, `aes-256-gcm`, `chacha20-ietf-poly1305`, `xchacha20-ietf-poly1305`, `2022-blake3-aes-128-gcm`, `2022-blake3-aes-256-gcm`, `2022-blake3-chacha20-poly1305` | required | Supported | — |
+| `password` | string | required | Supported | The PSK with a 2022 method; with `users`, the server's identity PSK. |
+| `users` | array → [[]](#inbounds-shadowsocks-users) | unset | Supported | Shadowsocks 2022 users, told apart by identity headers. |
+| `destinations` | array → [[]](#inbounds-shadowsocks-destinations) | — | Error: Relaying to other Shadowsocks servers | — |
+| `multiplex` | object → [object](/sail/reference/shared/#multiplex-inbounds) | unset | Supported | — |
+| `managed` | bool | — | Warned: Users managed through the SSM API, a service sail does not run | — |
+
+<a id="inbounds-shadowsocks-users"></a>
+
+### `inbounds[shadowsocks].users[]`
+
+Rust: [`ShadowsocksUser`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/shadowsocks/inbound/mod.rs) · Build: `feature = "inbound-shadowsocks"`
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `name` | string | unset | Supported | Who the user is to routing (`auth_user`), statistics and logs. |
+| `password` | string | required | Supported | The user's base64 PSK. |
+
+<a id="inbounds-shadowsocks-destinations"></a>
+
+### `inbounds[shadowsocks].destinations[]`
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `name` | string | — | Error: Relaying to other Shadowsocks servers | — |
+| `password` | string | — | Error: Relaying to other Shadowsocks servers | — |
+| `server` | string | — | Error: Relaying to other Shadowsocks servers | — |
+| `server_port` | number | — | Error: Relaying to other Shadowsocks servers | — |
+
+<a id="inbounds-shadowtls"></a>
+
+## `inbounds[shadowtls]`
+
+Rust: [`ShadowTlsInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/shadowtls/inbound.rs) · Build: `feature = "inbound-shadowtls"`
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | Supported | Defaults to the type. |
+| `listen` | string | unset | Supported | The address to listen on; defaults to `127.0.0.1`. |
+| `listen_port` | number | unset | Supported | The port to listen on. An inbound without one does not listen, and is only useful as a part of another inbound. |
+| `bind_interface` | string | — | Error: Where and how an inbound listens: it would take connections otherwise | — |
+| `routing_mark` | number\|string | — | Error: Where and how an inbound listens: it would take connections otherwise | — |
+| `reuse_addr` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `netns` | string | — | Error: Where and how an inbound listens: it would take connections otherwise | — |
+| `disable_tcp_keep_alive` | bool | `false` | Supported | — |
+| `tcp_keep_alive` | duration | unset | Supported | How long an accepted TCP connection is idle before keepalive probes it; 5m when unset. |
+| `tcp_keep_alive_interval` | duration | unset | Supported | Between keepalive probes; 75s when unset. |
+| `tcp_fast_open` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `tcp_multi_path` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `udp_fragment` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `udp_timeout` | number\|duration | unset | Supported | How long a UDP session through this inbound lives without traffic; 5m when unset, as in sing-box. A number is of seconds. |
+| `detour` | string | unset | Supported | The inbound connections go to after the handshake, by tag: needed. |
+| `version` | number, one of `1`, `2`, `3` | `1` | Supported | Must be 3: versions 1 and 2 are not supported. sing-box's default is 1. |
+| `password` | string | unset | Supported | Version 2's, and an error: version 3 takes `users`. |
+| `users` | array → [[]](#inbounds-shadowtls-users) | `[]` | Supported | At least one. |
+| `handshake` | object → [object](#inbounds-shadowtls-handshake) | unset | Supported | The site whose handshake is relayed, for everyone the other fields do not send elsewhere. Needed unless `wildcard_sni` is on. |
+| `handshake_for_server_name` | map | `{}` | Supported | Handshake servers by the server name the ClientHello asks for. |
+| `strict_mode` | bool | `false` | Supported | Relays a ServerHello that does not pick TLS 1.3 as it would an unauthenticated client. |
+| `wildcard_sni` | string, one of `off`, `authed`, `all` | `off` | Supported | — |
+
+<a id="inbounds-shadowtls-users"></a>
+
+### `inbounds[shadowtls].users[]`
+
+Rust: [`ShadowTlsUser`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/shadowtls/inbound.rs) · Build: `feature = "inbound-shadowtls"`
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `name` | string | `""` | Supported | Who the user is to routing (`auth_user`), statistics and logs. |
+| `password` | string | required | Supported | — |
+
+<a id="inbounds-shadowtls-handshake"></a>
+
+### `inbounds[shadowtls].handshake`
+
+Rust: [`ShadowTlsHandshake`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/shadowtls/inbound.rs) · Build: `feature = "inbound-shadowtls"`
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `server` | string | `""` | Supported | — |
+| `server_port` | number | `0` | Supported | — |
+| `detour` | string | — | Error: The protocol's own check: not implemented yet | The outbound to dial through, in place of a socket of its own. |
+| `bind_interface` | string | unset | Supported | The interface to send through, by name. |
+| `inet4_bind_address` | string | unset | Supported | The local address for IPv4 destinations. |
+| `inet6_bind_address` | string | unset | Supported | The local address for IPv6 destinations. |
+| `bind_address_no_port` | bool | — | Error: The protocol's own check: not implemented yet | Not implemented yet. |
+| `protect_path` | string | — | Error: The protocol's own check: not implemented yet | Not implemented yet. |
+| `routing_mark` | number\|string | unset | Supported | `SO_MARK`, Linux only. |
+| `reuse_addr` | bool | — | Error: The protocol's own check: not implemented yet | Not implemented yet. |
+| `netns` | string | — | Error: The protocol's own check: not implemented yet | Not implemented yet. |
+| `connect_timeout` | duration | unset | Supported | How long a TCP connect to one address may take; 5s when unset. |
+| `tcp_fast_open` | bool | — | Error: The protocol's own check: not implemented yet | Not implemented yet. |
+| `tcp_multi_path` | bool | — | Error: The protocol's own check: not implemented yet | Not implemented yet. |
+| `disable_tcp_keep_alive` | bool | `false` | Supported | No TCP keepalive at all. |
+| `tcp_keep_alive` | duration | unset | Supported | How long a TCP connection is idle before keepalive probes it; 5m when unset. |
+| `tcp_keep_alive_interval` | duration | unset | Supported | Between keepalive probes; 75s when unset. |
+| `udp_fragment` | bool | — | Error: The protocol's own check: not implemented yet | Not implemented yet. |
+| `domain_resolver` | string\|object → [object](/sail/reference/shared/#domain-resolver-default-domain-resolver) | unset | Supported | The DNS server that resolves the names dialled. |
+| `network_strategy` | string, one of `default`, `fallback`, `hybrid` | — | Error: The protocol's own check: not implemented yet | Not implemented yet. |
+| `network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | — | Error: The protocol's own check: not implemented yet | Not implemented yet. |
+| `fallback_network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | — | Error: The protocol's own check: not implemented yet | Not implemented yet. |
+| `fallback_delay` | duration | — | Error: The protocol's own check: not implemented yet | Not implemented yet. |
+| `domain_strategy` | string | unset | Supported (deprecated in sing-box) | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
+
+<a id="inbounds-socks"></a>
+
+## `inbounds[socks]`
+
+Rust: [`SocksInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/socks/inbound/mod.rs) · Build: `feature = "inbound-socks"`
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | Supported | Defaults to the type. |
+| `listen` | string | unset | Supported | The address to listen on; defaults to `127.0.0.1`. |
+| `listen_port` | number | unset | Supported | The port to listen on. An inbound without one does not listen, and is only useful as a part of another inbound. |
+| `bind_interface` | string | — | Error: Where and how an inbound listens: it would take connections otherwise | — |
+| `routing_mark` | number\|string | — | Error: Where and how an inbound listens: it would take connections otherwise | — |
+| `reuse_addr` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `netns` | string | — | Error: Where and how an inbound listens: it would take connections otherwise | — |
+| `disable_tcp_keep_alive` | bool | `false` | Supported | — |
+| `tcp_keep_alive` | duration | unset | Supported | How long an accepted TCP connection is idle before keepalive probes it; 5m when unset. |
+| `tcp_keep_alive_interval` | duration | unset | Supported | Between keepalive probes; 75s when unset. |
+| `tcp_fast_open` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `tcp_multi_path` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `udp_fragment` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `udp_timeout` | number\|duration | unset | Supported | How long a UDP session through this inbound lives without traffic; 5m when unset, as in sing-box. A number is of seconds. |
+| `detour` | string | — | Error: Handing an inbound's connections to another inbound | — |
+| `users` | array → [[]](#inbounds-socks-users) | `[]` | Supported | Clients must authenticate as one of these; anyone may connect when there are none. |
+| `domain_resolver` | string\|object → [object](/sail/reference/shared/#domain-resolver-inbounds) | — | Error: Resolving requested names with a resolver of its own: another server would answer | — |
+
+<a id="inbounds-socks-users"></a>
+
+### `inbounds[socks].users[]`
+
+Rust: [`SocksUser`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/socks/inbound/mod.rs) · Build: `feature = "inbound-socks"`
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `username` | string | required | Supported | — |
+| `password` | string | required | Supported | — |
+
+<a id="inbounds-tproxy"></a>
+
+## `inbounds[tproxy]`
+
+Rust: [`TproxyInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/tproxy/mod.rs) · Build: `feature = "inbound-tproxy"`
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | Supported | Defaults to the type. |
+| `listen` | string | unset | Supported | The address to listen on; defaults to `127.0.0.1`. |
+| `listen_port` | number | unset | Supported | The port to listen on. An inbound without one does not listen, and is only useful as a part of another inbound. |
+| `bind_interface` | string | — | Error: Where and how an inbound listens: it would take connections otherwise | — |
+| `routing_mark` | number\|string | — | Error: Where and how an inbound listens: it would take connections otherwise | — |
+| `reuse_addr` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `netns` | string | — | Error: Where and how an inbound listens: it would take connections otherwise | — |
+| `disable_tcp_keep_alive` | bool | `false` | Supported | — |
+| `tcp_keep_alive` | duration | unset | Supported | How long an accepted TCP connection is idle before keepalive probes it; 5m when unset. |
+| `tcp_keep_alive_interval` | duration | unset | Supported | Between keepalive probes; 75s when unset. |
+| `tcp_fast_open` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `tcp_multi_path` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `udp_fragment` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `udp_timeout` | number\|duration | unset | Supported | How long a UDP session through this inbound lives without traffic; 5m when unset, as in sing-box. A number is of seconds. |
+| `detour` | string | — | Error: Handing an inbound's connections to another inbound | — |
+| `network` | listable-string, one of `tcp`, `udp` | unset | Supported | Only `tcp`, or only `udp`; both when unset. |
+| `udp_mapping` | string, one of `endpoint_independent`, `address_dependent`, `address_and_port_dependent` | — | Warned: How UDP mappings are made and how many are kept: the same traffic | — |
+| `udp_filtering` | string, one of `endpoint_independent`, `address_dependent`, `address_and_port_dependent` | — | Error: Which remote addresses may answer through a UDP mapping: others would | — |
+| `udp_nat_max` | number | — | Warned: How UDP mappings are made and how many are kept: the same traffic | — |
+
+<a id="inbounds-trojan"></a>
+
+## `inbounds[trojan]`
+
+Rust: [`TrojanInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/trojan/inbound/mod.rs) · Build: `feature = "inbound-trojan"`
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | Supported | Defaults to the type. |
+| `listen` | string | unset | Supported | The address to listen on; defaults to `127.0.0.1`. |
+| `listen_port` | number | unset | Supported | The port to listen on. An inbound without one does not listen, and is only useful as a part of another inbound. |
+| `bind_interface` | string | — | Error: Where and how an inbound listens: it would take connections otherwise | — |
+| `routing_mark` | number\|string | — | Error: Where and how an inbound listens: it would take connections otherwise | — |
+| `reuse_addr` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `netns` | string | — | Error: Where and how an inbound listens: it would take connections otherwise | — |
+| `disable_tcp_keep_alive` | bool | `false` | Supported | — |
+| `tcp_keep_alive` | duration | unset | Supported | How long an accepted TCP connection is idle before keepalive probes it; 5m when unset. |
+| `tcp_keep_alive_interval` | duration | unset | Supported | Between keepalive probes; 75s when unset. |
+| `tcp_fast_open` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `tcp_multi_path` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `udp_fragment` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `udp_timeout` | number\|duration | unset | Supported | How long a UDP session through this inbound lives without traffic; 5m when unset, as in sing-box. A number is of seconds. |
+| `detour` | string | — | Error: Handing an inbound's connections to another inbound | — |
+| `users` | array → [[]](#inbounds-trojan-users) | required | Supported | — |
+| `tls` | object → [object](/sail/reference/shared/#tls-inbounds) | unset | Supported | — |
+| `fallback` | object → [object](#inbounds-trojan-fallback) | unset | Supported | Where a connection that fails to authenticate is relayed. |
+| `fallback_for_alpn` | map | `{}` | Supported | The same, by the ALPN the connection's TLS negotiated; the ones it does not name go to `fallback`. |
+| `multiplex` | object → [object](/sail/reference/shared/#multiplex-inbounds) | unset | Supported | — |
+| `transport` | object → [object](/sail/reference/shared/#transport-inbounds), [[grpc]](/sail/reference/shared/#transport-grpc-inbounds), [[http]](/sail/reference/shared/#transport-http-inbounds), [[httpupgrade]](/sail/reference/shared/#transport-httpupgrade-inbounds), [[ws]](/sail/reference/shared/#transport-ws-inbounds) | unset | Supported | — |
+
+<a id="inbounds-trojan-users"></a>
+
+### `inbounds[trojan].users[]`
+
+Rust: [`TrojanUser`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/trojan/inbound/mod.rs) · Build: `feature = "inbound-trojan"`
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `name` | string | unset | Supported | Who the user is to routing (`auth_user`), statistics and logs. |
+| `password` | string | required | Supported | — |
+
+<a id="inbounds-trojan-fallback"></a>
+
+### `inbounds[trojan].fallback`
+
+Rust: [`FallbackServer`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/fallback.rs) · Build: `any (feature = "inbound-anytls" , feature = "inbound-trojan" , feature = "inbound-vless" , feature = "inbound-shadowtls")`
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `server` | string | required | Supported | — |
+| `server_port` | number | required | Supported | — |
+
+<a id="inbounds-tuic"></a>
+
+## `inbounds[tuic]`
+
+Rust: [`TuicInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/tuic/inbound/mod.rs) · Build: `feature = "inbound-tuic"`
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | Supported | Defaults to the type. |
+| `listen` | string | unset | Supported | The address to listen on; defaults to `127.0.0.1`. |
+| `listen_port` | number | unset | Supported | The port to listen on. An inbound without one does not listen, and is only useful as a part of another inbound. |
+| `bind_interface` | string | — | Error: Where and how an inbound listens: it would take connections otherwise | — |
+| `routing_mark` | number\|string | — | Error: Where and how an inbound listens: it would take connections otherwise | — |
+| `reuse_addr` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `netns` | string | — | Error: Where and how an inbound listens: it would take connections otherwise | — |
+| `disable_tcp_keep_alive` | bool | `false` | Supported | — |
+| `tcp_keep_alive` | duration | unset | Supported | How long an accepted TCP connection is idle before keepalive probes it; 5m when unset. |
+| `tcp_keep_alive_interval` | duration | unset | Supported | Between keepalive probes; 75s when unset. |
+| `tcp_fast_open` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `tcp_multi_path` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `udp_fragment` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `udp_timeout` | number\|duration | unset | Supported | How long a UDP session through this inbound lives without traffic; 5m when unset, as in sing-box. A number is of seconds. |
+| `detour` | string | — | Error: Handing an inbound's connections to another inbound | — |
+| `users` | array → [[]](#inbounds-tuic-users) | required | Supported | — |
+| `congestion_control` | string, one of `cubic`, `new_reno`, `bbr` | `cubic` | Supported | — |
+| `auth_timeout` | duration | unset | Supported | How long a connection may go without authenticating. 3s, as in sing-box, when not set. |
+| `zero_rtt_handshake` | bool | `false` | Supported | — |
+| `heartbeat` | duration | unset | Supported | — |
+| `tls` | object → [object](/sail/reference/shared/#tls-inbounds) | required | Supported | — |
+| `idle_timeout` | duration | — | Warned: QUIC tuning: the same connection without it | — |
+| `keep_alive_period` | duration | — | Warned: QUIC tuning: the same connection without it | — |
+| `stream_receive_window` | number\|string | — | Warned: QUIC tuning: the same connection without it | — |
+| `connection_receive_window` | number\|string | — | Warned: QUIC tuning: the same connection without it | — |
+| `max_concurrent_streams` | number | — | Warned: QUIC tuning: the same connection without it | — |
+| `initial_packet_size` | number | — | Warned: QUIC tuning: the same connection without it | — |
+| `disable_path_mtu_discovery` | bool | — | Warned: QUIC tuning: the same connection without it | — |
+
+<a id="inbounds-tuic-users"></a>
+
+### `inbounds[tuic].users[]`
+
+Rust: [`TuicUser`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/tuic/inbound/mod.rs) · Build: `feature = "inbound-tuic"`
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `name` | string | unset | Supported | Who the user is to routing (`auth_user`), statistics and logs. |
+| `uuid` | string | required | Supported | — |
+| `password` | string | `""` | Supported | — |
+
+<a id="inbounds-tun"></a>
+
+## `inbounds[tun]`
+
+Rust: [`TunInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/tun/inbound.rs) · Build: `feature = "inbound-tun"`
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | Supported | Defaults to the type. |
+| `interface_name` | string | unset | Supported | The device's name; the system picks one without it. |
+| `netns` | string | — | Error: Where and how an inbound listens: it would take connections otherwise | — |
+| `mtu` | number | `9000` | Supported | 9000 when omitted, as sing-box has it on Android. |
+| `address` | listable-string | `[]` | Supported | The device's addresses with their prefixes: one IPv4, one IPv6, or one of each. |
+| `dns_mode` | string, one of `disabled`, `native`, `hijack` | — | Error: The TUN's own DNS handling: queries would be answered otherwise | — |
+| `dns_address` | listable-string | — | Error: The TUN's own DNS handling: queries would be answered otherwise | — |
+| `auto_route` | bool | `false` | Supported | Routes the system's traffic into the device. |
+| `iproute2_table_index` | number | unset | Supported | The routing table of the device's routes (2022). |
+| `iproute2_rule_index` | number | unset | Supported | The first of auto_redirect's ip rules (9000); the rules from it to 10 after it are sail's, and removed at start and stop. |
+| `auto_redirect` | bool | `false` | Supported | Linux: redirects TCP to sail with nftables and marks the rest into the device, and lets rules bypass sail before a connection is set up (sing-box 1.13). |
+| `auto_redirect_input_mark` | number\|string | unset | Supported | The mark that routes a packet into the device (0x2023). Marks are numbers, or strings of hexadecimal ("0x2023"); 0 is the default. |
+| `auto_redirect_output_mark` | number\|string | unset | Supported | The mark sail's own sockets carry, and flows that bypass it (0x2024). `route.default_mark` and `routing_mark` conflict with it. |
+| `auto_redirect_reset_mark` | number\|string | unset | Supported | The mark of a connection pre-match rejects, which the kernel resets (0x2025). |
+| `auto_redirect_nfqueue` | number | unset | Supported | The NFQUEUE pre-match reads first packets from (100). If it cannot be bound, sail runs without pre-match: `bypass` rules are skipped. |
+| `auto_redirect_iproute2_fallback_rule_index` | number | unset | Supported | The ip rule that sends what the main table has no route for into the device (32768). |
+| `exclude_mptcp` | bool | `false` | Supported | Lets MPTCP go past sail rather than dropping it, which makes clients fall back to TCP. |
+| `loopback_address` | listable-string | `[]` | Supported | Addresses whose TCP goes into the device rather than to the redirect listener: a destination sail's own listeners use, say. |
+| `strict_route` | bool | `false` | Supported | With one family on the device, rejects the other rather than let it go past sail. Linux: with auto_redirect only, for now. Windows: not yet. Elsewhere it changes nothing, as in sing-box. |
+| `route_address` | listable-string | `[]` | Supported | Only these destinations are taken... |
+| `route_address_set` | listable-string | `[]` | Supported | Rule-sets whose destination `ip_cidr` alone are taken, kept up to date as they are downloaded again. |
+| `route_exclude_address` | listable-string | `[]` | Supported | ...and not these. |
+| `route_exclude_address_set` | listable-string | `[]` | Supported | Rule-sets whose destination `ip_cidr` are not taken. |
+| `include_interface` | listable-string | `[]` | Supported | Forwarded traffic is taken only from these interfaces... |
+| `exclude_interface` | listable-string | `[]` | Supported | ...or not from these. Naming `lo` in either leaves the host's own traffic out. |
+| `include_uid` | listable-number | `[]` | Supported | The host's traffic is taken only from these users... |
+| `include_uid_range` | listable-string | `[]` | Supported | ...and from these ranges, as "1000:2000". |
+| `exclude_uid` | listable-number | `[]` | Supported | The host's traffic of these users is not taken... |
+| `exclude_uid_range` | listable-string | `[]` | Supported | ...nor of these ranges. |
+| `include_android_user` | listable-number | `[]` | Supported | Android: what the host's VPN takes in, applied by the host. |
+| `include_package` | listable-string | `[]` | Supported | — |
+| `exclude_package` | listable-string | `[]` | Supported | — |
+| `include_mac_address` | listable-string | — | Error: Filtering LAN clients by MAC address | — |
+| `exclude_mac_address` | listable-string | — | Error: Filtering LAN clients by MAC address | — |
+| `udp_timeout` | number\|duration | unset | Supported | How long a UDP session through this inbound lives without traffic; 5m when unset, as in sing-box. A number is of seconds. |
+| `udp_mapping` | string, one of `endpoint_independent`, `address_dependent`, `address_and_port_dependent` | — | Warned: How UDP mappings are made and how many are kept: the same traffic | — |
+| `udp_filtering` | string, one of `endpoint_independent`, `address_dependent`, `address_and_port_dependent` | — | Error: Which remote addresses may answer through a UDP mapping: others would | — |
+| `udp_nat_max` | number | — | Warned: How UDP mappings are made and how many are kept: the same traffic | — |
+| `stack` | string, one of `system`, `gvisor`, `mixed` | — | Warned: One stack serves every `stack`; the platform proxy is the host's to set | — |
+| `platform` | object → [object](#inbounds-tun-platform) | — | Warned: One stack serves every `stack`; the platform proxy is the host's to set | — |
+| `endpoint_independent_nat` | bool | — | Warned: One stack serves every `stack`; the platform proxy is the host's to set (deprecated in sing-box) | — |
+
+<a id="inbounds-tun-platform"></a>
+
+### `inbounds[tun].platform`
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `http_proxy` | object → [object](#inbounds-tun-platform-http-proxy) | — | Warned: One stack serves every `stack`; the platform proxy is the host's to set | — |
+
+<a id="inbounds-tun-platform-http-proxy"></a>
+
+### `inbounds[tun].platform.http_proxy`
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `enabled` | bool | — | Warned: One stack serves every `stack`; the platform proxy is the host's to set | — |
+| `server` | string | — | Warned: One stack serves every `stack`; the platform proxy is the host's to set | — |
+| `server_port` | number | — | Warned: One stack serves every `stack`; the platform proxy is the host's to set | — |
+| `bypass_domain` | listable-string | — | Warned: One stack serves every `stack`; the platform proxy is the host's to set | — |
+| `match_domain` | listable-string | — | Warned: One stack serves every `stack`; the platform proxy is the host's to set | — |
+
+<a id="inbounds-vless"></a>
+
+## `inbounds[vless]`
+
+Rust: [`VlessInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/vless/inbound/mod.rs) · Build: `feature = "inbound-vless"`
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | Supported | Defaults to the type. |
+| `listen` | string | unset | Supported | The address to listen on; defaults to `127.0.0.1`. |
+| `listen_port` | number | unset | Supported | The port to listen on. An inbound without one does not listen, and is only useful as a part of another inbound. |
+| `bind_interface` | string | — | Error: Where and how an inbound listens: it would take connections otherwise | — |
+| `routing_mark` | number\|string | — | Error: Where and how an inbound listens: it would take connections otherwise | — |
+| `reuse_addr` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `netns` | string | — | Error: Where and how an inbound listens: it would take connections otherwise | — |
+| `disable_tcp_keep_alive` | bool | `false` | Supported | — |
+| `tcp_keep_alive` | duration | unset | Supported | How long an accepted TCP connection is idle before keepalive probes it; 5m when unset. |
+| `tcp_keep_alive_interval` | duration | unset | Supported | Between keepalive probes; 75s when unset. |
+| `tcp_fast_open` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `tcp_multi_path` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `udp_fragment` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `udp_timeout` | number\|duration | unset | Supported | How long a UDP session through this inbound lives without traffic; 5m when unset, as in sing-box. A number is of seconds. |
+| `detour` | string | — | Error: Handing an inbound's connections to another inbound | — |
+| `users` | array → [[]](#inbounds-vless-users) | required | Supported | — |
+| `tls` | object → [object](/sail/reference/shared/#tls-inbounds) | unset | Supported | — |
+| `multiplex` | object → [object](/sail/reference/shared/#multiplex-inbounds) | unset | Supported | — |
+| `transport` | object → [object](/sail/reference/shared/#transport-inbounds), [[grpc]](/sail/reference/shared/#transport-grpc-inbounds), [[http]](/sail/reference/shared/#transport-http-inbounds), [[httpupgrade]](/sail/reference/shared/#transport-httpupgrade-inbounds), [[ws]](/sail/reference/shared/#transport-ws-inbounds) | unset | Supported | — |
+
+<a id="inbounds-vless-users"></a>
+
+### `inbounds[vless].users[]`
+
+Rust: [`VlessUser`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/vless/inbound/mod.rs) · Build: `feature = "inbound-vless"`
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `name` | string | unset | Supported | Who the user is to routing (`auth_user`), statistics and logs. |
+| `uuid` | string | required | Supported | — |
+| `flow` | string | `""` | Supported | `""` or `xtls-rprx-vision`. |
+
+<a id="inbounds-vmess"></a>
+
+## `inbounds[vmess]`
+
+Rust: [`VMessInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/vmess/inbound/mod.rs) · Build: `feature = "inbound-vmess"`
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `tag` | string | `""` | Supported | Defaults to the type. |
+| `listen` | string | unset | Supported | The address to listen on; defaults to `127.0.0.1`. |
+| `listen_port` | number | unset | Supported | The port to listen on. An inbound without one does not listen, and is only useful as a part of another inbound. |
+| `bind_interface` | string | — | Error: Where and how an inbound listens: it would take connections otherwise | — |
+| `routing_mark` | number\|string | — | Error: Where and how an inbound listens: it would take connections otherwise | — |
+| `reuse_addr` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `netns` | string | — | Error: Where and how an inbound listens: it would take connections otherwise | — |
+| `disable_tcp_keep_alive` | bool | `false` | Supported | — |
+| `tcp_keep_alive` | duration | unset | Supported | How long an accepted TCP connection is idle before keepalive probes it; 5m when unset. |
+| `tcp_keep_alive_interval` | duration | unset | Supported | Between keepalive probes; 75s when unset. |
+| `tcp_fast_open` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `tcp_multi_path` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `udp_fragment` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `udp_timeout` | number\|duration | unset | Supported | How long a UDP session through this inbound lives without traffic; 5m when unset, as in sing-box. A number is of seconds. |
+| `detour` | string | — | Error: Handing an inbound's connections to another inbound | — |
+| `users` | array → [[]](#inbounds-vmess-users) | required | Supported | — |
+| `tls` | object → [object](/sail/reference/shared/#tls-inbounds) | unset | Supported | — |
+| `multiplex` | object → [object](/sail/reference/shared/#multiplex-inbounds) | unset | Supported | — |
+| `transport` | object → [object](/sail/reference/shared/#transport-inbounds), [[grpc]](/sail/reference/shared/#transport-grpc-inbounds), [[http]](/sail/reference/shared/#transport-http-inbounds), [[httpupgrade]](/sail/reference/shared/#transport-httpupgrade-inbounds), [[ws]](/sail/reference/shared/#transport-ws-inbounds) | unset | Supported | — |
+
+<a id="inbounds-vmess-users"></a>
+
+### `inbounds[vmess].users[]`
+
+Rust: [`VMessUser`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/vmess/inbound/mod.rs) · Build: `feature = "inbound-vmess"`
+
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `name` | string | unset | Supported | Who the user is to routing (`auth_user`), statistics and logs. |
+| `uuid` | string | required | Supported | — |
+| `alterId` | number | `0` | Supported | Only 0: AEAD headers. Legacy VMess is not served. |
+
+<a id="inbounds-missing"></a>
+
+## Types sail does not implement: `inbounds`
+
+| Type | Status | Fields |
+| --- | --- | --: |
+| `inbounds[cloudflared]` | Error: A protocol sail does not implement | 69 |
+| `inbounds[hysteria]` | Error: A protocol sail does not implement | 98 |
+| `inbounds[naive]` | Error: A protocol sail does not implement | 83 |
+| `inbounds[snell]` | Error: A protocol sail does not implement | 22 |
 

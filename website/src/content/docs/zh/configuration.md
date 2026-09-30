@@ -9,7 +9,7 @@ Sail 的格式已经与 leaf 分化。leaf、Surge、Clash 与 sing-box 配置�
 
 ## 顶层结构
 
-本指南讲解如何组织和验证配置。逐字段查阅请使用自动生成的[通用配置](/sail/zh/reference/common/)、[入站配置](/sail/zh/reference/inbounds/)、[出站与策略组](/sail/zh/reference/outbounds/)及[传输层配置](/sail/zh/reference/transport/)。参考页随源码重新生成，不包含内部 Rust API。
+本指南讲解如何组织和验证配置。逐字段查阅请使用自动生成的参考：[顶层与通用](/sail/zh/reference/common/)、[DNS](/sail/zh/reference/dns/)、[入站](/sail/zh/reference/inbounds/)、[出站与策略组](/sail/zh/reference/outbounds/)、[端点](/sail/zh/reference/endpoints/)、[路由](/sail/zh/reference/route/)及[共用对象](/sail/zh/reference/shared/)，并标明每个字段相对 sing-box 的状态；Clash 与 Surge 的支持表见[兼容性](/sail/zh/reference/compatibility/)。
 
 | 字段 | 用途 | 默认值 |
 | --- | --- | --- |
