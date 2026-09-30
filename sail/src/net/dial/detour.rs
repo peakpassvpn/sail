@@ -295,6 +295,7 @@ mod tests {
         .unwrap();
     }
 
+    #[cfg(all(feature = "inbound-vless", feature = "inbound-reality"))]
     #[test]
     fn a_handshake_resolves_with_a_dns_server_that_exists() {
         let err = config(serde_json::json!({ "inbounds": [{
