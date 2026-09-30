@@ -139,6 +139,13 @@ async fn serve_mux(
         }
     };
     debug!("mux connection from {}", sess.source);
+    // Closed with its user's connections, when the user is shut out or
+    // taken out of the inbound.
+    let closer = server.closer();
+    let _carrier = sess
+        .user
+        .as_ref()
+        .map(|user| user.carry(&inbound_tag, closer));
     while let Some(stream) = server.accept().await {
         let mut sess = stream_session(&sess);
         let inbound_tag = inbound_tag.clone();

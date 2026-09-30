@@ -84,7 +84,11 @@ impl InboundStreamHandler for Handler {
             None => reading.await?,
         };
         let user = match complete {
-            true => self.users.get(&hash).ok_or("anytls: unknown user"),
+            true => self
+                .users
+                .get(&hash)
+                .filter(|user| !crate::user::shut_out(user))
+                .ok_or("anytls: unknown user"),
             false => Err("anytls: not an AnyTLS request"),
         };
         let user = match user {
@@ -109,6 +113,16 @@ impl InboundStreamHandler for Handler {
         );
         let (session, mut streams) =
             Session::server(stream, self.padding.clone(), self.tuning, &label);
+        // Closed with its user's connections, when the user is shut out
+        // or taken out of the inbound.
+        let carrier = sess.user.as_ref().map(|user| {
+            let session = Arc::downgrade(&session);
+            user.carry(&sess.inbound_tag, move || {
+                if let Some(session) = session.upgrade() {
+                    session.close();
+                }
+            })
+        });
         // Holds the session only while a stream is being handed out: the
         // `Incoming` keeps it, and each stream its own.
         let weak = Arc::downgrade(&session);
@@ -124,6 +138,7 @@ impl InboundStreamHandler for Handler {
         Ok(InboundTransport::Incoming(Box::new(Incoming {
             rx,
             _session: session,
+            _carrier: carrier,
         })))
     }
 }
@@ -174,6 +189,7 @@ struct Incoming {
     rx: mpsc::Receiver<AnyBaseInboundTransport>,
     /// Kept for as long as streams may come.
     _session: Arc<Session>,
+    _carrier: Option<crate::user::Carrier>,
 }
 
 impl FuturesStream for Incoming {

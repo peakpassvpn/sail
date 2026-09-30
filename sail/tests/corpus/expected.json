@@ -1043,7 +1043,7 @@
     "error": "dns.fakeip: unknown field `fakeip`, expected one of `servers`, `rules`, `final`, `strategy`, `client_strategy`, `disable_cache`, `disable_expire`, `cache_capacity`, `optimistic`, `timeout`, `reverse_mapping`, `client_subnet`"
   },
   "sing-box/0101.json": {
-    "error": "providers: unknown field `providers`, expected one of `log`, `dns`, `inbounds`, `outbounds`, `endpoints`, `route`, `api`, `clash_api`, `experimental`, `certificate`, `http_clients`, `outbound_providers`"
+    "error": "providers: unknown field `providers`, expected one of `log`, `dns`, `inbounds`, `outbounds`, `endpoints`, `route`, `api`, `clash_api`, `experimental`, `certificate`, `http_clients`, `outbound_providers`, `user_limits`"
   },
   "sing-box/0102.json": {
     "error": "route.rule_set[0]: url: several tags need {tag} in it"

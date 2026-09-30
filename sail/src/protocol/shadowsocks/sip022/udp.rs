@@ -394,7 +394,12 @@ impl Server {
     fn user_psk(&self, user: Option<[u8; EIH_LEN]>) -> io::Result<&[u8]> {
         match (user, &self.users) {
             (None, _) => Ok(&self.psk),
-            (Some(hash), Some(users)) => Ok(&users.find(&hash).ok_or_else(crypto_err)?.1.psk),
+            (Some(hash), Some(users)) => Ok(&users
+                .find(&hash)
+                .filter(|(_, user)| !crate::user::shut_out(&user.name))
+                .ok_or_else(crypto_err)?
+                .1
+                .psk),
             (Some(_), None) => Err(crypto_err()),
         }
     }

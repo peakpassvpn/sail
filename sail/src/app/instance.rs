@@ -121,6 +121,8 @@ impl Instance {
                 Err(e) => tracing::warn!("cache_file: traffic not read: {:#}", e),
             }
         }
+        env.users
+            .set_limits(crate::user::UserRegistry::configured(config));
         let dispatcher = Arc::new(Dispatcher::new(
             outbound_manager.clone(),
             router.clone(),
@@ -200,10 +202,10 @@ impl Instance {
     /// start before the system is touched; then the TUN device, and the
     /// routes into it. Returns what runs the instance.
     pub fn start(&mut self) -> Result<Vec<Runner>> {
-        let mut runners = vec![StatManager::store_task(
-            self.stat_manager.clone(),
-            self.env.clone(),
-        )];
+        let mut runners = vec![
+            StatManager::store_task(self.stat_manager.clone(), self.env.clone()),
+            self.env.users.expiry_task(),
+        ];
         let inbound_manager = self.inbound_manager.clone();
         let mut inbounds = inbound_manager.lock().unwrap_or_else(|e| e.into_inner());
         inbounds.start_network_listeners()?;

@@ -44,6 +44,8 @@ const UDP_SESSION_IDLE: Duration = Duration::from_secs(300);
 
 /// What every connection of the inbound is served with.
 pub struct Server {
+    /// The inbound's tag.
+    pub tag: String,
     /// Users by password, with their names.
     pub users: HashMap<String, Option<crate::user::UserRef>>,
     /// What we send at most at to a client, bytes per second; zero if
@@ -178,6 +180,7 @@ impl Conn {
             conn: conn.clone(),
             congestion,
             user: OnceLock::new(),
+            carrier: OnceLock::new(),
             udp_started: AtomicBool::new(false),
             start_udp: Notify::new(),
             sessions: Arc::new(UdpSessions::default()),
@@ -217,6 +220,8 @@ struct ConnState {
     congestion: CongestionHandle,
     /// Set once the connection authenticated: the user, by name.
     user: OnceLock<Option<crate::user::UserRef>>,
+    /// Closes the connection when the user is shut out, or taken out.
+    carrier: OnceLock<crate::user::Carrier>,
     udp_started: AtomicBool,
     /// Tells the connection to serve UDP, once authenticated.
     start_udp: Notify,
@@ -281,7 +286,8 @@ impl ConnState {
             .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "request headers"))??;
         if is_auth_request(&fields) {
             let password = h3::field(&fields, proto::HEADER_AUTH).unwrap_or_default();
-            if let Some(user) = self.server.users.get(password) {
+            let user = self.server.users.get(password);
+            if let Some(user) = user.filter(|user| !crate::user::shut_out(user)) {
                 return self.authenticated(user.clone(), &fields, send).await;
             }
         }
@@ -297,6 +303,12 @@ impl ConnState {
         mut send: quinn::SendStream,
     ) -> io::Result<()> {
         let server = &self.server;
+        if let Some(user) = &user {
+            let conn = self.conn.clone();
+            let _ = self
+                .carrier
+                .set(user.carry(&server.tag, move || conn.close(0u32.into(), b"")));
+        }
         let _ = self.user.set(user);
         // As the reference server: we send at what the client says it can
         // receive, capped by what we may send at; not knowing, BBR.
@@ -599,6 +611,7 @@ mod tests {
         let crypto = server_crypto(&cert.pem(), &key_pair.serialize_pem(), &alpns).unwrap();
         let config = server_config(crypto).unwrap();
         let server = Arc::new(Server {
+            tag: "hy2".into(),
             users: [(
                 "pw".to_string(),
                 Some(crate::user::UserRef::unbound("alice")),
@@ -800,5 +813,28 @@ mod tests {
         let (n, _, destination) = r.recv_from(&mut buf).await.ok().unwrap();
         assert_eq!(&buf[..n], b"query");
         assert_eq!(destination.to_string(), "1.2.3.4:53");
+    }
+
+    /// Disconnecting the user closes its QUIC connection, which carries
+    /// its streams, so that the client connects again.
+    #[tokio::test]
+    async fn disconnecting_the_user_closes_its_connection() {
+        let mut f = serve(Masquerade::NotFound).await;
+        let conn = f.connect().await;
+        let (headers, _) = request(&conn, &auth("pw")).await;
+        assert_eq!(h3::field(&headers, ":status"), Some("233"));
+        let (mut send, mut recv) = conn.open_bi().await.unwrap();
+        let destination = SocksAddr::try_from(("example.com", 443)).unwrap();
+        send.write_all(&proto::tcp_request(&destination, b""))
+            .await
+            .unwrap();
+        proto::read_tcp_response(&mut recv).await.unwrap();
+        let Some(BaseInboundTransport::Stream(_, sess)) = f.incoming.next().await else {
+            panic!("no stream");
+        };
+        sess.user.unwrap().disconnect();
+        tokio::time::timeout(Duration::from_secs(5), conn.closed())
+            .await
+            .expect("the connection is closed");
     }
 }

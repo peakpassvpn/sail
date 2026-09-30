@@ -327,6 +327,28 @@ impl InboundManager {
         for (resource, generation) in prepared.updates {
             resource.publish(generation);
         }
+        // A user taken out of an inbound loses what it has through it at
+        // once: its credential no longer lets it in, and what it opened
+        // with it goes too, carriers included.
+        let users = &self.dispatcher.env().users;
+        for (tag, old) in &self.configs {
+            let Some(new) = prepared.configs.get(tag) else {
+                continue;
+            };
+            let kept = new.user_names();
+            for name in &kept {
+                users.restore_to(name, tag);
+            }
+            for name in old.user_names().difference(&kept) {
+                let closed = users.remove_from(name, tag);
+                tracing::info!(
+                    "[{}] inbound: user [{}] removed; {} connections closed",
+                    tag,
+                    name,
+                    closed
+                );
+            }
+        }
         self.configs = prepared.configs;
     }
 
@@ -539,6 +561,109 @@ pub(crate) fn plan_listeners<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A user taken out of an inbound loses what it has through it, the
+    /// connections it carries others on too; not what it has through
+    /// another inbound, nor what other users have.
+    #[cfg(all(feature = "inbound-trojan", feature = "outbound-direct"))]
+    #[tokio::test]
+    async fn a_user_taken_out_of_an_inbound_is_disconnected_from_it() {
+        use crate::session::Session;
+        use serde_json::json;
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        let trojan = |tag: &str, users: serde_json::Value| json!({"type": "trojan", "tag": tag, "listen_port": 0, "users": users});
+        let config = config::Config::from_json(
+            &json!({
+                "inbounds": [
+                    trojan("t", json!([{"name": "alice", "password": "a"},
+                                       {"name": "bob", "password": "b"}])),
+                    trojan("t2", json!([{"name": "alice", "password": "a2"}])),
+                ],
+                "outbounds": [{"type": "direct"}]
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let instance =
+            crate::app::instance::Instance::build(&config, Arc::default(), Arc::default()).unwrap();
+        let users = &instance.env.users;
+        let (alice, bob) = (users.bind("alice"), users.bind("bob"));
+        let connect = |user: &crate::user::UserRef, inbound: &str| {
+            let (a, b) = tokio::io::duplex(64);
+            std::mem::forget(b);
+            let sess = Session {
+                user: Some(user.clone()),
+                inbound_tag: inbound.into(),
+                ..Default::default()
+            };
+            instance.stat_manager.stat_stream(Box::new(a), sess)
+        };
+        let _conns = [
+            connect(&alice, "t"),
+            connect(&alice, "t2"),
+            connect(&bob, "t"),
+        ];
+        let carried = Arc::new(AtomicBool::new(false));
+        let _carrier = {
+            let carried = carried.clone();
+            alice.carry("t", move || carried.store(true, Ordering::SeqCst))
+        };
+
+        let mut without_alice = config.inbounds[0].clone();
+        without_alice
+            .options
+            .insert("users".into(), json!([{"name": "bob", "password": "b"}]));
+        {
+            let mut manager = instance.inbound_manager.lock().unwrap();
+            let prepared = manager.prepare_update_resources(&without_alice).unwrap();
+            manager.publish_resources(prepared);
+        }
+        let closed: Vec<_> = instance
+            .stat_manager
+            .connections()
+            .iter()
+            .map(|c| {
+                (
+                    c.sess.inbound_tag.clone(),
+                    crate::user::name(&c.sess.user).unwrap().to_owned(),
+                    c.closer.is_closed(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            closed,
+            [
+                ("t".to_owned(), "alice".to_owned(), true),
+                ("t2".to_owned(), "alice".to_owned(), false),
+                ("t".to_owned(), "bob".to_owned(), false),
+            ]
+        );
+        assert!(carried.load(Ordering::SeqCst));
+        // Still a user, through the other inbound; not through this one,
+        // even on a session a transport kept with the old credentials.
+        assert!(alice.active());
+        assert!(!alice.admits("t"));
+        assert!(alice.admits("t2"));
+        let refused = connect(&alice, "t");
+        assert!(instance
+            .stat_manager
+            .connections()
+            .last()
+            .unwrap()
+            .closer
+            .is_closed());
+        drop(refused);
+        // Put back, and let in again.
+        {
+            let mut manager = instance.inbound_manager.lock().unwrap();
+            let prepared = manager
+                .prepare_update_resources(&config.inbounds[0])
+                .unwrap();
+            manager.publish_resources(prepared);
+        }
+        assert!(alice.admits("t"));
+    }
 
     #[cfg(all(feature = "inbound-vmess", feature = "outbound-direct"))]
     #[tokio::test]

@@ -117,7 +117,8 @@ fn exercise(port: u16) -> Result<()> {
         json!({
             "inbounds": [
                 {"type":"trojan", "tag":"server", "listen":"127.0.0.1", "listen_port":port,
-                 "users":[{"name":password,"password":password}],
+                 "users":[{"name":password,"password":password},
+                          {"name":"keeper","password":"keeper"}],
                  "tls":{"enabled":true,"certificate_path":cert_path,"key_path":key_path}},
                 {"type":"vless", "tag":"guard", "users":[{"name":"guard","uuid":UUID}]}
             ],
@@ -149,6 +150,10 @@ fn exercise(port: u16) -> Result<()> {
     let old_cert = peer(&old)?;
     authenticate(&mut old, "alice", destination)?;
     ping(&mut old)?;
+    // A user every configuration keeps keeps its connection.
+    let mut kept = connect(port)?;
+    authenticate(&mut kept, "keeper", destination)?;
+    ping(&mut kept)?;
     // Already handshaking, not authenticated yet: retain the old pair.
     let mut pending = connect(port)?;
     save(&config("bob"))?;
@@ -160,9 +165,18 @@ fn exercise(port: u16) -> Result<()> {
     ensure!(new_cert != old_cert, "certificate did not rotate");
     authenticate(&mut current, "bob", destination)?;
     ping(&mut current)?;
-    ping(&mut old)?;
+    ping(&mut kept)?;
+    // A user taken out is revoked at once: its connection is closed, and
+    // a handshake it had begun under the old users gets no further.
+    ensure!(
+        ping(&mut old).is_err(),
+        "a removed user's connection outlived it"
+    );
     authenticate(&mut pending, "alice", destination)?;
-    ping(&mut pending)?;
+    ensure!(
+        ping(&mut pending).is_err(),
+        "a removed user's handshake in progress got through"
+    );
     let mut removed = connect(port)?;
     authenticate(&mut removed, "alice", destination)?;
     ensure!(
@@ -197,7 +211,7 @@ fn exercise(port: u16) -> Result<()> {
     );
     authenticate(&mut unchanged, "bob", destination)?;
     ping(&mut unchanged)?;
-    ping(&mut old)?;
+    ping(&mut kept)?;
     std::fs::write(&key_path, second.key_pair.serialize_pem())?;
     // Resources built successfully, but a later outbound build fails.
     // Nothing from the staged inbound generation may leak through.
@@ -232,7 +246,11 @@ fn exercise(port: u16) -> Result<()> {
     let mut changed = connect(port)?;
     authenticate(&mut changed, "charlie", destination)?;
     ping(&mut changed)?;
-    ping(&mut current)?;
+    ping(&mut kept)?;
+    ensure!(
+        ping(&mut current).is_err(),
+        "a user the host API took out kept its connection"
+    );
 
     // Identical configuration paths still re-read replaced PEM contents.
     save(&config("charlie"))?;
@@ -255,7 +273,10 @@ fn exercise(port: u16) -> Result<()> {
         ping(&mut revoked).is_err(),
         "empty table still authenticates users"
     );
-    ping(&mut changed)?;
+    ensure!(
+        ping(&mut changed).is_err() && ping(&mut kept).is_err(),
+        "an emptied table's users kept their connections"
+    );
     Ok(())
 }
 

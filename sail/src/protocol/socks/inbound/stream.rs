@@ -215,10 +215,10 @@ impl Handler {
             stream.read_exact(&mut buf[..]).await?;
             let password = String::from_utf8_lossy(&buf).to_string();
 
-            let accepted = self
-                .users
-                .get(&username)
-                .filter(|(expected, _)| constant_time_eq(expected.as_bytes(), password.as_bytes()));
+            let accepted = self.users.get(&username).filter(|(expected, user)| {
+                constant_time_eq(expected.as_bytes(), password.as_bytes())
+                    && !crate::user::shut_out(user)
+            });
             if let Some((_, user)) = accepted {
                 stream.write_all(&[0x01, 0x00]).await?;
                 sess.user = user.clone();

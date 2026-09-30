@@ -200,7 +200,7 @@ fn authenticate(
     let decoded = String::from_utf8(decoded).ok()?;
     let (username, password) = decoded.split_once(':')?;
     let (expected, user) = users.get(username)?;
-    if constant_time_eq(expected.as_bytes(), password.as_bytes()) {
+    if constant_time_eq(expected.as_bytes(), password.as_bytes()) && !crate::user::shut_out(user) {
         Some(user.clone())
     } else {
         None

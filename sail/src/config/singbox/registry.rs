@@ -841,6 +841,11 @@ const EXTENSIONS: &[(&str, &str, &str)] = &[
         "[]",
         "Outbounds given together, downloaded or in place, for groups to take (Mihomo's proxy-providers)",
     ),
+    (
+        "user_limits",
+        "{}",
+        "What each user, by name, may do across its inbounds: `max_connections`, `quota_bytes` (up and down together; needs `cache_file`) and `expire_at`",
+    ),
     ("log.format", r#""compact""#, "`compact` writes the message alone"),
     (
         "dns.client_strategy",

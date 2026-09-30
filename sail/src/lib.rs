@@ -592,6 +592,10 @@ impl RuntimeManager {
         self.set_clash_view(&config);
         self.set_assets(&config);
         inbounds.publish_resources(inbound_resources);
+        // The users the new inbounds bound are limited as configured now.
+        self.env
+            .users
+            .set_limits(user::UserRegistry::configured(&config));
         #[cfg(feature = "auto-reload")]
         {
             *self.watcher.lock().unwrap_or_else(|e| e.into_inner()) = watcher;

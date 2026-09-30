@@ -166,6 +166,10 @@ pub struct Config {
     /// Mihomo's proxy groups take a proxy-provider's proxies.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub outbound_providers: Vec<OutboundProvider>,
+    /// A sail extension: what each user, by name, may do across every
+    /// inbound it is in.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub user_limits: BTreeMap<String, UserLimits>,
     /// What the configuration sets that sail ignores, one line each; the
     /// start logs them.
     #[serde(skip)]
@@ -332,6 +336,96 @@ pub struct Experimental {
     /// configuration is validated.
     #[serde(default, skip_serializing)]
     pub clash_api: Option<ClashApi>,
+}
+
+/// A user's limits in `user_limits`. A field left out limits nothing; none
+/// may be 0.
+#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct UserLimits {
+    /// How many connections it may have live at once.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_connections: Option<u32>,
+    /// How many bytes, up and down together, it may send and receive; kept
+    /// across restarts in the cache file, which it needs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quota_bytes: Option<u64>,
+    /// When it may no longer connect, in RFC 3339.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expire_at: Option<String>,
+}
+
+impl UserLimits {
+    /// `expire_at`, once `Config::validate` checked it.
+    pub fn expire_at(&self) -> Option<chrono::DateTime<chrono::Utc>> {
+        self.expire_at
+            .as_deref()
+            .and_then(|at| chrono::DateTime::parse_from_rfc3339(at).ok())
+            .map(|at| at.with_timezone(&chrono::Utc))
+    }
+
+    fn check(&self, name: &str) -> Result<()> {
+        let field = |f: &str| format!("user_limits.{}.{}", name, f);
+        if self.max_connections == Some(0) {
+            return Err(anyhow!(
+                "{}: must be more than 0; leave it out for no limit",
+                field("max_connections")
+            ));
+        }
+        if self.quota_bytes == Some(0) {
+            return Err(anyhow!(
+                "{}: must be more than 0; leave it out for no limit",
+                field("quota_bytes")
+            ));
+        }
+        if let Some(at) = &self.expire_at {
+            chrono::DateTime::parse_from_rfc3339(at).map_err(|e| {
+                anyhow!(
+                    "{}: {:?} is not an RFC 3339 time: {}",
+                    field("expire_at"),
+                    at,
+                    e
+                )
+            })?;
+        }
+        Ok(())
+    }
+}
+
+/// The strings `fields` of the entries of the list `list`.
+fn named<'a>(
+    list: Option<&'a serde_json::Value>,
+    fields: &'a [&'a str],
+) -> impl Iterator<Item = &'a str> + 'a {
+    list.and_then(|v| v.as_array())
+        .into_iter()
+        .flatten()
+        .flat_map(move |user| fields.iter().filter_map(move |f| user.get(*f)?.as_str()))
+        .filter(|name| !name.is_empty())
+}
+
+impl Inbound {
+    /// The names of the users it authenticates: `users[].name`, or
+    /// `users[].username` for HTTP, SOCKS and mixed.
+    pub fn user_names(&self) -> HashSet<&str> {
+        named(self.options.get("users"), &["name", "username"]).collect()
+    }
+}
+
+/// The names of the users `inbounds` and `endpoints` authenticate: the
+/// inbounds' and a WireGuard peer's `public_key`, which names what comes
+/// in from it.
+fn user_names<'a>(inbounds: &'a [Inbound], endpoints: &'a [Endpoint]) -> HashSet<&'a str> {
+    inbounds
+        .iter()
+        .flat_map(|i| i.user_names())
+        .chain(
+            endpoints
+                .iter()
+                .filter(|e| e.protocol == "wireguard")
+                .flat_map(|e| named(e.options.get("peers"), &["public_key"])),
+        )
+        .collect()
 }
 
 /// sing-box's `cache_file`: what is kept across restarts. The selections
@@ -2775,6 +2869,37 @@ impl Config {
         Ok(())
     }
 
+    /// Each user `user_limits` names is one an inbound has, and its limits
+    /// are sound. A quota needs the cache file: a restart would otherwise
+    /// forget what was used, and give the quota again.
+    fn check_user_limits(&self) -> Result<()> {
+        if self.user_limits.is_empty() {
+            return Ok(());
+        }
+        let names = user_names(&self.inbounds, &self.endpoints);
+        let cache_file = self
+            .experimental
+            .cache_file
+            .as_ref()
+            .is_some_and(|c| c.enabled);
+        for (name, limits) in &self.user_limits {
+            if !names.contains(name.as_str()) {
+                return Err(anyhow!(
+                    "user_limits.{}: no inbound has a user of that name",
+                    name
+                ));
+            }
+            limits.check(name)?;
+            if limits.quota_bytes.is_some() && !cache_file {
+                return Err(anyhow!(
+                    "user_limits.{}.quota_bytes: needs experimental.cache_file enabled, or a restart forgets what was used",
+                    name
+                ));
+            }
+        }
+        Ok(())
+    }
+
     /// Fills in what the configuration leaves to defaults, and checks what
     /// can be checked without building anything.
     pub fn validate(&mut self) -> Result<()> {
@@ -2797,6 +2922,7 @@ impl Config {
                 ));
             }
         }
+        self.check_user_limits()?;
         self.dns.validate()?;
         if self.dns.timeout == Some(std::time::Duration::ZERO) {
             return Err(anyhow!("dns.timeout: must be more than 0"));

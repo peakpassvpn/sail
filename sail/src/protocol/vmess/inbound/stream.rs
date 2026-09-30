@@ -59,7 +59,18 @@ impl InboundStreamHandler for Handler {
         mut stream: AnyStream,
     ) -> io::Result<AnyInboundTransport> {
         tracing::trace!("handling inbound stream");
-        let (user, request) = match self.auth.read_request(&mut stream).await {
+        let read =
+            self.auth
+                .read_request(&mut stream)
+                .await
+                .and_then(|read| match crate::user::shut_out(&read.0.data) {
+                    false => Ok(read),
+                    true => Err(io::Error::new(
+                        io::ErrorKind::PermissionDenied,
+                        "unknown user",
+                    )),
+                });
+        let (user, request) = match read {
             Ok(request) => request,
             Err(e) => {
                 if e.kind() != io::ErrorKind::UnexpectedEof {

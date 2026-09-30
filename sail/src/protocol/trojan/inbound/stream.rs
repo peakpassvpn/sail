@@ -188,7 +188,11 @@ impl InboundStreamHandler for Handler {
             None => reading.await?,
         };
         let user = match complete {
-            true => self.keys.get(&auth[..KEY_LEN]).ok_or("unknown password"),
+            true => self
+                .keys
+                .get(&auth[..KEY_LEN])
+                .filter(|user| !crate::user::shut_out(user))
+                .ok_or("unknown password"),
             false => Err("not a Trojan request"),
         };
         let user = match user {

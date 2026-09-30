@@ -378,6 +378,7 @@ impl Accounts {
         self.counter.bytes_sent.fetch_add(n, Ordering::Relaxed);
         if let Some(user) = &self.user {
             user.traffic().add_up(n);
+            user.check_quota();
         }
         self.inbound.up.add(n);
         self.outbound.up.add(n);
@@ -391,6 +392,7 @@ impl Accounts {
             .store(get_unix_timestamp(), Ordering::Relaxed);
         if let Some(user) = &self.user {
             user.traffic().add_down(n);
+            user.check_quota();
         }
         self.inbound.down.add(n);
         self.outbound.down.add(n);
@@ -401,6 +403,9 @@ impl Drop for Accounts {
     fn drop(&mut self) {
         self.counter.recv_completed.store(true, Ordering::Relaxed);
         self.counter.send_completed.store(true, Ordering::Relaxed);
+        if let Some(user) = &self.user {
+            user.leave(self.counter.id);
+        }
         self.table.retire(self.counter.id);
     }
 }
@@ -737,6 +742,18 @@ impl StatManager {
         }
         let counter = Arc::new(Counter::new(id, sess));
         self.table.shard(id).live.insert(id, counter.clone());
+        if let Some(user) = &user {
+            if !user.admit(&counter) {
+                // Closed at once: shut out, or at its limit, since it
+                // was dispatched.
+                debug!(
+                    "user [{}]: connection refused: {} live, or shut out",
+                    user,
+                    user.live()
+                );
+                counter.closer.close();
+            }
+        }
         Accounts {
             counter,
             user,

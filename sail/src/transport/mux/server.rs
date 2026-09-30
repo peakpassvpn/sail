@@ -58,6 +58,18 @@ impl Server {
         Ok(Server { inner })
     }
 
+    /// What ends the connection and its streams, as a user shut out has
+    /// it closed.
+    pub fn closer(&self) -> Box<dyn Fn() + Send + Sync> {
+        match &self.inner {
+            Inner::Frames { _session, .. } => Box::new(_session.closer()),
+            Inner::H2(handle, _) => {
+                let handle = handle.clone();
+                Box::new(move || handle.abort())
+            }
+        }
+    }
+
     /// The next stream the client opens; `None` once the connection is
     /// done.
     pub async fn accept(&mut self) -> Option<AnyStream> {

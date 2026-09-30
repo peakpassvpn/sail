@@ -616,6 +616,16 @@ impl Session {
         self.shared.abort("closed");
     }
 
+    /// What closes the session, as `close` does, without keeping it.
+    pub fn closer(&self) -> impl Fn() + Send + Sync + 'static {
+        let shared = Arc::downgrade(&self.shared);
+        move || {
+            if let Some(shared) = shared.upgrade() {
+                shared.abort("closed");
+            }
+        }
+    }
+
     /// Takes no new streams, and ends the session once the last stream is
     /// done.
     pub fn retire(&self) {

@@ -17,7 +17,7 @@ pub mod singbox;
 #[cfg(feature = "config-surge")]
 pub mod surge;
 
-pub use model::{Config, Dns, Inbound, Log, Outbound, Route, Rule};
+pub use model::{Config, Dns, Inbound, Log, Outbound, Route, Rule, UserLimits};
 
 /// A configuration format.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

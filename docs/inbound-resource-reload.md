@@ -45,7 +45,13 @@ handshake. Its users and certificate cannot come from different generations.
 Existing connections and handshakes already in progress continue with
 their generation. Existing AnyTLS, gRPC, AMUX, QUIC and sing-mux sessions may also
 open new logical streams under that session's original generation.
-Removing a user is **not** active session revocation; that is separate work.
+Removing a user from an inbound revokes it there at once, which differs
+from sing-box: the connections it has through that inbound are closed,
+the QUIC, AnyTLS and sing-mux connections carrying its streams too, and
+any stream it would still open under the old generation (a gRPC, AMUX or
+QUIC-transport session kept open) is refused when it is dispatched. Its
+connections through other inbounds are kept. Adding it back lets it in
+again.
 An empty tunnel-protocol user table authenticates nobody new (configured
 fallback behavior is retained). **HTTP, SOCKS and mixed retain their existing
 configuration semantics: an empty user table enables anonymous access.**

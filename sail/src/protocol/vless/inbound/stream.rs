@@ -44,6 +44,7 @@ impl Handler {
         let user = self
             .users
             .get(&request.uuid)
+            .filter(|user| !crate::user::shut_out(&user.name))
             .ok_or_else(|| "unknown user".to_string())?;
         let flow = Flow::parse(&request.flow)?;
         // As Xray has it: a Vision user may leave the flow out only for UDP,

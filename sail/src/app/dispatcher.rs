@@ -391,6 +391,9 @@ impl Dispatcher {
     where
         T: 'static + AsyncRead + AsyncWrite + Unpin + Send + Sync,
     {
+        if !admitted(&sess) {
+            return;
+        }
         // Routing, which may sniff and resolve, runs in a future of its own
         // that is freed once it decides: the one relaying for the life of
         // the connection does not keep room for it.
@@ -590,6 +593,12 @@ impl Dispatcher {
             "dispatch proto={} in={} src={} dst={}",
             &sess.network, &sess.inbound_tag, &sess.source, &sess.destination
         );
+        if !admitted(&sess) {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "the user may not connect",
+            ));
+        }
 
         if let Some(domain) = sess.destination.domain() {
             if domain == "healthcheck.sail" {
@@ -823,6 +832,19 @@ impl Dispatcher {
         } else {
             false
         }
+    }
+}
+
+/// Whether the user of `sess`, if any, may have another connection: not
+/// shut out by `user_limits`, nor at its most. Checked before routing and
+/// dialing; the statistics decide once the connection is counted.
+fn admitted(sess: &Session) -> bool {
+    match &sess.user {
+        Some(user) if !user.admits(&sess.inbound_tag) => {
+            debug!("user [{}]: connection refused: {}", user, user.status());
+            false
+        }
+        _ => true,
     }
 }
 

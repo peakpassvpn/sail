@@ -54,6 +54,8 @@ pub struct User {
 }
 
 struct Settings {
+    /// The inbound's tag.
+    tag: String,
     users: HashMap<[u8; 16], User>,
     auth_timeout: Duration,
     zero_rtt: bool,
@@ -70,7 +72,9 @@ pub(crate) struct Resources {
 }
 
 impl Server {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
+        tag: &str,
         users: HashMap<[u8; 16], User>,
         mut crypto: quinn_btls::ServerConfig,
         congestion: CongestionControl,
@@ -91,6 +95,7 @@ impl Server {
             resource: crate::runtime::resource::HotResource::new(Resources {
                 server_config,
                 settings: Arc::new(Settings {
+                    tag: tag.to_owned(),
                     users,
                     auth_timeout,
                     zero_rtt,
@@ -176,6 +181,8 @@ struct Conn {
     settings: Arc<Settings>,
     /// Set once, when `Authenticate` checks out.
     auth: watch::Sender<Option<Authed>>,
+    /// Closes the connection when the user is shut out, or taken out.
+    carrier: std::sync::OnceLock<crate::user::Carrier>,
     associations: Mutex<HashMap<u16, Association>>,
     activity: Activity,
     accepted: mpsc::Sender<AnyBaseInboundTransport>,
@@ -219,6 +226,7 @@ async fn serve(
         local_addr,
         settings: settings.clone(),
         auth: watch::Sender::new(None),
+        carrier: std::sync::OnceLock::new(),
         associations: Mutex::new(HashMap::new()),
         activity: Activity::default(),
         accepted,
@@ -344,7 +352,8 @@ impl Conn {
         }
         let mut uuid = [0u8; 16];
         uuid.copy_from_slice(&body[..16]);
-        let Some(user) = self.settings.users.get(&uuid) else {
+        let user = self.settings.users.get(&uuid);
+        let Some(user) = user.filter(|user| !crate::user::shut_out(&user.name)) else {
             return Err(fail("unknown user"));
         };
         let expected = token(&self.conn, &uuid, &user.password)?;
@@ -356,6 +365,12 @@ impl Conn {
             self.remote,
             user.name
         );
+        if let Some(name) = &user.name {
+            let conn = self.conn.clone();
+            let _ = self.carrier.set(name.carry(&self.settings.tag, move || {
+                conn.close(quinn::VarInt::from_u32(0), b"")
+            }));
+        }
         self.auth.send_replace(Some(user.name.clone()));
         Ok(())
     }

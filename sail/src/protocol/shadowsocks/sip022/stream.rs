@@ -198,7 +198,10 @@ where
             let aes =
                 AesBlock::new(&identity_subkey(&config.psk, &salt)).map_err(|_| crypto_err())?;
             aes.decrypt(&mut eih)?;
-            let (_, user) = users.find(&eih).ok_or_else(|| bad("unknown user"))?;
+            let (_, user) = users
+                .find(&eih)
+                .filter(|(_, user)| !crate::user::shut_out(&user.name))
+                .ok_or_else(|| bad("unknown user"))?;
             (user.psk.clone(), user.name.clone())
         }
     };

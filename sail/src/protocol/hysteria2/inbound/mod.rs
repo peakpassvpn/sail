@@ -108,6 +108,7 @@ fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
     };
 
     let server = Arc::new(Server {
+        tag: tag.to_owned(),
         users,
         send_bps: options.up_mbps.unwrap_or(0) * MBPS_TO_BPS,
         recv_bps: options.down_mbps.unwrap_or(0) * MBPS_TO_BPS,

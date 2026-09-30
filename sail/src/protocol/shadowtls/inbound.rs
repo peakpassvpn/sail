@@ -296,7 +296,13 @@ impl InboundStreamHandler for Handler {
         let name = server_name(&hello)
             .ok_or_else(|| denied("the first record is not a ClientHello".into()))?;
         let (target, other) = self.targets(&name);
-        let user = authenticate(&hello, self.users.iter().map(|(_, p)| p.as_slice()));
+        let user =
+            authenticate(&hello, self.users.iter().map(|(_, p)| p.as_slice())).and_then(|i| {
+                match crate::user::shut_out(&self.users[i].0) {
+                    false => Ok(i),
+                    true => Err("no user's password signed it"),
+                }
+            });
         let (user, password) = match user {
             Ok(i) => (&self.users[i].0, &self.users[i].1),
             Err(why) => {

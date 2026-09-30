@@ -84,6 +84,7 @@ fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
         &alpn_protocols(tls.alpn.as_ref(), DEFAULT_ALPN),
     )?;
     let server = Server::new(
+        tag,
         users,
         crypto,
         options.congestion_control,

@@ -24,6 +24,15 @@ use std::{net::SocketAddr, sync::Arc, time::Duration};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 const UUID: &str = "90ee4432-671e-4ec8-8512-15d5fd0f8eab";
+/// The TUIC UUID of the user every configuration keeps.
+const KEEPER_UUID: &str = "5b0e7c8a-2f4d-4c1e-9a3b-7d6e8f9a0b1c";
+
+fn uuid(password: &str) -> &'static str {
+    match password {
+        "keeper" => KEEPER_UUID,
+        _ => UUID,
+    }
+}
 
 struct Running(Vec<sail::RuntimeId>);
 impl Drop for Running {
@@ -34,18 +43,25 @@ impl Drop for Running {
     }
 }
 
-fn inbound(protocol: &str, port: u16, password: &str, cert: &str, key: &str) -> Value {
-    let mut user = json!({"name":password,"password":password});
-    if protocol == "tuic" {
-        user["uuid"] = json!(UUID);
-    }
+/// The inbound, with a user named for each of `passwords`.
+fn inbound(protocol: &str, port: u16, passwords: &[&str], cert: &str, key: &str) -> Value {
+    let users: Vec<Value> = passwords
+        .iter()
+        .map(|password| {
+            let mut user = json!({"name":password,"password":password});
+            if protocol == "tuic" {
+                user["uuid"] = json!(uuid(password));
+            }
+            user
+        })
+        .collect();
     let wire_protocol = if protocol.starts_with("trojan-") {
         "trojan"
     } else {
         protocol
     };
     let mut inbound = json!({"type":wire_protocol,"tag":"server","listen":"127.0.0.1","listen_port":port,
-        "users":[user],"tls":{"enabled":true,"alpn":["h3"],"certificate":cert,"key":key}});
+        "users":users,"tls":{"enabled":true,"alpn":["h3"],"certificate":cert,"key":key}});
     if protocol == "trojan-quic" {
         inbound["transport"] = json!({"type":"quic"});
     }
@@ -70,7 +86,7 @@ fn client(
         "server_port":port,"password":password,
         "tls":{"enabled":true,"server_name":"localhost","alpn":["h3"],"certificate":cert}});
     if protocol == "tuic" {
-        outbound["uuid"] = json!(UUID);
+        outbound["uuid"] = json!(uuid(password));
     }
     if protocol == "trojan-quic" {
         outbound["transport"] = json!({"type":"quic"});
@@ -137,14 +153,14 @@ fn quic_users_and_certificates_rotate_without_disconnecting_sessions() -> Result
         let old = inbound(
             protocol,
             port,
-            "alice",
+            &["alice", "keeper"],
             &first.cert.pem(),
             &first.key_pair.serialize_pem(),
         );
         let new = inbound(
             protocol,
             port,
-            "bob",
+            &["bob", "keeper"],
             &second.cert.pem(),
             &second.key_pair.serialize_pem(),
         );
@@ -166,6 +182,13 @@ fn quic_users_and_certificates_rotate_without_disconnecting_sessions() -> Result
             let datagram = old_handler.datagram()?.handle(&sess, None).await?;
             let (mut recv, mut send) = datagram.split();
             udp_ping(&mut *recv, &mut *send, udp_address).await?;
+            // A user every configuration keeps keeps its sessions.
+            let (_kept_client, kept_handler) = client(protocol, port, "keeper", &first.cert.pem())?;
+            let mut kept_stream = open(&kept_handler, address).await?;
+            ping(&mut kept_stream).await?;
+            let datagram = kept_handler.datagram()?.handle(&sess, None).await?;
+            let (mut kept_recv, mut kept_send) = datagram.split();
+            udp_ping(&mut *kept_recv, &mut *kept_send, udp_address).await?;
 
             // A bad certificate/key pair must not publish the replacement users.
             let mut invalid = new.clone();
@@ -180,10 +203,26 @@ fn quic_users_and_certificates_rotate_without_disconnecting_sessions() -> Result
             manager
                 .update_inbound_resources(serde_json::from_value(new.clone())?)
                 .await?;
-            ping(&mut old_stream).await?;
-            udp_ping(&mut *recv, &mut *send, udp_address).await?;
+            ping(&mut kept_stream).await?;
+            udp_ping(&mut *kept_recv, &mut *kept_send, udp_address).await?;
             // More streams on an already authenticated connection retain its generation.
-            ping(&mut open(&old_handler, address).await?).await?;
+            ping(&mut open(&kept_handler, address).await?).await?;
+            // A user taken out is revoked at once: its sessions are closed,
+            // and so are new streams on the connection it authenticated.
+            ensure!(
+                ping(&mut old_stream).await.is_err(),
+                "a removed user's stream outlived it: {protocol}"
+            );
+            ensure!(
+                udp_ping(&mut *recv, &mut *send, udp_address).await.is_err(),
+                "a removed user's UDP outlived it: {protocol}"
+            );
+            ensure!(
+                async { ping(&mut open(&old_handler, address).await?).await }
+                    .await
+                    .is_err(),
+                "a removed user opened a stream on its old connection: {protocol}"
+            );
             let (_new_client, new_handler) = client(protocol, port, "bob", &second.cert.pem())?;
             ping(&mut open(&new_handler, address).await?).await?;
 
@@ -207,7 +246,10 @@ fn quic_users_and_certificates_rotate_without_disconnecting_sessions() -> Result
             manager
                 .update_inbound_resources(serde_json::from_value(empty)?)
                 .await?;
-            ping(&mut old_stream).await?;
+            ensure!(
+                ping(&mut kept_stream).await.is_err(),
+                "an emptied inbound's user kept its stream: {protocol}"
+            );
             let (_denied_client, denied) = client(protocol, port, "bob", &second.cert.pem())?;
             ensure!(async { ping(&mut open(&denied, address).await?).await }
                 .await
@@ -256,6 +298,7 @@ fn shadowsocks_reload(legacy: bool) -> Result<()> {
     let identity = psk(1);
     let alice = psk(2);
     let bob = psk(3);
+    let keeper = psk(4);
     let port = common::free_port();
     let method = if legacy {
         "aes-128-gcm"
@@ -270,8 +313,9 @@ fn shadowsocks_reload(legacy: bool) -> Result<()> {
         json!({"type":"shadowsocks","tag":"ss","listen":"127.0.0.1","listen_port":port,
         "method":"2022-blake3-aes-128-gcm","password":identity,"users":users})
     };
-    let old = inbound(json!([{"name":"alice","password":alice}]));
-    let new = inbound(json!([{"name":"bob","password":bob}]));
+    let old =
+        inbound(json!([{"name":"alice","password":alice},{"name":"keeper","password":keeper}]));
+    let new = inbound(json!([{"name":"bob","password":bob},{"name":"keeper","password":keeper}]));
     let rt = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
         .enable_all()
@@ -316,6 +360,15 @@ fn shadowsocks_reload(legacy: bool) -> Result<()> {
             .await?;
         let (mut recv, mut send) = udp.split();
         udp_ping(&mut *recv, &mut *send, udp_address).await?;
+        // A user every configuration keeps keeps its sessions; legacy
+        // Shadowsocks has one password and no users.
+        let (_kept, kept) = client(&keeper)?;
+        let mut kept_stream = None;
+        if !legacy {
+            let mut stream = connect(&kept, port, address).await?;
+            ping(&mut stream).await?;
+            kept_stream = Some(stream);
+        }
         let mut invalid = new.clone();
         if legacy { invalid["password"] = json!(12); }
         else { invalid["users"][0]["password"] = json!("invalid"); }
@@ -327,8 +380,20 @@ fn shadowsocks_reload(legacy: bool) -> Result<()> {
         manager
             .update_inbound_resources(serde_json::from_value(new.clone())?)
             .await?;
-        ping(&mut stream).await?;
-        udp_ping(&mut *recv, &mut *send, udp_address).await?;
+        if let Some(kept) = &mut kept_stream {
+            ping(kept).await?;
+            // A user taken out is revoked at once.
+            ensure!(ping(&mut stream).await.is_err(), "a removed user's stream outlived it");
+            ensure!(
+                udp_ping(&mut *recv, &mut *send, udp_address).await.is_err(),
+                "a removed user's UDP outlived it"
+            );
+        } else {
+            // Without users there is no one to revoke: what the old
+            // password opened goes on.
+            ping(&mut stream).await?;
+            udp_ping(&mut *recv, &mut *send, udp_address).await?;
+        }
         ensure!(
             async { ping(&mut connect(&old, port, address).await?).await }
                 .await
@@ -348,8 +413,9 @@ fn shadowsocks_reload(legacy: bool) -> Result<()> {
         manager
             .update_inbound_resources(serde_json::from_value(inbound(json!([])))?)
             .await?;
-        ping(&mut stream).await?;
-        udp_ping(&mut *recv, &mut *send, udp_address).await?;
+        if let Some(kept) = &mut kept_stream {
+            ensure!(ping(kept).await.is_err(), "an emptied inbound's user kept its stream");
+        }
         ensure!(
             async { ping(&mut connect(&fresh, port, address).await?).await }
                 .await
