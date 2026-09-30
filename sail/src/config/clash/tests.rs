@@ -44,7 +44,7 @@ proxies:
     tls: true
     servername: jp.example.com
     client-fingerprint: chrome
-    reality-opts: { public-key: KEY, short-id: "0a" }
+    reality-opts: { public-key: jNXHt1yRo0vDuchQlIP6Z0ZvjT3KtzVI-T4E7RoLJS0, short-id: "0a" }
     network: tcp
   - name: us-trojan
     type: trojan
@@ -120,7 +120,10 @@ fn a_template_loads() {
 
     let vless = &outbound(&config, "jp-vless").options;
     assert_eq!(vless["flow"], "xtls-rprx-vision");
-    assert_eq!(vless["tls"]["reality"]["public_key"], "KEY");
+    assert_eq!(
+        vless["tls"]["reality"]["public_key"],
+        "jNXHt1yRo0vDuchQlIP6Z0ZvjT3KtzVI-T4E7RoLJS0"
+    );
     assert_eq!(vless["tls"]["utls"]["fingerprint"], "chrome");
 
     let trojan = &outbound(&config, "us-trojan").options;

@@ -2644,6 +2644,49 @@ impl Config {
             })
     }
 
+    /// REALITY's keys and short IDs, which sing-box checks with the rest
+    /// rather than when building.
+    #[cfg(any(feature = "inbound-reality", feature = "outbound-reality"))]
+    fn check_reality(&self) -> Result<()> {
+        use crate::transport::reality::{parse_key, parse_short_id};
+        use serde_json::Value;
+
+        fn reality(options: &Options) -> Option<&Value> {
+            let enabled = |v: &Value| v.get("enabled").and_then(Value::as_bool) == Some(true);
+            let tls = options.get("tls").filter(|t| enabled(t))?;
+            tls.get("reality").filter(|r| enabled(r))
+        }
+        let check = |kind: &str, tag: &str, reality: &Value, key: &str| -> Result<()> {
+            let at = |e: anyhow::Error| anyhow!("[{}] {}: tls.reality.{}", tag, kind, e);
+            match reality.get(key) {
+                None => parse_key(key, "").map_err(at)?,
+                Some(Value::String(k)) => parse_key(key, k).map_err(at)?,
+                // Of the wrong type: the schema says so when building.
+                Some(_) => return Ok(()),
+            };
+            let ids = match reality.get("short_id") {
+                Some(Value::String(id)) => vec![id.as_str()],
+                Some(Value::Array(ids)) => ids.iter().filter_map(Value::as_str).collect(),
+                _ => vec![],
+            };
+            for id in ids {
+                parse_short_id(id).map_err(at)?;
+            }
+            Ok(())
+        };
+        for outbound in &self.outbounds {
+            if let Some(r) = reality(&outbound.options) {
+                check("outbound", &outbound.tag, r, "public_key")?;
+            }
+        }
+        for inbound in &self.inbounds {
+            if let Some(r) = reality(&inbound.options) {
+                check("inbound", &inbound.tag, r, "private_key")?;
+            }
+        }
+        Ok(())
+    }
+
     /// Fills in what the configuration leaves to defaults, and checks what
     /// can be checked without building anything.
     pub fn validate(&mut self) -> Result<()> {
@@ -2689,6 +2732,8 @@ impl Config {
                 ));
             }
         }
+        #[cfg(any(feature = "inbound-reality", feature = "outbound-reality"))]
+        self.check_reality()?;
         // The DNS servers named elsewhere.
         let dns_servers = self.dns.server_tags();
         let dns_server = |field: &str, tag: &str| -> Result<()> {
@@ -3605,6 +3650,63 @@ mod tests {
         assert_eq!(defaults.dns.strategy, DnsStrategy::PreferIpv4);
         assert_eq!(defaults.dns.timeout(), std::time::Duration::from_secs(10));
         assert_eq!(defaults.api.listen, None);
+    }
+
+    #[cfg(all(feature = "inbound-reality", feature = "outbound-reality"))]
+    #[test]
+    fn reality_keys_are_checked_when_read() {
+        let outbound = |reality: &str| {
+            Config::from_json(&format!(
+                r#"{{ "outbounds": [{{ "type": "vless", "tag": "r", "server": "a",
+                     "server_port": 443, "uuid": "1b0e0a3e-1c2d-4e5f-8a9b-0c1d2e3f4a5b",
+                     "tls": {{ "enabled": true, "server_name": "a",
+                       "reality": {{ {} }} }} }}] }}"#,
+                reality
+            ))
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+        };
+        let key = "jNXHt1yRo0vDuchQlIP6Z0ZvjT3KtzVI-T4E7RoLJS0";
+        assert_eq!(
+            outbound(&format!(
+                r#""enabled": true, "public_key": "{}", "short_id": "0123""#,
+                key
+            )),
+            Ok(())
+        );
+        for (reality, message) in [
+            (
+                r#""enabled": true, "public_key": "wywOQgzCr2vr85JpoMxzCakHIIvgUtsG""#.to_string(),
+                "[r] outbound: tls.reality.public_key: must be 32 bytes",
+            ),
+            (
+                r#""enabled": true, "public_key": "not a key""#.to_string(),
+                "[r] outbound: tls.reality.public_key: neither hex nor base64url",
+            ),
+            (
+                format!(
+                    r#""enabled": true, "public_key": "{}", "short_id": "str1""#,
+                    key
+                ),
+                "[r] outbound: tls.reality.short_id: not hex",
+            ),
+        ] {
+            assert_eq!(outbound(&reality), Err(message.to_string()), "{}", reality);
+        }
+        // Not enabled, not checked.
+        assert_eq!(outbound(r#""public_key": "x""#), Ok(()));
+        let err = Config::from_json(
+            r#"{ "inbounds": [{ "type": "vless", "tag": "in", "listen_port": 443,
+                 "users": [], "tls": { "enabled": true, "server_name": "a",
+                 "reality": { "enabled": true, "private_key": "password1",
+                   "short_id": ["00"],
+                   "handshake": { "server": "a", "server_port": 443 } } } }] }"#,
+        )
+        .unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "[in] inbound: tls.reality.private_key: neither hex nor base64url"
+        );
     }
 
     #[test]

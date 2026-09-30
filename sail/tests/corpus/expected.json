@@ -104,8 +104,7 @@
     "warnings": 39
   },
   "clash/0030.yaml": {
-    "ok": true,
-    "warnings": 0
+    "error": "[Proxy 1] outbound: tls.reality.public_key: neither hex nor base64url"
   },
   "clash/0031.yaml": {
     "error": "iptables: sail does not implement this field yet"
@@ -208,8 +207,7 @@
     "warnings": 16
   },
   "clash/0058.yaml": {
-    "ok": true,
-    "warnings": 1
+    "error": "[Proxy 1] outbound: tls.reality.public_key: neither hex nor base64url"
   },
   "clash/0059.yaml": {
     "error": "proxies[0].type: sail does not implement \"wireguard\" yet"
@@ -448,8 +446,7 @@
     "error": "outbound_providers[0]: url: \"str1\" is not an http(s) URL"
   },
   "clash/0122.yaml": {
-    "ok": true,
-    "warnings": 37
+    "error": "[Proxy 6] outbound: tls.reality.public_key: neither hex nor base64url"
   },
   "clash/0123.yaml": {
     "error": "dns.nameserver[2]: sail does not implement dhcp:// servers yet"
@@ -490,8 +487,7 @@
     "error": "proxy-groups[1].proxies: a group of no proxies and no providers"
   },
   "clash/0134.yaml": {
-    "ok": true,
-    "warnings": 0
+    "error": "[Proxy 11] outbound: tls.reality.public_key: neither hex nor base64url"
   },
   "clash/0135.yaml": {
     "ok": true,
@@ -578,8 +574,7 @@
     "error": "outbound_providers[0]: url: \"str1\" is not an http(s) URL"
   },
   "clash/0160.yaml": {
-    "ok": true,
-    "warnings": 0
+    "error": "[Proxy 130] outbound: tls.reality.public_key: neither hex nor base64url"
   },
   "clash/0161.yaml": {
     "ok": true,
@@ -609,8 +604,7 @@
     "warnings": 0
   },
   "clash/0168.yaml": {
-    "ok": true,
-    "warnings": 0
+    "error": "[Proxy 1] outbound: tls.reality.public_key: neither hex nor base64url"
   },
   "clash/0169.yaml": {
     "ok": true,
@@ -789,8 +783,7 @@
     "error": "dns.fakeip: unknown field `fakeip`, expected one of `servers`, `rules`, `final`, `strategy`, `client_strategy`, `disable_cache`, `disable_expire`, `cache_capacity`, `optimistic`, `timeout`, `reverse_mapping`, `client_subnet`"
   },
   "sing-box/0021.json": {
-    "ok": true,
-    "warnings": 0
+    "error": "[in-1] inbound: tls.reality.private_key: neither hex nor base64url"
   },
   "sing-box/0022.json": {
     "ok": true,
@@ -807,8 +800,7 @@
     "error": "dns.servers[0]: missing field `type`"
   },
   "sing-box/0026.json": {
-    "ok": true,
-    "warnings": 0
+    "error": "[Proxy 1] outbound: tls.reality.public_key: must be 32 bytes"
   },
   "sing-box/0027.json": {
     "error": "dns.fakeip: unknown field `fakeip`, expected one of `servers`, `rules`, `final`, `strategy`, `client_strategy`, `disable_cache`, `disable_expire`, `cache_capacity`, `optimistic`, `timeout`, `reverse_mapping`, `client_subnet`"
@@ -823,8 +815,7 @@
     "error": "route.rules[4]: outbound [Proxy 2] does not exist"
   },
   "sing-box/0031.json": {
-    "ok": true,
-    "warnings": 0
+    "error": "[Proxy 2] outbound: tls.reality.public_key: neither hex nor base64url"
   },
   "sing-box/0032.json": {
     "ok": true,
@@ -843,12 +834,10 @@
     "error": "dns.servers[2].type: sail does not implement \"tailscale\" yet"
   },
   "sing-box/0037.json": {
-    "ok": true,
-    "warnings": 3
+    "error": "[Proxy 3] outbound: tls.reality.public_key: neither hex nor base64url"
   },
   "sing-box/0038.json": {
-    "ok": true,
-    "warnings": 3
+    "error": "[Proxy 3] outbound: tls.reality.public_key: neither hex nor base64url"
   },
   "sing-box/0039.json": {
     "error": "dns.servers[0]: missing field `type`"
@@ -860,7 +849,7 @@
     "error": "dns.servers[0]: missing field `type`"
   },
   "sing-box/0042.json": {
-    "error": "route.rules[8]: outbound [Proxy 13] does not exist"
+    "error": "[Proxy 11] outbound: tls.reality.public_key: neither hex nor base64url"
   },
   "sing-box/0043.json": {
     "error": "route.rules[12]: the rule has no conditions; route.final is where everything else goes"
@@ -888,8 +877,7 @@
     "error": "dns.servers[0]: missing field `type`"
   },
   "sing-box/0051.json": {
-    "ok": true,
-    "warnings": 0
+    "error": "[in-1] inbound: tls.reality.private_key: neither hex nor base64url"
   },
   "sing-box/0052.json": {
     "error": "outbounds[12].fallback_delay: sail does not implement this field yet"
@@ -898,7 +886,7 @@
     "error": "outbounds[2].network: sail does not implement this field yet"
   },
   "sing-box/0054.json": {
-    "error": "route.final: outbound [] does not exist"
+    "error": "[Proxy 1] outbound: tls.reality.public_key: neither hex nor base64url"
   },
   "sing-box/0055.json": {
     "error": "dns.servers[0]: missing field `type`"
@@ -1207,8 +1195,7 @@
     "error": "dns.rules[11]: the rule has no conditions; dns.final is where everything else goes"
   },
   "sing-box/0150.json": {
-    "ok": true,
-    "warnings": 0
+    "error": "[Proxy 1] outbound: tls.reality.public_key: must be 32 bytes"
   },
   "surge/0001.conf": {
     "error": "[Rule] line 44: no policy or group is named \"Proxy 1\""
