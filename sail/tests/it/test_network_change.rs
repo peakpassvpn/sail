@@ -83,6 +83,7 @@ fn a_move_closes_the_connections_and_a_roam_does_not() -> anyhow::Result<()> {
 /// With `outbounds` and `final`, which let no connection through, a
 /// connection is let through behind a captive portal, as the host says,
 /// and not before or after.
+#[cfg(feature = "outbound-drop")]
 fn a_portal_lets_through(outbounds: serde_json::Value, last: &str) -> anyhow::Result<()> {
     let rt = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
@@ -159,18 +160,16 @@ fn behind_a_captive_portal_every_connection_goes_direct() -> anyhow::Result<()> 
     )
 }
 
-// socks client -> (socks)sail(final: the configuration's DIRECT, which
-// reaches nothing) -> server: the rules take the configuration's DIRECT by
-// its tag, the portal sail's own direct, which no tag names.
+// socks client -> (socks)sail(final: the configuration's DIRECT, a block)
+// -> server: the rules take the configuration's DIRECT by its tag, the
+// portal sail's own direct, which no tag names.
 #[cfg(feature = "outbound-drop")]
 #[test]
 fn the_portal_s_direct_is_not_an_outbound_tagged_direct() -> anyhow::Result<()> {
     a_portal_lets_through(
-        serde_json::json!([
-            // Dialled through the block outbound: it reaches nothing.
-            { "type": "direct", "tag": "DIRECT", "detour": "block" },
-            { "type": "block", "tag": "block" }
-        ]),
+        // The configuration's DIRECT reaches nothing; only sail's own
+        // direct, which no tag names, can let it through.
+        serde_json::json!([{ "type": "block", "tag": "DIRECT" }]),
         "DIRECT",
     )
 }
