@@ -100,12 +100,14 @@ fn connections_go_the_way_the_network_calls_for() -> anyhow::Result<()> {
                 .ok_or_else(|| anyhow::anyhow!("at home: refused"))?;
             anyhow::ensure!(echoes(&mut open).await, "at home: direct");
 
-            // Another access point of the same network: a roam, which the
-            // connection open survives.
-            sail::set_network_state(id, r#"{ "type": "wifi", "ssid": "Home 5G" }"#)?;
+            // A roam to the cafe's Wi-Fi: new connections go where the
+            // rules now say (blocked), the one open is not routed again,
+            // and survives it.
+            sail::set_network_state(id, r#"{ "type": "wifi", "ssid": "Cafe" }"#)?;
+            anyhow::ensure!(!reaches(port, echo).await, "at the cafe again: blocked");
             anyhow::ensure!(
                 echoes(&mut open).await,
-                "the connection open survives a roam"
+                "the connection open survives a roam, as it was routed"
             );
 
             // On cellular the rule rejects new connections, and the one
