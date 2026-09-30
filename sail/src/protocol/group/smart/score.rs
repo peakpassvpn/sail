@@ -34,6 +34,18 @@ const SLOW_CONNECT: f64 = 1.5;
 /// samples.
 const SLOW_AFTER_WEIGHT: f64 = 2.0;
 
+/// A latency is only slower than another when it is also longer by at
+/// least this much, in milliseconds: below it, differences are the
+/// scheduler's and the network's jitter, not the member's. It is
+/// sing-box urltest's default tolerance.
+pub const SLOWER_BY_AT_LEAST_MS: f64 = 50.0;
+
+/// Whether `latency` is `times` as long as `than`, and longer by more
+/// than jitter.
+pub fn slower(latency: f64, than: f64, times: f64) -> bool {
+    latency > than * times && latency - than > SLOWER_BY_AT_LEAST_MS
+}
+
 /// The least a TLS or QUIC handshake is given to be answered, and how
 /// many of the member's average connect times it is given at most.
 pub const FIRST_BYTE_TIMEOUT: Duration = Duration::from_secs(3);
@@ -177,9 +189,9 @@ impl MemberStats {
     /// that was slow for it, which costs half a failure's penalty.
     pub fn connected(&mut self, took: Duration, now: Instant) -> bool {
         let ms = took.as_secs_f64() * 1000.0;
-        let slow = self
-            .connect
-            .is_some_and(|c| c.weight(now) >= SLOW_AFTER_WEIGHT && ms > c.mean() * SLOW_CONNECT);
+        let slow = self.connect.is_some_and(|c| {
+            c.weight(now) >= SLOW_AFTER_WEIGHT && slower(ms, c.mean(), SLOW_CONNECT)
+        });
         Ewma::add(&mut self.connect, ms, 1.0, now);
         if slow {
             let penalty = (self.penalty(now) + PENALTY_BASE_MS / 2.0).min(PENALTY_CAP_MS);
@@ -394,5 +406,16 @@ mod tests {
         s.used(t0);
         assert_eq!(s.uses(t0), 2.0);
         assert_eq!(s.uses(t0 + USE_HALF_LIFE), 1.0);
+    }
+
+    #[test]
+    fn jitter_is_not_slowness() {
+        // Twice as long, but by less than jitter: not slower.
+        assert!(!slower(0.8, 0.3, 2.0));
+        assert!(!slower(40.0, 15.0, 2.0));
+        // Twice as long and by more than jitter: slower.
+        assert!(slower(120.0, 50.0, 2.0));
+        // Longer by a lot, but not twice as long: not slower.
+        assert!(!slower(300.0, 200.0, 2.0));
     }
 }

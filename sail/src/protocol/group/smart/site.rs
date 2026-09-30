@@ -162,7 +162,7 @@ impl Site {
         }
         if !self.settled
             && self.pinned.as_ref() == Some(member)
-            && usual.is_some_and(|usual| site_latency > usual * SLOWER)
+            && usual.is_some_and(|usual| super::score::slower(site_latency, usual, SLOWER))
         {
             self.switch = true;
         }
@@ -334,7 +334,7 @@ fn pinned(
                 .map(|l| l.mean())
                 .or(ranks[i].score);
             match (for_site, best) {
-                (Some(latency), Some(best)) if latency > best * SLOWER => None,
+                (Some(latency), Some(best)) if super::score::slower(latency, best, SLOWER) => None,
                 _ => Some(i),
             }
         }
