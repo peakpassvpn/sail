@@ -35,6 +35,14 @@ SOCKS = "127.0.0.1:1081"
 SS_METHOD = "2022-blake3-aes-128-gcm"
 SS_KEY = "a8C5QncIl9HvTmenrEb7aw=="
 PASSWORD = "netem-password"
+UUID = "9b2b4b81-6125-4a7c-9a83-847cb325758f"
+# A REALITY key pair for the tests alone (sing-box generate reality-keypair).
+REALITY_PRIVATE = "4KN8smrVWzyjgya4o2m-HXYFpB8hejWIldadEUV2iXE"
+REALITY_PUBLIC = "Wc6yEq9ozyhP_WaLMbd4ykhtrLcY-K69aF2exVhUAxA"
+REALITY_SHORT_ID = "0123456789abcdef"
+# REALITY borrows a real TLS server's handshake: one in the server's
+# namespace, as there is no internet in there.
+REALITY_DEST = (SERVER_ADDR, 9443)
 
 # Recovery after the link returns: roadmap 2.12's acceptance ("3 秒内恢复新连接").
 RECOVERY_TARGET_S = 3.0
@@ -123,7 +131,31 @@ class Proc:
 
 
 def server_config(proto, work):
-    if proto == "ss":
+    tls = {"enabled": True, "certificate_path": f"{work}/cert.pem",
+           "key_path": f"{work}/key.pem"}
+    if proto == "reality":
+        inbound = {"type": "vless", "listen": SERVER_ADDR, "listen_port": 8443,
+                   "users": [{"uuid": UUID, "flow": "xtls-rprx-vision"}],
+                   "tls": {"enabled": True, "server_name": "localhost",
+                           "reality": {"enabled": True,
+                                       "handshake": {"server": REALITY_DEST[0],
+                                                     "server_port": REALITY_DEST[1]},
+                                       "private_key": REALITY_PRIVATE,
+                                       "short_id": [REALITY_SHORT_ID]}}}
+    elif proto == "hy2":
+        inbound = {"type": "hysteria2", "listen": SERVER_ADDR, "listen_port": 8443,
+                   "users": [{"password": PASSWORD}], "tls": tls}
+    elif proto == "tuic":
+        inbound = {"type": "tuic", "listen": SERVER_ADDR, "listen_port": 8443,
+                   "users": [{"uuid": UUID, "password": PASSWORD}],
+                   "congestion_control": "bbr", "tls": dict(tls, alpn=["h3"])}
+    elif proto == "mux":
+        inbound = {"type": "trojan", "listen": SERVER_ADDR, "listen_port": 8443,
+                   "users": [{"password": PASSWORD}], "tls": tls,
+                   "multiplex": {"enabled": True}}
+        return {"log": {"level": "warn"}, "inbounds": [inbound],
+                "outbounds": [{"type": "direct"}]}
+    elif proto == "ss":
         inbound = {"type": "shadowsocks", "listen": SERVER_ADDR, "listen_port": 8388,
                    "method": SS_METHOD, "password": SS_KEY}
     elif proto == "trojan":
@@ -138,7 +170,26 @@ def server_config(proto, work):
 
 
 def client_config(proto):
-    if proto == "ss":
+    insecure = {"enabled": True, "server_name": "localhost", "insecure": True}
+    if proto == "reality":
+        out = {"type": "vless", "server": SERVER_ADDR, "server_port": 8443, "uuid": UUID,
+               "flow": "xtls-rprx-vision",
+               "tls": {"enabled": True, "server_name": "localhost",
+                       "utls": {"enabled": True, "fingerprint": "chrome"},
+                       "reality": {"enabled": True, "public_key": REALITY_PUBLIC,
+                                   "short_id": REALITY_SHORT_ID}}}
+    elif proto == "hy2":
+        out = {"type": "hysteria2", "server": SERVER_ADDR, "server_port": 8443,
+               "password": PASSWORD, "tls": insecure}
+    elif proto == "tuic":
+        out = {"type": "tuic", "server": SERVER_ADDR, "server_port": 8443, "uuid": UUID,
+               "password": PASSWORD, "congestion_control": "bbr",
+               "tls": dict(insecure, alpn=["h3"])}
+    elif proto == "mux":
+        out = {"type": "trojan", "server": SERVER_ADDR, "server_port": 8443,
+               "password": PASSWORD, "tls": insecure,
+               "multiplex": {"enabled": True, "max_connections": 4}}
+    elif proto == "ss":
         out = {"type": "shadowsocks", "server": SERVER_ADDR, "server_port": 8388,
                "method": SS_METHOD, "password": SS_KEY}
     elif proto == "trojan":
@@ -247,6 +298,11 @@ class Run:
         log = os.path.join(self.dir, "server.log")
         self.procs["netgen"] = Proc("netgen", SERVER_NS,
                                     f"{self.args.netgen} serve -listen {TARGET}", log)
+        if self.proto == "reality":
+            self.procs["reality-dest"] = Proc(
+                "reality-dest", SERVER_NS,
+                f"openssl s_server -quiet -accept {REALITY_DEST[0]}:{REALITY_DEST[1]} "
+                f"-cert {self.args.work}/cert.pem -key {self.args.work}/key.pem -www", log)
         cfg = server_config(self.proto, self.args.work)
         if cfg:
             path = os.path.join(self.dir, "server.json")
