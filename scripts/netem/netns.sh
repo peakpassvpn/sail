@@ -20,6 +20,10 @@ C=nc5
 S=ns5
 CA=10.95.0.1
 SA=10.95.0.2
+# The traffic tool's server also answers on an address off the link, behind
+# the client's default route: a TUN with auto_route takes traffic that uses
+# the default route, never a destination the link reaches directly.
+FAR=10.96.0.1
 
 case "$1" in
 up)
@@ -29,8 +33,8 @@ up)
       exit 1
     fi
   done
-  if ip -br addr | grep -q "10\.95\.0\."; then
-    echo "10.95.0.0/24 is in use on the host" >&2
+  if ip -br addr | grep -qE "10\.9[56]\.0\."; then
+    echo "10.95.0.0/24 or 10.96.0.0/24 is in use on the host" >&2
     exit 1
   fi
   ip netns add $C
@@ -45,6 +49,8 @@ up)
   done
   ip -n $C link set nc5v0 up
   ip -n $S link set ns5v0 up
+  ip -n $S addr add $FAR/32 dev lo
+  ip -n $C route add default via $SA
   # netem shapes packets as the stack hands them over: no segmentation
   # offload, so a "packet" is one on the wire.
   ip netns exec $C ethtool -K nc5v0 tso off gso off gro off >/dev/null 2>&1 || true
@@ -75,6 +81,8 @@ linkdown)
   ;;
 linkup)
   ip -n $C link set nc5v0 up
+  # Taking the link down took the default route with it.
+  ip -n $C route replace default via $SA
   ;;
 down)
   ip netns del $C 2>/dev/null || true

@@ -23,7 +23,7 @@ python3 run.py --work WORK --sail WORK/sail --netgen WORK/netgen
 python3 run.py --protocols direct --clients sail-server --only baseline --quick   # 冒烟
 ```
 
-`--protocols` 取 `direct,ss,trojan,reality,hy2,tuic,mux`（默认前三个；`reality` 是 vless+REALITY+vision，握手目标是服务端 netns 里的 `openssl s_server`；`mux` 是开了 sing-mux 的 trojan）；`--clients` 取 `sail-server,sail-mobile,sing-box`（sail 的运行档位，或 sing-box 作对照）；`--only` 只跑名字含该子串的场景；`--quick` 缩短每项负载。
+`--protocols` 取 `direct,ss,trojan,reality,hy2,tuic,mux`（默认前三个；`reality` 是 vless+REALITY+vision，握手目标是服务端 netns 里的 `openssl s_server`；`mux` 是开了 sing-mux 的 trojan）；`--clients` 取 `sail-server,sail-mobile,sing-box`（sail 的运行档位，或 sing-box 作对照）；`--inbound tun` 让客户端改用 tun 入站（auto_route，接管客户端 netns 的全部流量），netgen 直接连目标，走的是 TUN 路径而不是 SOCKS；`--only` 只跑名字含该子串的场景；`--quick` 缩短每项负载。
 
 ## 场景
 

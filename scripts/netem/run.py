@@ -5,6 +5,7 @@ Run as root on the Linux test host, from this directory:
 
     python3 run.py --work WORK --sail WORK/sail --netgen WORK/netgen \\
         [--protocols direct,ss,trojan] [--clients sail-server,sail-mobile,sing-box] \\
+        [--inbound socks|tun] \\
         [--only SUBSTR] [--quick]
 
 Two network namespaces (netns.sh): nc5 holds the client under test and the
@@ -31,6 +32,9 @@ NETNS = os.path.join(HERE, "netns.sh")
 CLIENT_NS, SERVER_NS = "nc5", "ns5"
 SERVER_ADDR = "10.95.0.2"
 TARGET = SERVER_ADDR + ":9000"
+# The same server off the link (netns.sh), for a TUN to take the traffic.
+FAR_TARGET = "10.96.0.1:9000"
+LISTEN = "0.0.0.0:9000"
 SOCKS = "127.0.0.1:1081"
 SS_METHOD = "2022-blake3-aes-128-gcm"
 SS_KEY = "a8C5QncIl9HvTmenrEb7aw=="
@@ -169,7 +173,7 @@ def server_config(proto, work):
             "outbounds": [{"type": "direct"}]}
 
 
-def client_config(proto):
+def client_config(proto, inbound="socks"):
     insecure = {"enabled": True, "server_name": "localhost", "insecure": True}
     if proto == "reality":
         out = {"type": "vless", "server": SERVER_ADDR, "server_port": 8443, "uuid": UUID,
@@ -200,9 +204,17 @@ def client_config(proto):
         out = {"type": "direct"}
     out["tag"] = "out"
     # info: each connection's end is in the log, for what fails rarely.
-    return {"log": {"level": "info", "timestamp": True},
-            "inbounds": [{"type": "socks", "listen": "127.0.0.1", "listen_port": 1081}],
-            "outbounds": [out]}
+    cfg = {"log": {"level": "info", "timestamp": True},
+           "inbounds": [{"type": "socks", "listen": "127.0.0.1", "listen_port": 1081}],
+           "outbounds": [out]}
+    if inbound == "tun":
+        # The whole namespace's traffic into the TUN; the proxy's own
+        # connections leave by the veth they are bound to.
+        cfg["inbounds"] = [{"type": "tun", "interface_name": "tun5",
+                            "address": ["172.19.0.1/30"], "mtu": 9000,
+                            "auto_route": True}]
+        cfg["route"] = {"auto_detect_interface": True}
+    return cfg
 
 
 # ------------------------------------------------------------- sampling
@@ -272,7 +284,8 @@ class Run:
         self.client = client
         self.server = server
         # The server is named only when it is not the reference.
-        self.name = f"{proto}-{client}" + ("" if server == "sing-box" else f"-to-{server}")
+        self.name = (f"{proto}-{client}" + ("" if server == "sing-box" else f"-to-{server}")
+                     + ("" if args.inbound == "socks" else f"-{args.inbound}"))
         self.dir = os.path.join(args.out, self.name)
         os.makedirs(self.dir, exist_ok=True)
         self.records = []
@@ -280,7 +293,9 @@ class Run:
         self.procs = {}
 
     def netgen(self, mode, *flags, timeout=600):
-        cmd = in_ns(CLIENT_NS, f"{self.args.netgen} {mode} -proxy {SOCKS} -target {TARGET} "
+        proxy = f"-proxy {SOCKS} " if self.args.inbound == "socks" else ""
+        target = TARGET if self.args.inbound == "socks" else FAR_TARGET
+        cmd = in_ns(CLIENT_NS, f"{self.args.netgen} {mode} {proxy}-target {target} "
                     + " ".join(flags))
         t0 = time.time()
         r = sh(cmd, check=False, timeout=timeout)
@@ -297,7 +312,7 @@ class Run:
     def start_server(self):
         log = os.path.join(self.dir, "server.log")
         self.procs["netgen"] = Proc("netgen", SERVER_NS,
-                                    f"{self.args.netgen} serve -listen {TARGET}", log)
+                                    f"{self.args.netgen} serve -listen {LISTEN}", log)
         if self.proto == "reality":
             self.procs["reality-dest"] = Proc(
                 "reality-dest", SERVER_NS,
@@ -317,7 +332,7 @@ class Run:
 
     def start_client(self):
         path = os.path.join(self.dir, "client.json")
-        json.dump(client_config(self.proto), open(path, "w"))
+        json.dump(client_config(self.proto, self.args.inbound), open(path, "w"))
         log = os.path.join(self.dir, "client.log")
         if self.client.startswith("sail"):
             profile = self.client.split("-", 1)[1]
@@ -337,7 +352,7 @@ class Run:
             self.procs[key] = Proc("server", SERVER_NS, self.server_command(path), log)
         else:
             self.procs[key] = Proc("netgen", SERVER_NS,
-                                   f"{self.args.netgen} serve -listen {TARGET}", log)
+                                   f"{self.args.netgen} serve -listen {LISTEN}", log)
 
     def record(self, scenario, workload, res, samples, idle_before, idle_after):
         rec = {"scenario": scenario, "workload": workload, "result": res,
@@ -550,6 +565,9 @@ def main():
     ap.add_argument("--netgen", default="netem-work/netgen")
     ap.add_argument("--protocols", default="direct,ss,trojan")
     ap.add_argument("--clients", default="sail-server,sail-mobile,sing-box")
+    ap.add_argument("--inbound", choices=["socks", "tun"], default="socks",
+                    help="how traffic reaches the client: its SOCKS inbound, or a TUN "
+                         "with auto_route that takes the namespace's traffic")
     # sing-box is the reference; sail serves the protocols it takes in too.
     ap.add_argument("--servers", default="sing-box")
     ap.add_argument("--only", default="")
