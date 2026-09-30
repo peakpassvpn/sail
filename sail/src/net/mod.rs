@@ -453,4 +453,166 @@ mod tests {
                 .tcp_abort_on_close
         );
     }
+
+    /// What an outbound asks to have dialled is dialled by the dialer that
+    /// comes with the request, and no other.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_request_is_dialled_by_its_own_dialer() {
+        use crate::adapter::outbound::HandlerBuilder;
+        use crate::adapter::{
+            AnyOutboundDatagram, AnyOutboundTransport, DatagramTransportType,
+            OutboundDatagramHandler, OutboundStreamHandler,
+        };
+
+        struct Asks(OutboundConnect);
+
+        #[async_trait::async_trait]
+        impl OutboundStreamHandler for Asks {
+            fn connect_addr(&self) -> OutboundConnect {
+                self.0.clone()
+            }
+
+            async fn handle<'a>(
+                &'a self,
+                _sess: &'a Session,
+                _lhs: Option<&mut AnyStream>,
+                _stream: Option<AnyStream>,
+            ) -> io::Result<AnyStream> {
+                unreachable!("only dialled")
+            }
+        }
+
+        #[async_trait::async_trait]
+        impl OutboundDatagramHandler for Asks {
+            fn connect_addr(&self) -> OutboundConnect {
+                self.0.clone()
+            }
+
+            fn transport_type(&self) -> DatagramTransportType {
+                DatagramTransportType::Unreliable
+            }
+
+            async fn handle<'a>(
+                &'a self,
+                _sess: &'a Session,
+                _transport: Option<AnyOutboundTransport>,
+            ) -> io::Result<AnyOutboundDatagram> {
+                unreachable!("only dialled")
+            }
+        }
+
+        let handler = |connect: OutboundConnect| {
+            let asks = std::sync::Arc::new(Asks(connect));
+            HandlerBuilder::default()
+                .tag("asks".to_string())
+                .stream_handler(asks.clone())
+                .datagram_handler(asks)
+                .build()
+        };
+        let dns = crate::app::dns::DnsClient::new(
+            &Default::default(),
+            std::sync::Arc::new(DialDefaults::default()),
+            &Default::default(),
+        )
+        .unwrap()
+        .into_shared();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let accepting = tokio::spawn(async move {
+            loop {
+                let _ = listener.accept().await;
+            }
+        });
+        let sess = Session {
+            destination: SocksAddr::Ip(addr),
+            ..Default::default()
+        };
+
+        let (proxy, by_proxy) = dial::recording::dialer();
+        let proxy = handler(OutboundConnect::Proxy(
+            Network::Tcp,
+            addr.ip().to_string(),
+            addr.port(),
+            proxy,
+        ));
+        let (direct, by_direct) = dial::recording::dialer();
+        let direct = handler(OutboundConnect::Direct(direct));
+
+        connect_stream_outbound(&sess, dns.clone(), &proxy)
+            .await
+            .unwrap()
+            .unwrap();
+        connect_datagram_outbound(&sess, dns.clone(), &proxy)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!((by_proxy.count(), by_direct.count()), (2, 0));
+        connect_stream_outbound(&sess, dns.clone(), &direct)
+            .await
+            .unwrap()
+            .unwrap();
+        connect_datagram_outbound(&sess, dns.clone(), &direct)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!((by_proxy.count(), by_direct.count()), (2, 2));
+        // Asking for nothing, nothing is dialled.
+        assert!(
+            connect_stream_outbound(&sess, dns, &handler(OutboundConnect::Unknown))
+                .await
+                .unwrap()
+                .is_none()
+        );
+        accepting.abort();
+    }
+
+    /// Every outbound built asks to be dialled by its own dialer, built
+    /// over the instance's defaults, and so protected by the host.
+    #[cfg(all(unix, feature = "outbound-direct"))]
+    #[tokio::test]
+    async fn every_outbound_built_dials_with_its_dialer() {
+        let (defaults, protected) = dial::recording::defaults();
+        let config = crate::config::Config::from_json(
+            r#"{ "outbounds": [
+                { "type": "direct", "tag": "own", "connect_timeout": "3s" },
+                { "type": "direct", "tag": "plain" }
+            ] }"#,
+        )
+        .unwrap();
+        let dns = crate::app::dns::DnsClient::new(
+            &config.dns,
+            std::sync::Arc::new(defaults.clone()),
+            &Default::default(),
+        )
+        .unwrap()
+        .into_shared();
+        let manager = crate::app::outbound::manager::OutboundManager::new(
+            &config.outbounds,
+            &defaults,
+            &Default::default(),
+            dns.clone(),
+        )
+        .unwrap();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let sess = Session {
+            destination: SocksAddr::Ip(addr),
+            ..Default::default()
+        };
+        for (tag, timeout) in [("own", 3), ("plain", 8)] {
+            let handler = manager.get(tag).unwrap();
+            let OutboundConnect::Direct(dialer) = handler.stream().unwrap().connect_addr() else {
+                panic!("[{}] asks for no direct connection", tag);
+            };
+            assert_eq!(dialer.connect_timeout(), Duration::from_secs(timeout));
+            let (dialled, accepted) = tokio::join!(
+                connect_stream_outbound(&sess, dns.clone(), &handler),
+                listener.accept()
+            );
+            dialled.unwrap().unwrap();
+            accepted.unwrap();
+        }
+        assert_eq!(protected.count(), 2);
+    }
 }

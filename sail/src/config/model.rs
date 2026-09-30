@@ -3646,4 +3646,26 @@ mod tests {
         let unset = dial(serde_json::json!({ "tag": "h" }));
         assert_eq!(keepalive_dialled(&unset).await, Some(TcpKeepAlive::DEFAULT));
     }
+
+    /// An HTTP client dials with its dial fields over the instance's
+    /// defaults, whose host protects its sockets.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn an_http_client_dials_over_the_defaults() {
+        let (mut defaults, protected) = crate::net::dial::recording::defaults();
+        defaults.route.routing_mark = Some(7);
+        let dialer = serde_json::from_value::<HttpClient>(serde_json::json!({
+            "tag": "h", "connect_timeout": "3s",
+        }))
+        .unwrap()
+        .dialer(&defaults);
+        assert_eq!(dialer.spec().routing_mark, Some(7));
+        assert_eq!(dialer.connect_timeout(), std::time::Duration::from_secs(3));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (dialled, accepted) = tokio::join!(dialer.tcp_to(addr), listener.accept());
+        dialled.unwrap();
+        accepted.unwrap();
+        assert_eq!(protected.count(), 1);
+    }
 }

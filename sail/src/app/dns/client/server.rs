@@ -720,4 +720,33 @@ mod tests {
         let unset = dial(serde_json::json!({}));
         assert_eq!(keepalive_dialled(&unset).await, Some(TcpKeepAlive::DEFAULT));
     }
+
+    /// A server dials with its dialer: its dial fields over the instance's
+    /// defaults, whose host protects its sockets.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn it_dials_with_its_own_dialer_over_the_defaults() {
+        let (mut defaults, protected) = crate::net::dial::recording::defaults();
+        defaults.route.routing_mark = Some(7);
+        let config = DnsServer {
+            kind: "udp".to_string(),
+            tag: "d".to_string(),
+            options: serde_json::json!({ "server": "127.0.0.1", "connect_timeout": "3s" })
+                .as_object()
+                .unwrap()
+                .clone(),
+        };
+        let (_, dialer) = address_and_dialer(remote(&config).unwrap(), 53, "d", &defaults).unwrap();
+        assert_eq!(dialer.dial.spec().routing_mark, Some(7));
+        assert_eq!(
+            dialer.dial.connect_timeout(),
+            std::time::Duration::from_secs(3)
+        );
+        dialer
+            .dial
+            .udp_socket(&"127.0.0.1:53".parse().unwrap())
+            .await
+            .unwrap();
+        assert_eq!(protected.count(), 1);
+    }
 }

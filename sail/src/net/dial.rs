@@ -15,6 +15,9 @@ pub use dialer::{DialDefaults, DialEnv, Dialer};
 pub use fields::DialFields;
 pub use spec::{DialSpec, ResolveSpec, RouteDefaults};
 
+#[cfg(all(test, unix))]
+pub(crate) use dialer::recording;
+
 /// The default time a TCP connect may take.
 pub const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_secs(8);
 
