@@ -39,11 +39,16 @@ pub(crate) fn register(registry: &mut OutboundRegistry) {
 struct ShadowTlsOutboundOptions {
     server: String,
     server_port: u16,
-    /// sing-box's default is 1.
+    /// Must be 3: versions 1 and 2 are not supported. sing-box's default
+    /// is 1.
     #[serde(default = "version_one")]
     version: u32,
+    /// Cannot be empty.
     #[serde(default)]
     password: String,
+    /// Must be enabled: the handshake with the site the server imitates,
+    /// `server_name` being the site's (the server's address when unset).
+    /// A browser fingerprint applies as for TLS; REALITY and ECH do not.
     #[serde(default)]
     tls: Option<OutboundTls>,
 }

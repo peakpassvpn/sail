@@ -292,6 +292,20 @@ Serde: `serde (deny_unknown_fields)`
 | `plugin_opts` | `Option < String >` | Default::default() | `obfs=http\|tls;obfs-host=<host>;obfs-uri=<path>`, as simple-obfs takes them.<br/>`serde (default)` |
 | `udp_over_tcp` | `Option < uot :: UdpOverTcpOptions >` | Default::default() | UDP over its TCP, to `sp.v2.udp-over-tcp.arpa`, instead of its own UDP.<br/>`serde (default)` |
 
+## ShadowTlsOutboundOptions
+
+[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/shadowtls/outbound.rs)
+
+Serde: `serde (deny_unknown_fields)`
+
+| Field | Type | Omission / flattening | Source notes |
+| --- | --- | --- | --- |
+| `server` | `String` | Required | — |
+| `server_port` | `u16` | Required | — |
+| `version` | `u32` | default: version_one() | Must be 3: versions 1 and 2 are not supported. sing-box's default is 1.<br/>`serde (default = "version_one")` |
+| `password` | `String` | Default::default() | Cannot be empty.<br/>`serde (default)` |
+| `tls` | `Option < OutboundTls >` | Default::default() | Must be enabled: the handshake with the site the server imitates, `server_name` being the site's (the server's address when unset). A browser fingerprint applies as for TLS; REALITY and ECH do not.<br/>`serde (default)` |
+
 ## SocksOutboundOptions
 
 [Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/socks/outbound/mod.rs)

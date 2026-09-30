@@ -217,6 +217,60 @@ Serde: `serde (deny_unknown_fields)`
 | `name` | `Option < String >` | Default::default() | Who the user is to routing (`auth_user`), statistics and logs.<br/>`serde (default)` |
 | `password` | `String` | 必填 | The user's base64 PSK. |
 
+## ShadowTlsInboundOptions
+
+[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/shadowtls/inbound.rs)
+
+Serde: `serde (deny_unknown_fields)`
+
+| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
+| --- | --- | --- | --- |
+| `version` | `u32` | default: version_one() | Must be 3: versions 1 and 2 are not supported. sing-box's default is 1.<br/>`serde (default = "version_one")` |
+| `password` | `Option < String >` | Default::default() | Version 2's, and an error: version 3 takes `users`.<br/>`serde (default)` |
+| `users` | `Vec < ShadowTlsUser >` | Default::default() | At least one.<br/>`serde (default)` |
+| `handshake` | `Option < ShadowTlsHandshake >` | Default::default() | The site whose handshake is relayed, for everyone the other fields do not send elsewhere. Needed unless `wildcard_sni` is on.<br/>`serde (default)` |
+| `handshake_for_server_name` | `HashMap < String , ShadowTlsHandshake >` | Default::default() | Handshake servers by the server name the ClientHello asks for.<br/>`serde (default)` |
+| `strict_mode` | `bool` | Default::default() | Relays a ServerHello that does not pick TLS 1.3 as it would an unauthenticated client.<br/>`serde (default)` |
+| `wildcard_sni` | `WildcardSni` | Default::default() | —<br/>`serde (default)` |
+| `detour` | `Option < String >` | Default::default() | The inbound connections go to after the handshake, by tag: needed.<br/>`serde (default)` |
+
+## ShadowTlsUser
+
+[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/shadowtls/inbound.rs)
+
+Serde: `serde (deny_unknown_fields)`
+
+| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
+| --- | --- | --- | --- |
+| `name` | `String` | Default::default() | Who the user is to routing (`auth_user`), statistics and logs.<br/>`serde (default)` |
+| `password` | `String` | 必填 | — |
+
+## ShadowTlsHandshake
+
+[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/shadowtls/inbound.rs)
+
+A server and port, and sing-box's dial fields, which sail does not implement here: the handshake server is dialled directly.
+
+| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
+| --- | --- | --- | --- |
+| `server` | `String` | Default::default() | —<br/>`serde (default)` |
+| `server_port` | `u16` | Default::default() | —<br/>`serde (default)` |
+| `rest` | `serde_json :: Map < String , Value >` | 展开到当前对象，不是独立键 | The dial fields, which are errors, and any other field.<br/>`serde (flatten)` |
+
+## WildcardSni
+
+[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/shadowtls/inbound.rs)
+
+Whether the handshake server is the one the ClientHello names, on port 443, when no `handshake_for_server_name` entry does.
+
+Serde: `serde (rename_all = "lowercase")`
+
+| 可选值 / 形态 | 源码说明 |
+| --- | --- |
+| `off` (default) | — |
+| `authed` | For authenticated clients; the others go to `handshake`. |
+| `all` | — |
+
 ## SocksInboundOptions
 
 [配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/socks/inbound/mod.rs)

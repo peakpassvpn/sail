@@ -31,11 +31,43 @@ This boundary lets Sail unify runtime behavior without silently misinterpreting 
 | VMess | Yes | Yes | AEAD mode; XUDP available |
 | VLESS | Yes | Yes | Plain UDP or XUDP; Vision flow |
 | AnyTLS | Yes | Yes | Shared authenticated TLS sessions |
+| ShadowTLS | Yes | Yes | Version 3 only; carries another protocol, see below |
 | Hysteria2 | Yes | Yes | QUIC, UDP and optional port hopping |
 | TUIC | Yes | Yes | QUIC streams and datagrams |
 | MPTP | Yes | Yes | Multiple paths as one logical tunnel |
 
 Internal endpoints also include `direct`, `drop` and redirect-style handlers used by routing and platform integrations.
+
+### ShadowTLS
+
+ShadowTLS v3 relays a real TLS handshake with a site the server imitates, and carries another protocol, usually Shadowsocks, after it. As in sing-box, the protocol's outbound names the ShadowTLS outbound as its `detour`, and the ShadowTLS inbound hands its connections to the inbound its `detour` names. Versions 1 and 2 are configuration errors.
+
+```json
+{
+  "outbounds": [
+    { "type": "shadowsocks", "tag": "ss", "server": "203.0.113.1", "server_port": 443,
+      "method": "2022-blake3-aes-128-gcm", "password": "<psk>", "detour": "shadowtls" },
+    { "type": "shadowtls", "tag": "shadowtls", "server": "203.0.113.1", "server_port": 443,
+      "version": 3, "password": "<password>",
+      "tls": { "enabled": true, "server_name": "www.example.com" } }
+  ]
+}
+```
+
+```json
+{
+  "inbounds": [
+    { "type": "shadowtls", "listen": "::", "listen_port": 443, "version": 3,
+      "users": [{ "name": "alice", "password": "<password>" }],
+      "handshake": { "server": "www.example.com", "server_port": 443 },
+      "strict_mode": true, "detour": "ss-in" },
+    { "type": "shadowsocks", "tag": "ss-in",
+      "method": "2022-blake3-aes-128-gcm", "password": "<psk>" }
+  ]
+}
+```
+
+The ClientHello carries a browser fingerprint (`tls.utls`, Chrome's by default) and the client's authentication in its session ID. The handshake server is dialled directly: its dial fields, and `detour`, are not implemented yet. Clash's `ss` proxies with `plugin: shadow-tls` and Surge's `shadow-tls-password`, `shadow-tls-sni` and `shadow-tls-version` become such a pair, the ShadowTLS outbound named `<name> (shadow-tls)`.
 
 ## Transports and security
 

@@ -34,26 +34,30 @@ pub(crate) fn register(registry: &mut InboundRegistry) {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ShadowTlsInboundOptions {
-    /// sing-box's default is 1.
+    /// Must be 3: versions 1 and 2 are not supported. sing-box's default
+    /// is 1.
     #[serde(default = "version_one")]
     version: u32,
-    /// Version 2's; version 3 takes `users`.
+    /// Version 2's, and an error: version 3 takes `users`.
     #[serde(default)]
     password: Option<String>,
+    /// At least one.
     #[serde(default)]
-    users: Vec<User>,
+    users: Vec<ShadowTlsUser>,
+    /// The site whose handshake is relayed, for everyone the other fields
+    /// do not send elsewhere. Needed unless `wildcard_sni` is on.
     #[serde(default)]
-    handshake: Option<Handshake>,
+    handshake: Option<ShadowTlsHandshake>,
     /// Handshake servers by the server name the ClientHello asks for.
     #[serde(default)]
-    handshake_for_server_name: HashMap<String, Handshake>,
+    handshake_for_server_name: HashMap<String, ShadowTlsHandshake>,
     /// Relays a ServerHello that does not pick TLS 1.3 as it would an
     /// unauthenticated client.
     #[serde(default)]
     strict_mode: bool,
     #[serde(default)]
     wildcard_sni: WildcardSni,
-    /// The inbound connections go to after the handshake.
+    /// The inbound connections go to after the handshake, by tag: needed.
     #[serde(default)]
     detour: Option<String>,
 }
@@ -64,7 +68,8 @@ fn version_one() -> u32 {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct User {
+struct ShadowTlsUser {
+    /// Who the user is to routing (`auth_user`), statistics and logs.
     #[serde(default)]
     name: String,
     password: String,
@@ -73,11 +78,12 @@ struct User {
 /// A server and port, and sing-box's dial fields, which sail does not
 /// implement here: the handshake server is dialled directly.
 #[derive(Deserialize)]
-struct Handshake {
+struct ShadowTlsHandshake {
     #[serde(default)]
     server: String,
     #[serde(default)]
     server_port: u16,
+    /// The dial fields, which are errors, and any other field.
     #[serde(flatten)]
     rest: serde_json::Map<String, Value>,
 }
@@ -127,7 +133,7 @@ struct Target {
     port: u16,
 }
 
-impl Handshake {
+impl ShadowTlsHandshake {
     fn target(self, tag: &str, field: &str) -> Result<Target> {
         if let Some(key) = self.rest.keys().next() {
             return Err(match DIAL_FIELDS.contains(&key.as_str()) {

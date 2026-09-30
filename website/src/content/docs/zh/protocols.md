@@ -29,11 +29,43 @@ Sail 的目标是一套 Rust 核心承载主流代理配置生态中的协议、
 | VMess | 是 | 是 | AEAD，支持 XUDP |
 | VLESS | 是 | 是 | 普通 UDP 或 XUDP；Vision flow |
 | AnyTLS | 是 | 是 | 共享认证 TLS 会话 |
+| ShadowTLS | 是 | 是 | 仅 v3；承载另一协议，见下文 |
 | Hysteria2 | 是 | 是 | QUIC、UDP 与可选端口跳跃 |
 | TUIC | 是 | 是 | QUIC stream 与 datagram |
 | MPTP | 是 | 是 | 多路径聚合为逻辑隧道 |
 
 内部端点还包括 `direct`、`drop` 与供路由或平台集成使用的重定向处理器。
+
+### ShadowTLS
+
+ShadowTLS v3 中继与服务端所模仿站点之间的真实 TLS 握手，握手之后承载另一协议，通常是 Shadowsocks。与 sing-box 相同：协议出站以 `detour` 指向 ShadowTLS 出站；ShadowTLS 入站把连接交给其 `detour` 所指的入站。v1、v2 为配置错误。
+
+```json
+{
+  "outbounds": [
+    { "type": "shadowsocks", "tag": "ss", "server": "203.0.113.1", "server_port": 443,
+      "method": "2022-blake3-aes-128-gcm", "password": "<psk>", "detour": "shadowtls" },
+    { "type": "shadowtls", "tag": "shadowtls", "server": "203.0.113.1", "server_port": 443,
+      "version": 3, "password": "<password>",
+      "tls": { "enabled": true, "server_name": "www.example.com" } }
+  ]
+}
+```
+
+```json
+{
+  "inbounds": [
+    { "type": "shadowtls", "listen": "::", "listen_port": 443, "version": 3,
+      "users": [{ "name": "alice", "password": "<password>" }],
+      "handshake": { "server": "www.example.com", "server_port": 443 },
+      "strict_mode": true, "detour": "ss-in" },
+    { "type": "shadowsocks", "tag": "ss-in",
+      "method": "2022-blake3-aes-128-gcm", "password": "<psk>" }
+  ]
+}
+```
+
+ClientHello 使用浏览器指纹（`tls.utls`，默认 Chrome），客户端认证放在其 session ID 中。握手服务器直接拨号，其拨号字段与 `detour` 暂未实现。Clash 中 `plugin: shadow-tls` 的 `ss` 代理，以及 Surge 的 `shadow-tls-password`、`shadow-tls-sni`、`shadow-tls-version`，都转换为这样一对出站，ShadowTLS 出站名为 `<名称> (shadow-tls)`。
 
 ## 传输层与安全
 
