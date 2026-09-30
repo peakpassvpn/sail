@@ -22,12 +22,12 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `http_clients` | 80 | 21 | 15 | 44 |
 | `network_namespaces` | 6 | 0 | 0 | 6 |
 | `endpoints` | 433 | 51 | 32 | 350 |
-| `inbounds` | 1367 | 490 | 187 | 690 |
-| `outbounds` | 1228 | 564 | 140 | 524 |
+| `inbounds` | 1367 | 504 | 187 | 676 |
+| `outbounds` | 1228 | 588 | 140 | 500 |
 | `route` | 268 | 144 | 21 | 103 |
 | `services` | 751 | 1 | 166 | 584 |
 | `experimental` | 34 | 16 | 17 | 1 |
-| **All** | **5002** | **1589** | **686** | **2727** |
+| **All** | **5002** | **1627** | **686** | **2689** |
 
 ## `log`
 
