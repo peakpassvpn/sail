@@ -766,6 +766,14 @@ async fn file_hash<P: AsRef<Path>>(p: P) -> anyhow::Result<Box<[u8]>> {
     Ok(hasher.finalize().as_slice().to_owned().into_boxed_slice())
 }
 
+/// Waits for the receiver to take the datagram just sent.
+async fn received(acks: &mut tokio::sync::mpsc::Receiver<()>) -> anyhow::Result<()> {
+    timeout(Duration::from_secs(10), acks.recv())
+        .await
+        .map_err(|_| anyhow::anyhow!("a datagram was not received within 10s"))?
+        .ok_or_else(|| anyhow::anyhow!("the receiver stopped"))
+}
+
 pub fn test_data_transfering_reliability_on_configs(
     configs: Vec<String>,
     socks_addr: &str,
@@ -960,6 +968,10 @@ pub fn test_data_transfering_reliability_on_configs(
     }
 
     // UDP uplink
+    // One datagram at a time: the next is sent once the last is received,
+    // so that what is checked is that each arrives, whole and in order,
+    // not that a burst outruns nothing on the way.
+    let (ack, mut acks) = tokio::sync::mpsc::channel::<()>(1);
     let socket = rt
         .block_on(UdpSocket::bind("127.0.0.1:0"))
         .map_err(|e| anyhow::anyhow!("bind udp failed: {}", e))?;
@@ -1003,6 +1015,7 @@ pub fn test_data_transfering_reliability_on_configs(
                 .map_err(|e| anyhow::anyhow!("recv failed: {}", e))?;
             recvd_data.push(buf[..n].to_vec());
             recvd_bytes += n;
+            let _ = ack.send(()).await;
         }
         for data in recvd_data.into_iter() {
             dst_file
@@ -1042,9 +1055,6 @@ pub fn test_data_transfering_reliability_on_configs(
             .map_err(|e| anyhow::anyhow!("open source failed: {}", e))?;
         let mut buf = vec![0u8; 1500];
         loop {
-            // Since UDP is unordered and unreliable, even tests on local could
-            // fail, make some delay to mitigate this.
-            tokio::time::sleep(Duration::from_millis(1)).await;
             let n = timeout(Duration::from_secs(2), src.read(&mut buf))
                 .await
                 .map_err(|e| anyhow::anyhow!("read timeout: {}", e))?
@@ -1057,6 +1067,7 @@ pub fn test_data_transfering_reliability_on_configs(
                 .await
                 .map_err(|e| anyhow::anyhow!("send timeout: {}", e))?
                 .map_err(|e| anyhow::anyhow!("send failed: {}", e))?;
+                received(&mut acks).await?;
             } else {
                 break;
             }
@@ -1075,6 +1086,10 @@ pub fn test_data_transfering_reliability_on_configs(
     }
 
     // UDP downlink
+    // One datagram at a time: the next is sent once the last is received,
+    // so that what is checked is that each arrives, whole and in order,
+    // not that a burst outruns nothing on the way.
+    let (ack, mut acks) = tokio::sync::mpsc::channel::<()>(1);
     let socket = rt
         .block_on(UdpSocket::bind("127.0.0.1:0"))
         .map_err(|e| anyhow::anyhow!("bind udp failed: {}", e))?;
@@ -1129,6 +1144,7 @@ pub fn test_data_transfering_reliability_on_configs(
                 .map_err(|e| anyhow::anyhow!("recv failed: {}", e))?;
             recvd_data.push(buf[..n].to_vec());
             recvd_bytes += n;
+            let _ = ack.send(()).await;
         }
         for data in recvd_data.into_iter() {
             dst_file
@@ -1167,9 +1183,6 @@ pub fn test_data_transfering_reliability_on_configs(
             .await
             .map_err(|e| anyhow::anyhow!("recv initial failed: {}", e))?;
         loop {
-            // Since UDP is unordered and unreliable, even tests on local could
-            // fail, make some delay to mitigate this.
-            tokio::time::sleep(Duration::from_millis(1)).await;
             let n = timeout(Duration::from_secs(2), src.read(&mut buf))
                 .await
                 .map_err(|e| anyhow::anyhow!("read timeout: {}", e))?
@@ -1179,6 +1192,7 @@ pub fn test_data_transfering_reliability_on_configs(
                     .await
                     .map_err(|e| anyhow::anyhow!("send timeout: {}", e))?
                     .map_err(|e| anyhow::anyhow!("send failed: {}", e))?;
+                received(&mut acks).await?;
             } else {
                 break;
             }
