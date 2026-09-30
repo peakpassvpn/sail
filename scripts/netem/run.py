@@ -557,6 +557,13 @@ def compact(rec):
     return r
 
 
+def write_summary(out, summaries):
+    path = os.path.join(out, "summary.json")
+    with open(path + ".tmp", "w") as f:
+        json.dump(summaries, f, indent=1)
+    os.replace(path + ".tmp", path)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--work", default="netem-work")
@@ -603,9 +610,12 @@ def main():
                     if not run.failures:
                         # Only failing runs keep their raw records.
                         os.remove(os.path.join(run.dir, "raw.jsonl.gz"))
+                    # After every run: a long pass stopped halfway keeps
+                    # what it finished.
+                    write_summary(args.out, summaries)
     finally:
         netns("down")
-    json.dump(summaries, open(os.path.join(args.out, "summary.json"), "w"), indent=1)
+    write_summary(args.out, summaries)
     failed = [s["name"] for s in summaries if s["failures"]]
     print(f"== done: {len(summaries)} runs, failing: {failed or 'none'}; {args.out}")
     sys.exit(1 if failed else 0)
