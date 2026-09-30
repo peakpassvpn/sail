@@ -8,6 +8,12 @@
 # Local benchmarks, not published
 /bench/
 
+# Local-only: fuzz workspaces and run evidence (logs hold local paths and hosts)
+/fuzz/
+/fuzz-config/
+/packaging/systemd/validation/
+/tools/security/evidence/
+
 # Sail ships executable and FFI artifacts; keep the resolved dependency graph
 # reviewable and reproducible.
 **/Cargo.lock
@@ -40,7 +46,8 @@ tags
 .LSOverride
 
 # Icon must end with two \r
-Icon
+Icon
+
 
 # Thumbnails
 ._*

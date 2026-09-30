@@ -287,7 +287,7 @@ Sail 与 sing-box 的对比已经完成。当前结果表明：
 | --- | --- | --- | --- |
 | 5.1 | **已完成（2026-09-26；2026-09-29 补回归）** 清理 `.unwrap()` / panic | 非测试代码 216 处降到 60 处，剩余均为写明理由的不变量；FFI 入口全部 `catch_unwind`；fuzz 发现的 duration 浮点转换/累加溢出已改为 checked 错误并启用回归 | 数据通路、配置、DNS、协议解析、入站鉴权和 FFI 不因外部输入退出进程；显式处理 `panic!` / `unimplemented!` |
 | 5.2 | **部分完成（2026-09-26）** 补测试 | 协议双向互操作（对 sing-box 1.13.12 / Xray）、Reality、多用户、回落、DNS 上游已有自动测试；测试全部使用系统分配的端口和独立临时目录，可并行运行；路由、TUN、网络生命周期仍缺 | DNS、路由、TUN、Reality、协议双向互操作、多用户和网络生命周期都有自动测试 |
-| 5.3 | **已完成基线（2026-09-29）** 模糊测试 | 独立 `fuzz-config` workspace 有配置、订阅、source/binary 规则集、DNS、嗅探、TUIC/XUDP 入站解析共 8 个 cargo-fuzz target；有界语料、稳定回归、ASan campaign/replay 和留存证据 | 持续延长 campaign、扩充真实且脱敏的协议语料；新 crash 先最小化并固化为默认回归 |
+| 5.3 | **已完成基线（2026-09-29）** 模糊测试 | 独立的 cargo-fuzz workspace（保存在仓库外，不公开）有配置、订阅、source/binary 规则集、DNS、嗅探、TUIC/XUDP 入站解析共 8 个 cargo-fuzz target；有界语料、稳定回归、ASan campaign/replay；运行日志与证据不进仓库 | 持续延长 campaign、扩充真实且脱敏的协议语料；新 crash 先最小化并固化为默认回归 |
 | 5.4 | 性能回归 CI | 目前为手动 benchmark | 移动端、桌面、服务端、路由器四种预算都有可比较基线；吞吐、CPU、内存或分配次数超阈值即告警 |
 | 5.5 | 长稳与弱网测试 | 无（2026-09-29 已有多路复用参数的 netns 弱网基准 `scripts/bench-mux`，在 bench/mux-params 分支） | 24 小时运行，以及延迟、丢包、乱序、断网重连、高并发和半关闭场景通过 |
 | 5.6 | **部分完成（2026-09-29）** 安全 | 已有依赖来源、RustSec、许可证门禁和只读 CI；根锁文件纳入版本控制，3 个漏洞和直接 `lru` unsound 路径已升级，audit 无漏洞；第一方统一 Apache-2.0，`webpki-root-certs/CDLA` 与 `tun/WTFPL` 采用精确例外并随发布提供全文；`quinn-btls -> lru 0.16.4` 和 `paste` 警告仍未闭环；已知风险：quinn 0.11 的 endpoint 在 UDP 接收遇到 ConnectionReset 以外的错误时整个失效（实际只有 ENOMEM 能触发），修法是包一层带退避的 AsyncUdpSocket，或改在我们的 quinn-btls fork 里 | 推进 fork/TUN 上游依赖；补入站抗探测和资源耗尽防护、订阅和规则下载限流/大小限制/超时/路径约束、日志脱敏 |

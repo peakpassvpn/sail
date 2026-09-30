@@ -133,8 +133,8 @@ ignored by `.gitignore` and is not tracked, so a clean CI checkout has no
 locked graph to audit. The gate intentionally does not generate one.
 
 The persisted baseline used `cargo-audit 0.22.2` and `cargo-deny 0.20.2`,
-installed in an isolated temporary tool directory. Raw evidence is under
-`tools/security/evidence/2026-09-28/`. The audit used an exact copy of the
+installed in an isolated temporary tool directory. Raw run logs are kept
+outside the repository. The audit used an exact copy of the
 lockfile above. The RustSec database contained 1,273 advisories at commit
 `ef03605143a913024f864d2edf476adad5720c93`, committed
 `2026-09-28T11:30:11+02:00`. `cargo-audit` exited 1 with three vulnerabilities:

@@ -221,9 +221,8 @@ macOS and non-systemd Linux hosts can run only `verify.sh`. Production
 acceptance must use results from the exact target systemd release rather than
 substituting portable checks for a real service lifecycle.
 
-The repository's latest local static evidence is recorded under
-`packaging/systemd/validation/`; it deliberately marks real systemd lifecycle
-checks as not run.
+Validation run logs are kept outside the repository; the latest local static
+run deliberately marks real systemd lifecycle checks as not run.
 
 ## Remaining core gaps
 
