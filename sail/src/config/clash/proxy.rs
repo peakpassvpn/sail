@@ -223,15 +223,11 @@ const DIAL: &[(&str, Tier)] = &[
     ("ip-version", Ignored),
 ];
 
-const TLS: &[(&str, Tier)] = &[
-    ("fingerprint", Unsupported),
-    ("name-cert-verify", Unsupported),
-];
+const TLS: &[(&str, Tier)] = &[("name-cert-verify", Unsupported)];
 
 const SHADOWSOCKS: &[(&str, Tier)] = &[("client-fingerprint", Ignored)];
 
 const V2RAY: &[(&str, Tier)] = &[
-    ("fingerprint", Unsupported),
     ("name-cert-verify", Unsupported),
     ("shadow-tls-opts", Unsupported),
     ("restls-opts", Unsupported),
@@ -246,7 +242,6 @@ const V2RAY: &[(&str, Tier)] = &[
 ];
 
 const HYSTERIA2: &[(&str, Tier)] = &[
-    ("fingerprint", Unsupported),
     ("name-cert-verify", Unsupported),
     ("obfs-min-packet-size", Unsupported),
     ("obfs-max-packet-size", Unsupported),
@@ -262,7 +257,6 @@ const HYSTERIA2: &[(&str, Tier)] = &[
 ];
 
 const TUIC: &[(&str, Tier)] = &[
-    ("fingerprint", Unsupported),
     ("name-cert-verify", Unsupported),
     ("request-timeout", Ignored),
     ("max-udp-relay-packet-size", Ignored),
@@ -277,7 +271,6 @@ const TUIC: &[(&str, Tier)] = &[
 ];
 
 const ANYTLS: &[(&str, Tier)] = &[
-    ("fingerprint", Unsupported),
     ("name-cert-verify", Unsupported),
     ("shadow-tls-opts", Unsupported),
     ("restls-opts", Unsupported),
@@ -382,6 +375,38 @@ fn dial(
 /// `tls`, if on: `name_key` names the server name (`servername` for VMess
 /// and VLESS, `sni` for the rest); `on` is whether TLS is on without a
 /// `tls` field.
+/// Mihomo's `fingerprint`: the SHA-256 hash of a whole certificate the
+/// server is taken by, sail's `certificate_sha256`, which has Mihomo's
+/// meaning: the server's own certificate taken outright, one after it the
+/// only CA, with the name checked. A browser's name, which belongs in
+/// `client-fingerprint`, is refused as Mihomo refuses it.
+fn certificate_pin(f: &mut Fields) -> Result<Option<String>> {
+    let at = f.at("fingerprint");
+    let Some(pin) = f.string("fingerprint")?.filter(|p| !p.trim().is_empty()) else {
+        return Ok(None);
+    };
+    const BROWSERS: &[&str] = &[
+        "chrome",
+        "firefox",
+        "safari",
+        "ios",
+        "android",
+        "edge",
+        "360",
+        "qq",
+        "random",
+        "randomized",
+    ];
+    if BROWSERS.contains(&pin.as_str()) {
+        return Err(anyhow!(
+            "{}: `fingerprint` is used for TLS certificate pinning. If you need to specify \
+             the browser fingerprint, use `client-fingerprint`",
+            at
+        ));
+    }
+    Ok(Some(super::super::certificate_hash(&pin)))
+}
+
 fn tls(
     f: &mut Fields,
     o: &mut Map<String, Value>,
@@ -398,6 +423,7 @@ fn tls(
     let client_fingerprint = f.string("client-fingerprint")?;
     let certificate = f.string("certificate")?.filter(|c| !c.is_empty());
     let private_key = f.string("private-key")?.filter(|k| !k.is_empty());
+    let pin = certificate_pin(f)?;
     if !enabled {
         return Ok(());
     }
@@ -411,6 +437,9 @@ fn tls(
     }
     if !alpn.is_empty() {
         tls.insert("alpn".into(), json!(alpn));
+    }
+    if let Some(pin) = pin {
+        tls.insert("certificate_sha256".into(), json!([pin]));
     }
     // The client certificate: PEM, or a path, as Mihomo tells them apart.
     match (certificate, private_key) {
@@ -675,6 +704,10 @@ fn shadow_tls_plugin(
     };
     if !alpn.is_empty() {
         tls.insert("alpn".into(), json!(alpn));
+    }
+    // The handshake server's certificate, pinned, as Mihomo's plugin has it.
+    if let Some(pin) = certificate_pin(&mut opts)? {
+        tls.insert("certificate_sha256".into(), json!([pin]));
     }
     let client_fingerprint = f.string("client-fingerprint")?;
     if let Some(utls) = utls(&f.at("client-fingerprint"), client_fingerprint.as_deref())? {

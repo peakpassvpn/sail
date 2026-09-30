@@ -83,10 +83,7 @@ const COMMON: &[(&str, Tier)] = &[
 ];
 
 /// The TLS parameters, but those read.
-const TLS: &[(&str, Tier)] = &[
-    ("server-cert-fingerprint-sha256", Unsupported("")),
-    ("server-cert-verify-name", Unsupported("")),
-];
+const TLS: &[(&str, Tier)] = &[("server-cert-verify-name", Unsupported(""))];
 
 /// Every parameter a proxy line may hold, which a value in a place of the
 /// line's own (a password) is not taken for.
@@ -759,6 +756,12 @@ fn tls(proxy: &Proxy, p: &mut Params, on: bool, over: Over) -> Result<Option<Val
     let insecure = p.bool("skip-cert-verify")?.unwrap_or(false);
     let alpn = p.list("alpn");
     let client_cert = p.take_at("client-cert");
+    // The server's certificate, pinned: sail's `certificate_sha256`, which
+    // also takes a certificate after it as the only CA, with the name
+    // checked, where Surge's manual says nothing.
+    let pin = p
+        .string("server-cert-fingerprint-sha256")
+        .filter(|pin| !pin.trim().is_empty());
     if !on {
         return Ok(None);
     }
@@ -782,6 +785,12 @@ fn tls(proxy: &Proxy, p: &mut Params, on: bool, over: Over) -> Result<Option<Val
     }
     if !alpn.is_empty() {
         tls.insert("alpn".into(), json!(alpn));
+    }
+    if let Some(pin) = pin {
+        tls.insert(
+            "certificate_sha256".into(),
+            json!([crate::config::certificate_hash(&pin)]),
+        );
     }
     if let Some((name, at)) = client_cert.filter(|(name, _)| !name.is_empty()) {
         let cert = proxy.keystore.client_cert(&name, &at)?;
@@ -1013,7 +1022,6 @@ fn hysteria2(proxy: &Proxy, p: &mut Params, proxies: &mut Proxies) -> Result<Low
         Kind::Proxy { udp: true },
         &[
             ("gecko-password", Unsupported("")),
-            ("server-cert-fingerprint-sha256", Unsupported("")),
             ("server-cert-verify-name", Unsupported("")),
         ],
     ))
@@ -1037,7 +1045,6 @@ fn tuic(proxy: &Proxy, p: &mut Params, proxies: &mut Proxies) -> Result<Lowering
         &[
             ("port-hopping", Unsupported("")),
             ("port-hopping-interval", Silent),
-            ("server-cert-fingerprint-sha256", Unsupported("")),
             ("server-cert-verify-name", Unsupported("")),
         ],
     ))

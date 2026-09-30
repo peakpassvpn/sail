@@ -618,9 +618,9 @@ fn mistakes_name_where_they_are() {
             "[Proxy] line 2: A: sni: off: sail does not implement a QUIC handshake without SNI",
         ),
         (
-            "[Proxy]\nA = trojan, a, 443, password=p, server-cert-fingerprint-sha256=ab\n\
+            "[Proxy]\nA = trojan, a, 443, password=p, server-cert-verify-name=b.example\n\
              [Rule]\nFINAL,DIRECT\n",
-            "[Proxy] line 2: A: server-cert-fingerprint-sha256: sail does not implement",
+            "[Proxy] line 2: A: server-cert-verify-name: sail does not implement",
         ),
         (
             "[Proxy Group]\nG = select, Nowhere\n[Rule]\nFINAL,DIRECT\n",
@@ -1222,6 +1222,29 @@ fn a_reject_alias_passes_its_dial_parameters_over() {
             "{}: {:?}",
             kind,
             config.warnings
+        );
+    }
+}
+
+#[test]
+fn a_pinned_server_certificate_is_certificate_sha256() {
+    let pin = "AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89";
+    for line in [
+        format!(
+            "A = trojan, a.example, 443, password=p, server-cert-fingerprint-sha256={}",
+            pin
+        ),
+        format!(
+            "A = hysteria2, a.example, 443, password=p, server-cert-fingerprint-sha256={}",
+            pin
+        ),
+    ] {
+        let config = load(&format!("[Proxy]\n{}\n[Rule]\nFINAL,A\n", line));
+        assert_eq!(
+            outbound(&config, "A")["tls"]["certificate_sha256"],
+            serde_json::json!(["abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"]),
+            "{}",
+            line
         );
     }
 }

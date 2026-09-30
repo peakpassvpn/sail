@@ -133,3 +133,12 @@ mod tests {
         assert!(Format::of_file("b.toml").is_err());
     }
 }
+
+/// A certificate's SHA-256 hash as a front-end writes it (colons, spaces,
+/// either case), as `certificate_sha256` has it: lowercase hex alone.
+pub(crate) fn certificate_hash(hash: &str) -> String {
+    hash.chars()
+        .filter(|c| *c != ':' && !c.is_whitespace())
+        .collect::<String>()
+        .to_ascii_lowercase()
+}

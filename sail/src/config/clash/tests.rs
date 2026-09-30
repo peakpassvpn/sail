@@ -231,8 +231,8 @@ fn mistakes_name_the_field() {
             "proxies[0].network: sail does not implement the h2 transport yet",
         ),
         (
-            "proxies: [{ name: a, type: trojan, server: s, port: 1, password: p, fingerprint: ab }]",
-            "proxies[0].fingerprint: sail does not implement this field yet",
+            "proxies: [{ name: a, type: trojan, server: s, port: 1, password: p, name-cert-verify: b }]",
+            "proxies[0].name-cert-verify: sail does not implement this field yet",
         ),
         (
             "proxy-groups: [{ name: G, type: select, proxies: [nowhere] }]",
@@ -331,12 +331,23 @@ fn shadow_tls_plugin_mistakes_name_the_field() {
         error(&proxy("password: p, version: 3")),
         "proxies[0].plugin-opts.host: missing"
     );
+    // The handshake server's certificate, pinned.
+    let config = load(&proxy(
+        "host: a.example, password: p, version: 3, fingerprint: 'AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89'",
+    ));
+    let shadow_tls = config
+        .outbounds
+        .iter()
+        .find(|o| o.protocol == "shadowtls")
+        .expect("the shadowtls outbound");
     assert_eq!(
-        error(&proxy(
-            "host: a.example, password: p, version: 3, fingerprint: ab"
-        )),
-        "proxies[0].plugin-opts.fingerprint: sail does not implement this field yet"
+        shadow_tls.options["tls"]["certificate_sha256"],
+        serde_json::json!(["abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"])
     );
+    assert!(error(&proxy(
+        "host: a.example, password: p, version: 3, fingerprint: chrome"
+    ))
+    .contains("plugin-opts.fingerprint: `fingerprint` is used for TLS certificate pinning"));
 }
 
 #[test]
@@ -2151,5 +2162,28 @@ fn a_select_group_starts_on_its_default_selected() {
             .any(|w| w.contains("default-selected: \"B\" is no member")),
         "{:?}",
         config.warnings
+    );
+}
+
+#[test]
+fn a_proxy_s_fingerprint_is_certificate_sha256() {
+    let config = load(
+        "proxies:\n\
+         - { name: T, type: trojan, server: a.example, port: 443, password: p,\n\
+         \x20   fingerprint: 'AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89' }\n",
+    );
+    assert_eq!(
+        outbound(&config, "T").options["tls"]["certificate_sha256"],
+        serde_json::json!(["abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"])
+    );
+    // A browser's name belongs in client-fingerprint, as Mihomo says.
+    let err = error(
+        "proxies: [{ name: T, type: trojan, server: a.example, port: 443, password: p, fingerprint: chrome }]\n",
+    );
+    assert!(
+        err.contains("proxies[0].fingerprint: `fingerprint` is used for TLS certificate pinning")
+            && err.contains("use `client-fingerprint`"),
+        "{}",
+        err
     );
 }
