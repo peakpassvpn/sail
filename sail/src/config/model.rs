@@ -1420,6 +1420,7 @@ pub const GROUP_PROTOCOLS: &[&str] = &[
     "load-balance",
     "smart",
     "tryall",
+    "network",
 ];
 
 /// The groups that take members from outbound providers too.

@@ -226,6 +226,17 @@ impl RuntimeManager {
         &self.env.network
     }
 
+    /// Whether the configuration, as it is now, picks anything by the
+    /// network the host is on: a routing rule, or a rule of a rule-set one
+    /// names, with conditions on it (`wifi_ssid`, `network_type`, …), or a
+    /// `network` group. Where none does, nothing needs the network found
+    /// out. It changes only with a reload, or with a rule-set that a
+    /// download replaces, so it is asked once before the instance starts
+    /// and again after each reload.
+    pub fn needs_network(&self) -> bool {
+        self.router.load().needs_network() || self.outbound_manager.load().needs_network()
+    }
+
     /// What the Clash API tells of the configuration.
     #[cfg(feature = "clash-api")]
     pub(crate) fn clash_view(&self) -> app::clash_api::ConfigView {

@@ -34,6 +34,8 @@ pub mod members;
     feature = "outbound-provider"
 ))]
 pub mod merge;
+#[cfg(feature = "outbound-network-group")]
+pub mod network;
 #[cfg(feature = "outbound-select")]
 pub mod selector;
 #[cfg(feature = "outbound-smart")]

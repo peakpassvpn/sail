@@ -440,6 +440,12 @@ impl OutboundManager {
             .or_else(|| self.endpoints.get(tag).map(|e| e.config.protocol.as_str()))
     }
 
+    /// Whether an outbound picks its way by the network the host is on:
+    /// a `network` group, whose branches always have conditions on it.
+    pub fn needs_network(&self) -> bool {
+        self.configs.values().any(|o| o.protocol == "network")
+    }
+
     pub fn get(&self, tag: &str) -> Option<AnyOutboundHandler> {
         self.handlers.get(tag).map(Clone::clone)
     }

@@ -96,6 +96,38 @@ Serde: `serde (deny_unknown_fields)`
 | `interval` | `Option < Duration >` | Default::default() | —<br/>`serde (default , with = "crate::config::model::duration")` |
 | `lazy` | `bool` | default: default_lazy() | Tests only while the group is in use: not when it was not used since the last ones.<br/>`serde (default = "default_lazy")` |
 
+## NetworkGroupOptions
+
+[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/group/network/mod.rs)
+
+Serde: `serde (deny_unknown_fields)`
+
+| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
+| --- | --- | --- | --- |
+| `branches` | `Vec < Branch >` | 必填 | Tried in order: the first whose conditions the network matches takes the connection. |
+| `default` | `String` | 必填 | Where connections go when no branch matches. |
+
+## Branch
+
+[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/group/network/mod.rs)
+
+An outbound, and the network it is for: conditions as a routing rule's, each of which must match, a list when any of its values does. A condition on something not known of the network does not match.
+
+Serde: `serde (deny_unknown_fields)`
+
+| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
+| --- | --- | --- | --- |
+| `outbound` | `String` | 必填 | — |
+| `wifi_ssid` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "listable")` |
+| `wifi_bssid` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "listable")` |
+| `network_type` | `Vec < String >` | Default::default() | `wifi`, `cellular`, `ethernet`, `other`.<br/>`serde (default , with = "listable")` |
+| `network_is_expensive` | `bool` | Default::default() | —<br/>`serde (default)` |
+| `network_is_constrained` | `bool` | Default::default() | —<br/>`serde (default)` |
+| `wifi_ssid_regex` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "listable")` |
+| `wifi_bssid_regex` | `Vec < String >` | Default::default() | Matched whatever the case.<br/>`serde (default , with = "listable")` |
+| `network_gateway` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "listable")` |
+| `network_mcc_mnc` | `Vec < String >` | Default::default() | Only off Wi-Fi.<br/>`serde (default , with = "listable")` |
+
 ## SelectorOutboundOptions
 
 [配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/group/selector/mod.rs)

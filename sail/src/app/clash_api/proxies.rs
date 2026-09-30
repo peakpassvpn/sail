@@ -38,6 +38,7 @@ fn clash_type(protocol: &str) -> &'static str {
         "fallback" => "Fallback",
         "load-balance" => "LoadBalance",
         "smart" => "Smart",
+        "network" => "Network",
         "chain" => "Relay",
         "shadowsocks" => "Shadowsocks",
         "vmess" => "Vmess",

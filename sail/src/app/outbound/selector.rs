@@ -121,6 +121,10 @@ pub enum SelectedBy {
     /// By the group itself, from its checks; it cannot be selected by
     /// hand.
     Checks,
+    /// By the group itself, from what it is told at the time (the
+    /// network the host is on): the member it would pick now, asked each
+    /// time, by name; it cannot be selected by hand.
+    State(Box<dyn Fn() -> String + Send + Sync>),
 }
 
 /// The state of a group that sends its connections to one member at a
@@ -162,6 +166,9 @@ impl OutboundSelector {
 
     /// The member connections go to, see `Selection::pick`.
     pub fn get_selected_tag(&self) -> String {
+        if let SelectedBy::State(now) = &self.selected_by {
+            return now();
+        }
         let snapshot = self.members.load();
         self.selected
             .pick(&snapshot)

@@ -87,6 +87,7 @@ all-endpoints = [
     "outbound-urltest",
     "outbound-load-balance",
     "outbound-smart",
+    "outbound-network-group",
     # endpoints
     "wireguard",
 ]
@@ -150,6 +151,9 @@ load-balance-psl = ["outbound-load-balance", "psl"]
 outbound-smart = ["outbound-select", "lru_time_cache", "fancy-regex"]
 # Exposes its selection and latencies the way a selector does.
 outbound-fallback = ["outbound-select"]
+# Picks its member by the network the host is on; exposes it the way a
+# selector does.
+outbound-network-group = ["outbound-select"]
 outbound-vmess = ["aead", "hmac", "sha2", "aes", "sha3", "md-5", "crc32fast"]
 
 # Inbounds
