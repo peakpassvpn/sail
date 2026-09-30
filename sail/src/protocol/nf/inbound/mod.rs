@@ -116,7 +116,6 @@ type NfGetUdpConnInfoFn = unsafe extern "C" fn(EndpointId, *mut NfUdpConnInfo) -
 type NfGetProcessNameFn = unsafe extern "C" fn(u32, *mut u8, u32) -> bool;
 type NfGetProcessNameFromKernelFn = unsafe extern "C" fn(u32, *mut u8, u32) -> bool;
 
-// FIXME Ensure no concurrent access to these fns from different threads.
 static NFAPI: RwLock<Option<libloading::Library>> = RwLock::new(None);
 static mut NF_INIT: Option<NfInitFn> = None;
 static mut NF_FREE: Option<NfFreeFn> = None;
@@ -314,7 +313,6 @@ unsafe extern "C" fn tcpConnectRequest(id: EndpointId, conn_info: *mut NfTcpConn
         process_name.as_deref().unwrap_or("Unknown")
     );
 
-    // TODO Remove timeout items.
     if TCP_INFO
         .lock()
         .insert(
@@ -524,7 +522,6 @@ unsafe extern "C" fn udpSend(
     let buf = std::slice::from_raw_parts(buf, len as _);
     new_buf.put_slice(buf);
 
-    // FIXME retrieve from inbound settings
     let tag = "nf";
     let network = crate::session::Network::Udp;
     let Some(new_remote_addr) = crate::app::inbound::get_network_listen_addr(tag, network) else {
