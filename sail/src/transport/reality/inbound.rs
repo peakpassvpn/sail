@@ -1069,10 +1069,19 @@ mod tests {
     /// Runs `server` on one connection from a new listener; returns the
     /// port and whether its handshake completed.
     async fn serve(server: Arc<Handler>) -> (u16, tokio::task::JoinHandle<io::Result<()>>) {
+        serve_reading(server, usize::MAX).await
+    }
+
+    /// As `serve`, but the server reads at most `most` bytes at a time.
+    async fn serve_reading(
+        server: Arc<Handler>,
+        most: usize,
+    ) -> (u16, tokio::task::JoinHandle<io::Result<()>>) {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
         let task = tokio::spawn(async move {
-            let (tcp, _) = listener.accept().await?;
+            let (inner, _) = listener.accept().await?;
+            let tcp = Trickle { inner, most };
             match server.handle(Session::default(), Box::new(tcp)).await? {
                 InboundTransport::Stream(mut stream, _) => {
                     // Echo one message back.
@@ -1086,6 +1095,46 @@ mod tests {
             }
         });
         (port, task)
+    }
+
+    /// A connection read at most `most` bytes at a time, however many have
+    /// arrived: a ClientHello split across reads without timing it.
+    struct Trickle {
+        inner: TcpStream,
+        most: usize,
+    }
+
+    impl AsyncRead for Trickle {
+        fn poll_read(
+            self: Pin<&mut Self>,
+            cx: &mut Context<'_>,
+            buf: &mut ReadBuf<'_>,
+        ) -> Poll<io::Result<()>> {
+            let this = self.get_mut();
+            let mut part = vec![0u8; buf.remaining().min(this.most)];
+            let mut part = ReadBuf::new(&mut part);
+            std::task::ready!(Pin::new(&mut this.inner).poll_read(cx, &mut part))?;
+            buf.put_slice(part.filled());
+            Poll::Ready(Ok(()))
+        }
+    }
+
+    impl AsyncWrite for Trickle {
+        fn poll_write(
+            self: Pin<&mut Self>,
+            cx: &mut Context<'_>,
+            buf: &[u8],
+        ) -> Poll<io::Result<usize>> {
+            Pin::new(&mut self.get_mut().inner).poll_write(cx, buf)
+        }
+
+        fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+            Pin::new(&mut self.get_mut().inner).poll_flush(cx)
+        }
+
+        fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+            Pin::new(&mut self.get_mut().inner).poll_shutdown(cx)
+        }
     }
 
     /// Reads what a client stream receives, keeping a copy.
@@ -1141,24 +1190,15 @@ mod tests {
         out
     }
 
-    /// Connects to `port` as sail's REALITY client, sending the ClientHello
-    /// `chunk` bytes at a time, and completes the handshake. Returns the
-    /// stream and what the server sent up to then.
+    /// Connects to `port` as sail's REALITY client and completes the
+    /// handshake. Returns the stream and what the server sent up to then.
     async fn connect(
         port: u16,
         fingerprint: Fingerprint,
-        chunk: usize,
     ) -> io::Result<(TlsStream<BoringConnection, Tap>, Vec<u8>)> {
         let mut conn = client(fingerprint, "ab12", "www.example.com");
-        let hello = written(&mut conn);
         let mut tcp = TcpStream::connect(("127.0.0.1", port)).await?;
-        tcp.set_nodelay(true)?;
-        for piece in hello.chunks(chunk) {
-            tcp.write_all(piece).await?;
-            if chunk < hello.len() {
-                tokio::time::sleep(Duration::from_millis(1)).await;
-            }
-        }
+        tcp.write_all(&written(&mut conn)).await?;
         let seen = Arc::new(Mutex::new(Vec::new()));
         let mut stream = TlsStream::new(
             conn,
@@ -1177,7 +1217,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_flight_has_the_handshake_servers_shape() {
-        for (chunk, fingerprint, suite, group, lengths) in [
+        // The server reads the ClientHello `most` bytes at a time. Slowing
+        // the client down instead, a byte and a millisecond at a time, took
+        // half of `Timeouts::hello` on an idle Mac, and all of it under
+        // load: the client was then relayed to this fake handshake server,
+        // whose records do not decrypt.
+        for (most, fingerprint, suite, group, lengths) in [
             (1, Fingerprint::Chrome, 0x1301, X25519, vec![3000]),
             (
                 7,
@@ -1197,9 +1242,8 @@ mod tests {
             let expected = lengths.clone();
             let (target_port, target) =
                 handshake_server(move |sid| fake::reply(sid, suite, group, &lengths)).await;
-            let (port, served) = serve(Arc::new(server_to(None, target_port))).await;
-            // The ClientHello split across many reads, down to a byte each.
-            let (mut stream, seen) = connect(port, fingerprint, chunk).await.unwrap();
+            let (port, served) = serve_reading(Arc::new(server_to(None, target_port)), most).await;
+            let (mut stream, seen) = connect(port, fingerprint).await.unwrap();
             let got = record_lengths(&seen);
             let server_hello = fake::server_hello(&[0; 32], suite, group).len();
             assert_eq!(got[0], server_hello, "{:#x}", suite);
@@ -1312,9 +1356,7 @@ mod tests {
         let mut server = server_to(None, target_port);
         server.timeouts.quiet = Duration::from_millis(100);
         let (port, _served) = serve(Arc::new(server)).await;
-        let (_stream, seen) = connect(port, Fingerprint::Chrome, usize::MAX)
-            .await
-            .unwrap();
+        let (_stream, seen) = connect(port, Fingerprint::Chrome).await.unwrap();
         assert_eq!(&record_lengths(&seen)[2..5], &[60, 2000, 400]);
     }
 
@@ -1323,9 +1365,7 @@ mod tests {
         let (target_port, _target) =
             handshake_server(|sid| fake::reply(sid, 0x1301, X25519, &[40, 60, 60, 40])).await;
         let (port, served) = serve(Arc::new(server_to(None, target_port))).await;
-        assert!(connect(port, Fingerprint::Chrome, usize::MAX)
-            .await
-            .is_err());
+        assert!(connect(port, Fingerprint::Chrome).await.is_err());
         assert!(served.await.unwrap().is_err());
     }
 }
