@@ -1,0 +1,69 @@
+{
+  "log": {
+    "level": "info",
+    "timestamp": true
+  },
+  "dns": {
+    "servers": [
+      {
+        "type": "https",
+        "tag": "dns-1",
+        "server": "192.0.2.1",
+        "detour": "Proxy 1"
+      }
+    ],
+    "final": "dns-1",
+    "strategy": "ipv4_only"
+  },
+  "inbounds": [
+    {
+      "type": "tun",
+      "tag": "in-1",
+      "address": [
+        "192.0.2.1/30"
+      ],
+      "mtu": 1400,
+      "auto_route": true,
+      "stack": "gvisor",
+      "exclude_package": [
+        "com.example.app1"
+      ]
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "socks",
+      "tag": "Proxy 1",
+      "server": "127.0.0.1",
+      "server_port": 1081,
+      "version": "5"
+    },
+    {
+      "type": "direct",
+      "tag": "Proxy 2"
+    }
+  ],
+  "route": {
+    "rules": [
+      {
+        "action": "sniff"
+      },
+      {
+        "protocol": "dns",
+        "action": "hijack-dns"
+      },
+      {
+        "ip_is_private": true,
+        "outbound": "Proxy 2"
+      },
+      {
+        "ip_cidr": [
+          "100.64.0.0/10"
+        ],
+        "outbound": "Proxy 2"
+      }
+    ],
+    "final": "Proxy 1",
+    "auto_detect_interface": true
+  }
+}

@@ -1,0 +1,684 @@
+proxies:
+  - name: Proxy 1
+    network: ws
+    port: 8880
+    server: 192.0.2.1
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000001
+  - name: Proxy 2
+    network: ws
+    port: 8880
+    server: 192.0.2.2
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000001
+  - name: Proxy 3
+    network: ws
+    port: 22573
+    server: 192.0.2.3
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000002
+  - name: Proxy 4
+    network: ws
+    port: 22573
+    server: s1.example.net
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000002
+  - name: Proxy 5
+    password: 00005a11-0000-4000-8000-000000000003
+    port: 20086
+    server: s2.example.net
+    skip-cert-verify: true
+    sni: sni3.example.org
+    type: trojan
+    udp: true
+  - name: Proxy 6
+    network: ws
+    port: 22573
+    server: s1.example.net
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000002
+  - name: Proxy 7
+    network: ws
+    port: 22573
+    server: 192.0.2.3
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000002
+  - name: Proxy 8
+    network: ws
+    port: 22573
+    server: s1.example.net
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000002
+  - name: Proxy 9
+    network: ws
+    port: 22573
+    server: s1.example.net
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000002
+  - name: Proxy 10
+    network: ws
+    port: 8880
+    server: 192.0.2.4
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000001
+  - name: Proxy 11
+    network: ws
+    port: 8880
+    server: 192.0.2.2
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000001
+  - name: Proxy 12
+    network: ws
+    port: 22573
+    server: s1.example.net
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000002
+  - name: Proxy 13
+    network: ws
+    port: 22573
+    server: 192.0.2.3
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000002
+  - name: Proxy 14
+    network: ws
+    port: 22573
+    server: s1.example.net
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000002
+  - name: Proxy 15
+    network: ws
+    port: 22573
+    server: s1.example.net
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000002
+  - name: Proxy 16
+    network: ws
+    port: 22573
+    server: s1.example.net
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000002
+  - name: Proxy 17
+    network: ws
+    port: 22573
+    server: s1.example.net
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000002
+  - name: Proxy 18
+    network: ws
+    port: 22573
+    server: 192.0.2.3
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000002
+  - name: Proxy 19
+    network: ws
+    port: 22573
+    server: s1.example.net
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000002
+  - name: Proxy 20
+    network: ws
+    port: 22573
+    server: s1.example.net
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000002
+  - name: Proxy 21
+    password: 00005a11-0000-4000-8000-000000000003
+    port: 20086
+    server: 192.0.2.5
+    skip-cert-verify: false
+    sni: sni3.example.org
+    type: trojan
+    udp: true
+  - name: Proxy 22
+    network: ws
+    port: 22573
+    server: 192.0.2.3
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000002
+  - name: Proxy 23
+    network: ws
+    port: 22573
+    server: s1.example.net
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000002
+  - name: Proxy 24
+    network: ws
+    port: 22573
+    server: s1.example.net
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000002
+  - name: Proxy 25
+    network: ws
+    port: 22573
+    server: s1.example.net
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000002
+  - name: Proxy 26
+    network: ws
+    port: 443
+    server: s4.example.net
+    servername: s4.example.net
+    skip-cert-verify: false
+    tls: true
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000004
+  - name: Proxy 27
+    network: ws
+    port: 22573
+    server: s1.example.net
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000002
+  - name: Proxy 28
+    network: ws
+    port: 8880
+    server: 192.0.2.6
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000001
+  - name: Proxy 29
+    network: ws
+    port: 8880
+    server: 192.0.2.7
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000001
+  - name: Proxy 30
+    network: ws
+    port: 8880
+    server: 192.0.2.8
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000001
+  - client-fingerprint: firefox
+    flow: xtls-rprx-vision
+    name: Proxy 31
+    network: tcp
+    port: 443
+    reality-opts:
+      public-key: wywOQgzCr2vr85JpoMxzCakHIIvgUtsG6/Qp987NJa4
+      short-id: 704c7085dd7b3f73
+    server: 192.0.2.9
+    servername: sni5.example.org
+    tls: true
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000005
+  - name: Proxy 32
+    network: ws
+    port: 22573
+    server: 192.0.2.3
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000002
+  - name: Proxy 33
+    network: ws
+    port: 8880
+    server: 192.0.2.10
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000001
+  - name: Proxy 34
+    network: ws
+    port: 80
+    server: 192.0.2.11
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000006
+  - name: Proxy 35
+    network: ws
+    port: 443
+    server: 192.0.2.12
+    servername: s4.example.net
+    skip-cert-verify: false
+    tls: true
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000004
+  - name: Proxy 36
+    network: ws
+    port: 443
+    server: 192.0.2.13
+    servername: s4.example.net
+    skip-cert-verify: false
+    tls: true
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000004
+  - client-fingerprint: firefox
+    flow: xtls-rprx-vision
+    name: Proxy 37
+    network: tcp
+    port: 443
+    reality-opts:
+      public-key: wywOQgzCr2vr85JpoMxzCakHIIvgUtsG6/Qp987NJa4
+      short-id: 704c7085dd7b3f73
+    server: 192.0.2.9
+    servername: sni5.example.org
+    tls: true
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000005
+  - name: Proxy 38
+    network: ws
+    port: 22573
+    server: s1.example.net
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000002
+  - name: Proxy 39
+    network: ws
+    port: 443
+    server: s4.example.net
+    servername: s4.example.net
+    skip-cert-verify: false
+    tls: true
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000004
+  - client-fingerprint: chrome
+    flow: xtls-rprx-vision
+    name: Proxy 40
+    network: tcp
+    port: 8443
+    reality-opts:
+      public-key: WulOoXrJ4xaeREDpCXJqPLE7mK1qDJwNSfPto1FYe4I
+      short-id: 6663c3a1406786ea
+    server: 192.0.2.14
+    servername: sni6.example.org
+    tls: true
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000007
+  - name: Proxy 41
+    network: ws
+    port: 22573
+    server: 192.0.2.3
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000002
+  - client-fingerprint: firefox
+    flow: xtls-rprx-vision
+    name: Proxy 42
+    network: tcp
+    port: 443
+    reality-opts:
+      public-key: wywOQgzCr2vr85JpoMxzCakHIIvgUtsG6/Qp987NJa4
+      short-id: 704c7085dd7b3f73
+    server: 192.0.2.9
+    servername: sni5.example.org
+    tls: true
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000005
+  - client-fingerprint: chrome
+    flow: xtls-rprx-vision
+    name: Proxy 43
+    network: tcp
+    port: 8443
+    reality-opts:
+      public-key: WulOoXrJ4xaeREDpCXJqPLE7mK1qDJwNSfPto1FYe4I
+      short-id: 6663c3a1406786ea
+    server: 192.0.2.14
+    servername: sni6.example.org
+    tls: true
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000007
+  - name: Proxy 44
+    network: ws
+    port: 8880
+    server: 192.0.2.15
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000001
+  - name: Proxy 45
+    network: ws
+    port: 8880
+    server: 192.0.2.16
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000001
+  - client-fingerprint: random
+    flow: xtls-rprx-vision
+    name: Proxy 46
+    network: tcp
+    port: 443
+    reality-opts:
+      public-key: wywOQgzCr2vr85JpoMxzCakHIIvgUtsG6/Qp987NJa4
+      short-id: 704c7085dd7b3f73
+    server: 192.0.2.9
+    servername: sni5.example.org
+    tls: true
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000005
+  - client-fingerprint: chrome
+    flow: xtls-rprx-vision
+    name: Proxy 47
+    network: tcp
+    port: 443
+    reality-opts:
+      public-key: wywOQgzCr2vr85JpoMxzCakHIIvgUtsG6/Qp987NJa4
+      short-id: 704c7085dd7b3f73
+    server: 192.0.2.9
+    servername: sni5.example.org
+    tls: true
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000005
+  - client-fingerprint: firefox
+    flow: xtls-rprx-vision
+    name: Proxy 48
+    network: raw
+    port: 443
+    reality-opts:
+      public-key: wywOQgzCr2vr85JpoMxzCakHIIvgUtsG6/Qp987NJa4
+      short-id: 704c7085dd7b3f73
+    server: 192.0.2.9
+    servername: sni5.example.org
+    tls: true
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000005
+  - client-fingerprint: random
+    flow: xtls-rprx-vision
+    name: Proxy 49
+    network: tcp
+    port: 443
+    reality-opts:
+      public-key: wywOQgzCr2vr85JpoMxzCakHIIvgUtsG6/Qp987NJa4
+      short-id: 704c7085dd7b3f73
+    server: 192.0.2.9
+    servername: sni5.example.org
+    tls: true
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000005
+  - client-fingerprint: firefox
+    flow: xtls-rprx-vision
+    name: Proxy 50
+    network: tcp
+    port: 8443
+    reality-opts:
+      public-key: WulOoXrJ4xaeREDpCXJqPLE7mK1qDJwNSfPto1FYe4I
+      short-id: 6663c3a1406786ea
+    server: 192.0.2.14
+    servername: sni6.example.org
+    tls: true
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000007
+  - client-fingerprint: firefox
+    flow: xtls-rprx-vision
+    name: Proxy 51
+    network: raw
+    port: 8443
+    reality-opts:
+      public-key: WulOoXrJ4xaeREDpCXJqPLE7mK1qDJwNSfPto1FYe4I
+      short-id: 6663c3a1406786ea
+    server: 192.0.2.14
+    servername: sni6.example.org
+    tls: true
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000007
+  - client-fingerprint: chrome
+    flow: xtls-rprx-vision
+    name: Proxy 52
+    network: tcp
+    port: 443
+    reality-opts:
+      public-key: wywOQgzCr2vr85JpoMxzCakHIIvgUtsG6/Qp987NJa4
+      short-id: 704c7085dd7b3f73
+    server: 192.0.2.9
+    servername: sni5.example.org
+    tls: true
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000005
+  - client-fingerprint: firefox
+    flow: xtls-rprx-vision
+    name: Proxy 53
+    network: tcp
+    port: 8443
+    reality-opts:
+      public-key: WulOoXrJ4xaeREDpCXJqPLE7mK1qDJwNSfPto1FYe4I
+      short-id: 6663c3a1406786ea
+    server: 192.0.2.14
+    servername: sni6.example.org
+    tls: true
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000007
+  - client-fingerprint: chrome
+    flow: xtls-rprx-vision
+    name: Proxy 54
+    network: tcp
+    port: 8443
+    reality-opts:
+      public-key: WulOoXrJ4xaeREDpCXJqPLE7mK1qDJwNSfPto1FYe4I
+      short-id: 6663c3a1406786ea
+    server: 192.0.2.14
+    servername: sni6.example.org
+    tls: true
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000008
+  - client-fingerprint: chrome
+    flow: xtls-rprx-vision
+    name: Proxy 55
+    network: tcp
+    port: 443
+    reality-opts:
+      public-key: wywOQgzCr2vr85JpoMxzCakHIIvgUtsG6/Qp987NJa4
+      short-id: 704c7085dd7b3f73
+    server: 192.0.2.9
+    servername: sni5.example.org
+    tls: true
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000005
+  - name: Proxy 56
+    network: ws
+    port: 22573
+    server: 192.0.2.3
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000002
+  - client-fingerprint: chrome
+    flow: xtls-rprx-vision
+    name: Proxy 57
+    network: tcp
+    port: 443
+    reality-opts:
+      public-key: wywOQgzCr2vr85JpoMxzCakHIIvgUtsG6/Qp987NJa4
+      short-id: 704c7085dd7b3f73
+    server: 192.0.2.9
+    servername: sni5.example.org
+    tls: true
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000005
+  - client-fingerprint: random
+    flow: xtls-rprx-vision
+    name: Proxy 58
+    network: tcp
+    port: 8443
+    reality-opts:
+      public-key: WulOoXrJ4xaeREDpCXJqPLE7mK1qDJwNSfPto1FYe4I
+      short-id: 6663c3a1406786ea
+    server: 192.0.2.14
+    servername: sni6.example.org
+    tls: true
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000008
+  - client-fingerprint: firefox
+    flow: xtls-rprx-vision
+    name: Proxy 59
+    network: tcp
+    port: 8443
+    reality-opts:
+      public-key: WulOoXrJ4xaeREDpCXJqPLE7mK1qDJwNSfPto1FYe4I
+      short-id: 6663c3a1406786ea
+    server: 192.0.2.14
+    servername: sni6.example.org
+    tls: true
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000008
+proxy-groups:
+  - interval: 300
+    name: Group 1
+    proxies:
+      - Proxy 1
+      - Proxy 2
+      - Proxy 3
+      - Proxy 4
+      - Proxy 5
+      - Proxy 6
+      - Proxy 7
+      - Proxy 8
+      - Proxy 9
+      - Proxy 10
+      - Proxy 11
+      - Proxy 12
+      - Proxy 13
+      - Proxy 14
+      - Proxy 15
+      - Proxy 16
+      - Proxy 17
+      - Proxy 18
+      - Proxy 19
+      - Proxy 20
+      - Proxy 21
+      - Proxy 22
+      - Proxy 23
+      - Proxy 24
+      - Proxy 25
+      - Proxy 26
+      - Proxy 27
+      - Proxy 28
+      - Proxy 29
+      - Proxy 30
+      - Proxy 31
+      - Proxy 32
+      - Proxy 33
+      - Proxy 34
+      - Proxy 35
+      - Proxy 36
+      - Proxy 37
+      - Proxy 38
+      - Proxy 39
+      - Proxy 40
+      - Proxy 41
+      - Proxy 42
+      - Proxy 43
+      - Proxy 44
+      - Proxy 45
+      - Proxy 46
+      - Proxy 47
+      - Proxy 48
+      - Proxy 49
+      - Proxy 50
+      - Proxy 51
+      - Proxy 52
+      - Proxy 53
+      - Proxy 54
+      - Proxy 55
+      - Proxy 56
+      - Proxy 57
+      - Proxy 58
+      - Proxy 59
+    type: url-test
+    url: https://h1.example.com/generate_204
+  - name: Group 2
+    proxies:
+      - Group 1
+      - Proxy 1
+      - Proxy 2
+      - Proxy 3
+      - Proxy 4
+      - Proxy 5
+      - Proxy 6
+      - Proxy 7
+      - Proxy 8
+      - Proxy 9
+      - Proxy 10
+      - Proxy 11
+      - Proxy 12
+      - Proxy 13
+      - Proxy 14
+      - Proxy 15
+      - Proxy 16
+      - Proxy 17
+      - Proxy 18
+      - Proxy 19
+      - Proxy 20
+      - Proxy 21
+      - Proxy 22
+      - Proxy 23
+      - Proxy 24
+      - Proxy 25
+      - Proxy 26
+      - Proxy 27
+      - Proxy 28
+      - Proxy 29
+      - Proxy 30
+      - Proxy 31
+      - Proxy 32
+      - Proxy 33
+      - Proxy 34
+      - Proxy 35
+      - Proxy 36
+      - Proxy 37
+      - Proxy 38
+      - Proxy 39
+      - Proxy 40
+      - Proxy 41
+      - Proxy 42
+      - Proxy 43
+      - Proxy 44
+      - Proxy 45
+      - Proxy 46
+      - Proxy 47
+      - Proxy 48
+      - Proxy 49
+      - Proxy 50
+      - Proxy 51
+      - Proxy 52
+      - Proxy 53
+      - Proxy 54
+      - Proxy 55
+      - Proxy 56
+      - Proxy 57
+      - Proxy 58
+      - Proxy 59
+    type: select
+rules:
+  - MATCH,Group 2

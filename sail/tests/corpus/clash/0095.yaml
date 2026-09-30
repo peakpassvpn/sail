@@ -1,0 +1,27 @@
+mixed-port: 7890
+allow-lan: true
+mode: rule
+log-level: info
+dns:
+  enable: true
+  listen: 0.0.0.0:53
+  enhanced-mode: fake-ip
+  nameserver:
+    - 192.0.2.1
+    - 192.0.2.2
+proxies:
+  - name: Proxy 1
+    type: http
+    server: 192.0.2.3
+    port: 80
+proxy-groups:
+  - name: PROXY
+    type: select
+    proxies:
+      - Proxy 1
+      - DIRECT
+rules:
+  - DOMAIN,d1.example,Proxy 1
+  - DOMAIN-SUFFIX,d2.example,Proxy 1
+  - IP-CIDR,192.0.2.3/32,DIRECT
+  - MATCH,DIRECT

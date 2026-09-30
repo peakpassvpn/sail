@@ -1,0 +1,1684 @@
+mixed-port: 7890
+allow-lan: false
+mode: rule
+ipv6: false
+log-level: info
+external-controller: 0.0.0.0:9090
+dns:
+  enable: true
+  listen: 0.0.0.0:53
+  ipv6: false
+  default-nameserver:
+    - 192.0.2.1
+    - 192.0.2.2
+  nameserver:
+    - 192.0.2.1
+    - 192.0.2.2
+    - 192.0.2.3
+    - 192.0.2.4
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  fake-ip-filter:
+    - '*.d1.example'
+    - '*.d2.example'
+    - '*.d3.example'
+    - '*.d4.example'
+    - '*.localhost'
+    - '*.d5.example'
+    - '*.d6.example'
+    - '*.d7.example'
+    - d8.example
+    - d9.example
+    - d10.example
+    - +.d11.example
+tun:
+  enable: true
+  stack: system
+proxies:
+  - name: Proxy 1
+    uuid: 00005a11-0000-4000-8000-000000000001
+    type: vless
+    encryption: none
+    server: 192.0.2.5
+    port: 21831
+    network: tcp
+    tls: false
+    client-fingerprint: randomized
+  - name: Proxy 2
+    uuid: 00005a11-0000-4000-8000-000000000002
+    type: vless
+    encryption: none
+    server: s12.example.net
+    port: 80
+    network: xhttp
+    tls: false
+  - name: Proxy 3
+    uuid: 00005a11-0000-4000-8000-000000000003
+    type: vless
+    encryption: none
+    server: 192.0.2.6
+    port: 19011
+    network: tcp
+    tls: false
+  - name: Proxy 4
+    uuid: 00005a11-0000-4000-8000-000000000004
+    type: vless
+    encryption: none
+    server: 192.0.2.7
+    port: 2082
+    network: ws
+    tls: false
+    ws-opts:
+      path: /p1
+      headers:
+        Host: sni13.example.org
+  - name: Proxy 5
+    uuid: 00005a11-0000-4000-8000-000000000005
+    type: vless
+    encryption: none
+    server: 192.0.2.8
+    port: 443
+    network: xhttp
+    tls: false
+  - name: Proxy 6
+    uuid: 00005a11-0000-4000-8000-000000000006
+    type: vless
+    encryption: none
+    server: s14.example.net
+    port: 80
+    network: ws
+    tls: false
+    ws-opts:
+      path: /p2
+      headers:
+        Host: s14.example.net
+  - name: Proxy 7
+    uuid: 00005a11-0000-4000-8000-000000000006
+    type: vless
+    encryption: none
+    server: s14.example.net
+    port: 443
+    network: grpc
+    tls: true
+    servername: s14.example.net
+  - name: Proxy 8
+    uuid: 00005a11-0000-4000-8000-000000000007
+    type: vless
+    encryption: none
+    server: s15.example.net
+    port: 80
+    network: httpupgrade
+    tls: false
+  - name: Proxy 9
+    uuid: 00005a11-0000-4000-8000-000000000008
+    type: vless
+    encryption: none
+    server: 192.0.2.9
+    port: 34045
+    network: tcp
+    tls: false
+    client-fingerprint: chrome
+  - name: Proxy 10
+    password: password1
+    type: trojan
+    server: 192.0.2.10
+    port: 2096
+    network: ws
+    tls: true
+    servername: sni16.example.org
+    ws-opts:
+      path: /p3
+      headers:
+        Host: sni16.example.org
+  - name: Proxy 11
+    uuid: 00005a11-0000-4000-8000-000000000009
+    type: vless
+    encryption: none
+    server: 192.0.2.11
+    port: 2086
+    network: ws
+    tls: false
+    ws-opts:
+      path: /p4
+      headers:
+        Host: sni17.example.org
+  - name: Proxy 12
+    uuid: 00005a11-0000-4000-8000-00000000000a
+    type: vless
+    encryption: none
+    server: 192.0.2.12
+    port: 443
+    network: ws
+    tls: true
+    servername: sni18.example.org
+    alpn:
+      - h2
+      - http/1.1
+    client-fingerprint: firefox
+    ws-opts:
+      path: /p5
+      headers:
+        Host: sni18.example.org
+  - name: Proxy 13
+    uuid: 00005a11-0000-4000-8000-00000000000b
+    type: vless
+    encryption: none
+    server: 192.0.2.13
+    port: 443
+    network: tcp
+    tls: false
+  - name: Proxy 14
+    uuid: 00005a11-0000-4000-8000-00000000000c
+    type: vless
+    encryption: none
+    server: s19.example.net
+    port: 28796
+    network: grpc
+    tls: false
+    client-fingerprint: chrome
+  - name: Proxy 15
+    uuid: 00005a11-0000-4000-8000-00000000000d
+    type: vless
+    encryption: none
+    server: 192.0.2.14
+    port: 443
+    network: ws
+    tls: true
+    servername: sni20.example.org
+    ws-opts:
+      path: /p4
+      headers:
+        Host: sni20.example.org
+  - name: Proxy 16
+    uuid: 00005a11-0000-4000-8000-00000000000e
+    type: vless
+    encryption: none
+    server: 192.0.2.15
+    port: 443
+    network: ws
+    tls: true
+    servername: sni21.example.org
+    ws-opts:
+      path: /p6
+      headers:
+        Host: sni21.example.org
+  - name: Proxy 17
+    uuid: 00005a11-0000-4000-8000-00000000000f
+    type: vless
+    encryption: none
+    server: 192.0.2.16
+    port: 587
+    network: ws
+    tls: true
+    servername: sni22.example.org
+    ws-opts:
+      path: /p4
+      headers:
+        Host: sni22.example.org
+  - name: Proxy 18
+    uuid: 00005a11-0000-4000-8000-000000000010
+    type: vless
+    encryption: none
+    server: s23.example.net
+    port: 80
+    network: xhttp
+    tls: false
+  - name: Proxy 19
+    uuid: 00005a11-0000-4000-8000-000000000011
+    type: vless
+    encryption: none
+    server: 192.0.2.17
+    port: 80
+    network: grpc
+    tls: false
+  - name: Proxy 20
+    uuid: 00005a11-0000-4000-8000-000000000012
+    type: vless
+    encryption: none
+    server: 192.0.2.18
+    port: 8080
+    network: grpc
+    tls: false
+  - name: Proxy 21
+    uuid: 00005a11-0000-4000-8000-000000000013
+    type: vless
+    encryption: none
+    server: 192.0.2.19
+    port: 80
+    network: grpc
+    tls: false
+  - name: Proxy 22
+    uuid: 00005a11-0000-4000-8000-00000000000a
+    type: vless
+    encryption: none
+    server: 192.0.2.12
+    port: 443
+    network: ws
+    tls: true
+    servername: sni18.example.org
+    alpn:
+      - h2
+      - http/1.1
+    client-fingerprint: firefox
+    ws-opts:
+      path: /p5
+      headers:
+        Host: sni18.example.org
+  - name: Proxy 23
+    uuid: 00005a11-0000-4000-8000-000000000014
+    type: vless
+    encryption: none
+    server: 192.0.2.12
+    port: 80
+    network: ws
+    tls: false
+    ws-opts:
+      path: /p7
+      headers:
+        Host: sni24.example.org.
+  - name: Proxy 24
+    uuid: 00005a11-0000-4000-8000-000000000015
+    type: vless
+    encryption: none
+    server: s23.example.net
+    port: 80
+    network: xhttp
+    tls: false
+  - name: Proxy 25
+    uuid: 00005a11-0000-4000-8000-000000000016
+    type: vless
+    encryption: none
+    server: s25.example.net
+    port: 54477
+    network: tcp
+    tls: false
+  - name: Proxy 26
+    uuid: 00005a11-0000-4000-8000-000000000008
+    type: vless
+    encryption: none
+    server: 192.0.2.9
+    port: 34045
+    network: tcp
+    tls: false
+    client-fingerprint: chrome
+  - name: Proxy 27
+    password: password1
+    type: trojan
+    server: 192.0.2.10
+    port: 2096
+    network: ws
+    tls: true
+    servername: sni16.example.org
+    ws-opts:
+      path: /p3
+      headers:
+        Host: sni16.example.org
+  - name: Proxy 28
+    uuid: 00005a11-0000-4000-8000-000000000009
+    type: vless
+    encryption: none
+    server: 192.0.2.11
+    port: 2086
+    network: ws
+    tls: false
+    ws-opts:
+      path: /p4
+      headers:
+        Host: sni17.example.org
+  - name: Proxy 29
+    uuid: 00005a11-0000-4000-8000-000000000017
+    type: vless
+    encryption: none
+    server: s26.example.net
+    port: 625
+    network: tcp
+    tls: false
+  - name: Proxy 30
+    uuid: 00005a11-0000-4000-8000-000000000017
+    type: vless
+    encryption: none
+    server: s27.example.net
+    port: 625
+    network: tcp
+    tls: false
+  - name: Proxy 31
+    uuid: 00005a11-0000-4000-8000-000000000017
+    type: vless
+    encryption: none
+    server: s28.example.net
+    port: 625
+    network: tcp
+    tls: false
+  - name: Proxy 32
+    uuid: 00005a11-0000-4000-8000-000000000018
+    type: vless
+    encryption: none
+    server: 192.0.2.20
+    port: 8443
+    network: tcp
+    tls: false
+    client-fingerprint: chrome
+  - name: Proxy 33
+    uuid: 00005a11-0000-4000-8000-000000000019
+    type: vless
+    encryption: none
+    server: 192.0.2.19
+    port: 8080
+    network: grpc
+    tls: false
+  - name: Proxy 34
+    uuid: 00005a11-0000-4000-8000-00000000001a
+    type: vless
+    encryption: none
+    server: s23.example.net
+    port: 80
+    network: xhttp
+    tls: false
+  - name: Proxy 35
+    uuid: 00005a11-0000-4000-8000-00000000001b
+    type: vless
+    encryption: none
+    server: s29.example.net
+    port: 443
+    network: tcp
+    tls: false
+    client-fingerprint: chrome
+  - name: Proxy 36
+    uuid: 00005a11-0000-4000-8000-00000000001c
+    type: vless
+    encryption: none
+    server: s30.example.net
+    port: 443
+    network: ws
+    tls: true
+    servername: sni31.example.org
+    ws-opts:
+      path: /p8
+      headers:
+        Host: sni31.example.org
+  - name: Proxy 37
+    uuid: 00005a11-0000-4000-8000-00000000001d
+    type: vless
+    encryption: none
+    server: s32.example.net
+    port: 443
+    network: tcp
+    tls: true
+    servername: s32.example.net
+    client-fingerprint: random
+  - name: Proxy 38
+    uuid: 00005a11-0000-4000-8000-00000000001c
+    type: vless
+    encryption: none
+    server: s30.example.net
+    port: 443
+    network: ws
+    tls: true
+    servername: sni33.example.org
+    ws-opts:
+      path: /p8
+      headers:
+        Host: sni33.example.org
+  - name: Proxy 39
+    uuid: 00005a11-0000-4000-8000-00000000001e
+    type: vless
+    encryption: none
+    server: 192.0.2.21
+    port: 443
+    network: ws
+    tls: true
+    servername: sni34.example.org
+    client-fingerprint: chrome
+    ws-opts:
+      path: /p9
+      headers:
+        Host: sni34.example.org
+  - name: Proxy 40
+    uuid: 00005a11-0000-4000-8000-00000000001f
+    type: vless
+    encryption: none
+    server: s35.example.net
+    port: 8443
+    network: ws
+    tls: true
+    servername: sni36.example.org
+    client-fingerprint: random
+    ws-opts:
+      path: /p4
+      headers:
+        Host: sni36.example.org
+  - name: Proxy 41
+    uuid: 00005a11-0000-4000-8000-000000000020
+    type: vless
+    encryption: none
+    server: 192.0.2.22
+    port: 443
+    network: ws
+    tls: true
+    servername: sni37.example.org
+    client-fingerprint: chrome
+    ws-opts:
+      path: /p8
+      headers:
+        Host: sni37.example.org
+  - name: Proxy 42
+    uuid: 00005a11-0000-4000-8000-000000000021
+    type: vless
+    encryption: none
+    server: 192.0.2.23
+    port: 443
+    network: ws
+    tls: true
+    client-fingerprint: chrome
+    ws-opts:
+      path: /p10
+  - name: Proxy 43
+    uuid: 00005a11-0000-4000-8000-000000000008
+    type: vless
+    encryption: none
+    server: 192.0.2.9
+    port: 34045
+    network: tcp
+    tls: false
+    client-fingerprint: chrome
+  - name: Proxy 44
+    password: password1
+    type: trojan
+    server: 192.0.2.10
+    port: 2096
+    network: ws
+    tls: true
+    servername: sni16.example.org
+    ws-opts:
+      path: /p3
+      headers:
+        Host: sni16.example.org
+  - name: Proxy 45
+    uuid: 00005a11-0000-4000-8000-000000000009
+    type: vless
+    encryption: none
+    server: 192.0.2.11
+    port: 2086
+    network: ws
+    tls: false
+    ws-opts:
+      path: /p4
+      headers:
+        Host: sni17.example.org
+  - name: Proxy 46
+    uuid: 00005a11-0000-4000-8000-000000000022
+    type: vless
+    encryption: none
+    server: 192.0.2.24
+    port: 38339
+    network: tcp
+    tls: false
+    client-fingerprint: chrome
+  - name: Proxy 47
+    uuid: 00005a11-0000-4000-8000-000000000023
+    type: vless
+    encryption: none
+    server: 192.0.2.25
+    port: 443
+    network: tcp
+    tls: false
+    client-fingerprint: chrome
+  - name: Proxy 48
+    uuid: 00005a11-0000-4000-8000-000000000024
+    type: vless
+    encryption: none
+    server: 192.0.2.26
+    port: 443
+    network: ws
+    tls: true
+    servername: sni38.example.org
+    client-fingerprint: chrome
+    ws-opts:
+      path: /p8
+      headers:
+        Host: sni38.example.org
+  - name: Proxy 49
+    uuid: 00005a11-0000-4000-8000-000000000025
+    type: vless
+    encryption: none
+    server: 192.0.2.12
+    port: 2096
+    network: ws
+    tls: true
+    servername: sni39.example.org
+    ws-opts:
+      path: /p8
+      headers:
+        Host: sni39.example.org
+  - name: Proxy 50
+    uuid: 00005a11-0000-4000-8000-000000000026
+    type: vless
+    encryption: none
+    server: s40.example.net
+    port: 27774
+    network: tcp
+    tls: false
+  - name: Proxy 51
+    uuid: 00005a11-0000-4000-8000-000000000014
+    type: vless
+    encryption: none
+    server: 192.0.2.12
+    port: 80
+    network: ws
+    tls: false
+    ws-opts:
+      path: /p7
+      headers:
+        Host: sni24.example.org.
+  - name: Proxy 52
+    uuid: 00005a11-0000-4000-8000-00000000000f
+    type: vless
+    encryption: none
+    server: 192.0.2.27
+    port: 8080
+    network: ws
+    tls: true
+    servername: sni22.example.org
+    ws-opts:
+      path: /p4
+      headers:
+        Host: sni22.example.org
+  - name: Proxy 53
+    uuid: 00005a11-0000-4000-8000-000000000027
+    type: vless
+    encryption: none
+    server: 192.0.2.28
+    port: 8080
+    network: ws
+    tls: false
+    ws-opts:
+      path: /p11
+      headers:
+        Host: sni41.example.org.
+  - name: Proxy 54
+    uuid: 00005a11-0000-4000-8000-00000000000f
+    type: vless
+    encryption: none
+    server: 192.0.2.29
+    port: 33890
+    network: ws
+    tls: true
+    servername: sni22.example.org
+    ws-opts:
+      path: /p4
+      headers:
+        Host: sni22.example.org
+  - name: Proxy 55
+    uuid: 00005a11-0000-4000-8000-000000000028
+    type: vless
+    encryption: none
+    server: 192.0.2.12
+    port: 443
+    network: ws
+    tls: true
+    servername: sni42.example.org
+    alpn:
+      - h2
+      - http/1.1
+    client-fingerprint: firefox
+    ws-opts:
+      path: /p12
+      headers:
+        Host: sni42.example.org
+  - name: Proxy 56
+    uuid: 00005a11-0000-4000-8000-000000000029
+    type: vless
+    encryption: none
+    server: 192.0.2.12
+    port: 443
+    network: ws
+    tls: true
+    servername: sni43.example.org
+    alpn:
+      - h2
+      - http/1.1
+    client-fingerprint: firefox
+    ws-opts:
+      path: /p13
+      headers:
+        Host: sni43.example.org
+  - name: Proxy 57
+    uuid: 00005a11-0000-4000-8000-000000000008
+    type: vless
+    encryption: none
+    server: 192.0.2.9
+    port: 34045
+    network: tcp
+    tls: false
+    client-fingerprint: chrome
+  - name: Proxy 58
+    password: password1
+    type: trojan
+    server: 192.0.2.10
+    port: 2096
+    network: ws
+    tls: true
+    servername: sni16.example.org
+    ws-opts:
+      path: /p3
+      headers:
+        Host: sni16.example.org
+  - name: Proxy 59
+    uuid: 00005a11-0000-4000-8000-000000000009
+    type: vless
+    encryption: none
+    server: 192.0.2.11
+    port: 2086
+    network: ws
+    tls: false
+    ws-opts:
+      path: /p4
+      headers:
+        Host: sni17.example.org
+  - name: Proxy 60
+    uuid: 00005a11-0000-4000-8000-00000000002a
+    type: vless
+    encryption: none
+    server: s44.example.net
+    port: 80
+    network: ws
+    tls: false
+    ws-opts:
+      path: /p14
+      headers:
+        Host: sni45.example.org
+  - name: Proxy 61
+    uuid: 00005a11-0000-4000-8000-00000000002a
+    type: vless
+    encryption: none
+    server: s46.example.net
+    port: 80
+    network: ws
+    tls: false
+    ws-opts:
+      path: /p14
+      headers:
+        Host: sni47.example.org
+  - name: Proxy 62
+    uuid: 00005a11-0000-4000-8000-00000000002b
+    type: vless
+    encryption: none
+    server: s44.example.net
+    port: 80
+    network: ws
+    tls: false
+    ws-opts:
+      path: /p14
+      headers:
+        Host: sni45.example.org
+  - name: Proxy 63
+    uuid: 00005a11-0000-4000-8000-00000000002a
+    type: vless
+    encryption: none
+    server: s48.example.net
+    port: 80
+    network: ws
+    tls: false
+    ws-opts:
+      path: /p14
+      headers:
+        Host: sni49.example.org
+  - name: Proxy 64
+    uuid: 00005a11-0000-4000-8000-00000000002b
+    type: vless
+    encryption: none
+    server: s50.example.net
+    port: 80
+    network: ws
+    tls: false
+    ws-opts:
+      path: /p14
+      headers:
+        Host: sni51.example.org
+  - name: Proxy 65
+    uuid: 00005a11-0000-4000-8000-00000000002c
+    type: vless
+    encryption: none
+    server: 192.0.2.20
+    port: 8443
+    network: tcp
+    tls: false
+    client-fingerprint: chrome
+  - name: Proxy 66
+    uuid: 00005a11-0000-4000-8000-000000000008
+    type: vless
+    encryption: none
+    server: 192.0.2.9
+    port: 34045
+    network: tcp
+    tls: false
+    client-fingerprint: chrome
+  - name: Proxy 67
+    password: password1
+    type: trojan
+    server: 192.0.2.10
+    port: 2096
+    network: ws
+    tls: true
+    servername: sni16.example.org
+    ws-opts:
+      path: /p3
+      headers:
+        Host: sni16.example.org
+  - name: Proxy 68
+    uuid: 00005a11-0000-4000-8000-000000000009
+    type: vless
+    encryption: none
+    server: 192.0.2.11
+    port: 2086
+    network: ws
+    tls: false
+    ws-opts:
+      path: /p4
+      headers:
+        Host: sni17.example.org
+  - name: Proxy 69
+    uuid: 00005a11-0000-4000-8000-00000000002d
+    type: vless
+    encryption: none
+    server: 127.0.0.1
+    port: 8080
+    network: tcp
+    tls: true
+  - name: Proxy 70
+    uuid: 00005a11-0000-4000-8000-00000000002e
+    type: vless
+    encryption: none
+    server: 192.0.2.30
+    port: 27269
+    network: grpc
+    tls: false
+    client-fingerprint: chrome
+  - name: Proxy 71
+    uuid: 00005a11-0000-4000-8000-00000000002f
+    type: vless
+    encryption: none
+    server: 192.0.2.31
+    port: 443
+    network: tcp
+    tls: false
+    client-fingerprint: chrome
+  - name: Proxy 72
+    uuid: 00005a11-0000-4000-8000-000000000030
+    type: vless
+    encryption: none
+    server: 192.0.2.32
+    port: 8443
+    network: ws
+    tls: true
+    servername: sni52.example.org
+    ws-opts:
+      path: /p15
+  - name: Proxy 73
+    uuid: 00005a11-0000-4000-8000-000000000031
+    type: vless
+    encryption: none
+    server: 192.0.2.33
+    port: 80
+    network: ws
+    tls: false
+    client-fingerprint: randomized
+    ws-opts:
+      path: /p16
+      headers:
+        Host: sni53.example.org.
+  - name: Proxy 74
+    uuid: 00005a11-0000-4000-8000-000000000032
+    type: vless
+    encryption: none
+    server: 192.0.2.34
+    port: 10000
+    network: ws
+    tls: false
+  - name: Proxy 75
+    uuid: 00005a11-0000-4000-8000-000000000033
+    type: vless
+    encryption: none
+    server: 192.0.2.12
+    port: 443
+    network: ws
+    tls: true
+    servername: sni42.example.org
+    alpn:
+      - h2
+      - http/1.1
+    client-fingerprint: firefox
+    ws-opts:
+      path: /p12
+      headers:
+        Host: sni42.example.org
+  - name: Proxy 76
+    uuid: 00005a11-0000-4000-8000-000000000034
+    type: vless
+    encryption: none
+    server: 192.0.2.35
+    port: 80
+    network: tcp
+    tls: false
+    client-fingerprint: firefox
+  - name: Proxy 77
+    uuid: 00005a11-0000-4000-8000-000000000035
+    type: vless
+    encryption: none
+    server: 192.0.2.36
+    port: 22224
+    network: ws
+    tls: true
+    servername: sni54.example.org
+    ws-opts:
+      path: /p17
+  - name: Proxy 78
+    uuid: 00005a11-0000-4000-8000-000000000008
+    type: vless
+    encryption: none
+    server: 192.0.2.9
+    port: 34045
+    network: tcp
+    tls: false
+    client-fingerprint: chrome
+  - name: Proxy 79
+    password: password1
+    type: trojan
+    server: 192.0.2.10
+    port: 2096
+    network: ws
+    tls: true
+    servername: sni16.example.org
+    ws-opts:
+      path: /p3
+      headers:
+        Host: sni16.example.org
+  - name: Proxy 80
+    uuid: 00005a11-0000-4000-8000-000000000009
+    type: vless
+    encryption: none
+    server: 192.0.2.11
+    port: 2086
+    network: ws
+    tls: false
+    ws-opts:
+      path: /p4
+      headers:
+        Host: sni17.example.org
+  - name: Proxy 81
+    uuid: 00005a11-0000-4000-8000-000000000036
+    type: vless
+    encryption: none
+    server: 192.0.2.37
+    port: 29032
+    network: tcp
+    tls: false
+  - name: Proxy 82
+    uuid: 00005a11-0000-4000-8000-00000000000f
+    type: vless
+    encryption: none
+    server: 192.0.2.38
+    port: 2003
+    network: ws
+    tls: true
+    servername: sni22.example.org
+    ws-opts:
+      path: /p4
+      headers:
+        Host: sni22.example.org
+  - name: Proxy 83
+    uuid: 00005a11-0000-4000-8000-000000000037
+    type: vless
+    encryption: none
+    server: 192.0.2.39
+    port: 443
+    network: xhttp
+    tls: false
+    client-fingerprint: chrome
+  - name: Proxy 84
+    uuid: 00005a11-0000-4000-8000-000000000033
+    type: vless
+    encryption: none
+    server: 192.0.2.12
+    port: 443
+    network: ws
+    tls: true
+    servername: sni42.example.org
+    alpn:
+      - h2
+      - http/1.1
+    client-fingerprint: firefox
+    ws-opts:
+      path: /p12
+      headers:
+        Host: sni42.example.org
+  - name: Proxy 85
+    uuid: 00005a11-0000-4000-8000-000000000038
+    type: vless
+    encryption: none
+    server: s55.example.net
+    port: 80
+    network: tcp
+    tls: false
+  - name: Proxy 86
+    uuid: 00005a11-0000-4000-8000-000000000039
+    type: vless
+    encryption: none
+    server: 192.0.2.28
+    port: 8880
+    network: httpupgrade
+    tls: false
+  - name: Proxy 87
+    uuid: 00005a11-0000-4000-8000-000000000008
+    type: vless
+    encryption: none
+    server: 192.0.2.9
+    port: 34045
+    network: tcp
+    tls: false
+    client-fingerprint: chrome
+  - name: Proxy 88
+    password: password1
+    type: trojan
+    server: 192.0.2.10
+    port: 2096
+    network: ws
+    tls: true
+    servername: sni16.example.org
+    ws-opts:
+      path: /p3
+      headers:
+        Host: sni16.example.org
+  - name: Proxy 89
+    uuid: 00005a11-0000-4000-8000-000000000009
+    type: vless
+    encryption: none
+    server: 192.0.2.11
+    port: 2086
+    network: ws
+    tls: false
+    ws-opts:
+      path: /p4
+      headers:
+        Host: sni17.example.org
+  - name: Proxy 90
+    uuid: 00005a11-0000-4000-8000-00000000003a
+    type: vless
+    encryption: none
+    server: 192.0.2.40
+    port: 8443
+    network: tcp
+    tls: false
+    client-fingerprint: chrome
+  - name: Proxy 91
+    uuid: 00005a11-0000-4000-8000-00000000003b
+    type: vless
+    encryption: none
+    server: 192.0.2.12
+    port: 2052
+    network: ws
+    tls: false
+    ws-opts:
+      path: /p18
+      headers:
+        Host: str1
+  - name: Proxy 92
+    uuid: 00005a11-0000-4000-8000-00000000003c
+    type: vless
+    encryption: none
+    server: 192.0.2.12
+    port: 8080
+    network: ws
+    tls: false
+    ws-opts:
+      path: /p18
+      headers:
+        Host: str1
+  - name: Proxy 93
+    uuid: 00005a11-0000-4000-8000-00000000003d
+    type: vless
+    encryption: none
+    server: s56.example.net
+    port: 443
+    network: ws
+    tls: true
+    ws-opts:
+      path: /p19
+  - name: Proxy 94
+    uuid: 00005a11-0000-4000-8000-00000000003e
+    type: vless
+    encryption: none
+    server: 192.0.2.12
+    port: 443
+    network: ws
+    tls: true
+    servername: sni43.example.org
+    alpn:
+      - h2
+      - http/1.1
+    client-fingerprint: firefox
+    ws-opts:
+      path: /p13
+      headers:
+        Host: sni43.example.org
+  - name: Proxy 95
+    uuid: 00005a11-0000-4000-8000-00000000003f
+    type: vless
+    encryption: none
+    server: s57.example.net
+    port: 8443
+    network: tcp
+    tls: false
+    client-fingerprint: chrome
+  - name: Proxy 96
+    uuid: 00005a11-0000-4000-8000-00000000003f
+    type: vless
+    encryption: none
+    server: s58.example.net
+    port: 8443
+    network: tcp
+    tls: false
+    client-fingerprint: chrome
+  - name: Proxy 97
+    uuid: 00005a11-0000-4000-8000-00000000003f
+    type: vless
+    encryption: none
+    server: s59.example.net
+    port: 8443
+    network: tcp
+    tls: false
+    client-fingerprint: chrome
+  - name: Proxy 98
+    uuid: 00005a11-0000-4000-8000-00000000003f
+    type: vless
+    encryption: none
+    server: 192.0.2.41
+    port: 8443
+    network: tcp
+    tls: false
+    client-fingerprint: chrome
+  - name: Proxy 99
+    uuid: 00005a11-0000-4000-8000-00000000003e
+    type: vless
+    encryption: none
+    server: 192.0.2.12
+    port: 443
+    network: ws
+    tls: true
+    servername: sni43.example.org
+    alpn:
+      - h2
+      - http/1.1
+    client-fingerprint: firefox
+    ws-opts:
+      path: /p13
+      headers:
+        Host: sni43.example.org
+  - name: Proxy 100
+    uuid: 00005a11-0000-4000-8000-000000000008
+    type: vless
+    encryption: none
+    server: 192.0.2.9
+    port: 34045
+    network: tcp
+    tls: false
+    client-fingerprint: chrome
+  - name: Proxy 101
+    password: password1
+    type: trojan
+    server: 192.0.2.10
+    port: 2096
+    network: ws
+    tls: true
+    servername: sni16.example.org
+    ws-opts:
+      path: /p3
+      headers:
+        Host: sni16.example.org
+  - name: Proxy 102
+    uuid: 00005a11-0000-4000-8000-000000000009
+    type: vless
+    encryption: none
+    server: 192.0.2.11
+    port: 2086
+    network: ws
+    tls: false
+    ws-opts:
+      path: /p4
+      headers:
+        Host: sni17.example.org
+  - name: Proxy 103
+    uuid: 00005a11-0000-4000-8000-000000000040
+    type: vless
+    encryption: none
+    server: 192.0.2.42
+    port: 443
+    network: ws
+    tls: true
+    client-fingerprint: chrome
+    ws-opts:
+      path: /p20
+  - name: Proxy 104
+    uuid: 00005a11-0000-4000-8000-000000000041
+    type: vless
+    encryption: none
+    server: s60.example.net
+    port: 80
+    network: ws
+    tls: false
+    ws-opts:
+      path: /p21
+  - name: Proxy 105
+    uuid: 00005a11-0000-4000-8000-000000000042
+    type: vless
+    encryption: none
+    server: s61.example.net
+    port: 80
+    network: ws
+    tls: false
+    client-fingerprint: chrome
+    ws-opts:
+      path: /p21
+  - name: Proxy 106
+    uuid: 00005a11-0000-4000-8000-000000000043
+    type: vless
+    encryption: none
+    server: s62.example.net
+    port: 905
+    network: ws
+    tls: true
+    servername: sni63.example.org
+    client-fingerprint: chrome
+    ws-opts:
+      path: /p21
+  - name: Proxy 107
+    uuid: 00005a11-0000-4000-8000-000000000035
+    type: vless
+    encryption: none
+    server: 192.0.2.43
+    port: 22224
+    network: ws
+    tls: true
+    servername: sni54.example.org
+    ws-opts:
+      path: /p17
+  - name: Proxy 108
+    uuid: 00005a11-0000-4000-8000-00000000000f
+    type: vless
+    encryption: none
+    server: 192.0.2.44
+    port: 2222
+    network: ws
+    tls: false
+    ws-opts:
+      headers:
+        Host: sni22.example.org
+  - name: Proxy 109
+    uuid: 00005a11-0000-4000-8000-000000000044
+    type: vless
+    encryption: none
+    server: 192.0.2.45
+    port: 443
+    network: ws
+    tls: true
+    servername: sni64.example.org
+    alpn:
+      - h2
+      - http/1.1
+    client-fingerprint: firefox
+    ws-opts:
+      path: /p1
+      headers:
+        Host: sni65.example.org
+  - name: Proxy 110
+    uuid: 00005a11-0000-4000-8000-000000000045
+    type: vless
+    encryption: none
+    server: 192.0.2.46
+    port: 8080
+    network: httpupgrade
+    tls: false
+  - name: Proxy 111
+    uuid: 00005a11-0000-4000-8000-000000000046
+    type: vless
+    encryption: none
+    server: 127.0.0.1
+    port: 8080
+    network: tcp
+    tls: true
+  - name: Proxy 112
+    uuid: 00005a11-0000-4000-8000-000000000005
+    type: vless
+    encryption: none
+    server: 192.0.2.8
+    port: 443
+    network: xhttp
+    tls: false
+  - name: Proxy 113
+    uuid: 00005a11-0000-4000-8000-000000000047
+    type: vless
+    encryption: none
+    server: 192.0.2.47
+    port: 8443
+    network: tcp
+    tls: false
+    client-fingerprint: chrome
+  - name: Proxy 114
+    uuid: 00005a11-0000-4000-8000-000000000008
+    type: vless
+    encryption: none
+    server: 192.0.2.9
+    port: 34045
+    network: tcp
+    tls: false
+    client-fingerprint: chrome
+  - name: Proxy 115
+    password: password1
+    type: trojan
+    server: 192.0.2.10
+    port: 2096
+    network: ws
+    tls: true
+    servername: sni16.example.org
+    ws-opts:
+      path: /p3
+      headers:
+        Host: sni16.example.org
+  - name: Proxy 116
+    uuid: 00005a11-0000-4000-8000-000000000009
+    type: vless
+    encryption: none
+    server: 192.0.2.11
+    port: 2086
+    network: ws
+    tls: false
+    ws-opts:
+      path: /p4
+      headers:
+        Host: sni17.example.org
+  - name: Proxy 117
+    uuid: 00005a11-0000-4000-8000-000000000048
+    type: vless
+    encryption: none
+    server: 192.0.2.48
+    port: 57546
+    network: grpc
+    tls: false
+  - name: Proxy 118
+    uuid: 00005a11-0000-4000-8000-000000000008
+    type: vless
+    encryption: none
+    server: 192.0.2.49
+    port: 34045
+    network: tcp
+    tls: false
+  - name: Proxy 119
+    uuid: 00005a11-0000-4000-8000-000000000049
+    type: vless
+    encryption: none
+    server: 192.0.2.50
+    port: 8443
+    network: tcp
+    tls: false
+    client-fingerprint: chrome
+  - name: Proxy 120
+    uuid: 00005a11-0000-4000-8000-00000000004a
+    type: vless
+    encryption: none
+    server: 192.0.2.51
+    port: 8880
+    network: ws
+    tls: false
+    ws-opts:
+      path: /p22
+      headers:
+        Host: sni66.example.org
+  - name: Proxy 121
+    uuid: 00005a11-0000-4000-8000-00000000004b
+    type: vless
+    encryption: none
+    server: 192.0.2.52
+    port: 80
+    network: ws
+    tls: false
+    ws-opts:
+      path: /p8
+      headers:
+        Host: ./path-1
+  - name: Proxy 122
+    uuid: 00005a11-0000-4000-8000-00000000004c
+    type: vless
+    encryption: none
+    server: 192.0.2.53
+    port: 443
+    network: tcp
+    tls: false
+    client-fingerprint: chrome
+proxy-groups:
+  - name: Group 1
+    type: select
+    proxies:
+      - Group 2
+      - DIRECT
+      - Proxy 1
+      - Proxy 2
+      - Proxy 3
+      - Proxy 4
+      - Proxy 5
+      - Proxy 6
+      - Proxy 7
+      - Proxy 8
+      - Proxy 9
+      - Proxy 10
+      - Proxy 11
+      - Proxy 12
+      - Proxy 13
+      - Proxy 14
+      - Proxy 15
+      - Proxy 16
+      - Proxy 17
+      - Proxy 18
+      - Proxy 19
+      - Proxy 20
+      - Proxy 21
+      - Proxy 22
+      - Proxy 23
+      - Proxy 24
+      - Proxy 25
+      - Proxy 26
+      - Proxy 27
+      - Proxy 28
+      - Proxy 29
+      - Proxy 30
+      - Proxy 31
+      - Proxy 32
+      - Proxy 33
+      - Proxy 34
+      - Proxy 35
+      - Proxy 36
+      - Proxy 37
+      - Proxy 38
+      - Proxy 39
+      - Proxy 40
+      - Proxy 41
+      - Proxy 42
+      - Proxy 43
+      - Proxy 44
+      - Proxy 45
+      - Proxy 46
+      - Proxy 47
+      - Proxy 48
+      - Proxy 49
+      - Proxy 50
+      - Proxy 51
+      - Proxy 52
+      - Proxy 53
+      - Proxy 54
+      - Proxy 55
+      - Proxy 56
+      - Proxy 57
+      - Proxy 58
+      - Proxy 59
+      - Proxy 60
+      - Proxy 61
+      - Proxy 62
+      - Proxy 63
+      - Proxy 64
+      - Proxy 65
+      - Proxy 66
+      - Proxy 67
+      - Proxy 68
+      - Proxy 69
+      - Proxy 70
+      - Proxy 71
+      - Proxy 72
+      - Proxy 73
+      - Proxy 74
+      - Proxy 75
+      - Proxy 76
+      - Proxy 77
+      - Proxy 78
+      - Proxy 79
+      - Proxy 80
+      - Proxy 81
+      - Proxy 82
+      - Proxy 83
+      - Proxy 84
+      - Proxy 85
+      - Proxy 86
+      - Proxy 87
+      - Proxy 88
+      - Proxy 89
+      - Proxy 90
+      - Proxy 91
+      - Proxy 92
+      - Proxy 93
+      - Proxy 94
+      - Proxy 95
+      - Proxy 96
+      - Proxy 97
+      - Proxy 98
+      - Proxy 99
+      - Proxy 100
+      - Proxy 101
+      - Proxy 102
+      - Proxy 103
+      - Proxy 104
+      - Proxy 105
+      - Proxy 106
+      - Proxy 107
+      - Proxy 108
+      - Proxy 109
+      - Proxy 110
+      - Proxy 111
+      - Proxy 112
+      - Proxy 113
+      - Proxy 114
+      - Proxy 115
+      - Proxy 116
+      - Proxy 117
+      - Proxy 118
+      - Proxy 119
+      - Proxy 120
+      - Proxy 121
+      - Proxy 122
+  - name: Group 2
+    type: url-test
+    proxies:
+      - Proxy 1
+      - Proxy 2
+      - Proxy 3
+      - Proxy 4
+      - Proxy 5
+      - Proxy 6
+      - Proxy 7
+      - Proxy 8
+      - Proxy 9
+      - Proxy 10
+      - Proxy 11
+      - Proxy 12
+      - Proxy 13
+      - Proxy 14
+      - Proxy 15
+      - Proxy 16
+      - Proxy 17
+      - Proxy 18
+      - Proxy 19
+      - Proxy 20
+      - Proxy 21
+      - Proxy 22
+      - Proxy 23
+      - Proxy 24
+      - Proxy 25
+      - Proxy 26
+      - Proxy 27
+      - Proxy 28
+      - Proxy 29
+      - Proxy 30
+      - Proxy 31
+      - Proxy 32
+      - Proxy 33
+      - Proxy 34
+      - Proxy 35
+      - Proxy 36
+      - Proxy 37
+      - Proxy 38
+      - Proxy 39
+      - Proxy 40
+      - Proxy 41
+      - Proxy 42
+      - Proxy 43
+      - Proxy 44
+      - Proxy 45
+      - Proxy 46
+      - Proxy 47
+      - Proxy 48
+      - Proxy 49
+      - Proxy 50
+      - Proxy 51
+      - Proxy 52
+      - Proxy 53
+      - Proxy 54
+      - Proxy 55
+      - Proxy 56
+      - Proxy 57
+      - Proxy 58
+      - Proxy 59
+      - Proxy 60
+      - Proxy 61
+      - Proxy 62
+      - Proxy 63
+      - Proxy 64
+      - Proxy 65
+      - Proxy 66
+      - Proxy 67
+      - Proxy 68
+      - Proxy 69
+      - Proxy 70
+      - Proxy 71
+      - Proxy 72
+      - Proxy 73
+      - Proxy 74
+      - Proxy 75
+      - Proxy 76
+      - Proxy 77
+      - Proxy 78
+      - Proxy 79
+      - Proxy 80
+      - Proxy 81
+      - Proxy 82
+      - Proxy 83
+      - Proxy 84
+      - Proxy 85
+      - Proxy 86
+      - Proxy 87
+      - Proxy 88
+      - Proxy 89
+      - Proxy 90
+      - Proxy 91
+      - Proxy 92
+      - Proxy 93
+      - Proxy 94
+      - Proxy 95
+      - Proxy 96
+      - Proxy 97
+      - Proxy 98
+      - Proxy 99
+      - Proxy 100
+      - Proxy 101
+      - Proxy 102
+      - Proxy 103
+      - Proxy 104
+      - Proxy 105
+      - Proxy 106
+      - Proxy 107
+      - Proxy 108
+      - Proxy 109
+      - Proxy 110
+      - Proxy 111
+      - Proxy 112
+      - Proxy 113
+      - Proxy 114
+      - Proxy 115
+      - Proxy 116
+      - Proxy 117
+      - Proxy 118
+      - Proxy 119
+      - Proxy 120
+      - Proxy 121
+      - Proxy 122
+    url: http://h1.example.com/generate_204
+    interval: 300
+  - name: Group 3
+    type: select
+    proxies:
+      - DIRECT
+      - Group 1
+      - Group 2
+  - name: Group 4
+    type: select
+    proxies:
+      - REJECT
+      - DIRECT
+  - name: Group 5
+    type: select
+    proxies:
+      - Group 1
+      - Group 3
+      - Group 2
+rules:
+  - DOMAIN-SUFFIX,d67.example,Group 1
+  - DOMAIN-SUFFIX,d68.example,Group 1
+  - DOMAIN-SUFFIX,d69.example,Group 1
+  - DOMAIN-SUFFIX,d70.example,Group 1
+  - DOMAIN-SUFFIX,d71.example,Group 1
+  - DOMAIN-SUFFIX,d72.example,Group 1
+  - DOMAIN-SUFFIX,d73.example,Group 1
+  - DOMAIN-SUFFIX,d74.example,Group 1
+  - DOMAIN-SUFFIX,d75.example,Group 1
+  - DOMAIN-SUFFIX,d76.example,Group 1
+  - DOMAIN-SUFFIX,d77.example,Group 1
+  - DOMAIN-SUFFIX,d78.example,Group 1
+  - DOMAIN-SUFFIX,d79.example,Group 1
+  - DOMAIN-SUFFIX,d80.example,Group 1
+  - DOMAIN-SUFFIX,d81.example,Group 1
+  - DOMAIN-SUFFIX,d82.example,Group 1
+  - DOMAIN-SUFFIX,d83.example,Group 1
+  - DOMAIN-SUFFIX,d84.example,Group 1
+  - DOMAIN-SUFFIX,d85.example,Group 1
+  - DOMAIN-SUFFIX,d86.example,Group 1
+  - DOMAIN-SUFFIX,d87.example,Group 1
+  - DOMAIN-SUFFIX,d88.example,Group 1
+  - DOMAIN-SUFFIX,d89.example,Group 1
+  - DOMAIN-SUFFIX,d90.example,Group 1
+  - DOMAIN-SUFFIX,d91.example,Group 1
+  - DOMAIN-SUFFIX,d92.example,Group 1
+  - DOMAIN-SUFFIX,d93.example,Group 1
+  - DOMAIN-SUFFIX,d94.example,Group 1
+  - DOMAIN-SUFFIX,d95.example,Group 1
+  - DOMAIN-SUFFIX,d96.example,Group 3
+  - DOMAIN-SUFFIX,d97.example,Group 3
+  - DOMAIN-SUFFIX,d98.example,Group 3
+  - DOMAIN-SUFFIX,d99.example,Group 3
+  - DOMAIN-SUFFIX,d100.example,Group 3
+  - DOMAIN-SUFFIX,d101.example,Group 3
+  - DOMAIN-SUFFIX,d102.example,Group 3
+  - DOMAIN-SUFFIX,d103.example,Group 3
+  - DOMAIN-SUFFIX,d104.example,Group 3
+  - DOMAIN-SUFFIX,d6.example,Group 3
+  - IP-CIDR,192.168.0.0/16,Group 3,no-resolve
+  - IP-CIDR,10.0.0.0/8,Group 3,no-resolve
+  - IP-CIDR,172.16.0.0/12,Group 3,no-resolve
+  - IP-CIDR,127.0.0.0/8,Group 3,no-resolve
+  - IP-CIDR,100.64.0.0/10,Group 3,no-resolve
+  - IP-CIDR,224.0.0.0/4,Group 3,no-resolve
+  - IP-CIDR6,fe80::/10,Group 3,no-resolve
+  - IP-CIDR6,fc00::/7,Group 3,no-resolve
+  - IP-CIDR6,::1/128,Group 3,no-resolve
+  - DOMAIN-KEYWORD,kw1,Group 4
+  - DOMAIN-KEYWORD,kw2,Group 4
+  - DOMAIN-SUFFIX,d105.example,Group 4
+  - DOMAIN-SUFFIX,d106.example,Group 4
+  - DOMAIN-SUFFIX,d6.example,Group 3
+  - IP-CIDR,192.168.0.0/16,Group 3,no-resolve
+  - MATCH,Group 5

@@ -1,0 +1,129 @@
+port: 7890
+socks-port: 7891
+redir-port: 7892
+allow-lan: true
+ipv6: true
+mode: Rule
+log-level: info
+external-controller: '0.0.0.0:9090'
+secret: ''
+geodata-mode: true
+global-client-fingerprint: chrome
+sniffer:
+  enable: true
+  sniff:
+    TLS:
+      ports: [443, 8443]
+    HTTP:
+      ports: [80, 8080-8880]
+      override-destination: true
+geox-url:
+  geoip: "https://h5.example.com/p2.dat"
+  geosite: "https://h5.example.com/p3.dat"
+  mmdb: "https://h5.example.com/p4.mmdb"
+dns:
+  enable: true
+  listen: 0.0.0.0:1053
+  ipv6: true
+  enhanced-mode: redir-host
+  fake-ip-range: 28.0.0.1/8
+  fake-ip-filter:
+    - '*'
+    - '+.d1.example'
+  default-nameserver:
+    - 192.0.2.1
+  nameserver:
+    - 'tls://h1.example.com#Group 2'
+    - 'tls://192.0.2.2#Group 2'
+  proxy-server-nameserver:
+    - https://h2.example.com/dns-query
+  nameserver-policy:
+    geosite:cn,private:
+      - https://h2.example.com/dns-query
+      - https://h3.example.com/dns-query
+    rule-set:set-1:
+      - https://h2.example.com/dns-query
+      - https://h3.example.com/dns-query
+proxies:
+proxy-groups:
+  - name: Group 1
+    type: select
+    proxies:
+      - Group 2
+      - DIRECT
+      - Proxy 1
+  - name: Group 2
+    type: url-test
+    url: http://h4.example.com/generate_204
+    interval: 300
+    proxies:
+      - Proxy 1
+  - name: Group 3
+    type: select
+    proxies:
+      - Group 1
+      - Group 2
+      - Group 7
+      - Proxy 1
+  - name: Group 4
+    type: select
+    proxies:
+      - Group 1
+      - Group 7
+      - Proxy 1
+  - name: Group 5
+    type: select
+    proxies:
+      - Group 7
+      - Group 1
+      - Proxy 1
+  - name: Group 6
+    type: select
+    proxies:
+      - Group 7
+      - Group 1
+      - Proxy 1
+  - name: Group 7
+    type: select
+    proxies:
+      - DIRECT
+      - Group 1
+      - Group 2
+  - name: Group 8
+    type: select
+    proxies:
+      - Group 7
+      - Group 1
+  - name: Group 9
+    type: select
+    proxies:
+      - Group 1
+      - Group 7
+      - Group 2
+      - Proxy 1
+rule-providers:
+  set-1:
+    behavior: domain
+    interval: 86400
+    path: ./path-1.yaml
+    type: http
+    url: "https://h5.example.com/p1.yaml"
+rules:
+  - GEOIP,private,DIRECT
+  - GEOSITE,github,Group 1
+  - GEOSITE,netflix,Group 3
+  - GEOSITE,spotify,Group 3
+  - GEOSITE,youtube,Group 3
+  - GEOSITE,telegram,Group 4
+  - GEOSITE,apple,Group 6
+  - GEOSITE,microsoft,Group 5
+  - GEOSITE,bilibili,Group 8
+  - GEOSITE,ehentai,Group 1
+  - GEOSITE,twitter,Group 1
+  - GEOSITE,google,Group 1
+  - GEOSITE,gfw,Group 1
+  - GEOSITE,geolocation-!cn,Group 1
+  - RULE-SET,set-1,Group 7
+  - GEOSITE,CN,Group 7
+  - GEOIP,CN,Group 7
+  - MATCH,Group 9

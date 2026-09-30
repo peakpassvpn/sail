@@ -1,0 +1,407 @@
+{
+  "dns": {
+    "final": "dns-2",
+    "rules": [
+      {
+        "clash_mode": "Global",
+        "server": "dns-1",
+        "source_ip_cidr": [
+          "192.0.2.0/30"
+        ]
+      },
+      {
+        "server": "dns-1",
+        "source_ip_cidr": [
+          "192.0.2.0/30"
+        ]
+      },
+      {
+        "clash_mode": "Direct",
+        "server": "dns-4"
+      }
+    ],
+    "servers": [
+      {
+        "address": "tls://192.0.2.1",
+        "address_resolver": "dns-2",
+        "detour": "Group 1",
+        "tag": "dns-1"
+      },
+      {
+        "address": "local",
+        "detour": "Proxy 1",
+        "tag": "dns-2"
+      },
+      {
+        "address": "rcode://success",
+        "tag": "dns-3"
+      },
+      {
+        "address": "local",
+        "detour": "Proxy 1",
+        "tag": "dns-4"
+      }
+    ],
+    "strategy": "prefer_ipv4"
+  },
+  "inbounds": [
+    {
+      "address": [
+        "192.0.2.1/30",
+        "fdfe:dcba:9876::1/126"
+      ],
+      "auto_route": true,
+      "endpoint_independent_nat": false,
+      "mtu": 9000,
+      "platform": {
+        "http_proxy": {
+          "enabled": true,
+          "server": "127.0.0.1",
+          "server_port": 2080
+        }
+      },
+      "sniff": true,
+      "stack": "system",
+      "strict_route": false,
+      "type": "tun"
+    },
+    {
+      "listen": "127.0.0.1",
+      "listen_port": 2080,
+      "sniff": true,
+      "type": "mixed",
+      "users": []
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "Group 1",
+      "type": "selector",
+      "outbounds": [
+        "Group 2",
+        "Proxy 2",
+        "Proxy 3",
+        "Proxy 4",
+        "Proxy 5",
+        "Proxy 6",
+        "Proxy 7",
+        "Proxy 8",
+        "Proxy 9",
+        "Proxy 10",
+        "Proxy 11",
+        "Proxy 12",
+        "Proxy 13",
+        "Proxy 14",
+        "Proxy 15",
+        "Proxy 16",
+        "Proxy 17",
+        "Proxy 18",
+        "Proxy 19",
+        "Proxy 1"
+      ]
+    },
+    {
+      "tag": "Group 2",
+      "type": "urltest",
+      "outbounds": [
+        "Proxy 2",
+        "Proxy 3",
+        "Proxy 4",
+        "Proxy 5",
+        "Proxy 6",
+        "Proxy 7",
+        "Proxy 8",
+        "Proxy 9",
+        "Proxy 10",
+        "Proxy 11",
+        "Proxy 12",
+        "Proxy 13",
+        "Proxy 14",
+        "Proxy 15",
+        "Proxy 16",
+        "Proxy 17",
+        "Proxy 18",
+        "Proxy 19"
+      ],
+      "url": "http://h1.example.com/generate_204",
+      "interval": "10m",
+      "tolerance": 50
+    },
+    {
+      "tag": "Proxy 1",
+      "type": "direct"
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 2",
+      "server": "s1.example.net",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000001",
+      "flow": "",
+      "tls": {
+        "enabled": true,
+        "server_name": "s1.example.net",
+        "insecure": true
+      },
+      "transport": {}
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 3",
+      "server": "s2.example.net",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000002",
+      "flow": "",
+      "tls": {
+        "enabled": true,
+        "server_name": "s2.example.net",
+        "insecure": true
+      },
+      "transport": {
+        "path": "/p1",
+        "headers": {
+          "Host": "s2.example.net"
+        },
+        "type": "ws"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 4",
+      "server": "192.0.2.2",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000003",
+      "flow": "",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni3.example.org",
+        "insecure": true
+      },
+      "transport": {}
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 5",
+      "server": "192.0.2.3",
+      "server_port": 8880,
+      "uuid": "00005a11-0000-4000-8000-000000000004",
+      "flow": "",
+      "tls": {
+        "enabled": true,
+        "server_name": "192.0.2.3",
+        "insecure": true
+      },
+      "transport": {}
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 6",
+      "server": "192.0.2.4",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000005",
+      "flow": "",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni4.example.org",
+        "insecure": true
+      },
+      "transport": {}
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 7",
+      "server": "192.0.2.5",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000005",
+      "flow": "",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni4.example.org",
+        "insecure": true
+      },
+      "transport": {}
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 8",
+      "server": "192.0.2.6",
+      "server_port": 8880,
+      "uuid": "00005a11-0000-4000-8000-000000000006",
+      "flow": "",
+      "tls": {
+        "enabled": true,
+        "server_name": "192.0.2.6",
+        "insecure": true
+      },
+      "transport": {}
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 9",
+      "server": "192.0.2.6",
+      "server_port": 8880,
+      "uuid": "00005a11-0000-4000-8000-000000000006",
+      "flow": "",
+      "tls": {
+        "enabled": true,
+        "server_name": "192.0.2.6",
+        "insecure": true
+      },
+      "transport": {}
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 10",
+      "server": "192.0.2.7",
+      "server_port": 8880,
+      "uuid": "00005a11-0000-4000-8000-000000000006",
+      "flow": "",
+      "tls": {
+        "enabled": true,
+        "server_name": "192.0.2.7",
+        "insecure": true
+      },
+      "transport": {}
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 11",
+      "server": "192.0.2.8",
+      "server_port": 8880,
+      "uuid": "00005a11-0000-4000-8000-000000000006",
+      "flow": "",
+      "tls": {
+        "enabled": true,
+        "server_name": "192.0.2.8",
+        "insecure": true
+      },
+      "transport": {}
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 12",
+      "server": "192.0.2.9",
+      "server_port": 8880,
+      "uuid": "00005a11-0000-4000-8000-000000000006",
+      "flow": "",
+      "tls": {
+        "enabled": true,
+        "server_name": "192.0.2.9",
+        "insecure": true
+      },
+      "transport": {}
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 13",
+      "server": "192.0.2.10",
+      "server_port": 8880,
+      "uuid": "00005a11-0000-4000-8000-000000000006",
+      "flow": "",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni5.example.org",
+        "insecure": true
+      },
+      "transport": {}
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 14",
+      "server": "192.0.2.11",
+      "server_port": 8880,
+      "uuid": "00005a11-0000-4000-8000-000000000006",
+      "flow": "",
+      "tls": {
+        "enabled": true,
+        "server_name": "192.0.2.11",
+        "insecure": true
+      },
+      "transport": {}
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 15",
+      "server": "s6.example.net",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000007",
+      "flow": "",
+      "tls": {
+        "enabled": true,
+        "server_name": "s6.example.net",
+        "insecure": true
+      },
+      "transport": {}
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "Proxy 16",
+      "server": "192.0.2.12",
+      "server_port": 6679,
+      "method": "aes-256-gcm",
+      "password": "password1"
+    },
+    {
+      "type": "hysteria2",
+      "tag": "Proxy 17",
+      "server": "192.0.2.13",
+      "server_port": 47262,
+      "password": "00005a11-0000-4000-8000-000000000008",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "sni7.example.org"
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "Proxy 18",
+      "server": "s8.example.net",
+      "server_port": 443,
+      "password": "00005a11-0000-4000-8000-000000000002",
+      "tls": {
+        "enabled": true,
+        "server_name": "s8.example.net",
+        "alpn": [],
+        "insecure": true
+      },
+      "transport": {
+        "path": "/p2",
+        "type": "ws"
+      }
+    },
+    {
+      "type": "vmess",
+      "tag": "Proxy 19",
+      "server": "192.0.2.14",
+      "server_port": 34625,
+      "uuid": "00005a11-0000-4000-8000-000000000009",
+      "security": "auto",
+      "alter_id": 0,
+      "transport": {},
+      "tls": {
+        "enabled": false,
+        "insecure": true,
+        "server_name": "192.0.2.14"
+      }
+    }
+  ],
+  "route": {
+    "auto_detect_interface": true,
+    "final": "Group 1",
+    "rules": [
+      {
+        "clash_mode": "Direct",
+        "outbound": "Proxy 1"
+      },
+      {
+        "clash_mode": "Global",
+        "outbound": "Group 1"
+      },
+      {
+        "protocol": "dns",
+        "action": "hijack-dns"
+      }
+    ]
+  }
+}

@@ -1,0 +1,19 @@
+port: 7890
+socks-port: 7891
+allow-lan: true
+mode: Rule
+log-level: info
+external-controller: 127.0.0.1:9090
+dns:
+  enable: true
+  ipv6: false
+  listen: 127.0.0.1:5450
+  enhanced-mode: fake-ip
+  nameserver:
+    - 192.0.2.1
+    - 192.0.2.2
+    - 192.0.2.3
+    - 192.0.2.4
+proxies:
+proxy-groups:
+rules:

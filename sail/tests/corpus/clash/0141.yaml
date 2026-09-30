@@ -1,0 +1,239 @@
+port: 7890
+allow-lan: true
+mode: rule
+log-level: info
+unified-delay: true
+global-client-fingerprint: chrome
+dns:
+  enable: true
+  listen: :53
+  ipv6: true
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  default-nameserver:
+    - 192.0.2.1
+    - 192.0.2.2
+  nameserver:
+    - https://h1.example.com/dns-query
+    - https://192.0.2.3/dns-query
+  fallback:
+    - https://192.0.2.4/dns-query
+    - tls://192.0.2.3
+  fallback-filter:
+    geoip: true
+    geoip-code: str1
+    ipcidr:
+      - 240.0.0.0/4
+proxies:
+  - name: Proxy 1
+    type: vless
+    server: s1.example.net
+    port: 101
+    uuid: 00005a11-0000-4000-8000-000000000001
+    network: tcp
+    udp: true
+    tls: true
+    flow: xtls-rprx-vision
+    servername: sni2.example.org
+    reality-opts:
+      public-key: wywOQgzCr2vr85JpoMxzCakHIIvgUtsG6/Qp987NJa4
+      short-id: 704c7085
+    client-fingerprint: chrome
+  - name: Proxy 2
+    type: vless
+    server: s1.example.net
+    port: 102
+    uuid: 00005a11-0000-4000-8000-000000000002
+    network: grpc
+    tls: true
+    udp: true
+    flow:
+    client-fingerprint: chrome
+    servername: sni2.example.org
+    grpc-opts:
+      grpc-service-name: "str2"
+    reality-opts:
+      public-key: WulOoXrJ4xaeREDpCXJqPLE7mK1qDJwNSfPto1FYe4I
+      short-id: 6663c3a1
+  - name: Proxy 3
+    type: vless
+    server: 192.0.2.5
+    port: 2083
+    uuid: 00005a11-0000-4000-8000-000000000003
+    udp: true
+    tls: true
+    network: ws
+    servername: s1.example.net
+    ws-opts:
+      path: "/p1"
+      headers:
+        Host: s1.example.net
+  - name: Proxy 4
+    type: vless
+    server: s1.example.net
+    port: 103
+    uuid: 00005a11-0000-4000-8000-000000000004
+    udp: true
+    tls: false
+    network: ws
+    servername: s1.example.net
+    ws-opts:
+      path: "/p1"
+      headers:
+        Host: s1.example.net
+  - name: Proxy 5
+    type: vmess
+    server: 192.0.2.5
+    port: 8443
+    uuid: 00005a11-0000-4000-8000-000000000005
+    alterId: 0
+    cipher: auto
+    udp: true
+    tls: true
+    network: ws
+    servername: s1.example.net
+    ws-opts:
+      path: "/p1"
+      headers:
+        Host: s1.example.net
+  - name: Proxy 6
+    type: vmess
+    server: s1.example.net
+    port: 104
+    uuid: 00005a11-0000-4000-8000-000000000006
+    alterId: 0
+    cipher: auto
+    udp: true
+    tls: false
+    network: ws
+    servername: s1.example.net
+    ws-opts:
+      path: "/p1"
+      headers:
+        Host: s1.example.net
+  - name: Proxy 7
+    type: trojan
+    server: s1.example.net
+    port: 443
+    password: password1
+    client-fingerprint: chrome
+    udp: true
+    sni: s1.example.net
+    alpn:
+      - h2
+      - http/1.1
+    skip-cert-verify: true
+  - name: Proxy 8
+    type: hysteria
+    server: s1.example.net
+    port: 105
+    auth-str: 126456
+    alpn:
+      - h3
+    protocol: udp
+    up: 50
+    down: 200
+    sni: s1.example.net
+    skip-cert-verify: false
+    fast-open: true
+  - name: Proxy 9
+    type: hysteria
+    server: 192.0.2.6
+    port: 106
+    auth-str: 12345
+    alpn:
+      - h3
+    protocol: udp
+    up: 40
+    down: 100
+    sni: sni3.example.org
+    skip-cert-verify: true
+    fast-open: true
+  - name: Proxy 10
+    server: s4.example.net
+    port: 107
+    type: tuic
+    uuid: 00005a11-0000-4000-8000-000000000007
+    password: 12345
+    alpn: ["h3", "alpn1"]
+    disable-sni: true
+    reduce-rtt: true
+    udp-relay-mode: native
+    congestion-controller: bbr
+  - name: Proxy 11
+    server: 2001:db8::1
+    port: 108
+    type: tuic
+    uuid: 00005a11-0000-4000-8000-000000000008
+    password: 12345
+    alpn: ["h3", "alpn1"]
+    disable-sni: true
+    reduce-rtt: true
+    udp-relay-mode: native
+    congestion-controller: bbr
+  - name: Proxy 12
+    type: wireguard
+    server: 192.0.2.7
+    port: 2408
+    ip: 192.0.2.8
+    ipv6: 2001:db8::2
+    public-key: uLBP4fDmzzQr6AI9Cjs2bG1yyu2augLO37S6iU1M4Eo=
+    private-key: C7R4HcnA7nosUls057QlZXh18tDK3yhe4+6I1jkpNJM=
+    udp: true
+proxy-groups:
+  - name: Group 1
+    type: load-balance
+    url: http://h2.example.com/generate_204
+    interval: 300
+    proxies:
+      - Proxy 1
+      - Proxy 2
+      - Proxy 3
+      - Proxy 4
+      - Proxy 5
+      - Proxy 6
+      - Proxy 7
+      - Proxy 8
+      - Proxy 9
+      - Proxy 10
+      - Proxy 11
+      - Proxy 12
+  - name: Group 2
+    type: url-test
+    url: http://h2.example.com/generate_204
+    interval: 300
+    tolerance: 50
+    proxies:
+      - Proxy 1
+      - Proxy 2
+      - Proxy 3
+      - Proxy 4
+      - Proxy 5
+      - Proxy 6
+      - Proxy 7
+      - Proxy 8
+      - Proxy 9
+      - Proxy 10
+      - Proxy 11
+      - Proxy 12
+  - name: Group 3
+    type: select
+    proxies:
+      - Group 1
+      - Group 2
+      - DIRECT
+      - Proxy 1
+      - Proxy 2
+      - Proxy 3
+      - Proxy 4
+      - Proxy 5
+      - Proxy 6
+      - Proxy 7
+      - Proxy 8
+      - Proxy 9
+      - Proxy 10
+      - Proxy 11
+      - Proxy 12
+rules:
+  - GEOIP,IR,DIRECT
+  - MATCH,Group 3

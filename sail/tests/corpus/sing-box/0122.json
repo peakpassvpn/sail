@@ -1,0 +1,230 @@
+{
+  "log": {
+    "level": "info"
+  },
+  "experimental": {
+    "cache_file": {
+      "enabled": true
+    }
+  },
+  "dns": {
+    "servers": [
+      {
+        "type": "https",
+        "tag": "dns-1",
+        "server": "192.0.2.1",
+        "path": "/p1",
+        "detour": "Proxy 1"
+      },
+      {
+        "type": "local",
+        "tag": "dns-2"
+      }
+    ],
+    "rules": [
+      {
+        "domain_suffix": [
+          ".d1.example",
+          ".d2.example",
+          ".d3.example"
+        ],
+        "action": "route",
+        "server": "dns-2"
+      },
+      {
+        "rule_set": [
+          "set-1"
+        ],
+        "action": "route",
+        "server": "dns-2"
+      }
+    ],
+    "final": "dns-1",
+    "strategy": "prefer_ipv4"
+  },
+  "inbounds": [
+    {
+      "type": "tun",
+      "tag": "in-1",
+      "address": [
+        "192.0.2.1/30"
+      ],
+      "mtu": 1500,
+      "auto_route": true,
+      "stack": "system"
+    },
+    {
+      "type": "mixed",
+      "tag": "in-2",
+      "listen": "127.0.0.1",
+      "listen_port": 7890
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "vless",
+      "tag": "Proxy 1",
+      "server": "192.0.2.2",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000001",
+      "flow": "xtls-rprx-vision",
+      "network": "tcp",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni4.example.org",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        },
+        "reality": {
+          "enabled": true,
+          "public_key": "wywOQgzCr2vr85JpoMxzCakHIIvgUtsG6_Qp987NJa4",
+          "short_id": "704c7085dd7b3f73"
+        }
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "Proxy 2",
+      "server": "192.0.2.2",
+      "server_port": 443,
+      "password": "password1",
+      "obfs": {
+        "type": "salamander",
+        "password": "password2"
+      },
+      "tls": {
+        "enabled": true,
+        "server_name": "192.0.2.2",
+        "insecure": true,
+        "certificate_public_key_sha256": [
+          "str1"
+        ]
+      }
+    },
+    {
+      "type": "direct",
+      "tag": "Proxy 3"
+    },
+    {
+      "type": "block",
+      "tag": "Proxy 4"
+    }
+  ],
+  "route": {
+    "auto_detect_interface": true,
+    "default_domain_resolver": {
+      "server": "dns-1",
+      "strategy": "prefer_ipv4"
+    },
+    "rule_set": [
+      {
+        "type": "remote",
+        "tag": "set-1",
+        "format": "binary",
+        "url": "https://h1.example.com/p2.srs",
+        "download_detour": "Proxy 1",
+        "update_interval": "1d"
+      },
+      {
+        "type": "remote",
+        "tag": "set-2",
+        "format": "binary",
+        "url": "https://h1.example.com/p3.srs",
+        "download_detour": "Proxy 1",
+        "update_interval": "1d"
+      }
+    ],
+    "rules": [
+      {
+        "action": "sniff"
+      },
+      {
+        "domain_suffix": [
+          ".d1.example",
+          ".d2.example",
+          ".d3.example"
+        ],
+        "action": "resolve",
+        "server": "dns-2",
+        "strategy": "prefer_ipv4"
+      },
+      {
+        "rule_set": [
+          "set-1"
+        ],
+        "action": "resolve",
+        "server": "dns-2",
+        "strategy": "prefer_ipv4"
+      },
+      {
+        "action": "resolve",
+        "strategy": "prefer_ipv4"
+      },
+      {
+        "network": [
+          "tcp",
+          "udp"
+        ],
+        "port": 53,
+        "action": "hijack-dns"
+      },
+      {
+        "protocol": [
+          "dns"
+        ],
+        "action": "hijack-dns"
+      },
+      {
+        "ip_cidr": [
+          "192.0.2.2/32"
+        ],
+        "action": "route",
+        "outbound": "Proxy 3"
+      },
+      {
+        "ip_is_private": true,
+        "action": "route",
+        "outbound": "Proxy 3"
+      },
+      {
+        "domain_suffix": [
+          ".d1.example",
+          ".d2.example",
+          ".d3.example"
+        ],
+        "action": "route",
+        "outbound": "Proxy 3"
+      },
+      {
+        "rule_set": [
+          "set-1"
+        ],
+        "action": "route",
+        "outbound": "Proxy 3"
+      },
+      {
+        "rule_set": [
+          "set-2"
+        ],
+        "action": "route",
+        "outbound": "Proxy 3"
+      },
+      {
+        "network": [
+          "tcp"
+        ],
+        "action": "route",
+        "outbound": "Proxy 1"
+      },
+      {
+        "network": [
+          "udp"
+        ],
+        "action": "route",
+        "outbound": "Proxy 2"
+      }
+    ],
+    "final": "Proxy 1"
+  }
+}

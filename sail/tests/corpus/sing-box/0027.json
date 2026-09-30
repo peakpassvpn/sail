@@ -1,0 +1,164 @@
+{
+  "log": {
+    "disabled": false,
+    "level": "warn",
+    "timestamp": true
+  },
+  "dns": {
+    "servers": [
+      {
+        "tag": "dns-1",
+        "address": "udp://192.0.2.1",
+        "address_resolver": "dns-4",
+        "strategy": "prefer_ipv4",
+        "detour": "Group 1"
+      },
+      {
+        "tag": "dns-2",
+        "address": "tcp://192.0.2.1",
+        "address_resolver": "dns-4",
+        "strategy": "prefer_ipv4",
+        "detour": "Group 1"
+      },
+      {
+        "tag": "dns-3",
+        "address": "https://192.0.2.1/dns-query",
+        "address_resolver": "dns-4",
+        "strategy": "prefer_ipv4",
+        "detour": "Group 1"
+      },
+      {
+        "tag": "dns-4",
+        "address": "local",
+        "strategy": "prefer_ipv4",
+        "detour": "Proxy 1"
+      },
+      {
+        "tag": "dns-5",
+        "address": "rcode://success"
+      }
+    ],
+    "rules": [
+      {
+        "outbound": "any",
+        "server": "dns-4"
+      }
+    ],
+    "fakeip": {
+      "inet4_range": "198.18.0.1/16"
+    },
+    "independent_cache": true
+  },
+  "inbounds": [
+    {
+      "type": "tun",
+      "mtu": 9000,
+      "interface_name": "if1",
+      "tag": "in-1",
+      "inet4_address": "192.0.2.1/30",
+      "inet6_address": "fdfe:dcba:9876::1/126",
+      "auto_route": true,
+      "strict_route": true,
+      "endpoint_independent_nat": true,
+      "stack": "mixed",
+      "sniff": true
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "selector",
+      "tag": "Group 1",
+      "interrupt_exist_connections": true,
+      "outbounds": []
+    },
+    {
+      "type": "urltest",
+      "tag": "Group 2",
+      "outbounds": null,
+      "url": "https://h1.example.com/generate_204",
+      "interval": "1m0s"
+    },
+    {
+      "type": "direct",
+      "tag": "Proxy 1"
+    },
+    {
+      "type": "block",
+      "tag": "Proxy 2"
+    },
+    {
+      "type": "dns",
+      "tag": "Proxy 3"
+    }
+  ],
+  "route": {
+    "rules": [
+      {
+        "protocol": "dns",
+        "outbound": "Proxy 3"
+      },
+      {
+        "rule_set": "set-1",
+        "outbound": "Proxy 1"
+      },
+      {
+        "ip_is_private": true,
+        "outbound": "Proxy 1"
+      },
+      {
+        "rule_set": [
+          "set-4",
+          "set-5",
+          "set-2",
+          "set-3"
+        ],
+        "outbound": "Proxy 1"
+      }
+    ],
+    "rule_set": [
+      {
+        "type": "remote",
+        "tag": "set-1",
+        "format": "binary",
+        "url": "https://h2.example.com/p1.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "type": "remote",
+        "tag": "set-2",
+        "format": "binary",
+        "url": "https://h2.example.com/p2.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "type": "remote",
+        "tag": "set-3",
+        "format": "binary",
+        "url": "https://h2.example.com/p3.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "type": "remote",
+        "tag": "set-4",
+        "format": "source",
+        "url": "https://h2.example.com/p4.json",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "type": "remote",
+        "tag": "set-5",
+        "format": "source",
+        "url": "https://h2.example.com/p5.json",
+        "download_detour": "Proxy 1"
+      }
+    ],
+    "final": "Proxy 1",
+    "find_process": true,
+    "auto_detect_interface": true
+  },
+  "experimental": {
+    "cache_file": {
+      "enabled": true
+    }
+  }
+}

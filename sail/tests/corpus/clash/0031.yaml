@@ -1,0 +1,114 @@
+mode: rule
+allow-lan: true
+unified-delay: true
+bind-address: '*'
+log-level: silent
+ipv6: false
+geodata-mode: true
+external-controller: 0.0.0.0:9090
+external-ui: ./path-1
+tcp-concurrent: true
+interface-name: "if2"
+enable-process: false
+geodata-loader: memconservative
+secret: ""
+sniffer:
+  enable: false
+  sniffing:
+    - tls
+    - http
+  force-domain:
+    - 'str1'
+  skip-domain:
+    - 'd1.example'
+  port-whitelist:
+    - 80
+    - 443
+    - 8000-9000
+profile:
+  store-selected: true
+  store-fake-ip: true
+dns:
+  enable: true
+  device: if1
+  ipv6: false
+  default-nameserver:
+    - 192.0.2.1
+    - 192.0.2.2
+  listen: 0.0.0.0:1053
+  use-hosts: true
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  fake-ip-filter: ['d2.example', '+.d3.example']
+  nameserver:
+    - 192.0.2.2
+  proxy-server-nameserver:
+    - 192.0.2.2
+  fallback: []
+  fallback-filter:
+    geoip: false
+    geoip-code: 'str2'
+    geosite:
+      - str3
+      - str4
+    domain: ['d1.example']
+    ipcidr: [240.0.0.0/4]
+tun:
+  enable: false
+  device: if1
+  stack: gvisor
+  dns-hijack:
+    - 'any:53'
+    - 'tcp://any:53'
+  auto-route: false
+  auto-detect-interface: false
+iptables: {enable: false, inbound-interface: "", bypass: []}
+hosts:
+  d4.example: 192.0.2.3
+  d5.example: 192.0.2.4
+geox-url:
+  mmdb: "https://h1.example.com/p3.mmdb"
+  geoip: "https://h2.example.com/p4.dat"
+  geosite: "https://h2.example.com/p5.dat"
+tproxy-port: 9898
+proxies:
+  - name: Proxy 1
+    server: d5.example
+    port: 443
+    type: trojan
+    password: password1
+    sni: sni6.example.org
+    skip-cert-verify: true
+    network: ws
+    ws-opts:
+      path: /p1
+      headers:
+        Host: sni6.example.org
+    udp: true
+    mux: true
+  - name: Proxy 2
+    type: vmess
+    server: d4.example
+    port: 443
+    uuid: 00005a11-0000-4000-8000-000000000001
+    alterId: 0
+    cipher: auto
+    udp: false
+    skip-cert-verify: true
+    tls: true
+    servername: sni7.example.org
+    network: ws
+    ws-opts:
+      path: /p2
+      headers:
+        Host: sni7.example.org
+proxy-groups:
+  - name: Group 1
+    type: load-balance
+    proxies:
+      - Proxy 1
+      - Proxy 2
+rules:
+  - IP-CIDR,127.0.0.1/32,REJECT,no-resolve
+  - IP-CIDR6,::1/128,REJECT,no-resolve
+  - MATCH,Group 1

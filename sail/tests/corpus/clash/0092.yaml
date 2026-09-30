@@ -1,0 +1,48 @@
+port: 7890
+socks-port: 7891
+allow-lan: true
+mode: Rule
+log-level: info
+ipv6: false
+external-controller: :9090
+dns:
+  enable: true
+  ipv6: false
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  nameserver:
+    - 192.0.2.1
+    - 192.0.2.2
+  fallback:
+    - 192.0.2.3
+    - 192.0.2.4
+    - tls://192.0.2.5:853
+    - tls://h1.example.com:853
+proxy-providers:
+  provider-1:
+    type: http
+    url: "https://h2.example.com/p1.txt"
+    interval: 3600
+    path: ./path-1.yaml
+    health-check:
+      enable: true
+      interval: 600
+      url: http://h3.example.com/generate_204
+proxy-groups:
+  - name: Group 1
+    type: select
+    proxies:
+      - Group 2
+      - DIRECT
+    use:
+      - provider-1
+  - name: Group 2
+    type: url-test
+    url: http://h3.example.com/generate_204
+    interval: 300
+    use:
+      - provider-1
+rules:
+  - GEOIP,LAN,DIRECT
+  - GEOIP,CN,DIRECT
+  - MATCH,Group 1

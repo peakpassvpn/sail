@@ -1,0 +1,765 @@
+mixed-port: 7890
+allow-lan: false
+mode: Global
+log-level: silent
+external-controller: 127.0.0.1:9090
+dns:
+  enable: true
+  ipv6: false
+  listen: 0.0.0.0:53
+  enhanced-mode: redir-host
+  nameserver:
+    - https://192.0.2.1/dns-query
+    - https://192.0.2.2/dns-query
+  fallback:
+    - https://192.0.2.3/dns-query
+    - https://192.0.2.4/dns-query
+    - 192.0.2.1
+    - 192.0.2.2
+  fallback-filter:
+    geoip: true
+proxies:
+  - {name: Proxy 1, server: 192.0.2.5, port: 802, type: ss, cipher: chacha20-ietf-poly1305, password: password1, udp: true}
+  - {name: Proxy 2, server: 192.0.2.5, port: 804, type: ss, cipher: chacha20-ietf-poly1305, password: password1, udp: true}
+  - {name: Proxy 3, server: 192.0.2.6, port: 803, type: ss, cipher: chacha20-ietf-poly1305, password: password1, udp: true}
+  - {name: Proxy 4, server: 192.0.2.6, port: 812, type: ss, cipher: chacha20-ietf-poly1305, password: password1, udp: true}
+  - {name: Proxy 5, server: 192.0.2.7, port: 805, type: ss, cipher: chacha20-ietf-poly1305, password: password1, udp: true}
+  - {name: Proxy 6, server: 192.0.2.7, port: 808, type: ss, cipher: chacha20-ietf-poly1305, password: password1, udp: true}
+  - {name: Proxy 7, server: 192.0.2.8, port: 803, type: ss, cipher: chacha20-ietf-poly1305, password: password1, str1: null}
+  - {name: Proxy 8, server: 192.0.2.8, port: 811, type: ss, cipher: chacha20-ietf-poly1305, password: password1, str1: null}
+  - {name: Proxy 9, server: 192.0.2.9, port: 805, type: ss, cipher: chacha20-ietf-poly1305, password: password1, udp: true}
+  - {name: Proxy 10, server: 192.0.2.9, port: 807, type: ss, cipher: chacha20-ietf-poly1305, password: password1, udp: true}
+  - {name: Proxy 11, server: 192.0.2.10, port: 801, type: ss, cipher: chacha20-ietf-poly1305, password: password1, udp: true}
+  - {name: Proxy 12, server: 192.0.2.10, port: 811, type: ss, cipher: chacha20-ietf-poly1305, password: password1, udp: true}
+  - {name: Proxy 13, server: 192.0.2.11, port: 804, type: ss, cipher: chacha20-ietf-poly1305, password: password1, udp: true}
+  - {name: Proxy 14, server: 192.0.2.11, port: 810, type: ss, cipher: chacha20-ietf-poly1305, password: password1, udp: true}
+  - {name: Proxy 15, server: 192.0.2.12, port: 802, type: ss, cipher: chacha20-ietf-poly1305, password: password1, udp: true}
+  - {name: Proxy 16, server: 192.0.2.12, port: 804, type: ss, cipher: chacha20-ietf-poly1305, password: password1, udp: true}
+  - {name: Proxy 17, server: 192.0.2.13, port: 18760, type: ss, cipher: aes-256-gcm, password: password2, udp: true}
+  - {name: Proxy 18, server: 192.0.2.14, port: 18760, type: ss, cipher: aes-256-gcm, password: password2, udp: true}
+  - {name: Proxy 19, server: 192.0.2.15, port: 811, type: ss, cipher: chacha20-ietf-poly1305, password: password3, udp: true}
+  - {name: Proxy 20, server: 192.0.2.15, port: 812, type: ss, cipher: chacha20-ietf-poly1305, password: password3, udp: true}
+  - {name: Proxy 21, server: 192.0.2.16, port: 811, type: ss, cipher: chacha20-ietf-poly1305, password: password3, udp: true}
+  - {name: Proxy 22, server: 192.0.2.16, port: 812, type: ss, cipher: chacha20-ietf-poly1305, password: password3, udp: true}
+  - {name: Proxy 23, server: 192.0.2.17, port: 2375, type: ss, cipher: aes-256-gcm, password: password4, udp: true}
+  - {name: Proxy 24, server: 192.0.2.17, port: 2376, type: ss, cipher: aes-256-gcm, password: password4, udp: true}
+  - {name: Proxy 25, server: 192.0.2.17, port: 3306, type: ss, cipher: aes-256-gcm, password: password5, udp: true}
+  - {name: Proxy 26, server: 192.0.2.17, port: 3389, type: ss, cipher: aes-256-gcm, password: password5, udp: true}
+  - {name: Proxy 27, server: 192.0.2.17, port: 4444, type: ss, cipher: aes-256-gcm, password: password6, udp: true}
+  - {name: Proxy 28, server: 192.0.2.17, port: 5000, type: ss, cipher: aes-256-gcm, password: password5, udp: true}
+  - {name: Proxy 29, server: 192.0.2.17, port: 5001, type: ss, cipher: aes-256-gcm, password: password5, udp: true}
+  - {name: Proxy 30, server: 192.0.2.17, port: 5003, type: ss, cipher: aes-256-gcm, password: password7, udp: true}
+  - {name: Proxy 31, server: 192.0.2.17, port: 5004, type: ss, cipher: aes-256-gcm, password: password7, udp: true}
+  - {name: Proxy 32, server: 192.0.2.17, port: 5500, type: ss, cipher: aes-256-gcm, password: password8, udp: true}
+  - {name: Proxy 33, server: 192.0.2.17, port: 5601, type: ss, cipher: aes-256-gcm, password: password5, udp: true}
+  - {name: Proxy 34, server: 192.0.2.17, port: 6379, type: ss, cipher: aes-256-gcm, password: password9, udp: true}
+  - {name: Proxy 35, server: 192.0.2.17, port: 6679, type: ss, cipher: aes-256-gcm, password: password10, udp: true}
+  - {name: Proxy 36, server: 192.0.2.17, port: 6697, type: ss, cipher: aes-256-gcm, password: password10, udp: true}
+  - {name: Proxy 37, server: 192.0.2.17, port: 7001, type: ss, cipher: aes-256-gcm, password: password11, udp: true}
+  - {name: Proxy 38, server: 192.0.2.17, port: 7002, type: ss, cipher: aes-256-gcm, password: password11, udp: true}
+  - {name: Proxy 39, server: 192.0.2.17, port: 7306, type: ss, cipher: aes-256-gcm, password: password12, udp: true}
+  - {name: Proxy 40, server: 192.0.2.17, port: 7307, type: ss, cipher: aes-256-gcm, password: password12, udp: true}
+  - {name: Proxy 41, server: 192.0.2.17, port: 8000, type: ss, cipher: aes-256-gcm, password: password8, udp: true}
+  - {name: Proxy 42, server: 192.0.2.17, port: 8008, type: ss, cipher: aes-256-gcm, password: password13, udp: true}
+  - {name: Proxy 43, server: 192.0.2.17, port: 8009, type: ss, cipher: aes-256-gcm, password: password13, udp: true}
+  - {name: Proxy 44, server: 192.0.2.17, port: 8080, type: ss, cipher: aes-256-gcm, password: password8, udp: true}
+  - {name: Proxy 45, server: 192.0.2.17, port: 8090, type: ss, cipher: aes-256-gcm, password: password14, udp: true}
+  - {name: Proxy 46, server: 192.0.2.17, port: 8091, type: ss, cipher: aes-256-gcm, password: password14, udp: true}
+  - {name: Proxy 47, server: 192.0.2.17, port: 8118, type: ss, cipher: aes-256-gcm, password: password15, udp: true}
+  - {name: Proxy 48, server: 192.0.2.17, port: 8119, type: ss, cipher: aes-256-gcm, password: password15, udp: true}
+  - {name: Proxy 49, server: 192.0.2.17, port: 8881, type: ss, cipher: aes-256-gcm, password: password16, udp: true}
+  - {name: Proxy 50, server: 192.0.2.17, port: 8882, type: ss, cipher: aes-256-gcm, password: password16, udp: true}
+  - {name: Proxy 51, server: 192.0.2.17, port: 8888, type: ss, cipher: aes-256-gcm, password: password5, udp: true}
+  - {name: Proxy 52, server: 192.0.2.17, port: 9101, type: ss, cipher: aes-256-gcm, password: password17, udp: true}
+  - {name: Proxy 53, server: 192.0.2.17, port: 9102, type: ss, cipher: aes-256-gcm, password: password17, udp: true}
+  - {name: Proxy 54, server: 192.0.2.18, port: 2375, type: ss, cipher: aes-256-gcm, password: password4, udp: true}
+  - {name: Proxy 55, server: 192.0.2.18, port: 2376, type: ss, cipher: aes-256-gcm, password: password4, udp: true}
+  - {name: Proxy 56, server: 192.0.2.18, port: 3306, type: ss, cipher: aes-256-gcm, password: password5, udp: true}
+  - {name: Proxy 57, server: 192.0.2.18, port: 3389, type: ss, cipher: aes-256-gcm, password: password5, udp: true}
+  - {name: Proxy 58, server: 192.0.2.18, port: 4444, type: ss, cipher: aes-256-gcm, password: password6, udp: true}
+  - {name: Proxy 59, server: 192.0.2.18, port: 5000, type: ss, cipher: aes-256-gcm, password: password5, udp: true}
+  - {name: Proxy 60, server: 192.0.2.18, port: 5001, type: ss, cipher: aes-256-gcm, password: password5, udp: true}
+  - {name: Proxy 61, server: 192.0.2.18, port: 5003, type: ss, cipher: aes-256-gcm, password: password7, udp: true}
+  - {name: Proxy 62, server: 192.0.2.18, port: 5004, type: ss, cipher: aes-256-gcm, password: password7, udp: true}
+  - {name: Proxy 63, server: 192.0.2.18, port: 5500, type: ss, cipher: aes-256-gcm, password: password8, udp: true}
+  - {name: Proxy 64, server: 192.0.2.18, port: 5601, type: ss, cipher: aes-256-gcm, password: password5, udp: true}
+  - {name: Proxy 65, server: 192.0.2.18, port: 6379, type: ss, cipher: aes-256-gcm, password: password9, udp: true}
+  - {name: Proxy 66, server: 192.0.2.18, port: 6679, type: ss, cipher: aes-256-gcm, password: password10, udp: true}
+  - {name: Proxy 67, server: 192.0.2.18, port: 6697, type: ss, cipher: aes-256-gcm, password: password10, udp: true}
+  - {name: Proxy 68, server: 192.0.2.18, port: 7001, type: ss, cipher: aes-256-gcm, password: password11, udp: true}
+  - {name: Proxy 69, server: 192.0.2.18, port: 7002, type: ss, cipher: aes-256-gcm, password: password11, udp: true}
+  - {name: Proxy 70, server: 192.0.2.18, port: 7306, type: ss, cipher: aes-256-gcm, password: password12, udp: true}
+  - {name: Proxy 71, server: 192.0.2.18, port: 7307, type: ss, cipher: aes-256-gcm, password: password12, udp: true}
+  - {name: Proxy 72, server: 192.0.2.18, port: 8000, type: ss, cipher: aes-256-gcm, password: password8, udp: true}
+  - {name: Proxy 73, server: 192.0.2.18, port: 8008, type: ss, cipher: aes-256-gcm, password: password13, udp: true}
+  - {name: Proxy 74, server: 192.0.2.18, port: 8009, type: ss, cipher: aes-256-gcm, password: password13, udp: true}
+  - {name: Proxy 75, server: 192.0.2.18, port: 8080, type: ss, cipher: aes-256-gcm, password: password8, udp: true}
+  - {name: Proxy 76, server: 192.0.2.18, port: 8090, type: ss, cipher: aes-256-gcm, password: password14, udp: true}
+  - {name: Proxy 77, server: 192.0.2.18, port: 8091, type: ss, cipher: aes-256-gcm, password: password14, udp: true}
+  - {name: Proxy 78, server: 192.0.2.18, port: 8118, type: ss, cipher: aes-256-gcm, password: password15, udp: true}
+  - {name: Proxy 79, server: 192.0.2.18, port: 8119, type: ss, cipher: aes-256-gcm, password: password15, udp: true}
+  - {name: Proxy 80, server: 192.0.2.18, port: 8881, type: ss, cipher: aes-256-gcm, password: password16, udp: true}
+  - {name: Proxy 81, server: 192.0.2.18, port: 8882, type: ss, cipher: aes-256-gcm, password: password16, udp: true}
+  - {name: Proxy 82, server: 192.0.2.18, port: 8888, type: ss, cipher: aes-256-gcm, password: password5, udp: true}
+  - {name: Proxy 83, server: 192.0.2.18, port: 9101, type: ss, cipher: aes-256-gcm, password: password17, udp: true}
+  - {name: Proxy 84, server: 192.0.2.18, port: 9102, type: ss, cipher: aes-256-gcm, password: password17, udp: true}
+  - {name: Proxy 85, server: 192.0.2.19, port: 2375, type: ss, cipher: aes-256-gcm, password: password4, udp: true}
+  - {name: Proxy 86, server: 192.0.2.19, port: 2376, type: ss, cipher: aes-256-gcm, password: password4, udp: true}
+  - {name: Proxy 87, server: 192.0.2.19, port: 3306, type: ss, cipher: aes-256-gcm, password: password5, udp: true}
+  - {name: Proxy 88, server: 192.0.2.19, port: 3389, type: ss, cipher: aes-256-gcm, password: password5, udp: true}
+  - {name: Proxy 89, server: 192.0.2.19, port: 4444, type: ss, cipher: aes-256-gcm, password: password6, udp: true}
+  - {name: Proxy 90, server: 192.0.2.19, port: 5000, type: ss, cipher: aes-256-gcm, password: password5, udp: true}
+  - {name: Proxy 91, server: 192.0.2.19, port: 5001, type: ss, cipher: aes-256-gcm, password: password5, udp: true}
+  - {name: Proxy 92, server: 192.0.2.19, port: 5003, type: ss, cipher: aes-256-gcm, password: password7, udp: true}
+  - {name: Proxy 93, server: 192.0.2.19, port: 5004, type: ss, cipher: aes-256-gcm, password: password7, udp: true}
+  - {name: Proxy 94, server: 192.0.2.19, port: 5500, type: ss, cipher: aes-256-gcm, password: password8, udp: true}
+  - {name: Proxy 95, server: 192.0.2.19, port: 5601, type: ss, cipher: aes-256-gcm, password: password5, udp: true}
+  - {name: Proxy 96, server: 192.0.2.19, port: 6379, type: ss, cipher: aes-256-gcm, password: password9, udp: true}
+  - {name: Proxy 97, server: 192.0.2.19, port: 6679, type: ss, cipher: aes-256-gcm, password: password10, udp: true}
+  - {name: Proxy 98, server: 192.0.2.19, port: 6697, type: ss, cipher: aes-256-gcm, password: password10, udp: true}
+  - {name: Proxy 99, server: 192.0.2.19, port: 7001, type: ss, cipher: aes-256-gcm, password: password11, udp: true}
+  - {name: Proxy 100, server: 192.0.2.19, port: 7002, type: ss, cipher: aes-256-gcm, password: password11, udp: true}
+  - {name: Proxy 101, server: 192.0.2.19, port: 7306, type: ss, cipher: aes-256-gcm, password: password12, udp: true}
+  - {name: Proxy 102, server: 192.0.2.19, port: 7307, type: ss, cipher: aes-256-gcm, password: password12, udp: true}
+  - {name: Proxy 103, server: 192.0.2.19, port: 8000, type: ss, cipher: aes-256-gcm, password: password8, udp: true}
+  - {name: Proxy 104, server: 192.0.2.19, port: 8008, type: ss, cipher: aes-256-gcm, password: password13, udp: true}
+  - {name: Proxy 105, server: 192.0.2.19, port: 8009, type: ss, cipher: aes-256-gcm, password: password13, udp: true}
+  - {name: Proxy 106, server: 192.0.2.19, port: 8080, type: ss, cipher: aes-256-gcm, password: password8, udp: true}
+  - {name: Proxy 107, server: 192.0.2.19, port: 8090, type: ss, cipher: aes-256-gcm, password: password14, udp: true}
+  - {name: Proxy 108, server: 192.0.2.19, port: 8091, type: ss, cipher: aes-256-gcm, password: password14, udp: true}
+  - {name: Proxy 109, server: 192.0.2.19, port: 8118, type: ss, cipher: aes-256-gcm, password: password15, udp: true}
+  - {name: Proxy 110, server: 192.0.2.19, port: 8119, type: ss, cipher: aes-256-gcm, password: password15, udp: true}
+  - {name: Proxy 111, server: 192.0.2.19, port: 8881, type: ss, cipher: aes-256-gcm, password: password16, udp: true}
+  - {name: Proxy 112, server: 192.0.2.19, port: 8882, type: ss, cipher: aes-256-gcm, password: password16, udp: true}
+  - {name: Proxy 113, server: 192.0.2.19, port: 8888, type: ss, cipher: aes-256-gcm, password: password5, udp: true}
+  - {name: Proxy 114, server: 192.0.2.19, port: 9101, type: ss, cipher: aes-256-gcm, password: password17, udp: true}
+  - {name: Proxy 115, server: 192.0.2.19, port: 9102, type: ss, cipher: aes-256-gcm, password: password17, udp: true}
+  - {name: Proxy 116, server: 192.0.2.20, port: 2375, type: ss, cipher: aes-256-gcm, password: password4, udp: true}
+  - {name: Proxy 117, server: 192.0.2.20, port: 2376, type: ss, cipher: aes-256-gcm, password: password4, udp: true}
+  - {name: Proxy 118, server: 192.0.2.20, port: 3306, type: ss, cipher: aes-256-gcm, password: password5, udp: true}
+  - {name: Proxy 119, server: 192.0.2.20, port: 3389, type: ss, cipher: aes-256-gcm, password: password5, udp: true}
+  - {name: Proxy 120, server: 192.0.2.20, port: 4444, type: ss, cipher: aes-256-gcm, password: password6, udp: true}
+  - {name: Proxy 121, server: 192.0.2.20, port: 5000, type: ss, cipher: aes-256-gcm, password: password5, udp: true}
+  - {name: Proxy 122, server: 192.0.2.20, port: 5001, type: ss, cipher: aes-256-gcm, password: password5, udp: true}
+  - {name: Proxy 123, server: 192.0.2.20, port: 5003, type: ss, cipher: aes-256-gcm, password: password7, udp: true}
+  - {name: Proxy 124, server: 192.0.2.20, port: 5004, type: ss, cipher: aes-256-gcm, password: password7, udp: true}
+  - {name: Proxy 125, server: 192.0.2.20, port: 5500, type: ss, cipher: aes-256-gcm, password: password8, udp: true}
+  - {name: Proxy 126, server: 192.0.2.20, port: 5601, type: ss, cipher: aes-256-gcm, password: password5, udp: true}
+  - {name: Proxy 127, server: 192.0.2.20, port: 6379, type: ss, cipher: aes-256-gcm, password: password9, udp: true}
+  - {name: Proxy 128, server: 192.0.2.20, port: 6679, type: ss, cipher: aes-256-gcm, password: password10, udp: true}
+  - {name: Proxy 129, server: 192.0.2.20, port: 6697, type: ss, cipher: aes-256-gcm, password: password10, udp: true}
+  - {name: Proxy 130, server: 192.0.2.20, port: 7001, type: ss, cipher: aes-256-gcm, password: password11, udp: true}
+  - {name: Proxy 131, server: 192.0.2.20, port: 7002, type: ss, cipher: aes-256-gcm, password: password11, udp: true}
+  - {name: Proxy 132, server: 192.0.2.20, port: 7306, type: ss, cipher: aes-256-gcm, password: password12, udp: true}
+  - {name: Proxy 133, server: 192.0.2.20, port: 7307, type: ss, cipher: aes-256-gcm, password: password12, udp: true}
+  - {name: Proxy 134, server: 192.0.2.20, port: 8000, type: ss, cipher: aes-256-gcm, password: password8, udp: true}
+  - {name: Proxy 135, server: 192.0.2.20, port: 8008, type: ss, cipher: aes-256-gcm, password: password13, udp: true}
+  - {name: Proxy 136, server: 192.0.2.20, port: 8009, type: ss, cipher: aes-256-gcm, password: password13, udp: true}
+  - {name: Proxy 137, server: 192.0.2.20, port: 8080, type: ss, cipher: aes-256-gcm, password: password8, udp: true}
+  - {name: Proxy 138, server: 192.0.2.20, port: 8090, type: ss, cipher: aes-256-gcm, password: password14, udp: true}
+  - {name: Proxy 139, server: 192.0.2.20, port: 8091, type: ss, cipher: aes-256-gcm, password: password14, udp: true}
+  - {name: Proxy 140, server: 192.0.2.20, port: 8118, type: ss, cipher: aes-256-gcm, password: password15, udp: true}
+  - {name: Proxy 141, server: 192.0.2.20, port: 8119, type: ss, cipher: aes-256-gcm, password: password15, udp: true}
+  - {name: Proxy 142, server: 192.0.2.20, port: 8881, type: ss, cipher: aes-256-gcm, password: password16, udp: true}
+  - {name: Proxy 143, server: 192.0.2.20, port: 8882, type: ss, cipher: aes-256-gcm, password: password16, udp: true}
+  - {name: Proxy 144, server: 192.0.2.20, port: 8888, type: ss, cipher: aes-256-gcm, password: password5, udp: true}
+  - {name: Proxy 145, server: 192.0.2.20, port: 9101, type: ss, cipher: aes-256-gcm, password: password17, udp: true}
+  - {name: Proxy 146, server: 192.0.2.20, port: 9102, type: ss, cipher: aes-256-gcm, password: password17, udp: true}
+  - {name: Proxy 147, server: 192.0.2.21, port: 2375, type: ss, cipher: aes-256-gcm, password: password4, udp: true}
+  - {name: Proxy 148, server: 192.0.2.21, port: 2376, type: ss, cipher: aes-256-gcm, password: password4, udp: true}
+  - {name: Proxy 149, server: 192.0.2.21, port: 3306, type: ss, cipher: aes-256-gcm, password: password5, udp: true}
+  - {name: Proxy 150, server: 192.0.2.21, port: 3389, type: ss, cipher: aes-256-gcm, password: password5, udp: true}
+  - {name: Proxy 151, server: 192.0.2.21, port: 4444, type: ss, cipher: aes-256-gcm, password: password6, udp: true}
+  - {name: Proxy 152, server: 192.0.2.21, port: 5000, type: ss, cipher: aes-256-gcm, password: password5, udp: true}
+  - {name: Proxy 153, server: 192.0.2.21, port: 5001, type: ss, cipher: aes-256-gcm, password: password5, udp: true}
+  - {name: Proxy 154, server: 192.0.2.21, port: 5003, type: ss, cipher: aes-256-gcm, password: password7, udp: true}
+  - {name: Proxy 155, server: 192.0.2.21, port: 5004, type: ss, cipher: aes-256-gcm, password: password7, udp: true}
+  - {name: Proxy 156, server: 192.0.2.21, port: 5500, type: ss, cipher: aes-256-gcm, password: password8, udp: true}
+  - {name: Proxy 157, server: 192.0.2.21, port: 5601, type: ss, cipher: aes-256-gcm, password: password5, udp: true}
+  - {name: Proxy 158, server: 192.0.2.21, port: 6379, type: ss, cipher: aes-256-gcm, password: password9, udp: true}
+  - {name: Proxy 159, server: 192.0.2.21, port: 6679, type: ss, cipher: aes-256-gcm, password: password10, udp: true}
+  - {name: Proxy 160, server: 192.0.2.21, port: 6697, type: ss, cipher: aes-256-gcm, password: password10, udp: true}
+  - {name: Proxy 161, server: 192.0.2.21, port: 7001, type: ss, cipher: aes-256-gcm, password: password11, udp: true}
+  - {name: Proxy 162, server: 192.0.2.21, port: 7002, type: ss, cipher: aes-256-gcm, password: password11, udp: true}
+  - {name: Proxy 163, server: 192.0.2.21, port: 7306, type: ss, cipher: aes-256-gcm, password: password12, udp: true}
+  - {name: Proxy 164, server: 192.0.2.21, port: 7307, type: ss, cipher: aes-256-gcm, password: password12, udp: true}
+  - {name: Proxy 165, server: 192.0.2.21, port: 8000, type: ss, cipher: aes-256-gcm, password: password8, udp: true}
+  - {name: Proxy 166, server: 192.0.2.21, port: 8008, type: ss, cipher: aes-256-gcm, password: password13, udp: true}
+  - {name: Proxy 167, server: 192.0.2.21, port: 8009, type: ss, cipher: aes-256-gcm, password: password13, udp: true}
+  - {name: Proxy 168, server: 192.0.2.21, port: 8080, type: ss, cipher: aes-256-gcm, password: password8, udp: true}
+  - {name: Proxy 169, server: 192.0.2.21, port: 8090, type: ss, cipher: aes-256-gcm, password: password14, udp: true}
+  - {name: Proxy 170, server: 192.0.2.21, port: 8091, type: ss, cipher: aes-256-gcm, password: password14, udp: true}
+  - {name: Proxy 171, server: 192.0.2.21, port: 8118, type: ss, cipher: aes-256-gcm, password: password15, udp: true}
+  - {name: Proxy 172, server: 192.0.2.21, port: 8119, type: ss, cipher: aes-256-gcm, password: password15, udp: true}
+  - {name: Proxy 173, server: 192.0.2.21, port: 8881, type: ss, cipher: aes-256-gcm, password: password16, udp: true}
+  - {name: Proxy 174, server: 192.0.2.21, port: 8882, type: ss, cipher: aes-256-gcm, password: password16, udp: true}
+  - {name: Proxy 175, server: 192.0.2.21, port: 8888, type: ss, cipher: aes-256-gcm, password: password5, udp: true}
+  - {name: Proxy 176, server: 192.0.2.21, port: 9101, type: ss, cipher: aes-256-gcm, password: password17, udp: true}
+  - {name: Proxy 177, server: 192.0.2.21, port: 9102, type: ss, cipher: aes-256-gcm, password: password17, udp: true}
+  - {name: Proxy 178, server: 192.0.2.22, port: 2375, type: ss, cipher: aes-256-gcm, password: password4, udp: true}
+  - {name: Proxy 179, server: 192.0.2.22, port: 2376, type: ss, cipher: aes-256-gcm, password: password4, udp: true}
+  - {name: Proxy 180, server: 192.0.2.22, port: 3306, type: ss, cipher: aes-256-gcm, password: password5, udp: true}
+  - {name: Proxy 181, server: 192.0.2.22, port: 3389, type: ss, cipher: aes-256-gcm, password: password5, udp: true}
+  - {name: Proxy 182, server: 192.0.2.22, port: 4444, type: ss, cipher: aes-256-gcm, password: password6, udp: true}
+  - {name: Proxy 183, server: 192.0.2.22, port: 5000, type: ss, cipher: aes-256-gcm, password: password5, udp: true}
+  - {name: Proxy 184, server: 192.0.2.22, port: 5001, type: ss, cipher: aes-256-gcm, password: password5, udp: true}
+  - {name: Proxy 185, server: 192.0.2.22, port: 5003, type: ss, cipher: aes-256-gcm, password: password7, udp: true}
+  - {name: Proxy 186, server: 192.0.2.22, port: 5004, type: ss, cipher: aes-256-gcm, password: password7, udp: true}
+  - {name: Proxy 187, server: 192.0.2.22, port: 5500, type: ss, cipher: aes-256-gcm, password: password8, udp: true}
+  - {name: Proxy 188, server: 192.0.2.22, port: 5601, type: ss, cipher: aes-256-gcm, password: password5, udp: true}
+  - {name: Proxy 189, server: 192.0.2.22, port: 6379, type: ss, cipher: aes-256-gcm, password: password9, udp: true}
+  - {name: Proxy 190, server: 192.0.2.22, port: 6679, type: ss, cipher: aes-256-gcm, password: password10, udp: true}
+  - {name: Proxy 191, server: 192.0.2.22, port: 6697, type: ss, cipher: aes-256-gcm, password: password10, udp: true}
+  - {name: Proxy 192, server: 192.0.2.22, port: 7001, type: ss, cipher: aes-256-gcm, password: password11, udp: true}
+  - {name: Proxy 193, server: 192.0.2.22, port: 7002, type: ss, cipher: aes-256-gcm, password: password11, udp: true}
+  - {name: Proxy 194, server: 192.0.2.22, port: 7306, type: ss, cipher: aes-256-gcm, password: password12, udp: true}
+  - {name: Proxy 195, server: 192.0.2.22, port: 7307, type: ss, cipher: aes-256-gcm, password: password12, udp: true}
+  - {name: Proxy 196, server: 192.0.2.22, port: 8000, type: ss, cipher: aes-256-gcm, password: password8, udp: true}
+  - {name: Proxy 197, server: 192.0.2.22, port: 8008, type: ss, cipher: aes-256-gcm, password: password13, udp: true}
+  - {name: Proxy 198, server: 192.0.2.22, port: 8009, type: ss, cipher: aes-256-gcm, password: password13, udp: true}
+  - {name: Proxy 199, server: 192.0.2.22, port: 8080, type: ss, cipher: aes-256-gcm, password: password8, udp: true}
+  - {name: Proxy 200, server: 192.0.2.22, port: 8090, type: ss, cipher: aes-256-gcm, password: password14, udp: true}
+  - {name: Proxy 201, server: 192.0.2.22, port: 8091, type: ss, cipher: aes-256-gcm, password: password14, udp: true}
+  - {name: Proxy 202, server: 192.0.2.22, port: 8118, type: ss, cipher: aes-256-gcm, password: password15, udp: true}
+  - {name: Proxy 203, server: 192.0.2.22, port: 8119, type: ss, cipher: aes-256-gcm, password: password15, udp: true}
+  - {name: Proxy 204, server: 192.0.2.22, port: 8881, type: ss, cipher: aes-256-gcm, password: password16, udp: true}
+  - {name: Proxy 205, server: 192.0.2.22, port: 8882, type: ss, cipher: aes-256-gcm, password: password16, udp: true}
+  - {name: Proxy 206, server: 192.0.2.22, port: 8888, type: ss, cipher: aes-256-gcm, password: password5, udp: true}
+  - {name: Proxy 207, server: 192.0.2.22, port: 9101, type: ss, cipher: aes-256-gcm, password: password17, udp: true}
+  - {name: Proxy 208, server: 192.0.2.22, port: 9102, type: ss, cipher: aes-256-gcm, password: password17, udp: true}
+  - {name: Proxy 209, server: 192.0.2.23, port: 2375, type: ss, cipher: aes-256-gcm, password: password4, udp: true}
+  - {name: Proxy 210, server: 192.0.2.23, port: 2376, type: ss, cipher: aes-256-gcm, password: password4, udp: true}
+  - {name: Proxy 211, server: 192.0.2.23, port: 3306, type: ss, cipher: aes-256-gcm, password: password5, udp: true}
+  - {name: Proxy 212, server: 192.0.2.23, port: 3389, type: ss, cipher: aes-256-gcm, password: password5, udp: true}
+  - {name: Proxy 213, server: 192.0.2.23, port: 4444, type: ss, cipher: aes-256-gcm, password: password6, udp: true}
+  - {name: Proxy 214, server: 192.0.2.23, port: 5000, type: ss, cipher: aes-256-gcm, password: password5, udp: true}
+  - {name: Proxy 215, server: 192.0.2.23, port: 5001, type: ss, cipher: aes-256-gcm, password: password5, udp: true}
+  - {name: Proxy 216, server: 192.0.2.23, port: 5003, type: ss, cipher: aes-256-gcm, password: password7, udp: true}
+  - {name: Proxy 217, server: 192.0.2.23, port: 5004, type: ss, cipher: aes-256-gcm, password: password7, udp: true}
+  - {name: Proxy 218, server: 192.0.2.23, port: 5500, type: ss, cipher: aes-256-gcm, password: password8, udp: true}
+  - {name: Proxy 219, server: 192.0.2.23, port: 5601, type: ss, cipher: aes-256-gcm, password: password5, udp: true}
+  - {name: Proxy 220, server: 192.0.2.23, port: 6379, type: ss, cipher: aes-256-gcm, password: password9, udp: true}
+  - {name: Proxy 221, server: 192.0.2.23, port: 6679, type: ss, cipher: aes-256-gcm, password: password10, udp: true}
+  - {name: Proxy 222, server: 192.0.2.23, port: 6697, type: ss, cipher: aes-256-gcm, password: password10, udp: true}
+  - {name: Proxy 223, server: 192.0.2.23, port: 7001, type: ss, cipher: aes-256-gcm, password: password11, udp: true}
+  - {name: Proxy 224, server: 192.0.2.23, port: 7002, type: ss, cipher: aes-256-gcm, password: password11, udp: true}
+  - {name: Proxy 225, server: 192.0.2.23, port: 7306, type: ss, cipher: aes-256-gcm, password: password12, udp: true}
+  - {name: Proxy 226, server: 192.0.2.23, port: 7307, type: ss, cipher: aes-256-gcm, password: password12, udp: true}
+  - {name: Proxy 227, server: 192.0.2.23, port: 8000, type: ss, cipher: aes-256-gcm, password: password8, udp: true}
+  - {name: Proxy 228, server: 192.0.2.23, port: 8008, type: ss, cipher: aes-256-gcm, password: password13, udp: true}
+  - {name: Proxy 229, server: 192.0.2.23, port: 8009, type: ss, cipher: aes-256-gcm, password: password13, udp: true}
+  - {name: Proxy 230, server: 192.0.2.23, port: 8080, type: ss, cipher: aes-256-gcm, password: password8, udp: true}
+  - {name: Proxy 231, server: 192.0.2.23, port: 8090, type: ss, cipher: aes-256-gcm, password: password14, udp: true}
+  - {name: Proxy 232, server: 192.0.2.23, port: 8091, type: ss, cipher: aes-256-gcm, password: password14, udp: true}
+  - {name: Proxy 233, server: 192.0.2.23, port: 8118, type: ss, cipher: aes-256-gcm, password: password15, udp: true}
+  - {name: Proxy 234, server: 192.0.2.23, port: 8119, type: ss, cipher: aes-256-gcm, password: password15, udp: true}
+  - {name: Proxy 235, server: 192.0.2.23, port: 8881, type: ss, cipher: aes-256-gcm, password: password16, udp: true}
+  - {name: Proxy 236, server: 192.0.2.23, port: 8882, type: ss, cipher: aes-256-gcm, password: password16, udp: true}
+  - {name: Proxy 237, server: 192.0.2.23, port: 8888, type: ss, cipher: aes-256-gcm, password: password5, udp: true}
+  - {name: Proxy 238, server: 192.0.2.23, port: 9101, type: ss, cipher: aes-256-gcm, password: password17, udp: true}
+  - {name: Proxy 239, server: 192.0.2.23, port: 9102, type: ss, cipher: aes-256-gcm, password: password17, udp: true}
+proxy-groups:
+  - name: Group 1
+    type: select
+    proxies:
+      - Group 3
+      - Group 2
+  - name: Group 2
+    type: select
+    proxies:
+      - Proxy 1
+      - Proxy 2
+      - Proxy 3
+      - Proxy 4
+      - Proxy 5
+      - Proxy 6
+      - Proxy 7
+      - Proxy 8
+      - Proxy 9
+      - Proxy 10
+      - Proxy 11
+      - Proxy 12
+      - Proxy 13
+      - Proxy 14
+      - Proxy 15
+      - Proxy 16
+      - Proxy 17
+      - Proxy 18
+      - Proxy 19
+      - Proxy 20
+      - Proxy 21
+      - Proxy 22
+      - Proxy 23
+      - Proxy 24
+      - Proxy 25
+      - Proxy 26
+      - Proxy 27
+      - Proxy 28
+      - Proxy 29
+      - Proxy 30
+      - Proxy 31
+      - Proxy 32
+      - Proxy 33
+      - Proxy 34
+      - Proxy 35
+      - Proxy 36
+      - Proxy 37
+      - Proxy 38
+      - Proxy 39
+      - Proxy 40
+      - Proxy 41
+      - Proxy 42
+      - Proxy 43
+      - Proxy 44
+      - Proxy 45
+      - Proxy 46
+      - Proxy 47
+      - Proxy 48
+      - Proxy 49
+      - Proxy 50
+      - Proxy 51
+      - Proxy 52
+      - Proxy 53
+      - Proxy 54
+      - Proxy 55
+      - Proxy 56
+      - Proxy 57
+      - Proxy 58
+      - Proxy 59
+      - Proxy 60
+      - Proxy 61
+      - Proxy 62
+      - Proxy 63
+      - Proxy 64
+      - Proxy 65
+      - Proxy 66
+      - Proxy 67
+      - Proxy 68
+      - Proxy 69
+      - Proxy 70
+      - Proxy 71
+      - Proxy 72
+      - Proxy 73
+      - Proxy 74
+      - Proxy 75
+      - Proxy 76
+      - Proxy 77
+      - Proxy 78
+      - Proxy 79
+      - Proxy 80
+      - Proxy 81
+      - Proxy 82
+      - Proxy 83
+      - Proxy 84
+      - Proxy 85
+      - Proxy 86
+      - Proxy 87
+      - Proxy 88
+      - Proxy 89
+      - Proxy 90
+      - Proxy 91
+      - Proxy 92
+      - Proxy 93
+      - Proxy 94
+      - Proxy 95
+      - Proxy 96
+      - Proxy 97
+      - Proxy 98
+      - Proxy 99
+      - Proxy 100
+      - Proxy 101
+      - Proxy 102
+      - Proxy 103
+      - Proxy 104
+      - Proxy 105
+      - Proxy 106
+      - Proxy 107
+      - Proxy 108
+      - Proxy 109
+      - Proxy 110
+      - Proxy 111
+      - Proxy 112
+      - Proxy 113
+      - Proxy 114
+      - Proxy 115
+      - Proxy 116
+      - Proxy 117
+      - Proxy 118
+      - Proxy 119
+      - Proxy 120
+      - Proxy 121
+      - Proxy 122
+      - Proxy 123
+      - Proxy 124
+      - Proxy 125
+      - Proxy 126
+      - Proxy 127
+      - Proxy 128
+      - Proxy 129
+      - Proxy 130
+      - Proxy 131
+      - Proxy 132
+      - Proxy 133
+      - Proxy 134
+      - Proxy 135
+      - Proxy 136
+      - Proxy 137
+      - Proxy 138
+      - Proxy 139
+      - Proxy 140
+      - Proxy 141
+      - Proxy 142
+      - Proxy 143
+      - Proxy 144
+      - Proxy 145
+      - Proxy 146
+      - Proxy 147
+      - Proxy 148
+      - Proxy 149
+      - Proxy 150
+      - Proxy 151
+      - Proxy 152
+      - Proxy 153
+      - Proxy 154
+      - Proxy 155
+      - Proxy 156
+      - Proxy 157
+      - Proxy 158
+      - Proxy 159
+      - Proxy 160
+      - Proxy 161
+      - Proxy 162
+      - Proxy 163
+      - Proxy 164
+      - Proxy 165
+      - Proxy 166
+      - Proxy 167
+      - Proxy 168
+      - Proxy 169
+      - Proxy 170
+      - Proxy 171
+      - Proxy 172
+      - Proxy 173
+      - Proxy 174
+      - Proxy 175
+      - Proxy 176
+      - Proxy 177
+      - Proxy 178
+      - Proxy 179
+      - Proxy 180
+      - Proxy 181
+      - Proxy 182
+      - Proxy 183
+      - Proxy 184
+      - Proxy 185
+      - Proxy 186
+      - Proxy 187
+      - Proxy 188
+      - Proxy 189
+      - Proxy 190
+      - Proxy 191
+      - Proxy 192
+      - Proxy 193
+      - Proxy 194
+      - Proxy 195
+      - Proxy 196
+      - Proxy 197
+      - Proxy 198
+      - Proxy 199
+      - Proxy 200
+      - Proxy 201
+      - Proxy 202
+      - Proxy 203
+      - Proxy 204
+      - Proxy 205
+      - Proxy 206
+      - Proxy 207
+      - Proxy 208
+      - Proxy 209
+      - Proxy 210
+      - Proxy 211
+      - Proxy 212
+      - Proxy 213
+      - Proxy 214
+      - Proxy 215
+      - Proxy 216
+      - Proxy 217
+      - Proxy 218
+      - Proxy 219
+      - Proxy 220
+      - Proxy 221
+      - Proxy 222
+      - Proxy 223
+      - Proxy 224
+      - Proxy 225
+      - Proxy 226
+      - Proxy 227
+      - Proxy 228
+      - Proxy 229
+      - Proxy 230
+      - Proxy 231
+      - Proxy 232
+      - Proxy 233
+      - Proxy 234
+      - Proxy 235
+      - Proxy 236
+      - Proxy 237
+      - Proxy 238
+      - Proxy 239
+  - name: Group 3
+    type: url-test
+    proxies:
+      - Proxy 1
+      - Proxy 2
+      - Proxy 3
+      - Proxy 4
+      - Proxy 5
+      - Proxy 6
+      - Proxy 7
+      - Proxy 8
+      - Proxy 9
+      - Proxy 10
+      - Proxy 11
+      - Proxy 12
+      - Proxy 13
+      - Proxy 14
+      - Proxy 15
+      - Proxy 16
+      - Proxy 17
+      - Proxy 18
+      - Proxy 19
+      - Proxy 20
+      - Proxy 21
+      - Proxy 22
+      - Proxy 23
+      - Proxy 24
+      - Proxy 25
+      - Proxy 26
+      - Proxy 27
+      - Proxy 28
+      - Proxy 29
+      - Proxy 30
+      - Proxy 31
+      - Proxy 32
+      - Proxy 33
+      - Proxy 34
+      - Proxy 35
+      - Proxy 36
+      - Proxy 37
+      - Proxy 38
+      - Proxy 39
+      - Proxy 40
+      - Proxy 41
+      - Proxy 42
+      - Proxy 43
+      - Proxy 44
+      - Proxy 45
+      - Proxy 46
+      - Proxy 47
+      - Proxy 48
+      - Proxy 49
+      - Proxy 50
+      - Proxy 51
+      - Proxy 52
+      - Proxy 53
+      - Proxy 54
+      - Proxy 55
+      - Proxy 56
+      - Proxy 57
+      - Proxy 58
+      - Proxy 59
+      - Proxy 60
+      - Proxy 61
+      - Proxy 62
+      - Proxy 63
+      - Proxy 64
+      - Proxy 65
+      - Proxy 66
+      - Proxy 67
+      - Proxy 68
+      - Proxy 69
+      - Proxy 70
+      - Proxy 71
+      - Proxy 72
+      - Proxy 73
+      - Proxy 74
+      - Proxy 75
+      - Proxy 76
+      - Proxy 77
+      - Proxy 78
+      - Proxy 79
+      - Proxy 80
+      - Proxy 81
+      - Proxy 82
+      - Proxy 83
+      - Proxy 84
+      - Proxy 85
+      - Proxy 86
+      - Proxy 87
+      - Proxy 88
+      - Proxy 89
+      - Proxy 90
+      - Proxy 91
+      - Proxy 92
+      - Proxy 93
+      - Proxy 94
+      - Proxy 95
+      - Proxy 96
+      - Proxy 97
+      - Proxy 98
+      - Proxy 99
+      - Proxy 100
+      - Proxy 101
+      - Proxy 102
+      - Proxy 103
+      - Proxy 104
+      - Proxy 105
+      - Proxy 106
+      - Proxy 107
+      - Proxy 108
+      - Proxy 109
+      - Proxy 110
+      - Proxy 111
+      - Proxy 112
+      - Proxy 113
+      - Proxy 114
+      - Proxy 115
+      - Proxy 116
+      - Proxy 117
+      - Proxy 118
+      - Proxy 119
+      - Proxy 120
+      - Proxy 121
+      - Proxy 122
+      - Proxy 123
+      - Proxy 124
+      - Proxy 125
+      - Proxy 126
+      - Proxy 127
+      - Proxy 128
+      - Proxy 129
+      - Proxy 130
+      - Proxy 131
+      - Proxy 132
+      - Proxy 133
+      - Proxy 134
+      - Proxy 135
+      - Proxy 136
+      - Proxy 137
+      - Proxy 138
+      - Proxy 139
+      - Proxy 140
+      - Proxy 141
+      - Proxy 142
+      - Proxy 143
+      - Proxy 144
+      - Proxy 145
+      - Proxy 146
+      - Proxy 147
+      - Proxy 148
+      - Proxy 149
+      - Proxy 150
+      - Proxy 151
+      - Proxy 152
+      - Proxy 153
+      - Proxy 154
+      - Proxy 155
+      - Proxy 156
+      - Proxy 157
+      - Proxy 158
+      - Proxy 159
+      - Proxy 160
+      - Proxy 161
+      - Proxy 162
+      - Proxy 163
+      - Proxy 164
+      - Proxy 165
+      - Proxy 166
+      - Proxy 167
+      - Proxy 168
+      - Proxy 169
+      - Proxy 170
+      - Proxy 171
+      - Proxy 172
+      - Proxy 173
+      - Proxy 174
+      - Proxy 175
+      - Proxy 176
+      - Proxy 177
+      - Proxy 178
+      - Proxy 179
+      - Proxy 180
+      - Proxy 181
+      - Proxy 182
+      - Proxy 183
+      - Proxy 184
+      - Proxy 185
+      - Proxy 186
+      - Proxy 187
+      - Proxy 188
+      - Proxy 189
+      - Proxy 190
+      - Proxy 191
+      - Proxy 192
+      - Proxy 193
+      - Proxy 194
+      - Proxy 195
+      - Proxy 196
+      - Proxy 197
+      - Proxy 198
+      - Proxy 199
+      - Proxy 200
+      - Proxy 201
+      - Proxy 202
+      - Proxy 203
+      - Proxy 204
+      - Proxy 205
+      - Proxy 206
+      - Proxy 207
+      - Proxy 208
+      - Proxy 209
+      - Proxy 210
+      - Proxy 211
+      - Proxy 212
+      - Proxy 213
+      - Proxy 214
+      - Proxy 215
+      - Proxy 216
+      - Proxy 217
+      - Proxy 218
+      - Proxy 219
+      - Proxy 220
+      - Proxy 221
+      - Proxy 222
+      - Proxy 223
+      - Proxy 224
+      - Proxy 225
+      - Proxy 226
+      - Proxy 227
+      - Proxy 228
+      - Proxy 229
+      - Proxy 230
+      - Proxy 231
+      - Proxy 232
+      - Proxy 233
+      - Proxy 234
+      - Proxy 235
+      - Proxy 236
+      - Proxy 237
+      - Proxy 238
+      - Proxy 239
+    url: 'http://h1.example.com/generate_204'
+    interval: 300
+rules:
+  - DOMAIN-SUFFIX,d1.example,REJECT
+  - GEOIP,IR,DIRECT
+  - MATCH,Group 1
+  - IP-CIDR,192.0.2.2/32,Group 1
+  - IP-CIDR,192.0.2.4/32,Group 1
+  - IP-CIDR,192.0.2.24/32,Group 1
+  - IP-CIDR,192.0.2.25/32,Group 1
+  - SRC-IP-CIDR,192.0.2.26/32,DIRECT
+  - IP-CIDR,10.0.0.0/8,DIRECT
+  - IP-CIDR,172.16.0.0/12,DIRECT
+  - IP-CIDR,127.0.0.0/8,DIRECT
+  - IP-CIDR,192.168.0.0/16,DIRECT

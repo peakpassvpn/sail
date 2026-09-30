@@ -1,0 +1,74 @@
+{
+  "endpoints": [
+    {
+      "address": [
+        "192.0.2.1/32"
+      ],
+      "peers": [
+        {
+          "address": "192.0.2.2",
+          "allowed_ips": [
+            "0.0.0.0/0",
+            "::/0"
+          ],
+          "port": 80,
+          "pre_shared_key": "wywOQgzCr2vr85JpoMxzCakHIIvgUtsG6/Qp987NJa4=",
+          "public_key": "WulOoXrJ4xaeREDpCXJqPLE7mK1qDJwNSfPto1FYe4I=",
+          "reserved": "password1"
+        }
+      ],
+      "private_key": "uLBP4fDmzzQr6AI9Cjs2bG1yyu2augLO37S6iU1M4Eo=",
+      "tag": "Proxy 2",
+      "type": "wireguard"
+    },
+    {
+      "address": [
+        "192.0.2.1/32"
+      ],
+      "peers": [
+        {
+          "address": "192.0.2.2",
+          "allowed_ips": [
+            "0.0.0.0/0",
+            "::/0"
+          ],
+          "port": 65142,
+          "pre_shared_key": "wywOQgzCr2vr85JpoMxzCakHIIvgUtsG6/Qp987NJa4=",
+          "public_key": "WulOoXrJ4xaeREDpCXJqPLE7mK1qDJwNSfPto1FYe4I=",
+          "reserved": "password1"
+        }
+      ],
+      "private_key": "uLBP4fDmzzQr6AI9Cjs2bG1yyu2augLO37S6iU1M4Eo=",
+      "tag": "Proxy 3",
+      "type": "wireguard"
+    }
+  ],
+  "outbounds": [
+    {
+      "interval": "5m",
+      "outbounds": [
+        "Proxy 2",
+        "Proxy 3"
+      ],
+      "tag": "Group 1",
+      "type": "urltest",
+      "url": "https://h1.example.com/generate_204"
+    },
+    {
+      "outbounds": [
+        "Group 1",
+        "Proxy 2",
+        "Proxy 3"
+      ],
+      "tag": "Group 2",
+      "type": "selector"
+    },
+    {
+      "tag": "Proxy 1",
+      "type": "direct"
+    }
+  ],
+  "route": {
+    "final": "Group 2"
+  }
+}

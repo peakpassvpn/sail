@@ -1,0 +1,80 @@
+{
+  "dns": {
+    "servers": [
+      {
+        "server": "192.0.2.1",
+        "tag": "dns-1",
+        "type": "tls"
+      }
+    ]
+  },
+  "inbounds": [
+    {
+      "address": [
+        "192.0.2.1/24"
+      ],
+      "auto_route": true,
+      "interface_name": "if1",
+      "mtu": 1500,
+      "stack": "mixed",
+      "strict_route": true,
+      "tag": "in-1",
+      "type": "tun"
+    }
+  ],
+  "log": {
+    "level": "warn"
+  },
+  "outbounds": [
+    {
+      "tag": "Proxy 1",
+      "type": "direct"
+    },
+    {
+      "flow": "xtls-rprx-vision",
+      "packet_encoding": "xudp",
+      "server": "str1",
+      "server_port": 443,
+      "tag": "Proxy 2",
+      "tls": {
+        "alpn": [
+          "http/1.1"
+        ],
+        "enabled": true
+      },
+      "type": "vless",
+      "uuid": "00005a11-0000-4000-8000-000000000001"
+    }
+  ],
+  "route": {
+    "auto_detect_interface": true,
+    "default_domain_resolver": "dns-1",
+    "final": "Proxy 2",
+    "rules": [
+      {
+        "action": "sniff",
+        "inbound": [
+          "in-1"
+        ]
+      },
+      {
+        "action": "hijack-dns",
+        "protocol": "dns"
+      },
+      {
+        "ip_is_private": true,
+        "outbound": "Proxy 1"
+      },
+      {
+        "action": "reject",
+        "method": "drop",
+        "protocol": "quic"
+      },
+      {
+        "action": "route",
+        "outbound": "Proxy 1",
+        "protocol": "bittorrent"
+      }
+    ]
+  }
+}

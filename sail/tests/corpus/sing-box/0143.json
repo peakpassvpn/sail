@@ -1,0 +1,161 @@
+{
+  "log": {
+    "disabled": true,
+    "level": "silent",
+    "output": "none"
+  },
+  "dns": {
+    "servers": [
+      {
+        "tag": "dns-1",
+        "address": "tls://192.0.2.1",
+        "detour": "Proxy 1"
+      },
+      {
+        "tag": "dns-2",
+        "address": "tls://192.0.2.2",
+        "detour": "Proxy 2"
+      },
+      {
+        "address": "192.0.2.1"
+      },
+      {
+        "address": "192.0.2.3"
+      },
+      {
+        "tag": "dns-3",
+        "address": "rcode://success"
+      }
+    ],
+    "rules": [
+      {
+        "server": "dns-3",
+        "domain_suffix": [
+          ".d1.example",
+          ".d2.example",
+          ".d3.example",
+          ".d4.example",
+          ".d5.example",
+          "d6.example",
+          "d7.example",
+          "d8.example",
+          "d9.example",
+          "d10.example",
+          "d11.example",
+          "d12.example",
+          "d13.example",
+          "d14.example",
+          "d15.example",
+          "d16.example",
+          "d17.example",
+          "d18.example",
+          "d19.example",
+          "d20.example",
+          "d21.example",
+          "d22.example",
+          "d23.example",
+          "d24.example"
+        ]
+      },
+      {
+        "outbound": "any",
+        "server": "dns-1"
+      }
+    ],
+    "final": "dns-1",
+    "strategy": "ipv4_only"
+  },
+  "inbounds": [
+    {
+      "type": "tun",
+      "interface_name": "if1",
+      "mtu": 9000,
+      "address": "192.0.2.1/29",
+      "auto_route": true,
+      "sniff": true
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "vless",
+      "tag": "Proxy 1",
+      "server": "192.0.2.4",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000001",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni25.example.org",
+        "insecure": false,
+        "alpn": [
+          "h3"
+        ],
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "User-Agent": "Agent1",
+          "Host": "sni25.example.org"
+        },
+        "max_early_data": 0,
+        "early_data_header_name": ""
+      },
+      "packet_encoding": "xudp"
+    },
+    {
+      "type": "direct",
+      "tag": "Proxy 2"
+    },
+    {
+      "type": "block",
+      "tag": "Proxy 3"
+    },
+    {
+      "type": "dns",
+      "tag": "Proxy 4"
+    }
+  ],
+  "route": {
+    "rules": [
+      {
+        "outbound": "Proxy 3",
+        "domain_suffix": [
+          ".d1.example",
+          ".d2.example",
+          ".d3.example",
+          ".d4.example",
+          ".d5.example",
+          "d6.example",
+          "d7.example",
+          "d8.example",
+          "d9.example",
+          "d10.example",
+          "d11.example",
+          "d12.example",
+          "d13.example",
+          "d14.example",
+          "d15.example",
+          "d16.example",
+          "d17.example",
+          "d18.example",
+          "d19.example",
+          "d20.example",
+          "d21.example",
+          "d22.example",
+          "d23.example",
+          "d24.example"
+        ]
+      },
+      {
+        "protocol": "dns",
+        "outbound": "Proxy 4"
+      }
+    ],
+    "final": "Proxy 1",
+    "auto_detect_interface": true
+  }
+}

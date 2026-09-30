@@ -1,0 +1,66 @@
+mixed-port: 7890
+allow-lan: true
+mode: rule
+log-level: info
+external-controller: ":9090"
+dns:
+  enable: true
+  listen: 0.0.0.0:1053
+  ipv6: true
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  nameserver:
+    - 192.0.2.1
+    - 192.0.2.2
+  fallback:
+    - 192.0.2.3
+    - 192.0.2.4
+  fallback-filter:
+    geoip: true
+    geoip-code: CN
+    ipcidr:
+      - 240.0.0.0/4
+  fake-ip-filter:
+    - "*.d1.example"
+    - "localhost"
+    - "d2*.example"
+    - "d3.example"
+    - "d4.example"
+    - "d5*.example"
+    - "d6.example"
+proxy-providers:
+  provider-1:
+    type: http
+    url: "https://h1.example.com/p1.yaml"
+    interval: 3600
+    path: ./path-1.yaml
+    health-check:
+      enable: true
+      url: "http://h2.example.com/generate_204"
+      interval: 300
+proxy-groups:
+  - name: "Group 1"
+    type: select
+    use:
+      - provider-1
+    proxies:
+      - DIRECT
+  - name: "Group 2"
+    type: url-test
+    use:
+      - provider-1
+    url: "http://h2.example.com/generate_204"
+    interval: 300
+    tolerance: 50
+  - name: "Group 3"
+    type: select
+    proxies:
+      - Group 1
+      - Group 2
+      - DIRECT
+rules:
+  - DOMAIN-SUFFIX,d7.example,DIRECT
+  - DOMAIN-KEYWORD,kw1,REJECT
+  - DOMAIN-SUFFIX,d8.example,REJECT
+  - GEOIP,CN,DIRECT
+  - MATCH,Group 1

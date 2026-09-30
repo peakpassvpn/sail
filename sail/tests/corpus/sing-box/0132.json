@@ -1,0 +1,34 @@
+{
+  "log": {
+    "level": "error"
+  },
+  "inbounds": [
+    {
+      "type": "mixed",
+      "tag": "in-1",
+      "listen": "127.0.0.1",
+      "listen_port": 19482
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "vmess",
+      "server": "s1.example.net",
+      "server_port": 80,
+      "uuid": "00005a11-0000-4000-8000-000000000001",
+      "transport": {
+        "type": "httpupgrade",
+        "path": "/p1",
+        "host": "sni2.example.org"
+      },
+      "tag": "Proxy 1"
+    },
+    {
+      "type": "direct",
+      "tag": "Proxy 2"
+    }
+  ],
+  "route": {
+    "final": "Proxy 1"
+  }
+}

@@ -1,0 +1,247 @@
+{
+  "dns": {
+    "final": "dns-1",
+    "rules": [
+      {
+        "domain_suffix": [
+          ".d1.example"
+        ],
+        "server": "dns-4"
+      },
+      {
+        "domain_suffix": [
+          ".d2.example"
+        ],
+        "server": "dns-3"
+      },
+      {
+        "domain_suffix": [
+          ".d3.example",
+          ".d4.example",
+          ".d5.example",
+          ".d6.example",
+          ".d7.example",
+          ".d8.example",
+          ".d9.example"
+        ],
+        "server": "dns-5"
+      },
+      {
+        "rule_set": [
+          "set-2"
+        ],
+        "server": "dns-5"
+      }
+    ],
+    "servers": [
+      {
+        "detour": "Group 1",
+        "server": "192.0.2.1",
+        "tag": "dns-1",
+        "type": "udp"
+      },
+      {
+        "connect_timeout": "5s",
+        "server": "192.0.2.1",
+        "tag": "dns-2",
+        "type": "https"
+      },
+      {
+        "detour": "Proxy 5",
+        "server": "192.0.2.2",
+        "tag": "dns-3",
+        "type": "udp"
+      },
+      {
+        "endpoint": "str1",
+        "tag": "dns-4",
+        "type": "tailscale"
+      },
+      {
+        "domain_resolver": "dns-2",
+        "server": "s10.example.net",
+        "tag": "dns-5",
+        "type": "https"
+      }
+    ]
+  },
+  "endpoints": [
+    {
+      "accept_routes": true,
+      "auth_key": "password1",
+      "hostname": "str2",
+      "state_directory": "./path-1",
+      "tag": "Proxy 5",
+      "type": "tailscale"
+    }
+  ],
+  "experimental": {
+    "cache_file": {
+      "enabled": true
+    },
+    "clash_api": {
+      "external_controller": "127.0.0.1:9090",
+      "external_ui": "./path-2"
+    }
+  },
+  "inbounds": [
+    {
+      "address": [
+        "192.0.2.1/30"
+      ],
+      "auto_route": true,
+      "mtu": 1280,
+      "route_exclude_address": [
+        "str3",
+        "str4"
+      ],
+      "stack": "gvisor",
+      "strict_route": false,
+      "tag": "in-1",
+      "type": "tun"
+    }
+  ],
+  "log": {
+    "level": "info",
+    "timestamp": true
+  },
+  "outbounds": [
+    {
+      "interrupt_exist_connections": true,
+      "interval": "30s",
+      "outbounds": [
+        "Proxy 1",
+        "Proxy 2"
+      ],
+      "tag": "Group 1",
+      "tolerance": 50,
+      "type": "urltest",
+      "url": "https://h1.example.com/generate_204"
+    },
+    {
+      "connect_timeout": "10s",
+      "flow": "xtls-rprx-vision",
+      "server": "s11.example.net",
+      "server_port": 8443,
+      "tag": "Proxy 1",
+      "tcp_fast_open": false,
+      "tls": {
+        "enabled": true,
+        "reality": {
+          "enabled": true,
+          "public_key": "wywOQgzCr2vr85JpoMxzCakHIIvgU",
+          "short_id": "704c7085dd7b3f73"
+        },
+        "server_name": "sni12.example.org",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "type": "vless",
+      "uuid": "00005a11-0000-4000-8000-000000000001"
+    },
+    {
+      "connect_timeout": "10s",
+      "flow": "xtls-rprx-vision",
+      "server": "s13.example.net",
+      "server_port": 8443,
+      "tag": "Proxy 2",
+      "tcp_fast_open": false,
+      "tls": {
+        "enabled": true,
+        "reality": {
+          "enabled": true,
+          "public_key": "WulOoXrJ4xaeREDpCXJqPLE7mK1q",
+          "short_id": "6663c3a1406786ea"
+        },
+        "server_name": "sni14.example.org",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "type": "vless",
+      "uuid": "00005a11-0000-4000-8000-000000000001"
+    },
+    {
+      "tag": "Proxy 3",
+      "type": "direct"
+    },
+    {
+      "tag": "Proxy 4",
+      "type": "block"
+    }
+  ],
+  "route": {
+    "auto_detect_interface": true,
+    "default_domain_resolver": "dns-2",
+    "final": "Group 1",
+    "rule_set": [
+      {
+        "download_detour": "Proxy 3",
+        "format": "binary",
+        "tag": "set-1",
+        "type": "remote",
+        "url": "https://h2.example.com/p1.srs"
+      },
+      {
+        "download_detour": "Proxy 3",
+        "format": "binary",
+        "tag": "set-2",
+        "type": "remote",
+        "url": "https://h2.example.com/p2.srs"
+      }
+    ],
+    "rules": [
+      {
+        "action": "sniff"
+      },
+      {
+        "action": "hijack-dns",
+        "protocol": "dns"
+      },
+      {
+        "outbound": "Proxy 5",
+        "preferred_by": [
+          "str1"
+        ]
+      },
+      {
+        "ip_cidr": [
+          "10.0.0.0/8",
+          "172.16.0.0/12"
+        ],
+        "outbound": "Proxy 5"
+      },
+      {
+        "ip_is_private": true,
+        "outbound": "Proxy 3"
+      },
+      {
+        "domain_suffix": [
+          ".d3.example",
+          ".d4.example",
+          ".d5.example",
+          ".d6.example",
+          ".d7.example",
+          ".d8.example",
+          ".d9.example"
+        ],
+        "outbound": "Proxy 3"
+      },
+      {
+        "outbound": "Proxy 3",
+        "rule_set": [
+          "set-2"
+        ]
+      },
+      {
+        "outbound": "Proxy 3",
+        "rule_set": [
+          "set-1"
+        ]
+      }
+    ]
+  }
+}

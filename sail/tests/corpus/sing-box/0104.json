@@ -1,0 +1,491 @@
+{
+  "$schema": "https://h3.example.com/p18.json",
+  "log": {
+    "disabled": false,
+    "level": "warn",
+    "timestamp": true
+  },
+  "dns": {
+    "servers": [
+      {
+        "type": "https",
+        "tag": "dns-1",
+        "server": "192.0.2.1",
+        "domain_resolver": "dns-2"
+      },
+      {
+        "type": "udp",
+        "tag": "dns-2",
+        "server": "192.0.2.1"
+      },
+      {
+        "type": "https",
+        "tag": "dns-3",
+        "server": "192.0.2.2",
+        "detour": "Group 1"
+      }
+    ],
+    "rules": [
+      {
+        "query_type": [
+          "AAAA",
+          "HTTPS",
+          "SVCB"
+        ],
+        "action": "predefined",
+        "rcode": "NOERROR"
+      },
+      {
+        "clash_mode": "Direct",
+        "action": "route",
+        "server": "dns-1"
+      },
+      {
+        "clash_mode": "Global",
+        "action": "route",
+        "server": "dns-3"
+      },
+      {
+        "rule_set": "set-4",
+        "action": "route",
+        "server": "dns-1"
+      },
+      {
+        "rule_set": "set-5",
+        "action": "route",
+        "server": "dns-3"
+      }
+    ],
+    "final": "dns-3",
+    "strategy": "ipv4_only"
+  },
+  "inbounds": [
+    {
+      "type": "mixed",
+      "tag": "in-1",
+      "listen": "127.0.0.1",
+      "listen_port": 2080
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "hysteria2",
+      "tag": "Proxy 1",
+      "server": "s1.example.net",
+      "server_port": 443,
+      "password": "password1",
+      "tls": {
+        "enabled": true,
+        "server_name": "s1.example.net",
+        "insecure": false
+      }
+    },
+    {
+      "type": "selector",
+      "tag": "Group 1",
+      "outbounds": [
+        "Group 2",
+        "Group 3",
+        "Proxy 1"
+      ],
+      "default": "Group 2"
+    },
+    {
+      "type": "urltest",
+      "tag": "Group 2",
+      "outbounds": [
+        "Proxy 1"
+      ],
+      "url": "https://h1.example.com/generate_204",
+      "interval": "3m",
+      "tolerance": 150,
+      "interrupt_exist_connections": false
+    },
+    {
+      "type": "urltest",
+      "tag": "Group 3",
+      "outbounds": [
+        "Proxy 1"
+      ],
+      "url": "https://h1.example.com/generate_204",
+      "interval": "3m",
+      "tolerance": 150,
+      "interrupt_exist_connections": false
+    },
+    {
+      "type": "selector",
+      "tag": "Group 4",
+      "outbounds": [
+        "Group 1",
+        "Group 2",
+        "Group 3",
+        "Proxy 2"
+      ],
+      "default": "Group 1",
+      "interrupt_exist_connections": false
+    },
+    {
+      "type": "selector",
+      "tag": "Group 5",
+      "outbounds": [
+        "Group 1",
+        "Group 2",
+        "Group 3",
+        "Proxy 2"
+      ],
+      "default": "Group 1",
+      "interrupt_exist_connections": false
+    },
+    {
+      "type": "selector",
+      "tag": "Group 6",
+      "outbounds": [
+        "Group 1",
+        "Group 2",
+        "Group 3",
+        "Proxy 2"
+      ],
+      "default": "Group 1",
+      "interrupt_exist_connections": false
+    },
+    {
+      "type": "selector",
+      "tag": "Group 7",
+      "outbounds": [
+        "Group 1",
+        "Group 2",
+        "Group 3",
+        "Proxy 2"
+      ],
+      "default": "Proxy 2",
+      "interrupt_exist_connections": false
+    },
+    {
+      "type": "selector",
+      "tag": "Group 8",
+      "outbounds": [
+        "Group 1",
+        "Group 2",
+        "Group 3",
+        "Proxy 2"
+      ],
+      "default": "Proxy 2",
+      "interrupt_exist_connections": false
+    },
+    {
+      "type": "selector",
+      "tag": "Group 9",
+      "outbounds": [
+        "Group 1",
+        "Group 2",
+        "Group 3",
+        "Proxy 2"
+      ],
+      "default": "Group 1",
+      "interrupt_exist_connections": false
+    },
+    {
+      "type": "selector",
+      "tag": "Group 10",
+      "outbounds": [
+        "Group 1",
+        "Group 2",
+        "Group 3",
+        "Proxy 2"
+      ],
+      "default": "Group 1",
+      "interrupt_exist_connections": false
+    },
+    {
+      "type": "direct",
+      "tag": "Proxy 2"
+    },
+    {
+      "type": "selector",
+      "tag": "GLOBAL",
+      "outbounds": [
+        "Group 1",
+        "Group 2",
+        "Group 3",
+        "Proxy 1",
+        "Proxy 2"
+      ],
+      "default": "Group 1",
+      "interrupt_exist_connections": false
+    }
+  ],
+  "route": {
+    "rules": [
+      {
+        "action": "sniff"
+      },
+      {
+        "action": "resolve",
+        "strategy": "ipv4_only"
+      },
+      {
+        "ip_version": 6,
+        "action": "reject"
+      },
+      {
+        "ip_is_private": true,
+        "action": "route",
+        "outbound": "Proxy 2"
+      },
+      {
+        "clash_mode": "Direct",
+        "action": "route",
+        "outbound": "Proxy 2"
+      },
+      {
+        "clash_mode": "Global",
+        "action": "route",
+        "outbound": "GLOBAL"
+      },
+      {
+        "rule_set": "set-1",
+        "action": "reject"
+      },
+      {
+        "rule_set": "set-2",
+        "action": "route",
+        "outbound": "Proxy 2"
+      },
+      {
+        "rule_set": "set-4",
+        "action": "route",
+        "outbound": "Proxy 2"
+      },
+      {
+        "type": "logical",
+        "mode": "and",
+        "rules": [
+          {
+            "rule_set": "set-3"
+          },
+          {
+            "rule_set": "set-5",
+            "invert": true
+          }
+        ],
+        "action": "route",
+        "outbound": "Proxy 2"
+      },
+      {
+        "network": "udp",
+        "action": "route",
+        "outbound": "Group 3"
+      },
+      {
+        "rule_set": "set-6",
+        "action": "route",
+        "outbound": "Group 5"
+      },
+      {
+        "rule_set": "set-7",
+        "action": "route",
+        "outbound": "Group 4"
+      },
+      {
+        "rule_set": "set-8",
+        "action": "route",
+        "outbound": "Group 4"
+      },
+      {
+        "rule_set": "set-9",
+        "action": "route",
+        "outbound": "Group 4"
+      },
+      {
+        "rule_set": "set-10",
+        "action": "route",
+        "outbound": "Group 4"
+      },
+      {
+        "rule_set": "set-11",
+        "action": "route",
+        "outbound": "Group 4"
+      },
+      {
+        "rule_set": "set-12",
+        "action": "route",
+        "outbound": "Group 6"
+      },
+      {
+        "rule_set": "set-13",
+        "action": "route",
+        "outbound": "Group 7"
+      },
+      {
+        "rule_set": "set-14",
+        "action": "route",
+        "outbound": "Group 7"
+      },
+      {
+        "rule_set": "set-15",
+        "action": "route",
+        "outbound": "Group 8"
+      },
+      {
+        "rule_set": "set-16",
+        "action": "route",
+        "outbound": "Group 9"
+      },
+      {
+        "rule_set": "set-17",
+        "action": "route",
+        "outbound": "Group 10"
+      },
+      {
+        "rule_set": "set-5",
+        "action": "route",
+        "outbound": "Group 1"
+      }
+    ],
+    "rule_set": [
+      {
+        "type": "remote",
+        "tag": "set-1",
+        "format": "binary",
+        "url": "https://h2.example.com/p1.srs",
+        "http_client": "str1"
+      },
+      {
+        "type": "remote",
+        "tag": "set-2",
+        "format": "binary",
+        "url": "https://h2.example.com/p2.srs",
+        "http_client": "str1"
+      },
+      {
+        "type": "remote",
+        "tag": "set-3",
+        "format": "binary",
+        "url": "https://h2.example.com/p3.srs",
+        "http_client": "str1"
+      },
+      {
+        "type": "remote",
+        "tag": "set-4",
+        "format": "binary",
+        "url": "https://h2.example.com/p4.srs",
+        "http_client": "str1"
+      },
+      {
+        "type": "remote",
+        "tag": "set-5",
+        "format": "binary",
+        "url": "https://h2.example.com/p5.srs",
+        "http_client": "str1"
+      },
+      {
+        "type": "remote",
+        "tag": "set-6",
+        "format": "binary",
+        "url": "https://h2.example.com/p6.srs",
+        "http_client": "str1"
+      },
+      {
+        "type": "remote",
+        "tag": "set-7",
+        "format": "binary",
+        "url": "https://h2.example.com/p7.srs",
+        "http_client": "str1"
+      },
+      {
+        "type": "remote",
+        "tag": "set-8",
+        "format": "binary",
+        "url": "https://h2.example.com/p8.srs",
+        "http_client": "str1"
+      },
+      {
+        "type": "remote",
+        "tag": "set-9",
+        "format": "binary",
+        "url": "https://h2.example.com/p9.srs",
+        "http_client": "str1"
+      },
+      {
+        "type": "remote",
+        "tag": "set-10",
+        "format": "binary",
+        "url": "https://h2.example.com/p10.srs",
+        "http_client": "str1"
+      },
+      {
+        "type": "remote",
+        "tag": "set-11",
+        "format": "binary",
+        "url": "https://h2.example.com/p11.srs",
+        "http_client": "str1"
+      },
+      {
+        "type": "remote",
+        "tag": "set-12",
+        "format": "binary",
+        "url": "https://h2.example.com/p12.srs",
+        "http_client": "str1"
+      },
+      {
+        "type": "remote",
+        "tag": "set-13",
+        "format": "binary",
+        "url": "https://h2.example.com/p13.srs",
+        "http_client": "str1"
+      },
+      {
+        "type": "remote",
+        "tag": "set-14",
+        "format": "binary",
+        "url": "https://h2.example.com/p14.srs",
+        "http_client": "str1"
+      },
+      {
+        "type": "remote",
+        "tag": "set-15",
+        "format": "binary",
+        "url": "https://h2.example.com/p15.srs",
+        "http_client": "str1"
+      },
+      {
+        "type": "remote",
+        "tag": "set-16",
+        "format": "binary",
+        "url": "https://h2.example.com/p16.srs",
+        "http_client": "str1"
+      },
+      {
+        "type": "remote",
+        "tag": "set-17",
+        "format": "binary",
+        "url": "https://h2.example.com/p17.srs",
+        "http_client": "str1"
+      }
+    ],
+    "final": "Group 1",
+    "default_domain_resolver": {
+      "server": "dns-1"
+    },
+    "default_http_client": "str1",
+    "auto_detect_interface": true
+  },
+  "experimental": {
+    "clash_api": {
+      "default_mode": "Rule"
+    },
+    "cache_file": {
+      "enabled": true,
+      "cache_id": "password2"
+    }
+  },
+  "http_clients": [
+    {
+      "tag": "str1",
+      "domain_resolver": {
+        "server": "dns-2",
+        "strategy": "ipv4_only"
+      }
+    }
+  ]
+}

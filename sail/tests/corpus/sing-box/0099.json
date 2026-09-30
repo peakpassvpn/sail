@@ -1,0 +1,629 @@
+{
+  "log": {
+    "disabled": false,
+    "level": "error",
+    "timestamp": true
+  },
+  "dns": {
+    "servers": [
+      {
+        "tag": "dns-1",
+        "type": "https",
+        "server": "192.0.2.1",
+        "server_port": 443,
+        "path": "/p1",
+        "tls": {
+          "server_name": "sni1.example.org"
+        },
+        "detour": "Proxy 2"
+      },
+      {
+        "tag": "dns-2",
+        "type": "https",
+        "server": "192.0.2.1",
+        "server_port": 443,
+        "path": "/p1",
+        "tls": {
+          "server_name": "sni1.example.org"
+        },
+        "detour": "Proxy 6"
+      },
+      {
+        "tag": "dns-3",
+        "type": "https",
+        "server": "s2.example.net",
+        "server_port": 443,
+        "path": "/p1",
+        "tls": {},
+        "detour": "Proxy 9",
+        "domain_resolver": "dns-4"
+      },
+      {
+        "tag": "dns-4",
+        "type": "udp",
+        "server": "192.0.2.2",
+        "server_port": 53,
+        "detour": "Proxy 9"
+      },
+      {
+        "tag": "dns-5",
+        "type": "local",
+        "prefer_go": false
+      }
+    ],
+    "rules": [
+      {
+        "domain_suffix": [
+          "d3.example",
+          "d4.example",
+          "d5.example",
+          "d6.example",
+          "d7.example",
+          "d8.example",
+          "d9.example",
+          "d10.example",
+          "d11.example",
+          "d12.example"
+        ],
+        "action": "route",
+        "server": "dns-3"
+      },
+      {
+        "rule_set": "set-1",
+        "action": "route",
+        "server": "dns-3"
+      },
+      {
+        "rule_set": [
+          "set-20",
+          "set-10"
+        ],
+        "action": "route",
+        "rewrite_ttl": 600,
+        "server": "dns-2"
+      },
+      {
+        "rule_set": "set-2",
+        "invert": true,
+        "action": "evaluate",
+        "server": "dns-1"
+      },
+      {
+        "type": "logical",
+        "mode": "and",
+        "rules": [
+          {
+            "rule_set": "set-2",
+            "invert": true
+          },
+          {
+            "rule_set": "set-3",
+            "match_response": true
+          }
+        ],
+        "action": "route",
+        "rewrite_ttl": 600,
+        "server": "dns-1"
+      }
+    ],
+    "reverse_mapping": true
+  },
+  "certificate_providers": [
+    {
+      "type": "acme",
+      "tag": "str2",
+      "domain": [
+        "d20.example"
+      ],
+      "email": "user2@d20.example",
+      "data_directory": "./path-22",
+      "provider": "str3",
+      "external_account": {
+        "key_id": "str4",
+        "mac_key": "password3"
+      },
+      "dns01_challenge": {
+        "provider": "str5",
+        "api_token": "token1"
+      }
+    }
+  ],
+  "inbounds": [
+    {
+      "type": "socks",
+      "tag": "in-1",
+      "listen": "::",
+      "listen_port": 1080
+    },
+    {
+      "type": "http",
+      "tag": "in-2",
+      "listen": "::",
+      "listen_port": 3128
+    },
+    {
+      "type": "trojan",
+      "tag": "in-3",
+      "listen": "::",
+      "listen_port": 8372,
+      "tcp_fast_open": true,
+      "tcp_multi_path": true,
+      "users": [
+        {
+          "name": "user1",
+          "password": "password1"
+        }
+      ],
+      "tls": {
+        "enabled": true,
+        "server_name": "sni13.example.org",
+        "insecure": false,
+        "alpn": [
+          "h2",
+          "http/1.1"
+        ],
+        "min_version": "1.3",
+        "certificate_provider": "d14.example"
+      },
+      "fallback": {
+        "server": "127.0.0.1",
+        "server_port": 8375
+      },
+      "fallback_for_alpn": {
+        "h2": {
+          "server": "127.0.0.1",
+          "server_port": 8375
+        }
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "trojan",
+      "tag": "Proxy 1",
+      "server": "str1",
+      "server_port": 8080,
+      "password": "password1",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni13.example.org",
+        "insecure": false,
+        "alpn": [
+          "h2",
+          "http/1.1"
+        ],
+        "min_version": "1.3",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "randomized"
+        }
+      },
+      "domain_resolver": {
+        "server": "dns-3"
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "Proxy 2",
+      "server": "str1",
+      "server_port": 8080,
+      "password": "password1",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni13.example.org",
+        "insecure": false,
+        "alpn": [
+          "h2",
+          "http/1.1"
+        ],
+        "min_version": "1.3",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "randomized"
+        }
+      },
+      "domain_resolver": {
+        "server": "dns-3"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 3",
+      "server": "str1",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000001",
+      "flow": "xtls-rprx-vision",
+      "packet_encoding": "xudp",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni15.example.org",
+        "insecure": false,
+        "min_version": "1.3",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        },
+        "reality": {
+          "enabled": true,
+          "public_key": "password2",
+          "short_id": "704c7085dd7b:6663c3a1406786ea56c48279c78"
+        }
+      },
+      "domain_resolver": {
+        "server": "dns-3"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 4",
+      "server": "str1",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000001",
+      "flow": "xtls-rprx-vision",
+      "packet_encoding": "xudp",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni15.example.org",
+        "insecure": false,
+        "min_version": "1.3",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        },
+        "reality": {
+          "enabled": true,
+          "public_key": "password2",
+          "short_id": "704c7085dd7b:6663c3a1406786ea56c48279c78"
+        }
+      },
+      "domain_resolver": {
+        "server": "dns-3"
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "Proxy 5",
+      "server": "str1",
+      "server_port": 8080,
+      "password": "password1",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni13.example.org",
+        "insecure": false,
+        "alpn": [
+          "h2",
+          "http/1.1"
+        ],
+        "min_version": "1.3",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "randomized"
+        }
+      },
+      "domain_resolver": {
+        "server": "dns-3"
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "Proxy 6",
+      "server": "str1",
+      "server_port": 8080,
+      "password": "password1",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni13.example.org",
+        "insecure": false,
+        "alpn": [
+          "h2",
+          "http/1.1"
+        ],
+        "min_version": "1.3",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "randomized"
+        }
+      },
+      "domain_resolver": {
+        "server": "dns-3"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 7",
+      "server": "str1",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000001",
+      "flow": "xtls-rprx-vision",
+      "packet_encoding": "xudp",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni15.example.org",
+        "insecure": false,
+        "min_version": "1.3",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        },
+        "reality": {
+          "enabled": true,
+          "public_key": "password2",
+          "short_id": "704c7085dd7b:6663c3a1406786ea56c48279c78"
+        }
+      },
+      "domain_resolver": {
+        "server": "dns-3"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 8",
+      "server": "str1",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000001",
+      "flow": "xtls-rprx-vision",
+      "packet_encoding": "xudp",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni15.example.org",
+        "insecure": false,
+        "min_version": "1.3",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        },
+        "reality": {
+          "enabled": true,
+          "public_key": "password2",
+          "short_id": "704c7085dd7b:6663c3a1406786ea56c48279c78"
+        }
+      },
+      "domain_resolver": {
+        "server": "dns-3"
+      }
+    },
+    {
+      "type": "direct",
+      "tag": "Proxy 9",
+      "domain_resolver": {
+        "server": "dns-4"
+      }
+    }
+  ],
+  "route": {
+    "rules": [
+      {
+        "action": "sniff",
+        "sniffer": [
+          "http",
+          "tls",
+          "quic",
+          "stun",
+          "dns",
+          "bittorrent",
+          "dtls",
+          "rdp",
+          "ntp"
+        ],
+        "timeout": "3s"
+      },
+      {
+        "protocol": "dns",
+        "action": "hijack-dns"
+      },
+      {
+        "ip_is_private": true,
+        "outbound": "Proxy 9"
+      },
+      {
+        "rule_set": [
+          "set-21"
+        ],
+        "action": "reject"
+      },
+      {
+        "protocol": [
+          "bittorrent"
+        ],
+        "outbound": "Proxy 9"
+      },
+      {
+        "port": [
+          67,
+          68,
+          123,
+          546,
+          547
+        ],
+        "network": [
+          "udp"
+        ],
+        "outbound": "Proxy 9"
+      },
+      {
+        "source_port": [
+          22,
+          36000
+        ],
+        "network": [
+          "tcp"
+        ],
+        "outbound": "Proxy 9"
+      },
+      {
+        "rule_set": [
+          "set-3",
+          "set-1",
+          "set-8"
+        ],
+        "action": "route",
+        "outbound": "Proxy 9"
+      },
+      {
+        "domain_suffix": [
+          "d3.example",
+          "d4.example",
+          "d5.example",
+          "d6.example",
+          "d7.example",
+          "d8.example",
+          "d9.example",
+          "d10.example",
+          "d16.example",
+          "d17.example",
+          "d12.example",
+          "d18.example",
+          "d19.example"
+        ],
+        "outbound": "Proxy 9"
+      },
+      {
+        "rule_set": [
+          "set-20",
+          "set-4",
+          "set-10"
+        ],
+        "action": "route",
+        "outbound": "Proxy 5"
+      }
+    ],
+    "rule_set": [
+      {
+        "type": "local",
+        "tag": "set-1",
+        "format": "binary",
+        "path": "./path-1.srs"
+      },
+      {
+        "type": "local",
+        "tag": "set-2",
+        "format": "binary",
+        "path": "./path-2.srs"
+      },
+      {
+        "type": "local",
+        "tag": "set-3",
+        "format": "binary",
+        "path": "./path-3.srs"
+      },
+      {
+        "type": "local",
+        "tag": "set-4",
+        "format": "binary",
+        "path": "./path-4.srs"
+      },
+      {
+        "type": "local",
+        "tag": "set-5",
+        "format": "binary",
+        "path": "./path-5.srs"
+      },
+      {
+        "type": "local",
+        "tag": "set-6",
+        "format": "binary",
+        "path": "./path-6.srs"
+      },
+      {
+        "type": "local",
+        "tag": "set-7",
+        "format": "binary",
+        "path": "./path-7.srs"
+      },
+      {
+        "type": "local",
+        "tag": "set-8",
+        "format": "binary",
+        "path": "./path-8.srs"
+      },
+      {
+        "type": "local",
+        "tag": "set-9",
+        "format": "binary",
+        "path": "./path-9.srs"
+      },
+      {
+        "type": "local",
+        "tag": "set-10",
+        "format": "binary",
+        "path": "./path-10.srs"
+      },
+      {
+        "type": "local",
+        "tag": "set-11",
+        "format": "binary",
+        "path": "./path-11.srs"
+      },
+      {
+        "type": "local",
+        "tag": "set-12",
+        "format": "binary",
+        "path": "./path-12.srs"
+      },
+      {
+        "type": "local",
+        "tag": "set-13",
+        "format": "binary",
+        "path": "./path-13.srs"
+      },
+      {
+        "type": "local",
+        "tag": "set-14",
+        "format": "binary",
+        "path": "./path-14.srs"
+      },
+      {
+        "type": "local",
+        "tag": "set-15",
+        "format": "binary",
+        "path": "./path-15.srs"
+      },
+      {
+        "type": "local",
+        "tag": "set-16",
+        "format": "binary",
+        "path": "./path-16.srs"
+      },
+      {
+        "type": "local",
+        "tag": "set-17",
+        "format": "binary",
+        "path": "./path-17.srs"
+      },
+      {
+        "type": "local",
+        "tag": "set-18",
+        "format": "binary",
+        "path": "./path-18.srs"
+      },
+      {
+        "type": "local",
+        "tag": "set-19",
+        "format": "binary",
+        "path": "./path-19.srs"
+      },
+      {
+        "type": "local",
+        "tag": "set-20",
+        "format": "binary",
+        "path": "./path-20.srs"
+      },
+      {
+        "type": "local",
+        "tag": "set-21",
+        "format": "binary",
+        "path": "./path-21.srs"
+      }
+    ],
+    "auto_detect_interface": true,
+    "default_mark": 15,
+    "default_domain_resolver": {
+      "server": "dns-1"
+    }
+  },
+  "experimental": {
+    "cache_file": {
+      "enabled": true
+    }
+  }
+}

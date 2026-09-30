@@ -1,0 +1,438 @@
+{
+  "log": {
+    "disabled": false,
+    "level": "info",
+    "timestamp": true
+  },
+  "dns": {
+    "servers": [
+      {
+        "tag": "dns-1",
+        "address": "tls://192.0.2.1/dns-query",
+        "detour": "Group 1"
+      },
+      {
+        "tag": "dns-2",
+        "address": "h3://192.0.2.2/dns-query",
+        "detour": "Proxy 18"
+      },
+      {
+        "tag": "dns-3",
+        "address": "rcode://refused"
+      },
+      {
+        "tag": "dns-4",
+        "address": "fakeip"
+      }
+    ],
+    "rules": [
+      {
+        "outbound": "any",
+        "server": "dns-2",
+        "disable_cache": true
+      },
+      {
+        "clash_mode": "Global",
+        "server": "dns-1"
+      },
+      {
+        "clash_mode": "Direct",
+        "server": "dns-2"
+      },
+      {
+        "rule_set": "set-2",
+        "server": "dns-2"
+      },
+      {
+        "rule_set": "set-3",
+        "server": "dns-1"
+      },
+      {
+        "rule_set": "set-3",
+        "server": "dns-4",
+        "query_type": [
+          "A",
+          "AAAA"
+        ]
+      }
+    ],
+    "independent_cache": true,
+    "fakeip": {
+      "enabled": true,
+      "inet4_range": "198.18.0.0/15",
+      "inet6_range": "3f00::/18"
+    },
+    "final": "dns-1"
+  },
+  "ntp": {
+    "enabled": true,
+    "detour": "Proxy 18",
+    "server": "s11.example.net",
+    "server_port": 123,
+    "interval": "30m"
+  },
+  "inbounds": [
+    {
+      "type": "tun",
+      "sniff": true,
+      "sniff_override_destination": true,
+      "domain_strategy": "prefer_ipv4",
+      "inet4_address": "192.0.2.1/30",
+      "inet6_address": "2001:db8::1/64",
+      "mtu": 9000,
+      "auto_route": true,
+      "strict_route": true,
+      "endpoint_independent_nat": true
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "selector",
+      "tag": "Group 1",
+      "outbounds": [
+        "Group 2",
+        "Proxy 1",
+        "Proxy 2",
+        "Proxy 3",
+        "Proxy 4",
+        "Proxy 5",
+        "Proxy 6",
+        "Proxy 7",
+        "Proxy 8",
+        "Proxy 9",
+        "Proxy 10",
+        "Proxy 11",
+        "Proxy 12",
+        "Proxy 13",
+        "Proxy 14",
+        "Proxy 15",
+        "Proxy 16",
+        "Proxy 17"
+      ],
+      "default": "Group 2"
+    },
+    {
+      "type": "urltest",
+      "tag": "Group 2",
+      "outbounds": [
+        "Proxy 1",
+        "Proxy 2",
+        "Proxy 3",
+        "Proxy 4",
+        "Proxy 5",
+        "Proxy 6",
+        "Proxy 7",
+        "Proxy 8",
+        "Proxy 9",
+        "Proxy 10",
+        "Proxy 11",
+        "Proxy 12",
+        "Proxy 13",
+        "Proxy 14",
+        "Proxy 15",
+        "Proxy 16",
+        "Proxy 17"
+      ],
+      "url": "https://h1.example.com/generate_204",
+      "interval": "3m",
+      "tolerance": 50
+    },
+    {
+      "type": "vmess",
+      "tag": "Proxy 1",
+      "server": "192.0.2.3",
+      "server_port": 50002,
+      "uuid": "00005a11-0000-4000-8000-000000000001",
+      "security": "auto",
+      "alter_id": 0
+    },
+    {
+      "type": "trojan",
+      "tag": "Proxy 2",
+      "server": "192.0.2.4",
+      "server_port": 26193,
+      "password": "00005a11-0000-4000-8000-000000000002",
+      "tls": {
+        "enabled": true,
+        "insecure": true
+      }
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "Proxy 3",
+      "server": "192.0.2.5",
+      "server_port": 30067,
+      "method": "aes-256-gcm",
+      "password": "password1",
+      "multiplex": {
+        "enabled": true
+      }
+    },
+    {
+      "type": "vmess",
+      "tag": "Proxy 4",
+      "server": "s1.example.net",
+      "server_port": 30829,
+      "uuid": "00005a11-0000-4000-8000-000000000003",
+      "security": "auto",
+      "alter_id": 2,
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "host": "sni2.example.org"
+        }
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 5",
+      "server": "192.0.2.6",
+      "server_port": 2052,
+      "uuid": "00005a11-0000-4000-8000-000000000004",
+      "tls": {
+        "enabled": true
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p2",
+        "headers": {
+          "host": "sni3.example.org"
+        }
+      }
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "Proxy 6",
+      "server": "s4.example.net",
+      "server_port": 443,
+      "method": "chacha20-ietf-poly1305",
+      "password": "password2",
+      "multiplex": {
+        "enabled": true
+      }
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "Proxy 7",
+      "server": "s5.example.net",
+      "server_port": 40030,
+      "method": "chacha20-ietf-poly1305",
+      "password": "00005a11-0000-4000-8000-000000000005",
+      "multiplex": {
+        "enabled": true
+      }
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "Proxy 8",
+      "server": "192.0.2.7",
+      "server_port": 30191,
+      "method": "aes-256-gcm",
+      "password": "password3",
+      "multiplex": {
+        "enabled": true
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "Proxy 9",
+      "server": "s6.example.net",
+      "server_port": 443,
+      "password": "00005a11-0000-4000-8000-000000000006",
+      "tls": {
+        "enabled": true
+      }
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "Proxy 10",
+      "server": "s7.example.net",
+      "server_port": 15098,
+      "method": "aes-256-cfb",
+      "password": "password4",
+      "multiplex": {
+        "enabled": true
+      }
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "Proxy 11",
+      "server": "192.0.2.8",
+      "server_port": 30190,
+      "method": "aes-256-gcm",
+      "password": "password5",
+      "multiplex": {
+        "enabled": true
+      }
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "Proxy 12",
+      "server": "192.0.2.9",
+      "server_port": 30101,
+      "method": "aes-256-gcm",
+      "password": "password6",
+      "multiplex": {
+        "enabled": true
+      }
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "Proxy 13",
+      "server": "192.0.2.10",
+      "server_port": 10601,
+      "method": "aes-256-gcm",
+      "password": "password7",
+      "multiplex": {
+        "enabled": true
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 14",
+      "server": "s8.example.net",
+      "server_port": 80,
+      "uuid": "00005a11-0000-4000-8000-000000000007",
+      "tls": {
+        "enabled": true
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p3",
+        "headers": {
+          "host": "sni9.example.org"
+        }
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "Proxy 15",
+      "server": "s10.example.net",
+      "server_port": 2053,
+      "password": "00005a11-0000-4000-8000-000000000008",
+      "tls": {
+        "enabled": true
+      },
+      "transport": {
+        "type": "grpc",
+        "service_name": "str1"
+      }
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "Proxy 16",
+      "server": "192.0.2.11",
+      "server_port": 989,
+      "method": "aes-256-cfb",
+      "password": "password8",
+      "multiplex": {
+        "enabled": true
+      }
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "Proxy 17",
+      "server": "192.0.2.12",
+      "server_port": 30198,
+      "method": "aes-256-gcm",
+      "password": "password9",
+      "multiplex": {
+        "enabled": true
+      }
+    },
+    {
+      "type": "direct",
+      "tag": "Proxy 18"
+    },
+    {
+      "type": "block",
+      "tag": "Proxy 19"
+    },
+    {
+      "type": "dns",
+      "tag": "Proxy 20"
+    }
+  ],
+  "route": {
+    "rules": [
+      {
+        "clash_mode": "Global",
+        "outbound": "Group 1"
+      },
+      {
+        "clash_mode": "Direct",
+        "outbound": "Proxy 18"
+      },
+      {
+        "protocol": "dns",
+        "outbound": "Proxy 20"
+      },
+      {
+        "rule_set": "set-4",
+        "outbound": "Proxy 19"
+      },
+      {
+        "rule_set": "set-1",
+        "outbound": "Proxy 18"
+      },
+      {
+        "rule_set": "set-2",
+        "outbound": "Proxy 18"
+      },
+      {
+        "outbound": "Proxy 18",
+        "ip_is_private": true
+      },
+      {
+        "rule_set": "set-3",
+        "outbound": "Group 1"
+      }
+    ],
+    "rule_set": [
+      {
+        "type": "remote",
+        "tag": "set-1",
+        "format": "binary",
+        "url": "https://h2.example.com/p4.srs",
+        "download_detour": "Group 1",
+        "update_interval": "1d"
+      },
+      {
+        "type": "remote",
+        "tag": "set-2",
+        "format": "binary",
+        "url": "https://h2.example.com/p5.srs",
+        "download_detour": "Group 1",
+        "update_interval": "1d"
+      },
+      {
+        "type": "remote",
+        "tag": "set-3",
+        "format": "binary",
+        "url": "https://h3.example.com/p6.srs",
+        "download_detour": "Group 1",
+        "update_interval": "1d"
+      },
+      {
+        "type": "remote",
+        "tag": "set-4",
+        "format": "binary",
+        "url": "https://h2.example.com/p7.srs",
+        "download_detour": "Group 1",
+        "update_interval": "1d"
+      }
+    ],
+    "auto_detect_interface": true,
+    "final": "Group 1"
+  },
+  "experimental": {
+    "cache_file": {
+      "enabled": true,
+      "path": "./path-1.db"
+    },
+    "clash_api": {
+      "external_controller": "127.0.0.1:9090"
+    }
+  }
+}

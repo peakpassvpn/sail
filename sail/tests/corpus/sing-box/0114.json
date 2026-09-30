@@ -1,0 +1,1243 @@
+{
+  "log": {
+    "level": "info"
+  },
+  "dns": {
+    "servers": [
+      {
+        "type": "udp",
+        "tag": "dns-1",
+        "server": "192.0.2.1"
+      },
+      {
+        "type": "udp",
+        "tag": "dns-2",
+        "server": "192.0.2.2"
+      }
+    ],
+    "fakeip": {
+      "enabled": true,
+      "inet4_range": "198.18.0.0/15"
+    },
+    "final": "dns-1"
+  },
+  "inbounds": [
+    {
+      "type": "mixed",
+      "tag": "in-1",
+      "listen": "0.0.0.0",
+      "listen_port": 7892
+    },
+    {
+      "type": "tun",
+      "tag": "in-2",
+      "interface_name": "if1",
+      "address": [
+        "192.0.2.1/30",
+        "fdfe:dcba:9876::1/126"
+      ],
+      "mtu": 9000,
+      "auto_route": true,
+      "auto_redirect": true,
+      "strict_route": true,
+      "stack": "system",
+      "sniff": true,
+      "sniff_override_destination": true
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "selector",
+      "tag": "Group 1",
+      "outbounds": [
+        "Group 2",
+        "Proxy 32",
+        "Proxy 18",
+        "Proxy 58",
+        "Proxy 12",
+        "Proxy 6",
+        "Proxy 47",
+        "Proxy 64",
+        "Proxy 11",
+        "Proxy 29",
+        "Proxy 22",
+        "Proxy 39",
+        "Proxy 17",
+        "Proxy 57",
+        "Proxy 60",
+        "Proxy 27",
+        "Proxy 7",
+        "Proxy 26",
+        "Proxy 25",
+        "Proxy 23",
+        "Proxy 43",
+        "Proxy 48",
+        "Proxy 37",
+        "Proxy 61",
+        "Proxy 13",
+        "Proxy 28",
+        "Proxy 45",
+        "Proxy 63",
+        "Proxy 34",
+        "Proxy 19",
+        "Proxy 31",
+        "Proxy 40",
+        "Proxy 59",
+        "Proxy 20",
+        "Proxy 15",
+        "Proxy 41",
+        "Proxy 52",
+        "Proxy 53",
+        "Proxy 62",
+        "Proxy 3",
+        "Proxy 35",
+        "Proxy 46",
+        "Proxy 54",
+        "Proxy 9",
+        "Proxy 56",
+        "Proxy 65",
+        "Proxy 33",
+        "Proxy 24",
+        "Proxy 55",
+        "Proxy 10",
+        "Proxy 42",
+        "Proxy 21",
+        "Proxy 14",
+        "Proxy 16",
+        "Proxy 30",
+        "Proxy 38",
+        "Proxy 5",
+        "Proxy 50",
+        "Proxy 36",
+        "Proxy 49",
+        "Proxy 4",
+        "Proxy 51",
+        "Proxy 8",
+        "Proxy 44"
+      ],
+      "default": "Group 2"
+    },
+    {
+      "type": "urltest",
+      "tag": "Group 2",
+      "outbounds": [
+        "Proxy 32",
+        "Proxy 18",
+        "Proxy 58",
+        "Proxy 12",
+        "Proxy 6",
+        "Proxy 47",
+        "Proxy 64",
+        "Proxy 11",
+        "Proxy 29",
+        "Proxy 22",
+        "Proxy 39",
+        "Proxy 17",
+        "Proxy 57",
+        "Proxy 60",
+        "Proxy 27",
+        "Proxy 7",
+        "Proxy 26",
+        "Proxy 25",
+        "Proxy 23",
+        "Proxy 43",
+        "Proxy 48",
+        "Proxy 37",
+        "Proxy 61",
+        "Proxy 13",
+        "Proxy 28",
+        "Proxy 45",
+        "Proxy 63",
+        "Proxy 34",
+        "Proxy 19",
+        "Proxy 31",
+        "Proxy 40",
+        "Proxy 59",
+        "Proxy 20",
+        "Proxy 15",
+        "Proxy 41",
+        "Proxy 52",
+        "Proxy 53",
+        "Proxy 62",
+        "Proxy 3",
+        "Proxy 35",
+        "Proxy 46",
+        "Proxy 54",
+        "Proxy 9",
+        "Proxy 56",
+        "Proxy 65",
+        "Proxy 33",
+        "Proxy 24",
+        "Proxy 55",
+        "Proxy 10",
+        "Proxy 42",
+        "Proxy 21",
+        "Proxy 14",
+        "Proxy 16",
+        "Proxy 30",
+        "Proxy 38",
+        "Proxy 5",
+        "Proxy 50",
+        "Proxy 36",
+        "Proxy 49",
+        "Proxy 4",
+        "Proxy 51",
+        "Proxy 8",
+        "Proxy 44"
+      ],
+      "url": "https://h1.example.com/generate_204",
+      "interval": "5m",
+      "tolerance": 50
+    },
+    {
+      "type": "direct",
+      "tag": "Proxy 1"
+    },
+    {
+      "type": "block",
+      "tag": "Proxy 2"
+    },
+    {
+      "type": "vmess",
+      "tag": "Proxy 3",
+      "server": "192.0.2.3",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000001",
+      "alter_id": 0,
+      "network": "tcp",
+      "tls": {
+        "server_name": "sni1.example.org"
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 4",
+      "server": "192.0.2.4",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000002",
+      "network": "tcp",
+      "tls": {
+        "server_name": "sni2.example.org"
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p2"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 5",
+      "server": "192.0.2.5",
+      "server_port": 35728,
+      "uuid": "00005a11-0000-4000-8000-000000000003",
+      "network": "tcp",
+      "tls": {
+        "server_name": "sni3.example.org",
+        "reality": {
+          "enabled": true,
+          "public_key": "wywOQgzCr2vr85JpoMxzCakHIIvgUtsG6/Qp987NJa4",
+          "short_id": "704c"
+        }
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 6",
+      "server": "s4.example.net",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000004",
+      "network": "tcp",
+      "tls": {
+        "server_name": "sni5.example.org"
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p3"
+      }
+    },
+    {
+      "type": "vmess",
+      "tag": "Proxy 7",
+      "server": "192.0.2.6",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000005",
+      "alter_id": 0,
+      "network": "tcp",
+      "tls": {
+        "server_name": "sni6.example.org"
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1"
+      }
+    },
+    {
+      "type": "vmess",
+      "tag": "Proxy 8",
+      "server": "192.0.2.7",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000006",
+      "alter_id": 0,
+      "network": "tcp",
+      "transport": {
+        "type": "ws",
+        "path": "/p4"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 9",
+      "server": "s4.example.net",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000007",
+      "network": "tcp",
+      "tls": {
+        "server_name": "sni7.example.org"
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p5"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 10",
+      "server": "s4.example.net",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000008",
+      "network": "tcp",
+      "tls": {
+        "server_name": "sni5.example.org"
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p6"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 11",
+      "server": "s8.example.net",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000009",
+      "network": "tcp",
+      "tls": {
+        "server_name": "sni9.example.org"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 12",
+      "server": "s4.example.net",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-00000000000a",
+      "network": "tcp",
+      "tls": {
+        "server_name": "sni5.example.org"
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p7"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 13",
+      "server": "s4.example.net",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000002",
+      "network": "tcp",
+      "tls": {
+        "server_name": "sni10.example.org"
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p8"
+      }
+    },
+    {
+      "type": "vmess",
+      "tag": "Proxy 14",
+      "server": "192.0.2.8",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-00000000000b",
+      "alter_id": 0,
+      "network": "tcp",
+      "tls": {
+        "server_name": "sni11.example.org"
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1"
+      }
+    },
+    {
+      "type": "vmess",
+      "tag": "Proxy 15",
+      "server": "192.0.2.9",
+      "server_port": 24943,
+      "uuid": "00005a11-0000-4000-8000-00000000000c",
+      "alter_id": 0,
+      "network": "tcp",
+      "transport": {
+        "type": "ws",
+        "path": "/p9"
+      }
+    },
+    {
+      "type": "vmess",
+      "tag": "Proxy 16",
+      "server": "s12.example.net",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-00000000000d",
+      "alter_id": 0,
+      "network": "tcp",
+      "tls": {
+        "server_name": "s12.example.net"
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 17",
+      "server": "192.0.2.10",
+      "server_port": 80,
+      "uuid": "00005a11-0000-4000-8000-00000000000e",
+      "network": "tcp",
+      "transport": {
+        "type": "ws",
+        "path": "/p10"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 18",
+      "server": "192.0.2.11",
+      "server_port": 8880,
+      "uuid": "00005a11-0000-4000-8000-00000000000f",
+      "network": "tcp"
+    },
+    {
+      "type": "vmess",
+      "tag": "Proxy 19",
+      "server": "192.0.2.7",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000006",
+      "alter_id": 0,
+      "network": "tcp",
+      "transport": {
+        "type": "ws",
+        "path": "/p4"
+      }
+    },
+    {
+      "type": "vmess",
+      "tag": "Proxy 20",
+      "server": "192.0.2.7",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000006",
+      "alter_id": 0,
+      "network": "tcp",
+      "transport": {
+        "type": "ws",
+        "path": "/p4"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 21",
+      "server": "192.0.2.12",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000009",
+      "network": "tcp",
+      "tls": {
+        "server_name": "sni9.example.org"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 22",
+      "server": "s4.example.net",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000010",
+      "network": "tcp",
+      "tls": {
+        "server_name": "sni10.example.org"
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p11"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 23",
+      "server": "192.0.2.13",
+      "server_port": 59374,
+      "uuid": "00005a11-0000-4000-8000-000000000011",
+      "network": "tcp",
+      "tls": {
+        "server_name": "sni3.example.org",
+        "reality": {
+          "enabled": true,
+          "public_key": "WulOoXrJ4xaeREDpCXJqPLE7mK1qDJwNSfPto1FYe4I",
+          "short_id": "6663c3"
+        }
+      }
+    },
+    {
+      "type": "vmess",
+      "tag": "Proxy 24",
+      "server": "192.0.2.14",
+      "server_port": 80,
+      "uuid": "00005a11-0000-4000-8000-000000000012",
+      "alter_id": 0,
+      "network": "tcp",
+      "transport": {
+        "type": "ws",
+        "path": "/p12"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 25",
+      "server": "192.0.2.15",
+      "server_port": 28190,
+      "uuid": "00005a11-0000-4000-8000-000000000013",
+      "network": "tcp",
+      "flow": "xtls-rprx-vision",
+      "tls": {
+        "server_name": "sni13.example.org",
+        "reality": {
+          "enabled": true,
+          "public_key": "uLBP4fDmzzQr6AI9Cjs2bG1yyu2augLO37S6iU1M4Eo",
+          "short_id": ""
+        }
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 26",
+      "server": "192.0.2.16",
+      "server_port": 80,
+      "uuid": "00005a11-0000-4000-8000-000000000014",
+      "network": "tcp",
+      "transport": {
+        "type": "ws",
+        "path": "/p10"
+      }
+    },
+    {
+      "type": "vmess",
+      "tag": "Proxy 27",
+      "server": "192.0.2.17",
+      "server_port": 52190,
+      "uuid": "00005a11-0000-4000-8000-000000000015",
+      "alter_id": 0,
+      "network": "tcp"
+    },
+    {
+      "type": "vmess",
+      "tag": "Proxy 28",
+      "server": "192.0.2.18",
+      "server_port": 2082,
+      "uuid": "00005a11-0000-4000-8000-000000000016",
+      "alter_id": 0,
+      "network": "tcp",
+      "transport": {
+        "type": "ws",
+        "path": "/p1"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 29",
+      "server": "192.0.2.19",
+      "server_port": 8443,
+      "uuid": "00005a11-0000-4000-8000-000000000017",
+      "network": "tcp",
+      "flow": "xtls-rprx-vision",
+      "tls": {
+        "server_name": "sni14.example.org",
+        "reality": {
+          "enabled": true,
+          "public_key": "C7R4HcnA7nosUls057QlZXh18tDK3yhe4+6I1jkpNJM",
+          "short_id": "435cb68765a4bdf7"
+        }
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 30",
+      "server": "s4.example.net",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000018",
+      "network": "tcp",
+      "tls": {
+        "server_name": "sni10.example.org"
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p13"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 31",
+      "server": "192.0.2.20",
+      "server_port": 23576,
+      "uuid": "00005a11-0000-4000-8000-000000000019",
+      "network": "tcp",
+      "flow": "xtls-rprx-vision",
+      "tls": {
+        "server_name": "sni15.example.org",
+        "reality": {
+          "enabled": true,
+          "public_key": "CSwhJCxdZba+0FGfnY5g6FrCHPwm3ApwMA2cT+NViKI",
+          "short_id": "a7"
+        }
+      }
+    },
+    {
+      "type": "vmess",
+      "tag": "Proxy 32",
+      "server": "192.0.2.14",
+      "server_port": 80,
+      "uuid": "00005a11-0000-4000-8000-000000000012",
+      "alter_id": 0,
+      "network": "tcp",
+      "transport": {
+        "type": "ws",
+        "path": "/p12"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 33",
+      "server": "192.0.2.21",
+      "server_port": 10001,
+      "uuid": "00005a11-0000-4000-8000-00000000001a",
+      "network": "tcp",
+      "tls": {
+        "server_name": "sni3.example.org",
+        "reality": {
+          "enabled": true,
+          "public_key": "I2aL6X-W2VPhngwoaemQPJU-XZ6OrdxIG66ClGKyUZ4",
+          "short_id": "9f71b3fd"
+        }
+      }
+    },
+    {
+      "type": "vmess",
+      "tag": "Proxy 34",
+      "server": "s16.example.net",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-00000000001b",
+      "alter_id": 0,
+      "network": "tcp",
+      "tls": {
+        "server_name": "sni17.example.org"
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 35",
+      "server": "s18.example.net",
+      "server_port": 2096,
+      "uuid": "00005a11-0000-4000-8000-00000000001c",
+      "network": "tcp",
+      "tls": {
+        "server_name": "sni19.example.org"
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1"
+      }
+    },
+    {
+      "type": "vmess",
+      "tag": "Proxy 36",
+      "server": "192.0.2.22",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-00000000001d",
+      "alter_id": 0,
+      "network": "tcp",
+      "tls": {
+        "server_name": "sni20.example.org"
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 37",
+      "server": "192.0.2.23",
+      "server_port": 2096,
+      "uuid": "00005a11-0000-4000-8000-00000000001c",
+      "network": "tcp",
+      "tls": {
+        "server_name": "sni19.example.org"
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1"
+      }
+    },
+    {
+      "type": "vmess",
+      "tag": "Proxy 38",
+      "server": "192.0.2.24",
+      "server_port": 8613,
+      "uuid": "00005a11-0000-4000-8000-00000000001e",
+      "alter_id": 0,
+      "network": "tcp",
+      "transport": {
+        "type": "ws",
+        "path": "/p14"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 39",
+      "server": "192.0.2.25",
+      "server_port": 55983,
+      "uuid": "00005a11-0000-4000-8000-00000000001f",
+      "network": "tcp",
+      "tls": {
+        "server_name": "sni3.example.org",
+        "reality": {
+          "enabled": true,
+          "public_key": "bW80l/i38LeabnfY0LXjTM/M+gz1svjYk+rHjkSuhcU",
+          "short_id": "63"
+        }
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 40",
+      "server": "192.0.2.26",
+      "server_port": 45448,
+      "uuid": "00005a11-0000-4000-8000-000000000020",
+      "network": "tcp",
+      "tls": {
+        "server_name": "sni3.example.org",
+        "reality": {
+          "enabled": true,
+          "public_key": "TTk8cwrAb2wBRROvzq9tvU4wOoKfPDHxb3G3kOMUHGc",
+          "short_id": "e5652bfd2121bf"
+        }
+      }
+    },
+    {
+      "type": "vmess",
+      "tag": "Proxy 41",
+      "server": "192.0.2.7",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000006",
+      "alter_id": 0,
+      "network": "tcp",
+      "transport": {
+        "type": "ws",
+        "path": "/p4"
+      }
+    },
+    {
+      "type": "vmess",
+      "tag": "Proxy 42",
+      "server": "192.0.2.14",
+      "server_port": 80,
+      "uuid": "00005a11-0000-4000-8000-000000000012",
+      "alter_id": 0,
+      "network": "tcp",
+      "transport": {
+        "type": "ws",
+        "path": "/p12"
+      }
+    },
+    {
+      "type": "vmess",
+      "tag": "Proxy 43",
+      "server": "192.0.2.27",
+      "server_port": 80,
+      "uuid": "00005a11-0000-4000-8000-000000000021",
+      "alter_id": 0,
+      "network": "tcp",
+      "transport": {
+        "type": "ws",
+        "path": "/p15"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 44",
+      "server": "s21.example.net",
+      "server_port": 2096,
+      "uuid": "00005a11-0000-4000-8000-00000000001c",
+      "network": "tcp",
+      "tls": {
+        "server_name": "sni19.example.org"
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 45",
+      "server": "192.0.2.28",
+      "server_port": 2053,
+      "uuid": "00005a11-0000-4000-8000-000000000022",
+      "network": "tcp",
+      "tls": {
+        "server_name": "sni22.example.org"
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1"
+      }
+    },
+    {
+      "type": "vmess",
+      "tag": "Proxy 46",
+      "server": "192.0.2.29",
+      "server_port": 44867,
+      "uuid": "00005a11-0000-4000-8000-000000000023",
+      "alter_id": 0,
+      "network": "tcp",
+      "transport": {
+        "type": "ws",
+        "path": "/p14"
+      }
+    },
+    {
+      "type": "vmess",
+      "tag": "Proxy 47",
+      "server": "192.0.2.30",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000024",
+      "alter_id": 0,
+      "network": "tcp",
+      "tls": {
+        "server_name": "sni23.example.org"
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 48",
+      "server": "s21.example.net",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-00000000000a",
+      "network": "tcp",
+      "tls": {
+        "server_name": "sni5.example.org"
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p7"
+      }
+    },
+    {
+      "type": "vmess",
+      "tag": "Proxy 49",
+      "server": "192.0.2.27",
+      "server_port": 80,
+      "uuid": "00005a11-0000-4000-8000-000000000025",
+      "alter_id": 0,
+      "network": "tcp",
+      "transport": {
+        "type": "ws",
+        "path": "/p15"
+      }
+    },
+    {
+      "type": "vmess",
+      "tag": "Proxy 50",
+      "server": "s24.example.net",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000026",
+      "alter_id": 0,
+      "network": "tcp",
+      "tls": {
+        "server_name": "s24.example.net"
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 51",
+      "server": "192.0.2.31",
+      "server_port": 2280,
+      "uuid": "00005a11-0000-4000-8000-000000000027",
+      "network": "tcp",
+      "tls": {
+        "server_name": "sni25.example.org",
+        "reality": {
+          "enabled": true,
+          "public_key": "jRjIM5MQ3KAFGfHeCg1kvH9Q6b5Rvcuv1BW16TxGGx4",
+          "short_id": "bca26f263b0137ff"
+        }
+      }
+    },
+    {
+      "type": "vmess",
+      "tag": "Proxy 52",
+      "server": "sni1.example.org",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000001",
+      "alter_id": 0,
+      "network": "tcp",
+      "transport": {
+        "type": "ws",
+        "path": "/p1"
+      }
+    },
+    {
+      "type": "vmess",
+      "tag": "Proxy 53",
+      "server": "sni1.example.org",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000001",
+      "alter_id": 0,
+      "network": "tcp",
+      "tls": {
+        "server_name": "sni1.example.org"
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1"
+      }
+    },
+    {
+      "type": "vmess",
+      "tag": "Proxy 54",
+      "server": "s12.example.net",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-00000000000d",
+      "alter_id": 0,
+      "network": "tcp",
+      "tls": {
+        "server_name": "s12.example.net"
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 55",
+      "server": "192.0.2.10",
+      "server_port": 2052,
+      "uuid": "00005a11-0000-4000-8000-000000000028",
+      "network": "tcp",
+      "transport": {
+        "type": "ws",
+        "path": "/p10"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 56",
+      "server": "s26.example.net",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000007",
+      "network": "tcp",
+      "tls": {
+        "server_name": "sni7.example.org"
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p5"
+      }
+    },
+    {
+      "type": "vmess",
+      "tag": "Proxy 57",
+      "server": "192.0.2.18",
+      "server_port": 2082,
+      "uuid": "00005a11-0000-4000-8000-000000000016",
+      "alter_id": 0,
+      "network": "tcp",
+      "transport": {
+        "type": "ws",
+        "path": "/p1"
+      }
+    },
+    {
+      "type": "vmess",
+      "tag": "Proxy 58",
+      "server": "192.0.2.32",
+      "server_port": 14102,
+      "uuid": "00005a11-0000-4000-8000-000000000029",
+      "alter_id": 0,
+      "network": "tcp"
+    },
+    {
+      "type": "vmess",
+      "tag": "Proxy 59",
+      "server": "192.0.2.24",
+      "server_port": 8613,
+      "uuid": "00005a11-0000-4000-8000-00000000001e",
+      "alter_id": 0,
+      "network": "tcp",
+      "transport": {
+        "type": "ws",
+        "path": "/p14"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 60",
+      "server": "s18.example.net",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000007",
+      "network": "tcp",
+      "tls": {
+        "server_name": "sni7.example.org"
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p5"
+      }
+    },
+    {
+      "type": "vmess",
+      "tag": "Proxy 61",
+      "server": "s27.example.net",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-00000000002a",
+      "alter_id": 0,
+      "network": "tcp",
+      "tls": {
+        "server_name": "s27.example.net"
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1"
+      }
+    },
+    {
+      "type": "vmess",
+      "tag": "Proxy 62",
+      "server": "192.0.2.33",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-00000000002a",
+      "alter_id": 0,
+      "network": "tcp",
+      "tls": {
+        "server_name": "s27.example.net"
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 63",
+      "server": "s21.example.net",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000007",
+      "network": "tcp",
+      "tls": {
+        "server_name": "sni7.example.org"
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p5"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 64",
+      "server": "192.0.2.16",
+      "server_port": 2052,
+      "uuid": "00005a11-0000-4000-8000-000000000028",
+      "network": "tcp",
+      "transport": {
+        "type": "ws",
+        "path": "/p10"
+      }
+    },
+    {
+      "type": "vmess",
+      "tag": "Proxy 65",
+      "server": "192.0.2.18",
+      "server_port": 2082,
+      "uuid": "00005a11-0000-4000-8000-000000000016",
+      "alter_id": 0,
+      "network": "tcp",
+      "transport": {
+        "type": "ws",
+        "path": "/p1"
+      }
+    }
+  ],
+  "route": {
+    "rules": [
+      {
+        "rule_set": "set-1",
+        "outbound": "Proxy 1"
+      },
+      {
+        "ip_is_private": true,
+        "outbound": "Proxy 1"
+      },
+      {
+        "domain_suffix": [
+          "d28.example",
+          "d29.example",
+          "d30.example"
+        ],
+        "outbound": "Proxy 1"
+      },
+      {
+        "rule_set": "set-9",
+        "outbound": "Group 1"
+      },
+      {
+        "process_name": [
+          "app1",
+          "app2"
+        ],
+        "outbound": "Proxy 1"
+      },
+      {
+        "port": [
+          53,
+          853
+        ],
+        "outbound": "Group 1"
+      },
+      {
+        "domain_suffix": [
+          "d31.example",
+          "d32.example",
+          "d33.example"
+        ],
+        "outbound": "Group 1"
+      },
+      {
+        "rule_set": "set-2",
+        "outbound": "Group 1"
+      },
+      {
+        "rule_set": "set-3",
+        "outbound": "Group 1"
+      },
+      {
+        "rule_set": "set-4",
+        "outbound": "Group 1"
+      },
+      {
+        "rule_set": "set-5",
+        "outbound": "Group 1"
+      },
+      {
+        "rule_set": "set-6",
+        "outbound": "Group 1"
+      },
+      {
+        "rule_set": "set-7",
+        "outbound": "Group 1"
+      },
+      {
+        "rule_set": "set-8",
+        "outbound": "Proxy 2"
+      },
+      {
+        "rule_set": "set-9",
+        "outbound": "Group 1"
+      }
+    ],
+    "rule_set": [
+      {
+        "type": "remote",
+        "tag": "set-1",
+        "format": "binary",
+        "url": "https://h2.example.com/p16.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "type": "remote",
+        "tag": "set-2",
+        "format": "binary",
+        "url": "https://h2.example.com/p17.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "type": "remote",
+        "tag": "set-3",
+        "format": "binary",
+        "url": "https://h2.example.com/p18.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "type": "remote",
+        "tag": "set-4",
+        "format": "binary",
+        "url": "https://h2.example.com/p19.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "type": "remote",
+        "tag": "set-5",
+        "format": "binary",
+        "url": "https://h2.example.com/p20.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "type": "remote",
+        "tag": "set-6",
+        "format": "binary",
+        "url": "https://h2.example.com/p21.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "type": "remote",
+        "tag": "set-7",
+        "format": "binary",
+        "url": "https://h2.example.com/p22.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "type": "remote",
+        "tag": "set-8",
+        "format": "binary",
+        "url": "https://h2.example.com/p23.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "type": "remote",
+        "tag": "set-9",
+        "format": "binary",
+        "url": "https://h2.example.com/p24.srs",
+        "download_detour": "Proxy 1"
+      }
+    ],
+    "auto_detect_interface": true,
+    "final": "Group 1",
+    "default_domain_resolver": "dns-1"
+  }
+}

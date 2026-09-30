@@ -1,0 +1,473 @@
+{
+  "log": {
+    "disabled": false,
+    "level": "panic",
+    "timestamp": true
+  },
+  "dns": {
+    "servers": [
+      {
+        "tag": "dns-1",
+        "type": "tls",
+        "server": "192.0.2.1"
+      },
+      {
+        "tag": "dns-2",
+        "address": "fakeip"
+      }
+    ],
+    "rules": [
+      {
+        "query_type": [
+          "SVCB"
+        ],
+        "server": "dns-3"
+      },
+      {
+        "inbound": "in-1",
+        "server": "dns-2",
+        "disable_cache": false,
+        "rewrite_ttl": 1
+      },
+      {
+        "outbound": "any",
+        "server": "dns-1",
+        "disable_cache": true
+      }
+    ],
+    "fakeip": {
+      "enabled": true,
+      "inet4_range": "28.0.0.1/8",
+      "inet6_range": "3f00::/18"
+    },
+    "independent_cache": true
+  },
+  "inbounds": [
+    {
+      "type": "mixed",
+      "listen": "::",
+      "listen_port": 10000
+    },
+    {
+      "type": "direct",
+      "tag": "in-1",
+      "listen": "::",
+      "listen_port": 6666
+    },
+    {
+      "type": "redirect",
+      "tag": "in-2",
+      "listen": "::",
+      "sniff_override_destination": true,
+      "listen_port": 7877,
+      "sniff": true
+    },
+    {
+      "type": "tproxy",
+      "tag": "in-3",
+      "listen": "::",
+      "listen_port": 7896,
+      "tcp_fast_open": true,
+      "sniff": true,
+      "sniff_override_destination": false,
+      "sniff_timeout": "100ms"
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "Group 1",
+      "type": "selector",
+      "outbounds": [
+        "Proxy 2"
+      ]
+    },
+    {
+      "type": "direct",
+      "tag": "Proxy 1"
+    }
+  ],
+  "route": {
+    "rules": [
+      {
+        "inbound": "in-4",
+        "action": "hijack-dns"
+      },
+      {
+        "network": "udp",
+        "port": 443,
+        "action": "reject",
+        "method": "drop"
+      },
+      {
+        "ip_is_private": true,
+        "outbound": "Proxy 1"
+      },
+      {
+        "domain_suffix": [
+          "d1.example"
+        ],
+        "outbound": "Group 1"
+      },
+      {
+        "domain_suffix": [
+          "d2.example",
+          "d3.example",
+          "d4.example"
+        ],
+        "outbound": "Group 1"
+      },
+      {
+        "domain_suffix": [
+          "d5.example",
+          "d6.example"
+        ],
+        "outbound": "Proxy 1"
+      },
+      {
+        "domain_suffix": [
+          "d7.example",
+          "d8.example",
+          "d9.example",
+          "d10.example"
+        ],
+        "outbound": "Proxy 1"
+      },
+      {
+        "rule_set": "set-30",
+        "outbound": "Proxy 1"
+      },
+      {
+        "rule_set": "set-23",
+        "outbound": "Proxy 1"
+      },
+      {
+        "rule_set": [
+          "set-33",
+          "set-34"
+        ],
+        "outbound": "Proxy 1"
+      },
+      {
+        "rule_set": "set-6",
+        "outbound": "Proxy 1"
+      },
+      {
+        "rule_set": "set-31",
+        "outbound": "Group 1"
+      },
+      {
+        "rule_set": [
+          "set-2",
+          "set-13"
+        ],
+        "outbound": "Group 1"
+      },
+      {
+        "rule_set": [
+          "set-1",
+          "set-11"
+        ],
+        "outbound": "Group 1"
+      },
+      {
+        "rule_set": "set-6",
+        "invert": true,
+        "outbound": "Group 1"
+      }
+    ],
+    "rule_set": [
+      {
+        "tag": "set-1",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p1.srs",
+        "download_detour": "Proxy 1",
+        "update_interval": "7d"
+      },
+      {
+        "tag": "set-2",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p2.srs",
+        "download_detour": "Proxy 1",
+        "update_interval": "7d"
+      },
+      {
+        "tag": "set-3",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p3.srs",
+        "download_detour": "Proxy 1",
+        "update_interval": "7d"
+      },
+      {
+        "tag": "set-4",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p4.srs",
+        "download_detour": "Proxy 1",
+        "update_interval": "7d"
+      },
+      {
+        "tag": "set-5",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p5.srs",
+        "download_detour": "Proxy 1",
+        "update_interval": "7d"
+      },
+      {
+        "tag": "set-6",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p6.srs",
+        "download_detour": "Proxy 1",
+        "update_interval": "7d"
+      },
+      {
+        "tag": "set-7",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p7.srs",
+        "download_detour": "Proxy 1",
+        "update_interval": "7d"
+      },
+      {
+        "tag": "set-8",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p8.srs",
+        "download_detour": "Proxy 1",
+        "update_interval": "7d"
+      },
+      {
+        "tag": "set-9",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p9.srs",
+        "download_detour": "Proxy 1",
+        "update_interval": "7d"
+      },
+      {
+        "tag": "set-10",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p10.srs",
+        "download_detour": "Proxy 1",
+        "update_interval": "7d"
+      },
+      {
+        "tag": "set-11",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p11.srs",
+        "download_detour": "Proxy 1",
+        "update_interval": "7d"
+      },
+      {
+        "tag": "set-12",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p12.srs",
+        "download_detour": "Proxy 1",
+        "update_interval": "7d"
+      },
+      {
+        "tag": "set-13",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p13.srs",
+        "download_detour": "Proxy 1",
+        "update_interval": "7d"
+      },
+      {
+        "tag": "set-14",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p14.srs",
+        "download_detour": "Proxy 1",
+        "update_interval": "7d"
+      },
+      {
+        "tag": "set-15",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p15.srs",
+        "download_detour": "Proxy 1",
+        "update_interval": "7d"
+      },
+      {
+        "tag": "set-16",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p16.srs",
+        "download_detour": "Proxy 1",
+        "update_interval": "7d"
+      },
+      {
+        "tag": "set-17",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p17.srs",
+        "download_detour": "Proxy 1",
+        "update_interval": "7d"
+      },
+      {
+        "tag": "set-18",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p18.srs",
+        "download_detour": "Proxy 1",
+        "update_interval": "7d"
+      },
+      {
+        "tag": "set-19",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p19.srs",
+        "download_detour": "Proxy 1",
+        "update_interval": "7d"
+      },
+      {
+        "tag": "set-20",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p20.srs",
+        "download_detour": "Proxy 1",
+        "update_interval": "7d"
+      },
+      {
+        "tag": "set-21",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p21.srs",
+        "download_detour": "Proxy 1",
+        "update_interval": "7d"
+      },
+      {
+        "tag": "set-22",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p22.srs",
+        "download_detour": "Proxy 1",
+        "update_interval": "7d"
+      },
+      {
+        "tag": "set-23",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p23.srs",
+        "download_detour": "Proxy 1",
+        "update_interval": "7d"
+      },
+      {
+        "tag": "set-24",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p24.srs",
+        "download_detour": "Proxy 1",
+        "update_interval": "7d"
+      },
+      {
+        "tag": "set-25",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p25.srs",
+        "download_detour": "Proxy 1",
+        "update_interval": "7d"
+      },
+      {
+        "tag": "set-26",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p26.srs",
+        "download_detour": "Proxy 1",
+        "update_interval": "7d"
+      },
+      {
+        "tag": "set-27",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p27.srs",
+        "download_detour": "Proxy 1",
+        "update_interval": "7d"
+      },
+      {
+        "tag": "set-28",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p28.srs",
+        "download_detour": "Proxy 1",
+        "update_interval": "7d"
+      },
+      {
+        "tag": "set-29",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p29.srs",
+        "download_detour": "Proxy 1",
+        "update_interval": "7d"
+      },
+      {
+        "tag": "set-30",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p30.srs",
+        "download_detour": "Proxy 1",
+        "update_interval": "7d"
+      },
+      {
+        "tag": "set-31",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p31.srs",
+        "download_detour": "Proxy 1",
+        "update_interval": "7d"
+      },
+      {
+        "tag": "set-32",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p32.srs",
+        "download_detour": "Proxy 1",
+        "update_interval": "7d"
+      },
+      {
+        "tag": "set-33",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p33.srs",
+        "download_detour": "Proxy 1",
+        "update_interval": "7d"
+      },
+      {
+        "tag": "set-34",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p34.srs",
+        "download_detour": "Proxy 1",
+        "update_interval": "7d"
+      }
+    ],
+    "final": "Group 1",
+    "auto_detect_interface": true,
+    "default_mark": 1,
+    "default_domain_resolver": {
+      "server": "dns-1"
+    }
+  },
+  "experimental": {
+    "clash_api": {
+      "external_controller": "0.0.0.0:9090",
+      "external_ui": "./path-1",
+      "secret": "",
+      "default_mode": "rule"
+    },
+    "cache_file": {
+      "enabled": true,
+      "path": "./path-2.db",
+      "cache_id": "password1",
+      "store_fakeip": true
+    }
+  }
+}

@@ -1,0 +1,885 @@
+{
+  "log": {
+    "level": "debug",
+    "output": "./path-17",
+    "timestamp": true
+  },
+  "experimental": {
+    "cache_file": {
+      "enabled": true,
+      "path": "./path-18.db"
+    },
+    "clash_api": {
+      "external_controller": "[::]:9090",
+      "access_control_allow_origin": [
+        "http://192.0.2.7",
+        "http://h4.example.com",
+        "https://h4.example.com",
+        "http://h5.example.com",
+        "https://h6.example.com",
+        "https://h7.example.com/p8",
+        "https://h8.example.com"
+      ],
+      "access_control_allow_private_network": true
+    }
+  },
+  "dns": {
+    "servers": [
+      {
+        "tag": "dns-1",
+        "address": "192.0.2.1",
+        "detour": "Group 4"
+      },
+      {
+        "tag": "dns-2",
+        "address": "192.0.2.2",
+        "detour": "Group 1"
+      },
+      {
+        "tag": "dns-3",
+        "address": "192.0.2.3",
+        "detour": "Group 2"
+      },
+      {
+        "tag": "dns-4",
+        "address": "192.0.2.4",
+        "detour": "Group 3"
+      },
+      {
+        "tag": "dns-5",
+        "address": "192.0.2.5",
+        "detour": "Group 5"
+      },
+      {
+        "tag": "dns-6",
+        "address": "192.0.2.6",
+        "detour": "Group 7"
+      },
+      {
+        "tag": "dns-7",
+        "address": "192.0.2.2",
+        "detour": "Proxy 10"
+      },
+      {
+        "tag": "dns-8",
+        "address": "192.0.2.2",
+        "detour": "Proxy 1"
+      },
+      {
+        "tag": "dns-9",
+        "address": "rcode://success"
+      }
+    ],
+    "rules": [
+      {
+        "rule_set": [
+          "set-9",
+          "set-14"
+        ],
+        "server": "dns-9",
+        "disable_cache": true
+      },
+      {
+        "server": "dns-9",
+        "type": "logical",
+        "mode": "and",
+        "rules": [
+          {
+            "network": "udp"
+          },
+          {
+            "port": 443
+          }
+        ]
+      },
+      {
+        "domain_suffix": [
+          ".d1.example"
+        ],
+        "server": "dns-8"
+      },
+      {
+        "rule_set": [
+          "set-8"
+        ],
+        "server": "dns-9",
+        "disable_cache": true
+      },
+      {
+        "outbound": "Group 4",
+        "server": "dns-1"
+      },
+      {
+        "outbound": "Group 2",
+        "server": "dns-3"
+      },
+      {
+        "outbound": "Group 3",
+        "server": "dns-4"
+      },
+      {
+        "outbound": "Proxy 10",
+        "server": "dns-7"
+      },
+      {
+        "outbound": "Group 5",
+        "server": "dns-5"
+      },
+      {
+        "rule_set": [
+          "set-17"
+        ],
+        "server": "dns-2"
+      },
+      {
+        "rule_set": [
+          "set-1"
+        ],
+        "server": "dns-5"
+      },
+      {
+        "rule_set": [
+          "set-2"
+        ],
+        "server": "dns-2"
+      },
+      {
+        "rule_set": [
+          "set-3"
+        ],
+        "server": "dns-5"
+      },
+      {
+        "port": [
+          3478,
+          4244,
+          5222,
+          5223,
+          5242,
+          45395,
+          50318,
+          59234
+        ],
+        "rule_set": [
+          "set-4"
+        ],
+        "server": "dns-5"
+      },
+      {
+        "rule_set": [
+          "set-6",
+          "set-5"
+        ],
+        "server": "dns-5"
+      },
+      {
+        "type": "logical",
+        "mode": "and",
+        "rules": [
+          {
+            "rule_set": [
+              "set-7",
+              "set-15"
+            ]
+          },
+          {
+            "rule_set": [
+              "set-16"
+            ]
+          }
+        ],
+        "server": "dns-5"
+      },
+      {
+        "outbound": "Group 1",
+        "rule_set": [
+          "set-10"
+        ],
+        "server": "dns-2"
+      },
+      {
+        "outbound": "Group 7",
+        "server": "dns-6"
+      },
+      {
+        "query_type": [
+          "A",
+          "AAAA",
+          "CNAME",
+          "MX",
+          "NS",
+          "SOA",
+          "OPT",
+          "HTTPS",
+          "SVCB"
+        ],
+        "invert": true,
+        "server": "dns-6"
+      },
+      {
+        "outbound": "Group 1",
+        "server": "dns-2"
+      },
+      {
+        "outbound": "any",
+        "server": "dns-8"
+      },
+      {
+        "query_type": [
+          "A",
+          "AAAA",
+          "CNAME",
+          "MX",
+          "NS",
+          "SOA",
+          "OPT",
+          "HTTPS",
+          "SVCB"
+        ],
+        "server": "dns-2"
+      }
+    ],
+    "final": "dns-2",
+    "strategy": "prefer_ipv4",
+    "reverse_mapping": true,
+    "independent_cache": true
+  },
+  "inbounds": [
+    {
+      "listen": "::",
+      "listen_port": 5353,
+      "override_address": "192.0.2.5",
+      "override_port": 53,
+      "tag": "in-1",
+      "type": "direct"
+    },
+    {
+      "listen": "::",
+      "listen_port": 5454,
+      "override_address": "192.0.2.2",
+      "override_port": 53,
+      "tag": "in-2",
+      "type": "direct"
+    },
+    {
+      "listen": "::",
+      "listen_port": 5656,
+      "override_address": "192.0.2.1",
+      "override_port": 53,
+      "tag": "in-3",
+      "type": "direct"
+    },
+    {
+      "listen": "::",
+      "listen_port": 5757,
+      "override_address": "192.0.2.6",
+      "override_port": 53,
+      "tag": "in-4",
+      "type": "direct"
+    },
+    {
+      "type": "mixed",
+      "tag": "in-5",
+      "listen": "::",
+      "listen_port": 10808,
+      "udp_fragment": true,
+      "domain_strategy": "prefer_ipv4",
+      "sniff": true,
+      "sniff_override_destination": true
+    },
+    {
+      "type": "tproxy",
+      "tag": "in-6",
+      "listen": "::",
+      "listen_port": 10105,
+      "udp_fragment": true,
+      "domain_strategy": "prefer_ipv4",
+      "sniff": true,
+      "sniff_override_destination": true
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "direct",
+      "tag": "Proxy 1"
+    },
+    {
+      "type": "block",
+      "tag": "Proxy 2"
+    },
+    {
+      "type": "dns",
+      "tag": "Proxy 3"
+    },
+    {
+      "type": "selector",
+      "tag": "Group 1",
+      "outbounds": [
+        "Group 3",
+        "Group 2",
+        "Group 4",
+        "Group 5",
+        "Proxy 4",
+        "Proxy 5",
+        "Proxy 6",
+        "Proxy 7",
+        "Proxy 8",
+        "Proxy 9"
+      ],
+      "default": "Group 4",
+      "interrupt_exist_connections": true
+    },
+    {
+      "type": "urltest",
+      "tag": "Group 2",
+      "outbounds": [
+        "Proxy 4",
+        "Proxy 5",
+        "Proxy 6"
+      ],
+      "url": "https://h1.example.com/generate_204",
+      "interval": "1m"
+    },
+    {
+      "type": "urltest",
+      "tag": "Group 3",
+      "outbounds": [
+        "Proxy 7",
+        "Proxy 8",
+        "Proxy 9"
+      ],
+      "url": "https://h2.example.com/generate_204",
+      "interval": "1m"
+    },
+    {
+      "type": "urltest",
+      "tag": "Group 4",
+      "outbounds": [
+        "Proxy 4",
+        "Proxy 5",
+        "Proxy 6",
+        "Proxy 7",
+        "Proxy 8",
+        "Proxy 9"
+      ],
+      "url": "https://h3.example.com/p1.txt",
+      "interval": "1m"
+    },
+    {
+      "type": "selector",
+      "tag": "Group 5",
+      "outbounds": [
+        "Group 2",
+        "Group 3",
+        "Group 4",
+        "Proxy 4",
+        "Proxy 5",
+        "Proxy 6"
+      ],
+      "default": "Group 2",
+      "interrupt_exist_connections": true
+    },
+    {
+      "type": "selector",
+      "tag": "Group 6",
+      "outbounds": [
+        "Group 5",
+        "Group 2",
+        "Group 3",
+        "Group 4",
+        "Group 1"
+      ],
+      "interrupt_exist_connections": true
+    },
+    {
+      "type": "selector",
+      "tag": "Group 7",
+      "outbounds": [
+        "Group 4",
+        "Group 2",
+        "Group 3",
+        "Proxy 4",
+        "Proxy 5",
+        "Proxy 6",
+        "Proxy 7",
+        "Proxy 8",
+        "Proxy 9"
+      ],
+      "default": "Group 4",
+      "interrupt_exist_connections": true
+    },
+    {
+      "type": "selector",
+      "tag": "Group 8",
+      "outbounds": [
+        "Proxy 2",
+        "Group 1"
+      ],
+      "interrupt_exist_connections": true
+    },
+    {
+      "type": "selector",
+      "tag": "Group 9",
+      "outbounds": [
+        "Proxy 2",
+        "Group 1"
+      ],
+      "interrupt_exist_connections": true
+    },
+    {
+      "type": "trojan",
+      "tag": "Proxy 4",
+      "routing_mark": 666,
+      "detour": "Proxy 1",
+      "domain_strategy": "prefer_ipv6",
+      "fallback_delay": "200ms",
+      "server": "str1",
+      "server_port": 443,
+      "password": "password1",
+      "tls": {
+        "enabled": true,
+        "server_name": "str2",
+        "insecure": true,
+        "utls": {
+          "fingerprint": "chrome"
+        }
+      },
+      "multiplex": {
+        "enabled": true,
+        "protocol": "smux",
+        "max_streams": 32
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p2",
+        "headers": {
+          "Host": "str2"
+        }
+      }
+    },
+    {
+      "type": "vmess",
+      "tag": "Proxy 5",
+      "routing_mark": 666,
+      "detour": "Proxy 1",
+      "domain_strategy": "prefer_ipv6",
+      "fallback_delay": "200ms",
+      "server": "str1",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000001",
+      "security": "auto",
+      "authenticated_length": true,
+      "tls": {
+        "enabled": true,
+        "server_name": "str2",
+        "insecure": true,
+        "utls": {
+          "fingerprint": "chrome"
+        }
+      },
+      "multiplex": {
+        "enabled": true,
+        "protocol": "smux",
+        "max_streams": 32
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p3",
+        "headers": {
+          "Host": "str2"
+        }
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 6",
+      "routing_mark": 666,
+      "detour": "Proxy 1",
+      "domain_strategy": "prefer_ipv6",
+      "fallback_delay": "200ms",
+      "server": "str1",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000001",
+      "tls": {
+        "enabled": true,
+        "server_name": "str2",
+        "insecure": true,
+        "utls": {
+          "fingerprint": "chrome"
+        }
+      },
+      "multiplex": {
+        "enabled": true,
+        "protocol": "smux",
+        "max_streams": 32
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p4",
+        "headers": {
+          "Host": "str2"
+        }
+      },
+      "packet_encoding": "xudp"
+    },
+    {
+      "type": "trojan",
+      "tag": "Proxy 7",
+      "routing_mark": 666,
+      "detour": "Proxy 1",
+      "domain_strategy": "prefer_ipv6",
+      "fallback_delay": "200ms",
+      "server": "str1",
+      "server_port": 443,
+      "password": "password1",
+      "tls": {
+        "enabled": true,
+        "server_name": "str2",
+        "insecure": true,
+        "utls": {
+          "fingerprint": "chrome"
+        }
+      },
+      "multiplex": {
+        "enabled": true,
+        "protocol": "smux",
+        "max_streams": 32
+      },
+      "transport": {
+        "type": "httpupgrade",
+        "host": "str2",
+        "path": "/p5",
+        "headers": {
+          "Host": "str2"
+        }
+      }
+    },
+    {
+      "type": "vmess",
+      "tag": "Proxy 8",
+      "routing_mark": 666,
+      "detour": "Proxy 1",
+      "domain_strategy": "prefer_ipv6",
+      "fallback_delay": "200ms",
+      "server": "str1",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000001",
+      "security": "auto",
+      "authenticated_length": true,
+      "tls": {
+        "enabled": true,
+        "server_name": "str2",
+        "insecure": true,
+        "utls": {
+          "fingerprint": "chrome"
+        }
+      },
+      "multiplex": {
+        "enabled": true,
+        "protocol": "smux",
+        "max_streams": 32
+      },
+      "transport": {
+        "type": "httpupgrade",
+        "host": "str2",
+        "path": "/p6",
+        "headers": {
+          "Host": "str2"
+        }
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 9",
+      "routing_mark": 666,
+      "detour": "Proxy 1",
+      "domain_strategy": "prefer_ipv6",
+      "fallback_delay": "200ms",
+      "server": "str1",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000001",
+      "tls": {
+        "enabled": true,
+        "server_name": "str2",
+        "insecure": true,
+        "utls": {
+          "fingerprint": "chrome"
+        }
+      },
+      "multiplex": {
+        "enabled": true,
+        "protocol": "smux",
+        "max_streams": 32
+      },
+      "transport": {
+        "type": "httpupgrade",
+        "host": "str2",
+        "path": "/p7",
+        "headers": {
+          "Host": "str2"
+        }
+      },
+      "packet_encoding": "xudp"
+    }
+  ],
+  "route": {
+    "rules": [
+      {
+        "type": "logical",
+        "mode": "and",
+        "rules": [
+          {
+            "inbound": [
+              "in-6",
+              "in-5"
+            ]
+          },
+          {
+            "port": [
+              53
+            ]
+          }
+        ],
+        "outbound": "Proxy 3"
+      },
+      {
+        "inbound": [
+          "in-1",
+          "in-2",
+          "in-3",
+          "in-4"
+        ],
+        "outbound": "Proxy 3"
+      },
+      {
+        "protocol": "dns",
+        "outbound": "Proxy 3"
+      },
+      {
+        "outbound": "Proxy 2",
+        "type": "logical",
+        "mode": "or",
+        "rules": [
+          {
+            "port": [
+              853
+            ]
+          },
+          {
+            "network": "udp",
+            "port": 443
+          }
+        ]
+      },
+      {
+        "port": 22,
+        "outbound": "Group 6"
+      },
+      {
+        "rule_set": [
+          "set-9",
+          "set-14"
+        ],
+        "outbound": "Proxy 2"
+      },
+      {
+        "rule_set": [
+          "set-8"
+        ],
+        "outbound": "Proxy 2"
+      },
+      {
+        "rule_set": [
+          "set-10"
+        ],
+        "outbound": "Group 1"
+      },
+      {
+        "rule_set": [
+          "set-11"
+        ],
+        "outbound": "Group 8"
+      },
+      {
+        "rule_set": [
+          "set-13",
+          "set-12"
+        ],
+        "outbound": "Group 9"
+      },
+      {
+        "rule_set": [
+          "set-17"
+        ],
+        "outbound": "Group 1"
+      },
+      {
+        "rule_set": [
+          "set-1"
+        ],
+        "outbound": "Group 5"
+      },
+      {
+        "rule_set": [
+          "set-2"
+        ],
+        "outbound": "Group 1"
+      },
+      {
+        "rule_set": [
+          "set-3"
+        ],
+        "outbound": "Group 5"
+      },
+      {
+        "port": [
+          3478,
+          4244,
+          5222,
+          5223,
+          5242,
+          45395,
+          50318,
+          59234
+        ],
+        "rule_set": [
+          "set-4"
+        ],
+        "outbound": "Group 5"
+      },
+      {
+        "rule_set": [
+          "set-6",
+          "set-5"
+        ],
+        "outbound": "Group 5"
+      },
+      {
+        "type": "logical",
+        "mode": "and",
+        "rules": [
+          {
+            "rule_set": [
+              "set-7",
+              "set-15"
+            ]
+          },
+          {
+            "rule_set": [
+              "set-16"
+            ]
+          }
+        ],
+        "outbound": "Group 5"
+      },
+      {
+        "rule_set": [
+          "set-16"
+        ],
+        "invert": true,
+        "outbound": "Group 7"
+      }
+    ],
+    "rule_set": [
+      {
+        "type": "local",
+        "tag": "set-1",
+        "format": "binary",
+        "path": "./path-1.srs"
+      },
+      {
+        "type": "local",
+        "tag": "set-2",
+        "format": "binary",
+        "path": "./path-2.srs"
+      },
+      {
+        "type": "local",
+        "tag": "set-3",
+        "format": "binary",
+        "path": "./path-3.srs"
+      },
+      {
+        "type": "local",
+        "tag": "set-4",
+        "format": "binary",
+        "path": "./path-4.srs"
+      },
+      {
+        "type": "local",
+        "tag": "set-5",
+        "format": "binary",
+        "path": "./path-5.srs"
+      },
+      {
+        "type": "local",
+        "tag": "set-6",
+        "format": "binary",
+        "path": "./path-6.srs"
+      },
+      {
+        "type": "local",
+        "tag": "set-7",
+        "format": "binary",
+        "path": "./path-7.srs"
+      },
+      {
+        "type": "local",
+        "tag": "set-8",
+        "format": "binary",
+        "path": "./path-8.srs"
+      },
+      {
+        "type": "local",
+        "tag": "set-9",
+        "format": "binary",
+        "path": "./path-9.srs"
+      },
+      {
+        "type": "local",
+        "tag": "set-10",
+        "format": "binary",
+        "path": "./path-10.srs"
+      },
+      {
+        "type": "local",
+        "tag": "set-11",
+        "format": "binary",
+        "path": "./path-11.srs"
+      },
+      {
+        "type": "local",
+        "tag": "set-12",
+        "format": "binary",
+        "path": "./path-12.srs"
+      },
+      {
+        "type": "local",
+        "tag": "set-13",
+        "format": "binary",
+        "path": "./path-13.srs"
+      },
+      {
+        "type": "local",
+        "tag": "set-14",
+        "format": "binary",
+        "path": "./path-14.srs"
+      },
+      {
+        "type": "remote",
+        "tag": "set-15",
+        "format": "binary",
+        "path": "./path-15.srs"
+      },
+      {
+        "type": "local",
+        "tag": "set-16",
+        "format": "source",
+        "path": "./path-16.json"
+      }
+    ],
+    "auto_detect_interface": true,
+    "final": "Group 1",
+    "default_mark": 666
+  }
+}

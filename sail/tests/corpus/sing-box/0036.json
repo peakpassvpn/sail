@@ -1,0 +1,212 @@
+{
+  "dns": {
+    "final": "dns-1",
+    "rules": [
+      {
+        "domain_suffix": [
+          ".d1.example"
+        ],
+        "server": "dns-3"
+      },
+      {
+        "domain_suffix": [
+          ".d2.example",
+          ".d3.example",
+          ".d4.example",
+          ".d5.example",
+          ".d6.example",
+          ".d7.example",
+          ".d8.example"
+        ],
+        "server": "dns-4"
+      },
+      {
+        "rule_set": [
+          "set-2"
+        ],
+        "server": "dns-4"
+      }
+    ],
+    "servers": [
+      {
+        "detour": "Group 1",
+        "server": "192.0.2.1",
+        "tag": "dns-1",
+        "type": "udp"
+      },
+      {
+        "connect_timeout": "5s",
+        "server": "192.0.2.1",
+        "tag": "dns-2",
+        "type": "https"
+      },
+      {
+        "endpoint": "str1",
+        "tag": "dns-3",
+        "type": "tailscale"
+      },
+      {
+        "domain_resolver": "dns-2",
+        "server": "s9.example.net",
+        "tag": "dns-4",
+        "type": "https"
+      }
+    ]
+  },
+  "endpoints": [
+    {
+      "accept_routes": true,
+      "auth_key": "password1",
+      "hostname": "str2",
+      "state_directory": "./path-1",
+      "tag": "Proxy 6",
+      "type": "tailscale"
+    }
+  ],
+  "experimental": {
+    "cache_file": {
+      "enabled": true
+    },
+    "clash_api": {
+      "external_controller": "127.0.0.1:9090",
+      "external_ui": "./path-2"
+    }
+  },
+  "inbounds": [
+    {
+      "address": [
+        "192.0.2.1/30"
+      ],
+      "auto_route": true,
+      "mtu": 1280,
+      "route_exclude_address": [
+        "str3",
+        "str4",
+        "str5"
+      ],
+      "stack": "gvisor",
+      "strict_route": false,
+      "tag": "in-1",
+      "type": "tun"
+    }
+  ],
+  "log": {
+    "level": "info",
+    "timestamp": true
+  },
+  "outbounds": [
+    {
+      "interrupt_exist_connections": true,
+      "interval": "30s",
+      "outbounds": [
+        "Proxy 1",
+        "Proxy 2",
+        "Proxy 3"
+      ],
+      "tag": "Group 1",
+      "tolerance": 50,
+      "type": "urltest",
+      "url": "https://h1.example.com/generate_204"
+    },
+    {
+      "connect_timeout": "10s",
+      "server": "127.0.0.1",
+      "server_port": 1080,
+      "tag": "Proxy 1",
+      "type": "socks"
+    },
+    {
+      "connect_timeout": "10s",
+      "server": "127.0.0.1",
+      "server_port": 1081,
+      "tag": "Proxy 2",
+      "type": "socks"
+    },
+    {
+      "connect_timeout": "10s",
+      "server": "127.0.0.1",
+      "server_port": 1082,
+      "tag": "Proxy 3",
+      "type": "socks"
+    },
+    {
+      "tag": "Proxy 4",
+      "type": "direct"
+    },
+    {
+      "tag": "Proxy 5",
+      "type": "block"
+    }
+  ],
+  "route": {
+    "auto_detect_interface": true,
+    "default_domain_resolver": "dns-2",
+    "final": "Group 1",
+    "rule_set": [
+      {
+        "download_detour": "Proxy 4",
+        "format": "binary",
+        "tag": "set-1",
+        "type": "remote",
+        "url": "https://h2.example.com/p1.srs"
+      },
+      {
+        "download_detour": "Proxy 4",
+        "format": "binary",
+        "tag": "set-2",
+        "type": "remote",
+        "url": "https://h2.example.com/p2.srs"
+      }
+    ],
+    "rules": [
+      {
+        "action": "sniff"
+      },
+      {
+        "action": "hijack-dns",
+        "protocol": "dns"
+      },
+      {
+        "outbound": "Proxy 6",
+        "preferred_by": [
+          "str1"
+        ]
+      },
+      {
+        "ip_cidr": [
+          "10.0.0.0/8",
+          "172.16.0.0/12"
+        ],
+        "outbound": "Proxy 6"
+      },
+      {
+        "ip_is_private": true,
+        "outbound": "Proxy 4"
+      },
+      {
+        "domain_suffix": [
+          ".d2.example",
+          ".d3.example",
+          ".d4.example",
+          ".d5.example",
+          ".d6.example",
+          ".d7.example",
+          ".d8.example"
+        ],
+        "outbound": "Proxy 4"
+      },
+      {
+        "outbound": "Proxy 4",
+        "rule_set": [
+          "set-2"
+        ]
+      },
+      {
+        "outbound": "Proxy 4",
+        "rule_set": [
+          "set-1"
+        ]
+      }
+    ]
+  }
+}

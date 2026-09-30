@@ -1,0 +1,267 @@
+mode: rule
+log-level: info
+dns:
+  nameserver: [192.0.2.1, 192.0.2.2]
+  fake-ip-filter: [+.d1.example, '*', +.d2.example, +.d3.example, d4.example, d5.example, d6.example, d7.example, d8.example, +.d9.example]
+subscribe-url:
+proxies:
+  - cipher: aes-256-gcm
+    name: Proxy 1
+    password: "password1"
+    port: 61199
+    server: 192.0.2.3
+    type: ss
+  - type: vless
+    name: "Proxy 2"
+    server: 192.0.2.4
+    port: 7379
+    uuid: 00005a11-0000-4000-8000-000000000001
+    udp: true
+    tls: true
+    flow: xtls-rprx-vision
+    client-fingerprint: chrome
+    skip-cert-verify: false
+    reality-opts:
+      public-key: wywOQgzCr2vr85JpoMxzCakHIIvgUtsG6_Qp987NJa4
+      short-id: 704c7085dd7b3f73
+    network: tcp
+    encryption: none
+    servername: sni10.example.org
+proxy-groups:
+  - {name: Group 1, icon: 'https://h1.example.com/p1.png', type: select, proxies: [Group 14, Group 15, Group 16, Group 17, Group 18, Group 19, DIRECT]}
+  - icon: https://h1.example.com/p2.png
+    include-all: true
+    name: Group 2
+    type: select
+  - {name: Group 3, icon: 'https://h1.example.com/p3.png', type: select, include-all: null, proxies: [Group 14, Group 15, Group 16, Group 17, Group 18, Group 19, DIRECT]}
+  - icon: https://h1.example.com/p4.png
+    name: Group 4
+    proxies:
+      - Group 14
+      - Group 15
+      - Group 16
+      - Group 17
+      - Group 18
+      - Group 19
+      - DIRECT
+    type: select
+  - {name: Group 5, icon: 'https://h1.example.com/p5.png', type: select, proxies: [Group 14, Group 15, Group 16, Group 17, Group 18, Group 19, DIRECT]}
+  - name: Group 6
+    proxies:
+      - Group 14
+      - Group 15
+      - Group 16
+      - Group 17
+      - Group 18
+      - Group 19
+      - DIRECT
+    type: select
+    icon: https://h1.example.com/p6.png
+  - icon: https://h1.example.com/p7.png
+    name: Group 7
+    proxies:
+      - Group 14
+      - Group 15
+      - Group 16
+      - Group 17
+      - Group 18
+      - Group 19
+      - DIRECT
+    type: select
+  - icon: https://h1.example.com/p8.png
+    name: Group 8
+    proxies:
+      - Group 14
+      - Group 15
+      - Group 16
+      - Group 17
+      - Group 18
+      - Group 19
+      - DIRECT
+    type: select
+  - icon: https://h1.example.com/p9.png
+    name: Group 9
+    proxies:
+      - Group 14
+      - Group 15
+      - Group 16
+      - Group 17
+      - Group 18
+      - Group 19
+      - DIRECT
+    type: select
+  - {name: Group 10, icon: 'https://h1.example.com/p10.png', type: select, proxies: [Group 14, Group 15, Group 16, Group 17, Group 18, Group 19, DIRECT]}
+  - icon: https://h1.example.com/p11.png
+    include-all:
+    name: Group 11
+    proxies:
+      - Group 14
+      - Group 15
+      - Group 16
+      - Group 17
+      - Group 18
+      - Group 19
+      - DIRECT
+    type: select
+  - icon: https://h1.example.com/p12.png
+    name: Group 12
+    proxies:
+      - Group 14
+      - Group 15
+      - Group 16
+      - Group 17
+      - Group 18
+      - Group 19
+      - DIRECT
+    type: select
+  - {name: Group 13, icon: 'https://h1.example.com/p13.png', type: select, proxies: [Group 14, Group 15, Group 16, Group 17, Group 18, Group 19, DIRECT]}
+  - {name: Group 14, icon: 'https://h1.example.com/p14.png', type: url-test, interval: 300, include-all: true, filter: "Proxy [0-9]+|Group 1"}
+  - {name: Group 15, icon: 'https://h1.example.com/p15.png', type: url-test, interval: 300, include-all: true, filter: "Proxy [0-9]+|Group 2"}
+  - {name: Group 16, icon: 'https://h1.example.com/p16.png', type: url-test, interval: 300, include-all: true, filter: "Proxy [0-9]+|Group 3"}
+  - filter: Proxy [0-9]+|Group 4
+    icon: https://h1.example.com/p17.png
+    include-all: true
+    name: Group 17
+    type: url-test
+  - {name: Group 18, icon: 'https://h1.example.com/p18.png', type: url-test, interval: 300, include-all: true, filter: "Proxy [0-9]+|Group 5"}
+  - {name: Group 19, icon: 'https://h1.example.com/p19.png', type: url-test, interval: 300, include-all: true, filter: "Proxy [0-9]+|Group 6"}
+rule-providers:
+  set-1: {behavior: classical, format: text, interval: 86400, url: 'https://h2.example.com/p20.list'}
+  set-2: {behavior: classical, format: text, interval: 86400, url: 'https://h2.example.com/p21.list'}
+  set-3: {behavior: classical, format: text, interval: 86400, url: 'https://h2.example.com/p22.list'}
+  set-4: {behavior: classical, format: text, interval: 86400, url: 'https://h2.example.com/p23.list'}
+  set-5: {behavior: classical, format: text, interval: 86400, url: 'https://h2.example.com/p24.list'}
+  set-6: {behavior: classical, format: text, interval: 86400, url: 'https://h2.example.com/p25.list'}
+  set-7: {behavior: classical, format: text, interval: 86400, url: 'https://h2.example.com/p26.list'}
+  set-8: {behavior: classical, format: text, interval: 86400, url: 'https://h2.example.com/p27.list'}
+  set-9: {behavior: classical, format: yaml, interval: 86400, url: 'https://h1.example.com/p28.yaml'}
+  set-10: {behavior: classical, format: text, interval: 86400, url: 'https://h2.example.com/p29.list'}
+  set-11: {behavior: classical, format: text, interval: 86400, url: 'https://h2.example.com/p30.list'}
+  set-12:
+    behavior: "domain"
+    interval: 86400
+    url: https://h1.example.com/p31.list
+    format: text
+  set-13:
+    behavior: classical
+    interval: 86400
+    url: https://h2.example.com/p32.list
+    format: text
+  set-14:
+    behavior: classical
+    format: text
+    interval: 86400
+    url: https://h2.example.com/p33.yaml
+  set-15:
+    behavior: classical
+    format: yaml
+    interval: 86400
+    url: https://h2.example.com/p34.yaml
+  set-16:
+    behavior: classical
+    format: yaml
+    interval: 86400
+    url: https://h2.example.com/p35.yaml
+  set-17:
+    behavior: classical
+    format: yaml
+    interval: 86400
+    url: https://h2.example.com/p36.yaml
+  set-18:
+    behavior: classical
+    format: yaml
+    interval: 86400
+    url: https://h2.example.com/p37.yaml
+  set-19:
+    behavior: classical
+    format: yaml
+    interval: 86400
+    url: https://h2.example.com/p38.yaml
+  set-20:
+    behavior: classical
+    format: yaml
+    interval: 86400
+    url: https://h2.example.com/p39.yaml
+  set-21:
+    behavior: classical
+    format: text
+    interval: 0
+    url: https://h2.example.com/p40.list
+  set-22:
+    behavior: classical
+    format: text
+    interval: 86400
+    url: https://h2.example.com/p41.list
+  set-23:
+    behavior: classical
+    format: text
+    interval: 86400
+    url: https://h2.example.com/p42.list
+  set-24:
+    behavior: classical
+    format: text
+    interval: 86400
+    url: https://h2.example.com/p43.list
+  set-25:
+    behavior: classical
+    format: text
+    interval: 86400
+    url: https://h2.example.com/p44.list
+  set-26:
+    behavior: classical
+    format: text
+    interval: 86400
+    url: https://h2.example.com/p45.list
+  set-27:
+    behavior: classical
+    format: text
+    interval: 86400
+    url: https://h2.example.com/p46.list
+  set-28:
+    behavior: classical
+    format: text
+    interval: 86400
+    url: https://h2.example.com/p47.list
+  set-29:
+    behavior: classical
+    format: text
+    interval: 86400
+    url: https://h2.example.com/p48.list
+  set-30:
+    behavior: classical
+    format: text
+    interval: 86400
+    url: https://h2.example.com/p49.list
+rules:
+  - DOMAIN,d11.example,Group 4
+  - RULE-SET,set-14,Group 6
+  - RULE-SET,set-29,Group 11
+  - RULE-SET,set-28,Group 11
+  - RULE-SET,set-27,Group 4
+  - RULE-SET,set-18,Group 4
+  - RULE-SET,set-20,Group 4
+  - RULE-SET,set-19,Group 4
+  - RULE-SET,set-25,Group 4
+  - RULE-SET,set-24,Group 11
+  - RULE-SET,set-4,Group 11
+  - RULE-SET,set-22,Group 11
+  - RULE-SET,set-21,Group 11
+  - RULE-SET,set-23,Group 11
+  - RULE-SET,set-3,Group 11
+  - RULE-SET,set-8,Group 10
+  - RULE-SET,set-16,Group 10
+  - RULE-SET,set-17,Group 8
+  - RULE-SET,set-11,Group 9
+  - RULE-SET,set-15,Group 7
+  - RULE-SET,set-13,Group 6
+  - RULE-SET,set-5,Group 13
+  - RULE-SET,set-6,Group 13
+  - RULE-SET,set-7,Group 5
+  - DOMAIN,d12.example,DIRECT
+  - RULE-SET,set-30,Group 3
+  - RULE-SET,set-9,Group 3
+  - RULE-SET,set-1,DIRECT
+  - RULE-SET,set-2,REJECT
+  - GEOIP,CN,DIRECT
+  - MATCH,Group 1
+proxy-providers: {provider-1: {benchmark-timeout: 5, benchmark-url: 'http://192.0.2.5/generate_204', interval: 21600, url: "str1"}}

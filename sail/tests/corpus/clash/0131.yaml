@@ -1,0 +1,163 @@
+anchor-1: &a2 {type: select, proxies: [Group 1, Group 21, Group 22, Group 23, Group 25, Group 24, Group 26, Group 27, Group 28, DIRECT]}
+anchor-2: &a1
+  type: http
+  interval: 3600
+  health-check:
+    enable: true
+    url: https://h1.example.com
+    interval: 300
+    timeout: 1000
+    tolerance: 100
+anchor-3: &a3
+  type: url-test
+  use:
+    - provider-1
+    - provider-2
+proxy-providers:
+  provider-1:
+    <<: *a1
+    url: "https://h2.example.com/p1?type=clashmeta&protocol=v1&rule=v2"
+  provider-2:
+    <<: *a1
+    url: "https://h2.example.com/p2?token=v3"
+rule-providers:
+  set-1:
+    type: http
+    behavior: domain
+    format: yaml
+    path: ./path-1.yaml
+    url: "https://h3.example.com/p3.yaml"
+    interval: 600
+  set-2:
+    type: http
+    behavior: domain
+    format: yaml
+    path: ./path-2.yaml
+    url: "https://h3.example.com/p4.yaml"
+    interval: 600
+mode: rule
+ipv6: true
+log-level: info
+allow-lan: true
+mixed-port: 7890
+unified-delay: true
+tcp-concurrent: true
+external-controller: :9090
+geodata-mode: true
+geox-url:
+  geoip: "https://h6.example.com/p5.dat"
+  geosite: "https://h6.example.com/p6.dat"
+  mmdb: "https://h6.example.com/p7.mmdb"
+find-process-mode: strict
+keep-alive-interval: 1800
+global-client-fingerprint: random
+profile:
+  store-selected: true
+  store-fake-ip: true
+ntp:
+  enable: true
+  write-to-system: false
+  server: s3.example.net
+  port: 123
+  interval: 30
+sniffer:
+  enable: true
+  sniff:
+    TLS:
+      ports: [443, 8443]
+    HTTP:
+      ports: [80, 8080-8880]
+      override-destination: true
+tun:
+  enable: false
+  stack: system
+  dns-hijack:
+    - "any:53"
+    - "tcp://any:53"
+  auto-route: true
+  auto-detect-interface: true
+dns:
+  enable: true
+  listen: :1053
+  ipv6: true
+  enhanced-mode: redir-host
+  fake-ip-range: 28.0.0.1/8
+  fake-ip-filter:
+    - '*'
+    - '+.d1.example'
+    - '+.d2.example'
+  default-nameserver:
+    - 192.0.2.1
+    - 192.0.2.2
+    - 192.0.2.3
+    - 'str1'
+    - 'str2'
+  nameserver:
+    - 'tls://192.0.2.4#Group 2'
+    - 'tls://192.0.2.5#Group 2'
+    - 'tls://[2001:db8::1]#Group 2'
+    - 'tls://[2001:db8::2]#Group 2'
+  proxy-server-nameserver:
+    - https://h4.example.com/dns-query
+  nameserver-policy:
+    "geosite:cn,private":
+      - https://h4.example.com/dns-query
+      - https://h5.example.com/dns-query
+proxies:
+proxy-groups:
+  - {name: Group 1, type: select, proxies: [Group 27, Group 28, Group 21, Group 22, Group 23, Group 25, Group 24, Group 26, DIRECT]}
+  - {name: Group 2, <<: *a2}
+  - {name: Group 3, type: select, proxies: [REJECT, DIRECT, Group 1]}
+  - {name: Group 4, <<: *a2}
+  - {name: Group 5, <<: *a2}
+  - {name: Group 6, <<: *a2}
+  - {name: Group 7, <<: *a2}
+  - {name: Group 8, <<: *a2}
+  - {name: Group 9, <<: *a2}
+  - {name: Group 10, <<: *a2}
+  - {name: Group 11, <<: *a2}
+  - {name: Group 12, <<: *a2}
+  - {name: Group 13, <<: *a2}
+  - {name: Group 14, <<: *a2}
+  - {name: Group 15, <<: *a2}
+  - {name: Group 16, <<: *a2}
+  - {name: Group 17, <<: *a2}
+  - {name: Group 18, <<: *a2}
+  - {name: Group 19, type: select, proxies: [DIRECT, Group 1, Group 21, Group 22, Group 23, Group 25, Group 24, Group 26, Group 27, Group 28]}
+  - {name: Group 20, <<: *a2}
+  - {name: Group 21, <<: *a3, filter: "Proxy [0-9]+|Group 1"}
+  - {name: Group 22, <<: *a3, filter: "Proxy [0-9]+|Group 2"}
+  - {name: Group 23, <<: *a3, filter: "Proxy [0-9]+|Group 3"}
+  - {name: Group 24, <<: *a3, filter: "Proxy [0-9]+|Group 4"}
+  - {name: Group 25, <<: *a3, filter: "Proxy [0-9]+|Group 5"}
+  - {name: Group 26, <<: *a3, filter: "Proxy [0-9]+|Group 6"}
+  - {name: Group 27, <<: *a3}
+  - {name: Group 28, <<: *a3, tolerance: 2, type: url-test}
+rules:
+  - AND,((RULE-SET,set-1),(NOT,((RULE-SET,set-2)))),Group 3
+  - GEOSITE,openai,Group 4
+  - GEOSITE,apple,Group 5
+  - GEOSITE,apple-cn,Group 5
+  - GEOSITE,ehentai,Group 10
+  - GEOSITE,github,Group 15
+  - GEOSITE,twitter,Group 8
+  - GEOSITE,youtube,Group 12
+  - GEOSITE,google,Group 6
+  - GEOSITE,google-cn,Group 6
+  - GEOSITE,telegram,Group 7
+  - GEOSITE,netflix,Group 13
+  - GEOSITE,bahamut,Group 11
+  - GEOSITE,spotify,Group 14
+  - GEOSITE,pixiv,Group 9
+  - GEOSITE,steam@cn,DIRECT
+  - GEOSITE,steam,Group 16
+  - GEOSITE,onedrive,Group 17
+  - GEOSITE,microsoft,Group 18
+  - GEOSITE,geolocation-!cn,Group 20
+  - GEOIP,google,Group 6
+  - GEOIP,netflix,Group 13
+  - GEOIP,telegram,Group 7
+  - GEOIP,twitter,Group 8
+  - GEOSITE,CN,Group 19
+  - GEOIP,CN,Group 19
+  - MATCH,Group 20

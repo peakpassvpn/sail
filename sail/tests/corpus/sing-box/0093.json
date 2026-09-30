@@ -1,0 +1,34 @@
+{
+  "log": {
+    "level": "warn"
+  },
+  "inbounds": [
+    {
+      "type": "mixed",
+      "tag": "in-1",
+      "listen": "127.0.0.1",
+      "listen_port": 2105
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "trojan",
+      "tag": "Proxy 1",
+      "server": "192.0.2.1",
+      "server_port": 443,
+      "password": "password1",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni1.example.org",
+        "insecure": true
+      }
+    },
+    {
+      "type": "direct",
+      "tag": "Proxy 2"
+    }
+  ],
+  "route": {
+    "final": "Proxy 1"
+  }
+}

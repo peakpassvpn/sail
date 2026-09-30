@@ -1,0 +1,252 @@
+{
+  "dns": {
+    "final": "dns-1",
+    "independent_cache": true,
+    "rules": [
+      {
+        "action": "predefined",
+        "answer": [
+          "str1"
+        ],
+        "domain": [
+          "d1.example"
+        ],
+        "rcode": "NOERROR"
+      },
+      {
+        "action": "reject",
+        "domain": [
+          "d2.example"
+        ]
+      },
+      {
+        "rule_set": "set-1",
+        "server": "dns-1"
+      },
+      {
+        "domain": [
+          "d3.example"
+        ],
+        "server": "dns-1"
+      },
+      {
+        "query_type": [
+          "A",
+          "AAAA"
+        ],
+        "rule_set": [
+          "set-3",
+          "set-5"
+        ],
+        "server": "dns-3"
+      }
+    ],
+    "servers": [
+      {
+        "tag": "dns-1",
+        "type": "local"
+      },
+      {
+        "detour": "Proxy 2",
+        "server": "192.0.2.1",
+        "tag": "dns-2",
+        "type": "udp"
+      },
+      {
+        "inet4_range": "198.18.0.0/15",
+        "tag": "dns-3",
+        "type": "fakeip"
+      }
+    ],
+    "strategy": "ipv4_only"
+  },
+  "experimental": {
+    "cache_file": {
+      "enabled": true,
+      "path": "./path-7.db",
+      "store_fakeip": true
+    }
+  },
+  "inbounds": [
+    {
+      "address": [
+        "192.0.2.1/30"
+      ],
+      "auto_route": true,
+      "interface_name": "if1",
+      "mtu": 1500,
+      "route_exclude_address": [
+        "10.0.0.0/8",
+        "198.18.0.0/15",
+        "198.18.0.0/16",
+        "198.51.100.0/30",
+        "192.0.2.0/29",
+        "192.0.2.0/28",
+        "192.0.2.0/27",
+        "192.0.2.0/26",
+        "192.0.2.0/25",
+        "192.0.2.0/24",
+        "198.18.0.0/23",
+        "198.18.0.0/22",
+        "198.18.0.0/21",
+        "198.18.0.0/20",
+        "198.18.0.0/19",
+        "198.18.0.0/18",
+        "198.18.0.0/17",
+        "240.0.0.0/14",
+        "240.0.0.0/13",
+        "192.168.0.0/16",
+        "100.64.0.0/10",
+        "169.254.0.0/16",
+        "224.0.0.0/4"
+      ],
+      "stack": "system",
+      "strict_route": false,
+      "tag": "in-1",
+      "type": "tun"
+    },
+    {
+      "listen": "127.0.0.1",
+      "listen_port": 1081,
+      "tag": "in-2",
+      "type": "mixed"
+    }
+  ],
+  "log": {
+    "level": "info",
+    "timestamp": true
+  },
+  "outbounds": [
+    {
+      "tag": "Proxy 1",
+      "type": "direct"
+    },
+    {
+      "bind_interface": "if2",
+      "domain_resolver": {
+        "server": "dns-2",
+        "strategy": "ipv4_only"
+      },
+      "tag": "Proxy 2",
+      "type": "direct"
+    },
+    {
+      "flow": "xtls-rprx-vision",
+      "server": "s4.example.net",
+      "server_port": 443,
+      "tag": "Proxy 3",
+      "tls": {
+        "enabled": true,
+        "insecure": false,
+        "reality": {
+          "enabled": true,
+          "public_key": "wywOQgzCr2vr85JpoMxzCakHIIvgUtsG6/Qp987NJa4",
+          "short_id": "704c7085"
+        },
+        "server_name": "sni5.example.org",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "type": "vless",
+      "uuid": "00005a11-0000-4000-8000-000000000001"
+    }
+  ],
+  "route": {
+    "auto_detect_interface": true,
+    "default_domain_resolver": "dns-1",
+    "final": "Proxy 1",
+    "find_process": true,
+    "rule_set": [
+      {
+        "format": "source",
+        "path": "./path-1.json",
+        "tag": "set-1",
+        "type": "local"
+      },
+      {
+        "format": "source",
+        "path": "./path-2.json",
+        "tag": "set-2",
+        "type": "local"
+      },
+      {
+        "format": "source",
+        "path": "./path-3.json",
+        "tag": "set-3",
+        "type": "local"
+      },
+      {
+        "format": "source",
+        "path": "./path-4.json",
+        "tag": "set-4",
+        "type": "local"
+      },
+      {
+        "format": "source",
+        "path": "./path-5.json",
+        "tag": "set-5",
+        "type": "local"
+      },
+      {
+        "format": "source",
+        "path": "./path-6.json",
+        "tag": "set-6",
+        "type": "local"
+      }
+    ],
+    "rules": [
+      {
+        "action": "sniff"
+      },
+      {
+        "action": "hijack-dns",
+        "protocol": "dns"
+      },
+      {
+        "inbound": [
+          "in-2"
+        ],
+        "outbound": "Proxy 2"
+      },
+      {
+        "outbound": "Proxy 1",
+        "process_path": [
+          "/opt/app1/app1"
+        ]
+      },
+      {
+        "domain": [
+          "d3.example"
+        ],
+        "outbound": "Proxy 1"
+      },
+      {
+        "outbound": "Proxy 1",
+        "rule_set": [
+          "set-1",
+          "set-2"
+        ]
+      },
+      {
+        "outbound": "Proxy 2",
+        "rule_set": [
+          "set-3",
+          "set-4"
+        ]
+      },
+      {
+        "outbound": "Proxy 3",
+        "rule_set": [
+          "set-5",
+          "set-6"
+        ]
+      },
+      {
+        "ip_is_private": true,
+        "outbound": "Proxy 1"
+      }
+    ]
+  }
+}

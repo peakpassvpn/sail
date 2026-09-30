@@ -1,0 +1,125 @@
+mixed-port: 7890
+allow-lan: true
+bind-address: '*'
+external-controller: 127.0.0.1:9697
+secret: password1
+hosts:
+  naive: 127.0.0.1
+  str1: 127.0.0.1
+  str2: 192.0.2.1
+  str3: 192.0.2.2
+  str4: 192.0.2.3
+  str5: 192.0.2.4
+  str6: 192.0.2.5
+mode: rule
+log-level: warning
+ipv6: false
+geodata-mode: false
+geo-auto-update: false
+dns:
+  enable: true
+  listen: 0.0.0.0:15335
+  default-nameserver:
+    - 192.0.2.6#Proxy 9
+    - 192.0.2.7#Proxy 9
+  nameserver:
+    - https://192.0.2.6/dns-query#Group 1
+    - https://192.0.2.8/dns-query#Group 1
+sniffer:
+  enable: true
+  override-destination: false
+  sniff:
+    TLS:
+      ports: [443]
+    HTTP:
+      ports: [80, 8080-8880]
+tun:
+  enable: true
+  device: if1
+  stack: gvisor
+  auto-route: false
+  auto-redir: false
+  auto-detect-interface: true
+proxies:
+  - name: "Proxy 1"
+    type: socks5
+    server: naive
+    port: 1080
+    udp: false
+  - name: "Proxy 2"
+    type: socks5
+    server: str1
+    port: 1081
+    udp: true
+  - name: "Proxy 3"
+    type: socks5
+    server: str2
+    port: 1080
+    udp: false
+  - name: "Proxy 4"
+    type: socks5
+    server: str3
+    port: 1080
+    udp: true
+  - name: "Proxy 5"
+    type: socks5
+    server: str4
+    port: 10808
+    udp: true
+  - name: "Proxy 6"
+    type: socks5
+    server: str5
+    port: 10809
+    udp: true
+  - name: "Proxy 7"
+    type: socks5
+    server: str6
+    port: 1080
+    udp: false
+  - name: "Proxy 8"
+    type: direct
+    interface-name: if2
+proxy-groups:
+  - name: Group 1
+    type: fallback
+    proxies:
+      - Proxy 5
+      - Proxy 6
+      - Proxy 2
+      - Proxy 1
+      - Proxy 3
+    url: 'http://h1.example.com/generate_204'
+    interval: 300
+    lazy: true
+  - name: Group 2
+    type: select
+    proxies: ['Proxy 8']
+  - name: Group 3
+    type: fallback
+    proxies: [Proxy 7, Group 1]
+    url: 'http://h1.example.com/generate_204'
+    interval: 300
+    lazy: true
+rule-providers:
+  set-1:
+    behavior: "domain"
+    type: file
+    path: "./path-1.yaml"
+  set-2:
+    behavior: "domain"
+    type: file
+    path: "./path-2.yaml"
+rules:
+  - IP-CIDR,127.0.0.0/8,REJECT
+  - IP-CIDR,172.16.0.0/12,REJECT
+  - IP-CIDR,192.168.0.0/16,REJECT
+  - IP-CIDR,192.0.2.0/24,DIRECT
+  - IP-CIDR,10.0.0.0/8,REJECT
+  - DOMAIN-SUFFIX,.d1.example,Group 2
+  - RULE-SET,set-1,REJECT
+  - DOMAIN-SUFFIX,.d2.example,Group 2
+  - GEOIP,IR,Group 2
+  - RULE-SET,set-2,Group 2
+  - DOMAIN,d3.example,Group 2
+  - DOMAIN-SUFFIX,.d4.example,Group 2
+  - MATCH,Group 1

@@ -1,0 +1,254 @@
+mixed-port: 7890
+allow-lan: false
+mode: "rule"
+log-level: "info"
+external-controller: "127.0.0.1:9999"
+dns:
+  enable: true
+  listen: "0.0.0.0:53"
+  ipv6: false
+  default-nameserver:
+    - "192.0.2.1"
+    - "192.0.2.2"
+  nameserver:
+    - "192.0.2.1"
+    - "192.0.2.2"
+    - "192.0.2.3"
+    - "192.0.2.4"
+  enhanced-mode: "fake-ip"
+  fake-ip-range: "198.18.0.1/16"
+  fake-ip-filter:
+    - "*.d1.example"
+    - "*.d2.example"
+    - "*.d3.example"
+    - "*.d4.example"
+    - "*.localhost"
+    - "*.d5.example"
+    - "*.d6.example"
+    - "*.d7.example"
+    - "d8.example"
+    - "d9.example"
+    - "d10.example"
+    - "+.d11.example"
+tun:
+  enable: true
+  auto-route: true
+  auto-detect-interface: true
+  dns-hijack:
+    - "192.0.2.2"
+    - "192.0.2.4"
+    - "192.0.2.3"
+    - "192.0.2.1"
+    - "192.0.2.5"
+    - "192.0.2.6"
+    - "192.0.2.7"
+    - "192.0.2.8"
+proxies:
+  - name: "Proxy 1"
+    type: "ss"
+    server: "192.0.2.9"
+    port: 8388
+    cipher: "chacha20-ietf"
+    password: "password1"
+  - name: "Proxy 2"
+    type: "vmess"
+    server: "s12.example.net"
+    port: 30835
+    sni: ""
+    uuid: "00005a11-0000-4000-8000-000000000001"
+    cipher: "auto"
+    network: "ws"
+    skip-cert-verify: true
+    ws-opts:
+      path: "/p1"
+      headers:
+        host: "s12.example.net"
+    alterId: 2
+  - name: "Proxy 3"
+    type: "vmess"
+    server: "s13.example.net"
+    port: 30829
+    uuid: "00005a11-0000-4000-8000-000000000001"
+    cipher: "auto"
+    network: "ws"
+    ws-opts:
+      path: "/p1"
+      headers:
+        host: "sni14.example.org"
+    alterId: 2
+proxy-groups:
+  - name: "Group 1"
+    type: "select"
+    proxies:
+      - "Group 2"
+      - "DIRECT"
+      - "Proxy 1"
+      - "Proxy 2"
+      - "Proxy 3"
+  - name: "Group 2"
+    type: "url-test"
+    url: "http://h1.example.com/generate_204"
+    interval: 300
+    tolerance: 50
+    proxies:
+      - "Proxy 1"
+      - "Proxy 2"
+      - "Proxy 3"
+  - name: "Group 3"
+    type: "select"
+    proxies:
+      - "Group 1"
+      - "Group 2"
+      - "Group 7"
+      - "Proxy 1"
+      - "Proxy 2"
+      - "Proxy 3"
+  - name: "Group 4"
+    type: "select"
+    proxies:
+      - "Group 1"
+      - "Group 7"
+      - "Proxy 1"
+      - "Proxy 2"
+      - "Proxy 3"
+  - name: "Group 5"
+    type: "select"
+    proxies:
+      - "Group 7"
+      - "Group 1"
+      - "Proxy 1"
+      - "Proxy 2"
+      - "Proxy 3"
+  - name: "Group 6"
+    type: "select"
+    proxies:
+      - "Group 1"
+      - "Group 7"
+      - "Proxy 1"
+      - "Proxy 2"
+      - "Proxy 3"
+  - name: "Group 7"
+    type: "select"
+    proxies:
+      - "DIRECT"
+      - "Group 1"
+      - "Group 2"
+  - name: "Group 8"
+    type: "select"
+    proxies:
+      - "REJECT"
+      - "DIRECT"
+  - name: "Group 9"
+    type: "select"
+    proxies:
+      - "REJECT"
+      - "DIRECT"
+  - name: "Group 10"
+    type: "select"
+    proxies:
+      - "Group 1"
+      - "Group 7"
+      - "Group 2"
+      - "Proxy 1"
+      - "Proxy 2"
+      - "Proxy 3"
+rule-providers:
+  set-1:
+    type: "http"
+    behavior: "classical"
+    url: "https://h2.example.com/p2.list"
+    format: "text"
+    interval: 3600
+    path: "./path-1.list"
+  set-2:
+    type: "http"
+    behavior: "classical"
+    url: "https://h2.example.com/p3.list"
+    format: "text"
+    interval: 3600
+    path: "./path-2.list"
+  set-3:
+    type: "http"
+    behavior: "classical"
+    url: "https://h2.example.com/p4.list"
+    format: "text"
+    interval: 3600
+    path: "./path-3.list"
+  set-4:
+    type: "http"
+    behavior: "classical"
+    url: "https://h2.example.com/p5.list"
+    format: "text"
+    interval: 3600
+    path: "./path-4.list"
+  set-5:
+    type: "http"
+    behavior: "classical"
+    url: "https://h2.example.com/p6.list"
+    format: "text"
+    interval: 3600
+    path: "./path-5.list"
+  set-6:
+    type: "http"
+    behavior: "classical"
+    url: "https://h2.example.com/p7.list"
+    format: "text"
+    interval: 3600
+    path: "./path-6.list"
+  set-7:
+    type: "http"
+    behavior: "classical"
+    url: "https://h2.example.com/p8.list"
+    format: "text"
+    interval: 3600
+    path: "./path-7.list"
+  set-8:
+    type: "http"
+    behavior: "classical"
+    url: "https://h2.example.com/p9.list"
+    format: "text"
+    interval: 3600
+    path: "./path-8.list"
+  set-9:
+    type: "http"
+    behavior: "classical"
+    url: "https://h2.example.com/p10.list"
+    format: "text"
+    interval: 3600
+    path: "./path-9.list"
+  set-10:
+    type: "http"
+    behavior: "classical"
+    url: "https://h2.example.com/p11.list"
+    format: "text"
+    interval: 3600
+    path: "./path-10.list"
+  set-11:
+    type: "http"
+    behavior: "classical"
+    url: "https://h2.example.com/p12.list"
+    format: "text"
+    interval: 3600
+    path: "./path-11.list"
+  set-12:
+    type: "http"
+    behavior: "classical"
+    url: "https://h2.example.com/p13.list"
+    format: "text"
+    interval: 3600
+    path: "./path-12.list"
+rules:
+  - "RULE-SET,set-7,Group 7"
+  - "RULE-SET,set-10,Group 8"
+  - "RULE-SET,set-11,Group 9"
+  - "RULE-SET,set-9,Group 7"
+  - "RULE-SET,set-12,Group 7"
+  - "RULE-SET,set-8,Group 5"
+  - "RULE-SET,set-1,Group 6"
+  - "RULE-SET,set-6,Group 3"
+  - "RULE-SET,set-2,Group 4"
+  - "RULE-SET,set-3,Group 1"
+  - "RULE-SET,set-4,Group 7"
+  - "RULE-SET,set-5,Group 7"
+  - "GEOIP,CN,Group 7"
+  - "MATCH,Group 10"

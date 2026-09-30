@@ -1,0 +1,160 @@
+proxies:
+  - name: Proxy 1
+    network: ws
+    port: 8880
+    server: 192.0.2.1
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000001
+  - name: Proxy 2
+    network: ws
+    port: 8880
+    server: 192.0.2.2
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000001
+  - client-fingerprint: qq
+    name: Proxy 3
+    network: grpc
+    port: 9889
+    reality-opts:
+      public-key: wywOQgzCr2vr85JpoMxzCakHIIvgUtsG6_Qp987NJa4
+      short-id: ""
+    server: 192.0.2.3
+    servername: sni1.example.org
+    tls: true
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000002
+  - client-fingerprint: firefox
+    name: Proxy 4
+    network: grpc
+    port: 9889
+    reality-opts:
+      public-key: wywOQgzCr2vr85JpoMxzCakHIIvgUtsG6_Qp987NJa4
+      short-id: ""
+    server: 192.0.2.3
+    servername: sni1.example.org
+    tls: true
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000002
+  - name: Proxy 5
+    network: ws
+    port: 8080
+    server: 192.0.2.4
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000001
+  - client-fingerprint: firefox
+    name: Proxy 6
+    network: grpc
+    port: 9889
+    reality-opts:
+      public-key: wywOQgzCr2vr85JpoMxzCakHIIvgUtsG6_Qp987NJa4
+      short-id: ""
+    server: 192.0.2.3
+    servername: sni1.example.org
+    tls: true
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000002
+  - client-fingerprint: chrome
+    name: Proxy 7
+    network: grpc
+    port: 9889
+    reality-opts:
+      public-key: wywOQgzCr2vr85JpoMxzCakHIIvgUtsG6_Qp987NJa4
+      short-id: ""
+    server: 192.0.2.3
+    servername: sni1.example.org
+    tls: true
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000002
+  - client-fingerprint: random
+    name: Proxy 8
+    network: grpc
+    port: 9889
+    reality-opts:
+      public-key: wywOQgzCr2vr85JpoMxzCakHIIvgUtsG6_Qp987NJa4
+      short-id: ""
+    server: 192.0.2.5
+    servername: sni1.example.org
+    tls: true
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000002
+  - client-fingerprint: firefox
+    name: Proxy 9
+    network: grpc
+    port: 9889
+    reality-opts:
+      public-key: wywOQgzCr2vr85JpoMxzCakHIIvgUtsG6_Qp987NJa4
+      short-id: ""
+    server: 192.0.2.5
+    servername: sni1.example.org
+    tls: true
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000002
+  - client-fingerprint: chrome
+    name: Proxy 10
+    network: grpc
+    port: 9889
+    reality-opts:
+      public-key: wywOQgzCr2vr85JpoMxzCakHIIvgUtsG6_Qp987NJa4
+      short-id: ""
+    server: 192.0.2.5
+    servername: sni1.example.org
+    tls: true
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000002
+  - client-fingerprint: edge
+    name: Proxy 11
+    network: grpc
+    port: 9889
+    reality-opts:
+      public-key: wywOQgzCr2vr85JpoMxzCakHIIvgUtsG6_Qp987NJa4
+      short-id: ""
+    server: 192.0.2.3
+    servername: sni1.example.org
+    tls: true
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000002
+proxy-groups:
+  - interval: 300
+    name: Group 1
+    proxies:
+      - Proxy 1
+      - Proxy 2
+      - Proxy 3
+      - Proxy 4
+      - Proxy 5
+      - Proxy 6
+      - Proxy 7
+      - Proxy 8
+      - Proxy 9
+      - Proxy 10
+      - Proxy 11
+    type: url-test
+    url: https://h1.example.com/generate_204
+  - name: Group 2
+    proxies:
+      - Group 1
+      - Proxy 1
+      - Proxy 2
+      - Proxy 3
+      - Proxy 4
+      - Proxy 5
+      - Proxy 6
+      - Proxy 7
+      - Proxy 8
+      - Proxy 9
+      - Proxy 10
+      - Proxy 11
+    type: select
+rules:
+  - MATCH,Group 2

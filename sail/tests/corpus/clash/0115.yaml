@@ -1,0 +1,48 @@
+mixed-port: 7890
+allow-lan: true
+mode: Rule
+log-level: info
+external-controller: '127.0.0.1:9090'
+proxies:
+  - name: Proxy 1
+    type: http
+    server: 127.0.0.1
+    port: "11685"
+    skip-cert-verify: true
+proxy-groups:
+  - name: Group 1
+    type: select
+    proxies:
+      - Proxy 1
+      - DIRECT
+rules:
+  - DOMAIN,d1.example,Group 1
+  - DOMAIN,d2.example,Group 1
+  - DOMAIN,d3.example,Group 1
+  - DOMAIN,d4.example,Group 1
+  - DOMAIN,d5.example,Group 1
+  - DOMAIN,d6.example,Group 1
+  - IP-CIDR,192.0.2.1/32,Group 1
+  - IP-CIDR,192.0.2.2/32,Group 1
+  - IP-CIDR,192.0.2.3/32,Group 1
+  - IP-CIDR,192.0.2.4/32,Group 1
+  - IP-CIDR,192.0.2.5/32,Group 1
+  - IP-CIDR,192.0.2.6/32,Group 1
+  - IP-CIDR,192.0.2.7/32,Group 1
+  - IP-CIDR,192.0.2.8/32,Group 1
+  - IP-CIDR,192.0.2.9/32,Group 1
+  - IP-CIDR,192.0.2.10/32,Group 1
+  - IP-CIDR,192.0.2.11/32,Group 1
+  - IP-CIDR,192.0.2.12/32,Group 1
+  - IP-CIDR,192.0.2.13/32,Group 1
+  - IP-CIDR,192.0.2.14/32,Group 1
+  - IP-CIDR,192.0.2.15/32,Group 1
+  - IP-CIDR,192.0.2.16/32,Group 1
+  - IP-CIDR,192.0.2.17/32,Group 1
+  - IP-CIDR,192.0.2.18/32,Group 1
+  - IP-CIDR,192.0.2.19/32,Group 1
+  - DOMAIN,d7.example,REJECT
+  - DOMAIN,d8.example,REJECT
+  - DOMAIN,d9.example,REJECT
+  - DOMAIN,d10.example,REJECT
+  - MATCH,DIRECT

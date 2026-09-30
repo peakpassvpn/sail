@@ -1,0 +1,1890 @@
+{
+  "log": {
+    "level": "warn",
+    "output": "d21.example",
+    "timestamp": true
+  },
+  "dns": {
+    "servers": [
+      {
+        "tag": "dns-1",
+        "address": "udp://192.0.2.1",
+        "address_resolver": "dns-3"
+      },
+      {
+        "tag": "dns-2",
+        "address": "https://h1.example.com/",
+        "detour": "Proxy 73"
+      },
+      {
+        "tag": "dns-3",
+        "address": "192.0.2.2",
+        "address_resolver": "dns-4",
+        "detour": "Proxy 72"
+      },
+      {
+        "tag": "dns-4",
+        "address": "local",
+        "detour": "Proxy 72"
+      },
+      {
+        "tag": "dns-5",
+        "address": "rcode://success"
+      }
+    ],
+    "rules": [
+      {
+        "domain": [
+          "d1.example",
+          "d2.example",
+          "d3.example",
+          "d4.example",
+          "d5.example",
+          "d6.example",
+          "d7.example",
+          "d8.example",
+          "d9.example",
+          "d10.example",
+          "d11.example",
+          "d12.example",
+          "d13.example"
+        ],
+        "server": "dns-3"
+      },
+      {
+        "domain": "d14.example",
+        "server": "dns-1",
+        "rewrite_ttl": 3000
+      },
+      {
+        "domain_suffix": ".d15.example",
+        "server": "dns-3"
+      },
+      {
+        "rule_set": [
+          "set-1",
+          "set-2"
+        ],
+        "server": "dns-3"
+      }
+    ],
+    "final": "dns-1",
+    "independent_cache": true
+  },
+  "inbounds": [
+    {
+      "type": "tun",
+      "tag": "in-1",
+      "mtu": 9000,
+      "inet4_address": "192.0.2.1/28",
+      "auto_route": true,
+      "strict_route": true,
+      "endpoint_independent_nat": true,
+      "stack": "gvisor",
+      "sniff": true
+    },
+    {
+      "type": "mixed",
+      "tag": "in-2",
+      "listen": "127.0.0.1",
+      "listen_port": 12334,
+      "sniff": true,
+      "sniff_override_destination": true
+    },
+    {
+      "type": "direct",
+      "tag": "in-3",
+      "listen": "127.0.0.1",
+      "listen_port": 16450
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "selector",
+      "tag": "Group 1",
+      "outbounds": [
+        "Group 2",
+        "Proxy 1",
+        "Proxy 2",
+        "Proxy 3",
+        "Proxy 4",
+        "Proxy 5",
+        "Proxy 6",
+        "Proxy 7",
+        "Proxy 8",
+        "Proxy 9",
+        "Proxy 10",
+        "Proxy 11",
+        "Proxy 12",
+        "Proxy 13",
+        "Proxy 14",
+        "Proxy 15",
+        "Proxy 16",
+        "Proxy 17",
+        "Proxy 18",
+        "Proxy 19",
+        "Proxy 20",
+        "Proxy 21",
+        "Proxy 22",
+        "Proxy 23",
+        "Proxy 24",
+        "Proxy 25",
+        "Proxy 26",
+        "Proxy 27",
+        "Proxy 28",
+        "Proxy 29",
+        "Proxy 30",
+        "Proxy 31",
+        "Proxy 32",
+        "Proxy 33",
+        "Proxy 34",
+        "Proxy 35",
+        "Proxy 36",
+        "Proxy 37",
+        "Proxy 38",
+        "Proxy 39",
+        "Proxy 40",
+        "Proxy 41",
+        "Proxy 42",
+        "Proxy 43",
+        "Proxy 44",
+        "Proxy 45",
+        "Proxy 46",
+        "Proxy 47",
+        "Proxy 48",
+        "Proxy 49",
+        "Proxy 50",
+        "Proxy 51",
+        "Proxy 52",
+        "Proxy 53",
+        "Proxy 54",
+        "Proxy 55",
+        "Proxy 56",
+        "Proxy 57",
+        "Proxy 58",
+        "Proxy 59",
+        "Proxy 60",
+        "Proxy 61",
+        "Proxy 62",
+        "Proxy 63",
+        "Proxy 64",
+        "Proxy 65",
+        "Proxy 66",
+        "Proxy 67",
+        "Proxy 68",
+        "Proxy 69",
+        "Proxy 70"
+      ],
+      "default": "Group 2",
+      "interrupt_exist_connections": true
+    },
+    {
+      "type": "urltest",
+      "tag": "Group 2",
+      "outbounds": [
+        "Proxy 1",
+        "Proxy 2",
+        "Proxy 3",
+        "Proxy 4",
+        "Proxy 5",
+        "Proxy 6",
+        "Proxy 7",
+        "Proxy 8",
+        "Proxy 9",
+        "Proxy 10",
+        "Proxy 11",
+        "Proxy 12",
+        "Proxy 13",
+        "Proxy 14",
+        "Proxy 15",
+        "Proxy 16",
+        "Proxy 17",
+        "Proxy 18",
+        "Proxy 19",
+        "Proxy 20",
+        "Proxy 21",
+        "Proxy 22",
+        "Proxy 23",
+        "Proxy 24",
+        "Proxy 25",
+        "Proxy 26",
+        "Proxy 27",
+        "Proxy 28",
+        "Proxy 29",
+        "Proxy 30",
+        "Proxy 31",
+        "Proxy 32",
+        "Proxy 33",
+        "Proxy 34",
+        "Proxy 35",
+        "Proxy 36",
+        "Proxy 37",
+        "Proxy 38",
+        "Proxy 39",
+        "Proxy 40",
+        "Proxy 41",
+        "Proxy 42",
+        "Proxy 43",
+        "Proxy 44",
+        "Proxy 45",
+        "Proxy 46",
+        "Proxy 47",
+        "Proxy 48",
+        "Proxy 49",
+        "Proxy 50",
+        "Proxy 51",
+        "Proxy 52",
+        "Proxy 53",
+        "Proxy 54",
+        "Proxy 55",
+        "Proxy 56",
+        "Proxy 57",
+        "Proxy 58",
+        "Proxy 59",
+        "Proxy 60",
+        "Proxy 61",
+        "Proxy 62",
+        "Proxy 63",
+        "Proxy 64",
+        "Proxy 65",
+        "Proxy 66",
+        "Proxy 67",
+        "Proxy 68",
+        "Proxy 69",
+        "Proxy 70"
+      ],
+      "url": "http://h2.example.com",
+      "interval": "10m0s",
+      "tolerance": 1,
+      "idle_timeout": "30m0s",
+      "interrupt_exist_connections": true
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 1",
+      "server": "192.0.2.3",
+      "server_port": 80,
+      "uuid": "00005a11-0000-4000-8000-000000000001",
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "Host": "sni16.example.org"
+        }
+      },
+      "packet_encoding": "xudp"
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 2",
+      "server": "192.0.2.4",
+      "server_port": 80,
+      "uuid": "00005a11-0000-4000-8000-000000000002",
+      "transport": {
+        "type": "ws",
+        "path": "/p2",
+        "headers": {
+          "Host": "sni17.example.org"
+        }
+      },
+      "packet_encoding": "xudp"
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 3",
+      "server": "192.0.2.5",
+      "server_port": 80,
+      "uuid": "00005a11-0000-4000-8000-000000000001",
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "Host": "sni16.example.org"
+        }
+      },
+      "packet_encoding": "xudp"
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 4",
+      "server": "192.0.2.6",
+      "server_port": 80,
+      "uuid": "00005a11-0000-4000-8000-000000000001",
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "Host": "sni16.example.org"
+        }
+      },
+      "packet_encoding": "xudp"
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 5",
+      "server": "192.0.2.7",
+      "server_port": 80,
+      "uuid": "00005a11-0000-4000-8000-000000000001",
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "Host": "sni16.example.org"
+        }
+      },
+      "packet_encoding": "xudp"
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 6",
+      "server": "192.0.2.8",
+      "server_port": 80,
+      "uuid": "00005a11-0000-4000-8000-000000000001",
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "Host": "sni16.example.org"
+        }
+      },
+      "packet_encoding": "xudp"
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 7",
+      "server": "192.0.2.9",
+      "server_port": 2082,
+      "uuid": "00005a11-0000-4000-8000-000000000003",
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "Host": "sni16.example.org"
+        }
+      },
+      "packet_encoding": "xudp"
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 8",
+      "server": "192.0.2.10",
+      "server_port": 8080,
+      "uuid": "00005a11-0000-4000-8000-000000000004",
+      "transport": {
+        "type": "ws",
+        "path": "/p2",
+        "headers": {
+          "Host": "sni18.example.org"
+        }
+      },
+      "packet_encoding": "xudp"
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 9",
+      "server": "d4.example",
+      "server_port": 2095,
+      "uuid": "00005a11-0000-4000-8000-000000000003",
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "Host": "sni16.example.org"
+        }
+      },
+      "packet_encoding": "xudp"
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 10",
+      "server": "d10.example",
+      "server_port": 8443,
+      "uuid": "00005a11-0000-4000-8000-000000000005",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni19.example.org",
+        "insecure": true
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p2",
+        "headers": {
+          "Host": "sni19.example.org"
+        }
+      },
+      "packet_encoding": "xudp"
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 11",
+      "server": "d11.example",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000006",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni20.example.org",
+        "insecure": true,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "firefox"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "Host": "sni20.example.org"
+        }
+      },
+      "packet_encoding": "xudp"
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 12",
+      "server": "d5.example",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000006",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni20.example.org",
+        "insecure": true,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "firefox"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "Host": "sni20.example.org"
+        }
+      },
+      "packet_encoding": "xudp"
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 13",
+      "server": "d12.example",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000006",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni20.example.org",
+        "insecure": true,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "firefox"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "Host": "sni20.example.org"
+        }
+      },
+      "packet_encoding": "xudp"
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 14",
+      "server": "d6.example",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000006",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni20.example.org",
+        "insecure": true,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "firefox"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "Host": "sni20.example.org"
+        }
+      },
+      "packet_encoding": "xudp"
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 15",
+      "server": "d13.example",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000006",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni20.example.org",
+        "insecure": true,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "firefox"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "Host": "sni20.example.org"
+        }
+      },
+      "packet_encoding": "xudp"
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 16",
+      "server": "d7.example",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000006",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni20.example.org",
+        "insecure": true,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "firefox"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "Host": "sni20.example.org"
+        }
+      },
+      "packet_encoding": "xudp"
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 17",
+      "server": "d8.example",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000006",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni20.example.org",
+        "insecure": true,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "firefox"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "Host": "sni20.example.org"
+        }
+      },
+      "packet_encoding": "xudp"
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 18",
+      "server": "d9.example",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000006",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni20.example.org",
+        "insecure": true,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "firefox"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "Host": "sni20.example.org"
+        }
+      },
+      "packet_encoding": "xudp"
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 19",
+      "server": "d1.example",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000006",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni20.example.org",
+        "insecure": true,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "firefox"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "Host": "sni20.example.org"
+        }
+      },
+      "packet_encoding": "xudp"
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 20",
+      "server": "d2.example",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000006",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni20.example.org",
+        "insecure": true,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "firefox"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "Host": "sni20.example.org"
+        }
+      },
+      "packet_encoding": "xudp"
+    },
+    {
+      "type": "trojan",
+      "tag": "Proxy 21",
+      "server": "d11.example",
+      "server_port": 443,
+      "password": "00005a11-0000-4000-8000-000000000006",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni20.example.org",
+        "insecure": true
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "Host": "sni20.example.org"
+        }
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "Proxy 22",
+      "server": "d5.example",
+      "server_port": 443,
+      "password": "00005a11-0000-4000-8000-000000000006",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni20.example.org",
+        "insecure": true
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "Host": "sni20.example.org"
+        }
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "Proxy 23",
+      "server": "d12.example",
+      "server_port": 443,
+      "password": "00005a11-0000-4000-8000-000000000006",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni20.example.org",
+        "insecure": true
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "Host": "sni20.example.org"
+        }
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "Proxy 24",
+      "server": "d6.example",
+      "server_port": 443,
+      "password": "00005a11-0000-4000-8000-000000000006",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni20.example.org",
+        "insecure": true
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "Host": "sni20.example.org"
+        }
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "Proxy 25",
+      "server": "d13.example",
+      "server_port": 443,
+      "password": "00005a11-0000-4000-8000-000000000006",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni20.example.org",
+        "insecure": true
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "Host": "sni20.example.org"
+        }
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "Proxy 26",
+      "server": "d7.example",
+      "server_port": 443,
+      "password": "00005a11-0000-4000-8000-000000000006",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni20.example.org",
+        "insecure": true
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "Host": "sni20.example.org"
+        }
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "Proxy 27",
+      "server": "d8.example",
+      "server_port": 443,
+      "password": "00005a11-0000-4000-8000-000000000006",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni20.example.org",
+        "insecure": true
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "Host": "sni20.example.org"
+        }
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "Proxy 28",
+      "server": "d9.example",
+      "server_port": 443,
+      "password": "00005a11-0000-4000-8000-000000000006",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni20.example.org",
+        "insecure": true
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "Host": "sni20.example.org"
+        }
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "Proxy 29",
+      "server": "d1.example",
+      "server_port": 443,
+      "password": "00005a11-0000-4000-8000-000000000006",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni20.example.org",
+        "insecure": true
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "Host": "sni20.example.org"
+        }
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "Proxy 30",
+      "server": "d2.example",
+      "server_port": 443,
+      "password": "00005a11-0000-4000-8000-000000000006",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni20.example.org",
+        "insecure": true
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "Host": "sni20.example.org"
+        }
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 31",
+      "server": "d3.example",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000006",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni20.example.org",
+        "insecure": true,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "random"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "Host": "sni20.example.org"
+        }
+      },
+      "packet_encoding": "xudp"
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 32",
+      "server": "127.0.0.1",
+      "server_port": 1234,
+      "uuid": "00005a11-0000-4000-8000-000000000006",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni20.example.org",
+        "insecure": true,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "random"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "Host": "sni20.example.org"
+        }
+      },
+      "packet_encoding": "xudp"
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 33",
+      "server": "192.0.2.11",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000006",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni20.example.org",
+        "insecure": true,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "random"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "Host": "sni20.example.org"
+        }
+      },
+      "packet_encoding": "xudp"
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 34",
+      "server": "192.0.2.12",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000006",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni20.example.org",
+        "insecure": true,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "random"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "Host": "sni20.example.org"
+        }
+      },
+      "packet_encoding": "xudp"
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 35",
+      "server": "192.0.2.13",
+      "server_port": 8443,
+      "uuid": "00005a11-0000-4000-8000-000000000006",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni20.example.org",
+        "insecure": true,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "random"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "Host": "sni20.example.org"
+        }
+      },
+      "packet_encoding": "xudp"
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 36",
+      "server": "192.0.2.14",
+      "server_port": 2053,
+      "uuid": "00005a11-0000-4000-8000-000000000006",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni20.example.org",
+        "insecure": true,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "random"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "Host": "sni20.example.org"
+        }
+      },
+      "packet_encoding": "xudp"
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 37",
+      "server": "192.0.2.15",
+      "server_port": 8443,
+      "uuid": "00005a11-0000-4000-8000-000000000006",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni20.example.org",
+        "insecure": true,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "random"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "Host": "sni20.example.org"
+        }
+      },
+      "packet_encoding": "xudp"
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 38",
+      "server": "192.0.2.16",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000006",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni20.example.org",
+        "insecure": true,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "random"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "Host": "sni20.example.org"
+        }
+      },
+      "packet_encoding": "xudp"
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 39",
+      "server": "192.0.2.17",
+      "server_port": 8443,
+      "uuid": "00005a11-0000-4000-8000-000000000006",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni20.example.org",
+        "insecure": true,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "random"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "Host": "sni20.example.org"
+        }
+      },
+      "packet_encoding": "xudp"
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 40",
+      "server": "192.0.2.18",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000006",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni20.example.org",
+        "insecure": true,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "random"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "Host": "sni20.example.org"
+        }
+      },
+      "packet_encoding": "xudp"
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 41",
+      "server": "192.0.2.19",
+      "server_port": 8443,
+      "uuid": "00005a11-0000-4000-8000-000000000006",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni20.example.org",
+        "insecure": true,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "random"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "Host": "sni20.example.org"
+        }
+      },
+      "packet_encoding": "xudp"
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 42",
+      "server": "192.0.2.20",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000006",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni20.example.org",
+        "insecure": true,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "random"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "Host": "sni20.example.org"
+        }
+      },
+      "packet_encoding": "xudp"
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 43",
+      "server": "192.0.2.21",
+      "server_port": 2053,
+      "uuid": "00005a11-0000-4000-8000-000000000006",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni20.example.org",
+        "insecure": true,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "random"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "Host": "sni20.example.org"
+        }
+      },
+      "packet_encoding": "xudp"
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 44",
+      "server": "192.0.2.22",
+      "server_port": 2053,
+      "uuid": "00005a11-0000-4000-8000-000000000006",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni20.example.org",
+        "insecure": true,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "random"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "Host": "sni20.example.org"
+        }
+      },
+      "packet_encoding": "xudp"
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 45",
+      "server": "192.0.2.23",
+      "server_port": 2053,
+      "uuid": "00005a11-0000-4000-8000-000000000006",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni20.example.org",
+        "insecure": true,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "random"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "Host": "sni20.example.org"
+        }
+      },
+      "packet_encoding": "xudp"
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 46",
+      "server": "192.0.2.24",
+      "server_port": 2053,
+      "uuid": "00005a11-0000-4000-8000-000000000006",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni20.example.org",
+        "insecure": true,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "random"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "Host": "sni20.example.org"
+        }
+      },
+      "packet_encoding": "xudp"
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 47",
+      "server": "192.0.2.25",
+      "server_port": 8443,
+      "uuid": "00005a11-0000-4000-8000-000000000006",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni20.example.org",
+        "insecure": true,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "random"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "Host": "sni20.example.org"
+        }
+      },
+      "packet_encoding": "xudp"
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 48",
+      "server": "192.0.2.26",
+      "server_port": 8443,
+      "uuid": "00005a11-0000-4000-8000-000000000006",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni20.example.org",
+        "insecure": true,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "random"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "Host": "sni20.example.org"
+        }
+      },
+      "packet_encoding": "xudp"
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 49",
+      "server": "192.0.2.27",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000006",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni20.example.org",
+        "insecure": true,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "random"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "Host": "sni20.example.org"
+        }
+      },
+      "packet_encoding": "xudp"
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 50",
+      "server": "192.0.2.28",
+      "server_port": 8443,
+      "uuid": "00005a11-0000-4000-8000-000000000006",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni20.example.org",
+        "insecure": true,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "random"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "Host": "sni20.example.org"
+        }
+      },
+      "packet_encoding": "xudp"
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 51",
+      "server": "192.0.2.29",
+      "server_port": 50002,
+      "uuid": "00005a11-0000-4000-8000-000000000006",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni20.example.org",
+        "insecure": true,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "random"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "Host": "sni20.example.org"
+        }
+      },
+      "packet_encoding": "xudp"
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 52",
+      "server": "192.0.2.30",
+      "server_port": 54596,
+      "uuid": "00005a11-0000-4000-8000-000000000006",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni20.example.org",
+        "insecure": true,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "random"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "Host": "sni20.example.org"
+        }
+      },
+      "packet_encoding": "xudp"
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 53",
+      "server": "192.0.2.31",
+      "server_port": 50001,
+      "uuid": "00005a11-0000-4000-8000-000000000006",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni20.example.org",
+        "insecure": true,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "random"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "Host": "sni20.example.org"
+        }
+      },
+      "packet_encoding": "xudp"
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 54",
+      "server": "192.0.2.32",
+      "server_port": 30005,
+      "uuid": "00005a11-0000-4000-8000-000000000006",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni20.example.org",
+        "insecure": true,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "random"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "Host": "sni20.example.org"
+        }
+      },
+      "packet_encoding": "xudp"
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 55",
+      "server": "192.0.2.33",
+      "server_port": 50001,
+      "uuid": "00005a11-0000-4000-8000-000000000006",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni20.example.org",
+        "insecure": true,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "random"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "Host": "sni20.example.org"
+        }
+      },
+      "packet_encoding": "xudp"
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 56",
+      "server": "192.0.2.34",
+      "server_port": 50000,
+      "uuid": "00005a11-0000-4000-8000-000000000006",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni20.example.org",
+        "insecure": true,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "random"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "Host": "sni20.example.org"
+        }
+      },
+      "packet_encoding": "xudp"
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 57",
+      "server": "192.0.2.35",
+      "server_port": 10003,
+      "uuid": "00005a11-0000-4000-8000-000000000006",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni20.example.org",
+        "insecure": true,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "random"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "Host": "sni20.example.org"
+        }
+      },
+      "packet_encoding": "xudp"
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 58",
+      "server": "192.0.2.36",
+      "server_port": 1443,
+      "uuid": "00005a11-0000-4000-8000-000000000006",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni20.example.org",
+        "insecure": true,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "random"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "Host": "sni20.example.org"
+        }
+      },
+      "packet_encoding": "xudp"
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 59",
+      "server": "192.0.2.37",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000006",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni20.example.org",
+        "insecure": true,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "random"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "Host": "sni20.example.org"
+        }
+      },
+      "packet_encoding": "xudp"
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 60",
+      "server": "192.0.2.38",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000006",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni20.example.org",
+        "insecure": true,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "random"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "Host": "sni20.example.org"
+        }
+      },
+      "packet_encoding": "xudp"
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 61",
+      "server": "192.0.2.39",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000006",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni20.example.org",
+        "insecure": true,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "random"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "Host": "sni20.example.org"
+        }
+      },
+      "packet_encoding": "xudp"
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 62",
+      "server": "192.0.2.40",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000006",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni20.example.org",
+        "insecure": true,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "random"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "Host": "sni20.example.org"
+        }
+      },
+      "packet_encoding": "xudp"
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 63",
+      "server": "192.0.2.41",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000006",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni20.example.org",
+        "insecure": true,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "random"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "Host": "sni20.example.org"
+        }
+      },
+      "packet_encoding": "xudp"
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 64",
+      "server": "192.0.2.42",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000006",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni20.example.org",
+        "insecure": true,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "random"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "Host": "sni20.example.org"
+        }
+      },
+      "packet_encoding": "xudp"
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 65",
+      "server": "192.0.2.43",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000006",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni20.example.org",
+        "insecure": true,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "random"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "Host": "sni20.example.org"
+        }
+      },
+      "packet_encoding": "xudp"
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 66",
+      "server": "192.0.2.44",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000006",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni20.example.org",
+        "insecure": true,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "random"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "Host": "sni20.example.org"
+        }
+      },
+      "packet_encoding": "xudp"
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 67",
+      "server": "192.0.2.45",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000006",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni20.example.org",
+        "insecure": true,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "random"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "Host": "sni20.example.org"
+        }
+      },
+      "packet_encoding": "xudp"
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 68",
+      "server": "192.0.2.46",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000006",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni20.example.org",
+        "insecure": true,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "random"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "Host": "sni20.example.org"
+        }
+      },
+      "packet_encoding": "xudp"
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 69",
+      "server": "192.0.2.47",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000006",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni20.example.org",
+        "insecure": true,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "random"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "Host": "sni20.example.org"
+        }
+      },
+      "packet_encoding": "xudp"
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 70",
+      "server": "192.0.2.48",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000006",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni20.example.org",
+        "insecure": true,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "random"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "Host": "sni20.example.org"
+        }
+      },
+      "packet_encoding": "xudp"
+    },
+    {
+      "type": "dns",
+      "tag": "Proxy 71"
+    },
+    {
+      "type": "direct",
+      "tag": "Proxy 72"
+    },
+    {
+      "type": "direct",
+      "tag": "Proxy 73",
+      "tls_fragment": {
+        "enabled": true,
+        "size": "10-30",
+        "sleep": "2-8"
+      }
+    },
+    {
+      "type": "direct",
+      "tag": "Proxy 74"
+    },
+    {
+      "type": "block",
+      "tag": "Proxy 75"
+    }
+  ],
+  "route": {
+    "rules": [
+      {
+        "inbound": "in-1",
+        "package_name": "com.example.app1",
+        "outbound": "Proxy 74"
+      },
+      {
+        "inbound": "in-3",
+        "outbound": "Proxy 71"
+      },
+      {
+        "port": 53,
+        "outbound": "Proxy 71"
+      },
+      {
+        "domain_suffix": ".d15.example",
+        "outbound": "Proxy 72"
+      },
+      {
+        "rule_set": [
+          "set-1",
+          "set-2"
+        ],
+        "outbound": "Proxy 72"
+      }
+    ],
+    "rule_set": [
+      {
+        "type": "remote",
+        "tag": "set-1",
+        "format": "binary",
+        "url": "https://h3.example.com/p3.srs",
+        "update_interval": "120h0m0s"
+      },
+      {
+        "type": "remote",
+        "tag": "set-2",
+        "format": "binary",
+        "url": "https://h3.example.com/p4.srs",
+        "update_interval": "120h0m0s"
+      }
+    ],
+    "final": "Group 1",
+    "auto_detect_interface": true,
+    "override_android_vpn": true
+  },
+  "experimental": {
+    "cache_file": {
+      "enabled": true,
+      "path": "./path-1.db"
+    },
+    "clash_api": {
+      "external_controller": "127.0.0.1:16756",
+      "secret": "password1"
+    }
+  }
+}

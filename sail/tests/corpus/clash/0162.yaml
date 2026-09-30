@@ -1,0 +1,1332 @@
+mixed-port: 10809
+tproxy-port: 7893
+allow-lan: true
+bind-address: "*"
+mode: rule
+log-level: info
+ipv6: true
+external-controller: 0.0.0.0:9090
+experimental:
+  ignore-resolve-fail: true
+dns:
+  enable: true
+  listen: 127.0.0.1:1053
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  nameserver:
+    - 192.0.2.1
+    - 192.0.2.2
+    - 192.0.2.3
+tun:
+  enable: false
+  macOS-auto-route: true
+  macOS-auto-detect-interface: true
+anchor-1: &a1
+  type: select
+  proxies:
+    - Group 3
+    - Group 4
+    - Group 5
+    - Group 2
+anchor-2: &a3
+  proxies:
+    - "Proxy 1"
+    - "Proxy 2"
+    - "Proxy 4"
+    - "Proxy 5"
+    - "Proxy 6"
+    - "Proxy 7"
+    - "Proxy 8"
+    - "Proxy 9"
+    - "Proxy 10"
+    - "Proxy 11"
+    - "Proxy 12"
+    - "Proxy 13"
+    - "Proxy 14"
+    - "Proxy 15"
+    - "Proxy 16"
+    - "Proxy 17"
+    - "Proxy 18"
+    - "Proxy 19"
+    - "Proxy 20"
+    - "Proxy 21"
+    - "Proxy 22"
+    - "Proxy 23"
+    - "Proxy 24"
+    - "Proxy 25"
+    - "Proxy 26"
+    - "Proxy 27"
+    - "Proxy 28"
+    - "Proxy 29"
+    - "Proxy 30"
+    - "Proxy 31"
+    - "Proxy 32"
+    - "Proxy 33"
+    - "Proxy 34"
+    - "Proxy 36"
+    - "Proxy 38"
+    - "Proxy 39"
+    - "Proxy 41"
+    - "Proxy 44"
+    - "Proxy 45"
+    - "Proxy 46"
+    - "Proxy 47"
+    - "Proxy 48"
+    - "Proxy 49"
+    - "Proxy 50"
+    - "Proxy 51"
+    - "Proxy 52"
+    - "Proxy 53"
+    - "Proxy 54"
+    - "Proxy 55"
+    - "Proxy 56"
+    - "Proxy 57"
+    - "Proxy 58"
+    - "Proxy 59"
+    - "Proxy 60"
+    - "Proxy 61"
+    - "Proxy 62"
+    - "Proxy 63"
+    - "Proxy 64"
+    - "Proxy 65"
+    - "Proxy 66"
+    - "Proxy 67"
+    - "Proxy 68"
+    - "Proxy 69"
+    - "Proxy 70"
+    - "Proxy 71"
+    - "Proxy 72"
+    - "Proxy 73"
+    - "Proxy 74"
+    - "Proxy 75"
+    - "Proxy 76"
+    - "Proxy 77"
+    - "Proxy 78"
+    - "Proxy 79"
+    - "Proxy 80"
+anchor-3: &a2
+  type: select
+  <<: *a3
+anchor-4: &a4
+  type: url-test
+  <<: *a3
+  url: 'https://h1.example.com'
+  interval: 300
+anchor-5: &a5
+  type: load-balance
+  <<: *a3
+  url: 'https://h1.example.com'
+  interval: 300
+  strategy: consistent-hashing
+proxies:
+  - name: "Proxy 1"
+    server: s1.example.net
+    port: 443
+    type: vless
+    uuid: 00005a11-0000-4000-8000-000000000001
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    servername: sni2.example.org
+    network: ws
+    ws-opts:
+      path: /p1
+      headers:
+        Host: sni2.example.org
+    udp: true
+  - name: "Proxy 2"
+    server: s1.example.net
+    port: 443
+    type: vless
+    uuid: 00005a11-0000-4000-8000-000000000002
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    servername: sni3.example.org
+    network: ws
+    ws-opts:
+      path: /p2
+      headers:
+        Host: sni3.example.org
+    udp: true
+  - name: "Proxy 3"
+    server: s1.example.net
+    port: 443
+    type: vless
+    uuid: 00005a11-0000-4000-8000-000000000003
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    servername: sni4.example.org
+    network: ws
+    ws-opts:
+      path: /p2
+      headers:
+        Host: sni4.example.org
+    udp: true
+  - name: "Proxy 4"
+    server: s1.example.net
+    port: 443
+    type: vless
+    uuid: 00005a11-0000-4000-8000-000000000004
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    servername: sni5.example.org
+    network: ws
+    ws-opts:
+      path: /p3
+      headers:
+        Host: sni5.example.org
+    udp: true
+  - name: "Proxy 5"
+    server: s1.example.net
+    port: 443
+    type: vless
+    uuid: 00005a11-0000-4000-8000-000000000005
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    servername: sni6.example.org
+    network: ws
+    ws-opts:
+      path: /p4
+      headers:
+        Host: sni6.example.org
+    udp: true
+  - name: "Proxy 6"
+    server: s1.example.net
+    port: 8443
+    type: vless
+    uuid: 00005a11-0000-4000-8000-000000000006
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    servername: sni7.example.org
+    network: ws
+    ws-opts:
+      path: /p4
+      headers:
+        Host: sni7.example.org
+    udp: true
+  - name: "Proxy 7"
+    server: s1.example.net
+    port: 8443
+    type: vless
+    uuid: 00005a11-0000-4000-8000-000000000006
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    servername: sni8.example.org
+    network: ws
+    ws-opts:
+      path: /p4
+      headers:
+        Host: sni8.example.org
+    udp: true
+  - name: "Proxy 8"
+    server: s1.example.net
+    port: 443
+    type: vless
+    uuid: 00005a11-0000-4000-8000-000000000007
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    servername: sni9.example.org
+    network: ws
+    ws-opts:
+      path: /p5
+      headers:
+        Host: sni9.example.org
+    udp: true
+  - name: "Proxy 9"
+    server: s1.example.net
+    port: 443
+    type: vless
+    uuid: 00005a11-0000-4000-8000-000000000008
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    servername: sni10.example.org
+    network: ws
+    ws-opts:
+      path: /p6
+      headers:
+        Host: sni10.example.org
+    udp: true
+  - name: "Proxy 10"
+    server: s1.example.net
+    port: 443
+    type: vless
+    uuid: 00005a11-0000-4000-8000-000000000007
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    servername: sni9.example.org
+    network: ws
+    ws-opts:
+      path: /p7
+      headers:
+        Host: sni9.example.org
+    udp: true
+  - name: "Proxy 11"
+    server: s1.example.net
+    port: 2096
+    type: vless
+    uuid: 00005a11-0000-4000-8000-000000000008
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    servername: sni10.example.org
+    network: ws
+    ws-opts:
+      path: /p6
+      headers:
+        Host: sni10.example.org
+    udp: true
+  - name: "Proxy 12"
+    server: s1.example.net
+    port: 443
+    type: vless
+    uuid: 00005a11-0000-4000-8000-000000000009
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    servername: sni11.example.org
+    network: ws
+    ws-opts:
+      path: /p4
+      headers:
+        Host: sni11.example.org
+    udp: true
+  - name: "Proxy 13"
+    server: s1.example.net
+    port: 443
+    type: vless
+    uuid: 00005a11-0000-4000-8000-00000000000a
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    servername: sni12.example.org
+    network: ws
+    ws-opts:
+      path: /p8
+      headers:
+        Host: sni12.example.org
+    udp: true
+  - name: "Proxy 14"
+    server: s1.example.net
+    port: 443
+    type: vless
+    uuid: 00005a11-0000-4000-8000-00000000000b
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    servername: sni13.example.org
+    network: ws
+    ws-opts:
+      path: "str1"
+      headers:
+        Host: sni13.example.org
+    udp: true
+  - name: "Proxy 15"
+    server: s1.example.net
+    port: 8443
+    type: vless
+    uuid: 00005a11-0000-4000-8000-00000000000c
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    servername: sni14.example.org
+    network: ws
+    ws-opts:
+      path: /p4
+      headers:
+        Host: sni14.example.org
+    udp: true
+  - name: "Proxy 16"
+    server: s1.example.net
+    port: 443
+    type: vless
+    uuid: 00005a11-0000-4000-8000-00000000000d
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    servername: sni15.example.org
+    network: ws
+    ws-opts:
+      path: /p4
+      headers:
+        Host: sni15.example.org
+    udp: true
+  - name: "Proxy 17"
+    server: s1.example.net
+    port: 443
+    type: vless
+    uuid: 00005a11-0000-4000-8000-00000000000e
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    servername: sni16.example.org
+    network: ws
+    ws-opts:
+      path: /p4
+      headers:
+        Host: sni16.example.org
+    udp: true
+  - name: "Proxy 18"
+    server: s1.example.net
+    port: 443
+    type: vless
+    uuid: 00005a11-0000-4000-8000-00000000000f
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    servername: sni17.example.org
+    network: ws
+    ws-opts:
+      path: /p4
+      headers:
+        Host: sni17.example.org
+    udp: true
+  - name: "Proxy 19"
+    server: s1.example.net
+    port: 2096
+    type: vless
+    uuid: 00005a11-0000-4000-8000-000000000010
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    servername: sni18.example.org
+    network: ws
+    ws-opts:
+      path: str2
+      headers:
+        Host: sni18.example.org
+    udp: true
+  - name: "Proxy 20"
+    server: s1.example.net
+    port: 443
+    type: vless
+    uuid: 00005a11-0000-4000-8000-000000000011
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    servername: sni19.example.org
+    network: ws
+    ws-opts:
+      path: /p9
+      headers:
+        Host: sni19.example.org
+    udp: true
+  - name: "Proxy 21"
+    server: s1.example.net
+    port: 443
+    type: vless
+    uuid: 00005a11-0000-4000-8000-000000000012
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    servername: sni20.example.org
+    network: ws
+    ws-opts:
+      path: /p10
+      headers:
+        Host: sni20.example.org
+    udp: true
+  - name: "Proxy 22"
+    server: s1.example.net
+    port: 443
+    type: vless
+    uuid: 00005a11-0000-4000-8000-000000000013
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    servername: sni21.example.org
+    network: ws
+    ws-opts:
+      path: /p4
+      headers:
+        Host: sni21.example.org
+    udp: true
+  - name: "Proxy 23"
+    server: s1.example.net
+    port: 443
+    type: vless
+    uuid: 00005a11-0000-4000-8000-000000000014
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    servername: sni22.example.org.
+    network: ws
+    ws-opts:
+      path: /p11
+      headers:
+        Host: sni22.example.org.
+    udp: true
+  - name: "Proxy 24"
+    server: s1.example.net
+    port: 443
+    type: vless
+    uuid: 00005a11-0000-4000-8000-000000000015
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    servername: sni23.example.org
+    network: ws
+    ws-opts:
+      path: /p12
+      headers:
+        Host: sni23.example.org
+    udp: true
+  - name: "Proxy 25"
+    server: s1.example.net
+    port: 443
+    type: vless
+    uuid: 00005a11-0000-4000-8000-000000000016
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    servername: sni24.example.org
+    network: ws
+    ws-opts:
+      path: /p4
+      headers:
+        Host: sni24.example.org
+    udp: true
+  - name: "Proxy 26"
+    server: s1.example.net
+    port: 443
+    type: vless
+    uuid: 00005a11-0000-4000-8000-000000000017
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    servername: sni25.example.org
+    network: ws
+    ws-opts:
+      path: /p4
+      headers:
+        Host: sni25.example.org
+    udp: true
+  - name: "Proxy 27"
+    server: s1.example.net
+    port: 443
+    type: vless
+    uuid: 00005a11-0000-4000-8000-000000000018
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    servername: sni26.example.org
+    network: ws
+    ws-opts:
+      path: /p4
+      headers:
+        Host: sni26.example.org
+    udp: true
+  - name: "Proxy 28"
+    server: s1.example.net
+    port: 443
+    type: vless
+    uuid: 00005a11-0000-4000-8000-000000000019
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    servername: sni27.example.org
+    network: ws
+    ws-opts:
+      path: /p4
+      headers:
+        Host: sni27.example.org
+    udp: true
+  - name: "Proxy 29"
+    server: s1.example.net
+    port: 443
+    type: vless
+    uuid: 00005a11-0000-4000-8000-00000000001a
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    servername: sni28.example.org
+    network: ws
+    ws-opts:
+      path: /p4
+      headers:
+        Host: sni28.example.org
+    udp: true
+  - name: "Proxy 30"
+    server: s1.example.net
+    port: 443
+    type: vless
+    uuid: 00005a11-0000-4000-8000-00000000001b
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    servername: sni29.example.org
+    network: ws
+    ws-opts:
+      path: /p4
+      headers:
+        Host: sni29.example.org
+    udp: true
+  - name: "Proxy 31"
+    server: s1.example.net
+    port: 2096
+    type: vless
+    uuid: 00005a11-0000-4000-8000-00000000001c
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    servername: sni30.example.org
+    network: ws
+    ws-opts:
+      path: /p13
+      headers:
+        Host: sni30.example.org
+    udp: true
+  - name: "Proxy 32"
+    server: s1.example.net
+    port: 443
+    type: vless
+    uuid: 00005a11-0000-4000-8000-000000000012
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    servername: sni31.example.org
+    network: ws
+    ws-opts:
+      path: /p14
+      headers:
+        Host: sni31.example.org
+    udp: true
+  - name: "Proxy 33"
+    server: s1.example.net
+    port: 8443
+    type: vless
+    uuid: 00005a11-0000-4000-8000-00000000001d
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    servername: sni32.example.org
+    network: ws
+    ws-opts:
+      path: /p4
+      headers:
+        Host: sni32.example.org
+    udp: true
+  - name: "Proxy 34"
+    server: s1.example.net
+    port: 443
+    type: vless
+    uuid: 00005a11-0000-4000-8000-00000000001e
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    servername: sni33.example.org
+    network: ws
+    ws-opts:
+      path: /p4
+      headers:
+        Host: sni33.example.org
+    udp: true
+  - name: "Proxy 35"
+    server: s1.example.net
+    port: 80
+    type: vless
+    uuid: 00005a11-0000-4000-8000-00000000001f
+    cipher: auto
+    tls: false
+    skip-cert-verify: true
+    servername: sni34.example.org
+    network: ws
+    ws-opts:
+      path: /p15
+      headers:
+        Host: sni34.example.org
+    udp: true
+  - name: "Proxy 36"
+    server: s1.example.net
+    port: 443
+    type: vless
+    uuid: 00005a11-0000-4000-8000-000000000020
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    servername: sni35.example.org
+    network: ws
+    ws-opts:
+      path: /p16
+      headers:
+        Host: sni35.example.org
+    udp: true
+  - name: "Proxy 37"
+    server: s1.example.net
+    port: 80
+    type: vless
+    uuid: 00005a11-0000-4000-8000-000000000021
+    cipher: auto
+    tls: false
+    skip-cert-verify: true
+    servername: sni36.example.org.
+    network: ws
+    ws-opts:
+      path: /p17
+      headers:
+        Host: sni36.example.org.
+    udp: true
+  - name: "Proxy 38"
+    server: s1.example.net
+    port: 8443
+    type: vless
+    uuid: 00005a11-0000-4000-8000-000000000019
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    servername: sni27.example.org
+    network: ws
+    ws-opts:
+      path: /p4
+      headers:
+        Host: sni27.example.org
+    udp: true
+  - name: "Proxy 39"
+    server: s1.example.net
+    port: 80
+    type: vless
+    uuid: 00005a11-0000-4000-8000-000000000022
+    cipher: auto
+    tls: false
+    skip-cert-verify: true
+    servername: sni37.example.org
+    network: ws
+    ws-opts:
+      path: /p18
+      headers:
+        Host: sni37.example.org
+    udp: true
+  - name: "Proxy 40"
+    server: s1.example.net
+    port: 8080
+    type: vless
+    uuid: 00005a11-0000-4000-8000-000000000023
+    cipher: auto
+    tls: false
+    skip-cert-verify: true
+    servername: sni38.example.org
+    network: ws
+    ws-opts:
+      path: /p19
+      headers:
+        Host: sni38.example.org
+    udp: true
+  - name: "Proxy 41"
+    server: s1.example.net
+    port: 443
+    type: vless
+    uuid: 00005a11-0000-4000-8000-000000000024
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    servername: sni39.example.org
+    network: ws
+    ws-opts:
+      path: /p20
+      headers:
+        Host: sni39.example.org
+    udp: true
+  - name: "Proxy 42"
+    server: s1.example.net
+    port: 8880
+    type: vless
+    uuid: 00005a11-0000-4000-8000-000000000025
+    cipher: auto
+    tls: false
+    skip-cert-verify: true
+    servername: sni40.example.org
+    network: ws
+    ws-opts:
+      path: /p21
+      headers:
+        Host: sni40.example.org
+    udp: true
+  - name: "Proxy 43"
+    server: s1.example.net
+    port: 443
+    type: vless
+    uuid: 00005a11-0000-4000-8000-000000000026
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    servername: sni41.example.org
+    network: ws
+    ws-opts:
+      path: /p22
+      headers:
+        Host: sni41.example.org
+    udp: true
+  - name: "Proxy 44"
+    server: s1.example.net
+    port: 443
+    type: vless
+    uuid: 00005a11-0000-4000-8000-000000000027
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    servername: sni42.example.org
+    network: ws
+    ws-opts:
+      path: /p23
+      headers:
+        Host: sni42.example.org
+    udp: true
+  - name: "Proxy 45"
+    server: s1.example.net
+    port: 443
+    type: vless
+    uuid: 00005a11-0000-4000-8000-000000000012
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    servername: sni43.example.org
+    network: ws
+    ws-opts:
+      path: /p12
+      headers:
+        Host: sni43.example.org
+    udp: true
+  - name: "Proxy 46"
+    server: s1.example.net
+    port: 443
+    type: vless
+    uuid: 00005a11-0000-4000-8000-000000000012
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    servername: sni44.example.org
+    network: ws
+    ws-opts:
+      path: /p24
+      headers:
+        Host: sni44.example.org
+    udp: true
+  - name: "Proxy 47"
+    server: s1.example.net
+    port: 443
+    type: vless
+    uuid: 00005a11-0000-4000-8000-000000000012
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    servername: sni20.example.org
+    network: ws
+    ws-opts:
+      path: /p25
+      headers:
+        Host: sni20.example.org
+    udp: true
+  - name: "Proxy 48"
+    server: s1.example.net
+    port: 443
+    type: vless
+    uuid: 00005a11-0000-4000-8000-000000000028
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    servername: sni45.example.org
+    network: ws
+    ws-opts:
+      path: /p26
+      headers:
+        Host: sni45.example.org
+    udp: true
+  - name: "Proxy 49"
+    server: s1.example.net
+    port: 443
+    type: vless
+    uuid: 00005a11-0000-4000-8000-000000000029
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    servername: sni46.example.org
+    network: ws
+    ws-opts:
+      path: /p27
+      headers:
+        Host: sni46.example.org
+    udp: true
+  - name: "Proxy 50"
+    server: s1.example.net
+    port: 80
+    type: vless
+    uuid: 00005a11-0000-4000-8000-00000000002a
+    cipher: auto
+    tls: false
+    skip-cert-verify: true
+    servername: sni47.example.org.
+    network: ws
+    ws-opts:
+      path: /p28
+      headers:
+        Host: sni47.example.org.
+    udp: true
+  - name: "Proxy 51"
+    server: s1.example.net
+    port: 443
+    type: vless
+    uuid: 00005a11-0000-4000-8000-00000000002b
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    servername: sni48.example.org
+    network: ws
+    ws-opts:
+      path: /p27
+      headers:
+        Host: sni48.example.org
+    udp: true
+  - name: "Proxy 52"
+    server: s1.example.net
+    port: 443
+    type: vless
+    uuid: 00005a11-0000-4000-8000-00000000002c
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    servername: sni49.example.org
+    network: ws
+    ws-opts:
+      path: /p4
+      headers:
+        Host: sni49.example.org
+    udp: true
+  - name: "Proxy 53"
+    server: s50.example.net
+    port: 443
+    type: trojan
+    password: password1
+    skip-cert-verify: true
+    sni: s50.example.net
+    network: grpc
+    grpc-opts:
+      grpc-service-name: str3
+    udp: true
+  - name: "Proxy 54"
+    server: s1.example.net
+    port: 443
+    type: vless
+    uuid: 00005a11-0000-4000-8000-00000000002d
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    servername: sni51.example.org
+    network: ws
+    ws-opts:
+      path: /p11
+      headers:
+        Host: sni51.example.org
+    udp: true
+  - name: "Proxy 55"
+    server: s1.example.net
+    port: 443
+    type: vless
+    uuid: 00005a11-0000-4000-8000-00000000002e
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    servername: sni52.example.org
+    network: ws
+    ws-opts:
+      path: /p2
+      headers:
+        Host: sni52.example.org
+    udp: true
+  - name: "Proxy 56"
+    server: s1.example.net
+    port: 443
+    type: vless
+    uuid: 00005a11-0000-4000-8000-00000000002f
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    servername: sni53.example.org
+    network: ws
+    ws-opts:
+      path: /p29
+      headers:
+        Host: sni53.example.org
+    udp: true
+  - name: "Proxy 57"
+    server: s1.example.net
+    port: 443
+    type: vless
+    uuid: 00005a11-0000-4000-8000-000000000030
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    servername: sni54.example.org
+    network: ws
+    ws-opts:
+      path: /p2
+      headers:
+        Host: sni54.example.org
+    udp: true
+  - name: "Proxy 58"
+    server: s1.example.net
+    port: 443
+    type: vless
+    uuid: 00005a11-0000-4000-8000-000000000031
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    servername: sni55.example.org
+    network: ws
+    ws-opts:
+      path: /p30
+      headers:
+        Host: sni55.example.org
+    udp: true
+  - name: "Proxy 59"
+    server: s1.example.net
+    port: 443
+    type: vless
+    uuid: 00005a11-0000-4000-8000-000000000032
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    servername: sni56.example.org
+    network: ws
+    ws-opts:
+      path: str4
+      headers:
+        Host: sni56.example.org
+    udp: true
+  - name: "Proxy 60"
+    server: s1.example.net
+    port: 443
+    type: trojan
+    password: password1
+    skip-cert-verify: true
+    sni: s50.example.net
+    network: grpc
+    grpc-opts:
+      grpc-service-name: str3
+    udp: true
+  - name: "Proxy 61"
+    server: s1.example.net
+    port: 443
+    type: trojan
+    password: password2
+    skip-cert-verify: true
+    sni: sni57.example.org
+    network: ws
+    ws-opts:
+      path: str5
+      headers:
+        Host: sni57.example.org
+    udp: true
+  - name: "Proxy 62"
+    server: s1.example.net
+    port: 443
+    type: trojan
+    password: password3
+    skip-cert-verify: true
+    sni: 704c7085
+    network: ws
+    ws-opts:
+      path: str6
+      headers:
+        Host: sni58.example.org
+    udp: true
+  - name: "Proxy 63"
+    server: s1.example.net
+    port: 443
+    type: trojan
+    password: password4
+    skip-cert-verify: true
+    sni: sni59.example.org
+    network: ws
+    ws-opts:
+      path: str5
+      headers:
+        Host: sni59.example.org
+    udp: true
+  - name: "Proxy 64"
+    server: s1.example.net
+    port: 443
+    type: trojan
+    password: password5
+    skip-cert-verify: true
+    sni: sni60.example.org
+    network: ws
+    ws-opts:
+      path: str5
+      headers:
+        Host: sni60.example.org
+    udp: true
+  - name: "Proxy 65"
+    server: s1.example.net
+    port: 443
+    type: trojan
+    password: password6
+    skip-cert-verify: true
+    sni: 704c7085
+    network: ws
+    ws-opts:
+      path: str6
+      headers:
+        Host: sni61.example.org
+    udp: true
+  - name: "Proxy 66"
+    server: s1.example.net
+    port: 443
+    type: trojan
+    password: password7
+    skip-cert-verify: true
+    sni: "1.1"
+    network: ws
+    ws-opts:
+      path: ./path-1
+      headers:
+        Host: str7
+    udp: true
+  - name: "Proxy 67"
+    server: s1.example.net
+    port: 443
+    type: trojan
+    password: password8
+    skip-cert-verify: true
+    sni: "1.1"
+    network: ws
+    ws-opts:
+      path: str8
+      headers:
+        Host: str9
+    udp: true
+  - name: "Proxy 68"
+    server: s1.example.net
+    port: 443
+    type: trojan
+    password: 00005a11-0000-4000-8000-000000000033
+    skip-cert-verify: true
+    sni: "1.1"
+    network: ws
+    ws-opts:
+      path: str10
+      headers:
+        Host: str11
+    udp: true
+  - name: "Proxy 69"
+    server: s1.example.net
+    port: 443
+    type: vmess
+    uuid: 00005a11-0000-4000-8000-000000000034
+    alterId: 0
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    servername: sni62.example.org
+    network: ws
+    ws-opts:
+      path: /p31
+      headers:
+        Host: sni62.example.org
+    udp: true
+  - name: "Proxy 70"
+    server: s1.example.net
+    port: 80
+    type: vmess
+    uuid: 00005a11-0000-4000-8000-000000000035
+    alterId: 0
+    cipher: auto
+    tls: false
+    skip-cert-verify: true
+    servername: sni18.example.org
+    network: ws
+    ws-opts:
+      path: /p32
+      headers:
+        Host: sni18.example.org
+    udp: true
+  - name: "Proxy 71"
+    server: s1.example.net
+    port: 443
+    type: vmess
+    uuid: 00005a11-0000-4000-8000-000000000036
+    alterId: 0
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    servername: sni63.example.org
+    network: ws
+    ws-opts:
+      path: /p31
+      headers:
+        Host: sni63.example.org
+    udp: true
+  - name: "Proxy 72"
+    server: s1.example.net
+    port: 443
+    type: vmess
+    uuid: 00005a11-0000-4000-8000-000000000037
+    alterId: 0
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    servername: sni64.example.org
+    network: ws
+    ws-opts:
+      path: /p31
+      headers:
+        Host: sni64.example.org
+    udp: true
+  - name: "Proxy 73"
+    server: s1.example.net
+    port: 443
+    type: vmess
+    uuid: 00005a11-0000-4000-8000-000000000038
+    alterId: 0
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    servername: sni65.example.org
+    network: ws
+    ws-opts:
+      path: /p33
+      headers:
+        Host: sni65.example.org
+    udp: true
+  - name: "Proxy 74"
+    server: s1.example.net
+    port: 80
+    type: vmess
+    uuid: 00005a11-0000-4000-8000-000000000035
+    alterId: 0
+    cipher: auto
+    tls: false
+    skip-cert-verify: true
+    servername: sni66.example.org
+    network: ws
+    ws-opts:
+      path: /p34
+      headers:
+        Host: sni66.example.org
+    udp: true
+  - name: "Proxy 75"
+    server: s1.example.net
+    port: 443
+    type: vmess
+    uuid: 00005a11-0000-4000-8000-000000000039
+    alterId: 0
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    servername: sni67.example.org
+    network: ws
+    ws-opts:
+      path: /p31
+      headers:
+        Host: sni67.example.org
+    udp: true
+  - name: "Proxy 76"
+    server: s1.example.net
+    port: 80
+    type: vmess
+    uuid: 00005a11-0000-4000-8000-00000000003a
+    alterId: 0
+    cipher: auto
+    tls: false
+    skip-cert-verify: true
+    servername: sni68.example.org.
+    network: ws
+    ws-opts:
+      path: /p35
+      headers:
+        Host: sni68.example.org.
+    udp: true
+  - name: "Proxy 77"
+    server: s1.example.net
+    port: 80
+    type: vmess
+    uuid: 00005a11-0000-4000-8000-00000000003b
+    alterId: 0
+    cipher: auto
+    tls: false
+    skip-cert-verify: true
+    servername: sni69.example.org.
+    network: ws
+    ws-opts:
+      path: /p11
+      headers:
+        Host: sni69.example.org.
+    udp: true
+  - name: "Proxy 78"
+    server: s1.example.net
+    port: 443
+    type: vmess
+    uuid: 00005a11-0000-4000-8000-00000000003c
+    alterId: 0
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    servername: sni70.example.org
+    network: ws
+    ws-opts:
+      path: /p36
+      headers:
+        Host: sni70.example.org
+    udp: true
+  - name: "Proxy 79"
+    server: s1.example.net
+    port: 443
+    type: vmess
+    uuid: 00005a11-0000-4000-8000-00000000003d
+    alterId: 0
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    servername: sni71.example.org
+    network: ws
+    ws-opts:
+      path: /p31
+      headers:
+        Host: sni71.example.org
+    udp: true
+  - name: "Proxy 80"
+    server: s1.example.net
+    port: 80
+    type: vmess
+    uuid: 00005a11-0000-4000-8000-00000000003e
+    alterId: 0
+    cipher: auto
+    tls: false
+    skip-cert-verify: true
+    servername: sni72.example.org.
+    network: ws
+    ws-opts:
+      path: /p11
+      headers:
+        Host: sni72.example.org.
+    udp: true
+proxy-groups:
+  - name: Group 1
+    <<: *a1
+  - name: Group 2
+    type: select
+    proxies:
+      - REJECT
+      - DIRECT
+  - name: Group 3
+    <<: *a2
+  - name: Group 4
+    <<: *a4
+  - name: Group 5
+    <<: *a5
+rule-providers:
+  set-1:
+    type: http
+    behavior: classical
+    url: "https://h2.example.com/p37.yaml"
+    interval: 300
+rules:
+  - RULE-SET,set-1,Group 2
+  - MATCH,Group 1

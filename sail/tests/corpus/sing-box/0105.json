@@ -1,0 +1,755 @@
+{
+  "log": {
+    "level": "str156",
+    "timestamp": "str157"
+  },
+  "experimental": {
+    "clash_api": {
+      "external_controller": "str158",
+      "external_ui": "./path-1",
+      "secret": "",
+      "external_ui_download_url": "str159",
+      "external_ui_download_detour": "Proxy 196",
+      "default_mode": "str160"
+    },
+    "cache_file": {
+      "enabled": "str161",
+      "store_fakeip": "str162"
+    }
+  },
+  "dns": {
+    "servers": [
+      {
+        "tag": "dns-1",
+        "address": "str1",
+        "detour": "Proxy 30"
+      },
+      {
+        "tag": "dns-2",
+        "address": "str2",
+        "detour": "Proxy 31"
+      },
+      {
+        "tag": "dns-3",
+        "address": "str3"
+      }
+    ],
+    "rules": [
+      {
+        "rule_set": "set-32",
+        "server": "dns-4"
+      },
+      {
+        "outbound": "Proxy 32",
+        "server": "dns-5",
+        "disable_cache": "str4"
+      },
+      {
+        "rule_set": "set-33",
+        "server": "dns-6"
+      },
+      {
+        "clash_mode": "str5",
+        "server": "dns-7"
+      },
+      {
+        "clash_mode": "str6",
+        "server": "dns-8"
+      },
+      {
+        "rule_set": "set-34",
+        "server": "dns-9"
+      }
+    ],
+    "final": "dns-10",
+    "strategy": "str7"
+  },
+  "inbounds": [
+    {
+      "type": "str8",
+      "inet4_address": "str9",
+      "mtu": "str10",
+      "auto_route": "str11",
+      "strict_route": "str12",
+      "sniff": "str13",
+      "endpoint_independent_nat": "str14",
+      "stack": "str15",
+      "platform": {
+        "http_proxy": {
+          "enabled": "str16",
+          "server": "str17",
+          "server_port": "str18"
+        }
+      }
+    },
+    {
+      "type": "str19",
+      "listen": "str20",
+      "listen_port": "str21",
+      "sniff": "str22",
+      "users": []
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "Proxy 1",
+      "type": "str23",
+      "outbounds": [
+        "Proxy 33",
+        "Proxy 34"
+      ]
+    },
+    {
+      "tag": "Proxy 2",
+      "type": "str24",
+      "outbounds": [
+        "Proxy 35",
+        "Proxy 36",
+        "Proxy 37",
+        "Proxy 38",
+        "Proxy 39"
+      ],
+      "default": "Proxy 40"
+    },
+    {
+      "tag": "Proxy 3",
+      "type": "str25",
+      "outbounds": [
+        "Proxy 41",
+        "Proxy 42",
+        "Proxy 43",
+        "Proxy 44",
+        "Proxy 45",
+        "Proxy 46"
+      ]
+    },
+    {
+      "tag": "Proxy 4",
+      "type": "str26",
+      "outbounds": [
+        "Proxy 47",
+        "Proxy 48",
+        "Proxy 49",
+        "Proxy 50",
+        "Proxy 51",
+        "Proxy 52"
+      ]
+    },
+    {
+      "tag": "Proxy 5",
+      "type": "str27",
+      "outbounds": [
+        "Proxy 53",
+        "Proxy 54",
+        "Proxy 55",
+        "Proxy 56",
+        "Proxy 57",
+        "Proxy 58"
+      ]
+    },
+    {
+      "tag": "Proxy 6",
+      "type": "str28",
+      "outbounds": [
+        "Proxy 59",
+        "Proxy 60",
+        "Proxy 61",
+        "Proxy 62",
+        "Proxy 63",
+        "Proxy 64"
+      ]
+    },
+    {
+      "tag": "Proxy 7",
+      "type": "str29",
+      "outbounds": [
+        "Proxy 65",
+        "Proxy 66",
+        "Proxy 67"
+      ]
+    },
+    {
+      "tag": "Proxy 8",
+      "type": "str30",
+      "outbounds": [
+        "Proxy 68",
+        "Proxy 69"
+      ]
+    },
+    {
+      "tag": "Proxy 9",
+      "type": "str31",
+      "outbounds": [
+        "Proxy 70",
+        "Proxy 71",
+        "Proxy 72",
+        "Proxy 73",
+        "Proxy 74",
+        "Proxy 75"
+      ],
+      "default": "Proxy 76"
+    },
+    {
+      "tag": "Proxy 10",
+      "type": "str32",
+      "outbounds": [
+        "Proxy 77",
+        "Proxy 78",
+        "Proxy 79",
+        "Proxy 80",
+        "Proxy 81"
+      ],
+      "default": "Proxy 82"
+    },
+    {
+      "tag": "Proxy 11",
+      "type": "str33",
+      "outbounds": [
+        "Proxy 83",
+        "Proxy 84",
+        "Proxy 85",
+        "Proxy 86",
+        "Proxy 87",
+        "Proxy 88"
+      ]
+    },
+    {
+      "tag": "Proxy 12",
+      "type": "str34",
+      "outbounds": [
+        "Proxy 89",
+        "Proxy 90",
+        "Proxy 91",
+        "Proxy 92",
+        "Proxy 93",
+        "Proxy 94"
+      ]
+    },
+    {
+      "tag": "Proxy 13",
+      "type": "str35",
+      "outbounds": [
+        "Proxy 95",
+        "Proxy 96",
+        "Proxy 97",
+        "Proxy 98",
+        "Proxy 99",
+        "Proxy 100",
+        "Proxy 101"
+      ]
+    },
+    {
+      "tag": "Proxy 14",
+      "type": "str36",
+      "outbounds": [
+        "Proxy 102",
+        "Proxy 103",
+        "Proxy 104",
+        "Proxy 105",
+        "Proxy 106",
+        "Proxy 107",
+        "Proxy 108"
+      ]
+    },
+    {
+      "tag": "Proxy 15",
+      "type": "str37",
+      "outbounds": [
+        "Proxy 109",
+        "Proxy 110",
+        "Proxy 111",
+        "Proxy 112",
+        "Proxy 113",
+        "Proxy 114",
+        "Proxy 115"
+      ]
+    },
+    {
+      "tag": "Proxy 16",
+      "type": "str38",
+      "outbounds": [
+        "Proxy 116",
+        "Proxy 117",
+        "Proxy 118",
+        "Proxy 119",
+        "Proxy 120",
+        "Proxy 121"
+      ]
+    },
+    {
+      "tag": "Proxy 17",
+      "type": "str39",
+      "outbounds": [
+        "Proxy 122",
+        "Proxy 123",
+        "Proxy 124",
+        "Proxy 125",
+        "Proxy 126",
+        "Proxy 127",
+        "Proxy 128"
+      ]
+    },
+    {
+      "tag": "Proxy 18",
+      "type": "str40",
+      "outbounds": [
+        "Proxy 129",
+        "Proxy 130"
+      ]
+    },
+    {
+      "tag": "Proxy 19",
+      "type": "str41",
+      "outbounds": [
+        "Proxy 131",
+        "Proxy 132"
+      ]
+    },
+    {
+      "tag": "Proxy 20",
+      "type": "str42",
+      "outbounds": [
+        "Proxy 133"
+      ]
+    },
+    {
+      "tag": "Proxy 21",
+      "type": "str43",
+      "outbounds": [
+        "Proxy 134"
+      ]
+    },
+    {
+      "tag": "Proxy 22",
+      "type": "str44",
+      "outbounds": [
+        "Proxy 135"
+      ]
+    },
+    {
+      "tag": "Proxy 23",
+      "type": "str45",
+      "outbounds": [
+        "Proxy 136"
+      ]
+    },
+    {
+      "tag": "Proxy 24",
+      "type": "str46",
+      "outbounds": [
+        "Proxy 137"
+      ]
+    },
+    {
+      "tag": "Proxy 25",
+      "type": "str47",
+      "outbounds": [
+        "Proxy 138"
+      ]
+    },
+    {
+      "tag": "Proxy 26",
+      "type": "str48",
+      "outbounds": [
+        "Proxy 139"
+      ],
+      "url": "str49",
+      "interval": "str50",
+      "tolerance": "str51"
+    },
+    {
+      "type": "str52",
+      "tag": "Proxy 27"
+    },
+    {
+      "type": "str53",
+      "tag": "Proxy 28"
+    },
+    {
+      "type": "str54",
+      "tag": "Proxy 29"
+    }
+  ],
+  "route": {
+    "auto_detect_interface": "str55",
+    "final": "Proxy 140",
+    "rules": [
+      {
+        "type": "str56",
+        "mode": "str57",
+        "rules": [
+          {
+            "port": "str58"
+          },
+          {
+            "protocol": "str59"
+          }
+        ],
+        "outbound": "Proxy 141"
+      },
+      {
+        "rule_set": "set-35",
+        "outbound": "Proxy 142"
+      },
+      {
+        "clash_mode": "str60",
+        "outbound": "Proxy 143"
+      },
+      {
+        "clash_mode": "str61",
+        "outbound": "Proxy 144"
+      },
+      {
+        "domain": [
+          "d1.example",
+          "d2.example",
+          "d3.example",
+          "d4.example"
+        ],
+        "outbound": "Proxy 145"
+      },
+      {
+        "rule_set": "set-36",
+        "outbound": "Proxy 146"
+      },
+      {
+        "rule_set": [
+          "set-37",
+          "set-38",
+          "set-39",
+          "set-40"
+        ],
+        "outbound": "Proxy 147"
+      },
+      {
+        "rule_set": [
+          "set-41",
+          "set-42"
+        ],
+        "outbound": "Proxy 148"
+      },
+      {
+        "rule_set": [
+          "set-43",
+          "set-44"
+        ],
+        "outbound": "Proxy 149"
+      },
+      {
+        "rule_set": [
+          "set-45",
+          "set-46"
+        ],
+        "outbound": "Proxy 150"
+      },
+      {
+        "rule_set": [
+          "set-47",
+          "set-48"
+        ],
+        "outbound": "Proxy 151"
+      },
+      {
+        "rule_set": "set-49",
+        "outbound": "Proxy 152"
+      },
+      {
+        "rule_set": "set-50",
+        "outbound": "Proxy 153"
+      },
+      {
+        "rule_set": "set-51",
+        "outbound": "Proxy 154"
+      },
+      {
+        "rule_set": [
+          "set-52",
+          "set-53"
+        ],
+        "outbound": "Proxy 155"
+      },
+      {
+        "rule_set": "set-54",
+        "outbound": "Proxy 156"
+      },
+      {
+        "rule_set": [
+          "set-55",
+          "set-56",
+          "set-57"
+        ],
+        "outbound": "Proxy 157"
+      },
+      {
+        "rule_set": "set-58",
+        "outbound": "Proxy 158"
+      },
+      {
+        "rule_set": "set-59",
+        "outbound": "Proxy 159"
+      },
+      {
+        "rule_set": [
+          "set-60",
+          "set-61"
+        ],
+        "outbound": "Proxy 160"
+      },
+      {
+        "rule_set": "set-62",
+        "outbound": "Proxy 161"
+      },
+      {
+        "rule_set": "set-63",
+        "outbound": "Proxy 162"
+      },
+      {
+        "ip_is_private": "str62",
+        "outbound": "Proxy 163"
+      },
+      {
+        "rule_set": [
+          "set-64",
+          "set-65"
+        ],
+        "outbound": "Proxy 164"
+      }
+    ],
+    "rule_set": [
+      {
+        "tag": "set-1",
+        "type": "str63",
+        "format": "str64",
+        "url": "str65",
+        "download_detour": "Proxy 165"
+      },
+      {
+        "tag": "set-2",
+        "type": "str66",
+        "format": "str67",
+        "url": "str68",
+        "download_detour": "Proxy 166"
+      },
+      {
+        "tag": "set-3",
+        "type": "str69",
+        "format": "str70",
+        "url": "str71",
+        "download_detour": "Proxy 167"
+      },
+      {
+        "tag": "set-4",
+        "type": "str72",
+        "format": "str73",
+        "url": "str74",
+        "download_detour": "Proxy 168"
+      },
+      {
+        "tag": "set-5",
+        "type": "str75",
+        "format": "str76",
+        "url": "str77",
+        "download_detour": "Proxy 169"
+      },
+      {
+        "tag": "set-6",
+        "type": "str78",
+        "format": "str79",
+        "url": "str80",
+        "download_detour": "Proxy 170"
+      },
+      {
+        "tag": "set-7",
+        "type": "str81",
+        "format": "str82",
+        "url": "str83",
+        "download_detour": "Proxy 171"
+      },
+      {
+        "tag": "set-8",
+        "type": "str84",
+        "format": "str85",
+        "url": "str86",
+        "download_detour": "Proxy 172"
+      },
+      {
+        "tag": "set-9",
+        "type": "str87",
+        "format": "str88",
+        "url": "str89",
+        "download_detour": "Proxy 173"
+      },
+      {
+        "tag": "set-10",
+        "type": "str90",
+        "format": "str91",
+        "url": "str92",
+        "download_detour": "Proxy 174"
+      },
+      {
+        "tag": "set-11",
+        "type": "str93",
+        "format": "str94",
+        "url": "str95",
+        "download_detour": "Proxy 175"
+      },
+      {
+        "tag": "set-12",
+        "type": "str96",
+        "format": "str97",
+        "url": "str98",
+        "download_detour": "Proxy 176"
+      },
+      {
+        "tag": "set-13",
+        "type": "str99",
+        "format": "str100",
+        "url": "str101",
+        "download_detour": "Proxy 177"
+      },
+      {
+        "tag": "set-14",
+        "type": "str102",
+        "format": "str103",
+        "url": "str104",
+        "download_detour": "Proxy 178"
+      },
+      {
+        "tag": "set-15",
+        "type": "str105",
+        "format": "str106",
+        "url": "str107",
+        "download_detour": "Proxy 179"
+      },
+      {
+        "tag": "set-16",
+        "type": "str108",
+        "format": "str109",
+        "url": "str110",
+        "download_detour": "Proxy 180"
+      },
+      {
+        "tag": "set-17",
+        "type": "str111",
+        "format": "str112",
+        "url": "str113",
+        "download_detour": "Proxy 181"
+      },
+      {
+        "tag": "set-18",
+        "type": "str114",
+        "format": "str115",
+        "url": "str116",
+        "download_detour": "Proxy 182"
+      },
+      {
+        "tag": "set-19",
+        "type": "str117",
+        "format": "str118",
+        "url": "str119",
+        "download_detour": "Proxy 183"
+      },
+      {
+        "tag": "set-20",
+        "type": "str120",
+        "format": "str121",
+        "url": "str122",
+        "download_detour": "Proxy 184"
+      },
+      {
+        "tag": "set-21",
+        "type": "str123",
+        "format": "str124",
+        "url": "str125",
+        "download_detour": "Proxy 185"
+      },
+      {
+        "tag": "set-22",
+        "type": "str126",
+        "format": "str127",
+        "url": "str128",
+        "download_detour": "Proxy 186"
+      },
+      {
+        "tag": "set-23",
+        "type": "str129",
+        "format": "str130",
+        "url": "str131",
+        "download_detour": "Proxy 187"
+      },
+      {
+        "tag": "set-24",
+        "type": "str132",
+        "format": "str133",
+        "url": "str134",
+        "download_detour": "Proxy 188"
+      },
+      {
+        "tag": "set-25",
+        "type": "str135",
+        "format": "str136",
+        "url": "str137",
+        "download_detour": "Proxy 189"
+      },
+      {
+        "tag": "set-26",
+        "type": "str138",
+        "format": "str139",
+        "url": "str140",
+        "download_detour": "Proxy 190"
+      },
+      {
+        "tag": "set-27",
+        "type": "str141",
+        "format": "str142",
+        "url": "str143",
+        "download_detour": "Proxy 191"
+      },
+      {
+        "tag": "set-28",
+        "type": "str144",
+        "format": "str145",
+        "url": "str146",
+        "download_detour": "Proxy 192"
+      },
+      {
+        "tag": "set-29",
+        "type": "str147",
+        "format": "str148",
+        "url": "str149",
+        "download_detour": "Proxy 193"
+      },
+      {
+        "tag": "set-30",
+        "type": "str150",
+        "format": "str151",
+        "url": "str152",
+        "download_detour": "Proxy 194"
+      },
+      {
+        "tag": "set-31",
+        "type": "str153",
+        "format": "str154",
+        "url": "str155",
+        "download_detour": "Proxy 195"
+      }
+    ]
+  },
+  "sops": {
+    "kms": null,
+    "gcp_kms": null,
+    "azure_kv": null,
+    "hc_vault": null,
+    "age": [
+      {
+        "recipient": "str163",
+        "enc": "-----BEGIN AGE ENCRYPTED FILE-----\nMIIBszCCAVmgAwIBAgIUZHVtbXktY2VydGlmaWNhdGUtZm9yLWEtdGVzdA==\n-----END AGE ENCRYPTED FILE-----\n"
+      }
+    ],
+    "lastmodified": "str164",
+    "mac": "str165",
+    "pgp": null,
+    "unencrypted_suffix": "str166",
+    "version": "3.8.1"
+  }
+}

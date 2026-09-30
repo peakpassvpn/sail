@@ -1,0 +1,58 @@
+port: 7890
+socks-port: 7891
+redir-port: 7892
+mixed-port: 7893
+allow-lan: true
+log-level: warning
+external-controller: 0.0.0.0:9090
+secret: ''
+bind-address: '*'
+find-process-mode: strict
+ipv6: true
+unified-delay: false
+disable-keep-alive: false
+keep-alive-idle: 30
+keep-alive-interval: 15
+profile:
+  store-selected: true
+  store-fake-ip: false
+dns:
+  enable: true
+  ipv6: true
+  prefer-h3: true
+  use-host: true
+  use-system-hosts: false
+  enhanced-mode: fake-ip
+  listen: 0.0.0.0:7874
+  nameserver:
+    - 'https://h1.example.com/p1'
+    - 'tls://h2.example.com'
+    - '192.0.2.1'
+    - '192.0.2.2'
+tun:
+  enable: true
+  stack: mixed
+  auto-route: true
+  auto-detect-interface: true
+  auto-redir: true
+  dns-hijack:
+    - "any:53"
+    - "tcp://any:53"
+proxies:
+  - name: "Proxy 1"
+    type: http
+    server: 127.0.0.1
+    port: 8080
+proxy-groups:
+  - name: Group 1
+    type: select
+    proxies:
+      - DIRECT
+      - Proxy 1
+rules:
+  - MATCH,Group 1
+ntp:
+  enable: true
+  server: "s1.example.net"
+  port: 123
+  interval: 30

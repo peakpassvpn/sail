@@ -1,0 +1,894 @@
+remnawave:
+  includeHiddenHosts: false
+mixed-port: 7890
+allow-lan: false
+bind-address: 127.0.0.1
+mode: rule
+log-level: info
+ipv6: false
+tcp-concurrent: true
+unified-delay: true
+keep-alive-interval: 30
+enable-process: true
+find-process-mode: always
+external-controller: 127.0.0.1:9090
+profile:
+  store-selected: true
+  store-fake-ip: true
+sniffer:
+  enable: true
+  force-dns-mapping: true
+  parse-pure-ip: true
+  override-destination: false
+  sniff:
+    HTTP:
+      ports:
+        - 80
+        - 8080-8880
+    TLS:
+      ports:
+        - 443
+        - 8443
+    QUIC:
+      ports:
+        - 443
+  skip-dst-address:
+    - 0.0.0.0/8
+    - 10.0.0.0/8
+    - 100.64.0.0/10
+    - 127.0.0.0/8
+    - 169.254.0.0/16
+    - 172.16.0.0/12
+    - 192.0.0.0/24
+    - 192.0.2.0/24
+    - 192.0.2.0/24
+    - 192.168.0.0/16
+    - 198.51.100.0/24
+    - 203.0.113.0/24
+    - 224.0.0.0/3
+    - 2001:db8::/127
+    - fc00::/7
+    - fe80::/10
+    - ff00::/8
+tun:
+  enable: true
+  stack: gvisor
+  auto-route: true
+  auto-detect-interface: true
+  strict-route: true
+  dns-hijack:
+    - any:53
+    - tcp://any:53
+  route-exclude-address:
+    - 0.0.0.0/8
+    - 10.0.0.0/8
+    - 100.64.0.0/10
+    - 127.0.0.0/8
+    - 169.254.0.0/16
+    - 172.16.0.0/12
+    - 192.0.0.0/24
+    - 192.0.2.0/24
+    - 192.0.2.0/24
+    - 192.168.0.0/16
+    - 198.51.100.0/24
+    - 203.0.113.0/24
+    - 224.0.0.0/3
+    - 2001:db8::/127
+    - fc00::/7
+    - fe80::/10
+    - ff00::/8
+dns:
+  enable: true
+  cache-algorithm: arc
+  prefer-h3: false
+  use-hosts: true
+  use-system-hosts: true
+  ipv6: false
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  fake-ip-filter:
+    - rule-set:set-2
+    - +.d1.example
+    - +.d2.example
+    - +.localhost
+    - +.d3.example
+    - +.d4.example
+    - d5*.example
+    - d6*.example
+    - d7.example
+    - d8.example
+    - d9.example
+    - d10.example
+    - d11.example
+    - d12.example
+    - d13.example
+    - d14.example
+    - d15.example
+    - d16.example
+    - d17.example
+    - d18.example
+    - d19.example
+    - d20.example
+    - d21.example
+    - d22.example
+    - d23.example
+    - +.d24.example
+    - '*.d25*.example'
+    - d26*.example
+    - d27.example
+  default-nameserver:
+    - https://192.0.2.1/dns-query
+    - https://192.0.2.2/dns-query
+    - https://192.0.2.3/dns-query
+  proxy-server-nameserver:
+    - system
+    - https://192.0.2.2/dns-query
+    - https://192.0.2.3/dns-query
+    - https://192.0.2.1/dns-query
+  direct-nameserver:
+    - system
+    - https://192.0.2.1/dns-query
+    - https://192.0.2.2/dns-query
+  nameserver:
+    - https://192.0.2.2/dns-query#Group 1
+    - https://192.0.2.3/dns-query#Group 1
+  nameserver-policy:
+    rule-set:set-2:
+      - system
+    rule-set:set-4:
+      - https://192.0.2.2/dns-query#Group 1
+      - https://192.0.2.3/dns-query#Group 1
+    rule-set:set-5:
+      - rcode://name_error
+    rule-set:set-6:
+      - rcode://name_error
+    rule-set:set-7:
+      - rcode://name_error
+    rule-set:set-8:
+      - rcode://name_error
+    rule-set:set-9:
+      - rcode://name_error
+    rule-set:set-12:
+      - https://192.0.2.2/dns-query#Group 1
+      - https://192.0.2.3/dns-query#Group 1
+    rule-set:set-13:
+      - https://192.0.2.2/dns-query#Group 1
+      - https://192.0.2.3/dns-query#Group 1
+    rule-set:set-14:
+      - https://192.0.2.2/dns-query#Group 1
+      - https://192.0.2.3/dns-query#Group 1
+    rule-set:set-17:
+      - https://192.0.2.2/dns-query#Group 1
+      - https://192.0.2.3/dns-query#Group 1
+    rule-set:set-19:
+      - https://192.0.2.2/dns-query#Group 1
+      - https://192.0.2.3/dns-query#Group 1
+    rule-set:set-20:
+      - https://192.0.2.2/dns-query#Group 1
+      - https://192.0.2.3/dns-query#Group 1
+    rule-set:set-21:
+      - https://192.0.2.2/dns-query#Group 1
+      - https://192.0.2.3/dns-query#Group 1
+    rule-set:set-23:
+      - https://192.0.2.2/dns-query#Group 1
+      - https://192.0.2.3/dns-query#Group 1
+    rule-set:set-24:
+      - https://192.0.2.2/dns-query#Group 1
+      - https://192.0.2.3/dns-query#Group 1
+    rule-set:set-25:
+      - https://192.0.2.2/dns-query#Group 1
+      - https://192.0.2.3/dns-query#Group 1
+    rule-set:set-26:
+      - https://192.0.2.2/dns-query#Group 1
+      - https://192.0.2.3/dns-query#Group 1
+    rule-set:set-27:
+      - https://192.0.2.2/dns-query#Group 1
+      - https://192.0.2.3/dns-query#Group 1
+    rule-set:set-28:
+      - https://192.0.2.2/dns-query#Group 1
+      - https://192.0.2.3/dns-query#Group 1
+    rule-set:set-30:
+      - https://192.0.2.2/dns-query#Group 1
+      - https://192.0.2.3/dns-query#Group 1
+    rule-set:set-32:
+      - https://192.0.2.1/dns-query#Group 2
+      - https://192.0.2.2/dns-query#Group 2
+    rule-set:set-33:
+      - https://192.0.2.1/dns-query#Group 2
+      - https://192.0.2.2/dns-query#Group 2
+    rule-set:set-34:
+      - https://192.0.2.1/dns-query#Group 2
+      - https://192.0.2.2/dns-query#Group 2
+proxies:
+  - name: Proxy 1
+    type: dns
+proxy-groups:
+  - name: Group 1
+    type: select
+    remnawave:
+      include-proxies: false
+    proxies:
+      - Group 11
+      - Group 13
+      - Group 12
+      - DIRECT
+  - name: Group 2
+    type: select
+    remnawave:
+      include-proxies: false
+    proxies:
+      - Group 14
+      - Group 15
+      - Group 16
+      - Group 1
+      - DIRECT
+  - name: Group 3
+    type: select
+    remnawave:
+      include-proxies: false
+    proxies:
+      - Group 1
+      - Group 13
+      - Group 12
+  - name: Group 4
+    type: select
+    remnawave:
+      include-proxies: false
+    proxies:
+      - Group 1
+      - Group 13
+      - Group 12
+      - DIRECT
+  - name: Group 5
+    type: select
+    remnawave:
+      include-proxies: false
+    proxies:
+      - Group 1
+      - Group 2
+      - DIRECT
+  - name: Group 6
+    type: select
+    remnawave:
+      include-proxies: false
+    proxies:
+      - Group 1
+      - Group 2
+      - DIRECT
+  - name: Group 7
+    type: select
+    remnawave:
+      include-proxies: false
+    proxies:
+      - Group 1
+      - Group 13
+      - Group 12
+  - name: Group 8
+    type: select
+    remnawave:
+      include-proxies: false
+    proxies:
+      - Group 1
+      - Group 13
+      - Group 12
+      - DIRECT
+  - name: Group 9
+    type: select
+    remnawave:
+      include-proxies: false
+    proxies:
+      - DIRECT
+      - Group 1
+      - Group 2
+  - name: Group 10
+    type: select
+    remnawave:
+      include-proxies: false
+    proxies:
+      - Group 1
+      - Group 2
+      - DIRECT
+  - name: Group 11
+    type: fallback
+    remnawave:
+      include-proxies: false
+    proxies:
+      - Group 13
+      - Group 12
+    url: https://h1.example.com/generate_204
+    expected-status: 204
+    interval: 300
+    lazy: true
+    hidden: true
+  - name: Group 12
+    icon: https://h2.example.com/p1.png
+    type: url-test
+    remnawave:
+      include-proxies: false
+    include-all: true
+    filter: Proxy [0-9]+|Group 1
+    exclude-filter: Proxy [0-9]+|Group 2
+    url: https://h1.example.com/generate_204
+    expected-status: 204
+    interval: 300
+    tolerance: 80
+    lazy: true
+    hidden: true
+  - name: Group 13
+    icon: https://h2.example.com/p2.png
+    type: url-test
+    remnawave:
+      include-proxies: false
+    include-all: true
+    filter: Proxy [0-9]+|Group 3
+    exclude-filter: Proxy [0-9]+|Group 2
+    url: https://h1.example.com/generate_204
+    expected-status: 204
+    interval: 300
+    tolerance: 80
+    lazy: true
+    hidden: true
+  - name: Group 14
+    type: fallback
+    remnawave:
+      include-proxies: false
+    proxies:
+      - Group 15
+      - Group 16
+    url: https://h3.example.com/
+    expected-status: 307
+    interval: 60
+    lazy: true
+    hidden: true
+  - name: Group 15
+    type: url-test
+    remnawave:
+      include-proxies: false
+    include-all: true
+    filter: Proxy [0-9]+|Group 4
+    exclude-filter: Proxy [0-9]+|Group 2
+    url: https://h3.example.com/
+    expected-status: 307
+    interval: 60
+    tolerance: 120
+    lazy: true
+    hidden: true
+  - name: Group 16
+    type: url-test
+    remnawave:
+      include-proxies: false
+    include-all: true
+    filter: Proxy [0-9]+|Group 5
+    exclude-filter: Proxy [0-9]+|Group 2
+    url: https://h3.example.com/
+    expected-status: 307
+    interval: 60
+    tolerance: 120
+    lazy: true
+    hidden: true
+  - name: Group 17
+    type: select
+    remnawave:
+      include-proxies: false
+    hidden: true
+    proxies:
+      - DIRECT
+  - name: Group 18
+    type: select
+    remnawave:
+      include-proxies: false
+    hidden: true
+    proxies:
+      - REJECT
+      - REJECT-DROP
+  - name: PROXY
+    type: select
+    remnawave:
+      include-proxies: false
+    hidden: true
+    proxies:
+      - Group 1
+rule-providers:
+  set-1:
+    type: inline
+    behavior: classical
+    payload:
+      - IP-CIDR,0.0.0.0/8
+      - IP-CIDR,10.0.0.0/8
+      - IP-CIDR,100.64.0.0/10
+      - IP-CIDR,127.0.0.0/8
+      - IP-CIDR,169.254.0.0/16
+      - IP-CIDR,172.16.0.0/12
+      - IP-CIDR,192.0.0.0/24
+      - IP-CIDR,192.0.2.0/24
+      - IP-CIDR,192.0.2.0/24
+      - IP-CIDR,192.168.0.0/16
+      - IP-CIDR,198.51.100.0/24
+      - IP-CIDR,203.0.113.0/24
+      - IP-CIDR,224.0.0.0/3
+      - IP-CIDR,2001:db8::/127
+      - IP-CIDR,fc00::/7
+      - IP-CIDR,fe80::/10
+      - IP-CIDR,ff00::/8
+  set-2:
+    type: http
+    behavior: domain
+    format: mrs
+    proxy: Group 1
+    interval: 86400
+    url: https://h4.example.com/p3.mrs
+    path: ./path-1.mrs
+  set-3:
+    type: http
+    behavior: domain
+    format: mrs
+    proxy: Group 1
+    interval: 86400
+    url: https://h4.example.com/p4.mrs
+    path: ./path-2.mrs
+  set-4:
+    type: inline
+    behavior: classical
+    payload:
+      - DOMAIN-SUFFIX,d28.example
+      - DOMAIN-SUFFIX,d29.example
+      - DOMAIN-SUFFIX,d30.example
+      - DOMAIN-SUFFIX,d31.example
+      - DOMAIN-SUFFIX,d32.example
+      - DOMAIN-SUFFIX,d33.example
+      - DOMAIN-SUFFIX,d34.example
+      - DOMAIN-SUFFIX,d35.example
+      - DOMAIN-SUFFIX,d36.example
+      - DOMAIN-SUFFIX,d37.example
+      - DOMAIN-SUFFIX,d38.example
+  set-5:
+    type: http
+    behavior: domain
+    format: mrs
+    proxy: Group 1
+    interval: 86400
+    url: https://h4.example.com/p5.mrs
+    path: ./path-3.mrs
+  set-6:
+    type: http
+    behavior: domain
+    format: mrs
+    proxy: Group 1
+    interval: 86400
+    url: https://h4.example.com/p6.mrs
+    path: ./path-4.mrs
+  set-7:
+    type: http
+    behavior: domain
+    format: mrs
+    proxy: Group 1
+    interval: 86400
+    url: https://h2.example.com/p7.mrs
+    path: ./path-5.mrs
+  set-8:
+    type: inline
+    behavior: domain
+    payload:
+      - d39.example
+      - d40.example
+      - d41.example
+      - d42.example
+      - d43.example
+      - d44.example
+      - d45.example
+  set-9:
+    type: inline
+    behavior: classical
+    payload:
+      - DOMAIN-SUFFIX,d46.example
+      - DOMAIN-SUFFIX,d47.example
+      - DOMAIN-SUFFIX,d48.example
+      - DOMAIN-KEYWORD,kw1
+      - DOMAIN-KEYWORD,kw2
+  set-10:
+    type: inline
+    behavior: classical
+    payload:
+      - AND,((NETWORK,udp),(DST-PORT,443))
+      - AND,((NETWORK,udp),(DST-PORT,853))
+  set-11:
+    type: inline
+    behavior: classical
+    payload:
+      - AND,((NETWORK,tcp),(DST-PORT,25))
+      - AND,((NETWORK,tcp),(DST-PORT,465))
+      - AND,((NETWORK,tcp),(DST-PORT,587))
+  set-12:
+    type: inline
+    behavior: classical
+    payload:
+      - DOMAIN-SUFFIX,d49.example
+      - DOMAIN-SUFFIX,d50.example
+      - DOMAIN-SUFFIX,d51.example
+      - DOMAIN-SUFFIX,d52.example
+      - DOMAIN-SUFFIX,d53.example
+      - DOMAIN-SUFFIX,d54.example
+      - DOMAIN-SUFFIX,d55.example
+      - DOMAIN-SUFFIX,d56.example
+      - DOMAIN-SUFFIX,d57.example
+      - DOMAIN-SUFFIX,d58.example
+      - DOMAIN-SUFFIX,d59.example
+      - DOMAIN-SUFFIX,d60.example
+      - DOMAIN-SUFFIX,d61.example
+      - DOMAIN-SUFFIX,d62.example
+      - DOMAIN-SUFFIX,d63.example
+      - DOMAIN-SUFFIX,d64.example
+      - DOMAIN-SUFFIX,d65.example
+      - DOMAIN-SUFFIX,d66.example
+      - DOMAIN-SUFFIX,d67.example
+  set-13:
+    type: http
+    behavior: domain
+    format: mrs
+    proxy: Group 1
+    interval: 86400
+    url: https://h4.example.com/p8.mrs
+    path: ./path-6.mrs
+  set-14:
+    type: http
+    behavior: domain
+    format: mrs
+    proxy: Group 1
+    interval: 86400
+    url: https://h4.example.com/p9.mrs
+    path: ./path-7.mrs
+  set-15:
+    type: http
+    behavior: ipcidr
+    format: mrs
+    proxy: Group 1
+    interval: 86400
+    url: https://h4.example.com/p10.mrs
+    path: ./path-8.mrs
+  set-16:
+    type: http
+    behavior: ipcidr
+    format: mrs
+    proxy: Group 1
+    interval: 86400
+    url: https://h4.example.com/p11.mrs
+    path: ./path-9.mrs
+  set-17:
+    type: http
+    behavior: domain
+    format: mrs
+    proxy: Group 1
+    interval: 86400
+    url: https://h4.example.com/p12.mrs
+    path: ./path-10.mrs
+  set-18:
+    type: http
+    behavior: ipcidr
+    format: mrs
+    proxy: Group 1
+    interval: 86400
+    url: https://h4.example.com/p13.mrs
+    path: ./path-11.mrs
+  set-19:
+    type: http
+    behavior: classical
+    format: yaml
+    proxy: Group 1
+    interval: 86400
+    url: https://h4.example.com/p14.yaml
+    path: ./path-12.yaml
+  set-20:
+    type: http
+    behavior: classical
+    format: yaml
+    proxy: Group 1
+    interval: 86400
+    url: https://h4.example.com/p15.yaml
+    path: ./path-13.yaml
+  set-21:
+    type: http
+    behavior: domain
+    format: mrs
+    proxy: Group 1
+    interval: 86400
+    url: https://h4.example.com/p16.mrs
+    path: ./path-14.mrs
+  set-22:
+    type: http
+    behavior: ipcidr
+    format: mrs
+    proxy: Group 1
+    interval: 86400
+    url: https://h4.example.com/p17.mrs
+    path: ./path-15.mrs
+  set-23:
+    type: http
+    behavior: domain
+    format: mrs
+    proxy: Group 1
+    interval: 86400
+    url: https://h4.example.com/p18.mrs
+    path: ./path-16.mrs
+  set-24:
+    type: http
+    behavior: domain
+    format: mrs
+    proxy: Group 1
+    interval: 86400
+    url: https://h4.example.com/p19.mrs
+    path: ./path-17.mrs
+  set-25:
+    type: http
+    behavior: domain
+    format: mrs
+    proxy: Group 1
+    interval: 86400
+    url: https://h2.example.com/p20.mrs
+    path: ./path-18.mrs
+  set-26:
+    type: inline
+    behavior: classical
+    payload:
+      - DOMAIN-SUFFIX,d68.example
+      - DOMAIN-SUFFIX,d69.example
+      - DOMAIN-SUFFIX,d70.example
+      - DOMAIN-SUFFIX,d71.example
+      - DOMAIN-SUFFIX,d72.example
+      - DOMAIN-SUFFIX,d73.example
+      - DOMAIN-SUFFIX,d74.example
+      - DOMAIN-SUFFIX,d75.example
+      - DOMAIN-SUFFIX,d76.example
+      - DOMAIN-SUFFIX,d77.example
+      - DOMAIN-SUFFIX,d78.example
+      - DOMAIN-SUFFIX,d79.example
+      - DOMAIN-SUFFIX,d80.example
+      - DOMAIN-SUFFIX,d81.example
+      - DOMAIN-SUFFIX,d82.example
+      - DOMAIN-SUFFIX,d83.example
+      - DOMAIN-SUFFIX,d84.example
+      - DOMAIN-SUFFIX,d85.example
+      - DOMAIN-SUFFIX,d86.example
+      - DOMAIN-SUFFIX,d87.example
+      - DOMAIN-SUFFIX,d88.example
+      - DOMAIN-SUFFIX,d89.example
+      - DOMAIN-SUFFIX,d90.example
+      - DOMAIN-SUFFIX,d91.example
+      - DOMAIN-SUFFIX,d92.example
+      - DOMAIN-SUFFIX,d93.example
+      - DOMAIN-SUFFIX,d94.example
+      - DOMAIN-SUFFIX,d95.example
+      - DOMAIN-KEYWORD,kw3
+      - DOMAIN-KEYWORD,kw4
+      - DOMAIN-KEYWORD,kw5
+      - DOMAIN-KEYWORD,kw6
+  set-27:
+    type: http
+    behavior: classical
+    format: text
+    proxy: Group 1
+    interval: 86400
+    url: https://h4.example.com/p21
+    path: ./path-19.txt
+  set-28:
+    type: http
+    behavior: domain
+    format: mrs
+    proxy: Group 1
+    interval: 86400
+    url: https://h4.example.com/p22.mrs
+    path: ./path-20.mrs
+  set-29:
+    type: http
+    behavior: ipcidr
+    format: mrs
+    proxy: Group 1
+    interval: 86400
+    url: https://h4.example.com/p23.mrs
+    path: ./path-21.mrs
+  set-30:
+    type: http
+    behavior: domain
+    format: mrs
+    proxy: Group 1
+    interval: 86400
+    url: https://h2.example.com/p24.mrs
+    path: ./path-22.mrs
+  set-31:
+    type: http
+    behavior: ipcidr
+    format: mrs
+    proxy: Group 1
+    interval: 86400
+    url: https://h2.example.com/p25.mrs
+    path: ./path-23.mrs
+  set-32:
+    type: inline
+    behavior: classical
+    payload:
+      - DOMAIN-SUFFIX,d96.example
+      - DOMAIN-SUFFIX,d97.example
+      - DOMAIN-SUFFIX,d98.example
+      - DOMAIN-SUFFIX,d99.example
+      - DOMAIN-SUFFIX,d100.example
+      - DOMAIN-SUFFIX,d101.example
+      - DOMAIN-SUFFIX,d102.example
+      - DOMAIN-SUFFIX,d103.example
+      - DOMAIN-SUFFIX,d104.example
+      - DOMAIN-SUFFIX,d105.example
+      - DOMAIN-SUFFIX,d106.example
+      - DOMAIN-SUFFIX,d107.example
+      - DOMAIN-SUFFIX,d108.example
+      - DOMAIN-SUFFIX,d109.example
+      - DOMAIN-SUFFIX,d110.example
+      - DOMAIN-SUFFIX,d111.example
+      - DOMAIN-SUFFIX,d112.example
+      - DOMAIN-SUFFIX,d113.example
+      - DOMAIN-SUFFIX,d114.example
+      - DOMAIN-SUFFIX,d115.example
+      - DOMAIN-SUFFIX,d116.example
+      - DOMAIN-SUFFIX,d117.example
+      - DOMAIN-SUFFIX,d118.example
+      - DOMAIN-SUFFIX,d119.example
+      - DOMAIN-SUFFIX,d120.example
+      - DOMAIN-SUFFIX,d121.example
+      - DOMAIN-SUFFIX,d122.example
+      - DOMAIN-SUFFIX,d123.example
+      - DOMAIN-SUFFIX,d124.example
+      - DOMAIN-SUFFIX,d125.example
+      - DOMAIN-SUFFIX,d126.example
+      - DOMAIN-SUFFIX,d127.example
+      - DOMAIN-SUFFIX,d128.example
+      - DOMAIN-SUFFIX,d129.example
+      - DOMAIN-SUFFIX,d130.example
+      - DOMAIN-SUFFIX,d131.example
+      - DOMAIN-SUFFIX,d132.example
+      - DOMAIN-SUFFIX,d133.example
+      - DOMAIN-SUFFIX,d134.example
+      - DOMAIN-SUFFIX,d135.example
+      - DOMAIN-SUFFIX,d136.example
+      - DOMAIN-SUFFIX,d137.example
+      - DOMAIN-SUFFIX,d138.example
+      - DOMAIN-SUFFIX,d139.example
+      - DOMAIN-SUFFIX,d140.example
+      - DOMAIN-SUFFIX,d141.example
+      - DOMAIN-SUFFIX,d142.example
+      - DOMAIN-SUFFIX,d143.example
+      - DOMAIN-SUFFIX,d144.example
+      - DOMAIN-SUFFIX,d145.example
+      - DOMAIN-SUFFIX,d146.example
+      - DOMAIN-SUFFIX,d147.example
+      - DOMAIN-SUFFIX,d148.example
+      - DOMAIN-SUFFIX,d149.example
+      - DOMAIN-SUFFIX,d150.example
+      - DOMAIN-SUFFIX,d151.example
+      - DOMAIN-SUFFIX,d152.example
+      - DOMAIN-SUFFIX,d153.example
+      - DOMAIN-SUFFIX,d154.example
+      - DOMAIN-SUFFIX,d155.example
+      - DOMAIN-SUFFIX,d156.example
+      - DOMAIN-SUFFIX,d157.example
+      - DOMAIN-SUFFIX,d158.example
+      - DOMAIN-SUFFIX,d159.example
+      - DOMAIN-SUFFIX,d160.example
+      - DOMAIN-SUFFIX,d161.example
+      - DOMAIN-SUFFIX,d162.example
+      - DOMAIN-SUFFIX,d163.example
+      - DOMAIN-SUFFIX,d164.example
+      - DOMAIN-SUFFIX,d165.example
+      - DOMAIN-SUFFIX,d166.example
+      - DOMAIN-SUFFIX,d167.example
+      - DOMAIN-SUFFIX,d168.example
+      - DOMAIN-SUFFIX,d169.example
+      - DOMAIN-SUFFIX,d170.example
+      - DOMAIN-SUFFIX,d171.example
+      - DOMAIN-SUFFIX,d172.example
+      - DOMAIN-SUFFIX,d173.example
+      - DOMAIN-SUFFIX,d174.example
+      - DOMAIN-SUFFIX,d175.example
+      - DOMAIN-SUFFIX,d176.example
+      - DOMAIN-SUFFIX,d177.example
+      - DOMAIN-SUFFIX,d178.example
+      - DOMAIN-SUFFIX,d179.example
+      - DOMAIN-SUFFIX,d180.example
+      - DOMAIN-SUFFIX,d181.example
+      - DOMAIN-SUFFIX,d182.example
+      - DOMAIN-SUFFIX,d183.example
+      - DOMAIN-SUFFIX,d184.example
+      - DOMAIN-SUFFIX,d185.example
+      - DOMAIN-SUFFIX,d186.example
+      - DOMAIN-SUFFIX,d187.example
+      - DOMAIN-SUFFIX,d188.example
+      - DOMAIN-SUFFIX,d189.example
+      - DOMAIN-SUFFIX,d190.example
+      - DOMAIN-SUFFIX,d191.example
+      - DOMAIN-SUFFIX,d192.example
+      - DOMAIN-SUFFIX,d193.example
+      - DOMAIN-SUFFIX,d194.example
+      - DOMAIN-SUFFIX,d195.example
+      - DOMAIN-SUFFIX,d196.example
+      - DOMAIN-SUFFIX,d197.example
+      - DOMAIN-SUFFIX,d198.example
+      - DOMAIN-SUFFIX,d199.example
+      - DOMAIN-SUFFIX,d200.example
+      - DOMAIN-SUFFIX,d201.example
+      - DOMAIN-SUFFIX,d202.example
+      - DOMAIN-SUFFIX,d203.example
+      - DOMAIN-SUFFIX,d204.example
+      - DOMAIN-KEYWORD,kw7
+      - DOMAIN-KEYWORD,kw8
+      - DOMAIN-KEYWORD,kw9
+      - DOMAIN-KEYWORD,kw10
+      - DOMAIN-KEYWORD,kw11
+      - DOMAIN-KEYWORD,kw12
+      - DOMAIN-KEYWORD,kw13
+      - DOMAIN-KEYWORD,kw14
+      - DOMAIN-KEYWORD,kw15
+  set-33:
+    type: http
+    behavior: classical
+    format: yaml
+    proxy: Group 1
+    interval: 86400
+    url: https://h4.example.com/p26.yaml
+    path: ./path-24.yaml
+  set-34:
+    type: http
+    behavior: domain
+    format: mrs
+    proxy: Group 1
+    interval: 86400
+    url: https://h4.example.com/p27.mrs
+    path: ./path-25.mrs
+  set-35:
+    type: http
+    behavior: ipcidr
+    format: mrs
+    proxy: Group 1
+    interval: 86400
+    url: https://h4.example.com/p28.mrs
+    path: ./path-26.mrs
+rules:
+  - RULE-SET,set-1,Group 17
+  - RULE-SET,set-2,Group 17
+  - PROCESS-NAME-REGEX,^app1.*$,Group 17
+  - PROCESS-NAME-REGEX,^app2.*$,Group 17
+  - PROCESS-NAME-REGEX,^app3.*$,Group 17
+  - PROCESS-NAME-REGEX,^app4.*$,Group 17
+  - PROCESS-NAME-REGEX,^app5.*$,Group 17
+  - PROCESS-NAME-REGEX,^app6.*$,Group 17
+  - PROCESS-NAME-REGEX,^app7.*$,Group 17
+  - RULE-SET,set-3,Group 17
+  - RULE-SET,set-4,Group 1
+  - RULE-SET,set-5,Group 18
+  - RULE-SET,set-6,Group 18
+  - RULE-SET,set-7,Group 18
+  - RULE-SET,set-8,Group 18
+  - RULE-SET,set-9,Group 18
+  - PROCESS-NAME-REGEX,^app8.*$,Group 18
+  - RULE-SET,set-10,Group 18
+  - RULE-SET,set-11,Group 18
+  - RULE-SET,set-12,Group 1
+  - RULE-SET,set-13,Group 3
+  - RULE-SET,set-14,Group 4
+  - RULE-SET,set-15,Group 4,no-resolve
+  - RULE-SET,set-16,Group 1,no-resolve
+  - RULE-SET,set-17,Group 5
+  - RULE-SET,set-18,Group 5,no-resolve
+  - RULE-SET,set-19,Group 5
+  - RULE-SET,set-20,Group 5
+  - RULE-SET,set-21,Group 6
+  - RULE-SET,set-22,Group 6,no-resolve
+  - RULE-SET,set-23,Group 7
+  - RULE-SET,set-24,Group 7
+  - RULE-SET,set-25,Group 8
+  - RULE-SET,set-26,Group 1
+  - RULE-SET,set-27,Group 1
+  - RULE-SET,set-28,Group 1
+  - RULE-SET,set-29,Group 1,no-resolve
+  - RULE-SET,set-30,Group 1
+  - RULE-SET,set-31,Group 1,no-resolve
+  - RULE-SET,set-32,Group 2
+  - RULE-SET,set-33,Group 2
+  - RULE-SET,set-34,Group 2
+  - RULE-SET,set-35,Group 2,no-resolve
+  - MATCH,Group 1

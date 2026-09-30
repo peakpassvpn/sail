@@ -1,0 +1,198 @@
+{
+  "log": {
+    "disabled": false,
+    "level": "info",
+    "timestamp": true
+  },
+  "dns": {
+    "servers": [
+      {
+        "tag": "dns-1",
+        "address": "https://192.0.2.1/dns-query",
+        "strategy": "ipv4_only",
+        "detour": "Proxy 1"
+      },
+      {
+        "tag": "dns-2",
+        "address": "https://192.0.2.2/dns-query",
+        "strategy": "ipv4_only",
+        "detour": "Proxy 1"
+      },
+      {
+        "tag": "dns-3",
+        "address": "rcode://success"
+      }
+    ],
+    "rules": [
+      {
+        "rule_set": [
+          "set-2"
+        ],
+        "server": "dns-1",
+        "rule_set_ip_cidr_accept_empty": true
+      },
+      {
+        "rule_set": [
+          "set-3"
+        ],
+        "server": "dns-3",
+        "rule_set_ip_cidr_accept_empty": true
+      }
+    ],
+    "final": "dns-2",
+    "strategy": "ipv4_only",
+    "disable_cache": false,
+    "disable_expire": false
+  },
+  "inbounds": [
+    {
+      "sniff": true,
+      "sniff_override_destination": true,
+      "type": "vless",
+      "listen": "::",
+      "listen_port": 443,
+      "users": [
+        {
+          "uuid": "00005a11-0000-4000-8000-000000000001",
+          "flow": "xtls-rprx-vision"
+        }
+      ],
+      "tls": {
+        "enabled": true,
+        "server_name": "sni1.example.org",
+        "reality": {
+          "enabled": true,
+          "handshake": {
+            "server": "sni1.example.org",
+            "server_port": 443
+          },
+          "private_key": "wywOQgzCr2vr85JpoMxzCakHIIvgUtsG6_Qp987NJa4",
+          "short_id": [
+            "704c7085dd7b3f73"
+          ]
+        }
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "direct",
+      "tag": "Proxy 1"
+    },
+    {
+      "type": "block",
+      "tag": "Proxy 2"
+    },
+    {
+      "type": "dns",
+      "tag": "Proxy 3"
+    },
+    {
+      "type": "wireguard",
+      "tag": "Proxy 4",
+      "server": "192.0.2.3",
+      "server_port": 2408,
+      "local_address": [
+        "192.0.2.4/32",
+        "2001:db8::1/128"
+      ],
+      "private_key": "WulOoXrJ4xaeREDpCXJqPLE7mK1qDJwNSfPto1FYe4I=",
+      "peer_public_key": "password1",
+      "reserved": [
+        26,
+        21,
+        228
+      ],
+      "mtu": 1280
+    }
+  ],
+  "route": {
+    "rules": [
+      {
+        "protocol": "dns",
+        "outbound": "Proxy 3"
+      },
+      {
+        "ip_is_private": true,
+        "outbound": "Proxy 1"
+      },
+      {
+        "rule_set": [
+          "set-1",
+          "set-2"
+        ],
+        "outbound": "Proxy 1"
+      },
+      {
+        "rule_set": [
+          "set-4"
+        ],
+        "outbound": "Proxy 4"
+      },
+      {
+        "rule_set": [
+          "set-5"
+        ],
+        "outbound": "Proxy 4"
+      },
+      {
+        "rule_set": [
+          "set-3"
+        ],
+        "outbound": "Proxy 2"
+      }
+    ],
+    "rule_set": [
+      {
+        "tag": "set-1",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p1.srs",
+        "download_detour": "Proxy 1",
+        "update_interval": "1d"
+      },
+      {
+        "tag": "set-2",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p2.srs",
+        "download_detour": "Proxy 1",
+        "update_interval": "1d"
+      },
+      {
+        "tag": "set-3",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p3.srs",
+        "download_detour": "Proxy 1",
+        "update_interval": "1d"
+      },
+      {
+        "tag": "set-4",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p4.srs",
+        "download_detour": "Proxy 1",
+        "update_interval": "1d"
+      },
+      {
+        "tag": "set-5",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p5.srs",
+        "download_detour": "Proxy 1",
+        "update_interval": "1d"
+      }
+    ],
+    "auto_detect_interface": true,
+    "final": "Proxy 1"
+  },
+  "experimental": {
+    "cache_file": {
+      "enabled": true,
+      "path": "./path-1.db",
+      "cache_id": "password2",
+      "store_fakeip": true
+    }
+  }
+}

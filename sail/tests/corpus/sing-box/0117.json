@@ -1,0 +1,341 @@
+{
+  "$schema": "https://h2.example.com/p5.json",
+  "log": {
+    "disabled": false,
+    "level": "debug",
+    "timestamp": true
+  },
+  "dns": {
+    "servers": [
+      {
+        "type": "https",
+        "tag": "dns-1",
+        "server": "192.0.2.1",
+        "tls": {
+          "enabled": true,
+          "server_name": "sni1.example.org"
+        }
+      },
+      {
+        "type": "https",
+        "tag": "dns-2",
+        "domain_resolver": "dns-1",
+        "server": "sni1.example.org"
+      },
+      {
+        "type": "https",
+        "tag": "dns-3",
+        "detour": "Proxy 1",
+        "server": "192.0.2.2",
+        "tls": {
+          "enabled": true,
+          "server_name": "sni2.example.org"
+        }
+      },
+      {
+        "type": "https",
+        "tag": "dns-4",
+        "detour": "Proxy 1",
+        "domain_resolver": "dns-3",
+        "server": "sni2.example.org"
+      },
+      {
+        "type": "fakeip",
+        "tag": "dns-5",
+        "inet4_range": "198.18.0.0/15"
+      }
+    ],
+    "rules": [
+      {
+        "domain": [
+          "d3.example",
+          "d4.example",
+          "d5.example"
+        ],
+        "server": "dns-1"
+      },
+      {
+        "query_type": [
+          "AAAA"
+        ],
+        "action": "predefined",
+        "rcode": "NOERROR"
+      },
+      {
+        "query_type": [
+          "A"
+        ],
+        "server": "dns-5"
+      },
+      {
+        "rule_set": "set-2",
+        "server": "dns-2"
+      },
+      {
+        "type": "logical",
+        "mode": "and",
+        "rules": [
+          {
+            "query_type": [
+              "A"
+            ]
+          },
+          {
+            "rule_set": "set-3",
+            "invert": true
+          }
+        ],
+        "action": "evaluate",
+        "server": "dns-4"
+      },
+      {
+        "type": "logical",
+        "mode": "and",
+        "rules": [
+          {
+            "query_type": [
+              "A"
+            ]
+          },
+          {
+            "rule_set": "set-3",
+            "invert": true
+          },
+          {
+            "rule_set": "set-1",
+            "match_response": true
+          }
+        ],
+        "action": "respond"
+      },
+      {
+        "rule_set": "set-4",
+        "server": "dns-4"
+      }
+    ],
+    "final": "dns-4",
+    "strategy": "ipv4_only",
+    "disable_cache": true,
+    "disable_expire": false
+  },
+  "ntp": {
+    "server": "d3.example",
+    "server_port": 0
+  },
+  "http_clients": [
+    {
+      "tag": "str2",
+      "engine": "go"
+    }
+  ],
+  "inbounds": [
+    {
+      "type": "tun",
+      "tag": "in-1",
+      "interface_name": "if1",
+      "mtu": 9000,
+      "address": [
+        "192.0.2.1/30"
+      ],
+      "auto_route": true,
+      "strict_route": false
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "naive",
+      "tag": "Proxy 1",
+      "server": "str1",
+      "server_port": 443,
+      "username": "user1",
+      "password": "password1",
+      "insecure_concurrency": 0,
+      "extra_headers": {},
+      "stream_receive_window": "128 MB",
+      "udp_over_tcp": false,
+      "quic": false,
+      "quic_congestion_control": "cubic",
+      "quic_session_receive_window": "15 MB",
+      "tls": {
+        "enabled": true,
+        "server_name": "str1",
+        "certificate": [],
+        "certificate_path": "",
+        "ech": {
+          "enabled": false,
+          "config": [],
+          "config_path": "",
+          "query_server_name": ""
+        }
+      }
+    },
+    {
+      "type": "direct",
+      "tag": "Proxy 2"
+    }
+  ],
+  "route": {
+    "rules": [
+      {
+        "action": "sniff"
+      },
+      {
+        "type": "logical",
+        "mode": "or",
+        "rules": [
+          {
+            "protocol": "dns"
+          },
+          {
+            "port": 53
+          }
+        ],
+        "action": "hijack-dns"
+      },
+      {
+        "type": "logical",
+        "mode": "or",
+        "rules": [
+          {
+            "port": 853
+          },
+          {
+            "protocol": "stun"
+          }
+        ],
+        "action": "reject"
+      },
+      {
+        "ip_is_private": true,
+        "outbound": "Proxy 2"
+      },
+      {
+        "process_name": [
+          "app1",
+          "app2",
+          "app3",
+          "app4",
+          "app5"
+        ],
+        "outbound": "Proxy 2"
+      },
+      {
+        "process_name": [
+          "app6"
+        ],
+        "outbound": "Proxy 1"
+      },
+      {
+        "domain": [
+          "d6.example",
+          "d7.example",
+          "d8.example",
+          "d9.example",
+          "d10.example",
+          "d11.example",
+          "d12.example",
+          "d13.example",
+          "d14.example",
+          "d15.example",
+          "d16.example",
+          "d17.example",
+          "d18.example",
+          "d19.example",
+          "d20.example",
+          "d21.example",
+          "d22.example",
+          "d23.example",
+          "d24.example",
+          "d25.example",
+          "d26.example",
+          "d27.example",
+          "d28.example",
+          "d29.example",
+          "d30.example",
+          "d31.example",
+          "d32.example",
+          "d33.example",
+          "d34.example",
+          "d35.example"
+        ],
+        "outbound": "Proxy 1"
+      },
+      {
+        "domain_suffix": [
+          "d36.example",
+          "d37.example",
+          "d38.example",
+          "d39.example"
+        ],
+        "outbound": "Proxy 2"
+      },
+      {
+        "domain_suffix": [
+          "d6.example",
+          "d16.example",
+          "d18.example"
+        ],
+        "outbound": "Proxy 1"
+      },
+      {
+        "rule_set": "set-2",
+        "outbound": "Proxy 2"
+      },
+      {
+        "type": "logical",
+        "mode": "and",
+        "rules": [
+          {
+            "rule_set": "set-1"
+          },
+          {
+            "rule_set": "set-3",
+            "invert": true
+          }
+        ],
+        "outbound": "Proxy 2"
+      },
+      {
+        "rule_set": "set-4",
+        "outbound": "Proxy 1"
+      }
+    ],
+    "rule_set": [
+      {
+        "type": "remote",
+        "tag": "set-1",
+        "format": "binary",
+        "url": "https://h1.example.com/p1.srs"
+      },
+      {
+        "type": "remote",
+        "tag": "set-2",
+        "format": "binary",
+        "url": "https://h1.example.com/p2.srs"
+      },
+      {
+        "type": "remote",
+        "tag": "set-3",
+        "format": "binary",
+        "url": "https://h1.example.com/p3.srs"
+      },
+      {
+        "type": "remote",
+        "tag": "set-4",
+        "format": "binary",
+        "url": "https://h1.example.com/p4.srs"
+      }
+    ],
+    "final": "Proxy 1",
+    "auto_detect_interface": true,
+    "default_domain_resolver": "dns-2",
+    "default_http_client": "str2"
+  },
+  "experimental": {
+    "cache_file": {
+      "enabled": false,
+      "store_dns": true,
+      "store_fakeip": true
+    }
+  }
+}

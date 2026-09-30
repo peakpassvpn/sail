@@ -1,0 +1,177 @@
+proxy-providers:
+  provider-1:
+    type: http
+    url: "https://h1.example.com"
+    proxy: DIRECT
+    interval: 3600
+    health-check:
+      enable: true
+      url: https://h2.example.com/generate_204
+      interval: 900
+anchor-1:
+  proxy-providers-use: &a2
+    - provider-1
+port: 7890
+socks-port: 7891
+allow-lan: true
+mode: rule
+anchor-2: &a1
+  proxies:
+    - Group 10
+    - Group 11
+    - Group 12
+    - Group 13
+    - Group 14
+    - Group 15
+    - Group 2
+    - Group 3
+    - DIRECT
+proxies:
+rules:
+  - RULE-SET,set-4,Group 7,no-resolve
+  - RULE-SET,set-6,Group 5
+  - RULE-SET,set-7,Group 4
+  - RULE-SET,set-8,Group 6
+  - RULE-SET,set-2,Group 7
+  - RULE-SET,set-3,Group 9
+  - RULE-SET,set-5,Group 7
+  - MATCH,Group 9
+proxy-groups:
+  - name: Group 1
+    type: select
+    <<: *a1
+  - name: Group 2
+    type: select
+    use: *a2
+  - name: Group 3
+    type: url-test
+    url: http://h2.example.com/generate_204
+    interval: 300
+    tolerance: 50
+    use: *a2
+  - name: Group 4
+    type: select
+    <<: *a1
+  - name: Group 5
+    type: select
+    <<: *a1
+  - name: Group 6
+    type: select
+    <<: *a1
+  - name: Group 7
+    type: select
+    proxies:
+      - DIRECT
+      - Group 1
+  - name: Group 8
+    type: select
+    proxies:
+      - REJECT
+      - DIRECT
+  - name: Group 9
+    type: select
+    proxies:
+      - Group 1
+      - Group 3
+      - DIRECT
+  - name: Group 10
+    type: url-test
+    url: http://h2.example.com/generate_204
+    interval: 300
+    tolerance: 50
+    use: *a2
+    filter: Proxy [0-9]+|Group 1
+  - name: Group 11
+    type: url-test
+    url: http://h2.example.com/generate_204
+    interval: 300
+    tolerance: 50
+    use: *a2
+    filter: Proxy [0-9]+|Group 2
+  - name: Group 12
+    type: url-test
+    url: http://h2.example.com/generate_204
+    interval: 300
+    tolerance: 50
+    use: *a2
+    filter: Proxy [0-9]+|Group 3
+  - name: Group 13
+    type: url-test
+    url: http://h2.example.com/generate_204
+    interval: 300
+    tolerance: 50
+    use: *a2
+    filter: Proxy [0-9]+|Group 4
+  - name: Group 14
+    type: url-test
+    url: http://h2.example.com/generate_204
+    interval: 300
+    tolerance: 150
+    use: *a2
+    filter: Proxy [0-9]+|Group 5
+  - name: Group 15
+    type: url-test
+    url: http://h2.example.com/generate_204
+    interval: 300
+    tolerance: 50
+    use: *a2
+    filter: Proxy [0-9]+|Group 6
+anchor-3:
+  ip: &a4 {type: http, interval: 86400, behavior: ipcidr, format: mrs}
+  domain: &a3 {type: http, interval: 86400, behavior: domain, format: mrs}
+rule-providers:
+  set-1:
+    <<: *a3
+    url: "https://h3.example.com/p1.mrs"
+  set-2:
+    <<: *a3
+    url: "https://h3.example.com/p2.mrs"
+  set-3:
+    <<: *a3
+    url: "https://h3.example.com/p3.mrs"
+  set-4:
+    <<: *a4
+    url: "https://h3.example.com/p4.mrs"
+  set-5:
+    <<: *a4
+    url: "https://h3.example.com/p5.mrs"
+  set-6:
+    <<: *a3
+    url: "https://h3.example.com/p6.mrs"
+  set-7:
+    <<: *a3
+    url: "https://h3.example.com/p7.mrs"
+  set-8:
+    <<: *a3
+    url: "https://h3.example.com/p8.mrs"
+dns:
+  enable: true
+  listen: 0.0.0.0:53
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  proxy-server-nameserver:
+    - 192.0.2.1
+    - 192.0.2.2
+  default-nameserver:
+    - 192.0.2.1
+    - 192.0.2.2
+  nameserver:
+    - 192.0.2.1
+    - 192.0.2.2
+  fallback:
+    - https://h4.example.com/dns-query
+    - https://h5.example.com/dns-query
+    - 192.0.2.3
+    - 192.0.2.4
+  nameserver-policy:
+    "geosite:cn":
+      - 192.0.2.1
+      - 192.0.2.2
+    "geosite:geolocation-!cn":
+      - https://h4.example.com/dns-query
+      - https://h5.example.com/dns-query
+  fallback-filter:
+    geoip: true
+    geoip-code: CN
+    geosite:
+      - str1

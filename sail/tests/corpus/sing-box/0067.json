@@ -1,0 +1,748 @@
+{
+  "log": {
+    "disabled": false,
+    "level": "warn",
+    "timestamp": true
+  },
+  "ntp": {
+    "enabled": true,
+    "server": "s1.example.net",
+    "server_port": 123,
+    "interval": "30m"
+  },
+  "experimental": {
+    "cache_file": {
+      "enabled": true,
+      "store_fakeip": true
+    },
+    "clash_api": {
+      "external_controller": "127.0.0.1:9090",
+      "external_ui": "./path-1",
+      "external_ui_download_url": "https://h1.example.com/p38.zip",
+      "external_ui_download_detour": "Proxy 1",
+      "default_mode": "rule"
+    }
+  },
+  "dns": {
+    "servers": [
+      {
+        "tag": "dns-1",
+        "server": "192.0.2.1",
+        "type": "quic"
+      },
+      {
+        "tag": "dns-2",
+        "type": "fakeip",
+        "inet4_range": "198.18.0.0/15",
+        "inet6_range": "2001:db8::/32"
+      },
+      {
+        "tag": "dns-3",
+        "type": "local"
+      }
+    ],
+    "rules": [
+      {
+        "type": "logical",
+        "mode": "and",
+        "rules": [
+          {
+            "query_type": "AAAA"
+          },
+          {
+            "default_interface_address": "2000::/3",
+            "invert": true
+          }
+        ],
+        "action": "predefined",
+        "rcode": "NOERROR"
+      },
+      {
+        "action": "route",
+        "clash_mode": "direct",
+        "server": "dns-1"
+      },
+      {
+        "action": "predefined",
+        "query_type": [
+          "HTTPS",
+          "SVCB"
+        ],
+        "rcode": "NOERROR"
+      },
+      {
+        "action": "route",
+        "rule_set": [
+          "set-28"
+        ],
+        "server": "dns-3"
+      },
+      {
+        "action": "route",
+        "rule_set": [
+          "set-3",
+          "set-2",
+          "set-1",
+          "set-4",
+          "set-5"
+        ],
+        "server": "dns-2",
+        "rewrite_ttl": 1,
+        "query_type": [
+          "A",
+          "AAAA"
+        ]
+      },
+      {
+        "action": "route",
+        "rule_set": [
+          "set-7",
+          "set-8",
+          "set-33",
+          "set-37",
+          "set-34",
+          "set-10",
+          "set-11",
+          "set-15",
+          "set-16",
+          "set-19",
+          "set-17",
+          "set-23",
+          "set-30",
+          "set-35",
+          "set-22",
+          "set-24",
+          "set-25",
+          "set-27",
+          "set-20",
+          "set-21"
+        ],
+        "server": "dns-2",
+        "rewrite_ttl": 1,
+        "query_type": [
+          "A",
+          "AAAA"
+        ]
+      },
+      {
+        "action": "route",
+        "clash_mode": "global",
+        "server": "dns-2",
+        "query_type": [
+          "A",
+          "AAAA"
+        ]
+      },
+      {
+        "query_type": [
+          "A",
+          "AAAA"
+        ],
+        "action": "evaluate",
+        "server": "dns-1",
+        "timeout": "1s"
+      },
+      {
+        "type": "logical",
+        "mode": "and",
+        "rules": [
+          {
+            "query_type": [
+              "A",
+              "AAAA"
+            ]
+          },
+          {
+            "type": "logical",
+            "mode": "or",
+            "rules": [
+              {
+                "match_response": true,
+                "response_rcode": "NOERROR"
+              },
+              {
+                "match_response": true,
+                "response_rcode": "FORMERR"
+              },
+              {
+                "match_response": true,
+                "response_rcode": "SERVFAIL"
+              },
+              {
+                "match_response": true,
+                "response_rcode": "NXDOMAIN"
+              },
+              {
+                "match_response": true,
+                "response_rcode": "NOTIMP"
+              },
+              {
+                "match_response": true,
+                "response_rcode": "REFUSED"
+              }
+            ]
+          },
+          {
+            "match_response": true,
+            "ip_accept_any": true,
+            "invert": true
+          }
+        ],
+        "action": "respond"
+      },
+      {
+        "type": "logical",
+        "mode": "and",
+        "rules": [
+          {
+            "query_type": [
+              "A",
+              "AAAA"
+            ]
+          },
+          {
+            "match_response": true,
+            "response_rcode": "NOERROR"
+          },
+          {
+            "match_response": true,
+            "rule_set": [
+              "set-31",
+              "set-36"
+            ]
+          }
+        ],
+        "action": "respond"
+      },
+      {
+        "type": "logical",
+        "mode": "and",
+        "rules": [
+          {
+            "query_type": [
+              "A",
+              "AAAA"
+            ]
+          },
+          {
+            "match_response": true,
+            "response_rcode": "NOERROR"
+          },
+          {
+            "match_response": true,
+            "ip_accept_any": true
+          }
+        ],
+        "server": "dns-2",
+        "rewrite_ttl": 1
+      },
+      {
+        "query_type": [
+          "A",
+          "AAAA"
+        ],
+        "action": "predefined",
+        "rcode": "SERVFAIL"
+      }
+    ],
+    "final": "dns-1"
+  },
+  "http_clients": [
+    {
+      "tag": "str1"
+    }
+  ],
+  "inbounds": [
+    {
+      "tag": "in-1",
+      "type": "tun",
+      "interface_name": "if1",
+      "address": [
+        "192.0.2.1/30",
+        "2001:db8::1/126"
+      ],
+      "stack": "mixed",
+      "auto_route": true
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "Proxy 1",
+      "type": "direct"
+    },
+    {
+      "tag": "Group 1",
+      "type": "selector",
+      "outbounds": []
+    },
+    {
+      "tag": "Group 2",
+      "type": "selector",
+      "outbounds": [
+        "Proxy 1",
+        "Group 1"
+      ],
+      "default": "Proxy 1"
+    },
+    {
+      "tag": "Group 3",
+      "type": "selector",
+      "outbounds": [
+        "Proxy 1",
+        "Group 1"
+      ],
+      "default": "Group 1"
+    },
+    {
+      "tag": "Group 4",
+      "type": "selector",
+      "outbounds": [
+        "Proxy 1",
+        "Group 1"
+      ],
+      "default": "Proxy 1"
+    },
+    {
+      "tag": "Group 5",
+      "type": "selector",
+      "outbounds": [
+        "Proxy 1",
+        "Group 1"
+      ],
+      "default": "Group 1"
+    },
+    {
+      "tag": "Group 6",
+      "type": "selector",
+      "outbounds": [
+        "Proxy 1",
+        "Group 1"
+      ],
+      "default": "Group 1"
+    }
+  ],
+  "route": {
+    "default_domain_resolver": {
+      "server": "dns-1"
+    },
+    "default_http_client": "str1",
+    "rules": [
+      {
+        "port": 53,
+        "action": "hijack-dns"
+      },
+      {
+        "port": 123,
+        "network": "udp",
+        "action": "sniff",
+        "sniffer": "ntp"
+      },
+      {
+        "protocol": "ntp",
+        "action": "route",
+        "outbound": "Proxy 1"
+      },
+      {
+        "clash_mode": "direct",
+        "action": "route",
+        "outbound": "Proxy 1"
+      },
+      {
+        "clash_mode": "global",
+        "action": "route",
+        "outbound": "Group 1"
+      },
+      {
+        "rule_set": [
+          "set-3",
+          "set-2",
+          "set-4",
+          "set-5"
+        ],
+        "action": "reject",
+        "method": "drop"
+      },
+      {
+        "rule_set": [
+          "set-1"
+        ],
+        "action": "reject",
+        "no_drop": true
+      },
+      {
+        "action": "route",
+        "rule_set": [
+          "set-20",
+          "set-21"
+        ],
+        "outbound": "Group 3"
+      },
+      {
+        "action": "route",
+        "rule_set": [
+          "set-16",
+          "set-19"
+        ],
+        "outbound": "Group 2"
+      },
+      {
+        "action": "route",
+        "rule_set": [
+          "set-22"
+        ],
+        "outbound": "Proxy 1"
+      },
+      {
+        "action": "route",
+        "rule_set": [
+          "set-13"
+        ],
+        "outbound": "Group 1"
+      },
+      {
+        "action": "route",
+        "rule_set": [
+          "set-11",
+          "set-12"
+        ],
+        "outbound": "Group 1"
+      },
+      {
+        "type": "logical",
+        "mode": "and",
+        "rules": [
+          {
+            "rule_set": [
+              "set-24",
+              "set-25",
+              "set-27"
+            ]
+          },
+          {
+            "rule_set": [
+              "set-14"
+            ]
+          }
+        ],
+        "action": "route",
+        "outbound": "Group 1"
+      },
+      {
+        "action": "route",
+        "rule_set": [
+          "set-24",
+          "set-25",
+          "set-27"
+        ],
+        "outbound": "Proxy 1"
+      },
+      {
+        "action": "route",
+        "rule_set": [
+          "set-17"
+        ],
+        "outbound": "Group 2"
+      },
+      {
+        "action": "route",
+        "rule_set": [
+          "set-23"
+        ],
+        "outbound": "Group 5"
+      },
+      {
+        "rule_set": [
+          "set-33"
+        ],
+        "action": "route",
+        "outbound": "Group 4"
+      },
+      {
+        "domain_regex": "^d1\\.example$",
+        "network": "udp",
+        "port": 443,
+        "action": "reject"
+      },
+      {
+        "action": "route",
+        "domain_regex": "^d1\\.example$",
+        "outbound": "Group 1"
+      },
+      {
+        "type": "logical",
+        "mode": "and",
+        "rules": [
+          {
+            "ip_version": 6
+          },
+          {
+            "default_interface_address": "2000::/3",
+            "invert": true
+          }
+        ],
+        "action": "reject",
+        "method": "drop"
+      },
+      {
+        "rule_set": [
+          "set-6"
+        ],
+        "action": "reject"
+      },
+      {
+        "rule_set": [
+          "set-18"
+        ],
+        "action": "route",
+        "outbound": "Group 2"
+      },
+      {
+        "rule_set": [
+          "set-32"
+        ],
+        "action": "route",
+        "outbound": "Group 4"
+      },
+      {
+        "rule_set": [
+          "set-31",
+          "set-36",
+          "set-29"
+        ],
+        "action": "route",
+        "outbound": "Proxy 1"
+      },
+      {
+        "network": "udp",
+        "port": 443,
+        "action": "reject"
+      }
+    ],
+    "rule_set": [
+      {
+        "tag": "set-1",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p1.srs"
+      },
+      {
+        "tag": "set-2",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p2.srs"
+      },
+      {
+        "tag": "set-3",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p3.srs"
+      },
+      {
+        "tag": "set-4",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p4.srs"
+      },
+      {
+        "tag": "set-5",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p5.srs"
+      },
+      {
+        "tag": "set-6",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p6.srs"
+      },
+      {
+        "tag": "set-7",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p7.srs"
+      },
+      {
+        "tag": "set-8",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p8.srs"
+      },
+      {
+        "tag": "set-9",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p9.srs"
+      },
+      {
+        "tag": "set-10",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p10.srs"
+      },
+      {
+        "tag": "set-11",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p11.srs"
+      },
+      {
+        "tag": "set-12",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p12.srs"
+      },
+      {
+        "tag": "set-13",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p13.srs"
+      },
+      {
+        "tag": "set-14",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p14.srs"
+      },
+      {
+        "tag": "set-15",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p15.srs"
+      },
+      {
+        "tag": "set-16",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p16.srs"
+      },
+      {
+        "tag": "set-17",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p17.srs"
+      },
+      {
+        "tag": "set-18",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p18.srs"
+      },
+      {
+        "tag": "set-19",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p19.srs"
+      },
+      {
+        "tag": "set-20",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p20.srs"
+      },
+      {
+        "tag": "set-21",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p21.srs"
+      },
+      {
+        "tag": "set-22",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p22.srs"
+      },
+      {
+        "tag": "set-23",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p23.srs"
+      },
+      {
+        "tag": "set-24",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p24.srs"
+      },
+      {
+        "tag": "set-25",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p25.srs"
+      },
+      {
+        "tag": "set-26",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p26.srs"
+      },
+      {
+        "tag": "set-27",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p27.srs"
+      },
+      {
+        "tag": "set-28",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p28.srs"
+      },
+      {
+        "tag": "set-29",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p29.srs"
+      },
+      {
+        "tag": "set-30",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p30.srs"
+      },
+      {
+        "tag": "set-31",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p31.srs"
+      },
+      {
+        "tag": "set-32",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p32.srs"
+      },
+      {
+        "tag": "set-33",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p33.srs"
+      },
+      {
+        "tag": "set-34",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p34.srs"
+      },
+      {
+        "tag": "set-35",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p35.srs"
+      },
+      {
+        "tag": "set-36",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p36.srs"
+      },
+      {
+        "tag": "set-37",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p37.srs"
+      }
+    ],
+    "auto_detect_interface": true,
+    "final": "Group 1"
+  }
+}

@@ -1,0 +1,138 @@
+port: 7890
+socks-port: 7891
+allow-lan: true
+mode: Rule
+log-level: info
+external-controller: :9090
+dns:
+  enable: true
+  nameserver:
+    - 192.0.2.1
+    - 192.0.2.2
+  fallback:
+    - 192.0.2.3
+    - 192.0.2.4
+    - 192.0.2.5
+    - tls://192.0.2.6:853
+    - tls://h1.example.com:853
+proxies:
+  - name: Proxy 1
+    server: s1.example.net
+    port: 20000
+    type: hysteria2
+    password: 00005a11-0000-4000-8000-000000000001
+    auth: 00005a11-0000-4000-8000-000000000001
+    skip-cert-verify: false
+    obfs: salamander
+    obfs-password: password1
+  - name: Proxy 2
+    server: s1.example.net
+    port: 20000
+    type: hysteria2
+    password: 00005a11-0000-4000-8000-000000000001
+    auth: 00005a11-0000-4000-8000-000000000001
+    skip-cert-verify: false
+    obfs: salamander
+    obfs-password: password1
+  - name: Proxy 3
+    server: s2.example.net
+    port: 24955
+    type: hysteria2
+    password: 00005a11-0000-4000-8000-000000000001
+    auth: 00005a11-0000-4000-8000-000000000001
+    skip-cert-verify: false
+    obfs: salamander
+    obfs-password: password2
+  - name: Proxy 4
+    server: s2.example.net
+    port: 24955
+    type: hysteria2
+    password: 00005a11-0000-4000-8000-000000000001
+    auth: 00005a11-0000-4000-8000-000000000001
+    skip-cert-verify: false
+    obfs: salamander
+    obfs-password: password2
+  - name: Proxy 5
+    server: s2.example.net
+    port: 24140
+    type: hysteria2
+    password: 00005a11-0000-4000-8000-000000000001
+    auth: 00005a11-0000-4000-8000-000000000001
+    skip-cert-verify: false
+    obfs: salamander
+    obfs-password: password3
+  - name: Proxy 6
+    server: s3.example.net
+    port: 24960
+    type: hysteria2
+    password: 00005a11-0000-4000-8000-000000000001
+    auth: 00005a11-0000-4000-8000-000000000001
+    skip-cert-verify: false
+    obfs: salamander
+    obfs-password: password4
+  - name: Proxy 7
+    server: s3.example.net
+    port: 24160
+    type: hysteria2
+    password: 00005a11-0000-4000-8000-000000000001
+    auth: 00005a11-0000-4000-8000-000000000001
+    skip-cert-verify: false
+    obfs: salamander
+    obfs-password: password5
+  - name: Proxy 8
+    server: s4.example.net
+    port: 20011
+    type: hysteria2
+    password: 00005a11-0000-4000-8000-000000000001
+    auth: 00005a11-0000-4000-8000-000000000001
+    skip-cert-verify: false
+    obfs: salamander
+    obfs-password: password6
+  - name: Proxy 9
+    server: s4.example.net
+    port: 20111
+    type: hysteria2
+    password: 00005a11-0000-4000-8000-000000000001
+    auth: 00005a11-0000-4000-8000-000000000001
+    skip-cert-verify: false
+    obfs: salamander
+    obfs-password: password7
+  - name: Proxy 10
+    server: s5.example.net
+    port: 443
+    type: hysteria2
+    password: 00005a11-0000-4000-8000-000000000002
+    auth: 00005a11-0000-4000-8000-000000000002
+    sni: s5.example.net
+    skip-cert-verify: false
+  - name: Proxy 11
+    server: s6.example.net
+    port: 443
+    type: vless
+    uuid: 00005a11-0000-4000-8000-000000000003
+    tls: true
+    tfo: false
+    skip-cert-verify: false
+    servername: sni7.example.org
+    network: ws
+    ws-opts:
+      path: /p1
+      headers:
+        Host: sni7.example.org
+proxy-groups:
+  - name: Group 1
+    type: select
+    proxies:
+      - Proxy 1
+      - Proxy 2
+      - Proxy 3
+      - Proxy 4
+      - Proxy 5
+      - Proxy 6
+      - Proxy 7
+      - Proxy 8
+      - Proxy 9
+      - Proxy 10
+      - Proxy 11
+rules:
+  - MATCH,Group 1

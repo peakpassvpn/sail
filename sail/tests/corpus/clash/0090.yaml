@@ -1,0 +1,2901 @@
+mixed-port: 7890
+allow-lan: true
+bind-address: '*'
+mode: rule
+log-level: info
+external-controller: 127.0.0.1:9090
+secret: ''
+dns:
+  enable: true
+  ipv6: false
+  default-nameserver:
+    - 192.0.2.1
+    - 192.0.2.2
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  use-hosts: true
+  nameserver:
+    - https://h1.example.com/dns-query
+    - https://h2.example.com/dns-query
+  fallback:
+    - https://h3.example.com/dns-query
+    - https://h4.example.com/dns-query
+    - https://h5.example.com/dns-query
+    - tls://192.0.2.3:853
+  fallback-filter:
+    geoip: true
+    ipcidr:
+      - 240.0.0.0/4
+      - 0.0.0.0/32
+proxies:
+  - name: 'Proxy 1'
+    type: ss
+    server: s1.example.net
+    port: 1
+    cipher: aes-256-gcm
+    password: 'password1'
+  - name: Proxy 2
+    type: http
+    server: 192.0.2.4
+    port: 8081
+    username: user1
+    password: 'password2'
+  - name: Proxy 3
+    type: http
+    server: 192.0.2.5
+    port: 8081
+    username: user2
+    password: 'password2'
+  - name: Proxy 4
+    type: http
+    server: 192.0.2.6
+    port: 8081
+    username: user3
+    password: 'password2'
+  - name: Proxy 5
+    type: http
+    server: 192.0.2.7
+    port: 8081
+    username: user4
+    password: 'password2'
+  - name: Proxy 6
+    type: http
+    server: 192.0.2.8
+    port: 8081
+    username: user5
+    password: 'password2'
+  - name: Proxy 7
+    type: http
+    server: 192.0.2.9
+    port: 8081
+    username: user6
+    password: 'password2'
+  - name: Proxy 8
+    type: http
+    server: 192.0.2.10
+    port: 8081
+    username: user7
+    password: 'password2'
+  - name: Proxy 9
+    type: http
+    server: 192.0.2.11
+    port: 8081
+    username: user8
+    password: 'password2'
+  - name: Proxy 10
+    type: http
+    server: 192.0.2.12
+    port: 8081
+    username: user9
+    password: 'password2'
+  - name: Proxy 11
+    type: http
+    server: 192.0.2.13
+    port: 8081
+    username: user10
+    password: 'password2'
+  - name: Proxy 12
+    type: http
+    server: 192.0.2.14
+    port: 8081
+    username: user11
+    password: 'password2'
+  - name: Proxy 13
+    type: http
+    server: 192.0.2.15
+    port: 8081
+    username: user12
+    password: 'password2'
+  - name: Proxy 14
+    type: http
+    server: 192.0.2.16
+    port: 8081
+    username: user13
+    password: 'password2'
+  - name: Proxy 15
+    type: http
+    server: 192.0.2.17
+    port: 8081
+    username: user14
+    password: 'password2'
+  - name: Proxy 16
+    type: http
+    server: 192.0.2.18
+    port: 8081
+    username: user15
+    password: 'password2'
+  - name: Proxy 17
+    type: http
+    server: 192.0.2.19
+    port: 8081
+    username: user16
+    password: 'password2'
+  - name: Proxy 18
+    type: http
+    server: 192.0.2.20
+    port: 8081
+    username: user17
+    password: 'password2'
+  - name: Proxy 19
+    type: http
+    server: 192.0.2.21
+    port: 8081
+    username: user18
+    password: 'password2'
+  - name: Proxy 20
+    type: http
+    server: 192.0.2.22
+    port: 8081
+    username: user19
+    password: 'password2'
+  - name: Proxy 21
+    type: http
+    server: 192.0.2.23
+    port: 8081
+    username: user20
+    password: 'password2'
+  - name: Proxy 22
+    type: http
+    server: 192.0.2.24
+    port: 8081
+    username: user21
+    password: 'password2'
+  - name: Proxy 23
+    type: http
+    server: 192.0.2.25
+    port: 8081
+    username: user22
+    password: 'password2'
+  - name: Proxy 24
+    type: http
+    server: 192.0.2.26
+    port: 8081
+    username: user23
+    password: 'password2'
+  - name: Proxy 25
+    type: http
+    server: 192.0.2.27
+    port: 8081
+    username: user24
+    password: 'password2'
+  - name: Proxy 26
+    type: http
+    server: 192.0.2.28
+    port: 8081
+    username: user25
+    password: 'password2'
+  - name: Proxy 27
+    type: http
+    server: 192.0.2.29
+    port: 8081
+    username: user26
+    password: 'password2'
+  - name: Proxy 28
+    type: http
+    server: 192.0.2.30
+    port: 8081
+    username: user27
+    password: 'password2'
+  - name: Proxy 29
+    type: http
+    server: 192.0.2.31
+    port: 8081
+    username: user28
+    password: 'password2'
+  - name: Proxy 30
+    type: http
+    server: 192.0.2.32
+    port: 8081
+    username: user29
+    password: 'password2'
+  - name: Proxy 31
+    type: http
+    server: 192.0.2.33
+    port: 8081
+    username: user30
+    password: 'password2'
+  - name: Proxy 32
+    type: http
+    server: 192.0.2.34
+    port: 8081
+    username: user31
+    password: 'password2'
+  - name: Proxy 33
+    type: http
+    server: 192.0.2.35
+    port: 8081
+    username: user32
+    password: 'password2'
+  - name: Proxy 34
+    type: http
+    server: 192.0.2.36
+    port: 8081
+    username: user33
+    password: 'password2'
+  - name: Proxy 35
+    type: http
+    server: 192.0.2.37
+    port: 8081
+    username: user34
+    password: 'password2'
+  - name: Proxy 36
+    type: http
+    server: 192.0.2.38
+    port: 8081
+    username: user35
+    password: 'password2'
+  - name: Proxy 37
+    type: http
+    server: 192.0.2.39
+    port: 8081
+    username: user36
+    password: 'password2'
+  - name: Proxy 38
+    type: http
+    server: 192.0.2.40
+    port: 8081
+    username: user37
+    password: 'password2'
+  - name: Proxy 39
+    type: http
+    server: 192.0.2.41
+    port: 8081
+    username: user38
+    password: 'password2'
+  - name: Proxy 40
+    type: http
+    server: 192.0.2.42
+    port: 8081
+    username: user39
+    password: 'password2'
+  - name: Proxy 41
+    type: http
+    server: 192.0.2.43
+    port: 8081
+    username: user40
+    password: 'password2'
+  - name: Proxy 42
+    type: http
+    server: 192.0.2.44
+    port: 8081
+    username: user41
+    password: 'password2'
+  - name: Proxy 43
+    type: http
+    server: 192.0.2.45
+    port: 8081
+    username: user42
+    password: 'password2'
+  - name: Proxy 44
+    type: http
+    server: 192.0.2.46
+    port: 8081
+    username: user43
+    password: 'password2'
+  - name: Proxy 45
+    type: http
+    server: 192.0.2.47
+    port: 8081
+    username: user44
+    password: 'password2'
+  - name: Proxy 46
+    type: http
+    server: 192.0.2.48
+    port: 8081
+    username: user45
+    password: 'password2'
+  - name: Proxy 47
+    type: http
+    server: 192.0.2.49
+    port: 8081
+    username: user46
+    password: 'password2'
+  - name: Proxy 48
+    type: http
+    server: 192.0.2.50
+    port: 8081
+    username: user47
+    password: 'password2'
+  - name: Proxy 49
+    type: http
+    server: 192.0.2.51
+    port: 8081
+    username: user48
+    password: 'password2'
+  - name: Proxy 50
+    type: http
+    server: 192.0.2.52
+    port: 8081
+    username: user49
+    password: 'password2'
+  - name: Proxy 51
+    type: http
+    server: 192.0.2.53
+    port: 8081
+    username: user50
+    password: 'password2'
+  - name: Proxy 52
+    type: http
+    server: 192.0.2.54
+    port: 8081
+    username: user51
+    password: 'password2'
+  - name: Proxy 53
+    type: http
+    server: 192.0.2.55
+    port: 8081
+    username: user52
+    password: 'password2'
+  - name: Proxy 54
+    type: http
+    server: 192.0.2.56
+    port: 8081
+    username: user53
+    password: 'password2'
+  - name: Proxy 55
+    type: http
+    server: 192.0.2.57
+    port: 8081
+    username: user54
+    password: 'password2'
+  - name: Proxy 56
+    type: http
+    server: 192.0.2.58
+    port: 8081
+    username: user55
+    password: 'password2'
+  - name: Proxy 57
+    type: http
+    server: 192.0.2.59
+    port: 8081
+    username: user56
+    password: 'password2'
+  - name: Proxy 58
+    type: http
+    server: 192.0.2.60
+    port: 8081
+    username: user57
+    password: 'password2'
+  - name: Proxy 59
+    type: http
+    server: 192.0.2.61
+    port: 8081
+    username: user58
+    password: 'password2'
+  - name: Proxy 60
+    type: http
+    server: 192.0.2.62
+    port: 8081
+    username: user59
+    password: 'password2'
+  - name: Proxy 61
+    type: http
+    server: 192.0.2.63
+    port: 8081
+    username: user60
+    password: 'password2'
+  - name: Proxy 62
+    type: http
+    server: 192.0.2.64
+    port: 8081
+    username: user61
+    password: 'password2'
+  - name: Proxy 63
+    type: http
+    server: 192.0.2.65
+    port: 8081
+    username: user62
+    password: 'password2'
+  - name: Proxy 64
+    type: http
+    server: 192.0.2.66
+    port: 8081
+    username: user63
+    password: 'password2'
+  - name: Proxy 65
+    type: http
+    server: 192.0.2.67
+    port: 8081
+    username: user64
+    password: 'password2'
+  - name: Proxy 66
+    type: http
+    server: 192.0.2.68
+    port: 8081
+    username: user65
+    password: 'password2'
+  - name: Proxy 67
+    type: http
+    server: 192.0.2.69
+    port: 8081
+    username: user66
+    password: 'password2'
+  - name: Proxy 68
+    type: http
+    server: 192.0.2.70
+    port: 8081
+    username: user67
+    password: 'password2'
+  - name: Proxy 69
+    type: http
+    server: 192.0.2.71
+    port: 8081
+    username: user68
+    password: 'password2'
+  - name: Proxy 70
+    type: http
+    server: 192.0.2.72
+    port: 8081
+    username: user69
+    password: 'password2'
+  - name: Proxy 71
+    type: http
+    server: 192.0.2.73
+    port: 8081
+    username: user70
+    password: 'password2'
+  - name: Proxy 72
+    type: http
+    server: 192.0.2.74
+    port: 8081
+    username: user71
+    password: 'password2'
+  - name: Proxy 73
+    type: http
+    server: 192.0.2.75
+    port: 8081
+    username: user72
+    password: 'password2'
+  - name: Proxy 74
+    type: http
+    server: 192.0.2.76
+    port: 8081
+    username: user73
+    password: 'password2'
+  - name: Proxy 75
+    type: http
+    server: 192.0.2.77
+    port: 8081
+    username: user74
+    password: 'password2'
+  - name: Proxy 76
+    type: http
+    server: 192.0.2.78
+    port: 8081
+    username: user75
+    password: 'password2'
+  - name: Proxy 77
+    type: http
+    server: 192.0.2.79
+    port: 8081
+    username: user76
+    password: 'password2'
+  - name: Proxy 78
+    type: http
+    server: 192.0.2.80
+    port: 8081
+    username: user77
+    password: 'password2'
+  - name: Proxy 79
+    type: http
+    server: 192.0.2.81
+    port: 8081
+    username: user78
+    password: 'password2'
+  - name: Proxy 80
+    type: http
+    server: 192.0.2.82
+    port: 8081
+    username: user79
+    password: 'password2'
+  - name: Proxy 81
+    type: http
+    server: 192.0.2.83
+    port: 8081
+    username: user80
+    password: 'password2'
+  - name: Proxy 82
+    type: http
+    server: 192.0.2.84
+    port: 8081
+    username: user81
+    password: 'password2'
+  - name: Proxy 83
+    type: http
+    server: 192.0.2.85
+    port: 8081
+    username: user82
+    password: 'password2'
+  - name: Proxy 84
+    type: http
+    server: 192.0.2.86
+    port: 8081
+    username: user83
+    password: 'password2'
+  - name: Proxy 85
+    type: http
+    server: 192.0.2.87
+    port: 8081
+    username: user84
+    password: 'password2'
+  - name: Proxy 86
+    type: http
+    server: 192.0.2.88
+    port: 8081
+    username: user85
+    password: 'password2'
+  - name: Proxy 87
+    type: http
+    server: 192.0.2.89
+    port: 8081
+    username: user86
+    password: 'password2'
+  - name: Proxy 88
+    type: http
+    server: 192.0.2.90
+    port: 8081
+    username: user87
+    password: 'password2'
+  - name: Proxy 89
+    type: http
+    server: 192.0.2.91
+    port: 8081
+    username: user88
+    password: 'password2'
+  - name: Proxy 90
+    type: http
+    server: 192.0.2.92
+    port: 8081
+    username: user89
+    password: 'password2'
+  - name: Proxy 91
+    type: http
+    server: 192.0.2.93
+    port: 8081
+    username: user90
+    password: 'password2'
+  - name: Proxy 92
+    type: http
+    server: 192.0.2.94
+    port: 8081
+    username: user91
+    password: 'password2'
+  - name: Proxy 93
+    type: http
+    server: 192.0.2.95
+    port: 8081
+    username: user92
+    password: 'password2'
+  - name: Proxy 94
+    type: http
+    server: 192.0.2.96
+    port: 8081
+    username: user93
+    password: 'password2'
+  - name: Proxy 95
+    type: http
+    server: 192.0.2.97
+    port: 8081
+    username: user94
+    password: 'password2'
+  - name: Proxy 96
+    type: http
+    server: 192.0.2.98
+    port: 8081
+    username: user95
+    password: 'password2'
+  - name: Proxy 97
+    type: http
+    server: 192.0.2.99
+    port: 8081
+    username: user96
+    password: 'password2'
+  - name: Proxy 98
+    type: http
+    server: 192.0.2.100
+    port: 8081
+    username: user97
+    password: 'password2'
+  - name: Proxy 99
+    type: http
+    server: 192.0.2.101
+    port: 8081
+    username: user98
+    password: 'password2'
+  - name: Proxy 100
+    type: http
+    server: 192.0.2.102
+    port: 8081
+    username: user99
+    password: 'password2'
+  - name: Proxy 101
+    type: http
+    server: 192.0.2.103
+    port: 8081
+    username: user100
+    password: 'password2'
+  - name: Proxy 102
+    type: http
+    server: 192.0.2.104
+    port: 8081
+    username: user101
+    password: 'password2'
+  - name: Proxy 103
+    type: http
+    server: 192.0.2.105
+    port: 8081
+    username: user102
+    password: 'password2'
+  - name: Proxy 104
+    type: http
+    server: 192.0.2.106
+    port: 8081
+    username: user103
+    password: 'password2'
+  - name: Proxy 105
+    type: http
+    server: 192.0.2.107
+    port: 8081
+    username: user104
+    password: 'password2'
+  - name: Proxy 106
+    type: http
+    server: 192.0.2.108
+    port: 8081
+    username: user105
+    password: 'password2'
+  - name: Proxy 107
+    type: http
+    server: 192.0.2.109
+    port: 8081
+    username: user106
+    password: 'password2'
+  - name: Proxy 108
+    type: http
+    server: 192.0.2.110
+    port: 8081
+    username: user107
+    password: 'password2'
+  - name: Proxy 109
+    type: http
+    server: 192.0.2.111
+    port: 8081
+    username: user108
+    password: 'password2'
+  - name: Proxy 110
+    type: http
+    server: 192.0.2.112
+    port: 8081
+    username: user109
+    password: 'password2'
+  - name: Proxy 111
+    type: http
+    server: 192.0.2.113
+    port: 8081
+    username: user110
+    password: 'password2'
+  - name: Proxy 112
+    type: http
+    server: 192.0.2.114
+    port: 8081
+    username: user111
+    password: 'password2'
+  - name: Proxy 113
+    type: http
+    server: 192.0.2.115
+    port: 8081
+    username: user112
+    password: 'password2'
+  - name: Proxy 114
+    type: http
+    server: 192.0.2.116
+    port: 8081
+    username: user113
+    password: 'password2'
+  - name: Proxy 115
+    type: http
+    server: 192.0.2.117
+    port: 8081
+    username: user114
+    password: 'password2'
+  - name: Proxy 116
+    type: http
+    server: 192.0.2.118
+    port: 8081
+    username: user115
+    password: 'password2'
+  - name: Proxy 117
+    type: http
+    server: 192.0.2.119
+    port: 8081
+    username: user116
+    password: 'password2'
+  - name: Proxy 118
+    type: http
+    server: 192.0.2.120
+    port: 8081
+    username: user117
+    password: 'password2'
+  - name: Proxy 119
+    type: http
+    server: 192.0.2.121
+    port: 8081
+    username: user118
+    password: 'password2'
+  - name: Proxy 120
+    type: http
+    server: 192.0.2.122
+    port: 8081
+    username: user119
+    password: 'password2'
+  - name: Proxy 121
+    type: http
+    server: 192.0.2.123
+    port: 8081
+    username: user120
+    password: 'password2'
+  - name: Proxy 122
+    type: http
+    server: 192.0.2.124
+    port: 8081
+    username: user121
+    password: 'password2'
+  - name: Proxy 123
+    type: http
+    server: 192.0.2.125
+    port: 8081
+    username: user122
+    password: 'password2'
+  - name: Proxy 124
+    type: http
+    server: 192.0.2.126
+    port: 8081
+    username: user123
+    password: 'password2'
+  - name: Proxy 125
+    type: http
+    server: 192.0.2.127
+    port: 8081
+    username: user124
+    password: 'password2'
+  - name: Proxy 126
+    type: http
+    server: 192.0.2.128
+    port: 8081
+    username: user125
+    password: 'password2'
+  - name: Proxy 127
+    type: http
+    server: 192.0.2.129
+    port: 8081
+    username: user126
+    password: 'password2'
+  - name: Proxy 128
+    type: http
+    server: 192.0.2.130
+    port: 8081
+    username: user127
+    password: 'password2'
+  - name: Proxy 129
+    type: http
+    server: 192.0.2.131
+    port: 8081
+    username: user128
+    password: 'password2'
+  - name: Proxy 130
+    type: http
+    server: 192.0.2.132
+    port: 8081
+    username: user129
+    password: 'password2'
+  - name: Proxy 131
+    type: http
+    server: 192.0.2.133
+    port: 8081
+    username: user130
+    password: 'password2'
+  - name: Proxy 132
+    type: http
+    server: 192.0.2.134
+    port: 8081
+    username: user131
+    password: 'password2'
+  - name: Proxy 133
+    type: http
+    server: 192.0.2.135
+    port: 8081
+    username: user132
+    password: 'password2'
+  - name: Proxy 134
+    type: http
+    server: 192.0.2.136
+    port: 8081
+    username: user133
+    password: 'password2'
+  - name: Proxy 135
+    type: http
+    server: 192.0.2.137
+    port: 8081
+    username: user134
+    password: 'password2'
+  - name: Proxy 136
+    type: http
+    server: 192.0.2.138
+    port: 8081
+    username: user135
+    password: 'password2'
+  - name: Proxy 137
+    type: http
+    server: 192.0.2.139
+    port: 8081
+    username: user136
+    password: 'password2'
+  - name: Proxy 138
+    type: http
+    server: 192.0.2.140
+    port: 8081
+    username: user137
+    password: 'password2'
+  - name: Proxy 139
+    type: http
+    server: 192.0.2.141
+    port: 8081
+    username: user138
+    password: 'password2'
+  - name: Proxy 140
+    type: http
+    server: 192.0.2.142
+    port: 8081
+    username: user139
+    password: 'password2'
+  - name: Proxy 141
+    type: http
+    server: 192.0.2.143
+    port: 8081
+    username: user140
+    password: 'password2'
+  - name: Proxy 142
+    type: http
+    server: 192.0.2.144
+    port: 8081
+    username: user141
+    password: 'password2'
+  - name: Proxy 143
+    type: http
+    server: 192.0.2.145
+    port: 8081
+    username: user142
+    password: 'password2'
+  - name: Proxy 144
+    type: http
+    server: 192.0.2.146
+    port: 8081
+    username: user143
+    password: 'password2'
+  - name: Proxy 145
+    type: http
+    server: 192.0.2.147
+    port: 8081
+    username: user144
+    password: 'password2'
+  - name: Proxy 146
+    type: http
+    server: 192.0.2.148
+    port: 8081
+    username: user145
+    password: 'password2'
+  - name: Proxy 147
+    type: http
+    server: 192.0.2.149
+    port: 8081
+    username: user146
+    password: 'password2'
+  - name: Proxy 148
+    type: http
+    server: 192.0.2.150
+    port: 8081
+    username: user147
+    password: 'password2'
+  - name: Proxy 149
+    type: http
+    server: 192.0.2.151
+    port: 8081
+    username: user148
+    password: 'password2'
+  - name: Proxy 150
+    type: http
+    server: 192.0.2.152
+    port: 8081
+    username: user149
+    password: 'password2'
+  - name: Proxy 151
+    type: http
+    server: 192.0.2.153
+    port: 8081
+    username: user150
+    password: 'password2'
+  - name: Proxy 152
+    type: http
+    server: 192.0.2.154
+    port: 8081
+    username: user151
+    password: 'password2'
+  - name: Proxy 153
+    type: http
+    server: 192.0.2.155
+    port: 8081
+    username: user152
+    password: 'password2'
+  - name: Proxy 154
+    type: http
+    server: 192.0.2.156
+    port: 8081
+    username: user153
+    password: 'password2'
+  - name: Proxy 155
+    type: http
+    server: 192.0.2.157
+    port: 8081
+    username: user154
+    password: 'password2'
+  - name: Proxy 156
+    type: http
+    server: 192.0.2.158
+    port: 8081
+    username: user155
+    password: 'password2'
+  - name: Proxy 157
+    type: http
+    server: 192.0.2.159
+    port: 8081
+    username: user156
+    password: 'password2'
+  - name: Proxy 158
+    type: http
+    server: 192.0.2.160
+    port: 8081
+    username: user157
+    password: 'password2'
+  - name: Proxy 159
+    type: http
+    server: 192.0.2.161
+    port: 8081
+    username: user158
+    password: 'password2'
+  - name: Proxy 160
+    type: http
+    server: 192.0.2.162
+    port: 8081
+    username: user159
+    password: 'password2'
+  - name: Proxy 161
+    type: http
+    server: 192.0.2.163
+    port: 8081
+    username: user160
+    password: 'password2'
+  - name: Proxy 162
+    type: http
+    server: 192.0.2.164
+    port: 8081
+    username: user161
+    password: 'password2'
+  - name: Proxy 163
+    type: http
+    server: 192.0.2.165
+    port: 8081
+    username: user162
+    password: 'password2'
+  - name: Proxy 164
+    type: http
+    server: 192.0.2.166
+    port: 8081
+    username: user163
+    password: 'password2'
+  - name: Proxy 165
+    type: http
+    server: 192.0.2.167
+    port: 8081
+    username: user164
+    password: 'password2'
+  - name: Proxy 166
+    type: http
+    server: 192.0.2.168
+    port: 8081
+    username: user165
+    password: 'password2'
+  - name: Proxy 167
+    type: http
+    server: 192.0.2.169
+    port: 8081
+    username: user166
+    password: 'password2'
+  - name: Proxy 168
+    type: http
+    server: 192.0.2.170
+    port: 8081
+    username: user167
+    password: 'password2'
+  - name: Proxy 169
+    type: http
+    server: 192.0.2.171
+    port: 8081
+    username: user168
+    password: 'password2'
+  - name: Proxy 170
+    type: http
+    server: 192.0.2.172
+    port: 8081
+    username: user169
+    password: 'password2'
+  - name: Proxy 171
+    type: http
+    server: 192.0.2.173
+    port: 8081
+    username: user170
+    password: 'password2'
+  - name: Proxy 172
+    type: http
+    server: 192.0.2.174
+    port: 8081
+    username: user171
+    password: 'password2'
+  - name: Proxy 173
+    type: http
+    server: 192.0.2.175
+    port: 8081
+    username: user172
+    password: 'password2'
+  - name: Proxy 174
+    type: http
+    server: 192.0.2.176
+    port: 8081
+    username: user173
+    password: 'password2'
+  - name: Proxy 175
+    type: http
+    server: 192.0.2.177
+    port: 8081
+    username: user174
+    password: 'password2'
+  - name: Proxy 176
+    type: http
+    server: 192.0.2.178
+    port: 8081
+    username: user175
+    password: 'password2'
+  - name: Proxy 177
+    type: http
+    server: 192.0.2.179
+    port: 8081
+    username: user176
+    password: 'password2'
+  - name: Proxy 178
+    type: http
+    server: 192.0.2.180
+    port: 8081
+    username: user177
+    password: 'password2'
+  - name: Proxy 179
+    type: http
+    server: 192.0.2.181
+    port: 8081
+    username: user178
+    password: 'password2'
+  - name: Proxy 180
+    type: http
+    server: 192.0.2.182
+    port: 8081
+    username: user179
+    password: 'password2'
+  - name: Proxy 181
+    type: http
+    server: 192.0.2.183
+    port: 8081
+    username: user180
+    password: 'password2'
+  - name: Proxy 182
+    type: http
+    server: 192.0.2.184
+    port: 8081
+    username: user181
+    password: 'password2'
+  - name: Proxy 183
+    type: http
+    server: 192.0.2.185
+    port: 8081
+    username: user182
+    password: 'password2'
+  - name: Proxy 184
+    type: http
+    server: 192.0.2.186
+    port: 8081
+    username: user183
+    password: 'password2'
+  - name: Proxy 185
+    type: http
+    server: 192.0.2.187
+    port: 8081
+    username: user184
+    password: 'password2'
+  - name: Proxy 186
+    type: http
+    server: 192.0.2.188
+    port: 8081
+    username: user185
+    password: 'password2'
+  - name: Proxy 187
+    type: http
+    server: 192.0.2.189
+    port: 8081
+    username: user186
+    password: 'password2'
+  - name: Proxy 188
+    type: http
+    server: 192.0.2.190
+    port: 8081
+    username: user187
+    password: 'password2'
+  - name: Proxy 189
+    type: http
+    server: 192.0.2.191
+    port: 8081
+    username: user188
+    password: 'password2'
+  - name: Proxy 190
+    type: http
+    server: 192.0.2.192
+    port: 8081
+    username: user189
+    password: 'password2'
+  - name: Proxy 191
+    type: http
+    server: 192.0.2.193
+    port: 8081
+    username: user190
+    password: 'password2'
+  - name: Proxy 192
+    type: http
+    server: 192.0.2.194
+    port: 8081
+    username: user191
+    password: 'password2'
+  - name: Proxy 193
+    type: http
+    server: 192.0.2.195
+    port: 8081
+    username: user192
+    password: 'password2'
+  - name: Proxy 194
+    type: http
+    server: 192.0.2.196
+    port: 8081
+    username: user193
+    password: 'password2'
+  - name: Proxy 195
+    type: http
+    server: 192.0.2.197
+    port: 8081
+    username: user194
+    password: 'password2'
+  - name: Proxy 196
+    type: http
+    server: 192.0.2.198
+    port: 8081
+    username: user195
+    password: 'password2'
+  - name: Proxy 197
+    type: http
+    server: 192.0.2.199
+    port: 8081
+    username: user196
+    password: 'password2'
+  - name: Proxy 198
+    type: http
+    server: 192.0.2.200
+    port: 8081
+    username: user197
+    password: 'password2'
+  - name: Proxy 199
+    type: http
+    server: 192.0.2.201
+    port: 8081
+    username: user198
+    password: 'password2'
+  - name: Proxy 200
+    type: http
+    server: 192.0.2.202
+    port: 8081
+    username: user199
+    password: 'password2'
+  - name: Proxy 201
+    type: http
+    server: 192.0.2.203
+    port: 8081
+    username: user200
+    password: 'password2'
+  - name: Proxy 202
+    type: http
+    server: 192.0.2.204
+    port: 8081
+    username: user201
+    password: 'password2'
+  - name: Proxy 203
+    type: http
+    server: 192.0.2.205
+    port: 8081
+    username: user202
+    password: 'password2'
+  - name: Proxy 204
+    type: http
+    server: 192.0.2.206
+    port: 8081
+    username: user203
+    password: 'password2'
+  - name: Proxy 205
+    type: http
+    server: 192.0.2.207
+    port: 8081
+    username: user204
+    password: 'password2'
+  - name: Proxy 206
+    type: http
+    server: 192.0.2.208
+    port: 8081
+    username: user205
+    password: 'password2'
+  - name: Proxy 207
+    type: http
+    server: 192.0.2.209
+    port: 8081
+    username: user206
+    password: 'password2'
+  - name: Proxy 208
+    type: http
+    server: 192.0.2.210
+    port: 8081
+    username: user207
+    password: 'password2'
+  - name: Proxy 209
+    type: http
+    server: 192.0.2.211
+    port: 8081
+    username: user208
+    password: 'password2'
+  - name: Proxy 210
+    type: http
+    server: 192.0.2.212
+    port: 8081
+    username: user209
+    password: 'password2'
+  - name: Proxy 211
+    type: http
+    server: 192.0.2.213
+    port: 8081
+    username: user210
+    password: 'password2'
+  - name: Proxy 212
+    type: http
+    server: 192.0.2.214
+    port: 8081
+    username: user211
+    password: 'password2'
+  - name: Proxy 213
+    type: http
+    server: 192.0.2.215
+    port: 8081
+    username: user212
+    password: 'password2'
+  - name: Proxy 214
+    type: http
+    server: 192.0.2.216
+    port: 8081
+    username: user213
+    password: 'password2'
+  - name: Proxy 215
+    type: http
+    server: 192.0.2.217
+    port: 8081
+    username: user214
+    password: 'password2'
+  - name: Proxy 216
+    type: http
+    server: 192.0.2.218
+    port: 8081
+    username: user215
+    password: 'password2'
+  - name: Proxy 217
+    type: http
+    server: 192.0.2.219
+    port: 8081
+    username: user216
+    password: 'password2'
+  - name: Proxy 218
+    type: http
+    server: 192.0.2.220
+    port: 8081
+    username: user217
+    password: 'password2'
+  - name: Proxy 219
+    type: http
+    server: 192.0.2.221
+    port: 8081
+    username: user218
+    password: 'password2'
+  - name: Proxy 220
+    type: http
+    server: 192.0.2.222
+    port: 8081
+    username: user219
+    password: 'password2'
+  - name: Proxy 221
+    type: http
+    server: 192.0.2.223
+    port: 8081
+    username: user220
+    password: 'password2'
+  - name: Proxy 222
+    type: http
+    server: 192.0.2.224
+    port: 8081
+    username: user221
+    password: 'password2'
+  - name: Proxy 223
+    type: http
+    server: 192.0.2.225
+    port: 8081
+    username: user222
+    password: 'password2'
+  - name: Proxy 224
+    type: http
+    server: 192.0.2.226
+    port: 8081
+    username: user223
+    password: 'password2'
+  - name: Proxy 225
+    type: http
+    server: 192.0.2.227
+    port: 8081
+    username: user224
+    password: 'password2'
+  - name: Proxy 226
+    type: http
+    server: 192.0.2.228
+    port: 8081
+    username: user225
+    password: 'password2'
+  - name: Proxy 227
+    type: http
+    server: 192.0.2.229
+    port: 8081
+    username: user226
+    password: 'password2'
+  - name: Proxy 228
+    type: http
+    server: 192.0.2.230
+    port: 8081
+    username: user227
+    password: 'password2'
+  - name: Proxy 229
+    type: http
+    server: 192.0.2.231
+    port: 8081
+    username: user228
+    password: 'password2'
+  - name: Proxy 230
+    type: http
+    server: 192.0.2.232
+    port: 8081
+    username: user229
+    password: 'password2'
+  - name: Proxy 231
+    type: http
+    server: 192.0.2.233
+    port: 8081
+    username: user230
+    password: 'password2'
+  - name: Proxy 232
+    type: http
+    server: 192.0.2.234
+    port: 8081
+    username: user231
+    password: 'password2'
+  - name: Proxy 233
+    type: http
+    server: 192.0.2.235
+    port: 8081
+    username: user232
+    password: 'password2'
+  - name: Proxy 234
+    type: http
+    server: 192.0.2.236
+    port: 8081
+    username: user233
+    password: 'password2'
+  - name: Proxy 235
+    type: http
+    server: 192.0.2.237
+    port: 8081
+    username: user234
+    password: 'password2'
+  - name: Proxy 236
+    type: http
+    server: 192.0.2.238
+    port: 8081
+    username: user235
+    password: 'password2'
+  - name: Proxy 237
+    type: http
+    server: 192.0.2.239
+    port: 8081
+    username: user236
+    password: 'password2'
+  - name: Proxy 238
+    type: http
+    server: 192.0.2.240
+    port: 8081
+    username: user237
+    password: 'password2'
+  - name: Proxy 239
+    type: http
+    server: 192.0.2.241
+    port: 8081
+    username: user238
+    password: 'password2'
+  - name: Proxy 240
+    type: http
+    server: 192.0.2.242
+    port: 8081
+    username: user239
+    password: 'password2'
+  - name: Proxy 241
+    type: http
+    server: 192.0.2.243
+    port: 8081
+    username: user240
+    password: 'password2'
+  - name: Proxy 242
+    type: http
+    server: 192.0.2.244
+    port: 8081
+    username: user241
+    password: 'password2'
+  - name: Proxy 243
+    type: http
+    server: 192.0.2.245
+    port: 8081
+    username: user242
+    password: 'password2'
+  - name: Proxy 244
+    type: http
+    server: 192.0.2.246
+    port: 8081
+    username: user243
+    password: 'password2'
+  - name: Proxy 245
+    type: http
+    server: 192.0.2.247
+    port: 8081
+    username: user244
+    password: 'password2'
+  - name: Proxy 246
+    type: http
+    server: 192.0.2.248
+    port: 8081
+    username: user245
+    password: 'password2'
+  - name: Proxy 247
+    type: http
+    server: 192.0.2.249
+    port: 8081
+    username: user246
+    password: 'password2'
+  - name: Proxy 248
+    type: http
+    server: 192.0.2.250
+    port: 8081
+    username: user247
+    password: 'password2'
+  - name: Proxy 249
+    type: http
+    server: 192.0.2.251
+    port: 8081
+    username: user248
+    password: 'password2'
+  - name: Proxy 250
+    type: http
+    server: 192.0.2.252
+    port: 8081
+    username: user249
+    password: 'password2'
+  - name: Proxy 251
+    type: http
+    server: 192.0.2.253
+    port: 8081
+    username: user250
+    password: 'password2'
+  - name: Proxy 252
+    type: http
+    server: 198.51.100.1
+    port: 8081
+    username: user251
+    password: 'password2'
+  - name: Proxy 253
+    type: http
+    server: 198.51.100.2
+    port: 8081
+    username: user252
+    password: 'password2'
+  - name: Proxy 254
+    type: http
+    server: 198.51.100.3
+    port: 8081
+    username: user253
+    password: 'password2'
+  - name: Proxy 255
+    type: http
+    server: 198.51.100.4
+    port: 8081
+    username: user254
+    password: 'password2'
+  - name: Proxy 256
+    type: http
+    server: 198.51.100.5
+    port: 8081
+    username: user255
+    password: 'password2'
+  - name: Proxy 257
+    type: http
+    server: 198.51.100.6
+    port: 8081
+    username: user256
+    password: 'password2'
+  - name: Proxy 258
+    type: http
+    server: 198.51.100.7
+    port: 8081
+    username: user257
+    password: 'password2'
+  - name: Proxy 259
+    type: http
+    server: 198.51.100.8
+    port: 8081
+    username: user258
+    password: 'password2'
+  - name: Proxy 260
+    type: http
+    server: 198.51.100.9
+    port: 8081
+    username: user259
+    password: 'password2'
+  - name: Proxy 261
+    type: http
+    server: 198.51.100.10
+    port: 8081
+    username: user260
+    password: 'password2'
+  - name: Proxy 262
+    type: http
+    server: 198.51.100.11
+    port: 8081
+    username: user261
+    password: 'password2'
+  - name: Proxy 263
+    type: http
+    server: 198.51.100.12
+    port: 8081
+    username: user262
+    password: 'password2'
+  - name: Proxy 264
+    type: http
+    server: 198.51.100.13
+    port: 8081
+    username: user263
+    password: 'password2'
+  - name: Proxy 265
+    type: http
+    server: 198.51.100.14
+    port: 8081
+    username: user264
+    password: 'password2'
+  - name: Proxy 266
+    type: http
+    server: 198.51.100.15
+    port: 8081
+    username: user265
+    password: 'password2'
+  - name: Proxy 267
+    type: http
+    server: 198.51.100.16
+    port: 8081
+    username: user266
+    password: 'password2'
+  - name: Proxy 268
+    type: http
+    server: 198.51.100.17
+    port: 8081
+    username: user267
+    password: 'password2'
+  - name: Proxy 269
+    type: http
+    server: 198.51.100.18
+    port: 8081
+    username: user268
+    password: 'password2'
+  - name: Proxy 270
+    type: http
+    server: 198.51.100.19
+    port: 8081
+    username: user269
+    password: 'password2'
+  - name: Proxy 271
+    type: http
+    server: 198.51.100.20
+    port: 8081
+    username: user270
+    password: 'password2'
+  - name: Proxy 272
+    type: http
+    server: 198.51.100.21
+    port: 8081
+    username: user271
+    password: 'password2'
+  - name: Proxy 273
+    type: http
+    server: 198.51.100.22
+    port: 8081
+    username: user272
+    password: 'password2'
+  - name: Proxy 274
+    type: http
+    server: 198.51.100.23
+    port: 8081
+    username: user273
+    password: 'password2'
+  - name: Proxy 275
+    type: http
+    server: 198.51.100.24
+    port: 8081
+    username: user274
+    password: 'password2'
+  - name: Proxy 276
+    type: http
+    server: 198.51.100.25
+    port: 8081
+    username: user275
+    password: 'password2'
+  - name: Proxy 277
+    type: http
+    server: 198.51.100.26
+    port: 8081
+    username: user276
+    password: 'password2'
+  - name: Proxy 278
+    type: http
+    server: 198.51.100.27
+    port: 8081
+    username: user277
+    password: 'password2'
+  - name: Proxy 279
+    type: http
+    server: 198.51.100.28
+    port: 8081
+    username: user278
+    password: 'password2'
+  - name: Proxy 280
+    type: http
+    server: 198.51.100.29
+    port: 8081
+    username: user279
+    password: 'password2'
+  - name: Proxy 281
+    type: http
+    server: 198.51.100.30
+    port: 8081
+    username: user280
+    password: 'password2'
+  - name: Proxy 282
+    type: http
+    server: 198.51.100.31
+    port: 8081
+    username: user281
+    password: 'password2'
+  - name: Proxy 283
+    type: http
+    server: 198.51.100.32
+    port: 8081
+    username: user282
+    password: 'password2'
+  - name: Proxy 284
+    type: http
+    server: 198.51.100.33
+    port: 8081
+    username: user283
+    password: 'password2'
+proxy-groups:
+  - name: Group 1
+    type: select
+    proxies:
+      - Group 2
+      - Group 3
+      - DIRECT
+      - 'Proxy 1'
+      - Proxy 2
+      - Proxy 3
+      - Proxy 4
+      - Proxy 5
+      - Proxy 6
+      - Proxy 7
+      - Proxy 8
+      - Proxy 9
+      - Proxy 10
+      - Proxy 11
+      - Proxy 12
+      - Proxy 13
+      - Proxy 14
+      - Proxy 15
+      - Proxy 16
+      - Proxy 17
+      - Proxy 18
+      - Proxy 19
+      - Proxy 20
+      - Proxy 21
+      - Proxy 22
+      - Proxy 23
+      - Proxy 24
+      - Proxy 25
+      - Proxy 26
+      - Proxy 27
+      - Proxy 28
+      - Proxy 29
+      - Proxy 30
+      - Proxy 31
+      - Proxy 32
+      - Proxy 33
+      - Proxy 34
+      - Proxy 35
+      - Proxy 36
+      - Proxy 37
+      - Proxy 38
+      - Proxy 39
+      - Proxy 40
+      - Proxy 41
+      - Proxy 42
+      - Proxy 43
+      - Proxy 44
+      - Proxy 45
+      - Proxy 46
+      - Proxy 47
+      - Proxy 48
+      - Proxy 49
+      - Proxy 50
+      - Proxy 51
+      - Proxy 52
+      - Proxy 53
+      - Proxy 54
+      - Proxy 55
+      - Proxy 56
+      - Proxy 57
+      - Proxy 58
+      - Proxy 59
+      - Proxy 60
+      - Proxy 61
+      - Proxy 62
+      - Proxy 63
+      - Proxy 64
+      - Proxy 65
+      - Proxy 66
+      - Proxy 67
+      - Proxy 68
+      - Proxy 69
+      - Proxy 70
+      - Proxy 71
+      - Proxy 72
+      - Proxy 73
+      - Proxy 74
+      - Proxy 75
+      - Proxy 76
+      - Proxy 77
+      - Proxy 78
+      - Proxy 79
+      - Proxy 80
+      - Proxy 81
+      - Proxy 82
+      - Proxy 83
+      - Proxy 84
+      - Proxy 85
+      - Proxy 86
+      - Proxy 87
+      - Proxy 88
+      - Proxy 89
+      - Proxy 90
+      - Proxy 91
+      - Proxy 92
+      - Proxy 93
+      - Proxy 94
+      - Proxy 95
+      - Proxy 96
+      - Proxy 97
+      - Proxy 98
+      - Proxy 99
+      - Proxy 100
+      - Proxy 101
+      - Proxy 102
+      - Proxy 103
+      - Proxy 104
+      - Proxy 105
+      - Proxy 106
+      - Proxy 107
+      - Proxy 108
+      - Proxy 109
+      - Proxy 110
+      - Proxy 111
+      - Proxy 112
+      - Proxy 113
+      - Proxy 114
+      - Proxy 115
+      - Proxy 116
+      - Proxy 117
+      - Proxy 118
+      - Proxy 119
+      - Proxy 120
+      - Proxy 121
+      - Proxy 122
+      - Proxy 123
+      - Proxy 124
+      - Proxy 125
+      - Proxy 126
+      - Proxy 127
+      - Proxy 128
+      - Proxy 129
+      - Proxy 130
+      - Proxy 131
+      - Proxy 132
+      - Proxy 133
+      - Proxy 134
+      - Proxy 135
+      - Proxy 136
+      - Proxy 137
+      - Proxy 138
+      - Proxy 139
+      - Proxy 140
+      - Proxy 141
+      - Proxy 142
+      - Proxy 143
+      - Proxy 144
+      - Proxy 145
+      - Proxy 146
+      - Proxy 147
+      - Proxy 148
+      - Proxy 149
+      - Proxy 150
+      - Proxy 151
+      - Proxy 152
+      - Proxy 153
+      - Proxy 154
+      - Proxy 155
+      - Proxy 156
+      - Proxy 157
+      - Proxy 158
+      - Proxy 159
+      - Proxy 160
+      - Proxy 161
+      - Proxy 162
+      - Proxy 163
+      - Proxy 164
+      - Proxy 165
+      - Proxy 166
+      - Proxy 167
+      - Proxy 168
+      - Proxy 169
+      - Proxy 170
+      - Proxy 171
+      - Proxy 172
+      - Proxy 173
+      - Proxy 174
+      - Proxy 175
+      - Proxy 176
+      - Proxy 177
+      - Proxy 178
+      - Proxy 179
+      - Proxy 180
+      - Proxy 181
+      - Proxy 182
+      - Proxy 183
+      - Proxy 184
+      - Proxy 185
+      - Proxy 186
+      - Proxy 187
+      - Proxy 188
+      - Proxy 189
+      - Proxy 190
+      - Proxy 191
+      - Proxy 192
+      - Proxy 193
+      - Proxy 194
+      - Proxy 195
+      - Proxy 196
+      - Proxy 197
+      - Proxy 198
+      - Proxy 199
+      - Proxy 200
+      - Proxy 201
+      - Proxy 202
+      - Proxy 203
+      - Proxy 204
+      - Proxy 205
+      - Proxy 206
+      - Proxy 207
+      - Proxy 208
+      - Proxy 209
+      - Proxy 210
+      - Proxy 211
+      - Proxy 212
+      - Proxy 213
+      - Proxy 214
+      - Proxy 215
+      - Proxy 216
+      - Proxy 217
+      - Proxy 218
+      - Proxy 219
+      - Proxy 220
+      - Proxy 221
+      - Proxy 222
+      - Proxy 223
+      - Proxy 224
+      - Proxy 225
+      - Proxy 226
+      - Proxy 227
+      - Proxy 228
+      - Proxy 229
+      - Proxy 230
+      - Proxy 231
+      - Proxy 232
+      - Proxy 233
+      - Proxy 234
+      - Proxy 235
+      - Proxy 236
+      - Proxy 237
+      - Proxy 238
+      - Proxy 239
+      - Proxy 240
+      - Proxy 241
+      - Proxy 242
+      - Proxy 243
+      - Proxy 244
+      - Proxy 245
+      - Proxy 246
+      - Proxy 247
+      - Proxy 248
+      - Proxy 249
+      - Proxy 250
+      - Proxy 251
+      - Proxy 252
+      - Proxy 253
+      - Proxy 254
+      - Proxy 255
+      - Proxy 256
+      - Proxy 257
+      - Proxy 258
+      - Proxy 259
+      - Proxy 260
+      - Proxy 261
+      - Proxy 262
+      - Proxy 263
+      - Proxy 264
+      - Proxy 265
+      - Proxy 266
+      - Proxy 267
+      - Proxy 268
+      - Proxy 269
+      - Proxy 270
+      - Proxy 271
+      - Proxy 272
+      - Proxy 273
+      - Proxy 274
+      - Proxy 275
+      - Proxy 276
+      - Proxy 277
+      - Proxy 278
+      - Proxy 279
+      - Proxy 280
+      - Proxy 281
+      - Proxy 282
+      - Proxy 283
+      - Proxy 284
+  - name: Group 2
+    type: url-test
+    proxies:
+      - Proxy 2
+      - Proxy 3
+      - Proxy 4
+      - Proxy 5
+      - Proxy 6
+      - Proxy 7
+      - Proxy 8
+      - Proxy 9
+      - Proxy 10
+      - Proxy 11
+      - Proxy 12
+      - Proxy 13
+      - Proxy 14
+      - Proxy 15
+      - Proxy 16
+      - Proxy 17
+      - Proxy 18
+      - Proxy 19
+      - Proxy 20
+      - Proxy 21
+      - Proxy 22
+      - Proxy 23
+      - Proxy 24
+      - Proxy 25
+      - Proxy 26
+      - Proxy 27
+      - Proxy 28
+      - Proxy 29
+      - Proxy 30
+      - Proxy 31
+      - Proxy 32
+      - Proxy 33
+      - Proxy 34
+      - Proxy 35
+      - Proxy 36
+      - Proxy 37
+      - Proxy 38
+      - Proxy 39
+      - Proxy 40
+      - Proxy 41
+      - Proxy 42
+      - Proxy 43
+      - Proxy 44
+      - Proxy 45
+      - Proxy 46
+      - Proxy 47
+      - Proxy 48
+      - Proxy 49
+      - Proxy 50
+      - Proxy 51
+      - Proxy 52
+      - Proxy 53
+      - Proxy 54
+      - Proxy 55
+      - Proxy 56
+      - Proxy 57
+      - Proxy 58
+      - Proxy 59
+      - Proxy 60
+      - Proxy 61
+      - Proxy 62
+      - Proxy 63
+      - Proxy 64
+      - Proxy 65
+      - Proxy 66
+      - Proxy 67
+      - Proxy 68
+      - Proxy 69
+      - Proxy 70
+      - Proxy 71
+      - Proxy 72
+      - Proxy 73
+      - Proxy 74
+      - Proxy 75
+      - Proxy 76
+      - Proxy 77
+      - Proxy 78
+      - Proxy 79
+      - Proxy 80
+      - Proxy 81
+      - Proxy 82
+      - Proxy 83
+      - Proxy 84
+      - Proxy 85
+      - Proxy 86
+      - Proxy 87
+      - Proxy 88
+      - Proxy 89
+      - Proxy 90
+      - Proxy 91
+      - Proxy 92
+      - Proxy 93
+      - Proxy 94
+      - Proxy 95
+      - Proxy 96
+      - Proxy 97
+      - Proxy 98
+      - Proxy 99
+      - Proxy 100
+      - Proxy 101
+      - Proxy 102
+      - Proxy 103
+      - Proxy 104
+      - Proxy 105
+      - Proxy 106
+      - Proxy 107
+      - Proxy 108
+      - Proxy 109
+      - Proxy 110
+      - Proxy 111
+      - Proxy 112
+      - Proxy 113
+      - Proxy 114
+      - Proxy 115
+      - Proxy 116
+      - Proxy 117
+      - Proxy 118
+      - Proxy 119
+      - Proxy 120
+      - Proxy 121
+      - Proxy 122
+      - Proxy 123
+      - Proxy 124
+      - Proxy 125
+      - Proxy 126
+      - Proxy 127
+      - Proxy 128
+      - Proxy 129
+      - Proxy 130
+      - Proxy 131
+      - Proxy 132
+      - Proxy 133
+      - Proxy 134
+      - Proxy 135
+      - Proxy 136
+      - Proxy 137
+      - Proxy 138
+      - Proxy 139
+      - Proxy 140
+      - Proxy 141
+      - Proxy 142
+      - Proxy 143
+      - Proxy 144
+      - Proxy 145
+      - Proxy 146
+      - Proxy 147
+      - Proxy 148
+      - Proxy 149
+      - Proxy 150
+      - Proxy 151
+      - Proxy 152
+      - Proxy 153
+      - Proxy 154
+      - Proxy 155
+      - Proxy 156
+      - Proxy 157
+      - Proxy 158
+      - Proxy 159
+      - Proxy 160
+      - Proxy 161
+      - Proxy 162
+      - Proxy 163
+      - Proxy 164
+      - Proxy 165
+      - Proxy 166
+      - Proxy 167
+      - Proxy 168
+      - Proxy 169
+      - Proxy 170
+      - Proxy 171
+      - Proxy 172
+      - Proxy 173
+      - Proxy 174
+      - Proxy 175
+      - Proxy 176
+      - Proxy 177
+      - Proxy 178
+      - Proxy 179
+      - Proxy 180
+      - Proxy 181
+      - Proxy 182
+      - Proxy 183
+      - Proxy 184
+      - Proxy 185
+      - Proxy 186
+      - Proxy 187
+      - Proxy 188
+      - Proxy 189
+      - Proxy 190
+      - Proxy 191
+      - Proxy 192
+      - Proxy 193
+      - Proxy 194
+      - Proxy 195
+      - Proxy 196
+      - Proxy 197
+      - Proxy 198
+      - Proxy 199
+      - Proxy 200
+      - Proxy 201
+      - Proxy 202
+      - Proxy 203
+      - Proxy 204
+      - Proxy 205
+      - Proxy 206
+      - Proxy 207
+      - Proxy 208
+      - Proxy 209
+      - Proxy 210
+      - Proxy 211
+      - Proxy 212
+      - Proxy 213
+      - Proxy 214
+      - Proxy 215
+      - Proxy 216
+      - Proxy 217
+      - Proxy 218
+      - Proxy 219
+      - Proxy 220
+      - Proxy 221
+      - Proxy 222
+      - Proxy 223
+      - Proxy 224
+      - Proxy 225
+      - Proxy 226
+      - Proxy 227
+      - Proxy 228
+      - Proxy 229
+      - Proxy 230
+      - Proxy 231
+      - Proxy 232
+      - Proxy 233
+      - Proxy 234
+      - Proxy 235
+      - Proxy 236
+      - Proxy 237
+      - Proxy 238
+      - Proxy 239
+      - Proxy 240
+      - Proxy 241
+      - Proxy 242
+      - Proxy 243
+      - Proxy 244
+      - Proxy 245
+      - Proxy 246
+      - Proxy 247
+      - Proxy 248
+      - Proxy 249
+      - Proxy 250
+      - Proxy 251
+      - Proxy 252
+      - Proxy 253
+      - Proxy 254
+      - Proxy 255
+      - Proxy 256
+      - Proxy 257
+      - Proxy 258
+      - Proxy 259
+      - Proxy 260
+      - Proxy 261
+      - Proxy 262
+      - Proxy 263
+      - Proxy 264
+      - Proxy 265
+      - Proxy 266
+      - Proxy 267
+      - Proxy 268
+      - Proxy 269
+      - Proxy 270
+      - Proxy 271
+      - Proxy 272
+      - Proxy 273
+      - Proxy 274
+      - Proxy 275
+      - Proxy 276
+      - Proxy 277
+      - Proxy 278
+      - Proxy 279
+      - Proxy 280
+      - Proxy 281
+      - Proxy 282
+      - Proxy 283
+      - Proxy 284
+    url: http://h6.example.com/generate_204
+    interval: 300
+  - name: Group 3
+    type: fallback
+    proxies:
+      - Proxy 2
+      - Proxy 3
+      - Proxy 4
+      - Proxy 5
+      - Proxy 6
+      - Proxy 7
+      - Proxy 8
+      - Proxy 9
+      - Proxy 10
+      - Proxy 11
+      - Proxy 12
+      - Proxy 13
+      - Proxy 14
+      - Proxy 15
+      - Proxy 16
+      - Proxy 17
+      - Proxy 18
+      - Proxy 19
+      - Proxy 20
+      - Proxy 21
+      - Proxy 22
+      - Proxy 23
+      - Proxy 24
+      - Proxy 25
+      - Proxy 26
+      - Proxy 27
+      - Proxy 28
+      - Proxy 29
+      - Proxy 30
+      - Proxy 31
+      - Proxy 32
+      - Proxy 33
+      - Proxy 34
+      - Proxy 35
+      - Proxy 36
+      - Proxy 37
+      - Proxy 38
+      - Proxy 39
+      - Proxy 40
+      - Proxy 41
+      - Proxy 42
+      - Proxy 43
+      - Proxy 44
+      - Proxy 45
+      - Proxy 46
+      - Proxy 47
+      - Proxy 48
+      - Proxy 49
+      - Proxy 50
+      - Proxy 51
+      - Proxy 52
+      - Proxy 53
+      - Proxy 54
+      - Proxy 55
+      - Proxy 56
+      - Proxy 57
+      - Proxy 58
+      - Proxy 59
+      - Proxy 60
+      - Proxy 61
+      - Proxy 62
+      - Proxy 63
+      - Proxy 64
+      - Proxy 65
+      - Proxy 66
+      - Proxy 67
+      - Proxy 68
+      - Proxy 69
+      - Proxy 70
+      - Proxy 71
+      - Proxy 72
+      - Proxy 73
+      - Proxy 74
+      - Proxy 75
+      - Proxy 76
+      - Proxy 77
+      - Proxy 78
+      - Proxy 79
+      - Proxy 80
+      - Proxy 81
+      - Proxy 82
+      - Proxy 83
+      - Proxy 84
+      - Proxy 85
+      - Proxy 86
+      - Proxy 87
+      - Proxy 88
+      - Proxy 89
+      - Proxy 90
+      - Proxy 91
+      - Proxy 92
+      - Proxy 93
+      - Proxy 94
+      - Proxy 95
+      - Proxy 96
+      - Proxy 97
+      - Proxy 98
+      - Proxy 99
+      - Proxy 100
+      - Proxy 101
+      - Proxy 102
+      - Proxy 103
+      - Proxy 104
+      - Proxy 105
+      - Proxy 106
+      - Proxy 107
+      - Proxy 108
+      - Proxy 109
+      - Proxy 110
+      - Proxy 111
+      - Proxy 112
+      - Proxy 113
+      - Proxy 114
+      - Proxy 115
+      - Proxy 116
+      - Proxy 117
+      - Proxy 118
+      - Proxy 119
+      - Proxy 120
+      - Proxy 121
+      - Proxy 122
+      - Proxy 123
+      - Proxy 124
+      - Proxy 125
+      - Proxy 126
+      - Proxy 127
+      - Proxy 128
+      - Proxy 129
+      - Proxy 130
+      - Proxy 131
+      - Proxy 132
+      - Proxy 133
+      - Proxy 134
+      - Proxy 135
+      - Proxy 136
+      - Proxy 137
+      - Proxy 138
+      - Proxy 139
+      - Proxy 140
+      - Proxy 141
+      - Proxy 142
+      - Proxy 143
+      - Proxy 144
+      - Proxy 145
+      - Proxy 146
+      - Proxy 147
+      - Proxy 148
+      - Proxy 149
+      - Proxy 150
+      - Proxy 151
+      - Proxy 152
+      - Proxy 153
+      - Proxy 154
+      - Proxy 155
+      - Proxy 156
+      - Proxy 157
+      - Proxy 158
+      - Proxy 159
+      - Proxy 160
+      - Proxy 161
+      - Proxy 162
+      - Proxy 163
+      - Proxy 164
+      - Proxy 165
+      - Proxy 166
+      - Proxy 167
+      - Proxy 168
+      - Proxy 169
+      - Proxy 170
+      - Proxy 171
+      - Proxy 172
+      - Proxy 173
+      - Proxy 174
+      - Proxy 175
+      - Proxy 176
+      - Proxy 177
+      - Proxy 178
+      - Proxy 179
+      - Proxy 180
+      - Proxy 181
+      - Proxy 182
+      - Proxy 183
+      - Proxy 184
+      - Proxy 185
+      - Proxy 186
+      - Proxy 187
+      - Proxy 188
+      - Proxy 189
+      - Proxy 190
+      - Proxy 191
+      - Proxy 192
+      - Proxy 193
+      - Proxy 194
+      - Proxy 195
+      - Proxy 196
+      - Proxy 197
+      - Proxy 198
+      - Proxy 199
+      - Proxy 200
+      - Proxy 201
+      - Proxy 202
+      - Proxy 203
+      - Proxy 204
+      - Proxy 205
+      - Proxy 206
+      - Proxy 207
+      - Proxy 208
+      - Proxy 209
+      - Proxy 210
+      - Proxy 211
+      - Proxy 212
+      - Proxy 213
+      - Proxy 214
+      - Proxy 215
+      - Proxy 216
+      - Proxy 217
+      - Proxy 218
+      - Proxy 219
+      - Proxy 220
+      - Proxy 221
+      - Proxy 222
+      - Proxy 223
+      - Proxy 224
+      - Proxy 225
+      - Proxy 226
+      - Proxy 227
+      - Proxy 228
+      - Proxy 229
+      - Proxy 230
+      - Proxy 231
+      - Proxy 232
+      - Proxy 233
+      - Proxy 234
+      - Proxy 235
+      - Proxy 236
+      - Proxy 237
+      - Proxy 238
+      - Proxy 239
+      - Proxy 240
+      - Proxy 241
+      - Proxy 242
+      - Proxy 243
+      - Proxy 244
+      - Proxy 245
+      - Proxy 246
+      - Proxy 247
+      - Proxy 248
+      - Proxy 249
+      - Proxy 250
+      - Proxy 251
+      - Proxy 252
+      - Proxy 253
+      - Proxy 254
+      - Proxy 255
+      - Proxy 256
+      - Proxy 257
+      - Proxy 258
+      - Proxy 259
+      - Proxy 260
+      - Proxy 261
+      - Proxy 262
+      - Proxy 263
+      - Proxy 264
+      - Proxy 265
+      - Proxy 266
+      - Proxy 267
+      - Proxy 268
+      - Proxy 269
+      - Proxy 270
+      - Proxy 271
+      - Proxy 272
+      - Proxy 273
+      - Proxy 274
+      - Proxy 275
+      - Proxy 276
+      - Proxy 277
+      - Proxy 278
+      - Proxy 279
+      - Proxy 280
+      - Proxy 281
+      - Proxy 282
+      - Proxy 283
+      - Proxy 284
+    url: http://h6.example.com/generate_204
+    interval: 300
+  - name: Group 4
+    type: select
+    proxies:
+      - Group 1
+      - Group 2
+      - Group 3
+      - DIRECT
+      - 'Proxy 1'
+      - Proxy 2
+      - Proxy 3
+      - Proxy 4
+      - Proxy 5
+      - Proxy 6
+      - Proxy 7
+      - Proxy 8
+      - Proxy 9
+      - Proxy 10
+      - Proxy 11
+      - Proxy 12
+      - Proxy 13
+      - Proxy 14
+      - Proxy 15
+      - Proxy 16
+      - Proxy 17
+      - Proxy 18
+      - Proxy 19
+      - Proxy 20
+      - Proxy 21
+      - Proxy 22
+      - Proxy 23
+      - Proxy 24
+      - Proxy 25
+      - Proxy 26
+      - Proxy 27
+      - Proxy 28
+      - Proxy 29
+      - Proxy 30
+      - Proxy 31
+      - Proxy 32
+      - Proxy 33
+      - Proxy 34
+      - Proxy 35
+      - Proxy 36
+      - Proxy 37
+      - Proxy 38
+      - Proxy 39
+      - Proxy 40
+      - Proxy 41
+      - Proxy 42
+      - Proxy 43
+      - Proxy 44
+      - Proxy 45
+      - Proxy 46
+      - Proxy 47
+      - Proxy 48
+      - Proxy 49
+      - Proxy 50
+      - Proxy 51
+      - Proxy 52
+      - Proxy 53
+      - Proxy 54
+      - Proxy 55
+      - Proxy 56
+      - Proxy 57
+      - Proxy 58
+      - Proxy 59
+      - Proxy 60
+      - Proxy 61
+      - Proxy 62
+      - Proxy 63
+      - Proxy 64
+      - Proxy 65
+      - Proxy 66
+      - Proxy 67
+      - Proxy 68
+      - Proxy 69
+      - Proxy 70
+      - Proxy 71
+      - Proxy 72
+      - Proxy 73
+      - Proxy 74
+      - Proxy 75
+      - Proxy 76
+      - Proxy 77
+      - Proxy 78
+      - Proxy 79
+      - Proxy 80
+      - Proxy 81
+      - Proxy 82
+      - Proxy 83
+      - Proxy 84
+      - Proxy 85
+      - Proxy 86
+      - Proxy 87
+      - Proxy 88
+      - Proxy 89
+      - Proxy 90
+      - Proxy 91
+      - Proxy 92
+      - Proxy 93
+      - Proxy 94
+      - Proxy 95
+      - Proxy 96
+      - Proxy 97
+      - Proxy 98
+      - Proxy 99
+      - Proxy 100
+      - Proxy 101
+      - Proxy 102
+      - Proxy 103
+      - Proxy 104
+      - Proxy 105
+      - Proxy 106
+      - Proxy 107
+      - Proxy 108
+      - Proxy 109
+      - Proxy 110
+      - Proxy 111
+      - Proxy 112
+      - Proxy 113
+      - Proxy 114
+      - Proxy 115
+      - Proxy 116
+      - Proxy 117
+      - Proxy 118
+      - Proxy 119
+      - Proxy 120
+      - Proxy 121
+      - Proxy 122
+      - Proxy 123
+      - Proxy 124
+      - Proxy 125
+      - Proxy 126
+      - Proxy 127
+      - Proxy 128
+      - Proxy 129
+      - Proxy 130
+      - Proxy 131
+      - Proxy 132
+      - Proxy 133
+      - Proxy 134
+      - Proxy 135
+      - Proxy 136
+      - Proxy 137
+      - Proxy 138
+      - Proxy 139
+      - Proxy 140
+      - Proxy 141
+      - Proxy 142
+      - Proxy 143
+      - Proxy 144
+      - Proxy 145
+      - Proxy 146
+      - Proxy 147
+      - Proxy 148
+      - Proxy 149
+      - Proxy 150
+      - Proxy 151
+      - Proxy 152
+      - Proxy 153
+      - Proxy 154
+      - Proxy 155
+      - Proxy 156
+      - Proxy 157
+      - Proxy 158
+      - Proxy 159
+      - Proxy 160
+      - Proxy 161
+      - Proxy 162
+      - Proxy 163
+      - Proxy 164
+      - Proxy 165
+      - Proxy 166
+      - Proxy 167
+      - Proxy 168
+      - Proxy 169
+      - Proxy 170
+      - Proxy 171
+      - Proxy 172
+      - Proxy 173
+      - Proxy 174
+      - Proxy 175
+      - Proxy 176
+      - Proxy 177
+      - Proxy 178
+      - Proxy 179
+      - Proxy 180
+      - Proxy 181
+      - Proxy 182
+      - Proxy 183
+      - Proxy 184
+      - Proxy 185
+      - Proxy 186
+      - Proxy 187
+      - Proxy 188
+      - Proxy 189
+      - Proxy 190
+      - Proxy 191
+      - Proxy 192
+      - Proxy 193
+      - Proxy 194
+      - Proxy 195
+      - Proxy 196
+      - Proxy 197
+      - Proxy 198
+      - Proxy 199
+      - Proxy 200
+      - Proxy 201
+      - Proxy 202
+      - Proxy 203
+      - Proxy 204
+      - Proxy 205
+      - Proxy 206
+      - Proxy 207
+      - Proxy 208
+      - Proxy 209
+      - Proxy 210
+      - Proxy 211
+      - Proxy 212
+      - Proxy 213
+      - Proxy 214
+      - Proxy 215
+      - Proxy 216
+      - Proxy 217
+      - Proxy 218
+      - Proxy 219
+      - Proxy 220
+      - Proxy 221
+      - Proxy 222
+      - Proxy 223
+      - Proxy 224
+      - Proxy 225
+      - Proxy 226
+      - Proxy 227
+      - Proxy 228
+      - Proxy 229
+      - Proxy 230
+      - Proxy 231
+      - Proxy 232
+      - Proxy 233
+      - Proxy 234
+      - Proxy 235
+      - Proxy 236
+      - Proxy 237
+      - Proxy 238
+      - Proxy 239
+      - Proxy 240
+      - Proxy 241
+      - Proxy 242
+      - Proxy 243
+      - Proxy 244
+      - Proxy 245
+      - Proxy 246
+      - Proxy 247
+      - Proxy 248
+      - Proxy 249
+      - Proxy 250
+      - Proxy 251
+      - Proxy 252
+      - Proxy 253
+      - Proxy 254
+      - Proxy 255
+      - Proxy 256
+      - Proxy 257
+      - Proxy 258
+      - Proxy 259
+      - Proxy 260
+      - Proxy 261
+      - Proxy 262
+      - Proxy 263
+      - Proxy 264
+      - Proxy 265
+      - Proxy 266
+      - Proxy 267
+      - Proxy 268
+      - Proxy 269
+      - Proxy 270
+      - Proxy 271
+      - Proxy 272
+      - Proxy 273
+      - Proxy 274
+      - Proxy 275
+      - Proxy 276
+      - Proxy 277
+      - Proxy 278
+      - Proxy 279
+      - Proxy 280
+      - Proxy 281
+      - Proxy 282
+      - Proxy 283
+      - Proxy 284
+  - name: Group 5
+    type: select
+    proxies:
+      - DIRECT
+      - Group 1
+rules:
+  - GEOIP,LAN,DIRECT
+  - GEOIP,CN,Group 5
+  - MATCH,Group 4

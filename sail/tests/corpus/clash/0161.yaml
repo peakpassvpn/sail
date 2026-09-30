@@ -1,0 +1,179 @@
+port: 7890
+socks-port: 7891
+redir-port: 7892
+allow-lan: false
+mode: rule
+log-level: info
+ipv6: false
+external-controller: 127.0.0.1:9090
+hosts:
+dns:
+  enable: true
+  listen: 0.0.0.0:53
+  default-nameserver:
+    - 192.0.2.1
+    - 192.0.2.2
+    - 192.0.2.3
+  enhanced-mode: redir-host
+  fake-ip-range: 198.18.0.1/16
+  nameserver:
+    - 192.0.2.1
+    - 192.0.2.2
+    - 192.0.2.3
+    - tls://h1.example.com:853
+    - https://192.0.2.4/dns-query
+  fallback-filter:
+    geoip: true
+    ipcidr:
+proxies:
+  - name: "Proxy 1"
+    type: vmess
+    server: str1
+    port: 443
+    uuid: 00005a11-0000-4000-8000-000000000001
+    alterId: 0
+    cipher: auto
+    tls: true
+    network: ws
+    ws-path: ./path-1
+    Host: str1
+  - name: "Proxy 2"
+    type: vmess
+    server: str1
+    port: 443
+    uuid: 00005a11-0000-4000-8000-000000000001
+    alterId: 0
+    cipher: auto
+    tls: true
+    network: ws
+    ws-path: ./path-1
+    Host: str1
+  - name: "Proxy 3"
+    type: vmess
+    server: str1
+    port: 443
+    uuid: 00005a11-0000-4000-8000-000000000001
+    alterId: 0
+    cipher: auto
+    tls: true
+    network: ws
+    ws-path: ./path-1
+    Host: str1
+proxy-groups:
+  - name: "Group 1"
+    type: url-test
+    proxies:
+      - "Proxy 1"
+      - "Proxy 2"
+      - "Proxy 3"
+    url: 'http://h2.example.com/generate_204'
+    interval: 300
+  - name: "PROXY"
+    type: select
+    proxies:
+      - "Group 1"
+      - "Proxy 1"
+      - "Proxy 2"
+      - "Proxy 3"
+  - name: "Group 2"
+    type: select
+    proxies:
+      - "Group 1"
+      - "Proxy 1"
+      - "Proxy 2"
+      - "Proxy 3"
+  - name: "Group 3"
+    type: select
+    proxies:
+      - "Group 1"
+      - "Proxy 1"
+      - "Proxy 2"
+      - "Proxy 3"
+  - name: "Group 4"
+    type: select
+    proxies:
+      - "Group 1"
+      - "Proxy 1"
+      - "Proxy 2"
+      - "Proxy 3"
+rule-providers:
+  set-1:
+    type: http
+    behavior: domain
+    url: "https://h3.example.com/p1.txt"
+    path: ./path-2.yaml
+    interval: 86400
+  set-2:
+    type: http
+    behavior: domain
+    url: "https://h3.example.com/p2.txt"
+    path: ./path-3.yaml
+    interval: 86400
+  set-3:
+    type: http
+    behavior: domain
+    url: "https://h3.example.com/p3.txt"
+    path: ./path-4.yaml
+    interval: 86400
+  set-4:
+    type: http
+    behavior: domain
+    url: "https://h3.example.com/p4.txt"
+    path: ./path-5.yaml
+    interval: 86400
+  set-5:
+    type: http
+    behavior: domain
+    url: "https://h3.example.com/p5.txt"
+    path: ./path-6.yaml
+    interval: 86400
+  set-6:
+    type: http
+    behavior: domain
+    url: "https://h3.example.com/p6.txt"
+    path: ./path-7.yaml
+    interval: 86400
+  set-7:
+    type: http
+    behavior: ipcidr
+    url: "https://h3.example.com/p7.txt"
+    path: ./path-8.yaml
+    interval: 86400
+  set-8:
+    type: http
+    behavior: domain
+    url: "https://h3.example.com/p8.txt"
+    path: ./path-9.yaml
+    interval: 86400
+  set-9:
+    type: http
+    behavior: domain
+    url: "https://h3.example.com/p9.txt"
+    path: ./path-10.yaml
+    interval: 86400
+  set-10:
+    type: http
+    behavior: ipcidr
+    url: "https://h3.example.com/p10.txt"
+    path: ./path-11.yaml
+    interval: 86400
+  set-11:
+    type: http
+    behavior: ipcidr
+    url: "https://h3.example.com/p11.txt"
+    path: ./path-12.yaml
+    interval: 86400
+rules:
+  - RULE-SET,set-10,DIRECT,no-resolve
+  - RULE-SET,set-11,DIRECT,no-resolve
+  - RULE-SET,set-1,REJECT
+  - RULE-SET,set-3,DIRECT
+  - RULE-SET,set-4,DIRECT
+  - RULE-SET,set-5,Group 2
+  - RULE-SET,set-8,Group 3
+  - RULE-SET,set-6,Group 4
+  - RULE-SET,set-7,Group 4,no-resolve
+  - RULE-SET,set-9,PROXY
+  - RULE-SET,set-2,DIRECT
+  - GEOIP,CN,DIRECT
+  - MATCH,PROXY

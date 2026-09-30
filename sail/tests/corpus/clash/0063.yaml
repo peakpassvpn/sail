@@ -1,0 +1,626 @@
+mixed-port: 10801
+allow-lan: true
+bind-address: "*"
+authentication:
+  - "user3:password2"
+skip-auth-prefixes:
+  - 240.0.0.1/8
+  - ::1/128
+lan-allowed-ips:
+  - 0.0.0.0/0
+  - ::/0
+lan-disallowed-ips:
+  - 192.0.2.9/32
+find-process-mode: strict
+mode: rule
+geox-url:
+  geoip: "https://h6.example.com/p2.dat"
+  geosite: "https://h6.example.com/p3.dat"
+  mmdb: "https://h6.example.com/p4.metadb"
+geo-auto-update: false
+geo-update-interval: 24
+log-level: debug
+ipv6: true
+tls:
+  certificate: password13
+  private-key: password13
+  custom-certifactes:
+    - |
+      -----BEGIN CERTIFICATE-----
+      MIIBszCCAVmgAwIBAgIUZHVtbXktY2VydGlmaWNhdGUtZm9yLWEtdGVzdA==
+      -----END CERTIFICATE-----
+external-controller: 0.0.0.0:9093
+external-controller-tls: 0.0.0.0:9443
+external-controller-cors:
+  allow-origins:
+    - "*"
+  allow-private-network: true
+external-controller-unix: d24.example
+external-controller-pipe: str18
+external-ui: ./path-6
+external-ui-name: str19
+external-ui-url: "https://h7.example.com/p5.zip"
+external-doh-server: ./path-7
+global-client-fingerprint: chrome
+experimental:
+hosts:
+profile:
+  store-selected: false
+  store-fake-ip: true
+tun:
+  enable: false
+  stack: system
+  dns-hijack:
+    - 0.0.0.0:53
+  auto-redirect: false
+  route-address-set:
+    - str1
+    - str2
+  route-exclude-address-set:
+    - str3
+    - str4
+  route-address:
+    - 0.0.0.0/1
+    - 128.0.0.0/1
+    - "::/1"
+    - "8000::/1"
+sniffer:
+  enable: false
+  override-destination: false
+  sniff:
+    QUIC:
+    TLS:
+    HTTP:
+      ports: [80, 8080-8880]
+      override-destination: true
+  force-domain:
+    - +.d1.example
+  sniffing:
+    - tls
+    - http
+  port-whitelist:
+    - "80"
+    - "443"
+tunnels:
+  - tcp/udp,127.0.0.1:6553,192.0.2.1:53,Proxy 33
+  - tcp,127.0.0.1:6666,s2.example.net:3306,Proxy 34
+  - network: [tcp, udp]
+    address: 127.0.0.1:7777
+    target: d3.example
+    proxy: Proxy 33
+dns:
+  cache-algorithm: arc
+  enable: false
+  prefer-h3: false
+  listen: 0.0.0.0:53
+  default-nameserver:
+    - 192.0.2.1
+    - 192.0.2.2
+    - tls://192.0.2.3:853
+    - tls://192.0.2.4:853
+    - system
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  fake-ip-filter:
+    - '*.d4.example'
+    - d5.example
+    - rule-set:set-5
+    - geosite:fakeip-filter
+  fake-ip-filter-mode: blacklist
+  respect-rules: false
+  nameserver:
+    - 192.0.2.1
+    - 192.0.2.2
+    - tls://192.0.2.4:853
+    - https://h1.example.com/dns-query
+    - https://h2.example.com/dns-query#h3=true
+    - https://h3.example.com/dns-query#Proxy 35&h3=true
+    - dhcp://if1
+    - quic://h4.example.com:784
+  nameserver-policy:
+    geosite:cn,private,apple:
+      - https://h1.example.com/dns-query
+      - https://h2.example.com/dns-query
+    geosite:category-ads-all: rcode://success
+    d6.example,+.d7.example: [192.0.2.4, https://h2.example.com/dns-query]
+proxies:
+  - name: "Proxy 1"
+    type: socks5
+    server: str5
+    port: 443
+  - name: "Proxy 2"
+    type: http
+    server: str5
+    port: 443
+  - name: "Proxy 3"
+    type: snell
+    server: str5
+    port: 44046
+    psk: password1
+  - name: "Proxy 4"
+    type: ss
+    server: str5
+    port: 443
+    cipher: chacha20-ietf-poly1305
+    password: "password2"
+    smux:
+      enabled: false
+      protocol: smux
+  - name: "Proxy 5"
+    type: ss
+    server: str5
+    port: 443
+    cipher: chacha20-ietf-poly1305
+    password: "password2"
+    plugin: obfs
+    plugin-opts:
+      mode: tls
+  - name: "Proxy 6"
+    type: ss
+    server: str5
+    port: 443
+    cipher: chacha20-ietf-poly1305
+    password: "password2"
+    plugin: v2ray-plugin
+    plugin-opts:
+      mode: websocket
+  - name: "Proxy 7"
+    type: ss
+    server: str5
+    port: 443
+    cipher: chacha20-ietf-poly1305
+    password: "password2"
+    plugin: shadow-tls
+    client-fingerprint: chrome
+    plugin-opts:
+      host: "sni8.example.org"
+      password: "password3"
+      version: 2
+  - name: "Proxy 8"
+    type: ss
+    server: str5
+    port: 443
+    cipher: chacha20-ietf-poly1305
+    password: "password2"
+    plugin: gost-plugin
+    plugin-opts:
+      mode: websocket
+  - name: "Proxy 9"
+    type: ss
+    server: [str6]
+    port: 443
+    cipher: chacha20-ietf-poly1305
+    password: [password4]
+    client-fingerprint: chrome
+    plugin: restls
+    plugin-opts:
+      host: "sni9.example.org"
+      password: [password5]
+      version-hint: "str7"
+      restls-script: "str8"
+  - name: "Proxy 10"
+    type: ss
+    server: [str6]
+    port: 443
+    cipher: chacha20-ietf-poly1305
+    password: [password4]
+    client-fingerprint: chrome
+    plugin: restls
+    plugin-opts:
+      host: "sni10.example.org"
+      password: [password5]
+      version-hint: "str9"
+      restls-script: "str10"
+  - name: "Proxy 11"
+    type: vmess
+    server: str5
+    port: 443
+    uuid: 00005a11-0000-4000-8000-000000000001
+    alterId: 32
+    cipher: auto
+  - name: "Proxy 12"
+    type: vmess
+    server: str5
+    port: 443
+    uuid: 00005a11-0000-4000-8000-000000000001
+    alterId: 32
+    cipher: auto
+    network: h2
+    tls: true
+    h2-opts:
+      host:
+        - sni11.example.org
+        - sni12.example.org
+      path: /p1
+  - name: "Proxy 13"
+    type: vmess
+    server: str5
+    port: 443
+    uuid: 00005a11-0000-4000-8000-000000000001
+    alterId: 32
+    cipher: auto
+  - name: Proxy 14
+    server: str5
+    port: 443
+    type: vmess
+    uuid: 00005a11-0000-4000-8000-000000000001
+    alterId: 32
+    cipher: auto
+    network: grpc
+    tls: true
+    servername: sni13.example.org
+    grpc-opts:
+      grpc-service-name: "str11"
+  - name: "Proxy 15"
+    type: vless
+    server: str5
+    port: 443
+    uuid: 00005a11-0000-4000-8000-000000000001
+    network: tcp
+    servername: sni13.example.org
+  - name: "Proxy 16"
+    type: vless
+    server: str5
+    port: 443
+    uuid: 00005a11-0000-4000-8000-000000000001
+    network: tcp
+    tls: true
+    udp: true
+    flow: xtls-rprx-vision
+    client-fingerprint: chrome
+  - name: "Proxy 17"
+    type: vless
+    server: str5
+    port: 443
+    uuid: 00005a11-0000-4000-8000-000000000001
+    network: tcp
+    tls: true
+    udp: true
+    flow: xtls-rprx-vision
+    servername: sni9.example.org
+    reality-opts:
+      public-key: password6
+      short-id: str12
+    client-fingerprint: chrome
+  - name: "Proxy 18"
+    type: vless
+    server: str5
+    port: 443
+    uuid: 00005a11-0000-4000-8000-000000000001
+    network: grpc
+    tls: true
+    udp: true
+    flow:
+    client-fingerprint: chrome
+    servername: sni14.example.org
+    grpc-opts:
+      grpc-service-name: "grpc"
+    reality-opts:
+      public-key: wywOQgzCr2vr85JpoMxzCakHIIvgUtsG6_Qp987NJa4
+      short-id: 704c7085dd7b3f73
+  - name: "Proxy 19"
+    type: vless
+    server: str5
+    port: 443
+    uuid: 00005a11-0000-4000-8000-000000000001
+    udp: true
+    tls: true
+    network: ws
+    servername: sni13.example.org
+    ws-opts:
+      path: "/p1"
+      headers:
+        Host: sni13.example.org
+  - name: "Proxy 20"
+    type: trojan
+    server: str5
+    port: 443
+    password: password1
+  - name: Proxy 21
+    server: str5
+    port: 443
+    type: trojan
+    password: "password7"
+    network: grpc
+    sni: sni13.example.org
+    udp: true
+    grpc-opts:
+      grpc-service-name: "str11"
+  - name: Proxy 22
+    server: str5
+    port: 443
+    type: trojan
+    password: "password7"
+    network: ws
+    sni: sni13.example.org
+    udp: true
+  - name: "Proxy 23"
+    type: trojan
+    server: str5
+    port: 443
+    password: password1
+    flow: "xtls-rprx-direct"
+    flow-show: true
+  - name: "Proxy 24"
+    type: hysteria
+    server: s15.example.net
+    port: 443
+    auth-str: password8
+    protocol: udp
+    up: "30 Mbps"
+    down: "200 Mbps"
+  - name: "Proxy 25"
+    type: hysteria2
+    server: s15.example.net
+    port: 443
+    password: password8
+  - name: "Proxy 26"
+    type: wireguard
+    server: 192.0.2.5
+    port: 2480
+    ip: 192.0.2.6
+    ipv6: 2001:db8::1
+    public-key: WulOoXrJ4xaeREDpCXJqPLE7mK1qDJwNSfPto1FYe4I=
+    private-key: uLBP4fDmzzQr6AI9Cjs2bG1yyu2augLO37S6iU1M4Eo=
+    udp: true
+    reserved: "password9"
+  - name: Proxy 27
+    server: s16.example.net
+    port: 10443
+    type: tuic
+    token: token1
+    uuid: 00005a11-0000-4000-8000-000000000002
+    password: password10
+    disable-sni: true
+    reduce-rtt: true
+    request-timeout: 8000
+    udp-relay-mode: native
+  - name: "Proxy 28"
+    type: ssr
+    server: str5
+    port: 443
+    cipher: chacha20-ietf
+    password: "password2"
+    obfs: tls1.2_ticket_auth
+    protocol: auth_sha1_v4
+  - name: "Proxy 29"
+    type: ssh
+    server: 127.0.0.1
+    port: 22
+    username: user1
+    password: password2
+    privateKey: str13
+  - name: Proxy 30
+    type: mieru
+    server: 192.0.2.7
+    port: 2999
+    transport: TCP
+    udp: true
+    username: user2
+    password: password2
+  - name: Proxy 31
+    type: anytls
+    server: 192.0.2.7
+    port: 443
+    password: "password11"
+    udp: true
+  - name: "Proxy 32"
+    type: dns
+proxy-groups:
+  - name: "Group 1"
+    type: relay
+    proxies:
+      - Proxy 2
+      - Proxy 11
+      - Proxy 4
+      - Proxy 5
+  - name: "Group 2"
+    type: url-test
+    proxies:
+      - Proxy 4
+      - Proxy 5
+      - Proxy 36
+    url: "https://h5.example.com/generate_204"
+    interval: 300
+  - name: "Group 3"
+    type: fallback
+    proxies:
+      - Proxy 4
+      - Proxy 5
+      - Proxy 36
+    url: "https://h5.example.com/generate_204"
+    interval: 300
+  - name: "Group 4"
+    type: load-balance
+    proxies:
+      - Proxy 4
+      - Proxy 5
+      - Proxy 36
+    url: "https://h5.example.com/generate_204"
+    interval: 300
+  - name: Group 5
+    type: select
+    proxies:
+      - Proxy 4
+      - Proxy 5
+      - Proxy 36
+      - Group 2
+  - name: Group 6
+    type: select
+    interface-name: if2
+    routing-mark: 6667
+    proxies:
+      - DIRECT
+  - name: Group 7
+    type: select
+    filter: "Proxy [0-9]+|Group 1"
+    use:
+      - provider-1
+    proxies:
+      - Group 5
+      - DIRECT
+proxy-providers:
+  provider-1:
+    type: http
+    url: "str14"
+    interval: 3600
+    path: ./path-1.yaml
+    proxy: DIRECT
+    header:
+      User-Agent:
+        - "Agent1"
+        - "Agent2"
+    health-check:
+      enable: true
+      interval: 600
+      url: https://h5.example.com/generate_204
+    override:
+      skip-cert-verify: true
+      udp: true
+  provider-2:
+    type: inline
+    dialer-proxy: Proxy 33
+    payload:
+      - name: "str15"
+        type: ss
+        server: str5
+        port: 443
+        cipher: chacha20-ietf-poly1305
+        password: "password2"
+  provider-3:
+    type: file
+    path: ./path-2.yaml
+    health-check:
+      enable: true
+      interval: 36000
+      url: https://h5.example.com/generate_204
+rule-providers:
+  set-1:
+    behavior: classical
+    interval: 259200
+    path: ./path-3.yaml
+    type: http
+    url: "str14"
+    proxy: DIRECT
+  set-2:
+    behavior: classical
+    interval: 259200
+    path: ./path-3.yaml
+    type: file
+  set-3:
+    type: http
+    url: "str14"
+    format: mrs
+    behavior: domain
+    path: ./path-4.mrs
+  set-4:
+    type: inline
+    behavior: domain
+    payload:
+      - '.d17.example'
+      - '*.d18*.example'
+      - 'd19.example'
+rules:
+  - RULE-SET,set-1,REJECT
+  - IP-ASN,1,PROXY
+  - DOMAIN-REGEX,^d1\.example$,DIRECT
+  - DOMAIN-SUFFIX,d20.example,DIRECT
+  - DOMAIN-KEYWORD,kw1,Proxy 4
+  - IP-CIDR,192.0.2.8/32,Proxy 4
+  - IP-CIDR6,2001:db8::/64,DIRECT
+  - SUB-RULE,sub-3,Proxy 37
+  - SUB-RULE,sub-4,Proxy 38
+sub-rules:
+  sub-1:
+    - DOMAIN,d21.example,Proxy 4
+    - DOMAIN,d20.example,DIRECT
+  sub-2:
+    - IP-CIDR,192.0.2.8/32,REJECT
+    - IP-CIDR,192.0.2.2/32,Proxy 4
+    - DOMAIN,d22.example,REJECT
+listeners:
+  - name: listener-1
+    type: socks
+    port: 10808
+  - name: listener-2
+    type: http
+    port: 10809
+    listen: 0.0.0.0
+  - name: listener-3
+    type: mixed
+    port: 10810
+    listen: 0.0.0.0
+  - name: listener-4
+    type: redir
+    port: 10811
+    listen: 0.0.0.0
+  - name: listener-5
+    type: tproxy
+    port: 10812
+    listen: 0.0.0.0
+  - name: listener-6
+    type: shadowsocks
+    port: 10813
+    listen: 0.0.0.0
+    password: wywOQgzCr2vr85JpoMxzCakHIIvgUtsG6/Qp987NJa4=
+    cipher: 2022-blake3-aes-256-gcm
+  - name: listener-7
+    type: vmess
+    port: 10814
+    listen: 0.0.0.0
+    users:
+      - username: 1
+        uuid: 00005a11-0000-4000-8000-000000000003
+        alterId: 1
+  - name: listener-8
+    type: tuic
+    port: 10815
+    listen: 0.0.0.0
+  - name: listener-9
+    type: tunnel
+    port: 10816
+    listen: 0.0.0.0
+    network: [tcp, udp]
+    target: d3.example
+  - name: listener-10
+    type: vless
+    port: 10817
+    listen: 0.0.0.0
+    users:
+      - username: 1
+        uuid: 00005a11-0000-4000-8000-000000000003
+        flow: xtls-rprx-vision
+    reality-config:
+      dest: s23.example.net:443
+      private-key: C7R4HcnA7nosUls057QlZXh18tDK3yhe4-6I1jkpNJM
+      short-id:
+        - 6663c3a1406786ea
+      server-names:
+        - s23.example.net
+  - name: listener-11
+    type: anytls
+    port: 10818
+    listen: 0.0.0.0
+    users:
+      username1: str16
+      username2: str17
+    certificate: ./path-5.crt
+    private-key: password12
+  - name: listener-12
+    type: trojan
+    port: 10819
+    listen: 0.0.0.0
+    users:
+      - username: 1
+        password: 00005a11-0000-4000-8000-000000000003
+    certificate: ./path-5.crt
+    private-key: password12
+  - name: listener-13
+    type: tun
+    stack: system
+    dns-hijack:
+      - 0.0.0.0:53
+    inet4-address:
+      - 192.0.2.1/30
+    inet6-address:
+      - "2001:db8::1/126"

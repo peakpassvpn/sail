@@ -1,0 +1,38 @@
+{
+  "log": {
+    "level": "info"
+  },
+  "dns": {
+    "servers": [
+      {
+        "type": "tls",
+        "tag": "dns-1",
+        "server": "192.0.2.1",
+        "server_port": 853,
+        "tls": {}
+      }
+    ]
+  },
+  "inbounds": [],
+  "outbounds": [
+    {
+      "type": "direct",
+      "tag": "Proxy 1"
+    },
+    {
+      "type": "block",
+      "tag": "Proxy 2"
+    }
+  ],
+  "route": {
+    "rules": [
+      {
+        "action": "sniff"
+      },
+      {
+        "protocol": "dns",
+        "action": "hijack-dns"
+      }
+    ]
+  }
+}

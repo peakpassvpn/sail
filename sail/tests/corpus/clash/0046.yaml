@@ -1,0 +1,4 @@
+proxies:
+  - {name: Proxy 1, type: vless, server: 192.0.2.1, port: 23456, uuid: 00005a11-0000-4000-8000-000000000001, network: tcp, tls: false, udp: true}
+proxy-groups: []
+rules: []

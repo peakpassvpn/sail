@@ -1,0 +1,154 @@
+proxy-providers:
+  provider-1:
+    url: "https://h1.example.com/p1.yml"
+    type: http
+    interval: 86400
+    health-check:
+      enable: true
+      url: https://h2.example.com/generate_204
+      interval: 300
+    proxy: Proxy 1
+proxies:
+  - {name: Proxy 1, type: direct}
+port: 7890
+socks-port: 7891
+redir-port: 7892
+mixed-port: 7893
+tproxy-port: 7894
+allow-lan: true
+bind-address: "*"
+ipv6: false
+unified-delay: true
+tcp-concurrent: true
+log-level: warning
+find-process-mode: 'off'
+global-client-fingerprint: chrome
+keep-alive-idle: 600
+keep-alive-interval: 15
+disable-keep-alive: false
+profile:
+  store-selected: true
+  store-fake-ip: true
+external-controller: 0.0.0.0:9090
+secret: ""
+external-ui: "./path-1"
+external-ui-name: str1
+external-ui-url: "https://h1.example.com/p23.zip"
+sniffer:
+  enable: true
+  sniff:
+    HTTP:
+      ports: [80, 8080-8880]
+      override-destination: true
+    TLS:
+      ports: [443, 8443]
+    QUIC:
+      ports: [443, 8443]
+  force-domain:
+    - "+.d1.example"
+  skip-domain:
+    - "rule-set:set-1,set-17"
+tun:
+  enable: true
+  stack: mixed
+  dns-hijack: ["any:53", "tcp://any:53"]
+  auto-route: true
+  auto-redirect: true
+  auto-detect-interface: true
+dns:
+  enable: true
+  listen: 0.0.0.0:1053
+  ipv6: false
+  respect-rules: true
+  enhanced-mode: fake-ip
+  fake-ip-range: 28.0.0.1/8
+  fake-ip-filter-mode: blacklist
+  fake-ip-filter:
+    - "rule-set:set-1,set-17"
+    - "+.d2.example"
+    - "+.d3.example"
+    - "d4*.example"
+  default-nameserver:
+    - 192.0.2.1
+  proxy-server-nameserver:
+    - https://192.0.2.1/dns-query
+  nameserver:
+    - 192.0.2.1
+    - 192.0.2.2
+anchor-1: &a1 {type: select, proxies: [Group 1, Group 19, Group 20, Group 21, Group 22, Group 23, Group 24, Group 16, Group 17, Group 18, Group 25, Proxy 1]}
+proxy-groups:
+  - {name: Group 1, type: select, proxies: [Group 19, Group 20, Group 21, Group 22, Group 23, Group 24, Group 16, Group 17, Group 18, Group 25, Proxy 1]}
+  - {name: Group 2, <<: *a1}
+  - {name: Group 3, <<: *a1}
+  - {name: Group 4, <<: *a1}
+  - {name: Group 5, <<: *a1}
+  - {name: Group 6, <<: *a1}
+  - {name: Group 7, <<: *a1}
+  - {name: Group 8, <<: *a1}
+  - {name: Group 9, <<: *a1}
+  - {name: Group 10, <<: *a1}
+  - {name: Group 11, <<: *a1}
+  - {name: Group 12, <<: *a1}
+  - {name: Group 13, type: select, proxies: [Proxy 1, Group 1]}
+  - {name: Group 14, type: select, proxies: [Proxy 1, Group 1]}
+  - {name: Group 15, <<: *a1}
+  - {name: Group 16, type: select, include-all: true, filter: "Proxy [0-9]+|Group 1"}
+  - {name: Group 17, type: select, include-all: true, filter: "Proxy [0-9]+|Group 2"}
+  - {name: Group 18, type: select, include-all: true, filter: "Proxy [0-9]+|Group 3"}
+  - {name: Group 19, type: fallback, include-all: true, tolerance: 20, interval: 300, filter: "Proxy [0-9]+|Group 4"}
+  - {name: Group 20, type: fallback, include-all: true, tolerance: 20, interval: 300, filter: "Proxy [0-9]+|Group 5"}
+  - {name: Group 21, type: url-test, include-all: true, tolerance: 20, interval: 300, filter: "Proxy [0-9]+|Group 4"}
+  - {name: Group 22, type: url-test, include-all: true, tolerance: 20, interval: 300, filter: "Proxy [0-9]+|Group 5"}
+  - {name: Group 23, type: url-test, include-all: true, tolerance: 20, interval: 300, filter: "Proxy [0-9]+|Group 6"}
+  - {name: Group 24, type: url-test, include-all: true, tolerance: 20, interval: 300, filter: "Proxy [0-9]+|Group 7"}
+  - {name: Group 25, type: select, include-all: true}
+rules:
+  - DOMAIN-SUFFIX,d5.example,Group 1
+  - RULE-SET,set-1,Proxy 1
+  - RULE-SET,set-12,Group 13
+  - RULE-SET,set-2,Group 1
+  - RULE-SET,set-3,Group 4
+  - RULE-SET,set-6,Group 5
+  - RULE-SET,set-4,Group 2
+  - RULE-SET,set-5,Group 3
+  - RULE-SET,set-10,Group 6
+  - RULE-SET,set-11,Group 7
+  - RULE-SET,set-14,Group 8
+  - RULE-SET,set-13,Group 11
+  - RULE-SET,set-7,Group 9
+  - RULE-SET,set-8,Group 10
+  - RULE-SET,set-9,Group 12
+  - RULE-SET,set-15,Group 1
+  - RULE-SET,set-16,Group 1
+  - RULE-SET,set-17,Group 14
+  - RULE-SET,set-19,Group 3,no-resolve
+  - RULE-SET,set-21,Group 10,no-resolve
+  - RULE-SET,set-20,Group 9,no-resolve
+  - RULE-SET,set-18,Group 14
+  - MATCH,Group 15
+anchor-2:
+  ip: &a4 {type: http, interval: 86400, behavior: ipcidr, format: mrs}
+  domain: &a2 {type: http, interval: 86400, behavior: domain, format: mrs}
+  class: &a3 {type: http, interval: 86400, behavior: classical, format: text}
+rule-providers:
+  set-1: {<<: *a2, url: "https://h1.example.com/p2.mrs"}
+  set-2: {<<: *a3, url: "https://h1.example.com/p3.list"}
+  set-3: {<<: *a2, url: "https://h1.example.com/p4.mrs"}
+  set-4: {<<: *a2, url: "https://h1.example.com/p5.mrs"}
+  set-5: {<<: *a2, url: "https://h1.example.com/p6.mrs"}
+  set-6: {<<: *a2, url: "https://h1.example.com/p7.mrs"}
+  set-7: {<<: *a2, url: "https://h1.example.com/p8.mrs"}
+  set-8: {<<: *a2, url: "https://h1.example.com/p9.mrs"}
+  set-9: {<<: *a2, url: "https://h1.example.com/p10.mrs"}
+  set-10: {<<: *a2, url: "https://h1.example.com/p11.mrs"}
+  set-11: {<<: *a2, url: "https://h1.example.com/p12.mrs"}
+  set-12: {<<: *a2, url: "https://h1.example.com/p13.mrs"}
+  set-13: {<<: *a2, url: "https://h1.example.com/p14.mrs"}
+  set-14: {<<: *a2, url: "https://h1.example.com/p15.mrs"}
+  set-15: {<<: *a2, url: "https://h1.example.com/p16.mrs"}
+  set-16: {<<: *a2, url: "https://h1.example.com/p17.mrs"}
+  set-17: {<<: *a2, url: "https://h1.example.com/p18.mrs"}
+  set-18: {<<: *a4, url: "https://h1.example.com/p19.mrs"}
+  set-19: {<<: *a4, url: "https://h1.example.com/p20.mrs"}
+  set-20: {<<: *a4, url: "https://h1.example.com/p21.mrs"}
+  set-21: {<<: *a4, url: "https://h1.example.com/p22.mrs"}

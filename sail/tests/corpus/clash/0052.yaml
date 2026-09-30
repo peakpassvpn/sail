@@ -1,0 +1,87 @@
+name: "str1"
+mixed-port: 7890
+socks-port: 7891
+port: 7892
+allow-lan: true
+bind-address: '*'
+mode: global
+log-level: info
+ipv6: false
+external-controller: 127.0.0.1:9090
+external-ui: ./path-1
+secret: ""
+unified-delay: true
+tcp-concurrent: true
+global-client-fingerprint: chrome
+find-process-mode: strict
+keep-alive-interval: 15
+fragment:
+  enable: true
+  size: "5-40"
+  sleep: "1-2"
+ttl: 5
+profile:
+  store-selected: true
+  store-fake-ip: false
+dns:
+  enable: true
+  ipv6: false
+  listen: 0.0.0.0:5353
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  fake-ip-filter:
+    - '*.d1.example'
+    - '*.d2.example'
+    - '*.localhost'
+    - '+.d3*.example'
+    - '+.d4*.example'
+    - 'd5*.example'
+    - 'd6*.example'
+    - 'd7.example'
+    - 'd8.example'
+    - 'd9.example'
+    - 'd10.example'
+    - 'd11.example'
+  default-nameserver:
+    - 192.0.2.1
+    - 192.0.2.2
+  nameserver:
+    - 192.0.2.1
+    - 192.0.2.3
+    - 192.0.2.2
+    - 192.0.2.4
+    - 192.0.2.5
+    - 192.0.2.6
+    - 192.0.2.7
+    - 192.0.2.8
+proxies:
+  - name: "Proxy 1"
+    type: ss
+    server: "192.0.2.9"
+    port: 8882
+    cipher: "aes-256-gcm"
+    password: "password1"
+    udp: true
+proxy-groups:
+  - name: "PROXY"
+    type: select
+    proxies:
+      - "Group 1"
+      - "Group 2"
+  - name: "Group 1"
+    type: url-test
+    url: https://h1.example.com/generate_204
+    interval: 180
+    tolerance: 30
+    lazy: true
+    proxies:
+      - "Proxy 1"
+  - name: "Group 2"
+    type: load-balance
+    strategy: round-robin
+    url: https://h1.example.com/generate_204
+    interval: 300
+    proxies:
+      - "Proxy 1"
+rules:
+  - MATCH,PROXY

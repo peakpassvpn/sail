@@ -1,0 +1,79 @@
+mixed-port: 7890
+allow-lan: true
+bind-address: '*'
+mode: rule
+log-level: info
+ipv6: true
+unified-delay: true
+tcp-concurrent: true
+geodata-mode: true
+sniffer:
+  enable: true
+  force-dns-mapping: true
+  parse-pure-ip: true
+  sniff:
+    HTTP:
+      ports:
+        - 80
+        - 8080-8880
+    TLS:
+      ports:
+        - 443
+        - 8443
+    QUIC:
+      ports:
+        - 443
+        - 8443
+  force-domain:
+    - d1.example
+    - d2.example
+  skip-domain:
+    - str1
+hosts:
+  d3.example: [192.0.2.1, 192.0.2.2, 2001:db8::1, 2001:db8::2]
+  d4.example: [192.0.2.3, 192.0.2.4]
+dns:
+  enable: true
+  listen: 0.0.0.0:1053
+  cache-algorithm: arc
+  enhanced-mode: redir-host
+  ipv6: true
+  respect-rules: true
+  nameserver:
+    - https://h1.example.com/dns-query#proxy=SELECT
+  nameserver-policy:
+    geosite:cn:
+      - https://h2.example.com/dns-query
+      - https://h3.example.com/dns-query
+  proxy-server-nameserver:
+    - https://h2.example.com/dns-query
+  fallback:
+    - https://h2.example.com/dns-query
+  fallback-filter:
+    geoip: false
+    ipcidr: []
+    domain: []
+proxy-groups:
+  - name: Group 1
+    type: select
+    include-all: true
+    proxies: [DIRECT]
+    icon: "https://h4.example.com/p1.png"
+  - name: Group 2
+    type: select
+    include-all: true
+    proxies: [DIRECT]
+    icon: "https://h4.example.com/p2.png"
+  - name: Group 3
+    type: select
+    include-all: true
+    proxies: [REJECT, Group 1, DIRECT]
+    icon: "https://h4.example.com/p3.png"
+rules:
+  - GEOIP,private,DIRECT
+  - GEOSITE,private,DIRECT
+  - GEOSITE,category-ads-all,Group 3
+  - GEOSITE,gfw,Group 1
+  - GEOSITE,cn,Group 2
+  - GEOIP,CN,Group 2
+  - MATCH,Group 1

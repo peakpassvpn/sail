@@ -1,0 +1,162 @@
+{
+  "log": {
+    "level": "debug",
+    "timestamp": true
+  },
+  "experimental": {
+    "clash_api": {
+      "external_controller": "127.0.0.1:9090",
+      "external_ui": "./path-1",
+      "secret": "",
+      "external_ui_download_url": "https://h3.example.com/p2.zip",
+      "external_ui_download_detour": "",
+      "default_mode": "rule"
+    },
+    "cache_file": {
+      "enabled": true,
+      "store_fakeip": false
+    }
+  },
+  "dns": {
+    "servers": [
+      {
+        "tag": "dns-1",
+        "address": "tls://192.0.2.1",
+        "detour": "Group 1"
+      },
+      {
+        "tag": "dns-2",
+        "address": "https://192.0.2.2/dns-query",
+        "detour": "Proxy 1"
+      }
+    ],
+    "rules": [
+      {
+        "outbound": "any",
+        "server": "dns-2"
+      },
+      {
+        "clash_mode": "direct",
+        "server": "dns-2"
+      },
+      {
+        "clash_mode": "global",
+        "server": "dns-1"
+      }
+    ],
+    "strategy": "ipv4_only"
+  },
+  "inbounds": [
+    {
+      "tag": "in-1",
+      "type": "tun",
+      "address": [
+        "192.0.2.0/30"
+      ],
+      "mtu": 9000,
+      "auto_route": true,
+      "strict_route": true,
+      "stack": "system",
+      "platform": {
+        "http_proxy": {
+          "enabled": true,
+          "server": "127.0.0.1",
+          "server_port": 2080
+        }
+      }
+    },
+    {
+      "tag": "in-2",
+      "type": "mixed",
+      "listen": "127.0.0.1",
+      "listen_port": 2080
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "Group 1",
+      "type": "selector",
+      "outbounds": [
+        "Group 2",
+        "Proxy 1",
+        "Proxy 2"
+      ]
+    },
+    {
+      "tag": "Group 2",
+      "type": "urltest",
+      "outbounds": [
+        "Proxy 2"
+      ],
+      "url": "http://h1.example.com/generate_204",
+      "interval": "10m",
+      "tolerance": 50
+    },
+    {
+      "type": "direct",
+      "tag": "Proxy 1"
+    }
+  ],
+  "route": {
+    "auto_detect_interface": true,
+    "final": "Group 1",
+    "rules": [
+      {
+        "inbound": [
+          "in-1",
+          "in-2"
+        ],
+        "action": "sniff"
+      },
+      {
+        "type": "logical",
+        "mode": "or",
+        "rules": [
+          {
+            "port": 53
+          },
+          {
+            "protocol": "dns"
+          }
+        ],
+        "action": "hijack-dns"
+      },
+      {
+        "rule_set": "set-1",
+        "clash_mode": "rule",
+        "action": "reject"
+      },
+      {
+        "rule_set": "set-1",
+        "clash_mode": "global",
+        "outbound": "Group 1"
+      },
+      {
+        "clash_mode": "direct",
+        "outbound": "Proxy 1"
+      },
+      {
+        "clash_mode": "global",
+        "outbound": "Group 1"
+      },
+      {
+        "domain": [
+          "d1.example",
+          "d2.example",
+          "d3.example",
+          "d4.example"
+        ],
+        "outbound": "Proxy 1"
+      }
+    ],
+    "rule_set": [
+      {
+        "tag": "set-1",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h2.example.com/p1.srs",
+        "download_detour": "Proxy 1"
+      }
+    ]
+  }
+}

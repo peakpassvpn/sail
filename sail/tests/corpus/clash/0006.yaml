@@ -1,0 +1,136 @@
+global-client-fingerprint: chrome
+port: 7890
+socks-port: 7891
+redir-port: 7892
+mixed-port: 7893
+tproxy-port: 7894
+allow-lan: true
+tcp-concurrent: true
+enable-process: true
+find-process-mode: always
+ipv6: true
+log-level: debug
+geo-auto-update: true
+geo-update-interval: 168
+secret: ''
+bind-address: '*'
+unified-delay: false
+disable-keep-alive: false
+keep-alive-idle: 30
+keep-alive-interval: 30
+profile:
+  store-selected: true
+  store-fake-ip: true
+dns:
+  enable: true
+  ipv6: true
+  respect-rules: false
+  prefer-h3: true
+  cache-algorithm: arc
+  use-system-hosts: true
+  use-host: true
+  listen: 0.0.0.0:53
+  enhanced-mode: fake-ip
+  fake-ip-filter-mode: blacklist
+  fake-ip-range: 198.18.0.1/16
+  fake-ip-filter:
+    - '*.d1.example'
+    - '*.d2.example'
+    - '*.d3.example'
+    - '*.localhost'
+    - '*.d4.example'
+    - '*.d5.example'
+    - '*.d6.example'
+    - 'd7*.example'
+    - 'd8*.example'
+    - '*.d9.example'
+  default-nameserver:
+    - '192.0.2.1'
+    - '192.0.2.2'
+    - '192.0.2.3'
+    - '192.0.2.4'
+    - '192.0.2.5'
+    - '192.0.2.6'
+    - '192.0.2.7'
+    - '192.0.2.8'
+    - '192.0.2.9'
+    - '192.0.2.10'
+    - '192.0.2.11'
+  nameserver:
+    - 'https://h1.example.com/p1'
+    - 'tls://h2.example.com'
+  direct-nameserver:
+    - '192.0.2.12'
+    - '192.0.2.13'
+  proxy-server-nameserver:
+    - '2001:db8::1'
+    - '2001:db8::2'
+    - '2001:db8::3'
+    - '2001:db8::4'
+    - '192.0.2.4'
+    - '192.0.2.1'
+    - '192.0.2.2'
+    - '192.0.2.5'
+    - '192.0.2.10'
+    - '192.0.2.11'
+    - '2001:db8::5'
+    - '2001:db8::6'
+    - '2001:db8::7'
+tun:
+  enable: true
+  stack: mixed
+  auto-route: true
+  auto-detect-interface: true
+  auto-redir: true
+  dns-hijack:
+    - 'any:53'
+    - 'tcp://any:53'
+proxies:
+proxy-groups:
+  - name: "Group 1"
+    icon: https://h3.example.com/p2.svg
+    type: select
+    proxies:
+      - "Group 3"
+      - "Group 2"
+      - "Group 5"
+      - "Group 4"
+  - name: "Group 2"
+    type: select
+    icon: https://h3.example.com/p3.svg
+    proxies:
+  - name: "Group 3"
+    type: url-test
+    icon: https://h3.example.com/p4.svg
+    url: 'https://h4.example.com/p5'
+    interval: 300
+    timeout: 5000
+    tolerance: 50
+    max-failed-times: 3
+    lazy: true
+    proxies:
+  - name: "Group 4"
+    type: select
+    icon: https://h3.example.com/p6.svg
+    proxies:
+      - DIRECT
+    hidden: true
+  - name: "Group 5"
+    type: select
+    icon: https://h3.example.com/p7.svg
+    proxies:
+      - REJECT
+    hidden: true
+  - name: "Group 6"
+    type: select
+    icon: https://h3.example.com/p8.svg
+    proxies:
+      - REJECT
+    hidden: true
+rules:
+  - MATCH,Group 1
+ntp:
+  enable: true
+  server: s10.example.net
+  port: 123
+  interval: 30

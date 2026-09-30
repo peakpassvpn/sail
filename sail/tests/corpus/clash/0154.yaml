@@ -1,0 +1,124 @@
+mixed-port: 7892
+allow-lan: true
+bind-address: "*"
+mode: rule
+log-level: info
+ipv6: false
+external-controller: 0.0.0.0:9090
+external-ui: ./path-1
+external-ui-url: "https://h4.example.com/p1.zip"
+secret: ""
+unified-delay: false
+tcp-concurrent: true
+find-process-mode: strict
+profile:
+  store-selected: true
+  store-fake-ip: true
+tun:
+  enable: true
+  stack: system
+  auto-route: true
+  auto-redirect: true
+  auto-detect-interface: true
+  dns-hijack:
+    - any:53
+    - tcp://any:53
+  device: if1
+  mtu: 9000
+  strict-route: true
+  gso: true
+  gso-max-size: 65536
+dns:
+  enable: true
+  listen: 0.0.0.0:1053
+  ipv6: false
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  fake-ip-filter-mode: blacklist
+  fake-ip-filter:
+    - '*.d1.example'
+    - '*.d2.example'
+    - '*.d3.example'
+    - '+.d4.example'
+    - '+.d5.example'
+    - '+.d6.example'
+    - '+.d7.example'
+    - '+.d8.example'
+    - '+.d9.example'
+    - '+.d10.example'
+    - '+.d11.example'
+    - '+.d12.example'
+    - '+.d13.example'
+    - '+.d14.example'
+    - '+.d15.example'
+    - '+.d16.example'
+    - '+.d17.example'
+    - '+.d18.example'
+    - '+.d19.example'
+  use-hosts: true
+  use-system-hosts: false
+  respect-rules: true
+  default-nameserver:
+    - tls://192.0.2.1:853
+    - tls://192.0.2.2:853
+  nameserver:
+    - https://h1.example.com/dns-query
+    - https://h2.example.com/dns-query
+    - https://192.0.2.2/dns-query
+  proxy-server-nameserver:
+    - https://h1.example.com/dns-query
+    - 192.0.2.1
+proxies: []
+proxy-groups:
+  - name: Group 1
+    type: url-test
+    url: https://h3.example.com/generate_204
+    interval: 300
+    tolerance: 50
+    proxies: []
+  - name: PROXY
+    type: select
+    proxies: [Group 1]
+rules:
+  - DOMAIN-SUFFIX,d3.example,DIRECT
+  - DOMAIN-SUFFIX,d4.example,DIRECT
+  - DOMAIN-SUFFIX,d6.example,DIRECT
+  - DOMAIN-SUFFIX,d20.example,DIRECT
+  - DOMAIN-SUFFIX,d7.example,DIRECT
+  - DOMAIN-SUFFIX,d5.example,DIRECT
+  - DOMAIN-SUFFIX,d9.example,DIRECT
+  - DOMAIN-SUFFIX,d11.example,DIRECT
+  - DOMAIN-SUFFIX,d12.example,DIRECT
+  - DOMAIN-SUFFIX,d13.example,DIRECT
+  - DOMAIN-SUFFIX,d14.example,DIRECT
+  - DOMAIN-SUFFIX,d15.example,DIRECT
+  - DOMAIN-SUFFIX,d16.example,DIRECT
+  - DOMAIN-SUFFIX,d17.example,DIRECT
+  - DOMAIN-SUFFIX,d18.example,DIRECT
+  - DOMAIN-SUFFIX,d19.example,DIRECT
+  - GEOSITE,GOOGLE,PROXY
+  - GEOSITE,YOUTUBE,PROXY
+  - GEOSITE,FACEBOOK,PROXY
+  - GEOSITE,INSTAGRAM,PROXY
+  - GEOSITE,TWITTER,PROXY
+  - GEOSITE,TELEGRAM,PROXY
+  - GEOSITE,GITHUB,PROXY
+  - GEOSITE,CLOUDFLARE,PROXY
+  - GEOSITE,NETFLIX,PROXY
+  - GEOSITE,SPOTIFY,PROXY
+  - GEOSITE,CATEGORY-ADS-ALL,REJECT
+  - GEOSITE,GEOLOCATION-!CN,PROXY
+  - GEOIP, PRIVATE, DIRECT
+  - MATCH,PROXY
+hosts:
+  d21.example: [192.0.2.3, 192.0.2.4]
+  d22.example: [192.0.2.1, 192.0.2.5]
+  d23.example: [192.0.2.1, 192.0.2.5]
+  d24.example: [192.0.2.6]
+  d25.example: [192.0.2.7]
+  d26.example: [192.0.2.7]
+  d27.example: [192.0.2.8]
+  d28.example: [192.0.2.8]
+  d29.example: [192.0.2.9]
+  d30.example: [192.0.2.9]
+  d31.example: [192.0.2.9]

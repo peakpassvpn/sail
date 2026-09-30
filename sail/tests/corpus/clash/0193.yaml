@@ -1,0 +1,535 @@
+mixed-port: 7890
+allow-lan: false
+bind-address: '*'
+mode: rule
+log-level: info
+external-controller: 127.0.0.1:9090
+dns:
+  enable: true
+  ipv6: false
+  default-nameserver:
+    - 192.0.2.1
+    - 192.0.2.2
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  nameserver:
+    - https://h1.example.com/dns-query
+    - https://h2.example.com/dns-query
+proxies:
+  - name: Proxy 1
+    type: trojan
+    server: s1.example.net
+    port: 12221
+    password: 00005a11-0000-4000-8000-000000000001
+    udp: true
+    sni: sni2.example.org
+    skip-cert-verify: true
+    network: tcp
+  - name: Proxy 2
+    type: trojan
+    server: s3.example.net
+    port: 12221
+    password: 00005a11-0000-4000-8000-000000000001
+    udp: true
+    sni: sni2.example.org
+    skip-cert-verify: true
+    network: tcp
+  - name: Proxy 3
+    type: trojan
+    server: s4.example.net
+    port: 12221
+    password: 00005a11-0000-4000-8000-000000000001
+    udp: true
+    sni: sni2.example.org
+    skip-cert-verify: true
+    network: tcp
+  - name: Proxy 4
+    type: trojan
+    server: s1.example.net
+    port: 42765
+    password: 00005a11-0000-4000-8000-000000000001
+    udp: true
+    sni: sni5.example.org
+    skip-cert-verify: true
+    network: tcp
+  - name: Proxy 5
+    type: trojan
+    server: s3.example.net
+    port: 42765
+    password: 00005a11-0000-4000-8000-000000000001
+    udp: true
+    sni: sni5.example.org
+    skip-cert-verify: true
+    network: tcp
+  - name: Proxy 6
+    type: trojan
+    server: s4.example.net
+    port: 42765
+    password: 00005a11-0000-4000-8000-000000000001
+    udp: true
+    sni: sni5.example.org
+    skip-cert-verify: true
+    network: tcp
+  - name: Proxy 7
+    type: trojan
+    server: s1.example.net
+    port: 48291
+    password: 00005a11-0000-4000-8000-000000000001
+    udp: true
+    sni: sni5.example.org
+    skip-cert-verify: true
+    network: tcp
+  - name: Proxy 8
+    type: trojan
+    server: s3.example.net
+    port: 18489
+    password: 00005a11-0000-4000-8000-000000000001
+    udp: true
+    sni: sni5.example.org
+    skip-cert-verify: true
+    network: tcp
+  - name: Proxy 9
+    type: trojan
+    server: s4.example.net
+    port: 18489
+    password: 00005a11-0000-4000-8000-000000000001
+    udp: true
+    sni: sni5.example.org
+    skip-cert-verify: true
+    network: tcp
+  - name: Proxy 10
+    type: trojan
+    server: s1.example.net
+    port: 49921
+    password: 00005a11-0000-4000-8000-000000000001
+    udp: true
+    sni: sni5.example.org
+    skip-cert-verify: true
+    network: tcp
+  - name: Proxy 11
+    type: trojan
+    server: s1.example.net
+    port: 49921
+    password: 00005a11-0000-4000-8000-000000000001
+    udp: true
+    sni: sni5.example.org
+    skip-cert-verify: true
+    network: tcp
+  - name: Proxy 12
+    type: trojan
+    server: s1.example.net
+    port: 28713
+    password: 00005a11-0000-4000-8000-000000000001
+    udp: true
+    sni: sni5.example.org
+    skip-cert-verify: true
+    network: tcp
+  - name: Proxy 13
+    type: trojan
+    server: s4.example.net
+    port: 28713
+    password: 00005a11-0000-4000-8000-000000000001
+    udp: true
+    sni: sni5.example.org
+    skip-cert-verify: true
+    network: tcp
+  - name: Proxy 14
+    type: trojan
+    server: s3.example.net
+    port: 28713
+    password: 00005a11-0000-4000-8000-000000000001
+    udp: true
+    sni: sni5.example.org
+    skip-cert-verify: true
+    network: tcp
+  - name: Proxy 15
+    type: trojan
+    server: s1.example.net
+    port: 21489
+    password: 00005a11-0000-4000-8000-000000000001
+    udp: true
+    sni: sni2.example.org
+    skip-cert-verify: true
+    network: tcp
+  - name: Proxy 16
+    type: trojan
+    server: s4.example.net
+    port: 21489
+    password: 00005a11-0000-4000-8000-000000000001
+    udp: true
+    sni: sni2.example.org
+    skip-cert-verify: true
+    network: tcp
+  - name: Proxy 17
+    type: trojan
+    server: s3.example.net
+    port: 21489
+    password: 00005a11-0000-4000-8000-000000000001
+    udp: true
+    sni: sni2.example.org
+    skip-cert-verify: true
+    network: tcp
+  - name: Proxy 18
+    type: trojan
+    server: s6.example.net
+    port: 53547
+    password: 00005a11-0000-4000-8000-000000000001
+    udp: true
+    sni: sni2.example.org
+    skip-cert-verify: true
+    network: tcp
+  - name: Proxy 19
+    type: trojan
+    server: s7.example.net
+    port: 51075
+    password: 00005a11-0000-4000-8000-000000000001
+    udp: true
+    sni: sni8.example.org
+    skip-cert-verify: true
+    network: tcp
+  - name: Proxy 20
+    type: trojan
+    server: s7.example.net
+    port: 21463
+    password: 00005a11-0000-4000-8000-000000000001
+    udp: true
+    sni: sni9.example.org
+    skip-cert-verify: true
+    network: tcp
+  - name: Proxy 21
+    type: trojan
+    server: s7.example.net
+    port: 14651
+    password: 00005a11-0000-4000-8000-000000000001
+    udp: true
+    sni: sni9.example.org
+    skip-cert-verify: true
+    network: tcp
+  - name: Proxy 22
+    type: trojan
+    server: s7.example.net
+    port: 59358
+    password: 00005a11-0000-4000-8000-000000000001
+    udp: true
+    sni: sni10.example.org
+    skip-cert-verify: true
+    network: tcp
+  - name: Proxy 23
+    type: trojan
+    server: s7.example.net
+    port: 39851
+    password: 00005a11-0000-4000-8000-000000000001
+    udp: true
+    sni: sni11.example.org
+    skip-cert-verify: true
+    network: tcp
+  - name: Proxy 24
+    type: trojan
+    server: s7.example.net
+    port: 33243
+    password: 00005a11-0000-4000-8000-000000000001
+    udp: true
+    sni: sni11.example.org
+    skip-cert-verify: true
+    network: tcp
+  - name: Proxy 25
+    type: trojan
+    server: s7.example.net
+    port: 54031
+    password: 00005a11-0000-4000-8000-000000000001
+    udp: true
+    sni: sni8.example.org
+    skip-cert-verify: true
+    network: tcp
+  - name: Proxy 26
+    type: trojan
+    server: s7.example.net
+    port: 28499
+    password: 00005a11-0000-4000-8000-000000000001
+    udp: true
+    sni: sni8.example.org
+    skip-cert-verify: true
+    network: tcp
+  - name: Proxy 27
+    type: trojan
+    server: s7.example.net
+    port: 34249
+    password: 00005a11-0000-4000-8000-000000000001
+    udp: true
+    sni: sni9.example.org
+    skip-cert-verify: true
+    network: tcp
+  - name: Proxy 28
+    type: trojan
+    server: s7.example.net
+    port: 50140
+    password: 00005a11-0000-4000-8000-000000000001
+    udp: true
+    sni: sni10.example.org
+    skip-cert-verify: true
+    network: tcp
+  - name: Proxy 29
+    type: trojan
+    server: s7.example.net
+    port: 59225
+    password: 00005a11-0000-4000-8000-000000000001
+    udp: true
+    sni: sni9.example.org
+    skip-cert-verify: true
+    network: tcp
+  - name: Proxy 30
+    type: trojan
+    server: s7.example.net
+    port: 14571
+    password: 00005a11-0000-4000-8000-000000000001
+    udp: true
+    sni: sni11.example.org
+    skip-cert-verify: true
+    network: tcp
+  - name: Proxy 31
+    type: trojan
+    server: s7.example.net
+    port: 50121
+    password: 00005a11-0000-4000-8000-000000000001
+    udp: true
+    sni: sni11.example.org
+    skip-cert-verify: true
+    network: tcp
+  - name: Proxy 32
+    type: trojan
+    server: s7.example.net
+    port: 50757
+    password: 00005a11-0000-4000-8000-000000000001
+    udp: true
+    sni: sni12.example.org
+    skip-cert-verify: true
+    network: tcp
+  - name: Proxy 33
+    type: trojan
+    server: s7.example.net
+    port: 47621
+    password: 00005a11-0000-4000-8000-000000000001
+    udp: true
+    sni: sni8.example.org
+    skip-cert-verify: true
+    network: tcp
+  - name: Proxy 34
+    type: trojan
+    server: s7.example.net
+    port: 53759
+    password: 00005a11-0000-4000-8000-000000000001
+    udp: true
+    sni: sni10.example.org
+    skip-cert-verify: true
+    network: tcp
+  - name: Proxy 35
+    type: trojan
+    server: s7.example.net
+    port: 59137
+    password: 00005a11-0000-4000-8000-000000000001
+    udp: true
+    sni: sni10.example.org
+    skip-cert-verify: true
+    network: tcp
+  - name: Proxy 36
+    type: trojan
+    server: s7.example.net
+    port: 55799
+    password: 00005a11-0000-4000-8000-000000000001
+    udp: true
+    sni: sni8.example.org
+    skip-cert-verify: true
+    network: tcp
+  - name: Proxy 37
+    type: trojan
+    server: s7.example.net
+    port: 23846
+    password: 00005a11-0000-4000-8000-000000000001
+    udp: true
+    sni: sni12.example.org
+    skip-cert-verify: true
+    network: tcp
+  - name: Proxy 38
+    type: trojan
+    server: s7.example.net
+    port: 59009
+    password: 00005a11-0000-4000-8000-000000000001
+    udp: true
+    sni: sni12.example.org
+    skip-cert-verify: true
+    network: tcp
+  - name: Proxy 39
+    type: trojan
+    server: s7.example.net
+    port: 43855
+    password: 00005a11-0000-4000-8000-000000000001
+    udp: true
+    sni: sni12.example.org
+    skip-cert-verify: true
+    network: tcp
+  - name: Proxy 40
+    type: trojan
+    server: s7.example.net
+    port: 30383
+    password: 00005a11-0000-4000-8000-000000000001
+    udp: true
+    sni: sni12.example.org
+    skip-cert-verify: true
+    network: tcp
+  - name: Proxy 41
+    type: trojan
+    server: s7.example.net
+    port: 16783
+    password: 00005a11-0000-4000-8000-000000000001
+    udp: true
+    sni: sni13.example.org
+    skip-cert-verify: true
+    network: tcp
+  - name: Proxy 42
+    type: trojan
+    server: s7.example.net
+    port: 58947
+    password: 00005a11-0000-4000-8000-000000000001
+    udp: true
+    sni: sni13.example.org
+    skip-cert-verify: true
+    network: tcp
+  - name: Proxy 43
+    type: trojan
+    server: s7.example.net
+    port: 34183
+    password: 00005a11-0000-4000-8000-000000000001
+    udp: true
+    sni: sni14.example.org
+    skip-cert-verify: true
+    network: tcp
+  - name: Proxy 44
+    type: trojan
+    server: s7.example.net
+    port: 40391
+    password: 00005a11-0000-4000-8000-000000000001
+    udp: true
+    sni: sni14.example.org
+    skip-cert-verify: true
+    network: tcp
+  - name: Proxy 45
+    type: trojan
+    server: s7.example.net
+    port: 49569
+    password: 00005a11-0000-4000-8000-000000000001
+    udp: true
+    sni: sni14.example.org
+    skip-cert-verify: true
+    network: tcp
+proxy-groups:
+  - name: Group 1
+    type: select
+    proxies:
+      - Proxy 1
+      - Proxy 2
+      - Proxy 3
+      - Proxy 4
+      - Proxy 5
+      - Proxy 6
+      - Proxy 7
+      - Proxy 8
+      - Proxy 9
+      - Proxy 10
+      - Proxy 11
+      - Proxy 12
+      - Proxy 13
+      - Proxy 14
+      - Proxy 15
+      - Proxy 16
+      - Proxy 17
+      - Proxy 18
+      - Proxy 19
+      - Proxy 20
+      - Proxy 21
+      - Proxy 22
+      - Proxy 23
+      - Proxy 24
+      - Proxy 25
+      - Proxy 26
+      - Proxy 27
+      - Proxy 28
+      - Proxy 29
+      - Proxy 30
+      - Proxy 31
+      - Proxy 32
+      - Proxy 33
+      - Proxy 34
+      - Proxy 35
+      - Proxy 36
+      - Proxy 37
+      - Proxy 38
+      - Proxy 39
+      - Proxy 40
+      - Proxy 41
+      - Proxy 42
+      - Proxy 43
+      - Proxy 44
+      - Proxy 45
+  - name: Group 2
+    type: select
+    proxies:
+      - Proxy 1
+      - Proxy 2
+      - Proxy 3
+  - name: Group 3
+    type: select
+    proxies:
+      - Proxy 15
+      - Proxy 16
+      - Proxy 17
+      - Proxy 18
+  - name: Group 4
+    type: select
+    proxies:
+      - Proxy 10
+      - Proxy 11
+      - Proxy 12
+      - Proxy 13
+      - Proxy 14
+      - Proxy 43
+  - name: Group 5
+    type: select
+    proxies:
+      - Proxy 7
+      - Proxy 8
+      - Proxy 9
+  - name: Group 6
+    type: select
+    proxies:
+      - Proxy 4
+      - Proxy 5
+      - Proxy 6
+rules:
+  - DOMAIN-SUFFIX,d15.example,DIRECT
+  - IP-CIDR,127.0.0.0/8,DIRECT
+  - IP-CIDR,172.16.0.0/12,DIRECT
+  - IP-CIDR,192.168.0.0/16,DIRECT
+  - IP-CIDR,10.0.0.0/8,DIRECT
+  - GEOIP,CN,DIRECT
+  - MATCH,Group 1
+listeners:
+  - name: listener-1
+    type: socks
+    port: 7891
+    proxy: Group 2
+  - name: listener-2
+    type: socks
+    port: 7892
+    proxy: Group 3
+  - name: listener-3
+    type: socks
+    port: 7893
+    proxy: Group 4
+  - name: listener-4
+    type: socks
+    port: 7894
+    proxy: Group 5
+  - name: listener-5
+    type: socks
+    port: 7895
+    proxy: Group 6

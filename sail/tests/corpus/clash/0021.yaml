@@ -1,0 +1,127 @@
+port: 7890
+socks-port: 7891
+redir-port: 7892
+mixed-port: 7893
+tproxy-port: 7895
+ipv6: false
+mode: rule
+log-level: silent
+allow-lan: true
+external-controller: 0.0.0.0:9090
+secret: ""
+bind-address: "*"
+unified-delay: true
+profile:
+  store-selected: true
+dns:
+  enable: true
+  ipv6: false
+  enhanced-mode: redir-host
+  listen: 127.0.0.1:7874
+  nameserver:
+    - 192.0.2.1
+    - 192.0.2.2
+  fallback:
+    - 192.0.2.3
+    - https://h1.example.com/dns-query
+    - https://h2.example.com/dns-query
+  default-nameserver:
+    - 192.0.2.1
+    - 192.0.2.2
+proxies:
+  - name: Proxy 1
+    server: 192.0.2.4
+    port: 443
+    type: vmess
+    uuid: 00005a11-0000-4000-8000-000000000001
+    alterId: 0
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    network: ws
+    ws-opts:
+      path: /p1
+      headers:
+        Host: sni1.example.org
+    udp: true
+  - name: Proxy 2
+    server: 192.0.2.4
+    port: 443
+    type: vmess
+    uuid: 00005a11-0000-4000-8000-000000000001
+    alterId: 0
+    cipher: auto
+    tls: true
+    sni: sni1.example.org
+    skip-cert-verify: true
+    network: ws
+    ws-opts:
+      path: /p1
+      headers:
+        Host: sni1.example.org
+    udp: true
+  - name: Proxy 3
+    server: 192.0.2.4
+    port: 443
+    type: trojan
+    password: password1
+    sni: sni2.example.org
+    skip-cert-verify: true
+    network: ws
+    ws-opts:
+      path: /p2
+      headers:
+        Host: sni2.example.org
+    udp: true
+  - name: Proxy 4
+    server: 192.0.2.4
+    port: 443
+    type: trojan
+    password: password1
+    sni: sni2.example.org
+    skip-cert-verify: true
+    network: ws
+    ws-opts:
+      path: "/p2"
+      headers:
+        Host: sni2.example.org
+    udp: true
+  - name: Proxy 5
+    server: 192.0.2.4
+    port: 443
+    type: vmess
+    uuid: 00005a11-0000-4000-8000-000000000002
+    alterId: 0
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    network: ws
+    ws-opts:
+      path: ./path-1
+      headers:
+        Host: sni3.example.org
+    udp: true
+proxy-groups:
+  - name: GLOBAL
+    type: select
+    proxies:
+      - Proxy 1
+      - Proxy 2
+      - Proxy 3
+      - Proxy 4
+      - Proxy 5
+      - Group 1
+      - DIRECT
+  - name: Group 1
+    type: url-test
+    url: http://h3.example.com/generate_204
+    interval: 300
+    tolerance: 5
+    proxies:
+      - Proxy 1
+      - Proxy 2
+      - Proxy 3
+      - Proxy 4
+      - Proxy 5
+rules:
+  - MATCH,GLOBAL

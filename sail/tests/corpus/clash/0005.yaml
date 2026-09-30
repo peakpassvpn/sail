@@ -1,0 +1,892 @@
+global-client-fingerprint: chrome
+port: 7890
+socks-port: 7891
+redir-port: 7892
+mixed-port: 7893
+tproxy-port: 7894
+allow-lan: true
+tcp-concurrent: true
+enable-process: true
+find-process-mode: strict
+ipv6: true
+log-level: debug
+geo-auto-update: true
+geo-update-interval: 168
+secret: ""
+bind-address: "*"
+unified-delay: false
+disable-keep-alive: false
+keep-alive-idle: 30
+keep-alive-interval: 30
+profile:
+  store-selected: true
+  store-fake-ip: true
+dns:
+  enable: true
+  ipv6: true
+  respect-rules: false
+  prefer-h3: true
+  cache-algorithm: arc
+  use-system-hosts: true
+  use-host: true
+  listen: 0.0.0.0:53
+  enhanced-mode: fake-ip
+  fake-ip-filter-mode: blacklist
+  fake-ip-range: 198.18.0.1/16
+  fake-ip-filter:
+    - "*.d1.example"
+    - "*.d2.example"
+    - "*.d3.example"
+    - "*.localhost"
+    - "*.d4.example"
+    - "*.d5.example"
+    - "*.d6.example"
+    - d7*.example
+    - d8*.example
+    - "*.d9.example"
+  default-nameserver:
+    - 192.0.2.1
+    - 192.0.2.2
+    - 192.0.2.3
+    - 192.0.2.4
+    - 192.0.2.5
+    - 192.0.2.6
+    - 192.0.2.7
+    - 192.0.2.8
+    - 192.0.2.9
+    - 192.0.2.10
+    - 192.0.2.11
+  nameserver:
+    - https://h1.example.com/p1
+    - tls://h2.example.com
+  direct-nameserver:
+    - 192.0.2.12
+    - 192.0.2.13
+  proxy-server-nameserver:
+    - 2001:db8::1
+    - 2001:db8::2
+    - 2001:db8::3
+    - 2001:db8::4
+    - 192.0.2.4
+    - 192.0.2.1
+    - 192.0.2.2
+    - 192.0.2.5
+    - 192.0.2.10
+    - 192.0.2.11
+    - 2001:db8::5
+    - 2001:db8::6
+    - 2001:db8::7
+sniffer:
+  enable: true
+  force-dns-mapping: true
+  parse-pure-ip: true
+  override-destination: false
+  sniff:
+    HTTP:
+      ports: [80, 8080, 8880, 2052, 2082, 2086, 2095]
+    TLS:
+      ports: [443, 8443, 2053, 2083, 2087, 2096]
+tun:
+  enable: true
+  stack: mixed
+  auto-route: true
+  auto-detect-interface: true
+  auto-redir: true
+  dns-hijack:
+    - any:53
+    - tcp://any:53
+rule-providers:
+  set-1:
+    type: http
+    behavior: domain
+    url: https://h3.example.com/p2.yaml
+    interval: 86400
+    path: ./path-1.yaml
+  set-2:
+    type: http
+    behavior: domain
+    url: https://h4.example.com/p3.yaml
+    interval: 86400
+    path: ./path-2.yaml
+  set-3:
+    type: http
+    behavior: domain
+    url: https://h4.example.com/p4.yaml
+    path: ./path-3.yaml
+    interval: 86400
+  set-4:
+    type: http
+    behavior: domain
+    url: https://h3.example.com/p5.yaml
+    interval: 86400
+    path: ./path-4.yaml
+  set-5:
+    type: http
+    behavior: domain
+    url: https://h3.example.com/p6.yaml
+    interval: 86400
+    path: ./path-5.yaml
+  set-6:
+    type: http
+    behavior: domain
+    url: https://h3.example.com/p7.yaml
+    interval: 86400
+    path: ./path-6.yaml
+  set-7:
+    type: http
+    behavior: classical
+    url: https://h3.example.com/p8.yaml
+    interval: 86400
+    path: ./path-7.yaml
+  set-8:
+    type: http
+    behavior: ipcidr
+    url: https://h3.example.com/p9.yaml
+    interval: 86400
+    path: ./path-8.yaml
+  set-9:
+    type: http
+    behavior: domain
+    url: https://h3.example.com/p10.yaml
+    interval: 86400
+    path: ./path-9.yaml
+  set-10:
+    type: http
+    behavior: domain
+    url: https://h3.example.com/p11.yaml
+    interval: 86400
+    path: ./path-10.yaml
+  set-11:
+    type: http
+    behavior: classical
+    url: https://h3.example.com/p12.yaml
+    interval: 86400
+    path: ./path-11.yaml
+  set-12:
+    type: http
+    behavior: classical
+    url: https://h3.example.com/p13.yaml
+    interval: 86400
+    path: ./path-12.yaml
+  set-13:
+    type: http
+    behavior: classical
+    url: https://h3.example.com/p14.yaml
+    interval: 86400
+    path: ./path-13.yaml
+  set-14:
+    type: http
+    behavior: domain
+    url: https://h3.example.com/p15.yaml
+    interval: 86400
+    path: ./path-14.yaml
+  set-15:
+    type: http
+    format: yaml
+    behavior: domain
+    url: https://h4.example.com/p16.yaml
+    path: ./path-15.yaml
+    interval: 86400
+  set-16:
+    type: http
+    format: yaml
+    behavior: classical
+    url: https://h4.example.com/p17.yaml
+    path: ./path-16.yaml
+    interval: 86400
+  set-17:
+    type: http
+    format: yaml
+    behavior: ipcidr
+    url: https://h4.example.com/p18.yaml
+    path: ./path-17.yaml
+    interval: 86400
+  set-18:
+    type: http
+    format: yaml
+    behavior: classical
+    url: https://h3.example.com/p19.yaml
+    path: ./path-18.yaml
+    interval: 86400
+  set-19:
+    type: http
+    format: yaml
+    behavior: ipcidr
+    url: https://h3.example.com/p20.yaml
+    path: ./path-19.yaml
+    interval: 86400
+  set-20:
+    type: http
+    format: yaml
+    behavior: ipcidr
+    url: https://h3.example.com/p21.yaml
+    path: ./path-20.yaml
+    interval: 86400
+  set-21:
+    type: http
+    format: yaml
+    behavior: ipcidr
+    url: https://h3.example.com/p22.yaml
+    path: ./path-21.yaml
+    interval: 86400
+  set-22:
+    type: http
+    format: yaml
+    behavior: ipcidr
+    url: https://h3.example.com/p23.yaml
+    path: ./path-22.yaml
+    interval: 86400
+  set-23:
+    type: http
+    format: yaml
+    behavior: domain
+    url: https://h3.example.com/p24.yaml
+    path: ./path-23.yaml
+    interval: 86400
+  set-24:
+    type: http
+    format: yaml
+    behavior: domain
+    url: https://h3.example.com/p25.yaml
+    path: ./path-24.yaml
+    interval: 86400
+  set-25:
+    type: http
+    format: yaml
+    behavior: domain
+    url: https://h3.example.com/p26.yaml
+    path: ./path-25.yaml
+    interval: 86400
+  set-26:
+    type: http
+    format: yaml
+    behavior: domain
+    url: https://h3.example.com/p27.yaml
+    path: ./path-26.yaml
+    interval: 86400
+  set-27:
+    type: http
+    behavior: classical
+    url: https://h3.example.com/p28.yaml
+    interval: 86400
+    path: ./path-27.yaml
+  set-28:
+    type: http
+    behavior: classical
+    url: https://h3.example.com/p29.yaml
+    interval: 86400
+    path: ./path-28.yaml
+  set-29:
+    type: http
+    behavior: classical
+    url: https://h3.example.com/p30.yaml
+    interval: 86400
+    path: ./path-29.yaml
+  set-30:
+    type: http
+    behavior: classical
+    url: https://h3.example.com/p31.yaml
+    interval: 86400
+    path: ./path-30.yaml
+  set-31:
+    type: http
+    behavior: classical
+    url: https://h3.example.com/p32.yaml
+    interval: 86400
+    path: ./path-31.yaml
+  set-32:
+    type: http
+    behavior: classical
+    url: https://h3.example.com/p33.yaml
+    interval: 86400
+    path: ./path-32.yaml
+  set-33:
+    type: http
+    behavior: classical
+    url: https://h3.example.com/p34.yaml
+    interval: 86400
+    path: ./path-33.yaml
+  set-34:
+    type: http
+    behavior: classical
+    url: https://h3.example.com/p35.yaml
+    interval: 86400
+    path: ./path-34.yaml
+  set-35:
+    type: http
+    behavior: classical
+    url: https://h3.example.com/p36.yaml
+    interval: 86400
+    path: ./path-35.yaml
+  set-36:
+    type: http
+    behavior: classical
+    url: https://h3.example.com/p37.yaml
+    interval: 86400
+    path: ./path-36.yaml
+  set-37:
+    type: http
+    behavior: classical
+    url: https://h3.example.com/p38.yaml
+    interval: 86400
+    path: ./path-37.yaml
+  set-38:
+    type: http
+    behavior: classical
+    url: https://h3.example.com/p39.yaml
+    interval: 86400
+    path: ./path-38.yaml
+  set-39:
+    type: http
+    behavior: classical
+    url: https://h3.example.com/p40.yaml
+    interval: 86400
+    path: ./path-39.yaml
+  set-40:
+    type: http
+    behavior: domain
+    url: https://h3.example.com/p41.yaml
+    interval: 86400
+    path: ./path-40.yaml
+  set-41:
+    type: http
+    behavior: domain
+    url: https://h3.example.com/p42.yaml
+    interval: 86400
+    path: ./path-41.yaml
+  set-42:
+    type: http
+    behavior: domain
+    url: https://h3.example.com/p43.yaml
+    interval: 86400
+    path: ./path-42.yaml
+  set-43:
+    type: http
+    format: yaml
+    behavior: domain
+    url: https://h3.example.com/p44.yaml
+    path: ./path-43.yaml
+    interval: 86400
+  set-44:
+    type: http
+    behavior: classical
+    url: https://h3.example.com/p45.yaml
+    path: ./path-44.yaml
+    interval: 86400
+  set-45:
+    type: http
+    behavior: domain
+    url: https://h3.example.com/p46.yaml
+    interval: 86400
+    path: ./path-45.yaml
+  set-46:
+    type: http
+    behavior: domain
+    url: https://h3.example.com/p47.yaml
+    interval: 86400
+    path: ./path-46.yaml
+  set-47:
+    type: http
+    behavior: domain
+    url: https://h3.example.com/p48.yaml
+    interval: 86400
+    path: ./path-47.yaml
+  set-48:
+    type: http
+    behavior: classical
+    url: https://h3.example.com/p49.yaml
+    path: ./path-48.yaml
+    interval: 86400
+  set-49:
+    type: http
+    behavior: classical
+    url: https://h3.example.com/p50.yaml
+    path: ./path-49.yaml
+    interval: 86400
+  set-50:
+    type: http
+    behavior: domain
+    url: https://h3.example.com/p51.yaml
+    interval: 86400
+    path: ./path-50.yaml
+  set-51:
+    type: http
+    behavior: domain
+    url: https://h3.example.com/p52.yaml
+    interval: 86400
+    path: ./path-51.yaml
+  set-52:
+    type: http
+    behavior: classical
+    url: https://h3.example.com/p53.yaml
+    path: ./path-52.yaml
+    interval: 86400
+  set-53:
+    type: http
+    behavior: classical
+    url: https://h3.example.com/p54.yaml
+    path: ./path-53.yaml
+    interval: 86400
+  set-54:
+    type: http
+    format: yaml
+    behavior: ipcidr
+    url: https://h3.example.com/p55.yaml
+    path: ./path-54.yaml
+    interval: 86400
+  set-55:
+    type: http
+    behavior: classical
+    url: https://h3.example.com/p56.yaml
+    path: ./path-55.yaml
+    interval: 86400
+  set-56:
+    type: http
+    behavior: domain
+    url: https://h3.example.com/p57.yaml
+    interval: 86400
+    path: ./path-56.yaml
+  set-57:
+    type: http
+    behavior: domain
+    url: https://h3.example.com/p58.yaml
+    interval: 86400
+    path: ./path-57.yaml
+  set-58:
+    type: http
+    behavior: domain
+    url: https://h3.example.com/p59.yaml
+    interval: 86400
+    path: ./path-58.yaml
+  set-59:
+    type: http
+    behavior: domain
+    url: https://h3.example.com/p60.yaml
+    interval: 86400
+    path: ./path-59.yaml
+proxies:
+  - {name: "Proxy 1", server: 192.0.2.14, port: 2083, type: ss, cipher: 2022-blake3-aes-256-gcm, password: wywOQgzCr2vr85JpoMxzCakHIIvgUtsG6/Qp987NJa4=:WulOoXrJ4xaeREDpCXJqPLE7mK1qDJwNSfPto1FYe4I=, udp: true, tfo: false}
+  - {name: "Proxy 2", server: 192.0.2.15, port: 31348, type: ss, cipher: chacha20-ietf-poly1305, password: password1, udp: true, tfo: false}
+  - {name: "Proxy 3", server: 192.0.2.16, port: 443, type: ss, cipher: aes-128-gcm, password: password2, udp: true, tfo: false}
+  - {name: "Proxy 4", server: 192.0.2.16, port: 443, type: ss, cipher: aes-128-gcm, password: password2, udp: true, tfo: false}
+  - {name: "Proxy 5", server: 192.0.2.17, port: 9443, type: ss, cipher: aes-256-gcm, password: password3, udp: true, tfo: false}
+  - {name: "Proxy 6", server: 192.0.2.17, port: 9443, type: ss, cipher: aes-256-gcm, password: password3, udp: true, tfo: false}
+  - {name: "Proxy 7", server: 192.0.2.18, port: 17000, type: ss, cipher: aes-256-gcm, password: password4, udp: true, tfo: false}
+  - {name: "Proxy 8", server: 192.0.2.19, port: 445, type: ss, cipher: aes-256-gcm, password: password5, udp: true, tfo: false}
+  - {name: "Proxy 9", server: 192.0.2.19, port: 445, type: ss, cipher: aes-256-gcm, password: password5, udp: true, tfo: false}
+  - {name: "Proxy 10", server: 192.0.2.20, port: 443, type: trojan, password: password6, sni: sni10.example.org, skip-cert-verify: false, network: ws, ws-opts: {path: /p61, headers: {Host: sni10.example.org}}, udp: true, tfo: false}
+  - {name: "Proxy 11", server: 192.0.2.21, port: 12068, type: vless, tls: true, packet-encoding: xudp, uuid: 00005a11-0000-4000-8000-000000000001, network: ws, ws-opts: {path: /p62, headers: {Host: sni11.example.org}}, skip-cert-verify: false, udp: true, tfo: false}
+  - {name: "Proxy 12", server: 192.0.2.21, port: 12068, type: vless, tls: true, packet-encoding: xudp, uuid: 00005a11-0000-4000-8000-000000000001, network: ws, ws-opts: {path: /p62, headers: {Host: sni11.example.org}}, skip-cert-verify: false, udp: true, tfo: false}
+  - {name: "Proxy 13", server: s12.example.net, port: 8443, type: vless, tls: true, packet-encoding: xudp, uuid: 00005a11-0000-4000-8000-000000000002, servername: s12.example.net, network: ws, ws-opts: {path: /p63, headers: {Host: s12.example.net}}, skip-cert-verify: false, udp: true, tfo: false}
+  - {name: "Proxy 14", server: 192.0.2.22, port: 56328, type: vless, tls: true, packet-encoding: xudp, uuid: 00005a11-0000-4000-8000-000000000003, servername: sni13.example.org, host: sni13.example.org, path: /p62, flow: xtls-rprx-vision, reality-opts: {public-key: wywOQgzCr2vr85JpoMxzCakHIIvgUtsG6_Qp987NJa4, short-id: 704c7085dd7b3f73}, client-fingerprint: random, skip-cert-verify: false, udp: true, tfo: false}
+  - {name: "Proxy 15", server: 192.0.2.23, port: 443, type: vless, tls: true, packet-encoding: xudp, uuid: 00005a11-0000-4000-8000-000000000004, servername: sni14.example.org, host: sni14.example.org, path: /p62, flow: xtls-rprx-vision, reality-opts: {public-key: WulOoXrJ4xaeREDpCXJqPLE7mK1qDJwNSfPto1FYe4I, short-id: 6663c3a1406786ea}, client-fingerprint: random, skip-cert-verify: false, udp: true, tfo: false}
+  - {name: "Proxy 16", server: 192.0.2.24, port: 443, type: vless, tls: true, packet-encoding: xudp, uuid: 00005a11-0000-4000-8000-000000000005, network: ws, ws-opts: {path: /p64, headers: {Host: sni15.example.org}}, skip-cert-verify: false, udp: true, tfo: false}
+  - {name: "Proxy 17", server: 192.0.2.25, port: 35034, type: vmess, uuid: 00005a11-0000-4000-8000-000000000006, alterId: 0, cipher: auto, tls: false, skip-cert-verify: false, udp: true, tfo: false}
+  - {name: "Proxy 18", server: 192.0.2.26, port: 80, type: vmess, uuid: 00005a11-0000-4000-8000-000000000007, alterId: 0, cipher: auto, tls: false, skip-cert-verify: false, network: ws, ws-opts: {path: /p62, headers: {Host: sni16.example.org.}}, udp: true, tfo: false}
+  - {name: "Proxy 19", server: 192.0.2.26, port: 80, type: vmess, uuid: 00005a11-0000-4000-8000-000000000007, alterId: 0, cipher: auto, tls: false, skip-cert-verify: false, network: ws, ws-opts: {path: /p62, headers: {Host: sni16.example.org.}}, udp: true, tfo: false}
+proxy-groups:
+  - name: Group 1
+    type: select
+    proxies:
+      - Group 5
+      - Group 3
+      - Group 2
+      - Group 4
+      - Group 6
+      - Group 8
+      - Group 7
+      - Group 34
+      - Group 33
+  - name: Group 2
+    type: select
+    proxies:
+      - "Proxy 1"
+      - "Proxy 2"
+      - "Proxy 3"
+      - "Proxy 4"
+      - "Proxy 5"
+      - "Proxy 6"
+      - "Proxy 7"
+      - "Proxy 8"
+      - "Proxy 9"
+      - "Proxy 10"
+      - "Proxy 11"
+      - "Proxy 12"
+      - "Proxy 13"
+      - "Proxy 14"
+      - "Proxy 15"
+      - "Proxy 16"
+      - "Proxy 17"
+      - "Proxy 18"
+      - "Proxy 19"
+  - name: Group 3
+    type: url-test
+    url: https://h5.example.com/p65
+    interval: 600
+    tolerance: 50
+    proxies:
+      - "Proxy 1"
+      - "Proxy 2"
+      - "Proxy 3"
+      - "Proxy 4"
+      - "Proxy 5"
+      - "Proxy 6"
+      - "Proxy 7"
+      - "Proxy 8"
+      - "Proxy 9"
+      - "Proxy 10"
+      - "Proxy 11"
+      - "Proxy 12"
+      - "Proxy 13"
+      - "Proxy 14"
+      - "Proxy 15"
+      - "Proxy 16"
+      - "Proxy 17"
+      - "Proxy 18"
+      - "Proxy 19"
+  - name: Group 4
+    type: fallback
+    url: https://h6.example.com/generate_204
+    interval: 600
+    tolerance: 50
+    proxies:
+      - "Proxy 1"
+      - "Proxy 2"
+      - "Proxy 3"
+      - "Proxy 4"
+      - "Proxy 5"
+      - "Proxy 6"
+      - "Proxy 7"
+      - "Proxy 8"
+      - "Proxy 9"
+      - "Proxy 10"
+      - "Proxy 11"
+      - "Proxy 12"
+      - "Proxy 13"
+      - "Proxy 14"
+      - "Proxy 15"
+      - "Proxy 16"
+      - "Proxy 17"
+      - "Proxy 18"
+      - "Proxy 19"
+  - name: Group 5
+    type: url-test
+    url: https://h7.example.com/generate_204
+    interval: 30
+    tolerance: 50
+    proxies:
+      - Group 3
+      - Group 4
+      - Group 2
+  - name: Group 6
+    type: load-balance
+    strategy: consistent-hashing
+    url: https://h5.example.com/p65
+    interval: 600
+    proxies:
+      - "Proxy 1"
+      - "Proxy 2"
+      - "Proxy 3"
+      - "Proxy 4"
+      - "Proxy 5"
+      - "Proxy 6"
+      - "Proxy 7"
+      - "Proxy 8"
+      - "Proxy 9"
+      - "Proxy 10"
+      - "Proxy 11"
+      - "Proxy 12"
+      - "Proxy 13"
+      - "Proxy 14"
+      - "Proxy 15"
+      - "Proxy 16"
+      - "Proxy 17"
+      - "Proxy 18"
+      - "Proxy 19"
+  - name: Group 7
+    type: load-balance
+    strategy: consistent-hashing
+    url: https://h5.example.com/p65
+    interval: 600
+    proxies:
+      - "Proxy 1"
+      - "Proxy 2"
+      - "Proxy 3"
+      - "Proxy 4"
+      - "Proxy 5"
+      - "Proxy 6"
+      - "Proxy 7"
+      - "Proxy 8"
+      - "Proxy 9"
+      - "Proxy 10"
+      - "Proxy 11"
+      - "Proxy 12"
+      - "Proxy 13"
+      - "Proxy 14"
+      - "Proxy 15"
+      - "Proxy 16"
+      - "Proxy 17"
+      - "Proxy 18"
+      - "Proxy 19"
+  - name: Group 8
+    type: load-balance
+    strategy: consistent-hashing
+    url: https://h5.example.com/p65
+    interval: 600
+    proxies:
+      - "Proxy 1"
+      - "Proxy 2"
+      - "Proxy 3"
+      - "Proxy 4"
+      - "Proxy 5"
+      - "Proxy 6"
+      - "Proxy 7"
+      - "Proxy 8"
+      - "Proxy 9"
+      - "Proxy 10"
+      - "Proxy 11"
+      - "Proxy 12"
+      - "Proxy 13"
+      - "Proxy 14"
+      - "Proxy 15"
+      - "Proxy 16"
+      - "Proxy 17"
+      - "Proxy 18"
+      - "Proxy 19"
+  - name: Group 9
+    type: select
+    proxies:
+      - Group 33
+      - Group 1
+      - Group 35
+  - name: Group 10
+    type: select
+    proxies:
+      - Group 1
+      - Group 33
+      - Group 35
+  - name: Group 11
+    type: select
+    proxies:
+      - Group 1
+      - Group 33
+      - Group 35
+  - name: Group 12
+    type: select
+    proxies:
+      - Group 33
+      - Group 35
+      - Group 1
+  - name: Group 13
+    type: select
+    proxies:
+      - Group 1
+      - Group 33
+      - Group 35
+  - name: Group 14
+    type: select
+    proxies:
+      - Group 1
+      - Group 33
+      - Group 35
+  - name: Group 15
+    type: select
+    proxies:
+      - Group 1
+      - Group 33
+      - Group 35
+  - name: Group 16
+    type: select
+    proxies:
+      - Group 1
+      - Group 33
+      - Group 35
+  - name: Group 17
+    type: select
+    proxies:
+      - Group 1
+      - Group 33
+      - Group 35
+  - name: Group 18
+    type: select
+    proxies:
+      - Group 35
+      - Group 33
+      - Group 1
+  - name: Group 19
+    type: select
+    proxies:
+      - Group 35
+      - Group 33
+      - Group 1
+  - name: Group 20
+    type: select
+    proxies:
+      - Group 35
+      - Group 33
+      - Group 1
+  - name: Group 21
+    type: select
+    proxies:
+      - Group 35
+      - Group 33
+      - Group 1
+  - name: Group 22
+    type: select
+    proxies:
+      - Group 33
+      - Group 35
+      - Group 1
+  - name: Group 23
+    type: select
+    proxies:
+      - Group 1
+      - Group 33
+      - Group 35
+  - name: Group 24
+    type: select
+    proxies:
+      - Group 1
+      - Group 33
+      - Group 35
+  - name: Group 25
+    type: select
+    proxies:
+      - Group 33
+      - Group 35
+      - Group 1
+  - name: Group 26
+    type: select
+    proxies:
+      - Group 33
+      - Group 35
+      - Group 1
+  - name: Group 27
+    type: select
+    proxies:
+      - Group 33
+      - Group 35
+      - Group 1
+  - name: Group 28
+    type: select
+    proxies:
+      - Group 33
+      - Group 35
+      - Group 1
+  - name: Group 29
+    type: select
+    proxies:
+      - Group 1
+      - Group 33
+      - Group 35
+  - name: Group 30
+    type: select
+    proxies:
+      - Group 33
+      - Group 1
+      - Group 35
+  - name: Group 31
+    type: select
+    proxies:
+      - Group 33
+      - Group 1
+      - Group 35
+  - name: Group 32
+    type: select
+    proxies:
+      - Group 35
+      - Group 1
+      - Group 33
+  - name: Group 33
+    type: select
+    proxies:
+      - DIRECT
+  - name: Group 34
+    type: select
+    proxies:
+      - REJECT
+  - name: Group 35
+    type: select
+    proxies:
+      - REJECT
+ntp:
+  enable: true
+  server: s20.example.net
+  port: 123
+  interval: 30
+rules:
+  - RULE-SET,set-27,Group 9
+  - RULE-SET,set-32,Group 9
+  - RULE-SET,set-52,Group 31
+  - RULE-SET,set-28,Group 19
+  - RULE-SET,set-29,Group 20
+  - RULE-SET,set-30,Group 20
+  - RULE-SET,set-1,Group 20
+  - RULE-SET,set-23,Group 21
+  - RULE-SET,set-24,Group 21
+  - RULE-SET,set-25,Group 21
+  - RULE-SET,set-39,Group 21
+  - RULE-SET,set-38,Group 21
+  - RULE-SET,set-48,Group 18
+  - RULE-SET,set-2,Group 18
+  - RULE-SET,set-3,Group 18
+  - RULE-SET,set-26,Group 18
+  - RULE-SET,set-31,Group 18
+  - RULE-SET,set-6,Group 24
+  - PROCESS-NAME,app1.exe,Group 10
+  - PROCESS-NAME,app2,Group 10
+  - PROCESS-NAME,app3,Group 10
+  - RULE-SET,set-5,Group 10
+  - RULE-SET,set-37,Group 11
+  - RULE-SET,set-4,Group 11
+  - RULE-SET,set-36,Group 11
+  - PROCESS-NAME,app4,Group 30
+  - PROCESS-NAME,app5.exe,Group 30
+  - DOMAIN-SUFFIX,d17.example,Group 30
+  - PROCESS-NAME,app6.exe,Group 15
+  - PROCESS-NAME,app7,Group 15
+  - RULE-SET,set-54,Group 15
+  - RULE-SET,set-55,Group 15
+  - RULE-SET,set-56,Group 15
+  - PROCESS-NAME,app8,Group 16
+  - PROCESS-NAME,app9.exe,Group 16
+  - RULE-SET,set-58,Group 16
+  - RULE-SET,set-59,Group 16
+  - PROCESS-NAME,app10,Group 17
+  - RULE-SET,set-50,Group 17
+  - DOMAIN-SUFFIX,d18.example,Group 14
+  - DOMAIN-SUFFIX,d19.example,Group 14
+  - RULE-SET,set-51,Group 14
+  - RULE-SET,set-7,Group 32
+  - RULE-SET,set-16,Group 25
+  - RULE-SET,set-11,Group 25
+  - RULE-SET,set-19,Group 25
+  - RULE-SET,set-20,Group 25
+  - RULE-SET,set-21,Group 25
+  - RULE-SET,set-22,Group 25
+  - RULE-SET,set-18,Group 25
+  - RULE-SET,set-17,Group 25
+  - RULE-SET,set-15,Group 25
+  - RULE-SET,set-10,Group 25
+  - RULE-SET,set-47,Group 13
+  - RULE-SET,set-12,Group 22
+  - RULE-SET,set-34,Group 22
+  - RULE-SET,set-13,Group 23
+  - RULE-SET,set-33,Group 23
+  - RULE-SET,set-14,Group 23
+  - RULE-SET,set-35,Group 23
+  - RULE-SET,set-49,Group 29
+  - RULE-SET,set-44,Group 1
+  - RULE-SET,set-42,Group 19
+  - RULE-SET,set-43,Group 19
+  - RULE-SET,set-53,Group 26
+  - RULE-SET,set-45,Group 27
+  - RULE-SET,set-46,Group 28
+  - PROCESS-NAME,app11,Group 1
+  - PROCESS-NAME,app12,Group 1
+  - RULE-SET,set-41,Group 1
+  - RULE-SET,set-40,Group 12
+  - IP-CIDR,192.0.2.0/24,Group 1
+  - RULE-SET,set-8,Group 33
+  - RULE-SET,set-9,Group 33
+  - MATCH,Group 1

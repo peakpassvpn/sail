@@ -1,0 +1,61 @@
+proxies: []
+proxy-groups:
+  - name: Group 1
+    type: select
+    icon: str1
+    proxies: ["Group 2", "DIRECT"]
+    include-all: true
+  - name: Group 2
+    type: url-test
+    tolerance: 50
+    lazy: true
+    interval: 300
+    timeout: 2000
+    url: str2
+    max-failed-times: 3
+    icon: str3
+    include-all: true
+  - name: Group 3
+    type: select
+    icon: str4
+    proxies: ["Group 1", "Group 2", "Group 9"]
+    include-all: true
+  - name: Group 4
+    type: select
+    icon: str5
+    proxies: ["Group 1", "Group 2", "Group 9"]
+    include-all: true
+  - name: Group 5
+    type: select
+    icon: str6
+    proxies: ["Group 1", "Group 2", "Group 9"]
+    include-all: true
+  - name: Group 6
+    type: select
+    icon: str7
+    proxies: ["Group 9", "Group 1", "Group 2"]
+    include-all: true
+  - name: Group 7
+    type: select
+    icon: str8
+    proxies: ["Group 1", "Group 2", "Group 9"]
+    include-all: true
+  - name: Group 8
+    type: select
+    icon: str9
+    proxies: ["REJECT", "DIRECT"]
+  - name: Group 9
+    type: select
+    icon: str10
+    proxies: ["DIRECT", "Group 1", "Group 2"]
+    include-all: true
+  - name: Group 10
+    type: select
+    icon: str11
+    proxies: ["REJECT", "DIRECT"]
+  - name: Group 11
+    type: select
+    icon: str12
+    proxies: ["Group 1", "Group 2", "Group 9"]
+    include-all: true
+rules: []

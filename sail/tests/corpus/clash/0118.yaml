@@ -1,0 +1,21 @@
+mixed-port: 1204
+allow-lan: true
+bind-address: '*'
+mode: rule
+log-level: info
+external-controller: '127.0.0.1:9090'
+dns:
+  enable: false
+  ipv6: false
+  default-nameserver: [192.0.2.1, 192.0.2.2]
+  enhanced-mode: redir-host
+  fake-ip-range: 198.18.0.1/16
+  use-hosts: true
+  nameserver: ['https://h1.example.com/dns-query', 'https://h2.example.com/dns-query']
+  fallback: ['tls://192.0.2.3:853', 'https://h3.example.com/dns-query', 'https://h4.example.com/dns-query']
+  fallback-filter: {geoip: true, ipcidr: [240.0.0.0/4, 0.0.0.0/32]}
+proxies:
+proxy-groups:
+  - {name: Group 1, type: select, proxies: ['Proxy 1']}
+rules:
+  - 'MATCH, Group 1'

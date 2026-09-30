@@ -1,0 +1,12 @@
+proxy-groups:
+  - name: Group 1
+    type: select
+    proxies:
+      - Proxy 1
+      - Proxy 2
+      - Proxy 3
+      - Proxy 4
+      - Proxy 5
+      - Proxy 6
+rules:
+  - DOMAIN-SUFFIX,d1.example,Group 1

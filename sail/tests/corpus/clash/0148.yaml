@@ -1,0 +1,304 @@
+proxies:
+  - name: Proxy 1
+    password: 00005a11-0000-4000-8000-000000000001
+    port: 2056
+    server: s1.example.net
+    skip-cert-verify: false
+    sni: s1.example.net
+    type: hysteria2
+  - cipher: aes-256-gcm
+    name: Proxy 2
+    password: password1
+    port: 443
+    server: 192.0.2.1
+    type: ss
+    udp: true
+  - cipher: aes-256-gcm
+    name: Proxy 3
+    password: password2
+    port: 80
+    server: 192.0.2.2
+    type: ss
+    udp: true
+  - name: Proxy 4
+    network: grpc
+    port: 2083
+    server: 192.0.2.3
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000002
+  - name: Proxy 5
+    password: 00005a11-0000-4000-8000-000000000003
+    port: 443
+    server: s2.example.net
+    skip-cert-verify: true
+    sni: s2.example.net
+    type: hysteria2
+  - cipher: rc4-md5
+    name: Proxy 6
+    password: password3
+    port: 8080
+    server: 192.0.2.4
+    type: ss
+    udp: true
+  - name: Proxy 7
+    password: password4
+    port: 443
+    server: 192.0.2.5
+    skip-cert-verify: false
+    sni: sni3.example.org
+    type: trojan
+    udp: true
+  - name: Proxy 8
+    password: password4
+    port: 443
+    server: 192.0.2.5
+    skip-cert-verify: true
+    sni: sni3.example.org
+    type: trojan
+    udp: true
+  - name: Proxy 9
+    network: grpc
+    port: 2083
+    server: 192.0.2.6
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000002
+  - client-fingerprint: chrome
+    flow: xtls-rprx-vision
+    name: Proxy 10
+    network: tcp
+    port: 443
+    reality-opts:
+      public-key: wywOQgzCr2vr85JpoMxzCakHIIvgUtsG6/Qp987NJa4
+      short-id: 704c7085dd7b3f73
+    server: 192.0.2.7
+    servername: sni4.example.org
+    tls: true
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000004
+  - cipher: aes-256-gcm
+    name: Proxy 11
+    password: password1
+    port: 80
+    server: 192.0.2.1
+    type: ss
+    udp: true
+  - cipher: 2022-blake3-aes-256-gcm
+    name: Proxy 12
+    password: wywOQgzCr2vr85JpoMxzCakHIIvgUtsG6/Qp987NJa4=:WulOoXrJ4xaeREDpCXJqPLE7mK1qDJwNSfPto1FYe4I=
+    port: 2083
+    server: 192.0.2.8
+    type: ss
+    udp: true
+  - cipher: aes-256-gcm
+    name: Proxy 13
+    password: password2
+    port: 443
+    server: 192.0.2.2
+    type: ss
+    udp: true
+  - cipher: aes-128-gcm
+    name: Proxy 14
+    password: password5
+    port: 443
+    server: 192.0.2.9
+    type: ss
+    udp: true
+  - name: Proxy 15
+    network: grpc
+    port: 2083
+    server: 192.0.2.10
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000002
+  - flow: xtls-rprx-vision
+    name: Proxy 16
+    network: tcp
+    port: 443
+    server: 192.0.2.11
+    servername: sni5.example.org
+    skip-cert-verify: true
+    tls: true
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000002
+  - client-fingerprint: chrome
+    flow: xtls-rprx-vision
+    name: Proxy 17
+    network: raw
+    port: 443
+    reality-opts:
+      public-key: WulOoXrJ4xaeREDpCXJqPLE7mK1qDJwNSfPto1FYe4I
+      short-id: 6663c3a1406786ea
+    server: 192.0.2.12
+    servername: sni6.example.org
+    tls: true
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000005
+  - name: Proxy 18
+    password: password4
+    port: 443
+    server: 192.0.2.13
+    skip-cert-verify: false
+    sni: sni3.example.org
+    type: trojan
+    udp: true
+  - name: Proxy 19
+    password: password4
+    port: 443
+    server: 192.0.2.5
+    skip-cert-verify: false
+    sni: sni3.example.org
+    type: trojan
+    udp: true
+  - name: Proxy 20
+    password: password4
+    port: 443
+    server: 192.0.2.5
+    skip-cert-verify: false
+    sni: sni3.example.org
+    type: trojan
+    udp: true
+  - name: Proxy 21
+    password: password4
+    port: 443
+    server: 192.0.2.5
+    skip-cert-verify: false
+    sni: sni3.example.org
+    type: trojan
+    udp: true
+  - name: Proxy 22
+    network: grpc
+    port: 2083
+    server: 192.0.2.6
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000002
+  - client-fingerprint: chrome
+    flow: xtls-rprx-vision
+    name: Proxy 23
+    network: tcp
+    port: 443
+    reality-opts:
+      public-key: uLBP4fDmzzQr6AI9Cjs2bG1yyu2augLO37S6iU1M4Eo
+      short-id: 435cb68765a4bdf7
+    server: 192.0.2.14
+    servername: sni7.example.org
+    tls: true
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000006
+  - flow: xtls-rprx-vision
+    name: Proxy 24
+    network: tcp
+    port: 443
+    server: s8.example.net
+    servername: s8.example.net
+    skip-cert-verify: false
+    tls: true
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000007
+  - client-fingerprint: chrome
+    flow: xtls-rprx-vision
+    name: Proxy 25
+    network: tcp
+    port: 443
+    reality-opts:
+      public-key: uLBP4fDmzzQr6AI9Cjs2bG1yyu2augLO37S6iU1M4Eo
+      short-id: 435cb68765a4bdf7
+    server: 192.0.2.14
+    servername: sni7.example.org
+    tls: true
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000006
+  - alterId: 0
+    cipher: auto
+    name: Proxy 26
+    network: ws
+    port: 443
+    server: 192.0.2.15
+    servername: sni9.example.org
+    skip-cert-verify: false
+    tls: true
+    type: vmess
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000008
+  - name: Proxy 27
+    password: password4
+    port: 443
+    server: 192.0.2.13
+    skip-cert-verify: false
+    sni: sni3.example.org
+    type: trojan
+    udp: true
+proxy-groups:
+  - interval: 300
+    name: Group 1
+    proxies:
+      - Proxy 1
+      - Proxy 2
+      - Proxy 3
+      - Proxy 4
+      - Proxy 5
+      - Proxy 6
+      - Proxy 7
+      - Proxy 8
+      - Proxy 9
+      - Proxy 10
+      - Proxy 11
+      - Proxy 12
+      - Proxy 13
+      - Proxy 14
+      - Proxy 15
+      - Proxy 16
+      - Proxy 17
+      - Proxy 18
+      - Proxy 19
+      - Proxy 20
+      - Proxy 21
+      - Proxy 22
+      - Proxy 23
+      - Proxy 24
+      - Proxy 25
+      - Proxy 26
+      - Proxy 27
+    type: url-test
+    url: https://h1.example.com/generate_204
+  - name: Group 2
+    proxies:
+      - Group 1
+      - Proxy 1
+      - Proxy 2
+      - Proxy 3
+      - Proxy 4
+      - Proxy 5
+      - Proxy 6
+      - Proxy 7
+      - Proxy 8
+      - Proxy 9
+      - Proxy 10
+      - Proxy 11
+      - Proxy 12
+      - Proxy 13
+      - Proxy 14
+      - Proxy 15
+      - Proxy 16
+      - Proxy 17
+      - Proxy 18
+      - Proxy 19
+      - Proxy 20
+      - Proxy 21
+      - Proxy 22
+      - Proxy 23
+      - Proxy 24
+      - Proxy 25
+      - Proxy 26
+      - Proxy 27
+    type: select
+rules:
+  - MATCH,Group 2

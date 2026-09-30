@@ -1,0 +1,538 @@
+proxy-groups:
+  - name: Group 1
+    icon: https://h1.example.com/p1.png
+    type: select
+    proxies:
+      - Group 3
+      - Group 24
+      - Group 27
+      - Group 28
+      - Group 25
+      - Group 26
+      - Group 29
+      - Group 2
+      - DIRECT
+  - name: Group 2
+    icon: https://h1.example.com/p2.png
+    include-all: true
+    type: select
+  - name: Group 3
+    icon: https://h1.example.com/p3.png
+    type: url-test
+    include-all: true
+    interval: 300
+    tolerance: 50
+  - name: Group 4
+    icon: https://h1.example.com/p4.png
+    type: select
+    proxies:
+      - Group 1
+      - Group 3
+      - Group 28
+      - Group 24
+      - Group 27
+      - Group 25
+      - Group 26
+      - Group 29
+      - Group 2
+      - DIRECT
+  - name: Group 5
+    icon: https://h1.example.com/p5.png
+    type: select
+    proxies:
+      - Group 1
+      - Group 3
+      - Group 28
+      - Group 24
+      - Group 27
+      - Group 25
+      - Group 26
+      - Group 29
+      - Group 2
+      - DIRECT
+  - name: Group 6
+    icon: https://h1.example.com/p6.png
+    type: select
+    proxies:
+      - Group 1
+      - Group 3
+      - Group 28
+      - Group 24
+      - Group 27
+      - Group 25
+      - Group 26
+      - Group 29
+      - Group 2
+      - DIRECT
+  - name: Group 7
+    icon: https://h1.example.com/p7.png
+    type: select
+    proxies:
+      - Group 1
+      - Group 3
+      - Group 11
+      - Group 28
+      - Group 24
+      - Group 27
+      - Group 25
+      - Group 26
+      - Group 29
+      - Group 2
+      - DIRECT
+  - name: Group 8
+    icon: https://h1.example.com/p8.png
+    type: select
+    proxies:
+      - Group 27
+      - Group 1
+      - Group 2
+      - DIRECT
+  - name: Group 9
+    icon: https://h1.example.com/p9.png
+    type: select
+    proxies:
+      - DIRECT
+      - Group 27
+      - Group 24
+  - name: Group 10
+    icon: https://h1.example.com/p9.png
+    type: select
+    proxies:
+      - DIRECT
+      - Group 27
+      - Group 24
+  - name: Group 11
+    icon: https://h1.example.com/p10.png
+    type: select
+    proxies:
+      - Group 1
+      - Group 3
+      - Group 24
+      - Group 27
+      - Group 28
+      - Group 25
+      - Group 26
+      - Group 29
+      - Group 2
+      - DIRECT
+  - name: Group 12
+    icon: https://h1.example.com/p11.png
+    type: select
+    proxies:
+      - DIRECT
+      - Group 24
+      - Group 27
+      - Group 28
+      - Group 25
+      - Group 2
+  - name: Group 13
+    icon: https://h1.example.com/p12.png
+    type: select
+    proxies:
+      - DIRECT
+      - Group 20
+      - Group 1
+      - Group 26
+      - Group 24
+      - Group 27
+      - Group 28
+      - Group 25
+      - Group 29
+      - Group 2
+  - name: Group 14
+    icon: https://h1.example.com/p13.png
+    type: select
+    proxies:
+      - DIRECT
+      - Group 1
+      - Group 26
+      - Group 24
+      - Group 27
+      - Group 28
+      - Group 25
+      - Group 29
+      - Group 2
+  - name: Group 15
+    icon: https://h1.example.com/p14.png
+    type: select
+    proxies:
+      - DIRECT
+      - Group 1
+      - Group 26
+      - Group 24
+      - Group 27
+      - Group 28
+      - Group 25
+      - Group 29
+      - Group 2
+  - name: Group 16
+    icon: https://h1.example.com/p15.png
+    type: select
+    proxies:
+      - Group 1
+      - DIRECT
+      - Group 26
+      - Group 24
+      - Group 27
+      - Group 28
+      - Group 25
+      - Group 29
+      - Group 2
+  - name: Group 17
+    icon: https://h1.example.com/p16.png
+    type: select
+    proxies:
+      - DIRECT
+      - Group 1
+      - Group 26
+      - Group 24
+      - Group 27
+      - Group 28
+      - Group 25
+      - Group 29
+      - Group 2
+  - name: Group 18
+    icon: https://h1.example.com/p17.png
+    type: select
+    proxies:
+      - Group 1
+      - Group 20
+      - DIRECT
+      - Group 26
+      - Group 24
+      - Group 27
+      - Group 28
+      - Group 25
+      - Group 29
+      - Group 2
+  - name: Group 19
+    icon: https://h1.example.com/p18.png
+    type: select
+    include-all: true
+    filter: Proxy [0-9]+|Group 1
+    proxies:
+      - DIRECT
+      - Group 20
+      - Group 1
+      - Group 3
+  - name: Group 20
+    icon: https://h1.example.com/p19.png
+    type: select
+    proxies:
+      - DIRECT
+      - Group 1
+      - Group 2
+      - Group 3
+      - REJECT
+  - name: Group 21
+    icon: https://h1.example.com/p20.png
+    type: select
+    proxies:
+      - REJECT
+      - DIRECT
+  - name: Group 22
+    icon: https://h1.example.com/p21.png
+    type: select
+    proxies:
+      - REJECT
+      - DIRECT
+  - name: Group 23
+    icon: https://h1.example.com/p22.png
+    type: select
+    proxies:
+      - Group 1
+      - Group 3
+      - DIRECT
+      - Group 24
+      - Group 27
+      - Group 28
+      - Group 25
+      - Group 26
+      - Group 29
+      - Group 2
+  - name: Group 24
+    icon: https://h1.example.com/p23.png
+    include-all: true
+    filter: Proxy [0-9]+|Group 2
+    type: url-test
+    interval: 300
+    tolerance: 50
+  - name: Group 25
+    icon: https://h1.example.com/p24.png
+    include-all: true
+    filter: Proxy [0-9]+|Group 3
+    type: url-test
+    interval: 300
+    tolerance: 50
+  - name: Group 26
+    icon: https://h1.example.com/p25.png
+    include-all: true
+    filter: Proxy [0-9]+|Group 4
+    type: url-test
+    interval: 300
+    tolerance: 50
+  - name: Group 27
+    icon: https://h1.example.com/p26.png
+    include-all: true
+    filter: Proxy [0-9]+|Group 5
+    type: url-test
+    interval: 300
+    tolerance: 50
+  - name: Group 28
+    icon: https://h1.example.com/p27.png
+    include-all: true
+    filter: Proxy [0-9]+|Group 6
+    type: url-test
+    interval: 300
+    tolerance: 50
+  - name: Group 29
+    icon: https://h1.example.com/p28.png
+    include-all: true
+    filter: Proxy [0-9]+|Group 7
+    type: url-test
+    interval: 300
+    tolerance: 50
+rule-providers:
+  set-1:
+    url: https://h2.example.com/p29.list
+    path: ./path-1.list
+    behavior: classical
+    interval: 86400
+    format: text
+    type: http
+  set-2:
+    url: https://h2.example.com/p30.list
+    path: ./path-2.list
+    behavior: classical
+    interval: 86400
+    format: text
+    type: http
+  set-3:
+    url: https://h2.example.com/p31.list
+    path: ./path-3.list
+    behavior: classical
+    interval: 86400
+    format: text
+    type: http
+  set-4:
+    url: https://h2.example.com/p32.list
+    path: ./path-4.list
+    behavior: classical
+    interval: 86400
+    format: text
+    type: http
+  set-5:
+    url: https://h2.example.com/p33.list
+    path: ./path-5.list
+    behavior: classical
+    interval: 86400
+    format: text
+    type: http
+  set-6:
+    url: https://h2.example.com/p34.list
+    path: ./path-6.list
+    behavior: classical
+    interval: 86400
+    format: text
+    type: http
+  set-7:
+    url: https://h2.example.com/p35.list
+    path: ./path-7.list
+    behavior: classical
+    interval: 86400
+    format: text
+    type: http
+  set-8:
+    url: https://h2.example.com/p36.list
+    path: ./path-8.list
+    behavior: classical
+    interval: 86400
+    format: text
+    type: http
+  set-9:
+    url: https://h2.example.com/p37.list
+    path: ./path-9.list
+    behavior: classical
+    interval: 86400
+    format: text
+    type: http
+  set-10:
+    url: https://h2.example.com/p38.list
+    path: ./path-10.list
+    behavior: classical
+    interval: 86400
+    format: text
+    type: http
+  set-11:
+    url: https://h2.example.com/p39.list
+    path: ./path-11.list
+    behavior: classical
+    interval: 86400
+    format: text
+    type: http
+  set-12:
+    url: https://h2.example.com/p40.list
+    path: ./path-12.list
+    behavior: classical
+    interval: 86400
+    format: text
+    type: http
+  set-13:
+    url: https://h2.example.com/p41.list
+    path: ./path-13.list
+    behavior: classical
+    interval: 86400
+    format: text
+    type: http
+  set-14:
+    url: https://h2.example.com/p42.list
+    path: ./path-14.list
+    behavior: classical
+    interval: 86400
+    format: text
+    type: http
+  set-15:
+    url: https://h2.example.com/p43.list
+    path: ./path-15.list
+    behavior: classical
+    interval: 86400
+    format: text
+    type: http
+  set-16:
+    url: https://h2.example.com/p44.list
+    path: ./path-16.list
+    behavior: classical
+    interval: 86400
+    format: text
+    type: http
+  set-17:
+    url: https://h2.example.com/p45.list
+    path: ./path-17.list
+    behavior: classical
+    interval: 86400
+    format: text
+    type: http
+  set-18:
+    url: https://h2.example.com/p46.list
+    path: ./path-18.list
+    behavior: classical
+    interval: 86400
+    format: text
+    type: http
+  set-19:
+    url: https://h2.example.com/p47.list
+    path: ./path-19.list
+    behavior: classical
+    interval: 86400
+    format: text
+    type: http
+  set-20:
+    url: https://h2.example.com/p48.list
+    path: ./path-20.list
+    behavior: classical
+    interval: 86400
+    format: text
+    type: http
+  set-21:
+    url: https://h2.example.com/p49.list
+    path: ./path-21.list
+    behavior: classical
+    interval: 86400
+    format: text
+    type: http
+  set-22:
+    url: https://h2.example.com/p50.list
+    path: ./path-22.list
+    behavior: classical
+    interval: 86400
+    format: text
+    type: http
+  set-23:
+    url: https://h2.example.com/p51.list
+    path: ./path-23.list
+    behavior: classical
+    interval: 86400
+    format: text
+    type: http
+  set-24:
+    url: https://h2.example.com/p52.list
+    path: ./path-24.list
+    behavior: classical
+    interval: 86400
+    format: text
+    type: http
+  set-25:
+    url: https://h2.example.com/p53.list
+    path: ./path-25.list
+    behavior: classical
+    interval: 86400
+    format: text
+    type: http
+  set-26:
+    url: https://h2.example.com/p54.list
+    path: ./path-26.list
+    behavior: classical
+    interval: 86400
+    format: text
+    type: http
+  set-27:
+    url: https://h2.example.com/p55.list
+    path: ./path-27.list
+    behavior: classical
+    interval: 86400
+    format: text
+    type: http
+  set-28:
+    url: https://h2.example.com/p56.list
+    path: ./path-28.list
+    behavior: domain
+    interval: 86400
+    format: text
+    type: http
+  set-29:
+    url: https://h2.example.com/p57.list
+    path: ./path-29.list
+    behavior: ipcidr
+    interval: 86400
+    format: text
+    type: http
+  set-30:
+    url: https://h2.example.com/p58.list
+    path: ./path-30.list
+    behavior: classical
+    interval: 86400
+    format: text
+    type: http
+rules:
+  - "RULE-SET,set-1,DIRECT"
+  - "RULE-SET,set-2,Group 20"
+  - "RULE-SET,set-3,Group 21"
+  - "RULE-SET,set-4,Group 22"
+  - "RULE-SET,set-5,Group 13"
+  - "RULE-SET,set-6,Group 13"
+  - "RULE-SET,set-7,Group 20"
+  - "RULE-SET,set-8,Group 14"
+  - "RULE-SET,set-9,Group 15"
+  - "RULE-SET,set-10,Group 16"
+  - "RULE-SET,set-11,Group 17"
+  - "RULE-SET,set-12,Group 4"
+  - "RULE-SET,set-13,Group 5"
+  - "RULE-SET,set-14,Group 19"
+  - "RULE-SET,set-15,Group 18"
+  - "RULE-SET,set-16,Group 18"
+  - "RULE-SET,set-17,Group 18"
+  - "RULE-SET,set-18,Group 18"
+  - "RULE-SET,set-19,Group 18"
+  - "RULE-SET,set-20,Group 6"
+  - "RULE-SET,set-21,Group 7"
+  - "RULE-SET,set-22,Group 8"
+  - "RULE-SET,set-23,Group 10"
+  - "RULE-SET,set-24,Group 9"
+  - "RULE-SET,set-25,Group 12"
+  - "RULE-SET,set-26,Group 11"
+  - "RULE-SET,set-27,Group 1"
+  - "RULE-SET,set-28,Group 20"
+  - "RULE-SET,set-29,Group 20"
+  - "RULE-SET,set-30,Group 20"
+  - "GEOIP,CN,Group 20"
+  - "MATCH,Group 23"

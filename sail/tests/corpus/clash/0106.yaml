@@ -1,0 +1,32 @@
+port: 7890
+socks-port: 7891
+allow-lan: true
+mode: rule
+log-level: info
+proxies:
+  - name: Proxy 1
+    server: 192.0.2.1
+    port: 8917
+    udp: true
+    type: socks5
+  - name: Proxy 2
+    server: 192.0.2.1
+    port: 10454
+    udp: true
+    type: socks5
+proxy-groups:
+  - name: Group 1
+    type: select
+    proxies:
+      - Group 2
+      - Proxy 1
+      - Proxy 2
+  - name: Group 2
+    type: url-test
+    url: https://h1.example.com/generate_204
+    interval: 300
+    proxies:
+      - Proxy 1
+      - Proxy 2
+rules:
+  - MATCH,Group 1

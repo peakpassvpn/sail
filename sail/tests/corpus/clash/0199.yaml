@@ -1,0 +1,77 @@
+mixed-port: 10801
+allow-lan: true
+mode: rule
+log-level: info
+ipv6: false
+find-process-mode: off
+dns:
+  enable: true
+  listen: 0.0.0.0:1053
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  nameserver:
+    - https://192.0.2.1/dns-query
+    - https://h1.example.com/dns-query
+  default-nameserver:
+    - 192.0.2.2
+  proxy-server-nameserver:
+    - 192.0.2.1
+    - 192.0.2.2
+proxies:
+  - name: "Proxy 1"
+    type: vless
+    server: 192.0.2.3
+    port: 443
+    uuid: "00005a11-0000-4000-8000-000000000001"
+    flow: xtls-rprx-vision
+    packet-encoding: xudp
+    udp: true
+    tls: true
+    servername: sni1.example.org
+    client-fingerprint: chrome
+    reality-opts:
+      public-key: "wywOQgzCr2vr85JpoMxzCakHIIvg"
+      short-id: "704c7085dd7b3f73"
+      support-x25519mlkem768: true
+      max-time-difference: 60000
+  - name: "Proxy 2"
+    type: vless
+    server: 192.0.2.4
+    port: 443
+    uuid: "00005a11-0000-4000-8000-000000000002"
+    tls: true
+    servername: sni2.example.org
+    client-fingerprint: edge
+    network: xhttp
+    xhttp-opts:
+      path: /p1
+      host: sni2.example.org
+      mode: stream-one
+    udp: true
+  - name: "Proxy 3"
+    type: vless
+    server: 192.0.2.5
+    port: 443
+    uuid: "00005a11-0000-4000-8000-000000000003"
+    tls: true
+    servername: sni3.example.org
+    client-fingerprint: firefox
+    name-cert-verify: d4.example
+    ech-opts:
+      enable: true
+      config: "password1"
+    udp: true
+proxy-groups:
+  - name: PROXY
+    type: select
+    default-selected: "str1"
+    proxies:
+      - "Proxy 1"
+      - "Proxy 2"
+      - "Proxy 3"
+      - DIRECT
+rules:
+  - AND,((NETWORK,UDP),(DST-PORT,443)),REJECT
+  - GEOSITE,category-ads-all,REJECT
+  - GEOSITE,google,PROXY
+  - MATCH,DIRECT

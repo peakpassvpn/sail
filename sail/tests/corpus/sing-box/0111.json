@@ -1,0 +1,501 @@
+{
+  "$schema": "https://h2.example.com/p5.json",
+  "log": {
+    "disabled": false,
+    "level": "warn",
+    "output": "",
+    "timestamp": false
+  },
+  "dns": {
+    "servers": [
+      {
+        "type": "local",
+        "tag": "dns-1",
+        "prefer_go": true,
+        "detour": "Proxy 1"
+      },
+      {
+        "type": "hosts",
+        "tag": "dns-2",
+        "predefined": {
+          "d1.example": [
+            "192.0.2.1",
+            "192.0.2.2",
+            "2001:db8::1",
+            "2001:db8::2"
+          ],
+          "d2.example": [
+            "192.0.2.3",
+            "192.0.2.4"
+          ]
+        }
+      },
+      {
+        "type": "h3",
+        "tag": "dns-3",
+        "server": "d1.example",
+        "server_port": 443,
+        "path": "/p1",
+        "detour": "Proxy 1",
+        "domain_resolver": "dns-2"
+      },
+      {
+        "type": "h3",
+        "tag": "dns-4",
+        "server": "d2.example",
+        "server_port": 443,
+        "path": "/p1",
+        "detour": "Group 1",
+        "domain_resolver": "dns-2"
+      },
+      {
+        "type": "fakeip",
+        "tag": "dns-5",
+        "inet4_range": "198.18.0.0/15",
+        "inet6_range": "3f00::/18"
+      }
+    ],
+    "rules": [
+      {
+        "rule_set": [
+          "set-1"
+        ],
+        "action": "route",
+        "server": "dns-1"
+      },
+      {
+        "clash_mode": "direct",
+        "action": "route",
+        "server": "dns-3"
+      },
+      {
+        "clash_mode": "global",
+        "query_type": [
+          "A",
+          "AAAA"
+        ],
+        "action": "route",
+        "server": "dns-5"
+      },
+      {
+        "clash_mode": "global",
+        "action": "route",
+        "server": "dns-4"
+      },
+      {
+        "rule_set": [
+          "set-2"
+        ],
+        "action": "predefined",
+        "rcode": "NOERROR"
+      },
+      {
+        "type": "logical",
+        "mode": "and",
+        "rules": [
+          {
+            "rule_set": [
+              "set-5",
+              "set-6",
+              "set-7"
+            ]
+          },
+          {
+            "rule_set": [
+              "set-4"
+            ],
+            "invert": true
+          }
+        ],
+        "action": "route",
+        "server": "dns-4"
+      },
+      {
+        "rule_set": [
+          "set-3"
+        ],
+        "query_type": [
+          "A",
+          "AAAA"
+        ],
+        "action": "route",
+        "server": "dns-5"
+      },
+      {
+        "rule_set": [
+          "set-3"
+        ],
+        "action": "route",
+        "server": "dns-4"
+      },
+      {
+        "rule_set": [
+          "set-4"
+        ],
+        "action": "route",
+        "server": "dns-3"
+      },
+      {
+        "action": "evaluate",
+        "server": "dns-4",
+        "tag": "str1",
+        "disable_cache": false,
+        "disable_optimistic_cache": false,
+        "client_subnet": "192.0.2.0/24",
+        "remove_client_subnet": false
+      },
+      {
+        "match_response": "str1",
+        "rule_set": "set-13",
+        "action": "route",
+        "server": "dns-3"
+      },
+      {
+        "match_response": "str1",
+        "query_type": [
+          "A",
+          "AAAA"
+        ],
+        "action": "route",
+        "server": "dns-5"
+      }
+    ],
+    "final": "dns-4",
+    "strategy": "prefer_ipv4",
+    "disable_cache": false,
+    "disable_expire": false,
+    "cache_capacity": 2048,
+    "optimistic": true,
+    "reverse_mapping": true
+  },
+  "ntp": {
+    "enabled": false,
+    "server": "s3.example.net",
+    "server_port": 123,
+    "interval": "1h",
+    "detour": "Proxy 1",
+    "domain_resolver": "dns-3"
+  },
+  "certificate": {
+    "store": "mozilla"
+  },
+  "http_clients": [
+    {
+      "tag": "str4",
+      "engine": "go",
+      "version": 2,
+      "disable_version_fallback": false,
+      "headers": {},
+      "detour": "Proxy 1",
+      "tcp_fast_open": true,
+      "disable_tcp_keep_alive": true,
+      "domain_resolver": "dns-3"
+    },
+    {
+      "tag": "str3",
+      "engine": "go",
+      "version": 2,
+      "disable_version_fallback": false,
+      "headers": {},
+      "detour": "Group 1",
+      "tcp_fast_open": true,
+      "disable_tcp_keep_alive": true,
+      "domain_resolver": "dns-5"
+    }
+  ],
+  "inbounds": [
+    {
+      "type": "mixed",
+      "tag": "in-1",
+      "listen": "127.0.0.1",
+      "listen_port": 8118,
+      "tcp_fast_open": true,
+      "disable_tcp_keep_alive": false,
+      "tcp_keep_alive": "2m",
+      "tcp_keep_alive_interval": "30s",
+      "udp_fragment": false,
+      "udp_timeout": "2m"
+    },
+    {
+      "type": "tun",
+      "tag": "in-2",
+      "interface_name": "if1",
+      "address": [
+        "192.0.2.1/30",
+        "fdfe:dcba:9876::1/126"
+      ],
+      "mtu": 9000,
+      "dns_mode": "hijack",
+      "auto_route": true,
+      "strict_route": true,
+      "udp_timeout": "2m",
+      "udp_mapping": "str2",
+      "udp_filtering": "str2",
+      "udp_nat_max": 0,
+      "platform": {
+        "http_proxy": {
+          "enabled": true,
+          "server": "127.0.0.1",
+          "server_port": 8118
+        }
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "selector",
+      "tag": "Group 1",
+      "outbounds": [
+        "Proxy 1"
+      ],
+      "default": "",
+      "interrupt_exist_connections": true
+    },
+    {
+      "type": "selector",
+      "tag": "Group 2",
+      "outbounds": [
+        "Proxy 1"
+      ],
+      "default": "",
+      "interrupt_exist_connections": true
+    },
+    {
+      "type": "selector",
+      "tag": "Group 3",
+      "outbounds": [
+        "Proxy 1"
+      ],
+      "default": "",
+      "interrupt_exist_connections": true
+    },
+    {
+      "type": "selector",
+      "tag": "Group 4",
+      "outbounds": [
+        "Proxy 1"
+      ],
+      "default": "",
+      "interrupt_exist_connections": true
+    },
+    {
+      "type": "selector",
+      "tag": "Group 5",
+      "outbounds": [
+        "Proxy 1"
+      ],
+      "default": "",
+      "interrupt_exist_connections": true
+    },
+    {
+      "type": "direct",
+      "tag": "Proxy 1",
+      "tcp_fast_open": true,
+      "tcp_multi_path": true,
+      "disable_tcp_keep_alive": false,
+      "tcp_keep_alive": "2m",
+      "tcp_keep_alive_interval": "30s"
+    }
+  ],
+  "route": {
+    "rules": [
+      {
+        "action": "sniff"
+      },
+      {
+        "protocol": "dns",
+        "action": "hijack-dns"
+      },
+      {
+        "rule_set": [
+          "set-1"
+        ],
+        "action": "resolve"
+      },
+      {
+        "rule_set": [
+          "set-12"
+        ],
+        "action": "route",
+        "outbound": "Proxy 1"
+      },
+      {
+        "clash_mode": "direct",
+        "action": "route",
+        "outbound": "Proxy 1"
+      },
+      {
+        "clash_mode": "global",
+        "action": "route",
+        "outbound": "Group 1"
+      },
+      {
+        "rule_set": [
+          "set-2"
+        ],
+        "action": "reject",
+        "method": "default"
+      },
+      {
+        "rule_set": [
+          "set-8"
+        ],
+        "action": "route",
+        "outbound": "Group 2"
+      },
+      {
+        "rule_set": [
+          "set-9"
+        ],
+        "action": "route",
+        "outbound": "Group 3"
+      },
+      {
+        "rule_set": [
+          "set-10"
+        ],
+        "action": "route",
+        "outbound": "Group 4"
+      },
+      {
+        "rule_set": [
+          "set-3"
+        ],
+        "action": "route",
+        "outbound": "Group 1"
+      },
+      {
+        "rule_set": [
+          "set-11"
+        ],
+        "action": "route",
+        "outbound": "Group 5"
+      },
+      {
+        "rule_set": [
+          "set-4"
+        ],
+        "action": "route",
+        "outbound": "Proxy 1"
+      },
+      {
+        "action": "resolve",
+        "disable_cache": false,
+        "disable_optimistic_cache": false
+      },
+      {
+        "rule_set": [
+          "set-13"
+        ],
+        "action": "route",
+        "outbound": "Proxy 1"
+      }
+    ],
+    "rule_set": [
+      {
+        "type": "remote",
+        "tag": "set-1",
+        "format": "binary",
+        "url": "https://h1.example.com/p2.srs",
+        "update_interval": "1d"
+      },
+      {
+        "type": "remote",
+        "tag": "set-2",
+        "format": "binary",
+        "url": "https://h1.example.com/p2.srs",
+        "update_interval": "1d"
+      },
+      {
+        "type": "remote",
+        "tag": "set-3",
+        "format": "binary",
+        "url": "https://h1.example.com/p2.srs",
+        "update_interval": "1d"
+      },
+      {
+        "type": "remote",
+        "tag": "set-4",
+        "format": "binary",
+        "url": "https://h1.example.com/p2.srs",
+        "update_interval": "1d"
+      },
+      {
+        "type": "remote",
+        "tag": "set-5",
+        "format": "binary",
+        "url": "https://h1.example.com/p2.srs",
+        "update_interval": "1d"
+      },
+      {
+        "type": "remote",
+        "tag": "set-6",
+        "format": "binary",
+        "url": "https://h1.example.com/p2.srs",
+        "update_interval": "1d"
+      },
+      {
+        "type": "remote",
+        "tag": "set-7",
+        "format": "binary",
+        "url": "https://h1.example.com/p2.srs",
+        "update_interval": "1d"
+      },
+      {
+        "type": "remote",
+        "tag": "set-8",
+        "format": "binary",
+        "url": "https://h1.example.com/p2.srs",
+        "update_interval": "1d"
+      },
+      {
+        "type": "remote",
+        "tag": "set-9",
+        "format": "binary",
+        "url": "https://h1.example.com/p2.srs",
+        "update_interval": "1d"
+      },
+      {
+        "type": "remote",
+        "tag": "set-10",
+        "format": "binary",
+        "url": "https://h1.example.com/p2.srs",
+        "update_interval": "1d"
+      },
+      {
+        "type": "remote",
+        "tag": "set-11",
+        "format": "binary",
+        "url": "https://h1.example.com/p2.srs",
+        "update_interval": "1d"
+      },
+      {
+        "type": "remote",
+        "tag": "set-12",
+        "format": "binary",
+        "url": "https://h1.example.com/p3.srs",
+        "update_interval": "1d"
+      },
+      {
+        "type": "remote",
+        "tag": "set-13",
+        "format": "binary",
+        "url": "https://h1.example.com/p4.srs",
+        "update_interval": "1d"
+      }
+    ],
+    "final": "Group 1",
+    "auto_detect_interface": true,
+    "default_http_client": "str3",
+    "default_domain_resolver": "dns-3"
+  },
+  "experimental": {
+    "cache_file": {
+      "enabled": true,
+      "path": "./path-1.db",
+      "cache_id": "password1",
+      "store_fakeip": true,
+      "store_dns": true
+    }
+  }
+}

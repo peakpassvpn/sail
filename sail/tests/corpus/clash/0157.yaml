@@ -1,0 +1,143 @@
+port: 7890
+socks-port: 7891
+mixed-port: 7892
+redir-port: 7893
+tproxy-port: 7894
+allow-lan: true
+bind-address: "*"
+mode: rule
+unified-delay: true
+tcp-concurrent: true
+log-level: warning
+ipv6: false
+external-ui: ./path-1
+external-ui-name: str3
+external-ui-url: https://h7.example.com/p9.zip
+external-controller: 0.0.0.0:9090
+secret: password1
+geodata-mode: false
+geodata-loader: standard
+geox-url:
+  geosite: https://h7.example.com/p10.dat
+  mmdb: https://h7.example.com/p11.metadb
+  geoip: https://h7.example.com/p12.dat
+  asn: https://h7.example.com/p13.mmdb
+geo-auto-update: true
+geo-update-interval: 24
+find-process-mode: strict
+global-client-fingerprint: chrome
+keep-alive-idle: 600
+keep-alive-interval: 30
+profile:
+  store-selected: true
+  store-fake-ip: true
+sniffer:
+  enable: true
+  force-dns-mapping: true
+  parse-pure-ip: true
+  override-destination: false
+  sniff:
+    HTTP:
+      ports: [80, 8080-8880]
+      override-destination: true
+    TLS:
+      ports: [443, 8443]
+    QUIC:
+      ports: [443, 8443]
+  force-domain:
+    - +.d1.example
+  skip-domain:
+    - "d2.example"
+    - "+.d3.example"
+    - "+.d4.example"
+dns:
+  enable: true
+  listen: 0.0.0.0:7874
+  ipv6: false
+  prefer-h3: true
+  respect-rules: true
+  enhanced-mode: redir-host
+  fake-ip-range: 198.18.0.1/16
+  fake-ip-filter-mode: blacklist
+  fake-ip-filter:
+    - "+.d5.example"
+    - "+.d6.example"
+    - geosite:private
+    - geosite:cn
+  default-nameserver:
+    - 192.0.2.1
+    - 192.0.2.2
+  proxy-server-nameserver:
+    - 192.0.2.1
+    - 192.0.2.2
+  nameserver:
+    - 192.0.2.1
+    - 192.0.2.2
+  fallback:
+    - 192.0.2.3
+    - 192.0.2.4
+  nameserver-policy:
+    "geosite:cn,private":
+      - "https://h1.example.com/dns-query"
+      - "https://h2.example.com/dns-query"
+    "geosite:geolocation-!cn":
+      - "https://h3.example.com/dns-query"
+      - "https://h4.example.com/dns-query"
+tun:
+  enable: true
+  stack: mixed
+  auto-route: true
+  auto-redirect: true
+  auto-detect-interface: true
+  dns-hijack:
+    - "any:53"
+    - "tcp://any:53"
+  mtu: 9000
+anchor-1: &a1 {type: http, interval: 86400, proxy: DIRECT, "health-check": {enable: true, url: http://h5.example.com/generate_204, interval: 300}}
+anchor-2: &a3 {type: fallback, url: http://h5.example.com/generate_204, tolerance: 20, interval: 300}
+anchor-3: &a2 {type: url-test, url: http://h5.example.com/generate_204, tolerance: 20, interval: 300}
+anchor-4: &a5 {type: http, interval: 86400, behavior: ipcidr, format: mrs}
+anchor-5: &a4 {type: http, interval: 86400, behavior: domain, format: mrs}
+anchor-6: &a6 {type: http, interval: 86400, behavior: domain, format: yaml}
+anchor-7: &a7 {type: http, interval: 86400, behavior: classical, format: yaml}
+proxy-providers:
+  provider-1: {<<: *a1, url: "str1"}
+proxy-groups:
+  - {name: Group 1, type: select, proxies: [Group 3, Group 4, Group 5, Group 9, Group 11, Group 10, Group 6, Group 7, Group 8]}
+  - {name: Group 2, type: select, include-all: true}
+  - {name: Group 3, type: select, include-all: true, filter: "Proxy [0-9]+|Group 1"}
+  - {name: Group 4, <<: *a2, include-all: true, filter: "Proxy [0-9]+|Group 2"}
+  - {name: Group 5, <<: *a3, include-all: true, filter: "Proxy [0-9]+|Group 2"}
+  - {name: Group 6, type: select, include-all: true, filter: "Proxy [0-9]+|Group 3"}
+  - {name: Group 7, <<: *a2, include-all: true, filter: "Proxy [0-9]+|Group 4"}
+  - {name: Group 8, <<: *a3, include-all: true, filter: "Proxy [0-9]+|Group 4"}
+  - {name: Group 9, type: select, include-all: true, filter: "Proxy [0-9]+|Group 5"}
+  - {name: Group 10, <<: *a2, include-all: true, filter: "Proxy [0-9]+|Group 6"}
+  - {name: Group 11, <<: *a3, include-all: true, filter: "Proxy [0-9]+|Group 6"}
+rule-providers:
+  set-1: {<<: *a4, url: "https://h6.example.com/p1.mrs"}
+  set-2: {<<: *a4, url: "https://h6.example.com/p2.mrs"}
+  set-3: {<<: *a4, url: "https://h6.example.com/p3.mrs"}
+  set-4: {<<: *a5, url: "https://h6.example.com/p4.mrs"}
+  set-5: {<<: *a6, url: "https://h6.example.com/p5.yaml"}
+  set-6: {<<: *a7, url: "https://h6.example.com/p6.yaml"}
+  set-7: {<<: *a5, url: "https://h6.example.com/p7.mrs"}
+  set-8: {<<: *a4, url: "https://h6.example.com/p8.mrs"}
+rules:
+  - RULE-SET,set-1,DIRECT
+  - RULE-SET,set-7,Group 1,no-resolve
+  - RULE-SET,set-8,Group 1
+  - RULE-SET,set-5,REJECT
+  - RULE-SET,set-2,Group 1
+  - DOMAIN-SUFFIX,d7.example,DIRECT
+  - RULE-SET,set-3,DIRECT
+  - RULE-SET,set-4,DIRECT
+  - GEOSITE,CN,DIRECT
+  - GEOIP,CN,DIRECT
+  - IP-CIDR,192.168.0.0/16,DIRECT
+  - IP-CIDR,10.0.0.0/8,DIRECT
+  - IP-CIDR,172.16.0.0/12,DIRECT
+  - IP-CIDR,127.0.0.0/8,DIRECT
+  - IP-CIDR,100.64.0.0/10,DIRECT
+  - IP-CIDR6,fe80::/10,DIRECT
+  - str2

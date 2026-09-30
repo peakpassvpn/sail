@@ -1,0 +1,69 @@
+proxy-groups:
+  - name: PROXY
+    type: select
+    url: http://h1.example.com/generate_204
+    expected-status: 204
+    interval: 300
+    icon: https://h2.example.com/p1.png
+    proxies:
+      - Group 1
+    use:
+      - provider-1
+  - name: Group 1
+    use:
+      - provider-1
+    type: url-test
+    url: http://h1.example.com/generate_204
+    expected-status: 204
+    interval: 300
+    tolerance: 150
+    lazy: true
+proxy-providers:
+  provider-1:
+    type: http
+    url: "http://h3.example.com/p2#f1"
+    path: ./path-1.yml
+    override:
+      udp: true
+    health-check:
+      enable: true
+      url: http://h1.example.com/generate_204
+      interval: 300
+      timeout: 5000
+      lazy: true
+      expected-status: 204
+rule-providers:
+  set-1:
+    type: http
+    url: https://h3.example.com/p3.yaml
+    interval: 86400
+    proxy: DIRECT
+    behavior: classical
+    format: yaml
+  set-2:
+    type: http
+    url: https://h3.example.com/p4.yaml
+    interval: 86400
+    proxy: DIRECT
+    behavior: domain
+    format: yaml
+  set-3:
+    type: http
+    url: 'https://h4.example.com/p5.yaml'
+    interval: 86400
+    proxy: DIRECT
+    behavior: classical
+    format: yaml
+  set-4:
+    type: http
+    behavior: domain
+    format: mrs
+    url: https://h3.example.com/p6.mrs
+    path: ./path-2.mrs
+    interval: 86400
+rules:
+  - RULE-SET,set-3,DIRECT
+  - RULE-SET,set-4,DIRECT
+  - RULE-SET,set-1,PROXY
+  - RULE-SET,set-2,PROXY
+  - MATCH,DIRECT

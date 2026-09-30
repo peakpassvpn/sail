@@ -1,0 +1,183 @@
+{
+  "log": {
+    "level": "debug",
+    "timestamp": true,
+    "output": "d2.example",
+    "disabled": false
+  },
+  "dns": {
+    "servers": [
+      {
+        "tag": "dns-1",
+        "address": "tcp://192.0.2.1",
+        "strategy": "prefer_ipv4",
+        "detour": "Proxy 1"
+      },
+      {
+        "tag": "dns-2",
+        "address": "192.0.2.2",
+        "strategy": "prefer_ipv4",
+        "detour": "Proxy 2"
+      },
+      {
+        "tag": "dns-3",
+        "address": "192.0.2.2",
+        "detour": "Proxy 2"
+      },
+      {
+        "tag": "dns-4",
+        "address": "rcode://success"
+      }
+    ],
+    "rules": [
+      {
+        "server": "dns-3",
+        "domain": [
+          "d1.example"
+        ]
+      },
+      {
+        "server": "dns-1",
+        "clash_mode": "Global"
+      },
+      {
+        "server": "dns-3",
+        "clash_mode": "Direct"
+      }
+    ],
+    "final": "dns-1"
+  },
+  "inbounds": [
+    {
+      "type": "tun",
+      "tag": "in-1",
+      "interface_name": "if1",
+      "inet4_address": "192.0.2.1/30",
+      "mtu": 9000,
+      "auto_route": true,
+      "strict_route": true,
+      "stack": "gvisor",
+      "sniff": true
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "socks",
+      "tag": "Proxy 1",
+      "server": "127.0.0.1",
+      "server_port": 1080,
+      "version": "5"
+    },
+    {
+      "type": "direct",
+      "tag": "Proxy 2"
+    },
+    {
+      "type": "block",
+      "tag": "Proxy 3"
+    },
+    {
+      "type": "dns",
+      "tag": "Proxy 4"
+    }
+  ],
+  "route": {
+    "auto_detect_interface": true,
+    "rules": [
+      {
+        "outbound": "Proxy 1",
+        "clash_mode": "Global"
+      },
+      {
+        "outbound": "Proxy 2",
+        "clash_mode": "Direct"
+      },
+      {
+        "outbound": "Proxy 4",
+        "protocol": [
+          "dns"
+        ]
+      },
+      {
+        "outbound": "Proxy 4",
+        "port": [
+          53
+        ],
+        "process_name": [
+          "app1.exe",
+          "app2.exe",
+          "app3.exe",
+          "app2.exe",
+          "app2.exe",
+          "app4.exe",
+          "app5.exe",
+          "app6.exe",
+          "app7.exe",
+          "app8.exe",
+          "app9.exe",
+          "app10.exe",
+          "app11.exe",
+          "app12.exe",
+          "app13.exe",
+          "app9.exe",
+          "app14.exe",
+          "app15.exe",
+          "app14.exe",
+          "app16.exe",
+          "app17.exe",
+          "app9.exe",
+          "app18.exe",
+          "app19.exe",
+          "app20.exe",
+          "app21.exe",
+          "app22.exe",
+          "app23.exe",
+          "app24.exe",
+          "app25.exe",
+          "app26.exe",
+          "app18.exe",
+          "app19.exe",
+          "app20.exe"
+        ]
+      },
+      {
+        "outbound": "Proxy 2",
+        "process_name": [
+          "app1.exe",
+          "app2.exe",
+          "app4.exe",
+          "app9.exe",
+          "app17.exe",
+          "app20.exe",
+          "app22.exe",
+          "app24.exe",
+          "app27.exe",
+          "app26.exe"
+        ]
+      },
+      {
+        "outbound": "Proxy 3",
+        "network": [
+          "udp"
+        ],
+        "port": [
+          443
+        ]
+      },
+      {
+        "outbound": "Proxy 1",
+        "port_range": [
+          "str1"
+        ]
+      }
+    ]
+  },
+  "experimental": {
+    "cache_file": {
+      "enabled": true
+    },
+    "clash_api": {
+      "external_controller": "127.0.0.1:9090"
+    }
+  }
+}

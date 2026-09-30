@@ -1,0 +1,96 @@
+{
+  "log": {
+    "disabled": false,
+    "level": "info",
+    "timestamp": true
+  },
+  "inbounds": [
+    {
+      "type": "trojan",
+      "tag": "in-1",
+      "listen": "::",
+      "listen_port": 443,
+      "users": [],
+      "tls": {
+        "enabled": true,
+        "server_name": "str1",
+        "certificate_path": "./path-1.pem",
+        "key_path": "./path-2.pem"
+      },
+      "fallback": {
+        "server": "str2",
+        "server_port": 80
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "in-2",
+      "listen": "::",
+      "listen_port": 443,
+      "users": [],
+      "tls": {
+        "enabled": true,
+        "server_name": "str1",
+        "certificate_path": "./path-1.pem",
+        "key_path": "./path-2.pem"
+      },
+      "masquerade": {
+        "type": "proxy",
+        "url": "http://h1.example.com:80",
+        "rewrite_host": true
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "in-3",
+      "listen": "::",
+      "listen_port": 8443,
+      "users": [],
+      "tls": {
+        "enabled": true,
+        "server_name": "str1",
+        "certificate_path": "./path-1.pem",
+        "key_path": "./path-2.pem"
+      }
+    },
+    {
+      "type": "vmess",
+      "tag": "in-4",
+      "listen": "::",
+      "listen_port": 8444,
+      "users": [],
+      "tls": {
+        "enabled": true,
+        "server_name": "str1",
+        "certificate_path": "./path-1.pem",
+        "key_path": "./path-2.pem"
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1"
+      }
+    }
+  ],
+  "route": {
+    "rules": [
+      {
+        "action": "sniff"
+      },
+      {
+        "action": "reject",
+        "ip_is_private": true
+      },
+      {
+        "action": "reject",
+        "protocol": "bittorrent"
+      }
+    ],
+    "final": "Proxy 1"
+  },
+  "outbounds": [
+    {
+      "type": "direct",
+      "tag": "Proxy 1"
+    }
+  ]
+}

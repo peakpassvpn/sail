@@ -1,0 +1,45 @@
+port: 7890
+allow-lan: true
+mode: rule
+log-level: info
+unified-delay: true
+global-client-fingerprint: chrome
+dns:
+  enable: true
+  listen: :53
+  ipv6: true
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  default-nameserver:
+    - 192.0.2.1
+    - 192.0.2.2
+  nameserver:
+    - https://h1.example.com/dns-query
+    - https://h2.example.com/dns-query
+  fallback:
+    - https://192.0.2.3/dns-query
+    - tls://h3.example.com
+  fallback-filter:
+    geoip: true
+    geoip-code: CN
+    ipcidr:
+      - 240.0.0.0/4
+proxies:
+  - {name: 'Proxy 1', type: trojan, server: 1, port: 1, password: 1}
+proxy-groups:
+  - name: Group 1
+    type: select
+    proxies:
+      - Group 2
+      - DIRECT
+  - name: Group 2
+    type: url-test
+    url: https://h4.example.com/generate_204
+    interval: 300
+    tolerance: 50
+    proxies:
+      - Proxy 1
+rules:
+  - GEOIP,LAN,DIRECT
+  - GEOIP,CN,DIRECT
+  - MATCH,Group 1

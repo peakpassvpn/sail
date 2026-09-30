@@ -1,0 +1,464 @@
+{
+  "log": {
+    "level": "info",
+    "output": "d39.example"
+  },
+  "dns": {
+    "servers": [
+      {
+        "tag": "dns-1",
+        "type": "https",
+        "server": "192.0.2.1"
+      },
+      {
+        "tag": "dns-2",
+        "type": "local",
+        "domain_resolver": "dns-1"
+      },
+      {
+        "tag": "dns-3",
+        "type": "https",
+        "server": "192.0.2.2",
+        "domain_resolver": "dns-4",
+        "detour": "Group 1"
+      },
+      {
+        "tag": "dns-4",
+        "type": "hosts",
+        "predefined": {
+          "localhost": [
+            "127.0.0.1",
+            "::1"
+          ],
+          "d1.example": [
+            "127.0.0.1"
+          ],
+          "local": [
+            "127.0.0.1"
+          ],
+          "str1": [
+            "255.255.255.255"
+          ],
+          "d2.example": [
+            "192.0.2.3",
+            "192.0.2.4",
+            "192.0.2.5",
+            "192.0.2.6",
+            "192.0.2.7",
+            "192.0.2.8",
+            "192.0.2.9",
+            "192.0.2.10",
+            "192.0.2.11",
+            "192.0.2.12",
+            "192.0.2.13",
+            "192.0.2.14",
+            "192.0.2.15",
+            "192.0.2.16",
+            "192.0.2.17",
+            "192.0.2.18",
+            "192.0.2.19",
+            "192.0.2.20",
+            "192.0.2.21",
+            "192.0.2.22",
+            "192.0.2.23",
+            "192.0.2.24",
+            "192.0.2.25",
+            "192.0.2.26",
+            "192.0.2.27",
+            "192.0.2.28",
+            "192.0.2.29",
+            "192.0.2.30",
+            "192.0.2.31",
+            "192.0.2.32",
+            "192.0.2.33",
+            "192.0.2.34",
+            "192.0.2.35",
+            "192.0.2.36",
+            "192.0.2.37",
+            "192.0.2.38",
+            "2001:db8::1",
+            "2001:db8::2",
+            "2001:db8::3",
+            "2001:db8::4",
+            "2001:db8::5",
+            "2001:db8::6",
+            "2001:db8::7",
+            "2001:db8::8",
+            "2001:db8::9"
+          ],
+          "d3.example": [
+            "192.0.2.39",
+            "192.0.2.40",
+            "192.0.2.41",
+            "192.0.2.42",
+            "192.0.2.43",
+            "192.0.2.44"
+          ],
+          "d4.example": [
+            "192.0.2.45",
+            "192.0.2.46",
+            "192.0.2.47",
+            "192.0.2.48"
+          ],
+          "d5.example": [
+            "192.0.2.49",
+            "192.0.2.50",
+            "192.0.2.51",
+            "192.0.2.52"
+          ],
+          "d6.example": [
+            "192.0.2.49",
+            "192.0.2.50",
+            "192.0.2.51",
+            "192.0.2.52",
+            "2001:db8::a",
+            "2001:db8::b",
+            "2001:db8::c",
+            "2001:db8::d"
+          ],
+          "d7.example": [
+            "192.0.2.49",
+            "192.0.2.50",
+            "192.0.2.51",
+            "192.0.2.52"
+          ],
+          "d8.example": [
+            "192.0.2.53",
+            "192.0.2.54",
+            "2001:db8::e",
+            "2001:db8::f"
+          ],
+          "d9.example": [
+            "192.0.2.55",
+            "192.0.2.56",
+            "2001:db8::10",
+            "2001:db8::11"
+          ],
+          "d10.example": [
+            "192.0.2.57",
+            "192.0.2.58",
+            "2001:db8::12",
+            "2001:db8::13"
+          ],
+          "d11.example": [
+            "192.0.2.59",
+            "192.0.2.58",
+            "2001:db8::12",
+            "2001:db8::14"
+          ],
+          "d12.example": [
+            "192.0.2.60",
+            "192.0.2.61",
+            "2001:db8::15",
+            "2001:db8::16"
+          ],
+          "d13.example": [
+            "192.0.2.62",
+            "192.0.2.63",
+            "2001:db8::17",
+            "2001:db8::18"
+          ],
+          "d14.example": [
+            "192.0.2.64",
+            "192.0.2.65",
+            "2001:db8::19",
+            "2001:db8::1a"
+          ],
+          "d15.example": [
+            "192.0.2.66",
+            "192.0.2.67",
+            "2001:db8::1b",
+            "2001:db8::1c"
+          ],
+          "d16.example": [
+            "192.0.2.2",
+            "192.0.2.1",
+            "2001:db8::1d",
+            "2001:db8::1e"
+          ],
+          "d17.example": [
+            "192.0.2.68",
+            "192.0.2.69",
+            "2001:db8::1f",
+            "2001:db8::20"
+          ],
+          "d18.example": [
+            "192.0.2.68",
+            "192.0.2.69",
+            "2001:db8::1f",
+            "2001:db8::20"
+          ],
+          "d19.example": [
+            "192.0.2.68",
+            "192.0.2.69",
+            "2001:db8::1f",
+            "2001:db8::20"
+          ],
+          "d20.example": [
+            "192.0.2.70",
+            "2001:db8::21"
+          ],
+          "d21.example": [
+            "192.0.2.70",
+            "2001:db8::21"
+          ],
+          "d22.example": [
+            "192.0.2.71",
+            "2001:db8::22"
+          ]
+        }
+      }
+    ],
+    "rules": [
+      {
+        "domain_suffix": "d6.example",
+        "server": "dns-2"
+      },
+      {
+        "domain_suffix": [
+          "d23.example",
+          "d24.example",
+          "d25.example",
+          "d26.example",
+          "d27.example",
+          "d28.example",
+          "d29.example",
+          "d30.example",
+          "d31.example",
+          "d32.example",
+          "d33.example",
+          "d34.example",
+          "d35.example",
+          "d36.example",
+          "d37.example"
+        ],
+        "action": "reject"
+      },
+      {
+        "ip_accept_any": true,
+        "server": "dns-4"
+      }
+    ],
+    "final": "dns-3",
+    "strategy": "prefer_ipv4"
+  },
+  "inbounds": [
+    {
+      "type": "tun",
+      "tag": "in-1",
+      "interface_name": "if1",
+      "mtu": 9000,
+      "address": "192.0.2.1/30",
+      "auto_route": true,
+      "strict_route": true,
+      "stack": "system",
+      "platform": {
+        "http_proxy": {
+          "enabled": true,
+          "server": "127.0.0.1",
+          "server_port": 7990
+        }
+      }
+    },
+    {
+      "type": "mixed",
+      "tag": "in-2",
+      "listen": "127.0.0.1",
+      "listen_port": 7991
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "selector",
+      "tag": "Group 1",
+      "outbounds": [
+        "Group 2",
+        "Proxy 2"
+      ],
+      "interrupt_exist_connections": false
+    },
+    {
+      "type": "urltest",
+      "tag": "Group 2",
+      "outbounds": [
+        "Proxy 2"
+      ],
+      "url": "https://h1.example.com/generate_204",
+      "interval": "6m0s"
+    },
+    {
+      "type": "direct",
+      "tag": "Proxy 1"
+    }
+  ],
+  "route": {
+    "final": "Group 1",
+    "auto_detect_interface": true,
+    "default_domain_resolver": "dns-1",
+    "rules": [
+      {
+        "domain": [
+          "d6.example",
+          "d8.example",
+          "d2.example"
+        ],
+        "action": "resolve"
+      },
+      {
+        "inbound": "in-1",
+        "action": "sniff"
+      },
+      {
+        "inbound": "in-2",
+        "action": "sniff"
+      },
+      {
+        "inbound": "in-1",
+        "action": "resolve"
+      },
+      {
+        "inbound": "in-2",
+        "action": "resolve"
+      },
+      {
+        "protocol": "dns",
+        "action": "hijack-dns"
+      },
+      {
+        "port": 53,
+        "action": "hijack-dns"
+      },
+      {
+        "ip_cidr": [
+          "224.0.0.0/3",
+          "192.0.2.0/24",
+          "192.0.2.72/32",
+          "192.0.2.73/32",
+          "192.0.2.74/32",
+          "192.0.2.75/32",
+          "192.0.2.76/32",
+          "192.0.2.77/32",
+          "192.0.2.78/32",
+          "192.0.2.79/32",
+          "192.0.2.80/32",
+          "192.0.2.81/32",
+          "2001:db8::/112",
+          "2001:db8::23/128",
+          "2001:db8::24/128"
+        ],
+        "action": "reject"
+      },
+      {
+        "domain_suffix": [
+          "d23.example",
+          "d24.example",
+          "d25.example",
+          "d26.example",
+          "d27.example",
+          "d29.example",
+          "d30.example",
+          "d31.example",
+          "d32.example",
+          "d33.example",
+          "d34.example",
+          "d35.example",
+          "d36.example",
+          "d37.example"
+        ],
+        "action": "reject"
+      },
+      {
+        "rule_set": "set-1",
+        "outbound": "Group 1"
+      },
+      {
+        "rule_set": "set-2",
+        "action": "reject"
+      },
+      {
+        "rule_set": "set-3",
+        "action": "reject"
+      },
+      {
+        "ip_is_private": true,
+        "outbound": "Proxy 1"
+      },
+      {
+        "domain_suffix": ".d38.example",
+        "outbound": "Proxy 1"
+      },
+      {
+        "rule_set": "set-6",
+        "outbound": "Proxy 1"
+      },
+      {
+        "rule_set": "set-7",
+        "outbound": "Proxy 1"
+      },
+      {
+        "rule_set": "set-4",
+        "outbound": "Group 1"
+      },
+      {
+        "rule_set": "set-5",
+        "outbound": "Group 1"
+      }
+    ],
+    "rule_set": [
+      {
+        "type": "remote",
+        "tag": "set-1",
+        "format": "binary",
+        "url": "https://h2.example.com/p1.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "type": "remote",
+        "tag": "set-2",
+        "format": "binary",
+        "url": "https://h2.example.com/p2.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "type": "remote",
+        "tag": "set-3",
+        "format": "binary",
+        "url": "https://h2.example.com/p3.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "type": "remote",
+        "tag": "set-4",
+        "format": "binary",
+        "url": "https://h2.example.com/p4.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "type": "remote",
+        "tag": "set-5",
+        "format": "binary",
+        "url": "https://h2.example.com/p5.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "type": "remote",
+        "tag": "set-6",
+        "format": "binary",
+        "url": "https://h2.example.com/p6.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "type": "remote",
+        "tag": "set-7",
+        "format": "binary",
+        "url": "https://h2.example.com/p7.srs",
+        "download_detour": "Proxy 1"
+      }
+    ]
+  },
+  "experimental": {
+    "cache_file": {
+      "enabled": true
+    }
+  }
+}

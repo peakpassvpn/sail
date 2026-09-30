@@ -1,0 +1,84 @@
+allow-lan: true
+external-controller: 0.0.0.0:9090
+log-level: warning
+mode: rule
+ipv6: true
+mixed-port: 7890
+bind-address: "*"
+secret: ""
+proxies:
+  - name: Proxy 1
+    server: 192.0.2.1
+    cipher: chacha20-ietf-poly1305
+    password: password1
+    port: 22222
+    type: ss
+    udp: true
+proxy-groups:
+  - name: Group 1
+    type: select
+    proxies:
+      - Group 2
+      - DIRECT
+  - name: Group 2
+    type: select
+    proxies:
+      - Proxy 1
+rules:
+  - IP-CIDR,127.0.0.0/8,DIRECT
+  - IP-CIDR,172.16.0.0/12,DIRECT
+  - IP-CIDR,192.168.0.0/16,DIRECT
+  - IP-CIDR,10.0.0.0/8,DIRECT
+  - IP-CIDR,240.0.0.0/8,DIRECT
+  - IP-CIDR,100.64.0.0/10,DIRECT
+  - IP-CIDR,224.0.0.0/4,DIRECT
+  - IP-CIDR6,fe80::/10,DIRECT
+  - GEOIP,LAN,DIRECT
+  - GEOSITE,icloud@cn,DIRECT
+  - GEOSITE,apple@cn,DIRECT
+  - GEOSITE,apple-cn,DIRECT
+  - GEOSITE,microsoft@cn,DIRECT
+  - GEOSITE,facebook,Group 2
+  - GEOSITE,youtube,Group 2
+  - GEOSITE,geolocation-cn,DIRECT
+  - GEOSITE,geolocation-!cn,Group 2
+  - GEOIP,telegram,Group 2
+  - GEOIP,private,DIRECT
+  - GEOIP,cn,DIRECT
+  - DST-PORT,1080,Group 1
+  - DST-PORT,1100,Group 1
+  - DST-PORT,1241,Group 1
+  - DST-PORT,1352,Group 1
+  - DST-PORT,1337,Group 1
+  - DST-PORT,2810,Group 1
+  - DST-PORT,6969,Group 1
+  - DST-PORT,1738,Group 1
+  - DST-PORT,2710,Group 1
+  - DST-PORT,6961,Group 1
+  - DST-PORT,1433,Group 1
+  - DST-PORT,1434,Group 1
+  - DST-PORT,1521,Group 1
+  - DST-PORT,1944,Group 1
+  - DST-PORT,2301,Group 1
+  - DST-PORT,3000,Group 1
+  - DST-PORT,3128,Group 1
+  - DST-PORT,3306,Group 1
+  - DST-PORT,4000,Group 1
+  - DST-PORT,4001,Group 1
+  - DST-PORT,4002,Group 1
+  - DST-PORT,4100,Group 1
+  - DST-PORT,5000,Group 1
+  - DST-PORT,5432,Group 1
+  - DST-PORT,5800,Group 1
+  - DST-PORT,5801,Group 1
+  - DST-PORT,5802,Group 1
+  - DST-PORT,6346,Group 1
+  - DST-PORT,6347,Group 1
+  - DST-PORT,7001,Group 1
+  - DST-PORT,7002,Group 1
+  - DST-PORT,8080,Group 1
+  - DST-PORT,8443,Group 1
+  - DST-PORT,8888,Group 1
+  - DST-PORT,30821,Group 1
+  - DST-PORT,1-1024,Group 1
+  - MATCH,DIRECT

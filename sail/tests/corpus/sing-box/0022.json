@@ -1,0 +1,53 @@
+{
+  "log": {
+    "level": "info"
+  },
+  "inbounds": [
+    {
+      "type": "socks",
+      "tag": "in-1",
+      "listen": "0.0.0.0",
+      "listen_port": 20000
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "tuic",
+      "tag": "Proxy 1",
+      "server": "s1.example.net",
+      "server_port": 443,
+      "password": "password1",
+      "uuid": "00005a11-0000-4000-8000-000000000001",
+      "tls": {
+        "enabled": true,
+        "server_name": "s1.example.net",
+        "insecure": true,
+        "alpn": [
+          "h3"
+        ]
+      },
+      "congestion_control": "bbr",
+      "udp_relay_mode": "quic-rfc"
+    },
+    {
+      "type": "direct",
+      "tag": "Proxy 2"
+    }
+  ],
+  "route": {
+    "rules": [
+      {
+        "ip_is_private": true,
+        "outbound": "Proxy 2"
+      },
+      {
+        "inbound": [
+          "in-1"
+        ],
+        "outbound": "Proxy 1"
+      }
+    ],
+    "auto_detect_interface": true,
+    "final": "Proxy 2"
+  }
+}

@@ -1,0 +1,1930 @@
+allow-lan: false
+dns:
+  enabled: true
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  fallback:
+    - 192.0.2.1
+    - 192.0.2.2
+    - tls://192.0.2.3:853
+    - tls://h1.example.com:853
+  nameserver:
+    - https://h2.example.com/dns-query
+    - https://192.0.2.4/dns-query
+    - https://h3.example.com/dns-query
+    - https://h4.example.com/dns-query
+    - 192.0.2.5
+external-controller: 127.0.0.1:9090
+mode: rule
+port: 7890
+proxies:
+  - cipher: aes-256-cfb
+    name: Proxy 1
+    password: password1
+    port: 65443
+    server: 192.0.2.6
+    type: ss
+    udp: true
+  - cipher: aes-256-cfb
+    name: Proxy 2
+    password: password1
+    port: 65443
+    server: 192.0.2.7
+    type: ss
+    udp: true
+  - cipher: aes-256-cfb
+    name: Proxy 3
+    password: password1
+    port: 65443
+    server: 192.0.2.8
+    type: ss
+    udp: true
+  - name: Proxy 4
+    port: 9002
+    server: 192.0.2.9
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 5
+    password: password2
+    port: 9002
+    server: 192.0.2.9
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 6
+    port: 9002
+    server: 192.0.2.10
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 7
+    port: 9002
+    server: 192.0.2.11
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 8
+    password: password2
+    port: 9002
+    server: 192.0.2.11
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 9
+    port: 9002
+    server: 192.0.2.12
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 10
+    port: 9002
+    server: 192.0.2.13
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 11
+    port: 9002
+    server: 192.0.2.14
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 12
+    port: 9002
+    server: 192.0.2.15
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 13
+    port: 9002
+    server: 192.0.2.16
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 14
+    port: 9002
+    server: 192.0.2.17
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 15
+    port: 9002
+    server: 192.0.2.18
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 16
+    port: 9002
+    server: 192.0.2.19
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 17
+    password: password2
+    port: 9002
+    server: 192.0.2.18
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 18
+    port: 9002
+    server: 192.0.2.20
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 19
+    port: 9002
+    server: 192.0.2.21
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 20
+    password: password2
+    port: 9002
+    server: 192.0.2.22
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 21
+    port: 9002
+    server: 192.0.2.23
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 22
+    port: 9002
+    server: 192.0.2.24
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 23
+    password: password2
+    port: 9002
+    server: 192.0.2.25
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 24
+    port: 9002
+    server: 192.0.2.26
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 25
+    password: password2
+    port: 9002
+    server: 192.0.2.27
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 26
+    port: 9002
+    server: 192.0.2.28
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 27
+    port: 9002
+    server: 192.0.2.29
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 28
+    port: 9002
+    server: 192.0.2.30
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 29
+    password: password2
+    port: 9002
+    server: 192.0.2.31
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 30
+    port: 9002
+    server: 192.0.2.32
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 31
+    port: 9002
+    server: 192.0.2.33
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 32
+    port: 9002
+    server: 192.0.2.34
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 33
+    password: password2
+    port: 9002
+    server: 192.0.2.35
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 34
+    port: 9002
+    server: 192.0.2.36
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 35
+    port: 9002
+    server: 192.0.2.25
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 36
+    port: 9002
+    server: 192.0.2.22
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 37
+    port: 9002
+    server: 192.0.2.37
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 38
+    port: 9002
+    server: 192.0.2.38
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 39
+    port: 9002
+    server: 192.0.2.39
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 40
+    port: 9002
+    server: 192.0.2.40
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 41
+    port: 9002
+    server: 192.0.2.41
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 42
+    port: 9002
+    server: 192.0.2.42
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 43
+    port: 9002
+    server: 192.0.2.43
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 44
+    port: 9002
+    server: 192.0.2.44
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 45
+    port: 9002
+    server: 192.0.2.45
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 46
+    port: 9002
+    server: 192.0.2.46
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 47
+    port: 9002
+    server: 192.0.2.47
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 48
+    port: 9002
+    server: 192.0.2.48
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 49
+    port: 9002
+    server: 192.0.2.49
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 50
+    port: 9002
+    server: 192.0.2.50
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 51
+    password: 'password3'
+    port: 9002
+    server: 192.0.2.51
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+    username: 'user1'
+  - name: Proxy 52
+    port: 9002
+    server: 192.0.2.52
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 53
+    port: 9002
+    server: 192.0.2.53
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 54
+    port: 9002
+    server: 192.0.2.54
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 55
+    port: 9002
+    server: 192.0.2.55
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 56
+    port: 9002
+    server: 192.0.2.56
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 57
+    port: 9002
+    server: 192.0.2.57
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 58
+    port: 9002
+    server: 192.0.2.58
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 59
+    port: 9002
+    server: 192.0.2.59
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 60
+    port: 9002
+    server: 192.0.2.60
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 61
+    password: password2
+    port: 9002
+    server: 192.0.2.61
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 62
+    port: 9002
+    server: 192.0.2.62
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 63
+    password: password2
+    port: 9002
+    server: 192.0.2.63
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 64
+    port: 9002
+    server: 192.0.2.64
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 65
+    password: password2
+    port: 9002
+    server: 192.0.2.65
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 66
+    port: 9002
+    server: 192.0.2.66
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 67
+    port: 9002
+    server: 192.0.2.67
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 68
+    password: password2
+    port: 9002
+    server: 192.0.2.68
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 69
+    password: password2
+    port: 9002
+    server: 192.0.2.69
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 70
+    port: 9002
+    server: 192.0.2.70
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 71
+    password: password2
+    port: 9002
+    server: 192.0.2.71
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 72
+    port: 9002
+    server: 192.0.2.72
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 73
+    port: 9002
+    server: 192.0.2.73
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 74
+    port: 9002
+    server: 192.0.2.74
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 75
+    port: 9002
+    server: 192.0.2.75
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 76
+    port: 9002
+    server: 192.0.2.76
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 77
+    port: 9002
+    server: 192.0.2.77
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 78
+    port: 9002
+    server: 192.0.2.78
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 79
+    password: password2
+    port: 9002
+    server: 192.0.2.17
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 80
+    port: 9002
+    server: 192.0.2.79
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 81
+    port: 9002
+    server: 192.0.2.80
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 82
+    port: 9002
+    server: 192.0.2.81
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 83
+    port: 9002
+    server: 192.0.2.82
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 84
+    port: 9002
+    server: 192.0.2.83
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 85
+    port: 9002
+    server: 192.0.2.84
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 86
+    port: 9002
+    server: 192.0.2.85
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 87
+    port: 9002
+    server: 192.0.2.86
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 88
+    port: 9002
+    server: 192.0.2.87
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 89
+    port: 9002
+    server: 192.0.2.88
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 90
+    password: password2
+    port: 9002
+    server: 192.0.2.21
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 91
+    port: 9002
+    server: 192.0.2.89
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 92
+    port: 9002
+    server: 192.0.2.90
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 93
+    password: password2
+    port: 9002
+    server: 192.0.2.91
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 94
+    password: password2
+    port: 9002
+    server: 192.0.2.92
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 95
+    port: 9002
+    server: 192.0.2.93
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 96
+    password: password2
+    port: 9002
+    server: 192.0.2.94
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 97
+    password: password2
+    port: 9002
+    server: 192.0.2.95
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 98
+    password: password2
+    port: 9002
+    server: 192.0.2.96
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 99
+    password: password2
+    port: 9002
+    server: 192.0.2.37
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 100
+    port: 9002
+    server: 192.0.2.97
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 101
+    password: password2
+    port: 9002
+    server: 192.0.2.98
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 102
+    port: 9002
+    server: 192.0.2.99
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 103
+    port: 9002
+    server: 192.0.2.27
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 104
+    password: password2
+    port: 9002
+    server: 192.0.2.62
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 105
+    port: 9002
+    server: 192.0.2.100
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 106
+    password: password2
+    port: 9002
+    server: 192.0.2.20
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 107
+    port: 9002
+    server: 192.0.2.101
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 108
+    port: 9002
+    server: 192.0.2.102
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 109
+    password: password2
+    port: 9002
+    server: 192.0.2.74
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 110
+    port: 9002
+    server: 192.0.2.103
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 111
+    password: password2
+    port: 9002
+    server: 192.0.2.64
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 112
+    port: 9002
+    server: 192.0.2.104
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 113
+    password: password2
+    port: 9002
+    server: 192.0.2.105
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 114
+    port: 9002
+    server: 192.0.2.106
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 115
+    port: 9002
+    server: 192.0.2.107
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 116
+    port: 9002
+    server: 192.0.2.108
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 117
+    port: 9002
+    server: 192.0.2.68
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 118
+    password: password2
+    port: 9002
+    server: 192.0.2.32
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 119
+    port: 9002
+    server: 192.0.2.109
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 120
+    password: 'password3'
+    port: 9002
+    server: 192.0.2.22
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+    username: 'user1'
+  - name: Proxy 121
+    port: 9002
+    server: 192.0.2.31
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 122
+    port: 9002
+    server: 192.0.2.110
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 123
+    password: password2
+    port: 9002
+    server: 192.0.2.60
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 124
+    port: 9002
+    server: 192.0.2.111
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 125
+    port: 9002
+    server: 192.0.2.112
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 126
+    port: 9002
+    server: 192.0.2.113
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 127
+    port: 9002
+    server: 192.0.2.114
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 128
+    password: password2
+    port: 9002
+    server: 192.0.2.14
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 129
+    port: 1080
+    server: 192.0.2.115
+    tls: false
+    type: socks5
+    udp: true
+  - client-fingerprint: chrome
+    flow: xtls-rprx-vision
+    name: Proxy 130
+    network: tcp
+    port: 443
+    reality-opts:
+      public-key: wywOQgzCr2vr85JpoMxzCakHIIvgUtsG6/Qp987NJa4
+      short-id: 704c7085dd7b3f73
+    server: 192.0.2.116
+    servername: sni1.example.org
+    skip-cert-verify: false
+    tls: true
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000001
+  - name: Proxy 131
+    password: 'password3'
+    port: 9002
+    server: 192.0.2.117
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+    username: 'user1'
+  - client-fingerprint: chrome
+    flow: xtls-rprx-vision
+    name: Proxy 132
+    network: tcp
+    port: 11094
+    reality-opts:
+      public-key: WulOoXrJ4xaeREDpCXJqPLE7mK1qDJwNSfPto1FYe4I
+      short-id: 6663c3a1
+    server: 192.0.2.118
+    servername: sni2.example.org
+    skip-cert-verify: true
+    tls: true
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000002
+  - name: Proxy 133
+    port: 443
+    server: s3.example.net
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 134
+    port: 443
+    server: s4.example.net
+    tls: true
+    type: http
+    udp: true
+  - client-fingerprint: firefox
+    flow: xtls-rprx-vision
+    name: Proxy 135
+    network: tcp
+    port: 443
+    reality-opts:
+      public-key: uLBP4fDmzzQr6AI9Cjs2bG1yyu2augLO37S6iU1M4Eo
+      short-id: 435cb68765a4bdf7
+    server: 192.0.2.119
+    servername: sni5.example.org
+    skip-cert-verify: false
+    tls: true
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000003
+  - client-fingerprint: chrome
+    flow: xtls-rprx-vision
+    name: Proxy 136
+    network: tcp
+    port: 29893
+    reality-opts:
+      public-key: C7R4HcnA7nosUls057QlZXh18tDK3yhe4+6I1jkpNJM
+      short-id: a7e018cee84bf4fe
+    server: 192.0.2.120
+    servername: sni6.example.org
+    skip-cert-verify: false
+    tls: true
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000004
+  - client-fingerprint: chrome
+    flow: xtls-rprx-vision
+    name: Proxy 137
+    network: tcp
+    port: 39399
+    reality-opts:
+      public-key: C7R4HcnA7nosUls057QlZXh18tDK3yhe4+6I1jkpNJM
+      short-id: a7e018cee84bf4fe
+    server: 192.0.2.120
+    servername: sni6.example.org
+    skip-cert-verify: false
+    tls: true
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000004
+  - client-fingerprint: firefox
+    flow: xtls-rprx-vision
+    name: Proxy 138
+    network: tcp
+    port: 443
+    reality-opts:
+      public-key: CSwhJCxdZba-0FGfnY5g6FrCHPwm3ApwMA2cT-NViKI
+      short-id: 9f71b3fdeacd098d
+    server: 192.0.2.121
+    servername: sni7.example.org
+    skip-cert-verify: false
+    tls: true
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000005
+  - client-fingerprint: chrome
+    flow: xtls-rprx-vision
+    name: Proxy 139
+    network: tcp
+    port: 443
+    reality-opts:
+      public-key: I2aL6X+W2VPhngwoaemQPJU+XZ6OrdxIG66ClGKyUZ4
+      short-id: 6321dd3fa7b6fc49
+    server: s8.example.net
+    servername: sni9.example.org
+    skip-cert-verify: false
+    tls: true
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000006
+  - name: Proxy 140
+    password: password2
+    port: 443
+    server: s10.example.net
+    tls: true
+    type: http
+    udp: true
+  - name: Proxy 141
+    port: 443
+    server: 192.0.2.122
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - client-fingerprint: chrome
+    flow: xtls-rprx-vision
+    name: Proxy 142
+    network: tcp
+    port: 39211
+    reality-opts:
+      public-key: C7R4HcnA7nosUls057QlZXh18tDK3yhe4+6I1jkpNJM
+      short-id: a7e018cee84bf4fe
+    server: 192.0.2.120
+    servername: sni6.example.org
+    skip-cert-verify: false
+    tls: true
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000004
+  - name: Proxy 143
+    port: 9002
+    server: 192.0.2.123
+    skip-cert-verify: true
+    tls: true
+    type: http
+    udp: true
+  - client-fingerprint: chrome
+    flow: xtls-rprx-vision
+    name: Proxy 144
+    network: tcp
+    port: 443
+    reality-opts:
+      public-key: bW80l_i38LeabnfY0LXjTM_M-gz1svjYk-rHjkSuhcU
+      short-id: e5652bfd2121bfad
+    server: s11.example.net
+    servername: sni7.example.org
+    skip-cert-verify: false
+    tls: true
+    type: vless
+    udp: true
+    uuid: 00005a11-0000-4000-8000-000000000007
+proxy-groups:
+  - name: "Group 1"
+    proxies:
+      - "Group 2"
+      - Proxy 1
+      - Proxy 2
+      - Proxy 3
+      - Proxy 4
+      - Proxy 5
+      - Proxy 6
+      - Proxy 7
+      - Proxy 8
+      - Proxy 9
+      - Proxy 10
+      - Proxy 11
+      - Proxy 12
+      - Proxy 13
+      - Proxy 14
+      - Proxy 15
+      - Proxy 16
+      - Proxy 17
+      - Proxy 18
+      - Proxy 19
+      - Proxy 20
+      - Proxy 21
+      - Proxy 22
+      - Proxy 23
+      - Proxy 24
+      - Proxy 25
+      - Proxy 26
+      - Proxy 27
+      - Proxy 28
+      - Proxy 29
+      - Proxy 30
+      - Proxy 31
+      - Proxy 32
+      - Proxy 33
+      - Proxy 34
+      - Proxy 35
+      - Proxy 36
+      - Proxy 37
+      - Proxy 38
+      - Proxy 39
+      - Proxy 40
+      - Proxy 41
+      - Proxy 42
+      - Proxy 43
+      - Proxy 44
+      - Proxy 45
+      - Proxy 46
+      - Proxy 47
+      - Proxy 48
+      - Proxy 49
+      - Proxy 50
+      - Proxy 51
+      - Proxy 52
+      - Proxy 53
+      - Proxy 54
+      - Proxy 55
+      - Proxy 56
+      - Proxy 57
+      - Proxy 58
+      - Proxy 59
+      - Proxy 60
+      - Proxy 61
+      - Proxy 62
+      - Proxy 63
+      - Proxy 64
+      - Proxy 65
+      - Proxy 66
+      - Proxy 67
+      - Proxy 68
+      - Proxy 69
+      - Proxy 70
+      - Proxy 71
+      - Proxy 72
+      - Proxy 73
+      - Proxy 74
+      - Proxy 75
+      - Proxy 76
+      - Proxy 77
+      - Proxy 78
+      - Proxy 79
+      - Proxy 80
+      - Proxy 81
+      - Proxy 82
+      - Proxy 83
+      - Proxy 84
+      - Proxy 85
+      - Proxy 86
+      - Proxy 87
+      - Proxy 88
+      - Proxy 89
+      - Proxy 90
+      - Proxy 91
+      - Proxy 92
+      - Proxy 93
+      - Proxy 94
+      - Proxy 95
+      - Proxy 96
+      - Proxy 97
+      - Proxy 98
+      - Proxy 99
+      - Proxy 100
+      - Proxy 101
+      - Proxy 102
+      - Proxy 103
+      - Proxy 104
+      - Proxy 105
+      - Proxy 106
+      - Proxy 107
+      - Proxy 108
+      - Proxy 109
+      - Proxy 110
+      - Proxy 111
+      - Proxy 112
+      - Proxy 113
+      - Proxy 114
+      - Proxy 115
+      - Proxy 116
+      - Proxy 117
+      - Proxy 118
+      - Proxy 119
+      - Proxy 120
+      - Proxy 121
+      - Proxy 122
+      - Proxy 123
+      - Proxy 124
+      - Proxy 125
+      - Proxy 126
+      - Proxy 127
+      - Proxy 128
+      - Proxy 129
+      - Proxy 130
+      - Proxy 131
+      - Proxy 132
+      - Proxy 133
+      - Proxy 134
+      - Proxy 135
+      - Proxy 136
+      - Proxy 137
+      - Proxy 138
+      - Proxy 139
+      - Proxy 140
+      - Proxy 141
+      - Proxy 142
+      - Proxy 143
+      - Proxy 144
+    type: select
+  - interval: 300
+    name: "Group 2"
+    proxies:
+      - Proxy 1
+      - Proxy 2
+      - Proxy 3
+      - Proxy 4
+      - Proxy 5
+      - Proxy 6
+      - Proxy 7
+      - Proxy 8
+      - Proxy 9
+      - Proxy 10
+      - Proxy 11
+      - Proxy 12
+      - Proxy 13
+      - Proxy 14
+      - Proxy 15
+      - Proxy 16
+      - Proxy 17
+      - Proxy 18
+      - Proxy 19
+      - Proxy 20
+      - Proxy 21
+      - Proxy 22
+      - Proxy 23
+      - Proxy 24
+      - Proxy 25
+      - Proxy 26
+      - Proxy 27
+      - Proxy 28
+      - Proxy 29
+      - Proxy 30
+      - Proxy 31
+      - Proxy 32
+      - Proxy 33
+      - Proxy 34
+      - Proxy 35
+      - Proxy 36
+      - Proxy 37
+      - Proxy 38
+      - Proxy 39
+      - Proxy 40
+      - Proxy 41
+      - Proxy 42
+      - Proxy 43
+      - Proxy 44
+      - Proxy 45
+      - Proxy 46
+      - Proxy 47
+      - Proxy 48
+      - Proxy 49
+      - Proxy 50
+      - Proxy 51
+      - Proxy 52
+      - Proxy 53
+      - Proxy 54
+      - Proxy 55
+      - Proxy 56
+      - Proxy 57
+      - Proxy 58
+      - Proxy 59
+      - Proxy 60
+      - Proxy 61
+      - Proxy 62
+      - Proxy 63
+      - Proxy 64
+      - Proxy 65
+      - Proxy 66
+      - Proxy 67
+      - Proxy 68
+      - Proxy 69
+      - Proxy 70
+      - Proxy 71
+      - Proxy 72
+      - Proxy 73
+      - Proxy 74
+      - Proxy 75
+      - Proxy 76
+      - Proxy 77
+      - Proxy 78
+      - Proxy 79
+      - Proxy 80
+      - Proxy 81
+      - Proxy 82
+      - Proxy 83
+      - Proxy 84
+      - Proxy 85
+      - Proxy 86
+      - Proxy 87
+      - Proxy 88
+      - Proxy 89
+      - Proxy 90
+      - Proxy 91
+      - Proxy 92
+      - Proxy 93
+      - Proxy 94
+      - Proxy 95
+      - Proxy 96
+      - Proxy 97
+      - Proxy 98
+      - Proxy 99
+      - Proxy 100
+      - Proxy 101
+      - Proxy 102
+      - Proxy 103
+      - Proxy 104
+      - Proxy 105
+      - Proxy 106
+      - Proxy 107
+      - Proxy 108
+      - Proxy 109
+      - Proxy 110
+      - Proxy 111
+      - Proxy 112
+      - Proxy 113
+      - Proxy 114
+      - Proxy 115
+      - Proxy 116
+      - Proxy 117
+      - Proxy 118
+      - Proxy 119
+      - Proxy 120
+      - Proxy 121
+      - Proxy 122
+      - Proxy 123
+      - Proxy 124
+      - Proxy 125
+      - Proxy 126
+      - Proxy 127
+      - Proxy 128
+      - Proxy 129
+      - Proxy 130
+      - Proxy 131
+      - Proxy 132
+      - Proxy 133
+      - Proxy 134
+      - Proxy 135
+      - Proxy 136
+      - Proxy 137
+      - Proxy 138
+      - Proxy 139
+      - Proxy 140
+      - Proxy 141
+      - Proxy 142
+      - Proxy 143
+      - Proxy 144
+    type: url-test
+    url: https://h5.example.com/p1.ico
+rules:
+  - DOMAIN,d12.example,DIRECT
+  - DOMAIN,d13.example,DIRECT
+  - "DOMAIN,d14.example,Group 1"
+  - "DOMAIN-SUFFIX,d15.example,Group 1"
+  - "DOMAIN,d16.example,Group 1"
+  - "DOMAIN,d17.example,Group 1"
+  - "DOMAIN,d18.example,Group 1"
+  - "DOMAIN,d19.example,Group 1"
+  - "DOMAIN,d20.example,Group 1"
+  - "DOMAIN-SUFFIX,d21.example,Group 1"
+  - "DOMAIN,d22.example,Group 1"
+  - "DOMAIN,d23.example,Group 1"
+  - "DOMAIN,d24.example,Group 1"
+  - "DOMAIN-SUFFIX,d25.example,Group 1"
+  - "DOMAIN-SUFFIX,d26.example,Group 1"
+  - "DOMAIN,d27.example,Group 1"
+  - DOMAIN-SUFFIX,d28.example,DIRECT
+  - DOMAIN-SUFFIX,d24.example,DIRECT
+  - DOMAIN-SUFFIX,d29.example,DIRECT
+  - DOMAIN-SUFFIX,d30.example,DIRECT
+  - DOMAIN-SUFFIX,d31.example,DIRECT
+  - DOMAIN-SUFFIX,d32.example,DIRECT
+  - DOMAIN-SUFFIX,d33.example,DIRECT
+  - DOMAIN-SUFFIX,d34.example,DIRECT
+  - DOMAIN-SUFFIX,d35.example,DIRECT
+  - DOMAIN-SUFFIX,d36.example,DIRECT
+  - DOMAIN-SUFFIX,d37.example,DIRECT
+  - DOMAIN-SUFFIX,d38.example,DIRECT
+  - DOMAIN-SUFFIX,d39.example,DIRECT
+  - DOMAIN-SUFFIX,d40.example,DIRECT
+  - DOMAIN-SUFFIX,d41.example,DIRECT
+  - DOMAIN-SUFFIX,d42.example,DIRECT
+  - DOMAIN-SUFFIX,d43.example,DIRECT
+  - DOMAIN-KEYWORD,kw1,DIRECT
+  - DOMAIN-SUFFIX,d44.example,DIRECT
+  - DOMAIN-SUFFIX,d45.example,DIRECT
+  - DOMAIN-SUFFIX,d46.example,DIRECT
+  - DOMAIN-SUFFIX,d47.example,DIRECT
+  - DOMAIN-SUFFIX,d48.example,DIRECT
+  - DOMAIN-SUFFIX,d49.example,DIRECT
+  - DOMAIN-SUFFIX,d50.example,DIRECT
+  - DOMAIN-SUFFIX,d51.example,DIRECT
+  - DOMAIN-SUFFIX,d52.example,DIRECT
+  - DOMAIN-KEYWORD,kw2,DIRECT
+  - DOMAIN-KEYWORD,kw3,DIRECT
+  - DOMAIN-KEYWORD,kw4,DIRECT
+  - DOMAIN-SUFFIX,d53.example,DIRECT
+  - DOMAIN-SUFFIX,d54.example,DIRECT
+  - DOMAIN-KEYWORD,kw5,DIRECT
+  - DOMAIN-SUFFIX,d55.example,DIRECT
+  - DOMAIN-SUFFIX,d56.example,DIRECT
+  - DOMAIN-SUFFIX,d57.example,DIRECT
+  - DOMAIN-SUFFIX,d58.example,DIRECT
+  - DOMAIN-SUFFIX,d59.example,DIRECT
+  - DOMAIN-SUFFIX,d60.example,DIRECT
+  - DOMAIN-SUFFIX,d61.example,DIRECT
+  - DOMAIN-SUFFIX,d62.example,DIRECT
+  - DOMAIN-SUFFIX,d63.example,DIRECT
+  - DOMAIN-SUFFIX,d64.example,DIRECT
+  - DOMAIN-SUFFIX,d65.example,DIRECT
+  - DOMAIN-SUFFIX,d66.example,DIRECT
+  - DOMAIN-SUFFIX,d67.example,DIRECT
+  - DOMAIN-SUFFIX,d68.example,DIRECT
+  - DOMAIN-SUFFIX,d69.example,DIRECT
+  - DOMAIN-SUFFIX,d70.example,DIRECT
+  - DOMAIN-SUFFIX,d71.example,DIRECT
+  - DOMAIN-SUFFIX,d72.example,DIRECT
+  - DOMAIN-SUFFIX,d73.example,DIRECT
+  - DOMAIN-SUFFIX,d74.example,DIRECT
+  - DOMAIN-SUFFIX,d75.example,DIRECT
+  - DOMAIN-SUFFIX,d76.example,DIRECT
+  - DOMAIN-SUFFIX,d77.example,DIRECT
+  - DOMAIN-SUFFIX,d78.example,DIRECT
+  - DOMAIN,d79.example,DIRECT
+  - DOMAIN-SUFFIX,d80.example,DIRECT
+  - DOMAIN-SUFFIX,d81.example,DIRECT
+  - DOMAIN-SUFFIX,d82.example,DIRECT
+  - DOMAIN-SUFFIX,d83.example,DIRECT
+  - DOMAIN-SUFFIX,d84.example,DIRECT
+  - DOMAIN-SUFFIX,d85.example,DIRECT
+  - DOMAIN-SUFFIX,d86.example,DIRECT
+  - DOMAIN-SUFFIX,d87.example,DIRECT
+  - DOMAIN-SUFFIX,d88.example,DIRECT
+  - DOMAIN-SUFFIX,d89.example,DIRECT
+  - DOMAIN-SUFFIX,d90.example,DIRECT
+  - DOMAIN-SUFFIX,d91.example,DIRECT
+  - DOMAIN-SUFFIX,d92.example,DIRECT
+  - DOMAIN-SUFFIX,d93.example,DIRECT
+  - DOMAIN-SUFFIX,d94.example,DIRECT
+  - DOMAIN-SUFFIX,d95.example,DIRECT
+  - DOMAIN-SUFFIX,d96.example,DIRECT
+  - DOMAIN-SUFFIX,d97.example,DIRECT
+  - DOMAIN-SUFFIX,d98.example,DIRECT
+  - DOMAIN-SUFFIX,d99.example,DIRECT
+  - DOMAIN-SUFFIX,d100.example,DIRECT
+  - DOMAIN-SUFFIX,d101.example,DIRECT
+  - DOMAIN-SUFFIX,d102.example,DIRECT
+  - DOMAIN-SUFFIX,d103.example,DIRECT
+  - DOMAIN-SUFFIX,d104.example,DIRECT
+  - DOMAIN-SUFFIX,d105.example,DIRECT
+  - DOMAIN-SUFFIX,d106.example,DIRECT
+  - DOMAIN-KEYWORD,kw6,DIRECT
+  - DOMAIN-SUFFIX,d107.example,DIRECT
+  - DOMAIN-SUFFIX,d108.example,DIRECT
+  - DOMAIN-SUFFIX,d109.example,DIRECT
+  - DOMAIN-SUFFIX,d110.example,DIRECT
+  - DOMAIN-SUFFIX,d111.example,DIRECT
+  - DOMAIN-SUFFIX,d112.example,DIRECT
+  - DOMAIN-SUFFIX,d113.example,DIRECT
+  - DOMAIN-SUFFIX,d114.example,DIRECT
+  - DOMAIN-SUFFIX,d115.example,DIRECT
+  - DOMAIN-SUFFIX,d116.example,DIRECT
+  - DOMAIN-SUFFIX,d117.example,DIRECT
+  - DOMAIN-SUFFIX,d118.example,DIRECT
+  - DOMAIN-SUFFIX,d119.example,DIRECT
+  - DOMAIN-SUFFIX,d120.example,DIRECT
+  - DOMAIN-SUFFIX,d121.example,DIRECT
+  - DOMAIN-SUFFIX,d122.example,DIRECT
+  - DOMAIN-SUFFIX,d123.example,DIRECT
+  - DOMAIN-SUFFIX,d124.example,DIRECT
+  - DOMAIN-SUFFIX,d125.example,DIRECT
+  - DOMAIN-SUFFIX,d126.example,DIRECT
+  - DOMAIN-SUFFIX,d127.example,DIRECT
+  - DOMAIN-SUFFIX,d128.example,DIRECT
+  - DOMAIN-SUFFIX,d129.example,DIRECT
+  - DOMAIN-SUFFIX,d130.example,DIRECT
+  - DOMAIN-SUFFIX,d131.example,DIRECT
+  - "DOMAIN-SUFFIX,d132.example,Group 1"
+  - DOMAIN-SUFFIX,d133.example,DIRECT
+  - DOMAIN-SUFFIX,d134.example,DIRECT
+  - DOMAIN-SUFFIX,d135.example,DIRECT
+  - DOMAIN-SUFFIX,d136.example,DIRECT
+  - DOMAIN-SUFFIX,d137.example,DIRECT
+  - DOMAIN-SUFFIX,d138.example,DIRECT
+  - DOMAIN-SUFFIX,d139.example,DIRECT
+  - DOMAIN-SUFFIX,d140.example,DIRECT
+  - DOMAIN-SUFFIX,d141.example,DIRECT
+  - DOMAIN-SUFFIX,d142.example,DIRECT
+  - DOMAIN-SUFFIX,d143.example,DIRECT
+  - DOMAIN-SUFFIX,d144.example,DIRECT
+  - DOMAIN-SUFFIX,d145.example,DIRECT
+  - DOMAIN-SUFFIX,d146.example,DIRECT
+  - DOMAIN-SUFFIX,d147.example,DIRECT
+  - DOMAIN-SUFFIX,d148.example,DIRECT
+  - DOMAIN-SUFFIX,d149.example,DIRECT
+  - DOMAIN-SUFFIX,d150.example,DIRECT
+  - DOMAIN-SUFFIX,d151.example,DIRECT
+  - DOMAIN-SUFFIX,d152.example,DIRECT
+  - DOMAIN-SUFFIX,d153.example,DIRECT
+  - DOMAIN-SUFFIX,d154.example,DIRECT
+  - DOMAIN-SUFFIX,d155.example,DIRECT
+  - DOMAIN-SUFFIX,d156.example,DIRECT
+  - DOMAIN-SUFFIX,d157.example,DIRECT
+  - DOMAIN-SUFFIX,d158.example,DIRECT
+  - DOMAIN-SUFFIX,d159.example,DIRECT
+  - DOMAIN-SUFFIX,d160.example,DIRECT
+  - DOMAIN-SUFFIX,d161.example,DIRECT
+  - DOMAIN-SUFFIX,d162.example,DIRECT
+  - DOMAIN-SUFFIX,d163.example,DIRECT
+  - "DOMAIN-KEYWORD,kw7,Group 1"
+  - "DOMAIN-KEYWORD,kw8,Group 1"
+  - "DOMAIN-KEYWORD,kw9,Group 1"
+  - "DOMAIN-KEYWORD,kw10,Group 1"
+  - "DOMAIN-KEYWORD,kw11,Group 1"
+  - "DOMAIN-SUFFIX,d164.example,Group 1"
+  - "DOMAIN-SUFFIX,d165.example,Group 1"
+  - "DOMAIN-KEYWORD,kw12,Group 1"
+  - "DOMAIN-KEYWORD,kw13,Group 1"
+  - "DOMAIN-KEYWORD,kw14,Group 1"
+  - "DOMAIN-SUFFIX,d166.example,Group 1"
+  - "DOMAIN-KEYWORD,kw15,Group 1"
+  - "DOMAIN-SUFFIX,d167.example,Group 1"
+  - "DOMAIN-KEYWORD,kw16,Group 1"
+  - DOMAIN-KEYWORD,kw17,REJECT
+  - DOMAIN-KEYWORD,kw18,REJECT
+  - DOMAIN-KEYWORD,kw19,REJECT
+  - DOMAIN-KEYWORD,kw20,REJECT
+  - DOMAIN-KEYWORD,kw21,REJECT
+  - DOMAIN-KEYWORD,kw22,REJECT
+  - DOMAIN-KEYWORD,kw23,REJECT
+  - DOMAIN-SUFFIX,d168.example,REJECT
+  - DOMAIN-KEYWORD,kw24,REJECT
+  - DOMAIN-SUFFIX,d169.example,REJECT
+  - DOMAIN-KEYWORD,kw25,REJECT
+  - DOMAIN-KEYWORD,kw26,REJECT
+  - DOMAIN-KEYWORD,kw27,REJECT
+  - DOMAIN-KEYWORD,kw28,REJECT
+  - DOMAIN-SUFFIX,d170.example,REJECT
+  - DOMAIN-KEYWORD,kw29,REJECT
+  - DOMAIN-KEYWORD,kw30,REJECT
+  - DOMAIN-KEYWORD,kw31,REJECT
+  - DOMAIN-KEYWORD,kw32,REJECT
+  - DOMAIN-KEYWORD,kw33,REJECT
+  - DOMAIN-KEYWORD,kw34,REJECT
+  - DOMAIN-KEYWORD,kw35,REJECT
+  - DOMAIN-KEYWORD,kw36,REJECT
+  - DOMAIN-KEYWORD,kw37,REJECT
+  - DOMAIN-SUFFIX,d171.example,REJECT
+  - DOMAIN-KEYWORD,kw38,REJECT
+  - DOMAIN-KEYWORD,kw39,REJECT
+  - "DOMAIN-SUFFIX,d172.example,Group 1"
+  - "DOMAIN-SUFFIX,d173.example,Group 1"
+  - "DOMAIN-SUFFIX,d174.example,Group 1"
+  - "DOMAIN-SUFFIX,d175.example,Group 1"
+  - "DOMAIN-SUFFIX,d176.example,Group 1"
+  - "DOMAIN-SUFFIX,d177.example,Group 1"
+  - "DOMAIN-SUFFIX,d178.example,Group 1"
+  - "DOMAIN-SUFFIX,d179.example,Group 1"
+  - "DOMAIN-SUFFIX,d180.example,Group 1"
+  - "DOMAIN-SUFFIX,d181.example,Group 1"
+  - "DOMAIN-SUFFIX,d182.example,Group 1"
+  - "DOMAIN-SUFFIX,d183.example,Group 1"
+  - "DOMAIN-SUFFIX,d184.example,Group 1"
+  - "DOMAIN-SUFFIX,d185.example,Group 1"
+  - "DOMAIN-SUFFIX,d186.example,Group 1"
+  - "DOMAIN-SUFFIX,d187.example,Group 1"
+  - "DOMAIN-SUFFIX,d188.example,Group 1"
+  - "DOMAIN-SUFFIX,d189.example,Group 1"
+  - "DOMAIN-SUFFIX,d190.example,Group 1"
+  - "DOMAIN-SUFFIX,d191.example,Group 1"
+  - "DOMAIN-SUFFIX,d192.example,Group 1"
+  - "DOMAIN-SUFFIX,d193.example,Group 1"
+  - "DOMAIN-SUFFIX,d194.example,Group 1"
+  - "DOMAIN-SUFFIX,d195.example,Group 1"
+  - "DOMAIN-SUFFIX,d196.example,Group 1"
+  - "DOMAIN-SUFFIX,d197.example,Group 1"
+  - "DOMAIN-SUFFIX,d198.example,Group 1"
+  - "DOMAIN-SUFFIX,d199.example,Group 1"
+  - "DOMAIN-SUFFIX,d200.example,Group 1"
+  - "DOMAIN-SUFFIX,d201.example,Group 1"
+  - "DOMAIN-SUFFIX,d202.example,Group 1"
+  - "DOMAIN-SUFFIX,d203.example,Group 1"
+  - "DOMAIN-SUFFIX,d204.example,Group 1"
+  - "DOMAIN-SUFFIX,d205.example,Group 1"
+  - "DOMAIN-SUFFIX,d206.example,Group 1"
+  - "DOMAIN-SUFFIX,d207.example,Group 1"
+  - "DOMAIN-SUFFIX,d208.example,Group 1"
+  - "DOMAIN-SUFFIX,d209.example,Group 1"
+  - "DOMAIN-SUFFIX,d210.example,Group 1"
+  - "DOMAIN-SUFFIX,d211.example,Group 1"
+  - "DOMAIN-SUFFIX,d212.example,Group 1"
+  - "DOMAIN-SUFFIX,d213.example,Group 1"
+  - "DOMAIN-SUFFIX,d214.example,Group 1"
+  - "DOMAIN-SUFFIX,d215.example,Group 1"
+  - "DOMAIN-SUFFIX,d216.example,Group 1"
+  - "DOMAIN-SUFFIX,d217.example,Group 1"
+  - "DOMAIN-SUFFIX,d218.example,Group 1"
+  - "DOMAIN-SUFFIX,d219.example,Group 1"
+  - "DOMAIN-SUFFIX,d220.example,Group 1"
+  - "DOMAIN-SUFFIX,d221.example,Group 1"
+  - "DOMAIN-SUFFIX,d222.example,Group 1"
+  - "DOMAIN-SUFFIX,d223.example,Group 1"
+  - "DOMAIN-SUFFIX,d224.example,Group 1"
+  - "DOMAIN-SUFFIX,d225.example,Group 1"
+  - "DOMAIN-SUFFIX,d226.example,Group 1"
+  - "DOMAIN-SUFFIX,d227.example,Group 1"
+  - "DOMAIN-SUFFIX,d228.example,Group 1"
+  - "DOMAIN-SUFFIX,d229.example,Group 1"
+  - "DOMAIN-SUFFIX,d230.example,Group 1"
+  - "DOMAIN-SUFFIX,d231.example,Group 1"
+  - "DOMAIN-SUFFIX,d232.example,Group 1"
+  - "DOMAIN-SUFFIX,d233.example,Group 1"
+  - "DOMAIN-SUFFIX,d234.example,Group 1"
+  - "DOMAIN-SUFFIX,d235.example,Group 1"
+  - "DOMAIN-SUFFIX,d236.example,Group 1"
+  - "DOMAIN-SUFFIX,d237.example,Group 1"
+  - "DOMAIN-SUFFIX,d238.example,Group 1"
+  - "DOMAIN-SUFFIX,d37.example,Group 1"
+  - "DOMAIN-SUFFIX,d239.example,Group 1"
+  - "DOMAIN-SUFFIX,d240.example,Group 1"
+  - "DOMAIN-SUFFIX,d241.example,Group 1"
+  - "DOMAIN-SUFFIX,d242.example,Group 1"
+  - "DOMAIN-SUFFIX,d243.example,Group 1"
+  - "DOMAIN-SUFFIX,d244.example,Group 1"
+  - "DOMAIN-SUFFIX,d245.example,Group 1"
+  - "DOMAIN-SUFFIX,d246.example,Group 1"
+  - "DOMAIN-SUFFIX,d247.example,Group 1"
+  - "DOMAIN-SUFFIX,d248.example,Group 1"
+  - "DOMAIN-SUFFIX,d249.example,Group 1"
+  - "DOMAIN-SUFFIX,d250.example,Group 1"
+  - "DOMAIN-SUFFIX,d251.example,Group 1"
+  - "DOMAIN-SUFFIX,d252.example,Group 1"
+  - "DOMAIN-SUFFIX,d253.example,Group 1"
+  - "DOMAIN-SUFFIX,d254.example,Group 1"
+  - "DOMAIN-SUFFIX,d255.example,Group 1"
+  - "DOMAIN-SUFFIX,d256.example,Group 1"
+  - "DOMAIN-SUFFIX,d257.example,Group 1"
+  - "DOMAIN-SUFFIX,d258.example,Group 1"
+  - "DOMAIN-SUFFIX,d259.example,Group 1"
+  - "DOMAIN-SUFFIX,d260.example,Group 1"
+  - "DOMAIN-SUFFIX,d261.example,Group 1"
+  - "DOMAIN-SUFFIX,d262.example,Group 1"
+  - "DOMAIN-KEYWORD,kw40,Group 1"
+  - "DOMAIN-SUFFIX,d263.example,Group 1"
+  - "DOMAIN-SUFFIX,d264.example,Group 1"
+  - "DOMAIN-SUFFIX,d265.example,Group 1"
+  - "DOMAIN-SUFFIX,d266.example,Group 1"
+  - "DOMAIN-SUFFIX,d267.example,Group 1"
+  - "DOMAIN-SUFFIX,d268.example,Group 1"
+  - "DOMAIN-SUFFIX,d269.example,Group 1"
+  - "DOMAIN-SUFFIX,d270.example,Group 1"
+  - "DOMAIN-SUFFIX,d271.example,Group 1"
+  - "DOMAIN-SUFFIX,d272.example,Group 1"
+  - "DOMAIN-SUFFIX,d273.example,Group 1"
+  - "DOMAIN-SUFFIX,d274.example,Group 1"
+  - "DOMAIN-SUFFIX,d275.example,Group 1"
+  - "DOMAIN-SUFFIX,d276.example,Group 1"
+  - "DOMAIN-SUFFIX,d277.example,Group 1"
+  - "DOMAIN-SUFFIX,d278.example,Group 1"
+  - "DOMAIN-SUFFIX,d279.example,Group 1"
+  - "DOMAIN-SUFFIX,d280.example,Group 1"
+  - "DOMAIN-SUFFIX,d281.example,Group 1"
+  - "DOMAIN-SUFFIX,d282.example,Group 1"
+  - "DOMAIN-SUFFIX,d283.example,Group 1"
+  - "DOMAIN-SUFFIX,d284.example,Group 1"
+  - "DOMAIN-SUFFIX,d285.example,Group 1"
+  - "DOMAIN-SUFFIX,d286.example,Group 1"
+  - "DOMAIN-SUFFIX,d287.example,Group 1"
+  - "DOMAIN-SUFFIX,d288.example,Group 1"
+  - "DOMAIN-SUFFIX,d289.example,Group 1"
+  - "DOMAIN-SUFFIX,d290.example,Group 1"
+  - "DOMAIN-SUFFIX,d291.example,Group 1"
+  - "DOMAIN-SUFFIX,d292.example,Group 1"
+  - "DOMAIN-SUFFIX,d293.example,Group 1"
+  - "DOMAIN-SUFFIX,d294.example,Group 1"
+  - "DOMAIN-SUFFIX,d295.example,Group 1"
+  - "DOMAIN-SUFFIX,d296.example,Group 1"
+  - "DOMAIN-SUFFIX,d297.example,Group 1"
+  - "DOMAIN-SUFFIX,d298.example,Group 1"
+  - "DOMAIN-SUFFIX,d299.example,Group 1"
+  - "DOMAIN-SUFFIX,d300.example,Group 1"
+  - "DOMAIN-SUFFIX,d301.example,Group 1"
+  - "DOMAIN-SUFFIX,d302.example,Group 1"
+  - "DOMAIN-SUFFIX,d303.example,Group 1"
+  - "DOMAIN-SUFFIX,d304.example,Group 1"
+  - "DOMAIN-SUFFIX,d305.example,Group 1"
+  - "DOMAIN-SUFFIX,d306.example,Group 1"
+  - "DOMAIN-SUFFIX,d307.example,Group 1"
+  - "DOMAIN-SUFFIX,d308.example,Group 1"
+  - "DOMAIN-SUFFIX,d309.example,Group 1"
+  - "DOMAIN-SUFFIX,d310.example,Group 1"
+  - "DOMAIN-SUFFIX,d311.example,Group 1"
+  - "DOMAIN-SUFFIX,d312.example,Group 1"
+  - "DOMAIN-SUFFIX,d313.example,Group 1"
+  - "DOMAIN-SUFFIX,d314.example,Group 1"
+  - "DOMAIN-SUFFIX,d315.example,Group 1"
+  - "DOMAIN-SUFFIX,d316.example,Group 1"
+  - "DOMAIN-SUFFIX,d317.example,Group 1"
+  - "DOMAIN-SUFFIX,d318.example,Group 1"
+  - "DOMAIN-SUFFIX,d319.example,Group 1"
+  - "DOMAIN-SUFFIX,d320.example,Group 1"
+  - "DOMAIN-SUFFIX,d321.example,Group 1"
+  - "DOMAIN-SUFFIX,d322.example,Group 1"
+  - "DOMAIN-SUFFIX,d323.example,Group 1"
+  - "DOMAIN-SUFFIX,d324.example,Group 1"
+  - "DOMAIN-SUFFIX,d325.example,Group 1"
+  - "DOMAIN-SUFFIX,d326.example,Group 1"
+  - "DOMAIN-SUFFIX,d327.example,Group 1"
+  - "DOMAIN-SUFFIX,d328.example,Group 1"
+  - "DOMAIN-SUFFIX,d329.example,Group 1"
+  - "DOMAIN-SUFFIX,d330.example,Group 1"
+  - "DOMAIN-SUFFIX,d331.example,Group 1"
+  - "DOMAIN-SUFFIX,d332.example,Group 1"
+  - "DOMAIN-SUFFIX,d333.example,Group 1"
+  - "DOMAIN-SUFFIX,d334.example,Group 1"
+  - "DOMAIN-SUFFIX,d335.example,Group 1"
+  - "DOMAIN-SUFFIX,d336.example,Group 1"
+  - "DOMAIN-SUFFIX,d337.example,Group 1"
+  - "DOMAIN-SUFFIX,d338.example,Group 1"
+  - "DOMAIN-SUFFIX,d339.example,Group 1"
+  - "DOMAIN-SUFFIX,d340.example,Group 1"
+  - "DOMAIN-SUFFIX,d341.example,Group 1"
+  - "DOMAIN-SUFFIX,d342.example,Group 1"
+  - "DOMAIN-SUFFIX,d343.example,Group 1"
+  - "DOMAIN-SUFFIX,d344.example,Group 1"
+  - "DOMAIN-SUFFIX,d345.example,Group 1"
+  - "DOMAIN-SUFFIX,d346.example,Group 1"
+  - "DOMAIN-SUFFIX,d347.example,Group 1"
+  - "DOMAIN-SUFFIX,d348.example,Group 1"
+  - "DOMAIN-SUFFIX,d349.example,Group 1"
+  - "DOMAIN-SUFFIX,d350.example,Group 1"
+  - "DOMAIN-SUFFIX,d351.example,Group 1"
+  - "DOMAIN-SUFFIX,d352.example,Group 1"
+  - "DOMAIN-SUFFIX,d353.example,Group 1"
+  - "DOMAIN-SUFFIX,d354.example,Group 1"
+  - "DOMAIN-SUFFIX,d355.example,Group 1"
+  - "DOMAIN-SUFFIX,d356.example,Group 1"
+  - "DOMAIN-SUFFIX,d357.example,Group 1"
+  - "DOMAIN-SUFFIX,d358.example,Group 1"
+  - "DOMAIN-SUFFIX,d359.example,Group 1"
+  - "DOMAIN-SUFFIX,d360.example,Group 1"
+  - "DOMAIN-SUFFIX,d361.example,Group 1"
+  - "DOMAIN-SUFFIX,d362.example,Group 1"
+  - "DOMAIN-SUFFIX,d363.example,Group 1"
+  - "DOMAIN-SUFFIX,d364.example,Group 1"
+  - "DOMAIN-SUFFIX,d365.example,Group 1"
+  - "DOMAIN-SUFFIX,d366.example,Group 1"
+  - "DOMAIN-SUFFIX,d367.example,Group 1"
+  - "DOMAIN-SUFFIX,d368.example,Group 1"
+  - "DOMAIN-SUFFIX,d369.example,Group 1"
+  - "DOMAIN-SUFFIX,d370.example,Group 1"
+  - "DOMAIN-SUFFIX,d371.example,Group 1"
+  - "DOMAIN-SUFFIX,d372.example,Group 1"
+  - "DOMAIN-SUFFIX,d373.example,Group 1"
+  - "DOMAIN-SUFFIX,d374.example,Group 1"
+  - "DOMAIN-SUFFIX,d375.example,Group 1"
+  - "DOMAIN-SUFFIX,d376.example,Group 1"
+  - "DOMAIN-SUFFIX,d377.example,Group 1"
+  - "DOMAIN-SUFFIX,d378.example,Group 1"
+  - "DOMAIN-SUFFIX,d379.example,Group 1"
+  - "DOMAIN-SUFFIX,d380.example,Group 1"
+  - "DOMAIN-SUFFIX,d381.example,Group 1"
+  - "DOMAIN-SUFFIX,d382.example,Group 1"
+  - "DOMAIN-SUFFIX,d383.example,Group 1"
+  - "DOMAIN-SUFFIX,d384.example,Group 1"
+  - "DOMAIN-SUFFIX,d385.example,Group 1"
+  - "DOMAIN-SUFFIX,d386.example,Group 1"
+  - "DOMAIN-SUFFIX,d387.example,Group 1"
+  - "DOMAIN-SUFFIX,d388.example,Group 1"
+  - "DOMAIN-SUFFIX,d389.example,Group 1"
+  - "DOMAIN-SUFFIX,d390.example,Group 1"
+  - "DOMAIN-SUFFIX,d391.example,Group 1"
+  - "DOMAIN-SUFFIX,d392.example,Group 1"
+  - "DOMAIN-SUFFIX,d393.example,Group 1"
+  - "DOMAIN-SUFFIX,d394.example,Group 1"
+  - "DOMAIN-SUFFIX,d395.example,Group 1"
+  - "DOMAIN-SUFFIX,d396.example,Group 1"
+  - "DOMAIN-SUFFIX,d397.example,Group 1"
+  - "DOMAIN-SUFFIX,d398.example,Group 1"
+  - "DOMAIN-SUFFIX,d399.example,Group 1"
+  - "DOMAIN-SUFFIX,d400.example,Group 1"
+  - "DOMAIN-SUFFIX,d401.example,Group 1"
+  - "DOMAIN-SUFFIX,d402.example,Group 1"
+  - "DOMAIN-SUFFIX,d403.example,Group 1"
+  - "DOMAIN-SUFFIX,d404.example,Group 1"
+  - "DOMAIN-SUFFIX,d405.example,Group 1"
+  - "DOMAIN-SUFFIX,d406.example,Group 1"
+  - "DOMAIN-SUFFIX,d407.example,Group 1"
+  - "DOMAIN-SUFFIX,d408.example,Group 1"
+  - "DOMAIN-SUFFIX,d409.example,Group 1"
+  - "DOMAIN-SUFFIX,d410.example,Group 1"
+  - "DOMAIN-SUFFIX,d411.example,Group 1"
+  - "DOMAIN-SUFFIX,d412.example,Group 1"
+  - "DOMAIN-SUFFIX,d413.example,Group 1"
+  - "DOMAIN-SUFFIX,d414.example,Group 1"
+  - "DOMAIN-SUFFIX,d415.example,Group 1"
+  - "DOMAIN-SUFFIX,d416.example,Group 1"
+  - "DOMAIN-SUFFIX,d417.example,Group 1"
+  - "DOMAIN-SUFFIX,d418.example,Group 1"
+  - "DOMAIN-SUFFIX,d419.example,Group 1"
+  - "DOMAIN-SUFFIX,d420.example,Group 1"
+  - "DOMAIN-SUFFIX,d421.example,Group 1"
+  - "DOMAIN-SUFFIX,d422.example,Group 1"
+  - "DOMAIN-SUFFIX,d423.example,Group 1"
+  - "DOMAIN-SUFFIX,d424.example,Group 1"
+  - "DOMAIN-SUFFIX,d425.example,Group 1"
+  - "DOMAIN-SUFFIX,d426.example,Group 1"
+  - "DOMAIN-SUFFIX,d427.example,Group 1"
+  - "DOMAIN-SUFFIX,d428.example,Group 1"
+  - "DOMAIN-SUFFIX,d429.example,Group 1"
+  - "DOMAIN-SUFFIX,d430.example,Group 1"
+  - "DOMAIN-SUFFIX,d431.example,Group 1"
+  - "DOMAIN-SUFFIX,d432.example,Group 1"
+  - "DOMAIN-SUFFIX,d433.example,Group 1"
+  - "DOMAIN-SUFFIX,d434.example,Group 1"
+  - "DOMAIN-SUFFIX,d435.example,Group 1"
+  - "DOMAIN-SUFFIX,d436.example,Group 1"
+  - "DOMAIN-SUFFIX,d437.example,Group 1"
+  - "DOMAIN-SUFFIX,d438.example,Group 1"
+  - "DOMAIN-SUFFIX,d439.example,Group 1"
+  - "DOMAIN-SUFFIX,d440.example,Group 1"
+  - "IP-CIDR,198.18.0.0/22,Group 1"
+  - "IP-CIDR,198.18.0.0/21,Group 1"
+  - "IP-CIDR,198.18.4.0/22,Group 1"
+  - "IP-CIDR,198.18.8.0/22,Group 1"
+  - "IP-CIDR,198.18.0.0/20,Group 1"
+  - "IP-CIDR6,2001:db8::/48,Group 1"
+  - "IP-CIDR6,2001:db8:1::/48,Group 1"
+  - "IP-CIDR6,2001:db8:2::/48,Group 1"
+  - DOMAIN,d441.example,DIRECT
+  - DOMAIN,d442.example,DIRECT
+  - DOMAIN-SUFFIX,d443.example,DIRECT
+  - IP-CIDR,127.0.0.0/8,DIRECT
+  - IP-CIDR,172.16.0.0/12,DIRECT
+  - IP-CIDR,192.168.0.0/16,DIRECT
+  - IP-CIDR,10.0.0.0/8,DIRECT
+  - IP-CIDR,240.0.0.0/8,DIRECT
+  - IP-CIDR,100.64.0.0/10,DIRECT
+  - IP-CIDR,224.0.0.0/4,DIRECT
+  - IP-CIDR6,fe80::/10,DIRECT
+  - IP-CIDR,3f00::/16,DIRECT
+  - IP-CIDR,2001:db8::/32,DIRECT
+  - IP-CIDR,2001:db8::/32,DIRECT
+  - IP-CIDR,3fff::/28,DIRECT
+  - GEOIP,CN,DIRECT
+  - "MATCH,Group 1"

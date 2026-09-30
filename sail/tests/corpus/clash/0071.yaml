@@ -1,0 +1,321 @@
+mixed-port: 7890
+socks-port: 1080
+port: 8080
+allow-lan: true
+bind-address: "*"
+lan-allowed-ips:
+  - 0.0.0.0/0
+  - ::/0
+lan-disallowed-ips:
+  - 
+authentication:
+  - 
+skip-auth-prefixes:
+  - 
+mode: rule
+log-level: warning
+ipv6: true
+keep-alive-idle: 15
+keep-alive-interval: 15
+disable-keep-alive: false
+find-process-mode: strict
+external-controller: 0.0.0.0:9090
+secret: ""
+profile:
+  store-selected: true
+  store-fake-ip: true
+unified-delay: false
+tcp-concurrent: true
+global-client-fingerprint: random
+geodata-mode: true
+geodata-loader: standard
+geo-auto-update: true
+geo-update-interval: 24
+geox-url:
+  geoip: "https://h3.example.com/p3.dat"
+  geosite: "https://h3.example.com/p4.dat"
+  mmdb: "https://h3.example.com/p5.mmdb"
+  asn: "https://h4.example.com/p6.mmdb"
+global-ua: d10.example
+etag-support: true
+dns:
+  enable: true
+  prefer-h3: true
+  listen: 0.0.0.0:1053
+  ipv6: true
+  enhanced-mode: redir-host
+  fake-ip-range: 198.18.0.1/16
+  fake-ip-filter:
+    - geosite:category-ads-all,category-games,cn,private
+  fake-ip-filter-mode: blacklist
+  use-hosts: true
+  use-system-hosts: true
+  respect-rules: false
+  proxy-server-nameserver:
+    - https://192.0.2.1/dns-query
+    - https://192.0.2.2/dns-query
+    - https://192.0.2.3/dns-query
+  nameserver-policy:
+    geosite:cn,apple,private:
+      - dhcp://if1
+      - dhcp://if2
+      - 192.0.2.4
+      - 192.0.2.5
+    geosite:geolocation-!cn:
+      - https://192.0.2.1/dns-query
+      - https://192.0.2.2/dns-query
+      - https://192.0.2.3/dns-query
+    geosite:category-ads-all:
+      - rcode://success
+  nameserver:
+    - dhcp://if1
+    - dhcp://if2
+    - 192.0.2.4
+    - 192.0.2.5
+hosts:
+  d1.example: 127.0.0.1
+sniffer:
+  enable: true
+  force-dns-mapping: true
+  parse-pure-ip: true
+  override-destination: true
+  sniff:
+    TLS:
+    HTTP:
+      ports:
+        - 80
+  force-domain:
+    - "+.d2.example"
+    - "+.d3.example"
+    - "+.d4.example"
+    - "+.d5.example"
+  skip-domain:
+    - "+.d6.example"
+    - str1
+    - d7.example
+    - "+.d8.example"
+    - "+.d9.example"
+    - geosite:cn
+tun:
+  enable: false
+  stack: mixed
+  device: if3
+  auto-route: true
+  auto-redirect: true
+  auto-detect-interface: true
+  dns-hijack:
+    - any:53
+    - tcp://any:53
+  strict-route: true
+  mtu: 9000
+  gso: true
+  gso-max-size: 65536
+  endpoint-independent-nat: false
+  exclude-package:
+    - com.example.app1
+    - com.example.app2
+    - com.example.app3
+    - com.example.app4
+    - com.example.app5
+    - com.example.app6
+    - com.example.app7
+    - com.example.app8
+    - com.example.app9
+    - com.example.app10
+    - com.example.app11
+    - com.example.app12
+    - com.example.app13
+proxy-providers:
+  provider-1:
+    type: http
+    url: "https://h1.example.com/p1?target=clash&config=v1&url="
+    interval: 86400
+    proxy: DIRECT
+    size-limit: 0
+    override:
+      additional-prefix: "str2"
+      tfo: true
+      mptcp: false
+      udp: true
+      udp-over-tcp: false
+      skip-cert-verify: false
+  provider-2:
+    type: http
+    url: "https://h1.example.com/p1?target=clash&config=v1&url="
+    interval: 86400
+    proxy: DIRECT
+    size-limit: 0
+    override:
+      additional-prefix: "str2"
+      tfo: true
+      mptcp: false
+      udp: true
+      udp-over-tcp: false
+      skip-cert-verify: false
+proxy-groups:
+  - name: Group 1
+    type: url-test
+    use:
+      - provider-1
+      - provider-2
+    url: http://h2.example.com/generate_204
+    interval: 30
+    tolerance: 200
+    lazy: true
+    timeout: 5000
+  - name: Group 2
+    type: select
+    proxies:
+      - DIRECT
+      - Group 1
+      - Group 8
+      - Group 11
+      - Group 12
+      - Group 9
+      - Group 10
+      - Group 3
+  - name: Group 3
+    type: select
+    use:
+      - provider-1
+      - provider-2
+  - name: Group 4
+    type: select
+    proxies:
+      - Group 7
+      - Group 1
+      - Group 8
+      - Group 11
+      - Group 12
+      - Group 9
+      - Group 10
+      - Group 3
+      - DIRECT
+  - name: Group 5
+    type: select
+    proxies:
+      - Group 12
+      - Group 1
+      - Group 8
+      - Group 11
+      - Group 9
+      - Group 10
+      - Group 3
+  - name: Group 6
+    type: select
+    proxies:
+      - Group 1
+      - Group 8
+      - Group 11
+      - Group 12
+      - Group 9
+      - Group 10
+      - Group 3
+  - name: Group 7
+    type: fallback
+    use:
+      - provider-1
+      - provider-2
+    url: http://h2.example.com/generate_204
+    interval: 30
+    lazy: true
+    timeout: 5000
+  - name: Group 8
+    type: url-test
+    use:
+      - provider-1
+      - provider-2
+    url: http://h2.example.com/generate_204
+    interval: 30
+    tolerance: 200
+    lazy: true
+    timeout: 5000
+    filter: "Proxy [0-9]+|Group 1"
+  - name: Group 9
+    type: url-test
+    use:
+      - provider-1
+      - provider-2
+    url: http://h2.example.com/generate_204
+    interval: 30
+    tolerance: 200
+    lazy: true
+    timeout: 5000
+    filter: "Proxy [0-9]+|Group 2"
+  - name: Group 10
+    type: url-test
+    use:
+      - provider-1
+      - provider-2
+    url: http://h2.example.com/generate_204
+    interval: 30
+    tolerance: 200
+    lazy: true
+    timeout: 5000
+    filter: "Proxy [0-9]+|Group 3"
+  - name: Group 11
+    type: url-test
+    use:
+      - provider-1
+      - provider-2
+    url: http://h2.example.com/generate_204
+    interval: 30
+    tolerance: 200
+    lazy: true
+    timeout: 5000
+    filter: "Proxy [0-9]+|Group 4"
+  - name: Group 12
+    type: url-test
+    use:
+      - provider-1
+      - provider-2
+    url: http://h2.example.com/generate_204
+    interval: 30
+    tolerance: 200
+    lazy: true
+    timeout: 5000
+    filter: "Proxy [0-9]+|Group 5"
+rule-providers:
+  set-1:
+    type: http
+    behavior: classical
+    url: https://h1.example.com/p2?type=6&url=
+    path: ./path-1.yaml
+    interval: 86400
+  set-2:
+    type: http
+    behavior: classical
+    url: https://h1.example.com/p2?type=6&url=
+    path: ./path-2.yaml
+    interval: 86400
+  set-3:
+    type: http
+    behavior: classical
+    url: https://h1.example.com/p2?type=6&url=v2
+    path: ./path-3.yaml
+    interval: 86400
+  set-4:
+    type: http
+    behavior: classical
+    url: https://h1.example.com/p2?type=6&url=v3
+    path: ./path-4.yaml
+    interval: 86400
+  set-5:
+    type: http
+    behavior: classical
+    url: https://h1.example.com/p2?type=6&url=v4
+    path: ./path-5.yaml
+    interval: 86400
+  set-6:
+    type: http
+    behavior: classical
+    url: https://h1.example.com/p2?type=6&url=v5
+    path: ./path-6.yaml
+    interval: 86400
+  set-7:
+    type: http
+    behavior: classical
+    url: https://h1.example.com/p2?type=6&url=v6
+    path: ./path-7.yaml
+    interval: 86400
+rules:

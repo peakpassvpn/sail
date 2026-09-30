@@ -1,0 +1,73 @@
+mixed-port: 7890
+allow-lan: true
+mode: rule
+log-level: error
+ipv6: true
+external-controller: 127.0.0.1:9090
+profile:
+  store-selected: false
+  store-fake-ip: true
+dns:
+  enable: true
+  ipv6: true
+  default-nameserver:
+    - '127.0.0.1'
+    - '192.0.2.1'
+  enhanced-mode: fake-ip
+  use-hosts: true
+  nameserver:
+    - '127.0.0.1'
+    - '192.0.2.1'
+  fallback:
+    - "https://192.0.2.1/dns-query"
+    - "https://192.0.2.2/dns-query"
+    - "https://h1.example.com/dns-query"
+    - "https://h2.example.com/dns-query"
+  fallback-filter:
+    geoip: true
+    geoip-code: str1
+proxy-groups:
+  - name: Group 1
+    type: select
+    proxies:
+      - Group 3
+      - Group 2
+      - DIRECT
+      - REJECT
+  - name: Group 2
+    type: select
+    use:
+      - provider-1
+      - provider-2
+  - name: Group 3
+    type: url-test
+    use:
+      - provider-1
+      - provider-2
+proxy-providers:
+  provider-1:
+    type: http
+    url: "https://h3.example.com/p1.yml"
+    interval: 86400
+    path: ./path-1.yaml
+    health-check:
+      enable: true
+      interval: 3600
+      lazy: true
+      url: "https://h4.example.com"
+  provider-2:
+    type: http
+    url: "https://h3.example.com/p2.yml"
+    interval: 86400
+    path: ./path-2.yaml
+    health-check:
+      enable: true
+      interval: 3600
+      lazy: true
+      url: "https://h4.example.com"
+rules:
+  - GEOIP,private,DIRECT
+  - GEOIP,IR,DIRECT
+  - DOMAIN-SUFFIX,d1.example,DIRECT
+  - DOMAIN,d2.example,DIRECT
+  - MATCH,Group 1

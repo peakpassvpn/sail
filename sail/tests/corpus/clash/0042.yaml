@@ -1,0 +1,415 @@
+mixed-port: 7890
+allow-lan: false
+mode: Global
+log-level: silent
+external-controller: 127.0.0.1:9090
+dns:
+  enable: true
+  ipv6: false
+  listen: 0.0.0.0:53
+  enhanced-mode: redir-host
+  nameserver:
+    - https://192.0.2.1/dns-query
+    - https://192.0.2.2/dns-query
+  fallback:
+    - https://192.0.2.3/dns-query
+    - https://192.0.2.4/dns-query
+    - 192.0.2.1
+    - 192.0.2.2
+  fallback-filter:
+    geoip: true
+proxies:
+  - {name: Proxy 1, server: 192.0.2.5, port: 8389, type: ss, cipher: chacha20-ietf-poly1305, password: password1}
+  - {name: Proxy 2, server: 192.0.2.6, port: 8389, type: ss, cipher: chacha20-ietf-poly1305, password: password2}
+  - {name: Proxy 3, server: 192.0.2.7, port: 8389, type: ss, cipher: chacha20-ietf-poly1305, password: password3}
+  - {name: Proxy 4, server: 192.0.2.8, port: 8389, type: ss, cipher: chacha20-ietf-poly1305, password: password4}
+  - {name: Proxy 5, server: 192.0.2.9, port: 8389, type: ss, cipher: chacha20-ietf-poly1305, password: password5}
+  - {name: Proxy 6, server: 192.0.2.10, port: 8389, type: ss, cipher: chacha20-ietf-poly1305, password: password6}
+  - {name: Proxy 7, server: 192.0.2.11, port: 8389, type: ss, cipher: chacha20-ietf-poly1305, password: password7}
+  - {name: Proxy 8, server: 192.0.2.12, port: 8389, type: ss, cipher: chacha20-ietf-poly1305, password: password8}
+  - {name: Proxy 9, server: 192.0.2.13, port: 8389, type: ss, cipher: chacha20-ietf-poly1305, password: password9}
+  - {name: Proxy 10, server: 192.0.2.14, port: 8389, type: ss, cipher: chacha20-ietf-poly1305, password: password10}
+  - {name: Proxy 11, server: 192.0.2.15, port: 8389, type: ss, cipher: chacha20-ietf-poly1305, password: password11}
+  - {name: Proxy 12, server: 192.0.2.16, port: 8389, type: ss, cipher: chacha20-ietf-poly1305, password: password4}
+  - {name: Proxy 13, server: 192.0.2.17, port: 8389, type: ss, cipher: chacha20-ietf-poly1305, password: password12}
+  - {name: Proxy 14, server: 192.0.2.18, port: 8389, type: ss, cipher: chacha20-ietf-poly1305, password: password13}
+  - {name: Proxy 15, server: 192.0.2.19, port: 8389, type: ss, cipher: chacha20-ietf-poly1305, password: password14}
+  - {name: Proxy 16, server: 192.0.2.20, port: 8389, type: ss, cipher: chacha20-ietf-poly1305, password: password15}
+  - {name: Proxy 17, server: 192.0.2.21, port: 8389, type: ss, cipher: chacha20-ietf-poly1305, password: password16}
+  - {name: Proxy 18, server: 192.0.2.22, port: 8389, type: ss, cipher: chacha20-ietf-poly1305, password: password17}
+  - {name: Proxy 19, server: 192.0.2.23, port: 8389, type: ss, cipher: chacha20-ietf-poly1305, password: password18}
+  - {name: Proxy 20, server: 192.0.2.24, port: 8389, type: ss, cipher: chacha20-ietf-poly1305, password: password19}
+  - {name: Proxy 21, server: 192.0.2.25, port: 8389, type: ss, cipher: chacha20-ietf-poly1305, password: password20}
+  - {name: Proxy 22, server: 192.0.2.26, port: 8389, type: ss, cipher: chacha20-ietf-poly1305, password: password21}
+  - {name: Proxy 23, server: 192.0.2.27, port: 8389, type: ss, cipher: chacha20-ietf-poly1305, password: password22}
+  - {name: Proxy 24, server: 192.0.2.28, port: 8389, type: ss, cipher: chacha20-ietf-poly1305, password: password23}
+  - {name: Proxy 25, server: 192.0.2.29, port: 8389, type: ss, cipher: chacha20-ietf-poly1305, password: password19}
+  - {name: Proxy 26, server: 192.0.2.30, port: 8389, type: ss, cipher: chacha20-ietf-poly1305, password: password24}
+  - {name: Proxy 27, server: 192.0.2.31, port: 8389, type: ss, cipher: chacha20-ietf-poly1305, password: password25}
+  - {name: Proxy 28, server: 192.0.2.32, port: 8389, type: ss, cipher: chacha20-ietf-poly1305, password: password26}
+  - {name: Proxy 29, server: 192.0.2.33, port: 8389, type: ss, cipher: chacha20-ietf-poly1305, password: password27}
+  - {name: Proxy 30, server: 192.0.2.34, port: 8389, type: ss, cipher: chacha20-ietf-poly1305, password: password28}
+  - {name: Proxy 31, server: 192.0.2.35, port: 8389, type: ss, cipher: chacha20-ietf-poly1305, password: password29}
+  - {name: Proxy 32, server: 192.0.2.36, port: 8389, type: ss, cipher: chacha20-ietf-poly1305, password: password30}
+  - {name: Proxy 33, server: 192.0.2.37, port: 8389, type: ss, cipher: chacha20-ietf-poly1305, password: password31}
+  - {name: Proxy 34, server: 192.0.2.38, port: 8389, type: ss, cipher: chacha20-ietf-poly1305, password: password32}
+  - {name: Proxy 35, server: 192.0.2.39, port: 8389, type: ss, cipher: chacha20-ietf-poly1305, password: password33}
+  - {name: Proxy 36, server: 192.0.2.40, port: 8389, type: ss, cipher: chacha20-ietf-poly1305, password: password34}
+  - {name: Proxy 37, server: 192.0.2.41, port: 8389, type: ss, cipher: chacha20-ietf-poly1305, password: password35}
+  - {name: Proxy 38, server: 192.0.2.42, port: 8389, type: ss, cipher: chacha20-ietf-poly1305, password: password36}
+  - {name: Proxy 39, server: 192.0.2.43, port: 8389, type: ss, cipher: chacha20-ietf-poly1305, password: password37}
+  - {name: Proxy 40, server: 192.0.2.44, port: 8389, type: ss, cipher: chacha20-ietf-poly1305, password: password38}
+  - {name: Proxy 41, server: 192.0.2.45, port: 8389, type: ss, cipher: chacha20-ietf-poly1305, password: password27}
+  - {name: Proxy 42, server: 192.0.2.46, port: 8389, type: ss, cipher: chacha20-ietf-poly1305, password: password39}
+  - {name: Proxy 43, server: 192.0.2.47, port: 8389, type: ss, cipher: chacha20-ietf-poly1305, password: password40}
+  - {name: Proxy 44, server: 192.0.2.48, port: 8389, type: ss, cipher: chacha20-ietf-poly1305, password: password37}
+  - {name: Proxy 45, server: 192.0.2.49, port: 8389, type: ss, cipher: chacha20-ietf-poly1305, password: password41}
+  - {name: Proxy 46, server: 192.0.2.50, port: 8389, type: ss, cipher: chacha20-ietf-poly1305, password: password42}
+  - {name: Proxy 47, server: 192.0.2.51, port: 8389, type: ss, cipher: chacha20-ietf-poly1305, password: password43}
+  - {name: Proxy 48, server: 192.0.2.52, port: 8389, type: ss, cipher: chacha20-ietf-poly1305, password: password18}
+  - {name: Proxy 49, server: 192.0.2.53, port: 8389, type: ss, cipher: chacha20-ietf-poly1305, password: password44}
+  - {name: Proxy 50, server: 192.0.2.54, port: 8389, type: ss, cipher: chacha20-ietf-poly1305, password: password45}
+  - {name: Proxy 51, server: 192.0.2.55, port: 8389, type: ss, cipher: chacha20-ietf-poly1305, password: password46}
+  - {name: Proxy 52, server: 192.0.2.56, port: 8389, type: ss, cipher: chacha20-ietf-poly1305, password: password47}
+  - {name: Proxy 53, server: 192.0.2.57, port: 8389, type: ss, cipher: chacha20-ietf-poly1305, password: password48}
+  - {name: Proxy 54, server: 192.0.2.58, port: 8389, type: ss, cipher: chacha20-ietf-poly1305, password: password49}
+  - {name: Proxy 55, server: 192.0.2.59, port: 8389, type: ss, cipher: chacha20-ietf-poly1305, password: password38}
+  - {name: Proxy 56, server: 192.0.2.60, port: 8389, type: ss, cipher: chacha20-ietf-poly1305, password: password50}
+  - {name: Proxy 57, server: 192.0.2.61, port: 8389, type: ss, cipher: chacha20-ietf-poly1305, password: password51}
+  - {name: Proxy 58, server: 192.0.2.62, port: 8389, type: ss, cipher: chacha20-ietf-poly1305, password: password52}
+  - {name: Proxy 59, server: 192.0.2.63, port: 8389, type: ss, cipher: chacha20-ietf-poly1305, password: password53}
+  - {name: Proxy 60, server: 192.0.2.64, port: 8389, type: ss, cipher: chacha20-ietf-poly1305, password: password54}
+  - {name: Proxy 61, server: 192.0.2.65, port: 8389, type: ss, cipher: chacha20-ietf-poly1305, password: password55}
+  - {name: Proxy 62, server: 192.0.2.66, port: 8389, type: ss, cipher: chacha20-ietf-poly1305, password: password56}
+  - {name: Proxy 63, server: 192.0.2.67, port: 8389, type: ss, cipher: chacha20-ietf-poly1305, password: password57}
+  - {name: Proxy 64, server: 192.0.2.68, port: 8389, type: ss, cipher: chacha20-ietf-poly1305, password: password58}
+  - {name: Proxy 65, server: 192.0.2.69, port: 8389, type: ss, cipher: chacha20-ietf-poly1305, password: password59}
+  - {name: Proxy 66, server: 192.0.2.70, port: 8389, type: ss, cipher: chacha20-ietf-poly1305, password: password9}
+  - {name: Proxy 67, server: 192.0.2.71, port: 8389, type: ss, cipher: chacha20-ietf-poly1305, password: password60}
+  - {name: Proxy 68, server: 192.0.2.72, port: 8389, type: ss, cipher: chacha20-ietf-poly1305, password: password61}
+  - {name: Proxy 69, server: 192.0.2.73, port: 8389, type: ss, cipher: chacha20-ietf-poly1305, password: password62}
+proxy-groups:
+  - name: Group 1
+    type: select
+    proxies:
+      - Group 3
+      - Group 4
+      - Group 5
+      - Group 6
+      - Group 7
+      - Group 2
+  - name: Group 2
+    type: select
+    proxies:
+      - Proxy 1
+      - Proxy 2
+      - Proxy 3
+      - Proxy 4
+      - Proxy 5
+      - Proxy 6
+      - Proxy 7
+      - Proxy 8
+      - Proxy 9
+      - Proxy 10
+      - Proxy 11
+      - Proxy 12
+      - Proxy 13
+      - Proxy 14
+      - Proxy 15
+      - Proxy 16
+      - Proxy 17
+      - Proxy 18
+      - Proxy 19
+      - Proxy 20
+      - Proxy 21
+      - Proxy 22
+      - Proxy 23
+      - Proxy 24
+      - Proxy 25
+      - Proxy 26
+      - Proxy 27
+      - Proxy 28
+      - Proxy 29
+      - Proxy 30
+      - Proxy 31
+      - Proxy 32
+      - Proxy 33
+      - Proxy 34
+      - Proxy 35
+      - Proxy 36
+      - Proxy 37
+      - Proxy 38
+      - Proxy 39
+      - Proxy 40
+      - Proxy 41
+      - Proxy 42
+      - Proxy 43
+      - Proxy 44
+      - Proxy 45
+      - Proxy 46
+      - Proxy 47
+      - Proxy 48
+      - Proxy 49
+      - Proxy 50
+      - Proxy 51
+      - Proxy 52
+      - Proxy 53
+      - Proxy 54
+      - Proxy 55
+      - Proxy 56
+      - Proxy 57
+      - Proxy 58
+      - Proxy 59
+      - Proxy 60
+      - Proxy 61
+      - Proxy 62
+      - Proxy 63
+      - Proxy 64
+      - Proxy 65
+      - Proxy 66
+      - Proxy 67
+      - Proxy 68
+      - Proxy 69
+  - name: Group 3
+    type: url-test
+    proxies:
+      - Proxy 1
+      - Proxy 2
+      - Proxy 3
+      - Proxy 4
+      - Proxy 5
+      - Proxy 6
+      - Proxy 7
+      - Proxy 8
+      - Proxy 9
+      - Proxy 10
+      - Proxy 11
+      - Proxy 12
+      - Proxy 13
+      - Proxy 14
+      - Proxy 15
+      - Proxy 16
+      - Proxy 17
+      - Proxy 18
+      - Proxy 19
+      - Proxy 20
+      - Proxy 21
+      - Proxy 22
+      - Proxy 23
+      - Proxy 24
+      - Proxy 25
+      - Proxy 26
+      - Proxy 27
+      - Proxy 28
+      - Proxy 29
+      - Proxy 30
+      - Proxy 31
+      - Proxy 32
+      - Proxy 33
+      - Proxy 34
+      - Proxy 35
+      - Proxy 36
+      - Proxy 37
+      - Proxy 38
+      - Proxy 39
+      - Proxy 40
+      - Proxy 41
+      - Proxy 42
+      - Proxy 43
+      - Proxy 44
+      - Proxy 45
+      - Proxy 46
+      - Proxy 47
+      - Proxy 48
+      - Proxy 49
+      - Proxy 50
+      - Proxy 51
+      - Proxy 52
+      - Proxy 53
+      - Proxy 54
+      - Proxy 55
+      - Proxy 56
+      - Proxy 57
+      - Proxy 58
+      - Proxy 59
+      - Proxy 60
+      - Proxy 61
+      - Proxy 62
+      - Proxy 63
+      - Proxy 64
+      - Proxy 65
+      - Proxy 66
+      - Proxy 67
+      - Proxy 68
+      - Proxy 69
+    url: 'http://h1.example.com/generate_204'
+    interval: 300
+  - name: Group 4
+    type: url-test
+    proxies:
+      - Proxy 1
+      - Proxy 2
+      - Proxy 3
+      - Proxy 4
+      - Proxy 5
+      - Proxy 6
+      - Proxy 7
+      - Proxy 8
+      - Proxy 9
+      - Proxy 10
+      - Proxy 11
+      - Proxy 12
+      - Proxy 13
+      - Proxy 14
+      - Proxy 15
+      - Proxy 16
+      - Proxy 17
+      - Proxy 18
+      - Proxy 19
+      - Proxy 20
+      - Proxy 21
+    url: 'http://h1.example.com/generate_204'
+    interval: 300
+  - name: Group 5
+    type: url-test
+    proxies:
+      - Proxy 22
+      - Proxy 23
+      - Proxy 24
+      - Proxy 25
+      - Proxy 26
+      - Proxy 27
+      - Proxy 28
+      - Proxy 29
+      - Proxy 30
+      - Proxy 31
+      - Proxy 32
+      - Proxy 33
+      - Proxy 34
+      - Proxy 35
+      - Proxy 36
+      - Proxy 37
+      - Proxy 38
+      - Proxy 39
+      - Proxy 40
+      - Proxy 41
+      - Proxy 42
+      - Proxy 43
+      - Proxy 44
+      - Proxy 45
+      - Proxy 46
+      - Proxy 47
+      - Proxy 48
+    url: 'http://h1.example.com/generate_204'
+    interval: 300
+  - name: Group 6
+    type: url-test
+    proxies:
+      - Proxy 49
+      - Proxy 50
+      - Proxy 51
+      - Proxy 52
+      - Proxy 53
+      - Proxy 54
+      - Proxy 55
+      - Proxy 56
+      - Proxy 57
+      - Proxy 58
+      - Proxy 59
+      - Proxy 60
+      - Proxy 61
+      - Proxy 62
+    url: 'http://h1.example.com/generate_204'
+    interval: 300
+  - name: Group 7
+    type: url-test
+    proxies:
+      - Proxy 63
+      - Proxy 64
+      - Proxy 65
+      - Proxy 66
+      - Proxy 67
+      - Proxy 68
+      - Proxy 69
+    url: 'http://h1.example.com/generate_204'
+    interval: 300
+  - name: "Group 8"
+    type: fallback
+    proxies:
+      - Proxy 1
+      - Proxy 2
+      - Proxy 3
+      - Proxy 4
+      - Proxy 5
+      - Proxy 6
+      - Proxy 7
+      - Proxy 8
+      - Proxy 9
+      - Proxy 10
+      - Proxy 11
+      - Proxy 12
+      - Proxy 13
+      - Proxy 14
+      - Proxy 15
+      - Proxy 16
+      - Proxy 17
+      - Proxy 18
+      - Proxy 19
+      - Proxy 20
+      - Proxy 21
+      - Proxy 22
+      - Proxy 23
+      - Proxy 24
+      - Proxy 25
+      - Proxy 26
+      - Proxy 27
+      - Proxy 28
+      - Proxy 29
+      - Proxy 30
+      - Proxy 31
+      - Proxy 32
+      - Proxy 33
+      - Proxy 34
+      - Proxy 35
+      - Proxy 36
+      - Proxy 37
+      - Proxy 38
+      - Proxy 39
+      - Proxy 40
+      - Proxy 41
+      - Proxy 42
+      - Proxy 43
+      - Proxy 44
+      - Proxy 45
+      - Proxy 46
+      - Proxy 47
+      - Proxy 48
+      - Proxy 49
+      - Proxy 50
+      - Proxy 51
+      - Proxy 52
+      - Proxy 53
+      - Proxy 54
+      - Proxy 55
+      - Proxy 56
+      - Proxy 57
+      - Proxy 58
+      - Proxy 59
+      - Proxy 60
+      - Proxy 61
+      - Proxy 62
+      - Proxy 63
+      - Proxy 64
+      - Proxy 65
+      - Proxy 66
+      - Proxy 67
+      - Proxy 68
+      - Proxy 69
+    url: 'http://h1.example.com/generate_204'
+    interval: 300
+rules:
+  - DOMAIN-SUFFIX,d1.example,REJECT
+  - GEOIP,IR,DIRECT
+  - MATCH,Group 1
+  - SRC-IP-CIDR,192.0.2.74/32,DIRECT
+  - IP-CIDR,127.0.0.0/8,DIRECT

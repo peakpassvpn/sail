@@ -1,0 +1,24 @@
+port: 7890
+socks-port: 7891
+allow-lan: true
+mode: Rule
+log-level: info
+proxies:
+  - name: "Proxy 1"
+    type: vmess
+    server: 192.0.2.1
+    port: 10007
+    uuid: 00005a11-0000-4000-8000-000000000001
+    alterId: 0
+    cipher: auto
+    udp: true
+    network: ws
+    ws-opts:
+      path: /p1
+proxy-groups:
+  - name: "PROXY"
+    type: select
+    proxies:
+      - Proxy 1
+rules:
+  - MATCH,PROXY

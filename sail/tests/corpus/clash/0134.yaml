@@ -1,0 +1,332 @@
+port: 7890
+socks-port: 7891
+allow-lan: true
+mode: rule
+log-level: info
+proxies:
+  - name: Proxy 1
+    server: 192.0.2.1
+    port: 22324
+    udp: true
+    type: vmess
+    uuid: 00005a11-0000-4000-8000-000000000001
+    alterId: 0
+    cipher: auto
+  - name: Proxy 2
+    server: 192.0.2.2
+    port: 443
+    udp: true
+    type: ss
+    cipher: aes-128-gcm
+    password: password1
+  - name: Proxy 3
+    server: 192.0.2.3
+    port: 22324
+    udp: true
+    type: vmess
+    uuid: 00005a11-0000-4000-8000-000000000001
+    alterId: 0
+    cipher: auto
+  - name: Proxy 4
+    server: 192.0.2.4
+    port: 18000
+    udp: true
+    type: vmess
+    uuid: 00005a11-0000-4000-8000-000000000002
+    alterId: 0
+    cipher: auto
+  - name: Proxy 5
+    server: 192.0.2.5
+    port: 22324
+    udp: true
+    type: vmess
+    uuid: 00005a11-0000-4000-8000-000000000001
+    alterId: 0
+    cipher: auto
+  - name: Proxy 6
+    server: 192.0.2.6
+    port: 9443
+    udp: true
+    type: ss
+    cipher: aes-256-gcm
+    password: password2
+  - name: Proxy 7
+    server: 192.0.2.7
+    port: 22324
+    udp: true
+    type: vmess
+    uuid: 00005a11-0000-4000-8000-000000000001
+    alterId: 0
+    cipher: auto
+  - name: Proxy 8
+    server: 192.0.2.8
+    port: 5000
+    udp: true
+    type: ss
+    cipher: aes-256-gcm
+    password: password3
+  - name: Proxy 9
+    server: 192.0.2.9
+    port: 18000
+    udp: true
+    type: vmess
+    uuid: 00005a11-0000-4000-8000-000000000002
+    alterId: 0
+    cipher: auto
+  - name: Proxy 10
+    server: 192.0.2.10
+    port: 5003
+    udp: true
+    type: ss
+    cipher: aes-256-gcm
+    password: password4
+  - name: Proxy 11
+    server: 192.0.2.11
+    port: 443
+    udp: true
+    type: vless
+    uuid: 00005a11-0000-4000-8000-000000000003
+    tls: true
+    reality-opts:
+      public-key: wywOQgzCr2vr85JpoMxzCakHIIvgUtsG6/Qp987NJa4
+      short-id: 704c7085dd7b3f73
+    servername: sni1.example.org
+    client-fingerprint: chrome
+  - name: Proxy 12
+    server: 192.0.2.12
+    port: 8388
+    udp: true
+    type: ss
+    cipher: chacha20-ietf-poly1305
+    password: password5
+  - name: Proxy 13
+    server: 192.0.2.13
+    port: 443
+    udp: true
+    type: vless
+    uuid: 00005a11-0000-4000-8000-000000000004
+    tls: true
+    servername: sni2.example.org
+    skip-cert-verify: false
+    network: ws
+    ws-opts:
+      path: /p1
+      headers:
+        Host: sni2.example.org
+  - name: Proxy 14
+    server: 192.0.2.14
+    port: 8080
+    udp: true
+    type: ss
+    cipher: rc4-md5
+    password: password6
+  - name: Proxy 15
+    server: 192.0.2.15
+    port: 41373
+    udp: true
+    type: vless
+    uuid: 00005a11-0000-4000-8000-000000000005
+    flow: xtls-rprx-vision
+    tls: true
+    reality-opts:
+      public-key: WulOoXrJ4xaeREDpCXJqPLE7mK1qDJwNSfPto1FYe4I
+      short-id: '66'
+    servername: sni3.example.org
+    client-fingerprint: chrome
+  - name: Proxy 16
+    server: 192.0.2.16
+    port: 2053
+    udp: true
+    type: vless
+    uuid: 00005a11-0000-4000-8000-000000000006
+    tls: true
+    reality-opts:
+      public-key: uLBP4fDmzzQr6AI9Cjs2bG1yyu2augLO37S6iU1M4Eo
+      short-id: 435cb68765a4bdf7
+    servername: sni1.example.org
+    client-fingerprint: chrome
+  - name: Proxy 17
+    server: 192.0.2.17
+    port: 8080
+    udp: true
+    type: ss
+    cipher: rc4-md5
+    password: password6
+  - name: Proxy 18
+    server: 192.0.2.18
+    port: 443
+    udp: true
+    type: vmess
+    uuid: 00005a11-0000-4000-8000-000000000007
+    alterId: 0
+    cipher: auto
+    tls: true
+    servername: sni4.example.org
+    skip-cert-verify: false
+    network: ws
+    ws-opts:
+      path: /p2
+      headers:
+        Host: sni4.example.org
+  - name: Proxy 19
+    server: 192.0.2.19
+    port: 443
+    udp: true
+    type: vless
+    uuid: 00005a11-0000-4000-8000-000000000008
+    flow: xtls-rprx-vision
+    tls: true
+    reality-opts:
+      public-key: C7R4HcnA7nosUls057QlZXh18tDK3yhe4-6I1jkpNJM
+      short-id: a7e018cee84bf4fe
+    servername: sni5.example.org
+    client-fingerprint: chrome
+  - name: Proxy 20
+    server: 192.0.2.20
+    port: 8443
+    udp: true
+    type: vless
+    uuid: 00005a11-0000-4000-8000-000000000009
+    tls: true
+    servername: sni6.example.org
+    skip-cert-verify: true
+    network: ws
+    ws-opts:
+      path: /p3
+  - name: Proxy 21
+    server: 192.0.2.21
+    port: 443
+    udp: true
+    type: vless
+    uuid: 00005a11-0000-4000-8000-00000000000a
+    flow: xtls-rprx-vision
+    tls: true
+    reality-opts:
+      public-key: CSwhJCxdZba-0FGfnY5g6FrCHPwm3ApwMA2cT-NViKI
+      short-id: 9f71b3fdeacd098d
+    servername: sni1.example.org
+    client-fingerprint: firefox
+  - name: Proxy 22
+    server: 192.0.2.22
+    port: 8882
+    udp: true
+    type: ss
+    cipher: aes-256-gcm
+    password: password7
+  - name: Proxy 23
+    server: 192.0.2.23
+    port: 443
+    udp: true
+    type: vless
+    uuid: 00005a11-0000-4000-8000-00000000000b
+    flow: xtls-rprx-vision
+    tls: true
+    reality-opts:
+      public-key: I2aL6X-W2VPhngwoaemQPJU-XZ6OrdxIG66ClGKyUZ4
+      short-id: 6321dd3f
+    servername: sni7.example.org
+    client-fingerprint: firefox
+  - name: Proxy 24
+    server: 192.0.2.24
+    port: 22324
+    udp: true
+    type: vmess
+    uuid: 00005a11-0000-4000-8000-000000000001
+    alterId: 0
+    cipher: auto
+  - name: Proxy 25
+    server: 192.0.2.25
+    port: 5601
+    udp: true
+    type: ss
+    cipher: aes-256-gcm
+    password: password3
+  - name: Proxy 26
+    server: 192.0.2.26
+    port: 445
+    udp: true
+    type: ss
+    cipher: aes-256-gcm
+    password: password8
+  - name: Proxy 27
+    server: 192.0.2.27
+    port: 8882
+    udp: true
+    type: ss
+    cipher: aes-256-gcm
+    password: password7
+  - name: Proxy 28
+    server: 192.0.2.28
+    port: 2083
+    udp: true
+    type: ss
+    cipher: 2022-blake3-aes-256-gcm
+    password: wywOQgzCr2vr85JpoMxzCakHIIvgUtsG6/Qp987NJa4=:WulOoXrJ4xaeREDpCXJqPLE7mK1qDJwNSfPto1FYe4I=
+proxy-groups:
+  - name: Group 1
+    type: select
+    proxies:
+      - Group 2
+      - Proxy 1
+      - Proxy 2
+      - Proxy 3
+      - Proxy 4
+      - Proxy 5
+      - Proxy 6
+      - Proxy 7
+      - Proxy 8
+      - Proxy 9
+      - Proxy 10
+      - Proxy 11
+      - Proxy 12
+      - Proxy 13
+      - Proxy 14
+      - Proxy 15
+      - Proxy 16
+      - Proxy 17
+      - Proxy 18
+      - Proxy 19
+      - Proxy 20
+      - Proxy 21
+      - Proxy 22
+      - Proxy 23
+      - Proxy 24
+      - Proxy 25
+      - Proxy 26
+      - Proxy 27
+      - Proxy 28
+  - name: Group 2
+    type: url-test
+    url: https://h1.example.com/generate_204
+    interval: 300
+    proxies:
+      - Proxy 1
+      - Proxy 2
+      - Proxy 3
+      - Proxy 4
+      - Proxy 5
+      - Proxy 6
+      - Proxy 7
+      - Proxy 8
+      - Proxy 9
+      - Proxy 10
+      - Proxy 11
+      - Proxy 12
+      - Proxy 13
+      - Proxy 14
+      - Proxy 15
+      - Proxy 16
+      - Proxy 17
+      - Proxy 18
+      - Proxy 19
+      - Proxy 20
+      - Proxy 21
+      - Proxy 22
+      - Proxy 23
+      - Proxy 24
+      - Proxy 25
+      - Proxy 26
+      - Proxy 27
+      - Proxy 28
+rules:
+  - MATCH,Group 1

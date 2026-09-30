@@ -1,0 +1,62 @@
+{
+  "log": {
+    "level": "error"
+  },
+  "dns": {
+    "servers": [
+      {
+        "type": "local",
+        "tag": "dns-1"
+      }
+    ]
+  },
+  "endpoints": [
+    {
+      "type": "tunnel_server",
+      "tag": "Proxy 2",
+      "uuid": "00005a11-0000-4000-8000-000000000001",
+      "users": [
+        {
+          "uuid": "00005a11-0000-4000-8000-000000000002",
+          "key": "00005a11-0000-4000-8000-000000000003"
+        }
+      ],
+      "inbound": {
+        "type": "vless",
+        "tag": "str1",
+        "listen": "0.0.0.0",
+        "listen_port": 8000,
+        "users": [
+          {
+            "name": "str2",
+            "uuid": "00005a11-0000-4000-8000-000000000002"
+          }
+        ]
+      }
+    }
+  ],
+  "inbounds": [
+    {
+      "type": "mixed",
+      "tag": "in-1",
+      "listen_port": 7897
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "direct",
+      "tag": "Proxy 1"
+    }
+  ],
+  "route": {
+    "rules": [
+      {
+        "outbound": "Proxy 2",
+        "override_tunnel_destination": "00005a11-0000-4000-8000-000000000002"
+      }
+    ],
+    "final": "Proxy 1",
+    "default_domain_resolver": "dns-1",
+    "auto_detect_interface": true
+  }
+}

@@ -1,0 +1,124 @@
+{
+  "log": {
+    "level": "warn",
+    "timestamp": true
+  },
+  "dns": {
+    "servers": [
+      {
+        "type": "https",
+        "tag": "dns-1",
+        "server": "192.0.2.1",
+        "server_port": 443,
+        "path": "/p1",
+        "tls": {
+          "enabled": true,
+          "server_name": "sni1.example.org"
+        },
+        "detour": "PROXY"
+      },
+      {
+        "type": "https",
+        "tag": "dns-2",
+        "server": "192.0.2.2",
+        "server_port": 443,
+        "path": "/p1",
+        "tls": {
+          "enabled": true,
+          "server_name": "sni2.example.org"
+        },
+        "detour": "PROXY"
+      },
+      {
+        "type": "fakeip",
+        "tag": "dns-3",
+        "inet4_range": "198.18.0.0/15",
+        "inet6_range": "3f00::/18"
+      }
+    ],
+    "rules": [
+      {
+        "query_type": [
+          "A",
+          "AAAA"
+        ],
+        "server": "dns-3"
+      }
+    ],
+    "final": "dns-1",
+    "strategy": "prefer_ipv4",
+    "independent_cache": true
+  },
+  "inbounds": [
+    {
+      "type": "mixed",
+      "tag": "in-1",
+      "listen": "127.0.0.1",
+      "listen_port": 2080
+    },
+    {
+      "type": "tun",
+      "tag": "in-2",
+      "interface_name": "if1",
+      "address": [
+        "192.0.2.1/30",
+        "fdfe:dcba:9876::1/126"
+      ],
+      "auto_route": true,
+      "strict_route": true,
+      "stack": "system",
+      "mtu": 1420
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "hysteria2",
+      "tag": "PROXY",
+      "server": "192.0.2.3",
+      "server_port": 8443,
+      "password": "password1",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni3.example.org",
+        "insecure": false
+      }
+    },
+    {
+      "type": "direct",
+      "tag": "DIRECT"
+    }
+  ],
+  "route": {
+    "auto_detect_interface": true,
+    "default_domain_resolver": "dns-1",
+    "rules": [
+      {
+        "action": "sniff",
+        "timeout": "300ms"
+      },
+      {
+        "protocol": "dns",
+        "action": "hijack-dns"
+      },
+      {
+        "ip_is_private": true,
+        "outbound": "DIRECT"
+      },
+      {
+        "ip_cidr": [
+          "192.0.2.3/32"
+        ],
+        "action": "route",
+        "outbound": "DIRECT"
+      }
+    ],
+    "final": "PROXY"
+  },
+  "experimental": {
+    "cache_file": {
+      "enabled": true,
+      "path": "./path-1.db",
+      "store_fakeip": true
+    }
+  }
+}

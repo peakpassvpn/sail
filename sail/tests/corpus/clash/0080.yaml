@@ -1,0 +1,85 @@
+mixed-port: 7890
+allow-lan: false
+log-level: info
+secret:
+external-controller: 127.0.0.1:9090
+ipv6: false
+mode: rule
+proxy-groups:
+  - name: Group 1
+    use:
+      - provider-1
+    type: url-test
+    url: http://h1.example.com
+    interval: 300
+  - name: Group 2
+    type: fallback
+    url: 'http://h1.example.com'
+    interval: 300
+    proxies:
+      - Group 1
+      - Group 5
+  - name: PROXY
+    proxies:
+      - Group 2
+    use:
+      - provider-1
+    type: select
+  - name: Group 3
+    proxies:
+      - DIRECT
+      - PROXY
+    type: select
+  - name: Group 4
+    proxies:
+      - DIRECT
+      - PROXY
+    type: select
+  - name: Group 5
+    proxies:
+      - DIRECT
+      - REJECT
+    type: select
+proxy-providers:
+  provider-1:
+    type: http
+    url: "https://h2.example.com/p1.yml"
+    path: ./path-1.yaml
+    health-check:
+      enable: true
+      interval: 600
+      url: http://h3.example.com/generate_204
+rule-providers:
+  set-1:
+    type: http
+    behavior: classical
+    url: "https://h2.example.com/p2.yml"
+    path: ./path-2.yaml
+    interval: 432000
+  set-2:
+    type: http
+    behavior: classical
+    url: "https://h2.example.com/p3.yml"
+    path: ./path-3.yaml
+    interval: 432000
+  set-3:
+    type: http
+    behavior: classical
+    url: "https://h2.example.com/p4.yml"
+    path: ./path-4.yaml
+    interval: 432000
+  set-4:
+    type: http
+    behavior: classical
+    url: "https://h2.example.com/p5.yml"
+    path: ./path-5.yaml
+    interval: 432000
+rules:
+  - IP-CIDR,192.0.2.0/24,PROXY
+  - RULE-SET,set-2,PROXY
+  - RULE-SET,set-1,PROXY
+  - GEOIP,IR,Group 3
+  - DOMAIN-SUFFIX,.d1.example,Group 3
+  - RULE-SET,set-3,Group 3
+  - RULE-SET,set-4,REJECT
+  - MATCH,Group 4

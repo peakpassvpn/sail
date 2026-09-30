@@ -1,0 +1,570 @@
+{
+  "log": {
+    "level": "info",
+    "timestamp": true
+  },
+  "experimental": {
+    "clash_api": {
+      "external_controller": "0.0.0.0:9095",
+      "external_ui": "./path-1",
+      "secret": "",
+      "external_ui_download_url": "https://h4.example.com/p18.zip",
+      "external_ui_download_detour": "Group 1",
+      "default_mode": "rule"
+    },
+    "cache_file": {
+      "enabled": true
+    }
+  },
+  "dns": {
+    "servers": [
+      {
+        "tag": "dns-1",
+        "address": [
+          "192.0.2.1",
+          "192.0.2.2"
+        ],
+        "address_strategy": "ipv4_only",
+        "strategy": "ipv4_only",
+        "detour": "Proxy 1"
+      },
+      {
+        "tag": "dns-2",
+        "address": [
+          "https://h1.example.com/dns-query",
+          "https://h2.example.com/dns-query"
+        ],
+        "address_resolver": "dns-1",
+        "address_strategy": "ipv4_only",
+        "strategy": "ipv4_only",
+        "detour": "Group 1"
+      },
+      {
+        "tag": "dns-3",
+        "address": "rcode://name_error"
+      }
+    ],
+    "rules": [
+      {
+        "outbound": "any",
+        "server": "dns-1"
+      },
+      {
+        "geosite": [
+          "cn"
+        ],
+        "server": "dns-1"
+      },
+      {
+        "clash_mode": "Direct",
+        "server": "dns-1",
+        "disable_cache": true
+      },
+      {
+        "clash_mode": "Global",
+        "server": "dns-2",
+        "disable_cache": true
+      },
+      {
+        "rule_set": [
+          "set-15"
+        ],
+        "server": "dns-2"
+      }
+    ],
+    "independent_cache": false,
+    "reverse_mapping": true,
+    "final": "dns-1",
+    "strategy": "ipv4_only"
+  },
+  "inbounds": [
+    {
+      "type": "tun",
+      "tag": "in-1",
+      "address": "192.0.2.1/30",
+      "interface_name": "if1",
+      "mtu": 9000,
+      "gso": true,
+      "auto_route": true,
+      "auto_redirect": true,
+      "sniff": true,
+      "stack": "system"
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "Group 1",
+      "type": "selector",
+      "outbounds": [
+        "Group 17",
+        "Group 12",
+        "Group 13",
+        "Group 14",
+        "Group 15",
+        "Group 16",
+        "Group 11",
+        "Group 18",
+        "Proxy 1"
+      ]
+    },
+    {
+      "tag": "Group 2",
+      "type": "selector",
+      "outbounds": [
+        "Group 1",
+        "Group 18",
+        "Group 17",
+        "Group 12",
+        "Group 13",
+        "Group 14",
+        "Group 15",
+        "Group 16",
+        "Group 11"
+      ]
+    },
+    {
+      "tag": "Group 3",
+      "type": "selector",
+      "outbounds": [
+        "Group 1",
+        "Group 18",
+        "Group 17",
+        "Group 12",
+        "Group 13",
+        "Group 14",
+        "Group 15",
+        "Group 16",
+        "Group 11"
+      ]
+    },
+    {
+      "tag": "Group 4",
+      "type": "selector",
+      "outbounds": [
+        "Group 1",
+        "Group 18",
+        "Group 17",
+        "Group 12",
+        "Group 13",
+        "Group 14",
+        "Group 15",
+        "Group 16",
+        "Group 11"
+      ]
+    },
+    {
+      "tag": "Group 5",
+      "type": "selector",
+      "outbounds": [
+        "Group 1",
+        "Group 18",
+        "Group 17",
+        "Group 12",
+        "Group 13",
+        "Group 14",
+        "Group 15",
+        "Group 16",
+        "Group 11"
+      ]
+    },
+    {
+      "tag": "Group 6",
+      "type": "selector",
+      "outbounds": [
+        "Group 1",
+        "Group 18",
+        "Group 17",
+        "Group 12",
+        "Group 13",
+        "Group 14",
+        "Group 15",
+        "Group 16",
+        "Group 11"
+      ]
+    },
+    {
+      "tag": "Group 7",
+      "type": "selector",
+      "outbounds": [
+        "Group 1",
+        "Group 18",
+        "Group 17",
+        "Group 12",
+        "Group 13",
+        "Group 14",
+        "Group 15",
+        "Group 16",
+        "Group 11"
+      ]
+    },
+    {
+      "tag": "Group 8",
+      "type": "selector",
+      "outbounds": [
+        "Group 1",
+        "Group 18",
+        "Group 17",
+        "Group 12",
+        "Group 13",
+        "Group 14",
+        "Group 15",
+        "Group 16",
+        "Group 11"
+      ]
+    },
+    {
+      "tag": "Group 9",
+      "type": "selector",
+      "outbounds": [
+        "Group 1",
+        "Group 18",
+        "Group 17",
+        "Group 12",
+        "Group 13",
+        "Group 14",
+        "Group 15",
+        "Group 16",
+        "Proxy 1"
+      ]
+    },
+    {
+      "tag": "Group 10",
+      "type": "selector",
+      "outbounds": [
+        "Proxy 1",
+        "Group 12",
+        "Group 16"
+      ]
+    },
+    {
+      "tag": "Group 11",
+      "type": "selector",
+      "use_all_providers": true
+    },
+    {
+      "tag": "Group 12",
+      "type": "selector",
+      "use_all_providers": true,
+      "includes": [
+        "str1"
+      ]
+    },
+    {
+      "tag": "Group 13",
+      "type": "selector",
+      "use_all_providers": true,
+      "includes": [
+        "str2"
+      ]
+    },
+    {
+      "tag": "Group 14",
+      "type": "selector",
+      "use_all_providers": true,
+      "includes": [
+        "str3"
+      ]
+    },
+    {
+      "tag": "Group 15",
+      "type": "selector",
+      "use_all_providers": true,
+      "includes": [
+        "str4"
+      ]
+    },
+    {
+      "tag": "Group 16",
+      "type": "selector",
+      "use_all_providers": true,
+      "includes": [
+        "str5"
+      ]
+    },
+    {
+      "tag": "Group 17",
+      "type": "urltest",
+      "use_all_providers": true,
+      "includes": [
+        "str1"
+      ]
+    },
+    {
+      "tag": "Group 18",
+      "type": "urltest",
+      "use_all_providers": true,
+      "excludes": "str6"
+    },
+    {
+      "tag": "Group 19",
+      "type": "selector",
+      "outbounds": [
+        "Group 1",
+        "Proxy 1",
+        "Group 12",
+        "Group 14",
+        "Group 16",
+        "Group 11"
+      ]
+    },
+    {
+      "tag": "GLOBAL",
+      "type": "selector",
+      "outbounds": [
+        "Group 18",
+        "Proxy 1",
+        "Group 12",
+        "Group 14",
+        "Group 16",
+        "Group 11"
+      ]
+    },
+    {
+      "tag": "Proxy 1",
+      "type": "direct"
+    },
+    {
+      "tag": "Proxy 2",
+      "type": "dns"
+    }
+  ],
+  "outbound_providers": [
+    {
+      "type": "remote",
+      "tag": "str7",
+      "path": "./path-2.json",
+      "download_url": "str8",
+      "download_ua": "str9",
+      "enable_healthcheck": true,
+      "healthcheck_url": "https://h5.example.com/generate_204",
+      "healthcheck_interval": "300s",
+      "download_detour": "Proxy 1"
+    }
+  ],
+  "route": {
+    "auto_detect_interface": true,
+    "final": "Group 19",
+    "rules": [
+      {
+        "type": "logical",
+        "mode": "or",
+        "rules": [
+          {
+            "port": 53
+          },
+          {
+            "protocol": "dns"
+          }
+        ],
+        "outbound": "Proxy 2"
+      },
+      {
+        "clash_mode": "direct",
+        "outbound": "Proxy 1"
+      },
+      {
+        "clash_mode": "global",
+        "outbound": "GLOBAL"
+      },
+      {
+        "domain_suffix": [
+          "d1.example"
+        ],
+        "outbound": "Proxy 1"
+      },
+      {
+        "domain": [
+          "d2.example",
+          "d3.example",
+          "d4.example",
+          "d5.example"
+        ],
+        "outbound": "Proxy 1"
+      },
+      {
+        "ip_is_private": true,
+        "outbound": "Proxy 1"
+      },
+      {
+        "rule_set": "set-1",
+        "outbound": "Group 3"
+      },
+      {
+        "rule_set": "set-2",
+        "outbound": "Group 2"
+      },
+      {
+        "rule_set": [
+          "set-3",
+          "set-4"
+        ],
+        "outbound": "Group 4"
+      },
+      {
+        "rule_set": "set-8",
+        "outbound": "Group 5"
+      },
+      {
+        "rule_set": [
+          "set-6",
+          "set-7"
+        ],
+        "outbound": "Group 6"
+      },
+      {
+        "rule_set": "set-9",
+        "outbound": "Group 7"
+      },
+      {
+        "rule_set": [
+          "set-10",
+          "set-11"
+        ],
+        "outbound": "Group 8"
+      },
+      {
+        "rule_set": [
+          "set-12",
+          "set-13"
+        ],
+        "outbound": "Group 10"
+      },
+      {
+        "rule_set": "set-14",
+        "outbound": "Group 9"
+      },
+      {
+        "rule_set": "set-15",
+        "outbound": "Group 1"
+      },
+      {
+        "rule_set": [
+          "set-16",
+          "set-17"
+        ],
+        "outbound": "Proxy 1"
+      }
+    ],
+    "rule_set": [
+      {
+        "tag": "set-1",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h3.example.com/p1.srs",
+        "download_detour": "Group 1"
+      },
+      {
+        "tag": "set-2",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h3.example.com/p2.srs",
+        "download_detour": "Group 1"
+      },
+      {
+        "tag": "set-3",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h3.example.com/p3.srs",
+        "download_detour": "Group 1"
+      },
+      {
+        "tag": "set-4",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h3.example.com/p4.srs",
+        "download_detour": "Group 1"
+      },
+      {
+        "tag": "set-5",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h3.example.com/p5.srs",
+        "download_detour": "Group 1"
+      },
+      {
+        "tag": "set-6",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h3.example.com/p6.srs",
+        "download_detour": "Group 1"
+      },
+      {
+        "tag": "set-7",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h3.example.com/p7.srs",
+        "download_detour": "Group 1"
+      },
+      {
+        "tag": "set-8",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h3.example.com/p8.srs",
+        "download_detour": "Group 1"
+      },
+      {
+        "tag": "set-9",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h3.example.com/p9.srs",
+        "download_detour": "Group 1"
+      },
+      {
+        "tag": "set-10",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h3.example.com/p10.srs",
+        "download_detour": "Group 1"
+      },
+      {
+        "tag": "set-11",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h3.example.com/p11.srs",
+        "download_detour": "Group 1"
+      },
+      {
+        "tag": "set-12",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h3.example.com/p12.srs",
+        "download_detour": "Group 1"
+      },
+      {
+        "tag": "set-13",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h3.example.com/p13.srs",
+        "download_detour": "Group 1"
+      },
+      {
+        "tag": "set-14",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h3.example.com/p14.srs",
+        "download_detour": "Group 1"
+      },
+      {
+        "tag": "set-15",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h3.example.com/p15.srs",
+        "download_detour": "Group 1"
+      },
+      {
+        "tag": "set-16",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h3.example.com/p16.srs",
+        "download_detour": "Group 1"
+      },
+      {
+        "tag": "set-17",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h3.example.com/p17.srs",
+        "download_detour": "Group 1"
+      }
+    ]
+  }
+}

@@ -1,0 +1,291 @@
+{
+  "log": {
+    "level": "warn",
+    "timestamp": true
+  },
+  "experimental": {
+    "clash_api": {
+      "external_controller": ":9090",
+      "external_ui": "./path-1",
+      "secret": "./path-1",
+      "external_ui_download_url": "https://h2.example.com/p4.zip",
+      "external_ui_download_detour": "Proxy 1",
+      "default_mode": "Enhanced"
+    },
+    "cache_file": {
+      "enabled": true,
+      "store_rdrc": true,
+      "store_fakeip": true
+    }
+  },
+  "ntp": {
+    "enabled": false,
+    "server": "s11.example.net",
+    "server_port": 123,
+    "interval": "30m",
+    "detour": "DIRECT"
+  },
+  "inbounds": [
+    {
+      "type": "mixed",
+      "listen": "::",
+      "listen_port": 5330,
+      "sniff": true,
+      "sniff_override_destination": true,
+      "domain_strategy": "prefer_ipv4",
+      "tcp_fast_open": true,
+      "tcp_multi_path": true,
+      "udp_fragment": true,
+      "set_system_proxy": false
+    },
+    {
+      "type": "mixed",
+      "listen": "::",
+      "listen_port": 2334,
+      "sniff": true,
+      "sniff_override_destination": true,
+      "domain_strategy": "prefer_ipv4",
+      "tcp_fast_open": true,
+      "tcp_multi_path": true,
+      "udp_fragment": true,
+      "set_system_proxy": false
+    },
+    {
+      "tag": "in-1",
+      "type": "tun",
+      "interface_name": "if1",
+      "address": [
+        "192.0.2.1/30",
+        "fdfe:dcba:9876::1/126"
+      ],
+      "mtu": 9000,
+      "auto_route": true,
+      "strict_route": true,
+      "endpoint_independent_nat": true,
+      "stack": "system",
+      "platform": {
+        "http_proxy": {
+          "enabled": false,
+          "server": "127.0.0.1",
+          "server_port": 2334
+        }
+      },
+      "sniff": true,
+      "sniff_override_destination": true,
+      "domain_strategy": "prefer_ipv4"
+    }
+  ],
+  "outbounds": [],
+  "route": {
+    "rule_set": [
+      {
+        "tag": "set-1",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p1.srs",
+        "download_detour": "Proxy 1",
+        "update_interval": "3d"
+      },
+      {
+        "tag": "set-2",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p2.srs",
+        "download_detour": "Proxy 1",
+        "update_interval": "3d"
+      },
+      {
+        "tag": "set-3",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p3.srs",
+        "download_detour": "Proxy 1",
+        "update_interval": "3d"
+      }
+    ],
+    "rules": [
+      {
+        "inbound": "in-1",
+        "action": "sniff"
+      },
+      {
+        "action": "route",
+        "udp_connect": true,
+        "outbound": "DIRECT",
+        "wifi_ssid": [
+          "ssid-1"
+        ]
+      },
+      {
+        "action": "route",
+        "udp_connect": true,
+        "outbound": "DIRECT",
+        "wifi_ssid": [
+          "ssid-2"
+        ]
+      },
+      {
+        "type": "logical",
+        "mode": "or",
+        "rules": [
+          {
+            "protocol": "dns"
+          },
+          {
+            "port": 53
+          }
+        ],
+        "action": "hijack-dns"
+      },
+      {
+        "protocol": "dns",
+        "action": "hijack-dns"
+      },
+      {
+        "ip_is_private": true,
+        "action": "route",
+        "udp_connect": true,
+        "outbound": "Proxy 2"
+      },
+      {
+        "type": "logical",
+        "mode": "or",
+        "rules": [
+          {
+            "port": 853
+          },
+          {
+            "network": "udp",
+            "port": 443
+          },
+          {
+            "protocol": "stun"
+          }
+        ],
+        "action": "reject",
+        "no_drop": false
+      },
+      {
+        "clash_mode": "Direct",
+        "action": "route",
+        "udp_connect": true,
+        "outbound": "Proxy 2"
+      },
+      {
+        "clash_mode": "Global",
+        "action": "route",
+        "udp_connect": true,
+        "outbound": "Proxy 1"
+      }
+    ],
+    "final": "Proxy 3",
+    "auto_detect_interface": true,
+    "override_android_vpn": true
+  },
+  "dns": {
+    "servers": [
+      {
+        "tag": "dns-1",
+        "address": "https://192.0.2.1/dns-query",
+        "strategy": "prefer_ipv4",
+        "detour": "Proxy 1"
+      },
+      {
+        "tag": "dns-2",
+        "address": "https://192.0.2.2/dns-query",
+        "strategy": "prefer_ipv4",
+        "detour": "Proxy 2"
+      },
+      {
+        "tag": "dns-3",
+        "address": "192.0.2.3",
+        "strategy": "prefer_ipv4",
+        "detour": "Proxy 2"
+      },
+      {
+        "tag": "dns-4",
+        "address": "192.0.2.4",
+        "strategy": "prefer_ipv4",
+        "detour": "Proxy 1"
+      },
+      {
+        "tag": "dns-5",
+        "address": "fakeip"
+      },
+      {
+        "tag": "dns-6",
+        "address": "rcode://success"
+      }
+    ],
+    "rules": [
+      {
+        "outbound": "any",
+        "action": "route",
+        "disable_cache": true,
+        "server": "dns-2"
+      },
+      {
+        "rule_set": "set-1",
+        "action": "route",
+        "server": "dns-2"
+      },
+      {
+        "clash_mode": "Direct",
+        "action": "route",
+        "server": "dns-2"
+      },
+      {
+        "clash_mode": "Global",
+        "action": "route",
+        "server": "dns-1"
+      },
+      {
+        "type": "logical",
+        "mode": "and",
+        "rules": [
+          {
+            "domain_suffix": [
+              ".d1.example",
+              ".d2.example",
+              ".d3.example",
+              ".d4.example",
+              ".localhost",
+              ".d5.example",
+              ".d6.example",
+              ".d7.example",
+              ".d8.example",
+              ".d9.example",
+              ".d10.example"
+            ],
+            "invert": true
+          },
+          {
+            "rule_set": "set-2",
+            "invert": true
+          },
+          {
+            "rule_set": "set-3"
+          }
+        ],
+        "action": "route",
+        "server": "dns-1",
+        "client_subnet": "192.0.2.114/24"
+      },
+      {
+        "query_type": [
+          "A",
+          "AAAA"
+        ],
+        "action": "route",
+        "server": "dns-5"
+      }
+    ],
+    "fakeip": {
+      "enabled": true,
+      "inet4_range": "198.18.0.1/16",
+      "inet6_range": "3f00::/18"
+    },
+    "independent_cache": true,
+    "final": "dns-1"
+  }
+}

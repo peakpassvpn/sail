@@ -1,0 +1,258 @@
+port: 7890
+socks-port: 7891
+mixed-port: 7892
+redir-port: 7893
+tproxy-port: 7894
+unified-delay: true
+geodata-mode: false
+geodata-loader: standard
+geo-auto-update: true
+geo-update-interval: 24
+tcp-concurrent: true
+find-process-mode: strict
+global-client-fingerprint: chrome
+allow-lan: true
+mode: rule
+log-level: info
+ipv6: true
+udp: true
+external-controller: 0.0.0.0:9090
+geox-url:
+  mmdb: 'https://h2.example.com/p23.mmdb'
+  asn: 'https://h2.example.com/p24.mmdb'
+profile:
+  store-selected: true
+  store-fake-ip: true
+sniffer:
+  enable: true
+  force-dns-mapping: true
+  parse-pure-ip: true
+  override-destination: true
+  sniff:
+    HTTP:
+      ports: [80, 8080-8880]
+      override-destination: true
+    TLS:
+      ports: [443, 8443]
+    QUIC:
+      ports: [443, 8443]
+  force-domain:
+    - +.d1.example
+  skip-domain:
+    - str1
+tun:
+  enable: true
+  stack: system
+  dns-hijack:
+    - any:53
+  auto-route: true
+  auto-detect-interface: true
+dns:
+  enable: true
+  listen: 0.0.0.0:1053
+  ipv6: true
+  enhanced-mode: fake-ip
+  fake-ip-range: 28.0.0.1/8
+  fake-ip-filter:
+    - "*"
+    - +.d2.example
+  default-nameserver:
+    - 192.0.2.1
+    - 192.0.2.2
+  nameserver:
+    - https://192.0.2.1/dns-query#h3=true
+    - https://192.0.2.2/dns-query#h3=true
+anchor-1: &a1 {type: http, interval: 3600, health-check: {enable: true, url: 'http://h1.example.com', interval: 6}}
+proxy-providers:
+  provider-1:
+    url: 'str2'
+    <<: *a1
+    path: './path-1.yaml'
+    override:
+      additional-prefix: "str3"
+  provider-2:
+    url: 'str4'
+    <<: *a1
+    path: './path-2.yaml'
+    override:
+      additional-prefix: "str5"
+anchor-2: &a5 'Proxy [0-9]+|Group 3'
+anchor-3: &a6 'Proxy [0-9]+|Group 4'
+anchor-4: &a7 'Proxy [0-9]+|Group 5'
+anchor-5: &a8 'Proxy [0-9]+|Group 6'
+anchor-6: &a9 'Proxy [0-9]+|Group 7'
+anchor-7: &a10 'Proxy [0-9]+|Group 8'
+anchor-8: &a11 'Proxy [0-9]+|Group 9'
+anchor-9: &a12 'Proxy [0-9]+|Group 10'
+anchor-10: &a13 'Proxy [0-9]+|Group 11'
+anchor-11: &a2 'Proxy [0-9]+|Group 1'
+anchor-12: &a3 'Proxy [0-9]+|Group 2'
+anchor-13: &a4 {type: url-test, interval: 6, tolerance: 20, lazy: true, url: 'http://h1.example.com', disable-udp: false, timeout: 2000, max-failed-times: 3, hidden: true, include-all-providers: true}
+anchor-14: &a14 {type: fallback, interval: 6, lazy: true, url: 'http://h1.example.com', disable-udp: false, timeout: 2000, max-failed-times: 3, hidden: true, include-all-providers: true}
+anchor-15: &a15 {type: load-balance, interval: 6, lazy: true, url: 'http://h1.example.com', disable-udp: false, strategy: consistent-hashing, timeout: 2000, max-failed-times: 3, hidden: true, include-all-providers: true}
+anchor-16: &a16 {type: http, behavior: classical, interval: 3600, format: yaml, proxy: DIRECT}
+proxy-groups:
+  - {name: Group 1, type: select, include-all-providers: true, filter: *a2, proxies: [DIRECT, Group 2]}
+  - {name: Group 2, type: select, include-all-providers: true, filter: *a3}
+  - {name: Group 3, type: select, include-all-providers: true, filter: *a3, proxies: [DIRECT]}
+  - {name: Group 4, type: select, include-all-providers: true, filter: *a3}
+  - {name: Group 5, type: select, include-all-providers: true, filter: *a3}
+  - {name: Group 6, type: select, proxies: [Group 15, Group 16, Group 17, Group 18, Group 19, Group 20, Group 21, Group 22, Group 23]}
+  - {name: Group 7, type: select, proxies: [DIRECT, Group 15, Group 16, Group 17, Group 18, Group 19, Group 20, Group 21, Group 22, Group 23]}
+  - {name: Group 8, type: select, proxies: [DIRECT, Group 15, Group 16, Group 17, Group 18, Group 19, Group 20, Group 21, Group 22, Group 23]}
+  - {name: Group 9, type: select, proxies: [DIRECT, Group 15, Group 16, Group 17, Group 18, Group 19, Group 20, Group 21, Group 22, Group 23]}
+  - {name: Group 10, type: select, proxies: [DIRECT, Group 15, Group 16, Group 17, Group 18, Group 19, Group 20, Group 21, Group 22, Group 23]}
+  - {name: Group 11, type: select, proxies: [DIRECT, Group 15, Group 16, Group 17, Group 18, Group 19, Group 20, Group 21, Group 22, Group 23]}
+  - {name: Group 12, type: select, proxies: [Group 15, Group 16, Group 17, Group 18, Group 19, Group 20, Group 21, Group 22, Group 23]}
+  - {name: Group 13, type: select, proxies: [DIRECT, Group 15, Group 16, Group 17, Group 18, Group 19, Group 20, Group 21, Group 22, Group 23]}
+  - {name: Group 14, type: select, proxies: [Group 15, Group 16, Group 17, Group 18, Group 19, Group 20, Group 21, Group 22, Group 23, DIRECT]}
+  - {name: Group 15, type: select, proxies: [Group 24, Group 33, Group 42]}
+  - {name: Group 16, type: select, proxies: [Group 25, Group 34, Group 43]}
+  - {name: Group 17, type: select, proxies: [Group 26, Group 35, Group 44]}
+  - {name: Group 18, type: select, proxies: [Group 27, Group 36, Group 45]}
+  - {name: Group 19, type: select, proxies: [Group 28, Group 37, Group 46]}
+  - {name: Group 20, type: select, proxies: [Group 29, Group 38, Group 47]}
+  - {name: Group 21, type: select, proxies: [Group 30, Group 39, Group 48]}
+  - {name: Group 22, type: select, proxies: [Group 31, Group 40, Group 49]}
+  - {name: Group 23, type: select, proxies: [Group 32, Group 41, Group 50]}
+  - {name: Group 24, <<: *a4, filter: *a5}
+  - {name: Group 25, <<: *a4, filter: *a6}
+  - {name: Group 26, <<: *a4, filter: *a7}
+  - {name: Group 27, <<: *a4, filter: *a8}
+  - {name: Group 28, <<: *a4, filter: *a9}
+  - {name: Group 29, <<: *a4, filter: *a10}
+  - {name: Group 30, <<: *a4, filter: *a11}
+  - {name: Group 31, <<: *a4, filter: *a12}
+  - {name: Group 32, <<: *a4, filter: *a13}
+  - {name: Group 33, <<: *a14, filter: *a5}
+  - {name: Group 34, <<: *a14, filter: *a6}
+  - {name: Group 35, <<: *a14, filter: *a7}
+  - {name: Group 36, <<: *a14, filter: *a8}
+  - {name: Group 37, <<: *a14, filter: *a9}
+  - {name: Group 38, <<: *a14, filter: *a10}
+  - {name: Group 39, <<: *a14, filter: *a11}
+  - {name: Group 40, <<: *a14, filter: *a12}
+  - {name: Group 41, <<: *a14, filter: *a13}
+  - {name: Group 42, <<: *a15, filter: *a5}
+  - {name: Group 43, <<: *a15, filter: *a6}
+  - {name: Group 44, <<: *a15, filter: *a7}
+  - {name: Group 45, <<: *a15, filter: *a8}
+  - {name: Group 46, <<: *a15, filter: *a9}
+  - {name: Group 47, <<: *a15, filter: *a10}
+  - {name: Group 48, <<: *a15, filter: *a11}
+  - {name: Group 49, <<: *a15, filter: *a12}
+  - {name: Group 50, <<: *a15, filter: *a13}
+rule-providers:
+  set-1:
+    <<: *a16
+    path: './path-3.yaml'
+    url: 'https://h2.example.com/p1.yaml'
+  set-2:
+    <<: *a16
+    path: './path-4.yaml'
+    url: 'https://h2.example.com/p2.yaml'
+  set-3:
+    <<: *a16
+    path: './path-5.yaml'
+    url: 'https://h2.example.com/p3.yaml'
+  set-4:
+    <<: *a16
+    path: './path-6.yaml'
+    url: 'https://h2.example.com/p4.yaml'
+  set-5:
+    <<: *a16
+    path: './path-7.yaml'
+    url: 'https://h2.example.com/p5.yaml'
+  set-6:
+    <<: *a16
+    path: './path-8.yaml'
+    url: 'https://h2.example.com/p6.yaml'
+  set-7:
+    <<: *a16
+    path: './path-9.yaml'
+    url: 'https://h2.example.com/p7.yaml'
+  set-8:
+    <<: *a16
+    path: './path-10.yaml'
+    url: 'https://h2.example.com/p8.yaml'
+  set-9:
+    <<: *a16
+    path: './path-11.yaml'
+    url: 'https://h2.example.com/p9.yaml'
+  set-10:
+    <<: *a16
+    path: './path-12.yaml'
+    url: 'https://h2.example.com/p10.yaml'
+  set-11:
+    <<: *a16
+    path: './path-13.yaml'
+    url: 'https://h2.example.com/p11.yaml'
+  set-12:
+    <<: *a16
+    path: './path-14.yaml'
+    url: 'https://h2.example.com/p12.yaml'
+  set-13:
+    <<: *a16
+    path: './path-15.yaml'
+    url: 'https://h2.example.com/p13.yaml'
+  set-14:
+    <<: *a16
+    path: './path-16.yaml'
+    url: 'https://h2.example.com/p14.yaml'
+  set-15:
+    <<: *a16
+    path: './path-17.yaml'
+    url: 'https://h2.example.com/p15.yaml'
+  set-16:
+    <<: *a16
+    path: './path-18.yaml'
+    url: 'https://h2.example.com/p16.yaml'
+  set-17:
+    <<: *a16
+    path: './path-19.yaml'
+    url: 'https://h2.example.com/p17.yaml'
+  set-18:
+    <<: *a16
+    path: './path-20.yaml'
+    url: 'https://h2.example.com/p18.yaml'
+  set-19:
+    <<: *a16
+    path: './path-21.yaml'
+    url: 'https://h2.example.com/p19.yaml'
+  set-20:
+    <<: *a16
+    path: './path-22.yaml'
+    url: 'https://h2.example.com/p20.yaml'
+  set-21:
+    <<: *a16
+    path: './path-23.yaml'
+    url: 'https://h2.example.com/p21.yaml'
+  set-22:
+    <<: *a16
+    path: './path-24.yaml'
+    url: 'https://h2.example.com/p22.yaml'
+rules:
+  - RULE-SET, set-1, DIRECT
+  - RULE-SET, set-2, DIRECT
+  - RULE-SET, set-3, Group 14
+  - RULE-SET, set-4, DIRECT
+  - RULE-SET, set-5, Group 3
+  - RULE-SET, set-6, Group 4
+  - RULE-SET, set-7, Group 5
+  - RULE-SET, set-10, Group 14
+  - RULE-SET, set-8, Group 1
+  - RULE-SET, set-11, Group 12
+  - RULE-SET, set-12, Group 13
+  - RULE-SET, set-18, Group 9
+  - RULE-SET, set-13, DIRECT
+  - RULE-SET, set-14, DIRECT
+  - RULE-SET, set-15, DIRECT
+  - RULE-SET, set-16, Group 8
+  - RULE-SET, set-17, Group 7
+  - RULE-SET, set-9, Group 10
+  - RULE-SET, set-19, Group 11
+  - RULE-SET, set-20, Group 14
+  - RULE-SET, set-21, Group 6
+  - RULE-SET, set-22, DIRECT
+  - GEOIP, CN, DIRECT
+  - MATCH, Group 14

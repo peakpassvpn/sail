@@ -1,0 +1,61 @@
+port: 7890
+allow-lan: true
+mode: rule
+log-level: info
+unified-delay: true
+global-client-fingerprint: chrome
+dns:
+  enable: true
+  listen: 0.0.0.0:1053
+  ipv6: true
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  default-nameserver:
+    - 192.0.2.1
+    - 192.0.2.2
+  nameserver:
+    - https://h1.example.com/dns-query
+  nameserver-policy:
+    - d1.example:
+        - 'https://192.0.2.1/dns-query'
+        - 'https://192.0.2.2/dns-query'
+        - 'https://h1.example.com/dns-query'
+    - 'geosite:cn': https://h2.example.com/dns-query
+  proxy-server-nameserver:
+    - 'https://192.0.2.2/dns-query'
+    - 'https://192.0.2.1/dns-query'
+    - https://h1.example.com/dns-query
+    - https://h2.example.com/dns-query
+    - 'geosite:cn': https://h2.example.com/dns-query
+  fallback:
+    - tls://192.0.2.3
+    - 'tls://192.0.2.2'
+    - https://192.0.2.2/dns-query
+    - tls://h3.example.com
+proxies:
+  - name: Proxy 1
+    type: vless
+    server: d1.example
+    port: 443
+    uuid: 00005a11-0000-4000-8000-000000000001
+    network: ws
+    tls: true
+    udp: false
+    sni: d1.example
+    client-fingerprint: chrome
+    ws-opts:
+      path: "/p1"
+      headers:
+        host: d1.example
+proxy-groups:
+  - name: Group 1
+    type: select
+    proxies:
+      - Proxy 1
+rules:
+  - GEOSITE,google,Group 1
+  - GEOSITE,cn,DIRECT
+  - GEOIP,CN,DIRECT
+  - GEOIP,LAN,DIRECT
+  - GEOIP,lan,DIRECT,no-resolve
+  - MATCH,Group 1

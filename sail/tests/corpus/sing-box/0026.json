@@ -1,0 +1,208 @@
+{
+  "log": {
+    "disabled": false,
+    "level": "info",
+    "timestamp": true
+  },
+  "dns": {
+    "servers": [
+      {
+        "tag": "dns-1",
+        "type": "udp",
+        "server": "192.0.2.1"
+      },
+      {
+        "tag": "dns-2",
+        "type": "https",
+        "server": "s1.example.net",
+        "domain_resolver": "dns-1"
+      },
+      {
+        "tag": "dns-3",
+        "type": "https",
+        "server": "192.0.2.2",
+        "detour": "Proxy 1"
+      },
+      {
+        "tag": "dns-4",
+        "type": "fakeip",
+        "inet4_range": "198.18.0.0/15",
+        "inet6_range": "2001:db8::/64"
+      }
+    ],
+    "rules": [
+      {
+        "rule_set": "set-1",
+        "server": "dns-2"
+      },
+      {
+        "query_type": [
+          "A",
+          "AAAA"
+        ],
+        "server": "dns-4",
+        "rewrite_ttl": 1
+      }
+    ],
+    "final": "dns-3",
+    "strategy": "ipv4_only",
+    "reverse_mapping": true
+  },
+  "outbounds": [
+    {
+      "tag": "Proxy 1",
+      "type": "vless",
+      "server": "s2.example.net",
+      "server_port": 8443,
+      "uuid": "00005a11-0000-4000-8000-000000000001",
+      "tls": {
+        "enabled": true,
+        "server_name": "str1",
+        "insecure": false,
+        "reality": {
+          "enabled": true,
+          "public_key": "wywOQgzCr2vr85JpoMxzCakHIIvgUtsG",
+          "short_id": "str1"
+        },
+        "utls": {
+          "enabled": true,
+          "fingerprint": "firefox"
+        }
+      },
+      "flow": "xtls-rprx-vision"
+    },
+    {
+      "tag": "Proxy 2",
+      "type": "vless",
+      "server": "s2.example.net",
+      "server_port": 8443,
+      "uuid": "00005a11-0000-4000-8000-000000000001",
+      "tls": {
+        "enabled": true,
+        "server_name": "str1",
+        "insecure": false,
+        "reality": {
+          "enabled": true,
+          "public_key": "wywOQgzCr2vr85JpoMxzCakHIIvgUtsG",
+          "short_id": "str1"
+        },
+        "utls": {
+          "enabled": true,
+          "fingerprint": "firefox"
+        }
+      },
+      "flow": "xtls-rprx-vision"
+    },
+    {
+      "tag": "GLOBAL",
+      "type": "selector",
+      "outbounds": [
+        "Proxy 1",
+        "Proxy 2",
+        "Proxy 3"
+      ]
+    },
+    {
+      "tag": "Proxy 3",
+      "type": "direct"
+    }
+  ],
+  "route": {
+    "rules": [
+      {
+        "action": "sniff",
+        "sniffer": [
+          "http",
+          "tls",
+          "quic",
+          "dns"
+        ]
+      },
+      {
+        "inbound": "in-1",
+        "action": "hijack-dns"
+      },
+      {
+        "ip_is_private": true,
+        "outbound": "Proxy 3"
+      },
+      {
+        "rule_set": "set-1",
+        "outbound": "Proxy 3"
+      },
+      {
+        "rule_set": "set-2",
+        "outbound": "Proxy 3"
+      }
+    ],
+    "rule_set": [
+      {
+        "tag": "set-1",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p1.srs",
+        "http_client": "str2"
+      },
+      {
+        "tag": "set-2",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p2.srs",
+        "http_client": "str2"
+      }
+    ],
+    "final": "GLOBAL",
+    "default_http_client": "str2",
+    "default_domain_resolver": "dns-2"
+  },
+  "inbounds": [
+    {
+      "tag": "in-1",
+      "type": "direct",
+      "listen": "0.0.0.0",
+      "listen_port": 1053
+    },
+    {
+      "tag": "in-2",
+      "type": "redirect",
+      "listen": "0.0.0.0",
+      "listen_port": 7890
+    },
+    {
+      "tag": "in-3",
+      "type": "tproxy",
+      "listen": "0.0.0.0",
+      "listen_port": 7891
+    },
+    {
+      "tag": "in-4",
+      "type": "tun",
+      "interface_name": "if1",
+      "address": [
+        "192.0.2.1/30"
+      ],
+      "auto_route": false,
+      "auto_redirect": false
+    }
+  ],
+  "http_clients": [
+    {
+      "tag": "str2"
+    }
+  ],
+  "experimental": {
+    "cache_file": {
+      "enabled": true,
+      "path": "./path-1.db",
+      "store_fakeip": true
+    },
+    "clash_api": {
+      "external_controller": "0.0.0.0:9095",
+      "external_ui": "./path-2",
+      "external_ui_download_url": "https://h2.example.com/p3",
+      "external_ui_download_detour": "Proxy 3",
+      "secret": "",
+      "default_mode": "rule"
+    }
+  }
+}

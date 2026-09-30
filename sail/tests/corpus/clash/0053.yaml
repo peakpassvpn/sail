@@ -1,0 +1,18 @@
+proxy-groups:
+  - name: PROXY
+    type: select
+    include-all-proxies: true
+    proxies: [Group 1, DIRECT]
+  - name: Group 1
+    type: url-test
+    include-all-proxies: true
+    url: https://h1.example.com/generate_204
+    interval: 300
+    tolerance: 50
+rules:
+  - IP-CIDR,127.0.0.0/8,DIRECT,no-resolve
+  - IP-CIDR,10.0.0.0/8,DIRECT,no-resolve
+  - IP-CIDR,172.16.0.0/12,DIRECT,no-resolve
+  - IP-CIDR,192.168.0.0/16,DIRECT,no-resolve
+  - DOMAIN-SUFFIX,d1.example,DIRECT
+  - MATCH,PROXY

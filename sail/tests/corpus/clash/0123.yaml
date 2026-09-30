@@ -1,0 +1,298 @@
+tproxy-port: 7895
+redir-port: 7892
+port: 7890
+socks-port: 7891
+mixed-port: 7893
+bind-address: "*"
+mode: rule
+allow-lan: true
+unified-delay: true
+log-level: silent
+external-controller: 0.0.0.0:9090
+external-ui: "./path-11"
+ipv6: false
+secret: password1
+dns:
+  enable: true
+  ipv6: false
+  enhanced-mode: redir-host
+  listen: 0.0.0.0:7874
+  nameserver:
+    - https://h1.example.com/dns-query
+    - https://h2.example.com/dns-query
+    - dhcp://h3.example.com
+    - dhcp://h4.example.com
+    - 192.0.2.1
+    - 192.0.2.2
+    - 192.0.2.3
+  fallback:
+    - https://h5.example.com/dns-query
+    - https://h6.example.com/dns-query
+    - tls://192.0.2.4:853
+    - tls://192.0.2.2:853
+  fallback-filter:
+    geoip: false
+    ipcidr:
+      - 0.0.0.0/8
+      - 10.0.0.0/8
+      - 100.64.0.0/10
+      - 127.0.0.0/8
+      - 169.254.0.0/16
+      - 172.16.0.0/12
+      - 192.0.0.0/24
+      - 192.0.2.0/24
+      - 192.0.2.0/24
+      - 192.168.0.0/16
+      - 198.18.0.0/15
+      - 198.51.100.0/24
+      - 203.0.113.0/24
+      - 224.0.0.0/4
+      - 240.0.0.0/4
+      - 255.255.255.255/32
+    domain:
+      - "+.d1.example"
+      - "+.d2.example"
+      - "+.d3.example"
+      - "+.d4.example"
+  default-nameserver:
+    - 192.0.2.1
+    - 192.0.2.2
+    - 192.0.2.3
+    - tls://192.0.2.4:853
+    - tls://192.0.2.2:853
+rules:
+  - DST-PORT,7895,REJECT
+  - DST-PORT,7892,REJECT
+  - DST-PORT,7895,REJECT
+  - DST-PORT,7892,REJECT
+  - DST-PORT,7895,REJECT
+  - DST-PORT,7892,REJECT
+  - DST-PORT,7895,REJECT
+  - DST-PORT,7892,REJECT
+  - RULE-SET,set-1,Group 4
+  - RULE-SET,set-3,Group 6
+  - RULE-SET,set-2,Group 12
+  - RULE-SET, set-4, Group 7
+  - RULE-SET, set-5, Group 5
+  - RULE-SET,DIRECT,DIRECT
+  - IP-CIDR,198.18.0.1/16,REJECT,no-resolve
+  - RULE-SET,REJECT,REJECT
+  - MATCH,GLOBAL
+proxy-groups:
+  - name: GLOBAL
+    type: select
+    disable-udp: false
+    proxies:
+      - DIRECT
+      - Group 6
+      - Group 7
+  - name: Group 1
+    type: select
+    disable-udp: false
+    use:
+      - provider-1
+      - provider-3
+    proxies:
+      - DIRECT
+      - REJECT
+      - Group 8
+      - Group 9
+    url: http://h7.example.com/generate_204
+    interval: '90'
+    interface-name: if1
+  - name: Group 2
+    type: select
+    disable-udp: false
+    use:
+      - provider-2
+      - provider-3
+    proxies:
+      - DIRECT
+      - Group 10
+      - Group 11
+    url: http://h7.example.com/generate_204
+    interval: '90'
+    interface-name: if2
+  - name: Group 3
+    type: load-balance
+    strategy: consistent-hashing
+    disable-udp: false
+    proxies:
+      - Group 1
+      - Group 2
+    url: http://h7.example.com/generate_204
+    interval: '90'
+  - name: Group 4
+    type: select
+    disable-udp: false
+    use:
+      - provider-1
+      - provider-2
+      - provider-3
+    proxies:
+      - DIRECT
+      - GLOBAL
+      - Group 1
+      - Group 2
+      - Group 6
+      - Group 8
+      - Group 10
+      - Group 7
+  - name: Group 5
+    type: select
+    disable-udp: false
+    proxies:
+      - DIRECT
+      - REJECT
+      - GLOBAL
+  - name: Group 6
+    type: url-test
+    tolerance: '150'
+    proxies:
+      - Group 8
+      - Group 10
+    url: http://h7.example.com/generate_204
+    interval: '90'
+  - name: Group 7
+    type: load-balance
+    strategy: consistent-hashing
+    disable-udp: false
+    proxies:
+      - Group 9
+      - Group 11
+    url: http://h7.example.com/generate_204
+    interval: '90'
+  - name: Group 8
+    type: url-test
+    tolerance: '150'
+    use:
+      - provider-1
+      - provider-3
+    url: http://h7.example.com/generate_204
+    interval: '90'
+    interface-name: if1
+  - name: Group 9
+    type: load-balance
+    strategy: consistent-hashing
+    disable-udp: false
+    use:
+      - provider-1
+      - provider-3
+    url: http://h7.example.com/generate_204
+    interval: '90'
+    interface-name: if1
+  - name: Group 10
+    type: url-test
+    tolerance: '150'
+    use:
+      - provider-2
+      - provider-3
+    url: http://h7.example.com/generate_204
+    interval: '90'
+    interface-name: if2
+  - name: Group 11
+    type: load-balance
+    strategy: consistent-hashing
+    disable-udp: false
+    use:
+      - provider-2
+      - provider-3
+    url: http://h7.example.com/generate_204
+    interval: '90'
+    interface-name: if2
+  - name: Group 12
+    type: load-balance
+    strategy: consistent-hashing
+    disable-udp: false
+    use:
+      - provider-3
+    url: http://h7.example.com/generate_204
+    interval: '90'
+proxy-providers:
+  provider-1:
+    type: file
+    path: "./path-1.YAML"
+    url: https://h8.example.com/p1.YAML
+    health-check:
+      enable: true
+      url: http://h7.example.com/generate_204
+      interval: 90
+  provider-2:
+    type: file
+    path: "./path-2.YAML"
+    url: https://h8.example.com/p2.YAML
+    health-check:
+      enable: true
+      url: http://h7.example.com/generate_204
+      interval: 90
+  provider-3:
+    type: file
+    path: "./path-3.YAML"
+    health-check:
+      enable: true
+      url: http://h7.example.com/generate_204
+      interval: 90
+rule-providers:
+  DIRECT:
+    type: http
+    behavior: classical
+    path: "./path-4.YAML"
+    url: https://h8.example.com/p3.YAML
+    interval: 86400
+  set-1:
+    type: http
+    behavior: classical
+    path: "./path-5.YAML"
+    url: https://h8.example.com/p4.YAML
+    interval: 86400
+  set-2:
+    type: http
+    behavior: classical
+    path: "./path-6.YAML"
+    url: https://h8.example.com/p5.YAML
+    interval: 86400
+  set-3:
+    type: http
+    behavior: classical
+    path: "./path-7.YAML"
+    url: https://h8.example.com/p6.YAML
+    interval: 86400
+  set-4:
+    type: http
+    behavior: classical
+    path: "./path-8.YAML"
+    url: https://h8.example.com/p7.YAML
+    interval: 86400
+  REJECT:
+    type: http
+    behavior: classical
+    path: "./path-9.YAML"
+    url: https://h8.example.com/p8.YAML
+    interval: 86400
+  set-5:
+    type: http
+    behavior: classical
+    path: "./path-10.YAML"
+    url: https://h8.example.com/p9.YAML
+    interval: 86400
+tun:
+  enable: true
+  stack: gvisor
+  device: if3
+  auto-route: false
+  auto-detect-interface: false
+  dns-hijack:
+    - tcp://any:53
+geodata-mode: false
+geodata-loader: memconservative
+tcp-concurrent: true
+authentication:
+  - user1:password2
+sniffer:
+  enable: true
+  sniffing:
+    - tls
+    - http
+profile:
+  store-selected: true
+  store-fake-ip: true

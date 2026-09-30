@@ -1,0 +1,639 @@
+mixed-port: 7890
+allow-lan: true
+mode: rule
+log-level: info
+ipv6: true
+external-controller: 127.0.0.1:9090
+dns:
+  enable: true
+  listen: 0.0.0.0:1053
+  ipv6: true
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  default-nameserver:
+    - 192.0.2.1
+    - 192.0.2.2
+  nameserver:
+    - https://h1.example.com/dns-query
+    - https://h2.example.com/dns-query
+proxies:
+  - name: Proxy 1
+    type: vless
+    server: 192.0.2.3
+    port: 443
+    uuid: 00005a11-0000-4000-8000-000000000001
+    network: ws
+    servername: sni1.example.org
+    tls: true
+    ws-opts:
+      headers:
+        Host: sni1.example.org
+    udp: true
+  - name: Proxy 2
+    type: ss
+    server: 192.0.2.4
+    port: 8080
+    cipher: chacha20-ietf-poly1305
+    password: password1
+    udp: true
+  - name: Proxy 3
+    type: vless
+    server: 192.0.2.5
+    port: 443
+    uuid: 00005a11-0000-4000-8000-000000000002
+    network: ws
+    servername: sni2.example.org
+    tls: true
+    client-fingerprint: chrome
+    ws-opts:
+      path: /p1
+      headers:
+        Host: sni2.example.org
+    udp: true
+  - name: Proxy 4
+    type: vless
+    server: 192.0.2.6
+    port: 443
+    uuid: 00005a11-0000-4000-8000-000000000003
+    network: ws
+    servername: sni3.example.org
+    tls: true
+    ws-opts:
+      path: /p2
+      headers:
+        Host: sni3.example.org
+    udp: true
+  - name: Proxy 5
+    type: ss
+    server: 192.0.2.7
+    port: 990
+    cipher: chacha20-ietf-poly1305
+    password: password2
+    udp: true
+  - name: Proxy 6
+    type: vmess
+    server: s4.example.net
+    port: 30806
+    uuid: 00005a11-0000-4000-8000-000000000004
+    alterId: 2
+    cipher: auto
+    tls: false
+    skip-cert-verify: false
+    udp: true
+  - name: Proxy 7
+    type: ss
+    server: 192.0.2.8
+    port: 38388
+    cipher: aes-256-cfb
+    password: password3
+    udp: true
+  - name: Proxy 8
+    type: vless
+    server: 192.0.2.9
+    port: 2053
+    uuid: 00005a11-0000-4000-8000-000000000001
+    network: ws
+    servername: sni5.example.org
+    tls: true
+    ws-opts:
+      path: /p3
+      headers:
+        Host: sni5.example.org
+    udp: true
+  - name: Proxy 9
+    type: vless
+    server: 192.0.2.10
+    port: 49790
+    uuid: 00005a11-0000-4000-8000-000000000005
+    servername: sni6.example.org
+    tls: true
+    client-fingerprint: chrome
+    reality-opts:
+      public-key: wywOQgzCr2vr85JpoMxzCakHIIvgUtsG6_Qp987NJa4
+      short-id: 704c7085dd
+    udp: true
+  - name: Proxy 10
+    type: ss
+    server: 192.0.2.11
+    port: 38388
+    cipher: aes-256-cfb
+    password: password3
+    udp: true
+  - name: Proxy 11
+    type: vless
+    server: 192.0.2.12
+    port: 443
+    uuid: 00005a11-0000-4000-8000-000000000001
+    network: ws
+    servername: sni7.example.org
+    tls: true
+    ws-opts:
+      path: /p4
+      headers:
+        Host: sni7.example.org
+    udp: true
+  - name: Proxy 12
+    type: ss
+    server: 192.0.2.13
+    port: 38388
+    cipher: aes-256-cfb
+    password: password3
+    udp: true
+  - name: Proxy 13
+    type: vless
+    server: 192.0.2.14
+    port: 8443
+    uuid: 00005a11-0000-4000-8000-000000000001
+    network: ws
+    servername: sni8.example.org
+    tls: true
+    ws-opts:
+      path: /p5
+      headers:
+        Host: sni8.example.org
+    udp: true
+  - name: Proxy 14
+    type: ss
+    server: 192.0.2.15
+    port: 38388
+    cipher: aes-256-cfb
+    password: password3
+    udp: true
+  - name: Proxy 15
+    type: ss
+    server: 192.0.2.16
+    port: 8080
+    cipher: chacha20-ietf-poly1305
+    password: password1
+    udp: true
+  - name: Proxy 16
+    type: vless
+    server: 192.0.2.17
+    port: 443
+    uuid: 00005a11-0000-4000-8000-000000000006
+    network: ws
+    servername: sni9.example.org
+    tls: true
+    ws-opts:
+      headers:
+        Host: sni9.example.org
+    udp: true
+  - name: Proxy 17
+    type: ss
+    server: 192.0.2.18
+    port: 38388
+    cipher: aes-256-cfb
+    password: password3
+    udp: true
+  - name: Proxy 18
+    type: ss
+    server: 192.0.2.19
+    port: 38388
+    cipher: aes-256-cfb
+    password: password3
+    udp: true
+  - name: Proxy 19
+    type: ss
+    server: 192.0.2.20
+    port: 38388
+    cipher: aes-256-cfb
+    password: password3
+    udp: true
+  - name: Proxy 20
+    type: ss
+    server: 192.0.2.21
+    port: 8080
+    cipher: chacha20-ietf-poly1305
+    password: password1
+    udp: true
+  - name: Proxy 21
+    type: ss
+    server: 192.0.2.22
+    port: 38388
+    cipher: aes-256-cfb
+    password: password3
+    udp: true
+  - name: Proxy 22
+    type: vless
+    server: 192.0.2.23
+    port: 443
+    uuid: 00005a11-0000-4000-8000-000000000007
+    servername: sni10.example.org
+    tls: true
+    client-fingerprint: chrome
+    reality-opts:
+      public-key: WulOoXrJ4xaeREDpCXJqPLE7mK1qDJwNSfPto1FYe4I
+    udp: true
+  - name: Proxy 23
+    type: vless
+    server: 192.0.2.24
+    port: 443
+    uuid: 00005a11-0000-4000-8000-000000000001
+    network: ws
+    servername: sni11.example.org
+    tls: true
+    ws-opts:
+      path: /p6
+      headers:
+        Host: sni11.example.org
+    udp: true
+  - name: Proxy 24
+    type: ss
+    server: 192.0.2.25
+    port: 38388
+    cipher: aes-256-cfb
+    password: password3
+    udp: true
+  - name: Proxy 25
+    type: vless
+    server: 192.0.2.26
+    port: 443
+    uuid: 00005a11-0000-4000-8000-000000000002
+    network: ws
+    servername: sni2.example.org
+    tls: true
+    client-fingerprint: chrome
+    ws-opts:
+      path: /p1
+      headers:
+        Host: sni2.example.org
+    udp: true
+  - name: Proxy 26
+    type: ss
+    server: 192.0.2.27
+    port: 38388
+    cipher: aes-256-cfb
+    password: password3
+    udp: true
+  - name: Proxy 27
+    type: ss
+    server: 192.0.2.28
+    port: 38388
+    cipher: aes-256-cfb
+    password: password3
+    udp: true
+  - name: Proxy 28
+    type: ss
+    server: 192.0.2.29
+    port: 38388
+    cipher: aes-256-cfb
+    password: password3
+    udp: true
+  - name: Proxy 29
+    type: vmess
+    server: s12.example.net
+    port: 30829
+    uuid: 00005a11-0000-4000-8000-000000000004
+    alterId: 2
+    cipher: auto
+    tls: false
+    skip-cert-verify: false
+    udp: true
+  - name: Proxy 30
+    type: ss
+    server: 192.0.2.30
+    port: 8080
+    cipher: chacha20-ietf-poly1305
+    password: password1
+    udp: true
+proxy-groups:
+  - name: Group 1
+    type: select
+    proxies:
+      - Group 2
+      - DIRECT
+      - Proxy 1
+      - Proxy 2
+      - Proxy 3
+      - Proxy 4
+      - Proxy 5
+      - Proxy 6
+      - Proxy 7
+      - Proxy 8
+      - Proxy 9
+      - Proxy 10
+      - Proxy 11
+      - Proxy 12
+      - Proxy 13
+      - Proxy 14
+      - Proxy 15
+      - Proxy 16
+      - Proxy 17
+      - Proxy 18
+      - Proxy 19
+      - Proxy 20
+      - Proxy 21
+      - Proxy 22
+      - Proxy 23
+      - Proxy 24
+      - Proxy 25
+      - Proxy 26
+      - Proxy 27
+      - Proxy 28
+      - Proxy 29
+      - Proxy 30
+  - name: Group 2
+    type: url-test
+    proxies:
+      - Proxy 1
+      - Proxy 2
+      - Proxy 3
+      - Proxy 4
+      - Proxy 5
+      - Proxy 6
+      - Proxy 7
+      - Proxy 8
+      - Proxy 9
+      - Proxy 10
+      - Proxy 11
+      - Proxy 12
+      - Proxy 13
+      - Proxy 14
+      - Proxy 15
+      - Proxy 16
+      - Proxy 17
+      - Proxy 18
+      - Proxy 19
+      - Proxy 20
+      - Proxy 21
+      - Proxy 22
+      - Proxy 23
+      - Proxy 24
+      - Proxy 25
+      - Proxy 26
+      - Proxy 27
+      - Proxy 28
+      - Proxy 29
+      - Proxy 30
+    url: http://h3.example.com/generate_204
+    interval: 300
+    tolerance: 50
+  - name: Group 3
+    type: select
+    proxies:
+      - Group 1
+      - Group 2
+      - Group 7
+      - Proxy 1
+      - Proxy 2
+      - Proxy 3
+      - Proxy 4
+      - Proxy 5
+      - Proxy 6
+      - Proxy 7
+      - Proxy 8
+      - Proxy 9
+      - Proxy 10
+      - Proxy 11
+      - Proxy 12
+      - Proxy 13
+      - Proxy 14
+      - Proxy 15
+      - Proxy 16
+      - Proxy 17
+      - Proxy 18
+      - Proxy 19
+      - Proxy 20
+      - Proxy 21
+      - Proxy 22
+      - Proxy 23
+      - Proxy 24
+      - Proxy 25
+      - Proxy 26
+      - Proxy 27
+      - Proxy 28
+      - Proxy 29
+      - Proxy 30
+  - name: Group 4
+    type: select
+    proxies:
+      - Group 1
+      - Group 7
+      - Proxy 1
+      - Proxy 2
+      - Proxy 3
+      - Proxy 4
+      - Proxy 5
+      - Proxy 6
+      - Proxy 7
+      - Proxy 8
+      - Proxy 9
+      - Proxy 10
+      - Proxy 11
+      - Proxy 12
+      - Proxy 13
+      - Proxy 14
+      - Proxy 15
+      - Proxy 16
+      - Proxy 17
+      - Proxy 18
+      - Proxy 19
+      - Proxy 20
+      - Proxy 21
+      - Proxy 22
+      - Proxy 23
+      - Proxy 24
+      - Proxy 25
+      - Proxy 26
+      - Proxy 27
+      - Proxy 28
+      - Proxy 29
+      - Proxy 30
+  - name: Group 5
+    type: select
+    proxies:
+      - Group 7
+      - Group 1
+      - Proxy 1
+      - Proxy 2
+      - Proxy 3
+      - Proxy 4
+      - Proxy 5
+      - Proxy 6
+      - Proxy 7
+      - Proxy 8
+      - Proxy 9
+      - Proxy 10
+      - Proxy 11
+      - Proxy 12
+      - Proxy 13
+      - Proxy 14
+      - Proxy 15
+      - Proxy 16
+      - Proxy 17
+      - Proxy 18
+      - Proxy 19
+      - Proxy 20
+      - Proxy 21
+      - Proxy 22
+      - Proxy 23
+      - Proxy 24
+      - Proxy 25
+      - Proxy 26
+      - Proxy 27
+      - Proxy 28
+      - Proxy 29
+      - Proxy 30
+  - name: Group 6
+    type: select
+    proxies:
+      - Group 1
+      - Group 7
+      - Proxy 1
+      - Proxy 2
+      - Proxy 3
+      - Proxy 4
+      - Proxy 5
+      - Proxy 6
+      - Proxy 7
+      - Proxy 8
+      - Proxy 9
+      - Proxy 10
+      - Proxy 11
+      - Proxy 12
+      - Proxy 13
+      - Proxy 14
+      - Proxy 15
+      - Proxy 16
+      - Proxy 17
+      - Proxy 18
+      - Proxy 19
+      - Proxy 20
+      - Proxy 21
+      - Proxy 22
+      - Proxy 23
+      - Proxy 24
+      - Proxy 25
+      - Proxy 26
+      - Proxy 27
+      - Proxy 28
+      - Proxy 29
+      - Proxy 30
+  - name: Group 7
+    type: select
+    proxies:
+      - DIRECT
+      - Group 1
+      - Group 2
+  - name: Group 8
+    type: select
+    proxies:
+      - REJECT
+      - DIRECT
+  - name: Group 9
+    type: select
+    proxies:
+      - REJECT
+      - DIRECT
+  - name: Group 10
+    type: select
+    proxies:
+      - Group 1
+      - Group 7
+      - Group 2
+      - Proxy 1
+      - Proxy 2
+      - Proxy 3
+      - Proxy 4
+      - Proxy 5
+      - Proxy 6
+      - Proxy 7
+      - Proxy 8
+      - Proxy 9
+      - Proxy 10
+      - Proxy 11
+      - Proxy 12
+      - Proxy 13
+      - Proxy 14
+      - Proxy 15
+      - Proxy 16
+      - Proxy 17
+      - Proxy 18
+      - Proxy 19
+      - Proxy 20
+      - Proxy 21
+      - Proxy 22
+      - Proxy 23
+      - Proxy 24
+      - Proxy 25
+      - Proxy 26
+      - Proxy 27
+      - Proxy 28
+      - Proxy 29
+      - Proxy 30
+rule-providers:
+  set-1:
+    type: http
+    behavior: classical
+    url: https://h4.example.com/p7.list
+    path: ./path-1.yaml
+  set-2:
+    type: http
+    behavior: classical
+    url: https://h4.example.com/p8.list
+    path: ./path-2.yaml
+  set-3:
+    type: http
+    behavior: classical
+    url: https://h4.example.com/p9.list
+    path: ./path-3.yaml
+  set-4:
+    type: http
+    behavior: classical
+    url: https://h4.example.com/p10.list
+    path: ./path-4.yaml
+  set-5:
+    type: http
+    behavior: classical
+    url: https://h4.example.com/p11.list
+    path: ./path-5.yaml
+  set-6:
+    type: http
+    behavior: classical
+    url: https://h4.example.com/p12.list
+    path: ./path-6.yaml
+  set-7:
+    type: http
+    behavior: classical
+    url: https://h4.example.com/p13.list
+    path: ./path-7.yaml
+  set-8:
+    type: http
+    behavior: classical
+    url: https://h4.example.com/p14.list
+    path: ./path-8.yaml
+  set-9:
+    type: http
+    behavior: classical
+    url: https://h4.example.com/p15.list
+    path: ./path-9.yaml
+  set-10:
+    type: http
+    behavior: classical
+    url: https://h4.example.com/p16.list
+    path: ./path-10.yaml
+  set-11:
+    type: http
+    behavior: classical
+    url: https://h4.example.com/p17.list
+    path: ./path-11.yaml
+  set-12:
+    type: http
+    behavior: classical
+    url: https://h4.example.com/p18.list
+    path: ./path-12.yaml
+rules:
+  - RULE-SET,set-1,Group 7
+  - RULE-SET,set-2,Group 8
+  - RULE-SET,set-3,Group 9
+  - RULE-SET,set-4,Group 7
+  - RULE-SET,set-5,Group 7
+  - RULE-SET,set-6,Group 5
+  - RULE-SET,set-7,Group 6
+  - RULE-SET,set-8,Group 3
+  - RULE-SET,set-9,Group 4
+  - RULE-SET,set-10,Group 1
+  - RULE-SET,set-11,Group 7
+  - RULE-SET,set-12,Group 7
+  - GEOIP,CN,Group 7
+  - MATCH,Group 10

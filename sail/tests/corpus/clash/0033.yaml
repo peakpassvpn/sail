@@ -1,0 +1,170 @@
+proxy-providers:
+  provider-1:
+    url: ""
+    type: http
+    interval: 86400
+    health-check: {enable: true, url: "https://h1.example.com/generate_204", interval: 300}
+    override:
+      additional-prefix: "str1"
+  provider-2:
+    url: ""
+    type: http
+    interval: 86400
+    health-check: {enable: true, url: "https://h1.example.com/generate_204", interval: 300}
+    override:
+      additional-prefix: "str2"
+proxies:
+  - name: "Proxy 1"
+    type: direct
+    udp: true
+mixed-port: 7890
+ipv6: true
+allow-lan: true
+unified-delay: false
+tcp-concurrent: true
+external-controller: 127.0.0.1:9090
+external-ui: ./path-1
+external-ui-url: "https://h4.example.com/p1.zip"
+geodata-mode: true
+geox-url:
+  geoip: "https://h4.example.com/p2.dat"
+  geosite: "https://h4.example.com/p3.dat"
+  mmdb: "https://h4.example.com/p4.mmdb"
+  asn: "https://h4.example.com/p5.mmdb"
+find-process-mode: strict
+global-client-fingerprint: chrome
+profile:
+  store-selected: true
+  store-fake-ip: true
+sniffer:
+  enable: true
+  sniff:
+    HTTP:
+      ports: [80, 8080-8880]
+      override-destination: true
+    TLS:
+      ports: [443, 8443]
+    QUIC:
+      ports: [443, 8443]
+  skip-domain:
+    - "str3"
+    - "+.d1.example"
+tun:
+  enable: true
+  stack: mixed
+  dns-hijack:
+    - "any:53"
+    - "tcp://any:53"
+  auto-route: true
+  auto-redirect: true
+  auto-detect-interface: true
+dns:
+  enable: true
+  ipv6: true
+  enhanced-mode: fake-ip
+  fake-ip-filter:
+    - "*"
+    - "+.d2.example"
+    - "+.d3.example"
+    - "+.d4.example"
+  default-nameserver:
+    - tls://192.0.2.1
+    - tls://192.0.2.2
+  nameserver:
+    - https://h2.example.com/dns-query
+    - https://h3.example.com/dns-query
+proxy-groups:
+  - name: Group 1
+    type: select
+    proxies: [Group 20, Proxy 1, Group 13, Group 14, Group 15, Group 17, Group 16, Group 18, Group 19]
+  - name: Group 2
+    type: select
+    proxies: [Group 1, Group 13, Group 14, Group 15, Group 17, Group 16, Group 18, Group 19, Group 20, Proxy 1]
+  - name: Group 3
+    type: select
+    proxies: [Group 1, Group 13, Group 14, Group 15, Group 17, Group 16, Group 18, Group 19, Group 20, Proxy 1]
+  - name: Group 4
+    type: select
+    proxies: [Group 1, Group 13, Group 14, Group 15, Group 17, Group 16, Group 18, Group 19, Group 20, Proxy 1]
+  - name: Group 5
+    type: select
+    proxies: [Group 1, Group 13, Group 14, Group 15, Group 17, Group 16, Group 18, Group 19, Group 20, Proxy 1]
+  - name: Group 6
+    type: select
+    proxies: [Group 1, Group 13, Group 14, Group 15, Group 17, Group 16, Group 18, Group 19, Group 20, Proxy 1]
+  - name: Group 7
+    type: select
+    proxies: [Group 1, Group 13, Group 14, Group 15, Group 17, Group 16, Group 18, Group 19, Group 20, Proxy 1]
+  - name: Group 8
+    type: select
+    proxies: [Group 1, Group 13, Group 14, Group 15, Group 17, Group 16, Group 18, Group 19, Group 20, Proxy 1]
+  - name: Group 9
+    type: select
+    proxies: [Group 1, Group 13, Group 14, Group 15, Group 17, Group 16, Group 18, Group 19, Group 20, Proxy 1]
+  - name: Group 10
+    type: select
+    proxies: [Group 1, Group 13, Group 14, Group 15, Group 17, Group 16, Group 18, Group 19, Group 20, Proxy 1]
+  - name: Group 11
+    type: select
+    proxies: [Proxy 1, Group 1, Group 13, Group 14, Group 15, Group 17, Group 16, Group 18, Group 19, Group 20]
+  - name: Group 12
+    type: select
+    proxies: [Group 1, Group 13, Group 14, Group 15, Group 17, Group 16, Group 18, Group 19, Group 20, Proxy 1]
+  - name: Group 13
+    type: select
+    include-all: true
+    exclude-type: direct
+    filter: "Proxy [0-9]+|Group 1"
+  - name: Group 14
+    type: select
+    include-all: true
+    exclude-type: direct
+    filter: "Proxy [0-9]+|Group 2"
+  - name: Group 15
+    type: select
+    include-all: true
+    exclude-type: direct
+    filter: "Proxy [0-9]+|Group 3"
+  - name: Group 16
+    type: select
+    include-all: true
+    exclude-type: direct
+    filter: "Proxy [0-9]+|Group 4"
+  - name: Group 17
+    type: select
+    include-all: true
+    exclude-type: direct
+    filter: "Proxy [0-9]+|Group 5"
+  - name: Group 18
+    type: select
+    include-all: true
+    exclude-type: direct
+    filter: "Proxy [0-9]+|Group 6"
+  - name: Group 19
+    type: select
+    include-all: true
+    exclude-type: direct
+  - name: Group 20
+    type: url-test
+    include-all: true
+    exclude-type: direct
+    tolerance: 10
+rules:
+  - GEOIP,lan,Proxy 1,no-resolve
+  - GEOSITE,github,Group 10
+  - GEOSITE,twitter,Group 4
+  - GEOSITE,youtube,Group 7
+  - GEOSITE,google,Group 2
+  - GEOSITE,telegram,Group 3
+  - GEOSITE,netflix,Group 8
+  - GEOSITE,bilibili,Group 5
+  - GEOSITE,bahamut,Group 6
+  - GEOSITE,spotify,Group 9
+  - GEOSITE,CN,Group 11
+  - GEOSITE,geolocation-!cn,Group 12
+  - GEOIP,google,Group 2
+  - GEOIP,netflix,Group 8
+  - GEOIP,telegram,Group 3
+  - GEOIP,twitter,Group 4
+  - GEOIP,CN,Group 11
+  - MATCH,Group 12

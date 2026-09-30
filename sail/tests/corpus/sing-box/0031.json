@@ -1,0 +1,119 @@
+{
+  "log": {
+    "level": "error",
+    "timestamp": true
+  },
+  "dns": {
+    "servers": [
+      {
+        "type": "https",
+        "tag": "dns-1",
+        "server": "192.0.2.1",
+        "tls": {
+          "enabled": true,
+          "server_name": "sni1.example.org"
+        }
+      },
+      {
+        "type": "https",
+        "tag": "dns-2",
+        "detour": "Proxy 2",
+        "server": "192.0.2.1",
+        "tls": {
+          "enabled": true,
+          "server_name": "sni1.example.org"
+        }
+      },
+      {
+        "type": "fakeip",
+        "tag": "dns-3",
+        "inet4_range": "198.18.0.0/15"
+      }
+    ],
+    "rules": [
+      {
+        "query_type": "A",
+        "source_ip_cidr": [
+          "192.0.2.2",
+          "192.0.2.3"
+        ],
+        "rule_set": "set-1",
+        "server": "dns-3"
+      },
+      {
+        "rule_set": "set-1",
+        "server": "dns-2"
+      }
+    ],
+    "reverse_mapping": true
+  },
+  "inbounds": [
+    {
+      "type": "tproxy",
+      "listen": "0.0.0.0",
+      "listen_port": 6543
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "direct",
+      "tag": "Proxy 1"
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 2",
+      "server": "str1",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000001",
+      "flow": "xtls-rprx-vision",
+      "tls": {
+        "enabled": true,
+        "server_name": "str2",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "password1"
+        },
+        "reality": {
+          "enabled": true,
+          "public_key": "wywOQgzCr2vr85JpoMxzCakHIIvgUtsG6/Qp",
+          "short_id": "str3"
+        }
+      }
+    }
+  ],
+  "route": {
+    "rules": [
+      {
+        "action": "sniff"
+      },
+      {
+        "protocol": "dns",
+        "action": "hijack-dns"
+      },
+      {
+        "rule_set": "set-2",
+        "outbound": "Proxy 2"
+      }
+    ],
+    "rule_set": [
+      {
+        "type": "remote",
+        "tag": "set-1",
+        "url": "https://h1.example.com/p1.srs"
+      },
+      {
+        "type": "remote",
+        "tag": "set-2",
+        "url": "https://h2.example.com/p2.srs"
+      }
+    ],
+    "default_domain_resolver": "dns-1"
+  },
+  "experimental": {
+    "cache_file": {
+      "enabled": true,
+      "path": "./path-1.db",
+      "store_fakeip": true
+    }
+  }
+}

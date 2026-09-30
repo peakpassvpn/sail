@@ -1,0 +1,154 @@
+mode: rule
+log-level: warning
+proxies:
+  - {name: "Proxy 1", type: hysteria2, server: 192.0.2.1, port: 443, password: "password1"}
+  - {name: "Proxy 2", type: hysteria2, server: 192.0.2.2, port: 443, password: "password1"}
+  - {name: "Proxy 3", type: hysteria2, server: 192.0.2.3, port: 443, password: "password1"}
+  - {name: "Proxy 4", type: hysteria2, server: 192.0.2.4, port: 443, password: "password1"}
+  - {name: "Proxy 5", type: vless, server: 192.0.2.5, port: 443, uuid: "00005a11-0000-4000-8000-000000000001", tls: true}
+  - {name: "Proxy 6", type: vless, server: 192.0.2.6, port: 443, uuid: "00005a11-0000-4000-8000-000000000001", tls: true}
+  - {name: "Proxy 7", type: trojan, server: 192.0.2.7, port: 443, password: "password1"}
+  - {name: "Proxy 8", type: trojan, server: 192.0.2.8, port: 443, password: "password1"}
+  - {name: "Proxy 9", type: hysteria2, server: 192.0.2.9, port: 443, password: "password1"}
+  - {name: "Proxy 10", type: hysteria2, server: 192.0.2.10, port: 443, password: "password1"}
+  - {name: "Proxy 11", type: hysteria2, server: 192.0.2.11, port: 443, password: "password1"}
+  - {name: "Proxy 12", type: hysteria2, server: 192.0.2.12, port: 443, password: "password1"}
+  - {name: "Proxy 13", type: vless, server: 192.0.2.13, port: 443, uuid: "00005a11-0000-4000-8000-000000000001", tls: true}
+  - {name: "Proxy 14", type: trojan, server: 192.0.2.14, port: 443, password: "password1"}
+  - {name: "Proxy 15", type: trojan, server: 192.0.2.15, port: 443, password: "password1"}
+  - {name: "Proxy 16", type: hysteria2, server: 192.0.2.16, port: 443, password: "password1"}
+  - {name: "Proxy 17", type: hysteria2, server: 192.0.2.17, port: 443, password: "password1"}
+  - {name: "Proxy 18", type: hysteria2, server: 192.0.2.18, port: 443, password: "password1"}
+  - {name: "Proxy 19", type: hysteria2, server: 192.0.2.19, port: 443, password: "password1"}
+  - {name: "Proxy 20", type: hysteria2, server: 192.0.2.20, port: 443, password: "password1"}
+  - {name: "Proxy 21", type: hysteria2, server: 192.0.2.21, port: 443, password: "password1"}
+  - {name: "Proxy 22", type: hysteria2, server: 192.0.2.22, port: 443, password: "password1"}
+  - {name: "Proxy 23", type: hysteria2, server: 192.0.2.23, port: 443, password: "password1"}
+  - {name: "Proxy 24", type: hysteria2, server: 192.0.2.24, port: 443, password: "password1"}
+  - {name: "Proxy 25", type: hysteria2, server: 192.0.2.25, port: 443, password: "password1"}
+  - {name: "Proxy 26", type: hysteria2, server: 192.0.2.26, port: 443, password: "password1"}
+  - {name: "Proxy 27", type: hysteria2, server: 192.0.2.27, port: 443, password: "password1"}
+  - {name: "Proxy 28", type: hysteria2, server: 192.0.2.28, port: 443, password: "password1"}
+  - {name: "Proxy 29", type: hysteria2, server: 192.0.2.29, port: 443, password: "password1"}
+  - {name: "Proxy 30", type: hysteria2, server: 192.0.2.30, port: 443, password: "password1"}
+  - {name: "Proxy 31", type: hysteria2, server: 192.0.2.31, port: 443, password: "password1"}
+  - {name: "Proxy 32", type: hysteria2, server: 192.0.2.32, port: 443, password: "password1"}
+  - {name: "Proxy 33", type: hysteria2, server: 192.0.2.33, port: 443, password: "password1"}
+  - {name: "Proxy 34", type: hysteria2, server: 192.0.2.34, port: 443, password: "password1"}
+  - {name: "Proxy 35", type: hysteria2, server: 192.0.2.35, port: 443, password: "password1"}
+proxy-groups:
+  - name: "Group 1"
+    type: url-test
+    url: "https://h1.example.com/generate_204"
+    interval: 3600
+    lazy: true
+    proxies:
+      - "Proxy 1"
+      - "Proxy 2"
+      - "Proxy 3"
+      - "Proxy 4"
+      - "Proxy 5"
+      - "Proxy 6"
+      - "Proxy 7"
+      - "Proxy 8"
+      - "Proxy 9"
+      - "Proxy 10"
+      - "Proxy 11"
+      - "Proxy 12"
+      - "Proxy 13"
+      - "Proxy 14"
+      - "Proxy 15"
+      - "Proxy 16"
+      - "Proxy 17"
+      - "Proxy 18"
+      - "Proxy 19"
+      - "Proxy 20"
+      - "Proxy 21"
+      - "Proxy 22"
+      - "Proxy 23"
+      - "Proxy 24"
+      - "Proxy 25"
+      - "Proxy 26"
+      - "Proxy 27"
+      - "Proxy 28"
+      - "Proxy 29"
+      - "Proxy 30"
+      - "Proxy 31"
+      - "Proxy 32"
+      - "Proxy 33"
+      - "Proxy 34"
+      - "Proxy 35"
+  - name: "Group 2"
+    type: fallback
+    url: "https://h1.example.com/generate_204"
+    interval: 3600
+    lazy: true
+    proxies:
+      - "Proxy 1"
+      - "Proxy 2"
+      - "Proxy 3"
+      - "Proxy 4"
+      - "Proxy 5"
+      - "Proxy 6"
+      - "Proxy 7"
+      - "Proxy 8"
+      - "Proxy 9"
+      - "Proxy 10"
+      - "Proxy 11"
+      - "Proxy 12"
+      - "Proxy 13"
+      - "Proxy 14"
+      - "Proxy 15"
+      - "Proxy 16"
+      - "Proxy 17"
+      - "Proxy 18"
+      - "Proxy 19"
+      - "Proxy 20"
+      - "Proxy 21"
+      - "Proxy 22"
+      - "Proxy 23"
+      - "Proxy 24"
+      - "Proxy 25"
+      - "Proxy 26"
+      - "Proxy 27"
+      - "Proxy 28"
+      - "Proxy 29"
+      - "Proxy 30"
+      - "Proxy 31"
+      - "Proxy 32"
+      - "Proxy 33"
+      - "Proxy 34"
+      - "Proxy 35"
+  - name: "Group 3"
+    type: select
+    proxies:
+      - "Group 5"
+      - "Proxy 1"
+      - "Proxy 2"
+      - "Proxy 3"
+      - "Proxy 4"
+      - "Proxy 5"
+      - "Proxy 6"
+      - "Proxy 7"
+      - "Proxy 8"
+  - name: "Group 4"
+    type: select
+    proxies:
+      - "Group 5"
+      - "Proxy 9"
+      - "Proxy 10"
+      - "Proxy 11"
+      - "Proxy 12"
+      - "Proxy 13"
+      - "Proxy 14"
+      - "Proxy 15"
+  - name: "Group 5"
+    type: select
+    proxies:
+      - "DIRECT"
+  - name: "Group 6"
+    type: select
+    proxies:
+      - "Proxy 35"
+rules:
+  - MATCH,DIRECT

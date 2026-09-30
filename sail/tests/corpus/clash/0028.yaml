@@ -1,0 +1,137 @@
+port: 7890
+socks-port: 7891
+allow-lan: true
+mode: Rule
+log-level: info
+external-controller: :9090
+proxies:
+  - name: Proxy 1
+    type: vmess
+    server: s1.example.net
+    port: "443"
+    uuid: 00005a11-0000-4000-8000-000000000001
+    alterId: 0
+    cipher: auto
+    tls: true
+    network: ws
+    ws-opts:
+      path: /p1
+      headers:
+        Host: s1.example.net
+  - name: Proxy 2
+    type: vmess
+    server: s2.example.net
+    port: "8443"
+    uuid: 00005a11-0000-4000-8000-000000000001
+    alterId: 0
+    cipher: auto
+    tls: true
+    network: ws
+    ws-opts:
+      path: /p1
+  - name: Proxy 3
+    type: vmess
+    server: s3.example.net
+    port: "443"
+    uuid: 00005a11-0000-4000-8000-000000000001
+    alterId: 0
+    cipher: auto
+    tls: true
+    network: ws
+    ws-opts:
+      path: /p1
+      headers:
+        Host: s3.example.net
+  - name: Proxy 4
+    type: vmess
+    server: s4.example.net
+    port: "443"
+    uuid: 00005a11-0000-4000-8000-000000000001
+    alterId: 0
+    cipher: auto
+    tls: true
+    network: ws
+    ws-opts:
+      path: /p1
+      headers:
+        Host: s4.example.net
+  - name: Proxy 5
+    type: vmess
+    server: s5.example.net
+    port: "443"
+    uuid: 00005a11-0000-4000-8000-000000000001
+    alterId: 0
+    cipher: auto
+    tls: true
+    network: ws
+    ws-opts:
+      path: /p1
+      headers:
+        Host: s5.example.net
+  - name: Proxy 6
+    type: vmess
+    server: s5.example.net
+    port: "443"
+    uuid: 00005a11-0000-4000-8000-000000000001
+    alterId: 0
+    cipher: auto
+    tls: true
+    network: ws
+    ws-opts:
+      path: /p2
+      headers:
+        Host: s5.example.net
+  - name: Proxy 7
+    type: vmess
+    server: s6.example.net
+    port: "443"
+    uuid: 00005a11-0000-4000-8000-000000000001
+    alterId: 0
+    cipher: auto
+    tls: true
+    network: ws
+    ws-opts:
+      path: /p2
+      headers:
+        Host: s6.example.net
+  - name: Proxy 8
+    type: vmess
+    server: s7.example.net
+    port: "443"
+    uuid: 00005a11-0000-4000-8000-000000000001
+    alterId: 0
+    cipher: auto
+    tls: true
+    network: ws
+    ws-opts:
+      path: /p1
+      headers:
+        Host: s7.example.net
+  - name: Proxy 9
+    type: vmess
+    server: s7.example.net
+    port: "443"
+    uuid: 00005a11-0000-4000-8000-000000000001
+    alterId: 0
+    cipher: auto
+    tls: true
+    network: ws
+    ws-opts:
+      path: /p2
+      headers:
+        Host: s7.example.net
+  - name: Proxy 10
+    type: vmess
+    server: s7.example.net
+    port: "443"
+    uuid: 00005a11-0000-4000-8000-000000000001
+    alterId: 0
+    cipher: auto
+    tls: true
+    network: ws
+    ws-opts:
+      path: /p3
+      headers:
+        Host: s7.example.net
+proxy-groups: []
+rules:

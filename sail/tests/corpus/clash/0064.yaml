@@ -1,0 +1,49 @@
+tun:
+  enable: true
+  device-url: dev://h1.example.com
+  dns-listen: 0.0.0.0:9953
+  auto-reopen: true
+allow-lan: true
+bind-address: '*'
+log-level: error
+ipv6: false
+dns:
+  enable: true
+  listen: 0.0.0.0:9953
+  ipv6: false
+  default-nameserver:
+    - 192.0.2.1
+    - 192.0.2.2
+  enhanced-mode: redir-host
+  nameserver:
+    - 192.0.2.1
+  fallback:
+    - 'https://192.0.2.3:5053/dns-query?name=v1'
+    - 'tcp://192.0.2.3'
+    - 'tcp://192.0.2.2'
+  fallback-filter:
+    geoip: true
+    ipcidr:
+      - 240.0.0.0/4
+      - 0.0.0.0/32
+    domain:
+      - d1.example
+      - d2.example
+      - d3.example
+proxies:
+proxy-groups:
+  - name: "Group 1"
+    type: url-test
+    proxies:
+    url: 'http://h2.example.com/generate_204'
+    interval: 300
+rules:
+  - DOMAIN-SUFFIX,d1.example,Group 1
+  - DOMAIN-KEYWORD,kw1,Group 1
+  - DOMAIN,d1.example,Group 1
+  - DOMAIN-SUFFIX,d4.example,REJECT
+  - DST-PORT,9954,REJECT
+  - DST-PORT,9955,REJECT
+  - IP-CIDR,127.0.0.0/8,DIRECT
+  - GEOIP,CN,DIRECT
+  - MATCH,Group 1

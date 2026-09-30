@@ -1,0 +1,223 @@
+{
+  "log": {
+    "level": "debug",
+    "timestamp": true
+  },
+  "dns": {
+    "servers": [
+      {
+        "type": "https",
+        "tag": "dns-1",
+        "server": "192.0.2.1",
+        "detour": "Group 1"
+      },
+      {
+        "type": "https",
+        "tag": "dns-2",
+        "server": "192.0.2.2"
+      },
+      {
+        "type": "fakeip",
+        "tag": "dns-3",
+        "inet4_range": "198.18.0.0/15",
+        "inet6_range": "3f00::/18"
+      }
+    ],
+    "rules": [
+      {
+        "clash_mode": "Global",
+        "server": "dns-1"
+      },
+      {
+        "clash_mode": "Direct",
+        "server": "dns-2"
+      },
+      {
+        "query_type": [
+          "A",
+          "AAAA"
+        ],
+        "server": "dns-3",
+        "rewrite_ttl": 1
+      }
+    ],
+    "strategy": "prefer_ipv4",
+    "independent_cache": true,
+    "reverse_mapping": true
+  },
+  "inbounds": [
+    {
+      "type": "mixed",
+      "tag": "in-1",
+      "listen": "0.0.0.0",
+      "listen_port": 10172,
+      "tcp_fast_open": true,
+      "set_system_proxy": false
+    },
+    {
+      "type": "socks",
+      "tag": "in-2",
+      "listen": "0.0.0.0",
+      "listen_port": 10173,
+      "tcp_fast_open": true
+    },
+    {
+      "type": "mixed",
+      "tag": "in-3",
+      "listen": "0.0.0.0",
+      "listen_port": 10174,
+      "tcp_fast_open": true,
+      "set_system_proxy": false
+    },
+    {
+      "type": "mixed",
+      "tag": "in-4",
+      "listen": "0.0.0.0",
+      "listen_port": 10175,
+      "tcp_fast_open": true,
+      "set_system_proxy": false
+    },
+    {
+      "type": "mixed",
+      "tag": "in-5",
+      "listen": "0.0.0.0",
+      "listen_port": 10176,
+      "tcp_fast_open": true,
+      "set_system_proxy": false
+    },
+    {
+      "type": "mixed",
+      "tag": "in-6",
+      "listen": "0.0.0.0",
+      "listen_port": 10177,
+      "tcp_fast_open": true,
+      "set_system_proxy": false
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "selector",
+      "tag": "Group 1",
+      "outbounds": [
+        "Group 2"
+      ],
+      "default": "Group 2",
+      "interrupt_exist_connections": true
+    },
+    {
+      "type": "urltest",
+      "tag": "Group 2",
+      "interval": "30m",
+      "idle_timeout": "60m",
+      "interrupt_exist_connections": true,
+      "outbounds": null
+    },
+    {
+      "type": "direct",
+      "tag": "Proxy 1"
+    }
+  ],
+  "route": {
+    "rules": [
+      {
+        "action": "sniff"
+      },
+      {
+        "type": "logical",
+        "mode": "or",
+        "rules": [
+          {
+            "protocol": "dns"
+          },
+          {
+            "port": 53
+          }
+        ],
+        "action": "hijack-dns"
+      },
+      {
+        "inbound": [
+          "in-1",
+          "in-2",
+          "in-3",
+          "in-4",
+          "in-5",
+          "in-6"
+        ],
+        "action": "resolve",
+        "strategy": "prefer_ipv4"
+      },
+      {
+        "ip_is_private": true,
+        "outbound": "Proxy 1"
+      },
+      {
+        "inbound": [
+          "in-3"
+        ],
+        "outbound": "Proxy 2"
+      },
+      {
+        "inbound": [
+          "in-4"
+        ],
+        "outbound": "Proxy 3"
+      },
+      {
+        "inbound": [
+          "in-5"
+        ],
+        "outbound": "Proxy 4"
+      },
+      {
+        "inbound": [
+          "in-6"
+        ],
+        "outbound": "Proxy 5"
+      },
+      {
+        "clash_mode": "Direct",
+        "outbound": "Proxy 1"
+      },
+      {
+        "clash_mode": "Global",
+        "outbound": "Group 1"
+      },
+      {
+        "type": "logical",
+        "mode": "or",
+        "rules": [
+          {
+            "port": 853
+          },
+          {
+            "network": "udp",
+            "port": 443
+          },
+          {
+            "protocol": "stun"
+          }
+        ],
+        "action": "reject"
+      }
+    ],
+    "auto_detect_interface": false,
+    "default_domain_resolver": {
+      "server": "dns-2",
+      "strategy": "prefer_ipv4"
+    }
+  },
+  "experimental": {
+    "cache_file": {
+      "enabled": true,
+      "store_rdrc": true
+    },
+    "clash_api": {
+      "external_controller": "0.0.0.0:19090",
+      "external_ui": "./path-1",
+      "external_ui_download_url": "https://h1.example.com/p1.zip",
+      "external_ui_download_detour": "Group 1",
+      "default_mode": "Rule"
+    }
+  }
+}

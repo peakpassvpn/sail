@@ -1,0 +1,335 @@
+{
+  "log": {
+    "level": "error",
+    "timestamp": true
+  },
+  "dns": {
+    "servers": [
+      {
+        "type": "tcp",
+        "tag": "dns-1",
+        "detour": "Group 1",
+        "domain_resolver": "dns-2",
+        "server": "192.0.2.1"
+      },
+      {
+        "type": "tcp",
+        "tag": "dns-2",
+        "detour": "Proxy 1",
+        "server": "192.0.2.2"
+      },
+      {
+        "type": "local",
+        "tag": "dns-3",
+        "detour": "Proxy 1"
+      }
+    ],
+    "rules": [
+      {
+        "rule_set": "set-3",
+        "server": "dns-3"
+      },
+      {
+        "clash_mode": "Direct",
+        "server": "dns-3"
+      },
+      {
+        "source_ip_cidr": [
+          "192.0.2.1/30",
+          "fdfe:dcba:9876::1/126"
+        ],
+        "server": "dns-1"
+      },
+      {
+        "clash_mode": "Global",
+        "server": "dns-1"
+      }
+    ],
+    "final": "dns-1",
+    "strategy": "prefer_ipv4"
+  },
+  "endpoints": [
+    {
+      "type": "wireguard",
+      "tag": "Proxy 2",
+      "name": "str1",
+      "mtu": 1280,
+      "address": [
+        "192.0.2.3/32",
+        "2001:db8::1/128"
+      ],
+      "private_key": "wywOQgzCr2vr85JpoMxzCakHIIvgUtsG6/Qp987NJa4=",
+      "peers": [
+        {
+          "address": "192.0.2.4",
+          "port": 8854,
+          "public_key": "WulOoXrJ4xaeREDpCXJqPLE7mK1qDJwNSfPto1FYe4I=",
+          "allowed_ips": [
+            "0.0.0.0/0",
+            "::/0"
+          ],
+          "persistent_keepalive_interval": 30,
+          "reserved": "password1"
+        }
+      ]
+    },
+    {
+      "type": "wireguard",
+      "tag": "Proxy 3",
+      "mtu": 1280,
+      "address": "192.0.2.5/32",
+      "private_key": "uLBP4fDmzzQr6AI9Cjs2bG1yyu2augLO37S6iU1M4Eo=",
+      "peers": [
+        {
+          "address": "192.0.2.6",
+          "port": 51820,
+          "public_key": "C7R4HcnA7nosUls057QlZXh18tDK3yhe4+6I1jkpNJM=",
+          "allowed_ips": [
+            "0.0.0.0/0",
+            "::/0"
+          ],
+          "persistent_keepalive_interval": 30
+        }
+      ],
+      "detour": "Proxy 2"
+    },
+    {
+      "type": "wireguard",
+      "tag": "Proxy 4",
+      "mtu": 1280,
+      "address": "192.0.2.5/32",
+      "private_key": "CSwhJCxdZba+0FGfnY5g6FrCHPwm3ApwMA2cT+NViKI=",
+      "peers": [
+        {
+          "address": "192.0.2.7",
+          "port": 51820,
+          "public_key": "I2aL6X+W2VPhngwoaemQPJU+XZ6OrdxIG66ClGKyUZ4=",
+          "allowed_ips": [
+            "0.0.0.0/0",
+            "::/0"
+          ],
+          "persistent_keepalive_interval": 30
+        }
+      ],
+      "detour": "Proxy 2"
+    },
+    {
+      "type": "wireguard",
+      "tag": "Proxy 5",
+      "mtu": 1280,
+      "address": "192.0.2.5/32",
+      "private_key": "bW80l/i38LeabnfY0LXjTM/M+gz1svjYk+rHjkSuhcU=",
+      "peers": [
+        {
+          "address": "192.0.2.8",
+          "port": 51820,
+          "public_key": "TTk8cwrAb2wBRROvzq9tvU4wOoKfPDHxb3G3kOMUHGc=",
+          "allowed_ips": [
+            "0.0.0.0/0",
+            "::/0"
+          ],
+          "persistent_keepalive_interval": 30
+        }
+      ],
+      "detour": "Proxy 2"
+    },
+    {
+      "type": "wireguard",
+      "tag": "Proxy 6",
+      "mtu": 1280,
+      "address": "192.0.2.5/32",
+      "private_key": "jRjIM5MQ3KAFGfHeCg1kvH9Q6b5Rvcuv1BW16TxGGx4=",
+      "peers": [
+        {
+          "address": "192.0.2.9",
+          "port": 51820,
+          "public_key": "zhoUAdMIlsxjO+2Qt5cEL7Yk0e3/y8XG92mdmCjuQmA=",
+          "allowed_ips": [
+            "0.0.0.0/0",
+            "::/0"
+          ],
+          "persistent_keepalive_interval": 30
+        }
+      ],
+      "detour": "Proxy 2"
+    },
+    {
+      "type": "wireguard",
+      "tag": "Proxy 7",
+      "mtu": 1280,
+      "address": "192.0.2.5/32",
+      "private_key": "yWPQU4pkthrRRrINH9D9dM53JVVozkadeD3o5TFBnf4=",
+      "peers": [
+        {
+          "address": "192.0.2.10",
+          "port": 51820,
+          "public_key": "X6ElMj3KLHYHl2N40GueelR10bEgEs2ehyNAw9T3iPM=",
+          "allowed_ips": [
+            "0.0.0.0/0",
+            "::/0"
+          ],
+          "persistent_keepalive_interval": 30
+        }
+      ],
+      "detour": "Proxy 2"
+    },
+    {
+      "type": "wireguard",
+      "tag": "Proxy 8",
+      "mtu": 1280,
+      "address": "192.0.2.5/32",
+      "private_key": "9YcI96m14jyv50RRjSr1Zi/22XLWgC1R1yxFK+PZMJw=",
+      "peers": [
+        {
+          "address": "192.0.2.11",
+          "port": 51820,
+          "public_key": "FEWKOrTAaLvz0j3/6en3Sg4YCyaCskkvHkv6aK/sVRk=",
+          "allowed_ips": [
+            "0.0.0.0/0",
+            "::/0"
+          ],
+          "persistent_keepalive_interval": 30
+        }
+      ],
+      "detour": "Proxy 2"
+    }
+  ],
+  "inbounds": [
+    {
+      "type": "tun",
+      "tag": "in-1",
+      "mtu": 9000,
+      "address": "192.0.2.1/30",
+      "auto_route": true,
+      "stack": "gvisor",
+      "platform": {
+        "http_proxy": {
+          "enabled": true,
+          "server": "127.0.0.1",
+          "server_port": 2080
+        }
+      }
+    },
+    {
+      "type": "mixed",
+      "tag": "in-2",
+      "listen": "127.0.0.1",
+      "listen_port": 2080
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "selector",
+      "tag": "Group 1",
+      "outbounds": [
+        "Group 2",
+        "Proxy 2",
+        "Proxy 3",
+        "Proxy 5",
+        "Proxy 7",
+        "Proxy 4",
+        "Proxy 6",
+        "Proxy 8"
+      ],
+      "default": "Group 2"
+    },
+    {
+      "type": "urltest",
+      "tag": "Group 2",
+      "outbounds": [
+        "Proxy 2",
+        "Proxy 3",
+        "Proxy 5",
+        "Proxy 7",
+        "Proxy 4",
+        "Proxy 6",
+        "Proxy 8"
+      ],
+      "url": "https://h1.example.com/generate_204",
+      "tolerance": 50
+    },
+    {
+      "type": "direct",
+      "tag": "Proxy 1",
+      "domain_strategy": "prefer_ipv4"
+    }
+  ],
+  "route": {
+    "rules": [
+      {
+        "action": "sniff",
+        "timeout": "1s"
+      },
+      {
+        "protocol": "dns",
+        "action": "hijack-dns"
+      },
+      {
+        "clash_mode": "Direct",
+        "outbound": "Proxy 1"
+      },
+      {
+        "clash_mode": "Global",
+        "outbound": "Group 1"
+      },
+      {
+        "rule_set": [
+          "set-4",
+          "set-2",
+          "set-3",
+          "set-5"
+        ],
+        "outbound": "Proxy 1"
+      },
+      {
+        "rule_set": "set-1",
+        "outbound": "Proxy 9"
+      }
+    ],
+    "rule_set": [
+      {
+        "type": "remote",
+        "tag": "set-1",
+        "format": "binary",
+        "url": "https://h2.example.com/p1.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "type": "remote",
+        "tag": "set-2",
+        "format": "binary",
+        "url": "https://h2.example.com/p2.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "type": "remote",
+        "tag": "set-3",
+        "format": "binary",
+        "url": "https://h2.example.com/p3.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "type": "remote",
+        "tag": "set-4",
+        "format": "binary",
+        "url": "https://h2.example.com/p4.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "type": "remote",
+        "tag": "set-5",
+        "format": "binary",
+        "url": "https://h2.example.com/p5.srs",
+        "download_detour": "Proxy 1"
+      }
+    ],
+    "final": "Group 1",
+    "auto_detect_interface": true,
+    "default_domain_resolver": "dns-3"
+  },
+  "experimental": {
+    "cache_file": {
+      "enabled": true
+    }
+  }
+}

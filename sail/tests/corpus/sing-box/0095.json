@@ -1,0 +1,352 @@
+{
+  "log": {
+    "level": "info",
+    "disabled": true,
+    "timestamp": true
+  },
+  "experimental": {
+    "clash_api": {
+      "external_controller": "0.0.0.0:9090",
+      "external_ui": "./path-1",
+      "secret": "",
+      "external_ui_download_url": "https://h3.example.com/p17.zip",
+      "external_ui_download_detour": "Proxy 1",
+      "default_mode": "rule"
+    }
+  },
+  "dns": {
+    "servers": [
+      {
+        "tag": "dns-1",
+        "address": "tls://192.0.2.1",
+        "address_resolver": "dns-2",
+        "address_strategy": "ipv4_only",
+        "detour": "Group 1"
+      },
+      {
+        "tag": "dns-2",
+        "address": "192.0.2.2",
+        "detour": "Proxy 1"
+      },
+      {
+        "tag": "dns-3",
+        "address": "rcode://success"
+      }
+    ],
+    "rules": [
+      {
+        "outbound": "any",
+        "server": "dns-2",
+        "disable_cache": true
+      },
+      {
+        "rule_set": "set-16",
+        "server": "dns-2"
+      },
+      {
+        "clash_mode": "direct",
+        "server": "dns-2"
+      },
+      {
+        "clash_mode": "global",
+        "server": "dns-1"
+      },
+      {
+        "rule_set": "set-14",
+        "server": "dns-1"
+      }
+    ],
+    "final": "dns-2",
+    "strategy": "ipv4_only"
+  },
+  "inbounds": [
+    {
+      "type": "tun",
+      "inet4_address": "192.0.2.1/30",
+      "mtu": 9000,
+      "auto_route": true,
+      "strict_route": true,
+      "sniff": true,
+      "endpoint_independent_nat": false,
+      "stack": "system",
+      "platform": {
+        "http_proxy": {
+          "enabled": true,
+          "server": "0.0.0.0",
+          "server_port": 2080
+        }
+      }
+    },
+    {
+      "type": "mixed",
+      "listen": "0.0.0.0",
+      "listen_port": 2080,
+      "sniff": true,
+      "users": []
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "Group 1",
+      "type": "selector",
+      "outbounds": [
+        "Group 3",
+        "Group 2",
+        "Group 4",
+        "Proxy 1"
+      ]
+    },
+    {
+      "tag": "Group 2",
+      "type": "selector",
+      "outbounds": [
+        "Proxy 3"
+      ]
+    },
+    {
+      "tag": "Group 3",
+      "type": "urltest",
+      "outbounds": [
+        "Proxy 3"
+      ],
+      "filter": [
+        {
+          "action": "include",
+          "keywords": [
+            "str1"
+          ]
+        }
+      ],
+      "url": "http://h1.example.com/generate_204",
+      "interval": "10m",
+      "tolerance": 50
+    },
+    {
+      "tag": "Group 4",
+      "type": "urltest",
+      "outbounds": [
+        "Proxy 3"
+      ],
+      "filter": [
+        {
+          "action": "exclude",
+          "keywords": [
+            "str2"
+          ]
+        }
+      ],
+      "url": "http://h1.example.com/generate_204",
+      "interval": "10m",
+      "tolerance": 50
+    },
+    {
+      "tag": "GLOBAL",
+      "type": "selector",
+      "outbounds": [
+        "Group 4",
+        "Proxy 1",
+        "Group 2"
+      ]
+    },
+    {
+      "tag": "Proxy 1",
+      "type": "direct"
+    },
+    {
+      "tag": "Proxy 2",
+      "type": "dns"
+    }
+  ],
+  "route": {
+    "auto_detect_interface": true,
+    "final": "GLOBAL",
+    "rules": [
+      {
+        "ip_cidr": [
+          "192.0.2.3",
+          "192.0.2.4"
+        ],
+        "outbound": "Proxy 1"
+      },
+      {
+        "domain": [
+          "d1.example"
+        ],
+        "domain_suffix": [
+          "d2.example",
+          "d3.example",
+          "d4.example",
+          "d5.example",
+          "d6.example",
+          "d7.example",
+          ".d8.example",
+          "d6.example",
+          "d9.example",
+          "d10.example",
+          "d11.example",
+          ".d12.example"
+        ],
+        "outbound": "Proxy 1"
+      },
+      {
+        "type": "logical",
+        "mode": "or",
+        "rules": [
+          {
+            "port": 53
+          },
+          {
+            "protocol": "dns"
+          }
+        ],
+        "outbound": "Proxy 2"
+      },
+      {
+        "clash_mode": "direct",
+        "outbound": "Proxy 1"
+      },
+      {
+        "clash_mode": "global",
+        "outbound": "GLOBAL"
+      },
+      {
+        "domain": [
+          "d13.example",
+          "d14.example",
+          "d15.example",
+          "d16.example"
+        ],
+        "outbound": "Proxy 1"
+      },
+      {
+        "ip_is_private": true,
+        "outbound": "Proxy 1"
+      },
+      {
+        "rule_set": "set-14",
+        "outbound": "Group 1"
+      },
+      {
+        "rule_set": [
+          "set-15",
+          "set-16"
+        ],
+        "outbound": "Proxy 1"
+      }
+    ],
+    "rule_set": [
+      {
+        "tag": "set-1",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h2.example.com/p1.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "tag": "set-2",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h2.example.com/p2.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "tag": "set-3",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h2.example.com/p3.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "tag": "set-4",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h2.example.com/p4.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "tag": "set-5",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h2.example.com/p5.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "tag": "set-6",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h2.example.com/p6.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "tag": "set-7",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h2.example.com/p7.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "tag": "set-8",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h2.example.com/p8.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "tag": "set-9",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h2.example.com/p9.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "tag": "set-10",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h2.example.com/p10.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "tag": "set-11",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h2.example.com/p11.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "tag": "set-12",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h2.example.com/p12.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "tag": "set-13",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h2.example.com/p13.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "tag": "set-14",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h2.example.com/p14.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "tag": "set-15",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h2.example.com/p15.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "tag": "set-16",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h2.example.com/p16.srs",
+        "download_detour": "Proxy 1"
+      }
+    ]
+  }
+}

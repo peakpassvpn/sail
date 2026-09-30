@@ -1,0 +1,27 @@
+port: 7890
+socks-port: 7891
+allow-lan: false
+mode: rule
+log-level: info
+external-controller: 127.0.0.1:9090
+proxies:
+proxy-groups:
+  - name: Group 1
+    type: load-balance
+    use:
+      - provider-1
+    url: 'http://h1.example.com/generate_204'
+    interval: 300
+proxy-providers:
+  provider-1:
+    type: http
+    url: "https://h2.example.com/p1?c=v1"
+    path: ./path-1.yaml
+    health-check:
+      enable: true
+      interval: 600
+      url: http://h1.example.com/generate_204
+rules:
+  - DOMAIN-SUFFIX,d1.example,DIRECT
+  - DOMAIN-SUFFIX,d2.example,DIRECT
+  - MATCH,Group 1

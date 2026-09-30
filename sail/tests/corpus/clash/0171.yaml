@@ -1,0 +1,287 @@
+proxies:
+  - name: 'Proxy 1'
+    type: vless
+    server: 192.0.2.1
+    port: 443
+    uuid: 00005a11-0000-4000-8000-000000000001
+    udp: true
+    tls: true
+    servername: sni1.example.org
+    client-fingerprint: chrome
+    reality-opts:
+      public-key: wywOQgzCr2vr85JpoMxzCakHIIvgUtsG6/Qp987NJa4
+    flow: xtls-rprx-vision
+    network: tcp
+  - name: 'Proxy 2'
+    type: vless
+    server: 192.0.2.2
+    port: 13868
+    uuid: 00005a11-0000-4000-8000-000000000002
+    udp: true
+    tls: true
+    servername: sni2.example.org
+    client-fingerprint: random
+    reality-opts:
+      public-key: WulOoXrJ4xaeREDpCXJqPLE7mK1qDJwNSfPto1FYe4I
+      short-id: 704c70
+    flow: xtls-rprx-vision
+    network: tcp
+  - name: 'Proxy 3'
+    type: vless
+    server: 192.0.2.3
+    port: 443
+    uuid: 00005a11-0000-4000-8000-000000000003
+    udp: true
+    tls: true
+    servername: sni3.example.org
+    client-fingerprint: random
+    reality-opts:
+      public-key: uLBP4fDmzzQr6AI9Cjs2bG1yyu2augLO37S6iU1M4Eo
+      short-id: 00000000
+    flow: xtls-rprx-vision
+    network: tcp
+  - name: 'Proxy 4'
+    type: vless
+    server: 192.0.2.4
+    port: 443
+    uuid: 00005a11-0000-4000-8000-000000000004
+    udp: true
+    tls: true
+    servername: sni4.example.org
+    client-fingerprint: chrome
+    reality-opts:
+      public-key: C7R4HcnA7nosUls057QlZXh18tDK3yhe4-6I1jkpNJM
+      short-id: 6663c3a1406786ea
+    flow: xtls-rprx-vision
+    network: tcp
+  - name: 'Proxy 5'
+    type: vless
+    server: 192.0.2.5
+    port: 443
+    uuid: 00005a11-0000-4000-8000-000000000005
+    udp: true
+    tls: true
+    servername: sni1.example.org
+    client-fingerprint: random
+    reality-opts:
+      public-key: CSwhJCxdZba+0FGfnY5g6FrCHPwm3ApwMA2cT+NViKI
+      short-id: 435cb68765a4bdf7
+    flow: xtls-rprx-vision
+    network: tcp
+  - name: 'Proxy 6'
+    type: vless
+    server: 192.0.2.6
+    port: 443
+    uuid: 00005a11-0000-4000-8000-000000000006
+    udp: true
+    tls: true
+    servername: sni1.example.org
+    client-fingerprint: chrome
+    reality-opts:
+      public-key: I2aL6X+W2VPhngwoaemQPJU+XZ6OrdxIG66ClGKyUZ4
+      short-id: a7e018cee84bf4fe
+    flow: xtls-rprx-vision
+    network: tcp
+  - name: 'Proxy 7'
+    type: vless
+    server: 192.0.2.7
+    port: 443
+    uuid: 00005a11-0000-4000-8000-000000000007
+    udp: true
+    tls: true
+    servername: sni5.example.org
+    client-fingerprint: chrome
+    reality-opts:
+      public-key: bW80l_i38LeabnfY0LXjTM_M-gz1svjYk-rHjkSuhcU
+    flow: xtls-rprx-vision
+    network: tcp
+  - name: 'Proxy 8'
+    type: vless
+    server: 192.0.2.8
+    port: 9444
+    uuid: 00005a11-0000-4000-8000-000000000008
+    udp: true
+    tls: true
+    servername: sni6.example.org
+    client-fingerprint: firefox
+    reality-opts:
+      public-key: TTk8cwrAb2wBRROvzq9tvU4wOoKfPDHxb3G3kOMUHGc
+      short-id: 9f71b3fdeacd098d
+    flow: xtls-rprx-vision
+    network: tcp
+  - name: 'Proxy 9'
+    type: vless
+    server: 192.0.2.9
+    port: 7443
+    uuid: 00005a11-0000-4000-8000-000000000009
+    udp: true
+    tls: true
+    servername: sni7.example.org
+    client-fingerprint: firefox
+    reality-opts:
+      public-key: jRjIM5MQ3KAFGfHeCg1kvH9Q6b5Rvcuv1BW16TxGGx4
+      short-id: 6321dd3fa7b6fc49
+    flow: xtls-rprx-vision
+    network: tcp
+  - name: 'Proxy 10'
+    type: vless
+    server: s8.example.net
+    port: 443
+    uuid: 00005a11-0000-4000-8000-00000000000a
+    udp: true
+    tls: true
+    servername: s8.example.net
+    client-fingerprint: random
+    reality-opts:
+      public-key: zhoUAdMIlsxjO-2Qt5cEL7Yk0e3_y8XG92mdmCjuQmA
+      short-id: e5652bfd
+    flow: xtls-rprx-vision
+    network: tcp
+  - name: 'Proxy 11'
+    type: vless
+    server: 192.0.2.10
+    port: 443
+    uuid: 00005a11-0000-4000-8000-00000000000b
+    udp: true
+    tls: true
+    servername: sni9.example.org
+    client-fingerprint: qq
+    reality-opts:
+      public-key: yWPQU4pkthrRRrINH9D9dM53JVVozkadeD3o5TFBnf4
+    flow: xtls-rprx-vision
+    network: tcp
+  - name: 'Proxy 12'
+    type: vless
+    server: 192.0.2.11
+    port: 443
+    uuid: 00005a11-0000-4000-8000-00000000000c
+    udp: true
+    tls: true
+    servername: sni10.example.org
+    client-fingerprint: random
+    reality-opts:
+      public-key: X6ElMj3KLHYHl2N40GueelR10bEgEs2ehyNAw9T3iPM
+    flow: xtls-rprx-vision
+    network: tcp
+  - name: 'Proxy 13'
+    type: vless
+    server: 192.0.2.12
+    port: 25947
+    uuid: 00005a11-0000-4000-8000-00000000000d
+    udp: true
+    tls: true
+    servername: sni11.example.org
+    client-fingerprint: firefox
+    reality-opts:
+      public-key: 9YcI96m14jyv50RRjSr1Zi/22XLWgC1R1yxFK+PZMJw
+      short-id: bca26f263b0137ff
+    network: tcp
+  - name: 'Proxy 14'
+    type: vless
+    server: 192.0.2.13
+    port: 443
+    uuid: 00005a11-0000-4000-8000-00000000000e
+    udp: true
+    tls: true
+    servername: sni12.example.org
+    client-fingerprint: firefox
+    reality-opts:
+      public-key: FEWKOrTAaLvz0j3_6en3Sg4YCyaCskkvHkv6aK_sVRk
+    flow: xtls-rprx-vision
+    network: tcp
+  - name: 'Proxy 15'
+    type: vless
+    server: 192.0.2.14
+    port: 8443
+    uuid: 00005a11-0000-4000-8000-00000000000f
+    udp: true
+    tls: true
+    servername: sni13.example.org
+    client-fingerprint: random
+    reality-opts:
+      public-key: XWt_MzqeBBc5s_pZB4SKbsAmC5vsfWbmMlwRlsNtop8
+      short-id: 73eca01d9c187c19
+    flow: xtls-rprx-vision
+    network: tcp
+  - name: 'Proxy 16'
+    type: vless
+    server: s14.example.net
+    port: 443
+    uuid: 00005a11-0000-4000-8000-000000000010
+    udp: true
+    tls: true
+    servername: sni15.example.org
+    client-fingerprint: random
+    reality-opts:
+      public-key: Nl0URnWX1KM57SHfwikmiUD9HqL5-Psube8ZDYa_Zr4
+      short-id: fdfbbe90dc6c5034
+    flow: xtls-rprx-vision
+    network: tcp
+  - name: 'Proxy 17'
+    type: vless
+    server: 192.0.2.15
+    port: 443
+    uuid: 00005a11-0000-4000-8000-000000000011
+    udp: true
+    tls: true
+    servername: sni16.example.org
+    client-fingerprint: chrome
+    reality-opts:
+      public-key: pucM5Pq9TuK9URBWK0Jn044nzkU1nDkFEIBLykDoO0o
+      short-id: 7a836005855e
+    flow: xtls-rprx-vision
+    network: tcp
+  - name: 'Proxy 18'
+    type: vless
+    server: 192.0.2.16
+    port: 443
+    uuid: 00005a11-0000-4000-8000-000000000012
+    udp: true
+    tls: true
+    servername: sni17.example.org
+    client-fingerprint: firefox
+    reality-opts:
+      public-key: I_27WrWHs8eRDOdO9u9w--BDC3SMPX87cifBF8tKTgg
+      short-id: c8d4c7c1555ee506
+    flow: xtls-rprx-vision
+    network: tcp
+  - name: 'Proxy 19'
+    type: ss
+    server: 192.0.2.17
+    port: 43558
+    cipher: chacha20-ietf-poly1305
+    password: 'password1'
+    udp: true
+  - name: 'Proxy 20'
+    type: ss
+    server: 192.0.2.18
+    port: 140
+    cipher: chacha20-ietf-poly1305
+    password: password2
+    udp: true
+proxy-groups:
+  - name: PROXY
+    type: select
+    proxies:
+      - 'Proxy 1'
+      - 'Proxy 2'
+      - 'Proxy 3'
+      - 'Proxy 4'
+      - 'Proxy 5'
+      - 'Proxy 6'
+      - 'Proxy 7'
+      - 'Proxy 8'
+      - 'Proxy 9'
+      - 'Proxy 10'
+      - 'Proxy 11'
+      - 'Proxy 12'
+      - 'Proxy 13'
+      - 'Proxy 14'
+      - 'Proxy 15'
+      - 'Proxy 16'
+      - 'Proxy 17'
+      - 'Proxy 18'
+      - 'Proxy 19'
+      - 'Proxy 20'
+rules:
+  - MATCH,PROXY

@@ -1,0 +1,60 @@
+port: 7890
+socks-port: 7891
+allow-lan: true
+mode: Rule
+log-level: info
+external-controller: :9090
+proxies:
+  - {name: Proxy 1, server: s1.example.net, port: 443, type: vless, uuid: 00005a11-0000-4000-8000-000000000001, tls: true, udp: true, client-fingerprint: chrome, sni: s1.example.net, network: ws, ws-opts: {path: "/p1", headers: {Host: s1.example.net}}}
+  - {name: Proxy 2, server: s1.example.net, port: 443, type: vless, uuid: 00005a11-0000-4000-8000-000000000001, tls: true, udp: true, client-fingerprint: chrome, sni: s1.example.net, network: ws, ws-opts: {path: "/p1", headers: {Host: s1.example.net}}}
+  - {name: Proxy 3, server: s1.example.net, port: 443, type: vless, uuid: 00005a11-0000-4000-8000-000000000001, tls: true, udp: true, client-fingerprint: chrome, sni: s1.example.net, network: ws, ws-opts: {path: "/p1", headers: {Host: s1.example.net}}}
+  - {name: Proxy 4, server: s1.example.net, port: 443, type: vless, uuid: 00005a11-0000-4000-8000-000000000001, tls: true, udp: true, client-fingerprint: chrome, sni: s1.example.net, network: ws, ws-opts: {path: "/p1", headers: {Host: s1.example.net}}}
+  - {name: Proxy 5, server: s1.example.net, port: 443, type: vless, uuid: 00005a11-0000-4000-8000-000000000001, tls: true, udp: true, client-fingerprint: chrome, sni: s1.example.net, network: ws, ws-opts: {path: "/p1", headers: {Host: s1.example.net}}}
+  - {name: Proxy 6, server: s1.example.net, port: 443, type: vless, uuid: 00005a11-0000-4000-8000-000000000001, tls: true, udp: true, client-fingerprint: chrome, sni: s1.example.net, network: ws, ws-opts: {path: "/p1", headers: {Host: s1.example.net}}}
+proxy-groups:
+  - name: Group 1
+    type: select
+    proxies:
+      - Proxy 1
+      - Proxy 2
+      - Proxy 3
+      - Proxy 4
+      - Proxy 5
+      - Proxy 6
+rule-providers:
+  set-1:
+    type: http
+    behavior: domain
+    url: "https://h1.example.com/p2.txt"
+    path: ./path-1.yaml
+    interval: 86400
+  set-2:
+    type: http
+    behavior: domain
+    url: "https://h1.example.com/p3.txt"
+    path: ./path-2.yaml
+    interval: 86400
+  set-3:
+    type: http
+    behavior: domain
+    url: "https://h1.example.com/p4.txt"
+    path: ./path-3.yaml
+    interval: 86400
+  set-4:
+    type: http
+    behavior: ipcidr
+    url: "https://h1.example.com/p5.txt"
+    path: ./path-4.yaml
+    interval: 86400
+  set-5:
+    type: http
+    behavior: ipcidr
+    url: "https://h1.example.com/p6.txt"
+    path: ./path-5.yaml
+    interval: 86400
+rules:
+  - RULE-SET,set-4,DIRECT
+  - RULE-SET,set-1,Group 1
+  - RULE-SET,set-2,Group 1
+  - RULE-SET,set-3,Group 1
+  - RULE-SET,set-5,Group 1

@@ -1,0 +1,69 @@
+mixed-port: 7890
+allow-lan: false
+mode: rule
+log-level: info
+ipv6: false
+unified-delay: true
+external-controller: 127.0.0.1:9090
+secret: ""
+external-ui-name: str3
+external-ui: "./path-3"
+external-ui-url: "https://h2.example.com/p1.zip"
+geo-update-interval: 24
+geox-url:
+  geoip: https://h2.example.com/p2.dat
+  geosite: https://h2.example.com/p3.dat
+  mmdb: https://h2.example.com/p4.metadb
+  asn: https://h2.example.com/p5.mmdb
+tun:
+  enable: false
+dns:
+  enable: true
+  ipv6: false
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  nameserver:
+    - 192.0.2.1
+    - 192.0.2.2
+proxy-providers:
+  provider-1:
+    type: http
+    url: "str1"
+    interval: 3600
+    path: ./path-1.yaml
+    health-check:
+      enable: true
+      interval: 300
+      url: http://h1.example.com/generate_204
+  provider-2:
+    type: http
+    url: "str2"
+    interval: 3600
+    path: ./path-2.yaml
+    health-check:
+      enable: true
+      interval: 300
+      url: http://h1.example.com/generate_204
+proxy-groups:
+  - name: Group 1
+    type: select
+    proxies:
+      - Group 2
+      - Group 3
+      - DIRECT
+  - name: Group 2
+    type: select
+    use:
+      - provider-1
+  - name: Group 3
+    type: select
+    use:
+      - provider-2
+rules:
+  - DOMAIN-SUFFIX,d1.example,DIRECT
+  - IP-CIDR,127.0.0.0/8,DIRECT
+  - IP-CIDR,192.168.0.0/16,DIRECT
+  - IP-CIDR,10.0.0.0/8,DIRECT
+  - IP-CIDR,172.16.0.0/12,DIRECT
+  - GEOIP,CN,DIRECT
+  - MATCH,Group 1

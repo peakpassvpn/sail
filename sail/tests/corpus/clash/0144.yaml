@@ -1,0 +1,79 @@
+port: 7890
+socks-port: 7891
+allow-lan: true
+mode: rule
+ipv6: false
+anchor-1: &a1
+  proxies:
+proxies:
+rules:
+  - RULE-SET,set-5,Group 3,no-resolve
+  - RULE-SET,set-4,Group 2
+  - RULE-SET,set-2,Group 3
+  - RULE-SET,set-3,Group 4
+  - RULE-SET,set-6,Group 3
+  - MATCH,Group 4
+proxy-groups:
+  - name: Group 1
+    type: select
+    <<: *a1
+  - name: Group 2
+    type: select
+    proxies:
+      - Group 1
+      - DIRECT
+  - name: Group 3
+    type: select
+    proxies:
+      - DIRECT
+      - Group 1
+  - name: Group 4
+    type: select
+    proxies:
+      - Group 1
+      - DIRECT
+anchor-2:
+  ip: &a3 {type: http, interval: 86400, behavior: ipcidr, format: mrs}
+  domain: &a2 {type: http, interval: 86400, behavior: domain, format: mrs}
+rule-providers:
+  set-1:
+    <<: *a2
+    url: "https://h1.example.com/p1.mrs"
+  set-2:
+    <<: *a2
+    url: "https://h1.example.com/p2.mrs"
+  set-3:
+    <<: *a2
+    url: "https://h1.example.com/p3.mrs"
+  set-4:
+    <<: *a2
+    url: "https://h1.example.com/p4.mrs"
+  set-5:
+    <<: *a3
+    url: "https://h1.example.com/p5.mrs"
+  set-6:
+    <<: *a3
+    url: "https://h1.example.com/p6.mrs"
+dns:
+  enable: true
+  ipv6: false
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  fake-ip-filter:
+    - '*.d1.example'
+    - '*.d2.example'
+    - '*.d3.example'
+    - 'd3.example'
+    - "*.d4.example"
+    - "*.d5.example"
+    - localhost
+    - "*.d6.example"
+  default-nameserver:
+    - 192.0.2.1
+    - 192.0.2.2
+  proxy-server-nameserver:
+    - 192.0.2.1
+    - 192.0.2.2
+  nameserver:
+    - https://h2.example.com/dns-query#Group 1
+    - https://h3.example.com/dns-query#Group 1

@@ -1,0 +1,2987 @@
+global-client-fingerprint: chrome
+port: 7890
+socks-port: 7891
+redir-port: 7892
+mixed-port: 7893
+tproxy-port: 7894
+allow-lan: true
+tcp-concurrent: true
+enable-process: true
+find-process-mode: strict
+ipv6: true
+log-level: debug
+geo-auto-update: true
+geo-update-interval: 168
+secret: ""
+bind-address: "*"
+unified-delay: false
+disable-keep-alive: false
+keep-alive-idle: 30
+keep-alive-interval: 30
+profile:
+  name: str1
+  version: 1
+  author: str2
+  store-selected: true
+  store-fake-ip: true
+dns:
+  enable: true
+  ipv6: true
+  respect-rules: false
+  prefer-h3: true
+  cache-algorithm: arc
+  use-system-hosts: true
+  use-host: true
+  enhanced-mode: fake-ip
+  fake-ip-filter-mode: blacklist
+  fake-ip-range: 198.18.0.1/16
+  fake-ip-filter:
+    - "*.d1.example"
+    - "*.d2.example"
+    - "*.d3.example"
+    - "*.localhost"
+    - "*.d4.example"
+    - "*.d5.example"
+    - "*.d6.example"
+    - d7*.example
+    - d8*.example
+    - "*.d9.example"
+  default-nameserver:
+    - 192.0.2.1
+    - 192.0.2.2
+  nameserver:
+    - 192.0.2.3
+    - 192.0.2.4
+  direct-nameserver:
+    - 192.0.2.3
+    - 192.0.2.1
+  proxy-server-nameserver:
+    - 192.0.2.3
+    - 192.0.2.1
+    - https://h1.example.com/dns-query
+    - tls://h2.example.com
+    - d10.example
+    - https://h3.example.com/dns-query
+    - tls://h3.example.com
+    - d11.example
+    - 2001:db8::1
+    - 2001:db8::2
+    - 2001:db8::3
+    - 2001:db8::4
+sniffer:
+  enable: true
+  force-dns-mapping: true
+  parse-pure-ip: true
+  override-destination: false
+  sniff:
+    HTTP:
+      ports: [80, 8080, 8880, 2052, 2082, 2086, 2095]
+    TLS:
+      ports: [443, 8443, 2053, 2083, 2087, 2096]
+tun:
+  enable: true
+  stack: mixed
+  auto-route: true
+  auto-detect-interface: true
+  auto-redir: true
+  dns-hijack:
+    - any:53
+    - tcp://any:53
+rule-providers:
+  set-1:
+    type: http
+    behavior: domain
+    url: https://h4.example.com/p1.yaml
+    interval: 86400
+    path: ./path-1.yaml
+  set-2:
+    type: http
+    behavior: domain
+    url: https://h5.example.com/p2.yaml
+    interval: 86400
+    path: ./path-2.yaml
+  set-3:
+    type: http
+    behavior: domain
+    url: https://h5.example.com/p3.yaml
+    path: ./path-3.yaml
+    interval: 86400
+  set-4:
+    type: http
+    behavior: domain
+    url: https://h4.example.com/p4.yaml
+    interval: 86400
+    path: ./path-4.yaml
+  set-5:
+    type: http
+    behavior: classical
+    url: https://h4.example.com/p5.yaml
+    interval: 86400
+    path: ./path-5.yaml
+  set-6:
+    type: http
+    behavior: domain
+    url: https://h4.example.com/p6.yaml
+    interval: 86400
+    path: ./path-6.yaml
+  set-7:
+    type: http
+    behavior: domain
+    url: https://h4.example.com/p7.yaml
+    interval: 86400
+    path: ./path-7.yaml
+  set-8:
+    type: http
+    behavior: classical
+    url: https://h4.example.com/p8.yaml
+    interval: 86400
+    path: ./path-8.yaml
+  set-9:
+    type: http
+    behavior: ipcidr
+    url: https://h4.example.com/p9.yaml
+    interval: 86400
+    path: ./path-9.yaml
+  set-10:
+    type: http
+    behavior: domain
+    url: https://h4.example.com/p10.yaml
+    interval: 86400
+    path: ./path-10.yaml
+  set-11:
+    type: http
+    behavior: domain
+    url: https://h4.example.com/p11.yaml
+    interval: 86400
+    path: ./path-11.yaml
+  set-12:
+    type: http
+    behavior: classical
+    url: https://h4.example.com/p12.yaml
+    interval: 86400
+    path: ./path-12.yaml
+  set-13:
+    type: http
+    behavior: classical
+    url: https://h4.example.com/p13.yaml
+    interval: 86400
+    path: ./path-13.yaml
+  set-14:
+    type: http
+    behavior: classical
+    url: https://h4.example.com/p14.yaml
+    interval: 86400
+    path: ./path-14.yaml
+  set-15:
+    type: http
+    behavior: domain
+    url: https://h4.example.com/p15.yaml
+    interval: 86400
+    path: ./path-15.yaml
+  set-16:
+    type: http
+    format: yaml
+    behavior: domain
+    url: https://h4.example.com/p16.yaml
+    path: ./path-16.yaml
+    interval: 86400
+  set-17:
+    type: http
+    format: yaml
+    behavior: domain
+    url: https://h4.example.com/p17.yaml
+    path: ./path-17.yaml
+    interval: 86400
+  set-18:
+    type: http
+    format: yaml
+    behavior: classical
+    url: https://h4.example.com/p18.yaml
+    path: ./path-18.yaml
+    interval: 86400
+  set-19:
+    type: http
+    format: yaml
+    behavior: ipcidr
+    url: https://h4.example.com/p19.yaml
+    path: ./path-19.yaml
+    interval: 86400
+  set-20:
+    type: http
+    format: yaml
+    behavior: classical
+    url: https://h4.example.com/p20.yaml
+    path: ./path-20.yaml
+    interval: 86400
+  set-21:
+    type: http
+    format: yaml
+    behavior: ipcidr
+    url: https://h4.example.com/p21.yaml
+    path: ./path-21.yaml
+    interval: 86400
+  set-22:
+    type: http
+    format: yaml
+    behavior: ipcidr
+    url: https://h4.example.com/p22.yaml
+    path: ./path-22.yaml
+    interval: 86400
+  set-23:
+    type: http
+    format: yaml
+    behavior: ipcidr
+    url: https://h4.example.com/p23.yaml
+    path: ./path-23.yaml
+    interval: 86400
+  set-24:
+    type: http
+    format: yaml
+    behavior: ipcidr
+    url: https://h4.example.com/p24.yaml
+    path: ./path-24.yaml
+    interval: 86400
+  set-25:
+    type: http
+    format: yaml
+    behavior: domain
+    url: https://h4.example.com/p25.yaml
+    path: ./path-25.yaml
+    interval: 86400
+  set-26:
+    type: http
+    format: yaml
+    behavior: domain
+    url: https://h4.example.com/p26.yaml
+    path: ./path-26.yaml
+    interval: 86400
+  set-27:
+    type: http
+    format: yaml
+    behavior: domain
+    url: https://h4.example.com/p27.yaml
+    path: ./path-27.yaml
+    interval: 86400
+  set-28:
+    type: http
+    format: yaml
+    behavior: domain
+    url: https://h4.example.com/p28.yaml
+    path: ./path-28.yaml
+    interval: 86400
+  set-29:
+    type: http
+    behavior: classical
+    url: https://h4.example.com/p29.yaml
+    interval: 86400
+    path: ./path-29.yaml
+  set-30:
+    type: http
+    behavior: classical
+    url: https://h4.example.com/p30.yaml
+    interval: 86400
+    path: ./path-30.yaml
+  set-31:
+    type: http
+    behavior: classical
+    url: https://h4.example.com/p31.yaml
+    interval: 86400
+    path: ./path-31.yaml
+  set-32:
+    type: http
+    behavior: classical
+    url: https://h4.example.com/p32.yaml
+    interval: 86400
+    path: ./path-32.yaml
+  set-33:
+    type: http
+    behavior: classical
+    url: https://h4.example.com/p33.yaml
+    interval: 86400
+    path: ./path-33.yaml
+  set-34:
+    type: http
+    behavior: classical
+    url: https://h4.example.com/p34.yaml
+    interval: 86400
+    path: ./path-34.yaml
+  set-35:
+    type: http
+    behavior: classical
+    url: https://h4.example.com/p35.yaml
+    interval: 86400
+    path: ./path-35.yaml
+  set-36:
+    type: http
+    behavior: classical
+    url: https://h4.example.com/p36.yaml
+    interval: 86400
+    path: ./path-36.yaml
+  set-37:
+    type: http
+    behavior: classical
+    url: https://h4.example.com/p37.yaml
+    interval: 86400
+    path: ./path-37.yaml
+  set-38:
+    type: http
+    behavior: classical
+    url: https://h4.example.com/p38.yaml
+    interval: 86400
+    path: ./path-38.yaml
+  set-39:
+    type: http
+    behavior: classical
+    url: https://h4.example.com/p39.yaml
+    interval: 86400
+    path: ./path-39.yaml
+  set-40:
+    type: http
+    behavior: classical
+    url: https://h4.example.com/p40.yaml
+    interval: 86400
+    path: ./path-40.yaml
+  set-41:
+    type: http
+    behavior: classical
+    url: https://h4.example.com/p41.yaml
+    interval: 86400
+    path: ./path-41.yaml
+  set-42:
+    type: http
+    behavior: domain
+    url: https://h4.example.com/p42.yaml
+    interval: 86400
+    path: ./path-42.yaml
+  set-43:
+    type: http
+    behavior: domain
+    url: https://h4.example.com/p43.yaml
+    interval: 86400
+    path: ./path-43.yaml
+  set-44:
+    type: http
+    behavior: domain
+    url: https://h4.example.com/p44.yaml
+    interval: 86400
+    path: ./path-44.yaml
+  set-45:
+    type: http
+    format: yaml
+    behavior: domain
+    url: https://h4.example.com/p45.yaml
+    path: ./path-45.yaml
+    interval: 86400
+  set-46:
+    type: http
+    behavior: classical
+    url: https://h4.example.com/p46.yaml
+    path: ./path-46.yaml
+    interval: 86400
+  set-47:
+    type: http
+    behavior: domain
+    url: https://h4.example.com/p47.yaml
+    interval: 86400
+    path: ./path-47.yaml
+  set-48:
+    type: http
+    behavior: domain
+    url: https://h4.example.com/p48.yaml
+    interval: 86400
+    path: ./path-48.yaml
+  set-49:
+    type: http
+    behavior: domain
+    url: https://h4.example.com/p49.yaml
+    interval: 86400
+    path: ./path-49.yaml
+  set-50:
+    type: http
+    behavior: classical
+    url: https://h4.example.com/p50.yaml
+    path: ./path-50.yaml
+    interval: 86400
+  set-51:
+    type: http
+    behavior: classical
+    url: https://h4.example.com/p51.yaml
+    path: ./path-51.yaml
+    interval: 86400
+  set-52:
+    type: http
+    behavior: domain
+    url: https://h4.example.com/p52.yaml
+    interval: 86400
+    path: ./path-52.yaml
+  set-53:
+    type: http
+    behavior: domain
+    url: https://h4.example.com/p53.yaml
+    interval: 86400
+    path: ./path-53.yaml
+  set-54:
+    type: http
+    behavior: classical
+    url: https://h4.example.com/p54.yaml
+    path: ./path-54.yaml
+    interval: 86400
+  set-55:
+    type: http
+    format: yaml
+    behavior: ipcidr
+    url: https://h4.example.com/p55.yaml
+    path: ./path-55.yaml
+    interval: 86400
+  set-56:
+    type: http
+    behavior: classical
+    url: https://h4.example.com/p56.yaml
+    path: ./path-56.yaml
+    interval: 86400
+  set-57:
+    type: http
+    behavior: domain
+    url: https://h4.example.com/p57.yaml
+    interval: 86400
+    path: ./path-57.yaml
+  set-58:
+    type: http
+    behavior: domain
+    url: https://h4.example.com/p58.yaml
+    interval: 86400
+    path: ./path-58.yaml
+  set-59:
+    type: http
+    behavior: domain
+    url: https://h4.example.com/p59.yaml
+    interval: 86400
+    path: ./path-59.yaml
+  set-60:
+    type: http
+    behavior: domain
+    url: https://h4.example.com/p60.yaml
+    interval: 86400
+    path: ./path-60.yaml
+  set-61:
+    type: http
+    behavior: classical
+    url: https://h4.example.com/p61.yaml
+    interval: 86400
+    path: ./path-61.yaml
+  set-62:
+    type: http
+    behavior: classical
+    url: https://h4.example.com/p62.yaml
+    interval: 86400
+    path: ./path-62.yaml
+  set-63:
+    type: http
+    behavior: classical
+    url: https://h4.example.com/p63.yaml
+    interval: 86400
+    path: ./path-63.yaml
+  set-64:
+    type: http
+    behavior: classical
+    url: https://h4.example.com/p64.yaml
+    interval: 86400
+    path: ./path-64.yaml
+  set-65:
+    type: http
+    behavior: classical
+    url: https://h4.example.com/p65.yaml
+    interval: 86400
+    path: ./path-65.yaml
+  set-66:
+    type: http
+    behavior: classical
+    url: https://h4.example.com/p66.yaml
+    interval: 86400
+    path: ./path-66.yaml
+  set-67:
+    type: http
+    behavior: classical
+    url: https://h4.example.com/p67.yaml
+    interval: 86400
+    path: ./path-67.yaml
+  set-68:
+    type: http
+    behavior: classical
+    url: https://h4.example.com/p68.yaml
+    interval: 86400
+    path: ./path-68.yaml
+  set-69:
+    type: http
+    behavior: classical
+    url: https://h4.example.com/p69.yaml
+    interval: 86400
+    path: ./path-69.yaml
+  set-70:
+    type: http
+    behavior: classical
+    url: https://h4.example.com/p70.yaml
+    interval: 86400
+    path: ./path-70.yaml
+  set-71:
+    type: http
+    behavior: classical
+    url: https://h4.example.com/p71.yaml
+    interval: 86400
+    path: ./path-71.yaml
+  set-72:
+    type: http
+    behavior: classical
+    url: https://h4.example.com/p72.yaml
+    interval: 86400
+    path: ./path-72.yaml
+  set-73:
+    type: http
+    behavior: classical
+    url: https://h4.example.com/p73.yaml
+    interval: 86400
+    path: ./path-73.yaml
+  set-74:
+    type: http
+    behavior: classical
+    url: https://h4.example.com/p74.yaml
+    interval: 86400
+    path: ./path-74.yaml
+  set-75:
+    type: http
+    behavior: classical
+    url: https://h4.example.com/p75.yaml
+    interval: 86400
+    path: ./path-75.yaml
+  set-76:
+    type: http
+    behavior: classical
+    url: https://h4.example.com/p76.yaml
+    interval: 86400
+    path: ./path-76.yaml
+  set-77:
+    type: http
+    behavior: classical
+    url: https://h4.example.com/p77.yaml
+    interval: 86400
+    path: ./path-77.yaml
+  set-78:
+    type: http
+    behavior: classical
+    url: https://h4.example.com/p78.yaml
+    interval: 86400
+    path: ./path-78.yaml
+  set-79:
+    type: http
+    behavior: classical
+    url: https://h4.example.com/p79.yaml
+    interval: 86400
+    path: ./path-79.yaml
+  set-80:
+    type: http
+    behavior: classical
+    url: https://h4.example.com/p80.yaml
+    interval: 86400
+    path: ./path-80.yaml
+proxy-providers:
+  provider-1:
+    type: http
+    url: >-
+      https://h6.example.com/p81
+    interval: 7200
+    include-all: true
+    path: ./path-81.yml
+proxies:
+  - name: "Proxy 1"
+    type: dns
+  - name: "Proxy 2"
+    type: direct
+    udp: true
+    ip-version: ipv4
+  - name: "Proxy 3"
+    type: direct
+    udp: true
+    ip-version: ipv6
+  - name: "Proxy 4"
+    type: direct
+    udp: false
+    ip-version: ipv4
+  - name: "Proxy 5"
+    type: direct
+    udp: false
+    ip-version: ipv6
+proxy-groups:
+  - name: Group 1
+    type: select
+    icon: https://h7.example.com/p82.svg
+    proxies:
+      - Group 157
+      - Group 155
+      - Group 2
+      - Group 3
+      - Group 107
+      - Group 108
+      - Group 159
+      - Group 161
+      - Group 156
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 2
+    type: select
+    icon: https://h7.example.com/p83.svg
+    use:
+      - provider-1
+  - name: Group 3
+    type: select
+    icon: https://h7.example.com/p83.svg
+    use:
+      - provider-1
+  - name: Group 4
+    type: select
+    icon: https://h7.example.com/p84.svg
+    proxies:
+      - Group 116
+      - Group 109
+      - Group 110
+      - Group 111
+      - Group 112
+      - Group 113
+      - Group 114
+      - Group 115
+      - Group 117
+      - Group 118
+      - Group 119
+      - Group 120
+      - Group 121
+      - Group 122
+      - Group 123
+      - Group 124
+      - Group 125
+      - Group 126
+      - Group 127
+      - Group 128
+      - Group 129
+      - Group 130
+      - Group 131
+      - Group 132
+      - Group 133
+      - Group 134
+      - Group 135
+      - Group 136
+      - Group 137
+      - Group 138
+      - Group 139
+      - Group 141
+      - Group 140
+      - Group 142
+      - Group 143
+      - Group 144
+      - Group 145
+      - Group 146
+      - Group 147
+      - Group 148
+      - Group 149
+      - Group 150
+      - Group 151
+      - Group 152
+      - Group 153
+      - Group 154
+  - name: Group 5
+    type: select
+    icon: https://h7.example.com/p85.svg
+    proxies:
+      - Group 161
+      - Group 159
+      - Group 1
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 6
+    type: select
+    icon: https://h7.example.com/p86.svg
+    proxies:
+      - Group 162
+      - Group 161
+      - Group 159
+      - Group 1
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 160
+  - name: Group 7
+    type: select
+    icon: https://h7.example.com/p87.svg
+    proxies:
+      - Group 161
+      - Group 159
+      - Group 1
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 8
+    type: select
+    icon: https://h7.example.com/p88.svg
+    proxies:
+      - Group 161
+      - Group 159
+      - Group 1
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 9
+    type: select
+    icon: https://h7.example.com/p89.svg
+    proxies:
+      - Group 159
+      - Group 1
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 10
+    type: select
+    icon: https://h7.example.com/p90.svg
+    proxies:
+      - Group 159
+      - Group 1
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 11
+    type: select
+    icon: https://h7.example.com/p91.svg
+    proxies:
+      - Group 159
+      - Group 1
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 12
+    type: select
+    icon: https://h8.example.com/p92.png
+    proxies:
+      - Group 159
+      - Group 1
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 13
+    type: select
+    icon: https://h8.example.com/p92.png
+    proxies:
+      - Group 159
+      - Group 1
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 14
+    type: select
+    icon: https://h7.example.com/p93.svg
+    proxies:
+      - Group 159
+      - Group 1
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 15
+    type: select
+    icon: https://h7.example.com/p93.svg
+    proxies:
+      - Group 159
+      - Group 1
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 16
+    type: select
+    icon: https://h9.example.com/p94?q=v1&s=
+    proxies:
+      - Group 159
+      - Group 1
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 17
+    type: select
+    icon: https://h7.example.com/p95.svg
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 18
+    type: select
+    icon: https://h7.example.com/p96.svg
+    proxies:
+      - Group 159
+      - Group 1
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 19
+    type: select
+    icon: https://h7.example.com/p97.svg
+    proxies:
+      - Group 159
+      - Group 1
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 20
+    type: select
+    icon: https://h7.example.com/p98.svg
+    proxies:
+      - Group 159
+      - Group 1
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 21
+    type: select
+    icon: https://h7.example.com/p99.svg
+    proxies:
+      - Group 159
+      - Group 1
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 22
+    type: select
+    icon: https://h7.example.com/p100.svg
+    proxies:
+      - Group 159
+      - Group 1
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 23
+    type: select
+    icon: https://h7.example.com/p101.svg
+    proxies:
+      - Group 159
+      - Group 1
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 24
+    type: select
+    proxies:
+      - Group 159
+      - Group 1
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 25
+    type: select
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 3
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 26
+    type: select
+    proxies:
+      - Group 155
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 2
+      - Group 3
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 27
+    type: select
+    icon: https://h7.example.com/p102.svg
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 28
+    type: select
+    icon: https://h7.example.com/p103.svg
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 29
+    type: select
+    icon: https://h7.example.com/p104.svg
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 30
+    type: select
+    icon: https://h7.example.com/p105.svg
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 3
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 31
+    type: select
+    icon: https://h7.example.com/p105.svg
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 3
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 32
+    type: select
+    icon: https://h7.example.com/p106.svg
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 33
+    type: select
+    icon: https://h7.example.com/p107.svg
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 34
+    type: select
+    icon: https://h7.example.com/p108.svg
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 35
+    type: select
+    icon: https://h7.example.com/p109.svg
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 36
+    type: select
+    icon: https://h7.example.com/p110.svg
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 37
+    type: select
+    icon: https://h7.example.com/p111.svg
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 38
+    type: select
+    icon: https://h7.example.com/p112.svg
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 39
+    type: select
+    icon: https://h7.example.com/p113.svg
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 40
+    type: select
+    icon: https://h7.example.com/p114.svg
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 41
+    type: select
+    icon: https://h7.example.com/p115.svg
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 42
+    type: select
+    icon: https://h7.example.com/p116.svg
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 43
+    type: select
+    icon: https://h7.example.com/p117.svg
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 44
+    type: select
+    icon: https://h7.example.com/p118.svg
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 45
+    type: select
+    icon: https://h7.example.com/p119.svg
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 46
+    type: select
+    icon: https://h7.example.com/p120.svg
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 47
+    type: select
+    icon: https://h7.example.com/p121.svg
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 48
+    type: select
+    icon: https://h7.example.com/p122.svg
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 49
+    type: select
+    icon: https://h7.example.com/p123.svg
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 50
+    type: select
+    icon: https://h7.example.com/p124.svg
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 3
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 51
+    type: select
+    icon: https://h7.example.com/p125.svg
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 52
+    type: select
+    icon: https://h7.example.com/p117.svg
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 53
+    type: select
+    icon: https://h7.example.com/p126.svg
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 54
+    type: select
+    icon: https://h7.example.com/p127.svg
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 55
+    type: select
+    icon: https://h7.example.com/p120.svg
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 56
+    type: select
+    icon: https://h7.example.com/p128.svg
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 3
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 57
+    type: select
+    icon: https://h7.example.com/p129.svg
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 3
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 58
+    type: select
+    icon: https://h7.example.com/p130.svg
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 3
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 59
+    type: select
+    icon: https://h7.example.com/p131.svg
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 3
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 60
+    type: select
+    icon: https://h7.example.com/p131.svg
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 3
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 61
+    type: select
+    icon: https://h7.example.com/p132.svg
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 3
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 62
+    type: select
+    icon: https://h7.example.com/p133.svg
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 63
+    type: select
+    icon: https://h7.example.com/p134.svg
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 64
+    type: select
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 65
+    type: select
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 66
+    type: select
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 67
+    type: select
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 68
+    type: select
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 69
+    type: select
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 70
+    type: select
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 71
+    type: select
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 72
+    type: select
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 73
+    type: select
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 74
+    type: select
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 75
+    type: select
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 76
+    type: select
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 77
+    type: select
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 78
+    type: select
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 79
+    type: select
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 80
+    type: select
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 81
+    type: select
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 82
+    type: select
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 83
+    type: select
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 84
+    type: select
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 85
+    type: select
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 86
+    type: select
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 87
+    type: select
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 88
+    type: select
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 89
+    type: select
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 90
+    type: select
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 91
+    type: select
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 92
+    type: select
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 93
+    type: select
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 94
+    type: select
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 95
+    type: select
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 96
+    type: select
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 97
+    type: select
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 98
+    type: select
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 99
+    type: select
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 100
+    type: select
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 101
+    type: select
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 102
+    type: select
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 103
+    type: select
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 104
+    type: select
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 155
+      - Group 2
+      - Group 156
+      - Group 157
+      - Group 158
+      - Group 4
+      - Group 162
+      - Group 160
+  - name: Group 105
+    type: select
+    proxies:
+      - Group 9
+      - Group 10
+      - Group 6
+      - Group 7
+      - Group 8
+      - Group 11
+      - Group 12
+      - Group 14
+      - Group 13
+      - Group 15
+      - Group 5
+      - Group 29
+      - Group 30
+      - Group 31
+      - Group 28
+      - Group 32
+      - Group 33
+      - Group 35
+      - Group 37
+      - Group 34
+      - Group 48
+      - Group 27
+      - Group 38
+      - Group 39
+      - Group 40
+      - Group 41
+      - Group 42
+      - Group 20
+      - Group 21
+      - Group 36
+      - Group 22
+      - Group 16
+      - Group 17
+      - Group 18
+      - Group 19
+      - Group 50
+      - Group 47
+      - Group 23
+      - Group 43
+      - Group 49
+      - Group 44
+      - Group 45
+      - Group 46
+      - Group 56
+      - Group 56
+      - Group 106
+  - name: Group 106
+    type: select
+    proxies:
+      - Group 51
+      - Group 52
+      - Group 53
+      - Group 54
+      - Group 55
+      - Group 57
+      - Group 58
+      - Group 59
+      - Group 60
+      - Group 61
+      - Group 62
+      - Group 63
+      - Group 64
+      - Group 65
+      - Group 66
+      - Group 67
+      - Group 68
+      - Group 24
+      - Group 25
+      - Group 26
+      - Group 69
+      - Group 70
+      - Group 71
+      - Group 72
+      - Group 73
+      - Group 74
+      - Group 75
+      - Group 76
+      - Group 77
+      - Group 78
+      - Group 79
+      - Group 80
+      - Group 81
+      - Group 82
+      - Group 83
+      - Group 84
+      - Group 85
+      - Group 86
+      - Group 87
+      - Group 88
+      - Group 89
+      - Group 90
+      - Group 91
+      - Group 92
+      - Group 93
+      - Group 94
+      - Group 95
+      - Group 96
+      - Group 97
+      - Group 98
+      - Group 99
+      - Group 100
+      - Group 101
+      - Group 102
+      - Group 103
+      - Group 104
+  - name: Group 107
+    type: url-test
+    url: https://h10.example.com/generate_204
+    interval: 7200
+    tolerance: 300
+    lazy: false
+    use:
+      - provider-1
+  - name: Group 108
+    type: url-test
+    icon: https://h7.example.com/p135.svg
+    url: https://h11.example.com/generate_204
+    interval: 7200
+    tolerance: 300
+    lazy: false
+    use:
+      - provider-1
+  - name: Group 109
+    type: url-test
+    url: https://h12.example.com
+    interval: 7200
+    tolerance: 300
+    lazy: false
+    use:
+      - provider-1
+    filter: "Proxy [0-9]+|Group 1"
+  - name: Group 110
+    type: url-test
+    url: https://h12.example.com
+    interval: 7200
+    tolerance: 300
+    lazy: false
+    use:
+      - provider-1
+    filter: "Proxy [0-9]+|Group 2"
+  - name: Group 111
+    type: url-test
+    url: https://h12.example.com
+    interval: 7200
+    tolerance: 300
+    lazy: false
+    use:
+      - provider-1
+    filter: "Proxy [0-9]+|Group 3"
+  - name: Group 112
+    type: url-test
+    url: https://h12.example.com
+    interval: 7200
+    tolerance: 300
+    lazy: false
+    use:
+      - provider-1
+    filter: "Proxy [0-9]+|Group 4"
+  - name: Group 113
+    type: url-test
+    url: https://h12.example.com
+    interval: 7200
+    tolerance: 300
+    lazy: false
+    use:
+      - provider-1
+    filter: "Proxy [0-9]+|Group 5"
+  - name: Group 114
+    type: url-test
+    url: https://h12.example.com
+    interval: 7200
+    tolerance: 300
+    lazy: false
+    use:
+      - provider-1
+    filter: "Proxy [0-9]+|Group 6"
+  - name: Group 115
+    type: url-test
+    url: https://h12.example.com
+    interval: 7200
+    tolerance: 300
+    lazy: false
+    use:
+      - provider-1
+    filter: "Proxy [0-9]+|Group 7"
+  - name: Group 116
+    type: url-test
+    url: https://h12.example.com
+    interval: 7200
+    tolerance: 300
+    lazy: false
+    use:
+      - provider-1
+    filter: "Proxy [0-9]+|Group 8"
+  - name: Group 117
+    type: url-test
+    url: https://h12.example.com
+    interval: 7200
+    tolerance: 300
+    lazy: false
+    use:
+      - provider-1
+    filter: "Proxy [0-9]+|Group 9"
+  - name: Group 118
+    type: url-test
+    url: https://h12.example.com
+    interval: 7200
+    tolerance: 300
+    lazy: false
+    use:
+      - provider-1
+    filter: "Proxy [0-9]+|Group 10"
+  - name: Group 119
+    type: url-test
+    url: https://h12.example.com
+    interval: 7200
+    tolerance: 300
+    lazy: false
+    use:
+      - provider-1
+    filter: "Proxy [0-9]+|Group 11"
+  - name: Group 120
+    type: url-test
+    url: https://h12.example.com
+    interval: 7200
+    tolerance: 300
+    lazy: false
+    use:
+      - provider-1
+    filter: "Proxy [0-9]+|Group 12"
+  - name: Group 121
+    type: url-test
+    url: https://h12.example.com
+    interval: 7200
+    tolerance: 300
+    lazy: false
+    use:
+      - provider-1
+    filter: "Proxy [0-9]+|Group 13"
+  - name: Group 122
+    type: url-test
+    url: https://h12.example.com
+    interval: 7200
+    tolerance: 300
+    lazy: false
+    use:
+      - provider-1
+    filter: "Proxy [0-9]+|Group 14"
+  - name: Group 123
+    type: url-test
+    url: https://h12.example.com
+    interval: 7200
+    tolerance: 300
+    lazy: false
+    use:
+      - provider-1
+    filter: "Proxy [0-9]+|Group 15"
+  - name: Group 124
+    type: url-test
+    url: https://h12.example.com
+    interval: 7200
+    tolerance: 300
+    lazy: false
+    use:
+      - provider-1
+    filter: "Proxy [0-9]+|Group 16"
+  - name: Group 125
+    type: url-test
+    url: https://h12.example.com
+    interval: 7200
+    tolerance: 300
+    lazy: false
+    use:
+      - provider-1
+    filter: "Proxy [0-9]+|Group 17"
+  - name: Group 126
+    type: url-test
+    url: https://h12.example.com
+    interval: 7200
+    tolerance: 300
+    lazy: false
+    use:
+      - provider-1
+    filter: "Proxy [0-9]+|Group 18"
+  - name: Group 127
+    type: url-test
+    url: https://h12.example.com
+    interval: 7200
+    tolerance: 300
+    lazy: false
+    use:
+      - provider-1
+    filter: "Proxy [0-9]+|Group 19"
+  - name: Group 128
+    type: url-test
+    url: https://h12.example.com
+    interval: 7200
+    tolerance: 300
+    lazy: false
+    use:
+      - provider-1
+    filter: "Proxy [0-9]+|Group 20"
+  - name: Group 129
+    type: url-test
+    url: https://h12.example.com
+    interval: 7200
+    tolerance: 300
+    lazy: false
+    use:
+      - provider-1
+    filter: "Proxy [0-9]+|Group 21"
+  - name: Group 130
+    type: url-test
+    url: https://h12.example.com
+    interval: 7200
+    tolerance: 300
+    lazy: false
+    use:
+      - provider-1
+    filter: "Proxy [0-9]+|Group 22"
+  - name: Group 131
+    type: url-test
+    url: https://h12.example.com
+    interval: 7200
+    tolerance: 300
+    lazy: false
+    use:
+      - provider-1
+    filter: "Proxy [0-9]+|Group 23"
+  - name: Group 132
+    type: url-test
+    url: https://h12.example.com
+    interval: 7200
+    tolerance: 300
+    lazy: false
+    use:
+      - provider-1
+    filter: "Proxy [0-9]+|Group 24"
+  - name: Group 133
+    type: url-test
+    url: https://h12.example.com
+    interval: 7200
+    tolerance: 300
+    lazy: false
+    use:
+      - provider-1
+    filter: "Proxy [0-9]+|Group 25"
+  - name: Group 134
+    type: url-test
+    url: https://h12.example.com
+    interval: 7200
+    tolerance: 300
+    lazy: false
+    use:
+      - provider-1
+    filter: "Proxy [0-9]+|Group 26"
+  - name: Group 135
+    type: url-test
+    url: https://h12.example.com
+    interval: 7200
+    tolerance: 300
+    lazy: false
+    use:
+      - provider-1
+    filter: "Proxy [0-9]+|Group 27"
+  - name: Group 136
+    type: url-test
+    url: https://h12.example.com
+    interval: 7200
+    tolerance: 300
+    lazy: false
+    use:
+      - provider-1
+    filter: "Proxy [0-9]+|Group 28"
+  - name: Group 137
+    type: url-test
+    url: https://h12.example.com
+    interval: 7200
+    tolerance: 300
+    lazy: false
+    use:
+      - provider-1
+    filter: "Proxy [0-9]+|Group 29"
+  - name: Group 138
+    type: url-test
+    url: https://h12.example.com
+    interval: 7200
+    tolerance: 300
+    lazy: false
+    use:
+      - provider-1
+    filter: "Proxy [0-9]+|Group 30"
+  - name: Group 139
+    type: url-test
+    url: https://h12.example.com
+    interval: 7200
+    tolerance: 300
+    lazy: false
+    use:
+      - provider-1
+    filter: "Proxy [0-9]+|Group 31"
+  - name: Group 140
+    type: url-test
+    url: https://h12.example.com
+    interval: 7200
+    tolerance: 300
+    lazy: false
+    use:
+      - provider-1
+    filter: "Proxy [0-9]+|Group 32"
+  - name: Group 141
+    type: url-test
+    url: https://h12.example.com
+    interval: 7200
+    tolerance: 300
+    lazy: false
+    use:
+      - provider-1
+    filter: "Proxy [0-9]+|Group 33"
+  - name: Group 142
+    type: url-test
+    url: https://h12.example.com
+    interval: 7200
+    tolerance: 300
+    lazy: false
+    use:
+      - provider-1
+    filter: "Proxy [0-9]+|Group 34"
+  - name: Group 143
+    type: url-test
+    url: https://h12.example.com
+    interval: 7200
+    tolerance: 300
+    lazy: false
+    use:
+      - provider-1
+    filter: "Proxy [0-9]+|Group 35"
+  - name: Group 144
+    type: url-test
+    url: https://h12.example.com
+    interval: 7200
+    tolerance: 300
+    lazy: false
+    use:
+      - provider-1
+    filter: "Proxy [0-9]+|Group 36"
+  - name: Group 145
+    type: url-test
+    url: https://h12.example.com
+    interval: 7200
+    tolerance: 300
+    lazy: false
+    use:
+      - provider-1
+    filter: "Proxy [0-9]+|Group 37"
+  - name: Group 146
+    type: url-test
+    url: https://h12.example.com
+    interval: 7200
+    tolerance: 300
+    lazy: false
+    use:
+      - provider-1
+    filter: "Proxy [0-9]+|Group 38"
+  - name: Group 147
+    type: url-test
+    url: https://h12.example.com
+    interval: 7200
+    tolerance: 300
+    lazy: false
+    use:
+      - provider-1
+    filter: "Proxy [0-9]+|Group 39"
+  - name: Group 148
+    type: url-test
+    url: https://h12.example.com
+    interval: 7200
+    tolerance: 300
+    lazy: false
+    use:
+      - provider-1
+    filter: "Proxy [0-9]+|Group 40"
+  - name: Group 149
+    type: url-test
+    url: https://h12.example.com
+    interval: 7200
+    tolerance: 300
+    lazy: false
+    use:
+      - provider-1
+    filter: "Proxy [0-9]+|Group 41"
+  - name: Group 150
+    type: url-test
+    url: https://h12.example.com
+    interval: 7200
+    tolerance: 300
+    lazy: false
+    use:
+      - provider-1
+    filter: "Proxy [0-9]+|Group 42"
+  - name: Group 151
+    type: url-test
+    url: https://h12.example.com
+    interval: 7200
+    tolerance: 300
+    lazy: false
+    use:
+      - provider-1
+    filter: "Proxy [0-9]+|Group 43"
+  - name: Group 152
+    type: url-test
+    url: https://h12.example.com
+    interval: 7200
+    tolerance: 300
+    lazy: false
+    use:
+      - provider-1
+    filter: "Proxy [0-9]+|Group 44"
+  - name: Group 153
+    type: url-test
+    url: https://h12.example.com
+    interval: 7200
+    tolerance: 300
+    lazy: false
+    use:
+      - provider-1
+    filter: "Proxy [0-9]+|Group 45"
+  - name: Group 154
+    type: url-test
+    url: https://h12.example.com
+    interval: 7200
+    tolerance: 300
+    lazy: false
+    use:
+      - provider-1
+    filter: "Proxy [0-9]+|Group 46"
+  - name: Group 155
+    type: fallback
+    url: https://h11.example.com/generate_204
+    interval: 7200
+    tolerance: 300
+    lazy: false
+    use:
+      - provider-1
+  - name: Group 156
+    type: load-balance
+    strategy: consistent-hashing
+    url: https://h11.example.com/generate_204
+    interval: 7200
+    tolerance: 300
+    lazy: false
+    use:
+      - provider-1
+  - name: Group 157
+    type: load-balance
+    strategy: round-robin
+    url: https://h11.example.com/generate_204
+    interval: 7200
+    tolerance: 300
+    lazy: false
+    use:
+      - provider-1
+  - name: Group 158
+    type: load-balance
+    strategy: sticky-sessions
+    url: https://h11.example.com/generate_204
+    interval: 7200
+    tolerance: 300
+    lazy: false
+    use:
+      - provider-1
+  - name: Group 159
+    type: select
+    icon: https://h7.example.com/p136.svg
+    proxies:
+      - DIRECT
+      - Proxy 1
+      - Proxy 2
+      - Proxy 4
+      - Proxy 3
+      - Proxy 5
+  - name: Group 160
+    type: select
+    proxies:
+      - PASS
+  - name: Group 161
+    type: select
+    icon: https://h7.example.com/p137.svg
+    proxies:
+      - REJECT
+  - name: Group 162
+    type: select
+    icon: https://h7.example.com/p137.svg
+    proxies:
+      - REJECT-DROP
+  - name: Group 163
+    type: select
+    icon: https://h7.example.com/p138.svg
+    proxies:
+      - Group 1
+      - Group 159
+      - Group 161
+      - Group 105
+      - Group 162
+      - Group 160
+ntp:
+  enable: true
+  server: s34.example.net
+  port: 123
+  interval: 30
+rules:
+  - RULE-SET,set-80,Group 7
+  - GEOSITE,category-ads-all,Group 6
+  - RULE-SET,set-79,Group 6
+  - RULE-SET,set-78,Group 6
+  - RULE-SET,set-77,Group 6
+  - RULE-SET,set-61,Group 6
+  - RULE-SET,set-58,Group 6
+  - RULE-SET,set-30,Group 6
+  - RULE-SET,set-31,Group 6
+  - RULE-SET,set-32,Group 6
+  - RULE-SET,set-1,Group 6
+  - RULE-SET,set-50,Group 6
+  - RULE-SET,set-2,Group 6
+  - RULE-SET,set-3,Group 6
+  - RULE-SET,set-28,Group 6
+  - RULE-SET,set-33,Group 6
+  - RULE-SET,set-44,Group 6
+  - RULE-SET,set-45,Group 6
+  - RULE-SET,set-25,Group 8
+  - RULE-SET,set-27,Group 8
+  - RULE-SET,set-26,Group 8
+  - RULE-SET,set-41,Group 8
+  - RULE-SET,set-40,Group 8
+  - PROCESS-NAME,app1.exe,Group 25
+  - PROCESS-NAME,app2.exe,Group 26
+  - PROCESS-NAME,app3.exe,Group 62
+  - PROCESS-NAME,app4.exe,Group 63
+  - PROCESS-NAME,app5.exe,Group 64
+  - PROCESS-NAME,app6.exe,Group 65
+  - PROCESS-NAME,app7.exe,Group 66
+  - PROCESS-NAME,app8.exe,Group 67
+  - PROCESS-NAME,app9.exe,Group 68
+  - PROCESS-NAME,app10.exe,Group 24
+  - PROCESS-NAME,app11.exe,Group 69
+  - PROCESS-NAME,app12.exe,Group 70
+  - PROCESS-NAME,app13.exe,Group 71
+  - PROCESS-NAME,app14.exe,Group 72
+  - PROCESS-NAME,app15.exe,Group 73
+  - PROCESS-NAME,app16.exe,Group 74
+  - PROCESS-NAME,app17.exe,Group 75
+  - PROCESS-NAME,app18.exe,Group 76
+  - PROCESS-NAME,app19.exe,Group 77
+  - PROCESS-NAME,app20.exe,Group 78
+  - PROCESS-NAME,app21.exe,Group 79
+  - PROCESS-NAME,app22.exe,Group 80
+  - PROCESS-NAME,app23.exe,Group 81
+  - PROCESS-NAME,app24.exe,Group 82
+  - PROCESS-NAME,app25.exe,Group 83
+  - PROCESS-NAME,app26.exe,Group 84
+  - PROCESS-NAME,app27.exe,Group 85
+  - PROCESS-NAME,app28.exe,Group 86
+  - PROCESS-NAME,app29.exe,Group 87
+  - PROCESS-NAME,app30.exe,Group 88
+  - PROCESS-NAME,app31.exe,Group 89
+  - PROCESS-NAME,app32.exe,Group 90
+  - PROCESS-NAME,app33.exe,Group 91
+  - PROCESS-NAME,app34.exe,Group 92
+  - PROCESS-NAME,app35.exe,Group 93
+  - PROCESS-NAME,app36.exe,Group 94
+  - PROCESS-NAME,app37.exe,Group 95
+  - PROCESS-NAME,app38.exe,Group 96
+  - PROCESS-NAME,app39.exe,Group 97
+  - PROCESS-NAME,app40.exe,Group 98
+  - PROCESS-NAME,app41.exe,Group 99
+  - PROCESS-NAME,app42.exe,Group 100
+  - PROCESS-NAME,app43.exe,Group 101
+  - PROCESS-NAME,app44.exe,Group 102
+  - PROCESS-NAME,app45.exe,Group 103
+  - PROCESS-NAME,app46.exe,Group 104
+  - PROCESS-NAME,app47.exe,Group 12
+  - PROCESS-NAME,app48.exe,Group 14
+  - PROCESS-NAME,app49.exe,Group 14
+  - PROCESS-NAME,app50.exe,Group 52
+  - PROCESS-NAME,app51.exe,Group 51
+  - PROCESS-NAME,app52.exe,Group 53
+  - PROCESS-NAME,app9.exe,Group 54
+  - PROCESS-NAME,app50.exe,Group 55
+  - PROCESS-NAME,app53.exe,Group 56
+  - PROCESS-NAME,app54.exe,Group 29
+  - PROCESS-NAME,app55.exe,Group 29
+  - PROCESS-NAME,app56.exe,Group 29
+  - PROCESS-NAME,app57.exe,Group 29
+  - PROCESS-NAME,app58.exe,Group 29
+  - PROCESS-NAME,app59.exe,Group 29
+  - PROCESS-NAME,app60.exe,Group 29
+  - PROCESS-NAME,app54.exe,Group 29
+  - PROCESS-NAME,app61.exe,Group 29
+  - PROCESS-NAME,app62.exe,Group 29
+  - PROCESS-NAME,app63.exe,Group 29
+  - RULE-SET,set-29,Group 20
+  - RULE-SET,set-34,Group 20
+  - DOMAIN-SUFFIX,d12.example,Group 47
+  - DOMAIN-SUFFIX,d13.example,Group 23
+  - DOMAIN-SUFFIX,d14.example,Group 43
+  - DOMAIN-SUFFIX,d15.example,Group 49
+  - DOMAIN-SUFFIX,d16.example,Group 44
+  - DOMAIN-SUFFIX,d17.example,Group 44
+  - DOMAIN-SUFFIX,d18.example,Group 45
+  - DOMAIN-SUFFIX,d19.example,Group 45
+  - DOMAIN-SUFFIX,d20.example,Group 45
+  - DOMAIN-SUFFIX,d14.example,Group 46
+  - DOMAIN-SUFFIX,d21.example,Group 46
+  - DOMAIN-SUFFIX,d22.example,Group 56
+  - DOMAIN-SUFFIX,d23.example,Group 56
+  - DOMAIN-SUFFIX,d24.example,Group 56
+  - RULE-SET,set-67,Group 56
+  - GEOSITE,discord,Group 56
+  - RULE-SET,set-51,Group 56
+  - GEOSITE,nvidia,Group 29
+  - GEOSITE,github,Group 11
+  - GEOSITE,gitlab,Group 11
+  - PROCESS-NAME,app64,Group 11
+  - GEOSITE,gitlab,Group 11
+  - PROCESS-NAME,app65,Group 31
+  - RULE-SET,set-38,Group 31
+  - PROCESS-NAME,app66,Group 30
+  - RULE-SET,set-5,Group 30
+  - RULE-SET,set-4,Group 30
+  - RULE-SET,set-39,Group 30
+  - PROCESS-NAME,app67,Group 32
+  - RULE-SET,set-63,Group 32
+  - RULE-SET,set-64,Group 33
+  - RULE-SET,set-6,Group 33
+  - PROCESS-NAME,app68,Group 35
+  - GEOSITE,openai,Group 35
+  - RULE-SET,set-65,Group 35
+  - PROCESS-NAME,app69.exe,Group 37
+  - PROCESS-NAME,app70,Group 37
+  - RULE-SET,set-66,Group 37
+  - RULE-SET,set-55,Group 37
+  - RULE-SET,set-56,Group 37
+  - RULE-SET,set-57,Group 37
+  - DOMAIN-SUFFIX,d25.example,Group 34
+  - DOMAIN-SUFFIX,d26.example,Group 34
+  - RULE-SET,set-69,Group 48
+  - RULE-SET,set-7,Group 48
+  - GEOSITE,cloudflare,Group 27
+  - RULE-SET,set-47,Group 27
+  - PROCESS-NAME,app71,Group 38
+  - RULE-SET,set-70,Group 38
+  - GEOSITE,instagram,Group 38
+  - RULE-SET,set-52,Group 38
+  - GEOSITE,facebook,Group 5
+  - RULE-SET,set-71,Group 5
+  - GEOSITE,netflix,Group 39
+  - RULE-SET,set-72,Group 39
+  - RULE-SET,set-73,Group 39
+  - PROCESS-NAME,app72,Group 40
+  - PROCESS-NAME,app73.exe,Group 40
+  - RULE-SET,set-74,Group 40
+  - RULE-SET,set-59,Group 40
+  - RULE-SET,set-60,Group 40
+  - RULE-SET,set-75,Group 41
+  - GEOSITE,linkedin,Group 42
+  - DOMAIN-SUFFIX,d27.example,Group 36
+  - DOMAIN-SUFFIX,d28.example,Group 36
+  - RULE-SET,set-53,Group 36
+  - RULE-SET,set-8,Group 16
+  - PROCESS-NAME,app74,Group 21
+  - PROCESS-NAME,app75.exe,Group 21
+  - DOMAIN-SUFFIX,d29.example,Group 21
+  - RULE-SET,set-14,Group 17
+  - RULE-SET,set-15,Group 17
+  - RULE-SET,set-35,Group 17
+  - RULE-SET,set-37,Group 17
+  - RULE-SET,set-46,Group 18
+  - PROCESS-NAME,app76,Group 22
+  - PROCESS-NAME,app77,Group 22
+  - PROCESS-NAME,app78.exe,Group 22
+  - RULE-SET,set-49,Group 22
+  - RULE-SET,set-54,Group 19
+  - RULE-SET,set-76,Group 13
+  - DOMAIN-SUFFIX,d30.example,Group 13
+  - DOMAIN-SUFFIX,d31.example,Group 15
+  - DOMAIN-SUFFIX,d32.example,Group 15
+  - DOMAIN-SUFFIX,d33.example,Group 15
+  - RULE-SET,set-68,Group 15
+  - RULE-SET,set-13,Group 15
+  - RULE-SET,set-36,Group 15
+  - GEOSITE,category-ir,Group 10
+  - RULE-SET,set-18,Group 10
+  - RULE-SET,set-11,Group 10
+  - RULE-SET,set-12,Group 10
+  - RULE-SET,set-16,Group 10
+  - RULE-SET,set-19,Group 10
+  - RULE-SET,set-20,Group 10
+  - RULE-SET,set-21,Group 10
+  - RULE-SET,set-22,Group 10
+  - RULE-SET,set-23,Group 10
+  - RULE-SET,set-24,Group 10
+  - GEOIP,IR,Group 10
+  - GEOSITE,private,Group 9
+  - RULE-SET,set-17,Group 9
+  - RULE-SET,set-10,Group 9
+  - PROCESS-NAME,app79.exe,Group 50
+  - PROCESS-NAME,app80.exe,Group 50
+  - PROCESS-NAME,app81.exe,Group 57
+  - PROCESS-NAME,app82,Group 57
+  - PROCESS-NAME,app83.exe,Group 58
+  - PROCESS-NAME,app84.exe,Group 33
+  - PROCESS-NAME,app85,Group 33
+  - PROCESS-NAME,app86,Group 33
+  - PROCESS-NAME,app87,Group 33
+  - PROCESS-NAME,app88.exe,Group 61
+  - PROCESS-NAME,app89,Group 61
+  - PROCESS-NAME,app90.exe,Group 59
+  - PROCESS-NAME,app91.exe,Group 60
+  - PROCESS-NAME,app92.exe,Group 59
+  - GEOSITE,google,Group 28
+  - RULE-SET,set-62,Group 28
+  - RULE-SET,set-42,Group 28
+  - RULE-SET,set-43,Group 28
+  - PROCESS-NAME,app93,Group 28
+  - PROCESS-NAME,app94,Group 28
+  - PROCESS-NAME,app95,Group 5
+  - MATCH,Group 163

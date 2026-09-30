@@ -1,0 +1,162 @@
+{
+  "outbounds": [
+    {
+      "password": "password1",
+      "server": "s1.example.net",
+      "server_port": 59443,
+      "tag": "Proxy 1",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s1.example.net"
+      },
+      "type": "trojan"
+    },
+    {
+      "server": "192.0.2.1",
+      "server_port": 8880,
+      "tag": "Proxy 2",
+      "transport": {
+        "headers": {
+          "Host": "sni2.example.org"
+        },
+        "path": "/p1",
+        "type": "ws"
+      },
+      "type": "vless",
+      "uuid": "00005a11-0000-4000-8000-000000000001"
+    },
+    {
+      "password": "password2",
+      "server": "192.0.2.2",
+      "server_port": 8080,
+      "tag": "Proxy 3",
+      "tls": {
+        "enabled": true,
+        "insecure": false,
+        "server_name": "sni3.example.org"
+      },
+      "type": "hysteria2"
+    },
+    {
+      "password": "password2",
+      "server": "192.0.2.2",
+      "server_port": 8080,
+      "tag": "Proxy 4",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "sni3.example.org"
+      },
+      "type": "hysteria2"
+    },
+    {
+      "password": "password3",
+      "server": "192.0.2.3",
+      "server_port": 50160,
+      "tag": "Proxy 5",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "sni4.example.org"
+      },
+      "type": "hysteria2"
+    },
+    {
+      "server": "192.0.2.4",
+      "server_port": 8880,
+      "tag": "Proxy 6",
+      "transport": {
+        "headers": {
+          "Host": "sni5.example.org"
+        },
+        "path": "/p1",
+        "type": "ws"
+      },
+      "type": "vless",
+      "uuid": "00005a11-0000-4000-8000-000000000001"
+    },
+    {
+      "flow": "xtls-rprx-vision",
+      "server": "s6.example.net",
+      "server_port": 443,
+      "tag": "Proxy 7",
+      "tls": {
+        "enabled": true,
+        "insecure": false,
+        "reality": {
+          "enabled": true,
+          "public_key": "wywOQgzCr2vr85JpoMxzCakHIIvgUtsG6_Qp987NJa4",
+          "short_id": "704c7085dd7b3f73"
+        },
+        "server_name": "s6.example.net",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "random"
+        }
+      },
+      "type": "vless",
+      "uuid": "00005a11-0000-4000-8000-000000000002"
+    },
+    {
+      "flow": "xtls-rprx-vision",
+      "server": "192.0.2.5",
+      "server_port": 443,
+      "tag": "Proxy 8",
+      "tls": {
+        "enabled": true,
+        "insecure": false,
+        "reality": {
+          "enabled": true,
+          "public_key": "wywOQgzCr2vr85JpoMxzCakHIIvgUtsG6_Qp987NJa4",
+          "short_id": "704c7085dd7b3f73"
+        },
+        "server_name": "s6.example.net",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "firefox"
+        }
+      },
+      "type": "vless",
+      "uuid": "00005a11-0000-4000-8000-000000000002"
+    },
+    {
+      "interval": "5m",
+      "outbounds": [
+        "Proxy 1",
+        "Proxy 2",
+        "Proxy 3",
+        "Proxy 4",
+        "Proxy 5",
+        "Proxy 6",
+        "Proxy 7",
+        "Proxy 8"
+      ],
+      "tag": "Group 1",
+      "type": "urltest",
+      "url": "https://h1.example.com/generate_204"
+    },
+    {
+      "outbounds": [
+        "Group 1",
+        "Proxy 1",
+        "Proxy 2",
+        "Proxy 3",
+        "Proxy 4",
+        "Proxy 5",
+        "Proxy 6",
+        "Proxy 7",
+        "Proxy 8"
+      ],
+      "tag": "Group 2",
+      "type": "selector"
+    },
+    {
+      "tag": "Proxy 9",
+      "type": "direct"
+    }
+  ],
+  "route": {
+    "final": "Group 2"
+  }
+}

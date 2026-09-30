@@ -1,0 +1,41 @@
+allow-lan: true
+bind-address: '*'
+dns:
+  default-nameserver:
+    - 192.0.2.1
+    - 192.0.2.2
+  enable: true
+  enhanced-mode: redir-host
+  fallback:
+    - https://192.0.2.3/dns-query
+    - https://h1.example.com/dns-query
+    - https://192.0.2.4:8443/dns-query
+  fallback-filter:
+    geoip: true
+    geoip-code: CN
+  nameserver:
+    - 192.0.2.1
+    - 192.0.2.2
+    - 192.0.2.5
+external-controller: 127.0.0.1:2683
+log-level: info
+mixed-port: 2682
+mode: rule
+proxies:
+proxy-groups:
+  - name: Group 1
+    type: load-balance
+    strategy: round-robin
+    use:
+      - provider-1
+proxy-providers:
+  provider-1:
+    path: ./path-1.yaml
+    type: file
+    interval: 600
+rules:
+  - DOMAIN-SUFFIX,d1.example,Group 1
+  - DOMAIN,d1.example,Group 1
+  - SRC-IP-CIDR,192.0.2.6/32,DIRECT
+  - IP-CIDR,127.0.0.0/8,DIRECT
+  - MATCH,DIRECT

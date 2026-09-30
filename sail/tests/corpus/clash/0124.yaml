@@ -1,0 +1,44 @@
+mixed-port: 7890
+allow-lan: false
+mode: rule
+log-level: info
+ipv6: false
+dns:
+  enable: true
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  nameserver:
+    - 192.0.2.1
+    - 192.0.2.2
+  fallback:
+    - 192.0.2.3
+    - 192.0.2.4
+proxies:
+  - name: Proxy 1
+    type: vless
+    server: s1.example.net
+    port: 443
+    uuid: 00005a11-0000-4000-8000-000000000001
+    network: ws
+    tls: true
+    servername: s1.example.net
+    ws-opts:
+      path: /p1
+      headers:
+        Host: s1.example.net
+proxy-groups:
+  - name: Group 1
+    type: url-test
+    url: https://h1.example.com/generate_204
+    interval: 300
+    tolerance: 50
+    proxies:
+      - Proxy 1
+  - name: Group 2
+    type: select
+    proxies:
+      - Group 1
+      - Proxy 1
+rules:
+  - GEOIP,CN,DIRECT
+  - MATCH,Group 2

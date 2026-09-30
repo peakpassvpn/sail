@@ -1,0 +1,25 @@
+proxies:
+  - name: "Proxy 1"
+    type: ss
+    server: 192.0.2.1
+    port: 56448
+    cipher: chacha20-ietf
+    password: password1
+    udp: true
+  - name: "Proxy 2"
+    type: vmess
+    server: 192.0.2.2
+    port: 62705
+    uuid: 00005a11-0000-4000-8000-000000000001
+    alterId: 0
+    cipher: auto
+    udp: true
+proxy-groups:
+  - name: Group 1
+    type: select
+    proxies:
+      - Proxy 1
+      - Proxy 2
+      - DIRECT
+rules:
+  - MATCH,Group 1

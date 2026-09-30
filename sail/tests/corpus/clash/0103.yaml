@@ -1,0 +1,207 @@
+port: 7890
+socks-port: 7891
+redir-port: 7892
+mixed-port: 7893
+proxy-port: 7895
+ipv6: false
+mode: rule
+log-level: silent
+allow-lan: true
+external-controller: 0.0.0.0:9090
+bind-address: "*"
+unified-delay: true
+profile:
+  store-selected: true
+dns:
+  enable: true
+  ipv6: false
+  enhanced-mode: fake-ip
+  listen: 0.0.0.0:7874
+  nameserver:
+    - str1
+    - d1.example
+    - 192.0.2.1
+    - 192.0.2.2
+    - 192.0.2.3
+    - 192.0.2.4
+  fake-ip-range: 198.18.0.1/16
+  fake-ip-filter:
+    - "*.d2.example"
+    - "*.d3.example"
+    - "*.d4.example"
+    - "*.d5.example"
+    - "*.localhost"
+    - "*.d6.example"
+    - "*.d7.example"
+    - "*.d8.example"
+    - d9*.example
+    - d10*.example
+    - d11*.example
+    - d12*.example
+    - d13.example
+    - d14*.example
+    - d15*.example
+    - d16*.example
+    - d17*.example
+    - d18*.example
+    - d19*.example
+    - d20*.example
+    - d21*.example
+    - d22*.example
+    - d23*.example
+    - d24*.example
+    - d25*.example
+    - d26*.example
+    - d27*.example
+    - d28*.example
+    - "*.d29.example"
+    - "*.d30.example"
+    - "+.d31.example"
+    - d32.example
+    - d33.example
+    - "*.d33.example"
+    - "*.d34.example"
+    - d35.example
+    - d36.example
+    - d37.example
+    - d38.example
+    - "*.d39.example"
+    - d40.example
+    - d41.example
+    - d42.example
+    - d43.example
+    - "*.d43.example"
+    - d44.example
+    - d45.example
+    - d46.example
+    - d47.example
+    - d48.example
+    - d49.example
+    - "*.d50.example"
+    - "*.d51.example"
+    - d51.example
+    - "+.d52.example"
+    - "+.d53.example"
+    - d54.example
+    - d55.example
+    - "+.d56.example"
+    - "+.d57.example"
+    - "+.d58.example"
+    - "*.d59.example"
+    - "+.d60.example"
+    - d61*.example
+    - "*.d62*.example"
+    - d63*.example
+    - d64.example
+    - "+.d65.example"
+    - "+.d66.example"
+    - "+.d67.example"
+    - "+.d68.example"
+    - "+.d69.example"
+    - d70.example
+    - d71*.example
+    - d72*.example
+    - "+.d71*.example"
+    - "+.d72*.example"
+    - "+.d73*.example"
+    - "+.d74*.example"
+    - d75.example
+    - "*.d76.example"
+    - "*.d77.example"
+    - "*.d78.example"
+    - d79.example
+    - d80.example
+    - d81.example
+    - d82.example
+    - d83.example
+    - d84.example
+    - "+.d85.example"
+    - "+.d86.example"
+    - d87.example
+    - d88.example
+    - d89.example
+    - "+.d90.example"
+    - "*.d91.example"
+    - "*.d92.example"
+    - "*.d93.example"
+    - "*.d94.example"
+    - d95.example
+    - "*.d96.example"
+    - "+.d97.example"
+    - d98.example
+    - str2
+    - "+.d99.example"
+    - "+.d100.example"
+    - d101.example
+    - "+.d102.example"
+    - "+.d103.example"
+    - "+.d104.example"
+    - "+.d105.example"
+    - "+.d106.example"
+    - d107.example
+    - "+.d108.example"
+    - "+.d109.example"
+    - "+.d85.example"
+    - "+.d86.example"
+    - "+.d110.example"
+    - "+.d111.example"
+    - "+.d112.example"
+    - "+.d113.example"
+proxies:
+  - name: Proxy 1
+    server: s114.example.net
+    port: 443
+    type: vless
+    uuid: 00005a11-0000-4000-8000-000000000001
+    alterId: 0
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    servername: sni115.example.org
+    network: ws
+    ws-opts:
+      path: /p1
+      headers:
+        Host: sni115.example.org
+    udp: true
+  - name: Proxy 2
+    server: s116.example.net
+    port: 443
+    type: vless
+    uuid: 00005a11-0000-4000-8000-000000000001
+    alterId: 0
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    servername: sni115.example.org
+    network: ws
+    ws-opts:
+      path: /p1
+      headers:
+        Host: sni115.example.org
+    udp: true
+  - name: Proxy 3
+    server: 192.0.2.5
+    port: 443
+    type: vless
+    uuid: 00005a11-0000-4000-8000-000000000001
+    alterId: 0
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    servername: sni115.example.org
+    network: ws
+    ws-opts:
+      path: /p1
+      headers:
+        Host: sni115.example.org
+    udp: true
+proxy-groups:
+  - name: Group 1
+    type: load-balance
+    proxies:
+      - Proxy 1
+      - Proxy 2
+      - Proxy 3
+rules:
+  - MATCH,GLOBAL

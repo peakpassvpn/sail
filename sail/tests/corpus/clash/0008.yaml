@@ -1,0 +1,88 @@
+port: 7890
+socks-port: 7891
+allow-lan: false
+mode: Rule
+log-level: info
+external-controller: 127.0.0.1:9090
+experimental:
+  ignore-resolve-fail: true
+hosts:
+  d1.example: 192.0.2.1
+proxies:
+  - name: Proxy 1
+    type: socks5
+    server: s2.example.net
+    port: 2333
+    username: user1
+    password: password1
+  - name: Proxy 2
+    type: ss
+    server: s3.example.net
+    port: 27013
+    cipher: aes-128-gcm
+    password: password2
+    udp: true
+proxy-groups:
+  - name: Group 1
+    type: select
+    proxies:
+      - Proxy 1
+      - DIRECT
+rules:
+  - DOMAIN-SUFFIX,d4.example,DIRECT
+  - DOMAIN-SUFFIX,d5.example,DIRECT
+  - DOMAIN-SUFFIX,d6.example,DIRECT
+  - DOMAIN-SUFFIX,d7.example,DIRECT
+  - DOMAIN-SUFFIX,d8.example,DIRECT
+  - DOMAIN-SUFFIX,d9.example,DIRECT
+  - DOMAIN-SUFFIX,d10.example,DIRECT
+  - DOMAIN-SUFFIX,d11.example,DIRECT
+  - DOMAIN-SUFFIX,d12.example,DIRECT
+  - DOMAIN-SUFFIX,d13.example,DIRECT
+  - DOMAIN-SUFFIX,d14.example,DIRECT
+  - DOMAIN-SUFFIX,d15.example,DIRECT
+  - DOMAIN-SUFFIX,d16.example,DIRECT
+  - DOMAIN-SUFFIX,d17.example,DIRECT
+  - DOMAIN-SUFFIX,d18.example,DIRECT
+  - DOMAIN-SUFFIX,d19.example,DIRECT
+  - DOMAIN-SUFFIX,d20.example,REJECT
+  - DOMAIN-SUFFIX,d21.example,DIRECT
+  - DOMAIN-SUFFIX,d22.example,DIRECT
+  - IP-CIDR,192.168.0.0/16,DIRECT
+  - IP-CIDR,10.0.0.0/8,DIRECT
+  - IP-CIDR,172.16.0.0/12,DIRECT
+  - IP-CIDR,192.0.2.137/24,DIRECT
+  - IP-CIDR,198.51.100.215/24,DIRECT
+  - IP-CIDR,203.0.113.4/24,DIRECT
+  - IP-CIDR,192.0.2.164/24,DIRECT
+  - IP-CIDR,198.51.100.92/24,DIRECT
+  - DOMAIN-SUFFIX,d23.example,DIRECT
+  - IP-CIDR,192.0.2.2/32,DIRECT
+  - IP-CIDR,192.0.2.3/32,DIRECT
+  - DOMAIN,d24.example,DIRECT
+  - DOMAIN-KEYWORD,kw1,DIRECT
+  - DOMAIN-KEYWORD,kw2,DIRECT
+  - DOMAIN-KEYWORD,kw3,DIRECT
+  - DOMAIN-KEYWORD,kw4,DIRECT
+  - DOMAIN,d25.example,DIRECT
+  - DOMAIN,d26.example,DIRECT
+  - DOMAIN,d27.example,DIRECT
+  - DOMAIN,d28.example,DIRECT
+  - DOMAIN,d29.example,DIRECT
+  - DOMAIN,d30.example,DIRECT
+  - DOMAIN,d31.example,DIRECT
+  - DOMAIN,d32.example,DIRECT
+  - DOMAIN,d33.example,DIRECT
+  - DOMAIN-KEYWORD,kw5,DIRECT
+  - DOMAIN,d34.example,DIRECT
+  - DOMAIN,d35.example,DIRECT
+  - DOMAIN,d36.example,DIRECT
+  - DOMAIN,d37.example,DIRECT
+  - DOMAIN,d38.example,DIRECT
+  - DOMAIN,d39.example,DIRECT
+  - DOMAIN,d40.example,DIRECT
+  - DOMAIN,d41.example,DIRECT
+  - DOMAIN,d42.example,DIRECT
+  - DOMAIN,d43.example,DIRECT
+  - DOMAIN,d44.example,DIRECT
+  - MATCH,Proxy 1

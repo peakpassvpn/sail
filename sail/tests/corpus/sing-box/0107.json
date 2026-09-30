@@ -1,0 +1,218 @@
+{
+  "log": {
+    "disabled": false,
+    "level": "fatal",
+    "timestamp": true
+  },
+  "experimental": {
+    "clash_api": {
+      "external_controller": "0.0.0.0:9090",
+      "external_ui": "./path-1",
+      "external_ui_download_url": "https://h2.example.com/p3.zip",
+      "external_ui_download_detour": "Proxy 1",
+      "secret": "",
+      "default_mode": "rule"
+    }
+  },
+  "dns": {
+    "servers": [
+      {
+        "address": "tcp://192.0.2.1",
+        "address_resolver": "dns-2",
+        "strategy": "ipv4_only",
+        "tag": "dns-1"
+      },
+      {
+        "address": "tcp://192.0.2.1",
+        "address_resolver": "dns-3",
+        "detour": "Proxy 1",
+        "strategy": "ipv4_only",
+        "tag": "dns-2"
+      },
+      {
+        "address": "local",
+        "detour": "Proxy 1",
+        "tag": "dns-3"
+      },
+      {
+        "address": "rcode://success",
+        "tag": "dns-4"
+      }
+    ],
+    "rules": [
+      {
+        "domain_suffix": [
+          ".d1.example"
+        ],
+        "server": "dns-2"
+      },
+      {
+        "outbound": "Proxy 1",
+        "server": "dns-2",
+        "rewrite_ttl": 20
+      },
+      {
+        "outbound": "any",
+        "server": "dns-2",
+        "rewrite_ttl": 20
+      }
+    ],
+    "reverse_mapping": true,
+    "strategy": "ipv4_only",
+    "independent_cache": true
+  },
+  "inbounds": [
+    {
+      "listen": "0.0.0.0",
+      "listen_port": 6450,
+      "override_address": "192.0.2.2",
+      "override_port": 53,
+      "tag": "in-1",
+      "type": "direct"
+    },
+    {
+      "type": "tun",
+      "tag": "in-2",
+      "domain_strategy": "",
+      "interface_name": "if1",
+      "inet4_address": "192.0.2.1/30",
+      "mtu": 9000,
+      "auto_route": true,
+      "strict_route": true,
+      "stack": "system",
+      "endpoint_independent_nat": true,
+      "sniff": true,
+      "sniff_override_destination": false
+    },
+    {
+      "domain_strategy": "",
+      "listen": "0.0.0.0",
+      "listen_port": 2080,
+      "sniff": true,
+      "sniff_override_destination": false,
+      "tag": "in-3",
+      "type": "mixed"
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "Group 1",
+      "type": "selector",
+      "outbounds": [
+        "Group 2",
+        "Proxy 5"
+      ]
+    },
+    {
+      "tag": "Group 2",
+      "type": "urltest",
+      "outbounds": [
+        "Proxy 5"
+      ],
+      "url": "https://h1.example.com/generate_204",
+      "interval": "3m",
+      "tolerance": 50
+    },
+    {
+      "tag": "Proxy 1",
+      "type": "direct"
+    },
+    {
+      "tag": "Proxy 2",
+      "type": "direct"
+    },
+    {
+      "tag": "Proxy 3",
+      "type": "block"
+    },
+    {
+      "tag": "Proxy 4",
+      "type": "dns"
+    },
+    {
+      "tag": "Proxy 5",
+      "type": "vmess",
+      "server": "192.0.2.3",
+      "server_port": 2040,
+      "uuid": "00005a11-0000-4000-8000-000000000001",
+      "security": "auto",
+      "alter_id": 0,
+      "global_padding": false,
+      "authenticated_length": true,
+      "packet_encoding": "",
+      "multiplex": {
+        "enabled": false,
+        "protocol": "smux",
+        "max_streams": 32
+      }
+    }
+  ],
+  "route": {
+    "auto_detect_interface": true,
+    "override_android_vpn": true,
+    "final": "Group 1",
+    "geoip": {
+      "download_url": "https://h2.example.com/p1.db",
+      "download_detour": "Proxy 1"
+    },
+    "geosite": {
+      "download_url": "https://h2.example.com/p2.db",
+      "download_detour": "Proxy 1"
+    },
+    "rules": [
+      {
+        "outbound": "Proxy 4",
+        "port": [
+          53
+        ]
+      },
+      {
+        "inbound": [
+          "in-1"
+        ],
+        "outbound": "Proxy 4"
+      },
+      {
+        "domain_suffix": [
+          "d1.example"
+        ],
+        "outbound": "Proxy 2"
+      },
+      {
+        "geoip": [
+          "ir"
+        ],
+        "outbound": "Proxy 2"
+      },
+      {
+        "geosite": [
+          "ir"
+        ],
+        "outbound": "Proxy 1"
+      },
+      {
+        "geosite": [
+          "other"
+        ],
+        "outbound": "Proxy 1"
+      },
+      {
+        "geosite": [
+          "ads"
+        ],
+        "outbound": "Proxy 3"
+      },
+      {
+        "ip_cidr": [
+          "224.0.0.0/3",
+          "ff00::/8"
+        ],
+        "outbound": "Proxy 3",
+        "source_ip_cidr": [
+          "224.0.0.0/3",
+          "ff00::/8"
+        ]
+      }
+    ]
+  }
+}

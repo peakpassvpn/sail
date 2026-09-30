@@ -1,0 +1,14 @@
+mode: rule
+log-level: warning
+ipv6: false
+proxies:
+proxy-groups:
+proxy-providers:
+rule-providers:
+rules:
+  - DOMAIN-SUFFIX,d1.example,DIRECT
+  - DOMAIN-KEYWORD,kw1,DIRECT
+  - DOMAIN,d1.example,DIRECT
+  - DOMAIN-SUFFIX,d2.example,REJECT
+  - GEOIP,CN,DIRECT
+  - MATCH,DIRECT

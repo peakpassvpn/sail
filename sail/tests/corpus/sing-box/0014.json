@@ -1,0 +1,811 @@
+{
+  "dns": {
+    "servers": [
+      {
+        "tag": "dns-1",
+        "address": "https://192.0.2.1/dns-query",
+        "address_resolver": "dns-4",
+        "strategy": "ipv4_only",
+        "detour": "Group 1"
+      },
+      {
+        "tag": "dns-2",
+        "address": "h3://h1.example.com/dns-query",
+        "address_resolver": "dns-4",
+        "strategy": "ipv4_only",
+        "detour": "Proxy 1"
+      },
+      {
+        "tag": "dns-3",
+        "address": "rcode://refused"
+      },
+      {
+        "tag": "dns-4",
+        "address": "192.0.2.2",
+        "strategy": "ipv4_only",
+        "detour": "Proxy 1"
+      }
+    ],
+    "rules": [
+      {
+        "outbound": "any",
+        "server": "dns-4"
+      },
+      {
+        "clash_mode": "direct",
+        "server": "dns-2"
+      },
+      {
+        "clash_mode": "global",
+        "server": "dns-1"
+      },
+      {
+        "process_name": [
+          "app1",
+          "app2",
+          "app3",
+          "app4",
+          "app5",
+          "app6",
+          "app7",
+          "app8",
+          "app9",
+          "app10"
+        ],
+        "server": "dns-2"
+      },
+      {
+        "domain_suffix": [
+          "d1.example",
+          "d2.example",
+          "d3.example",
+          "d4.example"
+        ],
+        "server": "dns-2"
+      },
+      {
+        "process_name": [
+          "app11",
+          "app12"
+        ],
+        "server": "dns-1"
+      },
+      {
+        "package_name": [
+          "com.example.app1",
+          "com.example.app2",
+          "com.example.app3",
+          "com.example.app4"
+        ],
+        "server": "dns-1"
+      },
+      {
+        "rule_set": "set-1",
+        "server": "dns-1"
+      },
+      {
+        "rule_set": "set-7",
+        "server": "dns-1"
+      },
+      {
+        "rule_set": [
+          "set-8",
+          "set-11",
+          "set-12",
+          "set-3",
+          "set-4",
+          "set-5",
+          "set-6"
+        ],
+        "server": "dns-1"
+      }
+    ],
+    "final": "dns-2"
+  },
+  "ntp": {
+    "enabled": true,
+    "server": "s21.example.net",
+    "server_port": 123,
+    "interval": "30m0s",
+    "detour": "Proxy 1"
+  },
+  "inbounds": [
+    {
+      "type": "tun",
+      "inet4_address": "198.18.0.1/16",
+      "auto_route": true,
+      "exclude_package": [
+        "com.example.app5",
+        "com.example.app6",
+        "com.example.app7",
+        "com.example.app8",
+        "com.example.app9",
+        "com.example.app10",
+        "com.example.app11",
+        "com.example.app12",
+        "com.example.app13",
+        "com.example.app14",
+        "com.example.app15",
+        "com.example.app16",
+        "com.example.app17",
+        "com.example.app18",
+        "com.example.app19",
+        "com.example.app20",
+        "com.example.app21",
+        "com.example.app22",
+        "com.example.app23",
+        "com.example.app24",
+        "com.example.app25",
+        "com.example.app26",
+        "com.example.app27",
+        "com.example.app28",
+        "com.example.app29",
+        "com.example.app30",
+        "com.example.app31",
+        "com.example.app32",
+        "com.example.app33",
+        "com.example.app34",
+        "com.example.app35",
+        "com.example.app36",
+        "com.example.app37",
+        "com.example.app38",
+        "com.example.app39",
+        "com.example.app40",
+        "com.example.app41",
+        "com.example.app42",
+        "com.example.app43",
+        "com.example.app44",
+        "com.example.app45",
+        "com.example.app46",
+        "com.example.app47",
+        "com.example.app48",
+        "com.example.app49",
+        "com.example.app50",
+        "com.example.app51",
+        "com.example.app52",
+        "com.example.app53",
+        "com.example.app54",
+        "com.example.app55",
+        "com.example.app56",
+        "com.example.app57",
+        "com.example.app58",
+        "com.example.app59",
+        "com.example.app60",
+        "com.example.app61"
+      ],
+      "stack": "mixed",
+      "sniff": true
+    },
+    {
+      "type": "socks",
+      "tag": "in-1",
+      "listen": "::",
+      "listen_port": 5353
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "selector",
+      "tag": "Group 1",
+      "outbounds": [
+        "Proxy 4",
+        "Proxy 5",
+        "Proxy 6",
+        "Proxy 7",
+        "Proxy 8",
+        "Proxy 9",
+        "Proxy 10",
+        "Proxy 11",
+        "Proxy 12",
+        "Proxy 13",
+        "Proxy 14",
+        "Proxy 15",
+        "Proxy 16",
+        "Proxy 17",
+        "Proxy 18",
+        "Proxy 19",
+        "Proxy 20",
+        "Proxy 21",
+        "Proxy 22",
+        "Proxy 23",
+        "Proxy 24",
+        "Proxy 25",
+        "Proxy 26",
+        "Proxy 27",
+        "Proxy 28",
+        "Proxy 29",
+        "Proxy 30",
+        "Proxy 31"
+      ]
+    },
+    {
+      "type": "selector",
+      "tag": "Group 2",
+      "outbounds": [
+        "Proxy 6",
+        "Proxy 8",
+        "Proxy 13",
+        "Proxy 16",
+        "Proxy 18",
+        "Proxy 20",
+        "Proxy 23",
+        "Proxy 24",
+        "Proxy 30",
+        "Proxy 31"
+      ]
+    },
+    {
+      "type": "selector",
+      "tag": "Group 3",
+      "outbounds": [
+        "Proxy 4",
+        "Proxy 5",
+        "Proxy 6",
+        "Proxy 7",
+        "Proxy 8",
+        "Proxy 9",
+        "Proxy 10",
+        "Proxy 11",
+        "Proxy 12",
+        "Proxy 13",
+        "Proxy 14",
+        "Proxy 15",
+        "Proxy 16",
+        "Proxy 17",
+        "Proxy 18",
+        "Proxy 19",
+        "Proxy 20",
+        "Proxy 21",
+        "Proxy 22",
+        "Proxy 23",
+        "Proxy 24",
+        "Proxy 25",
+        "Proxy 26",
+        "Proxy 27",
+        "Proxy 28",
+        "Proxy 29",
+        "Proxy 30",
+        "Proxy 31"
+      ]
+    },
+    {
+      "type": "direct",
+      "tag": "Proxy 1"
+    },
+    {
+      "type": "block",
+      "tag": "Proxy 2"
+    },
+    {
+      "type": "dns",
+      "tag": "Proxy 3"
+    },
+    {
+      "tag": "Proxy 4",
+      "type": "trojan",
+      "server": "s5.example.net",
+      "server_port": 10241,
+      "password": "password1",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s5.example.net"
+      }
+    },
+    {
+      "tag": "Proxy 5",
+      "type": "trojan",
+      "server": "192.0.2.3",
+      "server_port": 10242,
+      "password": "password1",
+      "tls": {
+        "enabled": true,
+        "insecure": true
+      }
+    },
+    {
+      "tag": "Proxy 6",
+      "type": "shadowsocks",
+      "server": "s6.example.net",
+      "server_port": 50155,
+      "method": "aes-128-gcm",
+      "password": "password1"
+    },
+    {
+      "tag": "Proxy 7",
+      "type": "shadowsocks",
+      "server": "s6.example.net",
+      "server_port": 50152,
+      "method": "aes-128-gcm",
+      "password": "password1"
+    },
+    {
+      "tag": "Proxy 8",
+      "type": "shadowsocks",
+      "server": "s6.example.net",
+      "server_port": 50153,
+      "method": "aes-128-gcm",
+      "password": "password1"
+    },
+    {
+      "tag": "Proxy 9",
+      "type": "shadowsocks",
+      "server": "s6.example.net",
+      "server_port": 50135,
+      "method": "aes-128-gcm",
+      "password": "password1"
+    },
+    {
+      "tag": "Proxy 10",
+      "type": "shadowsocks",
+      "server": "s6.example.net",
+      "server_port": 50158,
+      "method": "aes-128-gcm",
+      "password": "password1"
+    },
+    {
+      "tag": "Proxy 11",
+      "type": "shadowsocks",
+      "server": "s7.example.net",
+      "server_port": 50240,
+      "method": "aes-128-gcm",
+      "password": "password1"
+    },
+    {
+      "tag": "Proxy 12",
+      "type": "shadowsocks",
+      "server": "s7.example.net",
+      "server_port": 50242,
+      "method": "aes-128-gcm",
+      "password": "password1"
+    },
+    {
+      "tag": "Proxy 13",
+      "type": "shadowsocks",
+      "server": "s7.example.net",
+      "server_port": 50241,
+      "method": "aes-128-gcm",
+      "password": "password1"
+    },
+    {
+      "tag": "Proxy 14",
+      "type": "shadowsocks",
+      "server": "s7.example.net",
+      "server_port": 50243,
+      "method": "aes-128-gcm",
+      "password": "password1"
+    },
+    {
+      "tag": "Proxy 15",
+      "type": "shadowsocks",
+      "server": "192.0.2.4",
+      "server_port": 9033,
+      "method": "aes-128-gcm",
+      "password": "password1"
+    },
+    {
+      "tag": "Proxy 16",
+      "type": "shadowsocks",
+      "server": "192.0.2.4",
+      "server_port": 9033,
+      "method": "aes-128-gcm",
+      "password": "password1"
+    },
+    {
+      "tag": "Proxy 17",
+      "type": "shadowsocks",
+      "server": "s8.example.net",
+      "server_port": 10240,
+      "method": "aes-128-gcm",
+      "password": "password1"
+    },
+    {
+      "tag": "Proxy 18",
+      "type": "shadowsocks",
+      "server": "s8.example.net",
+      "server_port": 10241,
+      "method": "aes-128-gcm",
+      "password": "password1"
+    },
+    {
+      "tag": "Proxy 19",
+      "type": "shadowsocks",
+      "server": "s8.example.net",
+      "server_port": 10242,
+      "method": "aes-128-gcm",
+      "password": "password1"
+    },
+    {
+      "tag": "Proxy 20",
+      "type": "shadowsocks",
+      "server": "s8.example.net",
+      "server_port": 10243,
+      "method": "aes-128-gcm",
+      "password": "password1"
+    },
+    {
+      "tag": "Proxy 21",
+      "type": "shadowsocks",
+      "server": "s8.example.net",
+      "server_port": 10244,
+      "method": "aes-128-gcm",
+      "password": "password1"
+    },
+    {
+      "tag": "Proxy 22",
+      "type": "shadowsocks",
+      "server": "s9.example.net",
+      "server_port": 10240,
+      "method": "aes-128-gcm",
+      "password": "password1"
+    },
+    {
+      "tag": "Proxy 23",
+      "type": "trojan",
+      "server": "192.0.2.5",
+      "server_port": 14965,
+      "password": "password2",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "sni10.example.org"
+      }
+    },
+    {
+      "tag": "Proxy 24",
+      "type": "trojan",
+      "server": "192.0.2.5",
+      "server_port": 40328,
+      "password": "password3",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "sni10.example.org"
+      }
+    },
+    {
+      "tag": "Proxy 25",
+      "type": "shadowsocks",
+      "server": "192.0.2.6",
+      "server_port": 20000,
+      "method": "aes-128-gcm",
+      "password": "password4"
+    },
+    {
+      "tag": "Proxy 26",
+      "type": "trojan",
+      "server": "192.0.2.5",
+      "server_port": 39704,
+      "password": "password5",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "sni10.example.org"
+      }
+    },
+    {
+      "tag": "Proxy 27",
+      "type": "shadowsocks",
+      "server": "192.0.2.7",
+      "server_port": 27491,
+      "method": "aes-128-gcm",
+      "password": "password4"
+    },
+    {
+      "tag": "Proxy 28",
+      "type": "shadowsocks",
+      "server": "192.0.2.6",
+      "server_port": 20000,
+      "method": "aes-128-gcm",
+      "password": "password4"
+    },
+    {
+      "tag": "Proxy 29",
+      "type": "trojan",
+      "server": "192.0.2.5",
+      "server_port": 39821,
+      "password": "password6",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "sni10.example.org"
+      }
+    },
+    {
+      "tag": "Proxy 30",
+      "type": "trojan",
+      "server": "192.0.2.8",
+      "server_port": 25700,
+      "password": "password7",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "sni11.example.org"
+      }
+    },
+    {
+      "tag": "Proxy 31",
+      "type": "trojan",
+      "server": "192.0.2.5",
+      "server_port": 35435,
+      "password": "password8",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "sni10.example.org"
+      }
+    }
+  ],
+  "route": {
+    "rules": [
+      {
+        "protocol": "dns",
+        "outbound": "Proxy 3"
+      },
+      {
+        "clash_mode": "direct",
+        "outbound": "Proxy 1"
+      },
+      {
+        "clash_mode": "global",
+        "outbound": "Group 1"
+      },
+      {
+        "domain_suffix": [
+          "d1.example",
+          "d2.example",
+          "d3.example",
+          "d4.example"
+        ],
+        "outbound": "Proxy 1"
+      },
+      {
+        "process_name": [
+          "app1",
+          "app2",
+          "app3",
+          "app4",
+          "app5",
+          "app13",
+          "app6",
+          "app7",
+          "app8",
+          "app9",
+          "app10"
+        ],
+        "outbound": "Proxy 1"
+      },
+      {
+        "rule_set": [
+          "set-13",
+          "set-14"
+        ],
+        "outbound": "Proxy 1"
+      },
+      {
+        "protocol": "quic",
+        "outbound": "Proxy 2"
+      },
+      {
+        "inbound": "in-1",
+        "outbound": "Group 1"
+      },
+      {
+        "rule_set": "set-9",
+        "outbound": "Group 2"
+      },
+      {
+        "domain_suffix": [
+          "d12.example",
+          "d13.example",
+          "d14.example"
+        ],
+        "outbound": "Group 2"
+      },
+      {
+        "package_name": "com.example.app62",
+        "outbound": "Group 2"
+      },
+      {
+        "rule_set": "set-10",
+        "outbound": "Group 3"
+      },
+      {
+        "package_name": "com.example.app63",
+        "outbound": "Group 3"
+      },
+      {
+        "domain_suffix": [
+          "d15.example",
+          "d16.example"
+        ],
+        "outbound": "Group 1"
+      },
+      {
+        "process_name": [
+          "app11",
+          "app12"
+        ],
+        "outbound": "Group 1"
+      },
+      {
+        "package_name": [
+          "com.example.app1",
+          "com.example.app2",
+          "com.example.app3",
+          "com.example.app4",
+          "com.example.app64",
+          "com.example.app65",
+          "com.example.app66",
+          "com.example.app67",
+          "com.example.app68"
+        ],
+        "outbound": "Group 1"
+      },
+      {
+        "domain": "d17.example",
+        "domain_suffix": [
+          "d18.example",
+          "d19.example"
+        ],
+        "outbound": "Group 1"
+      },
+      {
+        "domain_suffix": "d20.example",
+        "outbound": "Proxy 1"
+      },
+      {
+        "type": "logical",
+        "mode": "and",
+        "rules": [
+          {
+            "rule_set": "set-1"
+          },
+          {
+            "rule_set": "set-2",
+            "invert": true
+          }
+        ],
+        "outbound": "Group 1"
+      },
+      {
+        "rule_set": "set-7",
+        "outbound": "Group 1"
+      },
+      {
+        "rule_set": "set-2",
+        "outbound": "Proxy 1"
+      },
+      {
+        "ip_is_private": true,
+        "outbound": "Proxy 1"
+      },
+      {
+        "rule_set": [
+          "set-8",
+          "set-11",
+          "set-12",
+          "set-3",
+          "set-4",
+          "set-5",
+          "set-6"
+        ],
+        "outbound": "Group 1"
+      }
+    ],
+    "rule_set": [
+      {
+        "type": "remote",
+        "tag": "set-1",
+        "format": "binary",
+        "url": "https://h2.example.com/p1.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "type": "remote",
+        "tag": "set-2",
+        "format": "binary",
+        "url": "https://h2.example.com/p2.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "type": "remote",
+        "tag": "set-3",
+        "format": "binary",
+        "url": "https://h2.example.com/p3.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "type": "remote",
+        "tag": "set-4",
+        "format": "binary",
+        "url": "https://h2.example.com/p4.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "type": "remote",
+        "tag": "set-5",
+        "format": "binary",
+        "url": "https://h2.example.com/p5.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "type": "remote",
+        "tag": "set-6",
+        "format": "binary",
+        "url": "https://h2.example.com/p6.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "type": "remote",
+        "tag": "set-7",
+        "format": "source",
+        "url": "https://h2.example.com/p7.json",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "type": "remote",
+        "tag": "set-8",
+        "format": "source",
+        "url": "https://h2.example.com/p8.json",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "type": "remote",
+        "tag": "set-9",
+        "format": "source",
+        "url": "https://h2.example.com/p9.json",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "type": "remote",
+        "tag": "set-10",
+        "format": "source",
+        "url": "https://h2.example.com/p10.json",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "type": "remote",
+        "tag": "set-11",
+        "format": "source",
+        "url": "https://h2.example.com/p11.json",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "type": "remote",
+        "tag": "set-12",
+        "format": "source",
+        "url": "https://h2.example.com/p12.json",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "type": "remote",
+        "tag": "set-13",
+        "format": "source",
+        "url": "https://h2.example.com/p13.json",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "type": "remote",
+        "tag": "set-14",
+        "format": "source",
+        "url": "https://h2.example.com/p14.json",
+        "download_detour": "Proxy 1"
+      }
+    ],
+    "final": "Proxy 1",
+    "find_process": true,
+    "auto_detect_interface": true
+  },
+  "experimental": {
+    "cache_file": {
+      "enabled": true
+    },
+    "clash_api": {
+      "external_ui": "./path-1",
+      "external_controller": "0.0.0.0:9090",
+      "external_ui_download_detour": "Proxy 32",
+      "default_mode": "rule"
+    }
+  }
+}

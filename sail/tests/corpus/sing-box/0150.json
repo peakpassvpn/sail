@@ -1,0 +1,721 @@
+{
+  "log": {
+    "level": "info"
+  },
+  "dns": {
+    "servers": [
+      {
+        "type": "fakeip",
+        "tag": "dns-1",
+        "inet4_range": "198.18.0.0/15"
+      },
+      {
+        "type": "udp",
+        "tag": "dns-2",
+        "server": "192.0.2.1",
+        "bind_interface": "if1",
+        "routing_mark": 65536
+      },
+      {
+        "type": "https",
+        "tag": "dns-3",
+        "server": "192.0.2.2",
+        "tls": {
+          "enabled": true,
+          "server_name": "sni1.example.org"
+        },
+        "detour": "Group 6"
+      }
+    ],
+    "rules": [
+      {
+        "query_type": [
+          "AAAA",
+          "HTTPS",
+          "SVCB"
+        ],
+        "action": "predefined",
+        "rcode": "NOERROR",
+        "answer": []
+      },
+      {
+        "domain_suffix": [
+          "d2.example"
+        ],
+        "action": "route",
+        "server": "dns-2"
+      },
+      {
+        "rule_set": [
+          "set-1",
+          "set-2",
+          "set-3"
+        ],
+        "action": "route",
+        "server": "dns-2"
+      },
+      {
+        "rule_set": [
+          "set-4",
+          "set-5"
+        ],
+        "query_type": [
+          "A"
+        ],
+        "action": "route",
+        "server": "dns-1"
+      },
+      {
+        "rule_set": [
+          "set-6"
+        ],
+        "action": "route",
+        "server": "dns-2"
+      },
+      {
+        "rule_set": [
+          "set-7"
+        ],
+        "query_type": [
+          "A"
+        ],
+        "action": "route",
+        "server": "dns-1"
+      },
+      {
+        "rule_set": [
+          "set-7"
+        ],
+        "action": "route",
+        "server": "dns-3"
+      }
+    ],
+    "final": "dns-2"
+  },
+  "inbounds": [
+    {
+      "type": "direct",
+      "tag": "in-1",
+      "listen": "127.0.0.1",
+      "listen_port": 15353
+    },
+    {
+      "type": "tproxy",
+      "tag": "in-2",
+      "listen": "127.0.0.1",
+      "listen_port": 15301
+    },
+    {
+      "type": "tproxy",
+      "tag": "in-3",
+      "listen": "127.0.0.1",
+      "listen_port": 15302
+    },
+    {
+      "type": "tproxy",
+      "tag": "in-4",
+      "listen": "127.0.0.1",
+      "listen_port": 15303
+    },
+    {
+      "type": "tproxy",
+      "tag": "in-5",
+      "listen": "127.0.0.1",
+      "listen_port": 15304
+    },
+    {
+      "type": "tproxy",
+      "tag": "in-6",
+      "listen": "127.0.0.1",
+      "listen_port": 15305
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "vless",
+      "tag": "Proxy 1",
+      "server": "192.0.2.3",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000001",
+      "flow": "xtls-rprx-vision",
+      "tls": {
+        "enabled": true,
+        "server_name": "str1",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        },
+        "reality": {
+          "enabled": true,
+          "public_key": "wywOQgzCr2vr85JpoMxzCakHIIvgUts",
+          "short_id": "str2"
+        }
+      },
+      "bind_interface": "if1",
+      "routing_mark": 65536
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 2",
+      "server": "192.0.2.3",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000001",
+      "flow": "xtls-rprx-vision",
+      "tls": {
+        "enabled": true,
+        "server_name": "str1",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        },
+        "reality": {
+          "enabled": true,
+          "public_key": "wywOQgzCr2vr85JpoMxzCakHIIvgUts",
+          "short_id": "str2"
+        }
+      },
+      "bind_interface": "if1",
+      "routing_mark": 65536
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 3",
+      "server": "192.0.2.3",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000001",
+      "flow": "xtls-rprx-vision",
+      "tls": {
+        "enabled": true,
+        "server_name": "str1",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        },
+        "reality": {
+          "enabled": true,
+          "public_key": "wywOQgzCr2vr85JpoMxzCakHIIvgUts",
+          "short_id": "str2"
+        }
+      },
+      "bind_interface": "if2",
+      "routing_mark": 131072
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 4",
+      "server": "192.0.2.3",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000001",
+      "flow": "xtls-rprx-vision",
+      "tls": {
+        "enabled": true,
+        "server_name": "str1",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        },
+        "reality": {
+          "enabled": true,
+          "public_key": "wywOQgzCr2vr85JpoMxzCakHIIvgUts",
+          "short_id": "str2"
+        }
+      },
+      "bind_interface": "if3",
+      "routing_mark": 196608
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 5",
+      "server": "192.0.2.3",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000001",
+      "flow": "xtls-rprx-vision",
+      "tls": {
+        "enabled": true,
+        "server_name": "str1",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        },
+        "reality": {
+          "enabled": true,
+          "public_key": "wywOQgzCr2vr85JpoMxzCakHIIvgUts",
+          "short_id": "str2"
+        }
+      },
+      "bind_interface": "if4",
+      "routing_mark": 262144
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 6",
+      "server": "192.0.2.3",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000001",
+      "flow": "xtls-rprx-vision",
+      "tls": {
+        "enabled": true,
+        "server_name": "str1",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        },
+        "reality": {
+          "enabled": true,
+          "public_key": "wywOQgzCr2vr85JpoMxzCakHIIvgUts",
+          "short_id": "str2"
+        }
+      },
+      "bind_interface": "if5",
+      "routing_mark": 327680
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 7",
+      "server": "192.0.2.4",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000001",
+      "flow": "xtls-rprx-vision",
+      "tls": {
+        "enabled": true,
+        "server_name": "str1",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        },
+        "reality": {
+          "enabled": true,
+          "public_key": "wywOQgzCr2vr85JpoMxzCakHIIvgUts",
+          "short_id": "str2"
+        }
+      },
+      "bind_interface": "if1",
+      "routing_mark": 65536
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 8",
+      "server": "192.0.2.4",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000001",
+      "flow": "xtls-rprx-vision",
+      "tls": {
+        "enabled": true,
+        "server_name": "str1",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        },
+        "reality": {
+          "enabled": true,
+          "public_key": "wywOQgzCr2vr85JpoMxzCakHIIvgUts",
+          "short_id": "str2"
+        }
+      },
+      "bind_interface": "if1",
+      "routing_mark": 65536
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 9",
+      "server": "192.0.2.4",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000001",
+      "flow": "xtls-rprx-vision",
+      "tls": {
+        "enabled": true,
+        "server_name": "str1",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        },
+        "reality": {
+          "enabled": true,
+          "public_key": "wywOQgzCr2vr85JpoMxzCakHIIvgUts",
+          "short_id": "str2"
+        }
+      },
+      "bind_interface": "if2",
+      "routing_mark": 131072
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 10",
+      "server": "192.0.2.4",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000001",
+      "flow": "xtls-rprx-vision",
+      "tls": {
+        "enabled": true,
+        "server_name": "str1",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        },
+        "reality": {
+          "enabled": true,
+          "public_key": "wywOQgzCr2vr85JpoMxzCakHIIvgUts",
+          "short_id": "str2"
+        }
+      },
+      "bind_interface": "if3",
+      "routing_mark": 196608
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 11",
+      "server": "192.0.2.4",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000001",
+      "flow": "xtls-rprx-vision",
+      "tls": {
+        "enabled": true,
+        "server_name": "str1",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        },
+        "reality": {
+          "enabled": true,
+          "public_key": "wywOQgzCr2vr85JpoMxzCakHIIvgUts",
+          "short_id": "str2"
+        }
+      },
+      "bind_interface": "if4",
+      "routing_mark": 262144
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 12",
+      "server": "192.0.2.4",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000001",
+      "flow": "xtls-rprx-vision",
+      "tls": {
+        "enabled": true,
+        "server_name": "str1",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        },
+        "reality": {
+          "enabled": true,
+          "public_key": "wywOQgzCr2vr85JpoMxzCakHIIvgUts",
+          "short_id": "str2"
+        }
+      },
+      "bind_interface": "if5",
+      "routing_mark": 327680
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 13",
+      "server": "192.0.2.5",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000001",
+      "flow": "xtls-rprx-vision",
+      "tls": {
+        "enabled": true,
+        "server_name": "str1",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        },
+        "reality": {
+          "enabled": true,
+          "public_key": "wywOQgzCr2vr85JpoMxzCakHIIvgUts",
+          "short_id": "str2"
+        }
+      },
+      "bind_interface": "if1",
+      "routing_mark": 65536
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 14",
+      "server": "192.0.2.5",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000001",
+      "flow": "xtls-rprx-vision",
+      "tls": {
+        "enabled": true,
+        "server_name": "str1",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        },
+        "reality": {
+          "enabled": true,
+          "public_key": "wywOQgzCr2vr85JpoMxzCakHIIvgUts",
+          "short_id": "str2"
+        }
+      },
+      "bind_interface": "if1",
+      "routing_mark": 65536
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 15",
+      "server": "192.0.2.5",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000001",
+      "flow": "xtls-rprx-vision",
+      "tls": {
+        "enabled": true,
+        "server_name": "str1",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        },
+        "reality": {
+          "enabled": true,
+          "public_key": "wywOQgzCr2vr85JpoMxzCakHIIvgUts",
+          "short_id": "str2"
+        }
+      },
+      "bind_interface": "if2",
+      "routing_mark": 131072
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 16",
+      "server": "192.0.2.5",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000001",
+      "flow": "xtls-rprx-vision",
+      "tls": {
+        "enabled": true,
+        "server_name": "str1",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        },
+        "reality": {
+          "enabled": true,
+          "public_key": "wywOQgzCr2vr85JpoMxzCakHIIvgUts",
+          "short_id": "str2"
+        }
+      },
+      "bind_interface": "if3",
+      "routing_mark": 196608
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 17",
+      "server": "192.0.2.5",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000001",
+      "flow": "xtls-rprx-vision",
+      "tls": {
+        "enabled": true,
+        "server_name": "str1",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        },
+        "reality": {
+          "enabled": true,
+          "public_key": "wywOQgzCr2vr85JpoMxzCakHIIvgUts",
+          "short_id": "str2"
+        }
+      },
+      "bind_interface": "if4",
+      "routing_mark": 262144
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 18",
+      "server": "192.0.2.5",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000001",
+      "flow": "xtls-rprx-vision",
+      "tls": {
+        "enabled": true,
+        "server_name": "str1",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        },
+        "reality": {
+          "enabled": true,
+          "public_key": "wywOQgzCr2vr85JpoMxzCakHIIvgUts",
+          "short_id": "str2"
+        }
+      },
+      "bind_interface": "if5",
+      "routing_mark": 327680
+    },
+    {
+      "type": "selector",
+      "tag": "Group 1",
+      "outbounds": [
+        "Proxy 2",
+        "Proxy 8",
+        "Proxy 14"
+      ],
+      "default": "Proxy 2",
+      "interrupt_exist_connections": false
+    },
+    {
+      "type": "selector",
+      "tag": "Group 2",
+      "outbounds": [
+        "Proxy 3",
+        "Proxy 9",
+        "Proxy 15"
+      ],
+      "default": "Proxy 3",
+      "interrupt_exist_connections": false
+    },
+    {
+      "type": "selector",
+      "tag": "Group 3",
+      "outbounds": [
+        "Proxy 4",
+        "Proxy 10",
+        "Proxy 16"
+      ],
+      "default": "Proxy 4",
+      "interrupt_exist_connections": false
+    },
+    {
+      "type": "selector",
+      "tag": "Group 4",
+      "outbounds": [
+        "Proxy 5",
+        "Proxy 11",
+        "Proxy 17"
+      ],
+      "default": "Proxy 5",
+      "interrupt_exist_connections": false
+    },
+    {
+      "type": "selector",
+      "tag": "Group 5",
+      "outbounds": [
+        "Proxy 6",
+        "Proxy 12",
+        "Proxy 18"
+      ],
+      "default": "Proxy 6",
+      "interrupt_exist_connections": false
+    },
+    {
+      "type": "selector",
+      "tag": "Group 6",
+      "outbounds": [
+        "Proxy 1",
+        "Proxy 7",
+        "Proxy 13"
+      ],
+      "default": "Proxy 1"
+    }
+  ],
+  "route": {
+    "rules": [
+      {
+        "inbound": [
+          "in-1"
+        ],
+        "action": "hijack-dns"
+      },
+      {
+        "inbound": [
+          "in-2",
+          "in-3",
+          "in-4",
+          "in-5",
+          "in-6"
+        ],
+        "action": "sniff"
+      },
+      {
+        "inbound": [
+          "in-2"
+        ],
+        "action": "route",
+        "outbound": "Group 1"
+      },
+      {
+        "inbound": [
+          "in-3"
+        ],
+        "action": "route",
+        "outbound": "Group 2"
+      },
+      {
+        "inbound": [
+          "in-4"
+        ],
+        "action": "route",
+        "outbound": "Group 3"
+      },
+      {
+        "inbound": [
+          "in-5"
+        ],
+        "action": "route",
+        "outbound": "Group 4"
+      },
+      {
+        "inbound": [
+          "in-6"
+        ],
+        "action": "route",
+        "outbound": "Group 5"
+      }
+    ],
+    "rule_set": [
+      {
+        "type": "local",
+        "tag": "set-1",
+        "format": "binary",
+        "path": "./path-1.srs"
+      },
+      {
+        "type": "local",
+        "tag": "set-2",
+        "format": "binary",
+        "path": "./path-2.srs"
+      },
+      {
+        "type": "local",
+        "tag": "set-3",
+        "format": "binary",
+        "path": "./path-3.srs"
+      },
+      {
+        "type": "local",
+        "tag": "set-4",
+        "format": "binary",
+        "path": "./path-4.srs"
+      },
+      {
+        "type": "local",
+        "tag": "set-5",
+        "format": "binary",
+        "path": "./path-5.srs"
+      },
+      {
+        "type": "local",
+        "tag": "set-6",
+        "format": "binary",
+        "path": "./path-6.srs"
+      },
+      {
+        "type": "local",
+        "tag": "set-7",
+        "format": "binary",
+        "path": "./path-7.srs"
+      }
+    ]
+  },
+  "experimental": {
+    "cache_file": {
+      "enabled": true,
+      "path": "./path-8.db",
+      "cache_id": "password1",
+      "store_fakeip": true
+    }
+  }
+}

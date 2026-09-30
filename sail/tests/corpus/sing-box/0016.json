@@ -1,0 +1,60 @@
+{
+  "log": {
+    "level": "trace",
+    "timestamp": true
+  },
+  "inbounds": [
+    {
+      "type": "vless",
+      "tag": "in-1",
+      "listen": "::",
+      "listen_port": 443,
+      "sniff": true,
+      "sniff_override_destination": true,
+      "users": [
+        {
+          "uuid": "00005a11-0000-4000-8000-000000000001",
+          "flow": "xtls-rprx-vision"
+        }
+      ],
+      "tls": {
+        "enabled": true,
+        "server_name": "sni1.example.org",
+        "reality": {
+          "enabled": true,
+          "handshake": {
+            "server": "sni1.example.org",
+            "server_port": 443
+          },
+          "private_key": "password1",
+          "short_id": [
+            "str1"
+          ]
+        }
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "direct",
+      "tag": "Proxy 1"
+    },
+    {
+      "type": "block",
+      "tag": "Proxy 2"
+    }
+  ],
+  "route": {
+    "rules": [
+      {
+        "geoip": "cn",
+        "outbound": "Proxy 2"
+      },
+      {
+        "geosite": "category-ads-all",
+        "outbound": "Proxy 2"
+      }
+    ],
+    "final": "Proxy 1"
+  }
+}

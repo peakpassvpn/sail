@@ -1,0 +1,166 @@
+mixed-port: 7890
+allow-lan: false
+bind-address: '*'
+mode: rule
+log-level: info
+ipv6: false
+external-controller: 127.0.0.1:9090
+hosts:
+  d1.example: 192.0.2.1
+  d2.example: 192.0.2.2
+  d3.example: 192.0.2.2
+dns:
+  enable: false
+  listen: 0.0.0.0:53
+  default-nameserver:
+    - 192.0.2.3
+  enhanced-mode: redir-host
+  fake-ip-range: 198.18.0.1/16
+  fake-ip-filter:
+    - '*.d4.example'
+    - d5.example
+    - '+.d6.example'
+    - '+.d7.example'
+    - '+.d8.example'
+    - '+.d9.example'
+    - '+.d10.example'
+    - 'd8.example'
+    - 'd11*.example'
+    - '*.d12.example'
+    - '*.d13.example'
+    - '*.d14.example'
+    - '*.d15.example'
+  nameserver:
+    - 192.0.2.3
+  fallback-filter:
+    geoip: true
+    ipcidr:
+proxies:
+  - name: "Proxy 1"
+    type: ss
+    server: str1
+    port: 443
+    cipher: chacha20-ietf-poly1305
+    password: "password1"
+    plugin: v2ray-plugin
+    plugin-opts:
+      mode: websocket
+      tls: true
+      path: "/p1"
+  - name: "Proxy 2"
+    type: vmess
+    server: s16.example.net
+    port: 443
+    uuid: 00005a11-0000-4000-8000-000000000001
+    alterId: 32
+    cipher: auto
+    tls: true
+    network: ws
+    ws-path: ./path-1
+  - name: "Proxy 3"
+    type: trojan
+    server: str1
+    port: 443
+    password: password2
+proxy-providers:
+  provider-1:
+    type: http
+    url: "https://h1.example.com/p2.yaml"
+    interval: 3600
+    path: ./path-2.yaml
+    health-check:
+      enable: true
+      interval: 600
+      url: http://h2.example.com/generate_204
+proxy-groups:
+  - name: "Group 1"
+    type: select
+    use:
+      - provider-1
+  - name: "Group 2"
+    type: fallback
+    proxies:
+      - 1
+      - 2
+      - 3
+    url: 'http://h2.example.com/generate_204'
+    interval: 300
+  - name: "PROXY"
+    type: select
+    proxies:
+      - Group 2
+      - 1
+      - 2
+      - 3
+      - Group 1
+  - name: "Group 3"
+    type: select
+    proxies:
+      - PROXY
+      - DIRECT
+  - name: "Group 4"
+    type: select
+    proxies:
+      - PROXY
+      - 1
+      - 2
+      - 3
+  - name: "Group 5"
+    type: select
+    proxies:
+      - DIRECT
+      - 2
+rule-providers:
+  set-1:
+    type: http
+    behavior: classical
+    path: ./path-3.yaml
+    url: https://h1.example.com/p3.yaml
+    interval: 86400
+  set-2:
+    type: http
+    behavior: classical
+    path: ./path-4.yaml
+    url: https://h1.example.com/p4.yaml
+    interval: 86400
+  set-3:
+    type: http
+    behavior: classical
+    path: ./path-5.yaml
+    url: https://h1.example.com/p5.yaml
+    interval: 86400
+  set-4:
+    type: http
+    behavior: classical
+    path: ./path-6.yaml
+    url: https://h1.example.com/p6.yaml
+    interval: 86400
+  set-5:
+    type: http
+    behavior: classical
+    path: ./path-7.yaml
+    url: https://h1.example.com/p7.yaml
+    interval: 86400
+  set-6:
+    type: http
+    behavior: ipcidr
+    path: ./path-8.yaml
+    url: https://h1.example.com/p8.yaml
+    interval: 86400
+rules:
+  - RULE-SET,set-1,DIRECT
+  - RULE-SET,set-2,Group 4
+  - RULE-SET,set-3,Group 5
+  - RULE-SET,set-4,PROXY
+  - RULE-SET,set-5,DIRECT
+  - IP-CIDR,192.168.0.0/16,DIRECT
+  - IP-CIDR,10.0.0.0/8,DIRECT
+  - IP-CIDR,172.16.0.0/12,DIRECT
+  - IP-CIDR,127.0.0.0/8,DIRECT
+  - IP-CIDR,100.64.0.0/10,DIRECT
+  - IP-CIDR,224.0.0.0/4,DIRECT
+  - IP-CIDR,fe80::/10,DIRECT
+  - IP-CIDR,192.0.2.4/32,DIRECT
+  - IP-CIDR,192.0.2.0/24,DIRECT
+  - GEOIP,CN,DIRECT
+  - MATCH,Group 3

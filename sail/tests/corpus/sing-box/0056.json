@@ -1,0 +1,240 @@
+{
+  "inbounds": [
+    {
+      "type": "mixed",
+      "tag": "in-1",
+      "listen": "::",
+      "listen_port": 1080,
+      "sniff": true
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "direct",
+      "tag": "Proxy 1"
+    },
+    {
+      "type": "block",
+      "tag": "Proxy 2"
+    },
+    {
+      "type": "selector",
+      "tag": "PROXY",
+      "outbounds": [
+        "Group 2",
+        "Proxy 1",
+        "Proxy 2",
+        "Proxy 3",
+        "Proxy 4",
+        "Proxy 5",
+        "Proxy 6",
+        "Proxy 7",
+        "Proxy 8",
+        "Proxy 9",
+        "Proxy 10",
+        "Proxy 11",
+        "Proxy 12",
+        "Proxy 13"
+      ],
+      "default": "Group 2"
+    },
+    {
+      "type": "selector",
+      "tag": "Group 1",
+      "outbounds": [
+        "Proxy 3",
+        "Proxy 4",
+        "Proxy 5",
+        "Proxy 6",
+        "Proxy 7",
+        "Proxy 8",
+        "Proxy 9",
+        "Proxy 10",
+        "Proxy 11",
+        "Proxy 12",
+        "Proxy 13"
+      ]
+    },
+    {
+      "type": "urltest",
+      "tag": "Group 2",
+      "outbounds": [
+        "Proxy 3",
+        "Proxy 4",
+        "Proxy 5",
+        "Proxy 6",
+        "Proxy 7",
+        "Proxy 8",
+        "Proxy 9",
+        "Proxy 10",
+        "Proxy 11",
+        "Proxy 12",
+        "Proxy 13"
+      ],
+      "url": "https://h1.example.com/p1?csp_test=true",
+      "interval": "10m"
+    },
+    {
+      "type": "hysteria2",
+      "tag": "Proxy 3",
+      "server": "s1.example.net",
+      "server_port": 443,
+      "password": "password1",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s1.example.net"
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "Proxy 4",
+      "server": "s2.example.net",
+      "server_port": 443,
+      "password": "password1",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s2.example.net"
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "Proxy 5",
+      "server": "s3.example.net",
+      "server_port": 443,
+      "password": "password1",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s3.example.net"
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "Proxy 6",
+      "server": "s4.example.net",
+      "server_port": 443,
+      "password": "password1",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s4.example.net"
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "Proxy 7",
+      "server": "s5.example.net",
+      "server_port": 443,
+      "password": "password1",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s5.example.net"
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "Proxy 8",
+      "server": "s6.example.net",
+      "server_port": 443,
+      "password": "password1",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s6.example.net"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 9",
+      "server": "192.0.2.1",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000001",
+      "transport": {
+        "type": "ws",
+        "path": "str1",
+        "headers": {
+          "Host": "192.0.2.1"
+        }
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "Proxy 10",
+      "server": "s7.example.net",
+      "server_port": 443,
+      "password": "password2",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s7.example.net"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 11",
+      "server": "192.0.2.2",
+      "server_port": 80,
+      "uuid": "00005a11-0000-4000-8000-000000000002",
+      "transport": {
+        "type": "ws",
+        "path": "/p2",
+        "headers": {
+          "Host": "sni8.example.org"
+        }
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 12",
+      "server": "s9.example.net",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000003",
+      "transport": {
+        "type": "ws",
+        "path": "/p3",
+        "headers": {
+          "Host": "s9.example.net"
+        }
+      },
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s9.example.net"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 13",
+      "server": "192.0.2.3",
+      "server_port": 25242,
+      "uuid": "00005a11-0000-4000-8000-000000000004",
+      "transport": {
+        "type": "ws",
+        "path": "/p4",
+        "headers": {
+          "Host": "192.0.2.3"
+        }
+      }
+    }
+  ],
+  "route": {
+    "rules": [
+      {
+        "inbound": [
+          "in-1"
+        ],
+        "ip_is_private": true,
+        "outbound": "Proxy 1"
+      },
+      {
+        "inbound": [
+          "in-1"
+        ],
+        "outbound": "PROXY"
+      }
+    ]
+  }
+}

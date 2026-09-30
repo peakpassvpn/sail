@@ -1,0 +1,546 @@
+proxy-groups:
+  - name: Group 1
+    type: select
+    proxies:
+      - Group 3
+      - Group 24
+      - Group 25
+      - Group 28
+      - Group 29
+      - Group 26
+      - Group 27
+      - Group 30
+      - Group 2
+      - DIRECT
+  - name: Group 2
+    include-all: true
+    type: select
+  - name: Group 3
+    type: url-test
+    include-all: true
+    interval: 300
+    tolerance: 50
+  - name: Group 4
+    type: select
+    proxies:
+      - Group 1
+      - Group 3
+      - Group 29
+      - Group 24
+      - Group 25
+      - Group 28
+      - Group 26
+      - Group 27
+      - Group 30
+      - Group 2
+      - DIRECT
+  - name: Group 5
+    type: select
+    proxies:
+      - Group 1
+      - Group 3
+      - Group 29
+      - Group 24
+      - Group 25
+      - Group 28
+      - Group 26
+      - Group 27
+      - Group 30
+      - Group 2
+      - DIRECT
+  - name: Group 6
+    type: select
+    proxies:
+      - Group 1
+      - Group 3
+      - Group 29
+      - Group 24
+      - Group 25
+      - Group 28
+      - Group 26
+      - Group 27
+      - Group 30
+      - Group 2
+      - DIRECT
+  - name: Group 7
+    type: select
+    proxies:
+      - Group 1
+      - Group 3
+      - Group 31
+      - Group 29
+      - Group 24
+      - Group 25
+      - Group 28
+      - Group 26
+      - Group 27
+      - Group 30
+      - Group 2
+      - DIRECT
+  - name: Group 8
+    type: select
+    proxies:
+      - Group 28
+      - Group 1
+      - Group 2
+      - DIRECT
+  - name: Group 9
+    type: select
+    proxies:
+      - Group 20
+      - Group 28
+      - Group 25
+      - Group 24
+  - name: Group 10
+    type: select
+    proxies:
+      - Group 1
+      - Group 3
+      - Group 24
+      - Group 25
+      - Group 28
+      - Group 29
+      - Group 26
+      - Group 27
+      - Group 30
+      - Group 2
+      - DIRECT
+  - name: Group 11
+    type: select
+    proxies:
+      - DIRECT
+      - Group 24
+      - Group 25
+      - Group 28
+      - Group 29
+      - Group 26
+      - Group 2
+  - name: Group 12
+    type: select
+    proxies:
+      - DIRECT
+      - Group 1
+      - Group 27
+      - Group 24
+      - Group 25
+      - Group 28
+      - Group 29
+      - Group 26
+      - Group 30
+      - Group 2
+  - name: Group 13
+    type: select
+    proxies:
+      - DIRECT
+      - Group 1
+      - Group 27
+      - Group 24
+      - Group 25
+      - Group 28
+      - Group 29
+      - Group 26
+      - Group 30
+      - Group 2
+  - name: Group 14
+    type: select
+    proxies:
+      - Group 25
+      - DIRECT
+      - Group 1
+      - Group 27
+      - Group 24
+      - Group 28
+      - Group 29
+      - Group 26
+      - Group 30
+      - Group 2
+  - name: Group 15
+    type: select
+    proxies:
+      - DIRECT
+      - Group 1
+      - Group 27
+      - Group 24
+      - Group 25
+      - Group 28
+      - Group 29
+      - Group 26
+      - Group 30
+      - Group 2
+  - name: Group 16
+    type: select
+    proxies:
+      - Group 1
+      - DIRECT
+      - Group 27
+      - Group 24
+      - Group 25
+      - Group 28
+      - Group 29
+      - Group 26
+      - Group 30
+      - Group 2
+  - name: Group 17
+    type: select
+    proxies:
+      - DIRECT
+      - Group 1
+      - Group 27
+      - Group 24
+      - Group 28
+      - Group 29
+      - Group 26
+      - Group 30
+      - Group 2
+  - name: Group 18
+    type: select
+    proxies:
+      - DIRECT
+      - Group 1
+      - Group 27
+      - Group 24
+      - Group 25
+      - Group 28
+      - Group 29
+      - Group 26
+      - Group 30
+      - Group 2
+  - name: Group 19
+    type: select
+    include-all: true
+    filter: Proxy [0-9]+|Group 1
+    proxies:
+      - DIRECT
+      - Group 1
+      - Group 3
+  - name: Group 20
+    type: select
+    proxies:
+      - DIRECT
+      - Group 1
+      - Group 3
+  - name: Group 21
+    type: select
+    proxies:
+      - REJECT
+      - DIRECT
+  - name: Group 22
+    type: select
+    proxies:
+      - REJECT
+      - DIRECT
+  - name: Group 23
+    type: select
+    proxies:
+      - Group 1
+      - Group 3
+      - DIRECT
+      - Group 24
+      - Group 25
+      - Group 28
+      - Group 29
+      - Group 26
+      - Group 27
+      - Group 30
+      - Group 2
+  - name: Group 24
+    include-all: true
+    filter: Proxy [0-9]+|Group 2
+    type: url-test
+    interval: 300
+    tolerance: 50
+  - name: Group 25
+    include-all: true
+    filter: Proxy [0-9]+|Group 3
+    type: url-test
+    interval: 300
+    tolerance: 50
+  - name: Group 26
+    include-all: true
+    filter: Proxy [0-9]+|Group 4
+    type: url-test
+    interval: 300
+    tolerance: 50
+  - name: Group 27
+    include-all: true
+    filter: Proxy [0-9]+|Group 5
+    type: url-test
+    interval: 300
+    tolerance: 50
+  - name: Group 28
+    include-all: true
+    filter: Proxy [0-9]+|Group 6
+    type: url-test
+    interval: 300
+    tolerance: 50
+  - name: Group 29
+    include-all: true
+    filter: Proxy [0-9]+|Group 7
+    type: url-test
+    interval: 300
+    tolerance: 50
+  - name: Group 30
+    include-all: true
+    filter: Proxy [0-9]+|Group 8
+    type: url-test
+    interval: 300
+    tolerance: 50
+  - name: Group 31
+    include-all: true
+    filter: Proxy [0-9]+|Group 9
+    type: select
+rule-providers:
+  set-1:
+    url: https://h1.example.com/p1.list
+    path: ./path-1.list
+    behavior: classical
+    interval: 86400
+    format: text
+    type: http
+  set-2:
+    url: https://h1.example.com/p2.list
+    path: ./path-2.list
+    behavior: classical
+    interval: 86400
+    format: text
+    type: http
+  set-3:
+    url: https://h1.example.com/p3.list
+    path: ./path-3.list
+    behavior: classical
+    interval: 86400
+    format: text
+    type: http
+  set-4:
+    url: https://h1.example.com/p4.list
+    path: ./path-4.list
+    behavior: classical
+    interval: 86400
+    format: text
+    type: http
+  set-5:
+    url: https://h1.example.com/p5.list
+    path: ./path-5.list
+    behavior: classical
+    interval: 86400
+    format: text
+    type: http
+  set-6:
+    url: https://h1.example.com/p6.list
+    path: ./path-6.list
+    behavior: classical
+    interval: 86400
+    format: text
+    type: http
+  set-7:
+    url: https://h1.example.com/p7.list
+    path: ./path-7.list
+    behavior: classical
+    interval: 86400
+    format: text
+    type: http
+  set-8:
+    url: https://h1.example.com/p8.list
+    path: ./path-8.list
+    behavior: classical
+    interval: 86400
+    format: text
+    type: http
+  set-9:
+    url: https://h1.example.com/p9.list
+    path: ./path-9.list
+    behavior: classical
+    interval: 86400
+    format: text
+    type: http
+  set-10:
+    url: https://h1.example.com/p10.list
+    path: ./path-10.list
+    behavior: classical
+    interval: 86400
+    format: text
+    type: http
+  set-11:
+    url: https://h1.example.com/p11.list
+    path: ./path-11.list
+    behavior: classical
+    interval: 86400
+    format: text
+    type: http
+  set-12:
+    url: https://h1.example.com/p12.list
+    path: ./path-12.list
+    behavior: classical
+    interval: 86400
+    format: text
+    type: http
+  set-13:
+    url: https://h1.example.com/p13.list
+    path: ./path-13.list
+    behavior: classical
+    interval: 86400
+    format: text
+    type: http
+  set-14:
+    url: https://h1.example.com/p14.list
+    path: ./path-14.list
+    behavior: classical
+    interval: 86400
+    format: text
+    type: http
+  set-15:
+    url: https://h1.example.com/p15.list
+    path: ./path-15.list
+    behavior: classical
+    interval: 86400
+    format: text
+    type: http
+  set-16:
+    url: https://h1.example.com/p16.list
+    path: ./path-16.list
+    behavior: classical
+    interval: 86400
+    format: text
+    type: http
+  set-17:
+    url: https://h1.example.com/p17.list
+    path: ./path-17.list
+    behavior: classical
+    interval: 86400
+    format: text
+    type: http
+  set-18:
+    url: https://h1.example.com/p18.list
+    path: ./path-18.list
+    behavior: classical
+    interval: 86400
+    format: text
+    type: http
+  set-19:
+    url: https://h1.example.com/p19.list
+    path: ./path-19.list
+    behavior: classical
+    interval: 86400
+    format: text
+    type: http
+  set-20:
+    url: https://h1.example.com/p20.list
+    path: ./path-20.list
+    behavior: classical
+    interval: 86400
+    format: text
+    type: http
+  set-21:
+    url: https://h1.example.com/p21.list
+    path: ./path-21.list
+    behavior: classical
+    interval: 86400
+    format: text
+    type: http
+  set-22:
+    url: https://h1.example.com/p22.list
+    path: ./path-22.list
+    behavior: classical
+    interval: 86400
+    format: text
+    type: http
+  set-23:
+    url: https://h1.example.com/p23.list
+    path: ./path-23.list
+    behavior: classical
+    interval: 86400
+    format: text
+    type: http
+  set-24:
+    url: https://h1.example.com/p24.list
+    path: ./path-24.list
+    behavior: classical
+    interval: 86400
+    format: text
+    type: http
+  set-25:
+    url: https://h1.example.com/p25.list
+    path: ./path-25.list
+    behavior: classical
+    interval: 86400
+    format: text
+    type: http
+  set-26:
+    url: https://h1.example.com/p26.list
+    path: ./path-26.list
+    behavior: classical
+    interval: 86400
+    format: text
+    type: http
+  set-27:
+    url: https://h1.example.com/p27.list
+    path: ./path-27.list
+    behavior: classical
+    interval: 86400
+    format: text
+    type: http
+  set-28:
+    url: https://h1.example.com/p28.list
+    path: ./path-28.list
+    behavior: domain
+    interval: 86400
+    format: text
+    type: http
+  set-29:
+    url: https://h1.example.com/p29.list
+    path: ./path-29.list
+    behavior: ipcidr
+    interval: 86400
+    format: text
+    type: http
+  set-30:
+    url: https://h1.example.com/p30.list
+    path: ./path-30.list
+    behavior: classical
+    interval: 86400
+    format: text
+    type: http
+rules:
+  - "DOMAIN-SUFFIX,d1.example,Group 14"
+  - "DOMAIN-SUFFIX,d2.example,Group 20"
+  - "DOMAIN-SUFFIX,d3.example,Group 20"
+  - "DOMAIN-SUFFIX,d4.example,Group 20"
+  - "DOMAIN-SUFFIX,d5.example,Group 20"
+  - "DOMAIN-SUFFIX,d6.example,Group 20"
+  - "DOMAIN-SUFFIX,d7.example,Group 20"
+  - "DOMAIN-SUFFIX,d8.example,Group 20"
+  - "DOMAIN-SUFFIX,d9.example,Group 20"
+  - "DOMAIN-SUFFIX,d10.example,Group 20"
+  - "DOMAIN-SUFFIX,d11.example,Group 20"
+  - "RULE-SET,set-1,Group 20"
+  - "RULE-SET,set-2,Group 20"
+  - "RULE-SET,set-3,Group 21"
+  - "RULE-SET,set-4,Group 22"
+  - "RULE-SET,set-5,Group 12"
+  - "RULE-SET,set-6,Group 20"
+  - "RULE-SET,set-7,Group 20"
+  - "RULE-SET,set-8,Group 13"
+  - "RULE-SET,set-9,Group 15"
+  - "RULE-SET,set-10,Group 16"
+  - "RULE-SET,set-11,Group 17"
+  - "RULE-SET,set-12,Group 4"
+  - "RULE-SET,set-13,Group 5"
+  - "RULE-SET,set-14,Group 19"
+  - "RULE-SET,set-15,Group 18"
+  - "RULE-SET,set-16,Group 18"
+  - "RULE-SET,set-17,Group 18"
+  - "RULE-SET,set-18,Group 18"
+  - "RULE-SET,set-19,Group 18"
+  - "RULE-SET,set-20,Group 6"
+  - "RULE-SET,set-21,Group 7"
+  - "RULE-SET,set-22,Group 8"
+  - "RULE-SET,set-23,Group 9"
+  - "RULE-SET,set-24,Group 9"
+  - "RULE-SET,set-25,Group 11"
+  - "RULE-SET,set-26,Group 10"
+  - "RULE-SET,set-27,Group 1"
+  - "RULE-SET,set-28,Group 20"
+  - "RULE-SET,set-29,Group 20"
+  - "RULE-SET,set-30,Group 20"
+  - "GEOIP,CN,Group 20"
+  - "MATCH,Group 23"

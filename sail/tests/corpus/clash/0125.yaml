@@ -1,0 +1,57 @@
+mixed-port: 7890
+allow-lan: true
+mode: rule
+log-level: info
+external-controller: 127.0.0.1:9090
+proxies:
+  - name: Proxy 1
+    type: nekotls
+    server: 192.0.2.1
+    port: 10000
+    password: "password1"
+    udp: true
+    sni: "sni1.example.org"
+    alpn:
+      - h2
+      - http/1.1
+    client-fingerprint: chrome
+    padding-scheme: anytls
+    skip-cert-verify: true
+    reality-opts:
+      public-key: "wywOQgzCr2vr85JpoMxzCakHIIvgUtsG6w"
+      short-id: "704c7085"
+  - name: Proxy 2
+    type: nekotls
+    server: s2.example.net
+    port: 10011
+    password: "password1"
+    udp: true
+    sni: "s2.example.net"
+    alpn:
+      - h2
+      - http/1.1
+    client-fingerprint: chrome
+    padding-scheme: anytls
+    skip-cert-verify: false
+    ech-opts:
+      enable: true
+      config: "password2"
+proxy-groups:
+  - name: PROXY
+    type: select
+    proxies:
+      - Group 1
+      - DIRECT
+      - Proxy 1
+      - Proxy 2
+  - name: Group 1
+    type: url-test
+    url: http://h1.example.com/generate_204
+    interval: 300
+    tolerance: 50
+    proxies:
+      - Proxy 1
+      - Proxy 2
+rules:
+  - GEOIP,CN,DIRECT,no-resolve
+  - MATCH,PROXY

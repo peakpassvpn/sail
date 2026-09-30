@@ -1,0 +1,92 @@
+port: 7890
+socks-port: 7891
+allow-lan: true
+mode: Rule
+log-level: info
+external-controller: 127.0.0.1:9090
+proxies:
+  - name: "Proxy 1"
+    type: trojan
+    server: s1.example.net
+    port: 443
+    password: 00005a11-0000-4000-8000-000000000001
+    udp: true
+    sni: sni2.example.org
+    alpn:
+      - h2
+      - http/1.1
+    skip-cert-verify: true
+  - name: "Proxy 2"
+    type: trojan
+    server: s3.example.net
+    port: 443
+    password: 00005a11-0000-4000-8000-000000000002
+    udp: true
+    sni: sni2.example.org
+    alpn:
+      - h2
+      - http/1.1
+    skip-cert-verify: true
+  - name: "Proxy 3"
+    type: trojan
+    server: s4.example.net
+    port: 443
+    password: 00005a11-0000-4000-8000-000000000003
+    udp: true
+    sni: sni2.example.org
+    alpn:
+      - h2
+      - http/1.1
+    skip-cert-verify: true
+proxy-groups:
+  - name: Group 1
+    type: select
+    proxies:
+      - "Group 2"
+      - "Proxy 3"
+      - "Proxy 2"
+      - "Proxy 1"
+  - name: Group 2
+    type: url-test
+    proxies:
+      - "Proxy 3"
+      - "Proxy 2"
+      - "Proxy 1"
+    url: https://h1.example.com/
+    interval: 300
+  - name: "Group 3"
+    type: load-balance
+    proxies:
+      - "Proxy 3"
+      - "Proxy 2"
+      - "Proxy 1"
+    url: 'https://h1.example.com/'
+    interval: 300
+rules:
+  - IP-CIDR,192.168.0.0/16,DIRECT,no-resolve
+  - IP-CIDR,10.0.0.0/8,DIRECT,no-resolve
+  - IP-CIDR,172.16.0.0/12,DIRECT,no-resolve
+  - IP-CIDR,127.0.0.0/8,DIRECT,no-resolve
+  - IP-CIDR,100.64.0.0/10,DIRECT,no-resolve
+  - IP-CIDR6,::1/128,DIRECT,no-resolve
+  - IP-CIDR6,fc00::/7,DIRECT,no-resolve
+  - IP-CIDR6,fe80::/10,DIRECT,no-resolve
+  - IP-CIDR6,fd00::/8,DIRECT,no-resolve
+  - DOMAIN-SUFFIX,d5.example,REJECT
+  - DOMAIN,d6.example,REJECT
+  - DOMAIN,d7.example,REJECT
+  - DOMAIN,d8.example,REJECT
+  - DOMAIN-SUFFIX,d9.example,REJECT
+  - DOMAIN-SUFFIX,d10.example,REJECT
+  - DOMAIN-SUFFIX,d11.example,REJECT
+  - DOMAIN-SUFFIX,d12.example,REJECT
+  - DOMAIN-SUFFIX,d13.example,REJECT
+  - DOMAIN-SUFFIX,d14.example,REJECT
+  - DOMAIN-SUFFIX,d15.example,REJECT
+  - DOMAIN-KEYWORD,kw1,REJECT
+  - DOMAIN-KEYWORD,kw2,REJECT
+  - DOMAIN-KEYWORD,kw3,REJECT
+  - SRC-IP-CIDR,192.0.2.1/32,DIRECT
+  - IP-CIDR,198.18.0.1/16,REJECT,no-resolve
+  - GEOIP,IR,DIRECT
+  - MATCH,,str1,str2, dns-failed

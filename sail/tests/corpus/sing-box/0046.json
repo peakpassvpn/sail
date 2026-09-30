@@ -1,0 +1,100 @@
+{
+  "log": {
+    "level": "info",
+    "timestamp": true
+  },
+  "inbounds": [
+    {
+      "type": "socks",
+      "tag": "in-1",
+      "listen": "127.0.0.1",
+      "listen_port": 1080
+    },
+    {
+      "type": "http",
+      "tag": "in-2",
+      "listen": "127.0.0.1",
+      "listen_port": 7890
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "shadowsocks",
+      "tag": "Proxy 1",
+      "server": "str1",
+      "server_port": 443,
+      "method": "aes-256-gcm",
+      "password": "password1"
+    },
+    {
+      "type": "direct",
+      "tag": "Proxy 2"
+    },
+    {
+      "type": "block",
+      "tag": "Proxy 3"
+    }
+  ],
+  "route": {
+    "rules": [
+      {
+        "action": "sniff"
+      },
+      {
+        "ip_is_private": true,
+        "outbound": "Proxy 2"
+      },
+      {
+        "rule_set": "set-1",
+        "outbound": "Proxy 3"
+      },
+      {
+        "rule_set": [
+          "set-2",
+          "set-4"
+        ],
+        "outbound": "Proxy 2"
+      },
+      {
+        "rule_set": "set-3",
+        "outbound": "Proxy 1"
+      }
+    ],
+    "rule_set": [
+      {
+        "tag": "set-1",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p1.srs",
+        "download_detour": "Proxy 1",
+        "update_interval": "24h"
+      },
+      {
+        "tag": "set-2",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p2.srs",
+        "download_detour": "Proxy 1",
+        "update_interval": "24h"
+      },
+      {
+        "tag": "set-3",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p3.srs",
+        "download_detour": "Proxy 1",
+        "update_interval": "24h"
+      },
+      {
+        "tag": "set-4",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p4.srs",
+        "download_detour": "Proxy 1",
+        "update_interval": "24h"
+      }
+    ],
+    "final": "Proxy 1",
+    "auto_detect_interface": true
+  }
+}

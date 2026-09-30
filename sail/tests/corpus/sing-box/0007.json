@@ -1,0 +1,243 @@
+{
+  "log": {
+    "level": "warn",
+    "timestamp": true
+  },
+  "dns": {
+    "servers": [
+      {
+        "type": "https",
+        "tag": "dns-1",
+        "server": "192.0.2.1"
+      },
+      {
+        "type": "https",
+        "tag": "dns-2",
+        "server": "192.0.2.2",
+        "detour": "Group 1",
+        "tls": {
+          "enabled": true,
+          "server_name": "sni1.example.org"
+        }
+      },
+      {
+        "type": "https",
+        "tag": "dns-3",
+        "server": "s2.example.net",
+        "domain_resolver": "dns-1"
+      },
+      {
+        "type": "fakeip",
+        "tag": "dns-4",
+        "inet4_range": "198.18.0.0/15",
+        "inet6_range": "3f00::/18"
+      },
+      {
+        "type": "local",
+        "tag": "dns-5"
+      }
+    ],
+    "rules": [
+      {
+        "domain_suffix": [
+          ".d3.example",
+          ".d4.example"
+        ],
+        "server": "dns-5"
+      },
+      {
+        "rule_set": [
+          "set-6"
+        ],
+        "server": "dns-3"
+      },
+      {
+        "rule_set": [
+          "set-3"
+        ],
+        "server": "dns-1"
+      },
+      {
+        "query_type": [
+          "HTTPS",
+          "SVCB"
+        ],
+        "rule_set": [
+          "set-2",
+          "set-5"
+        ],
+        "action": "predefined",
+        "rcode": "REFUSED"
+      },
+      {
+        "rule_set": [
+          "set-2",
+          "set-5"
+        ],
+        "server": "dns-4"
+      }
+    ],
+    "final": "dns-2",
+    "strategy": "prefer_ipv4",
+    "cache_capacity": 2048
+  },
+  "inbounds": [
+    {
+      "type": "tun",
+      "tag": "in-1",
+      "mtu": 1420,
+      "address": "192.0.2.1/30",
+      "auto_route": true,
+      "stack": "mixed",
+      "route_exclude_address": [
+        "10.0.0.0/8",
+        "172.16.0.0/12",
+        "192.168.0.0/16",
+        "169.254.0.0/16",
+        "224.0.0.0/4",
+        "255.255.255.255/32",
+        "fc00::/7"
+      ]
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "direct",
+      "tag": "Proxy 1"
+    },
+    {
+      "type": "selector",
+      "tag": "Group 1",
+      "outbounds": [
+        "Group 2",
+        "Proxy 2",
+        "Proxy 3"
+      ],
+      "default": "Group 2"
+    },
+    {
+      "type": "urltest",
+      "tag": "Group 2",
+      "outbounds": [
+        "Proxy 2",
+        "Proxy 3"
+      ],
+      "url": "http://h1.example.com/generate_204",
+      "interval": "10m",
+      "tolerance": 50
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 2",
+      "server": "192.0.2.3",
+      "server_port": 25535,
+      "uuid": "00005a11-0000-4000-8000-000000000001",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni5.example.org",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "firefox"
+        },
+        "reality": {
+          "enabled": true,
+          "public_key": "wywOQgzCr2vr85JpoMxzCakHIIvgUtsG6_Qp987NJa4",
+          "short_id": "704c7085dd7b3f73"
+        }
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 3",
+      "server": "192.0.2.4",
+      "server_port": 19747,
+      "uuid": "00005a11-0000-4000-8000-000000000002",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni6.example.org",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        },
+        "reality": {
+          "enabled": true,
+          "public_key": "WulOoXrJ4xaeREDpCXJqPLE7mK1qDJwNSfPto1FYe4I",
+          "short_id": "6663"
+        }
+      }
+    }
+  ],
+  "http_clients": [
+    {
+      "tag": "str1"
+    }
+  ],
+  "route": {
+    "default_http_client": "str1",
+    "rules": [
+      {
+        "action": "sniff"
+      },
+      {
+        "protocol": "dns",
+        "action": "hijack-dns"
+      },
+      {
+        "rule_set": [
+          "set-2",
+          "set-5"
+        ],
+        "outbound": "Group 1"
+      },
+      {
+        "rule_set": [
+          "set-3",
+          "set-4",
+          "set-6"
+        ],
+        "outbound": "Proxy 1"
+      }
+    ],
+    "rule_set": [
+      {
+        "type": "remote",
+        "tag": "set-1",
+        "url": "https://h2.example.com/p1.srs"
+      },
+      {
+        "type": "remote",
+        "tag": "set-2",
+        "url": "https://h2.example.com/p2.srs"
+      },
+      {
+        "type": "remote",
+        "tag": "set-3",
+        "url": "https://h2.example.com/p3.srs"
+      },
+      {
+        "type": "remote",
+        "tag": "set-4",
+        "url": "https://h2.example.com/p4.srs"
+      },
+      {
+        "type": "remote",
+        "tag": "set-5",
+        "url": "https://h2.example.com/p5.srs"
+      },
+      {
+        "type": "remote",
+        "tag": "set-6",
+        "url": "https://h2.example.com/p6.srs"
+      }
+    ],
+    "final": "Group 1",
+    "auto_detect_interface": true,
+    "override_android_vpn": true,
+    "default_domain_resolver": "dns-1"
+  },
+  "experimental": {
+    "cache_file": {
+      "enabled": true
+    }
+  }
+}

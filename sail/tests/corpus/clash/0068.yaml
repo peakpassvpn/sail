@@ -1,0 +1,11 @@
+mixed-port: 7890
+allow-lan: true
+mode: rule
+log-level: info
+proxies:
+proxy-groups:
+  - name: "Group 1"
+    type: select
+    proxies:
+rules:
+  - MATCH,Group 1

@@ -1,0 +1,260 @@
+proxy-providers:
+  provider-1:
+    type: http
+    interval: 3600
+    health-check: &id001
+      enable: true
+      url: http://h1.example.com/p1
+      interval: 6
+    url: str1
+    path: ./path-1.yaml
+    override:
+      additional-prefix: 'str2'
+  provider-2:
+    type: http
+    interval: 3600
+    health-check: *id001
+    url: str3
+    path: ./path-2.yaml
+    override:
+      additional-prefix: 'str4'
+rule-providers:
+  LAN:
+    type: http
+    behavior: classical
+    interval: 3600
+    format: yaml
+    proxy: DIRECT
+    path: ./path-3.yaml
+    url: https://h2.example.com/p2.yaml
+  set-1:
+    type: http
+    behavior: classical
+    interval: 3600
+    format: yaml
+    proxy: DIRECT
+    path: ./path-4.yaml
+    url: https://h2.example.com/p3.yaml
+  set-2:
+    type: http
+    behavior: classical
+    interval: 3600
+    format: yaml
+    proxy: DIRECT
+    path: ./path-5.yaml
+    url: https://h2.example.com/p4.yaml
+  set-3:
+    type: http
+    behavior: classical
+    interval: 3600
+    format: yaml
+    proxy: DIRECT
+    path: ./path-6.yaml
+    url: https://h2.example.com/p5.yaml
+  set-4:
+    type: http
+    behavior: classical
+    interval: 3600
+    format: yaml
+    proxy: DIRECT
+    path: ./path-7.yaml
+    url: https://h2.example.com/p6.yaml
+  set-5:
+    type: http
+    behavior: classical
+    interval: 3600
+    format: yaml
+    proxy: DIRECT
+    path: ./path-8.yaml
+    url: https://h2.example.com/p7.yaml
+  set-6:
+    type: http
+    behavior: classical
+    interval: 3600
+    format: yaml
+    proxy: DIRECT
+    path: ./path-9.yaml
+    url: https://h2.example.com/p8.yaml
+  set-7:
+    type: http
+    behavior: classical
+    interval: 3600
+    format: yaml
+    proxy: DIRECT
+    path: ./path-10.yaml
+    url: https://h3.example.com/p9.yaml
+  set-8:
+    type: http
+    behavior: classical
+    interval: 3600
+    format: yaml
+    proxy: DIRECT
+    path: ./path-11.yaml
+    url: https://h2.example.com/p10.yaml
+proxy-groups:
+  - name: Group 1
+    type: select
+    include-all-providers: true
+    filter: Proxy [0-9]+|Group 1
+    proxies:
+      - PASS
+      - DIRECT
+  - name: Group 2
+    type: select
+    include-all-providers: true
+    filter: Proxy [0-9]+|Group 1
+  - name: Group 3
+    type: select
+    include-all-providers: true
+    filter: Proxy [0-9]+|Group 1
+  - name: Group 4
+    type: select
+    include-all-providers: true
+    filter: Proxy [0-9]+|Group 1
+    proxies:
+      - PASS
+      - DIRECT
+  - name: Group 5
+    type: select
+    include-all-providers: true
+    filter: Proxy [0-9]+|Group 1
+  - type: fallback
+    interval: 6
+    lazy: true
+    url: http://h1.example.com/p1
+    disable-udp: false
+    timeout: 2000
+    max-failed-times: 3
+    hidden: true
+    include-all-providers: true
+    name: Group 6
+    proxies:
+      - Group 7
+      - Group 8
+      - Group 9
+      - Group 10
+      - Group 11
+      - Group 12
+      - Group 13
+      - Group 14
+      - Group 15
+  - type: url-test
+    interval: 6
+    tolerance: 20
+    lazy: true
+    url: http://h1.example.com/p1
+    disable-udp: false
+    timeout: 2000
+    max-failed-times: 3
+    hidden: true
+    include-all-providers: true
+    name: Group 7
+    filter: Proxy [0-9]+|Group 2
+  - type: url-test
+    interval: 6
+    tolerance: 20
+    lazy: true
+    url: http://h1.example.com/p1
+    disable-udp: false
+    timeout: 2000
+    max-failed-times: 3
+    hidden: true
+    include-all-providers: true
+    name: Group 8
+    filter: Proxy [0-9]+|Group 3
+  - type: url-test
+    interval: 6
+    tolerance: 20
+    lazy: true
+    url: http://h1.example.com/p1
+    disable-udp: false
+    timeout: 2000
+    max-failed-times: 3
+    hidden: true
+    include-all-providers: true
+    name: Group 9
+    filter: Proxy [0-9]+|Group 4
+  - type: url-test
+    interval: 6
+    tolerance: 20
+    lazy: true
+    url: http://h1.example.com/p1
+    disable-udp: false
+    timeout: 2000
+    max-failed-times: 3
+    hidden: true
+    include-all-providers: true
+    name: Group 10
+    filter: Proxy [0-9]+|Group 5
+  - type: url-test
+    interval: 6
+    tolerance: 20
+    lazy: true
+    url: http://h1.example.com/p1
+    disable-udp: false
+    timeout: 2000
+    max-failed-times: 3
+    hidden: true
+    include-all-providers: true
+    name: Group 11
+    filter: Proxy [0-9]+|Group 6
+  - type: url-test
+    interval: 6
+    tolerance: 20
+    lazy: true
+    url: http://h1.example.com/p1
+    disable-udp: false
+    timeout: 2000
+    max-failed-times: 3
+    hidden: true
+    include-all-providers: true
+    name: Group 12
+    filter: Proxy [0-9]+|Group 7
+  - type: url-test
+    interval: 6
+    tolerance: 20
+    lazy: true
+    url: http://h1.example.com/p1
+    disable-udp: false
+    timeout: 2000
+    max-failed-times: 3
+    hidden: true
+    include-all-providers: true
+    name: Group 13
+    filter: Proxy [0-9]+|Group 8
+  - type: url-test
+    interval: 6
+    tolerance: 20
+    lazy: true
+    url: http://h1.example.com/p1
+    disable-udp: false
+    timeout: 2000
+    max-failed-times: 3
+    hidden: true
+    include-all-providers: true
+    name: Group 14
+    filter: Proxy [0-9]+|Group 9
+  - type: url-test
+    interval: 6
+    tolerance: 20
+    lazy: true
+    url: http://h1.example.com/p1
+    disable-udp: false
+    timeout: 2000
+    max-failed-times: 3
+    hidden: true
+    include-all-providers: true
+    name: Group 15
+    filter: Proxy [0-9]+|Group 10
+rules:
+  - RULE-SET, LAN, DIRECT
+  - RULE-SET, set-1, DIRECT
+  - RULE-SET, set-2, Group 6
+  - RULE-SET, set-3, Group 2
+  - RULE-SET, set-4, Group 3
+  - RULE-SET, set-5, Group 4
+  - RULE-SET, set-6, Group 1
+  - RULE-SET, set-7, Group 5
+  - RULE-SET, set-8, DIRECT
+  - GEOIP, CN, DIRECT
+  - MATCH, Group 6

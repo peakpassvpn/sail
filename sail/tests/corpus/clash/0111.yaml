@@ -1,0 +1,137 @@
+port: 7890
+socks-port: 7891
+redir-port: 7892
+tproxy-port: 7893
+mixed-port: 7894
+allow-lan: true
+mode: rule
+log-level: info
+ipv6: false
+external-controller: 127.0.0.1:9090
+external-ui: ./path-1
+interface-name: if1
+dns:
+  enable: true
+  ipv6: false
+  enhanced-mode: fake-ip
+  listen: 0.0.0.0:7895
+  fallback-filter:
+    geoip: false
+    ipcidr:
+      - 240.0.0.0/4
+  default-nameserver:
+    - 192.0.2.1
+    - 192.0.2.2
+    - 192.0.2.3
+    - 192.0.2.4
+  nameserver:
+    - https://h1.example.com/p1
+    - tls://h2.example.com:853
+  fallback:
+    - tcp://192.0.2.1
+    - tcp://192.0.2.2
+    - tcp://192.0.2.3
+    - tcp://192.0.2.4
+    - 192.0.2.1
+    - 192.0.2.2
+    - 192.0.2.3
+    - 192.0.2.4
+  fake-ip-range: 198.18.0.1/16
+  fake-ip-filter:
+    - "+.d1*.example"
+    - d2*.example
+    - d3*.example
+    - d4*.example
+    - d5*.example
+    - d6*.example
+    - d7*.example
+    - d8*.example
+    - d9*.example
+    - d10*.example
+    - d11*.example
+    - d12*.example
+    - d13*.example
+    - d14*.example
+    - d15*.example
+    - d16*.example
+    - d17*.example
+    - d18*.example
+    - d19*.example
+    - d20*.example
+    - "*.d21.example"
+    - "*.d22.example"
+    - "*.d23.example"
+    - "*.localhost"
+    - "*.d24.example"
+    - "*.d25.example"
+    - "*.d26.example"
+    - "*.d27.example"
+tun:
+  enable: true
+  dns-hijack:
+    - tcp://192.0.2.1:53
+    - tcp://192.0.2.2:53
+  stack: system
+  auto-route: true
+proxies:
+  - name: "Proxy 1"
+    type: trojan
+    server: s28.example.net
+    port: 443
+    password: 00005a11-0000-4000-8000-000000000001
+    udp: true
+    sni: sni29.example.org
+    alpn:
+      - h2
+      - http/1.1
+    skip-cert-verify: true
+proxy-groups:
+  - name: Group 1
+    type: select
+    url: 'https://h3.example.com'
+    interval: 500
+    proxies:
+      - DIRECT
+      - Proxy 1
+rules:
+  - DOMAIN-SUFFIX,d30.example,REJECT
+  - DOMAIN-SUFFIX,d31.example,REJECT
+  - DOMAIN-SUFFIX,d32.example,REJECT
+  - DOMAIN-SUFFIX,d33.example,REJECT
+  - DOMAIN-SUFFIX,d34.example,REJECT
+  - DOMAIN-SUFFIX,d35.example,REJECT
+  - DOMAIN-SUFFIX,d36.example,REJECT
+  - DOMAIN-SUFFIX,d37.example,REJECT
+  - DOMAIN-SUFFIX,d38.example,REJECT
+  - DOMAIN-SUFFIX,d39.example,REJECT
+  - DOMAIN-SUFFIX,d40.example,REJECT
+  - DOMAIN-SUFFIX,d41.example,REJECT
+  - DOMAIN-SUFFIX,d42.example,REJECT
+  - DOMAIN-SUFFIX,d43.example,REJECT
+  - DOMAIN-SUFFIX,d44.example,REJECT
+  - DOMAIN-SUFFIX,d45.example,REJECT
+  - DOMAIN-SUFFIX,d46.example,REJECT
+  - DOMAIN-SUFFIX,d47.example,REJECT
+  - DOMAIN-SUFFIX,d48.example,REJECT
+  - DOMAIN-SUFFIX,d37.example,REJECT
+  - DOMAIN-SUFFIX,d49.example,REJECT
+  - DOMAIN-SUFFIX,d50.example,REJECT
+  - DOMAIN-KEYWORD,kw1,DIRECT
+  - DOMAIN-KEYWORD,kw2,DIRECT
+  - DOMAIN-SUFFIX,d35.example,REJECT
+  - DOMAIN-SUFFIX,d51.example,DIRECT
+  - DOMAIN-SUFFIX,d52.example,REJECT
+  - DOMAIN,d53.example,REJECT
+  - DOMAIN,d54.example,REJECT
+  - DOMAIN,d55.example,REJECT
+  - DOMAIN-SUFFIX,d56.example,REJECT
+  - DOMAIN-SUFFIX,d57.example,REJECT
+  - DOMAIN-SUFFIX,d58.example,REJECT
+  - DOMAIN-SUFFIX,d59.example,REJECT
+  - DOMAIN-SUFFIX,d60.example,REJECT
+  - DOMAIN-SUFFIX,d61.example,REJECT
+  - DOMAIN-SUFFIX,d62.example,REJECT
+  - DOMAIN-KEYWORD,kw3,REJECT
+  - DOMAIN-KEYWORD,kw4,REJECT
+  - DOMAIN-KEYWORD,kw5,REJECT
+  - MATCH,DIRECT

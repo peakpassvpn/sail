@@ -1,0 +1,161 @@
+socks-port: 7891
+allow-lan: false
+mode: Rule
+log-level: info
+tun:
+  enable: false
+  stack: system
+  auto-route: true
+  auto-detect-interface: true
+dns:
+  enabled: true
+  nameserver:
+    - 192.0.2.1
+  fallback:
+    - tls://192.0.2.2:853
+    - https://192.0.2.3/dns-query
+    - https://h1.example.com/dns-query
+proxies:
+  - {name: Proxy 1, server: 192.0.2.4, port: 443, type: trojan, password: password1, sni: sni1.example.org}
+proxy-providers:
+  provider-1:
+    type: http
+    url: https://h2.example.com/p1.yaml
+    interval: 800
+    path: ./path-1.yaml
+    health-check:
+      enable: true
+      interval: 600
+      lazy: true
+      url: http://h3.example.com/generate_204
+  provider-2:
+    type: file
+    path: ./path-2.yml
+    health-check:
+      enable: true
+      interval: 300
+      url: http://h3.example.com/generate_204
+  provider-3:
+    type: file
+    path: ./path-3.yml
+    health-check:
+      enable: true
+      interval: 300
+      url: http://h3.example.com/generate_204
+proxy-groups:
+  - name: Group 1
+    type: load-balance
+    use:
+      - provider-3
+    url: http://h3.example.com/generate_204
+    interval: 50
+    strategy: round-robin
+  - name: Group 2
+    type: url-test
+    proxies:
+      - Proxy 1
+    url: http://h3.example.com/generate_204
+    interval: 90
+  - name: Group 3
+    type: load-balance
+    use:
+      - provider-3
+      - provider-2
+    url: http://h3.example.com/generate_204
+    interval: 50
+    strategy: round-robin
+  - name: Group 4
+    type: fallback
+    proxies:
+      - DIRECT
+      - Group 3
+    url: http://h3.example.com/generate_204
+    interval: 210
+rules:
+  - DOMAIN,d2.example,REJECT
+  - PROCESS-NAME,app1.exe,Group 4
+  - DOMAIN-SUFFIX,d3.example,DIRECT
+  - DOMAIN-SUFFIX,d4.example,DIRECT
+  - DOMAIN-SUFFIX,d5.example,DIRECT
+  - DOMAIN-SUFFIX,d6.example,DIRECT
+  - DOMAIN-SUFFIX,d7.example,Group 3
+  - DOMAIN-SUFFIX,d8.example,Group 3
+  - DOMAIN-KEYWORD,kw1,Group 3
+  - DOMAIN-SUFFIX,d9.example,Group 3
+  - DOMAIN-SUFFIX,d10.example,Group 3
+  - DOMAIN-SUFFIX,d11.example,Group 3
+  - DOMAIN-SUFFIX,d12.example,Group 3
+  - DOMAIN-SUFFIX,d13.example,Group 3
+  - DOMAIN-SUFFIX,d14.example,Group 3
+  - DOMAIN-SUFFIX,d15.example,Group 3
+  - DOMAIN-SUFFIX,d16.example,Group 3
+  - DOMAIN-SUFFIX,d17.example,Group 3
+  - DOMAIN-SUFFIX,d18.example,Group 3
+  - DOMAIN-SUFFIX,d19.example,Group 3
+  - DOMAIN-SUFFIX,d20.example,Group 3
+  - DOMAIN-SUFFIX,d21.example,Group 3
+  - DOMAIN-SUFFIX,d22.example,Group 3
+  - DOMAIN-SUFFIX,d23.example,Group 3
+  - DOMAIN-SUFFIX,d24.example,Group 3
+  - DOMAIN-SUFFIX,d25.example,Group 3
+  - DOMAIN-KEYWORD,kw2,Group 3
+  - DOMAIN-KEYWORD,kw3,Group 3
+  - DOMAIN-SUFFIX,d26.example,Group 3
+  - DOMAIN-SUFFIX,d27.example,Group 3
+  - DOMAIN-SUFFIX,d28.example,Group 3
+  - DOMAIN-SUFFIX,d29.example,Group 3
+  - DOMAIN-SUFFIX,d30.example,Group 3
+  - DOMAIN-SUFFIX,d31.example,Group 3
+  - DOMAIN-KEYWORD,kw4,Group 3
+  - DOMAIN-SUFFIX,d32.example,Group 3
+  - DOMAIN-SUFFIX,d33.example,Group 3
+  - DOMAIN-SUFFIX,d34.example,Group 3
+  - IP-CIDR,192.0.2.166/24,Group 3,no-resolve
+  - IP-CIDR,192.0.2.5/32,Group 3,no-resolve
+  - IP-CIDR,198.18.0.0/18,Group 3,no-resolve
+  - IP-CIDR,192.0.2.6/32,Group 3,no-resolve
+  - IP-CIDR,198.18.0.0/21,Group 3,no-resolve
+  - IP-CIDR,198.18.0.0/17,Group 3,no-resolve
+  - IP-CIDR,192.0.2.7/32,Group 3,no-resolve
+  - IP-CIDR,192.0.2.8/32,Group 3,no-resolve
+  - IP-CIDR,198.18.128.0/17,Group 3,no-resolve
+  - IP-CIDR,198.19.0.0/17,Group 3,no-resolve
+  - IP-CIDR,192.0.2.9/32,Group 3,no-resolve
+  - IP-CIDR,198.18.0.0/20,Group 3,no-resolve
+  - IP-CIDR,192.0.2.10/32,Group 3,no-resolve
+  - IP-CIDR,192.0.2.11/32,Group 3,no-resolve
+  - IP-CIDR,192.0.2.12/32,Group 3,no-resolve
+  - IP-CIDR,192.0.2.13/32,Group 3,no-resolve
+  - IP-CIDR,198.18.64.0/18,Group 3,no-resolve
+  - IP-CIDR,198.18.0.0/19,Group 3,no-resolve
+  - IP-CIDR,198.18.16.0/20,Group 3,no-resolve
+  - IP-CIDR,192.0.2.14/32,Group 3,no-resolve
+  - IP-CIDR,192.0.2.15/32,Group 3,no-resolve
+  - IP-CIDR,192.0.2.16/32,Group 3,no-resolve
+  - IP-CIDR,192.0.2.17/32,Group 3,no-resolve
+  - IP-CIDR,192.0.2.18/32,Group 3,no-resolve
+  - IP-CIDR,192.0.2.19/32,Group 3,no-resolve
+  - DOMAIN-SUFFIX,d35.example,Group 3
+  - DOMAIN-SUFFIX,d36.example,Group 1
+  - DOMAIN-SUFFIX,d37.example,Group 3
+  - DOMAIN-SUFFIX,d38.example,Group 1
+  - DOMAIN-SUFFIX,d39.example,Group 3
+  - DOMAIN-SUFFIX,d40.example,Group 3
+  - DOMAIN-SUFFIX,d41.example,Group 3
+  - DOMAIN-SUFFIX,d42.example,Group 1
+  - DOMAIN-SUFFIX,d43.example,Group 3
+  - DOMAIN-SUFFIX,d44.example,Group 3
+  - DOMAIN-SUFFIX,d45.example,DIRECT
+  - DOMAIN-KEYWORD,kw5,Group 3
+  - IP-CIDR,198.51.100.0/24,DIRECT
+  - IP-CIDR,203.0.113.0/24,DIRECT
+  - IP-CIDR,192.0.2.0/24,DIRECT
+  - IP-CIDR,198.51.100.0/24,DIRECT
+  - IP-CIDR,203.0.113.0/24,DIRECT
+  - IP-CIDR,192.0.2.0/24,DIRECT
+  - IP-CIDR6,2001:db8::/48,DIRECT
+  - IP-CIDR6,2001:db8:1::/48,DIRECT
+  - IP-CIDR6,2001:db8:2::/48,DIRECT
+  - IP-CIDR6,2001:db8:3::/48,DIRECT
+  - GEOIP,CN,DIRECT
+  - MATCH,Group 4

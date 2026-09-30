@@ -1,0 +1,424 @@
+port: 7890
+socks-port: 7891
+redir-port: 7892
+mixed-port: 7893
+tproxy-port: 7895
+allow-lan: true
+bind-address: '*'
+mode: rule
+log-level: info
+ipv6: false
+unified-delay: true
+tcp-concurrent: true
+keep-alive-idle: 600
+keep-alive-interval: 30
+external-controller: 0.0.0.0:9090
+profile:
+  store-selected: true
+  store-fake-ip: true
+dns:
+  enable: true
+  ipv6: false
+  enhanced-mode: fake-ip
+  listen: 0.0.0.0:7874
+  nameserver:
+    - 192.0.2.1
+    - 192.0.2.2
+  fallback:
+    - 192.0.2.3
+    - 192.0.2.4
+proxies:
+  - name: "Proxy 1"
+    server: "192.0.2.5"
+    port: 443
+    type: trojan
+    password: "password1"
+    tls: true
+    skip-cert-verify: true
+    network: ws
+    sni: "sni1.example.org"
+    ws-opts:
+      path: "/p1"
+      headers:
+        Host: "sni1.example.org"
+    udp: true
+  - name: "Proxy 2"
+    server: "192.0.2.5"
+    port: 443
+    type: vless
+    uuid: 00005a11-0000-4000-8000-000000000001
+    cipher: none
+    tls: true
+    skip-cert-verify: true
+    network: ws
+    servername: "sni2.example.org"
+    ws-opts:
+      path: "/p2"
+      headers:
+        Host: "sni2.example.org"
+    udp: true
+  - name: "Proxy 3"
+    server: "192.0.2.5"
+    port: 443
+    type: vless
+    uuid: 00005a11-0000-4000-8000-000000000002
+    cipher: none
+    tls: true
+    skip-cert-verify: true
+    network: ws
+    servername: "sni3.example.org"
+    ws-opts:
+      path: "/p3"
+      headers:
+        Host: "sni3.example.org"
+    udp: true
+  - name: "Proxy 4"
+    server: "192.0.2.5"
+    port: 443
+    type: trojan
+    password: "password2"
+    tls: true
+    skip-cert-verify: true
+    network: ws
+    sni: "sni4.example.org"
+    ws-opts:
+      path: "/p4"
+      headers:
+        Host: "sni5.example.org"
+    udp: true
+  - name: "Proxy 5"
+    server: "192.0.2.5"
+    port: 443
+    type: vless
+    uuid: 00005a11-0000-4000-8000-000000000003
+    cipher: none
+    tls: true
+    skip-cert-verify: true
+    network: ws
+    servername: "sni6.example.org"
+    ws-opts:
+      path: "/p5"
+      headers:
+        Host: "sni6.example.org"
+    udp: true
+  - name: "Proxy 6"
+    server: "192.0.2.5"
+    port: 443
+    type: vless
+    uuid: 00005a11-0000-4000-8000-000000000004
+    cipher: none
+    tls: true
+    skip-cert-verify: true
+    network: ws
+    servername: "sni7.example.org"
+    ws-opts:
+      path: "/p5"
+      headers:
+        Host: "sni7.example.org"
+    udp: true
+  - name: "Proxy 7"
+    server: "192.0.2.5"
+    port: 443
+    type: trojan
+    password: "password2"
+    tls: true
+    skip-cert-verify: true
+    network: ws
+    sni: "sni8.example.org"
+    ws-opts:
+      path: "/p4"
+      headers:
+        Host: "sni8.example.org"
+    udp: true
+  - name: "Proxy 8"
+    server: "192.0.2.5"
+    port: 443
+    type: vless
+    uuid: 00005a11-0000-4000-8000-000000000005
+    cipher: none
+    tls: true
+    skip-cert-verify: true
+    network: ws
+    servername: "sni9.example.org"
+    ws-opts:
+      path: "/p2"
+      headers:
+        Host: "sni9.example.org"
+    udp: true
+  - name: "Proxy 9"
+    server: "192.0.2.5"
+    port: 443
+    type: trojan
+    password: "password2"
+    tls: true
+    skip-cert-verify: true
+    network: ws
+    sni: "sni10.example.org"
+    ws-opts:
+      path: "./path-1"
+      headers:
+        Host: "sni11.example.org"
+    udp: true
+  - name: "Proxy 10"
+    server: "192.0.2.5"
+    port: 443
+    type: vless
+    uuid: 00005a11-0000-4000-8000-000000000006
+    cipher: none
+    tls: true
+    skip-cert-verify: true
+    network: ws
+    servername: "sni12.example.org"
+    ws-opts:
+      path: "./path-2"
+      headers:
+        Host: "sni12.example.org"
+    udp: true
+  - name: "Proxy 11"
+    server: "192.0.2.5"
+    port: 443
+    type: vless
+    uuid: 00005a11-0000-4000-8000-000000000007
+    cipher: none
+    tls: true
+    skip-cert-verify: true
+    network: ws
+    servername: "sni13.example.org"
+    ws-opts:
+      path: "/p5"
+      headers:
+        Host: "sni13.example.org"
+    udp: true
+  - name: "Proxy 12"
+    server: "192.0.2.5"
+    port: 443
+    type: vless
+    uuid: 00005a11-0000-4000-8000-000000000008
+    cipher: none
+    tls: true
+    skip-cert-verify: true
+    network: ws
+    servername: "sni14.example.org"
+    ws-opts:
+      path: "/p5"
+      headers:
+        Host: "sni14.example.org"
+    udp: true
+  - name: "Proxy 13"
+    server: "192.0.2.5"
+    port: 443
+    type: vless
+    uuid: 00005a11-0000-4000-8000-000000000004
+    cipher: none
+    tls: true
+    skip-cert-verify: true
+    network: ws
+    servername: "sni7.example.org"
+    ws-opts:
+      path: "/p3"
+      headers:
+        Host: "sni7.example.org"
+    udp: true
+  - name: "Proxy 14"
+    server: "192.0.2.5"
+    port: 443
+    type: vless
+    uuid: 00005a11-0000-4000-8000-000000000009
+    cipher: none
+    tls: true
+    skip-cert-verify: true
+    network: ws
+    servername: "sni15.example.org"
+    ws-opts:
+      path: "/p6"
+      headers:
+        Host: "sni15.example.org"
+    udp: true
+  - name: "Proxy 15"
+    server: "192.0.2.5"
+    port: 443
+    type: vless
+    uuid: 00005a11-0000-4000-8000-00000000000a
+    cipher: none
+    tls: true
+    skip-cert-verify: true
+    network: ws
+    servername: "sni16.example.org"
+    ws-opts:
+      path: "/p7"
+      headers:
+        Host: "sni16.example.org"
+    udp: true
+proxy-groups:
+  - name: "Group 1"
+    type: url-test
+    proxies:
+      - "Proxy 1"
+      - "Proxy 2"
+      - "Proxy 3"
+      - "Proxy 4"
+      - "Proxy 5"
+    url: http://h1.example.com/generate_204
+    interval: 90
+    tolerance: 40
+    lazy: false
+  - name: "Group 2"
+    type: fallback
+    proxies:
+      - "Proxy 1"
+      - "Proxy 2"
+      - "Proxy 3"
+      - "Proxy 4"
+      - "Proxy 5"
+      - "Proxy 6"
+      - "Proxy 7"
+      - "Proxy 8"
+      - "Proxy 9"
+      - "Proxy 10"
+      - "Proxy 11"
+      - "Proxy 12"
+      - "Proxy 13"
+      - "Proxy 14"
+      - "Proxy 15"
+    url: http://h1.example.com/generate_204
+    interval: 90
+    lazy: false
+  - name: "Group 3"
+    type: fallback
+    proxies:
+      - "Proxy 1"
+      - "Proxy 2"
+      - "Proxy 6"
+      - "Proxy 4"
+      - "Proxy 5"
+      - "Proxy 11"
+      - "Proxy 12"
+      - "Proxy 3"
+      - "Proxy 7"
+      - "Proxy 10"
+    url: http://h1.example.com/generate_204
+    interval: 90
+    lazy: false
+  - name: "Group 4"
+    type: fallback
+    proxies:
+      - "Proxy 1"
+      - "Proxy 2"
+      - "Proxy 3"
+      - "Proxy 4"
+      - "Proxy 5"
+      - "Proxy 6"
+      - "Proxy 7"
+      - "Proxy 11"
+      - "Proxy 8"
+      - "Proxy 9"
+    url: http://h1.example.com/generate_204
+    interval: 90
+    lazy: false
+  - name: "Group 5"
+    type: fallback
+    proxies:
+      - "Proxy 1"
+      - "Proxy 2"
+      - "Proxy 6"
+      - "Proxy 4"
+      - "Proxy 3"
+      - "Proxy 5"
+      - "Proxy 7"
+      - "Proxy 11"
+      - "Proxy 12"
+      - "Proxy 9"
+    url: http://h1.example.com/generate_204
+    interval: 90
+    lazy: false
+  - name: "Group 6"
+    type: fallback
+    proxies:
+      - "Proxy 1"
+      - "Proxy 2"
+      - "Proxy 6"
+      - "Proxy 4"
+      - "Proxy 5"
+      - "Proxy 3"
+      - "Proxy 11"
+      - "Proxy 7"
+      - "Proxy 12"
+      - "Proxy 10"
+    url: http://h1.example.com/generate_204
+    interval: 90
+    lazy: false
+  - name: "Group 7"
+    type: fallback
+    proxies:
+      - "Proxy 1"
+      - "Proxy 2"
+      - "Proxy 3"
+      - "Proxy 4"
+      - "Proxy 5"
+      - "Proxy 6"
+      - "Proxy 7"
+      - "Proxy 11"
+      - "Proxy 12"
+      - "Proxy 9"
+    url: http://h1.example.com/generate_204
+    interval: 90
+    lazy: false
+  - name: "Group 8"
+    type: url-test
+    proxies:
+      - "Proxy 1"
+      - "Proxy 2"
+      - "Proxy 3"
+      - "Proxy 4"
+      - "Proxy 5"
+      - "Proxy 6"
+      - "Proxy 7"
+      - "Proxy 8"
+      - "Proxy 9"
+      - "Proxy 10"
+      - "Proxy 11"
+      - "Proxy 12"
+      - "Proxy 13"
+      - "Proxy 14"
+      - "Proxy 15"
+    url: http://h1.example.com/generate_204
+    interval: 90
+    tolerance: 40
+    lazy: false
+  - name: "Group 9"
+    type: fallback
+    proxies:
+      - "Proxy 1"
+      - "Proxy 2"
+      - "Proxy 3"
+      - "Proxy 4"
+      - "Proxy 5"
+      - "Proxy 6"
+      - "Proxy 7"
+      - "Proxy 8"
+      - "Proxy 9"
+      - "Proxy 10"
+      - "Proxy 11"
+      - "Proxy 12"
+      - "Proxy 13"
+      - "Proxy 14"
+      - "Proxy 15"
+    url: http://h1.example.com/generate_204
+    interval: 90
+    lazy: false
+  - name: "PROXY"
+    type: select
+    proxies:
+      - "Group 1"
+      - "Group 2"
+      - "Group 3"
+      - "Group 4"
+      - "Group 5"
+      - "Group 6"
+      - "Group 7"
+      - "Group 8"
+      - "Group 9"
+      - "DIRECT"
+      - "REJECT"
+rules:
+  - MATCH,PROXY

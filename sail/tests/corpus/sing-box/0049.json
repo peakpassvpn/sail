@@ -1,0 +1,229 @@
+{
+  "log": {
+    "disabled": false,
+    "level": "error",
+    "timestamp": true
+  },
+  "dns": {
+    "servers": [
+      {
+        "tag": "dns-1",
+        "address": "https://h1.example.com/dns-query",
+        "address_resolver": "dns-2",
+        "address_strategy": "ipv4_only",
+        "strategy": "ipv4_only",
+        "detour": "Proxy 1"
+      },
+      {
+        "tag": "dns-2",
+        "address": "https://192.0.2.1/dns-query",
+        "strategy": "ipv4_only",
+        "detour": "Proxy 2"
+      },
+      {
+        "tag": "dns-3",
+        "address": "local",
+        "detour": "Proxy 2"
+      },
+      {
+        "tag": "dns-4",
+        "address": "rcode://success"
+      },
+      {
+        "tag": "dns-5",
+        "address": "fakeip",
+        "strategy": "ipv4_only"
+      }
+    ],
+    "rules": [
+      {
+        "geosite": "private",
+        "server": "dns-2"
+      },
+      {
+        "geosite": "category-ads-all",
+        "server": "dns-4",
+        "disable_cache": true
+      },
+      {
+        "inbound": "in-3",
+        "query_type": [
+          "A",
+          "AAAA"
+        ],
+        "geosite": "geolocation-!cn",
+        "server": "dns-5",
+        "rewrite_ttl": 999999999
+      },
+      {
+        "geosite": [
+          "category-games@cn",
+          "cn"
+        ],
+        "server": "dns-2"
+      }
+    ],
+    "final": "dns-1",
+    "reverse_mapping": true,
+    "fakeip": {
+      "enabled": true,
+      "inet4_range": "198.18.0.0/15",
+      "inet6_range": "3f00::/18"
+    },
+    "strategy": "ipv4_only",
+    "independent_cache": true
+  },
+  "inbounds": [
+    {
+      "type": "mixed",
+      "tag": "in-1",
+      "listen": "127.0.0.1",
+      "listen_port": 2080,
+      "sniff": true,
+      "sniff_override_destination": false,
+      "domain_strategy": "ipv4_only"
+    },
+    {
+      "type": "direct",
+      "tag": "in-2",
+      "listen": "127.0.0.1",
+      "listen_port": 6450,
+      "override_address": "192.0.2.2",
+      "override_port": 53
+    },
+    {
+      "type": "tun",
+      "tag": "in-3",
+      "mtu": 9000,
+      "inet4_address": "192.0.2.1/30",
+      "inet6_address": "fdfe:dcba:9876::1/126",
+      "auto_route": true,
+      "strict_route": true,
+      "inet4_route_address": [
+        "0.0.0.0/1",
+        "128.0.0.0/1",
+        "198.18.0.0/15"
+      ],
+      "inet6_route_address": [
+        "::/1",
+        "8000::/1",
+        "3f00::/18"
+      ],
+      "endpoint_independent_nat": true,
+      "stack": "gvisor",
+      "platform": {
+        "http_proxy": {
+          "enabled": true,
+          "server": "127.0.0.1",
+          "server_port": 2080
+        }
+      },
+      "sniff": true,
+      "sniff_override_destination": false,
+      "domain_strategy": "ipv4_only"
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "vless",
+      "tag": "Proxy 1",
+      "server": "",
+      "server_port": 443,
+      "uuid": "",
+      "flow": "xtls-rprx-vision",
+      "tls": {
+        "enabled": true,
+        "server_name": "",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        },
+        "reality": {
+          "enabled": true,
+          "public_key": "",
+          "short_id": ""
+        }
+      },
+      "packet_encoding": "xudp"
+    },
+    {
+      "type": "direct",
+      "tag": "Proxy 2"
+    },
+    {
+      "type": "direct",
+      "tag": "Proxy 3"
+    },
+    {
+      "type": "block",
+      "tag": "Proxy 4"
+    },
+    {
+      "type": "dns",
+      "tag": "Proxy 5"
+    }
+  ],
+  "route": {
+    "geoip": {
+      "download_url": "https://h2.example.com/p1.db",
+      "download_detour": "Proxy 1"
+    },
+    "geosite": {
+      "download_url": "https://h2.example.com/p2.db",
+      "download_detour": "Proxy 1"
+    },
+    "rules": [
+      {
+        "port": 53,
+        "outbound": "Proxy 5"
+      },
+      {
+        "inbound": "in-4",
+        "outbound": "Proxy 5"
+      },
+      {
+        "protocol": "dns",
+        "outbound": "Proxy 5"
+      },
+      {
+        "geosite": "private",
+        "outbound": "Proxy 3"
+      },
+      {
+        "network": "udp",
+        "port": 443,
+        "outbound": "Proxy 4"
+      },
+      {
+        "geosite": "category-ads-all",
+        "outbound": "Proxy 4"
+      },
+      {
+        "geosite": [
+          "category-games@cn",
+          "cn"
+        ],
+        "outbound": "Proxy 2"
+      },
+      {
+        "geoip": [
+          "cn",
+          "private"
+        ],
+        "outbound": "Proxy 3"
+      }
+    ],
+    "final": "Proxy 1",
+    "auto_detect_interface": true
+  },
+  "experimental": {
+    "clash_api": {
+      "external_controller": "127.0.0.1:9090",
+      "external_ui": "./path-1",
+      "external_ui_download_detour": "Proxy 1",
+      "default_mode": "rule",
+      "store_fakeip": true,
+      "cache_file": "d1.example"
+    }
+  }
+}

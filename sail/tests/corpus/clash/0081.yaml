@@ -1,0 +1,40 @@
+mixed-port: 7890
+external-controller: 127.0.0.1:9090
+allow-lan: false
+mode: rule
+log-level: debug
+ipv6: true
+dns:
+  enable: true
+  listen: 0.0.0.0:53
+  enhanced-mode: fake-ip
+  nameserver:
+    - 192.0.2.1
+    - 192.0.2.2
+    - 192.0.2.3
+proxies:
+  - name: "Proxy 1"
+    type: hysteria2
+    server: 192.0.2.4
+    port: 38337
+    password: "password1"
+    sni: sni1.example.org
+    skip-cert-verify: true
+    udp: true
+  - name: "Proxy 2"
+    type: vmess
+    server: s2.example.net
+    port: 53009
+    uuid: 00005a11-0000-4000-8000-000000000001
+    alterId: 0
+    cipher: auto
+    udp: true
+proxy-groups:
+  - name: Group 1
+    type: select
+    proxies:
+      - Proxy 1
+      - Proxy 2
+rules:
+  - GEOIP,CN,DIRECT
+  - MATCH,Group 1

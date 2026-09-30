@@ -1,0 +1,80 @@
+port: 7890
+socks-port: 7891
+mixed-port: 7891
+allow-lan: true
+mode: Rule
+log-level: info
+external-controller: 127.0.0.1:9090
+experimental:
+  ignore-resolve-fail: true
+cfw-latency-timeout: 3000
+cfw-latency-url: http://h5.example.com/generate_204
+cfw-conn-break-strategy: true
+clash-for-android:
+  ui-subtitle-pattern: 'str1'
+url-rewrite:
+  - str2
+  - str3
+dns:
+  enable: true
+  ipv6: false
+  listen: 0.0.0.0:53
+  enhanced-mode: redir-host
+  fake-ip-range: 198.18.0.1/16
+  fake-ip-filter:
+    - '*.d1.example'
+    - d2.example
+  nameserver:
+    - 192.0.2.1
+    - 192.0.2.2
+    - https://h1.example.com/dns-query
+    - https://h2.example.com/dns-query
+  fallback:
+    - 192.0.2.3
+    - 192.0.2.4
+    - tls://192.0.2.5:853
+    - tls://h3.example.com:853
+    - https://h4.example.com/dns-query
+    - https://h3.example.com/dns-query
+  fallback-filter:
+    geoip: true
+    ipcidr:
+      - 240.0.0.0/4
+rules:
+  - RULE-SET,set-1,Proxy 1
+  - RULE-SET,set-2,Proxy 1
+  - RULE-SET,set-3,Proxy 1
+  - RULE-SET,set-4,Proxy 1
+  - RULE-SET,set-5,Proxy 1
+  - RULE-SET,set-6,Proxy 1
+  - RULE-SET,set-7,Proxy 1
+  - RULE-SET,set-8,DIRECT
+  - RULE-SET,set-9,Proxy 2
+  - RULE-SET,set-10,Proxy 3
+  - RULE-SET,set-11,Proxy 4
+  - RULE-SET,set-12,Proxy 5
+  - RULE-SET,set-13,Proxy 6
+  - RULE-SET,set-14,Proxy 6
+  - RULE-SET,set-15,Proxy 6
+  - RULE-SET,set-16,Proxy 6
+  - RULE-SET,set-17,Proxy 6
+  - RULE-SET,set-18,Proxy 6
+  - RULE-SET,set-19,Proxy 6
+  - RULE-SET,set-20,Proxy 6
+  - RULE-SET,set-21,Proxy 7
+  - RULE-SET,set-22,Proxy 7
+  - RULE-SET,set-23,Proxy 7
+  - RULE-SET,set-24,Proxy 7
+  - RULE-SET,set-25,Proxy 7
+  - RULE-SET,set-26,Proxy 7
+  - RULE-SET,set-27,Proxy 7
+  - RULE-SET,set-28,Proxy 7
+  - RULE-SET,set-29,Proxy 7
+  - RULE-SET,set-30,Proxy 7
+  - RULE-SET,set-31,Proxy 7
+  - RULE-SET,set-32,Proxy 7
+  - RULE-SET,set-33,Proxy 7
+  - RULE-SET,set-34,Proxy 7
+  - RULE-SET,set-35,Proxy 7
+  - RULE-SET,set-36,Proxy 7
+  - RULE-SET,set-37,Proxy 7

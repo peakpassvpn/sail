@@ -1,0 +1,332 @@
+port: 7890
+socks-port: 7891
+allow-lan: true
+mode: rule
+log-level: info
+proxies:
+  - name: Proxy 1
+    type: vless
+    server: 192.0.2.1
+    port: 443
+    uuid: 00005a11-0000-4000-8000-000000000001
+    udp: true
+    tls: true
+    skip-cert-verify: true
+    reality-opts:
+      public-key: wywOQgzCr2vr85JpoMxzCakHIIvgUtsG6_Qp987NJa4
+    servername: sni1.example.org
+    client-fingerprint: qq
+  - name: Proxy 2
+    type: vless
+    server: 192.0.2.1
+    port: 443
+    uuid: 00005a11-0000-4000-8000-000000000001
+    udp: true
+    tls: true
+    skip-cert-verify: true
+    reality-opts:
+      public-key: wywOQgzCr2vr85JpoMxzCakHIIvgUtsG6_Qp987NJa4
+    servername: sni1.example.org
+    client-fingerprint: ios
+  - name: Proxy 3
+    type: vless
+    server: 192.0.2.1
+    port: 443
+    uuid: 00005a11-0000-4000-8000-000000000001
+    udp: true
+    tls: true
+    skip-cert-verify: true
+    reality-opts:
+      public-key: wywOQgzCr2vr85JpoMxzCakHIIvgUtsG6_Qp987NJa4
+    servername: sni1.example.org
+    client-fingerprint: ios
+  - name: Proxy 4
+    type: vless
+    server: 192.0.2.1
+    port: 443
+    uuid: 00005a11-0000-4000-8000-000000000001
+    udp: true
+    tls: true
+    skip-cert-verify: true
+    reality-opts:
+      public-key: wywOQgzCr2vr85JpoMxzCakHIIvgUtsG6_Qp987NJa4
+    servername: sni1.example.org
+    client-fingerprint: edge
+  - name: Proxy 5
+    type: vless
+    server: 192.0.2.1
+    port: 443
+    uuid: 00005a11-0000-4000-8000-000000000001
+    udp: true
+    tls: true
+    skip-cert-verify: true
+    reality-opts:
+      public-key: wywOQgzCr2vr85JpoMxzCakHIIvgUtsG6_Qp987NJa4
+    servername: sni1.example.org
+    client-fingerprint: edge
+  - name: Proxy 6
+    type: vless
+    server: 192.0.2.1
+    port: 443
+    uuid: 00005a11-0000-4000-8000-000000000001
+    udp: true
+    tls: true
+    skip-cert-verify: true
+    reality-opts:
+      public-key: wywOQgzCr2vr85JpoMxzCakHIIvgUtsG6_Qp987NJa4
+    servername: sni1.example.org
+    client-fingerprint: firefox
+  - name: Proxy 7
+    type: vless
+    server: 192.0.2.1
+    port: 443
+    uuid: 00005a11-0000-4000-8000-000000000001
+    udp: true
+    tls: true
+    skip-cert-verify: true
+    reality-opts:
+      public-key: wywOQgzCr2vr85JpoMxzCakHIIvgUtsG6_Qp987NJa4
+    servername: sni1.example.org
+    client-fingerprint: chrome
+  - name: Proxy 8
+    type: vless
+    server: 192.0.2.1
+    port: 443
+    uuid: 00005a11-0000-4000-8000-000000000001
+    udp: true
+    tls: true
+    skip-cert-verify: true
+    reality-opts:
+      public-key: wywOQgzCr2vr85JpoMxzCakHIIvgUtsG6_Qp987NJa4
+    servername: sni1.example.org
+    client-fingerprint: qq
+  - name: Proxy 9
+    type: vless
+    server: 192.0.2.1
+    port: 443
+    uuid: 00005a11-0000-4000-8000-000000000001
+    udp: true
+    tls: true
+    skip-cert-verify: true
+    reality-opts:
+      public-key: wywOQgzCr2vr85JpoMxzCakHIIvgUtsG6_Qp987NJa4
+    servername: sni1.example.org
+    client-fingerprint: safari
+  - name: Proxy 10
+    type: vless
+    server: 192.0.2.1
+    port: 443
+    uuid: 00005a11-0000-4000-8000-000000000001
+    udp: true
+    tls: true
+    skip-cert-verify: true
+    reality-opts:
+      public-key: wywOQgzCr2vr85JpoMxzCakHIIvgUtsG6_Qp987NJa4
+    servername: sni1.example.org
+    client-fingerprint: safari
+  - name: Proxy 11
+    type: vless
+    server: 192.0.2.2
+    port: 443
+    uuid: 00005a11-0000-4000-8000-000000000002
+    udp: true
+    tls: true
+    skip-cert-verify: true
+    servername: sni2.example.org
+    network: ws
+    ws-opts:
+      path: /p1
+      headers:
+        Host: 192.0.2.2
+  - name: Proxy 12
+    type: vless
+    server: 192.0.2.1
+    port: 443
+    uuid: 00005a11-0000-4000-8000-000000000001
+    udp: true
+    tls: true
+    skip-cert-verify: true
+    reality-opts:
+      public-key: wywOQgzCr2vr85JpoMxzCakHIIvgUtsG6_Qp987NJa4
+    servername: sni1.example.org
+    client-fingerprint: firefox
+  - name: Proxy 13
+    type: vmess
+    server: 192.0.2.3
+    port: 35034
+    uuid: 00005a11-0000-4000-8000-000000000003
+    alterId: 0
+    cipher: auto
+    udp: true
+    tls: false
+    skip-cert-verify: true
+  - name: Proxy 14
+    type: vmess
+    server: 192.0.2.3
+    port: 35034
+    uuid: 00005a11-0000-4000-8000-000000000003
+    alterId: 0
+    cipher: auto
+    udp: true
+    tls: false
+    skip-cert-verify: true
+  - name: Proxy 15
+    type: vmess
+    server: 192.0.2.3
+    port: 35034
+    uuid: 00005a11-0000-4000-8000-000000000003
+    alterId: 0
+    cipher: auto
+    udp: true
+    tls: false
+    skip-cert-verify: true
+  - name: Proxy 16
+    type: vmess
+    server: 192.0.2.3
+    port: 35034
+    uuid: 00005a11-0000-4000-8000-000000000003
+    alterId: 0
+    cipher: auto
+    udp: true
+    tls: false
+    skip-cert-verify: true
+  - name: Proxy 17
+    type: vmess
+    server: 192.0.2.3
+    port: 35034
+    uuid: 00005a11-0000-4000-8000-000000000003
+    alterId: 0
+    cipher: auto
+    udp: true
+    tls: false
+    skip-cert-verify: true
+  - name: Proxy 18
+    type: vmess
+    server: 192.0.2.3
+    port: 35034
+    uuid: 00005a11-0000-4000-8000-000000000003
+    alterId: 0
+    cipher: auto
+    udp: true
+    tls: false
+    skip-cert-verify: true
+  - name: Proxy 19
+    type: vmess
+    server: 192.0.2.3
+    port: 35034
+    uuid: 00005a11-0000-4000-8000-000000000003
+    alterId: 0
+    cipher: auto
+    udp: true
+    tls: false
+    skip-cert-verify: true
+  - name: Proxy 20
+    type: vmess
+    server: 192.0.2.3
+    port: 35034
+    uuid: 00005a11-0000-4000-8000-000000000003
+    alterId: 0
+    cipher: auto
+    udp: true
+    tls: false
+    skip-cert-verify: true
+  - name: Proxy 21
+    type: vmess
+    server: 192.0.2.3
+    port: 35034
+    uuid: 00005a11-0000-4000-8000-000000000003
+    alterId: 0
+    cipher: auto
+    udp: true
+    tls: false
+    skip-cert-verify: true
+  - name: Proxy 22
+    type: vmess
+    server: 192.0.2.3
+    port: 35034
+    uuid: 00005a11-0000-4000-8000-000000000003
+    alterId: 0
+    cipher: auto
+    udp: true
+    tls: false
+    skip-cert-verify: true
+  - name: Proxy 23
+    type: vmess
+    server: 192.0.2.3
+    port: 35034
+    uuid: 00005a11-0000-4000-8000-000000000003
+    alterId: 0
+    cipher: auto
+    udp: true
+    tls: false
+    skip-cert-verify: true
+  - name: Proxy 24
+    type: vmess
+    server: 192.0.2.3
+    port: 35034
+    uuid: 00005a11-0000-4000-8000-000000000003
+    alterId: 0
+    cipher: auto
+    udp: true
+    tls: false
+    skip-cert-verify: true
+proxy-groups:
+  - name: Group 1
+    type: select
+    proxies:
+      - Group 2
+      - Proxy 1
+      - Proxy 2
+      - Proxy 3
+      - Proxy 4
+      - Proxy 5
+      - Proxy 6
+      - Proxy 7
+      - Proxy 8
+      - Proxy 9
+      - Proxy 10
+      - Proxy 11
+      - Proxy 12
+      - Proxy 13
+      - Proxy 14
+      - Proxy 15
+      - Proxy 16
+      - Proxy 17
+      - Proxy 18
+      - Proxy 19
+      - Proxy 20
+      - Proxy 21
+      - Proxy 22
+      - Proxy 23
+      - Proxy 24
+  - name: Group 2
+    type: url-test
+    url: https://h1.example.com/generate_204
+    interval: 300
+    proxies:
+      - Proxy 1
+      - Proxy 2
+      - Proxy 3
+      - Proxy 4
+      - Proxy 5
+      - Proxy 6
+      - Proxy 7
+      - Proxy 8
+      - Proxy 9
+      - Proxy 10
+      - Proxy 11
+      - Proxy 12
+      - Proxy 13
+      - Proxy 14
+      - Proxy 15
+      - Proxy 16
+      - Proxy 17
+      - Proxy 18
+      - Proxy 19
+      - Proxy 20
+      - Proxy 21
+      - Proxy 22
+      - Proxy 23
+      - Proxy 24
+rules:
+  - MATCH,Group 1

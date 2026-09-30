@@ -1,0 +1,125 @@
+{
+  "dns": {
+    "servers": [
+      {
+        "type": "local",
+        "tag": "dns-1"
+      }
+    ],
+    "strategy": "ipv4_only"
+  },
+  "inbounds": [
+    {
+      "type": "mixed",
+      "tag": "in-1",
+      "listen": "127.0.0.1",
+      "listen_port": 10010,
+      "set_system_proxy": true
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "anytls",
+      "tag": "Proxy 1",
+      "server": "s1.example.net",
+      "server_port": 443,
+      "password": "password1",
+      "idle_session_check_interval": "30s",
+      "idle_session_timeout": "30s",
+      "min_idle_session": 5,
+      "tls": {
+        "enabled": true,
+        "disable_sni": false,
+        "server_name": "sni2.example.org",
+        "insecure": false,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "firefox"
+        },
+        "reality": {
+          "enabled": true,
+          "public_key": "wywOQgzCr2vr85JpoMxzCakHIIvgUtsG6/Qp987NJa4=",
+          "short_id": "704c7085dd7b3f73"
+        }
+      }
+    },
+    {
+      "type": "direct",
+      "tag": "Proxy 2"
+    }
+  ],
+  "route": {
+    "rules": [
+      {
+        "rule_set": "set-1",
+        "action": "reject",
+        "method": "default",
+        "no_drop": false
+      },
+      {
+        "rule_set": "set-3",
+        "action": "route",
+        "outbound": "Proxy 2"
+      },
+      {
+        "type": "logical",
+        "mode": "and",
+        "rules": [
+          {
+            "rule_set": "set-5"
+          },
+          {
+            "rule_set": "set-4",
+            "invert": true
+          }
+        ],
+        "outbound": "Proxy 2"
+      },
+      {
+        "ip_is_private": true,
+        "action": "route",
+        "outbound": "Proxy 2"
+      }
+    ],
+    "rule_set": [
+      {
+        "tag": "set-1",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p1.srs",
+        "download_detour": ""
+      },
+      {
+        "tag": "set-2",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p2.srs",
+        "download_detour": ""
+      },
+      {
+        "tag": "set-3",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p3.srs",
+        "download_detour": ""
+      },
+      {
+        "tag": "set-4",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p4.srs",
+        "download_detour": ""
+      },
+      {
+        "tag": "set-5",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p5.srs",
+        "download_detour": ""
+      }
+    ],
+    "auto_detect_interface": true,
+    "default_domain_resolver": "dns-1",
+    "final": ""
+  }
+}

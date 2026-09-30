@@ -1,0 +1,61 @@
+mixed-port: str7
+allow-lan: true
+bind-address: "str8"
+mode: rule
+log-level: "__MIHOMO_LOG_LEVEL__"
+unified-delay: true
+authentication:
+  - "password1"
+external-controller: "str9"
+secret: "password2"
+dns:
+  enable: true
+  ipv6: false
+  enhanced-mode: redir-host
+  nameserver:
+    - 192.0.2.1
+    - 192.0.2.2
+proxy-providers:
+  provider-1:
+    type: file
+    path: ./path-1.yaml
+    health-check:
+      enable: true
+      url: "str1"
+      interval: str2
+      timeout: str3
+  provider-2:
+    type: file
+    path: ./path-2.yaml
+    health-check:
+      enable: true
+      url: "str1"
+      interval: str2
+      timeout: str3
+proxy-groups:
+  - name: Group 1
+    type: url-test
+    use:
+      - provider-2
+    url: "str1"
+    interval: str4
+    tolerance: str5
+  - name: Group 2
+    type: fallback
+    use:
+      - provider-2
+    url: "str1"
+    interval: str6
+  - name: Group 3
+    type: select
+    use:
+      - provider-2
+  - name: PROXY
+    type: select
+    proxies:
+      - Group 2
+      - Group 1
+      - DIRECT
+      - Group 3
+rules:
+  - MATCH,PROXY

@@ -1,0 +1,344 @@
+proxies:
+  - name: "Proxy 1"
+    type: http
+    server: 192.0.2.1
+    port: 443
+    headers:
+      X-Header-1: "password1"
+      User-Agent: "Agent1"
+proxy-groups:
+  - name: "Group 1"
+    type: select
+    proxies:
+      - "DIRECT"
+      - "Group 2"
+    ssid-policy:
+      cellular: "str1"
+      default: "DIRECT"
+  - name: "Group 2"
+    type: select
+    proxies:
+      - "Group 14"
+      - "Group 20"
+      - DIRECT
+  - name: "Group 3"
+    type: select
+    proxies:
+      - "Group 4"
+      - "Group 5"
+    ssid-policy:
+      cellular: "str2"
+      default: "str3"
+  - name: "Group 4"
+    type: select
+    proxies:
+      - "Group 20"
+      - "Group 14"
+  - name: "Group 5"
+    type: select
+    proxies:
+      - "Group 20"
+      - "Group 14"
+  - name: "Group 6"
+    type: select
+    proxies:
+      - "Group 1"
+      - "Group 7"
+    ssid-policy:
+      cellular: "str4"
+      default: "str5"
+  - name: "Group 7"
+    type: select
+    proxies:
+      - "Proxy 1"
+      - "Group 2"
+  - name: "Group 8"
+    type: select
+    proxies:
+      - "REJECT"
+      - "Group 3"
+      - "Group 1"
+  - name: "Group 9"
+    type: select
+    proxies:
+      - "Group 1"
+      - "Group 10"
+    ssid-policy:
+      cellular: "str6"
+      default: "str5"
+  - name: "Group 10"
+    type: select
+    proxies:
+      - "Group 2"
+      - "Group 15"
+      - "Group 21"
+  - name: "Group 11"
+    type: select
+    proxies:
+      - "Group 12"
+      - "Group 13"
+    ssid-policy:
+      cellular: "str7"
+      default: "str8"
+  - name: "Group 12"
+    type: select
+    proxies:
+      - "Group 5"
+      - "Group 21"
+      - "Group 15"
+  - name: "Group 13"
+    type: select
+    proxies:
+      - "Group 5"
+      - "Group 21"
+      - "Group 15"
+  - name: "Group 14"
+    type: select
+    proxies:
+      - "Group 18"
+      - "Group 19"
+      - "Group 17"
+      - "Group 16"
+  - name: "Group 15"
+    type: select
+    use:
+      - provider-2
+  - name: "Group 16"
+    type: select
+    use:
+      - provider-2
+  - name: "Group 17"
+    type: load-balance
+    strategy: consistent-hashing
+    url: http://h1.example.com/generate_204
+    tolerance: 50
+    lazy: true
+    interval: 60
+    use:
+      - provider-2
+  - name: "Group 18"
+    type: fallback
+    url: http://h1.example.com/generate_204
+    tolerance: 50
+    lazy: true
+    interval: 60
+    use:
+      - provider-2
+  - name: "Group 19"
+    type: url-test
+    url: http://h1.example.com/generate_204
+    tolerance: 50
+    lazy: true
+    interval: 60
+    use:
+      - provider-2
+  - name: "Group 20"
+    type: select
+    proxies:
+      - "Group 23"
+      - "Group 25"
+      - "Group 24"
+      - "Group 22"
+  - name: "Group 21"
+    type: select
+    use:
+      - provider-1
+  - name: "Group 22"
+    type: select
+    use:
+      - provider-1
+  - name: "Group 23"
+    type: fallback
+    url: http://h1.example.com/generate_204
+    tolerance: 50
+    lazy: true
+    interval: 60
+    use:
+      - provider-1
+  - name: "Group 24"
+    type: load-balance
+    strategy: consistent-hashing
+    url: http://h1.example.com/generate_204
+    tolerance: 50
+    lazy: true
+    interval: 60
+    use:
+      - provider-1
+  - name: "Group 25"
+    type: url-test
+    url: http://h1.example.com/generate_204
+    tolerance: 50
+    lazy: true
+    interval: 60
+    use:
+      - provider-1
+  - name: "Group 26"
+    type: select
+    proxies:
+      - "Group 1"
+      - "Group 6"
+      - "Group 3"
+      - DIRECT
+  - name: "Group 27"
+    type: select
+    proxies:
+      - "Group 1"
+      - "Group 6"
+      - "Group 3"
+      - DIRECT
+  - name: "Group 28"
+    type: select
+    proxies:
+      - "Group 3"
+      - "Group 1"
+      - "Group 6"
+      - DIRECT
+proxy-providers:
+  provider-1:
+    type: http
+    url: "https://h2.example.com/p1?target=clash&url=v1&insert=true&config=v2&append_type=true&strict=true&sort=true&emoji=true&list=true&udp=true&tfo=true&expand=true&scv=true&fdn=true&k1=true&k2=true&new_name=true"
+    interval: 3600
+    path: "./path-1.yaml"
+    health-check:
+      enable: true
+      interval: 60
+      url: http://h1.example.com/generate_204
+  provider-2:
+    type: http
+    url: "https://h2.example.com/p1?target=clash&url=v1&insert=true&config=v2&append_type=true&strict=true&sort=true&emoji=true&list=true&udp=true&tfo=true&expand=true&scv=true&fdn=true&k1=true&k2=true&new_name=true"
+    interval: 3600
+    path: "./path-2.yaml"
+    health-check:
+      enable: true
+      interval: 60
+      url: http://h1.example.com/generate_204
+rule-providers:
+  set-1:
+    type: http
+    behavior: classical
+    url: "https://h3.example.com/p2.yaml"
+    path: ./path-3.yaml
+    interval: 3600
+  set-2:
+    type: http
+    behavior: classical
+    url: "https://h3.example.com/p3.yaml"
+    path: ./path-4.yaml
+    interval: 3600
+  set-3:
+    type: http
+    behavior: classical
+    url: "https://h3.example.com/p4.yaml"
+    path: ./path-5.yaml
+    interval: 3600
+  set-4:
+    type: http
+    behavior: classical
+    url: "https://h3.example.com/p5.yaml"
+    path: ./path-6.yaml
+    interval: 3600
+  set-5:
+    type: http
+    behavior: classical
+    url: "https://h3.example.com/p6.yaml"
+    path: ./path-7.yaml
+    interval: 3600
+  set-6:
+    type: http
+    behavior: classical
+    url: "https://h3.example.com/p7.yaml"
+    path: ./path-8.yaml
+    interval: 3600
+  set-7:
+    type: http
+    behavior: classical
+    url: "https://h3.example.com/p8.yaml"
+    path: ./path-9.yaml
+    interval: 3600
+  set-8:
+    type: http
+    behavior: classical
+    url: "https://h3.example.com/p9.yaml"
+    path: ./path-10.yaml
+    interval: 3600
+  set-9:
+    type: http
+    behavior: domain
+    url: "https://h3.example.com/p10.yaml"
+    path: ./path-11.yaml
+    interval: 3600
+  set-10:
+    type: http
+    behavior: classical
+    url: "https://h3.example.com/p11.yaml"
+    path: ./path-12.yaml
+    interval: 3600
+  set-11:
+    type: http
+    behavior: domain
+    url: "https://h3.example.com/p12.yaml"
+    path: ./path-13.yaml
+    interval: 3600
+  set-12:
+    type: http
+    behavior: classical
+    url: "https://h3.example.com/p13.yaml"
+    path: ./path-14.yaml
+    interval: 3600
+rules:
+  - IP-CIDR,127.0.0.1/32,REJECT,no-resolve
+  - AND,((NETWORK,UDP),(DST-PORT,443/4483/9305)),Group 8
+  - AND,((DST-PORT,5228-5230),(NETWORK,TCP),(DOMAIN-KEYWORD,kw1)),Group 1
+  - AND,((NETWORK,TCP),(DOMAIN-SUFFIX,d1.example),(DST-PORT,80/443)),Group 6
+  - AND,((NETWORK,UDP),(DOMAIN-SUFFIX,d1.example)),Group 9
+  - DOMAIN-SUFFIX,d1.example,Group 1
+  - DOMAIN-SUFFIX,d2.example,Group 26
+  - AND,((NETWORK,TCP),(IP-CIDR,192.0.2.2/32,no-resolve),(DST-PORT,80/443)),Group 6
+  - AND,((NETWORK,UDP),(IP-CIDR,192.0.2.2/32,no-resolve)),Group 9
+  - IP-CIDR,192.0.2.2/32,Group 1,no-resolve
+  - AND,((NETWORK,TCP),(IP-CIDR,192.0.2.3/32,no-resolve),(DST-PORT,80/443)),Group 6
+  - AND,((NETWORK,UDP),(IP-CIDR,192.0.2.3/32,no-resolve)),Group 9
+  - IP-CIDR,192.0.2.3/32,Group 1,no-resolve
+  - AND,((NETWORK,TCP),(IP-CIDR,192.0.2.4/32,no-resolve),(DST-PORT,80/443)),Group 6
+  - AND,((NETWORK,UDP),(IP-CIDR,192.0.2.4/32,no-resolve)),Group 9
+  - IP-CIDR,192.0.2.4/32,Group 1,no-resolve
+  - AND,((NETWORK,TCP),(IP-CIDR,192.0.2.5/32,no-resolve),(DST-PORT,80/443)),Group 6
+  - AND,((NETWORK,UDP),(IP-CIDR,192.0.2.5/32,no-resolve)),Group 9
+  - IP-CIDR,192.0.2.5/32,Group 1,no-resolve
+  - AND,((NETWORK,TCP),(RULE-SET,set-1),(DST-PORT,80/443)),Group 6
+  - AND,((NETWORK,UDP),(RULE-SET,set-1)),Group 9
+  - RULE-SET,set-1,Group 1
+  - AND,((NETWORK,TCP),(RULE-SET,set-6),(DST-PORT,80/443)),Group 6
+  - AND,((NETWORK,UDP),(RULE-SET,set-6)),Group 9
+  - RULE-SET,set-6,Group 1
+  - AND,((NETWORK,TCP),(RULE-SET,set-7),(DST-PORT,80/443)),Group 6
+  - AND,((NETWORK,UDP),(RULE-SET,set-7)),Group 9
+  - RULE-SET,set-7,Group 1
+  - AND,((NETWORK,UDP),(RULE-SET,set-2)),Group 11
+  - RULE-SET,set-2,Group 3
+  - AND,((NETWORK,UDP),(RULE-SET,set-3)),Group 11
+  - RULE-SET,set-3,Group 3
+  - AND,((NETWORK,UDP),(RULE-SET,set-5)),Group 11
+  - RULE-SET,set-5,Group 3
+  - AND,((NETWORK,UDP),(RULE-SET,set-11)),Group 11
+  - RULE-SET,set-11,Group 3
+  - AND,((NETWORK,UDP),(RULE-SET,set-10)),Group 11
+  - RULE-SET,set-10,Group 3
+  - AND,((NETWORK,TCP),(RULE-SET,set-4),(DST-PORT,80/443)),Group 6
+  - AND,((NETWORK,UDP),(RULE-SET,set-4)),Group 9
+  - RULE-SET,set-4,Group 1
+  - AND,((NETWORK,TCP),(RULE-SET,set-9),(DST-PORT,80/443)),Group 6
+  - AND,((NETWORK,UDP),(RULE-SET,set-9)),Group 9
+  - RULE-SET,set-9,Group 1
+  - AND,((NETWORK,TCP),(RULE-SET,set-8),(DST-PORT,80/443)),Group 6
+  - AND,((NETWORK,UDP),(RULE-SET,set-8)),Group 9
+  - RULE-SET,set-8,Group 1
+  - AND,((NETWORK,TCP),(GEOIP,CN,no-resolve),(DST-PORT,80/443)),Group 6
+  - AND,((NETWORK,UDP),(GEOIP,CN,no-resolve)),Group 9
+  - GEOIP,CN,Group 1,no-resolve
+  - RULE-SET,set-12,DIRECT
+  - AND,((NETWORK,TCP),(GEOIP,CN),(DST-PORT,80/443)),Group 6
+  - AND,((NETWORK,UDP),(GEOIP,CN)),Group 9
+  - GEOIP,CN,Group 1
+  - NETWORK,UDP,Group 11
+  - MATCH,Group 3

@@ -1,0 +1,16 @@
+mixed-port: 7890
+socks-port: 12345
+port: 12346
+external-controller: 127.0.0.1:9090
+allow-lan: false
+mode: rule
+log-level: warning
+proxies:
+proxy-groups:
+rules:
+  - DOMAIN-SUFFIX,d1.example,DIRECT
+  - DOMAIN-KEYWORD,kw1,DIRECT
+  - DOMAIN,d1.example,DIRECT
+  - DOMAIN-SUFFIX,d2.example,REJECT
+  - GEOIP,CN,DIRECT
+  - MATCH,DIRECT

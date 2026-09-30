@@ -1,0 +1,176 @@
+{
+  "log": {
+    "level": "info"
+  },
+  "experimental": {
+    "cache_file": {
+      "enabled": true
+    }
+  },
+  "dns": {
+    "servers": [
+      {
+        "type": "https",
+        "tag": "dns-1",
+        "server": "192.0.2.1",
+        "path": "/p1",
+        "detour": "Proxy 1"
+      },
+      {
+        "type": "local",
+        "tag": "dns-2"
+      }
+    ],
+    "rules": [
+      {
+        "domain_suffix": [
+          ".d1.example",
+          ".d2.example",
+          ".d3.example"
+        ],
+        "action": "route",
+        "server": "dns-2"
+      },
+      {
+        "rule_set": [
+          "set-1"
+        ],
+        "action": "route",
+        "server": "dns-2"
+      }
+    ],
+    "final": "dns-1",
+    "strategy": "prefer_ipv4"
+  },
+  "inbounds": [
+    {
+      "type": "mixed",
+      "tag": "in-1",
+      "listen": "127.0.0.1",
+      "listen_port": 7890
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "hysteria2",
+      "tag": "Proxy 1",
+      "server": "192.0.2.2",
+      "server_port": 443,
+      "password": "password1",
+      "obfs": {
+        "type": "salamander",
+        "password": "password2"
+      },
+      "tls": {
+        "enabled": true,
+        "server_name": "192.0.2.2",
+        "insecure": true,
+        "certificate_public_key_sha256": [
+          "str1"
+        ]
+      }
+    },
+    {
+      "type": "direct",
+      "tag": "Proxy 2"
+    },
+    {
+      "type": "block",
+      "tag": "Proxy 3"
+    }
+  ],
+  "route": {
+    "default_domain_resolver": {
+      "server": "dns-1",
+      "strategy": "prefer_ipv4"
+    },
+    "rule_set": [
+      {
+        "type": "remote",
+        "tag": "set-1",
+        "format": "binary",
+        "url": "https://h1.example.com/p2.srs",
+        "download_detour": "Proxy 1",
+        "update_interval": "1d"
+      },
+      {
+        "type": "remote",
+        "tag": "set-2",
+        "format": "binary",
+        "url": "https://h1.example.com/p3.srs",
+        "download_detour": "Proxy 1",
+        "update_interval": "1d"
+      }
+    ],
+    "rules": [
+      {
+        "action": "sniff"
+      },
+      {
+        "domain_suffix": [
+          ".d1.example",
+          ".d2.example",
+          ".d3.example"
+        ],
+        "action": "resolve",
+        "server": "dns-2",
+        "strategy": "prefer_ipv4"
+      },
+      {
+        "rule_set": [
+          "set-1"
+        ],
+        "action": "resolve",
+        "server": "dns-2",
+        "strategy": "prefer_ipv4"
+      },
+      {
+        "action": "resolve",
+        "strategy": "prefer_ipv4"
+      },
+      {
+        "ip_cidr": [
+          "192.0.2.2/32"
+        ],
+        "action": "route",
+        "outbound": "Proxy 2"
+      },
+      {
+        "ip_is_private": true,
+        "action": "route",
+        "outbound": "Proxy 2"
+      },
+      {
+        "domain_suffix": [
+          ".d1.example",
+          ".d2.example",
+          ".d3.example"
+        ],
+        "action": "route",
+        "outbound": "Proxy 2"
+      },
+      {
+        "rule_set": [
+          "set-1"
+        ],
+        "action": "route",
+        "outbound": "Proxy 2"
+      },
+      {
+        "rule_set": [
+          "set-2"
+        ],
+        "action": "route",
+        "outbound": "Proxy 2"
+      },
+      {
+        "protocol": [
+          "bittorrent"
+        ],
+        "action": "route",
+        "outbound": "Proxy 3"
+      }
+    ],
+    "final": "Proxy 1"
+  }
+}

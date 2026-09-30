@@ -1,0 +1,350 @@
+anchor-1: &a1
+  proxy: DIRECT
+  udp: true
+  interval: 604800
+  health-check:
+    enable: true
+    url: https://h1.example.com/generate_204
+    interval: 600
+    timeout: 3000
+    tolerance: 50
+    lazy: true
+    expected-status: "204"
+    method: HEAD
+  override:
+    proxy-name:
+      - pattern: "^https?://r1\\.example\\.com/"
+        target: ""
+proxy-providers:
+  provider-1:
+    type: http
+    path: ./path-1.yaml
+    url: "https://h2.example.com/p1.yaml"
+    <<: *a1
+  provider-2:
+    type: http
+    path: ./path-2.yaml
+    url: "https://h3.example.com/p2.txt"
+    <<: *a1
+  provider-3:
+    type: http
+    path: ./path-3.yaml
+    url: ""
+    <<: *a1
+anchor-2: &a3
+  type: select
+  include-all: true
+  lazy: true
+  udp: true
+  use:
+    - provider-1
+    - provider-2
+    - provider-3
+mixed-port: 7890
+socks-port: 7891
+port: 7892
+redir-port: 7893
+tproxy-port: 7894
+mode: rule
+log-level: warning
+ipv6: false
+allow-lan: true
+bind-address: "*"
+unified-delay: true
+tcp-concurrent: true
+find-process-mode: strict
+global-client-fingerprint: chrome
+keep-alive-idle: 600
+keep-alive-interval: 15
+disable-keep-alive: false
+profile:
+  store-selected: true
+  store-fake-ip: true
+lan-allowed-ips:
+  - 0.0.0.0/0
+  - ::/0
+lan-disallowed-ips: []
+tun:
+  enable: false
+  device: if1
+  stack: mixed
+  auto-route: true
+  auto-redirect: false
+  auto-detect-interface: true
+  dns-hijack:
+    - any:53
+  route-exclude-address: []
+  mtu: 1500
+  strict-route: true
+  gso: true
+  gso-max-size: 65536
+  endpoint-independent-nat: false
+dns:
+  enable: true
+  ipv6: false
+  listen: '[::]:1053'
+  use-hosts: true
+  use-system-hosts: false
+  prefer-h3: false
+  respect-rules: true
+  enhanced-mode: fake-ip
+  fake-ip-range: 28.0.0.1/8
+  fake-ip-filter-mode: blacklist
+  fake-ip-filter:
+    - +.d1.example
+    - +.d2.example
+    - d3*.example
+    - d4*.example
+    - +.d5.example
+    - geosite:private
+    - geosite:connectivity-check
+    - geosite:category-games
+    - geosite:cn
+    - RULE-SET:set-1
+    - +.d6.example
+    - +.d7.example
+  default-nameserver:
+    - 'tls://192.0.2.1'
+    - 'tls://192.0.2.2'
+  nameserver:
+    - "https://h4.example.com/dns-query"
+    - "https://h5.example.com/dns-query"
+  proxy-server-nameserver:
+    - "https://h4.example.com/dns-query"
+    - "https://h5.example.com/dns-query"
+    - "https://h6.example.com/dns-query"
+  direct-nameserver:
+    - "tls://192.0.2.1"
+    - "tls://192.0.2.2"
+  direct-nameserver-follow-policy: true
+  nameserver-policy:
+    geosite:cn,private:
+      - https://192.0.2.1/dns-query
+      - https://h4.example.com/dns-query
+      - https://h5.example.com/dns-query
+    str1:
+      - https://192.0.2.1/dns-query
+      - https://h4.example.com/dns-query
+      - https://h5.example.com/dns-query
+  fallback:
+    - https://h4.example.com/dns-query
+    - https://h5.example.com/dns-query
+  fallback-filter:
+    geoip: true
+    geoip-code: CN
+    ipcidr:
+      - 240.0.0.0/4
+      - 0.0.0.0/32
+    domain:
+      - +.d8.example
+      - +.d9.example
+      - +.d10.example
+hosts:
+  localhost:
+    - 127.0.0.1
+  d11.example:
+    - 192.0.2.1
+    - 192.0.2.3
+  d12.example:
+    - 192.0.2.4
+  d13.example:
+    - 192.0.2.5
+    - 192.0.2.6
+  d14.example:
+    - 192.0.2.7
+    - 192.0.2.8
+sniffer:
+  enable: true
+  parse-pure-ip: true
+  force-dns-mapping: true
+  override-destination: false
+  sniff:
+    HTTP:
+      ports: [80, 443, 8080-8880]
+      override-destination: true
+    TLS:
+      ports: [443, 8443]
+    QUIC:
+      ports: [443, 8443]
+  force-domain:
+    - +.d15.example
+    - +.d16.example
+    - +.d8.example
+    - +.d10.example
+    - +.d17.example
+    - +.d18.example
+    - +.d19.example
+    - +.d20.example
+  skip-domain:
+    - +.d21.example
+    - str2
+    - d22.example
+    - +.d23.example
+    - +.d24.example
+    - +.d25.example
+    - +.d14.example
+    - "*.d26.example"
+    - "*.d27.example"
+    - "*.d28.example"
+    - "*.d29.example"
+    - "*.d6.example"
+    - +.d30.example
+    - "*.d31.example"
+    - "+.d32.example"
+    - "+.d33.example"
+ntp:
+  enable: true
+  write-to-system: false
+  server: s35.example.net
+  port: 123
+  interval: 30
+geo-auto-update: false
+geo-update-interval: 24
+geodata-loader: standard
+geodata-mode: false
+geox-url:
+  geoip: "https://h2.example.com/p48.dat"
+  geosite: "https://h2.example.com/p49.dat"
+  mmdb: "https://h2.example.com/p50.metadb"
+  asn: "https://h2.example.com/p51.mmdb"
+external-controller: '[::]:9090'
+external-ui: "./path-12"
+secret: "password1"
+external-ui-name: "str3"
+external-ui-url: "https://h2.example.com/p52.zip"
+anchor-3: &a8 {type: select, proxies: [Group 1, Group 4, Group 2, Group 7, Group 6], udp: true}
+anchor-4: &a4 {type: select, proxies: [DIRECT, REJECT, Group 2, Group 7, Group 6], udp: true}
+anchor-5: &a5 {type: select, proxies: [REJECT, DIRECT, Group 2, Group 7, Group 6], udp: true}
+anchor-6: &a9 {type: select, proxies: [Group 4, Group 5, DIRECT, REJECT, Group 2, Group 6], udp: true}
+anchor-7: &a12 {type: select, proxies: [str4, str5, REJECT, DIRECT, str6, str7], udp: true}
+anchor-8: &a2 {type: select, proxies: [Group 2, Group 4, Group 7, Group 6], udp: true}
+anchor-9: &a7 {type: load-balance, include-all: true, filter: "Proxy [0-9]+|Group 1", interval: 300, strategy: consistent-hashing, timeout: 3000, lazy: true, udp: true}
+anchor-10: &a6 {type: url-test, include-all: true, interval: 300, timeout: 3000, tolerance: 100, lazy: true, udp: true}
+anchor-11: &a13 {type: fallback, include-all: true, interval: 300, timeout: 3000, tolerance: 100, lazy: true, udp: true}
+anchor-12: &a14 {<<: *a3, filter: "Proxy [0-9]+|Group 2"}
+anchor-13: &a15 {<<: *a3, filter: "Proxy [0-9]+|Group 3"}
+anchor-14: &a16 {<<: *a3, filter: "Proxy [0-9]+|Group 4"}
+anchor-15: &a17 {<<: *a3, filter: "Proxy [0-9]+|Group 5"}
+anchor-16: &a18 {<<: *a3, type: url-test, filter: "Proxy [0-9]+|Group 2"}
+anchor-17: &a19 {<<: *a3, type: url-test, filter: "Proxy [0-9]+|Group 3"}
+anchor-18: &a20 {<<: *a3, type: url-test, filter: "Proxy [0-9]+|Group 4"}
+anchor-19: &a21 {<<: *a3, type: url-test, filter: "Proxy [0-9]+|Group 5"}
+anchor-20: &a22 {type: url-test, filter: "Proxy [0-9]+|Group 6", include-all: true, interval: 300, timeout: 3000, tolerance: 100}
+proxy-groups:
+  - {name: Group 1, <<: *a2, icon: "https://h2.example.com/p3.svg"}
+  - {name: Group 2, <<: *a3, icon: "https://h2.example.com/p4.svg"}
+  - {name: Group 3, <<: *a4, icon: "https://h2.example.com/p5.svg"}
+  - {name: Group 4, <<: *a4, icon: "https://h2.example.com/p6.svg"}
+  - {name: Group 5, <<: *a5, icon: "https://h2.example.com/p7.svg"}
+  - {name: Group 6, <<: *a6, icon: "https://h2.example.com/p8.svg"}
+  - {name: Group 7, <<: *a7, icon: "https://h2.example.com/p9.svg"}
+  - {name: Group 8, <<: *a8, icon: "https://h2.example.com/p10.svg"}
+  - {name: Group 9, <<: *a8, icon: "https://h2.example.com/p11.svg"}
+  - {name: Group 10, <<: *a8, icon: "https://h2.example.com/p12.svg"}
+  - {name: Group 11, <<: *a8, icon: "https://h2.example.com/p13.svg"}
+  - {name: Group 12, <<: *a8, icon: "https://h2.example.com/p14.svg"}
+  - {name: Group 13, <<: *a8, icon: "https://h2.example.com/p15.svg"}
+  - {name: Group 14, <<: *a8, icon: "https://h2.example.com/p16.svg"}
+  - {name: Group 15, <<: *a8, icon: "https://h2.example.com/p17.svg"}
+  - {name: Group 16, <<: *a8, icon: "https://h2.example.com/p18.svg"}
+  - {name: Group 17, <<: *a8, icon: "https://h2.example.com/p19.svg"}
+  - {name: Group 18, <<: *a8, icon: "https://h2.example.com/p20.svg"}
+  - {name: Group 19, <<: *a8, icon: "https://h2.example.com/p21.svg"}
+  - {name: Group 20, <<: *a8, icon: "https://h2.example.com/p22.svg"}
+  - {name: Group 21, <<: *a8, icon: "https://h2.example.com/p23.svg"}
+  - {name: Group 22, <<: *a9, icon: "https://h2.example.com/p24.svg"}
+  - {name: Group 23, <<: *a9, icon: "https://h2.example.com/p25.svg"}
+  - {name: Group 24, <<: *a9, icon: "https://h2.example.com/p26.svg"}
+  - {name: Group 25, <<: *a9, icon: "https://h2.example.com/p27.svg"}
+  - {name: Group 26, <<: *a9, icon: "https://h2.example.com/p28.svg"}
+  - {name: Group 27, <<: *a9, icon: "https://h2.example.com/p29.svg"}
+  - {name: Group 28, <<: *a8, icon: "https://h2.example.com/p30.svg"}
+  - {name: Group 29, <<: *a8, icon: "https://h2.example.com/p31.svg"}
+  - {name: Group 30, <<: *a8, icon: "https://h2.example.com/p32.svg"}
+  - {name: Group 31, <<: *a8, icon: "https://h2.example.com/p33.svg"}
+  - {name: Group 32, <<: *a8, icon: "https://h2.example.com/p34.svg"}
+  - {name: Group 33, <<: *a8, icon: "https://h2.example.com/p35.svg"}
+  - {name: Group 34, <<: *a8, icon: "https://h2.example.com/p36.svg"}
+  - {name: Group 35, <<: *a8, icon: "https://h2.example.com/p37.svg"}
+  - {name: Group 36, <<: *a8, icon: "https://h2.example.com/p38.svg"}
+  - {name: Group 37, <<: *a8, icon: "https://h2.example.com/p39.svg"}
+rules:
+  - RULE-SET,set-2,Group 4
+  - RULE-SET,set-3,Group 5
+  - RULE-SET,set-4,Group 1
+  - RULE-SET,set-5,Group 4
+  - GEOSITE,category-companies@cn,Group 4
+  - GEOSITE,category-games@cn,Group 4
+  - GEOSITE,category-games-cn,Group 4
+  - GEOSITE,category-games-!cn@cn,Group 4
+  - GEOSITE,steam@cn,Group 4
+  - GEOSITE,github,Group 8
+  - GEOSITE,google,Group 9
+  - GEOSITE,google-cn,Group 9
+  - GEOSITE,google-play,Group 10
+  - GEOSITE,youtube,Group 11
+  - GEOSITE,telegram,Group 12
+  - GEOSITE,instagram,Group 13
+  - GEOSITE,meta,Group 14
+  - GEOSITE,netflix,Group 15
+  - GEOSITE,steam,Group 16
+  - GEOSITE,tiktok,Group 17
+  - GEOSITE,twitter,Group 18
+  - GEOSITE,x,Group 19
+  - GEOSITE,openai,Group 20
+  - GEOSITE,facebook,Group 21
+  - GEOSITE,amazon,Group 28
+  - GEOSITE,android,Group 29
+  - GEOSITE,discord,Group 30
+  - GEOSITE,disney,Group 31
+  - GEOSITE,epicgames,Group 32
+  - GEOSITE,openwrt,Group 33
+  - GEOSITE,spotify,Group 34
+  - GEOSITE,twitch,Group 35
+  - GEOSITE,whatsapp,Group 36
+  - GEOSITE,xbox,Group 37
+  - GEOIP,cloudflare,Group 23,no-resolve
+  - GEOIP,facebook,Group 21,no-resolve
+  - GEOIP,google,Group 9,no-resolve
+  - GEOIP,netflix,Group 15,no-resolve
+  - GEOIP,telegram,Group 12,no-resolve
+  - GEOIP,twitter,Group 18,no-resolve
+  - GEOSITE,amazon@cn,Group 4
+  - GEOSITE,onedrive,Group 25
+  - GEOSITE,speedtest,Group 26
+  - GEOSITE,apple,Group 27
+  - GEOSITE,apple@cn,Group 27
+  - GEOSITE,apple-cn,Group 27
+  - GEOSITE,bing,Group 22
+  - GEOSITE,microsoft,Group 24
+  - GEOSITE,microsoft@cn,Group 24
+  - GEOSITE,cloudflare,Group 23
+  - GEOIP,cloudfront,Group 4,no-resolve
+  - DOMAIN-SUFFIX,d34.example,Group 4
+  - GEOIP,CN,Group 4,no-resolve
+  - RULE-SET,set-6,Group 5
+  - RULE-SET,set-7,Group 5
+  - RULE-SET,set-8,Group 5
+  - MATCH,Group 3
+anchor-21:
+  ip: &a23 {type: http, interval: 86400, behavior: ipcidr, format: mrs, proxy: DIRECT}
+  ip_text: &a24 {type: http, interval: 86400, behavior: ipcidr, format: text, proxy: DIRECT}
+  ip_list: &a25 {type: http, interval: 86400, behavior: ipcidr, format: text, proxy: DIRECT}
+  ip_yaml: &a26 {type: http, interval: 86400, behavior: ipcidr, format: yaml, proxy: DIRECT}
+  domain: &a27 {type: http, interval: 86400, behavior: domain, format: mrs, proxy: DIRECT}
+  domain_text: &a28 {type: http, interval: 86400, behavior: domain, format: text, proxy: DIRECT}
+  domain_list: &a29 {type: http, interval: 86400, behavior: domain, format: text, proxy: DIRECT}
+  domain_yaml: &a10 {type: http, interval: 86400, behavior: domain, format: yaml, proxy: DIRECT}
+  class_text: &a30 {type: http, interval: 86400, behavior: classical, format: text, proxy: DIRECT}
+  class_yaml: &a11 {type: http, interval: 86400, behavior: classical, format: yaml, proxy: DIRECT}
+  domain_yaml_file: &a31 {type: file, interval: 86400, behavior: domain, format: yaml}
+  class_yaml_file: &a32 {type: file, interval: 86400, behavior: classical, format: yaml}
+rule-providers:
+  set-1: {<<: *a10, path: "./path-4.yaml", url: "https://h2.example.com/p40.yaml"}
+  set-2: {<<: *a11, path: "./path-5.yaml", url: "https://h2.example.com/p41.yaml"}
+  set-3: {<<: *a11, path: "./path-6.yaml", url: "https://h2.example.com/p42.yaml"}
+  set-4: {<<: *a11, path: "./path-7.yaml", url: "https://h2.example.com/p43.yaml"}
+  set-5: {<<: *a11, path: "./path-8.yaml", url: "https://h2.example.com/p44.yaml"}
+  set-6: {<<: *a10, path: ./path-9.yaml, url: "https://h2.example.com/p45.yaml"}
+  set-7: {<<: *a11, path: ./path-10.yaml, url: "https://h2.example.com/p46.yaml"}
+  set-8: {<<: *a10, path: './path-11.yaml', url: 'https://h2.example.com/p47.yaml'}

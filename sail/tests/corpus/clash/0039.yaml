@@ -1,0 +1,147 @@
+allow-lan: false
+external-controller: '127.0.0.1:9090'
+dns:
+  enable: true
+  listen: :1053
+  ipv6: true
+  enhanced-mode: redir-host
+  nameserver:
+    - 192.0.2.1
+    - 192.0.2.2
+    - 192.0.2.3
+  fallback:
+    - 192.0.2.4
+    - 192.0.2.5
+  nameserver-policy:
+    'geosite:googlefcm': 'https://h1.example.com/dns-query'
+proxy-providers:
+  provider-1:
+    type: http
+    url: "https://h2.example.com/p1.yml"
+    interval: 3600
+    path: ./path-1.yml
+    health-check:
+      enable: true
+      interval: 600
+      url: https://h3.example.com/
+proxy-groups:
+  - name: Group 1
+    type: select
+    proxies:
+      - Group 2
+      - Group 3
+      - Group 4
+  - name: Group 2
+    type: fallback
+    url: https://h3.example.com/
+    interval: 300
+    use: [provider-1]
+  - name: Group 3
+    type: url-test
+    url: https://h3.example.com/
+    interval: 300
+    tolerance: 20
+    use: [provider-1]
+  - name: Group 4
+    type: select
+    use: [provider-1]
+  - name: Group 5
+    type: select
+    proxies:
+      - DIRECT
+      - Group 1
+  - name: Group 6
+    type: select
+    proxies:
+      - DIRECT
+      - Group 1
+      - REJECT
+  - name: Group 7
+    type: select
+    proxies:
+      - REJECT
+      - DIRECT
+  - name: Group 8
+    type: select
+    proxies:
+      - DIRECT
+      - Group 1
+  - name: Group 9
+    type: select
+    proxies:
+      - REJECT
+      - DIRECT
+      - Group 1
+rule-providers:
+  set-1:
+    type: http
+    behavior: classical
+    path: ./path-2.yml
+    url: "https://h2.example.com/p2.yml"
+    interval: 21600
+    format: yaml
+  set-2:
+    type: http
+    behavior: classical
+    path: ./path-3.yml
+    url: "https://h2.example.com/p3.yml"
+    interval: 86400
+    format: yaml
+  set-3:
+    type: http
+    behavior: classical
+    path: ./path-4.yml
+    url: "https://h2.example.com/p4.yml"
+    interval: 86400
+    format: yaml
+  set-4:
+    type: http
+    behavior: classical
+    path: ./path-5.yml
+    url: "https://h2.example.com/p5.yml"
+    interval: 86400
+    format: yaml
+  set-5:
+    type: http
+    behavior: classical
+    path: ./path-6.yml
+    url: "https://h2.example.com/p6.yml"
+    interval: 86400
+    format: yaml
+rules:
+  - DOMAIN-SUFFIX,d1.example,DIRECT
+  - DOMAIN,d2.example,Group 6
+  - DOMAIN-SUFFIX,d3.example,DIRECT
+  - DOMAIN-SUFFIX,d4.example,DIRECT
+  - DOMAIN-SUFFIX,d5.example,DIRECT
+  - DOMAIN,d6.example,DIRECT
+  - DOMAIN,d7.example,DIRECT
+  - GEOSITE,googlefcm,Group 6
+  - RULE-SET,set-5,Group 7
+  - RULE-SET,set-1,Group 9
+  - DOMAIN-SUFFIX,d8.example,DIRECT
+  - DOMAIN-KEYWORD,kw1,DIRECT
+  - RULE-SET,set-4,Group 5
+  - RULE-SET,set-3,DIRECT
+  - RULE-SET,set-2,Group 1
+  - GEOIP,CN,Group 6
+  - MATCH,Group 8
+mixed-port: 7890
+ipv6: true
+mode: rule
+log-level: warning
+global-client-fingerprint: chrome
+tcp-concurrent: true
+unified-delay: true
+sniffer:
+  enable: true
+  sniff:
+    HTTP:
+      ports: [80, 8080-8880]
+      override-destination: true
+    TLS:
+      ports: [443, 8443]
+  skip-domain:
+    - 'str1'
+    - 'd9.example'
+    - '+.d10.example'

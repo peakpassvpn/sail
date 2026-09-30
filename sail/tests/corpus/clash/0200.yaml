@@ -1,0 +1,1038 @@
+proxy-groups:
+  - name: Group 1
+    type: select
+    proxies:
+      - Group 37
+      - Group 39
+      - Group 38
+      - Group 41
+      - Group 40
+      - Group 42
+      - Group 43
+      - Group 2
+      - DIRECT
+  - name: Group 2
+    type: select
+    include-all: true
+    proxies:
+      - DIRECT
+      - REJECT
+  - name: Group 3
+    type: select
+    include-all: true
+    proxies:
+      - DIRECT
+      - REJECT
+  - name: Group 4
+    type: select
+    include-all: true
+    proxies:
+      - DIRECT
+      - REJECT
+  - name: Group 5
+    type: select
+    include-all: true
+    proxies:
+      - DIRECT
+      - REJECT
+  - name: Group 6
+    type: select
+    include-all: true
+    proxies:
+      - DIRECT
+      - REJECT
+  - name: Group 7
+    type: select
+    include-all: true
+    proxies:
+      - DIRECT
+      - REJECT
+  - name: Group 8
+    type: select
+    proxies:
+      - Group 1
+      - Group 37
+      - Group 39
+      - Group 38
+      - Group 41
+      - Group 40
+      - Group 42
+      - Group 43
+      - Group 2
+      - Group 3
+      - Group 4
+      - Group 5
+      - Group 6
+      - Group 7
+      - DIRECT
+  - name: Group 9
+    type: select
+    proxies:
+      - DIRECT
+      - Group 1
+      - Group 37
+      - Group 39
+      - Group 38
+      - Group 41
+      - Group 40
+      - Group 42
+      - Group 43
+      - Group 2
+      - Group 3
+      - Group 4
+      - Group 5
+      - Group 6
+      - Group 7
+  - name: Group 10
+    type: select
+    proxies:
+      - DIRECT
+      - Group 1
+      - Group 37
+      - Group 39
+      - Group 38
+      - Group 41
+      - Group 40
+      - Group 42
+      - Group 43
+      - Group 2
+      - Group 3
+      - Group 4
+      - Group 5
+      - Group 6
+      - Group 7
+  - name: Group 11
+    type: select
+    proxies:
+      - Group 1
+      - Group 37
+      - Group 39
+      - Group 38
+      - Group 41
+      - Group 40
+      - Group 42
+      - Group 43
+      - Group 2
+      - Group 3
+      - Group 4
+      - Group 5
+      - Group 6
+      - Group 7
+      - DIRECT
+  - name: Group 12
+    type: select
+    proxies:
+      - Group 1
+      - Group 37
+      - Group 39
+      - Group 38
+      - Group 41
+      - Group 40
+      - Group 42
+      - Group 43
+      - Group 2
+      - Group 3
+      - Group 4
+      - Group 5
+      - Group 6
+      - Group 7
+      - DIRECT
+  - name: Group 13
+    type: select
+    proxies:
+      - Group 1
+      - Group 37
+      - Group 39
+      - Group 38
+      - Group 41
+      - Group 40
+      - Group 42
+      - Group 43
+      - Group 2
+      - Group 3
+      - Group 4
+      - Group 5
+      - Group 6
+      - Group 7
+      - DIRECT
+  - name: Group 14
+    type: select
+    proxies:
+      - Group 1
+      - Group 37
+      - Group 39
+      - Group 38
+      - Group 41
+      - Group 40
+      - Group 42
+      - Group 43
+      - Group 2
+      - Group 3
+      - Group 4
+      - Group 5
+      - Group 6
+      - Group 7
+      - DIRECT
+  - name: Group 15
+    type: select
+    proxies:
+      - Group 1
+      - Group 37
+      - Group 39
+      - Group 38
+      - Group 41
+      - Group 40
+      - Group 42
+      - Group 43
+      - Group 2
+      - Group 3
+      - Group 4
+      - Group 5
+      - Group 6
+      - Group 7
+      - DIRECT
+  - name: Group 16
+    type: select
+    proxies:
+      - Group 1
+      - Group 37
+      - Group 39
+      - Group 38
+      - Group 41
+      - Group 40
+      - Group 42
+      - Group 43
+      - Group 2
+      - Group 3
+      - Group 4
+      - Group 5
+      - Group 6
+      - Group 7
+      - DIRECT
+  - name: Group 17
+    type: select
+    proxies:
+      - Group 1
+      - Group 37
+      - Group 39
+      - Group 38
+      - Group 41
+      - Group 40
+      - Group 42
+      - Group 43
+      - Group 2
+      - Group 3
+      - Group 4
+      - Group 5
+      - Group 6
+      - Group 7
+      - DIRECT
+  - name: Group 18
+    type: select
+    proxies:
+      - Group 1
+      - Group 37
+      - Group 39
+      - Group 38
+      - Group 41
+      - Group 40
+      - Group 42
+      - Group 43
+      - Group 2
+      - Group 3
+      - Group 4
+      - Group 5
+      - Group 6
+      - Group 7
+      - DIRECT
+  - name: Group 19
+    type: select
+    proxies:
+      - Group 1
+      - Group 37
+      - Group 39
+      - Group 38
+      - Group 41
+      - Group 40
+      - Group 42
+      - Group 43
+      - Group 2
+      - Group 3
+      - Group 4
+      - Group 5
+      - Group 6
+      - Group 7
+      - DIRECT
+  - name: Group 20
+    type: select
+    proxies:
+      - Group 1
+      - Group 37
+      - Group 39
+      - Group 38
+      - Group 41
+      - Group 40
+      - Group 42
+      - Group 43
+      - Group 2
+      - Group 3
+      - Group 4
+      - Group 5
+      - Group 6
+      - Group 7
+      - DIRECT
+  - name: Group 21
+    type: select
+    proxies:
+      - Group 1
+      - Group 37
+      - Group 39
+      - Group 38
+      - Group 41
+      - Group 40
+      - Group 42
+      - Group 43
+      - Group 2
+      - Group 3
+      - Group 4
+      - Group 5
+      - Group 6
+      - Group 7
+      - DIRECT
+  - name: Group 22
+    type: select
+    proxies:
+      - Group 1
+      - Group 37
+      - Group 39
+      - Group 38
+      - Group 41
+      - Group 40
+      - Group 42
+      - Group 43
+      - Group 2
+      - Group 3
+      - Group 4
+      - Group 5
+      - Group 6
+      - Group 7
+      - DIRECT
+  - name: Group 23
+    type: select
+    proxies:
+      - Group 1
+      - Group 37
+      - Group 39
+      - Group 38
+      - Group 41
+      - Group 40
+      - Group 42
+      - Group 43
+      - Group 2
+      - Group 3
+      - Group 4
+      - Group 5
+      - Group 6
+      - Group 7
+      - DIRECT
+  - name: Group 24
+    type: select
+    proxies:
+      - Group 1
+      - Group 37
+      - Group 39
+      - Group 38
+      - Group 41
+      - Group 40
+      - Group 42
+      - Group 43
+      - Group 2
+      - Group 3
+      - Group 4
+      - Group 5
+      - Group 6
+      - Group 7
+      - DIRECT
+  - name: Group 25
+    type: select
+    proxies:
+      - DIRECT
+      - Group 1
+      - Group 37
+      - Group 39
+      - Group 38
+      - Group 41
+      - Group 40
+      - Group 42
+      - Group 43
+      - Group 2
+      - Group 3
+      - Group 4
+      - Group 5
+      - Group 6
+      - Group 7
+  - name: Group 26
+    type: select
+    proxies:
+      - DIRECT
+      - Group 1
+      - Group 37
+      - Group 39
+      - Group 38
+      - Group 41
+      - Group 40
+      - Group 42
+      - Group 43
+      - Group 2
+      - Group 3
+      - Group 4
+      - Group 5
+      - Group 6
+      - Group 7
+  - name: Group 27
+    type: select
+    proxies:
+      - Group 1
+      - Group 37
+      - Group 39
+      - Group 38
+      - Group 41
+      - Group 40
+      - Group 42
+      - Group 43
+      - Group 2
+      - Group 3
+      - Group 4
+      - Group 5
+      - Group 6
+      - Group 7
+      - DIRECT
+  - name: Group 28
+    type: select
+    proxies:
+      - Group 1
+      - Group 37
+      - Group 39
+      - Group 38
+      - Group 41
+      - Group 40
+      - Group 42
+      - Group 43
+      - Group 2
+      - Group 3
+      - Group 4
+      - Group 5
+      - Group 6
+      - Group 7
+      - DIRECT
+  - name: Group 29
+    type: select
+    proxies:
+      - Group 1
+      - Group 37
+      - Group 39
+      - Group 38
+      - Group 41
+      - Group 40
+      - Group 42
+      - Group 43
+      - Group 2
+      - Group 3
+      - Group 4
+      - Group 5
+      - Group 6
+      - Group 7
+      - DIRECT
+  - name: Group 30
+    type: select
+    proxies:
+      - Group 1
+      - Group 37
+      - Group 39
+      - Group 38
+      - Group 41
+      - Group 40
+      - Group 42
+      - Group 43
+      - Group 2
+      - Group 3
+      - Group 4
+      - Group 5
+      - Group 6
+      - Group 7
+      - DIRECT
+  - name: Group 31
+    type: select
+    proxies:
+      - Group 1
+      - Group 37
+      - Group 39
+      - Group 38
+      - Group 41
+      - Group 40
+      - Group 42
+      - Group 43
+      - Group 2
+      - Group 3
+      - Group 4
+      - Group 5
+      - Group 6
+      - Group 7
+      - DIRECT
+  - name: Group 32
+    type: select
+    proxies:
+      - Group 1
+      - Group 37
+      - Group 39
+      - Group 38
+      - Group 41
+      - Group 40
+      - Group 42
+      - Group 43
+      - Group 2
+      - Group 3
+      - Group 4
+      - Group 5
+      - Group 6
+      - Group 7
+      - DIRECT
+  - name: Group 33
+    type: select
+    proxies:
+      - DIRECT
+      - Group 1
+      - Group 37
+      - Group 39
+      - Group 38
+      - Group 41
+      - Group 40
+      - Group 42
+      - Group 43
+      - Group 2
+      - Group 3
+      - Group 4
+      - Group 5
+      - Group 6
+      - Group 7
+  - name: Group 34
+    type: select
+    proxies:
+      - DIRECT
+      - Group 1
+      - Group 37
+      - Group 39
+      - Group 38
+      - Group 41
+      - Group 40
+      - Group 42
+      - Group 43
+      - Group 2
+      - Group 3
+      - Group 4
+      - Group 5
+      - Group 6
+      - Group 7
+  - name: Group 35
+    type: select
+    proxies:
+      - REJECT
+      - DIRECT
+      - PASS
+  - name: Group 36
+    type: select
+    proxies:
+      - REJECT
+      - DIRECT
+      - PASS
+  - name: Group 37
+    type: url-test
+    url: http://h1.example.com/generate_204
+    interval: 300
+    tolerance: 100
+    filter: 'Proxy [0-9]+|Group 1'
+    include-all: true
+  - name: Group 38
+    type: url-test
+    url: http://h1.example.com/generate_204
+    interval: 300
+    tolerance: 100
+    filter: 'Proxy [0-9]+|Group 2'
+    include-all: true
+  - name: Group 39
+    type: url-test
+    url: http://h1.example.com/generate_204
+    interval: 300
+    tolerance: 100
+    filter: 'Proxy [0-9]+|Group 3'
+    include-all: true
+  - name: Group 40
+    type: url-test
+    url: http://h1.example.com/generate_204
+    interval: 300
+    tolerance: 100
+    filter: 'Proxy [0-9]+|Group 4'
+    include-all: true
+  - name: Group 41
+    type: url-test
+    url: http://h1.example.com/generate_204
+    interval: 300
+    tolerance: 100
+    filter: 'Proxy [0-9]+|Group 5'
+    include-all: true
+  - name: Group 42
+    type: url-test
+    url: http://h1.example.com/generate_204
+    interval: 300
+    tolerance: 100
+    filter: 'Proxy [0-9]+|Group 6'
+    include-all: true
+  - name: Group 43
+    type: url-test
+    url: http://h1.example.com/generate_204
+    interval: 300
+    tolerance: 100
+    filter: 'Proxy [0-9]+|Group 7'
+    include-all: true
+  - name: GLOBAL
+    type: select
+    include-all: true
+    proxies:
+      - Group 1
+      - Group 37
+      - Group 39
+      - Group 38
+      - Group 41
+      - Group 40
+      - Group 42
+      - Group 43
+      - Group 2
+      - Group 3
+      - Group 4
+      - Group 5
+      - Group 6
+      - Group 7
+      - DIRECT
+      - REJECT
+rule-providers:
+  set-1:
+    type: file
+    path: ./path-1.yaml
+    behavior: classical
+    format: yaml
+  set-2:
+    type: file
+    path: ./path-2.yaml
+    behavior: classical
+    format: yaml
+  set-3:
+    type: file
+    path: ./path-3.yaml
+    behavior: classical
+    format: yaml
+  set-4:
+    type: file
+    path: ./path-4.yaml
+    behavior: classical
+    format: yaml
+  set-5:
+    type: file
+    path: ./path-5.yaml
+    behavior: classical
+    format: yaml
+  set-6:
+    type: file
+    path: ./path-6.yaml
+    behavior: classical
+    format: yaml
+  set-7:
+    type: file
+    path: ./path-7.yaml
+    behavior: classical
+    format: yaml
+  set-8:
+    type: file
+    path: ./path-8.yaml
+    behavior: classical
+    format: yaml
+  set-9:
+    type: file
+    path: ./path-9.yaml
+    behavior: classical
+    format: yaml
+  set-10:
+    type: file
+    path: ./path-10.yaml
+    behavior: classical
+    format: yaml
+  set-11:
+    type: file
+    path: ./path-11.yaml
+    behavior: classical
+    format: yaml
+  set-12:
+    type: file
+    path: ./path-12.yaml
+    behavior: classical
+    format: yaml
+  set-13:
+    type: file
+    path: ./path-13.yaml
+    behavior: classical
+    format: yaml
+  set-14:
+    type: file
+    path: ./path-14.yaml
+    behavior: classical
+    format: yaml
+  set-15:
+    type: file
+    path: ./path-15.yaml
+    behavior: classical
+    format: yaml
+  set-16:
+    type: file
+    path: ./path-16.yaml
+    behavior: classical
+    format: yaml
+  set-17:
+    type: file
+    path: ./path-17.yaml
+    behavior: classical
+    format: yaml
+  set-18:
+    type: file
+    path: ./path-18.yaml
+    behavior: classical
+    format: yaml
+  set-19:
+    type: file
+    path: ./path-19.yaml
+    behavior: classical
+    format: yaml
+  set-20:
+    type: file
+    path: ./path-20.yaml
+    behavior: classical
+    format: yaml
+  set-21:
+    type: file
+    path: ./path-21.yaml
+    behavior: classical
+    format: yaml
+  set-22:
+    type: file
+    path: ./path-22.yaml
+    behavior: classical
+    format: yaml
+  set-23:
+    type: file
+    path: ./path-23.yaml
+    behavior: classical
+    format: yaml
+  set-24:
+    type: file
+    path: ./path-24.yaml
+    behavior: classical
+    format: yaml
+  set-25:
+    type: file
+    path: ./path-25.yaml
+    behavior: classical
+    format: yaml
+  set-26:
+    type: file
+    path: ./path-26.yaml
+    behavior: classical
+    format: yaml
+  set-27:
+    type: file
+    path: ./path-27.yaml
+    behavior: classical
+    format: yaml
+  set-28:
+    type: file
+    path: ./path-28.yaml
+    behavior: classical
+    format: yaml
+  set-29:
+    type: file
+    path: ./path-29.yaml
+    behavior: classical
+    format: yaml
+  set-30:
+    type: file
+    path: ./path-30.yaml
+    behavior: classical
+    format: yaml
+  set-31:
+    type: file
+    path: ./path-31.yaml
+    behavior: classical
+    format: yaml
+  set-32:
+    type: file
+    path: ./path-32.yaml
+    behavior: classical
+    format: yaml
+  set-33:
+    type: file
+    path: ./path-33.yaml
+    behavior: classical
+    format: yaml
+  set-34:
+    type: file
+    path: ./path-34.yaml
+    behavior: classical
+    format: yaml
+  set-35:
+    type: file
+    path: ./path-35.yaml
+    behavior: classical
+    format: yaml
+  set-36:
+    type: file
+    path: ./path-36.yaml
+    behavior: classical
+    format: yaml
+  set-37:
+    type: file
+    path: ./path-37.yaml
+    behavior: classical
+    format: yaml
+  set-38:
+    type: file
+    path: ./path-38.yaml
+    behavior: classical
+    format: yaml
+  set-39:
+    type: file
+    path: ./path-39.yaml
+    behavior: classical
+    format: yaml
+  set-40:
+    type: file
+    path: ./path-40.yaml
+    behavior: classical
+    format: yaml
+  set-41:
+    type: file
+    path: ./path-41.yaml
+    behavior: classical
+    format: yaml
+  set-42:
+    type: file
+    path: ./path-42.yaml
+    behavior: classical
+    format: yaml
+  set-43:
+    type: file
+    path: ./path-43.yaml
+    behavior: classical
+    format: yaml
+  set-44:
+    type: file
+    path: ./path-44.yaml
+    behavior: classical
+    format: yaml
+  set-45:
+    type: file
+    path: ./path-45.yaml
+    behavior: classical
+    format: yaml
+  set-46:
+    type: file
+    path: ./path-46.yaml
+    behavior: classical
+    format: yaml
+  set-47:
+    type: file
+    path: ./path-47.yaml
+    behavior: classical
+    format: yaml
+  set-48:
+    type: file
+    path: ./path-48.yaml
+    behavior: classical
+    format: yaml
+  set-49:
+    type: file
+    path: ./path-49.yaml
+    behavior: classical
+    format: yaml
+  set-50:
+    type: file
+    path: ./path-50.yaml
+    behavior: classical
+    format: yaml
+  set-51:
+    type: file
+    path: ./path-51.yaml
+    behavior: classical
+    format: yaml
+  set-52:
+    type: file
+    path: ./path-52.yaml
+    behavior: classical
+    format: yaml
+  set-53:
+    type: file
+    path: ./path-53.yaml
+    behavior: classical
+    format: yaml
+  set-54:
+    type: file
+    path: ./path-54.yaml
+    behavior: classical
+    format: yaml
+  set-55:
+    type: file
+    path: ./path-55.yaml
+    behavior: classical
+    format: yaml
+  set-56:
+    type: file
+    path: ./path-56.yaml
+    behavior: ipcidr
+    format: yaml
+  set-57:
+    type: file
+    path: ./path-57.yaml
+    behavior: classical
+    format: yaml
+  set-58:
+    type: file
+    path: ./path-58.yaml
+    behavior: classical
+    format: yaml
+  set-59:
+    type: file
+    path: ./path-59.yaml
+    behavior: classical
+    format: yaml
+  set-60:
+    type: file
+    path: ./path-60.yaml
+    behavior: classical
+    format: yaml
+  set-61:
+    type: file
+    path: ./path-61.yaml
+    behavior: classical
+    format: yaml
+  set-62:
+    type: file
+    path: ./path-62.yaml
+    behavior: classical
+    format: yaml
+  set-63:
+    type: file
+    path: ./path-63.yaml
+    behavior: classical
+    format: yaml
+  set-64:
+    type: file
+    path: ./path-64.yaml
+    behavior: classical
+    format: yaml
+  set-65:
+    type: file
+    path: ./path-65.yaml
+    behavior: classical
+    format: yaml
+  set-66:
+    type: file
+    path: ./path-66.yaml
+    behavior: classical
+    format: yaml
+  set-67:
+    type: file
+    path: ./path-67.yaml
+    behavior: classical
+    format: yaml
+  set-68:
+    type: file
+    path: ./path-68.yaml
+    behavior: classical
+    format: yaml
+  set-69:
+    type: file
+    path: ./path-69.yaml
+    behavior: classical
+    format: yaml
+rules:
+  - RULE-SET,set-1,Group 8
+  - RULE-SET,set-2,DIRECT
+  - RULE-SET,set-3,DIRECT
+  - DOMAIN,d1.example,Group 27
+  - DOMAIN-SUFFIX,d2.example,Group 27
+  - RULE-SET,set-4,Group 33
+  - RULE-SET,set-5,Group 35
+  - RULE-SET,set-6,Group 36
+  - RULE-SET,set-7,Group 36
+  - RULE-SET,set-8,Group 9
+  - RULE-SET,set-9,Group 9
+  - RULE-SET,set-10,Group 9
+  - RULE-SET,set-11,Group 10
+  - RULE-SET,set-12,Group 10
+  - DOMAIN-KEYWORD,kw1,Group 11
+  - RULE-SET,set-13,Group 11
+  - RULE-SET,set-14,Group 11
+  - RULE-SET,set-15,Group 11
+  - RULE-SET,set-16,Group 11
+  - RULE-SET,set-17,Group 11
+  - RULE-SET,set-18,Group 12
+  - RULE-SET,set-19,Group 12
+  - RULE-SET,set-20,Group 28
+  - RULE-SET,set-21,Group 28
+  - RULE-SET,set-22,Group 28
+  - RULE-SET,set-23,Group 28
+  - RULE-SET,set-24,Group 28
+  - RULE-SET,set-58,Group 23
+  - RULE-SET,set-59,Group 23
+  - RULE-SET,set-25,Group 13
+  - RULE-SET,set-26,Group 14
+  - RULE-SET,set-44,Group 21
+  - RULE-SET,set-60,Group 17
+  - RULE-SET,set-43,Group 22
+  - RULE-SET,set-42,Group 16
+  - RULE-SET,set-61,Group 15
+  - RULE-SET,set-62,Group 18
+  - RULE-SET,set-63,Group 20
+  - RULE-SET,set-33,Group 24
+  - RULE-SET,set-34,Group 24
+  - RULE-SET,set-64,Group 25
+  - RULE-SET,set-65,Group 25
+  - RULE-SET,set-67,Group 26
+  - RULE-SET,set-66,Group 26
+  - RULE-SET,set-27,Group 29
+  - RULE-SET,set-28,Group 29
+  - RULE-SET,set-29,Group 29
+  - RULE-SET,set-30,Group 29
+  - RULE-SET,set-31,Group 29
+  - RULE-SET,set-32,Group 29
+  - RULE-SET,set-34,Group 31
+  - RULE-SET,set-35,Group 31
+  - RULE-SET,set-36,Group 31
+  - RULE-SET,set-37,Group 31
+  - RULE-SET,set-38,Group 31
+  - RULE-SET,set-39,Group 31
+  - RULE-SET,set-40,Group 31
+  - RULE-SET,set-41,Group 31
+  - RULE-SET,set-68,Group 19
+  - RULE-SET,set-69,Group 14
+  - RULE-SET,set-43,Group 30
+  - RULE-SET,set-45,Group 30
+  - RULE-SET,set-46,Group 30
+  - RULE-SET,set-47,Group 27
+  - RULE-SET,set-48,Group 27
+  - RULE-SET,set-49,Group 27
+  - RULE-SET,set-50,Group 27
+  - RULE-SET,set-51,Group 27
+  - RULE-SET,set-52,Group 32
+  - RULE-SET,set-53,Group 32
+  - RULE-SET,set-54,Group 33
+  - RULE-SET,set-55,Group 33
+  - RULE-SET,set-56,Group 33
+  - RULE-SET,set-57,Group 33
+  - MATCH,Group 34

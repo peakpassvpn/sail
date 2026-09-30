@@ -1,0 +1,416 @@
+{
+  "log": {
+    "level": "info",
+    "output": "d4.example",
+    "timestamp": true
+  },
+  "dns": {
+    "servers": [
+      {
+        "type": "https",
+        "tag": "dns-1",
+        "detour": "Proxy 3",
+        "connect_timeout": "1s",
+        "server": "192.0.2.1"
+      },
+      {
+        "type": "https",
+        "tag": "dns-2",
+        "connect_timeout": "1s",
+        "server": "192.0.2.2"
+      },
+      {
+        "type": "https",
+        "tag": "dns-3",
+        "connect_timeout": "1s",
+        "server": "192.0.2.3"
+      }
+    ],
+    "rules": [
+      {
+        "rule_set": [
+          "set-18",
+          "set-17",
+          "set-10",
+          "set-20",
+          "set-12",
+          "set-8",
+          "set-16",
+          "set-13",
+          "set-14",
+          "set-15",
+          "set-9",
+          "set-21",
+          "set-22",
+          "set-23",
+          "set-24",
+          "set-11",
+          "set-7",
+          "set-29",
+          "set-6",
+          "set-5",
+          "set-4",
+          "set-3",
+          "set-1",
+          "set-2",
+          "set-19"
+        ],
+        "server": "dns-1"
+      },
+      {
+        "rule_set": [
+          "set-26",
+          "set-25",
+          "set-32"
+        ],
+        "server": "dns-3"
+      }
+    ],
+    "final": "dns-2",
+    "strategy": "prefer_ipv4",
+    "cache_capacity": 3000
+  },
+  "inbounds": [
+    {
+      "type": "mixed",
+      "tag": "in-1",
+      "listen": "0.0.0.0",
+      "listen_port": 14443
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "direct",
+      "tag": "Proxy 1"
+    },
+    {
+      "type": "block",
+      "tag": "Proxy 2"
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 3",
+      "connect_timeout": "10s",
+      "tcp_fast_open": true,
+      "domain_resolver": "dns-2",
+      "server": "s1.example.net",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000001",
+      "network": "tcp",
+      "tls": {
+        "enabled": true,
+        "server_name": "s1.example.net",
+        "min_version": "1.2"
+      },
+      "multiplex": {
+        "enabled": true,
+        "protocol": "smux",
+        "max_connections": 1,
+        "min_streams": 4,
+        "padding": true,
+        "brutal": {
+          "enabled": true,
+          "up_mbps": 50,
+          "down_mbps": 100
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "Accept-Language": "str1",
+          "Host": "s1.example.net",
+          "User-Agent": "Agent1"
+        },
+        "max_early_data": 2080,
+        "early_data_header_name": "str2"
+      }
+    },
+    {
+      "type": "tuic",
+      "tag": "Proxy 4",
+      "connect_timeout": "10s",
+      "domain_resolver": "dns-2",
+      "server": "s1.example.net",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000001",
+      "password": "password1",
+      "congestion_control": "bbr",
+      "udp_relay_mode": "quic",
+      "heartbeat": "10s",
+      "network": "tcp",
+      "tls": {
+        "enabled": true,
+        "server_name": "s1.example.net",
+        "alpn": "h3"
+      }
+    }
+  ],
+  "route": {
+    "rules": [
+      {
+        "protocol": "dns",
+        "action": "hijack-dns"
+      },
+      {
+        "ip_is_private": true,
+        "outbound": "Proxy 1"
+      },
+      {
+        "rule_set": [
+          "set-18",
+          "set-17",
+          "set-10",
+          "set-20",
+          "set-12",
+          "set-8",
+          "set-16",
+          "set-13",
+          "set-14",
+          "set-15",
+          "set-9",
+          "set-21",
+          "set-22",
+          "set-23",
+          "set-24",
+          "set-11",
+          "set-7",
+          "set-29",
+          "set-6",
+          "set-5",
+          "set-4",
+          "set-3",
+          "set-1",
+          "set-2",
+          "set-19"
+        ],
+        "outbound": "Proxy 3"
+      },
+      {
+        "domain_suffix": [
+          ".d2.example",
+          ".d3.example"
+        ],
+        "outbound": "Proxy 3"
+      },
+      {
+        "rule_set": [
+          "set-26",
+          "set-25",
+          "set-31",
+          "set-32"
+        ],
+        "outbound": "Proxy 1"
+      },
+      {
+        "domain_suffix": "cn",
+        "outbound": "Proxy 1"
+      },
+      {
+        "rule_set": [
+          "set-27",
+          "set-28",
+          "set-30"
+        ],
+        "outbound": "Proxy 2"
+      }
+    ],
+    "rule_set": [
+      {
+        "type": "remote",
+        "tag": "set-1",
+        "url": "https://h1.example.com/p2.srs",
+        "download_detour": "Proxy 3"
+      },
+      {
+        "type": "remote",
+        "tag": "set-2",
+        "url": "https://h1.example.com/p3.srs",
+        "download_detour": "Proxy 3"
+      },
+      {
+        "type": "remote",
+        "tag": "set-3",
+        "url": "https://h1.example.com/p4.srs",
+        "download_detour": "Proxy 3"
+      },
+      {
+        "type": "remote",
+        "tag": "set-4",
+        "url": "https://h1.example.com/p5.srs",
+        "download_detour": "Proxy 3"
+      },
+      {
+        "type": "remote",
+        "tag": "set-5",
+        "url": "https://h1.example.com/p6.srs",
+        "download_detour": "Proxy 3"
+      },
+      {
+        "type": "remote",
+        "tag": "set-6",
+        "url": "https://h1.example.com/p7.srs",
+        "download_detour": "Proxy 3"
+      },
+      {
+        "type": "remote",
+        "tag": "set-7",
+        "url": "https://h1.example.com/p8.srs",
+        "download_detour": "Proxy 3"
+      },
+      {
+        "type": "remote",
+        "tag": "set-8",
+        "url": "https://h1.example.com/p9.srs",
+        "download_detour": "Proxy 3"
+      },
+      {
+        "type": "remote",
+        "tag": "set-9",
+        "url": "https://h1.example.com/p10.srs",
+        "download_detour": "Proxy 3"
+      },
+      {
+        "type": "remote",
+        "tag": "set-10",
+        "url": "https://h1.example.com/p11.srs",
+        "download_detour": "Proxy 3"
+      },
+      {
+        "type": "remote",
+        "tag": "set-11",
+        "url": "https://h1.example.com/p12.srs",
+        "download_detour": "Proxy 3"
+      },
+      {
+        "type": "remote",
+        "tag": "set-12",
+        "url": "https://h1.example.com/p13.srs",
+        "download_detour": "Proxy 3"
+      },
+      {
+        "type": "remote",
+        "tag": "set-13",
+        "url": "https://h1.example.com/p14.srs",
+        "download_detour": "Proxy 3"
+      },
+      {
+        "type": "remote",
+        "tag": "set-14",
+        "url": "https://h1.example.com/p15.srs",
+        "download_detour": "Proxy 3"
+      },
+      {
+        "type": "remote",
+        "tag": "set-15",
+        "url": "https://h1.example.com/p16.srs",
+        "download_detour": "Proxy 3"
+      },
+      {
+        "type": "remote",
+        "tag": "set-16",
+        "url": "https://h1.example.com/p17.srs",
+        "download_detour": "Proxy 3"
+      },
+      {
+        "type": "remote",
+        "tag": "set-17",
+        "url": "https://h1.example.com/p18.srs",
+        "download_detour": "Proxy 3"
+      },
+      {
+        "type": "remote",
+        "tag": "set-18",
+        "url": "https://h1.example.com/p19.srs",
+        "download_detour": "Proxy 3"
+      },
+      {
+        "type": "remote",
+        "tag": "set-19",
+        "url": "https://h1.example.com/p20.srs",
+        "download_detour": "Proxy 3"
+      },
+      {
+        "type": "remote",
+        "tag": "set-20",
+        "url": "https://h1.example.com/p21.srs",
+        "download_detour": "Proxy 3"
+      },
+      {
+        "type": "remote",
+        "tag": "set-21",
+        "url": "https://h1.example.com/p22.srs",
+        "download_detour": "Proxy 3"
+      },
+      {
+        "type": "remote",
+        "tag": "set-22",
+        "url": "https://h1.example.com/p23.srs",
+        "download_detour": "Proxy 3"
+      },
+      {
+        "type": "remote",
+        "tag": "set-23",
+        "url": "https://h1.example.com/p24.srs",
+        "download_detour": "Proxy 3"
+      },
+      {
+        "type": "remote",
+        "tag": "set-24",
+        "url": "https://h1.example.com/p25.srs",
+        "download_detour": "Proxy 3"
+      },
+      {
+        "type": "remote",
+        "tag": "set-25",
+        "url": "https://h1.example.com/p26.srs",
+        "download_detour": "Proxy 3"
+      },
+      {
+        "type": "remote",
+        "tag": "set-26",
+        "url": "https://h1.example.com/p27.srs",
+        "download_detour": "Proxy 3"
+      },
+      {
+        "type": "remote",
+        "tag": "set-27",
+        "url": "https://h1.example.com/p28.srs",
+        "download_detour": "Proxy 3"
+      },
+      {
+        "type": "remote",
+        "tag": "set-28",
+        "url": "https://h1.example.com/p29.srs",
+        "download_detour": "Proxy 3"
+      },
+      {
+        "type": "remote",
+        "tag": "set-29",
+        "url": "https://h1.example.com/p30.srs",
+        "download_detour": "Proxy 3"
+      },
+      {
+        "type": "remote",
+        "tag": "set-30",
+        "url": "https://h1.example.com/p31.srs",
+        "download_detour": "Proxy 3"
+      },
+      {
+        "type": "remote",
+        "tag": "set-31",
+        "url": "https://h1.example.com/p32.srs",
+        "download_detour": "Proxy 3"
+      },
+      {
+        "type": "remote",
+        "tag": "set-32",
+        "url": "https://h1.example.com/p33.srs",
+        "download_detour": "Proxy 3"
+      }
+    ],
+    "final": "Proxy 3",
+    "auto_detect_interface": true,
+    "default_domain_resolver": "dns-3"
+  }
+}

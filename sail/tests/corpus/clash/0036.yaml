@@ -1,0 +1,70 @@
+port: 7890
+mixed-port: 7890
+allow-lan: false
+bind-address: '*'
+mode: rule
+log-level: info
+external-controller: '127.0.0.1:9090'
+dns:
+  enable: true
+  ipv6: false
+  default-nameserver: [192.0.2.1, 192.0.2.2]
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  use-hosts: true
+  nameserver: ['https://h1.example.com/dns-query']
+  fallback: ['https://h2.example.com/dns-query', 'https://h3.example.com/dns-query', 'https://h4.example.com/dns-query', 'tls://192.0.2.3:853']
+  fallback-filter: {geoip: true, ipcidr: [240.0.0.0/4, 0.0.0.0/32]}
+proxy-providers:
+  provider-1:
+    type: http
+    path: ./path-1.yml
+    url: https://h5.example.com/p1?token=v1
+    interval: 36000
+    health-check:
+      enable: true
+      url: http://h6.example.com/generate_204
+      interval: 3600
+proxy-groups:
+  - name: "Group 1"
+    type: select
+    use:
+      - provider-1
+  - name: "Group 2"
+    type: select
+    proxies:
+      - Group 1
+  - name: "Group 3"
+    type: select
+    proxies:
+      - DIRECT
+      - Group 1
+  - name: "Group 4"
+    type: select
+    proxies:
+      - REJECT
+      - DIRECT
+      - Group 1
+rule-providers:
+  set-1:
+    type: http
+    behavior: classical
+    url: https://h7.example.com/p2.yaml
+    path: ./path-2.yaml
+    interval: 3600
+  set-2:
+    type: http
+    behavior: classical
+    url: https://h8.example.com/p3.yaml
+    path: ./path-3.yaml
+    interval: 3600
+rules:
+  - IP-CIDR,192.168.0.0/16,DIRECT
+  - IP-CIDR,10.0.0.0/8,DIRECT
+  - IP-CIDR,172.16.0.0/12,DIRECT
+  - IP-CIDR,127.0.0.0/8,DIRECT
+  - IP-CIDR,100.64.0.0/10,DIRECT
+  - IP-CIDR,224.0.0.0/4,DIRECT
+  - RULE-SET,set-2,Group 3
+  - RULE-SET,set-1,Group 2
+  - MATCH,Group 4

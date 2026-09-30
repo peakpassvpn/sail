@@ -1,0 +1,200 @@
+{
+  "log": {
+    "level": "warn",
+    "output": "d4.example",
+    "timestamp": true
+  },
+  "dns": {
+    "servers": [
+      {
+        "tag": "dns-1",
+        "address": "udp://192.0.2.1",
+        "address_resolver": "dns-3"
+      },
+      {
+        "tag": "dns-2",
+        "address": "https://h1.example.com/",
+        "detour": "Proxy 4"
+      },
+      {
+        "tag": "dns-3",
+        "address": "192.0.2.1",
+        "address_resolver": "dns-4",
+        "detour": "Proxy 3"
+      },
+      {
+        "tag": "dns-4",
+        "address": "local",
+        "detour": "Proxy 3"
+      },
+      {
+        "tag": "dns-5",
+        "address": "rcode://success"
+      }
+    ],
+    "rules": [
+      {
+        "domain_suffix": ".d1.example",
+        "geosite": "ir",
+        "server": "dns-3"
+      },
+      {
+        "domain": "d2.example",
+        "server": "dns-1",
+        "rewrite_ttl": 3000
+      }
+    ],
+    "final": "dns-1",
+    "static_ips": {
+      "d3.example": [
+        "192.0.2.2",
+        "192.0.2.3",
+        "2001:db8::1",
+        "2001:db8::2",
+        "192.0.2.4",
+        "192.0.2.5",
+        "192.0.2.2",
+        "192.0.2.3",
+        "2001:db8::1",
+        "2001:db8::2"
+      ]
+    },
+    "independent_cache": true
+  },
+  "inbounds": [
+    {
+      "type": "tun",
+      "tag": "in-1",
+      "mtu": 9000,
+      "inet4_address": "192.0.2.1/28",
+      "auto_route": true,
+      "strict_route": true,
+      "endpoint_independent_nat": true,
+      "stack": "mixed",
+      "sniff": true,
+      "sniff_override_destination": true
+    },
+    {
+      "type": "mixed",
+      "tag": "in-2",
+      "listen": "127.0.0.1",
+      "listen_port": 2334,
+      "sniff": true,
+      "sniff_override_destination": true
+    },
+    {
+      "type": "direct",
+      "tag": "in-3",
+      "listen": "127.0.0.1",
+      "listen_port": 6450,
+      "override_address": "192.0.2.1",
+      "override_port": 53
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "selector",
+      "tag": "Group 1",
+      "outbounds": [
+        "Group 2",
+        "Proxy 1"
+      ],
+      "default": "Group 2"
+    },
+    {
+      "type": "urltest",
+      "tag": "Group 2",
+      "outbounds": [
+        "Proxy 1"
+      ],
+      "url": "http://h2.example.com/",
+      "interval": "10m0s"
+    },
+    {
+      "type": "wireguard",
+      "tag": "Proxy 1",
+      "local_address": [
+        "192.0.2.2/24",
+        "2001:db8::3/128"
+      ],
+      "private_key": "wywOQgzCr2vr85JpoMxzCakHIIvgUtsG6/Qp987NJa4=",
+      "server": "192.0.2.6",
+      "server_port": 7559,
+      "peer_public_key": "password1",
+      "reserved": "password2",
+      "mtu": 1280,
+      "fake_packets": "5-10",
+      "fake_packets_size": "40-100",
+      "fake_packets_delay": "20-250"
+    },
+    {
+      "type": "dns",
+      "tag": "Proxy 2"
+    },
+    {
+      "type": "direct",
+      "tag": "Proxy 3"
+    },
+    {
+      "type": "direct",
+      "tag": "Proxy 4",
+      "tls_fragment": {
+        "enabled": true,
+        "size": "1-500",
+        "sleep": "0-500"
+      }
+    },
+    {
+      "type": "direct",
+      "tag": "Proxy 5"
+    },
+    {
+      "type": "block",
+      "tag": "Proxy 6"
+    }
+  ],
+  "route": {
+    "geoip": {
+      "path": "./path-1.db"
+    },
+    "geosite": {
+      "path": "./path-2.db"
+    },
+    "rules": [
+      {
+        "inbound": "in-3",
+        "outbound": "Proxy 2"
+      },
+      {
+        "port": 53,
+        "outbound": "Proxy 2"
+      },
+      {
+        "clash_mode": "Direct",
+        "outbound": "Proxy 3"
+      },
+      {
+        "clash_mode": "Global",
+        "outbound": "Group 1"
+      },
+      {
+        "domain_suffix": ".d1.example",
+        "geosite": "ir",
+        "geoip": "ir",
+        "outbound": "Proxy 5"
+      }
+    ],
+    "final": "Group 1",
+    "auto_detect_interface": true,
+    "override_android_vpn": true
+  },
+  "experimental": {
+    "cache_file": {
+      "enabled": true,
+      "path": "./path-3.db"
+    },
+    "clash_api": {
+      "external_controller": "127.0.0.1:6756"
+    }
+  }
+}

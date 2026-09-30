@@ -1,0 +1,96 @@
+mixed-port: 7890
+allow-lan: false
+tcp-concurrent: true
+enable-process: true
+find-process-mode: always
+mode: rule
+log-level: info
+ipv6: false
+keep-alive-interval: 30
+unified-delay: true
+profile:
+  store-selected: true
+  store-fake-ip: true
+sniffer:
+  enable: true
+  force-dns-mapping: true
+  parse-pure-ip: true
+  override-destination: false
+  sniff:
+    HTTP:
+      ports:
+        - 80
+        - 8080-8880
+      override-destination: true
+    TLS:
+      ports:
+        - 443
+        - 8443
+  skip-dst-address:
+    - 0.0.0.0/8
+    - 10.0.0.0/8
+    - 127.0.0.0/8
+    - 192.168.0.0/16
+    - fc00::/7
+tun:
+  enable: true
+  stack: gvisor
+  auto-route: true
+  auto-detect-interface: true
+  dns-hijack:
+    - any:53
+    - tcp://any:53
+  strict-route: true
+dns:
+  enable: true
+  prefer-h3: false
+  use-hosts: true
+  use-system-hosts: true
+  ipv6: false
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  default-nameserver:
+    - 192.0.2.1
+    - 192.0.2.2
+  proxy-server-nameserver:
+    - https://192.0.2.3/dns-query
+    - https://192.0.2.4/dns-query
+  nameserver:
+    - https://192.0.2.3/dns-query
+    - https://192.0.2.4/dns-query
+    - https://192.0.2.2/dns-query
+geodata-mode: true
+geo-auto-update: true
+geo-update-interval: 24
+proxies:
+  - name: "Proxy 1"
+    type: vless
+    server:
+    port:
+    uuid: ""
+    flow: xtls-rprx-vision
+    network: tcp
+    udp: true
+    tls: true
+    servername: ""
+    reality-opts:
+      public-key: ""
+      short-id: ""
+    client-fingerprint:
+proxy-groups:
+  - name: "PROXY"
+    type: select
+    proxies:
+      - "Proxy 1"
+      - "DIRECT"
+rules:
+  - DOMAIN-SUFFIX,d1.example,DIRECT
+  - IP-CIDR,127.0.0.0/8,DIRECT
+  - IP-CIDR,172.16.0.0/12,DIRECT
+  - IP-CIDR,192.168.0.0/16,DIRECT
+  - IP-CIDR,10.0.0.0/8,DIRECT
+  - IP-CIDR,240.0.0.0/8,DIRECT
+  - IP-CIDR,100.64.0.0/10,DIRECT
+  - GEOSITE,category-ads-all,REJECT
+  - GEOSITE,win-spy,REJECT
+  - MATCH,DIRECT

@@ -1,0 +1,107 @@
+{
+  "dns": {
+    "servers": [
+      {
+        "type": "tls",
+        "server": "192.0.2.1",
+        "detour": "Proxy 2"
+      }
+    ]
+  },
+  "inbounds": [
+    {
+      "type": "tun",
+      "tag": "in-1",
+      "address": [
+        "192.0.2.1/30"
+      ],
+      "auto_route": true,
+      "strict_route": false
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "Proxy 1",
+      "type": "direct"
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 2",
+      "uuid": "00005a11-0000-4000-8000-000000000001",
+      "packet_encoding": "xudp",
+      "server": "192.0.2.2",
+      "server_port": 18952,
+      "flow": "",
+      "tls": {
+        "enabled": true,
+        "server_name": "sni1.example.org",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        },
+        "reality": {
+          "enabled": true,
+          "public_key": "wywOQgzCr2vr85JpoMxzCakHIIvgUtsG6_Qp987NJa4",
+          "short_id": "704c7085dd7b3f73"
+        }
+      },
+      "multiplex": {
+        "enabled": true,
+        "protocol": "h2mux",
+        "max_connections": 1,
+        "min_streams": 4,
+        "padding": true,
+        "brutal": {
+          "enabled": true,
+          "up_mbps": 50,
+          "down_mbps": 100
+        }
+      }
+    }
+  ],
+  "route": {
+    "final": "Proxy 2",
+    "auto_detect_interface": true,
+    "rules": [
+      {
+        "action": "sniff"
+      },
+      {
+        "protocol": "dns",
+        "action": "hijack-dns"
+      },
+      {
+        "ip_is_private": true,
+        "outbound": "Proxy 1"
+      },
+      {
+        "rule_set": [
+          "set-1"
+        ],
+        "outbound": "Proxy 2"
+      },
+      {
+        "rule_set": [
+          "set-2"
+        ],
+        "outbound": "Proxy 1"
+      }
+    ],
+    "rule_set": [
+      {
+        "tag": "set-1",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p1.srs",
+        "download_detour": "Proxy 2"
+      },
+      {
+        "tag": "set-2",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p2.srs",
+        "download_detour": "Proxy 2"
+      }
+    ]
+  }
+}

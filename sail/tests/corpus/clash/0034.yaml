@@ -1,0 +1,65 @@
+port: 7890
+socks-port: 7891
+allow-lan: true
+mode: rule
+log-level: info
+proxies:
+  - name: Proxy 1
+    type: vless
+    server: 192.0.2.1
+    port: 8443
+    uuid: 00005a11-0000-4000-8000-000000000001
+    udp: true
+    tls: true
+    skip-cert-verify: true
+    servername: sni1.example.org
+    network: ws
+    ws-opts:
+      path: /p1
+      headers:
+        Host: sni1.example.org
+  - name: Proxy 2
+    type: vless
+    server: 192.0.2.2
+    port: 22573
+    uuid: 00005a11-0000-4000-8000-000000000002
+    udp: true
+    tls: false
+    skip-cert-verify: true
+    network: ws
+    ws-opts:
+      path: /p1
+      headers:
+        Host: sni2.example.org
+  - name: Proxy 3
+    type: vless
+    server: 192.0.2.1
+    port: 2053
+    uuid: 00005a11-0000-4000-8000-000000000001
+    udp: true
+    tls: true
+    skip-cert-verify: true
+    servername: sni1.example.org
+    network: ws
+    ws-opts:
+      path: /p1
+      headers:
+        Host: sni1.example.org
+proxy-groups:
+  - name: Group 1
+    type: select
+    proxies:
+      - Group 2
+      - Proxy 1
+      - Proxy 2
+      - Proxy 3
+  - name: Group 2
+    type: url-test
+    url: https://h1.example.com/generate_204
+    interval: 300
+    proxies:
+      - Proxy 1
+      - Proxy 2
+      - Proxy 3
+rules:
+  - MATCH,Group 1

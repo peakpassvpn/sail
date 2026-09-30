@@ -1,0 +1,22 @@
+proxies:
+  - name: "Proxy 1"
+    type: vless
+    server: s1.example.net
+    port: 443
+    uuid: 00005a11-0000-4000-8000-000000000001
+    cipher: none
+    tls: true
+    skip-cert-verify: true
+    network: ws
+    ws-opts:
+      path: /p1
+      headers:
+        Host: s1.example.net
+    servername: s1.example.net
+proxy-groups:
+  - name: "Group 1"
+    type: select
+    proxies:
+      - "Proxy 1"
+rules:
+  - MATCH,Group 1

@@ -1,0 +1,116 @@
+mixed-port: 7890
+allow-lan: true
+mode: rule
+log-level: info
+external-controller: 0.0.0.0:9090
+proxies:
+proxy-groups:
+  - name: PROXY
+    type: select
+    proxies:
+      - Group 1
+      - Group 2
+      - DIRECT
+      - REJECT
+    use:
+      - provider-1
+  - name: Group 1
+    type: fallback
+    use:
+      - provider-1
+    url: http://h1.example.com/generate_204
+    interval: 90
+  - name: Group 2
+    type: url-test
+    use:
+      - provider-1
+    url: http://h1.example.com/generate_204
+    interval: 90
+  - name: Group 3
+    type: select
+    proxies:
+      - DIRECT
+      - PROXY
+proxy-providers:
+  provider-1:
+    type: http
+    url: https://h2.example.com/p1?type=v1&speed=12
+    path: ./path-1.yaml
+    health-check:
+      enable: true
+      interval: 90
+      url: http://h1.example.com/generate_204
+rule-providers:
+  set-1:
+    type: http
+    behavior: domain
+    url: https://h3.example.com/p2.txt
+    path: ./path-2.yaml
+  set-2:
+    type: http
+    behavior: domain
+    url: https://h3.example.com/p3.txt
+    path: ./path-3.yaml
+  set-3:
+    type: http
+    behavior: domain
+    url: https://h3.example.com/p4.txt
+    path: ./path-4.yaml
+  set-4:
+    type: http
+    behavior: domain
+    url: https://h3.example.com/p5.txt
+    path: ./path-5.yaml
+  set-5:
+    type: http
+    behavior: domain
+    url: https://h3.example.com/p6.txt
+    path: ./path-6.yaml
+  set-6:
+    type: http
+    behavior: domain
+    url: https://h3.example.com/p7.txt
+    path: ./path-7.yaml
+  set-7:
+    type: http
+    behavior: domain
+    url: https://h3.example.com/p8.txt
+    path: ./path-8.yaml
+  set-8:
+    type: http
+    behavior: ipcidr
+    url: https://h3.example.com/p9.txt
+    path: ./path-9.yaml
+  set-9:
+    type: http
+    behavior: ipcidr
+    url: https://h3.example.com/p10.txt
+    path: ./path-10.yaml
+  set-10:
+    type: http
+    behavior: ipcidr
+    url: https://h3.example.com/p11.txt
+    path: ./path-11.yaml
+  set-11:
+    type: http
+    behavior: classical
+    url: https://h3.example.com/p12.txt
+    path: ./path-12.yaml
+rules:
+  - DOMAIN-KEYWORD,kw1,DIRECT
+  - RULE-SET,set-11,DIRECT
+  - DOMAIN,d1.example,DIRECT
+  - DOMAIN,d2.example,DIRECT
+  - RULE-SET,set-7,DIRECT
+  - RULE-SET,set-1,REJECT
+  - RULE-SET,set-2,DIRECT
+  - RULE-SET,set-3,DIRECT
+  - RULE-SET,set-4,DIRECT
+  - RULE-SET,set-5,PROXY
+  - RULE-SET,set-6,DIRECT
+  - RULE-SET,set-10,DIRECT
+  - RULE-SET,set-9,DIRECT
+  - RULE-SET,set-8,PROXY
+  - GEOIP,,DIRECT
+  - GEOIP,CN,DIRECT
+  - MATCH,Group 3

@@ -1,0 +1,1004 @@
+port: 7890
+socks-port: 7891
+allow-lan: true
+dns:
+  enable: true
+  ipv6: false
+  use-host: true
+  enhanced-mode: fake-ip
+  listen: 0.0.0.0:7874
+  nameserver:
+    - 192.0.2.1
+    - 192.0.2.2
+    - https://h1.example.com/dns-query
+  fallback:
+    - 192.0.2.3
+    - 192.0.2.4
+    - https://h2.example.com/dns-query
+    - 192.0.2.5
+  default-nameserver:
+    - 192.0.2.1
+    - 192.0.2.3
+    - 192.0.2.5
+mode: Rule
+log-level: info
+external-controller: 127.0.0.1:9090
+experimental:
+  ignore-resolve-fail: true
+hosts:
+  d1.example: 192.0.2.6
+proxies:
+  - name: Proxy 1
+    server: 192.0.2.7
+    port: 443
+    type: vmess
+    uuid: 00005a11-0000-4000-8000-000000000001
+    alterId: 0
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    servername: sni2.example.org
+    network: ws
+    ws-opts:
+      path: /p1
+      headers:
+        Host: sni2.example.org
+    udp: true
+  - name: Proxy 2
+    server: s3.example.net
+    port: 80
+    type: vmess
+    uuid: 00005a11-0000-4000-8000-000000000002
+    alterId: 0
+    cipher: auto
+    tls: false
+    skip-cert-verify: true
+    servername: sni4.example.org
+    network: ws
+    ws-opts:
+      path: /p1
+      headers:
+        Host: sni4.example.org
+    udp: true
+  - name: Proxy 3
+    server: 192.0.2.7
+    port: 443
+    type: vmess
+    uuid: 00005a11-0000-4000-8000-000000000001
+    alterId: 0
+    cipher: auto
+    network: grpc
+    tls: true
+    servername: sni2.example.org
+    skip-cert-verify: true
+    grpc-opts:
+      grpc-service-name: str1
+  - name: Proxy 4
+    server: 192.0.2.7
+    port: 443
+    type: vless
+    uuid: 00005a11-0000-4000-8000-000000000003
+    alterId: 0
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    servername: sni5.example.org
+    network: ws
+    ws-opts:
+      path: /p2
+      headers:
+        Host: sni5.example.org
+    udp: true
+  - name: Proxy 5
+    server: 192.0.2.7
+    port: 443
+    type: vless
+    uuid: 00005a11-0000-4000-8000-000000000003
+    alterId: 0
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    servername: sni6.example.org
+    network: ws
+    ws-opts:
+      path: /p2
+      headers:
+        Host: sni6.example.org
+    udp: true
+  - name: Proxy 6
+    server: 192.0.2.7
+    port: 443
+    type: vless
+    uuid: 00005a11-0000-4000-8000-000000000004
+    alterId: 0
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    servername: sni7.example.org
+    network: ws
+    ws-opts:
+      path: /p2
+      headers:
+        Host: sni7.example.org
+    udp: true
+  - name: Proxy 7
+    server: 192.0.2.7
+    port: 443
+    type: vless
+    uuid: 00005a11-0000-4000-8000-000000000005
+    alterId: 0
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    servername: sni8.example.org
+    network: ws
+    ws-opts:
+      path: /p3
+      headers:
+        Host: sni8.example.org
+    udp: true
+proxy-groups:
+  - name: "Group 1"
+    type: select
+    strategy: round-robin
+    disable-udp: false
+    proxies:
+      - Proxy 1
+      - Proxy 2
+      - Proxy 3
+      - Proxy 4
+      - Proxy 5
+      - Proxy 6
+      - Proxy 7
+      - DIRECT
+  - name: "Group 2"
+    type: select
+    strategy: round-robin
+    disable-udp: false
+    proxies:
+      - Group 10
+      - Group 11
+      - Group 9
+      - Proxy 1
+      - Proxy 2
+      - Proxy 3
+      - Proxy 4
+      - Proxy 5
+      - Proxy 6
+      - Proxy 7
+      - DIRECT
+    url: 'http://h3.example.com/generate_204'
+    interval: 300
+  - name: "Group 3"
+    type: select
+    strategy: round-robin
+    disable-udp: false
+    proxies:
+      - Group 10
+      - Group 11
+      - Group 9
+      - Proxy 1
+      - Proxy 2
+      - Proxy 3
+      - Proxy 4
+      - Proxy 5
+      - Proxy 6
+      - Proxy 7
+      - DIRECT
+      - REJECT
+    url: 'http://h3.example.com/generate_204'
+    interval: 300
+  - name: "Group 4"
+    type: select
+    strategy: round-robin
+    disable-udp: false
+    proxies:
+      - Group 10
+      - Group 11
+      - Group 9
+      - Proxy 1
+      - Proxy 2
+      - Proxy 3
+      - Proxy 4
+      - Proxy 5
+      - Proxy 6
+      - Proxy 7
+      - DIRECT
+      - REJECT
+    url: 'http://h3.example.com/generate_204'
+    interval: 300
+  - name: "Group 5"
+    type: select
+    proxies:
+      - Group 10
+      - Group 11
+      - Group 9
+      - Proxy 1
+      - Proxy 2
+      - Proxy 3
+      - Proxy 4
+      - Proxy 5
+      - Proxy 6
+      - Proxy 7
+      - DIRECT
+      - REJECT
+    url: 'http://h3.example.com/generate_204'
+    interval: 300
+  - name: "Group 6"
+    type: select
+    strategy: round-robin
+    disable-udp: false
+    proxies:
+      - Group 10
+      - Group 11
+      - Group 9
+      - REJECT
+    url: 'http://h3.example.com/generate_204'
+    interval: 300
+  - name: "Group 7"
+    type: select
+    proxies:
+      - Group 10
+      - Group 11
+      - Group 9
+      - REJECT
+    url: 'http://h3.example.com/generate_204'
+    interval: 300
+  - name: "Group 8"
+    type: select
+    proxies:
+      - Group 10
+      - Group 11
+      - Group 9
+      - REJECT
+    url: 'http://h3.example.com/generate_204'
+    interval: 300
+  - name: "Group 9"
+    type: fallback
+    strategy: round-robin
+    disable-udp: false
+    proxies:
+      - Proxy 1
+      - Proxy 2
+      - Proxy 3
+      - Proxy 4
+      - Proxy 5
+      - Proxy 6
+      - Proxy 7
+    url: 'http://h3.example.com/generate_204'
+    interval: 300
+  - name: "Group 10"
+    type: url-test
+    strategy: round-robin
+    disable-udp: false
+    proxies:
+      - Proxy 1
+      - Proxy 2
+      - Proxy 3
+      - Proxy 4
+      - Proxy 5
+      - Proxy 6
+      - Proxy 7
+    url: 'http://h3.example.com/generate_204'
+    interval: 300
+  - name: "Group 11"
+    type: load-balance
+    strategy: round-robin
+    disable-udp: false
+    proxies:
+      - Proxy 1
+      - Proxy 2
+      - Proxy 3
+      - Proxy 4
+      - Proxy 5
+      - Proxy 6
+      - Proxy 7
+    url: 'http://h3.example.com/generate_204'
+    interval: 300
+  - name: "Group 12"
+    type: url-test
+    proxies:
+      - Group 1
+      - Group 2
+      - Group 3
+      - Group 4
+      - Group 5
+      - Group 6
+      - Group 7
+      - Group 8
+      - Group 10
+      - Group 11
+      - Group 9
+    url: 'http://h3.example.com/generate_204'
+    interval: 300
+cfw-bypass:
+  - d566.example
+  - d567.example
+  - '*.d568.example'
+  - localhost
+  - d569*.example
+  - d570*.example
+  - d571*.example
+  - d572*.example
+  - d573*.example
+  - d574*.example
+  - d575*.example
+  - d576*.example
+  - d577*.example
+  - d578*.example
+  - d579*.example
+  - d580*.example
+  - d581*.example
+  - d582*.example
+  - d583*.example
+  - d584*.example
+  - d585*.example
+  - d586*.example
+  - d587*.example
+  - str2
+cfw-latency-timeout: 5000
+rules:
+  - DOMAIN-SUFFIX,d9.example,Group 2
+  - DOMAIN-SUFFIX,d10.example,Group 2
+  - DOMAIN-SUFFIX,d11.example,Group 1
+  - DOMAIN-SUFFIX,d12.example,Group 1
+  - DOMAIN-SUFFIX,d13.example,Group 1
+  - DOMAIN-SUFFIX,d14.example,Group 2
+  - DOMAIN-SUFFIX,d15.example,Group 2
+  - DOMAIN-SUFFIX,d16.example,Group 2
+  - DOMAIN-SUFFIX,d17.example,Group 2
+  - DOMAIN-SUFFIX,d18.example,Group 12
+  - DOMAIN-SUFFIX,d19.example,Group 12
+  - DOMAIN-SUFFIX,d20.example,Group 12
+  - DOMAIN-SUFFIX,d21.example,Group 12
+  - DOMAIN-SUFFIX,d22.example,Group 12
+  - DOMAIN-SUFFIX,d23.example,Group 12
+  - DOMAIN-SUFFIX,d24.example,Group 12
+  - DOMAIN-SUFFIX,d25.example,Group 12
+  - DOMAIN-SUFFIX,d26.example,Group 12
+  - DOMAIN-SUFFIX,d27.example,Group 12
+  - DOMAIN-SUFFIX,d28.example,Group 12
+  - DOMAIN-SUFFIX,d29.example,Group 12
+  - DOMAIN-SUFFIX,d30.example,Group 12
+  - DOMAIN-SUFFIX,d31.example,Group 12
+  - DOMAIN-SUFFIX,d32.example,Group 12
+  - DOMAIN-KEYWORD,kw1,Group 12
+  - DOMAIN-KEYWORD,kw2,Group 12
+  - DOMAIN-KEYWORD,kw3,Group 12
+  - DST-PORT,8080,Group 12
+  - DOMAIN-SUFFIX,d33.example,Group 12
+  - DOMAIN-SUFFIX,d34.example,Group 12
+  - DOMAIN-KEYWORD,kw4,Group 7
+  - DOMAIN-SUFFIX,d35.example,Group 7
+  - DOMAIN-KEYWORD,kw5,Group 7
+  - DOMAIN-KEYWORD,kw6,Group 7
+  - DOMAIN-SUFFIX,d36.example,Group 7
+  - DOMAIN-KEYWORD,kw7,Group 7
+  - DOMAIN-SUFFIX,d37.example,Group 7
+  - DOMAIN-SUFFIX,d38.example,Group 7
+  - DOMAIN-SUFFIX,d39.example,Group 7
+  - DOMAIN-SUFFIX,d40.example,Group 7
+  - DOMAIN-SUFFIX,d41.example,Group 7
+  - DOMAIN-SUFFIX,d42.example,Group 7
+  - DOMAIN-SUFFIX,d43.example,Group 7
+  - DOMAIN-SUFFIX,d44.example,Group 7
+  - DOMAIN-SUFFIX,d45.example,Group 7
+  - DOMAIN-SUFFIX,d46.example,Group 7
+  - DOMAIN-SUFFIX,d47.example,Group 7
+  - DOMAIN-SUFFIX,d48.example,Group 7
+  - DOMAIN-KEYWORD,kw8,Group 7
+  - DOMAIN-KEYWORD,kw9,Group 7
+  - DOMAIN-KEYWORD,kw10,Group 7
+  - DOMAIN-KEYWORD,kw4,Group 7
+  - DOMAIN-KEYWORD,kw11,Group 7
+  - DOMAIN-KEYWORD,kw12,Group 7
+  - DOMAIN-KEYWORD,kw13,Group 7
+  - DOMAIN-KEYWORD,kw14,Group 7
+  - DOMAIN-KEYWORD,kw15,Group 7
+  - DOMAIN-KEYWORD,kw16,Group 7
+  - DOMAIN-SUFFIX,d49.example,Group 2
+  - DOMAIN-SUFFIX,d50.example,Group 2
+  - DOMAIN-SUFFIX,d51.example,Group 2
+  - DOMAIN-SUFFIX,d52.example,Group 2
+  - DOMAIN-SUFFIX,d53.example,Group 2
+  - DOMAIN-SUFFIX,d54.example,Group 2
+  - DOMAIN-SUFFIX,d55.example,Group 2
+  - DOMAIN-SUFFIX,d56.example,Group 2
+  - DOMAIN-SUFFIX,d57.example,Group 2
+  - DOMAIN-SUFFIX,d58.example,Group 2
+  - IP-CIDR,198.18.0.0/16,Group 2
+  - IP-CIDR,198.18.0.0/22,Group 2
+  - IP-CIDR,198.18.0.0/17,Group 2
+  - IP-CIDR,198.18.128.0/17,Group 2
+  - IP-CIDR,198.18.0.0/19,Group 2
+  - IP-CIDR,198.18.32.0/19,Group 2
+  - IP-CIDR,198.18.4.0/22,Group 2
+  - IP-CIDR,198.18.8.0/22,Group 2
+  - IP-CIDR,198.18.12.0/22,Group 2
+  - IP-CIDR,198.18.0.0/21,Group 2
+  - IP-CIDR,198.18.0.0/18,Group 2
+  - IP-CIDR,198.18.16.0/22,Group 2
+  - IP-CIDR,198.18.0.0/20,Group 2
+  - IP-CIDR,198.18.64.0/19,Group 2
+  - IP-CIDR,198.18.16.0/20,Group 2
+  - IP-CIDR,198.18.20.0/22,Group 2
+  - DOMAIN-SUFFIX,d59.example,Group 2
+  - DOMAIN-SUFFIX,d60.example,Group 2
+  - DOMAIN-SUFFIX,d61.example,Group 2
+  - DOMAIN-SUFFIX,d62.example,Group 2
+  - DOMAIN-SUFFIX,d63.example,Group 2
+  - DOMAIN-SUFFIX,d64.example,Group 2
+  - IP-CIDR,198.18.24.0/22,Group 2
+  - IP-CIDR,198.18.28.0/22,Group 2
+  - IP-CIDR,198.18.32.0/22,Group 2
+  - IP-CIDR,198.18.36.0/22,Group 2
+  - IP-CIDR,198.18.40.0/22,Group 2
+  - IP-CIDR,198.18.44.0/22,Group 2
+  - IP-CIDR,198.18.32.0/20,Group 2
+  - DOMAIN-KEYWORD,kw17,Group 2
+  - DOMAIN-KEYWORD,kw18,Group 2
+  - DOMAIN-SUFFIX,d65.example,Group 2
+  - DOMAIN-SUFFIX,d66.example,Group 2
+  - DOMAIN-SUFFIX,d67.example,Group 2
+  - DOMAIN-SUFFIX,d68.example,Group 2
+  - DOMAIN-SUFFIX,d69.example,Group 2
+  - DOMAIN-SUFFIX,d70.example,Group 2
+  - DOMAIN-SUFFIX,d71.example,Group 2
+  - DOMAIN-SUFFIX,d72.example,Group 2
+  - DOMAIN-SUFFIX,d73.example,Group 2
+  - DOMAIN,d74.example,Group 2
+  - DOMAIN-SUFFIX,d75.example,Group 2
+  - DOMAIN-SUFFIX,d76.example,Group 2
+  - DOMAIN-SUFFIX,d68.example,Group 2
+  - DOMAIN-SUFFIX,d70.example,Group 2
+  - DOMAIN-KEYWORD,kw19,Group 2
+  - IP-CIDR,198.19.174.0/16,Group 2
+  - IP-CIDR,192.0.2.0/27,Group 2
+  - IP-CIDR,198.51.100.0/27,Group 2
+  - IP-CIDR,203.0.113.0/27,Group 2
+  - IP-CIDR,192.0.2.32/27,Group 2
+  - IP-CIDR,198.51.100.32/27,Group 2
+  - IP-CIDR,198.18.243.0/16,Group 2
+  - IP-CIDR,198.18.0.0/15,Group 2
+  - IP-CIDR,198.19.0.0/17,Group 2
+  - IP-CIDR,203.0.113.32/27,Group 2
+  - IP-CIDR,240.0.0.0/12,Group 2
+  - IP-CIDR,192.0.2.0/30,Group 2
+  - IP-CIDR,198.18.0.0/15,Group 2
+  - IP-CIDR,198.19.235.0/16,Group 2
+  - IP-CIDR,198.18.150.0/16,Group 2
+  - DST-PORT,5228,Group 2
+  - DST-PORT,5222,Group 2
+  - DOMAIN-SUFFIX,d77.example,Group 3
+  - DOMAIN-SUFFIX,d78.example,Group 3
+  - DOMAIN-SUFFIX,d79.example,Group 3
+  - DOMAIN-SUFFIX,d80.example,Group 3
+  - DOMAIN-SUFFIX,d81.example,Group 3
+  - DOMAIN-SUFFIX,d82.example,Group 3
+  - DOMAIN-SUFFIX,d83.example,Group 3
+  - DOMAIN-SUFFIX,d84.example,Group 3
+  - DOMAIN-SUFFIX,d85.example,Group 3
+  - DOMAIN-SUFFIX,d86.example,Group 3
+  - DOMAIN-SUFFIX,d87.example,Group 3
+  - DOMAIN-SUFFIX,d88.example,Group 3
+  - DOMAIN-SUFFIX,d89.example,Group 3
+  - DOMAIN-SUFFIX,d90.example,Group 3
+  - DOMAIN-SUFFIX,d91.example,Group 3
+  - DOMAIN-SUFFIX,d92.example,Group 3
+  - DOMAIN-SUFFIX,d93.example,Group 3
+  - IP-CIDR,198.19.24.188/16,Group 3
+  - IP-CIDR,198.18.194.188/16,Group 3
+  - IP-CIDR,198.19.4.188/16,Group 3
+  - DOMAIN-SUFFIX,d94.example,Group 4
+  - DOMAIN-SUFFIX,d95.example,Group 4
+  - DOMAIN-SUFFIX,d96.example,Group 4
+  - DOMAIN-SUFFIX,d97.example,Group 4
+  - DOMAIN-SUFFIX,d98.example,Group 4
+  - DOMAIN-SUFFIX,d99.example,Group 4
+  - DOMAIN-SUFFIX,d100.example,Group 4
+  - DOMAIN-SUFFIX,d101.example,Group 4
+  - DOMAIN-SUFFIX,d102.example,Group 4
+  - DOMAIN-KEYWORD,kw20,Group 4
+  - DOMAIN-SUFFIX,d103.example,Group 6
+  - DOMAIN-SUFFIX,d104.example,Group 6
+  - DOMAIN-SUFFIX,d105.example,Group 6
+  - DOMAIN-SUFFIX,d106.example,Group 6
+  - DOMAIN-SUFFIX,d107.example,Group 6
+  - DOMAIN-SUFFIX,d108.example,Group 6
+  - DOMAIN-SUFFIX,d109.example,Group 6
+  - DOMAIN-SUFFIX,d110.example,Group 6
+  - DOMAIN-SUFFIX,d111.example,Group 6
+  - DOMAIN-SUFFIX,d112.example,Group 6
+  - DOMAIN-SUFFIX,d113.example,Group 6
+  - DOMAIN-SUFFIX,d114.example,Group 6
+  - DOMAIN-SUFFIX,d115.example,Group 6
+  - DOMAIN-SUFFIX,d116.example,Group 6
+  - DOMAIN-SUFFIX,d117.example,Group 6
+  - DOMAIN-SUFFIX,d118.example,Group 6
+  - DOMAIN-SUFFIX,d119.example,Group 6
+  - DOMAIN-SUFFIX,d120.example,Group 6
+  - DOMAIN-SUFFIX,d121.example,Group 6
+  - DOMAIN-SUFFIX,d122.example,Group 6
+  - DOMAIN-SUFFIX,d123.example,Group 6
+  - DOMAIN-SUFFIX,d124.example,Group 6
+  - DOMAIN-SUFFIX,d125.example,Group 6
+  - DOMAIN-SUFFIX,d126.example,Group 6
+  - DOMAIN-SUFFIX,d127.example,Group 6
+  - DOMAIN-SUFFIX,d128.example,Group 6
+  - DOMAIN-SUFFIX,d129.example,Group 6
+  - DOMAIN-SUFFIX,d130.example,Group 6
+  - DOMAIN-SUFFIX,d131.example,Group 6
+  - DOMAIN-SUFFIX,d132.example,Group 6
+  - DOMAIN-SUFFIX,d133.example,Group 6
+  - DOMAIN-SUFFIX,d134.example,Group 6
+  - DOMAIN-SUFFIX,d135.example,Group 6
+  - DOMAIN-SUFFIX,d136.example,Group 6
+  - DOMAIN-SUFFIX,d137.example,Group 6
+  - DOMAIN-SUFFIX,d138.example,Group 6
+  - DOMAIN-SUFFIX,d139.example,Group 6
+  - DOMAIN-SUFFIX,d140.example,Group 6
+  - DOMAIN-SUFFIX,d141.example,Group 6
+  - DOMAIN-SUFFIX,d142.example,Group 6
+  - DOMAIN-SUFFIX,d143.example,Group 6
+  - DOMAIN-SUFFIX,d144.example,Group 6
+  - DOMAIN-SUFFIX,d145.example,Group 6
+  - DOMAIN-SUFFIX,d146.example,Group 6
+  - DOMAIN-SUFFIX,d147.example,Group 6
+  - DOMAIN-SUFFIX,d148.example,Group 6
+  - DOMAIN-SUFFIX,d149.example,Group 6
+  - DOMAIN-SUFFIX,d150.example,Group 6
+  - DOMAIN-SUFFIX,d151.example,Group 6
+  - DOMAIN-SUFFIX,d152.example,Group 6
+  - DOMAIN-SUFFIX,d153.example,Group 6
+  - DOMAIN-SUFFIX,d154.example,Group 6
+  - DOMAIN-SUFFIX,d155.example,Group 6
+  - DOMAIN-SUFFIX,d156.example,Group 6
+  - DOMAIN-SUFFIX,d157.example,Group 6
+  - DOMAIN-SUFFIX,d158.example,Group 6
+  - DOMAIN-SUFFIX,d159.example,Group 6
+  - DOMAIN-SUFFIX,d160.example,Group 6
+  - DOMAIN-SUFFIX,d161.example,Group 6
+  - DOMAIN-SUFFIX,d162.example,Group 6
+  - DOMAIN-SUFFIX,d163.example,Group 6
+  - DOMAIN-SUFFIX,d164.example,Group 6
+  - DOMAIN-SUFFIX,d165.example,Group 6
+  - DOMAIN-SUFFIX,d166.example,Group 6
+  - DOMAIN-SUFFIX,d167.example,Group 6
+  - DOMAIN-SUFFIX,d168.example,Group 6
+  - DOMAIN-SUFFIX,d169.example,Group 6
+  - DOMAIN-SUFFIX,d170.example,Group 6
+  - DOMAIN-SUFFIX,d171.example,Group 6
+  - DOMAIN-SUFFIX,d172.example,Group 6
+  - DOMAIN-SUFFIX,d173.example,Group 6
+  - DOMAIN-SUFFIX,d174.example,Group 6
+  - DOMAIN-SUFFIX,d175.example,Group 6
+  - DOMAIN-SUFFIX,d176.example,Group 6
+  - DOMAIN-SUFFIX,d177.example,Group 6
+  - DOMAIN-SUFFIX,d178.example,Group 6
+  - DOMAIN-SUFFIX,d179.example,Group 6
+  - DOMAIN-SUFFIX,d180.example,Group 6
+  - DOMAIN-SUFFIX,d181.example,Group 6
+  - DOMAIN-SUFFIX,d182.example,Group 6
+  - DOMAIN-SUFFIX,d183.example,Group 6
+  - DOMAIN-SUFFIX,d184.example,Group 6
+  - DOMAIN-SUFFIX,d185.example,Group 6
+  - DOMAIN-SUFFIX,d186.example,Group 6
+  - DOMAIN-SUFFIX,d187.example,Group 6
+  - DOMAIN-SUFFIX,d188.example,Group 6
+  - DOMAIN-SUFFIX,d189.example,Group 6
+  - DOMAIN-SUFFIX,d190.example,Group 6
+  - DOMAIN-SUFFIX,d191.example,Group 6
+  - DOMAIN-SUFFIX,d192.example,Group 6
+  - DOMAIN-SUFFIX,d193.example,Group 6
+  - DOMAIN-SUFFIX,d194.example,Group 6
+  - DOMAIN-SUFFIX,d195.example,Group 6
+  - DOMAIN-SUFFIX,d196.example,Group 6
+  - DOMAIN-SUFFIX,d197.example,Group 6
+  - DOMAIN-SUFFIX,d198.example,Group 6
+  - DOMAIN-SUFFIX,d199.example,Group 6
+  - DOMAIN-SUFFIX,d200.example,Group 6
+  - DOMAIN-SUFFIX,d201.example,Group 6
+  - DOMAIN-SUFFIX,d202.example,Group 6
+  - DOMAIN-SUFFIX,d203.example,Group 6
+  - DOMAIN-SUFFIX,d204.example,Group 6
+  - DOMAIN-SUFFIX,d205.example,Group 6
+  - DOMAIN-SUFFIX,d206.example,Group 6
+  - DOMAIN-SUFFIX,d207.example,Group 6
+  - DOMAIN-SUFFIX,d208.example,Group 6
+  - DOMAIN-SUFFIX,d209.example,Group 6
+  - DOMAIN-SUFFIX,d210.example,Group 6
+  - DOMAIN-SUFFIX,d211.example,Group 6
+  - DOMAIN-SUFFIX,d212.example,Group 6
+  - DOMAIN-SUFFIX,d213.example,Group 6
+  - DOMAIN-SUFFIX,d214.example,Group 6
+  - DOMAIN-SUFFIX,d215.example,Group 6
+  - DOMAIN-SUFFIX,d216.example,Group 6
+  - DOMAIN-SUFFIX,d217.example,Group 6
+  - DOMAIN-SUFFIX,d218.example,Group 6
+  - DOMAIN-SUFFIX,d219.example,Group 6
+  - DOMAIN-SUFFIX,d220.example,Group 6
+  - DOMAIN-SUFFIX,d221.example,Group 6
+  - DOMAIN-SUFFIX,d222.example,Group 6
+  - DOMAIN-SUFFIX,d223.example,Group 6
+  - DOMAIN-SUFFIX,d224.example,Group 6
+  - DOMAIN-SUFFIX,d225.example,Group 6
+  - DOMAIN-SUFFIX,d226.example,Group 6
+  - DOMAIN-SUFFIX,d227.example,Group 6
+  - DOMAIN-SUFFIX,d228.example,Group 6
+  - DOMAIN-SUFFIX,d229.example,Group 6
+  - DOMAIN-SUFFIX,d230.example,Group 6
+  - DOMAIN-SUFFIX,d231.example,Group 6
+  - DOMAIN-SUFFIX,d232.example,Group 6
+  - DOMAIN-SUFFIX,d233.example,Group 6
+  - DOMAIN-SUFFIX,d234.example,Group 6
+  - DOMAIN-SUFFIX,d235.example,Group 6
+  - DOMAIN-SUFFIX,d236.example,Group 6
+  - DOMAIN-SUFFIX,d237.example,Group 6
+  - DOMAIN-SUFFIX,d238.example,Group 6
+  - DOMAIN-SUFFIX,d239.example,Group 6
+  - DOMAIN-SUFFIX,d240.example,Group 6
+  - DOMAIN-SUFFIX,d241.example,Group 6
+  - DOMAIN-SUFFIX,d242.example,Group 6
+  - DOMAIN-SUFFIX,d243.example,Group 6
+  - DOMAIN-SUFFIX,d244.example,Group 6
+  - DOMAIN-SUFFIX,d245.example,Group 6
+  - DOMAIN-SUFFIX,d246.example,Group 6
+  - DOMAIN-SUFFIX,d247.example,Group 6
+  - DOMAIN-SUFFIX,d248.example,Group 6
+  - DOMAIN-SUFFIX,d249.example,Group 6
+  - DOMAIN-SUFFIX,d250.example,Group 6
+  - DOMAIN-SUFFIX,d251.example,Group 6
+  - DOMAIN-SUFFIX,d252.example,Group 6
+  - DOMAIN-SUFFIX,d253.example,Group 6
+  - DOMAIN-SUFFIX,d254.example,Group 6
+  - DOMAIN-SUFFIX,d255.example,Group 6
+  - DOMAIN-SUFFIX,d256.example,Group 6
+  - DOMAIN-SUFFIX,d257.example,Group 6
+  - DOMAIN-SUFFIX,d258.example,Group 6
+  - DOMAIN-SUFFIX,d259.example,Group 6
+  - DOMAIN-SUFFIX,d260.example,Group 6
+  - DOMAIN-SUFFIX,d261.example,Group 6
+  - DOMAIN-SUFFIX,d262.example,Group 6
+  - DOMAIN-SUFFIX,d263.example,Group 6
+  - DOMAIN-SUFFIX,d264.example,Group 6
+  - DOMAIN-SUFFIX,d265.example,Group 6
+  - DOMAIN-SUFFIX,d266.example,Group 6
+  - DOMAIN-SUFFIX,d267.example,Group 6
+  - DOMAIN-SUFFIX,d268.example,Group 6
+  - DOMAIN-SUFFIX,d269.example,Group 6
+  - DOMAIN-SUFFIX,d270.example,Group 6
+  - DOMAIN-SUFFIX,d271.example,Group 6
+  - DOMAIN-SUFFIX,d272.example,Group 6
+  - DOMAIN-SUFFIX,d273.example,Group 6
+  - DOMAIN-SUFFIX,d274.example,Group 6
+  - DOMAIN-SUFFIX,d275.example,Group 6
+  - DOMAIN-SUFFIX,d276.example,Group 6
+  - DOMAIN-SUFFIX,d277.example,Group 6
+  - DOMAIN-SUFFIX,d278.example,Group 6
+  - DOMAIN-SUFFIX,d279.example,Group 6
+  - DOMAIN-SUFFIX,d280.example,Group 6
+  - DOMAIN-SUFFIX,d103.example,Group 6
+  - DOMAIN-SUFFIX,d106.example,Group 6
+  - DOMAIN-SUFFIX,d281.example,Group 6
+  - DOMAIN-SUFFIX,d282.example,Group 6
+  - DOMAIN-SUFFIX,d283.example,Group 6
+  - DOMAIN-SUFFIX,d284.example,Group 6
+  - DOMAIN-SUFFIX,d285.example,Group 6
+  - DOMAIN-SUFFIX,d110.example,Group 6
+  - DOMAIN-SUFFIX,d112.example,Group 6
+  - DOMAIN-SUFFIX,d286.example,Group 6
+  - DOMAIN-SUFFIX,d287.example,Group 6
+  - DOMAIN-SUFFIX,d288.example,Group 6
+  - DOMAIN-SUFFIX,d289.example,Group 6
+  - DOMAIN-SUFFIX,d290.example,Group 6
+  - DOMAIN-SUFFIX,d291.example,Group 6
+  - DOMAIN-SUFFIX,d292.example,Group 6
+  - DOMAIN-SUFFIX,d293.example,Group 6
+  - DOMAIN-SUFFIX,d294.example,Group 6
+  - DOMAIN-SUFFIX,d295.example,Group 6
+  - DOMAIN-SUFFIX,d296.example,Group 6
+  - DOMAIN-SUFFIX,d297.example,Group 6
+  - DOMAIN-SUFFIX,d298.example,Group 6
+  - DOMAIN-SUFFIX,d299.example,Group 6
+  - DOMAIN-SUFFIX,d300.example,Group 6
+  - DOMAIN-SUFFIX,d301.example,Group 6
+  - DOMAIN-SUFFIX,d302.example,Group 6
+  - DOMAIN-SUFFIX,d303.example,Group 6
+  - DOMAIN-SUFFIX,d304.example,Group 6
+  - DOMAIN-SUFFIX,d305.example,Group 6
+  - DOMAIN-SUFFIX,d306.example,Group 6
+  - DOMAIN-SUFFIX,d307.example,Group 6
+  - DOMAIN-SUFFIX,d308.example,Group 6
+  - DOMAIN-SUFFIX,d309.example,Group 6
+  - DOMAIN-SUFFIX,d310.example,Group 6
+  - DOMAIN-SUFFIX,d311.example,Group 6
+  - DOMAIN-SUFFIX,d312.example,Group 6
+  - DOMAIN-SUFFIX,d313.example,Group 6
+  - DOMAIN-SUFFIX,d314.example,Group 6
+  - DOMAIN-SUFFIX,d315.example,Group 6
+  - DOMAIN-SUFFIX,d316.example,Group 6
+  - DOMAIN-SUFFIX,d317.example,Group 6
+  - DOMAIN-SUFFIX,d318.example,Group 6
+  - DOMAIN-SUFFIX,d319.example,Group 6
+  - DOMAIN-SUFFIX,d320.example,Group 6
+  - DOMAIN-SUFFIX,d321.example,Group 6
+  - DOMAIN-SUFFIX,d322.example,Group 6
+  - DOMAIN-SUFFIX,d323.example,Group 6
+  - DOMAIN-SUFFIX,d324.example,Group 6
+  - DOMAIN-SUFFIX,d325.example,Group 6
+  - DOMAIN-SUFFIX,d326.example,Group 6
+  - DOMAIN-SUFFIX,d327.example,Group 6
+  - DOMAIN-SUFFIX,d328.example,Group 6
+  - DOMAIN-SUFFIX,d329.example,Group 6
+  - DOMAIN-SUFFIX,d330.example,Group 6
+  - DOMAIN-SUFFIX,d331.example,Group 6
+  - DOMAIN-SUFFIX,d332.example,Group 6
+  - DOMAIN-SUFFIX,d333.example,Group 6
+  - DOMAIN-SUFFIX,d334.example,Group 6
+  - DOMAIN-SUFFIX,d335.example,Group 6
+  - DOMAIN-SUFFIX,d336.example,Group 6
+  - DOMAIN-SUFFIX,d337.example,Group 6
+  - DOMAIN-SUFFIX,d338.example,Group 6
+  - DOMAIN-SUFFIX,d339.example,Group 6
+  - DOMAIN-SUFFIX,d340.example,Group 6
+  - DOMAIN-SUFFIX,d341.example,Group 6
+  - DOMAIN-SUFFIX,d342.example,Group 6
+  - DOMAIN-SUFFIX,d343.example,Group 6
+  - DOMAIN-SUFFIX,d344.example,Group 6
+  - DOMAIN-SUFFIX,d345.example,Group 6
+  - DOMAIN-SUFFIX,d346.example,Group 6
+  - DOMAIN-SUFFIX,d347.example,Group 6
+  - DOMAIN-SUFFIX,d348.example,Group 6
+  - DOMAIN-SUFFIX,d349.example,Group 6
+  - DOMAIN-SUFFIX,d350.example,Group 6
+  - DOMAIN-SUFFIX,d351.example,Group 6
+  - DOMAIN-SUFFIX,d352.example,Group 6
+  - DOMAIN-SUFFIX,d353.example,Group 6
+  - DOMAIN-SUFFIX,d354.example,Group 6
+  - DOMAIN-SUFFIX,d355.example,Group 6
+  - DOMAIN-SUFFIX,d356.example,Group 6
+  - DOMAIN-SUFFIX,d357.example,Group 6
+  - DOMAIN-SUFFIX,d358.example,Group 6
+  - DOMAIN-SUFFIX,d359.example,Group 6
+  - DOMAIN-SUFFIX,d360.example,Group 6
+  - DOMAIN-SUFFIX,d361.example,Group 6
+  - DOMAIN-SUFFIX,d362.example,Group 5
+  - DOMAIN-SUFFIX,d363.example,Group 5
+  - DOMAIN-SUFFIX,d364.example,Group 5
+  - DOMAIN-SUFFIX,d365.example,Group 5
+  - DOMAIN-SUFFIX,d366.example,Group 5
+  - DOMAIN-SUFFIX,d367.example,Group 5
+  - DOMAIN-SUFFIX,d368.example,Group 5
+  - DOMAIN-SUFFIX,d369.example,Group 5
+  - DOMAIN-SUFFIX,d370.example,Group 5
+  - DOMAIN-SUFFIX,d371.example,Group 5
+  - DOMAIN-SUFFIX,d372.example,Group 5
+  - DOMAIN-SUFFIX,d373.example,Group 5
+  - DOMAIN-KEYWORD,kw21,Group 5
+  - DOMAIN-KEYWORD,kw22,Group 5
+  - DOMAIN-KEYWORD,kw23,Group 5
+  - DOMAIN-KEYWORD,kw24,Group 5
+  - DOMAIN-KEYWORD,kw25,Group 5
+  - DOMAIN-KEYWORD,kw26,Group 5
+  - DOMAIN-KEYWORD,kw27,Group 5
+  - DOMAIN-KEYWORD,kw28,Group 5
+  - DOMAIN-KEYWORD,kw29,Group 5
+  - DOMAIN-KEYWORD,kw30,Group 5
+  - DOMAIN-KEYWORD,kw31,Group 5
+  - DOMAIN-KEYWORD,kw32,Group 5
+  - DOMAIN-KEYWORD,kw33,Group 5
+  - DOMAIN-KEYWORD,kw34,Group 5
+  - DOMAIN-KEYWORD,kw35,Group 5
+  - DOMAIN-KEYWORD,kw36,Group 5
+  - DOMAIN-KEYWORD,kw37,Group 5
+  - DOMAIN-KEYWORD,kw38,Group 5
+  - DOMAIN-KEYWORD,kw39,Group 5
+  - DOMAIN-KEYWORD,kw40,Group 5
+  - DOMAIN-KEYWORD,kw41,Group 5
+  - DOMAIN-KEYWORD,kw42,Group 5
+  - DOMAIN-KEYWORD,kw43,Group 5
+  - DOMAIN-SUFFIX,d365.example,Group 5
+  - DOMAIN-SUFFIX,d374.example,Group 5
+  - DOMAIN-SUFFIX,d375.example,Group 5
+  - DOMAIN-SUFFIX,d366.example,Group 5
+  - DOMAIN-SUFFIX,d376.example,Group 5
+  - DOMAIN-SUFFIX,d377.example,Group 5
+  - DOMAIN-SUFFIX,d378.example,Group 5
+  - DOMAIN-SUFFIX,d379.example,Group 5
+  - DOMAIN-SUFFIX,d380.example,Group 5
+  - DOMAIN-SUFFIX,d381.example,Group 5
+  - DOMAIN-SUFFIX,d382.example,Group 5
+  - DOMAIN-SUFFIX,d383.example,Group 8
+  - DOMAIN-SUFFIX,d384.example,Group 8
+  - DOMAIN-SUFFIX,d385.example,Group 8
+  - DOMAIN-SUFFIX,d386.example,Group 8
+  - DOMAIN-SUFFIX,d387.example,Group 8
+  - DOMAIN-SUFFIX,d388.example,Group 8
+  - DOMAIN-SUFFIX,d389.example,Group 8
+  - DOMAIN-SUFFIX,d390.example,Group 8
+  - DOMAIN-SUFFIX,d391.example,Group 8
+  - DOMAIN-SUFFIX,d392.example,Group 8
+  - DOMAIN-SUFFIX,d393.example,Group 8
+  - DOMAIN-SUFFIX,d394.example,Group 8
+  - DOMAIN-SUFFIX,d395.example,Group 8
+  - DOMAIN-SUFFIX,d396.example,Group 8
+  - DOMAIN-SUFFIX,d397.example,Group 8
+  - DOMAIN-SUFFIX,d398.example,Group 8
+  - DOMAIN-SUFFIX,d399.example,Group 8
+  - DOMAIN-SUFFIX,d400.example,Group 8
+  - DOMAIN-SUFFIX,d401.example,Group 8
+  - DOMAIN-SUFFIX,d402.example,Group 8
+  - DOMAIN-SUFFIX,d403.example,Group 8
+  - DOMAIN-SUFFIX,d404.example,Group 8
+  - DOMAIN-SUFFIX,d405.example,Group 8
+  - DOMAIN-SUFFIX,d406.example,Group 8
+  - DOMAIN-SUFFIX,d407.example,Group 8
+  - DOMAIN-KEYWORD,kw44,Group 8
+  - DOMAIN-KEYWORD,kw45,Group 8
+  - DOMAIN-SUFFIX,d408.example,Group 8
+  - DOMAIN-SUFFIX,d407.example,Group 8
+  - DOMAIN-SUFFIX,d409.example,Group 8
+  - DOMAIN-SUFFIX,d410.example,Group 8
+  - DOMAIN-SUFFIX,d411.example,Group 8
+  - DOMAIN-SUFFIX,d412.example,Group 8
+  - DOMAIN-SUFFIX,d413.example,Group 8
+  - DOMAIN-SUFFIX,d414.example,Group 8
+  - DOMAIN-SUFFIX,d415.example,Group 8
+  - DOMAIN-SUFFIX,d416.example,Group 8
+  - DOMAIN-SUFFIX,d417.example,Group 8
+  - DOMAIN-SUFFIX,d418.example,Group 8
+  - DOMAIN-SUFFIX,d419.example,Group 8
+  - DOMAIN-SUFFIX,d420.example,Group 8
+  - DOMAIN-SUFFIX,d421.example,Group 8
+  - DOMAIN-SUFFIX,d422.example,Group 8
+  - DOMAIN-SUFFIX,d423.example,Group 8
+  - DOMAIN-SUFFIX,d424.example,Group 8
+  - DOMAIN-SUFFIX,d425.example,Group 8
+  - DOMAIN-SUFFIX,d426.example,Group 8
+  - DOMAIN-SUFFIX,d427.example,Group 8
+  - DOMAIN-SUFFIX,d428.example,Group 8
+  - DOMAIN-SUFFIX,d429.example,Group 8
+  - DOMAIN-SUFFIX,d430.example,Group 8
+  - DOMAIN-SUFFIX,d431.example,Group 8
+  - DOMAIN-SUFFIX,d432.example,Group 8
+  - DOMAIN-SUFFIX,d433.example,Group 8
+  - DOMAIN-SUFFIX,d434.example,Group 8
+  - DOMAIN-SUFFIX,d435.example,Group 8
+  - DOMAIN-SUFFIX,d436.example,Group 8
+  - DOMAIN-SUFFIX,d437.example,Group 8
+  - DOMAIN-SUFFIX,d438.example,Group 8
+  - DOMAIN-SUFFIX,d439.example,Group 8
+  - DOMAIN-SUFFIX,d440.example,Group 8
+  - DOMAIN-SUFFIX,d441.example,Group 8
+  - DOMAIN-SUFFIX,d442.example,Group 8
+  - DOMAIN-SUFFIX,d443.example,Group 8
+  - DOMAIN-SUFFIX,d444.example,Group 8
+  - DOMAIN-SUFFIX,d445.example,Group 8
+  - DOMAIN-SUFFIX,d446.example,Group 8
+  - DOMAIN-SUFFIX,d447.example,Group 8
+  - DOMAIN-SUFFIX,d448.example,Group 8
+  - DOMAIN-SUFFIX,d449.example,Group 8
+  - DOMAIN-SUFFIX,d450.example,Group 8
+  - DOMAIN-SUFFIX,d451.example,Group 8
+  - DOMAIN-SUFFIX,d452.example,Group 8
+  - DOMAIN-SUFFIX,d453.example,Group 8
+  - DOMAIN-SUFFIX,d454.example,Group 8
+  - DOMAIN-SUFFIX,d455.example,Group 8
+  - DOMAIN-SUFFIX,d456.example,Group 8
+  - DOMAIN-SUFFIX,d457.example,Group 8
+  - DOMAIN-SUFFIX,d458.example,Group 8
+  - DOMAIN-SUFFIX,d459.example,Group 8
+  - DOMAIN-SUFFIX,d460.example,Group 8
+  - DOMAIN-SUFFIX,d461.example,Group 8
+  - DOMAIN-SUFFIX,d462.example,Group 8
+  - DOMAIN-SUFFIX,d463.example,Group 8
+  - DOMAIN-SUFFIX,d464.example,Group 8
+  - DOMAIN-SUFFIX,d465.example,Group 8
+  - DOMAIN-SUFFIX,d466.example,Group 8
+  - DOMAIN-SUFFIX,d467.example,Group 8
+  - DOMAIN-SUFFIX,d468.example,Group 8
+  - DOMAIN-SUFFIX,d469.example,Group 8
+  - DOMAIN-SUFFIX,d470.example,Group 8
+  - DOMAIN-SUFFIX,d471.example,Group 8
+  - DOMAIN-SUFFIX,d472.example,Group 8
+  - DOMAIN-SUFFIX,d473.example,Group 8
+  - DOMAIN-SUFFIX,d474.example,Group 8
+  - DOMAIN-SUFFIX,d475.example,Group 8
+  - DOMAIN-SUFFIX,d476.example,Group 8
+  - DOMAIN-SUFFIX,d477.example,Group 8
+  - DOMAIN-SUFFIX,d478.example,Group 8
+  - DOMAIN-SUFFIX,d479.example,Group 8
+  - DOMAIN-SUFFIX,d480.example,Group 8
+  - DOMAIN-SUFFIX,d481.example,Group 8
+  - DOMAIN-SUFFIX,d482.example,Group 8
+  - DOMAIN-SUFFIX,d483.example,Group 8
+  - DOMAIN-SUFFIX,d484.example,Group 8
+  - DOMAIN-SUFFIX,d485.example,Group 8
+  - DOMAIN-SUFFIX,d486.example,Group 8
+  - DOMAIN-SUFFIX,d487.example,Group 8
+  - DOMAIN-SUFFIX,d488.example,Group 8
+  - DOMAIN-SUFFIX,d489.example,Group 8
+  - DOMAIN-SUFFIX,d490.example,Group 8
+  - DOMAIN-SUFFIX,d491.example,Group 8
+  - DOMAIN-SUFFIX,d492.example,Group 8
+  - DOMAIN-SUFFIX,d493.example,Group 8
+  - DOMAIN-SUFFIX,d494.example,Group 8
+  - DOMAIN-SUFFIX,d495.example,Group 8
+  - DOMAIN-SUFFIX,d496.example,Group 8
+  - DOMAIN-SUFFIX,d497.example,Group 8
+  - DOMAIN-SUFFIX,d498.example,Group 8
+  - DOMAIN-SUFFIX,d499.example,Group 8
+  - DOMAIN-SUFFIX,d500.example,Group 8
+  - DOMAIN-SUFFIX,d501.example,Group 8
+  - DOMAIN-SUFFIX,d502.example,Group 8
+  - DOMAIN-SUFFIX,d503.example,Group 8
+  - DOMAIN-SUFFIX,d504.example,Group 8
+  - DOMAIN-SUFFIX,d505.example,Group 8
+  - DOMAIN-SUFFIX,d506.example,Group 8
+  - DOMAIN-SUFFIX,d507.example,Group 8
+  - DOMAIN-SUFFIX,d508.example,Group 8
+  - DOMAIN-SUFFIX,d509.example,Group 8
+  - DOMAIN-SUFFIX,d510.example,Group 8
+  - DOMAIN-SUFFIX,d511.example,Group 8
+  - DOMAIN-SUFFIX,d512.example,Group 8
+  - DOMAIN-SUFFIX,d513.example,Group 8
+  - DOMAIN-SUFFIX,d514.example,Group 8
+  - DOMAIN-SUFFIX,d515.example,Group 8
+  - DOMAIN-SUFFIX,d516.example,Group 8
+  - DOMAIN-SUFFIX,d517.example,Group 8
+  - DOMAIN-SUFFIX,d518.example,Group 8
+  - DOMAIN-SUFFIX,d519.example,Group 8
+  - DOMAIN-SUFFIX,d520.example,Group 8
+  - DOMAIN-SUFFIX,d521.example,Group 8
+  - DOMAIN-SUFFIX,d522.example,Group 8
+  - DOMAIN-SUFFIX,d523.example,Group 8
+  - DOMAIN-SUFFIX,d524.example,Group 8
+  - DOMAIN-SUFFIX,d525.example,Group 8
+  - DOMAIN-SUFFIX,d526.example,Group 8
+  - DOMAIN-SUFFIX,d527.example,Group 8
+  - DOMAIN-SUFFIX,d528.example,Group 8
+  - DOMAIN-SUFFIX,d529.example,Group 8
+  - DOMAIN-SUFFIX,d530.example,Group 8
+  - DOMAIN-SUFFIX,d531.example,Group 8
+  - DOMAIN-SUFFIX,d532.example,Group 8
+  - DOMAIN-SUFFIX,d533.example,Group 8
+  - DOMAIN-SUFFIX,d534.example,Group 8
+  - DOMAIN-SUFFIX,d535.example,Group 8
+  - DOMAIN-SUFFIX,d536.example,Group 8
+  - DOMAIN-SUFFIX,d537.example,Group 8
+  - DOMAIN-SUFFIX,d538.example,Group 8
+  - DOMAIN-SUFFIX,d539.example,Group 8
+  - DOMAIN-SUFFIX,d540.example,Group 8
+  - DOMAIN-SUFFIX,d541.example,Group 8
+  - DOMAIN-SUFFIX,d542.example,Group 8
+  - DOMAIN-SUFFIX,d543.example,Group 8
+  - DOMAIN-SUFFIX,d544.example,Group 8
+  - DOMAIN-SUFFIX,d545.example,Group 8
+  - DOMAIN-SUFFIX,d546.example,Group 8
+  - DOMAIN-SUFFIX,d547.example,Group 8
+  - DOMAIN-SUFFIX,d548.example,Group 8
+  - DOMAIN-SUFFIX,d549.example,Group 8
+  - DOMAIN-SUFFIX,d550.example,Group 8
+  - DOMAIN-SUFFIX,d551.example,Group 8
+  - DOMAIN-SUFFIX,d552.example,Group 8
+  - DOMAIN-SUFFIX,d553.example,Group 8
+  - DOMAIN-SUFFIX,d554.example,Group 8
+  - DOMAIN-SUFFIX,d555.example,Group 8
+  - DOMAIN-SUFFIX,d556.example,Group 8
+  - DOMAIN-SUFFIX,d557.example,Group 8
+  - DOMAIN-SUFFIX,d558.example,Group 8
+  - DOMAIN-SUFFIX,d559.example,Group 8
+  - DOMAIN-SUFFIX,d560.example,Group 8
+  - DOMAIN-SUFFIX,d561.example,Group 8
+  - DOMAIN-SUFFIX,d562.example,Group 8
+  - DOMAIN-SUFFIX,d563.example,Group 8
+  - DOMAIN-SUFFIX,d564.example,Group 8
+  - DOMAIN-SUFFIX,d565.example,Group 8
+  - IP-CIDR,192.168.0.0/16,DIRECT
+  - IP-CIDR,10.0.0.0/8,DIRECT
+  - IP-CIDR,172.16.0.0/12,DIRECT
+  - IP-CIDR,127.0.0.0/8,DIRECT
+  - IP-CIDR,100.64.0.0/10,DIRECT
+  - IP-CIDR,192.0.2.8/32,DIRECT,no-resolve
+  - GEOIP,CN,DIRECT
+  - MATCH,Group 1

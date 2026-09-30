@@ -1,0 +1,215 @@
+port: 7890
+socks-port: 7891
+allow-lan: false
+bind-address: '*'
+mode: rule
+log-level: info
+ipv6: false
+external-controller: 127.0.0.1:9090
+external-ui: ./path-3
+interface-name: if1
+routing-mark: 6666
+hosts:
+profile:
+  store-selected: false
+  store-fake-ip: true
+dns:
+  enable: false
+  listen: 0.0.0.0:53
+  default-nameserver:
+    - 192.0.2.1
+    - 192.0.2.2
+  enhanced-mode: redir-host
+  fake-ip-range: 198.18.0.1/16
+  nameserver:
+    - 192.0.2.1
+    - 192.0.2.2
+    - tls://h1.example.com:853
+    - https://192.0.2.3/dns-query
+    - dhcp://if1
+proxies:
+  - name: "Proxy 1"
+    type: ss
+    server: str1
+    port: 443
+    cipher: chacha20-ietf-poly1305
+    password: "password1"
+  - name: "Proxy 2"
+    type: ss
+    server: str1
+    port: 443
+    cipher: chacha20-ietf-poly1305
+    password: "password1"
+    plugin: obfs
+    plugin-opts:
+      mode: tls
+  - name: "Proxy 3"
+    type: ss
+    server: str1
+    port: 443
+    cipher: chacha20-ietf-poly1305
+    password: "password1"
+    plugin: v2ray-plugin
+    plugin-opts:
+      mode: websocket
+  - name: "Proxy 4"
+    type: vmess
+    server: str1
+    port: 443
+    uuid: 00005a11-0000-4000-8000-000000000001
+    alterId: 32
+    cipher: auto
+  - name: "Proxy 5"
+    type: vmess
+    server: str1
+    port: 443
+    uuid: 00005a11-0000-4000-8000-000000000001
+    alterId: 32
+    cipher: auto
+    network: h2
+    tls: true
+    h2-opts:
+      host:
+        - sni1.example.org
+        - sni2.example.org
+      path: /p1
+  - name: "Proxy 6"
+    type: vmess
+    server: str1
+    port: 443
+    uuid: 00005a11-0000-4000-8000-000000000001
+    alterId: 32
+    cipher: auto
+  - name: Proxy 7
+    server: str1
+    port: 443
+    type: vmess
+    uuid: 00005a11-0000-4000-8000-000000000001
+    alterId: 32
+    cipher: auto
+    network: grpc
+    tls: true
+    servername: sni3.example.org
+    grpc-opts:
+      grpc-service-name: "str2"
+  - name: "Proxy 8"
+    type: socks5
+    server: str1
+    port: 443
+  - name: "Proxy 9"
+    type: http
+    server: str1
+    port: 443
+  - name: "Proxy 10"
+    type: snell
+    server: str1
+    port: 44046
+    psk: password2
+  - name: "Proxy 11"
+    type: trojan
+    server: str1
+    port: 443
+    password: password2
+  - name: "Proxy 11"
+    type: trojan
+    server: str1
+    port: 443
+    password: password2
+  - name: Proxy 12
+    server: str1
+    port: 443
+    type: trojan
+    password: "password3"
+    network: grpc
+    sni: sni3.example.org
+    udp: true
+    grpc-opts:
+      grpc-service-name: "str2"
+  - name: "Proxy 13"
+    type: ssr
+    server: str1
+    port: 443
+    cipher: chacha20-ietf
+    password: "password1"
+    obfs: tls1.2_ticket_auth
+    protocol: auth_sha1_v4
+proxy-groups:
+  - name: "Group 1"
+    type: relay
+    proxies:
+      - Proxy 9
+      - Proxy 4
+      - Proxy 1
+      - Proxy 2
+  - name: "Group 2"
+    type: url-test
+    proxies:
+      - Proxy 1
+      - Proxy 2
+      - Proxy 14
+    url: 'http://h2.example.com/generate_204'
+    interval: 300
+  - name: "Group 3"
+    type: fallback
+    proxies:
+      - Proxy 1
+      - Proxy 2
+      - Proxy 14
+    url: 'http://h2.example.com/generate_204'
+    interval: 300
+  - name: "Group 4"
+    type: load-balance
+    proxies:
+      - Proxy 1
+      - Proxy 2
+      - Proxy 14
+    url: 'http://h2.example.com/generate_204'
+    interval: 300
+  - name: Group 5
+    type: select
+    proxies:
+      - Proxy 1
+      - Proxy 2
+      - Proxy 14
+      - Group 2
+  - name: Group 6
+    type: select
+    interface-name: if2
+    proxies:
+      - DIRECT
+  - name: Group 7
+    type: select
+    use:
+      - provider-1
+    proxies:
+      - Group 5
+      - DIRECT
+proxy-providers:
+  provider-1:
+    type: http
+    url: "str3"
+    interval: 3600
+    path: ./path-1.yaml
+    health-check:
+      enable: true
+      interval: 600
+      url: http://h2.example.com/generate_204
+  provider-2:
+    type: file
+    path: ./path-2.yaml
+    health-check:
+      enable: true
+      interval: 36000
+      url: http://h2.example.com/generate_204
+rules:
+  - DOMAIN-SUFFIX,d4.example,Group 2
+  - DOMAIN-KEYWORD,kw1,Group 2
+  - DOMAIN,d4.example,Group 2
+  - DOMAIN-SUFFIX,d5.example,REJECT
+  - SRC-IP-CIDR,192.0.2.4/32,DIRECT
+  - IP-CIDR,127.0.0.0/8,DIRECT
+  - GEOIP,CN,DIRECT
+  - DST-PORT,80,DIRECT
+  - SRC-PORT,7777,DIRECT
+  - RULE-SET,set-1,REJECT
+  - MATCH,Group 2

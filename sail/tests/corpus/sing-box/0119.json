@@ -1,0 +1,142 @@
+{
+  "dns": {
+    "servers": [
+      {
+        "tag": "dns-1",
+        "address": "192.0.2.1",
+        "strategy": "prefer_ipv4"
+      }
+    ]
+  },
+  "outbounds": [
+    {
+      "tag": "Proxy 1",
+      "type": "direct",
+      "domain_strategy": "prefer_ipv4"
+    }
+  ],
+  "endpoints": [
+    {
+      "type": "wireguard",
+      "tag": "Proxy 2",
+      "system": false,
+      "name": "str1",
+      "mtu": 1380,
+      "address": [
+        "192.0.2.2/32"
+      ],
+      "private_key": "wywOQgzCr2vr85JpoMxzCakHIIvgUtsG6/Qp987NJa4=",
+      "peers": [
+        {
+          "address": "s1.example.net",
+          "port": 2408,
+          "public_key": "WulOoXrJ4xaeREDpCXJqPLE7mK1qDJwNSfPto1FYe4I=",
+          "allowed_ips": [
+            "0.0.0.0/0"
+          ],
+          "reserved": [
+            45,
+            85,
+            21
+          ]
+        }
+      ]
+    }
+  ],
+  "route": {
+    "rules": [
+      {
+        "ip_is_private": true,
+        "action": "reject"
+      },
+      {
+        "rule_set": [
+          "set-4"
+        ],
+        "outbound": "Proxy 1"
+      },
+      {
+        "rule_set": [
+          "set-3"
+        ],
+        "action": "reject"
+      },
+      {
+        "rule_set": [
+          "set-2",
+          "set-1"
+        ],
+        "outbound": "Proxy 2"
+      },
+      {
+        "domain_regex": [
+          "^d1\\.example$",
+          "^d2\\.example$",
+          "^d3\\.example$",
+          "^d4\\.example$",
+          "^d5\\.example$",
+          "^d6\\.example$",
+          "^d7\\.example$",
+          "^d8\\.example$",
+          "^d9\\.example$",
+          "^d10\\.example$",
+          "^d11\\.example$",
+          "^d12\\.example$",
+          "^d13\\.example$",
+          "^d14\\.example$",
+          "^d15\\.example$",
+          "^d16\\.example$",
+          "^d17\\.example$",
+          "^d18\\.example$",
+          "^d19\\.example$",
+          "^d20\\.example$",
+          "^d21\\.example$",
+          "^d22\\.example$"
+        ],
+        "action": "reject"
+      },
+      {
+        "outbound": "Proxy 1",
+        "network": [
+          "udp",
+          "tcp"
+        ]
+      }
+    ],
+    "rule_set": [
+      {
+        "tag": "set-1",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p1.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "tag": "set-2",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p2.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "tag": "set-3",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p3.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "tag": "set-4",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p4.srs",
+        "download_detour": "Proxy 1"
+      }
+    ]
+  },
+  "experimental": {
+    "cache_file": {
+      "enabled": true
+    }
+  }
+}

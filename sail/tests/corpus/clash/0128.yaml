@@ -1,0 +1,217 @@
+port: 7890
+socks-port: 7891
+allow-lan: true
+mode: Rule
+log-level: info
+external-controller: 127.0.0.1:9090
+proxies:
+proxy-groups:
+  - name: Group 1
+    type: select
+    proxies:
+      - Group 2
+      - DIRECT
+      - Group 3
+      - Group 4
+      - Group 5
+  - name: Group 2
+    type: url-test
+    url: http://h1.example.com/generate_204
+    interval: 300
+    tolerance: 50
+    proxies:
+      - Group 3
+      - Group 4
+      - Group 5
+  - name: Group 3
+    type: url-test
+    url: http://h1.example.com/generate_204
+    interval: 300
+    tolerance: 50
+    use:
+      - provider-1
+  - name: Group 4
+    type: url-test
+    url: http://h1.example.com/generate_204
+    interval: 300
+    tolerance: 50
+    use:
+      - provider-3
+  - name: Group 5
+    type: url-test
+    url: http://h1.example.com/generate_204
+    interval: 300
+    tolerance: 50
+    use:
+      - provider-5
+  - name: Group 6
+    type: select
+    proxies:
+      - DIRECT
+      - Group 1
+  - name: Group 7
+    type: select
+    proxies:
+      - REJECT
+      - DIRECT
+  - name: Group 8
+    type: select
+    proxies:
+      - Group 1
+      - Group 6
+      - Group 3
+      - Proxy 1
+      - Group 4
+      - Proxy 2
+      - Group 5
+  - name: Group 9
+    type: select
+    proxies:
+      - Group 1
+      - Group 3
+      - Proxy 1
+      - Group 4
+      - Proxy 2
+      - Group 5
+      - Proxy 3
+    use:
+      - provider-8
+  - name: Group 10
+    type: select
+    proxies:
+      - Group 1
+      - Group 3
+      - Proxy 1
+      - Group 4
+      - Proxy 2
+      - Group 5
+      - Proxy 3
+    use:
+      - provider-9
+  - name: Group 11
+    type: select
+    proxies:
+      - Group 1
+      - Group 3
+      - Proxy 1
+      - Group 4
+      - Proxy 2
+      - Group 5
+      - Proxy 3
+    use:
+      - provider-7
+proxy-providers:
+  provider-1:
+    type: http
+    url: https://h2.example.com/p1.txt
+    interval: 3600
+    path: ./path-1.yaml
+    health-check:
+      enable: true
+      interval: 600
+      url: http://h1.example.com/generate_204
+  provider-2:
+    type: http
+    url: https://h2.example.com/p2.txt
+    interval: 3600
+    path: ./path-2.yaml
+    health-check:
+      enable: true
+      interval: 600
+      url: http://h1.example.com/generate_204
+  provider-3:
+    type: http
+    url: https://h2.example.com/p3.txt
+    interval: 3600
+    path: ./path-3.yaml
+    health-check:
+      enable: true
+      interval: 600
+      url: http://h1.example.com/generate_204
+  provider-4:
+    type: http
+    url: https://h2.example.com/p4.txt
+    interval: 3600
+    path: ./path-4.yaml
+    health-check:
+      enable: true
+      interval: 600
+      url: http://h1.example.com/generate_204
+  provider-5:
+    type: http
+    url: https://h2.example.com/p5.txt
+    interval: 3600
+    path: ./path-5.yaml
+    health-check:
+      enable: true
+      interval: 600
+      url: http://h1.example.com/generate_204
+  provider-6:
+    type: http
+    url: https://h2.example.com/p6.txt
+    interval: 3600
+    path: ./path-6.yaml
+    health-check:
+      enable: true
+      interval: 600
+      url: http://h1.example.com/generate_204
+  provider-7:
+    type: http
+    url: https://h2.example.com/p7.txt
+    interval: 3600
+    path: ./path-7.yaml
+    health-check:
+      enable: true
+      interval: 600
+      url: http://h1.example.com/generate_204
+  provider-8:
+    type: http
+    url: https://h2.example.com/p8.txt
+    interval: 3600
+    path: ./path-8.yaml
+    health-check:
+      enable: true
+      interval: 600
+      url: http://h1.example.com/generate_204
+  provider-9:
+    type: http
+    url: https://h2.example.com/p9.txt
+    interval: 3600
+    path: ./path-9.yaml
+    health-check:
+      enable: true
+      interval: 600
+      url: http://h1.example.com/generate_204
+rules:
+  - DOMAIN-SUFFIX,d1.example,Group 6
+  - DOMAIN-SUFFIX,d2.example,Group 6
+  - DOMAIN-SUFFIX,d3.example,Group 6
+  - DOMAIN-SUFFIX,d4.example,Group 6
+  - DOMAIN-SUFFIX,d5.example,Group 6
+  - DOMAIN-SUFFIX,d6.example,Group 6
+  - DOMAIN-SUFFIX,d7.example,Group 6
+  - DOMAIN-SUFFIX,d8.example,Group 11
+  - DOMAIN-SUFFIX,d9.example,Group 11
+  - DOMAIN-SUFFIX,d10.example,Group 9
+  - DOMAIN-SUFFIX,d11.example,Group 9
+  - DOMAIN-SUFFIX,d12.example,Group 9
+  - DOMAIN-SUFFIX,d13.example,Group 9
+  - DOMAIN-SUFFIX,d14.example,Group 9
+  - DOMAIN-SUFFIX,d15.example,Group 9
+  - DOMAIN-SUFFIX,d16.example,Group 9
+  - DOMAIN-SUFFIX,d17.example,Group 10
+  - DOMAIN-SUFFIX,d18.example,Group 10
+  - DOMAIN-SUFFIX,d19.example,Group 10
+  - DOMAIN-SUFFIX,d20.example,Group 10
+  - DOMAIN-SUFFIX,d21.example,Group 10
+  - DOMAIN-SUFFIX,d22.example,Group 8
+  - DOMAIN-SUFFIX,d23.example,Group 8
+  - DOMAIN-SUFFIX,d24.example,Group 8
+  - DOMAIN-SUFFIX,d25.example,Group 8
+  - DOMAIN-SUFFIX,d26.example,Group 8
+  - DOMAIN-SUFFIX,d27.example,Group 8
+  - DOMAIN-SUFFIX,d28.example,Group 8
+  - DOMAIN-SUFFIX,d29.example,Group 8
+  - DOMAIN,d30.example,Group 8
+  - GEOIP,CN,Group 6
+  - MATCH,Group 1

@@ -1,0 +1,225 @@
+{
+  "log": {
+    "level": "debug",
+    "timestamp": true
+  },
+  "dns": {
+    "servers": [
+      {
+        "tag": "dns-1",
+        "address": "https://192.0.2.1/dns-query",
+        "detour": "Group 1"
+      },
+      {
+        "tag": "dns-2",
+        "address": "https://192.0.2.2/dns-query",
+        "detour": "Proxy 1"
+      },
+      {
+        "tag": "dns-3",
+        "address": "rcode://success"
+      },
+      {
+        "tag": "dns-4",
+        "address": "fakeip"
+      }
+    ],
+    "rules": [
+      {
+        "domain": [
+          "d1.example",
+          "d2.example",
+          "d3.example"
+        ],
+        "server": "dns-2"
+      },
+      {
+        "geosite": "category-ads-all",
+        "server": "dns-3"
+      },
+      {
+        "outbound": "any",
+        "server": "dns-2",
+        "disable_cache": true
+      },
+      {
+        "geosite": "cn",
+        "server": "dns-2"
+      },
+      {
+        "clash_mode": "direct",
+        "server": "dns-2"
+      },
+      {
+        "clash_mode": "global",
+        "server": "dns-1"
+      },
+      {
+        "geosite": "geolocation-!cn",
+        "server": "dns-1"
+      },
+      {
+        "query_type": [
+          "A",
+          "AAAA"
+        ],
+        "server": "dns-4"
+      }
+    ],
+    "fakeip": {
+      "enabled": true,
+      "inet4_range": "198.18.0.0/15",
+      "inet6_range": "3f00::/18"
+    },
+    "independent_cache": true,
+    "strategy": "ipv4_only"
+  },
+  "inbounds": [
+    {
+      "type": "tun",
+      "inet4_address": "192.0.2.1/30",
+      "mtu": 9000,
+      "auto_route": true,
+      "strict_route": true,
+      "sniff": true,
+      "endpoint_independent_nat": false,
+      "stack": "system",
+      "platform": {
+        "http_proxy": {
+          "enabled": true,
+          "server": "127.0.0.1",
+          "server_port": 2080
+        }
+      }
+    },
+    {
+      "type": "mixed",
+      "listen": "127.0.0.1",
+      "listen_port": 2080,
+      "sniff": true,
+      "users": []
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "Group 1",
+      "type": "selector",
+      "outbounds": [
+        "Group 2",
+        "Proxy 1",
+        "Proxy 4",
+        "Proxy 5"
+      ]
+    },
+    {
+      "tag": "Group 2",
+      "type": "urltest",
+      "outbounds": [
+        "Proxy 4",
+        "Proxy 5"
+      ],
+      "url": "http://h1.example.com/generate_204",
+      "interval": "1m",
+      "tolerance": 50
+    },
+    {
+      "type": "direct",
+      "tag": "Proxy 1"
+    },
+    {
+      "type": "dns",
+      "tag": "Proxy 2"
+    },
+    {
+      "type": "block",
+      "tag": "Proxy 3"
+    },
+    {
+      "tag": "Proxy 4",
+      "type": "vless",
+      "server": "s4.example.net",
+      "server_port": 80,
+      "uuid": "00005a11-0000-4000-8000-000000000001",
+      "packet_encoding": "xudp",
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "Host": "sni5.example.org"
+        },
+        "early_data_header_name": "str1",
+        "max_early_data": 2048
+      }
+    },
+    {
+      "tag": "Proxy 5",
+      "type": "vless",
+      "server": "192.0.2.3",
+      "server_port": 80,
+      "uuid": "00005a11-0000-4000-8000-000000000001",
+      "packet_encoding": "xudp",
+      "transport": {
+        "type": "ws",
+        "path": "/p1",
+        "headers": {
+          "Host": "sni5.example.org"
+        },
+        "early_data_header_name": "str1",
+        "max_early_data": 2048
+      }
+    }
+  ],
+  "route": {
+    "auto_detect_interface": true,
+    "final": "Group 1",
+    "geoip": {
+      "download_url": "https://h2.example.com/p2.db",
+      "download_detour": "Proxy 1"
+    },
+    "geosite": {
+      "download_url": "https://h2.example.com/p3.db",
+      "download_detour": "Proxy 1"
+    },
+    "rules": [
+      {
+        "protocol": "dns",
+        "outbound": "Proxy 2"
+      },
+      {
+        "network": "udp",
+        "port": 443,
+        "outbound": "Proxy 3"
+      },
+      {
+        "clash_mode": "direct",
+        "outbound": "Proxy 1"
+      },
+      {
+        "clash_mode": "global",
+        "outbound": "Group 1"
+      },
+      {
+        "domain": [
+          "d6.example",
+          "d7.example",
+          "d8.example",
+          "d9.example"
+        ],
+        "outbound": "Proxy 1"
+      }
+    ]
+  },
+  "experimental": {
+    "clash_api": {
+      "external_controller": "127.0.0.1:9090",
+      "external_ui_download_url": "",
+      "external_ui_download_detour": "",
+      "external_ui": "./path-1",
+      "secret": "",
+      "default_mode": "rule",
+      "store_selected": true,
+      "cache_file": "",
+      "cache_id": ""
+    }
+  }
+}

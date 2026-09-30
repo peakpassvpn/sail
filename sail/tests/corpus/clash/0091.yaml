@@ -1,0 +1,35 @@
+dns:
+  enable: true
+  ipv6: false
+  default-nameserver:
+    - 192.0.2.1
+    - 192.0.2.2
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  nameserver:
+    - https://h1.example.com/dns-query
+    - https://h2.example.com/dns-query
+  nameserver-policy:
+    d1.example,+.d1.example:
+      - https://h3.example.com/p1
+rule-providers:
+  set-1:
+    type: http
+    behavior: classical
+    url: https://h4.example.com/p2.yaml
+    path: ./path-1.yaml
+    interval: 86400
+rules:
+  - RULE-SET,set-1,DIRECT
+  - GEOIP,CN,DIRECT
+  - MATCH,PROXY
+proxies:
+proxy-groups:
+  - name: PROXY
+    type: select
+    proxies:
+      - Proxy 1
+  - name: DIRECT
+    type: select
+    proxies:
+      - DIRECT

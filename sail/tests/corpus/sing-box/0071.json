@@ -1,0 +1,377 @@
+{
+  "certificate": {
+    "store": "system"
+  },
+  "dns": {
+    "cache_capacity": 4000,
+    "optimistic": true,
+    "rules": [
+      {
+        "rule_set": [
+          "set-4",
+          "set-5"
+        ],
+        "server": "dns-3"
+      },
+      {
+        "action": "predefined",
+        "query_type": [
+          "HTTPS",
+          "SVCB"
+        ],
+        "rcode": "NOERROR"
+      },
+      {
+        "query_type": [
+          "A",
+          "AAAA"
+        ],
+        "server": "dns-6"
+      }
+    ],
+    "servers": [
+      {
+        "tag": "dns-1",
+        "type": "local"
+      },
+      {
+        "server": "192.0.2.1",
+        "server_port": 53,
+        "tag": "dns-2",
+        "type": "udp"
+      },
+      {
+        "server": "192.0.2.2",
+        "server_port": 53,
+        "tag": "dns-3",
+        "type": "udp"
+      },
+      {
+        "path": "/p1",
+        "server": "192.0.2.3",
+        "server_port": 443,
+        "tag": "dns-4",
+        "tls": {
+          "enabled": true,
+          "server_name": "sni1.example.org"
+        },
+        "type": "https"
+      },
+      {
+        "server": "192.0.2.3",
+        "server_port": 853,
+        "tag": "dns-5",
+        "tls": {
+          "enabled": true,
+          "server_name": "sni1.example.org"
+        },
+        "type": "tls"
+      },
+      {
+        "inet4_range": "198.18.0.0/15",
+        "inet6_range": "3f00::/18",
+        "tag": "dns-6",
+        "type": "fakeip"
+      }
+    ],
+    "strategy": "ipv4_only"
+  },
+  "endpoints": [],
+  "experimental": {
+    "cache_file": {
+      "enabled": true,
+      "path": "./path-1.db",
+      "store_dns": true,
+      "store_fakeip": true
+    }
+  },
+  "inbounds": [
+    {
+      "listen": "127.0.0.1",
+      "listen_port": 7890,
+      "set_system_proxy": false,
+      "tag": "in-1",
+      "type": "mixed",
+      "users": [
+        {
+          "password": "password1",
+          "username": "user1"
+        }
+      ]
+    }
+  ],
+  "log": {
+    "level": "warn",
+    "timestamp": true
+  },
+  "outbounds": [
+    {
+      "type": "vless",
+      "tag": "Proxy 1",
+      "server": "192.0.2.4",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000001"
+    },
+    {
+      "type": "selector",
+      "tag": "Group 1",
+      "outbounds": [
+        "Proxy 1",
+        "Proxy 2"
+      ]
+    },
+    {
+      "type": "selector",
+      "tag": "Group 2",
+      "outbounds": [
+        "Proxy 1"
+      ]
+    },
+    {
+      "tag": "Proxy 2",
+      "type": "direct"
+    },
+    {
+      "tag": "Proxy 3",
+      "type": "block"
+    }
+  ],
+  "route": {
+    "auto_detect_interface": true,
+    "default_domain_resolver": "dns-2",
+    "final": "Group 1",
+    "find_process": true,
+    "rule_set": [
+      {
+        "format": "domain_suffix",
+        "rules": [
+          {
+            "domain_suffix": [
+              "d2.example",
+              "d3.example"
+            ]
+          }
+        ],
+        "tag": "set-1",
+        "type": "inline"
+      },
+      {
+        "format": "domain_suffix",
+        "rules": [
+          {
+            "domain_suffix": [
+              "d4.example",
+              "d5.example",
+              "d6.example",
+              "d7.example",
+              "d8.example",
+              "d9.example",
+              "d10.example",
+              "d11.example",
+              "d12.example",
+              "d13.example",
+              "d14.example",
+              "d15.example",
+              "d16.example",
+              "d17.example"
+            ]
+          }
+        ],
+        "tag": "set-2",
+        "type": "inline"
+      },
+      {
+        "format": "domain_suffix",
+        "rules": [
+          {
+            "domain_suffix": [
+              "d18.example",
+              "d19.example",
+              "d20.example",
+              "d21.example",
+              "d22.example",
+              "d23.example",
+              "d24.example",
+              "d25.example",
+              "d26.example",
+              "d27.example",
+              "d28.example",
+              "d29.example",
+              "d30.example",
+              "d31.example",
+              "d32.example",
+              "d33.example",
+              "d34.example",
+              "d35.example",
+              "d36.example"
+            ]
+          },
+          {
+            "process_name": [
+              "app1",
+              "app2",
+              "app3",
+              "app4",
+              "app5"
+            ]
+          }
+        ],
+        "tag": "set-3",
+        "type": "inline"
+      },
+      {
+        "format": "domain_suffix",
+        "rules": [
+          {
+            "domain_suffix": [
+              "d37.example",
+              "d38.example",
+              "d39.example",
+              "d40.example",
+              "d41.example",
+              "d42.example",
+              "d43.example",
+              "d44.example",
+              "d45.example",
+              "d46.example",
+              "d47.example",
+              "d48.example"
+            ]
+          }
+        ],
+        "tag": "set-4",
+        "type": "inline"
+      },
+      {
+        "format": "domain_suffix",
+        "rules": [
+          {
+            "domain_suffix": [
+              "d49.example",
+              "d50.example",
+              "d51.example",
+              "d52.example",
+              "d53.example",
+              "d54.example",
+              "d55.example",
+              "d56.example",
+              "d57.example",
+              "d58.example",
+              "d59.example",
+              "d60.example",
+              "d61.example",
+              "d62.example",
+              "d63.example",
+              "d64.example",
+              "d65.example",
+              "d66.example"
+            ]
+          }
+        ],
+        "tag": "set-5",
+        "type": "inline"
+      }
+    ],
+    "rules": [
+      {
+        "action": "sniff",
+        "network": [
+          "tcp",
+          "udp"
+        ],
+        "timeout": "1s"
+      },
+      {
+        "action": "hijack-dns",
+        "protocol": "dns"
+      },
+      {
+        "action": "resolve",
+        "network": [
+          "tcp",
+          "udp"
+        ],
+        "strategy": "ipv4_only"
+      },
+      {
+        "ip_is_private": true,
+        "outbound": "Proxy 2"
+      },
+      {
+        "outbound": "Proxy 2",
+        "rule_set": "set-1"
+      },
+      {
+        "outbound": "Proxy 2",
+        "protocol": [
+          "bittorrent"
+        ]
+      },
+      {
+        "network": [
+          "tcp",
+          "udp"
+        ],
+        "outbound": "Proxy 2",
+        "port": [
+          3659,
+          1935,
+          5001,
+          5795,
+          5796,
+          7000,
+          7777,
+          9000,
+          10039,
+          10040
+        ],
+        "port_range": "str1"
+      },
+      {
+        "action": "reject",
+        "method": "drop",
+        "network": [
+          "udp"
+        ],
+        "port": [
+          443
+        ]
+      },
+      {
+        "network": [
+          "tcp",
+          "udp"
+        ],
+        "outbound": "Group 1",
+        "rule_set": "set-2"
+      },
+      {
+        "network": [
+          "tcp",
+          "udp"
+        ],
+        "outbound": "Group 1",
+        "rule_set": "set-3"
+      },
+      {
+        "outbound": "Proxy 2",
+        "rule_set": [
+          "set-4",
+          "set-5"
+        ]
+      },
+      {
+        "outbound": "Group 1",
+        "source_port_range": [
+          "str2"
+        ]
+      },
+      {
+        "outbound": "Group 1",
+        "source_port_range": [
+          "str3"
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,1937 @@
+anchor-1: &a16
+  type: url-test
+  timeout: 3500
+  tolerance: 50
+  max-failed-times: 3
+  empty-fallback: REJECT
+  expected-status: 204
+  hidden: true
+anchor-2: &a30
+  <<: *a16
+  url: &a29 "https://h10.example.com/p40"
+  expected-status: 200
+anchor-3: &a15
+  <<: *a16
+  url: &a12 "https://h8.example.com/generate_204"
+  expected-status: 204
+anchor-4: &a26
+  type: fallback
+  url: &a2 "https://h1.example.com/generate_204"
+  expected-status: 204
+  timeout: 3500
+  interval: 30
+  max-failed-times: 3
+  lazy: true
+  empty-fallback: REJECT
+anchor-5: &a28
+  <<: *a26
+  url: *a29
+  expected-status: 200
+  hidden: true
+anchor-6: &a31
+  <<: *a26
+  url: *a12
+  expected-status: 204
+  hidden: true
+anchor-7: &a27 "Proxy [0-9]+|Group 14"
+anchor-8: &a1
+  type: http
+  interval: 86400
+  health-check:
+    enable: true
+    url: *a2
+    expected-status: 204
+    timeout: 3500
+    interval: 60
+    lazy: false
+  exclude-filter: 'Proxy [0-9]+|Group 1'
+anchor-9: &a36
+  type: http
+  interval: 86400
+  behavior: domain
+  format: mrs
+  proxy: Group 66
+anchor-10: &a37
+  type: http
+  interval: 86400
+  behavior: ipcidr
+  format: mrs
+  proxy: Group 66
+anchor-11: &a38
+  type: http
+  interval: 86400
+  behavior: classical
+  format: text
+  proxy: Group 66
+anchor-12: &a19 "Proxy [0-9]+|Group 7"
+anchor-13: &a20 "Proxy [0-9]+|Group 8"
+anchor-14: &a21 "Proxy [0-9]+|Group 9"
+anchor-15: &a17 "Proxy [0-9]+|Group 5"
+anchor-16: &a24 "Proxy [0-9]+|Group 12"
+anchor-17: &a23 "Proxy [0-9]+|Group 11"
+anchor-18: &a22 "Proxy [0-9]+|Group 10"
+anchor-19: &a35 "Proxy [0-9]+|Group 18"
+anchor-20: &a11 "Proxy [0-9]+|Group 2"
+anchor-21: &a13 "Proxy [0-9]+|Group 3"
+anchor-22: &a14 "Proxy [0-9]+|Group 4"
+anchor-23: &a18 "Proxy [0-9]+|Group 6"
+anchor-24: &a25 "Proxy [0-9]+|Group 13"
+anchor-25: &a34 "Proxy [0-9]+|Group 17"
+anchor-26: &a33 "Proxy [0-9]+|Group 16"
+anchor-27: &a32 "Proxy [0-9]+|Group 15"
+anchor-28: &a7 [provider-1, provider-2, provider-3, provider-4]
+proxy-providers:
+  provider-1:
+    <<: *a1
+    proxy: DIRECT
+    url: "str1"
+    override:
+      additional-prefix: 'str2'
+      skip-cert-verify: false
+  provider-2:
+    <<: *a1
+    proxy: DIRECT
+    url: "str3"
+    override:
+      additional-prefix: 'str4'
+      additional-suffix: 'str5'
+      skip-cert-verify: false
+  provider-3:
+    <<: *a1
+    proxy: DIRECT
+    url: "str6"
+    override:
+      additional-prefix: 'str7'
+      skip-cert-verify: false
+  provider-4:
+    <<: *a1
+    proxy: DIRECT
+    url: "str8"
+    override:
+      additional-prefix: 'str9'
+      skip-cert-verify: false
+global-ua: d61.example
+mode: rule
+mixed-port: 7890
+ipv6: false
+allow-lan: true
+unified-delay: false
+tcp-concurrent: true
+authentication: []
+skip-auth-prefixes:
+  - 240.0.0.1/8
+  - ::1/128
+external-controller: 0.0.0.0:9090
+secret: "password1"
+external-ui: ./path-1
+external-ui-url: "https://h11.example.com/p131.zip"
+find-process-mode: "off"
+profile:
+  store-selected: true
+  store-fake-ip: true
+sniffer:
+  enable: true
+  force-dns-mapping: true
+  parse-pure-ip: true
+  override-destination: false
+  sniff:
+    HTTP:
+      ports: [80, 8080, 8888]
+      override-destination: true
+    TLS:
+      ports: [443, 8443, 5228-5230]
+    QUIC:
+      ports: [443, 8443]
+  skip-domain:
+    - "str10"
+    - "+.d1.example"
+    - "+.d2.example"
+    - "+.d3.example"
+    - "+.d4.example"
+    - "+.d5.example"
+    - "+.d6.example"
+    - "+.d7.example"
+    - "+.d8.example"
+    - "+.d9.example"
+tun:
+  enable: true
+  stack: system
+  mtu: 9000
+  dns-hijack:
+    - "any:53"
+    - "tcp://any:53"
+  strict-route: true
+  auto-route: true
+  auto-redirect: true
+  auto-detect-interface: true
+dns:
+  enable: true
+  listen: 0.0.0.0:1053
+  ipv6: false
+  use-system-hosts: true
+  prefer-h3: false
+  respect-rules: true
+  cache-algorithm: lru
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.0/15
+  fake-ip-range6: 2001:db8::/64
+  fake-ip-filter-mode: rule
+  fake-ip-filter:
+    - "str11"
+    - "str12"
+    - "str13"
+    - "str14"
+    - "str15"
+    - "str16"
+    - "str17"
+    - "str18"
+    - "str19"
+    - "str20"
+    - "str21"
+    - "str22"
+    - "str23"
+    - "str24"
+    - "str25"
+    - "str26"
+    - "str27"
+    - "str28"
+    - "str29"
+    - "str30"
+    - "str31"
+    - "str32"
+    - "str33"
+    - "str34"
+    - "str35"
+    - "str36"
+    - "str37"
+    - "str38"
+    - "str39"
+    - "str40"
+    - "str41"
+    - "str42"
+    - "str43"
+    - "str44"
+    - "str45"
+    - "str46"
+    - "str47"
+    - "str48"
+    - "str49"
+    - "str50"
+    - "str51"
+    - "str52"
+  default-nameserver:
+    - https://192.0.2.1/dns-query
+  proxy-server-nameserver: &a3
+    - "https://h2.example.com/dns-query#DIRECT"
+    - "https://h3.example.com/dns-query#DIRECT"
+  direct-nameserver: *a3
+  nameserver-policy:
+    +.d10.example: *a3
+    +.d11.example: *a3
+    rule-set:set-11: "rcode://name_error"
+    d12.example: &a4
+      - https://h4.example.com/dns-query
+      - https://h5.example.com/dns-query
+    rule-set:set-24,set-15,set-80,set-64: *a4
+    rule-set:set-35: *a3
+    rule-set:set-81,set-19,set-73,set-74,set-75: *a3
+    rule-set:set-63,set-13,set-67,set-14,set-66,set-68: *a3
+    rule-set:set-47,set-36,set-78: *a3
+  direct-nameserver-follow-policy: true
+  nameserver: *a4
+anchor-29: &a6
+  type: select
+  use: *a7
+  empty-fallback: REJECT
+anchor-30: &a9
+  <<: *a6
+  proxies:
+    - Proxy 3
+    - Proxy 4
+    - Group 34
+    - Proxy 6
+    - Proxy 9
+    - Proxy 12
+    - Proxy 15
+    - Proxy 18
+    - DIRECT
+anchor-31: &a10
+  <<: *a6
+  proxies:
+    - Proxy 2
+    - Proxy 3
+    - Proxy 4
+    - Group 34
+    - Proxy 5
+    - Proxy 8
+    - Proxy 11
+    - Proxy 14
+    - Proxy 17
+    - DIRECT
+anchor-32: &a8
+  <<: *a6
+  proxies:
+    - Proxy 4
+    - Proxy 3
+    - Group 34
+    - Proxy 7
+    - Proxy 10
+    - Proxy 13
+    - Proxy 16
+    - Proxy 19
+    - DIRECT
+anchor-33: &a5
+  <<: *a6
+  proxies:
+    - DIRECT
+    - Proxy 4
+    - Proxy 3
+    - Group 34
+    - Proxy 7
+    - Proxy 10
+    - Proxy 13
+    - Proxy 16
+    - Proxy 19
+proxies:
+  - {name: Proxy 1, type: rematch, target-sub-rule: str53}
+  - {name: Proxy 2, type: rematch, target-sub-rule: str54}
+  - {name: Proxy 3, type: rematch, target-sub-rule: str55}
+  - {name: Proxy 4, type: rematch, target-sub-rule: str56}
+  - {name: Proxy 5, type: rematch, target-sub-rule: str57}
+  - {name: Proxy 6, type: rematch, target-sub-rule: str58}
+  - {name: Proxy 7, type: rematch, target-sub-rule: str59}
+  - {name: Proxy 8, type: rematch, target-sub-rule: str60}
+  - {name: Proxy 9, type: rematch, target-sub-rule: str61}
+  - {name: Proxy 10, type: rematch, target-sub-rule: str62}
+  - {name: Proxy 11, type: rematch, target-sub-rule: str63}
+  - {name: Proxy 12, type: rematch, target-sub-rule: str64}
+  - {name: Proxy 13, type: rematch, target-sub-rule: str65}
+  - {name: Proxy 14, type: rematch, target-sub-rule: str66}
+  - {name: Proxy 15, type: rematch, target-sub-rule: str67}
+  - {name: Proxy 16, type: rematch, target-sub-rule: str68}
+  - {name: Proxy 17, type: rematch, target-sub-rule: str69}
+  - {name: Proxy 18, type: rematch, target-sub-rule: str70}
+  - {name: Proxy 19, type: rematch, target-sub-rule: str71}
+proxy-groups:
+  - name: Group 1
+    <<: *a5
+    icon: https://h6.example.com/p1.png
+  - name: Group 2
+    <<: *a6
+    proxies: [Group 36, DIRECT]
+    icon: https://h7.example.com/p2.png
+  - name: Group 3
+    <<: *a6
+    proxies: [Group 37, DIRECT]
+    icon: https://h7.example.com/p3.png
+  - name: Group 4
+    <<: *a6
+    proxies: [Group 38, DIRECT]
+    icon: https://h7.example.com/p4.png
+  - name: Group 5
+    <<: *a8
+    icon: https://h7.example.com/p5.png
+  - name: Group 6
+    <<: *a9
+    icon: https://h7.example.com/p5.png
+  - name: Group 7
+    <<: *a9
+    icon: https://h7.example.com/p6.png
+  - name: Group 8
+    <<: *a8
+    icon: https://h7.example.com/p6.png
+  - name: Group 9
+    <<: *a9
+    icon: https://h7.example.com/p7.png
+  - name: Group 10
+    <<: *a9
+    icon: https://h7.example.com/p7.png
+  - name: Group 11
+    <<: *a9
+    icon: https://h7.example.com/p8.png
+  - name: Group 12
+    <<: *a10
+    icon: https://h7.example.com/p9.png
+  - name: Group 13
+    <<: *a10
+    icon: https://h7.example.com/p10.png
+  - name: Group 14
+    <<: *a10
+    icon: https://h7.example.com/p11.png
+  - name: Group 15
+    <<: *a10
+    icon: https://h7.example.com/p12.png
+  - name: Group 16
+    <<: *a9
+    proxies: [Proxy 12, Proxy 3, Proxy 4, Group 34, Proxy 6, Proxy 9, Proxy 15, Proxy 18, DIRECT]
+    icon: https://h7.example.com/p13.png
+  - name: Group 17
+    <<: *a10
+    icon: https://h7.example.com/p14.png
+  - name: Group 18
+    <<: *a9
+    icon: https://h7.example.com/p15.png
+  - name: Group 19
+    <<: *a8
+    icon: https://h7.example.com/p16.png
+  - name: Group 20
+    <<: *a10
+    icon: https://h6.example.com/p17.png
+  - name: Group 21
+    <<: *a9
+    icon: https://h7.example.com/p18.png
+  - name: Group 22
+    <<: *a9
+    icon: https://h7.example.com/p19.png
+  - name: Group 23
+    <<: *a8
+    icon: https://h7.example.com/p20.png
+  - name: Group 24
+    <<: *a8
+    icon: https://h7.example.com/p21.png
+  - name: Group 25
+    <<: *a8
+    icon: https://h7.example.com/p22.png
+  - name: Group 26
+    <<: *a8
+    icon: https://h7.example.com/p23.png
+  - name: Group 27
+    <<: *a8
+    icon: https://h7.example.com/p24.png
+  - name: Group 28
+    <<: *a9
+    icon: https://h7.example.com/p25.png
+  - name: Group 29
+    icon: https://h7.example.com/p26.png
+    type: select
+    use: *a7
+    filter: *a11
+    url: *a12
+    expected-status: 204
+    empty-fallback: REJECT
+    proxies:
+      - Proxy 15
+  - name: Group 30
+    icon: https://h7.example.com/p27.png
+    <<: *a8
+    proxies:
+      - Group 35
+      - Proxy 4
+      - Proxy 3
+      - Group 34
+      - Proxy 7
+      - Proxy 10
+      - Proxy 13
+      - Proxy 16
+      - Proxy 19
+      - DIRECT
+  - name: Group 31
+    <<: *a5
+    icon: https://h7.example.com/p28.png
+  - name: Group 32
+    <<: *a5
+    icon: https://h7.example.com/p29.png
+  - name: Group 33
+    icon: https://h7.example.com/p30.png
+    type: select
+    proxies:
+      - REJECT
+      - REJECT-DROP
+      - DIRECT
+      - Group 28
+  - name: GLOBAL
+    icon: https://h7.example.com/p31.png
+    type: select
+    use: *a7
+    empty-fallback: REJECT
+    proxies:
+      - Group 65
+      - Group 58
+      - Group 34
+      - Group 138
+      - Group 144
+      - Group 150
+      - Group 156
+      - Group 162
+      - DIRECT
+  - name: Group 34
+    icon: https://h7.example.com/p32.png
+    type: select
+    use: *a7
+    filter: *a13
+    empty-fallback: REJECT
+  - name: Group 35
+    type: select
+    url: *a12
+    expected-status: 204
+    use: *a7
+    filter: *a14
+    empty-fallback: REJECT
+    icon: "https://h9.example.com/p33.png"
+  - name: Group 36
+    <<: *a15
+    use: [provider-1]
+    filter: *a17
+    exclude-filter: *a18
+  - name: Group 37
+    <<: *a15
+    use: [provider-2]
+    filter: *a19
+    exclude-filter: *a18
+  - name: Group 38
+    <<: *a15
+    use: [provider-2]
+    filter: *a19
+    exclude-filter: *a18
+  - name: Group 39
+    <<: *a16
+    use: [provider-1]
+    filter: *a20
+    exclude-filter: *a18
+    icon: "https://h9.example.com/p34.png"
+  - name: Group 40
+    <<: *a16
+    use: [provider-1]
+    filter: *a17
+    exclude-filter: *a18
+    icon: "https://h9.example.com/p35.png"
+  - name: Group 41
+    <<: *a16
+    use: [provider-1]
+    filter: *a21
+    exclude-filter: *a18
+    icon: "https://h9.example.com/p36.png"
+  - name: Group 42
+    <<: *a16
+    use: [provider-1]
+    filter: *a22
+    exclude-filter: *a18
+    icon: "https://h9.example.com/p37.png"
+  - name: Group 43
+    <<: *a16
+    use: [provider-1]
+    filter: *a11
+    exclude-filter: *a18
+    icon: "https://h9.example.com/p38.png"
+  - name: Group 44
+    <<: *a16
+    use: [provider-2]
+    filter: *a19
+    exclude-filter: *a18
+    icon: "https://h9.example.com/p34.png"
+  - name: Group 45
+    <<: *a16
+    use: [provider-2]
+    filter: *a17
+    exclude-filter: *a18
+    icon: "https://h9.example.com/p35.png"
+  - name: Group 46
+    <<: *a16
+    use: [provider-2]
+    filter: *a21
+    exclude-filter: *a18
+    icon: "https://h9.example.com/p36.png"
+  - name: Group 47
+    <<: *a16
+    use: [provider-2]
+    filter: *a22
+    exclude-filter: *a18
+    icon: "https://h9.example.com/p37.png"
+  - name: Group 48
+    <<: *a16
+    use: [provider-2]
+    filter: *a11
+    exclude-filter: *a18
+    icon: "https://h9.example.com/p38.png"
+  - name: Group 49
+    <<: *a16
+    use: [provider-3]
+    filter: *a19
+    exclude-filter: *a18
+    icon: "https://h9.example.com/p34.png"
+  - name: Group 50
+    <<: *a16
+    use: [provider-3]
+    filter: *a23
+    exclude-filter: *a18
+    icon: "https://h9.example.com/p35.png"
+  - name: Group 51
+    <<: *a16
+    use: [provider-3]
+    filter: *a24
+    exclude-filter: *a18
+    icon: "https://h9.example.com/p36.png"
+  - name: Group 52
+    <<: *a16
+    use: [provider-3]
+    filter: *a22
+    exclude-filter: *a25
+    icon: "https://h9.example.com/p37.png"
+  - name: Group 53
+    <<: *a16
+    use: [provider-3]
+    filter: *a11
+    exclude-filter: *a18
+    icon: "https://h9.example.com/p38.png"
+  - name: Group 54
+    <<: *a26
+    hidden: true
+    use: [provider-4]
+    filter: *a27
+    icon: "https://h9.example.com/p39.png"
+  - name: Group 55
+    <<: *a26
+    hidden: true
+    proxies:
+      - Group 40
+      - Group 39
+      - Group 41
+      - Group 42
+    icon: "https://h9.example.com/p39.png"
+  - name: Group 56
+    <<: *a26
+    hidden: true
+    proxies:
+      - Group 44
+      - Group 45
+      - Group 46
+      - Group 47
+    icon: "https://h9.example.com/p39.png"
+  - name: Group 57
+    <<: *a26
+    hidden: true
+    proxies:
+      - Group 50
+      - Group 51
+      - Group 49
+      - Group 52
+    icon: "https://h9.example.com/p39.png"
+  - name: Group 58
+    hidden: true
+    <<: *a26
+    proxies:
+      - Group 55
+      - Group 56
+      - Group 57
+      - Group 54
+    icon: "https://h9.example.com/p39.png"
+  - name: Group 59
+    hidden: true
+    <<: *a26
+    proxies:
+      - Group 56
+      - Group 55
+      - Group 57
+      - Group 54
+  - name: Group 60
+    <<: *a26
+    hidden: true
+    use: [provider-4]
+    filter: *a19
+    proxies:
+      - Group 39
+      - Group 44
+      - Group 49
+    icon: "https://h9.example.com/p34.png"
+  - name: Group 61
+    <<: *a26
+    hidden: true
+    use: [provider-4]
+    filter: *a21
+    proxies:
+      - Group 41
+      - Group 46
+      - Group 51
+    icon: "https://h9.example.com/p36.png"
+  - name: Group 62
+    <<: *a26
+    hidden: true
+    use: [provider-4]
+    filter: *a22
+    proxies:
+      - Group 42
+      - Group 47
+      - Group 52
+    icon: "https://h9.example.com/p37.png"
+  - name: Group 63
+    <<: *a26
+    hidden: true
+    use: [provider-4]
+    filter: *a17
+    proxies:
+      - Group 40
+      - Group 45
+      - Group 50
+    icon: "https://h9.example.com/p35.png"
+  - name: Group 64
+    <<: *a26
+    hidden: true
+    use: [provider-4]
+    filter: *a11
+    proxies:
+      - Group 43
+      - Group 48
+      - Group 53
+    icon: "https://h9.example.com/p38.png"
+  - name: Group 65
+    hidden: true
+    <<: *a26
+    proxies:
+      - Group 57
+      - Group 55
+      - Group 56
+      - Group 54
+  - name: Group 66
+    <<: *a28
+    proxies:
+      - Group 81
+      - Group 71
+      - Group 76
+      - Group 82
+      - DIRECT
+  - name: Group 67
+    <<: *a30
+    use: [provider-1]
+    filter: *a20
+    exclude-filter: *a18
+  - name: Group 68
+    <<: *a30
+    use: [provider-1]
+    filter: *a17
+    exclude-filter: *a18
+  - name: Group 69
+    <<: *a30
+    use: [provider-1]
+    filter: *a21
+    exclude-filter: *a18
+  - name: Group 70
+    <<: *a30
+    use: [provider-1]
+    filter: *a22
+    exclude-filter: *a18
+  - name: Group 71
+    <<: *a28
+    proxies:
+      - Group 68
+      - Group 67
+      - Group 69
+      - Group 70
+  - name: Group 72
+    <<: *a30
+    use: [provider-2]
+    filter: *a19
+    exclude-filter: *a18
+  - name: Group 73
+    <<: *a30
+    use: [provider-2]
+    filter: *a17
+    exclude-filter: *a18
+  - name: Group 74
+    <<: *a30
+    use: [provider-2]
+    filter: *a21
+    exclude-filter: *a18
+  - name: Group 75
+    <<: *a30
+    use: [provider-2]
+    filter: *a22
+    exclude-filter: *a18
+  - name: Group 76
+    <<: *a28
+    proxies:
+      - Group 72
+      - Group 73
+      - Group 74
+      - Group 75
+  - name: Group 77
+    <<: *a30
+    use: [provider-3]
+    filter: *a19
+    exclude-filter: *a18
+  - name: Group 78
+    <<: *a30
+    use: [provider-3]
+    filter: *a23
+    exclude-filter: *a18
+  - name: Group 79
+    <<: *a30
+    use: [provider-3]
+    filter: *a24
+    exclude-filter: *a18
+  - name: Group 80
+    <<: *a30
+    use: [provider-3]
+    filter: *a22
+    exclude-filter: *a25
+  - name: Group 81
+    <<: *a28
+    proxies:
+      - Group 78
+      - Group 79
+      - Group 77
+      - Group 80
+  - name: Group 82
+    <<: *a28
+    use: [provider-4]
+    filter: *a27
+  - name: Group 83
+    <<: *a28
+    proxies:
+      - Group 81
+      - Group 71
+      - Group 76
+      - Group 82
+  - name: Group 84
+    <<: *a28
+    proxies:
+      - Group 71
+      - Group 76
+      - Group 81
+      - Group 82
+  - name: Group 85
+    <<: *a15
+    use: [provider-1]
+    filter: *a20
+    exclude-filter: *a18
+  - name: Group 86
+    <<: *a15
+    use: [provider-1]
+    filter: *a17
+    exclude-filter: *a18
+  - name: Group 87
+    <<: *a15
+    use: [provider-1]
+    filter: *a21
+    exclude-filter: *a18
+  - name: Group 88
+    <<: *a15
+    use: [provider-1]
+    filter: *a22
+    exclude-filter: *a18
+  - name: Group 89
+    <<: *a31
+    proxies:
+      - Group 86
+      - Group 85
+      - Group 87
+      - Group 88
+  - name: Group 90
+    <<: *a15
+    use: [provider-2]
+    filter: *a19
+    exclude-filter: *a18
+  - name: Group 91
+    <<: *a15
+    use: [provider-2]
+    filter: *a17
+    exclude-filter: *a18
+  - name: Group 92
+    <<: *a15
+    use: [provider-2]
+    filter: *a21
+    exclude-filter: *a18
+  - name: Group 93
+    <<: *a15
+    use: [provider-2]
+    filter: *a22
+    exclude-filter: *a18
+  - name: Group 94
+    <<: *a31
+    proxies:
+      - Group 90
+      - Group 91
+      - Group 92
+      - Group 93
+  - name: Group 95
+    <<: *a15
+    use: [provider-3]
+    filter: *a19
+    exclude-filter: *a18
+  - name: Group 96
+    <<: *a15
+    use: [provider-3]
+    filter: *a23
+    exclude-filter: *a18
+  - name: Group 97
+    <<: *a15
+    use: [provider-3]
+    filter: *a24
+    exclude-filter: *a18
+  - name: Group 98
+    <<: *a15
+    use: [provider-3]
+    filter: *a22
+    exclude-filter: *a25
+  - name: Group 99
+    <<: *a31
+    proxies:
+      - Group 96
+      - Group 97
+      - Group 95
+      - Group 98
+  - name: Group 100
+    <<: *a31
+    use: [provider-4]
+    filter: *a27
+  - name: Group 101
+    <<: *a31
+    proxies:
+      - Group 99
+      - Group 89
+      - Group 94
+      - Group 100
+  - name: Group 102
+    <<: *a31
+    proxies:
+      - Group 89
+      - Group 94
+      - Group 99
+      - Group 100
+  - name: Group 103
+    <<: *a31
+    proxies:
+      - Group 94
+      - Group 89
+      - Group 99
+      - Group 100
+  - name: Group 104
+    <<: *a31
+    use: *a7
+    filter: *a11
+    exclude-filter: *a18
+  - name: Group 105
+    <<: *a28
+    proxies:
+      - Group 106
+      - Group 107
+      - Group 108
+      - Group 109
+  - name: Group 106
+    <<: *a30
+    use: [provider-3]
+    filter: *a17
+    exclude-filter: *a32
+  - name: Group 107
+    <<: *a30
+    use: [provider-3]
+    filter: *a21
+    exclude-filter: *a32
+  - name: Group 108
+    <<: *a30
+    use: [provider-3]
+    filter: *a22
+    exclude-filter: *a32
+  - name: Group 109
+    <<: *a30
+    use: [provider-3]
+    filter: *a19
+    exclude-filter: *a32
+  - name: Group 110
+    <<: *a28
+    proxies:
+      - Group 111
+      - Group 112
+      - Group 113
+      - Group 114
+  - name: Group 111
+    <<: *a30
+    use: [provider-1]
+    filter: *a17
+    exclude-filter: *a33
+  - name: Group 112
+    <<: *a30
+    use: [provider-1]
+    filter: *a21
+    exclude-filter: *a33
+  - name: Group 113
+    <<: *a30
+    use: [provider-1]
+    filter: *a22
+    exclude-filter: *a33
+  - name: Group 114
+    <<: *a30
+    use: [provider-1]
+    filter: *a19
+    exclude-filter: *a33
+  - name: Group 115
+    <<: *a28
+    proxies:
+      - Group 116
+      - Group 117
+      - Group 118
+      - Group 119
+  - name: Group 116
+    <<: *a30
+    use: [provider-2]
+    filter: *a17
+    exclude-filter: *a34
+  - name: Group 117
+    <<: *a30
+    use: [provider-2]
+    filter: *a21
+    exclude-filter: *a34
+  - name: Group 118
+    <<: *a30
+    use: [provider-2]
+    filter: *a22
+    exclude-filter: *a34
+  - name: Group 119
+    <<: *a30
+    use: [provider-2]
+    filter: *a19
+    exclude-filter: *a34
+  - name: Group 120
+    <<: *a28
+    proxies:
+      - Group 121
+      - Group 122
+      - Group 123
+      - Group 124
+      - Group 125
+  - name: Group 121
+    <<: *a30
+    use: [provider-4]
+    filter: *a17
+  - name: Group 122
+    <<: *a30
+    use: [provider-4]
+    filter: *a21
+  - name: Group 123
+    <<: *a30
+    use: [provider-4]
+    filter: *a22
+  - name: Group 124
+    <<: *a30
+    use: [provider-4]
+    filter: *a19
+  - name: Group 125
+    <<: *a30
+    use: [provider-4]
+    exclude-filter: *a35
+  - name: Group 126
+    hidden: true
+    <<: *a26
+    proxies:
+      - Group 105
+      - Group 110
+      - Group 115
+      - Group 120
+    url: *a29
+    expected-status: 200
+  - name: Group 127
+    <<: *a28
+    proxies:
+      - Group 76
+      - Group 71
+      - Group 81
+      - Group 82
+  - name: Group 128
+    <<: *a28
+    use: [provider-4]
+    filter: *a19
+    proxies:
+      - Group 67
+      - Group 72
+      - Group 77
+  - name: Group 129
+    <<: *a28
+    use: [provider-4]
+    filter: *a17
+    proxies:
+      - Group 68
+      - Group 73
+      - Group 78
+  - name: Group 130
+    <<: *a28
+    use: [provider-4]
+    filter: *a21
+    proxies:
+      - Group 69
+      - Group 74
+      - Group 79
+  - name: Group 131
+    <<: *a28
+    use: *a7
+    filter: *a11
+    exclude-filter: *a18
+  - name: Group 132
+    <<: *a28
+    use: [provider-4]
+    filter: *a22
+    proxies:
+      - Group 70
+      - Group 75
+      - Group 80
+  - name: Group 133
+    <<: *a31
+    use: [provider-4]
+    filter: *a19
+    proxies:
+      - Group 85
+      - Group 90
+      - Group 95
+  - name: Group 134
+    <<: *a31
+    use: [provider-4]
+    filter: *a17
+    proxies:
+      - Group 86
+      - Group 91
+      - Group 96
+  - name: Group 135
+    <<: *a31
+    use: [provider-4]
+    filter: *a21
+    proxies:
+      - Group 87
+      - Group 92
+      - Group 97
+  - name: Group 136
+    <<: *a31
+    use: [provider-4]
+    filter: *a22
+    proxies:
+      - Group 88
+      - Group 93
+      - Group 98
+  - name: Group 137
+    <<: *a28
+    proxies:
+      - Group 110
+      - Group 115
+      - Group 105
+      - Group 120
+  - name: Group 138
+    <<: *a26
+    hidden: true
+    use: [provider-4]
+    filter: *a19
+    proxies:
+      - Group 49
+      - Group 39
+      - Group 44
+  - name: Group 139
+    <<: *a26
+    hidden: true
+    use: [provider-4]
+    filter: *a19
+    proxies:
+      - Group 44
+      - Group 39
+      - Group 49
+  - name: Group 140
+    <<: *a31
+    use: [provider-4]
+    filter: *a19
+    proxies:
+      - Group 95
+      - Group 85
+      - Group 90
+  - name: Group 141
+    <<: *a31
+    use: [provider-4]
+    filter: *a19
+    proxies:
+      - Group 90
+      - Group 85
+      - Group 95
+  - name: Group 142
+    <<: *a28
+    use: [provider-4]
+    filter: *a19
+    proxies:
+      - Group 77
+      - Group 67
+      - Group 72
+  - name: Group 143
+    <<: *a28
+    use: [provider-4]
+    filter: *a19
+    proxies:
+      - Group 72
+      - Group 67
+      - Group 77
+  - name: Group 144
+    <<: *a26
+    hidden: true
+    use: [provider-4]
+    filter: *a17
+    proxies:
+      - Group 50
+      - Group 40
+      - Group 45
+  - name: Group 145
+    <<: *a26
+    hidden: true
+    use: [provider-4]
+    filter: *a17
+    proxies:
+      - Group 45
+      - Group 40
+      - Group 50
+  - name: Group 146
+    <<: *a31
+    use: [provider-4]
+    filter: *a17
+    proxies:
+      - Group 96
+      - Group 86
+      - Group 91
+  - name: Group 147
+    <<: *a31
+    use: [provider-4]
+    filter: *a17
+    proxies:
+      - Group 91
+      - Group 86
+      - Group 96
+  - name: Group 148
+    <<: *a28
+    use: [provider-4]
+    filter: *a17
+    proxies:
+      - Group 78
+      - Group 68
+      - Group 73
+  - name: Group 149
+    <<: *a28
+    use: [provider-4]
+    filter: *a17
+    proxies:
+      - Group 73
+      - Group 68
+      - Group 78
+  - name: Group 150
+    <<: *a26
+    hidden: true
+    use: [provider-4]
+    filter: *a21
+    proxies:
+      - Group 51
+      - Group 41
+      - Group 46
+  - name: Group 151
+    <<: *a26
+    hidden: true
+    use: [provider-4]
+    filter: *a21
+    proxies:
+      - Group 46
+      - Group 41
+      - Group 51
+  - name: Group 152
+    <<: *a31
+    use: [provider-4]
+    filter: *a21
+    proxies:
+      - Group 97
+      - Group 87
+      - Group 92
+  - name: Group 153
+    <<: *a31
+    use: [provider-4]
+    filter: *a21
+    proxies:
+      - Group 92
+      - Group 87
+      - Group 97
+  - name: Group 154
+    <<: *a28
+    use: [provider-4]
+    filter: *a21
+    proxies:
+      - Group 79
+      - Group 69
+      - Group 74
+  - name: Group 155
+    <<: *a28
+    use: [provider-4]
+    filter: *a21
+    proxies:
+      - Group 74
+      - Group 69
+      - Group 79
+  - name: Group 156
+    <<: *a26
+    hidden: true
+    use: [provider-4]
+    filter: *a11
+    proxies:
+      - Group 53
+      - Group 43
+      - Group 48
+  - name: Group 157
+    <<: *a26
+    hidden: true
+    use: [provider-4]
+    filter: *a11
+    proxies:
+      - Group 48
+      - Group 43
+      - Group 53
+  - name: Group 158
+    <<: *a31
+    use: [provider-3, provider-1, provider-2, provider-4]
+    filter: *a11
+    exclude-filter: *a18
+  - name: Group 159
+    <<: *a31
+    use: [provider-2, provider-1, provider-3, provider-4]
+    filter: *a11
+    exclude-filter: *a18
+  - name: Group 160
+    <<: *a28
+    use: [provider-3, provider-1, provider-2, provider-4]
+    filter: *a11
+    exclude-filter: *a18
+  - name: Group 161
+    <<: *a28
+    use: [provider-2, provider-1, provider-3, provider-4]
+    filter: *a11
+    exclude-filter: *a18
+  - name: Group 162
+    <<: *a26
+    hidden: true
+    use: [provider-4]
+    filter: *a22
+    proxies:
+      - Group 52
+      - Group 42
+      - Group 47
+  - name: Group 163
+    <<: *a26
+    hidden: true
+    use: [provider-4]
+    filter: *a22
+    proxies:
+      - Group 47
+      - Group 42
+      - Group 52
+  - name: Group 164
+    <<: *a31
+    use: [provider-4]
+    filter: *a22
+    proxies:
+      - Group 98
+      - Group 88
+      - Group 93
+  - name: Group 165
+    <<: *a31
+    use: [provider-4]
+    filter: *a22
+    proxies:
+      - Group 93
+      - Group 88
+      - Group 98
+  - name: Group 166
+    <<: *a28
+    use: [provider-4]
+    filter: *a22
+    proxies:
+      - Group 80
+      - Group 70
+      - Group 75
+  - name: Group 167
+    <<: *a28
+    use: [provider-4]
+    filter: *a22
+    proxies:
+      - Group 75
+      - Group 70
+      - Group 80
+rules:
+  - NETWORK,tcp,Proxy 1
+  - SUB-RULE,sub-20,Proxy 20
+  - NETWORK,udp,REJECT
+sub-rules:
+  sub-1:
+    - RULE-SET,set-2,Group 26
+    - DOMAIN-SUFFIX,d13.example,Group 2
+    - DOMAIN,d14.example,Group 2
+    - DOMAIN,d15.example,Group 2
+    - DOMAIN,d12.example,Group 28
+    - DOMAIN,d16.example,Group 30
+    - IP-CIDR,192.0.2.2/32,DIRECT,no-resolve
+    - DOMAIN-SUFFIX,d17.example,DIRECT
+    - DOMAIN-SUFFIX,d18.example,DIRECT
+    - DOMAIN-SUFFIX,d19.example,DIRECT
+    - DOMAIN-SUFFIX,d20.example,DIRECT
+    - DOMAIN-SUFFIX,d21.example,DIRECT
+    - DOMAIN-SUFFIX,d22.example,DIRECT
+    - DOMAIN-SUFFIX,d23.example,DIRECT
+    - DOMAIN-SUFFIX,d24.example,DIRECT
+    - DOMAIN-SUFFIX,d25.example,DIRECT
+    - DOMAIN-SUFFIX,d26.example,DIRECT
+    - AND,((DST-PORT,7844),(OR,((DOMAIN,d27.example),(DOMAIN,d28.example),(DOMAIN,d29.example),(DOMAIN,d30.example),(DOMAIN,d31.example)))),Group 1
+    - AND,((DST-PORT,7844),(RULE-SET,set-1,no-resolve)),Group 1
+    - DOMAIN-SUFFIX,d10.example,DIRECT
+    - DOMAIN-SUFFIX,d29.example,DIRECT
+    - DOMAIN-SUFFIX,d32.example,DIRECT
+    - RULE-SET,set-58,Group 3
+    - RULE-SET,set-28,Group 3
+    - RULE-SET,set-6,Group 33
+    - RULE-SET,set-9,Group 33
+    - RULE-SET,set-7,Group 33
+    - RULE-SET,set-10,Group 33
+    - RULE-SET,set-50,Group 19
+    - RULE-SET,set-31,Group 31
+    - DOMAIN-SUFFIX,d33.example,Group 18
+    - RULE-SET,set-80,Group 18
+    - RULE-SET,set-63,DIRECT
+    - RULE-SET,set-13,DIRECT
+    - RULE-SET,set-67,DIRECT
+    - RULE-SET,set-75,DIRECT
+    - RULE-SET,set-59,DIRECT
+    - RULE-SET,set-68,DIRECT
+    - RULE-SET,set-65,DIRECT
+    - RULE-SET,set-11,DIRECT
+    - RULE-SET,set-78,DIRECT
+    - RULE-SET,set-14,DIRECT
+    - RULE-SET,set-66,DIRECT
+    - RULE-SET,set-19,DIRECT
+    - RULE-SET,set-81,DIRECT
+    - RULE-SET,set-20,DIRECT
+    - RULE-SET,set-47,DIRECT
+    - RULE-SET,set-73,DIRECT
+    - RULE-SET,set-74,DIRECT
+    - RULE-SET,set-36,DIRECT
+    - RULE-SET,set-8,Group 33
+    - RULE-SET,set-32,Group 31
+    - RULE-SET,set-15,Group 16
+    - RULE-SET,set-16,Group 32
+    - DOMAIN-SUFFIX,d34.example,Group 21
+    - DOMAIN-SUFFIX,d35.example,Group 21
+    - DOMAIN-SUFFIX,d36.example,Group 25
+    - DOMAIN-SUFFIX,d37.example,Group 25
+    - DOMAIN-SUFFIX,d38.example,Group 25
+    - DOMAIN,d39.example,Group 25
+    - DOMAIN,d40.example,Group 25
+    - DOMAIN,d41.example,Group 25
+    - DOMAIN,d42.example,Group 25
+    - DOMAIN,d43.example,Group 25
+    - DOMAIN-SUFFIX,d44.example,Group 25
+    - DOMAIN,d45.example,Group 25
+    - DOMAIN-SUFFIX,d46.example,Group 25
+    - RULE-SET,set-43,Group 25
+    - DOMAIN-SUFFIX,d47.example,Group 23
+    - DOMAIN-SUFFIX,d48.example,Group 23
+    - DOMAIN-SUFFIX,d49.example,Group 23
+    - DOMAIN-SUFFIX,d50.example,Group 28
+    - AND,((RULE-SET,set-64),(NOT,((RULE-SET,set-24)))),Group 28
+    - AND,((RULE-SET,set-35),(NOT,((RULE-SET,set-24)))),DIRECT
+    - RULE-SET,set-4,Group 9
+    - RULE-SET,set-17,Group 29
+    - RULE-SET,set-22,Group 2
+    - RULE-SET,set-23,Group 19
+    - RULE-SET,set-70,Group 6
+    - RULE-SET,set-79,Group 5
+    - RULE-SET,set-76,Group 19
+    - RULE-SET,set-77,Group 19
+    - RULE-SET,set-25,Group 25
+    - RULE-SET,set-42,Group 25
+    - RULE-SET,set-29,Group 8
+    - RULE-SET,set-60,Group 10
+    - RULE-SET,set-61,Group 4
+    - RULE-SET,set-69,Group 10
+    - RULE-SET,set-62,Group 10
+    - RULE-SET,set-34,Group 11
+    - RULE-SET,set-27,Group 12
+    - RULE-SET,set-44,Group 13
+    - RULE-SET,set-45,Group 14
+    - RULE-SET,set-46,Group 15
+    - RULE-SET,set-71,Group 30
+    - RULE-SET,set-72,Group 30
+    - RULE-SET,set-18,Group 17
+    - RULE-SET,set-21,Group 27
+    - RULE-SET,set-51,Group 27
+    - RULE-SET,set-52,Group 27
+    - RULE-SET,set-53,Group 27
+    - RULE-SET,set-54,Group 27
+    - RULE-SET,set-55,Group 27
+    - RULE-SET,set-56,Group 27
+    - RULE-SET,set-41,Group 10
+    - RULE-SET,set-38,Group 20
+    - RULE-SET,set-37,Group 21
+    - RULE-SET,set-48,Group 22
+    - RULE-SET,set-49,Group 22
+    - RULE-SET,set-33,Group 24
+    - RULE-SET,set-24,Group 5
+    - RULE-SET,set-30,Group 7
+    - RULE-SET,set-57,Group 21
+    - RULE-SET,set-39,Group 3
+    - RULE-SET,set-40,Group 3
+    - RULE-SET,set-91,DIRECT
+    - RULE-SET,set-92,DIRECT
+    - RULE-SET,set-83,Group 32
+    - RULE-SET,set-5,Group 9
+    - RULE-SET,set-90,Group 4
+    - RULE-SET,set-86,Group 12
+    - AND,((NETWORK,tcp),(DST-PORT,5228-5230),(OR,((RULE-SET,set-85,no-resolve),(RULE-SET,set-93,no-resolve)))),Group 6
+    - RULE-SET,set-93,Group 5
+    - RULE-SET,set-85,Group 5
+    - RULE-SET,set-87,Group 21
+    - RULE-SET,set-88,Group 21
+    - RULE-SET,set-89,DIRECT,no-resolve
+    - RULE-SET,set-84,DIRECT
+    - MATCH,Group 28
+  sub-2:
+    - OR,((RULE-SET,set-26),(RULE-SET,set-3)),Group 103
+    - AND,((NETWORK,udp),(OR,((RULE-SET,set-26),(RULE-SET,set-3)))),REJECT
+    - OR,((RULE-SET,set-25),(RULE-SET,set-42)),Group 127
+    - AND,((NETWORK,udp),(OR,((RULE-SET,set-25),(RULE-SET,set-42)))),REJECT
+    - MATCH,Group 59
+    - NETWORK,udp,REJECT
+  sub-3:
+    - OR,((RULE-SET,set-26),(RULE-SET,set-3)),Group 102
+    - AND,((NETWORK,udp),(OR,((RULE-SET,set-26),(RULE-SET,set-3)))),REJECT
+    - RULE-SET,set-2,Group 137
+    - AND,((NETWORK,udp),(RULE-SET,set-2)),REJECT
+    - OR,((RULE-SET,set-25),(RULE-SET,set-42)),Group 84
+    - AND,((NETWORK,udp),(OR,((RULE-SET,set-25),(RULE-SET,set-42)))),REJECT
+    - MATCH,Group 58
+    - NETWORK,udp,REJECT
+  sub-4:
+    - OR,((RULE-SET,set-26),(RULE-SET,set-3)),Group 101
+    - AND,((NETWORK,udp),(OR,((RULE-SET,set-26),(RULE-SET,set-3)))),REJECT
+    - RULE-SET,set-2,Group 126
+    - AND,((NETWORK,udp),(RULE-SET,set-2)),REJECT
+    - OR,((RULE-SET,set-25),(RULE-SET,set-42)),Group 83
+    - AND,((NETWORK,udp),(OR,((RULE-SET,set-25),(RULE-SET,set-42)))),REJECT
+    - MATCH,Group 65
+    - NETWORK,udp,REJECT
+  sub-5:
+    - OR,((RULE-SET,set-26),(RULE-SET,set-3)),Group 141
+    - AND,((NETWORK,udp),(OR,((RULE-SET,set-26),(RULE-SET,set-3)))),REJECT
+    - OR,((RULE-SET,set-25),(RULE-SET,set-42)),Group 143
+    - AND,((NETWORK,udp),(OR,((RULE-SET,set-25),(RULE-SET,set-42)))),REJECT
+    - MATCH,Group 139
+    - NETWORK,udp,REJECT
+  sub-6:
+    - OR,((RULE-SET,set-26),(RULE-SET,set-3)),Group 133
+    - AND,((NETWORK,udp),(OR,((RULE-SET,set-26),(RULE-SET,set-3)))),REJECT
+    - OR,((RULE-SET,set-25),(RULE-SET,set-42)),Group 128
+    - AND,((NETWORK,udp),(OR,((RULE-SET,set-25),(RULE-SET,set-42)))),REJECT
+    - MATCH,Group 60
+    - NETWORK,udp,REJECT
+  sub-7:
+    - OR,((RULE-SET,set-26),(RULE-SET,set-3)),Group 140
+    - AND,((NETWORK,udp),(OR,((RULE-SET,set-26),(RULE-SET,set-3)))),REJECT
+    - OR,((RULE-SET,set-25),(RULE-SET,set-42)),Group 142
+    - AND,((NETWORK,udp),(OR,((RULE-SET,set-25),(RULE-SET,set-42)))),REJECT
+    - MATCH,Group 138
+    - NETWORK,udp,REJECT
+  sub-8:
+    - OR,((RULE-SET,set-26),(RULE-SET,set-3)),Group 147
+    - AND,((NETWORK,udp),(OR,((RULE-SET,set-26),(RULE-SET,set-3)))),REJECT
+    - OR,((RULE-SET,set-25),(RULE-SET,set-42)),Group 149
+    - AND,((NETWORK,udp),(OR,((RULE-SET,set-25),(RULE-SET,set-42)))),REJECT
+    - MATCH,Group 145
+    - NETWORK,udp,REJECT
+  sub-9:
+    - OR,((RULE-SET,set-26),(RULE-SET,set-3)),Group 134
+    - AND,((NETWORK,udp),(OR,((RULE-SET,set-26),(RULE-SET,set-3)))),REJECT
+    - OR,((RULE-SET,set-25),(RULE-SET,set-42)),Group 129
+    - AND,((NETWORK,udp),(OR,((RULE-SET,set-25),(RULE-SET,set-42)))),REJECT
+    - MATCH,Group 63
+    - NETWORK,udp,REJECT
+  sub-10:
+    - OR,((RULE-SET,set-26),(RULE-SET,set-3)),Group 146
+    - AND,((NETWORK,udp),(OR,((RULE-SET,set-26),(RULE-SET,set-3)))),REJECT
+    - OR,((RULE-SET,set-25),(RULE-SET,set-42)),Group 148
+    - AND,((NETWORK,udp),(OR,((RULE-SET,set-25),(RULE-SET,set-42)))),REJECT
+    - MATCH,Group 144
+    - NETWORK,udp,REJECT
+  sub-11:
+    - OR,((RULE-SET,set-26),(RULE-SET,set-3)),Group 153
+    - AND,((NETWORK,udp),(OR,((RULE-SET,set-26),(RULE-SET,set-3)))),REJECT
+    - OR,((RULE-SET,set-25),(RULE-SET,set-42)),Group 155
+    - AND,((NETWORK,udp),(OR,((RULE-SET,set-25),(RULE-SET,set-42)))),REJECT
+    - MATCH,Group 151
+    - NETWORK,udp,REJECT
+  sub-12:
+    - OR,((RULE-SET,set-26),(RULE-SET,set-3)),Group 135
+    - AND,((NETWORK,udp),(OR,((RULE-SET,set-26),(RULE-SET,set-3)))),REJECT
+    - OR,((RULE-SET,set-25),(RULE-SET,set-42)),Group 130
+    - AND,((NETWORK,udp),(OR,((RULE-SET,set-25),(RULE-SET,set-42)))),REJECT
+    - MATCH,Group 61
+    - NETWORK,udp,REJECT
+  sub-13:
+    - OR,((RULE-SET,set-26),(RULE-SET,set-3)),Group 152
+    - AND,((NETWORK,udp),(OR,((RULE-SET,set-26),(RULE-SET,set-3)))),REJECT
+    - OR,((RULE-SET,set-25),(RULE-SET,set-42)),Group 154
+    - AND,((NETWORK,udp),(OR,((RULE-SET,set-25),(RULE-SET,set-42)))),REJECT
+    - MATCH,Group 150
+    - NETWORK,udp,REJECT
+  sub-14:
+    - OR,((RULE-SET,set-26),(RULE-SET,set-3)),Group 159
+    - AND,((NETWORK,udp),(OR,((RULE-SET,set-26),(RULE-SET,set-3)))),REJECT
+    - OR,((RULE-SET,set-25),(RULE-SET,set-42)),Group 161
+    - AND,((NETWORK,udp),(OR,((RULE-SET,set-25),(RULE-SET,set-42)))),REJECT
+    - MATCH,Group 157
+    - NETWORK,udp,REJECT
+  sub-15:
+    - OR,((RULE-SET,set-26),(RULE-SET,set-3)),Group 104
+    - AND,((NETWORK,udp),(OR,((RULE-SET,set-26),(RULE-SET,set-3)))),REJECT
+    - OR,((RULE-SET,set-25),(RULE-SET,set-42)),Group 131
+    - AND,((NETWORK,udp),(OR,((RULE-SET,set-25),(RULE-SET,set-42)))),REJECT
+    - MATCH,Group 64
+    - NETWORK,udp,REJECT
+  sub-16:
+    - OR,((RULE-SET,set-26),(RULE-SET,set-3)),Group 158
+    - AND,((NETWORK,udp),(OR,((RULE-SET,set-26),(RULE-SET,set-3)))),REJECT
+    - OR,((RULE-SET,set-25),(RULE-SET,set-42)),Group 160
+    - AND,((NETWORK,udp),(OR,((RULE-SET,set-25),(RULE-SET,set-42)))),REJECT
+    - MATCH,Group 156
+    - NETWORK,udp,REJECT
+  sub-17:
+    - OR,((RULE-SET,set-26),(RULE-SET,set-3)),Group 165
+    - AND,((NETWORK,udp),(OR,((RULE-SET,set-26),(RULE-SET,set-3)))),REJECT
+    - OR,((RULE-SET,set-25),(RULE-SET,set-42)),Group 167
+    - AND,((NETWORK,udp),(OR,((RULE-SET,set-25),(RULE-SET,set-42)))),REJECT
+    - MATCH,Group 163
+    - NETWORK,udp,REJECT
+  sub-18:
+    - OR,((RULE-SET,set-26),(RULE-SET,set-3)),Group 136
+    - AND,((NETWORK,udp),(OR,((RULE-SET,set-26),(RULE-SET,set-3)))),REJECT
+    - OR,((RULE-SET,set-25),(RULE-SET,set-42)),Group 132
+    - AND,((NETWORK,udp),(OR,((RULE-SET,set-25),(RULE-SET,set-42)))),REJECT
+    - MATCH,Group 62
+    - NETWORK,udp,REJECT
+  sub-19:
+    - OR,((RULE-SET,set-26),(RULE-SET,set-3)),Group 164
+    - AND,((NETWORK,udp),(OR,((RULE-SET,set-26),(RULE-SET,set-3)))),REJECT
+    - OR,((RULE-SET,set-25),(RULE-SET,set-42)),Group 166
+    - AND,((NETWORK,udp),(OR,((RULE-SET,set-25),(RULE-SET,set-42)))),REJECT
+    - MATCH,Group 162
+    - NETWORK,udp,REJECT
+rule-providers:
+  set-1:
+    type: inline
+    behavior: ipcidr
+    payload:
+      - 192.0.2.3/32
+      - 192.0.2.4/32
+      - 192.0.2.5/32
+      - 192.0.2.6/32
+      - 192.0.2.7/32
+      - 192.0.2.8/32
+      - 192.0.2.9/32
+      - 192.0.2.10/32
+      - 192.0.2.11/32
+      - 192.0.2.12/32
+      - 192.0.2.13/32
+      - 192.0.2.14/32
+      - 192.0.2.15/32
+      - 192.0.2.16/32
+      - 192.0.2.17/32
+      - 192.0.2.18/32
+      - 192.0.2.19/32
+      - 192.0.2.20/32
+      - 192.0.2.21/32
+      - 192.0.2.22/32
+      - 2001:db8::1/128
+      - 2001:db8::2/128
+      - 2001:db8::3/128
+      - 2001:db8::4/128
+      - 2001:db8::5/128
+      - 2001:db8::6/128
+      - 2001:db8::7/128
+      - 2001:db8::8/128
+      - 2001:db8::9/128
+      - 2001:db8::a/128
+      - 2001:db8::b/128
+      - 2001:db8::c/128
+      - 2001:db8::d/128
+      - 2001:db8::e/128
+      - 2001:db8::f/128
+      - 2001:db8::10/128
+      - 2001:db8::11/128
+      - 2001:db8::12/128
+      - 2001:db8::13/128
+      - 2001:db8::14/128
+  set-2:
+    type: inline
+    behavior: domain
+    payload: [d51.example, d52.example, '+.d53.example']
+  set-3:
+    type: inline
+    behavior: domain
+    payload:
+      - '+.d54.example'
+      - d55.example
+      - d56.example
+      - d57.example
+      - d50.example
+      - d58.example
+      - d59.example
+      - d60.example
+  set-4:
+    <<: *a36
+    url: "https://h7.example.com/p41.mrs"
+  set-5:
+    <<: *a37
+    url: "https://h7.example.com/p42.mrs"
+  set-6:
+    <<: *a36
+    url: "https://h7.example.com/p43.mrs"
+  set-7:
+    <<: *a36
+    url: "https://h7.example.com/p44.mrs"
+  set-8:
+    <<: *a36
+    url: "https://h7.example.com/p45.mrs"
+  set-9:
+    <<: *a38
+    url: "https://h7.example.com/p46.list"
+  set-10:
+    <<: *a38
+    url: "https://h7.example.com/p47.list"
+  set-11:
+    <<: *a36
+    url: "https://h7.example.com/p48.mrs"
+  set-12:
+    <<: *a36
+    url: "https://h7.example.com/p49.mrs"
+  set-13:
+    <<: *a36
+    url: "https://h7.example.com/p50.mrs"
+  set-14:
+    <<: *a36
+    url: "https://h7.example.com/p51.mrs"
+  set-15:
+    <<: *a36
+    url: "https://h7.example.com/p52.mrs"
+  set-16:
+    <<: *a36
+    url: "https://h7.example.com/p53.mrs"
+  set-17:
+    <<: *a36
+    url: "https://h7.example.com/p54.mrs"
+  set-18:
+    <<: *a36
+    url: "https://h7.example.com/p55.mrs"
+  set-19:
+    <<: *a36
+    url: "https://h7.example.com/p56.mrs"
+  set-20:
+    <<: *a36
+    url: "https://h7.example.com/p57.mrs"
+  set-21:
+    <<: *a36
+    url: "https://h7.example.com/p58.mrs"
+  set-22:
+    <<: *a36
+    url: "https://h7.example.com/p59.mrs"
+  set-23:
+    <<: *a36
+    url: "https://h7.example.com/p60.mrs"
+  set-24:
+    <<: *a36
+    url: "https://h7.example.com/p61.mrs"
+  set-25:
+    <<: *a36
+    url: "https://h7.example.com/p62.mrs"
+  set-26:
+    <<: *a36
+    url: "https://h7.example.com/p63.mrs"
+  set-27:
+    <<: *a36
+    url: "https://h7.example.com/p64.mrs"
+  set-28:
+    <<: *a36
+    url: "https://h7.example.com/p65.mrs"
+  set-29:
+    <<: *a36
+    url: "https://h7.example.com/p66.mrs"
+  set-30:
+    <<: *a36
+    url: "https://h7.example.com/p67.mrs"
+  set-31:
+    <<: *a36
+    url: "https://h7.example.com/p68.mrs"
+  set-32:
+    <<: *a36
+    url: "https://h7.example.com/p69.mrs"
+  set-33:
+    <<: *a36
+    url: "https://h7.example.com/p70.mrs"
+  set-34:
+    <<: *a36
+    url: "https://h7.example.com/p71.mrs"
+  set-35:
+    <<: *a36
+    url: "https://h7.example.com/p72.mrs"
+  set-36:
+    <<: *a36
+    url: "https://h7.example.com/p73.mrs"
+  set-37:
+    <<: *a36
+    url: "https://h7.example.com/p74.mrs"
+  set-38:
+    <<: *a36
+    url: "https://h7.example.com/p75.mrs"
+  set-39:
+    <<: *a36
+    url: "https://h7.example.com/p76.mrs"
+  set-40:
+    <<: *a36
+    url: "https://h7.example.com/p77.mrs"
+  set-41:
+    <<: *a36
+    url: "https://h7.example.com/p78.mrs"
+  set-42:
+    <<: *a36
+    url: "https://h7.example.com/p79.mrs"
+  set-43:
+    <<: *a36
+    url: "https://h7.example.com/p80.mrs"
+  set-44:
+    <<: *a36
+    url: "https://h7.example.com/p81.mrs"
+  set-45:
+    <<: *a36
+    url: "https://h7.example.com/p82.mrs"
+  set-46:
+    <<: *a36
+    url: "https://h7.example.com/p83.mrs"
+  set-47:
+    <<: *a36
+    url: "https://h7.example.com/p84.mrs"
+  set-48:
+    <<: *a36
+    url: "https://h7.example.com/p85.mrs"
+  set-49:
+    <<: *a36
+    url: "https://h7.example.com/p86.mrs"
+  set-50:
+    <<: *a36
+    url: "https://h7.example.com/p87.mrs"
+  set-51:
+    <<: *a36
+    url: "https://h7.example.com/p88.mrs"
+  set-52:
+    <<: *a36
+    url: "https://h7.example.com/p89.mrs"
+  set-53:
+    <<: *a36
+    url: "https://h7.example.com/p90.mrs"
+  set-54:
+    <<: *a36
+    url: "https://h7.example.com/p91.mrs"
+  set-55:
+    <<: *a36
+    url: "https://h7.example.com/p92.mrs"
+  set-56:
+    <<: *a36
+    url: "https://h7.example.com/p93.mrs"
+  set-57:
+    <<: *a36
+    url: "https://h7.example.com/p94.mrs"
+  set-58:
+    <<: *a36
+    url: "https://h7.example.com/p95.mrs"
+  set-59:
+    <<: *a36
+    url: "https://h7.example.com/p96.mrs"
+  set-60:
+    <<: *a36
+    url: "https://h7.example.com/p97.mrs"
+  set-61:
+    <<: *a36
+    url: "https://h7.example.com/p98.mrs"
+  set-62:
+    <<: *a36
+    url: "https://h7.example.com/p99.mrs"
+  set-63:
+    <<: *a36
+    url: "https://h7.example.com/p100.mrs"
+  set-64:
+    <<: *a36
+    url: "https://h7.example.com/p101.mrs"
+  set-65:
+    <<: *a36
+    url: "https://h7.example.com/p102.mrs"
+  set-66:
+    <<: *a36
+    url: "https://h7.example.com/p103.mrs"
+  set-67:
+    <<: *a36
+    url: "https://h7.example.com/p104.mrs"
+  set-68:
+    <<: *a36
+    url: "https://h7.example.com/p105.mrs"
+  set-69:
+    <<: *a36
+    url: "https://h7.example.com/p106.mrs"
+  set-70:
+    <<: *a36
+    url: "https://h7.example.com/p107.mrs"
+  set-71:
+    <<: *a36
+    url: "https://h7.example.com/p108.mrs"
+  set-72:
+    <<: *a38
+    url: "https://h7.example.com/p109.list"
+  set-73:
+    <<: *a36
+    url: "https://h7.example.com/p110.mrs"
+  set-74:
+    <<: *a36
+    url: "https://h7.example.com/p111.mrs"
+  set-75:
+    <<: *a36
+    url: "https://h7.example.com/p112.mrs"
+  set-76:
+    <<: *a36
+    url: "https://h7.example.com/p113.mrs"
+  set-77:
+    <<: *a36
+    url: "https://h7.example.com/p114.mrs"
+  set-78:
+    <<: *a36
+    url: "https://h7.example.com/p115.mrs"
+  set-79:
+    <<: *a36
+    url: "https://h7.example.com/p116.mrs"
+  set-80:
+    <<: *a36
+    url: "https://h7.example.com/p117.mrs"
+  set-81:
+    <<: *a36
+    url: "https://h7.example.com/p118.mrs"
+  set-82:
+    <<: *a36
+    url: "https://h7.example.com/p119.mrs"
+  set-83:
+    <<: *a37
+    url: "https://h7.example.com/p120.mrs"
+  set-84:
+    <<: *a37
+    url: "https://h7.example.com/p121.mrs"
+  set-85:
+    <<: *a37
+    url: "https://h7.example.com/p122.mrs"
+  set-86:
+    <<: *a37
+    url: "https://h7.example.com/p123.mrs"
+  set-87:
+    <<: *a37
+    url: "https://h7.example.com/p124.mrs"
+  set-88:
+    <<: *a37
+    url: "https://h7.example.com/p125.mrs"
+  set-89:
+    <<: *a37
+    url: "https://h7.example.com/p126.mrs"
+  set-90:
+    <<: *a37
+    url: "https://h7.example.com/p127.mrs"
+  set-91:
+    <<: *a37
+    url: "https://h7.example.com/p128.mrs"
+  set-92:
+    <<: *a37
+    url: "https://h7.example.com/p129.mrs"
+  set-93:
+    <<: *a37
+    url: "https://h7.example.com/p130.mrs"

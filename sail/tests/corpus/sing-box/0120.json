@@ -1,0 +1,1053 @@
+{
+  "dns": {
+    "servers": [
+      {
+        "tag": "dns-1",
+        "type": "local",
+        "prefer_go": true
+      },
+      {
+        "tag": "dns-2",
+        "type": "https",
+        "server": "192.0.2.1"
+      },
+      {
+        "tag": "dns-3",
+        "type": "https",
+        "server": "192.0.2.2",
+        "detour": "Group 1"
+      },
+      {
+        "tag": "dns-4",
+        "type": "fakeip",
+        "inet4_range": "198.18.0.0/16",
+        "inet6_range": "2001:db8::/32"
+      }
+    ],
+    "rules": [
+      {
+        "query_type": [
+          "HTTPS",
+          "SVCB"
+        ],
+        "action": "reject"
+      },
+      {
+        "clash_mode": "Direct",
+        "server": "dns-2"
+      },
+      {
+        "clash_mode": "Global",
+        "server": "dns-4"
+      },
+      {
+        "rule_set": "set-1",
+        "server": "dns-2"
+      },
+      {
+        "query_type": [
+          "A",
+          "AAAA"
+        ],
+        "server": "dns-4",
+        "rewrite_ttl": 1
+      },
+      {
+        "rule_set": "set-27",
+        "server": "dns-2"
+      }
+    ],
+    "final": "dns-3",
+    "strategy": "prefer_ipv4",
+    "independent_cache": true,
+    "cache_capacity": 8192,
+    "reverse_mapping": true
+  },
+  "outbounds": [
+    {
+      "tag": "Group 1",
+      "type": "selector",
+      "outbounds": [
+        "Group 25",
+        "Group 26",
+        "Group 27",
+        "Group 29",
+        "Group 30",
+        "Group 33"
+      ]
+    },
+    {
+      "tag": "Group 2",
+      "type": "selector",
+      "outbounds": [
+        "Group 25",
+        "Group 26",
+        "Group 27",
+        "Group 29",
+        "Group 30",
+        "Group 33"
+      ]
+    },
+    {
+      "tag": "Group 3",
+      "type": "selector",
+      "outbounds": [
+        "Group 25",
+        "Group 30",
+        "Proxy 1"
+      ]
+    },
+    {
+      "tag": "Group 4",
+      "type": "selector",
+      "outbounds": [
+        "Group 25",
+        "Group 30",
+        "Proxy 1"
+      ]
+    },
+    {
+      "tag": "Group 5",
+      "type": "selector",
+      "outbounds": [
+        "Group 28",
+        "Group 27",
+        "Group 30",
+        "Proxy 1"
+      ]
+    },
+    {
+      "tag": "Group 6",
+      "type": "selector",
+      "outbounds": [
+        "Group 27",
+        "Group 25",
+        "Group 26",
+        "Group 29",
+        "Group 30"
+      ]
+    },
+    {
+      "tag": "Group 7",
+      "type": "selector",
+      "outbounds": [
+        "Group 25",
+        "Group 26",
+        "Group 27",
+        "Group 29",
+        "Group 30",
+        "Group 33"
+      ]
+    },
+    {
+      "tag": "Group 8",
+      "type": "selector",
+      "outbounds": [
+        "Group 25",
+        "Group 26",
+        "Group 27",
+        "Group 29",
+        "Group 30",
+        "Group 33"
+      ]
+    },
+    {
+      "tag": "Group 9",
+      "type": "selector",
+      "outbounds": [
+        "Group 25",
+        "Group 26",
+        "Group 27",
+        "Group 29",
+        "Group 30",
+        "Group 31"
+      ]
+    },
+    {
+      "tag": "Group 10",
+      "type": "selector",
+      "outbounds": [
+        "Group 25",
+        "Group 26",
+        "Group 27",
+        "Group 29",
+        "Group 30",
+        "Group 33"
+      ]
+    },
+    {
+      "tag": "Group 11",
+      "type": "selector",
+      "outbounds": [
+        "Group 26",
+        "Group 27",
+        "Group 25",
+        "Group 29",
+        "Group 30"
+      ]
+    },
+    {
+      "tag": "Group 12",
+      "type": "selector",
+      "outbounds": [
+        "Group 27",
+        "Group 25",
+        "Group 26",
+        "Group 29",
+        "Group 30"
+      ]
+    },
+    {
+      "tag": "Group 13",
+      "type": "selector",
+      "outbounds": [
+        "Group 26",
+        "Group 27",
+        "Group 25",
+        "Group 29",
+        "Group 30"
+      ]
+    },
+    {
+      "tag": "Group 14",
+      "type": "selector",
+      "outbounds": [
+        "Group 29",
+        "Group 26",
+        "Group 27",
+        "Group 30"
+      ]
+    },
+    {
+      "tag": "Group 15",
+      "type": "selector",
+      "outbounds": [
+        "Group 29",
+        "Group 26",
+        "Group 27",
+        "Group 32"
+      ]
+    },
+    {
+      "tag": "Group 16",
+      "type": "selector",
+      "outbounds": [
+        "Group 29",
+        "Group 30",
+        "Proxy 1"
+      ]
+    },
+    {
+      "tag": "Group 17",
+      "type": "selector",
+      "outbounds": [
+        "Group 26",
+        "Group 25",
+        "Group 29",
+        "Group 30"
+      ]
+    },
+    {
+      "tag": "Group 18",
+      "type": "selector",
+      "outbounds": [
+        "Proxy 1",
+        "Group 27",
+        "Group 28",
+        "Group 30"
+      ]
+    },
+    {
+      "tag": "Group 19",
+      "type": "selector",
+      "outbounds": [
+        "Group 25",
+        "Group 26",
+        "Group 27",
+        "Group 29",
+        "Group 30",
+        "Group 33"
+      ]
+    },
+    {
+      "tag": "Group 20",
+      "type": "selector",
+      "outbounds": [
+        "Group 25",
+        "Group 26",
+        "Group 27",
+        "Group 29",
+        "Group 30",
+        "Group 33",
+        "Proxy 1"
+      ]
+    },
+    {
+      "tag": "Group 21",
+      "type": "selector",
+      "outbounds": [
+        "Group 25",
+        "Group 26",
+        "Group 27",
+        "Group 29",
+        "Group 30",
+        "Group 33"
+      ]
+    },
+    {
+      "tag": "Group 22",
+      "type": "selector",
+      "outbounds": [
+        "Group 25",
+        "Group 26",
+        "Group 27",
+        "Group 29",
+        "Group 30",
+        "Group 33"
+      ]
+    },
+    {
+      "tag": "Group 23",
+      "type": "selector",
+      "outbounds": [
+        "Group 25",
+        "Group 26",
+        "Group 27",
+        "Group 29",
+        "Group 30",
+        "Group 31",
+        "Proxy 1"
+      ]
+    },
+    {
+      "tag": "Group 24",
+      "type": "selector",
+      "outbounds": [
+        "Group 1",
+        "Group 25",
+        "Group 26",
+        "Group 27",
+        "Group 29",
+        "Group 30",
+        "Group 33",
+        "Proxy 1"
+      ]
+    },
+    {
+      "tag": "Group 25",
+      "type": "selector",
+      "outbounds": [
+        "Proxy 2"
+      ],
+      "filter": [
+        {
+          "action": "include",
+          "keywords": [
+            "str1"
+          ]
+        },
+        {
+          "action": "exclude",
+          "keywords": [
+            "str2"
+          ]
+        }
+      ]
+    },
+    {
+      "tag": "Group 26",
+      "type": "selector",
+      "outbounds": [
+        "Proxy 2"
+      ],
+      "filter": [
+        {
+          "action": "include",
+          "keywords": [
+            "str3"
+          ]
+        },
+        {
+          "action": "exclude",
+          "keywords": [
+            "str2"
+          ]
+        }
+      ]
+    },
+    {
+      "tag": "Group 27",
+      "type": "selector",
+      "outbounds": [
+        "Proxy 2"
+      ],
+      "filter": [
+        {
+          "action": "include",
+          "keywords": [
+            "str4"
+          ]
+        },
+        {
+          "action": "exclude",
+          "keywords": [
+            "str2"
+          ]
+        }
+      ]
+    },
+    {
+      "tag": "Group 28",
+      "type": "selector",
+      "outbounds": [
+        "Proxy 2"
+      ],
+      "filter": [
+        {
+          "action": "include",
+          "keywords": [
+            "str5"
+          ]
+        },
+        {
+          "action": "exclude",
+          "keywords": [
+            "str2"
+          ]
+        }
+      ]
+    },
+    {
+      "tag": "Group 29",
+      "type": "selector",
+      "outbounds": [
+        "Proxy 2"
+      ],
+      "filter": [
+        {
+          "action": "include",
+          "keywords": [
+            "str6"
+          ]
+        },
+        {
+          "action": "exclude",
+          "keywords": [
+            "str7"
+          ]
+        }
+      ]
+    },
+    {
+      "tag": "Group 30",
+      "type": "selector",
+      "outbounds": [
+        "Proxy 2"
+      ],
+      "filter": [
+        {
+          "action": "exclude",
+          "keywords": [
+            "str8"
+          ]
+        }
+      ]
+    },
+    {
+      "tag": "Group 31",
+      "type": "selector",
+      "outbounds": [
+        "Proxy 2"
+      ],
+      "filter": [
+        {
+          "action": "exclude",
+          "keywords": [
+            "str8"
+          ]
+        }
+      ]
+    },
+    {
+      "tag": "Group 32",
+      "type": "selector",
+      "outbounds": [
+        "Proxy 2"
+      ],
+      "filter": [
+        {
+          "action": "exclude",
+          "keywords": [
+            "str8"
+          ]
+        }
+      ]
+    },
+    {
+      "tag": "Group 33",
+      "type": "urltest",
+      "outbounds": [
+        "Proxy 2"
+      ],
+      "filter": [
+        {
+          "action": "exclude",
+          "keywords": [
+            "str9"
+          ]
+        }
+      ],
+      "interval": "10m",
+      "tolerance": 100
+    },
+    {
+      "tag": "Group 34",
+      "type": "urltest",
+      "outbounds": [
+        "Group 1",
+        "Proxy 1"
+      ]
+    },
+    {
+      "tag": "GLOBAL",
+      "type": "selector",
+      "outbounds": [
+        "Group 1",
+        "Group 2",
+        "Group 6",
+        "Group 7",
+        "Group 8",
+        "Group 9",
+        "Group 10",
+        "Group 12",
+        "Group 19",
+        "Group 20",
+        "Group 21",
+        "Group 22",
+        "Group 23",
+        "Group 24",
+        "Group 25",
+        "Group 26",
+        "Group 27",
+        "Group 29",
+        "Group 30",
+        "Group 33",
+        "Group 34",
+        "Proxy 1"
+      ]
+    },
+    {
+      "tag": "Proxy 1",
+      "type": "direct",
+      "domain_resolver": "dns-2"
+    }
+  ],
+  "route": {
+    "rules": [
+      {
+        "type": "logical",
+        "mode": "and",
+        "rules": [
+          {
+            "port": [
+              53,
+              853
+            ],
+            "invert": true
+          },
+          {
+            "clash_mode": "Global",
+            "invert": true
+          },
+          {
+            "type": "logical",
+            "mode": "or",
+            "rules": [
+              {
+                "ip_is_private": true
+              },
+              {
+                "rule_set": "set-32"
+              }
+            ]
+          }
+        ],
+        "action": "bypass"
+      },
+      {
+        "type": "logical",
+        "mode": "or",
+        "rules": [
+          {
+            "domain_suffix": "d1.example"
+          },
+          {
+            "rule_set": "set-30"
+          }
+        ],
+        "invert": true,
+        "action": "sniff",
+        "sniffer": [
+          "http",
+          "tls",
+          "quic",
+          "dns"
+        ],
+        "timeout": "500ms"
+      },
+      {
+        "type": "logical",
+        "mode": "or",
+        "rules": [
+          {
+            "port": 53
+          },
+          {
+            "protocol": "dns"
+          }
+        ],
+        "action": "hijack-dns"
+      },
+      {
+        "ip_is_private": true,
+        "outbound": "Proxy 1"
+      },
+      {
+        "type": "logical",
+        "mode": "or",
+        "rules": [
+          {
+            "port": 853
+          },
+          {
+            "protocol": [
+              "stun",
+              "quic"
+            ]
+          }
+        ],
+        "action": "reject",
+        "no_drop": true
+      },
+      {
+        "network": "icmp",
+        "action": "resolve"
+      },
+      {
+        "network": "icmp",
+        "outbound": "Proxy 1"
+      },
+      {
+        "ip_is_private": true,
+        "outbound": "Proxy 1"
+      },
+      {
+        "clash_mode": "Direct",
+        "outbound": "Proxy 1"
+      },
+      {
+        "clash_mode": "Global",
+        "outbound": "GLOBAL"
+      },
+      {
+        "rule_set": "set-2",
+        "outbound": "Group 2"
+      },
+      {
+        "rule_set": "set-3",
+        "outbound": "Group 3"
+      },
+      {
+        "rule_set": "set-4",
+        "outbound": "Group 4"
+      },
+      {
+        "rule_set": "set-5",
+        "outbound": "Group 5"
+      },
+      {
+        "rule_set": "set-6",
+        "outbound": "Group 6"
+      },
+      {
+        "rule_set": "set-7",
+        "outbound": "Group 7"
+      },
+      {
+        "rule_set": "set-8",
+        "outbound": "Group 8"
+      },
+      {
+        "rule_set": "set-9",
+        "outbound": "Group 22"
+      },
+      {
+        "rule_set": "set-10",
+        "outbound": "Group 21"
+      },
+      {
+        "rule_set": "set-11",
+        "outbound": "Group 23"
+      },
+      {
+        "rule_set": "set-12",
+        "outbound": "Group 9"
+      },
+      {
+        "rule_set": "set-13",
+        "outbound": "Group 10"
+      },
+      {
+        "rule_set": "set-14",
+        "outbound": "Group 11"
+      },
+      {
+        "rule_set": "set-15",
+        "outbound": "Group 12"
+      },
+      {
+        "rule_set": "set-16",
+        "outbound": "Group 13"
+      },
+      {
+        "rule_set": "set-17",
+        "outbound": "Group 14"
+      },
+      {
+        "rule_set": "set-18",
+        "outbound": "Group 15"
+      },
+      {
+        "rule_set": "set-19",
+        "outbound": "Group 16"
+      },
+      {
+        "rule_set": "set-20",
+        "outbound": "Group 17"
+      },
+      {
+        "rule_set": "set-21",
+        "outbound": "Group 18"
+      },
+      {
+        "rule_set": "set-22",
+        "outbound": "Group 19"
+      },
+      {
+        "rule_set": "set-23",
+        "outbound": "Group 19"
+      },
+      {
+        "rule_set": "set-24",
+        "outbound": "Proxy 1"
+      },
+      {
+        "rule_set": "set-25",
+        "outbound": "Group 20"
+      },
+      {
+        "rule_set": "set-26",
+        "outbound": "Group 1"
+      },
+      {
+        "action": "resolve"
+      },
+      {
+        "rule_set": "set-28",
+        "outbound": "Group 7"
+      },
+      {
+        "rule_set": "set-29",
+        "outbound": "Group 23"
+      },
+      {
+        "rule_set": "set-30",
+        "outbound": "Group 9"
+      },
+      {
+        "rule_set": "set-31",
+        "outbound": "Group 12"
+      },
+      {
+        "rule_set": "set-32",
+        "outbound": "Proxy 1"
+      }
+    ],
+    "rule_set": [
+      {
+        "tag": "set-1",
+        "type": "remote",
+        "format": "source",
+        "url": "https://h1.example.com/p1.json",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "tag": "set-2",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p2.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "tag": "set-3",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p3.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "tag": "set-4",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p4.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "tag": "set-5",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p5.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "tag": "set-6",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p6.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "tag": "set-7",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p7.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "tag": "set-8",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p8.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "tag": "set-9",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p9.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "tag": "set-10",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p10.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "tag": "set-11",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p11.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "tag": "set-12",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p12.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "tag": "set-13",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p13.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "tag": "set-14",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p14.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "tag": "set-15",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p15.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "tag": "set-16",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p16.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "tag": "set-17",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p17.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "tag": "set-18",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h2.example.com/p18.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "tag": "set-19",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h3.example.com/p19.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "tag": "set-20",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p20.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "tag": "set-21",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p21.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "tag": "set-22",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p22.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "tag": "set-23",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p23.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "tag": "set-24",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p24.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "tag": "set-25",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p25.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "tag": "set-26",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p26.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "tag": "set-27",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p27.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "tag": "set-28",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p28.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "tag": "set-29",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p29.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "tag": "set-30",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p30.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "tag": "set-31",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p31.srs",
+        "download_detour": "Proxy 1"
+      },
+      {
+        "tag": "set-32",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://h1.example.com/p32.srs",
+        "download_detour": "Proxy 1"
+      }
+    ],
+    "final": "Group 24",
+    "auto_detect_interface": true,
+    "default_domain_resolver": {
+      "server": "dns-2"
+    }
+  },
+  "inbounds": [
+    {
+      "tag": "in-1",
+      "type": "tun",
+      "address": [
+        "192.0.2.1/30",
+        "fdfe:dcba:9876::1/126"
+      ],
+      "stack": "mixed",
+      "auto_route": true,
+      "auto_redirect": true
+    },
+    {
+      "tag": "in-2",
+      "type": "mixed",
+      "listen": "0.0.0.0",
+      "listen_port": 7890
+    }
+  ],
+  "experimental": {
+    "cache_file": {
+      "enabled": true,
+      "store_fakeip": true
+    },
+    "clash_api": {
+      "external_controller": "0.0.0.0:9095",
+      "external_ui": "./path-1",
+      "external_ui_download_url": "https://h1.example.com/p33.zip",
+      "external_ui_download_detour": "Proxy 1",
+      "secret": "",
+      "default_mode": "Rule"
+    }
+  },
+  "certificate": {
+    "store": "chrome"
+  },
+  "ntp": {
+    "enabled": true,
+    "server": "s2.example.net"
+  },
+  "log": {
+    "disabled": false,
+    "level": "info",
+    "timestamp": true
+  }
+}

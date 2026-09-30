@@ -1,0 +1,244 @@
+port: 7890
+socks-port: 7891
+redir-port: 7892
+tproxy-port: 7893
+mixed-port: 7894
+allow-lan: true
+mode: rule
+log-level: info
+ipv6: false
+external-controller: 127.0.0.1:9090
+bind-address: "*"
+unified-delay: true
+external-ui: ./path-1
+interface-name: if1
+dns:
+  enable: true
+  ipv6: false
+  enhanced-mode: fake-ip
+  listen: 0.0.0.0:7895
+  fallback-filter:
+    geoip: false
+    ipcidr:
+      - 240.0.0.0/4
+  default-nameserver:
+    - 192.0.2.1
+    - 192.0.2.2
+    - 192.0.2.3
+    - 192.0.2.4
+  nameserver:
+    - https://h1.example.com/dns-query
+    - https://h2.example.com/dns-query
+  fallback:
+    - tcp://192.0.2.1:53
+    - tcp://192.0.2.2:53
+    - tcp://192.0.2.3:53
+    - tcp://192.0.2.4:53
+    - 192.0.2.1
+    - 192.0.2.2
+    - 192.0.2.3
+    - 192.0.2.4
+  fake-ip-range: 198.18.0.1/16
+  use-hosts: true
+  fake-ip-filter:
+    - "+.d1*.example"
+    - d2*.example
+    - d3*.example
+    - d4*.example
+    - d5*.example
+    - d6*.example
+    - d7*.example
+    - d8*.example
+    - d9*.example
+    - d10*.example
+    - d11*.example
+    - d12*.example
+    - d13*.example
+    - d14*.example
+    - d15*.example
+    - d16*.example
+    - d17*.example
+    - d18*.example
+    - d19*.example
+    - d20*.example
+    - "*.d21.example"
+    - "*.d22.example"
+    - "*.d23.example"
+    - "*.localhost"
+    - "*.d24.example"
+    - "*.d25.example"
+    - "*.d26.example"
+    - "*.d27.example"
+tun:
+  enable: true
+  dns-hijack:
+    - 192.0.2.1
+    - 192.0.2.2
+    - 192.0.2.3
+    - 192.0.2.4
+    - tcp://192.0.2.1:53
+    - tcp://192.0.2.2:53
+    - tcp://192.0.2.3:53
+    - tcp://192.0.2.4:53
+  stack: gvisor
+  auto-redir: true
+  auto-route: true
+  auto-detect-interface: true
+proxies:
+  - name: "Proxy 1"
+    type: trojan
+    server: s28.example.net
+    port: 443
+    password: password1
+    udp: false
+    sni: sni29.example.org
+    alpn:
+      - h2
+      - http/1.1
+    skip-cert-verify: false
+  - name: "Proxy 2"
+    type: wireguard
+    server: s30.example.net
+    port: 2408
+    udp: false
+    ip: 192.0.2.5/32
+    private-key: wywOQgzCr2vr85JpoMxzCakHIIvgUtsG6/Qp987NJa4=
+    public-key: WulOoXrJ4xaeREDpCXJqPLE7mK1qDJwNSfPto1FYe4I=
+    peer:
+      allowed-ips: "0.0.0.0/0"
+      endpoint: s31.example.net:2408
+      sni: sni32.example.org
+  - name: "Proxy 3"
+    type: wireguard
+    server: s33.example.net
+    port: 2408
+    ip: 192.0.2.5/32
+    private-key: wywOQgzCr2vr85JpoMxzCakHIIvgUtsG6/Qp987NJa4=
+    public-key: uLBP4fDmzzQr6AI9Cjs2bG1yyu2augLO37S6iU1M4Eo=
+    sni: sni29.example.org
+    mtu: 1280
+    dns:
+      - 192.0.2.6
+    allowed-ips:
+      - 0.0.0.0/0
+      - ::/0
+    keepalive: 25
+  - name: "Proxy 4"
+    type: wireguard
+    server: s34.example.net
+    port: 1024
+    udp: true
+    ip: 192.0.2.5/32
+    private-key: C7R4HcnA7nosUls057QlZXh18tDK3yhe4+6I1jkpNJM=
+    public-key: CSwhJCxdZba+0FGfnY5g6FrCHPwm3ApwMA2cT+NViKI=
+    peer:
+      allowed-ips: "0.0.0.0/0"
+      endpoint: s34.example.net:1024
+      sni: sni32.example.org
+  - name: "Proxy 5"
+    server: 192.0.2.7
+    port: 24788
+    type: vless
+    uuid: 00005a11-0000-4000-8000-000000000001
+    cipher: auto
+    tls: false
+    skip-cert-verify: true
+  - name: "Proxy 6"
+    server: 192.0.2.8
+    port: 443
+    type: vless
+    uuid: 00005a11-0000-4000-8000-000000000002
+    tls: true
+    skip-cert-verify: true
+    sni: sni35.example.org
+    alterId: 0
+    cipher: auto
+    udp: true
+    network: ws
+    ws-opts:
+      path: /p1
+      headers:
+        Host: sni35.example.org
+  - name: "Proxy 7"
+    type: ss
+    server: s36.example.net
+    port: 8443
+    cipher: aes-256-gcm
+    password: 00005a11-0000-4000-8000-000000000003
+    udp: true
+  - name: "Proxy 8"
+    server: s37.example.net
+    port: 10001
+    type: vmess
+    uuid: 00005a11-0000-4000-8000-000000000004
+    sni: sni29.example.org
+    alterId: 0
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    udp: true
+    network: ws
+    ws-opts:
+      path: /p2
+      headers:
+        Host: sni29.example.org
+  - name: "Proxy 9"
+    server: s37.example.net
+    port: 10001
+    type: vmess
+    uuid: 00005a11-0000-4000-8000-000000000004
+    sni: sni29.example.org
+    alterId: 0
+    cipher: auto
+    tls: true
+    skip-cert-verify: true
+    udp: true
+    network: ws
+    ws-opts:
+      path: /p2
+      headers:
+        Host: sni29.example.org
+proxy-groups:
+  - name: Group 1
+    type: relay
+    url: 'https://h3.example.com'
+    interval: 30
+    proxies:
+      - Proxy 6
+      - Proxy 5
+  - name: Group 2
+    type: select
+    url: 'https://h3.example.com'
+    interval: 30
+    proxies:
+      - Proxy 5
+      - Proxy 1
+      - Proxy 2
+      - Proxy 3
+      - Proxy 4
+      - Proxy 8
+      - Group 1
+rules:
+  - DOMAIN-SUFFIX,d38.example,REJECT
+  - DOMAIN,d39.example,REJECT
+  - DOMAIN,d40.example,REJECT
+  - DOMAIN,d41.example,REJECT
+  - DOMAIN-SUFFIX,d42.example,REJECT
+  - DOMAIN-SUFFIX,d43.example,REJECT
+  - DOMAIN-SUFFIX,d44.example,REJECT
+  - DOMAIN-SUFFIX,d45.example,REJECT
+  - DOMAIN-SUFFIX,d46.example,REJECT
+  - DOMAIN-SUFFIX,d47.example,REJECT
+  - DOMAIN-SUFFIX,d48.example,REJECT
+  - DOMAIN-KEYWORD,kw1,REJECT
+  - DOMAIN-KEYWORD,kw2,REJECT
+  - DOMAIN-KEYWORD,kw3,REJECT
+  - DOMAIN-KEYWORD,kw4,REJECT
+  - IP-CIDR,127.0.0.1/32,DIRECT
+  - IP-CIDR,192.0.2.9/32,DIRECT
+  - SRC-PORT,9090,DIRECT
+  - DST-PORT,2222,DIRECT
+  - SRC-PORT,2222,DIRECT
+  - SRC-PORT,2408,DIRECT
+  - DST-PORT,2408,DIRECT
+  - MATCH,Group 2

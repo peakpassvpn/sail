@@ -1,0 +1,29 @@
+port: 7890
+socks-port: 7891
+mixed-port: 7892
+allow-lan: true
+mode: rule
+log-level: info
+proxies:
+  - name: Proxy 1
+    type: vless
+    server: 192.0.2.1
+    port: 12518
+    uuid: 00005a11-0000-4000-8000-000000000001
+    network: tcp
+    tls: true
+    flow: xtls-rprx-vision
+    servername: sni1.example.org
+    client-fingerprint: chrome
+    reality-opts:
+      public-key: wywOQgzCr2vr85JpoMxzCakHIIvgUtsG6/Qp987NJa4
+      short-id: "70"
+      spider-x: "./path-1"
+proxy-groups:
+  - name: PROXY
+    type: select
+    proxies:
+      - Proxy 1
+      - DIRECT
+rules:
+  - MATCH,PROXY

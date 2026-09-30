@@ -1,0 +1,30 @@
+port: 7890
+socks-port: 7891
+allow-lan: true
+mode: Rule
+log-level: info
+external-controller: :9999
+dns:
+  enabled: true
+  nameserver:
+    - 192.0.2.1
+    - 192.0.2.2
+  fallback:
+    - 192.0.2.3
+    - 192.0.2.4
+    - tls://192.0.2.5:853
+    - tls://h1.example.com:853
+proxies:
+  - {name: Proxy 1, server: 192.0.2.6, port: 443, type: http, headers: {X-Header-1: 683556433, Host: 192.0.2.7:443}}
+  - {name: Proxy 2, server: 192.0.2.8, port: 443, type: http, headers: {X-Header-1: 683556433, Host: 192.0.2.7:443}}
+  - {name: Proxy 3, server: 192.0.2.9, port: 443, type: http, headers: {X-Header-1: 683556433, Host: 192.0.2.7:443}}
+proxy-groups:
+  - name: Group 1
+    type: select
+    proxies:
+      - Proxy 1
+      - Proxy 2
+      - Proxy 3
+rules:
+  - GEOIP,CN,Group 1
+  - MATCH,Group 1

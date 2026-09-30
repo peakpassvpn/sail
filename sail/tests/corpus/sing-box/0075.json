@@ -1,0 +1,370 @@
+{
+  "log": {
+    "level": "warn",
+    "timestamp": true
+  },
+  "dns": {
+    "servers": [
+      {
+        "type": "https",
+        "tag": "dns-1",
+        "server": "192.0.2.1"
+      }
+    ],
+    "rules": [
+      {
+        "domain_suffix": [
+          "d1.example",
+          "d2.example",
+          "d3.example",
+          "d4.example",
+          "d5.example",
+          "d6.example",
+          "d7.example",
+          "d8.example",
+          "d9.example",
+          "d10.example",
+          "d11.example",
+          "d12.example",
+          "d13.example",
+          "d14.example",
+          "d15.example",
+          "d16.example",
+          "d17.example",
+          "d18.example",
+          "d19.example",
+          "d20.example",
+          "d21.example",
+          "d22.example",
+          "d23.example",
+          "d24.example",
+          "d25.example",
+          "d26.example",
+          "d27.example",
+          "d28.example",
+          "d29.example",
+          "d30.example",
+          "d31.example",
+          "d32.example",
+          "d33.example",
+          "d34.example",
+          "d35.example",
+          "d36.example",
+          "d37.example",
+          "d38.example",
+          "d39.example",
+          "d40.example",
+          "d41.example",
+          "d42.example",
+          "d43.example"
+        ],
+        "server": "dns-1"
+      },
+      {
+        "query_type": [
+          64,
+          65
+        ],
+        "domain_suffix": [
+          "d44.example",
+          "d45.example",
+          "d46.example",
+          "d47.example",
+          "d48.example",
+          "d49.example",
+          "d50.example",
+          "d51.example",
+          "d52.example",
+          "d1.example",
+          "d2.example",
+          "d3.example",
+          "d9.example",
+          "d10.example",
+          "d13.example",
+          "d28.example",
+          "d29.example",
+          "d27.example",
+          "d41.example",
+          "d30.example",
+          "d31.example",
+          "d32.example",
+          "d33.example",
+          "d22.example",
+          "d23.example",
+          "d24.example",
+          "d25.example",
+          "d26.example",
+          "d36.example",
+          "d37.example",
+          "d38.example",
+          "d39.example",
+          "d40.example",
+          "d42.example",
+          "d34.example",
+          "d35.example",
+          "d20.example",
+          "d21.example",
+          "d53.example",
+          "d54.example",
+          "d55.example"
+        ],
+        "action": "reject"
+      }
+    ],
+    "final": "dns-1",
+    "strategy": "ipv4_only"
+  },
+  "inbounds": [
+    {
+      "type": "tun",
+      "tag": "in-1",
+      "address": [
+        "192.0.2.1/30"
+      ],
+      "auto_route": true,
+      "strict_route": false,
+      "stack": "system",
+      "auto_redirect": true
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "direct",
+      "tag": "Proxy 1"
+    },
+    {
+      "type": "hysteria2",
+      "tag": "Proxy 2",
+      "server": "str1",
+      "server_port": 45821,
+      "password": "password1",
+      "obfs": {
+        "type": "salamander",
+        "password": "password2"
+      },
+      "tls": {
+        "enabled": true,
+        "server_name": "sni56.example.org",
+        "alpn": [
+          "h3"
+        ],
+        "insecure": true
+      }
+    }
+  ],
+  "route": {
+    "default_domain_resolver": {
+      "server": "dns-1"
+    },
+    "auto_detect_interface": true,
+    "rules": [
+      {
+        "action": "sniff"
+      },
+      {
+        "protocol": "dns",
+        "action": "hijack-dns"
+      },
+      {
+        "ip_is_private": true,
+        "outbound": "Proxy 1"
+      },
+      {
+        "protocol": "quic",
+        "action": "reject"
+      },
+      {
+        "domain_suffix": [
+          ".d57.example",
+          ".d58.example",
+          ".d59.example"
+        ],
+        "outbound": "Proxy 1"
+      },
+      {
+        "domain_suffix": [
+          "d60.example",
+          "d61.example",
+          "d62.example",
+          "d63.example"
+        ],
+        "outbound": "Proxy 1"
+      },
+      {
+        "source_ip_cidr": [
+          "192.0.2.2/32"
+        ],
+        "outbound": "Proxy 1"
+      },
+      {
+        "domain_suffix": [
+          "d1.example",
+          "d2.example",
+          "d3.example",
+          "d4.example",
+          "d5.example",
+          "d6.example",
+          "d7.example",
+          "d8.example",
+          "d9.example",
+          "d10.example",
+          "d11.example",
+          "d12.example",
+          "d13.example",
+          "d14.example",
+          "d15.example",
+          "d16.example",
+          "d17.example",
+          "d18.example",
+          "d19.example",
+          "d20.example",
+          "d21.example",
+          "d22.example",
+          "d23.example",
+          "d24.example",
+          "d25.example",
+          "d26.example",
+          "d27.example",
+          "d28.example",
+          "d29.example",
+          "d30.example",
+          "d31.example",
+          "d32.example",
+          "d33.example",
+          "d34.example",
+          "d35.example",
+          "d36.example",
+          "d37.example",
+          "d38.example",
+          "d39.example",
+          "d40.example",
+          "d41.example",
+          "d42.example",
+          "d43.example",
+          "d53.example",
+          "d64.example",
+          "d54.example",
+          "d55.example",
+          "d65.example",
+          "d66.example",
+          "d67.example",
+          "d68.example",
+          "d69.example",
+          "d70.example",
+          "d71.example",
+          "d72.example",
+          "d73.example",
+          "d74.example",
+          "d75.example",
+          "d76.example",
+          "d77.example",
+          "d78.example",
+          "d79.example",
+          "d80.example",
+          "d81.example",
+          "d82.example",
+          "d83.example",
+          "d84.example",
+          "d85.example",
+          "d86.example",
+          "d87.example",
+          "d88.example",
+          "d89.example",
+          "d90.example",
+          "d91.example",
+          "d92.example",
+          "d93.example",
+          "d94.example",
+          "d95.example",
+          "d96.example",
+          "d97.example",
+          "d98.example",
+          "d48.example",
+          "d49.example",
+          "d51.example",
+          "d52.example",
+          "d99.example",
+          "d44.example",
+          "d45.example",
+          "d47.example",
+          "d46.example",
+          "d100.example",
+          "d101.example",
+          "d102.example",
+          "d103.example",
+          "d104.example",
+          "d105.example",
+          "d106.example",
+          "d107.example",
+          "d108.example",
+          "d109.example",
+          "d110.example",
+          "d111.example"
+        ],
+        "outbound": "Proxy 2"
+      },
+      {
+        "ip_cidr": [
+          "198.18.0.0/22",
+          "198.18.4.0/22",
+          "198.18.8.0/22",
+          "198.18.12.0/22",
+          "198.18.16.0/22",
+          "198.18.20.0/22",
+          "198.18.0.0/20",
+          "198.18.0.0/23",
+          "192.0.2.0/24",
+          "198.18.16.0/20",
+          "2001:db8::/48",
+          "2001:db8:1::/48",
+          "2001:db8:2::/48",
+          "2001:db8:3::/48",
+          "2001:db8::/32",
+          "198.18.0.0/21",
+          "198.18.0.0/18",
+          "198.18.24.0/22",
+          "198.18.32.0/20",
+          "198.18.48.0/20",
+          "198.18.0.0/19",
+          "198.18.28.0/22",
+          "198.18.64.0/20",
+          "198.18.32.0/22",
+          "198.18.0.0/16",
+          "198.19.0.0/16",
+          "198.18.64.0/18",
+          "198.18.36.0/22",
+          "198.18.40.0/22",
+          "198.18.44.0/22",
+          "3fff::/29"
+        ],
+        "outbound": "Proxy 2"
+      },
+      {
+        "rule_set": "set-1",
+        "outbound": "Proxy 1"
+      },
+      {
+        "process_name": [
+          "app1"
+        ],
+        "outbound": "Proxy 1"
+      },
+      {
+        "source_ip_cidr": [
+          "192.0.2.3/32",
+          "192.0.2.4/32"
+        ],
+        "outbound": "Proxy 1"
+      }
+    ],
+    "final": "Proxy 2",
+    "rule_set": [
+      {
+        "tag": "set-1",
+        "type": "local",
+        "format": "binary",
+        "path": "./path-1.srs"
+      }
+    ]
+  }
+}

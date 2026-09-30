@@ -1,0 +1,25 @@
+mixed-port: 7890
+allow-lan: true
+mode: rule
+log-level: info
+external-controller: 127.0.0.1:9090
+proxies:
+  - name: "Proxy 1"
+    type: hysteria2
+    server: s1.example.net
+    port: 53
+    auth: password1
+    obfs: salamander
+    obfs-password: password2
+    sni: sni2.example.org
+    skip-cert-verify: true
+    pin-sha256: str1
+proxy-groups:
+  - name: "PROXY"
+    type: select
+    proxies:
+      - "Proxy 1"
+      - DIRECT
+rules:
+  - GEOIP,CN,DIRECT
+  - MATCH,PROXY

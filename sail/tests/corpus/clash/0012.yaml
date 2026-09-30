@@ -1,0 +1,230 @@
+mixed-port: 7890
+allow-lan: true
+mode: rule
+log-level: info
+ipv6: false
+external-controller: 127.0.0.1:9090
+dns:
+  enable: true
+  ipv6: false
+  enhanced-mode: fake-ip
+  fake-ip-range: 240.0.0.0/8
+  fake-ip-filter:
+    - '*.d1.example'
+    - '*.d2.example'
+    - '*.d3.example'
+    - '*.d4.example'
+    - '*.localhost'
+    - '*.d5.example'
+    - '*.d6.example'
+    - '*.d7.example'
+    - d8.example
+    - d9.example
+    - d10.example
+    - +.d11.example
+  default-nameserver:
+    - 192.0.2.1#PROXY
+    - 192.0.2.2#PROXY
+    - 192.0.2.3#PROXY
+    - 192.0.2.4#PROXY
+    - 192.0.2.5#PROXY
+  nameserver:
+    - tls://h1.example.com:853#PROXY
+    - tls://192.0.2.6:853#PROXY
+    - tls://192.0.2.7:853#PROXY
+    - https://h2.example.com/dns-query#PROXY
+    - 192.0.2.8#PROXY
+    - 192.0.2.9#PROXY
+    - 192.0.2.10#PROXY
+proxy-providers:
+  provider-1:
+    type: http
+    url: "https://h3.example.com/p1"
+    path: ./path-1.yaml
+    interval: 899
+    proxy: DIRECT
+    skip-cert-verify: true
+    exclude-type: "vless"
+    health-check:
+      enable: true
+      interval: 30
+      url: "http://h4.example.com/generate_204"
+  provider-2:
+    type: http
+    url: "https://h3.example.com/p2"
+    path: ./path-2.yaml
+    interval: 899
+    proxy: DIRECT
+    skip-cert-verify: true
+    exclude-type: "vless"
+    health-check:
+      enable: true
+      interval: 30
+      url: "http://h4.example.com/generate_204"
+  provider-3:
+    type: http
+    url: "https://h3.example.com/p3"
+    path: ./path-3.yaml
+    interval: 899
+    proxy: DIRECT
+    skip-cert-verify: true
+    exclude-type: "vless"
+    health-check:
+      enable: true
+      interval: 30
+      url: "http://h4.example.com/generate_204"
+  provider-4:
+    type: http
+    url: "https://h3.example.com/p4"
+    path: ./path-4.yaml
+    interval: 899
+    proxy: DIRECT
+    skip-cert-verify: true
+    exclude-type: "vless"
+    health-check:
+      enable: true
+      interval: 30
+      url: "http://h4.example.com/generate_204"
+  provider-5:
+    type: http
+    url: "https://h3.example.com/p5"
+    path: ./path-5.yaml
+    interval: 899
+    proxy: DIRECT
+    skip-cert-verify: true
+    exclude-type: "vless"
+    health-check:
+      enable: true
+      interval: 30
+      url: "http://h4.example.com/generate_204"
+  provider-6:
+    type: http
+    url: "https://h3.example.com/p6"
+    path: ./path-6.yaml
+    interval: 899
+    proxy: DIRECT
+    skip-cert-verify: true
+    exclude-type: "vless"
+    health-check:
+      enable: true
+      interval: 30
+      url: "http://h4.example.com/generate_204"
+proxy-groups:
+  - name: 'Group 1'
+    type: 'relay'
+    use:
+      - 'provider-1'
+      - 'provider-2'
+      - 'provider-3'
+      - 'provider-4'
+      - 'provider-5'
+      - 'provider-6'
+    proxies:
+      - 'Group 3'
+      - 'Group 4'
+      - 'Group 5'
+      - 'Group 7'
+      - 'Group 2'
+  - name: 'Group 2'
+    type: 'url-test'
+    tolerance: 50
+    url: 'http://h4.example.com/generate_204'
+    exclude-filter: "Proxy [0-9]+|Group 1"
+    proxies:
+    use:
+      - 'provider-1'
+      - 'provider-2'
+      - 'provider-3'
+      - 'provider-4'
+      - 'provider-5'
+      - 'provider-6'
+  - name: 'Group 3'
+    type: 'url-test'
+    tolerance: 50
+    url: 'http://h4.example.com/generate_204'
+    exclude-filter: "Proxy [0-9]+|Group 1"
+    interval: 300
+    proxies:
+    use:
+      - 'provider-1'
+      - 'provider-2'
+      - 'provider-3'
+      - 'provider-4'
+      - 'provider-5'
+      - 'provider-6'
+  - name: 'Group 4'
+    type: 'fallback'
+    url: 'http://h4.example.com/generate_204'
+    interval: 180
+    exclude-filter: "Proxy [0-9]+|Group 1"
+    use:
+      - 'provider-1'
+      - 'provider-2'
+      - 'provider-3'
+      - 'provider-4'
+      - 'provider-5'
+      - 'provider-6'
+    proxies:
+  - name: 'Group 5'
+    type: 'load-balance'
+    url: 'http://h4.example.com/generate_204'
+    interval: 50
+    strategy: 'consistent-hashing'
+    exclude-filter: "Proxy [0-9]+|Group 1"
+    use:
+      - 'provider-1'
+      - 'provider-2'
+      - 'provider-3'
+      - 'provider-4'
+      - 'provider-5'
+      - 'provider-6'
+    proxies:
+  - name: 'PROXY'
+    type: 'select'
+    exclude-filter: "Proxy [0-9]+|Group 1"
+    use:
+    proxies:
+      - 'Group 1'
+      - 'Group 3'
+      - 'Group 4'
+      - 'Group 5'
+      - 'Group 7'
+      - 'Group 2'
+  - name: 'Group 6'
+    type: 'select'
+    proxies:
+      - 'Group 1'
+      - 'PROXY'
+      - 'Group 3'
+      - 'Group 4'
+      - 'Group 5'
+      - 'Group 2'
+  - name: 'Group 7'
+    type: 'url-test'
+    url: 'http://h4.example.com/generate_204'
+    interval: 300
+    tolerance: 100
+    exclude-filter: "Proxy [0-9]+|Group 1"
+    proxies:
+    use:
+      - 'provider-1'
+      - 'provider-2'
+      - 'provider-3'
+      - 'provider-4'
+      - 'provider-5'
+      - 'provider-6'
+  - name: 'Group 8'
+    type: 'select'
+    proxies:
+      - 'DIRECT'
+      - 'PROXY'
+      - 'Group 3'
+      - 'Group 4'
+      - 'Group 5'
+      - 'Group 1'
+      - 'Group 2'
+rules:
+  - GEOIP,private,Group 8,no-resolve
+  - GEOIP,telegram,PROXY
+  - GEOIP,ir,Group 8
+  - MATCH,PROXY

@@ -1,0 +1,278 @@
+anchor-1: &a1 {type: http, interval: 86400, proxy: DIRECT, health-check: {enable: true, url: 'https://h1.example.com/generate_204', interval: 300}, filter: 'Proxy [0-9]+|Group 1'}
+proxy-providers:
+  provider-1: {<<: *a1, url: 'str1', override: {additional-prefix: 'str2'}}
+  provider-2: {<<: *a1, url: 'str3', override: {additional-prefix: 'str4'}}
+anchor-2: &a6 {type: select, empty-fallback: REJECT}
+anchor-3: &a26 {type: fallback, empty-fallback: REJECT, interval: 200, lazy: true, timeout: 3000, max-failed-times: 2, hidden: true, url: 'https://h1.example.com/generate_204'}
+anchor-4: &a18 {type: load-balance, empty-fallback: REJECT, interval: 200, lazy: true, timeout: 3000, max-failed-times: 2, hidden: true, url: 'https://h1.example.com/generate_204', strategy: round-robin}
+anchor-5: &a16 {type: load-balance, empty-fallback: REJECT, interval: 200, lazy: true, timeout: 3000, max-failed-times: 2, hidden: true, url: 'https://h1.example.com/generate_204', strategy: consistent-hashing}
+anchor-6: &a20 {type: load-balance, empty-fallback: REJECT, interval: 200, lazy: true, timeout: 3000, max-failed-times: 2, hidden: true, url: 'https://h1.example.com/generate_204', strategy: sticky-sessions}
+anchor-7: &a22 {type: url-test, empty-fallback: REJECT, interval: 200, lazy: true, timeout: 3000, max-failed-times: 2, hidden: true, url: 'https://h1.example.com/generate_204', tolerance: 50}
+anchor-8: &a24 {type: smart, empty-fallback: REJECT, interval: 200, lazy: true, timeout: 3000, max-failed-times: 2, hidden: true, url: 'https://h1.example.com/generate_204', uselightgbm: true, policy-priority: 'str8'}
+anchor-9: &a28 {type: http, behavior: domain, format: mrs, interval: 86400}
+anchor-10: &a31 {type: http, behavior: domain, format: yaml, interval: 86400}
+anchor-11: &a30 {type: http, behavior: ipcidr, format: mrs, interval: 86400}
+anchor-12: &a29 {type: http, behavior: classical, format: yaml, interval: 86400}
+anchor-13: &a9 'Proxy [0-9]+|Group 4'
+anchor-14: &a8 'Proxy [0-9]+|Group 3'
+anchor-15: &a10 'Proxy [0-9]+|Group 5'
+anchor-16: &a14 'Proxy [0-9]+|Group 9'
+anchor-17: &a11 'Proxy [0-9]+|Group 6'
+anchor-18: &a12 'Proxy [0-9]+|Group 7'
+anchor-19: &a13 'Proxy [0-9]+|Group 8'
+anchor-20: &a15 'Proxy [0-9]+|Group 10'
+anchor-21: &a7 'Proxy [0-9]+|Group 2'
+anchor-22: &a2 {type: select, proxies: [Group 86, Group 38, Group 41, Group 39, Group 40, Group 42, Group 44, Group 43, Group 45, Group 87, Group 37]}
+anchor-23: &a3 {type: select, proxies: [Group 37, Group 1, Group 86, Group 38, Group 41, Group 39, Group 40, Group 42, Group 44, Group 43, Group 45, Group 87]}
+anchor-24: &a5 {type: select, proxies: [Group 37, Group 2, Group 1, Group 86, Group 38, Group 41, Group 39, Group 40, Group 42, Group 44, Group 43, Group 45, Group 87]}
+anchor-25: &a4 {type: select, proxies: [Group 1, Group 86, Group 38, Group 41, Group 39, Group 40, Group 42, Group 44, Group 43, Group 45, Group 87, Group 2, Group 37]}
+anchor-26: &a27 {type: select, proxies: [Group 81, Group 56, Group 48, Group 64, Group 72, Group 78, Group 54, Group 46, Group 62, Group 70, Group 80, Group 57, Group 49, Group 65, Group 73, Group 83, Group 59, Group 51, Group 67, Group 75, Group 79, Group 55, Group 47, Group 63, Group 71, Group 84, Group 60, Group 52, Group 68, Group 76, Group 82, Group 58, Group 50, Group 66, Group 74, Group 85, Group 61, Group 53, Group 69, Group 77], include-all: true, filter: *a7}
+anchor-27: &a19 https://h2.example.com/p47.png
+anchor-28: &a17 https://h2.example.com/p46.png
+anchor-29: &a21 https://h2.example.com/p48.png
+anchor-30: &a23 https://h2.example.com/p49.png
+anchor-31: &a25 https://h2.example.com/p50.png
+mode: rule
+ipv6: true
+mixed-port: 7893
+allow-lan: true
+bind-address: "*"
+log-level: warning
+unified-delay: true
+tcp-concurrent: true
+profile: {store-selected: true, store-fake-ip: true}
+geo-auto-update: true
+geo-update-interval: 24
+geodata-mode: true
+geox-url:
+  geosite: https://h2.example.com/p61.dat
+  geoip: https://h2.example.com/p62.dat
+  mmdb: https://h2.example.com/p63.metadb
+  asn: https://h2.example.com/p64.mmdb
+external-ui-url: https://h4.example.com/p65.zip
+external-controller: 0.0.0.0:9090
+external-ui-name: str9
+external-ui: ./path-1
+secret: 12345678
+tun:
+  enable: true
+  stack: mixed
+  dns-hijack: [udp://any:53, tcp://any:53]
+  auto-detect-interface: true
+  auto-route: true
+  auto-redirect: true
+  strict-route: false
+  endpoint-independent-nat: true
+  route-exclude-address-set: [str5]
+sniffer:
+  enable: true
+  override-destination: true
+  parse-pure-ip: true
+  force-dns-mapping: true
+  sniff:
+    QUIC: {ports: [443]}
+    TLS: {ports: [443, 8443]}
+    HTTP: {ports: [80, 8080-8880]}
+  force-domain:
+    - "+.d1.example"
+    - "+.d2.example"
+    - "+.d3.example"
+    - "+.d4.example"
+    - "+.d5.example"
+  skip-domain:
+    - str6
+    - d6.example
+    - "+.d7.example"
+    - "+.d8.example"
+    - "+.d9.example"
+hosts:
+  d10.example: [192.0.2.1, 192.0.2.2, 192.0.2.3, 192.0.2.4]
+  d11.example: d12.example
+  d13.example: [192.0.2.5, 192.0.2.6, 2001:db8::1, 2001:db8::2]
+  d14.example: [192.0.2.7, 192.0.2.8, 192.0.2.9]
+  d15.example: [192.0.2.10, 192.0.2.11, 2001:db8::3, 2001:db8::4]
+  d16.example: [192.0.2.12, 192.0.2.13, 2001:db8::5, 2001:db8::6]
+dns:
+  enable: true
+  ipv6: true
+  listen: 0.0.0.0:7874
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  fake-ip-range6: 2001:db8::1/64
+  fake-ip-filter-mode: blacklist
+  respect-rules: false
+  nameserver:
+    - 192.0.2.14
+    - 192.0.2.5
+    - 192.0.2.15
+    - 192.0.2.16
+  fake-ip-filter:
+    - +.d17.example
+    - +.d18.example
+    - +.d19.example
+    - +.d20.example
+    - 'geosite: cn'
+    - 'geosite: geolocation-cn'
+    - 'rule-set:set-3'
+    - +.d21.example
+proxy-groups:
+  - {name: Group 1, <<: *a2, icon: https://h2.example.com/p1.png}
+  - {name: Group 2, <<: *a3, icon: https://h2.example.com/p2.png}
+  - {name: Group 3, <<: *a4, icon: https://h2.example.com/p3.png}
+  - {name: Group 4, <<: *a4, icon: https://h2.example.com/p4.png}
+  - {name: Group 5, <<: *a4, icon: https://h2.example.com/p5.png}
+  - {name: Group 6, <<: *a4, icon: https://h2.example.com/p6.png}
+  - {name: Group 7, <<: *a4, icon: https://h2.example.com/p7.png}
+  - {name: Group 8, <<: *a4, icon: https://h2.example.com/p8.png}
+  - {name: Group 9, <<: *a4, icon: https://h2.example.com/p9.png}
+  - {name: Group 10, <<: *a4, icon: https://h2.example.com/p10.png}
+  - {name: Group 11, <<: *a4, icon: https://h2.example.com/p11.png}
+  - {name: Group 12, <<: *a4, icon: https://h2.example.com/p12.png}
+  - {name: Group 13, <<: *a4, icon: https://h2.example.com/p13.png}
+  - {name: Group 14, <<: *a4, icon: https://h2.example.com/p14.png}
+  - {name: Group 15, <<: *a4, icon: https://h2.example.com/p15.png}
+  - {name: Group 16, <<: *a4, icon: https://h2.example.com/p16.png}
+  - {name: Group 17, <<: *a4, icon: https://h2.example.com/p17.png}
+  - {name: Group 18, <<: *a4, icon: https://h2.example.com/p18.png}
+  - {name: Group 19, <<: *a4, icon: https://h2.example.com/p19.png}
+  - {name: Group 20, <<: *a4, icon: https://h2.example.com/p20.png}
+  - {name: Group 21, <<: *a4, icon: https://h2.example.com/p21.png}
+  - {name: Group 22, <<: *a4, icon: https://h2.example.com/p22.png}
+  - {name: Group 23, <<: *a4, icon: https://h2.example.com/p23.png}
+  - {name: Group 24, <<: *a5, icon: https://h2.example.com/p24.png}
+  - {name: Group 25, <<: *a5, icon: https://h2.example.com/p25.png}
+  - {name: Group 26, <<: *a5, icon: https://h2.example.com/p26.png}
+  - {name: Group 27, <<: *a5, icon: https://h2.example.com/p27.png}
+  - {name: Group 28, <<: *a5, icon: https://h2.example.com/p28.png}
+  - {name: Group 29, <<: *a5, icon: https://h2.example.com/p29.png}
+  - {name: Group 30, <<: *a5, icon: https://h2.example.com/p30.png}
+  - {name: Group 31, <<: *a5, icon: https://h2.example.com/p31.png}
+  - {name: Group 32, <<: *a5, icon: https://h2.example.com/p32.png}
+  - {name: Group 33, <<: *a6, proxies: [Group 37, Group 42], icon: https://h2.example.com/p33.png}
+  - {name: Group 34, <<: *a6, proxies: [Group 2, Group 35], icon: https://h2.example.com/p34.png}
+  - {name: Group 35, <<: *a5, include-all: true, filter: *a7, default-selected: 'str7', icon: https://h2.example.com/p35.png}
+  - {name: Group 36, <<: *a5, include-all: true, filter: *a7, default-selected: 'str7', icon: https://h2.example.com/p36.png}
+  - {name: Group 37, <<: *a6, proxies: [DIRECT], hidden: true, icon: https://h2.example.com/p37.png}
+  - {name: Group 38, <<: *a6, proxies: [Group 81, Group 48, Group 56, Group 64, Group 72], include-all: true, filter: *a8, icon: https://h2.example.com/p38.png}
+  - {name: Group 39, <<: *a6, proxies: [Group 78, Group 46, Group 54, Group 62, Group 70], include-all: true, filter: *a9, icon: https://h2.example.com/p39.png}
+  - {name: Group 40, <<: *a6, proxies: [Group 80, Group 49, Group 57, Group 65, Group 73], include-all: true, filter: *a10, icon: https://h2.example.com/p40.png}
+  - {name: Group 41, <<: *a6, proxies: [Group 83, Group 51, Group 59, Group 67, Group 75], include-all: true, filter: *a11, icon: https://h2.example.com/p41.png}
+  - {name: Group 42, <<: *a6, proxies: [Group 79, Group 47, Group 55, Group 63, Group 71], include-all: true, filter: *a12, icon: https://h2.example.com/p42.png}
+  - {name: Group 43, <<: *a6, proxies: [Group 84, Group 52, Group 60, Group 68, Group 76], include-all: true, filter: *a13, icon: https://h2.example.com/p43.png}
+  - {name: Group 44, <<: *a6, proxies: [Group 82, Group 50, Group 58, Group 66, Group 74], include-all: true, filter: *a14, icon: https://h2.example.com/p44.png}
+  - {name: Group 45, <<: *a6, proxies: [Group 85, Group 61, Group 53, Group 69, Group 77], include-all: true, filter: *a15, icon: https://h2.example.com/p45.png}
+  - {name: Group 46, <<: *a16, include-all: true, filter: *a9, icon: *a17}
+  - {name: Group 47, <<: *a16, include-all: true, filter: *a12, icon: *a17}
+  - {name: Group 48, <<: *a16, include-all: true, filter: *a8, icon: *a17}
+  - {name: Group 49, <<: *a16, include-all: true, filter: *a10, icon: *a17}
+  - {name: Group 50, <<: *a16, include-all: true, filter: *a14, icon: *a17}
+  - {name: Group 51, <<: *a16, include-all: true, filter: *a11, icon: *a17}
+  - {name: Group 52, <<: *a16, include-all: true, filter: *a13, icon: *a17}
+  - {name: Group 53, <<: *a16, include-all: true, filter: *a15, icon: *a17}
+  - {name: Group 54, <<: *a18, include-all: true, filter: *a9, icon: *a19}
+  - {name: Group 55, <<: *a18, include-all: true, filter: *a12, icon: *a19}
+  - {name: Group 56, <<: *a18, include-all: true, filter: *a8, icon: *a19}
+  - {name: Group 57, <<: *a18, include-all: true, filter: *a10, icon: *a19}
+  - {name: Group 58, <<: *a18, include-all: true, filter: *a14, icon: *a19}
+  - {name: Group 59, <<: *a18, include-all: true, filter: *a11, icon: *a19}
+  - {name: Group 60, <<: *a18, include-all: true, filter: *a13, icon: *a19}
+  - {name: Group 61, <<: *a18, include-all: true, filter: *a15, icon: *a19}
+  - {name: Group 62, <<: *a20, include-all: true, filter: *a9, icon: *a21}
+  - {name: Group 63, <<: *a20, include-all: true, filter: *a12, icon: *a21}
+  - {name: Group 64, <<: *a20, include-all: true, filter: *a8, icon: *a21}
+  - {name: Group 65, <<: *a20, include-all: true, filter: *a10, icon: *a21}
+  - {name: Group 66, <<: *a20, include-all: true, filter: *a14, icon: *a21}
+  - {name: Group 67, <<: *a20, include-all: true, filter: *a11, icon: *a21}
+  - {name: Group 68, <<: *a20, include-all: true, filter: *a13, icon: *a21}
+  - {name: Group 69, <<: *a20, include-all: true, filter: *a15, icon: *a21}
+  - {name: Group 70, <<: *a22, include-all: true, filter: *a9, icon: *a23}
+  - {name: Group 71, <<: *a22, include-all: true, filter: *a12, icon: *a23}
+  - {name: Group 72, <<: *a22, include-all: true, filter: *a8, icon: *a23}
+  - {name: Group 73, <<: *a22, include-all: true, filter: *a10, icon: *a23}
+  - {name: Group 74, <<: *a22, include-all: true, filter: *a14, icon: *a23}
+  - {name: Group 75, <<: *a22, include-all: true, filter: *a11, icon: *a23}
+  - {name: Group 76, <<: *a22, include-all: true, filter: *a13, icon: *a23}
+  - {name: Group 77, <<: *a22, include-all: true, filter: *a15, icon: *a23}
+  - {name: Group 78, <<: *a24, include-all: true, filter: *a9, icon: *a25}
+  - {name: Group 79, <<: *a24, include-all: true, filter: *a12, icon: *a25}
+  - {name: Group 80, <<: *a24, include-all: true, filter: *a10, icon: *a25}
+  - {name: Group 81, <<: *a24, include-all: true, filter: *a8, icon: *a25}
+  - {name: Group 82, <<: *a24, include-all: true, filter: *a14, icon: *a25}
+  - {name: Group 83, <<: *a24, include-all: true, filter: *a11, icon: *a25}
+  - {name: Group 84, <<: *a24, include-all: true, filter: *a13, icon: *a25}
+  - {name: Group 85, <<: *a24, include-all: true, filter: *a15, icon: *a25}
+  - {name: Group 86, <<: *a26, proxies: [Group 87, Group 38, Group 41, Group 42, Group 39, Group 40, Group 43, Group 44, Group 45], icon: https://h2.example.com/p51.png}
+  - {name: Group 87, <<: *a27, icon: https://h2.example.com/p52.png}
+rules:
+  - GEOSITE,category-ads-all,REJECT
+  - RULE-SET,set-1,REJECT
+  - RULE-SET,set-2,REJECT
+  - GEOSITE,private,Group 37
+  - GEOIP,private,Group 37,no-resolve
+  - RULE-SET,set-4,Group 37
+  - RULE-SET,set-5,Group 37
+  - GEOSITE,category-game-platforms-download,Group 37
+  - GEOSITE,category-public-tracker,Group 37
+  - GEOSITE,category-pt,Group 37
+  - GEOSITE,category-games@cn,Group 37
+  - GEOSITE,category-games-cn,Group 37
+  - GEOSITE,google-cn,Group 37
+  - GEOSITE,apple@cn,Group 37
+  - GEOSITE,bing@cn,Group 37
+  - GEOSITE,microsoft@cn,Group 37
+  - GEOSITE,docker,Group 24
+  - GEOSITE,onedrive,Group 25
+  - GEOSITE,bing,Group 26
+  - GEOSITE,github,Group 3
+  - GEOSITE,apple-tvplus,Group 29
+  - GEOSITE,apple,Group 28
+  - RULE-SET,set-6,Group 36
+  - GEOSITE,category-speedtest,Group 36
+  - GEOSITE,test-ipv6,Group 36
+  - GEOSITE,google-gemini,Group 7
+  - GEOSITE,anthropic,Group 8
+  - GEOSITE,openai,Group 9
+  - GEOSITE,x,Group 10
+  - GEOSITE,category-ai-!cn,Group 11
+  - GEOSITE,wikimedia,Group 12
+  - GEOSITE,youtube,Group 4
+  - GEOSITE,tiktok,Group 17
+  - GEOSITE,netflix,Group 18
+  - GEOSITE,disney,Group 19
+  - GEOSITE,hbo,Group 20
+  - GEOSITE,primevideo,Group 21
+  - GEOSITE,category-emby,Group 30
+  - GEOSITE,spotify,Group 22
+  - GEOSITE,bahamut,Group 33
+  - GEOSITE,googlefcm,Group 5
+  - GEOSITE,google,Group 6
+  - GEOSITE,steam,Group 31
+  - GEOSITE,category-games,Group 32
+  - GEOSITE,category-communication,Group 13
+  - GEOSITE,category-social-media-!cn,Group 16
+  - GEOSITE,category-entertainment,Group 23
+  - GEOSITE,category-ecommerce,Group 14
+  - GEOSITE,category-cryptocurrency,Group 15
+  - GEOSITE,gfw,Group 1
+  - GEOSITE,microsoft,Group 27
+  - GEOIP,telegram,Group 13,no-resolve
+  - GEOIP,twitter,Group 16,no-resolve
+  - GEOIP,facebook,Group 16,no-resolve
+  - GEOIP,google,Group 6,no-resolve
+  - GEOIP,netflix,Group 18,no-resolve
+  - GEOSITE,geolocation-!cn,Group 2
+  - GEOIP,cloudflare,Group 2,no-resolve
+  - GEOIP,cloudfront,Group 2,no-resolve
+  - GEOSITE,cn,Group 37
+  - GEOIP,cn,Group 37,no-resolve
+  - RULE-SET,set-8,Group 34
+  - MATCH,Group 35
+rule-providers:
+  set-1: {<<: *a28, url: https://h3.example.com/p53.mrs}
+  set-2: {<<: *a28, url: https://h2.example.com/p54.mrs}
+  set-3: {<<: *a28, url: https://h2.example.com/p55.mrs}
+  set-4: {<<: *a29, url: https://h2.example.com/p56.yaml}
+  set-5: {<<: *a28, url: https://h2.example.com/p57.mrs}
+  set-6: {<<: *a28, url: https://h2.example.com/p58.mrs}
+  set-7: {<<: *a30, url: https://h2.example.com/p59.mrs}
+  set-8: {<<: *a29, url: https://h2.example.com/p60.yaml}

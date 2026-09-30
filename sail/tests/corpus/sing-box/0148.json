@@ -1,0 +1,56 @@
+{
+  "log": {
+    "level": "error",
+    "timestamp": true
+  },
+  "dns": {
+    "servers": [
+      {
+        "type": "udp",
+        "tag": "dns-1",
+        "server": "192.0.2.1"
+      }
+    ],
+    "final": "dns-1",
+    "strategy": "prefer_ipv4",
+    "disable_cache": false
+  },
+  "inbounds": [
+    {
+      "type": "shadowsocks",
+      "tag": "in-1",
+      "listen": "::",
+      "listen_port": 5359,
+      "method": "chacha20-ietf-poly1305",
+      "password": "password1",
+      "network": "tcp",
+      "multiplex": {
+        "enabled": true
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "direct",
+      "tag": "Proxy 1"
+    }
+  ],
+  "route": {
+    "default_domain_resolver": {
+      "server": "dns-1"
+    },
+    "rules": [
+      {
+        "inbound": "in-1",
+        "outbound": "Proxy 1"
+      },
+      {
+        "protocol": "dns",
+        "action": "hijack-dns"
+      }
+    ],
+    "final": "Proxy 1",
+    "auto_detect_interface": true,
+    "override_android_vpn": true
+  }
+}

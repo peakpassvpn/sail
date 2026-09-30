@@ -1,0 +1,2642 @@
+{
+  "inbounds": [
+    {
+      "type": "mixed",
+      "tag": "in-1",
+      "listen": "::",
+      "listen_port": 1080,
+      "sniff": true
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "direct",
+      "tag": "Proxy 1"
+    },
+    {
+      "type": "block",
+      "tag": "Proxy 2"
+    },
+    {
+      "type": "selector",
+      "tag": "PROXY",
+      "outbounds": [
+        "Group 1",
+        "Proxy 1",
+        "Proxy 2",
+        "Proxy 3",
+        "Proxy 4",
+        "Proxy 5",
+        "Proxy 6",
+        "Proxy 7",
+        "Proxy 8",
+        "Proxy 9",
+        "Proxy 10",
+        "Proxy 11",
+        "Proxy 12",
+        "Proxy 13",
+        "Proxy 14",
+        "Proxy 15",
+        "Proxy 16",
+        "Proxy 17",
+        "Proxy 18",
+        "Proxy 19",
+        "Proxy 20",
+        "Proxy 21",
+        "Proxy 22",
+        "Proxy 23",
+        "Proxy 24",
+        "Proxy 25",
+        "Proxy 26",
+        "Proxy 27",
+        "Proxy 28",
+        "Proxy 29",
+        "Proxy 30",
+        "Proxy 31",
+        "Proxy 32",
+        "Proxy 33",
+        "Proxy 34",
+        "Proxy 35",
+        "Proxy 36",
+        "Proxy 37",
+        "Proxy 38",
+        "Proxy 39",
+        "Proxy 40",
+        "Proxy 41",
+        "Proxy 42",
+        "Proxy 43",
+        "Proxy 44",
+        "Proxy 45",
+        "Proxy 46",
+        "Proxy 47",
+        "Proxy 48",
+        "Proxy 49",
+        "Proxy 50",
+        "Proxy 51",
+        "Proxy 52",
+        "Proxy 53",
+        "Proxy 54",
+        "Proxy 55",
+        "Proxy 56",
+        "Proxy 57",
+        "Proxy 58",
+        "Proxy 59",
+        "Proxy 60",
+        "Proxy 61",
+        "Proxy 62",
+        "Proxy 63",
+        "Proxy 64",
+        "Proxy 65",
+        "Proxy 66",
+        "Proxy 67",
+        "Proxy 68",
+        "Proxy 69",
+        "Proxy 70",
+        "Proxy 71",
+        "Proxy 72",
+        "Proxy 73",
+        "Proxy 74",
+        "Proxy 75",
+        "Proxy 76",
+        "Proxy 77",
+        "Proxy 78",
+        "Proxy 79",
+        "Proxy 80",
+        "Proxy 81",
+        "Proxy 82",
+        "Proxy 83",
+        "Proxy 84",
+        "Proxy 85",
+        "Proxy 86",
+        "Proxy 87",
+        "Proxy 88",
+        "Proxy 89",
+        "Proxy 90",
+        "Proxy 91",
+        "Proxy 92",
+        "Proxy 93",
+        "Proxy 94",
+        "Proxy 95",
+        "Proxy 96",
+        "Proxy 97",
+        "Proxy 98",
+        "Proxy 99",
+        "Proxy 100",
+        "Proxy 101",
+        "Proxy 102",
+        "Proxy 103",
+        "Proxy 104",
+        "Proxy 105",
+        "Proxy 106",
+        "Proxy 107",
+        "Proxy 108",
+        "Proxy 109",
+        "Proxy 110",
+        "Proxy 111",
+        "Proxy 112",
+        "Proxy 113",
+        "Proxy 114",
+        "Proxy 115",
+        "Proxy 116",
+        "Proxy 117",
+        "Proxy 118",
+        "Proxy 119",
+        "Proxy 120",
+        "Proxy 121",
+        "Proxy 122",
+        "Proxy 123",
+        "Proxy 124",
+        "Proxy 125",
+        "Proxy 126",
+        "Proxy 127",
+        "Proxy 128",
+        "Proxy 129",
+        "Proxy 130",
+        "Proxy 131",
+        "Proxy 132",
+        "Proxy 133",
+        "Proxy 134",
+        "Proxy 135",
+        "Proxy 136",
+        "Proxy 137",
+        "Proxy 138",
+        "Proxy 139",
+        "Proxy 140",
+        "Proxy 141",
+        "Proxy 142",
+        "Proxy 143",
+        "Proxy 144",
+        "Proxy 145",
+        "Proxy 146",
+        "Proxy 147",
+        "Proxy 148",
+        "Proxy 149",
+        "Proxy 150",
+        "Proxy 151",
+        "Proxy 152",
+        "Proxy 153",
+        "Proxy 154",
+        "Proxy 155",
+        "Proxy 156",
+        "Proxy 157",
+        "Proxy 158",
+        "Proxy 159",
+        "Proxy 160",
+        "Proxy 161",
+        "Proxy 162",
+        "Proxy 163",
+        "Proxy 164",
+        "Proxy 165",
+        "Proxy 166",
+        "Proxy 167",
+        "Proxy 168",
+        "Proxy 169",
+        "Proxy 170",
+        "Proxy 171",
+        "Proxy 172",
+        "Proxy 173",
+        "Proxy 174",
+        "Proxy 175",
+        "Proxy 176",
+        "Proxy 177",
+        "Proxy 178",
+        "Proxy 179",
+        "Proxy 180",
+        "Proxy 181"
+      ],
+      "default": "Group 1"
+    },
+    {
+      "type": "urltest",
+      "tag": "Group 1",
+      "outbounds": [
+        "Proxy 3",
+        "Proxy 4",
+        "Proxy 5",
+        "Proxy 6",
+        "Proxy 7",
+        "Proxy 8",
+        "Proxy 9",
+        "Proxy 10",
+        "Proxy 11",
+        "Proxy 12",
+        "Proxy 13",
+        "Proxy 14",
+        "Proxy 15",
+        "Proxy 16",
+        "Proxy 17",
+        "Proxy 18",
+        "Proxy 19",
+        "Proxy 20",
+        "Proxy 21",
+        "Proxy 22",
+        "Proxy 23",
+        "Proxy 24",
+        "Proxy 25",
+        "Proxy 26",
+        "Proxy 27",
+        "Proxy 28",
+        "Proxy 29",
+        "Proxy 30",
+        "Proxy 31",
+        "Proxy 32",
+        "Proxy 33",
+        "Proxy 34",
+        "Proxy 35",
+        "Proxy 36",
+        "Proxy 37",
+        "Proxy 38",
+        "Proxy 39",
+        "Proxy 40",
+        "Proxy 41",
+        "Proxy 42",
+        "Proxy 43",
+        "Proxy 44",
+        "Proxy 45",
+        "Proxy 46",
+        "Proxy 47",
+        "Proxy 48",
+        "Proxy 49",
+        "Proxy 50",
+        "Proxy 51",
+        "Proxy 52",
+        "Proxy 53",
+        "Proxy 54",
+        "Proxy 55",
+        "Proxy 56",
+        "Proxy 57",
+        "Proxy 58",
+        "Proxy 59",
+        "Proxy 60",
+        "Proxy 61",
+        "Proxy 62",
+        "Proxy 63",
+        "Proxy 64",
+        "Proxy 65",
+        "Proxy 66",
+        "Proxy 67",
+        "Proxy 68",
+        "Proxy 69",
+        "Proxy 70",
+        "Proxy 71",
+        "Proxy 72",
+        "Proxy 73",
+        "Proxy 74",
+        "Proxy 75",
+        "Proxy 76",
+        "Proxy 77",
+        "Proxy 78",
+        "Proxy 79",
+        "Proxy 80",
+        "Proxy 81",
+        "Proxy 82",
+        "Proxy 83",
+        "Proxy 84",
+        "Proxy 85",
+        "Proxy 86",
+        "Proxy 87",
+        "Proxy 88",
+        "Proxy 89",
+        "Proxy 90",
+        "Proxy 91",
+        "Proxy 92",
+        "Proxy 93",
+        "Proxy 94",
+        "Proxy 95",
+        "Proxy 96",
+        "Proxy 97",
+        "Proxy 98",
+        "Proxy 99",
+        "Proxy 100",
+        "Proxy 101",
+        "Proxy 102",
+        "Proxy 103",
+        "Proxy 104",
+        "Proxy 105",
+        "Proxy 106",
+        "Proxy 107",
+        "Proxy 108",
+        "Proxy 109",
+        "Proxy 110",
+        "Proxy 111",
+        "Proxy 112",
+        "Proxy 113",
+        "Proxy 114",
+        "Proxy 115",
+        "Proxy 116",
+        "Proxy 117",
+        "Proxy 118",
+        "Proxy 119",
+        "Proxy 120",
+        "Proxy 121",
+        "Proxy 122",
+        "Proxy 123",
+        "Proxy 124",
+        "Proxy 125",
+        "Proxy 126",
+        "Proxy 127",
+        "Proxy 128",
+        "Proxy 129",
+        "Proxy 130",
+        "Proxy 131",
+        "Proxy 132",
+        "Proxy 133",
+        "Proxy 134",
+        "Proxy 135",
+        "Proxy 136",
+        "Proxy 137",
+        "Proxy 138",
+        "Proxy 139",
+        "Proxy 140",
+        "Proxy 141",
+        "Proxy 142",
+        "Proxy 143",
+        "Proxy 144",
+        "Proxy 145",
+        "Proxy 146",
+        "Proxy 147",
+        "Proxy 148",
+        "Proxy 149",
+        "Proxy 150",
+        "Proxy 151",
+        "Proxy 152",
+        "Proxy 153",
+        "Proxy 154",
+        "Proxy 155",
+        "Proxy 156",
+        "Proxy 157",
+        "Proxy 158",
+        "Proxy 159",
+        "Proxy 160",
+        "Proxy 161",
+        "Proxy 162",
+        "Proxy 163",
+        "Proxy 164",
+        "Proxy 165",
+        "Proxy 166",
+        "Proxy 167",
+        "Proxy 168",
+        "Proxy 169",
+        "Proxy 170",
+        "Proxy 171",
+        "Proxy 172",
+        "Proxy 173",
+        "Proxy 174",
+        "Proxy 175",
+        "Proxy 176",
+        "Proxy 177",
+        "Proxy 178",
+        "Proxy 179",
+        "Proxy 180",
+        "Proxy 181"
+      ],
+      "url": "https://h1.example.com/p1?csp_test=true",
+      "interval": "10m"
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "Proxy 3",
+      "server": "192.0.2.1",
+      "server_port": 59319,
+      "method": "2022-blake3-chacha20-poly1305",
+      "password": "wywOQgzCr2vr85JpoMxzCakHIIvgUtsG6/Qp987NJa4="
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "Proxy 4",
+      "server": "192.0.2.2",
+      "server_port": 59319,
+      "method": "2022-blake3-chacha20-poly1305",
+      "password": "WulOoXrJ4xaeREDpCXJqPLE7mK1qDJwNSfPto1FYe4I="
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "Proxy 5",
+      "server": "192.0.2.3",
+      "server_port": 59319,
+      "method": "2022-blake3-chacha20-poly1305",
+      "password": "uLBP4fDmzzQr6AI9Cjs2bG1yyu2augLO37S6iU1M4Eo="
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "Proxy 6",
+      "server": "192.0.2.4",
+      "server_port": 59319,
+      "method": "2022-blake3-chacha20-poly1305",
+      "password": "C7R4HcnA7nosUls057QlZXh18tDK3yhe4+6I1jkpNJM="
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "Proxy 7",
+      "server": "192.0.2.5",
+      "server_port": 59319,
+      "method": "2022-blake3-chacha20-poly1305",
+      "password": "CSwhJCxdZba+0FGfnY5g6FrCHPwm3ApwMA2cT+NViKI="
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "Proxy 8",
+      "server": "192.0.2.6",
+      "server_port": 59319,
+      "method": "2022-blake3-chacha20-poly1305",
+      "password": "I2aL6X+W2VPhngwoaemQPJU+XZ6OrdxIG66ClGKyUZ4="
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "Proxy 9",
+      "server": "192.0.2.7",
+      "server_port": 59319,
+      "method": "2022-blake3-chacha20-poly1305",
+      "password": "bW80l/i38LeabnfY0LXjTM/M+gz1svjYk+rHjkSuhcU="
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "Proxy 10",
+      "server": "192.0.2.8",
+      "server_port": 59319,
+      "method": "2022-blake3-chacha20-poly1305",
+      "password": "TTk8cwrAb2wBRROvzq9tvU4wOoKfPDHxb3G3kOMUHGc="
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "Proxy 11",
+      "server": "192.0.2.9",
+      "server_port": 445,
+      "method": "aes-256-gcm",
+      "password": "password1"
+    },
+    {
+      "type": "hysteria2",
+      "tag": "Proxy 12",
+      "server": "s1.example.net",
+      "server_port": 8443,
+      "password": "00005a11-0000-4000-8000-000000000001",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s1.example.net"
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "Proxy 13",
+      "server": "s2.example.net",
+      "server_port": 1443,
+      "password": "password2",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s2.example.net"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 14",
+      "server": "192.0.2.10",
+      "server_port": 80,
+      "uuid": "00005a11-0000-4000-8000-000000000002",
+      "transport": {
+        "type": "ws",
+        "path": "str1",
+        "headers": {
+          "Host": "sni3.example.org"
+        }
+      }
+    },
+    {
+      "type": "vmess",
+      "tag": "Proxy 15",
+      "server": "s4.example.net",
+      "server_port": 80,
+      "uuid": "00005a11-0000-4000-8000-000000000003",
+      "tls": {
+        "enabled": false
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p2",
+        "headers": {
+          "Host": "sni5.example.org"
+        }
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "Proxy 16",
+      "server": "s6.example.net",
+      "server_port": 36723,
+      "password": "password3",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "sni7.example.org"
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "Proxy 17",
+      "server": "192.0.2.11",
+      "server_port": 12694,
+      "password": "password4",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "sni8.example.org"
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "Proxy 18",
+      "server": "s9.example.net",
+      "server_port": 1443,
+      "password": "password2",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s9.example.net"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 19",
+      "server": "192.0.2.12",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000004",
+      "transport": {
+        "type": "ws",
+        "path": "/p3",
+        "headers": {
+          "Host": "sni10.example.org"
+        }
+      },
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "sni10.example.org"
+      }
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "Proxy 20",
+      "server": "192.0.2.13",
+      "server_port": 443,
+      "method": "chacha20-ietf-poly1305",
+      "password": "password5"
+    },
+    {
+      "type": "hysteria2",
+      "tag": "Proxy 21",
+      "server": "192.0.2.14",
+      "server_port": 43327,
+      "password": "password6",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "sni11.example.org"
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "Proxy 22",
+      "server": "s12.example.net",
+      "server_port": 55443,
+      "password": "password7",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s12.example.net"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 23",
+      "server": "s13.example.net",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000005",
+      "transport": {
+        "type": "ws",
+        "path": "./path-1.dat",
+        "headers": {
+          "Host": "sni14.example.org"
+        }
+      },
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "sni14.example.org"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 24",
+      "server": "192.0.2.15",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000006",
+      "transport": {
+        "type": "ws",
+        "path": "/p4",
+        "headers": {
+          "Host": "sni15.example.org"
+        }
+      },
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "sni15.example.org"
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "Proxy 25",
+      "server": "s16.example.net",
+      "server_port": 443,
+      "password": "00005a11-0000-4000-8000-000000000007",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s16.example.net"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 26",
+      "server": "192.0.2.16",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000008",
+      "transport": {
+        "type": "ws",
+        "path": "str1",
+        "headers": {
+          "Host": "sni17.example.org"
+        }
+      },
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "sni18.example.org"
+      }
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "Proxy 27",
+      "server": "192.0.2.17",
+      "server_port": 443,
+      "method": "chacha20-ietf-poly1305",
+      "password": "password8"
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "Proxy 28",
+      "server": "192.0.2.18",
+      "server_port": 443,
+      "method": "aes-128-gcm",
+      "password": "password9"
+    },
+    {
+      "type": "trojan",
+      "tag": "Proxy 29",
+      "server": "s19.example.net",
+      "server_port": 443,
+      "password": "password10",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s19.example.net"
+      }
+    },
+    {
+      "type": "vmess",
+      "tag": "Proxy 30",
+      "server": "s20.example.net",
+      "server_port": 2053,
+      "uuid": "00005a11-0000-4000-8000-000000000009",
+      "tls": {
+        "enabled": true
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p5",
+        "headers": {
+          "Host": "s20.example.net"
+        }
+      },
+      "security": "auto"
+    },
+    {
+      "type": "vmess",
+      "tag": "Proxy 31",
+      "server": "s21.example.net",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-00000000000a",
+      "tls": {
+        "enabled": true
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/p6",
+        "headers": {
+          "Host": "s21.example.net"
+        }
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "Proxy 32",
+      "server": "s22.example.net",
+      "server_port": 443,
+      "password": "password10",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s22.example.net"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 33",
+      "server": "192.0.2.19",
+      "server_port": 80,
+      "uuid": "00005a11-0000-4000-8000-00000000000b",
+      "transport": {
+        "type": "ws",
+        "path": "/p7",
+        "headers": {
+          "Host": "192.0.2.19"
+        }
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "Proxy 34",
+      "server": "s23.example.net",
+      "server_port": 443,
+      "password": "password10",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s23.example.net"
+      }
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "Proxy 35",
+      "server": "s24.example.net",
+      "server_port": 443,
+      "method": "chacha20-ietf-poly1305",
+      "password": "password11"
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 36",
+      "server": "192.0.2.20",
+      "server_port": 2095,
+      "uuid": "00005a11-0000-4000-8000-00000000000c",
+      "transport": {
+        "type": "ws",
+        "path": "str1",
+        "headers": {
+          "Host": "sni25.example.org"
+        }
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 37",
+      "server": "s26.example.net",
+      "server_port": 2095,
+      "uuid": "00005a11-0000-4000-8000-00000000000c",
+      "transport": {
+        "type": "ws",
+        "path": "str1",
+        "headers": {
+          "Host": "s26.example.net"
+        }
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 38",
+      "server": "s27.example.net",
+      "server_port": 2095,
+      "uuid": "00005a11-0000-4000-8000-00000000000c",
+      "transport": {
+        "type": "ws",
+        "path": "str1",
+        "headers": {
+          "Host": "s27.example.net"
+        }
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "Proxy 39",
+      "server": "192.0.2.21",
+      "server_port": 52794,
+      "password": "password12",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "192.0.2.21"
+      }
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "Proxy 40",
+      "server": "192.0.2.22",
+      "server_port": 20001,
+      "method": "chacha20-ietf-poly1305",
+      "password": "password13"
+    },
+    {
+      "type": "hysteria2",
+      "tag": "Proxy 41",
+      "server": "s28.example.net",
+      "server_port": 443,
+      "password": "password14",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s28.example.net"
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "Proxy 42",
+      "server": "192.0.2.23",
+      "server_port": 52454,
+      "password": "00005a11-0000-4000-8000-00000000000d",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "sni8.example.org"
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "Proxy 43",
+      "server": "192.0.2.24",
+      "server_port": 6443,
+      "password": "password15",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "192.0.2.24"
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "Proxy 44",
+      "server": "192.0.2.25",
+      "server_port": 22000,
+      "password": "password16",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "sni29.example.org"
+      }
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "Proxy 45",
+      "server": "192.0.2.26",
+      "server_port": 8080,
+      "method": "rc4-md5",
+      "password": "password17"
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "Proxy 46",
+      "server": "192.0.2.27",
+      "server_port": 8388,
+      "method": "chacha20-ietf-poly1305",
+      "password": "password18"
+    },
+    {
+      "type": "trojan",
+      "tag": "Proxy 47",
+      "server": "192.0.2.28",
+      "server_port": 57142,
+      "password": "password19",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "sni30.example.org"
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "Proxy 48",
+      "server": "192.0.2.29",
+      "server_port": 33333,
+      "password": "00005a11-0000-4000-8000-00000000000e",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "192.0.2.29"
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "Proxy 49",
+      "server": "192.0.2.30",
+      "server_port": 443,
+      "password": "password20",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "192.0.2.30"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 50",
+      "server": "192.0.2.31",
+      "server_port": 2095,
+      "uuid": "00005a11-0000-4000-8000-00000000000c",
+      "transport": {
+        "type": "ws",
+        "path": "str1",
+        "headers": {
+          "Host": "s26.example.net"
+        }
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 51",
+      "server": "192.0.2.32",
+      "server_port": 2095,
+      "uuid": "00005a11-0000-4000-8000-00000000000c",
+      "transport": {
+        "type": "ws",
+        "path": "str1",
+        "headers": {
+          "Host": "sni25.example.org"
+        }
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "Proxy 52",
+      "server": "192.0.2.33",
+      "server_port": 8443,
+      "password": "password21",
+      "tls": {
+        "enabled": true,
+        "insecure": false,
+        "server_name": "sni31.example.org"
+      }
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "Proxy 53",
+      "server": "192.0.2.34",
+      "server_port": 443,
+      "method": "aes-128-gcm",
+      "password": "password9"
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "Proxy 54",
+      "server": "192.0.2.35",
+      "server_port": 8080,
+      "method": "rc4-md5",
+      "password": "password17"
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 55",
+      "server": "192.0.2.36",
+      "server_port": 2095,
+      "uuid": "00005a11-0000-4000-8000-00000000000c",
+      "transport": {
+        "type": "ws",
+        "path": "str1",
+        "headers": {
+          "Host": "sni32.example.org"
+        }
+      }
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "Proxy 56",
+      "server": "192.0.2.37",
+      "server_port": 443,
+      "method": "aes-128-gcm",
+      "password": "password9"
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "Proxy 57",
+      "server": "192.0.2.38",
+      "server_port": 443,
+      "method": "aes-128-gcm",
+      "password": "password9"
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "Proxy 58",
+      "server": "192.0.2.39",
+      "server_port": 15675,
+      "method": "chacha20-ietf-poly1305",
+      "password": "password22"
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 59",
+      "server": "192.0.2.40",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-00000000000f",
+      "transport": {
+        "type": "ws",
+        "path": "/p8",
+        "headers": {
+          "Host": "sni33.example.org"
+        }
+      },
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "sni33.example.org"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 60",
+      "server": "sni33.example.org",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-00000000000f",
+      "transport": {
+        "type": "ws",
+        "path": "/p8",
+        "headers": {
+          "Host": "sni33.example.org"
+        }
+      },
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "sni33.example.org"
+      }
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "Proxy 61",
+      "server": "192.0.2.41",
+      "server_port": 8080,
+      "method": "rc4-md5",
+      "password": "password17"
+    },
+    {
+      "type": "hysteria2",
+      "tag": "Proxy 62",
+      "server": "192.0.2.42",
+      "server_port": 443,
+      "password": "password14",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "https://h2.example.com/p9"
+      }
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "Proxy 63",
+      "server": "192.0.2.43",
+      "server_port": 8091,
+      "method": "aes-256-gcm",
+      "password": "password23"
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "Proxy 64",
+      "server": "192.0.2.44",
+      "server_port": 27755,
+      "method": "2022-blake3-aes-256-gcm",
+      "password": "jRjIM5MQ3KAFGfHeCg1kvH9Q6b5Rvcuv1BW16TxGGx4="
+    },
+    {
+      "type": "hysteria2",
+      "tag": "Proxy 65",
+      "server": "s34.example.net",
+      "server_port": 443,
+      "password": "password14",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s34.example.net"
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "Proxy 66",
+      "server": "192.0.2.45",
+      "server_port": 53261,
+      "password": "password24",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "192.0.2.45"
+      }
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "Proxy 67",
+      "server": "192.0.2.46",
+      "server_port": 443,
+      "method": "aes-128-gcm",
+      "password": "password9"
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "Proxy 68",
+      "server": "192.0.2.47",
+      "server_port": 443,
+      "method": "aes-128-gcm",
+      "password": "password9"
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "Proxy 69",
+      "server": "192.0.2.48",
+      "server_port": 8388,
+      "method": "chacha20-ietf-poly1305",
+      "password": "password25"
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "Proxy 70",
+      "server": "192.0.2.49",
+      "server_port": 8388,
+      "method": "chacha20-ietf-poly1305",
+      "password": "password26"
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "Proxy 71",
+      "server": "192.0.2.50",
+      "server_port": 443,
+      "method": "chacha20-ietf-poly1305",
+      "password": "password27"
+    },
+    {
+      "type": "trojan",
+      "tag": "Proxy 72",
+      "server": "192.0.2.51",
+      "server_port": 57142,
+      "password": "password19",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "sni30.example.org"
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "Proxy 73",
+      "server": "192.0.2.52",
+      "server_port": 57142,
+      "password": "password19",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "192.0.2.52"
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "Proxy 74",
+      "server": "192.0.2.53",
+      "server_port": 57142,
+      "password": "password19",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "sni30.example.org"
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "Proxy 75",
+      "server": "192.0.2.54",
+      "server_port": 443,
+      "password": "password14",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "https://h2.example.com/p9"
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "Proxy 76",
+      "server": "192.0.2.55",
+      "server_port": 443,
+      "password": "password14",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "https://h2.example.com/p10"
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "Proxy 77",
+      "server": "s35.example.net",
+      "server_port": 443,
+      "password": "password14",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s35.example.net"
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "Proxy 78",
+      "server": "s36.example.net",
+      "server_port": 443,
+      "password": "password28",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s36.example.net"
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "Proxy 79",
+      "server": "s37.example.net",
+      "server_port": 33333,
+      "password": "00005a11-0000-4000-8000-00000000000e",
+      "tls": {
+        "enabled": true,
+        "insecure": false,
+        "server_name": "s37.example.net"
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "Proxy 80",
+      "server": "s38.example.net",
+      "server_port": 443,
+      "password": "password29",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s38.example.net"
+      },
+      "obfs": {
+        "type": "salamander",
+        "password": "password30"
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "Proxy 81",
+      "server": "192.0.2.56",
+      "server_port": 52794,
+      "password": "password12",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "sni39.example.org"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 82",
+      "server": "192.0.2.57",
+      "server_port": 2095,
+      "uuid": "00005a11-0000-4000-8000-00000000000c",
+      "transport": {
+        "type": "ws",
+        "path": "str1",
+        "headers": {
+          "Host": "sni25.example.org"
+        }
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "Proxy 83",
+      "server": "s40.example.net",
+      "server_port": 44356,
+      "password": "password16",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s40.example.net"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 84",
+      "server": "192.0.2.58",
+      "server_port": 2095,
+      "uuid": "00005a11-0000-4000-8000-00000000000c",
+      "transport": {
+        "type": "ws",
+        "path": "str1",
+        "headers": {
+          "Host": "sni25.example.org"
+        }
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "Proxy 85",
+      "server": "s41.example.net",
+      "server_port": 443,
+      "password": "password31",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "127.0.0.1"
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "Proxy 86",
+      "server": "192.0.2.59",
+      "server_port": 8444,
+      "password": "password32",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "192.0.2.59"
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "Proxy 87",
+      "server": "192.0.2.60",
+      "server_port": 8443,
+      "password": "password33",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "sni42.example.org"
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "Proxy 88",
+      "server": "192.0.2.61",
+      "server_port": 8443,
+      "password": "password34",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "192.0.2.61"
+      }
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "Proxy 89",
+      "server": "192.0.2.62",
+      "server_port": 443,
+      "method": "aes-128-gcm",
+      "password": "password9"
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "Proxy 90",
+      "server": "192.0.2.63",
+      "server_port": 443,
+      "method": "aes-128-gcm",
+      "password": "password9"
+    },
+    {
+      "type": "trojan",
+      "tag": "Proxy 91",
+      "server": "192.0.2.64",
+      "server_port": 50573,
+      "password": "password35",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "192.0.2.64"
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "Proxy 92",
+      "server": "s43.example.net",
+      "server_port": 443,
+      "password": "00005a11-0000-4000-8000-000000000010",
+      "tls": {
+        "enabled": true,
+        "insecure": false,
+        "server_name": "s43.example.net"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 93",
+      "server": "192.0.2.65",
+      "server_port": 2095,
+      "uuid": "00005a11-0000-4000-8000-00000000000c",
+      "transport": {
+        "type": "ws",
+        "path": "str1",
+        "headers": {
+          "Host": "s27.example.net"
+        }
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "Proxy 94",
+      "server": "s44.example.net",
+      "server_port": 443,
+      "password": "password31",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s44.example.net"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 95",
+      "server": "192.0.2.66",
+      "server_port": 12068,
+      "uuid": "00005a11-0000-4000-8000-000000000011",
+      "transport": {
+        "type": "ws",
+        "path": "str1",
+        "headers": {
+          "Host": "192.0.2.66"
+        }
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "Proxy 96",
+      "server": "192.0.2.67",
+      "server_port": 443,
+      "password": "password36",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "sni45.example.org"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 97",
+      "server": "s46.example.net",
+      "server_port": 12068,
+      "uuid": "00005a11-0000-4000-8000-000000000011",
+      "transport": {
+        "type": "ws",
+        "path": "str1",
+        "headers": {
+          "Host": "s46.example.net"
+        }
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "Proxy 98",
+      "server": "s47.example.net",
+      "server_port": 443,
+      "password": "password14",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s47.example.net"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 99",
+      "server": "192.0.2.68",
+      "server_port": 2095,
+      "uuid": "00005a11-0000-4000-8000-00000000000c",
+      "transport": {
+        "type": "ws",
+        "path": "str1",
+        "headers": {
+          "Host": "sni48.example.org"
+        }
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 100",
+      "server": "192.0.2.69",
+      "server_port": 2095,
+      "uuid": "00005a11-0000-4000-8000-00000000000c",
+      "transport": {
+        "type": "ws",
+        "path": "str1",
+        "headers": {
+          "Host": "sni48.example.org"
+        }
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "Proxy 101",
+      "server": "s49.example.net",
+      "server_port": 443,
+      "password": "password14",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s49.example.net"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 102",
+      "server": "192.0.2.70",
+      "server_port": 2095,
+      "uuid": "00005a11-0000-4000-8000-00000000000c",
+      "transport": {
+        "type": "ws",
+        "path": "str1",
+        "headers": {
+          "Host": "sni48.example.org"
+        }
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 103",
+      "server": "192.0.2.71",
+      "server_port": 2095,
+      "uuid": "00005a11-0000-4000-8000-00000000000c",
+      "transport": {
+        "type": "ws",
+        "path": "str1",
+        "headers": {
+          "Host": "sni25.example.org"
+        }
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 104",
+      "server": "192.0.2.72",
+      "server_port": 2095,
+      "uuid": "00005a11-0000-4000-8000-00000000000c",
+      "transport": {
+        "type": "ws",
+        "path": "str1",
+        "headers": {
+          "Host": "sni48.example.org"
+        }
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 105",
+      "server": "192.0.2.73",
+      "server_port": 2095,
+      "uuid": "00005a11-0000-4000-8000-00000000000c",
+      "transport": {
+        "type": "ws",
+        "path": "str1",
+        "headers": {
+          "Host": "sni48.example.org"
+        }
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 106",
+      "server": "192.0.2.74",
+      "server_port": 2095,
+      "uuid": "00005a11-0000-4000-8000-00000000000c",
+      "transport": {
+        "type": "ws",
+        "path": "str1",
+        "headers": {
+          "Host": "sni48.example.org"
+        }
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 107",
+      "server": "192.0.2.75",
+      "server_port": 2095,
+      "uuid": "00005a11-0000-4000-8000-00000000000c",
+      "transport": {
+        "type": "ws",
+        "path": "str1",
+        "headers": {
+          "Host": "sni25.example.org"
+        }
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "Proxy 108",
+      "server": "192.0.2.76",
+      "server_port": 443,
+      "password": "00005a11-0000-4000-8000-000000000010",
+      "tls": {
+        "enabled": true,
+        "insecure": false,
+        "server_name": "s43.example.net"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 109",
+      "server": "192.0.2.77",
+      "server_port": 2053,
+      "uuid": "00005a11-0000-4000-8000-000000000012",
+      "transport": {
+        "type": "ws",
+        "path": "/p11",
+        "headers": {
+          "Host": "sni50.example.org"
+        }
+      },
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "sni50.example.org"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 110",
+      "server": "s51.example.net",
+      "server_port": 22573,
+      "uuid": "00005a11-0000-4000-8000-000000000013",
+      "transport": {
+        "type": "ws",
+        "path": "str1",
+        "headers": {
+          "Host": "s51.example.net"
+        }
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 111",
+      "server": "192.0.2.78",
+      "server_port": 8443,
+      "uuid": "00005a11-0000-4000-8000-000000000014",
+      "transport": {
+        "type": "ws",
+        "path": "/p12",
+        "headers": {
+          "Host": "sni52.example.org"
+        }
+      },
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "sni52.example.org"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 112",
+      "server": "192.0.2.79",
+      "server_port": 22573,
+      "uuid": "00005a11-0000-4000-8000-000000000013",
+      "transport": {
+        "type": "ws",
+        "path": "str1",
+        "headers": {
+          "Host": "s51.example.net"
+        }
+      }
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "Proxy 113",
+      "server": "192.0.2.80",
+      "server_port": 31348,
+      "method": "chacha20-ietf-poly1305",
+      "password": "password37"
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 114",
+      "server": "192.0.2.81",
+      "server_port": 2095,
+      "uuid": "00005a11-0000-4000-8000-00000000000c",
+      "transport": {
+        "type": "ws",
+        "path": "str1",
+        "headers": {
+          "Host": "sni25.example.org"
+        }
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 115",
+      "server": "s53.example.net",
+      "server_port": 8443,
+      "uuid": "00005a11-0000-4000-8000-000000000015",
+      "transport": {
+        "type": "ws",
+        "path": "str1",
+        "headers": {
+          "Host": "sni54.example.org"
+        }
+      },
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "sni54.example.org"
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "Proxy 116",
+      "server": "s55.example.net",
+      "server_port": 443,
+      "password": "password14",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s55.example.net"
+      }
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "Proxy 117",
+      "server": "192.0.2.82",
+      "server_port": 443,
+      "method": "aes-128-gcm",
+      "password": "password9"
+    },
+    {
+      "type": "hysteria2",
+      "tag": "Proxy 118",
+      "server": "192.0.2.83",
+      "server_port": 44356,
+      "password": "password16",
+      "tls": {
+        "enabled": true,
+        "insecure": false,
+        "server_name": "s40.example.net"
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "Proxy 119",
+      "server": "s56.example.net",
+      "server_port": 443,
+      "password": "password31",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s56.example.net"
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "Proxy 120",
+      "server": "s57.example.net",
+      "server_port": 443,
+      "password": "password10",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s57.example.net"
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "Proxy 121",
+      "server": "s58.example.net",
+      "server_port": 443,
+      "password": "password10",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s58.example.net"
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "Proxy 122",
+      "server": "s59.example.net",
+      "server_port": 443,
+      "password": "password10",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s59.example.net"
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "Proxy 123",
+      "server": "s60.example.net",
+      "server_port": 443,
+      "password": "password10",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s60.example.net"
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "Proxy 124",
+      "server": "s61.example.net",
+      "server_port": 443,
+      "password": "password10",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s61.example.net"
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "Proxy 125",
+      "server": "s62.example.net",
+      "server_port": 443,
+      "password": "password10",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s62.example.net"
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "Proxy 126",
+      "server": "s63.example.net",
+      "server_port": 443,
+      "password": "password10",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s63.example.net"
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "Proxy 127",
+      "server": "s64.example.net",
+      "server_port": 443,
+      "password": "password10",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s64.example.net"
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "Proxy 128",
+      "server": "s65.example.net",
+      "server_port": 443,
+      "password": "password10",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s65.example.net"
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "Proxy 129",
+      "server": "s66.example.net",
+      "server_port": 443,
+      "password": "password10",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s66.example.net"
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "Proxy 130",
+      "server": "s67.example.net",
+      "server_port": 443,
+      "password": "password10",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s67.example.net"
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "Proxy 131",
+      "server": "s68.example.net",
+      "server_port": 443,
+      "password": "password10",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s68.example.net"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 132",
+      "server": "192.0.2.84",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000016",
+      "transport": {
+        "type": "ws",
+        "path": "/p4",
+        "headers": {
+          "Host": "sni15.example.org"
+        }
+      },
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "sni15.example.org"
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "Proxy 133",
+      "server": "s69.example.net",
+      "server_port": 443,
+      "password": "password10",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s69.example.net"
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "Proxy 134",
+      "server": "s70.example.net",
+      "server_port": 443,
+      "password": "password10",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s70.example.net"
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "Proxy 135",
+      "server": "s71.example.net",
+      "server_port": 443,
+      "password": "password10",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s71.example.net"
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "Proxy 136",
+      "server": "s72.example.net",
+      "server_port": 443,
+      "password": "password10",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s72.example.net"
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "Proxy 137",
+      "server": "s73.example.net",
+      "server_port": 443,
+      "password": "password10",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s73.example.net"
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "Proxy 138",
+      "server": "s74.example.net",
+      "server_port": 443,
+      "password": "password10",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s74.example.net"
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "Proxy 139",
+      "server": "s75.example.net",
+      "server_port": 443,
+      "password": "password10",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s75.example.net"
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "Proxy 140",
+      "server": "s76.example.net",
+      "server_port": 443,
+      "password": "password10",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s76.example.net"
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "Proxy 141",
+      "server": "s77.example.net",
+      "server_port": 443,
+      "password": "password10",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s77.example.net"
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "Proxy 142",
+      "server": "s78.example.net",
+      "server_port": 443,
+      "password": "password10",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s78.example.net"
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "Proxy 143",
+      "server": "s79.example.net",
+      "server_port": 443,
+      "password": "password10",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s79.example.net"
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "Proxy 144",
+      "server": "s80.example.net",
+      "server_port": 443,
+      "password": "password10",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s80.example.net"
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "Proxy 145",
+      "server": "s81.example.net",
+      "server_port": 443,
+      "password": "password10",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s81.example.net"
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "Proxy 146",
+      "server": "s82.example.net",
+      "server_port": 443,
+      "password": "password10",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s82.example.net"
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "Proxy 147",
+      "server": "s83.example.net",
+      "server_port": 443,
+      "password": "password10",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s83.example.net"
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "Proxy 148",
+      "server": "s84.example.net",
+      "server_port": 443,
+      "password": "password10",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s84.example.net"
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "Proxy 149",
+      "server": "s85.example.net",
+      "server_port": 443,
+      "password": "password10",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s85.example.net"
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "Proxy 150",
+      "server": "s86.example.net",
+      "server_port": 443,
+      "password": "password10",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s86.example.net"
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "Proxy 151",
+      "server": "s87.example.net",
+      "server_port": 443,
+      "password": "password10",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s87.example.net"
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "Proxy 152",
+      "server": "192.0.2.85",
+      "server_port": 443,
+      "password": "password10",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "sni88.example.org"
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "Proxy 153",
+      "server": "s89.example.net",
+      "server_port": 443,
+      "password": "password10",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s89.example.net"
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "Proxy 154",
+      "server": "192.0.2.86",
+      "server_port": 443,
+      "password": "password10",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s57.example.net"
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "Proxy 155",
+      "server": "192.0.2.87",
+      "server_port": 443,
+      "password": "password10",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s59.example.net"
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "Proxy 156",
+      "server": "192.0.2.88",
+      "server_port": 443,
+      "password": "password10",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s74.example.net"
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "Proxy 157",
+      "server": "192.0.2.89",
+      "server_port": 443,
+      "password": "password10",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s58.example.net"
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "Proxy 158",
+      "server": "192.0.2.90",
+      "server_port": 443,
+      "password": "password14",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s35.example.net"
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "Proxy 159",
+      "server": "192.0.2.91",
+      "server_port": 443,
+      "password": "password14",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s35.example.net"
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "Proxy 160",
+      "server": "192.0.2.92",
+      "server_port": 443,
+      "password": "password14",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s35.example.net"
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "Proxy 161",
+      "server": "192.0.2.93",
+      "server_port": 443,
+      "password": "password10",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s60.example.net"
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "Proxy 162",
+      "server": "s90.example.net",
+      "server_port": 8443,
+      "password": "password38",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s90.example.net"
+      },
+      "obfs": {
+        "type": "salamander",
+        "password": "password39"
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "Proxy 163",
+      "server": "192.0.2.94",
+      "server_port": 443,
+      "password": "password31",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s41.example.net"
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "Proxy 164",
+      "server": "192.0.2.95",
+      "server_port": 443,
+      "password": "password31",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s41.example.net"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 165",
+      "server": "sni50.example.org",
+      "server_port": 2053,
+      "uuid": "00005a11-0000-4000-8000-000000000012",
+      "transport": {
+        "type": "ws",
+        "path": "/p11",
+        "headers": {
+          "Host": "sni50.example.org"
+        }
+      },
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "sni50.example.org"
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "Proxy 166",
+      "server": "192.0.2.96",
+      "server_port": 443,
+      "password": "password14",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s35.example.net"
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "Proxy 167",
+      "server": "192.0.2.97",
+      "server_port": 443,
+      "password": "password14",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s35.example.net"
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "Proxy 168",
+      "server": "192.0.2.98",
+      "server_port": 443,
+      "password": "password14",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s35.example.net"
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "Proxy 169",
+      "server": "192.0.2.99",
+      "server_port": 443,
+      "password": "password14",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s35.example.net"
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "Proxy 170",
+      "server": "192.0.2.100",
+      "server_port": 443,
+      "password": "password40",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "sni91.example.org"
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "Proxy 171",
+      "server": "s92.example.net",
+      "server_port": 443,
+      "password": "password38",
+      "tls": {
+        "enabled": true,
+        "insecure": false,
+        "server_name": "s92.example.net"
+      },
+      "obfs": {
+        "type": "salamander",
+        "password": "password41"
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "Proxy 172",
+      "server": "s93.example.net",
+      "server_port": 12765,
+      "password": "password42",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s93.example.net"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 173",
+      "server": "192.0.2.101",
+      "server_port": 2053,
+      "uuid": "00005a11-0000-4000-8000-000000000012",
+      "transport": {
+        "type": "ws",
+        "path": "/p11",
+        "headers": {
+          "Host": "sni50.example.org"
+        }
+      },
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "sni50.example.org"
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "Proxy 174",
+      "server": "192.0.2.102",
+      "server_port": 443,
+      "password": "password40",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "sni94.example.org"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 175",
+      "server": "192.0.2.103",
+      "server_port": 2095,
+      "uuid": "00005a11-0000-4000-8000-00000000000c",
+      "transport": {
+        "type": "ws",
+        "path": "str1",
+        "headers": {
+          "Host": "sni48.example.org"
+        }
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "Proxy 176",
+      "server": "192.0.2.104",
+      "server_port": 443,
+      "password": "password14",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s35.example.net"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 177",
+      "server": "192.0.2.105",
+      "server_port": 8443,
+      "uuid": "00005a11-0000-4000-8000-000000000014",
+      "transport": {
+        "type": "ws",
+        "path": "/p12",
+        "headers": {
+          "Host": "sni52.example.org"
+        }
+      },
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "sni52.example.org"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 178",
+      "server": "s95.example.net",
+      "server_port": 2095,
+      "uuid": "00005a11-0000-4000-8000-00000000000c",
+      "transport": {
+        "type": "ws",
+        "path": "str1",
+        "headers": {
+          "Host": "sni48.example.org"
+        }
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "Proxy 179",
+      "server": "192.0.2.106",
+      "server_port": 12765,
+      "password": "password42",
+      "tls": {
+        "enabled": true,
+        "insecure": false,
+        "server_name": "s93.example.net"
+      }
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "Proxy 180",
+      "server": "s96.example.net",
+      "server_port": 51058,
+      "method": "aes-128-gcm",
+      "password": "password43"
+    },
+    {
+      "type": "vless",
+      "tag": "Proxy 181",
+      "server": "s97.example.net",
+      "server_port": 443,
+      "uuid": "00005a11-0000-4000-8000-000000000017",
+      "transport": {
+        "type": "ws",
+        "path": "str1",
+        "headers": {
+          "Host": "s97.example.net"
+        }
+      },
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "s97.example.net"
+      }
+    }
+  ],
+  "route": {
+    "rules": [
+      {
+        "inbound": [
+          "in-1"
+        ],
+        "ip_is_private": true,
+        "outbound": "Proxy 1"
+      },
+      {
+        "inbound": [
+          "in-1"
+        ],
+        "geosite": "cn",
+        "outbound": "Proxy 1"
+      },
+      {
+        "inbound": [
+          "in-1"
+        ],
+        "geoip": "cn",
+        "outbound": "Proxy 1"
+      },
+      {
+        "inbound": [
+          "in-1"
+        ],
+        "outbound": "PROXY"
+      }
+    ]
+  },
+  "dns": {
+    "servers": [
+      {
+        "tag": "dns-1",
+        "address": "192.0.2.107",
+        "address_strategy": "ipv4_only"
+      },
+      {
+        "tag": "dns-2",
+        "address": "192.0.2.108",
+        "address_strategy": "prefer_ipv4"
+      }
+    ],
+    "rules": [
+      {
+        "geosite": "cn",
+        "server": "dns-1"
+      },
+      {
+        "outbound": "any",
+        "server": "dns-2"
+      }
+    ]
+  }
+}

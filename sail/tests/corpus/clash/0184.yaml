@@ -1,0 +1,338 @@
+mixed-port: 7890
+allow-lan: true
+mode: rule
+log-level: info
+ipv6: false
+dns:
+  enable: true
+  listen: 0.0.0.0:53
+  ipv6: false
+  default-nameserver:
+    - 192.0.2.1
+    - 192.0.2.2
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  nameserver:
+    - https://h1.example.com/dns-query
+    - https://h2.example.com/dns-query
+  fallback:
+    - 192.0.2.1
+    - 192.0.2.2
+proxy-groups:
+  - name: Group 1
+    icon: https://h3.example.com/p1.png
+    type: select
+    proxies:
+      - Group 9
+      - Group 10
+      - Group 11
+      - Group 12
+      - Group 13
+      - Group 14
+      - Group 15
+      - Group 17
+      - Group 16
+      - Group 7
+      - DIRECT
+  - name: Group 2
+    icon: https://h3.example.com/p2.png
+    type: select
+    proxies:
+      - Group 9
+      - Group 10
+      - Group 11
+      - Group 12
+      - Group 13
+      - Group 14
+      - Group 15
+      - Group 17
+      - Group 16
+      - Group 7
+      - DIRECT
+  - name: Group 3
+    icon: https://h3.example.com/p3.png
+    type: select
+    proxies:
+      - Group 9
+      - Group 10
+      - Group 11
+      - Group 12
+      - Group 13
+      - Group 14
+      - Group 15
+      - Group 17
+      - Group 16
+      - Group 7
+      - DIRECT
+  - name: Group 4
+    icon: https://h3.example.com/p4.png
+    type: select
+    proxies:
+      - Group 9
+      - Group 10
+      - Group 11
+      - Group 12
+      - Group 13
+      - Group 14
+      - Group 15
+      - Group 17
+      - Group 16
+      - Group 7
+      - DIRECT
+  - name: Group 5
+    icon: https://h3.example.com/p5.png
+    type: select
+    proxies:
+      - DIRECT
+      - Group 1
+      - Group 7
+  - name: Group 6
+    icon: https://h3.example.com/p6.png
+    type: select
+    proxies:
+      - REJECT
+      - DIRECT
+  - name: Group 7
+    icon: https://h3.example.com/p7.png
+    type: select
+    use:
+      - provider-1
+  - name: Group 8
+    icon: https://h3.example.com/p8.png
+    type: select
+    proxies:
+      - DIRECT
+      - Group 1
+      - Group 7
+  - name: Group 9
+    icon: https://h3.example.com/p9.png
+    type: url-test
+    url: http://h4.example.com/generate_204
+    interval: 600
+    tolerance: 50
+    use:
+      - provider-2
+  - name: Group 10
+    icon: https://h3.example.com/p10.png
+    type: url-test
+    url: http://h4.example.com/generate_204
+    interval: 600
+    tolerance: 50
+    use:
+      - provider-3
+  - name: Group 11
+    icon: https://h3.example.com/p11.png
+    type: url-test
+    url: http://h4.example.com/generate_204
+    interval: 600
+    tolerance: 50
+    use:
+      - provider-4
+  - name: Group 12
+    icon: https://h3.example.com/p12.png
+    type: url-test
+    url: http://h4.example.com/generate_204
+    interval: 600
+    tolerance: 50
+    use:
+      - provider-5
+  - name: Group 13
+    icon: https://h3.example.com/p13.png
+    type: url-test
+    url: http://h4.example.com/generate_204
+    interval: 600
+    tolerance: 50
+    use:
+      - provider-6
+  - name: Group 14
+    icon: https://h3.example.com/p14.png
+    type: url-test
+    url: http://h4.example.com/generate_204
+    interval: 600
+    tolerance: 50
+    use:
+      - provider-7
+  - name: Group 15
+    icon: https://h3.example.com/p15.png
+    type: url-test
+    url: http://h4.example.com/generate_204
+    interval: 600
+    tolerance: 50
+    use:
+      - provider-10
+  - name: Group 16
+    icon: https://h3.example.com/p16.png
+    type: url-test
+    url: http://h4.example.com/generate_204
+    interval: 600
+    tolerance: 50
+    use:
+      - provider-9
+  - name: Group 17
+    icon: https://h3.example.com/p17.png
+    type: url-test
+    url: http://h4.example.com/generate_204
+    interval: 600
+    tolerance: 50
+    use:
+      - provider-8
+proxy-providers:
+  provider-1: &a1
+    type: http
+    path: ./path-1.yaml
+    url: https://h5.example.com/p18?token=v1&flag=v2
+    interval: 86400
+    health-check:
+      enable: true
+      url: http://h4.example.com/generate_204
+      interval: 600
+  provider-2:
+    <<: *a1
+    filter: Proxy [0-9]+|Group 1
+  provider-3:
+    <<: *a1
+    filter: Proxy [0-9]+|Group 2
+  provider-4:
+    <<: *a1
+    filter: Proxy [0-9]+|Group 3
+  provider-5:
+    <<: *a1
+    filter: Proxy [0-9]+|Group 4
+  provider-6:
+    <<: *a1
+    filter: Proxy [0-9]+|Group 5
+  provider-7:
+    <<: *a1
+    filter: Proxy [0-9]+|Group 6
+  provider-8:
+    <<: *a1
+    filter: Proxy [0-9]+|Group 7
+  provider-9:
+    <<: *a1
+    filter: Proxy [0-9]+|Group 8
+  provider-10:
+    <<: *a1
+    filter: Proxy [0-9]+|Group 9
+rule-providers:
+  set-1:
+    type: http
+    behavior: domain
+    url: "https://h3.example.com/p19.txt"
+    path: ./path-2.yaml
+    interval: 86400
+  set-2:
+    type: http
+    behavior: classical
+    url: "https://h3.example.com/p20.yaml"
+    path: ./path-3.yaml
+    interval: 86400
+  set-3:
+    type: http
+    behavior: classical
+    url: "https://h6.example.com/p21.yaml"
+    path: ./path-4.yaml
+    interval: 86400
+  set-4:
+    type: http
+    behavior: classical
+    url: https://h6.example.com/p22.yaml
+    path: ./path-5.yaml
+    interval: 86400
+  set-5:
+    type: http
+    behavior: domain
+    url: "https://h3.example.com/p23.txt"
+    path: ./path-6.yaml
+    interval: 86400
+  set-6:
+    type: http
+    behavior: domain
+    url: "https://h3.example.com/p24.txt"
+    path: ./path-7.yaml
+    interval: 86400
+  set-7:
+    type: http
+    behavior: domain
+    url: "https://h3.example.com/p25.txt"
+    path: ./path-8.yaml
+    interval: 86400
+  set-8:
+    type: http
+    behavior: domain
+    url: "https://h3.example.com/p26.txt"
+    path: ./path-9.yaml
+    interval: 86400
+  set-9:
+    type: http
+    behavior: domain
+    url: "https://h3.example.com/p27.txt"
+    path: ./path-10.yaml
+    interval: 86400
+  set-10:
+    type: http
+    behavior: domain
+    url: "https://h3.example.com/p28.txt"
+    path: ./path-11.yaml
+    interval: 86400
+  set-11:
+    type: http
+    behavior: domain
+    url: "https://h3.example.com/p29.txt"
+    path: ./path-12.yaml
+    interval: 86400
+  set-12:
+    type: http
+    behavior: domain
+    url: "https://h3.example.com/p30.txt"
+    path: ./path-13.yaml
+    interval: 86400
+  set-13:
+    type: http
+    behavior: domain
+    url: "https://h3.example.com/p31.txt"
+    path: ./path-14.yaml
+    interval: 86400
+  set-14:
+    type: http
+    behavior: ipcidr
+    url: "https://h3.example.com/p32.txt"
+    path: ./path-15.yaml
+    interval: 86400
+  set-15:
+    type: http
+    behavior: ipcidr
+    url: "https://h3.example.com/p33.txt"
+    path: ./path-16.yaml
+    interval: 86400
+  set-16:
+    type: http
+    behavior: ipcidr
+    url: "https://h3.example.com/p34.txt"
+    path: ./path-17.yaml
+    interval: 86400
+  set-17:
+    type: http
+    behavior: classical
+    url: "https://h3.example.com/p35.txt"
+    path: ./path-18.yaml
+    interval: 86400
+rules:
+  - RULE-SET,set-17,Group 5
+  - DOMAIN,d1.example,Group 5
+  - DOMAIN,d2.example,Group 5
+  - RULE-SET,set-2,Group 4
+  - RULE-SET,set-4,Group 2
+  - RULE-SET,set-3,Group 3
+  - RULE-SET,set-10,Group 5
+  - RULE-SET,set-1,Group 6
+  - RULE-SET,set-5,Group 5
+  - RULE-SET,set-6,Group 5
+  - RULE-SET,set-7,Group 1
+  - RULE-SET,set-8,Group 1
+  - RULE-SET,set-9,Group 5
+  - RULE-SET,set-16,Group 5
+  - RULE-SET,set-15,Group 5
+  - RULE-SET,set-14,Group 1
+  - GEOIP,LAN,Group 5
+  - GEOIP,CN,Group 5
+  - MATCH,Group 8

@@ -1,0 +1,124 @@
+proxy-providers:
+  provider-1:
+    type: file
+    path: ./path-1.yaml
+    health-check:
+      enable: true
+      url: http://h1.example.com/generate_204
+      interval: '150'
+  provider-2:
+    type: file
+    path: ./path-2.yaml
+    health-check:
+      enable: true
+      url: http://h1.example.com/generate_204
+      interval: '150'
+proxy-groups:
+  - name: Group 1
+    type: fallback
+    disable-udp: false
+    use:
+      - provider-1
+      - provider-2
+    url: http://h1.example.com/generate_204
+    interval: '150'
+  - name: Group 2
+    type: load-balance
+    strategy: consistent-hashing
+    disable-udp: false
+    use:
+      - provider-2
+      - provider-1
+    url: http://h1.example.com/generate_204
+    interval: '150'
+  - name: Group 3
+    type: select
+    disable-udp: false
+    proxies:
+      - Group 2
+      - Group 1
+  - name: Group 4
+    type: select
+    disable-udp: false
+    proxies:
+      - Group 1
+  - name: Group 5
+    type: select
+    disable-udp: false
+    proxies:
+      - Group 1
+      - DIRECT
+  - name: Group 6
+    type: select
+    disable-udp: false
+    proxies:
+      - Group 3
+      - REJECT
+rule-providers:
+  set-1:
+    type: file
+    behavior: classical
+    path: ./path-3.yaml
+  set-2:
+    type: file
+    behavior: classical
+    path: ./path-4.yaml
+  set-3:
+    type: file
+    behavior: classical
+    path: ./path-5.yaml
+  set-4:
+    type: file
+    behavior: classical
+    path: ./path-6.yaml
+  set-5:
+    type: file
+    behavior: classical
+    path: ./path-7.yaml
+  set-6:
+    type: file
+    behavior: domain
+    path: ./path-8.yaml
+  set-7:
+    type: file
+    behavior: domain
+    path: ./path-9.yaml
+  set-8:
+    type: file
+    behavior: domain
+    path: ./path-10.yaml
+rules:
+  - AND,((NOT,((RULE-SET,set-2))),(NETWORK,TCP)),Group 5
+  - AND,((NOT,((RULE-SET,set-2))),(NETWORK,UDP)),Group 5
+  - RULE-SET,set-1,Group 5
+  - RULE-SET,set-3,Group 4
+  - RULE-SET,set-4,Group 4
+  - RULE-SET,set-5,Group 3
+  - RULE-SET,set-6,Group 4
+  - RULE-SET,set-7,Group 3
+  - RULE-SET,set-8,Group 4
+  - MATCH,Group 3
+dns:
+  proxy-server-nameserver:
+    - 192.0.2.1
+    - 192.0.2.2
+    - 192.0.2.3
+    - 192.0.2.4
+    - 192.0.2.5
+    - 192.0.2.6
+  nameserver:
+    - 192.0.2.7
+    - 192.0.2.8
+    - https://h2.example.com/dns-query
+  fallback:
+    - 192.0.2.9
+    - 192.0.2.10
+    - https://h3.example.com/dns-query
+ntp:
+  servers:
+    - d1.example
+    - d2.example
+    - d3.example
+  option:
+    maxpoll: 6
+    minpoll: 3

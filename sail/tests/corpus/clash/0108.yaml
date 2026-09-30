@@ -1,0 +1,425 @@
+port: 8080
+sock5-port: 8081
+mixed-port: 7890
+allow-lan: true
+mode: rule
+log-level: silent
+external-controller: 127.0.0.1:9090
+proxy-providers:
+  provider-1:
+    type: http
+    path: "./path-1.yaml"
+    url: https://h1.example.com/p1?token=v1
+    interval: 3600
+    health-check:
+      enable: true
+      url: http://h2.example.com/generate_204
+      interval: 600
+  provider-2:
+    type: http
+    path: "./path-2.yaml"
+    url: https://h3.example.com/p2
+    interval: 3600
+    health-check:
+      enable: true
+      url: http://h2.example.com/generate_204
+      interval: 600
+proxy-groups:
+  - name: PROXY
+    type: select
+    disable-udp: false
+    proxies:
+      - Group 1
+      - Group 2
+      - Group 12
+      - Group 13
+      - Group 14
+      - Group 15
+      - Group 16
+      - DIRECT
+    use:
+      - provider-1
+      - provider-2
+  - name: Group 1
+    type: url-test
+    disable-udp: false
+    use:
+      - provider-1
+    url: http://h2.example.com/generate_204
+    interval: 600
+    tolerance: 150
+  - name: Group 2
+    type: url-test
+    use:
+      - provider-2
+    url: http://h2.example.com/generate_204
+    interval: 600
+    tolerance: 150
+  - name: Group 3
+    type: select
+    proxies:
+      - REJECT
+      - DIRECT
+      - Group 1
+      - Group 2
+      - Group 12
+      - Group 13
+      - Group 14
+      - Group 15
+      - Group 16
+  - name: Group 4
+    type: select
+    proxies:
+      - PROXY
+      - Group 1
+      - Group 2
+      - Group 12
+      - Group 13
+      - Group 14
+      - Group 15
+      - Group 16
+      - DIRECT
+  - name: Group 5
+    type: select
+    proxies:
+      - PROXY
+      - Group 1
+      - Group 2
+      - Group 12
+      - Group 13
+      - Group 14
+      - Group 15
+      - Group 16
+      - DIRECT
+  - name: Group 6
+    type: select
+    proxies:
+      - PROXY
+      - Group 1
+      - Group 2
+      - Group 12
+      - Group 13
+      - Group 14
+      - Group 15
+      - Group 16
+      - DIRECT
+  - name: Group 7
+    type: select
+    proxies:
+      - PROXY
+      - Group 1
+      - Group 2
+      - Group 12
+      - Group 13
+      - Group 14
+      - Group 15
+      - Group 16
+      - DIRECT
+  - name: Group 8
+    type: select
+    proxies:
+      - PROXY
+      - Group 1
+      - Group 2
+      - Group 12
+      - Group 13
+      - Group 14
+      - Group 15
+      - Group 16
+      - DIRECT
+  - name: Group 9
+    type: select
+    proxies:
+      - PROXY
+      - Group 1
+      - Group 2
+      - Group 12
+      - Group 13
+      - Group 14
+      - Group 15
+      - Group 16
+      - DIRECT
+  - name: Group 10
+    type: select
+    proxies:
+      - PROXY
+      - Group 1
+      - Group 2
+      - Group 12
+      - Group 13
+      - Group 14
+      - Group 15
+      - Group 16
+      - DIRECT
+  - name: Group 11
+    type: select
+    proxies:
+      - PROXY
+      - Group 1
+      - Group 2
+      - Group 12
+      - Group 13
+      - Group 14
+      - Group 15
+      - Group 16
+      - DIRECT
+  - name: Group 12
+    type: url-test
+    include-all: true
+    tolerance: 20
+    interval: 300
+    filter: "Proxy [0-9]+|Group 1"
+  - name: Group 13
+    type: url-test
+    include-all: true
+    tolerance: 20
+    interval: 300
+    filter: "Proxy [0-9]+|Group 2"
+  - name: Group 14
+    type: url-test
+    include-all: true
+    tolerance: 20
+    interval: 300
+    filter: "Proxy [0-9]+|Group 3"
+  - name: Group 15
+    type: url-test
+    include-all: true
+    tolerance: 20
+    interval: 300
+    filter: "Proxy [0-9]+|Group 4"
+  - name: Group 16
+    type: url-test
+    include-all: true
+    tolerance: 20
+    interval: 300
+    filter: "Proxy [0-9]+|Group 5"
+  - name: Group 17
+    type: select
+    proxies:
+      - PROXY
+      - Group 1
+      - Group 2
+      - Group 12
+      - Group 13
+      - Group 14
+      - Group 15
+      - Group 16
+      - DIRECT
+  - name: Group 18
+    type: select
+    proxies:
+      - PROXY
+      - Group 1
+      - Group 2
+      - Group 12
+      - Group 13
+      - Group 14
+      - Group 15
+      - Group 16
+      - DIRECT
+  - name: Group 19
+    type: select
+    proxies:
+      - PROXY
+      - Group 1
+      - Group 2
+      - Group 12
+      - Group 13
+      - Group 14
+      - Group 15
+      - Group 16
+      - DIRECT
+  - name: Group 20
+    type: select
+    proxies:
+      - PROXY
+      - Group 1
+      - Group 2
+      - Group 12
+      - Group 13
+      - Group 14
+      - Group 15
+      - Group 16
+      - DIRECT
+rule-providers:
+  set-1:
+    type: http
+    behavior: domain
+    url: https://h4.example.com/p3.txt
+    path: "./path-3.yaml"
+    interval: 86400
+  set-2:
+    type: http
+    behavior: domain
+    url: https://h4.example.com/p4.txt
+    path: "./path-4.yaml"
+    interval: 86400
+  set-3:
+    type: http
+    behavior: domain
+    url: https://h4.example.com/p5.txt
+    path: "./path-5.yaml"
+    interval: 86400
+  set-4:
+    type: http
+    behavior: domain
+    url: https://h4.example.com/p6.txt
+    path: "./path-6.yaml"
+    interval: 86400
+  set-5:
+    type: http
+    behavior: domain
+    url: https://h4.example.com/p7.txt
+    path: "./path-7.yaml"
+    interval: 86400
+  set-6:
+    type: http
+    behavior: domain
+    url: https://h4.example.com/p8.txt
+    path: "./path-8.yaml"
+    interval: 86400
+  set-7:
+    type: http
+    behavior: domain
+    url: https://h4.example.com/p9.txt
+    path: "./path-9.yaml"
+    interval: 86400
+  set-8:
+    type: http
+    behavior: domain
+    url: https://h4.example.com/p10.txt
+    path: "./path-10.yaml"
+    interval: 86400
+  set-9:
+    type: http
+    behavior: domain
+    url: https://h4.example.com/p11.txt
+    path: "./path-11.yaml"
+    interval: 86400
+  set-10:
+    type: http
+    behavior: ipcidr
+    url: https://h4.example.com/p12.txt
+    path: "./path-12.yaml"
+    interval: 86400
+  set-11:
+    type: http
+    behavior: ipcidr
+    url: https://h4.example.com/p13.txt
+    path: "./path-13.yaml"
+    interval: 86400
+  set-12:
+    type: http
+    behavior: ipcidr
+    url: https://h4.example.com/p14.txt
+    path: "./path-14.yaml"
+    interval: 86400
+  set-13:
+    type: http
+    behavior: classical
+    url: https://h4.example.com/p15.yaml
+    interval: 86400
+    path: "./path-15.yaml"
+  set-14:
+    type: http
+    behavior: classical
+    url: https://h4.example.com/p16.yaml
+    path: "./path-16.yaml"
+    interval: 86400
+  set-15:
+    type: http
+    behavior: classical
+    url: https://h4.example.com/p17.yaml
+    path: "./path-17.yaml"
+    interval: 86400
+  set-16:
+    type: http
+    behavior: classical
+    url: https://h4.example.com/p18.yaml
+    path: "./path-18.yaml"
+    interval: 86400
+  set-17:
+    type: http
+    behavior: classical
+    url: https://h4.example.com/p19.yaml
+    path: "./path-19.yaml"
+    interval: 86400
+  set-18:
+    type: http
+    behavior: classical
+    url: https://h4.example.com/p20.yaml
+    path: "./path-20.yaml"
+    interval: 86400
+  set-19:
+    type: http
+    behavior: classical
+    url: https://h4.example.com/p21.yaml
+    path: "./path-21.yaml"
+    interval: 86400
+rules:
+  - PROCESS-NAME,app1,DIRECT
+  - PROCESS-NAME,app2,DIRECT
+  - PROCESS-NAME,app3,DIRECT
+  - PROCESS-NAME,app4,DIRECT
+  - PROCESS-NAME,app5,DIRECT
+  - PROCESS-NAME,app6,DIRECT
+  - PROCESS-NAME,app7,DIRECT
+  - PROCESS-NAME,app8,DIRECT
+  - PROCESS-NAME,app9.exe,DIRECT
+  - PROCESS-NAME,app10.exe,DIRECT
+  - PROCESS-NAME,app11.exe,DIRECT
+  - PROCESS-NAME,app12.exe,DIRECT
+  - PROCESS-NAME,app13.exe,DIRECT
+  - PROCESS-NAME,app14.exe,DIRECT
+  - PROCESS-NAME,app15.exe,DIRECT
+  - PROCESS-NAME,app16.exe,DIRECT
+  - PROCESS-NAME,app17,DIRECT
+  - PROCESS-NAME,app18,DIRECT
+  - PROCESS-NAME,app19,DIRECT
+  - PROCESS-NAME,app20,DIRECT
+  - PROCESS-NAME,app21,DIRECT
+  - PROCESS-NAME,app22,DIRECT
+  - PROCESS-NAME,app23,DIRECT
+  - PROCESS-NAME,app24,DIRECT
+  - PROCESS-NAME,app25,DIRECT
+  - PROCESS-NAME,app26,DIRECT
+  - PROCESS-NAME,app27,DIRECT
+  - PROCESS-NAME,app28,DIRECT
+  - PROCESS-NAME,app29,DIRECT
+  - PROCESS-NAME,app30,DIRECT
+  - PROCESS-NAME,app31,DIRECT
+  - PROCESS-NAME,app32,DIRECT
+  - PROCESS-NAME,app33,DIRECT
+  - PROCESS-NAME,app34.exe,DIRECT
+  - PROCESS-NAME,app35.exe,DIRECT
+  - PROCESS-NAME,app36.exe,DIRECT
+  - PROCESS-NAME,app37.exe,DIRECT
+  - PROCESS-NAME,app38.exe,DIRECT
+  - PROCESS-NAME,app39.exe,DIRECT
+  - PROCESS-NAME,app40.exe,DIRECT
+  - PROCESS-NAME,app41.exe,DIRECT
+  - PROCESS-NAME,app42.exe,DIRECT
+  - PROCESS-NAME,app43.exe,DIRECT
+  - PROCESS-NAME,app44.exe,DIRECT
+  - DOMAIN-SUFFIX,d1.example,Group 10
+  - DOMAIN,d2.example,DIRECT
+  - DOMAIN,d3.example,DIRECT
+  - RULE-SET,set-19,Group 7
+  - RULE-SET,set-18,Group 11
+  - RULE-SET,set-13,Group 19
+  - RULE-SET,set-16,Group 6
+  - RULE-SET,set-15,Group 18
+  - RULE-SET,set-6,DIRECT
+  - RULE-SET,set-1,Group 3
+  - RULE-SET,set-2,Group 8
+  - RULE-SET,set-3,Group 5
+  - RULE-SET,set-4,PROXY
+  - RULE-SET,set-5,DIRECT
+  - RULE-SET,set-12,DIRECT
+  - RULE-SET,set-11,DIRECT
+  - RULE-SET,set-10,Group 9
+  - RULE-SET,set-7,PROXY
+  - RULE-SET,set-17,Group 20
+  - GEOIP,LAN,DIRECT
+  - GEOIP,CN,DIRECT
+  - MATCH,PROXY
