@@ -133,4 +133,6 @@ pub(crate) fn headless(line: &str) -> Result<super::rule_set::HeadlessRule> {
 }
 
 #[cfg(test)]
+mod registry;
+#[cfg(test)]
 mod tests;
