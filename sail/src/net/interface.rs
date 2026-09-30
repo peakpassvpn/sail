@@ -171,6 +171,178 @@ fn subnets() -> io::Result<Vec<(IpAddr, u8, String)>> {
     Ok(Vec::new())
 }
 
+/// An interface multicast can go out of: up, multicast-capable, not
+/// loopback.
+#[derive(Debug, Clone)]
+pub(crate) struct MulticastInterface {
+    pub name: String,
+    pub index: u32,
+    /// Its addresses, and the lengths of their networks' prefixes.
+    pub addresses: Vec<(IpAddr, u8)>,
+}
+
+/// The interfaces multicast can go out of, with an address each.
+#[cfg(unix)]
+pub(crate) fn multicast_interfaces() -> io::Result<Vec<MulticastInterface>> {
+    let mut list: *mut libc::ifaddrs = std::ptr::null_mut();
+    // SAFETY: getifaddrs fills `list`, freed below.
+    if unsafe { libc::getifaddrs(&mut list) } != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let mut interfaces: Vec<MulticastInterface> = Vec::new();
+    let mut entry = list;
+    while !entry.is_null() {
+        // SAFETY: a node of the list getifaddrs returned, not yet freed.
+        let ifa = unsafe { &*entry };
+        entry = ifa.ifa_next;
+        let flags = ifa.ifa_flags;
+        let usable = flags & libc::IFF_UP as u32 != 0
+            && flags & libc::IFF_MULTICAST as u32 != 0
+            && flags & libc::IFF_LOOPBACK as u32 == 0;
+        if !usable || ifa.ifa_addr.is_null() || ifa.ifa_netmask.is_null() {
+            continue;
+        }
+        // SAFETY: both are sockaddrs of the family the first says.
+        let (address, mask) = unsafe {
+            (
+                socket_address(ifa.ifa_addr),
+                socket_address(ifa.ifa_netmask),
+            )
+        };
+        let (Some(address), Some(mask)) = (address, mask) else {
+            continue;
+        };
+        let len = match mask {
+            IpAddr::V4(m) => u32::from(m).count_ones(),
+            IpAddr::V6(m) => u128::from(m).count_ones(),
+        } as u8;
+        // SAFETY: the name is a C string owned by the list.
+        let name = unsafe { std::ffi::CStr::from_ptr(ifa.ifa_name) };
+        match interfaces
+            .iter_mut()
+            .find(|i| i.name.as_bytes() == name.to_bytes())
+        {
+            Some(interface) => interface.addresses.push((address, len)),
+            None => {
+                // SAFETY: a C string, as above.
+                let index = unsafe { libc::if_nametoindex(name.as_ptr()) };
+                if index == 0 {
+                    continue;
+                }
+                interfaces.push(MulticastInterface {
+                    name: name.to_string_lossy().into_owned(),
+                    index,
+                    addresses: vec![(address, len)],
+                });
+            }
+        }
+    }
+    // SAFETY: the list getifaddrs returned, freed once.
+    unsafe { libc::freeifaddrs(list) };
+    Ok(interfaces)
+}
+
+/// The interfaces multicast can go out of, with an address each, named as
+/// the system shows them (the friendly name).
+#[cfg(windows)]
+pub(crate) fn multicast_interfaces() -> io::Result<Vec<MulticastInterface>> {
+    use windows_sys::Win32::NetworkManagement::IpHelper::{
+        GetAdaptersAddresses, GAA_FLAG_SKIP_ANYCAST, GAA_FLAG_SKIP_DNS_SERVER,
+        GAA_FLAG_SKIP_MULTICAST, IP_ADAPTER_ADDRESSES_LH, IP_ADAPTER_NO_MULTICAST,
+    };
+    use windows_sys::Win32::NetworkManagement::Ndis::IfOperStatusUp;
+    use windows_sys::Win32::Networking::WinSock::{
+        AF_INET, AF_INET6, AF_UNSPEC, SOCKADDR_IN, SOCKADDR_IN6,
+    };
+
+    /// IF_TYPE_SOFTWARE_LOOPBACK.
+    const LOOPBACK: u32 = 24;
+    let flags = GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_DNS_SERVER;
+    let mut size: u32 = 16 * 1024;
+    let mut buf: Vec<u64> = Vec::new();
+    for attempt in 0..3 {
+        buf = vec![0u64; (size as usize).div_ceil(8)];
+        // SAFETY: the buffer is as long as `size` says, and aligned for the
+        // structures written into it.
+        let code = unsafe {
+            GetAdaptersAddresses(
+                AF_UNSPEC as u32,
+                flags,
+                std::ptr::null(),
+                buf.as_mut_ptr() as *mut IP_ADAPTER_ADDRESSES_LH,
+                &mut size,
+            )
+        };
+        match code {
+            0 => break,
+            // ERROR_BUFFER_OVERFLOW: `size` is now what it needs.
+            111 if attempt < 2 => continue,
+            code => return Err(io::Error::from_raw_os_error(code as i32)),
+        }
+    }
+    let mut interfaces = Vec::new();
+    let mut adapter = buf.as_ptr() as *const IP_ADAPTER_ADDRESSES_LH;
+    // SAFETY: a list GetAdaptersAddresses wrote into `buf`, which outlives
+    // the walk; each pointer is null or to a node within it, and the name
+    // a NUL-terminated wide string.
+    unsafe {
+        while !adapter.is_null() {
+            let a = &*adapter;
+            adapter = a.Next;
+            if a.OperStatus != IfOperStatusUp
+                || a.IfType == LOOPBACK
+                || a.Anonymous2.Flags & IP_ADAPTER_NO_MULTICAST != 0
+            {
+                continue;
+            }
+            let mut addresses = Vec::new();
+            let mut unicast = a.FirstUnicastAddress;
+            while !unicast.is_null() {
+                let u = &*unicast;
+                unicast = u.Next;
+                let sockaddr = u.Address.lpSockaddr;
+                if sockaddr.is_null() {
+                    continue;
+                }
+                let ip = match (*sockaddr).sa_family {
+                    AF_INET => IpAddr::from(
+                        (*(sockaddr as *const SOCKADDR_IN))
+                            .sin_addr
+                            .S_un
+                            .S_addr
+                            .to_ne_bytes(),
+                    ),
+                    AF_INET6 => IpAddr::from((*(sockaddr as *const SOCKADDR_IN6)).sin6_addr.u.Byte),
+                    _ => continue,
+                };
+                addresses.push((ip, u.OnLinkPrefixLength));
+            }
+            // The index IPv6 multicast is sent by; IPv4 goes by address.
+            let index = if a.Ipv6IfIndex != 0 {
+                a.Ipv6IfIndex
+            } else {
+                a.Anonymous1.Anonymous.IfIndex
+            };
+            if addresses.is_empty() || index == 0 || a.FriendlyName.is_null() {
+                continue;
+            }
+            let len = (0..).take_while(|&i| *a.FriendlyName.add(i) != 0).count();
+            let name = String::from_utf16_lossy(std::slice::from_raw_parts(a.FriendlyName, len));
+            interfaces.push(MulticastInterface {
+                name,
+                index,
+                addresses,
+            });
+        }
+    }
+    Ok(interfaces)
+}
+
+#[cfg(not(any(unix, windows)))]
+pub(crate) fn multicast_interfaces() -> io::Result<Vec<MulticastInterface>> {
+    Ok(Vec::new())
+}
+
 /// The address of `sockaddr`, if it is IPv4 or IPv6.
 ///
 /// # Safety

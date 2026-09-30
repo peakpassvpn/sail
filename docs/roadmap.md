@@ -142,7 +142,8 @@ Sail 与 sing-box 的对比已经完成。当前结果表明：
 | --- | --- |
 | 高 | DoT；DoQ；DoH3 |
 | 中 | ECS（已完成）；DHCP 上游（2026-09-30 决定暂不做：sing-box 真实模板 0/47、Clash 配置 1/100 且为 Mihomo 文档示例；需 68 端口与绑定网卡，移动端做不了；配置 `dhcp` 服务器或 `dhcp://网卡` 仍报错，有需求再做） |
-| 不支持 | mDNS；systemd-resolved 集成 |
+| 中 | mDNS（已完成，2026-10-01）：sing-box 1.14 的 `mdns` 服务器，按 RFC 6762 §5.1 在每个开启组播的网卡上一次性查询，带 QU 位（§5.4；实测 Windows 10 的应答方只回带 QU 的查询，sing-box 不带故问不到），首个答中的网卡即返回（sing-box 等到截止时间，最长 1 秒）；非 Apple 平台上 `local` 服务器遇到 `.local` 与链路本地反向区时改问 mDNS，并先用系统 hosts 文件作答；DNS 规则的 `preferred_by`（hosts / local / mdns 各自偏好的名字，逻辑规则内同样可用） |
+| 暂缓 | systemd-resolved 集成（sing-box 的 `resolved` 服务与服务器，2026-10-01 决定暂缓，不是拒绝）：需要在 Linux 桌面上接管 `org.freedesktop.resolve1` 与 127.0.0.53，只在 sail 取代 systemd-resolved 时有用，语料中无人使用；配置 `resolved` 仍报错。若要做：推荐 zbus（纯 Rust，tokio 后端，放在仅 Linux 的 feature 后），`preferred_by` 已留好“网卡下发的域名”这一来源的扩展点（`Server::prefers`） |
 
 **策略组**
 

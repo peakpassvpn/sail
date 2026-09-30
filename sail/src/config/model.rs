@@ -580,6 +580,10 @@ pub struct DnsRule {
     /// Record types, by name (`A`, `AAAA`, `HTTPS`) or number.
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
     pub query_type: Vec<serde_json::Value>,
+    /// Tags of DNS servers: matches a name one of them prefers, one it
+    /// answers for itself, as sing-box's `preferred_by`.
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub preferred_by: Vec<String>,
     /// Tags of the inbounds the connection that needs the name came in
     /// through.
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
@@ -979,6 +983,7 @@ impl DnsRule {
         Rule {
             kind: self.kind,
             query_type: self.query_type.clone(),
+            preferred_by: self.preferred_by.clone(),
             clash_mode: self.clash_mode.clone(),
             inbound: self.inbound.clone(),
             ip_version: self.ip_version,
@@ -1063,8 +1068,24 @@ impl DnsRule {
             || self.remove_client_subnet
     }
 
+    /// The servers its `preferred_by` names, and those of the rules it
+    /// combines.
+    pub fn preferred_by(&self) -> Vec<&String> {
+        self.preferred_by
+            .iter()
+            .chain(self.rules.iter().flat_map(|r| r.preferred_by()))
+            .collect()
+    }
+
     fn check(&self, servers: &HashSet<String>, fake_ip: Option<&str>) -> Result<()> {
         use DnsRuleAction::*;
+        if let Some(tag) = self
+            .preferred_by()
+            .into_iter()
+            .find(|t| !servers.contains(*t))
+        {
+            return Err(anyhow!("preferred_by: server [{}] does not exist", tag));
+        }
         let action = self.action.unwrap_or_default();
         let fields = [
             (
@@ -1986,6 +2007,10 @@ pub struct Rule {
     /// query, and so never of a connection.
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
     pub query_type: Vec<serde_json::Value>,
+    /// Tags of DNS servers, one of which prefers the name: of a DNS query,
+    /// and so never of a connection.
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub preferred_by: Vec<String>,
     /// The mode of Clash's API: matches while it is that, whatever the
     /// case; never without an API.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2361,6 +2386,7 @@ impl Rule {
     pub fn first_condition(&self) -> Option<&'static str> {
         [
             ("query_type", !self.query_type.is_empty()),
+            ("preferred_by", !self.preferred_by.is_empty()),
             ("clash_mode", self.clash_mode.is_some()),
             ("inbound", !self.inbound.is_empty()),
             ("ip_version", self.ip_version.is_some()),

@@ -196,4 +196,7 @@ pub struct DnsClient {
     rules_set_strategy: bool,
     /// The network the host is on, when a rule has conditions on it.
     network: Option<crate::net::network::Network>,
+    /// The servers `preferred_by` names, which are asked whether they
+    /// prefer each name.
+    pub(super) preferring: Vec<String>,
 }

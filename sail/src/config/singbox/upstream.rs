@@ -163,7 +163,6 @@ pub const GROUPS: &[Group] = &[
             "dns.rules.*.default_interface_address",
             "dns.rules.*.source_mac_address",
             "dns.rules.*.source_hostname",
-            "dns.rules.*.preferred_by",
             "dns.rules.*.rule_set_ip_cidr_accept_empty",
         ],
     ),
@@ -279,6 +278,24 @@ pub const GROUPS: &[Group] = &[
             "dns.servers.*.tcp_fast_open",
             "dns.servers.*.tcp_multi_path",
             "dns.servers.*.udp_fragment",
+        ],
+    ),
+    t(
+        "An mDNS server asks on each interface itself, as sing-box's, which dials nothing",
+        Ignored,
+        &["mdns"],
+        &[
+            "dns.servers.*.detour",
+            "dns.servers.*.bind_interface",
+            "dns.servers.*.inet4_bind_address",
+            "dns.servers.*.inet6_bind_address",
+            "dns.servers.*.routing_mark",
+            "dns.servers.*.connect_timeout",
+            "dns.servers.*.disable_tcp_keep_alive",
+            "dns.servers.*.tcp_keep_alive",
+            "dns.servers.*.tcp_keep_alive_interval",
+            "dns.servers.*.domain_resolver",
+            "dns.servers.*.domain_strategy",
         ],
     ),
     t(
@@ -740,14 +757,7 @@ pub const VALUES_WHY: &str = "A type or value sail does not implement: it would 
 pub const VALUES: &[(&str, &[&str])] = &[
     (
         "dns.servers.*.type",
-        &[
-            "dhcp",
-            "mdns",
-            "tailscale",
-            "openconnect",
-            "openvpn",
-            "resolved",
-        ],
+        &["dhcp", "tailscale", "openconnect", "openvpn", "resolved"],
     ),
     (
         "route.rules.*.action",

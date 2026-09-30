@@ -26,10 +26,20 @@ include!("client/types.rs");
 
 mod cache;
 mod fakeip;
+pub(crate) mod mdns;
 mod rules;
 mod server;
 mod system;
 mod upstream;
+
+/// What a hosts file answers.
+enum FromHosts {
+    Reply(Message),
+    /// A name another stands for, which it has no addresses of, to look up
+    /// with a strategy of the query's family.
+    Alias(String, DnsStrategy),
+    Missing,
+}
 
 pub use cache::CacheStats;
 pub use fakeip::FakeIp;
@@ -111,6 +121,14 @@ impl DnsClient {
             .clone()
             .unwrap_or_else(|| configs[0].tag.clone());
         let rules = Self::load_rules(dns, env, rule_sets)?;
+        let mut preferring: Vec<String> = dns
+            .rules
+            .iter()
+            .flat_map(|r| r.preferred_by())
+            .cloned()
+            .collect();
+        preferring.sort();
+        preferring.dedup();
         let network = rules
             .iter()
             .any(|r| r.matcher.needs().network)
@@ -148,6 +166,7 @@ impl DnsClient {
             client_subnet: dns.client_subnet,
             rules_set_strategy: dns.rules.iter().any(|r| r.strategy.is_some()),
             network,
+            preferring,
         })
     }
 
@@ -559,14 +578,43 @@ impl DnsClient {
         let host = host.trim_end_matches('.').to_ascii_lowercase();
         let host = host.as_str();
         match &server.kind {
+            // As sing-box's local server: the names of the hosts file, and
+            // mDNS for `.local` off Apple's systems.
+            Kind::Local(local)
+                if local.asks_mdns(host)
+                    || (matches!(ty, RecordType::A | RecordType::AAAA)
+                        && local.hosts.get(host).is_some()) =>
+            {
+                match Self::from_hosts(&local.hosts, request, host, ty) {
+                    FromHosts::Reply(reply) => Ok(Answer::Message(reply)),
+                    FromHosts::Alias(target, strategy) => {
+                        let ips = self
+                            .lookup_by(&target, strategy, By::Rules(&LookupContext::default()))
+                            .await?;
+                        Ok(Answer::Message(Self::alias_reply(
+                            request, &target, &ips, HOSTS_TTL,
+                        )?))
+                    }
+                    FromHosts::Missing => local
+                        .mdns
+                        .exchange(request, time.min(mdns::WAIT))
+                        .await
+                        .map(Answer::Message),
+                }
+            }
+            Kind::Mdns(mdns) => mdns
+                .exchange(request, time.min(mdns::WAIT))
+                .await
+                .map(Answer::Message),
             // As sing-box's local server off Apple's systems: the system's
             // servers, in turn, through the server's dialer.
-            Kind::Local(Some(local)) => {
+            Kind::Local(local) if local.dialed.is_some() => {
+                let dialed = local.dialed.as_ref().expect("dialed");
                 let wire = Self::wire(server, request)?;
                 let mut last_err = None;
-                for addr in local.servers.get()? {
+                for addr in dialed.servers.get()? {
                     let asked = async {
-                        let socket = self.dial_datagram(&local.dialer, addr).await?;
+                        let socket = self.dial_datagram(&dialed.dialer, addr).await?;
                         self.exchange_udp(socket, &wire, addr, server, time).await
                     }
                     .await;
@@ -580,7 +628,7 @@ impl DnsClient {
                 }
                 Err(last_err.unwrap_or_else(|| anyhow!("no answer")))
             }
-            Kind::Local(None) => {
+            Kind::Local(_) => {
                 let family = match ty {
                     RecordType::A => IpAddr::is_ipv4,
                     RecordType::AAAA => IpAddr::is_ipv6,
@@ -601,30 +649,21 @@ impl DnsClient {
             // a name it has not, or any other query. A name another stands
             // for, which it has no addresses of, is looked up, and answered
             // with a CNAME, as Mihomo answers it.
-            Kind::Hosts(hosts) => {
-                let family = match ty {
-                    RecordType::A => Some(IpAddr::is_ipv4 as fn(&IpAddr) -> bool),
-                    RecordType::AAAA => Some(IpAddr::is_ipv6 as fn(&IpAddr) -> bool),
-                    _ => None,
-                };
-                Ok(Answer::Message(match (family, hosts.resolve(host)) {
-                    (Some(family), Some(server::Host::Ips(ips))) => {
-                        let ips: Vec<IpAddr> = ips.into_iter().filter(family).collect();
-                        Self::reply(request, &ips, HOSTS_TTL)
-                    }
-                    (Some(_), Some(server::Host::Alias(target))) => {
-                        let strategy = match ty {
-                            RecordType::A => DnsStrategy::Ipv4Only,
-                            _ => DnsStrategy::Ipv6Only,
-                        };
-                        let ips = self
-                            .lookup_by(&target, strategy, By::Rules(&LookupContext::default()))
-                            .await?;
-                        Self::alias_reply(request, &target, &ips, HOSTS_TTL)?
-                    }
-                    _ => Self::status(request, ResponseCode::NXDomain),
-                }))
-            }
+            Kind::Hosts(hosts) => match Self::from_hosts(hosts, request, host, ty) {
+                FromHosts::Reply(reply) => Ok(Answer::Message(reply)),
+                FromHosts::Alias(target, strategy) => {
+                    let ips = self
+                        .lookup_by(&target, strategy, By::Rules(&LookupContext::default()))
+                        .await?;
+                    Ok(Answer::Message(Self::alias_reply(
+                        request, &target, &ips, HOSTS_TTL,
+                    )?))
+                }
+                FromHosts::Missing => Ok(Answer::Message(Self::status(
+                    request,
+                    ResponseCode::NXDomain,
+                ))),
+            },
             Kind::FakeIp(store) => {
                 let v6 = match ty {
                     RecordType::A => false,
@@ -692,6 +731,35 @@ impl DnsClient {
                 Err(last_err.unwrap_or_else(|| anyhow!("no answer")))
             }
             Kind::Race { .. } => unreachable!("query() takes a race"),
+        }
+    }
+
+    /// What `hosts` answer `request` for `host`, of type `ty`: the
+    /// addresses of a name they have, and nothing for another query.
+    fn from_hosts(
+        hosts: &server::Hosts,
+        request: &Message,
+        host: &str,
+        ty: RecordType,
+    ) -> FromHosts {
+        let family = match ty {
+            RecordType::A => IpAddr::is_ipv4 as fn(&IpAddr) -> bool,
+            RecordType::AAAA => IpAddr::is_ipv6 as fn(&IpAddr) -> bool,
+            _ => return FromHosts::Missing,
+        };
+        match hosts.resolve(host) {
+            Some(server::Host::Ips(ips)) => {
+                let ips: Vec<IpAddr> = ips.into_iter().filter(family).collect();
+                FromHosts::Reply(Self::reply(request, &ips, HOSTS_TTL))
+            }
+            Some(server::Host::Alias(target)) => {
+                let strategy = match ty {
+                    RecordType::A => DnsStrategy::Ipv4Only,
+                    _ => DnsStrategy::Ipv6Only,
+                };
+                FromHosts::Alias(target, strategy)
+            }
+            None => FromHosts::Missing,
         }
     }
 

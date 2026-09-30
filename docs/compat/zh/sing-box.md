@@ -15,7 +15,7 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | 部分 | 字段数 | 支持 | 警告 | 报错 |
 |---|--:|--:|--:|--:|
 | `log` | 5 | 5 | 0 | 0 |
-| `dns` | 578 | 315 | 69 | 194 |
+| `dns` | 578 | 318 | 94 | 166 |
 | `ntp` | 35 | 0 | 35 | 0 |
 | `certificate` | 5 | 5 | 0 | 0 |
 | `certificate_providers` | 212 | 0 | 0 | 212 |
@@ -27,7 +27,7 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `route` | 268 | 144 | 21 | 103 |
 | `services` | 751 | 1 | 166 | 584 |
 | `experimental` | 34 | 16 | 17 | 1 |
-| **全部** | **5002** | **1650** | **682** | **2670** |
+| **全部** | **5002** | **1653** | **707** | **2642** |
 
 ## `log`
 
@@ -48,7 +48,6 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | 类型 | 处理 | 说明 | 字段数 |
 |---|---|---|--:|
 | `dns.servers[dhcp]` | 报错 | A type or value sail does not implement: it would route otherwise | 33 |
-| `dns.servers[mdns]` | 报错 | A type or value sail does not implement: it would route otherwise | 33 |
 | `dns.servers[openconnect]` | 报错 | A type or value sail does not implement: it would route otherwise | 4 |
 | `dns.servers[openvpn]` | 报错 | A type or value sail does not implement: it would route otherwise | 4 |
 | `dns.servers[resolved]` | 报错 | A type or value sail does not implement: it would route otherwise | 3 |
@@ -270,6 +269,37 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `prefer_go` | 警告 | Go's own resolver rather than the system's: sail is not Go |
 | `neighbor_domain` | 警告 | Single-label LAN names from sing-box's neighbor resolver (DHCP leases): sail has none, and the system's resolver answers them |
 | `domain_strategy` (已弃用) | 警告 | A local server's servers are the system's, addresses: it has no name to resolve |
+
+### `dns.servers[mdns]`
+
+| 字段 | 处理 | 说明 |
+|---|---|---|
+| `tag` | 支持 |  |
+| `detour` | 警告 | An mDNS server asks on each interface itself, as sing-box's, which dials nothing |
+| `bind_interface` | 警告 | An mDNS server asks on each interface itself, as sing-box's, which dials nothing |
+| `inet4_bind_address` | 警告 | An mDNS server asks on each interface itself, as sing-box's, which dials nothing |
+| `inet6_bind_address` | 警告 | An mDNS server asks on each interface itself, as sing-box's, which dials nothing |
+| `bind_address_no_port` | 警告 | Socket tuning: connections go the same way without it |
+| `protect_path` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
+| `routing_mark` | 警告 | An mDNS server asks on each interface itself, as sing-box's, which dials nothing |
+| `reuse_addr` | 警告 | Socket tuning: connections go the same way without it |
+| `netns` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
+| `connect_timeout` | 警告 | An mDNS server asks on each interface itself, as sing-box's, which dials nothing |
+| `tcp_fast_open` | 警告 | Socket tuning: connections go the same way without it |
+| `tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
+| `disable_tcp_keep_alive` | 警告 | An mDNS server asks on each interface itself, as sing-box's, which dials nothing |
+| `tcp_keep_alive` | 警告 | An mDNS server asks on each interface itself, as sing-box's, which dials nothing |
+| `tcp_keep_alive_interval` | 警告 | An mDNS server asks on each interface itself, as sing-box's, which dials nothing |
+| `udp_fragment` | 警告 | Socket tuning: connections go the same way without it |
+| `domain_resolver` | 警告 | An mDNS server asks on each interface itself, as sing-box's, which dials nothing (含其下 7 个字段) |
+| `network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `fallback_delay` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `prefer_go` | 警告 | Go's own resolver rather than the system's: sail is not Go |
+| `neighbor_domain` | 警告 | Single-label LAN names from sing-box's neighbor resolver (DHCP leases): sail has none, and the system's resolver answers them |
+| `interface` | 支持 |  |
+| `domain_strategy` (已弃用) | 警告 | An mDNS server asks on each interface itself, as sing-box's, which dials nothing |
 
 ### `dns.servers[quic]`
 
@@ -527,7 +557,7 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `[].default_interface_address` | 报错 | A condition sail does not match: the rule would match otherwise |
 | `[].source_mac_address` | 报错 | A condition sail does not match: the rule would match otherwise |
 | `[].source_hostname` | 报错 | A condition sail does not match: the rule would match otherwise |
-| `[].preferred_by` | 报错 | A condition sail does not match: the rule would match otherwise |
+| `[].preferred_by` | 支持 |  |
 | `[].rule_set` | 支持 |  |
 | `[].rule_set_ip_cidr_match_source` | 支持 |  |
 | `[].match_response` | 支持 |  |

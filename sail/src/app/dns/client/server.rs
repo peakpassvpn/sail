@@ -38,7 +38,9 @@ pub(super) enum Kind {
     Upstream(Arc<Upstream>),
     /// The system's resolver; with dial fields, the system's servers,
     /// asked through its dialer.
-    Local(Option<Box<LocalDialed>>),
+    Local(Box<Local>),
+    /// Multicast DNS, asked on the link.
+    Mdns(super::mdns::Mdns),
     /// Addresses given for names: files in the hosts format, and names
     /// given in place.
     Hosts(Hosts),
@@ -188,6 +190,15 @@ struct RaceOptions {
 
 #[derive(Deserialize, Debug, Default)]
 #[serde(deny_unknown_fields)]
+struct MdnsOptions {
+    /// The interfaces to ask on; all that are up and take multicast when
+    /// none are named.
+    #[serde(default, with = "listable")]
+    interface: Vec<String>,
+}
+
+#[derive(Deserialize, Debug, Default)]
+#[serde(deny_unknown_fields)]
 struct LocalOptions {
     #[serde(flatten)]
     dial: DialFields,
@@ -206,6 +217,23 @@ const LOCAL_DIAL: &[&str] = &[
     "tcp_keep_alive",
     "tcp_keep_alive_interval",
 ];
+
+/// A local server, as sing-box's: it answers the names of the system's
+/// hosts file itself, and asks mDNS for `.local` names off Apple's
+/// systems, whose resolver asks it.
+pub(super) struct Local {
+    /// With dial fields: the system's servers, which it asks itself.
+    pub dialed: Option<LocalDialed>,
+    pub hosts: Hosts,
+    pub mdns: super::mdns::Mdns,
+}
+
+impl Local {
+    /// Whether it asks mDNS for `host`.
+    pub fn asks_mdns(&self, host: &str) -> bool {
+        !cfg!(target_vendor = "apple") && super::mdns::is_local_domain(host)
+    }
+}
 
 /// A local server with dial fields: the system's servers, and how they
 /// are reached.
@@ -280,14 +308,14 @@ impl Server {
             }
             "local" => {
                 let o: LocalOptions = parse_options("dns server", tag, &config.options)?;
-                if o.dial == DialFields::default() {
-                    Kind::Local(None)
+                let dialed = if o.dial == DialFields::default() {
+                    None
                 } else {
                     o.dial.check(LOCAL_DIAL).map_err(err)?;
                     let dial = defaults
                         .dialer(&o.dial, None)
                         .map_err(|e| err(anyhow!("[{}] dns server: {}", tag, e)))?;
-                    Kind::Local(Some(Box::new(LocalDialed {
+                    Some(LocalDialed {
                         dialer: Dialer {
                             detour: o.dial.detour.clone(),
                             respect_rules: false,
@@ -295,8 +323,21 @@ impl Server {
                             dial,
                         },
                         servers: Default::default(),
-                    })))
-                }
+                    })
+                };
+                // A system without a hosts file has no names in it.
+                let hosts = hosts(HostsOptions::default(), env).unwrap_or_default();
+                Kind::Local(Box::new(Local {
+                    dialed,
+                    hosts,
+                    mdns: Default::default(),
+                }))
+            }
+            "mdns" => {
+                let o: MdnsOptions = parse_options("dns server", tag, &config.options)?;
+                Kind::Mdns(super::mdns::Mdns {
+                    interfaces: o.interface,
+                })
             }
             "hosts" => {
                 let o: HostsOptions = parse_options("dns server", tag, &config.options)?;
@@ -358,7 +399,27 @@ impl Server {
                 .map(|r| r.server.as_str())
                 .collect(),
             Kind::Race { members } => members.iter().map(String::as_str).collect(),
-            Kind::Local(_) | Kind::Hosts(_) | Kind::FakeIp(_) => vec![],
+            Kind::Local(_) | Kind::Mdns(_) | Kind::Hosts(_) | Kind::FakeIp(_) => vec![],
+        }
+    }
+
+    /// Whether it prefers `host`, a name it answers for itself, as
+    /// sing-box's servers do for `preferred_by`: a hosts server its names,
+    /// a local server the names of the hosts file and of mDNS, an mDNS
+    /// server those of mDNS. A server that learns names of its own, such as
+    /// the domains an interface is given, adds them here.
+    pub fn prefers(&self, host: &str) -> bool {
+        match &self.kind {
+            Kind::Hosts(hosts) => hosts.get(host).is_some(),
+            Kind::Local(local) => {
+                local.hosts.get(host).is_some() || super::mdns::is_local_domain(host)
+            }
+            Kind::Mdns(_) => super::mdns::is_local_domain(host),
+            Kind::Udp { .. }
+            | Kind::Tcp { .. }
+            | Kind::Upstream(_)
+            | Kind::FakeIp(_)
+            | Kind::Race { .. } => false,
         }
     }
 }

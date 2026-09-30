@@ -44,6 +44,8 @@ pub(crate) struct Facts {
     source: std::net::SocketAddr,
     /// The record type, for a DNS query.
     query_type: Option<u16>,
+    /// The DNS servers that prefer the name, for a DNS query.
+    preferred_by: Option<Arc<Vec<String>>>,
     /// The code of the DNS response matched.
     rcode: Option<u16>,
     /// The DNS response matched, whose records `response_answer`,
@@ -92,6 +94,7 @@ impl Facts {
             process_path: sess.process_name.clone(),
             source: sess.source,
             query_type: None,
+            preferred_by: None,
             rcode: None,
             response: None,
             responses: None,
@@ -176,6 +179,12 @@ impl Facts {
 
     pub fn query_type(&self) -> Option<u16> {
         self.query_type
+    }
+
+    /// The facts of a DNS query for a name the servers `tags` prefer.
+    pub fn with_preferred_by(mut self, tags: Arc<Vec<String>>) -> Self {
+        self.preferred_by = Some(tags);
+        self
     }
 
     /// The URL of the plain HTTP request sniffed, unless it was too long
@@ -865,6 +874,8 @@ pub(crate) struct Conditions {
     http_user_agent: Vec<Pattern>,
     url_regex: Vec<Pattern>,
     query_types: Vec<u16>,
+    /// DNS servers, one of which prefers the name.
+    preferred_by: Vec<String>,
     /// On the network the host is on.
     network: NetworkConditions,
     /// Each by its tag.
@@ -1094,6 +1105,7 @@ impl Conditions {
             } else {
                 extras.query_types
             },
+            preferred_by: rule.preferred_by.clone(),
             network: NetworkConditions::compile(rule, path)?,
             #[cfg(feature = "rule-set")]
             rule_sets,
@@ -1128,6 +1140,7 @@ impl Conditions {
             && self.http_user_agent.is_empty()
             && self.url_regex.is_empty()
             && self.query_types.is_empty()
+            && self.preferred_by.is_empty()
             && self.response_rcode.is_none()
             && self.response_answer.is_empty()
             && self.response_ns.is_empty()
@@ -1333,6 +1346,11 @@ impl Conditions {
                 || facts
                     .query_type()
                     .is_some_and(|t| self.query_types.contains(&t)))
+            && (self.preferred_by.is_empty()
+                || facts
+                    .preferred_by
+                    .as_ref()
+                    .is_some_and(|tags| self.preferred_by.iter().any(|t| tags.contains(t))))
             && self.response_rcode.is_none_or(|c| facts.rcode == Some(c))
             && self.response_records_match(facts)
             && self

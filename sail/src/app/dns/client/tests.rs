@@ -72,7 +72,7 @@ mod tests {
     fn no_servers_is_the_system_resolver() {
         let client = client(serde_json::json!([])).unwrap();
         assert_eq!(client.final_server, "local");
-        assert!(matches!(client.servers["local"].kind, Kind::Local(None)));
+        assert!(matches!(&client.servers["local"].kind, Kind::Local(l) if l.dialed.is_none()));
     }
 
     #[test]
@@ -305,6 +305,74 @@ mod tests {
             ips(&["192.168.1.2", "fd00::2"])
         );
         assert!(client.lookup("a.example").await.is_err());
+    }
+
+    /// `preferred_by`: a name a server answers for itself, here a hosts
+    /// server's own, and in a logical rule too; one it has not goes on.
+    #[tokio::test]
+    async fn preferred_by_matches_the_names_a_server_prefers() {
+        let client = with_rules(serde_json::json!([
+            { "preferred_by": "home", "server": "home" }
+        ]))
+        .unwrap();
+        assert_eq!(
+            client.lookup("nas.home.arpa").await.unwrap(),
+            ips(&["192.168.1.2", "fd00::2"])
+        );
+        assert_eq!(
+            client.lookup("a.example").await.unwrap(),
+            ips(&["10.0.0.1", "2001:db8::1"])
+        );
+        let client = with_rules(serde_json::json!([{
+            "type": "logical", "mode": "and",
+            "rules": [{ "preferred_by": ["home"] }, { "query_type": "A" }],
+            "server": "home"
+        }]))
+        .unwrap();
+        // A from home; AAAA, not matched, from world, which has none.
+        assert_eq!(
+            client.lookup("nas.home.arpa").await.unwrap(),
+            ips(&["192.168.1.2"])
+        );
+        let err = with_rules(serde_json::json!([
+            { "preferred_by": "nope", "server": "home" }
+        ]))
+        .err()
+        .unwrap();
+        assert!(
+            format!("{:#}", err).contains("preferred_by: server [nope] does not exist"),
+            "{:#}",
+            err
+        );
+    }
+
+    /// An mDNS server prefers the names of mDNS's zones, and a local server
+    /// those and its hosts file's; a remote one none.
+    #[test]
+    fn mdns_and_local_servers_prefer_the_link_s_names() {
+        let client = client(serde_json::json!([
+            { "type": "mdns", "tag": "m", "interface": ["en0"] },
+            { "type": "local", "tag": "l" },
+            { "type": "udp", "tag": "u", "server": "192.0.2.53" }
+        ]))
+        .unwrap();
+        let prefers = |tag: &str, host: &str| client.servers[tag].prefers(host);
+        for tag in ["m", "l"] {
+            assert!(prefers(tag, "printer.local"), "{}", tag);
+            assert!(prefers(tag, "7.1.254.169.in-addr.arpa"), "{}", tag);
+            assert!(!prefers(tag, "a.example"), "{}", tag);
+        }
+        assert!(prefers("l", "localhost") || std::fs::read_to_string("/etc/hosts").is_err());
+        assert!(!prefers("u", "printer.local"));
+        let Kind::Mdns(mdns) = &client.servers["m"].kind else {
+            panic!("an mdns server");
+        };
+        assert_eq!(mdns.interfaces, ["en0"]);
+        let Kind::Local(local) = &client.servers["l"].kind else {
+            panic!("a local server");
+        };
+        assert_eq!(local.asks_mdns("printer.local"), !cfg!(target_vendor = "apple"));
+        assert!(!local.asks_mdns("a.example"));
     }
 
     /// sing-box's legacy address filter: a route rule's conditions on the
@@ -1613,10 +1681,13 @@ mod tests {
         let client = DnsClient::new(&config.dns, Default::default(), &Default::default())
             .unwrap()
             .into_arc();
-        let Kind::Local(Some(local)) = &client.servers["sys"].kind else {
+        let Some(dialed) = (match &client.servers["sys"].kind {
+            Kind::Local(local) => local.dialed.as_ref(),
+            _ => None,
+        }) else {
             panic!("dial fields make it ask the servers itself");
         };
-        local
+        dialed
             .servers
             .set(vec![std::net::SocketAddr::from(([127, 0, 0, 1], port))]);
         let answer = exchange(&client, "a.example", RecordType::A).await;

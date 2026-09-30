@@ -243,8 +243,23 @@ impl DnsClient {
     }
 
     /// `facts`, with the network the host is on, when a rule needs it: as
-    /// the lookup began, or now for one that took none.
+    /// the lookup began, or now for one that took none; and with the
+    /// servers that prefer the name, when a rule asks.
     fn with_network(&self, facts: Facts, ctx: &LookupContext) -> Facts {
+        let preferred = match facts.domain() {
+            Some(host) if !self.preferring.is_empty() => Some(
+                self.preferring
+                    .iter()
+                    .filter(|tag| self.servers.get(*tag).is_some_and(|s| s.prefers(host)))
+                    .cloned()
+                    .collect::<Vec<String>>(),
+            ),
+            _ => None,
+        };
+        let facts = match preferred {
+            Some(tags) => facts.with_preferred_by(Arc::new(tags)),
+            None => facts,
+        };
         match (&self.network, &ctx.network) {
             (Some(_), Some(state)) => facts.with_network(state.clone()),
             (Some(network), None) => facts.with_network(network.snapshot()),
