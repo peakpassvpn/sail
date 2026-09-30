@@ -39,6 +39,22 @@ fn read(s: &str, zero_unset: bool) -> Result<Config> {
     let warnings = sort_out(&mut value, zero_unset)?;
     let mut config: Config = serde_path_to_error::deserialize(value)
         .map_err(|e| anyhow!("{}: {}", super::model::path(&e), e.inner()))?;
+    // After the schema, as sing-box finds them after what comes before
+    // the inbounds.
+    for (i, inbound) in config.inbounds.iter_mut().enumerate() {
+        for name in upstream::LEGACY_INBOUND {
+            if let Some(found) = inbound.options.remove(*name) {
+                if !zero(&found) {
+                    return Err(anyhow!(
+                        "inbounds[{}].{}: {}",
+                        i,
+                        name,
+                        upstream::LEGACY_INBOUND_WHY
+                    ));
+                }
+            }
+        }
+    }
     config.validate()?;
     config.warnings = warnings;
     Ok(config)
@@ -332,6 +348,30 @@ mod tests {
             ]
         );
         assert!(!config.outbounds[0].options.contains_key("tcp_fast_open"));
+    }
+
+    #[test]
+    fn legacy_inbound_fields_are_refused() {
+        let err = parse(
+            r#"{ "inbounds": [{ "type": "mixed", "listen_port": 1080, "sniff": false,
+                 "sniff_override_destination": true }] }"#,
+        )
+        .unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            format!(
+                "inbounds[0].sniff_override_destination: {}",
+                upstream::LEGACY_INBOUND_WHY
+            )
+        );
+        // Unset at their zero value, as in sing-box.
+        let config = parse(
+            r#"{ "inbounds": [{ "type": "tun", "address": ["172.19.0.1/30"],
+                 "sniff": false, "domain_strategy": "" }] }"#,
+        )
+        .unwrap();
+        assert!(!config.inbounds[0].options.contains_key("sniff"));
+        assert!(config.warnings.is_empty());
     }
 
     #[test]

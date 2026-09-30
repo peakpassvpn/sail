@@ -68,6 +68,20 @@ pub const IGNORED_SERVICES: &[(&str, &str)] = &[(
 /// Why a service other than those is an error.
 pub const OTHER_SERVICES: &str = "A service: sail runs none besides its inbounds";
 
+/// An inbound's fields sing-box 1.11 moved to rule actions and 1.13
+/// removed: refused as sing-box refuses them, but at their zero value,
+/// which it takes as unset.
+pub const LEGACY_INBOUND: &[&str] = &[
+    "sniff",
+    "sniff_override_destination",
+    "sniff_timeout",
+    "domain_strategy",
+    "udp_disable_domain_unmapping",
+];
+
+/// Why, in sing-box's words.
+pub const LEGACY_INBOUND_WHY: &str = "legacy inbound fields are deprecated in sing-box 1.11.0 and removed in sing-box 1.13.0; use rule actions: https://sing-box.sagernet.org/migration/#migrate-legacy-inbound-fields-to-rule-actions";
+
 /// Objects sail has no counterpart for, dropped once the fields they held
 /// are.
 pub const EMPTIED: &[&str] = &["experimental"];

@@ -774,8 +774,7 @@
     "warnings": 1
   },
   "sing-box/0016.json": {
-    "ok": true,
-    "warnings": 0
+    "error": "inbounds[0].sniff: legacy inbound fields are deprecated in sing-box 1.11.0 and removed in sing-box 1.13.0; use rule actions: https://sing-box.sagernet.org/migration/#migrate-legacy-inbound-fields-to-rule-actions"
   },
   "sing-box/0017.json": {
     "error": "dns.fakeip: unknown field `fakeip`, expected one of `servers`, `rules`, `final`, `strategy`, `client_strategy`, `disable_cache`, `disable_expire`, `cache_capacity`, `optimistic`, `timeout`, `reverse_mapping`, `client_subnet`"
@@ -905,8 +904,7 @@
     "error": "dns.servers[0]: missing field `type`"
   },
   "sing-box/0056.json": {
-    "ok": true,
-    "warnings": 0
+    "error": "inbounds[0].sniff: legacy inbound fields are deprecated in sing-box 1.11.0 and removed in sing-box 1.13.0; use rule actions: https://sing-box.sagernet.org/migration/#migrate-legacy-inbound-fields-to-rule-actions"
   },
   "sing-box/0057.json": {
     "error": "dns.servers[0]: missing field `type`"
