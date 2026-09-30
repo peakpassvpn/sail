@@ -66,6 +66,7 @@ mod test_shadowtls;
 mod test_socks;
 mod test_socks_udp;
 mod test_ss2022;
+mod test_tls_pin_sing_box;
 mod test_tls_trojan;
 mod test_transport_v2ray;
 mod test_trojan;
