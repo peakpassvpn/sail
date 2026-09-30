@@ -11,30 +11,24 @@ The `sail` binary accepts `--config` (`-c`), `--data-dir` (`-D`),
 configuration and path arguments in `ExecStartPre` and `ExecStart`; a failed
 `--test` therefore prevents systemd from starting the process.
 
-The current Unix CLI build handles `SIGTERM` and returns from the runtime after
-stopping its instance. It does **not** promise to drain active connections.
-There is no SIGHUP handler or CLI reload subcommand. Consequently the supplied
-unit has `KillSignal=SIGTERM`, but deliberately has no `ExecReload`.
+The CLI stops on `SIGTERM` (and Ctrl-C): its listeners stop taking
+connections at once, and the TCP connections open may finish for
+`lifecycle.drain_timeout` at most (`--set lifecycle.drain_timeout=10s`). The
+server profile, which the unit uses, sets 30 s; the other profiles set 0,
+stopping at once. A second signal stops at once too. UDP sessions, which only
+time out, are not waited for. The unit's `TimeoutStopSec=45s` leaves room past
+the 30 s before systemd kills the process.
 
-The main checkout does have three different reload building blocks; none is an
-`ExecReload` contract:
-
-- `sail::reload` / `RuntimeManager::reload` rebuild DNS, outbounds and routing
-  before publishing them. A build failure keeps the previous live state, and
-  existing routed connections keep their previous objects.
-- An HTTP runtime reload route exists when the API is configured. This unit
-  does not enable or call it: its listener and access-control policy are a
-  deployment decision, not a safe implicit local control socket.
-- `sail --auto-reload` watches the configuration file and invokes the same
-  runtime reload. The supplied unit does not enable it, so its operator model
-  remains validate then restart.
-
-Inbound resource reload was integrated into `dev` by merge commit `c6d3bc16`.
-It extends reload to supported inbound users, certificates and local rule
-files, including watched resource files and rollback on invalid replacements.
-It does not add SIGHUP, a CLI reload command, or connection draining, so it
-does not by itself justify adding `ExecReload`. Existing connections retain
-their prior resource generation.
+`SIGHUP` reloads the configuration file in place, through the same reload the
+API and `--auto-reload` use: DNS, outbounds, routing and supported inbound
+resources are rebuilt before they are published, a configuration that fails
+leaves the one before running (the journal says so), and connections open
+keep what they were made with. The unit's `ExecReload` first runs the same
+`--test` check as `ExecStartPre`, so a configuration that fails it fails
+`systemctl reload` without reaching the process, then sends `SIGHUP`.
+A reload never rebinds a listener: one that changes an inbound's `listen`,
+`listen_port` or other settings beyond its users and certificates is
+refused, and needs a restart.
 
 ## Files and privilege modes
 
@@ -224,12 +218,11 @@ substituting portable checks for a real service lifecycle.
 Validation run logs are kept outside the repository; the latest local static
 run deliberately marks real systemd lifecycle checks as not run.
 
-## Remaining core gaps
+## Lifecycle checks
 
-Roadmap 4.3 is not complete from packaging alone. Atomic failure rollback
-exists for DNS, outbound, routing and supported inbound-resource reloads. The
-remaining systemd-facing gaps are (1) a documented, secured operator command
-or signal for explicit reload and (2) bounded graceful shutdown which stops
-accepting new work and waits for active connections to drain. Only after the
-first exists can the unit add a truthful `ExecReload`; only after the second
-exists can `TimeoutStopSec` represent a drain bound.
+`sail-cli/tests/lifecycle.rs` runs the CLI and signals it: a drain that waits
+for an open connection and refuses new ones, no drain without a timeout, a
+second signal ending a drain, and `SIGHUP` taking a good configuration and
+keeping the last good one over a broken file. The runtime acceptance above
+checks the same through systemd: `systemctl reload` in place and refused, and
+`systemctl stop` waiting for an open connection.

@@ -1099,6 +1099,13 @@ async fn follow_network_changes(manager: Arc<RuntimeManager>) {
     std::future::pending().await
 }
 
+/// Writes out what the log holds, for a host about to exit: the last lines,
+/// such as how a stop went, are otherwise lost with the thread that writes
+/// them.
+pub fn flush_log() {
+    app::logger::flush();
+}
+
 /// The signals that stop the CLI: Ctrl-C, and SIGTERM on Unix.
 #[cfg(feature = "ctrlc")]
 struct StopSignals {

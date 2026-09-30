@@ -90,7 +90,9 @@ impl Sail {
             .arg("-c")
             .arg(&path)
             .args(args)
-            .stdout(Stdio::null())
+            .stdout(Stdio::from(
+                std::fs::File::create(dir.0.join("out.log")).unwrap(),
+            ))
             .stderr(Stdio::null())
             .spawn()
             .unwrap();
@@ -105,6 +107,11 @@ impl Sail {
             std::thread::sleep(Duration::from_millis(50));
         }
         sail
+    }
+
+    /// What it wrote out.
+    fn log(&self) -> String {
+        std::fs::read_to_string(self.config.with_file_name("out.log")).unwrap_or_default()
     }
 
     fn signal(&self, name: &str) {
@@ -203,6 +210,13 @@ fn sigterm_lets_the_connections_open_finish() {
     assert!(
         sail.exits(Duration::from_secs(3)),
         "and exits once it closes"
+    );
+    // The last line, logged as it exits, is written out.
+    let log = sail.log();
+    assert!(
+        log.contains("stopping: every connection finished"),
+        "{}",
+        log
     );
 }
 

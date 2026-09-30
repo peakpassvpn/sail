@@ -108,7 +108,9 @@ type WriterHandle = Handle<WriterLayer, Layered<reload::Layer<LevelFilter, Regis
 struct HandleController {
     filter: FilterHandle,
     writer: WriterHandle,
-    writer_guard: WorkerGuard,
+    /// Its drop writes out the lines queued, and stops the thread that
+    /// writes them.
+    writer_guard: Option<WorkerGuard>,
 }
 
 impl HandleController {
@@ -116,7 +118,7 @@ impl HandleController {
         Self {
             filter,
             writer,
-            writer_guard,
+            writer_guard: Some(writer_guard),
         }
     }
 
@@ -128,7 +130,7 @@ impl HandleController {
     ) -> Result<(), reload::Error> {
         self.filter.modify(|f| *f = filter)?;
         self.writer.reload(writer)?;
-        self.writer_guard = writer_guard;
+        self.writer_guard = Some(writer_guard);
         Ok(())
     }
 }
@@ -178,6 +180,19 @@ fn get_writer(config: &config::Log, host: &Host) -> Result<(WriterLayer, WorkerG
 
 /// Sets up logging as `config` says; `host` may send console output to the
 /// system log instead of standard output.
+/// Writes out the lines logged so far, before the process exits: a thread
+/// of their own writes them, which exiting stops with lines unwritten, and
+/// the static that holds it is never dropped. Lines logged after are lost
+/// until the logger is set up again.
+pub fn flush() {
+    let guard = HANDLE
+        .write()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_mut()
+        .and_then(|h| h.writer_guard.take());
+    drop(guard);
+}
+
 pub fn setup_logger(config: &config::Log, host: &Host) -> Result<()> {
     use config::model::LogLevel;
     // Installed even when disabled, so that a reload can turn it back on,

@@ -603,9 +603,12 @@ fn main() {
         runtime,
         host,
     ) {
+        sail::flush_log();
         println!("start sail failed: {}", e);
         exit(1);
     }
+    // The last lines, such as how a stop went, are written before exiting.
+    sail::flush_log();
 }
 
 /// Raises the soft limit on open files to the hard one, as Go does at
