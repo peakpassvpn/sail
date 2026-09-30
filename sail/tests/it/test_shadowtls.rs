@@ -9,6 +9,11 @@
 //! ```text
 //! cargo test -p sail --test it test_shadowtls:: -- --ignored
 //! ```
+//!
+//! So are the tests against the reference implementation, ihciah's
+//! shadow-tls, at `SHADOW_TLS`: its client checks the certificate against
+//! the public roots, so the handshake server is a real site,
+//! `SHADOWTLS_SITE` (www.apple.com by default), and they need the network.
 
 #![cfg(all(
     feature = "inbound-shadowtls",
@@ -352,6 +357,112 @@ fn test_shadowtls_sing_box_to_sail() -> anyhow::Result<()> {
             let result = rt.block_on(exercise(socks));
             drop(sing_box);
             result
+        })();
+        common::shutdown_instances(&rt, ids);
+        result
+    })
+}
+
+/// The reference implementation, at `SHADOW_TLS`, with `args` after `--v3`.
+fn reference(name: &str, args: &[&str]) -> anyhow::Result<common::Daemon> {
+    let path = std::env::var_os("SHADOW_TLS")
+        .ok_or_else(|| anyhow::anyhow!("SHADOW_TLS: the shadow-tls binary"))?;
+    let mut command = std::process::Command::new(path);
+    command.env("RUST_LOG", "info").arg("--v3").args(args);
+    common::Daemon::spawn(command, name, |line| line.contains("Start "))
+}
+
+fn site() -> String {
+    std::env::var("SHADOWTLS_SITE").unwrap_or_else(|_| "www.apple.com".into())
+}
+
+// app(socks) -> sail(ss, shadowtls) -> shadow-tls server -> sail(ss) -> echo
+#[test]
+#[ignore = "needs shadow-tls and the network"]
+fn test_shadowtls_sail_to_reference() -> anyhow::Result<()> {
+    let certs = certs("to-reference")?;
+    common::retry_port_clash(|| {
+        let [server_port, ss_port, socks] = common::free_ports();
+        let site = site();
+        let listen = format!("127.0.0.1:{}", server_port);
+        let data = format!("127.0.0.1:{}", ss_port);
+        let tls = format!("{}:443", site);
+        let _server = reference(
+            "shadow-tls server",
+            &[
+                "--strict",
+                "server",
+                "--listen",
+                &listen,
+                "--server",
+                &data,
+                "--tls",
+                &tls,
+                "--password",
+                PASSWORD,
+            ],
+        )?;
+        let rt = runtime()?;
+        let mut config = client(socks, server_port, PASSWORD, &certs);
+        let tls = &mut config["outbounds"][1]["tls"];
+        tls["server_name"] = site.clone().into();
+        tls.as_object_mut().unwrap().remove("certificate_path");
+        let ss_server = serde_json::json!({
+            "inbounds": [{
+                "type": "shadowsocks",
+                "listen": "127.0.0.1",
+                "listen_port": ss_port,
+                "method": METHOD,
+                "password": SS_PASSWORD
+            }],
+            "outbounds": [{ "type": "direct" }]
+        });
+        let ids = common::run_sail_instances(&rt, vec![ss_server.to_string(), config.to_string()])?;
+        let result = rt.block_on(exercise(socks));
+        common::shutdown_instances(&rt, ids);
+        result
+    })
+}
+
+// app(socks) -> sail(ss) -> shadow-tls client -> sail(shadowtls, ss) -> echo
+#[test]
+#[ignore = "needs shadow-tls and the network"]
+fn test_shadowtls_reference_to_sail() -> anyhow::Result<()> {
+    common::retry_port_clash(|| {
+        let [server_port, client_port, socks] = common::free_ports();
+        let site = site();
+        let rt = runtime()?;
+        let mut server = serde_json::from_str::<serde_json::Value>(&server(server_port, 443))?;
+        server["inbounds"][0]["handshake"]["server"] = site.clone().into();
+        let ss_client = serde_json::json!({
+            "inbounds": [{ "type": "socks", "listen": "127.0.0.1", "listen_port": socks }],
+            "outbounds": [{
+                "type": "shadowsocks",
+                "server": "127.0.0.1",
+                "server_port": client_port,
+                "method": METHOD,
+                "password": SS_PASSWORD
+            }]
+        });
+        let ids = common::run_sail_instances(&rt, vec![server.to_string(), ss_client.to_string()])?;
+        let result = (|| {
+            let listen = format!("127.0.0.1:{}", client_port);
+            let upstream = format!("127.0.0.1:{}", server_port);
+            let _client = reference(
+                "shadow-tls client",
+                &[
+                    "client",
+                    "--listen",
+                    &listen,
+                    "--server",
+                    &upstream,
+                    "--sni",
+                    &site,
+                    "--password",
+                    PASSWORD,
+                ],
+            )?;
+            rt.block_on(exercise(socks))
         })();
         common::shutdown_instances(&rt, ids);
         result
