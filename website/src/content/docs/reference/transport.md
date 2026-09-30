@@ -20,6 +20,18 @@ Serde: `serde (untagged)`
 | `(String)` | — |
 | `(Vec < String >)` | — |
 
+## Secret
+
+[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+
+A secret, a private key: read as the value is, printed as none.
+
+Serde: `serde (transparent)`
+
+| Field | Type | Omission / flattening | Source notes |
+| --- | --- | --- | --- |
+| `` | `T` | Required | — |
+
 ## OutboundBlocks
 
 [Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
@@ -28,18 +40,7 @@ Serde: `serde (deny_unknown_fields)`
 
 | Field | Type | Omission / flattening | Source notes |
 | --- | --- | --- | --- |
-| `detour` | `Option < String >` | Default::default() | The outbound to dial this one's server through.<br/>`serde (default)` |
-| `bind_interface` | `Option < String >` | Default::default() | The interface to send through, by name.<br/>`serde (default)` |
-| `inet4_bind_address` | `Option < std :: net :: Ipv4Addr >` | Default::default() | —<br/>`serde (default)` |
-| `inet6_bind_address` | `Option < std :: net :: Ipv6Addr >` | Default::default() | —<br/>`serde (default)` |
-| `routing_mark` | `Option < u32 >` | Default::default() | `SO_MARK`, Linux only.<br/>`serde (default)` |
-| `connect_timeout` | `Option < std :: time :: Duration >` | Default::default() | How long a TCP connect may take, e.g. `5s`.<br/>`serde (default , with = "crate::config::model::duration")` |
-| `domain_resolver` | `Option < crate :: config :: model :: DomainResolver >` | Default::default() | The DNS server that resolves the names this outbound dials.<br/>`serde (default)` |
-| `skip_default_domain_resolver` | `bool` | Default::default() | A sail extension: without a `domain_resolver` of its own, the names it dials resolve as the DNS rules say, not as `route.default_domain_resolver` does; as Mihomo's DIRECT resolves apart from the proxies' servers.<br/>`serde (default)` |
-| `domain_strategy` | `Option < crate :: config :: model :: DnsStrategy >` | Default::default() | sing-box's deprecated field for the families they resolve to.<br/>`serde (default)` |
-| `tcp_keep_alive` | `Option < std :: time :: Duration >` | Default::default() | How long a TCP connection is idle before keepalive probes it; 5m when unset.<br/>`serde (default , with = "crate::config::model::duration")` |
-| `tcp_keep_alive_interval` | `Option < std :: time :: Duration >` | Default::default() | Between keepalive probes; 75s when unset.<br/>`serde (default , with = "crate::config::model::duration")` |
-| `disable_tcp_keep_alive` | `bool` | Default::default() | —<br/>`serde (default)` |
+| `dial` | `DialFields` | Flattened into this object | How it dials its server, `detour` among them.<br/>`serde (flatten)` |
 | `tls` | `Option < OutboundTls >` | Default::default() | —<br/>`serde (default)` |
 | `transport` | `Option < OutboundTransport >` | Default::default() | —<br/>`serde (default)` |
 | `multiplex` | `Option < OutboundMultiplex >` | Default::default() | —<br/>`serde (default)` |
@@ -61,7 +62,7 @@ Serde: `serde (deny_unknown_fields)`
 | `certificate_path` | `Option < String >` | Default::default() | A PEM certificate to trust, by path.<br/>`serde (default)` |
 | `client_certificate` | `Option < Listable >` | Default::default() | An inline PEM certificate, its chain after it, presented when the server asks for one; with `client_key`.<br/>`serde (default)` |
 | `client_certificate_path` | `Option < String >` | Default::default() | `client_certificate`, by path.<br/>`serde (default)` |
-| `client_key` | `Option < Listable >` | Default::default() | The inline PEM key of the client certificate.<br/>`serde (default)` |
+| `client_key` | `Option < Secret < Listable > >` | Default::default() | The inline PEM key of the client certificate.<br/>`serde (default)` |
 | `client_key_path` | `Option < String >` | Default::default() | `client_key`, by path.<br/>`serde (default)` |
 | `ech` | `Option < OutboundEch >` | Default::default() | —<br/>`serde (default)` |
 | `reality` | `Option < OutboundReality >` | Default::default() | —<br/>`serde (default)` |
@@ -187,7 +188,7 @@ Serde: `serde (deny_unknown_fields)`
 
 [Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
 
-The site REALITY imitates, dialed for every connection, with sing-box's dial fields. `detour` is not among them: inbounds do not reach the outbounds.
+The site REALITY imitates, dialed for every connection, with sing-box's dial fields; of which it implements the ones that bind the socket, and the connect timeout. `detour` is not among them: inbounds do not reach the outbounds.
 
 Serde: `serde (deny_unknown_fields)`
 
@@ -195,11 +196,7 @@ Serde: `serde (deny_unknown_fields)`
 | --- | --- | --- | --- |
 | `server` | `String` | Required | — |
 | `server_port` | `u16` | Required | — |
-| `bind_interface` | `Option < String >` | Default::default() | —<br/>`serde (default)` |
-| `inet4_bind_address` | `Option < std :: net :: Ipv4Addr >` | Default::default() | —<br/>`serde (default)` |
-| `inet6_bind_address` | `Option < std :: net :: Ipv6Addr >` | Default::default() | —<br/>`serde (default)` |
-| `routing_mark` | `Option < u32 >` | Default::default() | `SO_MARK`, Linux only.<br/>`serde (default)` |
-| `connect_timeout` | `Option < std :: time :: Duration >` | Default::default() | How long the TCP connect may take, e.g. `5s`.<br/>`serde (default , with = "crate::config::model::duration")` |
+| `dial` | `DialFields` | Flattened into this object | —<br/>`serde (flatten)` |
 
 ## InboundTransport
 

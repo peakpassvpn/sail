@@ -40,14 +40,7 @@ Serde: `serde (deny_unknown_fields)`
 | Field | Type | Omission / flattening | Source notes |
 | --- | --- | --- | --- |
 | `tag` | `String` | Default::default() | Of one in `http_clients`; none inline.<br/>`serde (default , skip_serializing_if = "String::is_empty")` |
-| `detour` | `Option < String >` | Default::default() | —<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `bind_interface` | `Option < String >` | Default::default() | —<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `inet4_bind_address` | `Option < std :: net :: Ipv4Addr >` | Default::default() | —<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `inet6_bind_address` | `Option < std :: net :: Ipv6Addr >` | Default::default() | —<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `routing_mark` | `Option < u32 >` | Default::default() | —<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `connect_timeout` | `Option < std :: time :: Duration >` | Default::default() | —<br/>`serde (default , with = "duration" , skip_serializing_if = "Option::is_none")` |
-| `domain_resolver` | `Option < DomainResolver >` | Default::default() | —<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `domain_strategy` | `Option < DnsStrategy >` | Default::default() | sing-box's deprecated field for the families names resolve to.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
+| `dial` | `crate :: net :: dial :: DialFields` | Flattened into this object | How it connects, `detour` among them.<br/>`serde (flatten)` |
 | `headers` | `BTreeMap < String , HeaderValues >` | Default::default() | Sent with each request, over sail's own of the same name.<br/>`serde (default , skip_serializing_if = "BTreeMap::is_empty")` |
 
 ## HeaderValues
@@ -277,6 +270,15 @@ Serde: `serde (deny_unknown_fields)`
 | `package_name_regex` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
 | `user` | `Vec < String >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
 | `user_id` | `Vec < i32 >` | Default::default() | —<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
+| `wifi_ssid` | `Vec < String >` | Default::default() | The network the host is on, as the routing rules match it.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
+| `wifi_bssid` | `Vec < String >` | Default::default() | The address of the Wi-Fi access point, `aa:bb:cc:dd:ee:ff`, in any case, with `:` or `-`, or as 12 hex digits.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
+| `network_type` | `Vec < String >` | Default::default() | The kind of network: `wifi`, `cellular`, `ethernet`, `other`.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
+| `network_is_expensive` | `bool` | Default::default() | The network is metered, as the system says.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
+| `network_is_constrained` | `bool` | Default::default() | The network is in a low data mode, as the system says.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
+| `wifi_ssid_regex` | `Vec < String >` | Default::default() | A sail extension, for Surge's `SSID:`: regular expressions found in the Wi-Fi network's name, with case.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
+| `wifi_bssid_regex` | `Vec < String >` | Default::default() | A sail extension, for Surge's `BSSID:`: regular expressions found in the access point's address as `aa:bb:cc:dd:ee:ff`, whatever the case.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
+| `network_gateway` | `Vec < String >` | Default::default() | A sail extension, for Surge's `ROUTER:`: the address of the default gateway.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
+| `network_mcc_mnc` | `Vec < String >` | Default::default() | A sail extension, for Surge's `MCCMNC:` and `CELLULAR-CARRIER`: the cellular carrier, its MCC and MNC as 5 or 6 digits; only off Wi-Fi.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
 | `outbound` | `Vec < String >` | Default::default() | Tags of the outbounds that dial the name; of the rule itself, not of a rule a logical one combines.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
 | `rule_set` | `Vec < String >` | Default::default() | Tags of rule-sets, any of whose rules matching matches. Their `ip_cidr` rules match no query, which has no address yet.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
 | `rule_set_ip_cidr_match_source` | `bool` | Default::default() | The rule-sets' `ip_cidr` match the source address.<br/>`serde (default , alias = "rule_set_ipcidr_match_source" , skip_serializing_if = "std::ops::Not::not")` |
@@ -612,4 +614,38 @@ Serde: `serde (rename_all = "snake_case")`
 | `stun` | — |
 | `bittorrent` | — |
 | `dtls` | — |
+
+## DialFields
+
+[Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/net/dial/fields.rs)
+
+How something dials: sing-box's dial fields (`DialerOptions` in 1.14), by their names, and one sail extension. Outbounds and endpoints, DNS servers, HTTP clients and REALITY's handshake take them, flattened into their own objects, and each checks them with [`DialFields::check`] against the fields it implements.  The fields sail does not implement yet are read as any value, so that a place names them as such rather than as unknown; a sing-box configuration has them sorted out before, as `config::singbox::upstream` says.
+
+Serde: `serde (remote = "Self" , deny_unknown_fields)`
+
+| Field | Type | Omission / flattening | Source notes |
+| --- | --- | --- | --- |
+| `detour` | `Option < String >` | Default::default() | The outbound to dial through, in place of a socket of its own.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
+| `bind_interface` | `Option < String >` | Default::default() | The interface to send through, by name.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
+| `inet4_bind_address` | `Option < Ipv4Addr >` | Default::default() | The local address for IPv4 destinations.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
+| `inet6_bind_address` | `Option < Ipv6Addr >` | Default::default() | The local address for IPv6 destinations.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
+| `bind_address_no_port` | `Option < Value >` | Default::default() | Not implemented yet.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
+| `protect_path` | `Option < Value >` | Default::default() | Not implemented yet.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
+| `routing_mark` | `Option < u32 >` | Default::default() | `SO_MARK`, Linux only.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
+| `reuse_addr` | `Option < Value >` | Default::default() | Not implemented yet.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
+| `netns` | `Option < Value >` | Default::default() | Not implemented yet.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
+| `connect_timeout` | `Option < Duration >` | Default::default() | How long a TCP connect may take, e.g. `5s`.<br/>`serde (default , with = "crate::config::model::duration" , skip_serializing_if = "Option::is_none")` |
+| `tcp_fast_open` | `Option < Value >` | Default::default() | Not implemented yet.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
+| `tcp_multi_path` | `Option < Value >` | Default::default() | Not implemented yet.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
+| `disable_tcp_keep_alive` | `bool` | Default::default() | No TCP keepalive at all.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
+| `tcp_keep_alive` | `Option < Duration >` | Default::default() | How long a TCP connection is idle before keepalive probes it; 5m when unset.<br/>`serde (default , with = "crate::config::model::duration" , skip_serializing_if = "Option::is_none")` |
+| `tcp_keep_alive_interval` | `Option < Duration >` | Default::default() | Between keepalive probes; 75s when unset.<br/>`serde (default , with = "crate::config::model::duration" , skip_serializing_if = "Option::is_none")` |
+| `udp_fragment` | `Option < Value >` | Default::default() | Not implemented yet.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
+| `domain_resolver` | `Option < DomainResolver >` | Default::default() | The DNS server that resolves the names dialled.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
+| `skip_default_domain_resolver` | `bool` | Default::default() | A sail extension: without a `domain_resolver` of its own, the names dialled resolve as the DNS rules say, not as `route.default_domain_resolver` does; as Mihomo's DIRECT resolves apart from the proxies' servers.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
+| `domain_strategy` | `Option < DnsStrategy >` | Default::default() | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
+| `network_strategy` | `Option < Value >` | Default::default() | Not implemented yet.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
+| `network_type` | `Option < Value >` | Default::default() | Not implemented yet.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
+| `fallback_network_type` | `Option < Value >` | Default::default() | Not implemented yet.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
+| `fallback_delay` | `Option < Value >` | Default::default() | Not implemented yet.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
 
