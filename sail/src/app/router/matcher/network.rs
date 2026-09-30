@@ -220,6 +220,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "regex")]
     fn the_wi_fi_name_by_pattern_keeps_case() {
         let c = conditions(serde_json::json!({ "wifi_ssid_regex": "^Ho" }));
         assert!(c.matches(Some(&home())));
@@ -241,6 +242,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "regex")]
     fn access_points_by_pattern_whatever_the_case() {
         let c = conditions(serde_json::json!({ "wifi_bssid_regex": "^AA:BB:" }));
         assert!(c.matches(Some(&home())));
@@ -322,7 +324,11 @@ mod tests {
             ),
             (
                 serde_json::json!({ "wifi_ssid_regex": "(" }),
-                "rules[0].wifi_ssid_regex: \"(\"",
+                if cfg!(feature = "regex") {
+                    "rules[0].wifi_ssid_regex: \"(\""
+                } else {
+                    "rules[0].wifi_ssid_regex: not supported"
+                },
             ),
         ] {
             let err = compile(rule.clone()).err().unwrap().to_string();
