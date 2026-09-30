@@ -662,7 +662,8 @@ async fn servers_are_reached_through_their_detour() {
         (server("quic", doq_port, None), doq),
         (server("h3", h3_port, None), h3),
     ];
-    #[cfg(feature = "dns-doh")]
+    // The DoH server here is sail's TLS inbound.
+    #[cfg(all(feature = "dns-doh", feature = "inbound-tls"))]
     {
         let (doh_port, doh) = doh::start_server(&cert, &["h2", "http/1.1"], doh::Reply::Answer);
         servers.push((server("https", doh_port, None), doh));
@@ -742,7 +743,8 @@ async fn public_resolvers() {
 }
 
 /// DoH (`https://`) against servers that speak HTTP/2, HTTP/1.1 or both.
-#[cfg(feature = "dns-doh")]
+// The DoH server here is sail's TLS inbound.
+#[cfg(all(feature = "dns-doh", feature = "inbound-tls"))]
 mod doh {
     use super::*;
 
