@@ -288,6 +288,9 @@ impl RuntimeManager {
         let name = |state: &net::network::NetworkState| {
             state.interface.clone().unwrap_or_else(|| "none".into())
         };
+        if self.network().is_down() {
+            info!("network: none; timed checks and updates wait for one");
+        }
         info!(
             "network changed: generation {}, reason={}, interface={}→{}, closed={}, dns_flushed=true, took={}ms",
             change.generation,
@@ -935,7 +938,7 @@ pub fn network_changed(key: RuntimeId, mtu: Option<usize>) -> Result<(), Error> 
 /// addresses or routes change, a second after the last change, as
 /// sing-box does; when the interface moved, the TUN's flows, bound to the
 /// old one, are reset. It never ends: the instance runs on without it.
-#[cfg(any(target_os = "linux", target_os = "windows"))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 async fn follow_default_interface(manager: Arc<RuntimeManager>) {
     let _ = manager
         .detect_network(net::network::ChangeReason::State)
@@ -950,6 +953,17 @@ async fn follow_default_interface(manager: Arc<RuntimeManager>) {
         }
     };
     #[cfg(target_os = "linux")]
+    let changed = || monitor.changed();
+    // macOS: the routing socket's messages.
+    #[cfg(target_os = "macos")]
+    let monitor = match platform::route_socket::RouteMonitor::open() {
+        Ok(monitor) => monitor,
+        Err(e) => {
+            warn!("not following the network as it changes: {}", e);
+            return std::future::pending().await;
+        }
+    };
+    #[cfg(target_os = "macos")]
     let changed = || monitor.changed();
     // Windows: IP Helper's of routes and interfaces.
     #[cfg(target_os = "windows")]
@@ -1355,13 +1369,26 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
     // auto_detect_interface follows the default interface as it moves, and
     // detection the network the host is on, on one monitor, whatever
     // needs them: a change of network is followed in any case.
-    #[cfg(any(target_os = "linux", target_os = "windows"))]
+    #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
     tasks.push(Box::pin(follow_default_interface(runtime_manager.clone())));
     // What was of the network before goes when it changes.
     tasks.push(Box::pin(follow_network_changes(runtime_manager.clone())));
+    // A wake from sleep is one: the connections were most likely dropped
+    // by their peers meanwhile.
+    {
+        let network = runtime_manager.network().clone();
+        tasks.push(Box::pin(async move {
+            platform::sleep::follow(|asleep| {
+                info!("woke after {}s asleep", asleep.as_secs());
+                network.announce(net::network::ChangeReason::Wake);
+            })
+            .await;
+            std::future::pending().await
+        }));
+    }
     // Where there is no monitor, the network is detected at the start and
     // on each reload only.
-    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
     {
         let rm = runtime_manager.clone();
         tasks.push(Box::pin(async move {

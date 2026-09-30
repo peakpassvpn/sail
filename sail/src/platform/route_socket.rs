@@ -350,8 +350,98 @@ impl RouteSocket {
     }
 }
 
+/// Tells of changes to routes, interfaces and addresses: any message on a
+/// routing socket, as sing-tun takes them (monitor_darwin.go:36-100).
+#[cfg(target_os = "macos")]
+pub(crate) struct RouteMonitor {
+    fd: tokio::io::unix::AsyncFd<std::os::fd::OwnedFd>,
+}
+
+#[cfg(target_os = "macos")]
+impl RouteMonitor {
+    /// Needs a Tokio runtime.
+    pub(crate) fn open() -> io::Result<RouteMonitor> {
+        use std::os::fd::{AsRawFd, FromRawFd};
+        // SAFETY: plain socket(2); owned from here on.
+        let raw = unsafe { libc::socket(libc::PF_ROUTE, libc::SOCK_RAW, libc::AF_UNSPEC) };
+        if raw < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        // SAFETY: a descriptor just opened, owned by none else.
+        let fd = unsafe { std::os::fd::OwnedFd::from_raw_fd(raw) };
+        // SAFETY: fcntl on a descriptor this owns.
+        let set = unsafe {
+            let flags = libc::fcntl(fd.as_raw_fd(), libc::F_GETFL);
+            flags >= 0
+                && libc::fcntl(fd.as_raw_fd(), libc::F_SETFL, flags | libc::O_NONBLOCK) >= 0
+                && libc::fcntl(fd.as_raw_fd(), libc::F_SETFD, libc::FD_CLOEXEC) >= 0
+        };
+        if !set {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(RouteMonitor {
+            fd: tokio::io::unix::AsyncFd::new(fd)?,
+        })
+    }
+
+    /// Waits for a change, and takes every message that came with it. A
+    /// message lost to an overrun still wakes it: it tells something
+    /// changed.
+    pub(crate) async fn changed(&self) -> io::Result<()> {
+        use std::os::fd::AsRawFd;
+        let mut buf = vec![0u8; 16 * 1024];
+        loop {
+            let mut guard = self.fd.readable().await?;
+            let mut read_any = false;
+            loop {
+                // SAFETY: `buf` is writable for its length.
+                let n = unsafe {
+                    libc::read(
+                        self.fd.get_ref().as_raw_fd(),
+                        buf.as_mut_ptr() as *mut libc::c_void,
+                        buf.len(),
+                    )
+                };
+                if n > 0 {
+                    read_any = true;
+                    continue;
+                }
+                if n == 0 {
+                    return Err(io::Error::from(io::ErrorKind::UnexpectedEof));
+                }
+                let e = io::Error::last_os_error();
+                match e.raw_os_error() {
+                    Some(libc::EAGAIN) => break,
+                    Some(libc::ENOBUFS) => read_any = true,
+                    Some(libc::EINTR) => {}
+                    _ => return Err(e),
+                }
+            }
+            guard.clear_ready();
+            if read_any {
+                return Ok(());
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    /// Opens on this Mac without changing its routes: whether a change
+    /// wakes it is seen in the network tests, never by changing a route
+    /// here.
+    #[cfg(target_os = "macos")]
+    #[tokio::test]
+    async fn the_monitor_opens() {
+        let monitor = RouteMonitor::open().unwrap();
+        // Nothing need change in a moment; it only must not fail.
+        if let Ok(woke) =
+            tokio::time::timeout(std::time::Duration::from_millis(50), monitor.changed()).await
+        {
+            woke.unwrap();
+        }
+    }
+
     use super::*;
 
     /// `route add -net 1.0.0.0/8 172.19.0.1`: the header, then the

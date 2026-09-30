@@ -77,7 +77,7 @@ Without a push, Sail detects what the system tells without extra permissions:
 | System | Interface, gateway, addresses | Type | SSID and BSSID | Follows changes |
 | --- | --- | --- | --- | --- |
 | Linux | main table's default route (rtnetlink) | `/sys/class/net` | nl80211 | yes, on the route and address monitor |
-| macOS | IPv4 default route | the interface's functional type | no: CoreWLAN needs Location permission | at start and on reload |
+| macOS | IPv4 default route | the interface's functional type | no: CoreWLAN needs Location permission | yes, on the routing socket's messages |
 | Windows | adapter with a gateway and the lowest metric | the adapter's interface type | WLAN service (Windows 11 24H2 asks for Location permission) | yes, on route and interface change notices |
 | Android, iOS | -- | -- | -- | the host pushes |
 

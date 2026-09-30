@@ -59,6 +59,8 @@ pub mod auto_redirect;
 #[cfg(target_os = "windows")]
 pub(crate) mod windows;
 
+pub(crate) mod sleep;
+
 // The network the host is on, as the system tells it.
 pub mod network;
 

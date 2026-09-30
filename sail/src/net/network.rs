@@ -67,11 +67,8 @@ impl NetworkState {
     /// `other`: the default interface, its gateway, its kind or its
     /// addresses (IPv6 by /64, as sing-box compares them) differ. A new
     /// SSID or access point on the same interface and addresses (a roam)
-    /// is not; nor is a first state known after none.
+    /// is not. Losing the default interface, and getting one back, are.
     pub fn moved_to(&self, other: &NetworkState) -> bool {
-        if *self == NetworkState::default() {
-            return false;
-        }
         self.interface != other.interface
             || self.index != other.index
             || self.gateway != other.gateway
@@ -228,6 +225,8 @@ pub struct Network {
     /// The last change the connections do not survive.
     changes: Arc<watch::Sender<Option<Arc<NetworkChange>>>>,
     generation: Arc<AtomicU64>,
+    /// Whether a state was ever set: the first is no change of network.
+    known: Arc<AtomicBool>,
     /// Whether the host pushes the state, which detection then leaves.
     pushed: Arc<AtomicBool>,
 }
@@ -238,6 +237,7 @@ impl Default for Network {
             state: Arc::new(watch::Sender::new(Arc::default())),
             changes: Arc::new(watch::Sender::new(None)),
             generation: Arc::default(),
+            known: Arc::default(),
             pushed: Arc::default(),
         }
     }
@@ -286,6 +286,14 @@ impl Network {
         })));
     }
 
+    /// Whether there is no network: a state was known, and now nothing is,
+    /// no default interface, address or type. Checks and updates on a
+    /// timer wait while it is, rather than find everything failing; the
+    /// change that ends it tells them to look again.
+    pub fn is_down(&self) -> bool {
+        self.known.load(Ordering::Relaxed) && *self.snapshot() == NetworkState::default()
+    }
+
     /// Whether the host pushes the state.
     pub fn pushed(&self) -> bool {
         self.pushed.load(Ordering::Relaxed)
@@ -315,7 +323,9 @@ impl Network {
             *now = Arc::new(state);
             true
         });
-        let moved = changed && old.moved_to(&self.snapshot());
+        // The first state known, at the start, moves nothing.
+        let known = self.known.swap(true, Ordering::Relaxed);
+        let moved = changed && known && old.moved_to(&self.snapshot());
         if moved {
             self.publish(reason, old, self.snapshot());
         }
@@ -451,14 +461,16 @@ mod tests {
         roamed.ssid = Some("Home".into());
         roamed.bssid = Some("aa:bb:cc:dd:ee:ff".into());
         assert!(!home.moved_to(&roamed));
-        // Nor is the first state known.
-        assert!(!NetworkState::default().moved_to(&home));
+        // Losing the default interface is, and getting it back.
+        assert!(home.moved_to(&NetworkState::default()));
+        assert!(NetworkState::default().moved_to(&home));
     }
 
     #[test]
     fn a_move_is_told_with_its_reason_and_generation() {
         let network = Network::default();
         let mut changes = network.changes();
+        // The first state known, at the start, is no change.
         assert!(!network.detected(on("en0", &["192.168.1.2/24"]), ChangeReason::State));
         assert!(!changes.has_changed().unwrap());
         // A roam: the state changes, the connections survive.
@@ -474,10 +486,19 @@ mod tests {
         assert_eq!(change.old.interface.as_deref(), Some("en0"));
         assert_eq!(change.new.interface.as_deref(), Some("en1"));
 
+        // Losing the network, and getting it back.
+        assert!(network.detected(NetworkState::default(), ChangeReason::State));
+        assert!(network.is_down());
+        assert!(network.detected(on("en1", &["10.0.0.2/24"]), ChangeReason::State));
+        assert!(!network.is_down());
+        let change = changes.borrow_and_update().clone().unwrap();
+        assert_eq!(change.generation, 3);
+        assert_eq!(change.old.interface, None);
+
         // The host, or waking, tells one whatever the state.
         network.announce(ChangeReason::Wake);
         let change = changes.borrow_and_update().clone().unwrap();
-        assert_eq!((change.generation, change.reason), (2, ChangeReason::Wake));
+        assert_eq!((change.generation, change.reason), (4, ChangeReason::Wake));
         assert_eq!(change.old, change.new);
     }
 }
