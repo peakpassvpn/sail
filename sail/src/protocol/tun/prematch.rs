@@ -3,6 +3,7 @@
 //! redirected, and the verdict marks it for the rules the chain runs again
 //! (sing-tun v0.9.6's `NF_REPEAT` verdicts).
 
+use std::io;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
@@ -11,6 +12,7 @@ use tracing::{debug, warn};
 
 use crate::app::dispatcher::Dispatcher;
 use crate::app::router::PreMatch;
+use crate::net::accept::AcceptBackoff;
 use crate::platform::nfqueue::{Protocol, Queue, Verdict};
 use crate::session::{Network, Session, SocksAddr};
 
@@ -45,13 +47,31 @@ pub(crate) fn verdict(protocol: Protocol, decision: PreMatch, marks: Marks) -> V
 pub(crate) async fn serve(queue: Queue, tag: String, dispatcher: Arc<Dispatcher>, marks: Marks) {
     let queue = Arc::new(queue);
     let in_flight = Arc::new(Semaphore::new(IN_FLIGHT));
+    let mut backoff = AcceptBackoff::new("auto_redirect: nfqueue");
     loop {
         let queued = match queue.recv().await {
-            Ok(queued) => queued,
-            Err(e) => {
-                // Overrun, say: the kernel let the packets through
-                // (FAIL_OPEN), and the queue goes on.
+            Ok(queued) => {
+                backoff.succeeded();
+                queued
+            }
+            // Overrun: the kernel let the packets through (FAIL_OPEN).
+            // Reading on at once is what catches up.
+            Err(e) if e.raw_os_error() == Some(libc::ENOBUFS) => {
+                debug!("auto_redirect: nfqueue overrun: {}", e);
+                continue;
+            }
+            // One datagram the kernel cut or garbled: the next is read.
+            Err(e) if e.kind() == io::ErrorKind::InvalidData => {
                 debug!("auto_redirect: nfqueue: {}", e);
+                continue;
+            }
+            Err(e) => {
+                if backoff.failed(e).await.is_err() {
+                    // The queue's `bypass` flag lets the kernel accept
+                    // what nothing reads: the traffic goes on unjudged.
+                    warn!("auto_redirect: pre-match stops; bypass rules no longer apply");
+                    return;
+                }
                 continue;
             }
         };
