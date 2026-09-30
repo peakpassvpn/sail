@@ -100,8 +100,7 @@ where
         let addr = SocksAddr::read_from(&mut self.0, SocksAddrWireType::PortLast).await?;
         let mut buf2 = [0; 4];
         self.0.read_exact(&mut buf2).await?;
-        let payload_len = u16::from_be_bytes([buf2[0], buf2[1]]) as usize;
-        // TODO Check CLRF?
+        let payload_len = super::super::packet_length(buf2)?;
         if buf.len() < payload_len {
             return Err(io::Error::new(io::ErrorKind::Interrupted, "Small buffer"));
         }
@@ -156,5 +155,31 @@ where
 
     async fn close(&mut self) -> io::Result<()> {
         self.0.shutdown().await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// What `recv_from` makes of `packet`.
+    async fn receive(packet: &[u8]) -> io::Result<(usize, SocksAddr)> {
+        let (mut server, client) = tokio::io::duplex(1024);
+        server.write_all(packet).await.unwrap();
+        let (r, _w) = tokio::io::split(client);
+        let mut half = DatagramRecvHalf(r, None);
+        let mut buf = [0u8; 64];
+        half.recv_from(&mut buf).await
+    }
+
+    #[tokio::test]
+    async fn test_udp_packet_needs_crlf() {
+        // 1.2.3.4:53, 2 bytes.
+        let mut packet = vec![0x01, 1, 2, 3, 4, 0, 53, 0, 2, b'\r', b'\n', b'h', b'i'];
+        let (n, src) = receive(&packet).await.unwrap();
+        assert_eq!((n, src.to_string().as_str()), (2, "1.2.3.4:53"));
+        packet[9..11].copy_from_slice(b"\n\r");
+        let err = receive(&packet).await.unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::InvalidData);
     }
 }

@@ -67,11 +67,11 @@ where
             .read_exact(&mut buf2)
             .map_err(|e| ProxyError::DatagramFatal(e.into()))
             .await?;
-        let payload_len = u16::from_be_bytes([buf2[0], buf2[1]]) as usize;
+        let payload_len =
+            super::super::packet_length(buf2).map_err(|e| ProxyError::DatagramFatal(e.into()))?;
         if buf.len() < payload_len {
             return Err(ProxyError::DatagramFatal(anyhow!("Small buffer")));
         }
-        // TODO Check CRLF?
         self.0
             .read_exact(&mut buf[..payload_len])
             .map_err(|e| ProxyError::DatagramFatal(e.into()))
@@ -245,5 +245,28 @@ mod tests {
         let mut bad_crlf = key.into_bytes();
         bad_crlf.extend_from_slice(b"\n\r");
         assert!(!could_be_auth(&bad_crlf));
+    }
+
+    /// What `recv_from` makes of `packet`.
+    async fn receive(packet: &[u8]) -> ProxyResult<(usize, DatagramSource, SocksAddr)> {
+        let (mut client, server) = tokio::io::duplex(1024);
+        client.write_all(packet).await.unwrap();
+        let source = DatagramSource::new("127.0.0.1:1".parse().unwrap(), None);
+        let mut half = DatagramRecvHalf(server, source);
+        let mut buf = [0u8; 64];
+        half.recv_from(&mut buf).await
+    }
+
+    #[tokio::test]
+    async fn test_udp_packet_needs_crlf() {
+        // 1.2.3.4:53, 2 bytes.
+        let mut packet = vec![0x01, 1, 2, 3, 4, 0, 53, 0, 2, b'\r', b'\n', b'h', b'i'];
+        let (n, _, dst) = receive(&packet).await.unwrap();
+        assert_eq!((n, dst.to_string().as_str()), (2, "1.2.3.4:53"));
+        packet[9..11].copy_from_slice(b"\n\r");
+        assert!(matches!(
+            receive(&packet).await,
+            Err(ProxyError::DatagramFatal(_))
+        ));
     }
 }
