@@ -52,6 +52,37 @@ Keeping these values separate lets the same proxy definition use a mobile memory
 
 The data files a configuration reads (`asn.mmdb`, `geo.mmdb`, `site.dat`, or files its rules name) are the host's to provide in the data directory. `sail_required_assets(config_path, settings)` returns them as JSON, `{"assets": [{"name", "kind", "path", "used_by", "present"}]}`, or `{"error": "..."}`; free the string with `sail_free_string`. Fetch the missing ones before starting: a configuration that needs one that is missing fails to start, naming the path. See the CLI reference for the default sources the CLI uses.
 
+## Network state
+
+Rules and groups that match the network the host is on (`wifi_ssid`, `wifi_bssid`, `network_type`, `network_is_expensive`, `network_is_constrained`) read one state per instance. Hosts that know it -- mobile and desktop apps -- push it whenever it changes, through `sail_set_network_state(rt_id, json)` or `PUT /api/v1/runtime/network` (`GET` reads it back):
+
+```json
+{
+  "interface": "en0",
+  "addresses": ["192.168.1.2/24", "fd00::2/64"],
+  "type": "wifi",
+  "ssid": "Home",
+  "bssid": "aa:bb:cc:dd:ee:ff",
+  "gateway": "192.168.1.1",
+  "mcc_mnc": "310260",
+  "expensive": false,
+  "constrained": false
+}
+```
+
+`type` is `wifi`, `cellular`, `ethernet` or `other`; every field may be left out, and a condition on a field that is not known does not match. Once a host pushes a state, Sail's own detection stops for the rest of the instance's life.
+
+Without a push, Sail detects what the system tells without extra permissions, when the configuration has a condition on the network:
+
+| System | Interface, gateway, addresses | Type | SSID and BSSID | Follows changes |
+| --- | --- | --- | --- | --- |
+| Linux | main table's default route (rtnetlink) | `/sys/class/net` | nl80211 | yes, on the route and address monitor |
+| macOS | IPv4 default route | the interface's functional type | no: CoreWLAN needs Location permission | at start and on reload |
+| Windows | adapter with a gateway and the lowest metric | the adapter's interface type | WLAN service (Windows 11 24H2 asks for Location permission) | at start and on reload |
+| Android, iOS | -- | -- | -- | the host pushes |
+
+A cellular network counts as expensive; no system above says whether a network is constrained, so only a host can. A change of state is logged at `info` with the type, interface and gateway; the SSID and BSSID only at `debug`.
+
 ## Android
 
 Android VPN applications must keep Sail's outbound sockets outside the VPN interface. Register the host callback backed by `VpnService.protect` before starting the instance. The callback can be invoked from multiple runtime threads, so the host implementation must be safe for concurrent calls.

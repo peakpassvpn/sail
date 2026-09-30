@@ -39,6 +39,37 @@ Sail 将代理行为保留在 Rust 核心，把宿主特有能力注入边界。
 
 配置读取的数据文件（`asn.mmdb`、`geo.mmdb`、`site.dat`，或规则指定的文件）由宿主放到数据目录。`sail_required_assets(config_path, settings)` 以 JSON 返回它们：`{"assets": [{"name", "kind", "path", "used_by", "present"}]}`，或 `{"error": "..."}`；字符串用 `sail_free_string` 释放。启动前下载缺少的文件：需要的文件不存在时启动失败，并给出路径。CLI 使用的默认来源见 CLI 参考。
 
+## 网络状态
+
+按宿主所在网络匹配的规则与分组（`wifi_ssid`、`wifi_bssid`、`network_type`、`network_is_expensive`、`network_is_constrained`）读取每个实例的一份网络状态。知道网络状态的宿主（移动端、桌面端应用）在其变化时推送：`sail_set_network_state(rt_id, json)` 或 `PUT /api/v1/runtime/network`（`GET` 读回）：
+
+```json
+{
+  "interface": "en0",
+  "addresses": ["192.168.1.2/24", "fd00::2/64"],
+  "type": "wifi",
+  "ssid": "Home",
+  "bssid": "aa:bb:cc:dd:ee:ff",
+  "gateway": "192.168.1.1",
+  "mcc_mnc": "310260",
+  "expensive": false,
+  "constrained": false
+}
+```
+
+`type` 为 `wifi`、`cellular`、`ethernet` 或 `other`；每个字段都可省略，针对未知字段的条件不匹配。宿主推送过一次后，该实例余下的生命周期内不再使用 Sail 自己的检测。
+
+没有推送时，若配置含网络条件，Sail 检测系统在无需额外权限时给出的信息：
+
+| 系统 | 接口、网关、地址 | 类型 | SSID 与 BSSID | 跟随变化 |
+| --- | --- | --- | --- | --- |
+| Linux | 主路由表默认路由（rtnetlink） | `/sys/class/net` | nl80211 | 是，基于路由与地址监视 |
+| macOS | IPv4 默认路由 | 接口的功能类型 | 无：CoreWLAN 需要定位权限 | 启动与重载时 |
+| Windows | 有网关且跃点数最低的适配器 | 适配器接口类型 | WLAN 服务（Windows 11 24H2 需要定位权限） | 启动与重载时 |
+| Android、iOS | -- | -- | -- | 由宿主推送 |
+
+蜂窝网络视为按流量计费（expensive）；上述系统都不提供低数据模式（constrained），只能由宿主推送。状态变化以 `info` 级别记录类型、接口和网关；SSID 与 BSSID 只在 `debug` 级别记录。
+
 ## Android 与 Apple 平台
 
 Android VPN 应用必须在启动前注册基于 `VpnService.protect` 的回调，让 Sail 出站套接字绕过 VPN 接口。回调可能从多个运行时线程调用，宿主实现必须线程安全；Wi-Fi/移动网络切换时也应转发网络变化。
