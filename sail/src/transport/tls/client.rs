@@ -75,6 +75,17 @@ impl TlsClient {
         server_name: &str,
         ech_config_list: Option<&[u8]>,
     ) -> io::Result<BoringConnection> {
+        self.connection_with(server_name, ech_config_list, |_| Ok(()))
+    }
+
+    /// `connection`, with `configure` run on the SSL before the ClientHello
+    /// is made: for a protocol that hooks into it, as ShadowTLS does.
+    pub(crate) fn connection_with(
+        &self,
+        server_name: &str,
+        ech_config_list: Option<&[u8]>,
+        configure: impl FnOnce(&mut btls::ssl::SslRef) -> io::Result<()>,
+    ) -> io::Result<BoringConnection> {
         let mut config = self.connector.configure().map_err(io::Error::other)?;
         if self.insecure {
             config.set_verify_hostname(false);
@@ -98,6 +109,7 @@ impl TlsClient {
                 .configure_connection(&mut ssl, &self.alpn, ech_config_list.is_some())
                 .map_err(io::Error::other)?;
         }
+        configure(&mut ssl)?;
         BoringConnection::client(ssl)
     }
 

@@ -232,8 +232,15 @@ fn default_fingerprint() -> String {
 
 impl OutboundTls {
     /// The ClientHello fingerprint, or None for BoringSSL's own.
-    #[cfg(any(feature = "outbound-tls", feature = "outbound-reality"))]
-    fn fingerprint(&self, tag: &str) -> Result<Option<crate::transport::tls::Fingerprint>> {
+    #[cfg(any(
+        feature = "outbound-tls",
+        feature = "outbound-reality",
+        feature = "outbound-shadowtls"
+    ))]
+    pub(crate) fn fingerprint(
+        &self,
+        tag: &str,
+    ) -> Result<Option<crate::transport::tls::Fingerprint>> {
         use crate::transport::tls::Fingerprint;
         match &self.utls {
             None => Ok(Some(Fingerprint::Chrome)),
@@ -922,7 +929,14 @@ fn not_compiled(tag: &str, kind: &str, what: &str, feature: &str) -> anyhow::Err
 }
 
 /// The certificate to trust: inline, or by path.
-#[cfg_attr(not(any(feature = "outbound-tls", feature = "quic")), allow(dead_code))]
+#[cfg_attr(
+    not(any(
+        feature = "outbound-tls",
+        feature = "quic",
+        feature = "outbound-shadowtls"
+    )),
+    allow(dead_code)
+)]
 pub(crate) fn trusted_certificate(tls: &OutboundTls, env: &RuntimeEnv) -> Option<String> {
     match (&tls.certificate, &tls.certificate_path) {
         (Some(inline), _) => Some(inline.clone().joined()),
