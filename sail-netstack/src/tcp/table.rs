@@ -173,7 +173,7 @@ struct TcpFlow {
     stats: FlowStatsContribution,
     _flow_lease: BudgetLease,
     _metadata_lease: BudgetLease,
-    _receive_credit: BudgetLease,
+    receive_credit_lease: BudgetLease,
     /// Receive capacity added since the flow opened, one lease a step.
     receive_growth: Vec<BudgetLease>,
     /// When the current measure of the application's reading began, and
@@ -864,7 +864,7 @@ impl TcpTable {
                 stats: FlowStatsContribution::default(),
                 _flow_lease: flow_lease,
                 _metadata_lease: metadata_lease,
-                _receive_credit: receive_credit,
+                receive_credit_lease: receive_credit,
                 receive_growth: Vec::new(),
                 read_measure_start_ms: self.now_ms,
                 read_measure_bytes: 0,
@@ -1063,7 +1063,7 @@ impl TcpTable {
                 stats: FlowStatsContribution::default(),
                 _flow_lease: flow_lease,
                 _metadata_lease: metadata_lease,
-                _receive_credit: receive_credit,
+                receive_credit_lease: receive_credit,
                 receive_growth: Vec::new(),
                 read_measure_start_ms: self.now_ms,
                 read_measure_bytes: 0,
@@ -3414,7 +3414,7 @@ fn grow_receive_window(
             flow.tcb.grow_receive_capacity(additional);
             increment_counter(growths);
             debug_assert_eq!(
-                flow._receive_credit.amount()
+                flow.receive_credit_lease.amount()
                     + flow
                         .receive_growth
                         .iter()
