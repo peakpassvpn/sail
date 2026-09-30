@@ -20,6 +20,7 @@ use super::inbound::{AutoRedirectSettings, TunSettings};
 use super::prematch::{self, Marks};
 use crate::app::dispatcher::Dispatcher;
 use crate::app::router::rule_set::RuleSets;
+use crate::net::accept::AcceptBackoff;
 use crate::platform::addr_monitor::AddressMonitor;
 use crate::platform::auto_redirect::{self as ruleset, AddressSet, RulesetOptions};
 use crate::platform::ip_ranges::range_prefixes;
@@ -393,13 +394,18 @@ fn listen(ipv6: bool) -> Result<std::net::TcpListener> {
 
 /// Takes the redirected connections, each to be routed as the TUN's.
 async fn serve(listener: tokio::net::TcpListener, tag: String, dispatcher: Arc<Dispatcher>) {
+    let mut backoff = AcceptBackoff::new("auto_redirect: accept");
     loop {
         let (stream, peer) = match listener.accept().await {
-            Ok(accepted) => accepted,
+            Ok(accepted) => {
+                backoff.succeeded();
+                accepted
+            }
             Err(e) => {
-                // Out of descriptors, say: wait rather than spin.
-                warn!("auto_redirect: accept: {}", e);
-                tokio::time::sleep(Duration::from_millis(100)).await;
+                // Out of descriptors, say: waited out, not spun on.
+                if backoff.failed(e).await.is_err() {
+                    return;
+                }
                 continue;
             }
         };

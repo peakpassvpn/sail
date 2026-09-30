@@ -15,6 +15,7 @@ use tracing::debug;
 
 use super::sys;
 use crate::adapter::*;
+use crate::net::accept::AcceptBackoff;
 use crate::session::{DatagramSource, Network, Session, SocksAddr};
 
 /// A tproxy inbound, on TCP, UDP, or both.
@@ -124,7 +125,10 @@ impl InboundDatagram for Datagram {
         Box<dyn InboundDatagramSendHalf>,
     ) {
         (
-            Box::new(DatagramRecvHalf(self.0)),
+            Box::new(DatagramRecvHalf(
+                self.0,
+                AcceptBackoff::new("tproxy: receive"),
+            )),
             Box::new(DatagramSendHalf {
                 replies: ReplySockets::new(),
             }),
@@ -138,7 +142,8 @@ impl InboundDatagram for Datagram {
     }
 }
 
-struct DatagramRecvHalf(Arc<UdpSocket>);
+/// Waits out what fails for one datagram, so the inbound serves on.
+struct DatagramRecvHalf(Arc<UdpSocket>, AcceptBackoff);
 
 #[async_trait]
 impl InboundDatagramRecvHalf for DatagramRecvHalf {
@@ -147,13 +152,25 @@ impl InboundDatagramRecvHalf for DatagramRecvHalf {
         buf: &mut [u8],
     ) -> ProxyResult<(usize, DatagramSource, SocksAddr)> {
         let fd = self.0.as_raw_fd();
-        let (n, source, destination) = self
-            .0
-            .async_io(Interest::READABLE, || {
-                sys::recv_with_original_destination(fd, buf)
-            })
-            .await
-            .map_err(|e| ProxyError::DatagramFatal(e.into()))?;
+        let (n, source, destination) = loop {
+            let received = self
+                .0
+                .async_io(Interest::READABLE, || {
+                    sys::recv_with_original_destination(fd, buf)
+                })
+                .await;
+            match received {
+                Ok(received) => {
+                    self.1.succeeded();
+                    break received;
+                }
+                Err(e) => self
+                    .1
+                    .failed(e)
+                    .await
+                    .map_err(|e| ProxyError::DatagramFatal(e.into()))?,
+            }
+        };
         let source = unmapped(source);
         let destination = destination.map(unmapped).ok_or_else(|| {
             ProxyError::DatagramWarn(anyhow!(

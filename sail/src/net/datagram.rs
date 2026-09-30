@@ -16,6 +16,7 @@ use crate::{
     session::{DatagramSource, SocksAddr},
 };
 
+use super::accept::{self, AcceptBackoff};
 use super::*;
 
 /// An outbound datagram wraps a normal UDP socket and used as a normal UDP socket.
@@ -39,22 +40,27 @@ impl OutboundDatagram for StdOutboundDatagram {
         let r = Arc::new(self.inner);
         let s = r.clone();
         (
-            Box::new(StdOutboundDatagramRecvHalf(r)),
+            Box::new(StdOutboundDatagramRecvHalf(r, udp_backoff())),
             Box::new(StdOutboundDatagramSendHalf(s)),
         )
     }
 }
 
-pub struct StdOutboundDatagramRecvHalf(Arc<UdpSocket>);
+pub struct StdOutboundDatagramRecvHalf(Arc<UdpSocket>, AcceptBackoff);
 
 #[async_trait]
 impl OutboundDatagramRecvHalf for StdOutboundDatagramRecvHalf {
     async fn recv_from(&mut self, buf: &mut [u8]) -> io::Result<(usize, SocksAddr)> {
-        match self.0.recv_from(buf).await {
-            Ok((n, a)) => Ok((n, SocksAddr::Ip(unmapped_ipv4(a)))),
-            Err(e) => Err(e),
-        }
+        let (n, a) = accept::recv_from(&self.0, buf, &mut self.1).await?;
+        Ok((n, SocksAddr::Ip(unmapped_ipv4(a))))
     }
+}
+
+/// What an unconnected socket's receiving half waits out: an ICMP error
+/// some target answered an earlier datagram with, which some systems
+/// report here, is no reason to end the session with every other target.
+fn udp_backoff() -> AcceptBackoff {
+    AcceptBackoff::new("udp: receive")
 }
 
 pub struct StdOutboundDatagramSendHalf(Arc<UdpSocket>);
@@ -103,7 +109,7 @@ impl OutboundDatagram for DomainResolveOutboundDatagram {
         let r = Arc::new(self.inner);
         let s = r.clone();
         (
-            Box::new(DomainResolveOutboundDatagramRecvHalf(r)),
+            Box::new(DomainResolveOutboundDatagramRecvHalf(r, udp_backoff())),
             Box::new(DomainResolveOutboundDatagramSendHalf(
                 s,
                 self.dns_client,
@@ -113,15 +119,13 @@ impl OutboundDatagram for DomainResolveOutboundDatagram {
     }
 }
 
-pub struct DomainResolveOutboundDatagramRecvHalf(Arc<UdpSocket>);
+pub struct DomainResolveOutboundDatagramRecvHalf(Arc<UdpSocket>, AcceptBackoff);
 
 #[async_trait]
 impl OutboundDatagramRecvHalf for DomainResolveOutboundDatagramRecvHalf {
     async fn recv_from(&mut self, buf: &mut [u8]) -> io::Result<(usize, SocksAddr)> {
-        match self.0.recv_from(buf).await {
-            Ok((n, a)) => Ok((n, SocksAddr::Ip(unmapped_ipv4(a)))),
-            Err(e) => Err(e),
-        }
+        let (n, a) = accept::recv_from(&self.0, buf, &mut self.1).await?;
+        Ok((n, SocksAddr::Ip(unmapped_ipv4(a))))
     }
 }
 
@@ -202,6 +206,7 @@ impl OutboundDatagram for DomainAssociatedOutboundDatagram {
                 r,
                 self.destination,
                 self.unmap.then(|| targets.clone()),
+                udp_backoff(),
             )),
             Box::new(DomainAssociatedOutboundDatagramSendHalf(
                 s,
@@ -278,12 +283,13 @@ pub struct DomainAssociatedOutboundDatagramRecvHalf(
     Arc<UdpSocket>,
     SocksAddr,
     Option<DomainTargetMap>,
+    AcceptBackoff,
 );
 
 #[async_trait]
 impl OutboundDatagramRecvHalf for DomainAssociatedOutboundDatagramRecvHalf {
     async fn recv_from(&mut self, buf: &mut [u8]) -> io::Result<(usize, SocksAddr)> {
-        let (n, address) = self.0.recv_from(buf).await?;
+        let (n, address) = accept::recv_from(&self.0, buf, &mut self.3).await?;
         match &self.2 {
             Some(targets) => Ok((n, targets.target(address, &self.1).await)),
             None => Ok((n, SocksAddr::Ip(unmapped_ipv4(address)))),
@@ -399,7 +405,7 @@ impl InboundDatagram for SimpleInboundDatagram {
         let r = Arc::new(self.0);
         let s = r.clone();
         (
-            Box::new(SimpleInboundDatagramRecvHalf(r)),
+            Box::new(SimpleInboundDatagramRecvHalf(r, udp_backoff())),
             Box::new(SimpleInboundDatagramSendHalf(s)),
         )
     }
@@ -409,7 +415,9 @@ impl InboundDatagram for SimpleInboundDatagram {
     }
 }
 
-pub struct SimpleInboundDatagramRecvHalf(Arc<UdpSocket>);
+/// The socket an inbound listens on: what fails for one datagram, or for
+/// want of buffers, is waited out, and the inbound serves on.
+pub struct SimpleInboundDatagramRecvHalf(Arc<UdpSocket>, AcceptBackoff);
 
 #[async_trait]
 impl InboundDatagramRecvHalf for SimpleInboundDatagramRecvHalf {
@@ -417,11 +425,9 @@ impl InboundDatagramRecvHalf for SimpleInboundDatagramRecvHalf {
         &mut self,
         buf: &mut [u8],
     ) -> ProxyResult<(usize, DatagramSource, SocksAddr)> {
-        let (n, src_addr) = self
-            .0
-            .recv_from(buf)
-            .map_err(|e| ProxyError::DatagramFatal(e.into()))
-            .await?;
+        let (n, src_addr) = accept::recv_from(&self.0, buf, &mut self.1)
+            .await
+            .map_err(|e| ProxyError::DatagramFatal(e.into()))?;
         Ok((
             n,
             DatagramSource::new(src_addr, None),

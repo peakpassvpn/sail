@@ -8,6 +8,8 @@ use sail_netstack::{
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+use crate::net::accept::AcceptBackoff;
+
 pub(crate) struct TunPacketIo {
     writer: tun::DeviceWriter,
     reader: tun::DeviceReader,
@@ -16,6 +18,8 @@ pub(crate) struct TunPacketIo {
     next_token: u64,
     pending_recv_error: Option<io::Error>,
     pending_send_error: Option<io::Error>,
+    /// Waits out a failed read, so the TUN serves on through one.
+    recv_backoff: AcceptBackoff,
 }
 
 impl TunPacketIo {
@@ -35,6 +39,7 @@ impl TunPacketIo {
             next_token: 0,
             pending_recv_error: None,
             pending_send_error: None,
+            recv_backoff: AcceptBackoff::new("tun: read"),
         })
     }
 
@@ -49,7 +54,9 @@ impl TunPacketIo {
 impl PacketIo for TunPacketIo {
     async fn recv(&mut self, out: &mut PacketBatch) -> io::Result<usize> {
         if let Some(error) = self.pending_recv_error.take() {
-            return Err(error);
+            // The device's end ends the runner; anything else is waited
+            // out, and read past.
+            self.recv_backoff.failed(error).await?;
         }
         let initial_len = out.len();
         let receive_limit = self.max_batch.min(out.limit().saturating_sub(initial_len));
@@ -59,7 +66,13 @@ impl PacketIo for TunPacketIo {
                 "native PacketIo receive batch has no free slots",
             ));
         }
-        let count = self.reader.read(&mut self.recv_buffer).await?;
+        let count = loop {
+            match self.reader.read(&mut self.recv_buffer).await {
+                Ok(count) => break count,
+                Err(error) => self.recv_backoff.failed(error).await?,
+            }
+        };
+        self.recv_backoff.succeeded();
         if count == 0 {
             return Ok(0);
         }
@@ -200,6 +213,8 @@ pub(crate) struct TunRsPacketIo {
     next_token: u64,
     pending_recv_error: Option<io::Error>,
     pending_send_error: Option<io::Error>,
+    /// Waits out a failed read, so the TUN serves on through one.
+    recv_backoff: AcceptBackoff,
 }
 
 #[cfg(target_os = "linux")]
@@ -247,6 +262,7 @@ impl TunRsPacketIo {
             next_token: 0,
             pending_recv_error: None,
             pending_send_error: None,
+            recv_backoff: AcceptBackoff::new("tun: read"),
         })
     }
 
@@ -273,7 +289,9 @@ impl TunRsPacketIo {
 impl PacketIo for TunRsPacketIo {
     async fn recv(&mut self, out: &mut PacketBatch) -> io::Result<usize> {
         if let Some(error) = self.pending_recv_error.take() {
-            return Err(error);
+            // The device's end ends the runner; anything else is waited
+            // out, and read past.
+            self.recv_backoff.failed(error).await?;
         }
         let initial_len = out.len();
         let receive_limit = self.max_batch.min(out.limit().saturating_sub(initial_len));
@@ -298,15 +316,22 @@ impl PacketIo for TunRsPacketIo {
             return Ok(out.len().saturating_sub(initial_len));
         }
         if self.offload {
-            let count = self
-                .device
-                .recv_multiple(
-                    &mut self.offload_buffer,
-                    &mut self.offload_packets,
-                    &mut self.offload_sizes,
-                    0,
-                )
-                .await?;
+            let count = loop {
+                let received = self
+                    .device
+                    .recv_multiple(
+                        &mut self.offload_buffer,
+                        &mut self.offload_packets,
+                        &mut self.offload_sizes,
+                        0,
+                    )
+                    .await;
+                match received {
+                    Ok(count) => break count,
+                    Err(error) => self.recv_backoff.failed(error).await?,
+                }
+            };
+            self.recv_backoff.succeeded();
             if count > self.offload_packets.len() {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
@@ -327,7 +352,13 @@ impl PacketIo for TunRsPacketIo {
             }
             return Ok(out.len().saturating_sub(initial_len));
         }
-        let count = self.device.recv(&mut self.recv_buffer).await?;
+        let count = loop {
+            match self.device.recv(&mut self.recv_buffer).await {
+                Ok(count) => break count,
+                Err(error) => self.recv_backoff.failed(error).await?,
+            }
+        };
+        self.recv_backoff.succeeded();
         if count == 0 {
             return Ok(0);
         }

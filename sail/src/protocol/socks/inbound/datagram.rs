@@ -16,6 +16,7 @@ use tokio::net::UdpSocket;
 use super::association::{ClientFilter, Slot};
 use crate::{
     adapter::*,
+    net::accept::AcceptBackoff,
     session::{DatagramSource, SocksAddr, SocksAddrWireType, UdpAssociationOwner},
 };
 
@@ -87,6 +88,7 @@ impl InboundDatagram for Relay {
                 user: self.user,
                 owner: UdpAssociationOwner::new(),
                 packet: Vec::new(),
+                backoff: AcceptBackoff::new("socks: udp association: receive"),
             }),
             Box::new(SendHalf(self.shared)),
         )
@@ -109,6 +111,8 @@ struct RecvHalf {
     /// this half, and with it the owner, goes.
     owner: UdpAssociationOwner,
     packet: Vec<u8>,
+    /// Waits out what fails for one datagram, or for want of buffers.
+    backoff: AcceptBackoff,
 }
 
 #[async_trait]
@@ -124,6 +128,7 @@ impl InboundDatagramRecvHalf for RecvHalf {
             user,
             owner,
             packet,
+            backoff,
         } = self;
         packet.resize(buf.len() + 512, 0);
         let mut ignored = [0u8; 512];
@@ -137,16 +142,20 @@ impl InboundDatagramRecvHalf for RecvHalf {
                 biased;
                 received = shared.socket.recv_from(packet) => {
                     let (n, src) = match received {
-                        Ok(r) => r,
-                        // An unreachable client, as some systems report
-                        // on an unconnected socket.
-                        Err(e) if matches!(
-                            e.kind(),
-                            io::ErrorKind::ConnectionReset | io::ErrorKind::ConnectionRefused
-                        ) => {
-                            return Err(ProxyError::DatagramWarn(e.into()));
+                        Ok(r) => {
+                            backoff.succeeded();
+                            r
                         }
-                        Err(e) => return Err(ProxyError::DatagramFatal(e.into())),
+                        // An unreachable client, as some systems report
+                        // on an unconnected socket, or no buffers for the
+                        // moment: waited out.
+                        Err(e) => {
+                            backoff
+                                .failed(e)
+                                .await
+                                .map_err(|e| ProxyError::DatagramFatal(e.into()))?;
+                            continue;
+                        }
                     };
                     if !filter.accept(src) {
                         return Err(ProxyError::DatagramWarn(anyhow!(

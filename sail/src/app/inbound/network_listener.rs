@@ -13,6 +13,7 @@ use tracing::{debug, info, trace, warn, Instrument};
 
 use crate::app::dispatcher::Dispatcher;
 use crate::app::nat_manager::{NatManager, UdpPacket};
+use crate::net::accept::AcceptBackoff;
 use crate::session::{Network, Session, SocksAddr};
 use crate::Runner;
 use crate::{adapter::*, net::*};
@@ -249,8 +250,23 @@ async fn handle_tcp_listen(
             .insert(handler.tag().clone(), listen_addr);
     }
 
+    // Out of descriptors, say, is waited out: the listener outlives it.
+    let mut backoff = AcceptBackoff::new(format!(
+        "[{}] inbound: accept tcp {}",
+        handler.tag(),
+        listen_addr
+    ));
     loop {
-        let (stream, _) = listener.accept().await?;
+        let stream = match listener.accept().await {
+            Ok((stream, _)) => {
+                backoff.succeeded();
+                stream
+            }
+            Err(e) => {
+                backoff.failed(e).await?;
+                continue;
+            }
+        };
         let handler_cloned = handler.clone();
         let dispatcher_cloned = dispatcher.clone();
         let nat_manager_cloned = nat_manager.clone();

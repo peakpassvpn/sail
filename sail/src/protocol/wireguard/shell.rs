@@ -8,7 +8,6 @@
 use std::io;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::time::Duration;
 
 use async_trait::async_trait;
 use parking_lot::Mutex;
@@ -16,6 +15,7 @@ use tokio::sync::{mpsc, Notify};
 use tokio::task::JoinHandle;
 
 use super::device::{Device, Error, Incoming, PeerId, Transmit};
+use crate::net::accept::AcceptBackoff;
 
 /// Where WireGuard's datagrams go and come from.
 #[async_trait]
@@ -85,14 +85,20 @@ impl Inner {
 
     async fn recv_loop(self: Arc<Self>, tx: mpsc::Sender<InboundPacket>) {
         let mut buf = vec![0u8; MAX_DATAGRAM];
+        let mut backoff = AcceptBackoff::new("wireguard: receive");
         loop {
             let (n, src) = match self.transport.recv_from(&mut buf).await {
-                Ok(r) => r,
+                Ok(r) => {
+                    backoff.succeeded();
+                    r
+                }
                 Err(e) => {
                     // ICMP errors surface here on some systems; keep going,
-                    // but do not spin on a transport that keeps failing.
-                    tracing::debug!("wireguard: receive failed: {}", e);
-                    tokio::time::sleep(Duration::from_millis(10)).await;
+                    // but do not spin on a transport that keeps failing,
+                    // and stop on a socket that is gone.
+                    if backoff.failed(e).await.is_err() {
+                        return;
+                    }
                     continue;
                 }
             };

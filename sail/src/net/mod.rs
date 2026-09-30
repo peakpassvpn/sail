@@ -25,6 +25,7 @@ use crate::{
 
 use resolver::Resolver;
 
+pub mod accept;
 pub mod datagram;
 pub mod dial;
 pub mod interface;
@@ -130,19 +131,31 @@ impl TcpListener {
         &self.inner
     }
 
+    /// The next connection. An error is the listener's own: a connection
+    /// whose options cannot be set, one the peer has already reset say, is
+    /// dropped here and the next one taken.
     pub async fn accept(&self) -> io::Result<(TcpStream, SocketAddr)> {
-        let (stream, addr) = self.inner.accept().await?;
-        apply_socket_opts(SockRef::from(&stream), self.keepalive)?;
+        loop {
+            let (stream, addr) = self.inner.accept().await?;
+            match self.configure(&stream) {
+                Ok(()) => return Ok((stream, addr)),
+                Err(e) => debug!("accepted connection from {} dropped: {}", addr, e),
+            }
+        }
+    }
+
+    fn configure(&self, stream: &TcpStream) -> io::Result<()> {
+        apply_socket_opts(SockRef::from(stream), self.keepalive)?;
         if self.abort_on_close {
             // Reclaims the socket the moment it is closed, and discards
             // anything still queued for the peer along with it. See the
             // option's own documentation for when that trade is the right one.
-            SockRef::from(&stream).set_linger(Some(Duration::ZERO))?;
+            SockRef::from(stream).set_linger(Some(Duration::ZERO))?;
         }
         if self.send_buffer > 0 {
-            SockRef::from(&stream).set_send_buffer_size(self.send_buffer)?;
+            SockRef::from(stream).set_send_buffer_size(self.send_buffer)?;
         }
-        Ok((stream, addr))
+        Ok(())
     }
 }
 

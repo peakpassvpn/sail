@@ -16,6 +16,7 @@ use tokio::net::UdpSocket;
 use crate::adapter::inbound::Handler;
 use crate::adapter::registry::{InboundContext, InboundFactory, InboundRegistry};
 use crate::adapter::*;
+use crate::net::accept::{self, AcceptBackoff};
 use crate::session::{DatagramSource, Session, SocksAddr};
 
 pub(crate) fn register(registry: &mut InboundRegistry) {
@@ -142,6 +143,7 @@ impl InboundDatagram for Datagram {
             Box::new(DatagramRecvHalf {
                 socket: self.socket.clone(),
                 destination: self.destination,
+                backoff: AcceptBackoff::new("direct: receive"),
             }),
             Box::new(DatagramSendHalf(self.socket)),
         )
@@ -157,6 +159,8 @@ impl InboundDatagram for Datagram {
 struct DatagramRecvHalf {
     socket: Arc<UdpSocket>,
     destination: SocksAddr,
+    /// Waits out what fails for one datagram, so the inbound serves on.
+    backoff: AcceptBackoff,
 }
 
 #[async_trait]
@@ -165,9 +169,7 @@ impl InboundDatagramRecvHalf for DatagramRecvHalf {
         &mut self,
         buf: &mut [u8],
     ) -> ProxyResult<(usize, DatagramSource, SocksAddr)> {
-        let (n, source) = self
-            .socket
-            .recv_from(buf)
+        let (n, source) = accept::recv_from(&self.socket, buf, &mut self.backoff)
             .await
             .map_err(|e| ProxyError::DatagramFatal(e.into()))?;
         Ok((
