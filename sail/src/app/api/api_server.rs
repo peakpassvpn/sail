@@ -284,6 +284,14 @@ mod handlers {
         StatusCode::NO_CONTENT
     }
 
+    #[cfg(any(
+        feature = "mux",
+        feature = "inbound-amux",
+        feature = "outbound-amux",
+        feature = "inbound-anytls",
+        feature = "outbound-anytls",
+        feature = "quic"
+    ))]
     pub async fn stat_mux_json(
     ) -> Json<std::collections::BTreeMap<&'static str, crate::transport::muxcore::stats::Snapshot>>
     {
@@ -527,7 +535,8 @@ impl ApiServer {
             feature = "inbound-amux",
             feature = "outbound-amux",
             feature = "inbound-anytls",
-            feature = "outbound-anytls"
+            feature = "outbound-anytls",
+            feature = "quic"
         ))]
         {
             app = app.route("/api/v1/runtime/stat/mux", get(handlers::stat_mux_json));
