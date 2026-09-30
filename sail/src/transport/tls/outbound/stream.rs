@@ -4,7 +4,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use tracing::trace;
 
-use super::super::client::TlsClient;
+use super::super::client::{Identity, TlsClient};
 use super::super::fingerprint::Fingerprint;
 use crate::{adapter::*, app::SyncDnsClient, session::Session, transport::vision::VisionState};
 
@@ -29,6 +29,8 @@ impl Handler {
         certificate: Option<String>,
         insecure: bool,
         fingerprint: Option<Fingerprint>,
+        disable_sni: bool,
+        identity: Option<&Identity>,
         ech: bool,
         ech_disable_dns_lookup: bool,
         ech_config_list: Option<String>,
@@ -38,9 +40,20 @@ impl Handler {
         if let Some(list) = ech_config_list.as_deref() {
             decode_ech_config_list(list)?;
         }
+        let mut client = TlsClient::with_identity(
+            &alpns,
+            certificate.as_deref(),
+            insecure,
+            fingerprint,
+            roots,
+            identity,
+        )?;
+        if disable_sni {
+            client = client.without_sni();
+        }
         Ok(Handler {
             server_name,
-            client: TlsClient::new(&alpns, certificate.as_deref(), insecure, fingerprint, roots)?,
+            client,
             ech: ech.then_some(Ech {
                 fixed_config_list: ech_config_list,
                 disable_dns_lookup: ech_disable_dns_lookup,
@@ -411,6 +424,8 @@ mod tests {
         let result = Handler::new(
             "localhost".to_string(),
             vec![],
+            None,
+            false,
             None,
             false,
             None,

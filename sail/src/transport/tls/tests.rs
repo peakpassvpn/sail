@@ -25,9 +25,15 @@ pub(crate) fn self_signed_pem() -> String {
 }
 
 fn server() -> Server {
+    server_with(|_| {})
+}
+
+/// `server`, `configure` run on its acceptor.
+fn server_with(configure: impl FnOnce(&mut btls::ssl::SslAcceptorBuilder)) -> Server {
     let rcgen::CertifiedKey { cert, key_pair } =
         rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
     let mut builder = SslAcceptor::mozilla_intermediate_v5(SslMethod::tls()).unwrap();
+    configure(&mut builder);
     builder
         .set_certificate(&X509::from_pem(cert.pem().as_bytes()).unwrap())
         .unwrap();
@@ -413,4 +419,158 @@ fn test_random_fingerprint_is_a_browser_kept_for_the_process() {
         assert_eq!(Fingerprint::from_name("random").unwrap(), picked);
     }
     assert!(Fingerprint::from_name("randomized").is_err());
+}
+
+/// A CA, and a client certificate it issued with the certificate's key:
+/// PEM, each.
+pub(crate) struct ClientPki {
+    pub ca: String,
+    pub cert: String,
+    pub key: String,
+}
+
+pub(crate) fn client_pki() -> ClientPki {
+    let ca_key = rcgen::KeyPair::generate().unwrap();
+    let mut ca = rcgen::CertificateParams::new(Vec::<String>::new()).unwrap();
+    ca.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
+    ca.distinguished_name = rcgen::DistinguishedName::new();
+    ca.distinguished_name
+        .push(rcgen::DnType::CommonName, "sail test CA");
+    let ca = ca.self_signed(&ca_key).unwrap();
+    let key = rcgen::KeyPair::generate().unwrap();
+    let mut cert = rcgen::CertificateParams::new(vec!["client".into()]).unwrap();
+    cert.distinguished_name = rcgen::DistinguishedName::new();
+    cert.distinguished_name
+        .push(rcgen::DnType::CommonName, "client");
+    let cert = cert.signed_by(&key, &ca, &ca_key).unwrap();
+    ClientPki {
+        ca: ca.pem(),
+        cert: cert.pem(),
+        key: key.serialize_pem(),
+    }
+}
+
+/// The identity of `pki`'s client certificate.
+fn identity(pki: &ClientPki) -> super::client::Identity {
+    super::client::Identity::new(
+        X509::stack_from_pem(pki.cert.as_bytes()).unwrap(),
+        PKey::private_key_from_pem(pki.key.as_bytes()).unwrap(),
+    )
+    .unwrap()
+}
+
+/// A server that wants a client certificate `ca` issued.
+fn server_asking(ca: &str) -> Server {
+    let ca = X509::from_pem(ca.as_bytes()).unwrap();
+    server_with(|builder| {
+        use btls::ssl::SslVerifyMode;
+        builder.cert_store_mut().add_cert(ca).unwrap();
+        builder.set_verify(SslVerifyMode::PEER | SslVerifyMode::FAIL_IF_NO_PEER_CERT);
+    })
+}
+
+#[tokio::test]
+async fn test_client_certificate() {
+    let pki = client_pki();
+    let server = server_asking(&pki.ca);
+    let client = TlsClient::with_identity(
+        &[],
+        Some(&server.cert_pem),
+        false,
+        Some(super::Fingerprint::Chrome),
+        &test_roots(),
+        Some(&identity(&pki)),
+    )
+    .unwrap();
+    let (c, s) = pair(&server, &client, "localhost", None, None).await;
+    let (mut c, mut s) = (c.unwrap(), s.unwrap());
+    assert!(s.conn().ssl().peer_certificate().is_some());
+    c.write_all(b"ping").await.unwrap();
+    c.flush().await.unwrap();
+    let mut buf = [0; 4];
+    s.read_exact(&mut buf).await.unwrap();
+    assert_eq!(&buf, b"ping");
+
+    // Without one, the server fails the handshake.
+    let client = TlsClient::new(&[], Some(&server.cert_pem), false, None, &test_roots()).unwrap();
+    let (_, s) = pair(&server, &client, "localhost", None, None).await;
+    assert!(s.is_err());
+
+    // One of another CA is refused too.
+    let other = client_pki();
+    let client = TlsClient::with_identity(
+        &[],
+        Some(&server.cert_pem),
+        false,
+        None,
+        &test_roots(),
+        Some(&identity(&other)),
+    )
+    .unwrap();
+    let (_, s) = pair(&server, &client, "localhost", None, None).await;
+    assert!(s.is_err());
+}
+
+#[test]
+fn test_identity_key_must_match() {
+    let (a, b) = (client_pki(), client_pki());
+    let err = super::client::Identity::new(
+        X509::stack_from_pem(a.cert.as_bytes()).unwrap(),
+        PKey::private_key_from_pem(b.key.as_bytes()).unwrap(),
+    )
+    .err()
+    .unwrap();
+    assert!(err.to_string().contains("not the certificate's"), "{}", err);
+}
+
+#[tokio::test]
+async fn test_without_sni() {
+    use btls::ssl::NameType;
+    let server = server();
+    let with = TlsClient::new(&[], Some(&server.cert_pem), false, None, &test_roots()).unwrap();
+    let (c, s) = pair(&server, &with, "localhost", None, None).await;
+    assert!(c.is_ok());
+    assert_eq!(
+        s.unwrap().conn().ssl().servername(NameType::HOST_NAME),
+        Some("localhost")
+    );
+
+    let without = TlsClient::new(&[], Some(&server.cert_pem), false, None, &test_roots())
+        .unwrap()
+        .without_sni();
+    let (c, s) = pair(&server, &without, "localhost", None, None).await;
+    assert!(c.is_ok());
+    assert_eq!(
+        s.unwrap().conn().ssl().servername(NameType::HOST_NAME),
+        None
+    );
+    // The certificate is still verified against the name.
+    let (c, _) = pair(&server, &without, "example.com", None, None).await;
+    assert!(c.is_err(), "the certificate is not for example.com");
+}
+
+// With a browser's ClientHello or BoringSSL's own, the extension is gone.
+#[test]
+fn test_client_hello_without_sni() {
+    use super::hello::EXT_SERVER_NAME;
+    use super::Fingerprint;
+    for fingerprint in [
+        None,
+        Some(Fingerprint::Chrome),
+        Some(Fingerprint::Firefox),
+        Some(Fingerprint::Safari),
+        Some(Fingerprint::Android),
+    ] {
+        let client = TlsClient::new(&[], None, false, fingerprint, &test_roots()).unwrap();
+        let mut conn = client.connection("localhost", None).unwrap();
+        assert!(first_hello(&mut conn).extension(EXT_SERVER_NAME).is_some());
+        let client = client.without_sni();
+        let mut conn = client.connection("localhost", None).unwrap();
+        let hello = first_hello(&mut conn);
+        assert!(
+            hello.extension(EXT_SERVER_NAME).is_none(),
+            "{:?}",
+            fingerprint
+        );
+    }
 }

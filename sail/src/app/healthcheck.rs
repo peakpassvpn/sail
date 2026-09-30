@@ -145,6 +145,8 @@ impl HttpProbe {
                 false,
                 None,
                 false,
+                None,
+                false,
                 false,
                 None,
                 dns_client,

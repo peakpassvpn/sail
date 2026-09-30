@@ -48,7 +48,8 @@ struct ShadowTlsOutboundOptions {
     password: String,
     /// Must be enabled: the handshake with the site the server imitates,
     /// `server_name` being the site's (the server's address when unset).
-    /// A browser fingerprint applies as for TLS; REALITY and ECH do not.
+    /// A browser fingerprint, disable_sni and a client certificate apply
+    /// as for TLS; REALITY and ECH do not.
     #[serde(default)]
     tls: Option<OutboundTls>,
 }
@@ -80,14 +81,21 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
             tag
         ));
     }
-    let client = TlsClient::new(
+    let identity = tls
+        .client_identity(ctx.env)
+        .map_err(|e| anyhow!("[{}] outbound: tls.{}", tag, e))?;
+    let mut client = TlsClient::with_identity(
         &tls.alpn.clone().map(Listable::into_vec).unwrap_or_default(),
         trusted_certificate(&tls, ctx.env).as_deref(),
         tls.insecure,
         tls.fingerprint(tag)?,
         &ctx.env.tls_roots.get()?,
+        identity.as_ref(),
     )
     .map_err(|e| anyhow!("[{}] outbound: tls: {}", tag, e))?;
+    if tls.disable_sni {
+        client = client.without_sni();
+    }
     let handler = Handler {
         server: options.server.clone(),
         port: options.server_port,

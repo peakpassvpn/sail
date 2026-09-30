@@ -192,6 +192,10 @@ pub struct OutboundTls {
     /// Defaults to the server's address.
     #[serde(default)]
     pub server_name: Option<String>,
+    /// Sends no SNI. The certificate is still verified against
+    /// `server_name`, unless `insecure`.
+    #[serde(default)]
+    pub disable_sni: bool,
     #[serde(default)]
     pub insecure: bool,
     #[serde(default)]
@@ -202,6 +206,19 @@ pub struct OutboundTls {
     /// A PEM certificate to trust, by path.
     #[serde(default)]
     pub certificate_path: Option<String>,
+    /// An inline PEM certificate, its chain after it, presented when the
+    /// server asks for one; with `client_key`.
+    #[serde(default)]
+    pub client_certificate: Option<Listable>,
+    /// `client_certificate`, by path.
+    #[serde(default)]
+    pub client_certificate_path: Option<String>,
+    /// The inline PEM key of the client certificate.
+    #[serde(default)]
+    pub client_key: Option<Listable>,
+    /// `client_key`, by path.
+    #[serde(default)]
+    pub client_key_path: Option<String>,
     #[serde(default)]
     pub ech: Option<OutboundEch>,
     #[serde(default)]
@@ -249,6 +266,90 @@ impl OutboundTls {
                 .map(Some)
                 .map_err(|e| anyhow!("[{}] outbound: tls.utls.fingerprint: {}", tag, e)),
         }
+    }
+
+    /// Whether a client certificate or its key is set.
+    pub(crate) fn has_client_certificate(&self) -> bool {
+        self.client_certificate.is_some()
+            || self.client_certificate_path.is_some()
+            || self.client_key.is_some()
+            || self.client_key_path.is_some()
+    }
+
+    /// The client certificate and its key, inline or by path; none when
+    /// neither is set. Errors name the field, under `tls`.
+    #[cfg(feature = "tls")]
+    #[cfg_attr(
+        not(any(
+            feature = "outbound-tls",
+            feature = "quic",
+            feature = "outbound-shadowtls"
+        )),
+        allow(dead_code)
+    )]
+    pub(crate) fn client_identity(
+        &self,
+        env: &RuntimeEnv,
+    ) -> Result<Option<crate::transport::tls::client::Identity>> {
+        use crate::transport::tls::client::{load_certificates, load_private_key, Identity};
+        let certificate = pem_source(
+            "client_certificate",
+            &self.client_certificate,
+            &self.client_certificate_path,
+            env,
+        )?;
+        let key = pem_source("client_key", &self.client_key, &self.client_key_path, env)?;
+        let (certificate, key) = match (certificate, key) {
+            (None, None) => return Ok(None),
+            (Some(certificate), Some(key)) => (certificate, key),
+            (Some(_), None) => return Err(anyhow!("client_key: needed with client_certificate")),
+            (None, Some(_)) => return Err(anyhow!("client_certificate: needed with client_key")),
+        };
+        let chain =
+            load_certificates(&certificate).map_err(|e| anyhow!("client_certificate: {}", e))?;
+        // The error names no inline key: it holds none of it.
+        let key = load_private_key(&key).map_err(|e| anyhow!("client_key: {}", e))?;
+        Identity::new(chain, key)
+            .map(Some)
+            .map_err(|e| anyhow!("client_key: {}", e))
+    }
+}
+
+/// The PEM of `field`, inline or by path (`field`_path), as the TLS
+/// loaders take it: inline PEM, or a path. Inline, it must be PEM, so
+/// that it is never read as a path, nor echoed in an error.
+#[cfg(feature = "tls")]
+#[cfg_attr(
+    not(any(
+        feature = "outbound-tls",
+        feature = "quic",
+        feature = "outbound-shadowtls"
+    )),
+    allow(dead_code)
+)]
+fn pem_source(
+    field: &str,
+    inline: &Option<Listable>,
+    path: &Option<String>,
+    env: &RuntimeEnv,
+) -> Result<Option<String>> {
+    match (inline, path) {
+        (Some(_), Some(_)) => Err(anyhow!(
+            "{}: set at most one of {} and {}_path",
+            field,
+            field,
+            field
+        )),
+        (Some(inline), None) => {
+            let pem = inline.clone().joined();
+            if !pem.contains("-----BEGIN") {
+                return Err(anyhow!("{}: not PEM", field));
+            }
+            Ok(Some(pem))
+        }
+        (None, Some(path)) if path.is_empty() => Err(anyhow!("{}_path: cannot be empty", field)),
+        (None, Some(path)) => Ok(Some(env.data_path(path))),
+        (None, None) => Ok(None),
     }
 }
 
@@ -956,6 +1057,20 @@ fn tls_outbound(
     use crate::adapter::outbound::HandlerBuilder;
     let server_name = tls.server_name.clone().unwrap_or_default();
     if let Some(reality) = tls.reality.as_ref().filter(|r| r.enabled) {
+        // REALITY's ClientHello carries the name of the site it imitates,
+        // and its server asks for no certificate.
+        if tls.disable_sni {
+            return Err(anyhow!(
+                "[{}] outbound: tls.disable_sni: not with tls.reality",
+                tag
+            ));
+        }
+        if tls.has_client_certificate() {
+            return Err(anyhow!(
+                "[{}] outbound: tls.client_certificate: not with tls.reality",
+                tag
+            ));
+        }
         #[cfg(feature = "outbound-reality")]
         return Ok(HandlerBuilder::default()
             .tag(format!("{}/reality", tag))
@@ -986,16 +1101,28 @@ fn tls_outbound(
     #[cfg(feature = "outbound-tls")]
     {
         let ech = tls.ech.as_ref().filter(|e| e.enabled);
+        // The outer ClientHello names the ECH config's public name.
+        if ech.is_some() && tls.disable_sni {
+            return Err(anyhow!(
+                "[{}] outbound: tls.disable_sni: not with tls.ech",
+                tag
+            ));
+        }
         let ech_config_list = match ech.and_then(|e| e.config.clone()) {
             Some(config) => Some(ech_config_list(tag, config)?),
             None => None,
         };
+        let identity = tls
+            .client_identity(env)
+            .map_err(|e| anyhow!("[{}] outbound: tls.{}", tag, e))?;
         let handler = crate::transport::tls::outbound::StreamHandler::new(
             server_name,
             tls.alpn.clone().map(Listable::into_vec).unwrap_or_default(),
             trusted_certificate(tls, env),
             tls.insecure,
             tls.fingerprint(tag)?,
+            tls.disable_sni,
+            identity.as_ref(),
             ech.is_some(),
             ech.is_some_and(|e| e.disable_dns_lookup),
             ech_config_list,
@@ -1972,5 +2099,165 @@ mod tests {
         assert!(
             serde_json::from_str::<OutboundTls>(r#"{"utls": {"fingerprnt": "chrome"}}"#).is_err()
         );
+    }
+
+    /// The client identity `json` configures, or the error.
+    fn identity(json: serde_json::Value) -> Result<bool, String> {
+        let tls: OutboundTls = serde_json::from_value(json).unwrap();
+        tls.client_identity(&crate::runtime::RuntimeEnv::default())
+            .map(|i| i.is_some())
+            .map_err(|e| e.to_string())
+    }
+
+    /// A certificate `key` signs for itself, PEM.
+    fn self_signed(key: &btls::pkey::PKey<btls::pkey::Private>) -> String {
+        let pem = String::from_utf8(key.private_key_to_pem_pkcs8().unwrap()).unwrap();
+        let key = rcgen::KeyPair::from_pem(&pem).unwrap();
+        rcgen::CertificateParams::new(vec!["client".into()])
+            .unwrap()
+            .self_signed(&key)
+            .unwrap()
+            .pem()
+    }
+
+    #[test]
+    fn test_client_certificate_options() {
+        use serde_json::json;
+        let pki = crate::transport::tls::tests::client_pki();
+        assert_eq!(identity(json!({})), Ok(false));
+        assert_eq!(
+            identity(json!({"client_certificate": pki.cert, "client_key": pki.key})),
+            Ok(true)
+        );
+        // Line by line, as sing-box lists PEM.
+        let lines = |pem: &str| pem.lines().map(str::to_string).collect::<Vec<_>>();
+        assert_eq!(
+            identity(json!({
+                "client_certificate": lines(&pki.cert),
+                "client_key": lines(&pki.key)
+            })),
+            Ok(true)
+        );
+
+        let dir = std::env::temp_dir().join(format!("sail-client-cert-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (cert_path, key_path) = (dir.join("client.crt"), dir.join("client.key"));
+        std::fs::write(&cert_path, &pki.cert).unwrap();
+        std::fs::write(&key_path, &pki.key).unwrap();
+        assert_eq!(
+            identity(json!({
+                "client_certificate_path": cert_path,
+                "client_key_path": key_path
+            })),
+            Ok(true)
+        );
+        // Inline one half, the other by path.
+        assert_eq!(
+            identity(json!({"client_certificate": pki.cert, "client_key_path": key_path})),
+            Ok(true)
+        );
+
+        let err = |json| identity(json).unwrap_err();
+        assert_eq!(
+            err(json!({"client_certificate": pki.cert})),
+            "client_key: needed with client_certificate"
+        );
+        assert_eq!(
+            err(json!({"client_key_path": key_path})),
+            "client_certificate: needed with client_key"
+        );
+        assert_eq!(
+            err(json!({
+                "client_certificate": pki.cert,
+                "client_certificate_path": cert_path,
+                "client_key": pki.key
+            })),
+            "client_certificate: set at most one of client_certificate and \
+             client_certificate_path"
+        );
+        // An inline key that is not PEM is not echoed.
+        let e = err(json!({"client_certificate": pki.cert, "client_key": "c2VjcmV0"}));
+        assert_eq!(e, "client_key: not PEM");
+        let e = err(json!({
+            "client_certificate": pki.cert,
+            "client_key_path": dir.join("missing.key")
+        }));
+        assert!(e.starts_with("client_key: load key from"), "{}", e);
+        let e = err(json!({
+            "client_certificate": "-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----",
+            "client_key": pki.key
+        }));
+        assert!(e.starts_with("client_certificate: "), "{}", e);
+        let other = crate::transport::tls::tests::client_pki();
+        let e = err(json!({"client_certificate": pki.cert, "client_key": other.key}));
+        assert!(e.starts_with("client_key: "), "{}", e);
+        assert!(!e.contains("PRIVATE"), "{}", e);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn test_client_key_types() {
+        use btls::pkey::{Id, PKey};
+        use serde_json::json;
+        let rsa = btls::rsa::Rsa::generate(2048).unwrap();
+        let pkcs1 = String::from_utf8(rsa.private_key_to_pem().unwrap()).unwrap();
+        assert!(pkcs1.contains("BEGIN RSA PRIVATE KEY"));
+        let key = PKey::from_rsa(rsa).unwrap();
+        let cert = self_signed(&key);
+        assert_eq!(
+            identity(json!({"client_certificate": cert, "client_key": pkcs1})),
+            Ok(true)
+        );
+        let key = PKey::generate(Id::ED25519).unwrap();
+        let cert = self_signed(&key);
+        let pkcs8 = String::from_utf8(key.private_key_to_pem_pkcs8().unwrap()).unwrap();
+        assert_eq!(
+            identity(json!({"client_certificate": cert, "client_key": pkcs8})),
+            Ok(true)
+        );
+    }
+
+    #[test]
+    fn test_disable_sni_conflicts() {
+        use serde_json::json;
+        let dns = crate::app::dns::DnsClient::new(
+            &crate::config::Dns::default(),
+            Default::default(),
+            &Default::default(),
+        )
+        .unwrap()
+        .into_shared();
+        let env = crate::runtime::RuntimeEnv::default();
+        let build = |json: serde_json::Value| {
+            let tls: OutboundTls = serde_json::from_value(json).unwrap();
+            super::tls_outbound("t", &tls, &dns, &env)
+                .map(|_| ())
+                .map_err(|e| e.to_string())
+        };
+        let reality = json!({"enabled": true, "public_key": "x"});
+        assert_eq!(
+            build(json!({"enabled": true, "disable_sni": true, "reality": reality})),
+            Err("[t] outbound: tls.disable_sni: not with tls.reality".into())
+        );
+        let pki = crate::transport::tls::tests::client_pki();
+        assert_eq!(
+            build(json!({
+                "enabled": true, "reality": reality,
+                "client_certificate": pki.cert, "client_key": pki.key
+            })),
+            Err("[t] outbound: tls.client_certificate: not with tls.reality".into())
+        );
+        #[cfg(feature = "outbound-tls")]
+        {
+            assert_eq!(
+                build(json!({"enabled": true, "disable_sni": true, "ech": {"enabled": true}})),
+                Err("[t] outbound: tls.disable_sni: not with tls.ech".into())
+            );
+            assert!(build(json!({"enabled": true, "disable_sni": true})).is_ok());
+            assert_eq!(
+                build(json!({"enabled": true, "client_certificate": pki.cert})),
+                Err("[t] outbound: tls.client_key: needed with client_certificate".into())
+            );
+        }
     }
 }

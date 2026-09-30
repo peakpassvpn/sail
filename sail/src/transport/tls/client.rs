@@ -6,6 +6,7 @@ use std::io;
 use std::sync::OnceLock;
 
 use anyhow::{anyhow, Result};
+use btls::pkey::{PKey, Private};
 use btls::ssl::{SslConnector, SslMethod, SslVerifyMode, SslVersion};
 use btls::x509::store::{X509Store, X509StoreBuilder};
 use btls::x509::X509;
@@ -21,6 +22,38 @@ pub struct TlsClient {
     insecure: bool,
     fingerprint: Option<Fingerprint>,
     alpn: Vec<String>,
+    /// Whether the ClientHello names the server.
+    sni: bool,
+}
+
+/// A certificate, its chain after it, and its key: what a client presents
+/// to a server that asks for one.
+pub struct Identity {
+    chain: Vec<X509>,
+    key: PKey<Private>,
+}
+
+impl Identity {
+    /// `chain`, the certificate first, with its `key`, which must match it.
+    pub fn new(chain: Vec<X509>, key: PKey<Private>) -> Result<Self> {
+        let cert = chain
+            .first()
+            .ok_or_else(|| anyhow!("no certificate found"))?;
+        let public = cert.public_key()?;
+        if !public.public_eq(&key) {
+            return Err(anyhow!("the key is not the certificate's"));
+        }
+        Ok(Self { chain, key })
+    }
+
+    /// The certificate, then its chain.
+    pub fn chain(&self) -> &[X509] {
+        &self.chain
+    }
+
+    pub fn key(&self) -> &PKey<Private> {
+        &self.key
+    }
 }
 
 impl TlsClient {
@@ -34,6 +67,19 @@ impl TlsClient {
         insecure: bool,
         fingerprint: Option<Fingerprint>,
         roots: &super::roots::Roots,
+    ) -> Result<Self> {
+        Self::with_identity(alpn, certificate, insecure, fingerprint, roots, None)
+    }
+
+    /// `new`, presenting `identity` to a server that asks for a
+    /// certificate.
+    pub fn with_identity(
+        alpn: &[String],
+        certificate: Option<&str>,
+        insecure: bool,
+        fingerprint: Option<Fingerprint>,
+        roots: &super::roots::Roots,
+        identity: Option<&Identity>,
     ) -> Result<Self> {
         let mut builder = SslConnector::bare_builder(SslMethod::tls())?;
         builder.set_min_proto_version(Some(SslVersion::TLS1_2))?;
@@ -60,16 +106,35 @@ impl TlsClient {
         if !alpn.is_empty() {
             builder.set_alpn_protos(&alpn_wire(&alpn)?)?;
         }
+        if let Some(identity) = identity {
+            let mut chain = identity.chain.iter();
+            if let Some(cert) = chain.next() {
+                builder.set_certificate(cert)?;
+            }
+            for cert in chain {
+                builder.add_extra_chain_cert(cert.clone())?;
+            }
+            builder.set_private_key(&identity.key)?;
+            builder.check_private_key()?;
+        }
         Ok(Self {
             connector: builder.build(),
             insecure,
             fingerprint,
             alpn,
+            sni: true,
         })
     }
 
-    /// A connection to `server_name`, a domain (sent as SNI) or an IP address,
-    /// offering ECH with `ech_config_list` when given.
+    /// Leaves SNI out of the ClientHello. The server's certificate is
+    /// verified against the server name all the same.
+    pub fn without_sni(mut self) -> Self {
+        self.sni = false;
+        self
+    }
+
+    /// A connection to `server_name`, a domain (sent as SNI, unless
+    /// `without_sni`) or an IP address, offering ECH with `ech_config_list` when given.
     pub fn connection(
         &self,
         server_name: &str,
@@ -90,6 +155,7 @@ impl TlsClient {
         if self.insecure {
             config.set_verify_hostname(false);
         }
+        config.set_use_server_name_indication(self.sni);
         let mut ssl = config.into_ssl(server_name).map_err(|e| {
             io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -189,9 +255,7 @@ pub(crate) fn load_certificates(certificate: &str) -> Result<Vec<X509>> {
 
 /// A private key (PKCS#8, PKCS#1 or SEC1) from inline PEM, or from a PEM or
 /// DER (PKCS#8) file.
-#[cfg(any(feature = "inbound-tls", feature = "quic"))]
-pub(crate) fn load_private_key(key: &str) -> Result<btls::pkey::PKey<btls::pkey::Private>> {
-    use btls::pkey::PKey;
+pub(crate) fn load_private_key(key: &str) -> Result<PKey<Private>> {
     if key.contains("-----BEGIN") {
         return PKey::private_key_from_pem(key.as_bytes())
             .map_err(|e| anyhow!("invalid private key: {}", e));
