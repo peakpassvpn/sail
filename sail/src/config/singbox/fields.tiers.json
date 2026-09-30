@@ -47,6 +47,7 @@
   "dns.servers[h3].tls.reality.enabled",
   "dns.servers[h3].tls.reality.short_id",
   "dns.servers[h3].path",
+  "dns.servers[h3].method",
   "dns.servers[h3].headers",
   "dns.servers[h3].domain_strategy",
   "dns.servers[hosts].tag",
@@ -90,6 +91,7 @@
   "dns.servers[https].tls.reality.enabled",
   "dns.servers[https].tls.reality.short_id",
   "dns.servers[https].path",
+  "dns.servers[https].method",
   "dns.servers[https].headers",
   "dns.servers[https].domain_strategy",
   "dns.servers[local].tag",
@@ -2890,10 +2892,6 @@
    "dns.servers[h3].tls.utls",
    "dns.servers[h3].tls.utls.enabled",
    "dns.servers[h3].tls.utls.fingerprint"
-  ],
-  "The HTTP method of DNS-over-HTTPS queries: a server that takes one would be asked with another": [
-   "dns.servers[h3].method",
-   "dns.servers[https].method"
   ],
   "A https server offers its own": [
    "dns.servers[https].tls.alpn"

@@ -248,11 +248,6 @@ pub const GROUPS: &[Group] = &[
     ),
     // DNS servers.
     g(
-        "The HTTP method of DNS-over-HTTPS queries: a server that takes one would be asked with another",
-        Unsupported,
-        &["dns.servers.*.method"],
-    ),
-    g(
         "Go's own resolver rather than the system's: sail is not Go",
         Ignored,
         &["dns.servers.*.prefer_go"],

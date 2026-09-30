@@ -248,17 +248,20 @@ async fn exchange_h2(
     request: Bytes,
 ) -> std::result::Result<Vec<u8>, Failure> {
     let req = upstream
-        .http_request(request.len())
+        .http_request(&request)
         .map_err(|e| Failure::Answer(anyhow!("http/2: {}", e)))?;
     let mut send_request = send_request
         .ready()
         .await
         .map_err(|e| conn_err(e, "http/2 connection not ready"))?;
+    // A GET is its head alone.
     let (response, mut body) = send_request
-        .send_request(req, false)
+        .send_request(req, upstream.get())
         .map_err(|e| conn_err(e, "send http/2 request failed"))?;
-    body.send_data(request, true)
-        .map_err(|e| conn_err(e, "send http/2 body failed"))?;
+    if !upstream.get() {
+        body.send_data(request, true)
+            .map_err(|e| conn_err(e, "send http/2 body failed"))?;
+    }
     let response = response
         .await
         .map_err(|e| conn_err(e, "read http/2 response failed"))?;
@@ -289,8 +292,10 @@ async fn exchange_http1(
     stream: &mut AnyStream,
     request: &[u8],
 ) -> std::result::Result<(Vec<u8>, bool), Failure> {
-    let mut out = upstream.http1_head(request.len()).into_bytes();
-    out.extend_from_slice(request);
+    let mut out = upstream.http1_head(request).into_bytes();
+    if !upstream.get() {
+        out.extend_from_slice(request);
+    }
     stream
         .write_all(&out)
         .await

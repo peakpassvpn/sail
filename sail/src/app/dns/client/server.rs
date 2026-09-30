@@ -146,6 +146,9 @@ struct RemoteOptions {
     client_subnet: Option<Prefix>,
     #[serde(flatten)]
     dial: DialFields,
+    /// `https` and `h3`: `POST`, the default, or `GET` (RFC 8484 §4.1).
+    #[serde(default)]
+    method: Option<String>,
     /// `https` and `h3`: sent with each request; a `Host` one is the
     /// host the requests name.
     #[serde(default)]
@@ -251,13 +254,28 @@ impl Server {
                     return Err(err(anyhow!("path: only https and h3 servers take one")));
                 }
                 let path = o.path.take();
+                let get = match o.method.take() {
+                    None => false,
+                    Some(m) if !matches!(protocol, Protocol::Https | Protocol::H3) => {
+                        return Err(err(anyhow!(
+                            "method: only https and h3 servers take one, not {:?}",
+                            m
+                        )))
+                    }
+                    Some(m) if m.eq_ignore_ascii_case("POST") => false,
+                    Some(m) if m.eq_ignore_ascii_case("GET") => true,
+                    Some(m) => {
+                        return Err(err(anyhow!("method: GET or POST, not {:?}", m)));
+                    }
+                };
                 let tls = o.tls.take();
                 let headers = std::mem::take(&mut o.headers);
                 let (address, dialer) =
                     address_and_dialer(o, protocol.default_port(), tag, defaults).map_err(err)?;
                 Kind::Upstream(Arc::new(
                     Upstream::new(protocol, address, dialer, path, &headers, tls.as_ref(), env)
-                        .map_err(err)?,
+                        .map_err(err)?
+                        .with_get(get),
                 ))
             }
             "local" => {
@@ -423,6 +441,9 @@ fn no_path_or_tls(o: &RemoteOptions, kind: &str) -> Result<()> {
     }
     if !o.headers.is_empty() {
         return Err(anyhow!("headers: only https and h3 servers take them"));
+    }
+    if o.method.is_some() {
+        return Err(anyhow!("method: only https and h3 servers take one"));
     }
     Ok(())
 }

@@ -102,9 +102,9 @@ quic = ["tls", "quinn", "quinn-btls"]
 tls = ["btls", "btls-sys", "brotli-decompressor", "foreign-types", "miniz_oxide", "ruzstd", "sha2", "webpki-root-certs", "rustls-native-certs"]
 
 # DNS over HTTPS upstreams (`https://`, or `doh:`), on HTTP/2 or HTTP/1.1.
-dns-doh = ["tls", "h2", "http"]
+dns-doh = ["tls", "h2", "http", "base64"]
 # DNS over HTTP/3 upstreams (`h3://`).
-dns-h3 = ["quic", "h3", "h3-quinn", "http"]
+dns-h3 = ["quic", "h3", "h3-quinn", "http", "base64"]
 
 # Router rules
 rule-process-name = ["regex"]

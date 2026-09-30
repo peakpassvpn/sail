@@ -134,6 +134,10 @@ pub(super) struct Upstream {
     pub server_name: String,
     /// The request path, for DoH and DoH3.
     pub path: String,
+    /// DoH and DoH3: queries as GETs, the message in the URI's `dns`
+    /// parameter, rather than POSTs of it (RFC 8484 §4.1).
+    #[cfg_attr(not(any(feature = "dns-doh", feature = "dns-h3")), allow(dead_code))]
+    get: bool,
     /// DoH and DoH3: the headers each request carries, but `Host`.
     #[cfg_attr(not(any(feature = "dns-doh", feature = "dns-h3")), allow(dead_code))]
     headers: Vec<(String, String)>,
@@ -317,6 +321,7 @@ impl Upstream {
             address,
             server_name,
             path,
+            get: false,
             headers: lines,
             host,
             dialer,
@@ -390,14 +395,52 @@ impl Upstream {
         }
     }
 
-    /// The request of an HTTP/2 or HTTP/3 query of `len` bytes: its own
-    /// headers over sail's.
+    /// Asks with GETs, `method: GET`.
+    pub(super) fn with_get(mut self, get: bool) -> Self {
+        self.get = get;
+        self
+    }
+
+    /// Whether queries are GETs, with no body.
     #[cfg(any(feature = "dns-doh", feature = "dns-h3"))]
-    pub(super) fn http_request(&self, len: usize) -> Result<http::Request<()>> {
+    pub(super) fn get(&self) -> bool {
+        self.get
+    }
+
+    /// `path`, and for a GET the message in its `dns` parameter,
+    /// base64url without padding (RFC 8484 §4.1).
+    #[cfg(any(feature = "dns-doh", feature = "dns-h3"))]
+    fn target(&self, path: &str, request: &[u8]) -> String {
+        use base64::Engine;
+        if self.get {
+            format!(
+                "{}?dns={}",
+                path,
+                base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(request)
+            )
+        } else {
+            path.to_string()
+        }
+    }
+
+    /// The request of an HTTP/2 or HTTP/3 query `request`: its own headers
+    /// over sail's; a POST of it, or a GET with it in the URI.
+    #[cfg(any(feature = "dns-doh", feature = "dns-h3"))]
+    pub(super) fn http_request(&self, request: &[u8]) -> Result<http::Request<()>> {
         use http::header::{ACCEPT, CONTENT_LENGTH, CONTENT_TYPE};
         const DNS_MESSAGE: &str = "application/dns-message";
-        let mut request = http::Request::post(self.uri()).header(CONTENT_LENGTH, len);
-        for (name, value) in [(CONTENT_TYPE, DNS_MESSAGE), (ACCEPT, DNS_MESSAGE)] {
+        let uri = self.target(&self.uri(), request);
+        let mut request = if self.get {
+            http::Request::get(uri)
+        } else {
+            http::Request::post(uri).header(CONTENT_LENGTH, request.len())
+        };
+        let sent = if self.get {
+            &[(ACCEPT, DNS_MESSAGE)][..]
+        } else {
+            &[(CONTENT_TYPE, DNS_MESSAGE), (ACCEPT, DNS_MESSAGE)][..]
+        };
+        for (name, value) in sent.iter().cloned() {
             if !self
                 .headers
                 .iter()
@@ -414,18 +457,31 @@ impl Upstream {
             .map_err(|e| anyhow!("invalid request: {}", e))
     }
 
-    /// The head of an HTTP/1.1 query of `len` bytes: its own headers over
-    /// sail's.
+    /// The head of an HTTP/1.1 query `request`: its own headers over
+    /// sail's; a POST's, whose body is it, or a GET's with it in the URI.
     #[cfg(feature = "dns-doh")]
-    pub(super) fn http1_head(&self, len: usize) -> String {
+    pub(super) fn http1_head(&self, request: &[u8]) -> String {
         const DNS_MESSAGE: &str = "application/dns-message";
-        let mut head = format!(
-            "POST {} HTTP/1.1\r\nHost: {}\r\nContent-Length: {}\r\n",
-            self.path,
-            self.authority(),
-            len
-        );
-        for (name, value) in [("Content-Type", DNS_MESSAGE), ("Accept", DNS_MESSAGE)] {
+        let mut head = if self.get {
+            format!(
+                "GET {} HTTP/1.1\r\nHost: {}\r\n",
+                self.target(&self.path, request),
+                self.authority()
+            )
+        } else {
+            format!(
+                "POST {} HTTP/1.1\r\nHost: {}\r\nContent-Length: {}\r\n",
+                self.path,
+                self.authority(),
+                request.len()
+            )
+        };
+        let sent = if self.get {
+            &[("Accept", DNS_MESSAGE)][..]
+        } else {
+            &[("Content-Type", DNS_MESSAGE), ("Accept", DNS_MESSAGE)][..]
+        };
+        for &(name, value) in sent {
             if !self
                 .headers
                 .iter()

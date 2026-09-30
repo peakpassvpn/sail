@@ -15,7 +15,7 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | Section | Fields | Supported | Warned | Error |
 |---|--:|--:|--:|--:|
 | `log` | 5 | 5 | 0 | 0 |
-| `dns` | 578 | 301 | 69 | 208 |
+| `dns` | 578 | 303 | 69 | 206 |
 | `ntp` | 35 | 0 | 35 | 0 |
 | `certificate` | 5 | 5 | 0 | 0 |
 | `certificate_providers` | 212 | 0 | 0 | 212 |
@@ -27,7 +27,7 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `route` | 268 | 144 | 21 | 103 |
 | `services` | 751 | 1 | 166 | 584 |
 | `experimental` | 34 | 16 | 17 | 1 |
-| **All** | **5002** | **1636** | **682** | **2684** |
+| **All** | **5002** | **1638** | **682** | **2682** |
 
 ## `log`
 
@@ -155,7 +155,7 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `tls.reality.public_key` | Error | Not for a dns server |
 | `tls.reality.short_id` | Supported |  |
 | `path` | Supported |  |
-| `method` | Error | The HTTP method of DNS-over-HTTPS queries: a server that takes one would be asked with another |
+| `method` | Supported |  |
 | `headers` | Supported |  |
 | `domain_strategy` (deprecated) | Supported |  |
 
@@ -237,7 +237,7 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `tls.reality.public_key` | Error | Not for a dns server |
 | `tls.reality.short_id` | Supported |  |
 | `path` | Supported |  |
-| `method` | Error | The HTTP method of DNS-over-HTTPS queries: a server that takes one would be asked with another |
+| `method` | Supported |  |
 | `headers` | Supported |  |
 | `domain_strategy` (deprecated) | Supported |  |
 

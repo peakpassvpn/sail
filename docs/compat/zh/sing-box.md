@@ -15,7 +15,7 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | 部分 | 字段数 | 支持 | 警告 | 报错 |
 |---|--:|--:|--:|--:|
 | `log` | 5 | 5 | 0 | 0 |
-| `dns` | 578 | 301 | 69 | 208 |
+| `dns` | 578 | 303 | 69 | 206 |
 | `ntp` | 35 | 0 | 35 | 0 |
 | `certificate` | 5 | 5 | 0 | 0 |
 | `certificate_providers` | 212 | 0 | 0 | 212 |
@@ -27,7 +27,7 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `route` | 268 | 144 | 21 | 103 |
 | `services` | 751 | 1 | 166 | 584 |
 | `experimental` | 34 | 16 | 17 | 1 |
-| **全部** | **5002** | **1636** | **682** | **2684** |
+| **全部** | **5002** | **1638** | **682** | **2682** |
 
 ## `log`
 
@@ -155,7 +155,7 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `tls.reality.public_key` | 报错 | Not for a dns server |
 | `tls.reality.short_id` | 支持 |  |
 | `path` | 支持 |  |
-| `method` | 报错 | The HTTP method of DNS-over-HTTPS queries: a server that takes one would be asked with another |
+| `method` | 支持 |  |
 | `headers` | 支持 |  |
 | `domain_strategy` (已弃用) | 支持 |  |
 
@@ -237,7 +237,7 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `tls.reality.public_key` | 报错 | Not for a dns server |
 | `tls.reality.short_id` | 支持 |  |
 | `path` | 支持 |  |
-| `method` | 报错 | The HTTP method of DNS-over-HTTPS queries: a server that takes one would be asked with another |
+| `method` | 支持 |  |
 | `headers` | 支持 |  |
 | `domain_strategy` (已弃用) | 支持 |  |
 

@@ -1202,12 +1202,12 @@ mod tests {
             panic!("not an upstream");
         };
         assert_eq!(
-            upstream.http1_head(33),
+            upstream.http1_head(&[0; 33]),
             "POST /q HTTP/1.1\r\nHost: dns.example\r\nContent-Length: 33\r\n\
              Content-Type: application/dns-message\r\nX-Token: a\r\nX-Token: b\r\n\
              accept: application/dns-message\r\n\r\n"
         );
-        let request = upstream.http_request(33).unwrap();
+        let request = upstream.http_request(&[0; 33]).unwrap();
         assert_eq!(request.uri(), "https://dns.example/q");
         let tokens: Vec<_> = request.headers().get_all("x-token").iter().collect();
         assert_eq!(tokens, ["a", "b"]);
@@ -1224,10 +1224,51 @@ mod tests {
                                      "headers": { "Content-Length": "1" } }]),
                 "headers: Content-Length is sail's to set",
             ),
+            (
+                serde_json::json!([{ "type": "udp", "server": "1.1.1.1", "method": "GET" }]),
+                "method: only https and h3 servers take one",
+            ),
+            (
+                serde_json::json!([{ "type": "https", "server": "1.1.1.1", "method": "PUT" }]),
+                "method: GET or POST, not \"PUT\"",
+            ),
         ] {
             let err = error(servers.clone());
             assert!(err.contains(message), "{}: {}", servers, err);
         }
+    }
+
+    /// `method: GET`: the message in the URI's `dns` parameter, base64url
+    /// without padding, and no body, as RFC 8484 §4.1's example has it.
+    #[cfg(feature = "dns-doh")]
+    #[test]
+    fn a_doh_server_asks_with_gets_when_told() {
+        use base64::Engine;
+        let client = client(serde_json::json!([
+            { "type": "udp", "tag": "udp", "server": "1.1.1.1" },
+            { "type": "https", "tag": "doh", "server": "1.1.1.1", "method": "get" }
+        ]))
+        .unwrap();
+        let Kind::Upstream(upstream) = &client.servers["doh"].kind else {
+            panic!("not an upstream");
+        };
+        // www.example.com, A, ID 0 (RFC 8484 §4.1.1).
+        let query = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode("AAABAAABAAAAAAAAA3d3dwdleGFtcGxlA2NvbQAAAQAB")
+            .unwrap();
+        assert_eq!(
+            upstream.http1_head(&query),
+            "GET /dns-query?dns=AAABAAABAAAAAAAAA3d3dwdleGFtcGxlA2NvbQAAAQAB HTTP/1.1\r\n\
+             Host: 1.1.1.1\r\nAccept: application/dns-message\r\n\r\n"
+        );
+        let request = upstream.http_request(&query).unwrap();
+        assert_eq!(request.method(), http::Method::GET);
+        assert_eq!(
+            request.uri(),
+            "https://1.1.1.1/dns-query?dns=AAABAAABAAAAAAAAA3d3dwdleGFtcGxlA2NvbQAAAQAB"
+        );
+        assert!(request.headers().get("content-type").is_none());
+        assert!(request.headers().get("content-length").is_none());
     }
 
     #[test]

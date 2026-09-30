@@ -342,17 +342,20 @@ async fn exchange_h3(upstream: &Upstream, h3: &H3Handle, request: &[u8]) -> Resu
     use bytes::Buf;
 
     let req = upstream
-        .http_request(request.len())
+        .http_request(request)
         .map_err(|e| anyhow!("http/3: {}", e))?;
     let mut send_request = h3.send_request.clone();
     let mut stream = send_request
         .send_request(req)
         .await
         .map_err(|e| anyhow!("send http/3 request failed: {}", e))?;
-    stream
-        .send_data(bytes::Bytes::copy_from_slice(request))
-        .await
-        .map_err(|e| anyhow!("send http/3 body failed: {}", e))?;
+    // A GET is its head alone.
+    if !upstream.get() {
+        stream
+            .send_data(bytes::Bytes::copy_from_slice(request))
+            .await
+            .map_err(|e| anyhow!("send http/3 body failed: {}", e))?;
+    }
     stream
         .finish()
         .await
