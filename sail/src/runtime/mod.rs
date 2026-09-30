@@ -145,6 +145,8 @@ pub struct RuntimeEnv {
     /// auto_redirect output mark, which keeps replies to clients out of
     /// its redirection, as it keeps the outbounds' connections out.
     pub listen_mark: Option<u32>,
+    /// The users inbounds authenticate, by name; kept across reloads.
+    pub users: crate::user::UserRegistry,
 }
 
 pub type SyncRuntimeEnv = Arc<RuntimeEnv>;

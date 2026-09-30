@@ -124,7 +124,7 @@ async fn serve_mux(
     let label = format!(
         "inbound={} user={}",
         inbound_tag,
-        sess.user.as_deref().unwrap_or("-")
+        crate::user::name(&sess.user).unwrap_or("-")
     );
     let started = server::Server::start(stream, tuning, &label);
     let mut server = match timeout(handshake_timeout, started).await {

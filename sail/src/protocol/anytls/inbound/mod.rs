@@ -88,7 +88,10 @@ fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
     let mut users = HashMap::new();
     for user in options.users {
         let hash: [u8; 32] = Sha256::digest(user.password.as_bytes()).into();
-        if users.insert(hash, user.name.map(Into::into)).is_some() {
+        if users
+            .insert(hash, ctx.env.users.bind_named(user.name.as_deref()))
+            .is_some()
+        {
             return Err(anyhow!(
                 "[{}] inbound: users: a password is used more than once",
                 tag

@@ -67,7 +67,10 @@ fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
                 i
             ));
         }
-        users.push(User::new(&uuid, user.name.map(Into::into)));
+        users.push(User::new(
+            &uuid,
+            ctx.env.users.bind_named(user.name.as_deref()),
+        ));
     }
     let replay = ctx.state.vmess_replay.get_or_init(Arc::default).clone();
     let stream = Arc::new(StreamHandler::with_replay(users, replay));

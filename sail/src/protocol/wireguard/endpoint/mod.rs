@@ -292,7 +292,7 @@ impl Shared {
             let mut config = peer.config.clone();
             config.endpoint = *endpoint;
             for &(ip, len) in &config.allowed_ips {
-                users.insert(ip, len, peer.name.clone());
+                users.insert(ip, len, dispatcher.env().users.bind(&peer.name));
             }
             device
                 .add_peer(config)
@@ -451,7 +451,7 @@ async fn handle_datagrams(
     mut reply: NativeUdpReplyHandle,
     inbound_tag: String,
     running: Arc<Running>,
-    users: Arc<AllowedIps<Arc<str>>>,
+    users: Arc<AllowedIps<crate::user::UserRef>>,
     nat_manager: Arc<NatManager>,
     flow_capacity: usize,
 ) {

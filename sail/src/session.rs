@@ -46,7 +46,7 @@ pub struct DatagramSource {
     /// Who sent it, for inbounds that authenticate each datagram. It is
     /// part of the key: datagrams of different users never share a
     /// session.
-    pub user: Option<std::sync::Arc<str>>,
+    pub user: Option<crate::user::UserRef>,
     /// The association it was sent under, for inbounds whose datagrams
     /// belong to one, as SOCKS5's `UDP ASSOCIATE`. Its sessions end with
     /// it, and datagrams of different associations never share a session.
@@ -69,7 +69,7 @@ impl DatagramSource {
     }
 
     /// The same source, sent by `user`.
-    pub fn with_user(mut self, user: Option<std::sync::Arc<str>>) -> Self {
+    pub fn with_user(mut self, user: Option<crate::user::UserRef>) -> Self {
         self.user = user;
         self
     }
@@ -336,8 +336,8 @@ pub struct Session {
     pub state: ConnectionState,
     /// The protocol of the inbound this session came in through.
     pub inbound_type: &'static str,
-    /// The user the inbound authenticated, by name.
-    pub user: Option<std::sync::Arc<str>>,
+    /// The user the inbound authenticated.
+    pub user: Option<crate::user::UserRef>,
     /// Skip domain resolution during routing.
     pub skip_resolve: bool,
     /// The application protocol the inbound TLS negotiated with the peer,

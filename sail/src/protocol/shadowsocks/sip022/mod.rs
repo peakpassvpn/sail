@@ -309,7 +309,7 @@ pub struct Users {
 
 #[derive(Clone)]
 pub struct User {
-    pub name: Option<std::sync::Arc<str>>,
+    pub name: Option<crate::user::UserRef>,
     pub psk: Vec<u8>,
 }
 
@@ -634,18 +634,18 @@ mod tests {
     fn users_by_hash() {
         let users = Users::new(vec![
             User {
-                name: Some("a".into()),
+                name: Some(crate::user::UserRef::unbound("a")),
                 psk: vec![1; 16],
             },
             User {
-                name: Some("b".into()),
+                name: Some(crate::user::UserRef::unbound("b")),
                 psk: vec![2; 16],
             },
         ])
         .unwrap();
         let (i, u) = users.find(&psk_hash(&[2; 16])).unwrap();
         assert_eq!(i, 1);
-        assert_eq!(u.name.as_deref(), Some("b"));
+        assert_eq!(crate::user::name(&u.name), Some("b"));
         assert!(users.find(&psk_hash(&[3; 16])).is_none());
         assert!(Users::new(vec![
             User {

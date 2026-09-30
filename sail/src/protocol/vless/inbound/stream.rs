@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::io;
 use std::net::SocketAddr;
 use std::pin::Pin;
-use std::sync::Arc;
 use std::task::{ready, Context, Poll};
 
 use async_trait::async_trait;
@@ -24,7 +23,7 @@ use crate::{
 
 /// A VLESS user.
 pub struct User {
-    pub name: Option<Arc<str>>,
+    pub name: Option<crate::user::UserRef>,
     pub flow: Flow,
 }
 

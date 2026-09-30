@@ -16,17 +16,17 @@ use crate::{
 };
 
 pub struct Handler {
-    auth: Authenticator<Option<Arc<str>>>,
+    auth: Authenticator<Option<crate::user::UserRef>>,
 }
 
 impl Handler {
     /// Takes the users, each with their name.
-    pub fn new(users: Vec<User<Option<Arc<str>>>>) -> Self {
+    pub fn new(users: Vec<User<Option<crate::user::UserRef>>>) -> Self {
         Self::with_replay(users, Arc::default())
     }
 
     pub(crate) fn with_replay(
-        users: Vec<User<Option<Arc<str>>>>,
+        users: Vec<User<Option<crate::user::UserRef>>>,
         replay: Arc<ReplayFilter>,
     ) -> Self {
         Handler {

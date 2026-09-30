@@ -178,7 +178,7 @@ pub struct ServerConfig {
 pub struct Accepted<T> {
     pub stream: Ss2022Stream<T>,
     pub destination: SocksAddr,
-    pub user: Option<Arc<str>>,
+    pub user: Option<crate::user::UserRef>,
 }
 
 /// Reads and checks a request header from `inner`.
@@ -508,7 +508,7 @@ mod tests {
             let client = connect(c, method, &psks, &dest, b"hello").await.unwrap();
             let accepted = accept(s, &config).await.unwrap();
             assert_eq!(accepted.destination, dest);
-            assert_eq!(accepted.user.as_deref(), want_user);
+            assert_eq!(crate::user::name(&accepted.user), want_user);
             let (mut client, mut server) = (client, accepted.stream);
 
             let mut got = [0u8; 5];
@@ -557,11 +557,11 @@ mod tests {
         for method in [Method::Aes128Gcm, Method::Aes256Gcm] {
             let users = vec![
                 User {
-                    name: Some("alice".into()),
+                    name: Some(crate::user::UserRef::unbound("alice")),
                     psk: vec![0x22; method.key_len()],
                 },
                 User {
-                    name: Some("bob".into()),
+                    name: Some(crate::user::UserRef::unbound("bob")),
                     psk: vec![0x33; method.key_len()],
                 },
             ];

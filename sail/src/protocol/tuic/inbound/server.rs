@@ -50,7 +50,7 @@ static NEXT_ASSOCIATION: AtomicU64 = AtomicU64::new(1);
 
 pub struct User {
     pub password: Vec<u8>,
-    pub name: Option<Arc<str>>,
+    pub name: Option<crate::user::UserRef>,
 }
 
 struct Settings {
@@ -161,7 +161,7 @@ impl Stream for Incoming {
 }
 
 /// The user a connection authenticated as, by name.
-type Authed = Option<Arc<str>>;
+type Authed = Option<crate::user::UserRef>;
 
 struct Association {
     packets: mpsc::Sender<(SocksAddr, Bytes)>,

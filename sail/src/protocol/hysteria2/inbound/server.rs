@@ -45,7 +45,7 @@ const UDP_SESSION_IDLE: Duration = Duration::from_secs(300);
 /// What every connection of the inbound is served with.
 pub struct Server {
     /// Users by password, with their names.
-    pub users: HashMap<String, Option<Arc<str>>>,
+    pub users: HashMap<String, Option<crate::user::UserRef>>,
     /// What we send at most at to a client, bytes per second; zero if
     /// unlimited.
     pub send_bps: u64,
@@ -216,7 +216,7 @@ struct ConnState {
     conn: quinn::Connection,
     congestion: CongestionHandle,
     /// Set once the connection authenticated: the user, by name.
-    user: OnceLock<Option<Arc<str>>>,
+    user: OnceLock<Option<crate::user::UserRef>>,
     udp_started: AtomicBool,
     /// Tells the connection to serve UDP, once authenticated.
     start_udp: Notify,
@@ -292,7 +292,7 @@ impl ConnState {
     /// connection.
     async fn authenticated(
         self: &Arc<Self>,
-        user: Option<Arc<str>>,
+        user: Option<crate::user::UserRef>,
         fields: &[Field],
         mut send: quinn::SendStream,
     ) -> io::Result<()> {
@@ -599,7 +599,11 @@ mod tests {
         let crypto = server_crypto(&cert.pem(), &key_pair.serialize_pem(), &alpns).unwrap();
         let config = server_config(crypto).unwrap();
         let server = Arc::new(Server {
-            users: [("pw".to_string(), Some(Arc::from("alice")))].into(),
+            users: [(
+                "pw".to_string(),
+                Some(crate::user::UserRef::unbound("alice")),
+            )]
+            .into(),
             send_bps: 0,
             recv_bps: 0,
             ignore_client_bandwidth: false,
@@ -767,7 +771,7 @@ mod tests {
             panic!("no stream");
         };
         assert_eq!(sess.destination, destination);
-        assert_eq!(sess.user.as_deref(), Some("alice"));
+        assert_eq!(crate::user::name(&sess.user), Some("alice"));
         let mut buf = [0u8; 5];
         tokio::io::AsyncReadExt::read_exact(&mut stream, &mut buf)
             .await
@@ -790,7 +794,7 @@ mod tests {
         else {
             panic!("no datagram");
         };
-        assert_eq!(sess.user.as_deref(), Some("alice"));
+        assert_eq!(crate::user::name(&sess.user), Some("alice"));
         let (mut r, _s) = datagram.split();
         let mut buf = [0u8; 64];
         let (n, _, destination) = r.recv_from(&mut buf).await.ok().unwrap();

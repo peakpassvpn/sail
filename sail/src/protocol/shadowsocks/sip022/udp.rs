@@ -336,7 +336,7 @@ struct ServerState {
 struct ServerSession {
     client_id: u64,
     user: Option<[u8; EIH_LEN]>,
-    name: Option<Arc<str>>,
+    name: Option<crate::user::UserRef>,
     /// Opens the client's packets (AES methods).
     client_aead: Option<Aead>,
     window: ReplayWindow,
@@ -352,7 +352,7 @@ struct ServerSession {
 pub struct Received {
     pub destination: SocksAddr,
     pub payload: Range<usize>,
-    pub user: Option<Arc<str>>,
+    pub user: Option<crate::user::UserRef>,
 }
 
 impl Server {
@@ -625,7 +625,7 @@ mod tests {
             let got = server.decode(addr(), &mut pkt).unwrap();
             assert_eq!(got.destination, target);
             assert_eq!(&pkt[got.payload], &[i; 10]);
-            assert_eq!(got.user.as_deref(), want_user);
+            assert_eq!(crate::user::name(&got.user), want_user);
 
             let from = SocksAddr::from(addr());
             let mut reply = server.encode(addr(), &from, &[i + 1; 7]).unwrap();
@@ -654,11 +654,11 @@ mod tests {
             let ipsk = vec![0x11; method.key_len()];
             let users = Users::new(vec![
                 User {
-                    name: Some("alice".into()),
+                    name: Some(crate::user::UserRef::unbound("alice")),
                     psk: vec![0x22; method.key_len()],
                 },
                 User {
-                    name: Some("bob".into()),
+                    name: Some(crate::user::UserRef::unbound("bob")),
                     psk: vec![0x33; method.key_len()],
                 },
             ])
@@ -697,11 +697,11 @@ mod tests {
         let method = Method::Aes128Gcm;
         let identity = vec![0x11; 16];
         let alice = User {
-            name: Some("alice".into()),
+            name: Some(crate::user::UserRef::unbound("alice")),
             psk: vec![0x22; 16],
         };
         let bob = User {
-            name: Some("bob".into()),
+            name: Some(crate::user::UserRef::unbound("bob")),
             psk: vec![0x33; 16],
         };
         let server = Server::new(
@@ -718,23 +718,25 @@ mod tests {
                 .decode(addr(), &mut packet.clone())
                 .unwrap()
                 .user
+                .as_ref()
+                .map(|u| u.to_string())
                 .as_deref(),
             Some("alice")
         );
         // Reordering and renaming must not reattribute an established session.
         let mut renamed = alice.clone();
-        renamed.name = Some("renamed".into());
+        renamed.name = Some(crate::user::UserRef::unbound("renamed"));
         let reordered = server.with_users(Some(Users::new(vec![bob.clone(), renamed]).unwrap()));
         assert!(reordered.decode(addr(), &mut packet.clone()).is_err());
         let mut next = tx.encode(&target, b"next").unwrap();
         assert_eq!(
-            reordered.decode(addr(), &mut next).unwrap().user.as_deref(),
+            crate::user::name(&reordered.decode(addr(), &mut next).unwrap().user),
             Some("alice")
         );
         let empty = reordered.with_users(Some(Users::new(vec![]).unwrap()));
         let mut next = tx.encode(&target, b"old session").unwrap();
         assert_eq!(
-            empty.decode(addr(), &mut next).unwrap().user.as_deref(),
+            crate::user::name(&empty.decode(addr(), &mut next).unwrap().user),
             Some("alice")
         );
         let mut reply = empty.encode(addr(), &target, b"reply").unwrap();

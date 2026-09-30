@@ -63,7 +63,7 @@ fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
         let uuid = parse_uuid("inbound", tag, &field, &user.uuid)?;
         let user = User {
             password: user.password.into_bytes(),
-            name: user.name.map(Into::into),
+            name: ctx.env.users.bind_named(user.name.as_deref()),
         };
         if users.insert(uuid, user).is_some() {
             return Err(anyhow!(

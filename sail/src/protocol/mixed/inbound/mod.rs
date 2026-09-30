@@ -56,6 +56,7 @@ fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
                 password: u.password,
             })
             .collect(),
+        &ctx.env.users,
     )?;
     let socks_users = socks::inbound::users_by_name(
         ctx.tag,
@@ -67,6 +68,7 @@ fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
                 password: u.password,
             })
             .collect(),
+        &ctx.env.users,
     )?;
     let stream = Arc::new(StreamHandler {
         http: http::inbound::StreamHandler::new(http_users),

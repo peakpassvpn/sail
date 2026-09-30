@@ -90,7 +90,7 @@ fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
         let flow = Flow::parse(&user.flow)
             .map_err(|e| anyhow!("[{}] inbound: users[{}].flow: {}", ctx.tag, i, e))?;
         let user = User {
-            name: user.name.map(Into::into),
+            name: ctx.env.users.bind_named(user.name.as_deref()),
             flow,
         };
         if users.insert(uuid, user).is_some() {

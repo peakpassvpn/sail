@@ -227,7 +227,7 @@ mod tests {
                 .await?
             {
                 InboundTransport::Stream(_, sess) => {
-                    assert_eq!(sess.user.as_deref(), Some("alice"));
+                    assert_eq!(crate::user::name(&sess.user), Some("alice"));
                     Ok(())
                 }
                 _ => panic!("expected stream"),
@@ -323,7 +323,7 @@ mod tests {
                     HashMap::from([(
                         uuid,
                         User {
-                            name: Some(Arc::from(name)),
+                            name: Some(crate::user::UserRef::unbound(name)),
                             flow: Flow::None,
                         },
                     )]),
@@ -355,7 +355,7 @@ mod tests {
             .unwrap();
         match pending.await.unwrap() {
             InboundTransport::Stream(_, session) => {
-                assert_eq!(session.user.as_deref(), Some("alice"))
+                assert_eq!(crate::user::name(&session.user), Some("alice"))
             }
             _ => panic!("expected stream"),
         }
@@ -377,7 +377,7 @@ mod tests {
                 .await;
             assert_eq!(result.is_ok(), allowed);
             if let Ok(InboundTransport::Stream(_, session)) = result {
-                assert_eq!(session.user.as_deref(), Some("bob"));
+                assert_eq!(crate::user::name(&session.user), Some("bob"));
             }
         }
     }
@@ -392,7 +392,7 @@ mod tests {
             Arc::new(crate::adapter::inbound::Handler::new(
                 "a".into(),
                 Some(Arc::new(StreamHandler::new(
-                    HashMap::from([(hash, Some(Arc::from("user")))]),
+                    HashMap::from([(hash, Some(crate::user::UserRef::unbound("user")))]),
                     Arc::default(),
                     std::time::Duration::from_secs(1),
                     None,
@@ -498,7 +498,9 @@ mod tests {
         let inflight = wire(1);
         client.write_all(&inflight).await.unwrap();
         match pending.await.unwrap() {
-            InboundTransport::Stream(_, sess) => assert_eq!(sess.user.as_deref(), Some("renamed")),
+            InboundTransport::Stream(_, sess) => {
+                assert_eq!(crate::user::name(&sess.user), Some("renamed"))
+            }
             _ => panic!("expected TCP"),
         }
         assert!(authenticate(&live, &wire(1))

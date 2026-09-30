@@ -167,7 +167,7 @@ fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
                 i
             ));
         }
-        let name = (!user.name.is_empty()).then(|| Arc::from(user.name.as_str()));
+        let name = ctx.env.users.bind_named(Some(&user.name));
         users.push((name, user.password.into_bytes()));
     }
     let default = options
@@ -217,7 +217,7 @@ fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
 
 pub struct Handler {
     /// Names, and passwords.
-    users: Vec<(Option<Arc<str>>, Vec<u8>)>,
+    users: Vec<(Option<crate::user::UserRef>, Vec<u8>)>,
     default: Option<Target>,
     by_name: HashMap<String, Target>,
     strict: bool,

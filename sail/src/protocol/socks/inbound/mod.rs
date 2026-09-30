@@ -40,7 +40,11 @@ pub(crate) struct SocksUser {
 /// A username may appear only once: which of two passwords would name the
 /// user is otherwise ambiguous. RFC 1929 carries each in at most 255 bytes,
 /// so a longer one could never authenticate.
-pub(crate) fn users_by_name(tag: &str, users: Vec<SocksUser>) -> Result<HashMap<String, String>> {
+pub(crate) fn users_by_name(
+    tag: &str,
+    users: Vec<SocksUser>,
+    registry: &crate::user::UserRegistry,
+) -> Result<crate::user::Passwords> {
     let mut map = HashMap::with_capacity(users.len());
     for user in users {
         if user.username.is_empty() || user.username.len() > 255 {
@@ -64,14 +68,15 @@ pub(crate) fn users_by_name(tag: &str, users: Vec<SocksUser>) -> Result<HashMap<
                 user.username
             ));
         }
-        map.insert(user.username, user.password);
+        let bound = registry.bind_named(Some(&user.username));
+        map.insert(user.username, (user.password, bound));
     }
     Ok(map)
 }
 
 fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
     let options: SocksInboundOptions = ctx.options()?;
-    let users = users_by_name(ctx.tag, options.users)?;
+    let users = users_by_name(ctx.tag, options.users, &ctx.env.users)?;
     let associations = ctx
         .state
         .socks_associations

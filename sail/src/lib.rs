@@ -39,6 +39,7 @@ pub mod runtime;
 pub mod session;
 pub mod sniff;
 pub mod transport;
+pub mod user;
 pub mod util;
 
 #[derive(Error, Debug)]

@@ -73,7 +73,10 @@ fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
             return Err(err("users: a password is empty".into()));
         }
         if users
-            .insert(user.password, user.name.map(Arc::<str>::from))
+            .insert(
+                user.password,
+                ctx.env.users.bind_named(user.name.as_deref()),
+            )
             .is_some()
         {
             return Err(err("users: two users share a password".into()));

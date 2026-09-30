@@ -47,7 +47,7 @@ pub struct Relay {
     shared: Arc<Shared>,
     control: AnyStream,
     filter: ClientFilter,
-    user: Option<Arc<str>>,
+    user: Option<crate::user::UserRef>,
 }
 
 impl Relay {
@@ -59,7 +59,7 @@ impl Relay {
         slot: Slot,
         control: AnyStream,
         filter: ClientFilter,
-        user: Option<Arc<str>>,
+        user: Option<crate::user::UserRef>,
     ) -> Self {
         Relay {
             shared: Arc::new(Shared {
@@ -106,7 +106,7 @@ struct RecvHalf {
     shared: Arc<Shared>,
     control: AnyStream,
     filter: ClientFilter,
-    user: Option<Arc<str>>,
+    user: Option<crate::user::UserRef>,
     /// Keeps the association alive; the NAT manager ends its sessions when
     /// this half, and with it the owner, goes.
     owner: UdpAssociationOwner,

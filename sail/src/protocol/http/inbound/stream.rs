@@ -1,9 +1,10 @@
 use std::cmp;
-use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::io;
 use std::str;
 use std::sync::Arc;
+
+use crate::user::Passwords;
 use std::{net::IpAddr, pin::Pin, task::Context, task::Poll};
 use tokio::io::{AsyncRead, AsyncWrite};
 
@@ -186,8 +187,11 @@ impl TryFrom<&[u8]> for RequestHead {
 }
 
 /// The user `Proxy-Authorization` authenticates as, if it names one of
-/// `users` with their password.
-fn authenticate(users: &HashMap<String, String>, authorization: Option<&str>) -> Option<String> {
+/// `users` with their password: `Some(None)` for a user without a name.
+fn authenticate(
+    users: &Passwords,
+    authorization: Option<&str>,
+) -> Option<Option<crate::user::UserRef>> {
     let (scheme, credentials) = authorization?.trim().split_once(' ')?;
     if !scheme.eq_ignore_ascii_case("basic") {
         return None;
@@ -195,9 +199,9 @@ fn authenticate(users: &HashMap<String, String>, authorization: Option<&str>) ->
     let decoded = BASE64_STANDARD.decode(credentials.trim()).ok()?;
     let decoded = String::from_utf8(decoded).ok()?;
     let (username, password) = decoded.split_once(':')?;
-    let expected = users.get(username)?;
+    let (expected, user) = users.get(username)?;
     if constant_time_eq(expected.as_bytes(), password.as_bytes()) {
-        Some(username.to_owned())
+        Some(user.clone())
     } else {
         None
     }
@@ -249,9 +253,9 @@ impl HttpStream {
     /// Returns the destination and the user authenticated, if any.
     async fn accept(
         &mut self,
-        users: &HashMap<String, String>,
+        users: &Passwords,
         prefix: Vec<u8>,
-    ) -> io::Result<(SocksAddr, Option<String>)> {
+    ) -> io::Result<(SocksAddr, Option<crate::user::UserRef>)> {
         let (head, rest) = self.read_head(prefix).await?;
         let mut head = match RequestHead::try_from(&head[..]) {
             Ok(head) => head,
@@ -265,7 +269,7 @@ impl HttpStream {
             None
         } else {
             match authenticate(users, head.header("Proxy-Authorization")) {
-                Some(user) => Some(user),
+                Some(user) => user,
                 None => {
                     let _ = self.origin.write_all(&proxy_auth_required()).await;
                     return Err(io::Error::other("http proxy authentication failed"));
@@ -351,11 +355,11 @@ impl AsyncWrite for HttpStream {
 
 pub struct Handler {
     /// Passwords by username. Empty lets anyone in.
-    users: Arc<HashMap<String, String>>,
+    users: Arc<Passwords>,
 }
 
 impl Handler {
-    pub fn new(users: HashMap<String, String>) -> Self {
+    pub fn new(users: Passwords) -> Self {
         Handler {
             users: Arc::new(users),
         }
@@ -375,8 +379,8 @@ impl Handler {
         };
         let (destination, user) = http_stream.accept(&self.users, prefix).await?;
         sess.destination = destination;
-        if let Some(user) = user {
-            sess.user = Some(user.into());
+        if user.is_some() {
+            sess.user = user;
         }
         Ok(InboundTransport::Stream(Box::new(http_stream), sess))
     }
@@ -398,11 +402,13 @@ impl InboundStreamHandler for Handler {
 mod tests {
     use super::*;
 
-    fn users() -> HashMap<String, String> {
-        HashMap::from([
-            ("alice".to_string(), "a:pass".to_string()),
-            ("bob".to_string(), "bpass".to_string()),
-        ])
+    fn users() -> Passwords {
+        crate::user::passwords(&[("alice", "a:pass"), ("bob", "bpass")])
+    }
+
+    /// The name of the user `authenticate` found.
+    fn who(user: Option<Option<crate::user::UserRef>>) -> Option<String> {
+        user.flatten().map(|user| user.to_string())
     }
 
     fn basic(credentials: &str) -> String {
@@ -413,16 +419,19 @@ mod tests {
     fn basic_credentials_name_their_user() {
         let users = users();
         assert_eq!(
-            authenticate(&users, Some(&basic("bob:bpass"))).as_deref(),
+            who(authenticate(&users, Some(&basic("bob:bpass")))).as_deref(),
             Some("bob")
         );
         // A password may hold a colon; the username ends at the first.
         assert_eq!(
-            authenticate(&users, Some(&basic("alice:a:pass"))).as_deref(),
+            who(authenticate(&users, Some(&basic("alice:a:pass")))).as_deref(),
             Some("alice")
         );
         let lower = format!("basic {}", BASE64_STANDARD.encode("bob:bpass"));
-        assert_eq!(authenticate(&users, Some(&lower)).as_deref(), Some("bob"));
+        assert_eq!(
+            who(authenticate(&users, Some(&lower))).as_deref(),
+            Some("bob")
+        );
     }
 
     #[test]
@@ -437,9 +446,13 @@ mod tests {
     }
 
     async fn accept(
-        users: HashMap<String, String>,
+        users: Passwords,
         request: &[u8],
-    ) -> (io::Result<(SocksAddr, Option<String>)>, Vec<u8>, Vec<u8>) {
+    ) -> (
+        io::Result<(SocksAddr, Option<crate::user::UserRef>)>,
+        Vec<u8>,
+        Vec<u8>,
+    ) {
         let (client, server) = tokio::io::duplex(64 * 1024);
         let (mut client_r, mut client_w) = tokio::io::split(client);
         client_w.write_all(request).await.unwrap();
@@ -459,7 +472,7 @@ mod tests {
     #[tokio::test]
     async fn connect_keeps_what_follows_the_head() {
         let (result, answer, cache) = accept(
-            HashMap::new(),
+            Passwords::new(),
             b"CONNECT example.com:443 HTTP/1.1\r\n\r\nhello",
         )
         .await;
@@ -472,7 +485,7 @@ mod tests {
 
     #[tokio::test]
     async fn connect_to_ipv6() {
-        let (result, _, _) = accept(HashMap::new(), b"CONNECT [::1]:443 HTTP/1.1\r\n\r\n").await;
+        let (result, _, _) = accept(Passwords::new(), b"CONNECT [::1]:443 HTTP/1.1\r\n\r\n").await;
         let (addr, _) = result.unwrap();
         assert_eq!(addr.to_string(), "[::1]:443");
     }
@@ -487,7 +500,7 @@ mod tests {
         let (result, answer, cache) = accept(users(), request.as_bytes()).await;
         let (addr, user) = result.unwrap();
         assert_eq!(addr.to_string(), "example.com:80");
-        assert_eq!(user.as_deref(), Some("bob"));
+        assert_eq!(crate::user::name(&user), Some("bob"));
         assert!(answer.is_empty());
         let forwarded = String::from_utf8(cache).unwrap();
         assert!(forwarded.starts_with("GET /a?b HTTP/1.1\r\n"));
@@ -509,13 +522,13 @@ mod tests {
     async fn head_is_bounded() {
         let mut request = b"GET http://example.com/ HTTP/1.1\r\nX: ".to_vec();
         request.resize(MAX_HEAD_SIZE + 2 * BUFFER_SIZE, b'a');
-        let (result, _, _) = accept(HashMap::new(), &request).await;
+        let (result, _, _) = accept(Passwords::new(), &request).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn origin_form_is_a_bad_request() {
-        let (result, answer, _) = accept(HashMap::new(), b"GET / HTTP/1.1\r\n\r\n").await;
+        let (result, answer, _) = accept(Passwords::new(), b"GET / HTTP/1.1\r\n\r\n").await;
         assert!(result.is_err());
         assert!(answer.starts_with(b"HTTP/1.1 400"));
     }

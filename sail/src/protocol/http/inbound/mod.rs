@@ -44,7 +44,11 @@ pub(crate) struct HttpUser {
 /// A username may appear only once: which of two passwords would name the
 /// user is otherwise ambiguous. Basic credentials split at the first colon,
 /// so a username cannot hold one.
-pub(crate) fn users_by_name(tag: &str, users: Vec<HttpUser>) -> Result<HashMap<String, String>> {
+pub(crate) fn users_by_name(
+    tag: &str,
+    users: Vec<HttpUser>,
+    registry: &crate::user::UserRegistry,
+) -> Result<crate::user::Passwords> {
     let mut map = HashMap::with_capacity(users.len());
     for user in users {
         if user.username.contains(':') {
@@ -61,14 +65,15 @@ pub(crate) fn users_by_name(tag: &str, users: Vec<HttpUser>) -> Result<HashMap<S
                 user.username
             ));
         }
-        map.insert(user.username, user.password);
+        let bound = registry.bind_named(Some(&user.username));
+        map.insert(user.username, (user.password, bound));
     }
     Ok(map)
 }
 
 fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
     let options: HttpInboundOptions = ctx.options()?;
-    let users = users_by_name(ctx.tag, options.users)?;
+    let users = users_by_name(ctx.tag, options.users, &ctx.env.users)?;
     let stream = Arc::new(StreamHandler::new(users));
     Ok(Arc::new(Handler::new(
         ctx.tag.to_owned(),

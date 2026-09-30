@@ -119,7 +119,7 @@ fn build_2022(
                     let psk = sip022::decode_psk(method, &u.password)
                         .map_err(|e| anyhow!("[{}] inbound: users[{}]: password: {}", tag, i, e))?;
                     Ok(sip022::User {
-                        name: u.name.map(Into::into),
+                        name: ctx.env.users.bind_named(u.name.as_deref()),
                         psk,
                     })
                 })

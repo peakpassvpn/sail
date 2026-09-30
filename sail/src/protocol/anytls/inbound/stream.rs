@@ -26,7 +26,7 @@ const INCOMING_QUEUE: usize = 64;
 
 pub struct Handler {
     /// Users by the SHA-256 of their password, with their names.
-    users: HashMap<[u8; 32], Option<Arc<str>>>,
+    users: HashMap<[u8; 32], Option<crate::user::UserRef>>,
     padding: Arc<PaddingScheme>,
     /// How long a stream has to name its destination.
     handshake_timeout: Duration,
@@ -37,7 +37,7 @@ pub struct Handler {
 
 impl Handler {
     pub fn new(
-        users: HashMap<[u8; 32], Option<Arc<str>>>,
+        users: HashMap<[u8; 32], Option<crate::user::UserRef>>,
         padding: Arc<PaddingScheme>,
         handshake_timeout: Duration,
         fallback: Option<Fallback>,
@@ -105,7 +105,7 @@ impl InboundStreamHandler for Handler {
         let label = format!(
             "inbound={} user={}",
             sess.inbound_tag,
-            sess.user.as_deref().unwrap_or("-")
+            crate::user::name(&sess.user).unwrap_or("-")
         );
         let (session, mut streams) =
             Session::server(stream, self.padding.clone(), self.tuning, &label);

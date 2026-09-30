@@ -138,7 +138,7 @@ pub struct LookupContext {
     /// The inbound the connection that needs the name came in through.
     pub inbound: Option<String>,
     /// The user an inbound authenticated.
-    pub user: Option<Arc<str>>,
+    pub user: Option<crate::user::UserRef>,
     /// The outbound that dials the name.
     pub outbound: Option<String>,
     /// The address families, over what the rules and `dns.strategy` say.
@@ -159,7 +159,6 @@ pub struct LookupOptions {
     pub rewrite_ttl: Option<u32>,
     pub client_subnet: Option<crate::config::model::Prefix>,
 }
-
 
 pub struct DnsClient {
     /// Set once the dispatcher exists, and kept across reloads.

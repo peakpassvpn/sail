@@ -34,7 +34,7 @@ pub(crate) struct Facts {
     ip_version: Option<u8>,
     network: Network,
     inbound: String,
-    user: Option<std::sync::Arc<str>>,
+    user: Option<crate::user::UserRef>,
     /// The protocol sniffing found.
     protocol: Option<SniffedProtocol>,
     /// The plain HTTP request sniffing read.
@@ -1313,7 +1313,7 @@ impl Conditions {
                 || facts
                     .user
                     .as_ref()
-                    .is_some_and(|user| self.auth_users.iter().any(|u| **u == **user)))
+                    .is_some_and(|user| self.auth_users.iter().any(|u| **u == **user.name())))
             && (self.protocols.is_empty()
                 || facts.protocol.is_some_and(|p| self.protocols.contains(&p)))
             && (self.process_names.is_empty()
@@ -1627,9 +1627,9 @@ pub(crate) mod tests {
         });
         let mut sess = Session::default();
         assert!(!m.matches(&Facts::new(&sess, &[])));
-        sess.user = Some("bob".into());
+        sess.user = Some(crate::user::UserRef::unbound("bob"));
         assert!(!m.matches(&Facts::new(&sess, &[])));
-        sess.user = Some("alice".into());
+        sess.user = Some(crate::user::UserRef::unbound("alice"));
         assert!(m.matches(&Facts::new(&sess, &[])));
     }
 

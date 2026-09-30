@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::io;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
@@ -45,7 +44,7 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 
 pub struct Handler {
     /// Passwords by username. Empty lets anyone in.
-    users: Arc<HashMap<String, String>>,
+    users: Arc<crate::user::Passwords>,
     /// The UDP associations clients ask for, each with a relay socket of
     /// its own.
     associations: Arc<Associations>,
@@ -55,7 +54,7 @@ pub struct Handler {
 
 impl Handler {
     pub fn new(
-        users: HashMap<String, String>,
+        users: crate::user::Passwords,
         associations: Arc<Associations>,
         mark: Option<u32>,
     ) -> Self {
@@ -209,10 +208,10 @@ impl Handler {
             let accepted = self
                 .users
                 .get(&username)
-                .is_some_and(|expected| constant_time_eq(expected.as_bytes(), password.as_bytes()));
-            if accepted {
+                .filter(|(expected, _)| constant_time_eq(expected.as_bytes(), password.as_bytes()));
+            if let Some((_, user)) = accepted {
                 stream.write_all(&[0x01, 0x00]).await?;
-                sess.user = Some(username.into());
+                sess.user = user.clone();
             } else {
                 stream.write_all(&[0x01, 0x01]).await?;
                 return Err(io::Error::other("socks5 authentication failed"));
@@ -326,10 +325,7 @@ mod tests {
 
     fn handler() -> Handler {
         Handler::new(
-            HashMap::from([
-                ("alice".to_string(), "apass".to_string()),
-                ("bob".to_string(), "bpass".to_string()),
-            ]),
+            crate::user::passwords(&[("alice", "apass"), ("bob", "bpass")]),
             Default::default(),
             None,
         )
@@ -369,7 +365,7 @@ mod tests {
         for (user, pass) in [("alice", "apass"), ("bob", "bpass")] {
             let (result, answer) = run(handler(), &socks5_connect(user, pass)).await;
             let sess = result.unwrap().unwrap();
-            assert_eq!(sess.user.as_deref(), Some(user));
+            assert_eq!(crate::user::name(&sess.user), Some(user));
             assert_eq!(sess.destination.to_string(), "127.0.0.1:80");
             assert_eq!(&answer[..4], &[0x05, 0x02, 0x01, 0x00]);
         }
@@ -390,7 +386,7 @@ mod tests {
         assert_eq!(answer[1], 91);
 
         let (result, answer) = run(
-            Handler::new(HashMap::new(), Default::default(), None),
+            Handler::new(Default::default(), Default::default(), None),
             &request,
         )
         .await;
@@ -403,7 +399,7 @@ mod tests {
         let mut request = vec![0x04, 0x01, 0, 80, 127, 0, 0, 1];
         request.resize(request.len() + MAX_SOCKS4_FIELD + 10, b'a');
         let (result, _) = run(
-            Handler::new(HashMap::new(), Default::default(), None),
+            Handler::new(Default::default(), Default::default(), None),
             &request,
         )
         .await;

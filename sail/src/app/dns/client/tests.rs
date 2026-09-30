@@ -488,7 +488,7 @@ mod tests {
         .unwrap();
         let mut ctx = super::LookupContext {
             inbound: Some("lan".into()),
-            user: Some("bob".into()),
+            user: Some(crate::user::UserRef::unbound("bob")),
             ..Default::default()
         };
         assert_eq!(
@@ -500,7 +500,7 @@ mod tests {
             { "inbound": "lan", "auth_user": "alice", "server": "home" }
         ]))
         .unwrap();
-        ctx.user = Some("alice".into());
+        ctx.user = Some(crate::user::UserRef::unbound("alice"));
         assert_eq!(
             client.lookup_in("nas.home.arpa", &ctx).await.unwrap(),
             ips(&["192.168.1.2", "fd00::2"])

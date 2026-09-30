@@ -134,19 +134,22 @@ fn could_be_auth(buf: &[u8]) -> bool {
 
 pub struct Handler {
     /// The users by the key their password makes, with their names.
-    keys: HashMap<Vec<u8>, Option<std::sync::Arc<str>>>,
+    keys: HashMap<Vec<u8>, Option<crate::user::UserRef>>,
     /// Where what fails to authenticate goes; closed without one.
     fallback: Option<Fallback>,
 }
 
 impl Handler {
-    /// Takes the users as their passwords and names.
-    pub fn new(users: Vec<(String, Option<String>)>, fallback: Option<Fallback>) -> Self {
+    /// Takes the users as their passwords and who they are.
+    pub fn new(
+        users: Vec<(String, Option<crate::user::UserRef>)>,
+        fallback: Option<Fallback>,
+    ) -> Self {
         let mut keys = HashMap::new();
         for (pass, name) in users {
             let key = Sha224::digest(pass.as_bytes());
             let key = hex::encode(&key[..]);
-            keys.insert(key.as_bytes().to_vec(), name.map(Into::into));
+            keys.insert(key.as_bytes().to_vec(), name);
         }
         Handler { keys, fallback }
     }

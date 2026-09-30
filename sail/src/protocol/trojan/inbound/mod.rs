@@ -71,7 +71,7 @@ fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
     let users = options
         .users
         .into_iter()
-        .map(|u| (u.password, u.name))
+        .map(|u| (u.password, ctx.env.users.bind_named(u.name.as_deref())))
         .collect();
     let stream = Arc::new(StreamHandler::new(users, fallback));
     Ok(Arc::new(Handler::new(
