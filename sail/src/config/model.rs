@@ -1416,8 +1416,12 @@ pub struct Inbound {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub listen_port: Option<u16>,
     /// How long a UDP session through this inbound lives without traffic;
-    /// 5m when unset, as in sing-box.
-    #[serde(default, with = "duration", skip_serializing_if = "Option::is_none")]
+    /// 5m when unset, as in sing-box. A number is of seconds.
+    #[serde(
+        default,
+        with = "duration_or_seconds",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub udp_timeout: Option<std::time::Duration>,
     /// How long an accepted TCP connection is idle before keepalive probes
     /// it; 5m when unset.
@@ -3075,6 +3079,38 @@ pub mod duration {
     }
 }
 
+/// `duration`, or a number of seconds: an inbound's `udp_timeout`, as
+/// sing-box takes it (its WireGuard endpoint's takes a duration only).
+pub mod duration_or_seconds {
+    use serde::de::{self, Deserializer};
+
+    pub use super::duration::serialize;
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        de: D,
+    ) -> Result<Option<std::time::Duration>, D::Error> {
+        struct Visitor;
+
+        impl de::Visitor<'_> for Visitor {
+            type Value = Option<std::time::Duration>;
+
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("a duration, e.g. 5m, or a number of seconds")
+            }
+
+            fn visit_u64<E: de::Error>(self, v: u64) -> Result<Self::Value, E> {
+                Ok(Some(std::time::Duration::from_secs(v)))
+            }
+
+            fn visit_str<E: de::Error>(self, v: &str) -> Result<Self::Value, E> {
+                super::parse_duration(v).map(Some).map_err(E::custom)
+            }
+        }
+
+        de.deserialize_any(Visitor)
+    }
+}
+
 /// Serde support for lists that sing-box also takes as a single value.
 pub mod listable {
     use serde::de::{self, IntoDeserializer};
@@ -3525,6 +3561,23 @@ mod tests {
         assert_eq!(
             socks.inbounds[0].udp_timeout(),
             std::time::Duration::from_secs(300)
+        );
+        // A number of seconds, as sing-box takes it; not for WireGuard's.
+        let seconds = Config::from_json(
+            r#"{ "inbounds": [{ "type": "socks", "listen_port": 1080, "udp_timeout": 90 }] }"#,
+        )
+        .unwrap();
+        assert_eq!(
+            seconds.inbounds[0].udp_timeout(),
+            std::time::Duration::from_secs(90)
+        );
+        let err =
+            Config::from_json(r#"{ "endpoints": [{ "type": "wireguard", "udp_timeout": 90 }] }"#)
+                .unwrap_err();
+        assert!(
+            err.to_string().starts_with("endpoints[0].udp_timeout"),
+            "{}",
+            err
         );
 
         let defaults = Config::from_json("{}").unwrap();
