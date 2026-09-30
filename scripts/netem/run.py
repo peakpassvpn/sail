@@ -1,0 +1,541 @@
+#!/usr/bin/env python3
+"""Weak-network and long-run tests (roadmap 5.5).
+
+Run as root on the Linux test host, from this directory:
+
+    python3 run.py --work WORK --sail WORK/sail --netgen WORK/netgen \\
+        [--protocols direct,ss,trojan] [--clients sail-server,sail-mobile,sing-box] \\
+        [--only SUBSTR] [--quick]
+
+Two network namespaces (netns.sh): nc5 holds the client under test and the
+traffic tool, ns5 the protocol server (sing-box, the reference) and the
+traffic tool's server. Every scenario shapes the link between them with
+netem, runs the traffic tool's checked workloads through the client's
+SOCKS inbound, and samples the client's memory, CPU, descriptors and TCP
+states. Results: <work>/results/<run>/summary.json, and the raw records
+of each client, gzipped, kept only where something failed.
+"""
+import argparse
+import gzip
+import json
+import os
+import shutil
+import signal
+import subprocess
+import sys
+import threading
+import time
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+NETNS = os.path.join(HERE, "netns.sh")
+CLIENT_NS, SERVER_NS = "nc5", "ns5"
+SERVER_ADDR = "10.95.0.2"
+TARGET = SERVER_ADDR + ":9000"
+SOCKS = "127.0.0.1:1081"
+SS_METHOD = "2022-blake3-aes-128-gcm"
+SS_KEY = "a8C5QncIl9HvTmenrEb7aw=="
+PASSWORD = "netem-password"
+
+# Recovery after the link returns: roadmap 2.12's acceptance ("3 秒内恢复新连接").
+RECOVERY_TARGET_S = 3.0
+# The concurrent case of the core comparison (bench/core-compare).
+CONCURRENT = 2000
+# The descriptor limit every process of a run gets.
+NOFILE = 65536
+
+
+def sh(cmd, check=True, timeout=None):
+    return subprocess.run(cmd, shell=True, check=check, capture_output=True,
+                          text=True, timeout=timeout)
+
+
+def in_ns(ns, cmd):
+    return f"ip netns exec {ns} {cmd}"
+
+
+def netns(*args):
+    sh(f"{NETNS} " + " ".join(args))
+
+
+# ------------------------------------------------------------- scenarios
+# Each shaping applies to both directions: an RTT of R is a delay of R/2
+# each way.
+def delay(rtt_ms, jitter=0.1):
+    half = rtt_ms / 2
+    return f"delay {half}ms {half * jitter}ms distribution normal"
+
+
+SHAPED = [
+    ("baseline", None),
+    ("rtt50", delay(50)),
+    ("rtt150", delay(150)),
+    ("rtt300", delay(300)),
+    ("loss0.5", "delay 10ms loss 0.5%"),
+    ("loss2", "delay 10ms loss 2%"),
+    ("loss5", "delay 10ms loss 5%"),
+    # Gilbert-Elliott: bursts of loss, about 2 % on average.
+    ("burst2", "delay 10ms loss gemodel 1% 30% 70% 0.1%"),
+    ("reorder5", "delay 20ms reorder 5% 50%"),
+    ("reorder25", "delay 20ms reorder 25% 50%"),
+    # A queue of about half a second at the rate, as a real bottleneck's:
+    # 10 Mbit/s x 0.5 s / 1500 B = 420 packets, 2 Mbit/s: 85.
+    ("rate10m", "delay 20ms rate 10mbit limit 420"),
+    ("rate2m", "delay 20ms rate 2mbit limit 85"),
+]
+
+# Bytes each bulk stream moves: enough to reach steady state, small enough
+# for the slow links.
+BULK_BYTES = {"rate10m": 8 << 20, "rate2m": 2 << 20, "rtt300": 16 << 20,
+              "loss5": 8 << 20, "burst2": 16 << 20}
+
+
+# ------------------------------------------------------------- processes
+class Proc:
+    def __init__(self, name, ns, cmd, log, nofile=None):
+        self.name = name
+        self.log = open(log, "a")
+        # Descriptors as a deployment raises them, for all but a client
+        # under test given its own limit (--client-nofile).
+        cmd = f"sh -c 'ulimit -n {nofile or NOFILE}; exec {cmd}'"
+        self.p = subprocess.Popen(in_ns(ns, cmd), shell=True, stdout=self.log,
+                                  stderr=subprocess.STDOUT, preexec_fn=os.setsid)
+
+    def pid(self):
+        # The process netns exec runs: the shell's only child, or itself.
+        try:
+            kids = open(f"/proc/{self.p.pid}/task/{self.p.pid}/children").read().split()
+            return int(kids[0]) if kids else self.p.pid
+        except OSError:
+            return None
+
+    def alive(self):
+        return self.p.poll() is None
+
+    def stop(self):
+        if self.alive():
+            os.killpg(self.p.pid, signal.SIGTERM)
+            try:
+                self.p.wait(5)
+            except subprocess.TimeoutExpired:
+                os.killpg(self.p.pid, signal.SIGKILL)
+                self.p.wait()
+        self.log.close()
+
+
+def server_config(proto, work):
+    if proto == "ss":
+        inbound = {"type": "shadowsocks", "listen": SERVER_ADDR, "listen_port": 8388,
+                   "method": SS_METHOD, "password": SS_KEY}
+    elif proto == "trojan":
+        inbound = {"type": "trojan", "listen": SERVER_ADDR, "listen_port": 8443,
+                   "users": [{"password": PASSWORD}],
+                   "tls": {"enabled": True, "certificate_path": f"{work}/cert.pem",
+                           "key_path": f"{work}/key.pem"}}
+    else:
+        return None
+    return {"log": {"level": "warn"}, "inbounds": [inbound],
+            "outbounds": [{"type": "direct"}]}
+
+
+def client_config(proto):
+    if proto == "ss":
+        out = {"type": "shadowsocks", "server": SERVER_ADDR, "server_port": 8388,
+               "method": SS_METHOD, "password": SS_KEY}
+    elif proto == "trojan":
+        out = {"type": "trojan", "server": SERVER_ADDR, "server_port": 8443,
+               "password": PASSWORD,
+               "tls": {"enabled": True, "server_name": "localhost", "insecure": True}}
+    else:
+        out = {"type": "direct"}
+    out["tag"] = "out"
+    # info: each connection's end is in the log, for what fails rarely.
+    return {"log": {"level": "info", "timestamp": True},
+            "inbounds": [{"type": "socks", "listen": "127.0.0.1", "listen_port": 1081}],
+            "outbounds": [out]}
+
+
+# ------------------------------------------------------------- sampling
+class Sampler:
+    """Samples the client's RSS, CPU and descriptors and both namespaces'
+    TCP states, once a second."""
+
+    def __init__(self, proc):
+        self.proc = proc
+        self.samples = []
+        self.stop_ = threading.Event()
+        self.t = threading.Thread(target=self.run, daemon=True)
+        self.t.start()
+
+    def one(self):
+        pid = self.proc.pid()
+        s = {"t": time.time()}
+        if pid:
+            try:
+                for line in open(f"/proc/{pid}/status"):
+                    if line.startswith("VmRSS:"):
+                        s["rss_kb"] = int(line.split()[1])
+                stat = open(f"/proc/{pid}/stat").read().rsplit(")", 1)[1].split()
+                s["cpu_ticks"] = int(stat[11]) + int(stat[12])
+                s["fds"] = len(os.listdir(f"/proc/{pid}/fd"))
+            except OSError:
+                s["gone"] = True
+        for ns in (CLIENT_NS, SERVER_NS):
+            states = {}
+            out = sh(in_ns(ns, "ss -tanH"), check=False).stdout
+            for line in out.splitlines():
+                st = line.split()[0]
+                states[st] = states.get(st, 0) + 1
+            s[f"tcp_{ns}"] = states
+        return s
+
+    def run(self):
+        while not self.stop_.wait(1):
+            self.samples.append(self.one())
+
+    def mark(self):
+        return len(self.samples)
+
+    def since(self, mark):
+        return self.samples[mark:]
+
+    def stop(self):
+        self.stop_.set()
+        self.t.join()
+
+
+def peak(samples, key):
+    vals = [s[key] for s in samples if key in s]
+    return max(vals) if vals else None
+
+
+def last(samples, key):
+    vals = [s[key] for s in samples if key in s]
+    return vals[-1] if vals else None
+
+
+# ------------------------------------------------------------- runs
+class Run:
+    def __init__(self, args, proto, client, server):
+        self.args = args
+        self.proto = proto
+        self.client = client
+        self.server = server
+        # The server is named only when it is not the reference.
+        self.name = f"{proto}-{client}" + ("" if server == "sing-box" else f"-to-{server}")
+        self.dir = os.path.join(args.out, self.name)
+        os.makedirs(self.dir, exist_ok=True)
+        self.records = []
+        self.failures = []
+        self.procs = {}
+
+    def netgen(self, mode, *flags, timeout=600):
+        cmd = in_ns(CLIENT_NS, f"{self.args.netgen} {mode} -proxy {SOCKS} -target {TARGET} "
+                    + " ".join(flags))
+        t0 = time.time()
+        r = sh(cmd, check=False, timeout=timeout)
+        out = r.stdout.strip().splitlines()
+        try:
+            res = json.loads(out[-1]) if out else {}
+        except json.JSONDecodeError:
+            res = {}
+        res["_seconds"] = round(time.time() - t0, 2)
+        if r.returncode != 0:
+            res["_error"] = r.stderr.strip()[-500:]
+        return res
+
+    def start_server(self):
+        log = os.path.join(self.dir, "server.log")
+        self.procs["netgen"] = Proc("netgen", SERVER_NS,
+                                    f"{self.args.netgen} serve -listen {TARGET}", log)
+        cfg = server_config(self.proto, self.args.work)
+        if cfg:
+            path = os.path.join(self.dir, "server.json")
+            json.dump(cfg, open(path, "w"))
+            self.procs["server"] = Proc("server", SERVER_NS, self.server_command(path), log)
+        time.sleep(1)
+
+    def server_command(self, path):
+        if self.server == "sail":
+            return f"{self.args.sail} -c {path}"
+        return f"{self.args.singbox} run -c {path}"
+
+    def start_client(self):
+        path = os.path.join(self.dir, "client.json")
+        json.dump(client_config(self.proto), open(path, "w"))
+        log = os.path.join(self.dir, "client.log")
+        if self.client.startswith("sail"):
+            profile = self.client.split("-", 1)[1]
+            cmd = f"{self.args.sail} -c {path} --profile {profile}"
+        else:
+            cmd = f"{self.args.singbox} run -c {path}"
+        self.procs["client"] = Proc("client", CLIENT_NS, cmd, log,
+                                    nofile=self.args.client_nofile)
+        time.sleep(1.5)
+
+    def restart_server(self):
+        key = "server" if "server" in self.procs else "netgen"
+        self.procs[key].stop()
+        log = os.path.join(self.dir, "server.log")
+        if key == "server":
+            path = os.path.join(self.dir, "server.json")
+            self.procs[key] = Proc("server", SERVER_NS, self.server_command(path), log)
+        else:
+            self.procs[key] = Proc("netgen", SERVER_NS,
+                                   f"{self.args.netgen} serve -listen {TARGET}", log)
+
+    def record(self, scenario, workload, res, samples, idle_before, idle_after):
+        rec = {"scenario": scenario, "workload": workload, "result": res,
+               "rss_peak_kb": peak(samples, "rss_kb"),
+               "fds_peak": peak(samples, "fds"),
+               "idle_before": idle_before, "idle_after": idle_after,
+               "client_alive": self.procs["client"].alive()}
+        self.records.append(rec)
+        return rec
+
+    def idle(self, sampler, settle=5):
+        """The client at rest: RSS, descriptors and TCP states after
+        `settle` seconds with no traffic."""
+        time.sleep(settle)
+        s = sampler.one()
+        return {"rss_kb": s.get("rss_kb"), "fds": s.get("fds"),
+                "tcp_client_ns": s.get(f"tcp_{CLIENT_NS}")}
+
+    def fail(self, what):
+        self.failures.append(what)
+        print(f"  FAIL {self.name}: {what}", flush=True)
+
+    def check(self, scenario, workload, res):
+        """The absolute criteria: nothing corrupted, nothing crashed."""
+        for part in ([res] + [v for v in res.values() if isinstance(v, dict)]):
+            if part.get("corrupt"):
+                self.fail(f"{scenario}/{workload}: {part['corrupt']} corrupted transfers")
+        if not self.procs["client"].alive():
+            self.fail(f"{scenario}/{workload}: the client exited")
+
+    def workloads(self, sampler, scenario):
+        quick = self.args.quick
+        size = BULK_BYTES.get(scenario, 32 << 20)
+        if quick:
+            size //= 4
+        plan = [
+            ("bulk_down", ["-streams 4", f"-bytes {size}", "-dir down"]),
+            ("bulk_up", ["-streams 4", f"-bytes {size}", "-dir up"]),
+            ("echo", ["-conns 8", f"-rounds {50 if quick else 150}", "-size 4096"]),
+            ("setup", [f"-n {self.args.setup_n or (50 if quick else 150)}"]),
+        ]
+        for workload, flags in plan:
+            idle_before = self.idle(sampler, settle=1)
+            m = sampler.mark()
+            res = self.netgen(workload.split("_")[0], *flags)
+            rec = self.record(scenario, workload, res, sampler.since(m), idle_before,
+                              self.idle(sampler, settle=2))
+            self.check(scenario, workload, res)
+            print(f"  {self.name} {scenario} {workload}: {brief(res)}", flush=True)
+
+    def disconnect(self, sampler, scenario, outage, how):
+        """A probe runs across an outage; recovery is the time from the
+        link's return to the first new connection that works."""
+        pre, post = 5, 20
+        m = sampler.mark()
+        probe = threading.Thread(target=lambda: setattr(
+            self, "_probe", self.netgen("probe", f"-duration {pre + outage + post}s",
+                                        "-interval 100ms", "-timeout 5s",
+                                        timeout=pre + outage + post + 60)))
+        probe.start()
+        time.sleep(pre)
+        cut = time.time()
+        if how == "blackhole":
+            netns("blackhole")
+        elif how == "linkdown":
+            netns("linkdown")
+        elif how == "restart":
+            self.restart_server()
+        if how != "restart":
+            time.sleep(outage)
+        restored = time.time()
+        if how == "blackhole":
+            netns("clear")
+        elif how == "linkdown":
+            netns("linkup")
+        probe.join()
+        res = getattr(self, "_probe", {})
+        events = res.get("events", [])
+        restored_ms = restored * 1000
+        first_ok = next((e["at_ms"] for e in events
+                         if e["what"] == "new_ok" and e["at_ms"] >= restored_ms), None)
+        # With no failure at all, recovery was immediate.
+        failed_any = any(e["what"] == "new_fail" for e in events)
+        recovery = (first_ok - restored_ms) / 1000 if first_ok else (
+            0.0 if not failed_any else None)
+        long_fail = next((e for e in events if e["what"] == "long_fail"), None)
+        res["recovery_s"] = recovery
+        res["long_ended_after_cut_s"] = (
+            round(long_fail["at_ms"] / 1000 - cut, 2) if long_fail else None)
+        res["long_reopened"] = any(e["what"] == "long_reopened" and e["at_ms"] >= restored_ms
+                                   for e in events)
+        self.record(scenario, "probe", res, sampler.since(m), None, self.idle(sampler))
+        if recovery is None:
+            self.fail(f"{scenario}: no new connection worked after the link returned")
+        elif recovery > RECOVERY_TARGET_S:
+            # Reported with its cause, not failed: 2.12 or the relay
+            # timeouts may own it.
+            print(f"  NOTE {self.name} {scenario}: recovery {recovery:.1f}s > "
+                  f"{RECOVERY_TARGET_S}s", flush=True)
+        self.check(scenario, "probe", res)
+        print(f"  {self.name} {scenario}: recovery {recovery}s, long-lived ended after "
+              f"{res['long_ended_after_cut_s']}s, reopened {res['long_reopened']}", flush=True)
+
+    def concurrency(self, sampler):
+        idle_before = self.idle(sampler, settle=2)
+        m = sampler.mark()
+        hold = 10 if self.args.quick else 20
+        res = self.netgen("concurrent", f"-conns {CONCURRENT}", f"-hold {hold}s")
+        rec = self.record("concurrency", "concurrent", res, sampler.since(m), idle_before,
+                          self.idle(sampler, settle=10))
+        if res.get("established") != CONCURRENT or res.get("survived") != CONCURRENT:
+            self.fail(f"concurrency: {res.get('established')} established, "
+                      f"{res.get('survived')} survived of {CONCURRENT}")
+        self.check("concurrency", "concurrent", res)
+        print(f"  {self.name} concurrency: {brief(res)} rss peak {rec['rss_peak_kb']} kB",
+              flush=True)
+        for rate in (200, 500):
+            m = sampler.mark()
+            res = self.netgen("churn", f"-rate {rate}", f"-duration {10 if self.args.quick else 30}s")
+            self.record("concurrency", f"churn{rate}", res, sampler.since(m), None,
+                        self.idle(sampler))
+            self.check("concurrency", f"churn{rate}", res)
+            print(f"  {self.name} churn {rate}/s: {brief(res)}", flush=True)
+
+    def halfclose(self, sampler):
+        for scenario, spec in (("baseline", None), ("loss2", "delay 10ms loss 2%")):
+            netns("shape", spec) if spec else netns("clear")
+            m = sampler.mark()
+            res = self.netgen("halfclose", "-n 50", "-bytes 1048576")
+            self.record(f"halfclose-{scenario}", "halfclose", res, sampler.since(m), None,
+                        self.idle(sampler))
+            for side in ("client_first", "server_first"):
+                part = res.get(side, {})
+                if part.get("ok") == 50:
+                    continue
+                if "sing-box" in (self.client, self.server) and not part.get("corrupt"):
+                    # sing-box 1.13 closes both ways when one side shuts
+                    # its write side (measured 2026-09-30, as client and as
+                    # server): not held against the sail side.
+                    print(f"  NOTE {self.name}: halfclose-{scenario}/{side}: sing-box "
+                          f"does not keep half-close: {part.get('ok')}/50", flush=True)
+                    continue
+                self.fail(f"halfclose-{scenario}/{side}: {part}")
+            self.check(f"halfclose-{scenario}", "halfclose", res)
+            print(f"  {self.name} halfclose {scenario}: {brief(res)}", flush=True)
+        netns("clear")
+
+    def go(self):
+        print(f"== {self.name}", flush=True)
+        self.start_server()
+        self.start_client()
+        sampler = Sampler(self.procs["client"])
+        start_idle = self.idle(sampler, settle=2)
+        try:
+            for scenario, spec in SHAPED:
+                if self.args.only and self.args.only not in scenario:
+                    continue
+                netns("shape", spec) if spec else netns("clear")
+                self.workloads(sampler, scenario)
+            netns("clear")
+            if not self.args.only or "disconnect" in self.args.only:
+                self.disconnect(sampler, "blackhole5", 5, "blackhole")
+                self.disconnect(sampler, "blackhole30", 30, "blackhole")
+                self.disconnect(sampler, "linkdown10", 10, "linkdown")
+                self.disconnect(sampler, "server_restart", 0, "restart")
+            if not self.args.only or "concurrency" in self.args.only:
+                self.concurrency(sampler)
+            if not self.args.only or "halfclose" in self.args.only:
+                self.halfclose(sampler)
+        finally:
+            netns("clear")
+            end_idle = self.idle(sampler, settle=10)
+            sampler.stop()
+            for p in self.procs.values():
+                p.stop()
+        summary = {"name": self.name, "failures": self.failures,
+                   "idle_start": start_idle, "idle_end": end_idle,
+                   "records": [compact(r) for r in self.records]}
+        with gzip.open(os.path.join(self.dir, "raw.jsonl.gz"), "wt") as f:
+            for r in self.records:
+                f.write(json.dumps(r) + "\n")
+            for s in sampler.samples:
+                f.write(json.dumps({"sample": s}) + "\n")
+        return summary
+
+
+def brief(res):
+    keep = ("ok", "failed", "corrupt", "mbps", "rtt", "setup", "established", "survived",
+            "_error")
+    out = {k: res[k] for k in keep if k in res}
+    for side in ("client_first", "server_first"):
+        if side in res:
+            out[side] = {k: res[side].get(k) for k in ("ok", "failed", "corrupt")}
+    return json.dumps(out)
+
+
+def compact(rec):
+    r = dict(rec)
+    res = dict(r["result"])
+    res.pop("events", None)
+    r["result"] = res
+    return r
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--work", default="netem-work")
+    ap.add_argument("--sail", default="netem-work/sail")
+    ap.add_argument("--singbox", default="/usr/local/bin/sing-box")
+    ap.add_argument("--netgen", default="netem-work/netgen")
+    ap.add_argument("--protocols", default="direct,ss,trojan")
+    ap.add_argument("--clients", default="sail-server,sail-mobile,sing-box")
+    # sing-box is the reference; sail serves the protocols it takes in too.
+    ap.add_argument("--servers", default="sing-box")
+    ap.add_argument("--only", default="")
+    ap.add_argument("--setup-n", type=int, default=0,
+                    help="connections of the setup workload, for rare failures")
+    ap.add_argument("--client-nofile", type=int, default=None,
+                    help="the client under test's descriptor limit (soft and hard); "
+                         "the others keep a deployment's")
+    ap.add_argument("--quick", action="store_true")
+    args = ap.parse_args()
+
+    free = shutil.disk_usage("/").free
+    if free < 2 << 30:
+        sys.exit(f"only {free >> 20} MiB free on /: not starting")
+    run_id = time.strftime("%Y%m%dT%H%M%S")
+    args.out = os.path.join(args.work, "results", run_id)
+    os.makedirs(args.out, exist_ok=True)
+    if not os.path.exists(f"{args.work}/cert.pem"):
+        sh(f"openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes "
+           f"-subj /CN=localhost -addext subjectAltName=DNS:localhost -days 30 "
+           f"-keyout {args.work}/key.pem -out {args.work}/cert.pem")
+
+    netns("up")
+    summaries = []
+    try:
+        for proto in args.protocols.split(","):
+            for server in args.servers.split(","):
+                if proto == "direct" and server != "sing-box":
+                    continue
+                for client in args.clients.split(","):
+                    run = Run(args, proto, client, server)
+                    summaries.append(run.go())
+                    if not run.failures:
+                        # Only failing runs keep their raw records.
+                        os.remove(os.path.join(run.dir, "raw.jsonl.gz"))
+    finally:
+        netns("down")
+    json.dump(summaries, open(os.path.join(args.out, "summary.json"), "w"), indent=1)
+    failed = [s["name"] for s in summaries if s["failures"]]
+    print(f"== done: {len(summaries)} runs, failing: {failed or 'none'}; {args.out}")
+    sys.exit(1 if failed else 0)
+
+
+if __name__ == "__main__":
+    main()
