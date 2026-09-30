@@ -80,11 +80,10 @@ fn a_move_closes_the_connections_and_a_roam_does_not() -> anyhow::Result<()> {
     checked
 }
 
-// socks client -> (socks)sail(rules: block) -> server; behind a captive
-// portal, as the host says, it goes direct whatever the rules say.
-#[cfg(feature = "outbound-drop")]
-#[test]
-fn behind_a_captive_portal_every_connection_goes_direct() -> anyhow::Result<()> {
+/// With `outbounds` and `final`, which let no connection through, a
+/// connection is let through behind a captive portal, as the host says,
+/// and not before or after.
+fn a_portal_lets_through(outbounds: serde_json::Value, last: &str) -> anyhow::Result<()> {
     let rt = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
         .enable_all()
@@ -106,8 +105,8 @@ fn behind_a_captive_portal_every_connection_goes_direct() -> anyhow::Result<()> 
             "inbounds": [
                 { "type": "socks", "listen": "127.0.0.1", "listen_port": socks }
             ],
-            "outbounds": [{ "type": "block", "tag": "block" }],
-            "route": { "final": "block" },
+            "outbounds": outbounds,
+            "route": { "final": last },
         });
         Ok((
             common::run_sail_instances(&rt, vec![config.to_string()])?,
@@ -134,7 +133,10 @@ fn behind_a_captive_portal_every_connection_goes_direct() -> anyhow::Result<()> 
                     .await
                     .is_err()
         };
-        assert!(!reaches(connect().await).await, "the rules block it");
+        assert!(
+            !reaches(connect().await).await,
+            "the rules let nothing through"
+        );
         sail::set_network_state(id, r#"{ "interface": "en0", "captive": true }"#)?;
         assert!(reaches(connect().await).await, "direct behind the portal");
         sail::set_network_state(id, r#"{ "interface": "en0" }"#)?;
@@ -143,4 +145,30 @@ fn behind_a_captive_portal_every_connection_goes_direct() -> anyhow::Result<()> 
     });
     common::shutdown_instances(&rt, ids);
     checked
+}
+
+// socks client -> (socks)sail(rules: block) -> server; behind a captive
+// portal, as the host says, it goes direct whatever the rules say.
+#[cfg(feature = "outbound-drop")]
+#[test]
+fn behind_a_captive_portal_every_connection_goes_direct() -> anyhow::Result<()> {
+    a_portal_lets_through(
+        serde_json::json!([{ "type": "block", "tag": "block" }]),
+        "block",
+    )
+}
+
+// socks client -> (socks)sail(final: the configuration's DIRECT, which
+// reaches nothing) -> server: the rules take the configuration's DIRECT by
+// its tag, the portal sail's own direct, which no tag names.
+#[test]
+fn the_portal_s_direct_is_not_an_outbound_tagged_direct() -> anyhow::Result<()> {
+    a_portal_lets_through(
+        serde_json::json!([{
+            "type": "direct", "tag": "DIRECT",
+            // TEST-NET-1, on no interface here: no socket binds to it.
+            "inet4_bind_address": "192.0.2.1"
+        }]),
+        "DIRECT",
+    )
 }
