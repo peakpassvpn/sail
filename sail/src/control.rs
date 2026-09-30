@@ -263,6 +263,151 @@ pub fn resident_memory() -> u64 {
     }
 }
 
+/// The features this build of sail has: protocols, transports, the
+/// configuration formats and what the host can use.
+pub fn features() -> Vec<&'static str> {
+    vec![
+        #[cfg(feature = "config-clash")]
+        "config-clash",
+        #[cfg(feature = "config-surge")]
+        "config-surge",
+        #[cfg(feature = "quic")]
+        "quic",
+        #[cfg(feature = "tls")]
+        "tls",
+        #[cfg(feature = "dns-doh")]
+        "dns-doh",
+        #[cfg(feature = "dns-h3")]
+        "dns-h3",
+        #[cfg(feature = "rule-process-name")]
+        "rule-process-name",
+        #[cfg(feature = "http-client")]
+        "http-client",
+        #[cfg(feature = "rule-set")]
+        "rule-set",
+        #[cfg(feature = "outbound-provider")]
+        "outbound-provider",
+        #[cfg(feature = "outbound-direct")]
+        "outbound-direct",
+        #[cfg(feature = "outbound-drop")]
+        "outbound-drop",
+        #[cfg(feature = "outbound-pass")]
+        "outbound-pass",
+        #[cfg(feature = "outbound-redirect")]
+        "outbound-redirect",
+        #[cfg(feature = "outbound-shadowsocks")]
+        "outbound-shadowsocks",
+        #[cfg(feature = "outbound-obfs")]
+        "outbound-obfs",
+        #[cfg(feature = "outbound-socks")]
+        "outbound-socks",
+        #[cfg(feature = "outbound-trojan")]
+        "outbound-trojan",
+        #[cfg(feature = "outbound-http")]
+        "outbound-http",
+        #[cfg(feature = "outbound-hysteria2")]
+        "outbound-hysteria2",
+        #[cfg(feature = "outbound-tuic")]
+        "outbound-tuic",
+        #[cfg(feature = "outbound-anytls")]
+        "outbound-anytls",
+        #[cfg(feature = "outbound-shadowtls")]
+        "outbound-shadowtls",
+        #[cfg(feature = "outbound-tls")]
+        "outbound-tls",
+        #[cfg(feature = "outbound-ws")]
+        "outbound-ws",
+        #[cfg(feature = "outbound-httpupgrade")]
+        "outbound-httpupgrade",
+        #[cfg(feature = "outbound-grpc")]
+        "outbound-grpc",
+        #[cfg(feature = "outbound-tryall")]
+        "outbound-tryall",
+        #[cfg(feature = "outbound-chain")]
+        "outbound-chain",
+        #[cfg(feature = "outbound-vless")]
+        "outbound-vless",
+        #[cfg(feature = "outbound-reality")]
+        "outbound-reality",
+        #[cfg(feature = "outbound-amux")]
+        "outbound-amux",
+        #[cfg(feature = "outbound-quic")]
+        "outbound-quic",
+        #[cfg(feature = "outbound-mptp")]
+        "outbound-mptp",
+        #[cfg(feature = "outbound-select")]
+        "outbound-select",
+        #[cfg(feature = "outbound-urltest")]
+        "outbound-urltest",
+        #[cfg(feature = "outbound-load-balance")]
+        "outbound-load-balance",
+        #[cfg(feature = "outbound-smart")]
+        "outbound-smart",
+        #[cfg(feature = "outbound-fallback")]
+        "outbound-fallback",
+        #[cfg(feature = "outbound-network-group")]
+        "outbound-network-group",
+        #[cfg(feature = "outbound-vmess")]
+        "outbound-vmess",
+        #[cfg(feature = "inbound-trojan")]
+        "inbound-trojan",
+        #[cfg(feature = "inbound-vless")]
+        "inbound-vless",
+        #[cfg(feature = "inbound-vmess")]
+        "inbound-vmess",
+        #[cfg(feature = "inbound-mixed")]
+        "inbound-mixed",
+        #[cfg(feature = "inbound-hysteria2")]
+        "inbound-hysteria2",
+        #[cfg(feature = "inbound-tuic")]
+        "inbound-tuic",
+        #[cfg(feature = "inbound-anytls")]
+        "inbound-anytls",
+        #[cfg(feature = "inbound-shadowtls")]
+        "inbound-shadowtls",
+        #[cfg(feature = "inbound-mptp")]
+        "inbound-mptp",
+        #[cfg(feature = "inbound-shadowsocks")]
+        "inbound-shadowsocks",
+        #[cfg(feature = "inbound-socks")]
+        "inbound-socks",
+        #[cfg(feature = "inbound-http")]
+        "inbound-http",
+        #[cfg(feature = "inbound-tun")]
+        "inbound-tun",
+        #[cfg(feature = "inbound-ws")]
+        "inbound-ws",
+        #[cfg(feature = "inbound-httpupgrade")]
+        "inbound-httpupgrade",
+        #[cfg(feature = "inbound-grpc")]
+        "inbound-grpc",
+        #[cfg(feature = "inbound-amux")]
+        "inbound-amux",
+        #[cfg(feature = "inbound-quic")]
+        "inbound-quic",
+        #[cfg(feature = "inbound-tls")]
+        "inbound-tls",
+        #[cfg(feature = "inbound-reality")]
+        "inbound-reality",
+        #[cfg(feature = "inbound-chain")]
+        "inbound-chain",
+        #[cfg(feature = "inbound-direct")]
+        "inbound-direct",
+        #[cfg(feature = "inbound-redirect")]
+        "inbound-redirect",
+        #[cfg(feature = "inbound-tproxy")]
+        "inbound-tproxy",
+        #[cfg(feature = "wireguard")]
+        "wireguard",
+        #[cfg(feature = "mux")]
+        "mux",
+        #[cfg(feature = "clash-api")]
+        "clash-api",
+        #[cfg(feature = "auto-reload")]
+        "auto-reload",
+    ]
+}
+
 /// How many members of a group are measured at a time: Mihomo's.
 const MEMBER_TESTS: usize = 10;
 
@@ -384,6 +529,14 @@ impl RuntimeManager {
         let mut groups = self.outbounds().await;
         groups.retain(|o| o.group.is_some());
         groups
+    }
+
+    /// Whether the instance has a TUN inbound.
+    pub fn has_tun(&self) -> bool {
+        #[cfg(feature = "inbound-tun")]
+        return self.tun_control.is_some();
+        #[cfg(not(feature = "inbound-tun"))]
+        false
     }
 
     /// The outbound connections take when the rules pick none.
