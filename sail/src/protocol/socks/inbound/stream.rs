@@ -240,11 +240,7 @@ impl Handler {
                 buf[0]
             )));
         }
-        // RSV must be zero (RFC 1928): a malformed request is a failure.
-        if buf[2] != 0x0 {
-            stream.write_all(&socks5_reply(REP_GENERAL_FAILURE)).await?;
-            return Err(io::Error::other("non-zero socks5 reserved field"));
-        }
+        // RSV (buf[2]) is read and ignored, as sing-box ignores it.
         let cmd = buf[1];
         // connect, udp associate; BIND, or anything else, is answered as
         // not supported (RFC 1928, as sing-box answers it).
@@ -408,14 +404,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_non_zero_reserved_field_is_a_failure() {
+    async fn a_non_zero_reserved_field_is_ignored() {
         let request = socks5_no_auth(&[0x05, 0x01, 0x01, 0x01, 127, 0, 0, 1, 0, 80]);
-        let (result, answer) = run(open_handler(), &request).await;
-        assert!(result.is_err());
-        assert_eq!(
-            answer,
-            [0x05, 0x00, 0x05, 0x01, 0x00, 0x01, 0, 0, 0, 0, 0, 0]
-        );
+        let (result, _) = run(open_handler(), &request).await;
+        let sess = result.unwrap().expect("a stream session");
+        assert_eq!(sess.destination.to_string(), "127.0.0.1:80");
     }
 
     #[tokio::test]

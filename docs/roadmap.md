@@ -294,7 +294,7 @@ Sail 与 sing-box 的对比已经完成。当前结果表明：
 | 5.6 | **部分完成（2026-09-29）** 安全 | 已有依赖来源、RustSec、许可证门禁和只读 CI；根锁文件纳入版本控制，3 个漏洞和直接 `lru` unsound 路径已升级，audit 无漏洞；第一方统一 Apache-2.0，`webpki-root-certs/CDLA` 与 `tun/WTFPL` 采用精确例外并随发布提供全文；`quinn-btls -> lru 0.16.4` 和 `paste` 警告仍未闭环；已知风险：quinn 0.11 的 endpoint 在 UDP 接收遇到 ConnectionReset 以外的错误时整个失效（实际只有 ENOMEM 能触发），修法是包一层带退避的 AsyncUdpSocket，或改在我们的 quinn-btls fork 里 | 推进 fork/TUN 上游依赖；补入站抗探测和资源耗尽防护、订阅和规则下载限流/大小限制/超时/路径约束、日志脱敏 |
 | 5.7 | 配置参考文档 | 只有 README 和 MPTP 文档 | 原生格式（sing-box JSON 及 sail 扩展字段）有逐字段文档、示例和 schema，由 options 类型生成；Clash 与 Surge 用 C.6 生成的支持表；变更采用一次性迁移，不保留并行版本 |
 | 5.8 | 跨平台发布 | 已有部分 Apple/Android 构建脚本 | 自动产出 XCFramework、AAR、桌面、服务端和路由器二进制；记录符号、包体积、依赖和可重复构建信息 |
-| 5.9 | 处理 TODO / FIXME | 49 处 | 逐项处理，或转成带优先级的 issue |
+| 5.9 | **已完成（2026-10-01）** 处理 TODO / FIXME | 代码中已无 TODO/FIXME。已修：SOCKS5 拒绝请求时按 RFC 1928 回复（不支持的命令回 0x07），保留字节照 sing-box 忽略；Shadowsocks UDP 一次分配封包；TLS 协商 ALPN 的行为用测试固定（同 sing-box）。照 sing-box：Trojan UDP 包长度后的 CRLF 跳过不检查。转负责人：假 DNS 查询名校验、重载时重建假 DNS（DNS）；NetFilter 函数指针跨线程串行、`TCP_INFO` 过期、UDP 转发的入站 tag 取自配置（Windows）；Shadowsocks 插件首包合并需扩展插件接口（暂无负责人）；amux 待移除，不修 | 逐项处理，或转成带优先级的 issue |
 | 5.10 | 与上游的关系 | 已同步到 `5e8d947` | 按 D5 的结论执行；P0.2 之后文件结构与上游不再对应，上游修复按需人工移植并跑回归矩阵 |
 | 5.11 | **已完成（2026-09-26）** 代码规范门禁 | CI 此前只跑默认 feature 的测试 | CI 检查 `cargo fmt --check`、全仓库 `clippy -D warnings`（macOS 与 Linux），以及一组最小 feature 组合的无警告编译 |
 | 5.12 | 定期检查浏览器指纹（**由用户手动执行**，约每月一次，或在浏览器发布大版本时） | 各 profile 只对应一个浏览器版本：chrome 154（桌面与 Android 相同）、firefox 156、safari 26.3（iOS 26 相同）、android（OkHttp 4.12 + Android 17 Conscrypt） | 每个 profile 都与该浏览器最新正式版的 ClientHello 一致；抓包与 fixture 不同时更新 profile 和 fixture，旧 fixture 删除（见下方说明） |
