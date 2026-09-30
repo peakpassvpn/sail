@@ -381,14 +381,14 @@ mod tests {
                    "tcp_fast_open": false, "udp_nat_max": 0 }],
                  "outbounds": [{ "type": "trojan", "server": "a", "server_port": 443,
                    "password": "p", "network": "", "tls": { "enabled": true,
-                   "min_version": "", "cipher_suites": [], "ech": { "enabled": true,
+                   "cipher_suites": [], "ech": { "enabled": true,
                    "config_path": "" } } }],
                  "ntp": {} }"#,
         )
         .unwrap();
         assert!(config.warnings.is_empty(), "{:?}", config.warnings);
         let tls = &config.outbounds[0].options["tls"];
-        assert!(tls.get("min_version").is_none() && tls["ech"].get("config_path").is_none());
+        assert!(tls.get("cipher_suites").is_none() && tls["ech"].get("config_path").is_none());
         assert!(!config.inbounds[0].options.contains_key("detour"));
         // Set, it is what it was.
         let err =
