@@ -717,8 +717,9 @@ impl OutboundBlocks {
 /// The protocols whose UDP may be fragmented unless `udp_fragment` says
 /// otherwise, as in sing-box: direct, which relays the datagrams it is
 /// given, and the QUIC ones, which size their packets themselves. Every
-/// other outbound's UDP has "don't fragment" set.
-const UDP_FRAGMENT_BY_DEFAULT: &[&str] = &["direct", "hysteria2", "tuic"];
+/// other outbound's UDP has "don't fragment" set. redirect, sail's direct
+/// to one fixed address, is as direct.
+const UDP_FRAGMENT_BY_DEFAULT: &[&str] = &["direct", "redirect", "hysteria2", "tuic"];
 
 /// What layering an outbound needs from where it is built.
 pub struct OutboundLayering<'a> {
