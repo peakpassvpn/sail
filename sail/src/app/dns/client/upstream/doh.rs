@@ -42,6 +42,14 @@ struct H2 {
     used: Instant,
 }
 
+impl Pool {
+    /// Drops the connections it keeps.
+    pub(super) async fn clear(&self) {
+        *self.h2.lock().await = None;
+        self.http1.clear();
+    }
+}
+
 impl Drop for H2 {
     fn drop(&mut self) {
         self.driver.abort();

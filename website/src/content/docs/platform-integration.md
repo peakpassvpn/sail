@@ -72,16 +72,28 @@ Rules and groups that match the network the host is on (`wifi_ssid`, `wifi_bssid
 
 `type` is `wifi`, `cellular`, `ethernet` or `other`; every field may be left out, and a condition on a field that is not known does not match. Once a host pushes a state, Sail's own detection stops for the rest of the instance's life.
 
-Without a push, Sail detects what the system tells without extra permissions, when the configuration has a condition on the network:
+Without a push, Sail detects what the system tells without extra permissions:
 
 | System | Interface, gateway, addresses | Type | SSID and BSSID | Follows changes |
 | --- | --- | --- | --- | --- |
 | Linux | main table's default route (rtnetlink) | `/sys/class/net` | nl80211 | yes, on the route and address monitor |
 | macOS | IPv4 default route | the interface's functional type | no: CoreWLAN needs Location permission | at start and on reload |
-| Windows | adapter with a gateway and the lowest metric | the adapter's interface type | WLAN service (Windows 11 24H2 asks for Location permission) | at start and on reload |
+| Windows | adapter with a gateway and the lowest metric | the adapter's interface type | WLAN service (Windows 11 24H2 asks for Location permission) | yes, on route and interface change notices |
 | Android, iOS | -- | -- | -- | the host pushes |
 
 A cellular network counts as expensive; no system above says whether a network is constrained, so only a host can. A change of state is logged at `info` with the type, interface and gateway; the SSID and BSSID only at `debug`.
+
+### When the network changes
+
+A change counts when the connections made on the network before would not survive it: another default interface, another gateway or type, or other addresses (IPv6 compared by its /64). A new SSID or access point on the same interface and addresses -- a roam -- is not one: rules that match the network see it, and connections stay. `sail_network_changed(rt_id, mtu)` counts as one whatever the state says.
+
+On a change Sail drops what was of the network before: the DNS answers kept and the connections the DNS servers keep, the connections open, and the TUN's flows; new connections are made on the network there is now. It logs one line at `info`, which tests measure by:
+
+```
+network changed: generation 3, reason=default-interface, interface=en0→en1, closed=12, dns_flushed=true, took=4ms
+```
+
+`reason` is `default-interface`, `state` (what Sail detects), `host` (a push, or `sail_network_changed`) or `wake`.
 
 ## Android
 

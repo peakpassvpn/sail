@@ -5,7 +5,7 @@
 //! tells it. One state and one notice of change for all of sail.
 
 use std::net::IpAddr;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
@@ -63,6 +63,22 @@ pub struct NetworkState {
 }
 
 impl NetworkState {
+    /// Whether the connections made on `self` do not survive going to
+    /// `other`: the default interface, its gateway, its kind or its
+    /// addresses (IPv6 by /64, as sing-box compares them) differ. A new
+    /// SSID or access point on the same interface and addresses (a roam)
+    /// is not; nor is a first state known after none.
+    pub fn moved_to(&self, other: &NetworkState) -> bool {
+        if *self == NetworkState::default() {
+            return false;
+        }
+        self.interface != other.interface
+            || self.index != other.index
+            || self.gateway != other.gateway
+            || self.kind != other.kind
+            || networks(&self.addresses) != networks(&other.addresses)
+    }
+
     /// Reads a state as a host writes it (JSON), the BSSID normalized.
     pub fn from_json(json: &str) -> Result<NetworkState> {
         let de = &mut serde_json::Deserializer::from_str(json);
@@ -154,11 +170,64 @@ pub fn normalize_bssid(bssid: &str) -> Option<String> {
     )
 }
 
+/// The addresses as far as a change of network goes: IPv4 whole, IPv6 by
+/// its /64, sorted.
+fn networks(addresses: &[cidr::IpInet]) -> Vec<IpAddr> {
+    let mut networks: Vec<IpAddr> = addresses
+        .iter()
+        .map(|inet| match inet.address() {
+            IpAddr::V6(v6) => IpAddr::V6((u128::from(v6) & !u128::from(u64::MAX)).into()),
+            v4 => v4,
+        })
+        .collect();
+    networks.sort();
+    networks.dedup();
+    networks
+}
+
+/// What made sail look at the network again.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ChangeReason {
+    /// The interface of the default route changed.
+    DefaultInterface,
+    /// What sail detects of the network changed.
+    State,
+    /// The host told it.
+    HostPush,
+    /// The system woke from sleep.
+    Wake,
+}
+
+impl std::fmt::Display for ChangeReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            ChangeReason::DefaultInterface => "default-interface",
+            ChangeReason::State => "state",
+            ChangeReason::HostPush => "host",
+            ChangeReason::Wake => "wake",
+        })
+    }
+}
+
+/// A change of network that the connections made on the one before do not
+/// survive: what the instance then drops and makes anew.
+#[derive(Clone, Debug)]
+pub struct NetworkChange {
+    /// Counts the changes since the instance started, from 1.
+    pub generation: u64,
+    pub reason: ChangeReason,
+    pub old: Arc<NetworkState>,
+    pub new: Arc<NetworkState>,
+}
+
 /// The instance's network, kept across reloads: its state now, and a
 /// notice to whoever subscribed when it changes.
 #[derive(Clone)]
 pub struct Network {
     state: Arc<watch::Sender<Arc<NetworkState>>>,
+    /// The last change the connections do not survive.
+    changes: Arc<watch::Sender<Option<Arc<NetworkChange>>>>,
+    generation: Arc<AtomicU64>,
     /// Whether the host pushes the state, which detection then leaves.
     pushed: Arc<AtomicBool>,
 }
@@ -167,6 +236,8 @@ impl Default for Network {
     fn default() -> Self {
         Network {
             state: Arc::new(watch::Sender::new(Arc::default())),
+            changes: Arc::new(watch::Sender::new(None)),
+            generation: Arc::default(),
             pushed: Arc::default(),
         }
     }
@@ -186,9 +257,33 @@ impl Network {
         self.state.borrow().clone()
     }
 
-    /// Tells of each change of state from now on.
+    /// Tells of each change of state from now on: rules that match the
+    /// network take every one.
     pub fn subscribe(&self) -> watch::Receiver<Arc<NetworkState>> {
         self.state.subscribe()
+    }
+
+    /// Tells of each change that connections do not survive, from now on:
+    /// the instance drops what was of the network before.
+    pub fn changes(&self) -> watch::Receiver<Option<Arc<NetworkChange>>> {
+        self.changes.subscribe()
+    }
+
+    /// Tells of a change whatever the state says: the host says the network
+    /// changed, or the system woke.
+    pub fn announce(&self, reason: ChangeReason) {
+        let now = self.snapshot();
+        self.publish(reason, now.clone(), now);
+    }
+
+    fn publish(&self, reason: ChangeReason, old: Arc<NetworkState>, new: Arc<NetworkState>) {
+        let generation = self.generation.fetch_add(1, Ordering::Relaxed) + 1;
+        self.changes.send_replace(Some(Arc::new(NetworkChange {
+            generation,
+            reason,
+            old,
+            new,
+        })));
     }
 
     /// Whether the host pushes the state.
@@ -200,18 +295,19 @@ impl Network {
     /// on.
     pub fn push(&self, state: NetworkState) {
         self.pushed.store(true, Ordering::Relaxed);
-        self.set(state);
+        self.set(state, ChangeReason::HostPush);
     }
 
-    /// The state as sail detected it, unless the host pushes it.
-    pub(crate) fn detected(&self, state: NetworkState) {
-        if !self.pushed() {
-            self.set(state);
-        }
+    /// The state as sail detected it, unless the host pushes it, for
+    /// `reason`; whether a change connections do not survive was told.
+    pub(crate) fn detected(&self, state: NetworkState, reason: ChangeReason) -> bool {
+        !self.pushed() && self.set(state, reason)
     }
 
-    /// Changes the state, telling subscribers only of a change.
-    fn set(&self, state: NetworkState) {
+    /// Changes the state, telling subscribers only of a change, and of a
+    /// move when the connections do not survive it; whether that was told.
+    fn set(&self, state: NetworkState, reason: ChangeReason) -> bool {
+        let old = self.snapshot();
         let changed = self.state.send_if_modified(|now| {
             if **now == state {
                 return false;
@@ -219,6 +315,10 @@ impl Network {
             *now = Arc::new(state);
             true
         });
+        let moved = changed && old.moved_to(&self.snapshot());
+        if moved {
+            self.publish(reason, old, self.snapshot());
+        }
         if changed {
             let now = self.snapshot();
             tracing::info!(
@@ -235,6 +335,7 @@ impl Network {
             // default level.
             tracing::debug!("network: ssid {:?}, bssid {:?}", now.ssid, now.bssid);
         }
+        moved
     }
 }
 
@@ -307,10 +408,10 @@ mod tests {
             kind: Some(NetworkType::Wifi),
             ..Default::default()
         };
-        network.detected(wifi.clone());
+        network.detected(wifi.clone(), ChangeReason::State);
         assert!(changes.has_changed().unwrap());
         changes.borrow_and_update();
-        network.detected(wifi.clone());
+        network.detected(wifi.clone(), ChangeReason::State);
         assert!(!changes.has_changed().unwrap());
 
         // Once the host pushes, detection is left.
@@ -319,7 +420,64 @@ mod tests {
             ..Default::default()
         };
         network.push(cellular.clone());
-        network.detected(wifi);
+        network.detected(wifi, ChangeReason::State);
         assert_eq!(*network.snapshot(), cellular);
+    }
+
+    fn on(interface: &str, addresses: &[&str]) -> NetworkState {
+        NetworkState {
+            interface: Some(interface.into()),
+            kind: Some(NetworkType::Wifi),
+            gateway: Some("192.168.1.1".parse().unwrap()),
+            addresses: addresses.iter().map(|a| a.parse().unwrap()).collect(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn what_connections_do_not_survive_is_a_move() {
+        let home = on("en0", &["192.168.1.2/24", "2001:db8:1:2::5/64"]);
+        // Another interface, a new lease, another /64, another router.
+        assert!(home.moved_to(&on("en1", &["192.168.1.2/24", "2001:db8:1:2::5/64"])));
+        assert!(home.moved_to(&on("en0", &["192.168.1.3/24", "2001:db8:1:2::5/64"])));
+        assert!(home.moved_to(&on("en0", &["192.168.1.2/24", "2001:db8:1:3::5/64"])));
+        let mut router = home.clone();
+        router.gateway = Some("192.168.1.254".parse().unwrap());
+        assert!(home.moved_to(&router));
+        // A new address in the same /64 (privacy addresses), or a roam to
+        // another access point of the same network, is not.
+        assert!(!home.moved_to(&on("en0", &["192.168.1.2/24", "2001:db8:1:2::77/64"])));
+        let mut roamed = home.clone();
+        roamed.ssid = Some("Home".into());
+        roamed.bssid = Some("aa:bb:cc:dd:ee:ff".into());
+        assert!(!home.moved_to(&roamed));
+        // Nor is the first state known.
+        assert!(!NetworkState::default().moved_to(&home));
+    }
+
+    #[test]
+    fn a_move_is_told_with_its_reason_and_generation() {
+        let network = Network::default();
+        let mut changes = network.changes();
+        assert!(!network.detected(on("en0", &["192.168.1.2/24"]), ChangeReason::State));
+        assert!(!changes.has_changed().unwrap());
+        // A roam: the state changes, the connections survive.
+        let mut roamed = on("en0", &["192.168.1.2/24"]);
+        roamed.ssid = Some("Home".into());
+        assert!(!network.detected(roamed, ChangeReason::State));
+        assert!(!changes.has_changed().unwrap());
+
+        assert!(network.detected(on("en1", &["10.0.0.2/24"]), ChangeReason::DefaultInterface));
+        let change = changes.borrow_and_update().clone().unwrap();
+        assert_eq!(change.generation, 1);
+        assert_eq!(change.reason, ChangeReason::DefaultInterface);
+        assert_eq!(change.old.interface.as_deref(), Some("en0"));
+        assert_eq!(change.new.interface.as_deref(), Some("en1"));
+
+        // The host, or waking, tells one whatever the state.
+        network.announce(ChangeReason::Wake);
+        let change = changes.borrow_and_update().clone().unwrap();
+        assert_eq!((change.generation, change.reason), (2, ChangeReason::Wake));
+        assert_eq!(change.old, change.new);
     }
 }

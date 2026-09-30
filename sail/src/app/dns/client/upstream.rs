@@ -59,6 +59,11 @@ impl StreamPool {
         idle.pop().map(|(stream, _)| stream)
     }
 
+    /// Drops every connection kept: those of a network gone.
+    pub(super) fn clear(&self) {
+        self.idle.lock().unwrap_or_else(|e| e.into_inner()).clear();
+    }
+
     pub(super) fn put(&self, stream: AnyStream) {
         let mut idle = self.idle.lock().unwrap_or_else(|e| e.into_inner());
         if idle.len() >= MAX_IDLE {
@@ -370,6 +375,26 @@ impl Upstream {
             state,
         })
     }
+
+    /// Drops the connections it keeps, as the network they were made on is
+    /// gone: the next query makes one on the network there is now.
+    #[cfg(any(feature = "tls", feature = "quic", feature = "dns-h3"))]
+    pub(super) async fn reset(&self) {
+        match &self.state {
+            #[cfg(feature = "tls")]
+            State::Tls(pool) => pool.clear(),
+            #[cfg(feature = "dns-doh")]
+            State::Https(pool) => pool.clear().await,
+            #[cfg(feature = "quic")]
+            State::Quic(pool) => pool.clear().await,
+            #[cfg(feature = "dns-h3")]
+            State::H3(pool) => pool.clear().await,
+        }
+    }
+
+    /// Without the tls and quic features no encrypted server builds.
+    #[cfg(not(any(feature = "tls", feature = "quic", feature = "dns-h3")))]
+    pub(super) async fn reset(&self) {}
 
     /// The TLS client of DoT and DoH.
     #[cfg(feature = "tls")]

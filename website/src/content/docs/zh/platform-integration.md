@@ -59,16 +59,28 @@ Sail 将代理行为保留在 Rust 核心，把宿主特有能力注入边界。
 
 `type` 为 `wifi`、`cellular`、`ethernet` 或 `other`；每个字段都可省略，针对未知字段的条件不匹配。宿主推送过一次后，该实例余下的生命周期内不再使用 Sail 自己的检测。
 
-没有推送时，若配置含网络条件，Sail 检测系统在无需额外权限时给出的信息：
+没有推送时，Sail 检测系统在无需额外权限时给出的信息：
 
 | 系统 | 接口、网关、地址 | 类型 | SSID 与 BSSID | 跟随变化 |
 | --- | --- | --- | --- | --- |
 | Linux | 主路由表默认路由（rtnetlink） | `/sys/class/net` | nl80211 | 是，基于路由与地址监视 |
 | macOS | IPv4 默认路由 | 接口的功能类型 | 无：CoreWLAN 需要定位权限 | 启动与重载时 |
-| Windows | 有网关且跃点数最低的适配器 | 适配器接口类型 | WLAN 服务（Windows 11 24H2 需要定位权限） | 启动与重载时 |
+| Windows | 有网关且跃点数最低的适配器 | 适配器接口类型 | WLAN 服务（Windows 11 24H2 需要定位权限） | 是，基于路由与接口变化通知 |
 | Android、iOS | -- | -- | -- | 由宿主推送 |
 
 蜂窝网络视为按流量计费（expensive）；上述系统都不提供低数据模式（constrained），只能由宿主推送。状态变化以 `info` 级别记录类型、接口和网关；SSID 与 BSSID 只在 `debug` 级别记录。
+
+### 网络变化时
+
+只有旧网络上建立的连接无法延续时才算网络变化：默认网卡、网关或网络类型变了，或地址变了（IPv6 按 /64 比较）。同一网卡、同一地址下换了 SSID 或接入点（漫游）不算：按网络匹配的规则会看到新状态，连接保留。`sail_network_changed(rt_id, mtu)` 无论状态如何都算一次变化。
+
+发生变化时，Sail 丢弃属于旧网络的东西：缓存的 DNS 答案和 DNS 服务器保持的连接、正在进行的连接、TUN 的流；新连接在当前网络上建立。同时以 `info` 级别记录一行，测试据此计时：
+
+```
+network changed: generation 3, reason=default-interface, interface=en0→en1, closed=12, dns_flushed=true, took=4ms
+```
+
+`reason` 为 `default-interface`、`state`（Sail 自己检测到的）、`host`（宿主推送或 `sail_network_changed`）或 `wake`。
 
 ## Android 与 Apple 平台
 

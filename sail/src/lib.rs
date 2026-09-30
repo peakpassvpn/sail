@@ -246,16 +246,45 @@ impl RuntimeManager {
     }
 
     /// Detects the network the host is on again, on a blocking thread,
-    /// unless the host pushes it or nothing asks for it. Awaiting the
-    /// handle waits for it.
-    fn detect_network(&self) -> tokio::task::JoinHandle<()> {
+    /// unless the host pushes it, for `reason`. Awaiting the handle waits
+    /// for it, and says whether a change connections do not survive was
+    /// told.
+    fn detect_network(&self, reason: net::network::ChangeReason) -> tokio::task::JoinHandle<bool> {
         let network = self.network().clone();
-        let wanted = !network.pushed() && self.needs_network();
         tokio::task::spawn_blocking(move || {
-            if wanted {
-                network.detected(platform::network::detect());
-            }
+            !network.pushed() && network.detected(platform::network::detect(), reason)
         })
+    }
+
+    /// What the instance does when the network changes so that connections
+    /// made on the one before do not survive, as sing-box resets its
+    /// network (route/network.go:493-520): the DNS answers kept and the
+    /// connections the DNS servers keep go, the connections go, and the
+    /// TUN's flows; then a line in the log, which tests measure by.
+    async fn network_moved(&self, change: &net::network::NetworkChange) {
+        let started = std::time::Instant::now();
+        let _update = self.update.lock().await;
+        self.dns_client.load().network_changed().await;
+        // Every connection, until each tells the interface it is bound to.
+        let closed = self.stat_manager.read().await.close_all();
+        #[cfg(feature = "inbound-tun")]
+        if self.tun_control.is_some() {
+            if let Err(e) = self.reset_tun_flows().await {
+                warn!("network changed: resetting the tun's flows: {}", e);
+            }
+        }
+        let name = |state: &net::network::NetworkState| {
+            state.interface.clone().unwrap_or_else(|| "none".into())
+        };
+        info!(
+            "network changed: generation {}, reason={}, interface={}→{}, closed={}, dns_flushed=true, took={}ms",
+            change.generation,
+            change.reason,
+            name(&change.old),
+            name(&change.new),
+            closed,
+            started.elapsed().as_millis()
+        );
     }
 
     /// What the Clash API tells of the configuration.
@@ -560,7 +589,7 @@ impl RuntimeManager {
         self.prune_stats(&config);
         info!("reloaded from config file: {}", config_path);
         // What it matches on may be new to this configuration.
-        self.detect_network();
+        self.detect_network(net::network::ChangeReason::State);
         Ok(())
     }
 
@@ -719,16 +748,28 @@ impl RuntimeManager {
         true
     }
 
-    /// Tells the TUN inbound's stack that the host's network changed: flows
-    /// of the previous network stop being served, and with `mtu`, the stack
-    /// takes the new interface MTU. The DNS answers kept go too: those of
-    /// the previous network may be wrong on this one.
+    /// The host says its network changed: with `mtu`, the TUN inbound's
+    /// stack takes the new interface MTU; then the instance drops what was
+    /// of the network before, as for any change (`network_moved`).
     #[cfg(feature = "inbound-tun")]
     pub async fn network_changed(&self, mtu: Option<usize>) -> Result<(), Error> {
-        let _update = self.update.lock().await;
-        self.dns_client.load().clear_cache();
         let Some(mut control) = self.tun_control.clone() else {
             return Err(Error::Config(anyhow!("there is no tun inbound")));
+        };
+        if let Some(mtu) = mtu {
+            let _update = self.update.lock().await;
+            control.update_mtu(mtu).await?;
+        }
+        self.network()
+            .announce(net::network::ChangeReason::HostPush);
+        Ok(())
+    }
+
+    /// Stops serving the TUN inbound's flows of the network before.
+    #[cfg(feature = "inbound-tun")]
+    async fn reset_tun_flows(&self) -> Result<(), Error> {
+        let Some(mut control) = self.tun_control.clone() else {
+            return Ok(());
         };
         let generation = {
             let mut generation = self
@@ -742,10 +783,6 @@ impl RuntimeManager {
         control
             .reset_network(sail_netstack::NetworkGeneration::new(generation))
             .await?;
-        if let Some(mtu) = mtu {
-            control.update_mtu(mtu).await?;
-        }
-        info!("network changed (generation {})", generation);
         Ok(())
     }
 
@@ -888,7 +925,9 @@ pub fn network_changed(key: RuntimeId, mtu: Option<usize>) -> Result<(), Error> 
 /// old one, are reset. It never ends: the instance runs on without it.
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 async fn follow_default_interface(manager: Arc<RuntimeManager>) {
-    let _ = manager.detect_network().await;
+    let _ = manager
+        .detect_network(net::network::ChangeReason::State)
+        .await;
     // Linux: netlink's notices of links, addresses and routes.
     #[cfg(target_os = "linux")]
     let monitor = match platform::addr_monitor::AddressMonitor::open_with_routes() {
@@ -928,26 +967,38 @@ async fn follow_default_interface(manager: Arc<RuntimeManager>) {
         while let Ok(Ok(())) =
             tokio::time::timeout(std::time::Duration::from_secs(1), changed()).await
         {}
-        if let Some(auto) = manager.dial_defaults.load().env.auto_interface.clone() {
-            let moved = tokio::task::spawn_blocking(move || auto.refresh())
+        let moved = match manager.dial_defaults.load().env.auto_interface.clone() {
+            Some(auto) => tokio::task::spawn_blocking(move || auto.refresh())
                 .await
-                .unwrap_or(false);
-            // What was answered on the interface before may be wrong on this
-            // one.
-            if moved {
-                manager.dns_client.load().clear_cache();
-            }
-            #[cfg(feature = "inbound-tun")]
-            if moved && manager.tun_control.is_some() {
-                if let Err(e) = manager.network_changed(None).await {
-                    warn!("auto_detect_interface: resetting the tun's flows: {}", e);
-                }
-            }
-            #[cfg(not(feature = "inbound-tun"))]
-            let _ = moved;
+                .unwrap_or(false),
+            None => false,
+        };
+        let reason = if moved {
+            net::network::ChangeReason::DefaultInterface
+        } else {
+            net::network::ChangeReason::State
+        };
+        let told = manager.detect_network(reason).await.unwrap_or(false);
+        // The interface sail sends through moved though the state, pushed
+        // or not detected, says nothing of it.
+        if moved && !told {
+            manager.network().announce(reason);
         }
-        let _ = manager.detect_network().await;
     }
+}
+
+/// Drops what was of the network before whenever it changes so that
+/// connections do not survive: the one place every source of change
+/// (detection, the host, waking) comes to.
+async fn follow_network_changes(manager: Arc<RuntimeManager>) {
+    let mut changes = manager.network().changes();
+    while changes.changed().await.is_ok() {
+        let change = changes.borrow_and_update().clone();
+        if let Some(change) = change {
+            manager.network_moved(&change).await;
+        }
+    }
+    std::future::pending().await
 }
 
 /// Stops the TUN inbound's stack, so that its flows are reset rather than
@@ -1200,8 +1251,6 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
     let mut tasks: Vec<Runner> = Vec::new();
 
     let dial_defaults = dial_defaults(&config, &env).map_err(Error::Config)?;
-    #[cfg(any(target_os = "linux", target_os = "windows"))]
-    let follows_interface = dial_defaults.env.auto_interface.is_some();
     let mut instance = app::instance::Instance::build(&config, env.clone(), dial_defaults)
         .map_err(Error::Config)?;
     // The API server joins them, when it is compiled in.
@@ -1292,11 +1341,12 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
     }));
 
     // auto_detect_interface follows the default interface as it moves, and
-    // detection the network the host is on, on one monitor.
+    // detection the network the host is on, on one monitor, whatever
+    // needs them: a change of network is followed in any case.
     #[cfg(any(target_os = "linux", target_os = "windows"))]
-    if follows_interface || runtime_manager.needs_network() {
-        tasks.push(Box::pin(follow_default_interface(runtime_manager.clone())));
-    }
+    tasks.push(Box::pin(follow_default_interface(runtime_manager.clone())));
+    // What was of the network before goes when it changes.
+    tasks.push(Box::pin(follow_network_changes(runtime_manager.clone())));
     // Where there is no monitor, the network is detected at the start and
     // on each reload only.
     #[cfg(not(any(target_os = "linux", target_os = "windows")))]
@@ -1306,7 +1356,7 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
             if rm.needs_network() {
                 tracing::debug!("network: not followed as it changes on this system");
             }
-            let _ = rm.detect_network().await;
+            let _ = rm.detect_network(net::network::ChangeReason::State).await;
             std::future::pending().await
         }));
     }

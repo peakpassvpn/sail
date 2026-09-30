@@ -87,6 +87,11 @@ impl Pool {
         }
     }
 
+    /// Drops the connection it keeps.
+    pub(super) async fn clear(&self) {
+        *self.live.lock().await = None;
+    }
+
     fn client_config(
         &self,
         certificate: Option<&str>,

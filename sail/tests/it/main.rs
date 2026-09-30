@@ -41,6 +41,7 @@ mod test_listen;
 mod test_mixed;
 mod test_mptp;
 mod test_mux;
+mod test_network_change;
 mod test_out_chain_1;
 mod test_out_chain_10;
 mod test_out_chain_2;

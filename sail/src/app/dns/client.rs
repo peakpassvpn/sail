@@ -197,6 +197,19 @@ impl DnsClient {
         debug!("dns cache cleared");
     }
 
+    /// The network changed: the answers kept, and the connections the
+    /// servers keep, were of the one before, and go.
+    pub async fn network_changed(&self) {
+        self.clear_cache();
+        for server in self.servers.values() {
+            match &server.kind {
+                server::Kind::Tcp { pool, .. } => pool.clear(),
+                server::Kind::Upstream(upstream) => upstream.reset().await,
+                _ => {}
+            }
+        }
+    }
+
     /// Forgets the fake IPs handed out, as the Clash API's flush does;
     /// false without a fakeip server.
     pub fn clear_fake_ips(&self) -> bool {
