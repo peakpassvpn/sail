@@ -69,7 +69,7 @@ Use `final` for the catch-all path. A route or reject rule without conditions is
 
 A `pass` outbound, a Sail extension, is Mihomo's PASS: `{ "type": "pass", "tag": "PASS" }`. A rule that routes to it, or to a `selector`, `urltest`, `fallback` or `network` group whose current pick is PASS (followed down through nested groups), is skipped: its route options are not applied, and the next rules decide. Selecting PASS in a selector turns its rules off without editing them. When `final` comes to PASS through a group, the connection goes direct.
 
-`final`, or the first outbound when `final` is not set, naming a pass outbound itself is a configuration error, as is PASS in a `load-balance` or `smart` group, even through a group nested in it. `urltest` and `fallback` never test PASS and count it as down. A connection that reaches PASS all the same (a selector switched to it after the connection was routed) fails with "routed to PASS".
+`final`, or the first outbound when `final` is not set, naming a pass outbound itself is a configuration error, as is PASS in a `load-balance` or `smart` group, even through a group nested in it. `urltest` and `fallback` never test PASS and count it as down, so they never pick it. Mihomo differs here: its groups can pick PASS before their first test, and fallback does when every member is down and PASS comes first. A connection that reaches PASS all the same (a selector switched to it after the connection was routed) fails with "routed to PASS".
 
 ## Sniff a domain before routing
 

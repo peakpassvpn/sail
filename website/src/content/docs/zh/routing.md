@@ -55,7 +55,7 @@ Sail 从上到下评估路由规则。`route` 和 `reject` 会停止匹配；`sn
 
 `pass` 出站是 Sail 的扩展，对应 Mihomo 的 PASS：`{ "type": "pass", "tag": "PASS" }`。规则指向它，或者指向当前选中 PASS 的 `selector`、`urltest`、`fallback`、`network` 组（嵌套组逐层往下看）时，这条规则被跳过：它的路由选项不生效，由后面的规则决定。在 selector 里选 PASS，就能在不改配置的情况下关掉指向它的规则。`final` 经由组解析到 PASS 时，连接走直连。
 
-`final`（未设置 `final` 时为第一个出站）直接写 pass 出站属于配置错误；PASS 出现在 `load-balance` 或 `smart` 组里（包括经由嵌套组）也是配置错误。`urltest` 和 `fallback` 从不测试 PASS，并把它视为不可用。如果连接仍然到达 PASS（例如路由之后 selector 才切到 PASS），连接会失败，错误为 "routed to PASS"。
+`final`（未设置 `final` 时为第一个出站）直接写 pass 出站属于配置错误；PASS 出现在 `load-balance` 或 `smart` 组里（包括经由嵌套组）也是配置错误。`urltest` 和 `fallback` 从不测试 PASS，并把它视为不可用，所以永远不会选中它。这一点与 Mihomo 不同：Mihomo 的组在第一次测试之前可能选中 PASS；fallback 在全部成员不可用、且 PASS 排在第一位时也会选中它。如果连接仍然到达 PASS（例如路由之后 selector 才切到 PASS），连接会失败，错误为 "routed to PASS"。
 
 ## 嗅探与解析
 
