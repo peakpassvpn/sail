@@ -133,14 +133,15 @@ fn a_portal_lets_through(outbounds: serde_json::Value, last: &str) -> anyhow::Re
                     .await
                     .is_err()
         };
-        assert!(
+        // Errors, not panics: the instance is shut down whatever happens.
+        anyhow::ensure!(
             !reaches(connect().await).await,
             "the rules let nothing through"
         );
         sail::set_network_state(id, r#"{ "interface": "en0", "captive": true }"#)?;
-        assert!(reaches(connect().await).await, "direct behind the portal");
+        anyhow::ensure!(reaches(connect().await).await, "direct behind the portal");
         sail::set_network_state(id, r#"{ "interface": "en0" }"#)?;
-        assert!(!reaches(connect().await).await, "the rules again");
+        anyhow::ensure!(!reaches(connect().await).await, "the rules again");
         anyhow::Ok(())
     });
     common::shutdown_instances(&rt, ids);
@@ -161,14 +162,15 @@ fn behind_a_captive_portal_every_connection_goes_direct() -> anyhow::Result<()> 
 // socks client -> (socks)sail(final: the configuration's DIRECT, which
 // reaches nothing) -> server: the rules take the configuration's DIRECT by
 // its tag, the portal sail's own direct, which no tag names.
+#[cfg(feature = "outbound-drop")]
 #[test]
 fn the_portal_s_direct_is_not_an_outbound_tagged_direct() -> anyhow::Result<()> {
     a_portal_lets_through(
-        serde_json::json!([{
-            "type": "direct", "tag": "DIRECT",
-            // TEST-NET-1, on no interface here: no socket binds to it.
-            "inet4_bind_address": "192.0.2.1"
-        }]),
+        serde_json::json!([
+            // Dialled through the block outbound: it reaches nothing.
+            { "type": "direct", "tag": "DIRECT", "detour": "block" },
+            { "type": "block", "tag": "block" }
+        ]),
         "DIRECT",
     )
 }
