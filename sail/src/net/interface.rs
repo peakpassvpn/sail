@@ -141,20 +141,10 @@ pub(crate) fn subnets() -> io::Result<Vec<(IpAddr, u8, String)>> {
         if !up || loopback || ifa.ifa_addr.is_null() || ifa.ifa_netmask.is_null() {
             continue;
         }
-        // SAFETY: both are sockaddrs of the family the first says.
-        let (address, mask) = unsafe {
-            (
-                socket_address(ifa.ifa_addr),
-                socket_address(ifa.ifa_netmask),
-            )
-        };
-        let (Some(address), Some(mask)) = (address, mask) else {
+        // SAFETY: both are sockaddrs of the list, not yet freed.
+        let Some((address, len)) = (unsafe { network(ifa.ifa_addr, ifa.ifa_netmask) }) else {
             continue;
         };
-        let len = match mask {
-            IpAddr::V4(m) => u32::from(m).count_ones(),
-            IpAddr::V6(m) => u128::from(m).count_ones(),
-        } as u8;
         // SAFETY: the name is a C string owned by the list.
         let name = unsafe { std::ffi::CStr::from_ptr(ifa.ifa_name) }
             .to_string_lossy()
@@ -202,20 +192,10 @@ pub(crate) fn multicast_interfaces() -> io::Result<Vec<MulticastInterface>> {
         if !usable || ifa.ifa_addr.is_null() || ifa.ifa_netmask.is_null() {
             continue;
         }
-        // SAFETY: both are sockaddrs of the family the first says.
-        let (address, mask) = unsafe {
-            (
-                socket_address(ifa.ifa_addr),
-                socket_address(ifa.ifa_netmask),
-            )
-        };
-        let (Some(address), Some(mask)) = (address, mask) else {
+        // SAFETY: both are sockaddrs of the list, not yet freed.
+        let Some((address, len)) = (unsafe { network(ifa.ifa_addr, ifa.ifa_netmask) }) else {
             continue;
         };
-        let len = match mask {
-            IpAddr::V4(m) => u32::from(m).count_ones(),
-            IpAddr::V6(m) => u128::from(m).count_ones(),
-        } as u8;
         // SAFETY: the name is a C string owned by the list.
         let name = unsafe { std::ffi::CStr::from_ptr(ifa.ifa_name) };
         match interfaces
@@ -343,26 +323,125 @@ pub(crate) fn multicast_interfaces() -> io::Result<Vec<MulticastInterface>> {
     Ok(Vec::new())
 }
 
-/// The address of `sockaddr`, if it is IPv4 or IPv6.
+/// An interface's address and the length of its network's prefix, from
+/// the sockaddrs of its address and netmask.
 ///
 /// # Safety
 ///
-/// `sockaddr` points to a sockaddr of the family it says.
+/// Both point to sockaddrs getifaddrs returned, not yet freed.
+#[cfg(unix)]
+unsafe fn network(
+    address: *const libc::sockaddr,
+    netmask: *const libc::sockaddr,
+) -> Option<(IpAddr, u8)> {
+    let address = socket_address(address)?;
+    Some((address, prefix_len(netmask, address)))
+}
+
+/// The address of `sockaddr`, if it is IPv4 or IPv6 and all there.
+///
+/// # Safety
+///
+/// `sockaddr` points to a sockaddr getifaddrs returned, not yet freed.
 #[cfg(unix)]
 unsafe fn socket_address(sockaddr: *const libc::sockaddr) -> Option<IpAddr> {
-    match i32::from((*sockaddr).sa_family) {
+    let family_end =
+        std::mem::offset_of!(libc::sockaddr, sa_family) + std::mem::size_of::<libc::sa_family_t>();
+    if sockaddr_len(sockaddr, family_end) < family_end {
+        return None;
+    }
+    let family = std::ptr::addr_of!((*sockaddr).sa_family).read_unaligned();
+    match i32::from(family) {
         libc::AF_INET => {
-            let sin = &*(sockaddr as *const libc::sockaddr_in);
-            Some(IpAddr::from(
-                u32::from_be(sin.sin_addr.s_addr).to_be_bytes(),
-            ))
+            let (sin, len) = read_sockaddr::<libc::sockaddr_in>(sockaddr);
+            let end = std::mem::offset_of!(libc::sockaddr_in, sin_addr)
+                + std::mem::size_of::<libc::in_addr>();
+            (len >= end).then(|| IpAddr::from(u32::from_be(sin.sin_addr.s_addr).to_be_bytes()))
         }
         libc::AF_INET6 => {
-            let sin6 = &*(sockaddr as *const libc::sockaddr_in6);
-            Some(IpAddr::from(sin6.sin6_addr.s6_addr))
+            let (sin6, len) = read_sockaddr::<libc::sockaddr_in6>(sockaddr);
+            let end = std::mem::offset_of!(libc::sockaddr_in6, sin6_addr)
+                + std::mem::size_of::<libc::in6_addr>();
+            (len >= end).then(|| IpAddr::from(sin6.sin6_addr.s6_addr))
         }
         _ => None,
     }
+}
+
+/// The length of the prefix netmask `sockaddr` gives a network of
+/// `address`. The BSDs cut a netmask's trailing zero bytes off, down to
+/// its family at times, so it is read as `address`'s family, and what is
+/// missing is zero.
+///
+/// # Safety
+///
+/// `sockaddr` points to a sockaddr getifaddrs returned, not yet freed.
+#[cfg(unix)]
+unsafe fn prefix_len(sockaddr: *const libc::sockaddr, address: IpAddr) -> u8 {
+    let ones = match address {
+        IpAddr::V4(_) => {
+            let (sin, _) = read_sockaddr::<libc::sockaddr_in>(sockaddr);
+            sin.sin_addr.s_addr.count_ones()
+        }
+        IpAddr::V6(_) => {
+            let (sin6, _) = read_sockaddr::<libc::sockaddr_in6>(sockaddr);
+            u128::from_ne_bytes(sin6.sin6_addr.s6_addr).count_ones()
+        }
+    };
+    ones as u8
+}
+
+/// A copy of what there is of `sockaddr` as a `T`, the rest zero, and how
+/// many bytes there were. No reference over the whole `T` is made, as the
+/// sockaddr may be shorter.
+///
+/// # Safety
+///
+/// `sockaddr` points to a sockaddr getifaddrs returned, not yet freed;
+/// `T` is a plain sockaddr struct, for which all zeros is a value.
+#[cfg(unix)]
+unsafe fn read_sockaddr<T>(sockaddr: *const libc::sockaddr) -> (T, usize) {
+    let len = sockaddr_len(sockaddr, std::mem::size_of::<T>());
+    let mut out = std::mem::MaybeUninit::<T>::zeroed();
+    std::ptr::copy_nonoverlapping(sockaddr.cast::<u8>(), out.as_mut_ptr().cast::<u8>(), len);
+    (out.assume_init(), len)
+}
+
+/// How many bytes of `sockaddr` there are, at most `full`: its own
+/// `sa_len` where it has one.
+///
+/// # Safety
+///
+/// `sockaddr` points to a sockaddr getifaddrs returned, not yet freed.
+#[cfg(any(
+    target_vendor = "apple",
+    target_os = "freebsd",
+    target_os = "dragonfly",
+    target_os = "openbsd",
+    target_os = "netbsd"
+))]
+unsafe fn sockaddr_len(sockaddr: *const libc::sockaddr, full: usize) -> usize {
+    usize::from(std::ptr::addr_of!((*sockaddr).sa_len).read()).min(full)
+}
+
+/// How many bytes of `sockaddr` there are, at most `full`: there is no
+/// `sa_len` here, and a sockaddr is the whole struct of its family.
+///
+/// # Safety
+///
+/// `sockaddr` points to a sockaddr getifaddrs returned, not yet freed.
+#[cfg(all(
+    unix,
+    not(any(
+        target_vendor = "apple",
+        target_os = "freebsd",
+        target_os = "dragonfly",
+        target_os = "openbsd",
+        target_os = "netbsd"
+    ))
+))]
+unsafe fn sockaddr_len(_sockaddr: *const libc::sockaddr, full: usize) -> usize {
+    full
 }
 
 #[cfg(test)]
@@ -415,6 +494,159 @@ mod tests {
             .subnets
             .iter()
             .all(|(_, _, name)| name != "tun0"));
+    }
+
+    /// Whether sockaddrs carry their own length here.
+    #[cfg(unix)]
+    const SA_LEN: bool = cfg!(any(
+        target_vendor = "apple",
+        target_os = "freebsd",
+        target_os = "dragonfly",
+        target_os = "openbsd",
+        target_os = "netbsd"
+    ));
+
+    /// The bytes of `value`.
+    #[cfg(unix)]
+    fn bytes_of<T>(value: &T) -> Vec<u8> {
+        // SAFETY: a plain sockaddr struct, read as its own bytes.
+        unsafe {
+            std::slice::from_raw_parts((value as *const T).cast::<u8>(), std::mem::size_of::<T>())
+        }
+        .to_vec()
+    }
+
+    /// The first `len` bytes of a sockaddr, saying so in `sa_len` where
+    /// there is one, as a buffer of just that many bytes.
+    #[cfg(unix)]
+    fn cut(mut bytes: Vec<u8>, len: usize) -> Vec<u8> {
+        bytes.truncate(len);
+        if SA_LEN && !bytes.is_empty() {
+            bytes[0] = len as u8;
+        }
+        bytes
+    }
+
+    #[cfg(unix)]
+    fn sockaddr_v4(family: i32, address: [u8; 4]) -> Vec<u8> {
+        // SAFETY: all zeros is a sockaddr_in.
+        let mut sin: libc::sockaddr_in = unsafe { std::mem::zeroed() };
+        sin.sin_family = family as libc::sa_family_t;
+        sin.sin_addr.s_addr = u32::from_ne_bytes(address);
+        let full = std::mem::size_of::<libc::sockaddr_in>();
+        cut(bytes_of(&sin), full)
+    }
+
+    #[cfg(unix)]
+    fn sockaddr_v6(family: i32, address: std::net::Ipv6Addr) -> Vec<u8> {
+        // SAFETY: all zeros is a sockaddr_in6.
+        let mut sin6: libc::sockaddr_in6 = unsafe { std::mem::zeroed() };
+        sin6.sin6_family = family as libc::sa_family_t;
+        sin6.sin6_addr.s6_addr = address.octets();
+        let full = std::mem::size_of::<libc::sockaddr_in6>();
+        cut(bytes_of(&sin6), full)
+    }
+
+    #[cfg(unix)]
+    fn parse(address: &[u8], netmask: &[u8]) -> Option<(IpAddr, u8)> {
+        // SAFETY: both are sockaddrs, of the lengths they say.
+        unsafe { network(address.as_ptr().cast(), netmask.as_ptr().cast()) }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_whole_netmask_gives_its_prefix() {
+        let address = sockaddr_v4(libc::AF_INET, [192, 0, 2, 7]);
+        let netmask = sockaddr_v4(libc::AF_INET, [255, 255, 255, 0]);
+        assert_eq!(
+            parse(&address, &netmask),
+            Some(("192.0.2.7".parse().unwrap(), 24))
+        );
+        let address = sockaddr_v6(libc::AF_INET6, "2001:db8::1".parse().unwrap());
+        let netmask = sockaddr_v6(libc::AF_INET6, "ffff:ffff:ffff:ffff::".parse().unwrap());
+        assert_eq!(
+            parse(&address, &netmask),
+            Some(("2001:db8::1".parse().unwrap(), 64))
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_address_of_another_family_is_no_network() {
+        let address = sockaddr_v4(libc::AF_UNIX, [192, 0, 2, 7]);
+        let netmask = sockaddr_v4(libc::AF_INET, [255, 255, 255, 0]);
+        assert_eq!(parse(&address, &netmask), None);
+    }
+
+    /// A BSD netmask stops after its last byte that is not zero, and may
+    /// say no family.
+    #[cfg(any(
+        target_vendor = "apple",
+        target_os = "freebsd",
+        target_os = "dragonfly",
+        target_os = "openbsd",
+        target_os = "netbsd"
+    ))]
+    #[test]
+    fn a_short_netmask_is_read_by_its_own_length() {
+        let address = sockaddr_v4(libc::AF_INET, [192, 0, 2, 7]);
+        let start = std::mem::offset_of!(libc::sockaddr_in, sin_addr);
+        for family in [libc::AF_INET, libc::AF_UNSPEC] {
+            let netmask = cut(sockaddr_v4(family, [255, 255, 255, 0]), start + 3);
+            assert_eq!(
+                parse(&address, &netmask),
+                Some(("192.0.2.7".parse().unwrap(), 24))
+            );
+        }
+        let netmask = cut(sockaddr_v4(libc::AF_INET, [255, 0, 0, 0]), start + 1);
+        assert_eq!(parse(&address, &netmask).map(|(_, len)| len), Some(8));
+        // Nothing but its length: a prefix of none.
+        let netmask = cut(sockaddr_v4(libc::AF_UNSPEC, [0; 4]), 1);
+        assert_eq!(parse(&address, &netmask).map(|(_, len)| len), Some(0));
+
+        let address = sockaddr_v6(libc::AF_INET6, "2001:db8::1".parse().unwrap());
+        let start = std::mem::offset_of!(libc::sockaddr_in6, sin6_addr);
+        for family in [libc::AF_INET6, libc::AF_UNSPEC] {
+            let netmask = cut(
+                sockaddr_v6(family, "ffff:ffff:ffff:ffff::".parse().unwrap()),
+                start + 8,
+            );
+            assert_eq!(
+                parse(&address, &netmask),
+                Some(("2001:db8::1".parse().unwrap(), 64))
+            );
+        }
+        let netmask = cut(
+            sockaddr_v6(libc::AF_INET6, "ffff:ffff:ffff::".parse().unwrap()),
+            start + 6,
+        );
+        assert_eq!(parse(&address, &netmask).map(|(_, len)| len), Some(48));
+    }
+
+    /// An address cut short is no address.
+    #[cfg(any(
+        target_vendor = "apple",
+        target_os = "freebsd",
+        target_os = "dragonfly",
+        target_os = "openbsd",
+        target_os = "netbsd"
+    ))]
+    #[test]
+    fn a_short_address_is_no_network() {
+        let netmask = sockaddr_v4(libc::AF_INET, [255, 255, 255, 0]);
+        let start = std::mem::offset_of!(libc::sockaddr_in, sin_addr);
+        let address = cut(sockaddr_v4(libc::AF_INET, [192, 0, 2, 7]), start + 3);
+        assert_eq!(parse(&address, &netmask), None);
+        let address = cut(sockaddr_v4(libc::AF_INET, [192, 0, 2, 7]), 1);
+        assert_eq!(parse(&address, &netmask), None);
+
+        let netmask = sockaddr_v6(libc::AF_INET6, "ffff:ffff:ffff:ffff::".parse().unwrap());
+        let start = std::mem::offset_of!(libc::sockaddr_in6, sin6_addr);
+        let address = cut(
+            sockaddr_v6(libc::AF_INET6, "2001:db8::1".parse().unwrap()),
+            start + 15,
+        );
+        assert_eq!(parse(&address, &netmask), None);
     }
 
     #[cfg(unix)]
