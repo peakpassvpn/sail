@@ -16,6 +16,117 @@ use serde_derive::{Deserialize, Serialize};
 /// The options of one inbound or outbound, read by its protocol.
 pub type Options = serde_json::Map<String, serde_json::Value>;
 
+// What a configuration holds of passwords, keys, UUIDs and tokens is not
+// printed: the options of inbounds, outbounds, endpoints and DNS servers
+// print as their names, a header's values, the Clash API's secret and a
+// provider's URL (but its host) not at all.
+
+/// Options, printed as their names only.
+struct Names<'a>(&'a Options);
+
+impl std::fmt::Debug for Names<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_list().entries(self.0.keys()).finish()
+    }
+}
+
+/// `value` as JSON, with `hide` done to it: for what prints much of itself.
+fn redacted_json<T: serde::Serialize>(
+    f: &mut std::fmt::Formatter<'_>,
+    name: &str,
+    value: &T,
+    hide: impl FnOnce(&mut serde_json::Map<String, serde_json::Value>),
+) -> std::fmt::Result {
+    let mut json = match serde_json::to_value(value) {
+        Ok(serde_json::Value::Object(map)) => map,
+        _ => return write!(f, "{}(..)", name),
+    };
+    hide(&mut json);
+    write!(f, "{}({})", name, serde_json::Value::Object(json))
+}
+
+/// The host of `url`, and no more of it.
+fn url_host(url: &str) -> String {
+    let rest = url.split_once("://").map_or(url, |(_, rest)| rest);
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    authority.rsplit('@').next().unwrap_or_default().to_string()
+}
+
+impl std::fmt::Debug for HeaderValues {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "<{} redacted>", self.0.len())
+    }
+}
+
+impl std::fmt::Debug for ClashApi {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        redacted_json(f, "ClashApi", self, |json| {
+            if let Some(secret) = json.get_mut("secret") {
+                *secret = "<redacted>".into();
+            }
+        })
+    }
+}
+
+impl std::fmt::Debug for DnsServer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DnsServer")
+            .field("kind", &self.kind)
+            .field("tag", &self.tag)
+            .field("options", &Names(&self.options))
+            .finish()
+    }
+}
+
+impl std::fmt::Debug for Inbound {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Inbound")
+            .field("protocol", &self.protocol)
+            .field("tag", &self.tag)
+            .field("listen", &self.listen)
+            .field("listen_port", &self.listen_port)
+            .field("options", &Names(&self.options))
+            .finish_non_exhaustive()
+    }
+}
+
+impl std::fmt::Debug for Outbound {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Outbound")
+            .field("protocol", &self.protocol)
+            .field("tag", &self.tag)
+            .field("options", &Names(&self.options))
+            .finish()
+    }
+}
+
+impl std::fmt::Debug for Endpoint {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Endpoint")
+            .field("protocol", &self.protocol)
+            .field("tag", &self.tag)
+            .field("options", &Names(&self.options))
+            .finish_non_exhaustive()
+    }
+}
+
+impl std::fmt::Debug for OutboundProvider {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        redacted_json(f, "OutboundProvider", self, |json| {
+            if let Some(serde_json::Value::String(url)) = json.get_mut("url") {
+                *url = format!("{}/<redacted>", url_host(url));
+            }
+            if let Some(serde_json::Value::Object(client)) = json.get_mut("http_client") {
+                if let Some(serde_json::Value::Object(headers)) = client.get_mut("headers") {
+                    for value in headers.values_mut() {
+                        *value = "<redacted>".into();
+                    }
+                }
+            }
+        })
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
@@ -118,7 +229,7 @@ pub fn check_headers(headers: &BTreeMap<String, HeaderValues>) -> Result<()> {
 }
 
 /// The values of a header: one, or a list.
-#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Default, PartialEq)]
 #[serde(transparent)]
 pub struct HeaderValues(#[serde(with = "listable")] pub Vec<String>);
 
@@ -263,7 +374,7 @@ impl Experimental {
 
 /// The Clash API, as sing-box's `clash_api` has it, and Mihomo's
 /// `external-controller` and the fields about it.
-#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Default, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ClashApi {
     /// Where it listens, `host:port`; an empty host is every address, as
@@ -449,7 +560,7 @@ impl<'de> serde::Deserialize<'de> for Optimistic {
 
 /// A DNS server. What it takes beyond its type and tag belongs to its type,
 /// and is read when the DNS client is built, as an outbound's options are.
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, PartialEq)]
 pub struct DnsServer {
     /// `udp`, `tcp`, `tls`, `https`, `quic`, `h3`, `local`, `hosts`, or
     /// sail's `race`.
@@ -1298,7 +1409,7 @@ impl Dns {
 /// say: sing-box's default.
 pub const DEFAULT_UDP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5 * 60);
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, PartialEq)]
 pub struct Inbound {
     #[serde(rename = "type")]
     pub protocol: String,
@@ -1344,7 +1455,7 @@ impl Inbound {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, PartialEq)]
 pub struct Outbound {
     #[serde(rename = "type")]
     pub protocol: String,
@@ -1357,7 +1468,7 @@ pub struct Outbound {
 
 /// An endpoint: an outbound, and an inbound, under one tag. Like an
 /// outbound's, its options belong to its protocol.
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, PartialEq)]
 pub struct Endpoint {
     #[serde(rename = "type")]
     pub protocol: String,
@@ -1394,7 +1505,7 @@ impl Endpoint {
 /// proxy-providers. A subscription or a file holds what Mihomo reads from
 /// one: Clash's YAML with its `proxies`, or share links, a line each and
 /// maybe in base64. It needs the outbound-provider feature.
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct OutboundProvider {
     #[serde(rename = "type")]
@@ -2934,6 +3045,46 @@ pub(super) fn path<E>(e: &serde_path_to_error::Error<E>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Printed, a configuration shows none of its secrets.
+    #[test]
+    fn a_configuration_prints_no_secret() {
+        let config = crate::config::Config::from_json(
+            &serde_json::json!({
+                "inbounds": [{ "type": "socks", "tag": "in", "listen_port": 1080,
+                               "users": [{ "username": "u", "password": "pw-in-secret" }] }],
+                "outbounds": [
+                    { "type": "shadowsocks", "tag": "ss", "server": "a", "server_port": 1,
+                      "method": "aes-128-gcm", "password": "pw-out-secret" },
+                    { "type": "vless", "tag": "v", "server": "a", "server_port": 1,
+                      "uuid": "1b0e0a3e-1c2d-4e5f-8a9b-0c1d2e3f4a5b" }
+                ],
+                "outbound_providers": [{ "type": "remote", "tag": "p",
+                    "url": "https://sub.example.com/token-secret?t=q-secret",
+                    "http_client": { "headers": { "Authorization": "Bearer h-secret" } } }],
+                "clash_api": { "external_controller": "127.0.0.1:9090", "secret": "api-secret" },
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let printed = format!("{:?}", config);
+        for secret in [
+            "pw-in-secret",
+            "pw-out-secret",
+            "1b0e0a3e",
+            "token-secret",
+            "q-secret",
+            "h-secret",
+            "api-secret",
+        ] {
+            assert!(!printed.contains(secret), "{} in {}", secret, printed);
+        }
+        assert!(
+            printed.contains("sub.example.com") && printed.contains("password"),
+            "{}",
+            printed
+        );
+    }
 
     #[test]
     fn protocol_options_stay_with_the_entry() {
