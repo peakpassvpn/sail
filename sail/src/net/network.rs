@@ -204,8 +204,6 @@ impl Network {
     }
 
     /// The state as sail detected it, unless the host pushes it.
-    // Detection, which calls it, follows in its own change.
-    #[allow(dead_code)]
     pub(crate) fn detected(&self, state: NetworkState) {
         if !self.pushed() {
             self.set(state);

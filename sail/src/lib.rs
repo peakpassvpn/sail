@@ -239,6 +239,19 @@ impl RuntimeManager {
             || self.dns_client.load().needs_network()
     }
 
+    /// Detects the network the host is on again, on a blocking thread,
+    /// unless the host pushes it or nothing asks for it. Awaiting the
+    /// handle waits for it.
+    fn detect_network(&self) -> tokio::task::JoinHandle<()> {
+        let network = self.network().clone();
+        let wanted = !network.pushed() && self.needs_network();
+        tokio::task::spawn_blocking(move || {
+            if wanted {
+                network.detected(platform::network::detect());
+            }
+        })
+    }
+
     /// What the Clash API tells of the configuration.
     #[cfg(feature = "clash-api")]
     pub(crate) fn clash_view(&self) -> app::clash_api::ConfigView {
@@ -536,6 +549,8 @@ impl RuntimeManager {
         roots.keep();
         cache_file.keep();
         info!("reloaded from config file: {}", config_path);
+        // What it matches on may be new to this configuration.
+        self.detect_network();
         Ok(())
     }
 
@@ -836,46 +851,49 @@ pub fn network_changed(key: RuntimeId, mtu: Option<usize>) -> Result<(), Error> 
     }
 }
 
-/// Looks at the default interface again when interfaces, addresses or
-/// routes change, a second after the last change, as sing-box does; when
-/// it moved, the TUN's flows, bound to the old one, are reset.
+/// Looks at the default interface and the network again when interfaces,
+/// addresses or routes change, a second after the last change, as
+/// sing-box does; when the interface moved, the TUN's flows, bound to the
+/// old one, are reset. It never ends: the instance runs on without it.
 #[cfg(target_os = "linux")]
 async fn follow_default_interface(manager: Arc<RuntimeManager>) {
+    let _ = manager.detect_network().await;
     let monitor = match platform::addr_monitor::AddressMonitor::open_with_routes() {
         Ok(monitor) => monitor,
         Err(e) => {
-            warn!("auto_detect_interface: not following changes: {}", e);
-            return;
+            warn!("not following the network as it changes: {}", e);
+            return std::future::pending().await;
         }
     };
     loop {
         if let Err(e) = monitor.changed().await {
-            warn!("auto_detect_interface: not following changes: {}", e);
-            return;
+            warn!("not following the network as it changes: {}", e);
+            return std::future::pending().await;
         }
         // Take every notice of the change before looking.
         while let Ok(Ok(())) =
             tokio::time::timeout(std::time::Duration::from_secs(1), monitor.changed()).await
         {
         }
-        let Some(auto) = manager.dial_defaults.load().auto_interface.clone() else {
-            continue;
-        };
-        let moved = tokio::task::spawn_blocking(move || auto.refresh())
-            .await
-            .unwrap_or(false);
-        // What was answered on the interface before may be wrong on this one.
-        if moved {
-            manager.dns_client.load().clear_cache();
-        }
-        #[cfg(feature = "inbound-tun")]
-        if moved && manager.tun_control.is_some() {
-            if let Err(e) = manager.network_changed(None).await {
-                warn!("auto_detect_interface: resetting the tun's flows: {}", e);
+        if let Some(auto) = manager.dial_defaults.load().auto_interface.clone() {
+            let moved = tokio::task::spawn_blocking(move || auto.refresh())
+                .await
+                .unwrap_or(false);
+            // What was answered on the interface before may be wrong on this
+            // one.
+            if moved {
+                manager.dns_client.load().clear_cache();
             }
+            #[cfg(feature = "inbound-tun")]
+            if moved && manager.tun_control.is_some() {
+                if let Err(e) = manager.network_changed(None).await {
+                    warn!("auto_detect_interface: resetting the tun's flows: {}", e);
+                }
+            }
+            #[cfg(not(feature = "inbound-tun"))]
+            let _ = moved;
         }
-        #[cfg(not(feature = "inbound-tun"))]
-        let _ = moved;
+        let _ = manager.detect_network().await;
     }
 }
 
@@ -1215,10 +1233,24 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
         }
     }));
 
-    // auto_detect_interface follows the default interface as it moves.
+    // auto_detect_interface follows the default interface as it moves, and
+    // detection the network the host is on, on one monitor.
     #[cfg(target_os = "linux")]
-    if follows_interface {
+    if follows_interface || runtime_manager.needs_network() {
         tasks.push(Box::pin(follow_default_interface(runtime_manager.clone())));
+    }
+    // Where there is no monitor, the network is detected at the start and
+    // on each reload only.
+    #[cfg(not(target_os = "linux"))]
+    {
+        let rm = runtime_manager.clone();
+        tasks.push(Box::pin(async move {
+            if rm.needs_network() {
+                tracing::debug!("network: not followed as it changes on this system");
+            }
+            let _ = rm.detect_network().await;
+            std::future::pending().await
+        }));
     }
 
     // Monitor network changes the host reports.
