@@ -23,9 +23,10 @@ use windows_sys::Win32::System::Rpc::RPC_C_AUTHN_WINNT;
 
 use super::ip_helper::wide;
 
-/// fwpmu.h's; windows-sys has it not.
+/// fwpmu.h's, a UINT32; windows-sys has it not. (Not
+/// FWPM_CONDITION_IP_LOCAL_INTERFACE, the interface's UINT64 LUID.)
 const FWPM_CONDITION_LOCAL_INTERFACE_INDEX: GUID =
-    GUID::from_u128(0x4cd62a49_59c3_4969_b7f3_bda5d32890a4);
+    GUID::from_u128(0x667fd755_d695_434a_8af5_d3835a1259bc);
 
 fn check(code: u32) -> io::Result<()> {
     if code == 0 {
@@ -119,6 +120,9 @@ impl StrictRoute {
             let mut id = 0u64;
             // SAFETY: the filter and its conditions outlive the call.
             check(unsafe { FwpmFilterAdd0(engine, &filter, std::ptr::null_mut(), &mut id) })
+                .map_err(|e| {
+                    io::Error::new(e.kind(), format!("filter of weight {}: {}", weight, e))
+                })
         };
         let layers = [
             FWPM_LAYER_ALE_AUTH_CONNECT_V4,
