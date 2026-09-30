@@ -48,21 +48,27 @@ fn sort_out(value: &mut Value) -> Result<Vec<String>> {
         }
     }
     let mut warnings = services(value)?;
-    for field in upstream::FIELDS {
-        for (at, _) in find(value, field.path) {
-            if implemented_for(value, field.path, &at) {
-                continue;
-            }
-            match field.tier {
-                Tier::Unsupported => {
-                    return Err(anyhow!("{}: sail does not implement this field yet", at));
+    for group in upstream::GROUPS {
+        for path in group.paths {
+            for (at, _) in find(value, path) {
+                let kind = entry_type(value, path, &at);
+                if !group.types.is_empty() && !kind.is_some_and(|k| group.types.contains(&k)) {
+                    continue;
                 }
-                Tier::Ignored => {
-                    remove(value, &at);
-                    warnings.push(format!(
-                        "{}: sail does not implement this field; ignored",
-                        at
-                    ));
+                if implemented_for(path, kind) {
+                    continue;
+                }
+                match group.tier {
+                    Tier::Unsupported => {
+                        return Err(anyhow!("{}: sail does not implement this field yet", at));
+                    }
+                    Tier::Ignored => {
+                        remove(value, &at);
+                        warnings.push(format!(
+                            "{}: sail does not implement this field; ignored",
+                            at
+                        ));
+                    }
                 }
             }
         }
@@ -94,7 +100,7 @@ fn services(value: &mut Value) -> Result<Vec<String>> {
             .get("type")
             .and_then(Value::as_str)
             .unwrap_or_default();
-        if !upstream::IGNORED_SERVICES.contains(&kind) {
+        if !upstream::IGNORED_SERVICES.iter().any(|(k, _)| *k == kind) {
             return Err(anyhow!(
                 "services[{}].type: sail does not implement \"{}\" yet",
                 i,
@@ -161,8 +167,15 @@ fn walk(value: &Value, segments: &[&str], at: &mut Vec<Step>, found: &mut Vec<(A
             }
         }
         Value::Object(map) => {
-            if let Some(v) = map.get(*segment) {
-                visit(Step::Key(segment.to_string()), v);
+            // `key[type]`: the object at `key`, of that type.
+            let (key, kind) = match segment.strip_suffix(']').and_then(|s| s.split_once('[')) {
+                Some((key, kind)) => (key, Some(kind)),
+                None => (*segment, None),
+            };
+            if let Some(v) = map.get(key) {
+                if kind.is_none_or(|k| v.get("type").and_then(Value::as_str) == Some(k)) {
+                    visit(Step::Key(key.to_string()), v);
+                }
             }
         }
         Value::Array(list) if *segment == "*" => {
@@ -194,30 +207,27 @@ fn walk_rule(rule: &Value, segments: &[&str], at: &mut Vec<Step>, found: &mut Ve
     }
 }
 
-/// Whether the field at `at`, found by `path`, is one sail implements for
-/// the type of the entry it is in; see `upstream::IMPLEMENTED_FOR`.
-fn implemented_for(value: &Value, path: &str, at: &At) -> bool {
-    let Some((_, types)) = upstream::IMPLEMENTED_FOR.iter().find(|(p, _)| *p == path) else {
-        return false;
-    };
+/// The type of the entry the field at `at`, found by `path`, is in: the
+/// entry the pattern's first `*` stands for, its inbound or outbound.
+fn entry_type<'a>(value: &'a Value, path: &str, at: &At) -> Option<&'a str> {
+    let depth = path.split('.').position(|s| s == "*")? + 1;
     let mut entry = value;
-    for step in &at.0[..at.0.len().saturating_sub(1)] {
+    for step in at.0.get(..depth)? {
         entry = match (step, entry) {
-            (Step::Key(k), Value::Object(map)) => match map.get(k) {
-                Some(v) => v,
-                None => return false,
-            },
-            (Step::Index(i), Value::Array(list)) => match list.get(*i) {
-                Some(v) => v,
-                None => return false,
-            },
-            _ => return false,
+            (Step::Key(k), Value::Object(map)) => map.get(k)?,
+            (Step::Index(i), Value::Array(list)) => list.get(*i)?,
+            _ => return None,
         };
     }
-    entry
-        .get("type")
-        .and_then(Value::as_str)
-        .is_some_and(|t| types.contains(&t))
+    entry.get("type").and_then(Value::as_str)
+}
+
+/// Whether sail implements the field `path` names for entries of type
+/// `kind`; see `upstream::IMPLEMENTED_FOR`.
+fn implemented_for(path: &str, kind: Option<&str>) -> bool {
+    upstream::IMPLEMENTED_FOR
+        .iter()
+        .any(|(p, types)| *p == path && kind.is_some_and(|k| types.contains(&k)))
 }
 
 fn remove(value: &mut Value, at: &At) {

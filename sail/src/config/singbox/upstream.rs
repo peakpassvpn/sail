@@ -15,293 +15,763 @@ pub enum Tier {
 
 use Tier::*;
 
-/// A field by its path, `*` standing for any list index or object key. A
-/// rule's field, `….rules.*.field`, is the field of the rules a logical one
-/// combines too, however deep.
-pub struct Field {
-    pub path: &'static str,
+/// Fields sail does not implement, treated alike for one reason.
+pub struct Group {
+    /// Why, in a line: the support tables show it.
+    pub why: &'static str,
     pub tier: Tier,
+    /// The types of the entries (the inbounds, outbounds, DNS servers) the
+    /// fields are in that sail lacks them in; in every type when empty.
+    pub types: &'static [&'static str],
+    /// The fields by path, `*` standing for any list index or object key,
+    /// and `key[type]` for the object at `key` when of that type. A rule's
+    /// field, `….rules.*.field`, is the field of the rules a logical one
+    /// combines too, however deep.
+    pub paths: &'static [&'static str],
 }
 
-const fn f(path: &'static str, tier: Tier) -> Field {
-    Field { path, tier }
+const fn g(why: &'static str, tier: Tier, paths: &'static [&'static str]) -> Group {
+    Group {
+        why,
+        tier,
+        types: &[],
+        paths,
+    }
+}
+
+/// `g`, for entries of `types` only.
+const fn t(
+    why: &'static str,
+    tier: Tier,
+    types: &'static [&'static str],
+    paths: &'static [&'static str],
+) -> Group {
+    Group {
+        why,
+        tier,
+        types,
+        paths,
+    }
 }
 
 /// Removed without a word: `$schema` only points editors at a schema.
 pub const SILENT: &[&str] = &["$schema"];
 
-/// The services, by type, whose absence changes nothing about the traffic:
-/// sail does not run them, and drops them with a warning. It runs no other
-/// service either, and any other is an error.
-pub const IGNORED_SERVICES: &[&str] = &[
-    // sing-box's gRPC API, for its clients and dashboard to watch and
-    // control the instance.
+/// The services, by type, whose absence changes nothing about the traffic,
+/// with what each is: sail does not run them, and drops them with a
+/// warning. It runs no other service either, and any other is an error.
+pub const IGNORED_SERVICES: &[(&str, &str)] = &[(
     "api",
-];
+    "sing-box's gRPC API, for its clients and dashboard to watch and control the instance",
+)];
+
+/// Why a service other than those is an error.
+pub const OTHER_SERVICES: &str = "A service: sail runs none besides its inbounds";
 
 /// Objects sail has no counterpart for, dropped once the fields they held
 /// are.
 pub const EMPTIED: &[&str] = &["experimental"];
 
-pub const FIELDS: &[Field] = &[
+// Reasons several groups share.
+const NETWORKS: &str =
+    "Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route";
+const PROTECT: &str =
+    "Android's socket protection and Linux network namespaces: sockets would leave another way";
+const SOCKET: &str = "Socket tuning: connections go the same way without it";
+const TLS_VERSIONS: &str =
+    "TLS versions and cipher suites: sail's TLS would negotiate others than asked";
+const TLS_TUNING: &str =
+    "The TLS stack, kernel TLS and the handshake's timeout: the same TLS without them";
+const TLS_FRAGMENT: &str = "Fragmenting or spoofing the TLS handshake against censorship";
+const HTTP_TUNING: &str = "HTTP/2 and HTTP/3 tuning: a download over HTTP/1.1 is the same download";
+const QUIC_TUNING: &str = "QUIC tuning: the same connection without it";
+const CONDITIONS: &str = "A condition sail does not match: the rule would match otherwise";
+const LISTEN: &str = "Where and how an inbound listens: it would take connections otherwise";
+
+pub const GROUPS: &[Group] = &[
     // Top level.
-    f("ntp", Ignored),
-    f("certificate_providers", Unsupported),
-    f("network_namespaces", Unsupported),
-    // Only the rejected-response cache of the legacy address filter
-    // fields, which sail does not have; deprecated in sing-box 1.14.
-    f("experimental.cache_file.store_rdrc", Ignored),
-    f("experimental.cache_file.rdrc_timeout", Ignored),
-    // The Clash API is not served yet; its mode is kept.
-    f("experimental.v2ray_api", Ignored),
-    f("experimental.debug", Ignored),
+    g("sail keeps the system's clock", Ignored, &["ntp"]),
+    g(
+        "Certificates from ACME and other providers: the inbounds would serve none",
+        Unsupported,
+        &["certificate_providers"],
+    ),
+    g(
+        "Linux network namespaces to listen and dial in",
+        Unsupported,
+        &["network_namespaces"],
+    ),
+    g(
+        "The cache of the legacy address filter's rejected responses, which sail does not have; deprecated in sing-box 1.14",
+        Ignored,
+        &[
+            "experimental.cache_file.store_rdrc",
+            "experimental.cache_file.rdrc_timeout",
+        ],
+    ),
+    g(
+        "V2Ray's statistics API, for watching the instance",
+        Ignored,
+        &["experimental.v2ray_api"],
+    ),
+    g(
+        "Go runtime tuning and debugging: sail is not Go",
+        Ignored,
+        &["experimental.debug"],
+    ),
+    g(
+        "sing-box removed it in 1.12, and ignores it",
+        Ignored,
+        &["route.geoip", "route.geosite"],
+    ),
     // DNS.
-    // Each server's answers are kept apart, always: what this asked for.
-    f("dns.independent_cache", Ignored),
-    // DNS rule conditions and action options.
-    f("dns.rules.*.query_client_subnet", Unsupported),
-    f("dns.rules.*.query_dnssec", Unsupported),
-    f("dns.rules.*.source_geoip", Unsupported),
-    f("dns.rules.*.geoip", Unsupported),
-    f("dns.rules.*.interface_address", Unsupported),
-    f("dns.rules.*.network_interface_address", Unsupported),
-    f("dns.rules.*.default_interface_address", Unsupported),
-    f("dns.rules.*.source_mac_address", Unsupported),
-    f("dns.rules.*.source_hostname", Unsupported),
-    f("dns.rules.*.preferred_by", Unsupported),
-    f("dns.rules.*.rule_set_ip_cidr_accept_empty", Unsupported),
-    f("dns.rules.*.method", Ignored),
-    f("dns.rules.*.no_drop", Ignored),
-    // HTTP clients: a download over HTTP/1.1 is the same download.
-    f("http_clients.*.tls", Unsupported),
-    f("http_clients.*.protect_path", Unsupported),
-    f("http_clients.*.netns", Unsupported),
-    f("http_clients.*.network_strategy", Unsupported),
-    f("http_clients.*.network_type", Unsupported),
-    f("http_clients.*.fallback_network_type", Unsupported),
-    f("http_clients.*.fallback_delay", Unsupported),
-    f("http_clients.*.engine", Ignored),
-    f("http_clients.*.version", Ignored),
-    f("http_clients.*.disable_version_fallback", Ignored),
-    f("http_clients.*.idle_timeout", Ignored),
-    f("http_clients.*.keep_alive_period", Ignored),
-    f("http_clients.*.stream_receive_window", Ignored),
-    f("http_clients.*.connection_receive_window", Ignored),
-    f("http_clients.*.max_concurrent_streams", Ignored),
-    f("http_clients.*.initial_packet_size", Ignored),
-    f("http_clients.*.disable_path_mtu_discovery", Ignored),
-    f("http_clients.*.bind_address_no_port", Ignored),
-    f("http_clients.*.reuse_addr", Ignored),
-    f("http_clients.*.tcp_fast_open", Ignored),
-    f("http_clients.*.tcp_multi_path", Ignored),
-    f("http_clients.*.udp_fragment", Ignored),
-    f("route.rule_set.*.http_client.tls", Unsupported),
-    f("route.rule_set.*.http_client.protect_path", Unsupported),
-    f("route.rule_set.*.http_client.netns", Unsupported),
-    f("route.rule_set.*.http_client.network_strategy", Unsupported),
-    f("route.rule_set.*.http_client.network_type", Unsupported),
-    f(
-        "route.rule_set.*.http_client.fallback_network_type",
+    g(
+        "Each server's answers are kept apart, always: what this asks for",
+        Ignored,
+        &["dns.independent_cache"],
+    ),
+    g(
+        CONDITIONS,
         Unsupported,
+        &[
+            "dns.rules.*.query_client_subnet",
+            "dns.rules.*.query_dnssec",
+            "dns.rules.*.source_geoip",
+            "dns.rules.*.geoip",
+            "dns.rules.*.interface_address",
+            "dns.rules.*.network_interface_address",
+            "dns.rules.*.default_interface_address",
+            "dns.rules.*.source_mac_address",
+            "dns.rules.*.source_hostname",
+            "dns.rules.*.preferred_by",
+            "dns.rules.*.rule_set_ip_cidr_accept_empty",
+        ],
     ),
-    f("route.rule_set.*.http_client.fallback_delay", Unsupported),
-    f("route.rule_set.*.http_client.engine", Ignored),
-    f("route.rule_set.*.http_client.version", Ignored),
-    f(
-        "route.rule_set.*.http_client.disable_version_fallback",
+    g(
+        "How a rejected query is answered: it is rejected all the same",
         Ignored,
+        &["dns.rules.*.method", "dns.rules.*.no_drop"],
     ),
-    f("route.rule_set.*.http_client.idle_timeout", Ignored),
-    f("route.rule_set.*.http_client.keep_alive_period", Ignored),
-    f(
-        "route.rule_set.*.http_client.stream_receive_window",
+    // HTTP clients.
+    g(
+        "TLS options of an HTTP client's own: its downloads would be checked otherwise",
+        Unsupported,
+        &["http_clients.*.tls", "route.rule_set.*.http_client.tls"],
+    ),
+    g(
+        PROTECT,
+        Unsupported,
+        &[
+            "http_clients.*.protect_path",
+            "http_clients.*.netns",
+            "route.rule_set.*.http_client.protect_path",
+            "route.rule_set.*.http_client.netns",
+        ],
+    ),
+    g(
+        NETWORKS,
+        Unsupported,
+        &[
+            "http_clients.*.network_strategy",
+            "http_clients.*.network_type",
+            "http_clients.*.fallback_network_type",
+            "http_clients.*.fallback_delay",
+            "route.rule_set.*.http_client.network_strategy",
+            "route.rule_set.*.http_client.network_type",
+            "route.rule_set.*.http_client.fallback_network_type",
+            "route.rule_set.*.http_client.fallback_delay",
+        ],
+    ),
+    g(
+        HTTP_TUNING,
         Ignored,
+        &[
+            "http_clients.*.engine",
+            "http_clients.*.version",
+            "http_clients.*.disable_version_fallback",
+            "http_clients.*.idle_timeout",
+            "http_clients.*.keep_alive_period",
+            "http_clients.*.stream_receive_window",
+            "http_clients.*.connection_receive_window",
+            "http_clients.*.max_concurrent_streams",
+            "http_clients.*.initial_packet_size",
+            "http_clients.*.disable_path_mtu_discovery",
+            "route.rule_set.*.http_client.engine",
+            "route.rule_set.*.http_client.version",
+            "route.rule_set.*.http_client.disable_version_fallback",
+            "route.rule_set.*.http_client.idle_timeout",
+            "route.rule_set.*.http_client.keep_alive_period",
+            "route.rule_set.*.http_client.stream_receive_window",
+            "route.rule_set.*.http_client.connection_receive_window",
+            "route.rule_set.*.http_client.max_concurrent_streams",
+            "route.rule_set.*.http_client.initial_packet_size",
+            "route.rule_set.*.http_client.disable_path_mtu_discovery",
+        ],
     ),
-    f(
-        "route.rule_set.*.http_client.connection_receive_window",
+    g(
+        SOCKET,
         Ignored,
+        &[
+            "http_clients.*.bind_address_no_port",
+            "http_clients.*.reuse_addr",
+            "http_clients.*.tcp_fast_open",
+            "http_clients.*.tcp_multi_path",
+            "http_clients.*.udp_fragment",
+            "route.rule_set.*.http_client.bind_address_no_port",
+            "route.rule_set.*.http_client.reuse_addr",
+            "route.rule_set.*.http_client.tcp_fast_open",
+            "route.rule_set.*.http_client.tcp_multi_path",
+            "route.rule_set.*.http_client.udp_fragment",
+        ],
     ),
-    f(
-        "route.rule_set.*.http_client.max_concurrent_streams",
-        Ignored,
-    ),
-    f("route.rule_set.*.http_client.initial_packet_size", Ignored),
-    f(
-        "route.rule_set.*.http_client.disable_path_mtu_discovery",
-        Ignored,
-    ),
-    f("route.rule_set.*.http_client.bind_address_no_port", Ignored),
-    f("route.rule_set.*.http_client.reuse_addr", Ignored),
-    f("route.rule_set.*.http_client.tcp_fast_open", Ignored),
-    f("route.rule_set.*.http_client.tcp_multi_path", Ignored),
-    f("route.rule_set.*.http_client.udp_fragment", Ignored),
     // DNS servers.
-    f("dns.servers.*.method", Unsupported),
-    f("dns.servers.*.prefer_go", Ignored),
-    // Single-label LAN names from sing-box's neighbor resolver (DHCP
-    // leases): sail has none, and the system's resolver answers them.
-    f("dns.servers.*.neighbor_domain", Ignored),
-    f("dns.servers.*.netns", Unsupported),
-    f("dns.servers.*.protect_path", Unsupported),
-    f("dns.servers.*.network_strategy", Unsupported),
-    f("dns.servers.*.network_type", Unsupported),
-    f("dns.servers.*.fallback_network_type", Unsupported),
-    f("dns.servers.*.fallback_delay", Unsupported),
-    f("dns.servers.*.bind_address_no_port", Ignored),
-    f("dns.servers.*.reuse_addr", Ignored),
-    f("dns.servers.*.tcp_fast_open", Ignored),
-    f("dns.servers.*.tcp_multi_path", Ignored),
-    f("dns.servers.*.udp_fragment", Ignored),
-    f("dns.servers.*.tls.min_version", Unsupported),
-    f("dns.servers.*.tls.max_version", Unsupported),
-    f("dns.servers.*.tls.cipher_suites", Unsupported),
-    f("dns.servers.*.tls.curve_preferences", Unsupported),
-    f(
-        "dns.servers.*.tls.certificate_public_key_sha256",
+    g(
+        "The HTTP method of DNS-over-HTTPS queries: a server that takes one would be asked with another",
         Unsupported,
+        &["dns.servers.*.method"],
     ),
-    f("dns.servers.*.tls.fragment", Unsupported),
-    f("dns.servers.*.tls.record_fragment", Unsupported),
-    f("dns.servers.*.tls.engine", Ignored),
-    f("dns.servers.*.tls.kernel_tx", Ignored),
-    f("dns.servers.*.tls.kernel_rx", Ignored),
-    f("dns.servers.*.tls.handshake_timeout", Ignored),
-    // Routing.
-    f("route.default_network_strategy", Unsupported),
-    f("route.default_network_type", Unsupported),
-    f("route.default_fallback_network_type", Unsupported),
-    f("route.default_fallback_delay", Unsupported),
-    f("route.find_process", Ignored),
-    f("route.find_neighbor", Ignored),
-    f("route.dhcp_lease_files", Ignored),
-    f("route.override_android_vpn", Ignored),
-    // Rule conditions.
-    f("route.rules.*.client", Unsupported),
-    f("route.rules.*.source_geoip", Unsupported),
-    f("route.rules.*.interface_address", Unsupported),
-    f("route.rules.*.network_interface_address", Unsupported),
-    f("route.rules.*.default_interface_address", Unsupported),
-    f("route.rules.*.source_mac_address", Unsupported),
-    f("route.rules.*.source_hostname", Unsupported),
-    f("route.rules.*.preferred_by", Unsupported),
-    // Rule action options.
-    f("route.rules.*.network_strategy", Unsupported),
-    f("route.rules.*.fallback_delay", Unsupported),
-    f("route.rules.*.tls_spoof", Unsupported),
-    f("route.rules.*.tls_spoof_method", Unsupported),
-    // Listen fields.
-    f("inbounds.*.bind_interface", Unsupported),
-    f("inbounds.*.routing_mark", Unsupported),
-    f("inbounds.*.netns", Unsupported),
-    f("inbounds.*.detour", Unsupported),
-    f("inbounds.*.proxy_protocol", Unsupported),
-    f("inbounds.*.proxy_protocol_accept_no_header", Unsupported),
-    f("inbounds.*.reuse_addr", Ignored),
-    f("inbounds.*.tcp_fast_open", Ignored),
-    f("inbounds.*.tcp_multi_path", Ignored),
-    f("inbounds.*.udp_fragment", Ignored),
-    // Dial fields.
-    f("outbounds.*.protect_path", Unsupported),
-    f("outbounds.*.netns", Unsupported),
-    f("outbounds.*.network_strategy", Unsupported),
-    f("outbounds.*.network_type", Unsupported),
-    f("outbounds.*.fallback_network_type", Unsupported),
-    f("outbounds.*.fallback_delay", Unsupported),
-    f("outbounds.*.bind_address_no_port", Ignored),
-    f("outbounds.*.reuse_addr", Ignored),
-    f("outbounds.*.tcp_fast_open", Ignored),
-    f("outbounds.*.tcp_multi_path", Ignored),
-    f("outbounds.*.udp_fragment", Ignored),
-    // REALITY's handshake: the dial fields that bind its socket, and the
-    // connect timeout, are implemented.
-    f("inbounds.*.tls.reality.handshake.detour", Unsupported),
-    f("inbounds.*.tls.reality.handshake.protect_path", Unsupported),
-    f("inbounds.*.tls.reality.handshake.netns", Unsupported),
-    f(
-        "inbounds.*.tls.reality.handshake.disable_tcp_keep_alive",
-        Unsupported,
-    ),
-    f(
-        "inbounds.*.tls.reality.handshake.tcp_keep_alive",
-        Unsupported,
-    ),
-    f(
-        "inbounds.*.tls.reality.handshake.tcp_keep_alive_interval",
-        Unsupported,
-    ),
-    f(
-        "inbounds.*.tls.reality.handshake.domain_resolver",
-        Unsupported,
-    ),
-    f(
-        "inbounds.*.tls.reality.handshake.domain_strategy",
-        Unsupported,
-    ),
-    f(
-        "inbounds.*.tls.reality.handshake.network_strategy",
-        Unsupported,
-    ),
-    f("inbounds.*.tls.reality.handshake.network_type", Unsupported),
-    f(
-        "inbounds.*.tls.reality.handshake.fallback_network_type",
-        Unsupported,
-    ),
-    f(
-        "inbounds.*.tls.reality.handshake.fallback_delay",
-        Unsupported,
-    ),
-    f(
-        "inbounds.*.tls.reality.handshake.bind_address_no_port",
+    g(
+        "Go's own resolver rather than the system's: sail is not Go",
         Ignored,
+        &["dns.servers.*.prefer_go"],
     ),
-    f("inbounds.*.tls.reality.handshake.reuse_addr", Ignored),
-    f("inbounds.*.tls.reality.handshake.tcp_fast_open", Ignored),
-    f("inbounds.*.tls.reality.handshake.tcp_multi_path", Ignored),
-    f("inbounds.*.tls.reality.handshake.udp_fragment", Ignored),
-    // TLS, both ways.
-    f("*.*.tls.min_version", Unsupported),
-    f("*.*.tls.max_version", Unsupported),
-    f("*.*.tls.cipher_suites", Unsupported),
-    f("*.*.tls.curve_preferences", Unsupported),
-    f("*.*.tls.kernel_tx", Ignored),
-    f("*.*.tls.kernel_rx", Ignored),
-    f("*.*.tls.handshake_timeout", Ignored),
-    // Inbound TLS: verifying clients' certificates.
-    f("inbounds.*.tls.client_authentication", Unsupported),
-    f("inbounds.*.tls.client_certificate", Unsupported),
-    f("inbounds.*.tls.client_certificate_path", Unsupported),
-    f(
-        "inbounds.*.tls.client_certificate_public_key_sha256",
+    g(
+        "Single-label LAN names from sing-box's neighbor resolver (DHCP leases): sail has none, and the system's resolver answers them",
+        Ignored,
+        &["dns.servers.*.neighbor_domain"],
+    ),
+    g(
+        PROTECT,
         Unsupported,
+        &["dns.servers.*.netns", "dns.servers.*.protect_path"],
     ),
-    f("inbounds.*.tls.certificate_provider", Unsupported),
-    f("inbounds.*.tls.acme", Unsupported),
-    f("inbounds.*.tls.ech", Unsupported),
+    g(
+        NETWORKS,
+        Unsupported,
+        &[
+            "dns.servers.*.network_strategy",
+            "dns.servers.*.network_type",
+            "dns.servers.*.fallback_network_type",
+            "dns.servers.*.fallback_delay",
+        ],
+    ),
+    g(
+        SOCKET,
+        Ignored,
+        &[
+            "dns.servers.*.bind_address_no_port",
+            "dns.servers.*.reuse_addr",
+            "dns.servers.*.tcp_fast_open",
+            "dns.servers.*.tcp_multi_path",
+            "dns.servers.*.udp_fragment",
+        ],
+    ),
+    t(
+        "The system's resolver answers a local server's queries: they cannot go through a detour, or out of an interface or with a mark of their own",
+        Unsupported,
+        &["local"],
+        &[
+            "dns.servers.*.detour",
+            "dns.servers.*.bind_interface",
+            "dns.servers.*.inet4_bind_address",
+            "dns.servers.*.inet6_bind_address",
+            "dns.servers.*.routing_mark",
+        ],
+    ),
+    t(
+        "The system's resolver answers a local server's queries: it has no server to connect to or name to resolve",
+        Ignored,
+        &["local"],
+        &[
+            "dns.servers.*.connect_timeout",
+            "dns.servers.*.disable_tcp_keep_alive",
+            "dns.servers.*.tcp_keep_alive",
+            "dns.servers.*.tcp_keep_alive_interval",
+            "dns.servers.*.domain_resolver",
+            "dns.servers.*.domain_strategy",
+        ],
+    ),
+    g(
+        TLS_VERSIONS,
+        Unsupported,
+        &[
+            "dns.servers.*.tls.min_version",
+            "dns.servers.*.tls.max_version",
+            "dns.servers.*.tls.cipher_suites",
+            "dns.servers.*.tls.curve_preferences",
+        ],
+    ),
+    g(
+        "Pinning a DNS server's key: a server that should be refused would be taken",
+        Unsupported,
+        &["dns.servers.*.tls.certificate_public_key_sha256"],
+    ),
+    g(
+        TLS_FRAGMENT,
+        Unsupported,
+        &[
+            "dns.servers.*.tls.fragment",
+            "dns.servers.*.tls.record_fragment",
+            "dns.servers.*.tls.spoof",
+            "dns.servers.*.tls.spoof_method",
+        ],
+    ),
+    g(
+        "Only for fragmenting the TLS handshake, which sail does not do",
+        Ignored,
+        &["dns.servers.*.tls.fragment_fallback_delay"],
+    ),
+    g(
+        TLS_TUNING,
+        Ignored,
+        &[
+            "dns.servers.*.tls.engine",
+            "dns.servers.*.tls.kernel_tx",
+            "dns.servers.*.tls.kernel_rx",
+            "dns.servers.*.tls.handshake_timeout",
+        ],
+    ),
+    // Routing.
+    g(
+        NETWORKS,
+        Unsupported,
+        &[
+            "route.default_network_strategy",
+            "route.default_network_type",
+            "route.default_fallback_network_type",
+            "route.default_fallback_delay",
+        ],
+    ),
+    g(
+        "sail looks processes up when a rule asks for them",
+        Ignored,
+        &["route.find_process"],
+    ),
+    g(
+        "Neighbors' MAC addresses and host names, for conditions sail does not match",
+        Ignored,
+        &["route.find_neighbor", "route.dhcp_lease_files"],
+    ),
+    g(
+        "Android's VPN is the host's to handle",
+        Ignored,
+        &["route.override_android_vpn"],
+    ),
+    g(
+        CONDITIONS,
+        Unsupported,
+        &[
+            "route.rules.*.client",
+            "route.rules.*.source_geoip",
+            "route.rules.*.interface_address",
+            "route.rules.*.network_interface_address",
+            "route.rules.*.default_interface_address",
+            "route.rules.*.source_mac_address",
+            "route.rules.*.source_hostname",
+            "route.rules.*.preferred_by",
+        ],
+    ),
+    g(
+        NETWORKS,
+        Unsupported,
+        &["route.rules.*.network_strategy", "route.rules.*.fallback_delay"],
+    ),
+    g(
+        TLS_FRAGMENT,
+        Unsupported,
+        &["route.rules.*.tls_spoof", "route.rules.*.tls_spoof_method"],
+    ),
+    // Listen fields.
+    g(
+        LISTEN,
+        Unsupported,
+        &[
+            "inbounds.*.bind_interface",
+            "inbounds.*.routing_mark",
+            "inbounds.*.netns",
+            "inbounds.*.proxy_protocol",
+            "inbounds.*.proxy_protocol_accept_no_header",
+        ],
+    ),
+    g(
+        "Handing an inbound's connections to another inbound",
+        Unsupported,
+        &["inbounds.*.detour"],
+    ),
+    g(
+        SOCKET,
+        Ignored,
+        &[
+            "inbounds.*.reuse_addr",
+            "inbounds.*.tcp_fast_open",
+            "inbounds.*.tcp_multi_path",
+            "inbounds.*.udp_fragment",
+        ],
+    ),
+    // Dial fields.
+    g(
+        PROTECT,
+        Unsupported,
+        &["outbounds.*.protect_path", "outbounds.*.netns"],
+    ),
+    g(
+        NETWORKS,
+        Unsupported,
+        &[
+            "outbounds.*.network_strategy",
+            "outbounds.*.network_type",
+            "outbounds.*.fallback_network_type",
+            "outbounds.*.fallback_delay",
+        ],
+    ),
+    g(
+        SOCKET,
+        Ignored,
+        &[
+            "outbounds.*.bind_address_no_port",
+            "outbounds.*.reuse_addr",
+            "outbounds.*.tcp_fast_open",
+            "outbounds.*.tcp_multi_path",
+            "outbounds.*.udp_fragment",
+        ],
+    ),
+    t(
+        "A detour for an outbound of this type: its connections would not go through it",
+        Unsupported,
+        &["direct", "hysteria2", "tuic"],
+        &["outbounds.*.detour"],
+    ),
+    // TLS, both ways.
+    g(
+        TLS_VERSIONS,
+        Unsupported,
+        &[
+            "*.*.tls.min_version",
+            "*.*.tls.max_version",
+            "*.*.tls.cipher_suites",
+            "*.*.tls.curve_preferences",
+        ],
+    ),
+    g(
+        TLS_TUNING,
+        Ignored,
+        &[
+            "*.*.tls.kernel_tx",
+            "*.*.tls.kernel_rx",
+            "*.*.tls.handshake_timeout",
+        ],
+    ),
+    g(
+        "An ECH configuration from a file, or looked up under another name: the server name would go in the clear",
+        Unsupported,
+        &[
+            "*.*.tls.ech.config_path",
+            "*.*.tls.ech.query_server_name",
+            "dns.servers.*.tls.ech.config_path",
+            "dns.servers.*.tls.ech.query_server_name",
+        ],
+    ),
+    // Inbound TLS.
+    g(
+        "Verifying clients' certificates: an inbound would take clients it should refuse",
+        Unsupported,
+        &[
+            "inbounds.*.tls.client_authentication",
+            "inbounds.*.tls.client_certificate",
+            "inbounds.*.tls.client_certificate_path",
+            "inbounds.*.tls.client_certificate_public_key_sha256",
+        ],
+    ),
+    g(
+        "A certificate from a provider or ACME: the inbound would have none",
+        Unsupported,
+        &["inbounds.*.tls.certificate_provider", "inbounds.*.tls.acme"],
+    ),
+    g(
+        "Encrypted Client Hello on an inbound",
+        Unsupported,
+        &["inbounds.*.tls.ech"],
+    ),
+    g(
+        "Only relaxes checks a server's TLS does not make",
+        Ignored,
+        &["inbounds.*.tls.insecure"],
+    ),
+    // REALITY's handshake server, dialed as an outbound is.
+    g(
+        "A detour to the REALITY handshake server: it would be reached otherwise",
+        Unsupported,
+        &["inbounds.*.tls.reality.handshake.detour"],
+    ),
+    g(
+        PROTECT,
+        Unsupported,
+        &[
+            "inbounds.*.tls.reality.handshake.protect_path",
+            "inbounds.*.tls.reality.handshake.netns",
+        ],
+    ),
+    g(
+        "Keepalive of the connection to the REALITY handshake server, which sail does not take yet",
+        Unsupported,
+        &[
+            "inbounds.*.tls.reality.handshake.disable_tcp_keep_alive",
+            "inbounds.*.tls.reality.handshake.tcp_keep_alive",
+            "inbounds.*.tls.reality.handshake.tcp_keep_alive_interval",
+        ],
+    ),
+    g(
+        NETWORKS,
+        Unsupported,
+        &[
+            "inbounds.*.tls.reality.handshake.network_strategy",
+            "inbounds.*.tls.reality.handshake.network_type",
+            "inbounds.*.tls.reality.handshake.fallback_network_type",
+            "inbounds.*.tls.reality.handshake.fallback_delay",
+        ],
+    ),
+    g(
+        "Resolving the REALITY handshake server's name with a resolver of its own: another server would answer",
+        Unsupported,
+        &[
+            "inbounds.*.tls.reality.handshake.domain_resolver",
+            "inbounds.*.tls.reality.handshake.domain_strategy",
+        ],
+    ),
+    g(
+        SOCKET,
+        Ignored,
+        &[
+            "inbounds.*.tls.reality.handshake.bind_address_no_port",
+            "inbounds.*.tls.reality.handshake.reuse_addr",
+            "inbounds.*.tls.reality.handshake.tcp_fast_open",
+            "inbounds.*.tls.reality.handshake.tcp_multi_path",
+            "inbounds.*.tls.reality.handshake.udp_fragment",
+        ],
+    ),
     // Outbound TLS.
-    f("outbounds.*.tls.engine", Ignored),
-    f("outbounds.*.tls.certificate_public_key_sha256", Unsupported),
-    f("outbounds.*.tls.fragment", Unsupported),
-    f("outbounds.*.tls.fragment_fallback_delay", Unsupported),
-    f("outbounds.*.tls.record_fragment", Unsupported),
-    f("outbounds.*.tls.spoof", Unsupported),
-    f("outbounds.*.tls.spoof_method", Unsupported),
-    // TUN. One stack serves every `stack`; the platform proxy is the
-    // host's to set.
-    f("inbounds.*.stack", Ignored),
-    f("inbounds.*.endpoint_independent_nat", Ignored),
-    f("inbounds.*.platform", Ignored),
-    // Filtering LAN clients by MAC address: not implemented.
-    f("inbounds.*.include_mac_address", Unsupported),
-    f("inbounds.*.exclude_mac_address", Unsupported),
+    g(
+        "The TLS stack: sail has one",
+        Ignored,
+        &["outbounds.*.tls.engine"],
+    ),
+    g(
+        "Pinning the server's key: a server that should be refused would be taken",
+        Unsupported,
+        &["outbounds.*.tls.certificate_public_key_sha256"],
+    ),
+    g(
+        TLS_FRAGMENT,
+        Unsupported,
+        &[
+            "outbounds.*.tls.fragment",
+            "outbounds.*.tls.fragment_fallback_delay",
+            "outbounds.*.tls.record_fragment",
+            "outbounds.*.tls.spoof",
+            "outbounds.*.tls.spoof_method",
+        ],
+    ),
+    // TUN.
+    g(
+        "One stack serves every `stack`; the platform proxy is the host's to set",
+        Ignored,
+        &[
+            "inbounds.*.stack",
+            "inbounds.*.endpoint_independent_nat",
+            "inbounds.*.platform",
+        ],
+    ),
+    t(
+        "The TUN's own DNS handling: queries would be answered otherwise",
+        Unsupported,
+        &["tun"],
+        &["inbounds.*.dns_mode", "inbounds.*.dns_address"],
+    ),
+    g(
+        "Filtering LAN clients by MAC address",
+        Unsupported,
+        &[
+            "inbounds.*.include_mac_address",
+            "inbounds.*.exclude_mac_address",
+        ],
+    ),
+    // UDP NAT, of the TUN, tproxy and WireGuard.
+    g(
+        "Which remote addresses may answer through a UDP mapping: others would",
+        Unsupported,
+        &["inbounds.*.udp_filtering", "endpoints.*.udp_filtering"],
+    ),
+    g(
+        "How UDP mappings are made and how many are kept: the same traffic",
+        Ignored,
+        &[
+            "inbounds.*.udp_mapping",
+            "inbounds.*.udp_nat_max",
+            "endpoints.*.udp_mapping",
+            "endpoints.*.udp_nat_max",
+        ],
+    ),
+    // Inbounds by type.
+    t(
+        "The platform proxy is the host's to set",
+        Ignored,
+        &["http", "mixed"],
+        &["inbounds.*.set_system_proxy"],
+    ),
+    t(
+        "Resolving requested names with a resolver of its own: another server would answer",
+        Unsupported,
+        &["http", "mixed", "socks"],
+        &["inbounds.*.domain_resolver"],
+    ),
+    t(
+        "TLS on a mixed inbound: it would take plain connections",
+        Unsupported,
+        &["mixed"],
+        &["inbounds.*.tls"],
+    ),
+    t(
+        "Which networks a Shadowsocks inbound serves: it would serve others",
+        Unsupported,
+        &["shadowsocks"],
+        &["inbounds.*.network"],
+    ),
+    t(
+        "Relaying to other Shadowsocks servers",
+        Unsupported,
+        &["shadowsocks"],
+        &["inbounds.*.destinations"],
+    ),
+    t(
+        "Users managed through the SSM API, a service sail does not run",
+        Ignored,
+        &["shadowsocks"],
+        &["inbounds.*.managed"],
+    ),
+    t(
+        "Response headers and keepalive of a WebSocket or gRPC server: the same streams",
+        Ignored,
+        &["trojan", "vless", "vmess"],
+        &[
+            "inbounds.*.transport[ws].headers",
+            "inbounds.*.transport[grpc].permit_without_stream",
+        ],
+    ),
+    // Outbounds, and inbounds, by type.
+    t(
+        "Which networks an outbound carries: connections it should refuse would go through it",
+        Unsupported,
+        &["shadowsocks", "socks", "trojan", "vless", "vmess"],
+        &["outbounds.*.network"],
+    ),
+    t(
+        "sail speaks SOCKS 5, the default, and drops the field; 4 and 4a are errors",
+        Ignored,
+        &["socks"],
+        &["outbounds.*.version"],
+    ),
+    t(
+        "VMess's authenticated length: sail would speak VMess otherwise",
+        Unsupported,
+        &["vmess"],
+        &["outbounds.*.authenticated_length"],
+    ),
+    t(
+        "Metadata the client tells the server: the connection goes the same way without it",
+        Ignored,
+        &["anytls"],
+        &["outbounds.*.client_metadata"],
+    ),
+    t(
+        QUIC_TUNING,
+        Ignored,
+        &["hysteria2", "tuic"],
+        &[
+            "inbounds.*.idle_timeout",
+            "inbounds.*.keep_alive_period",
+            "inbounds.*.stream_receive_window",
+            "inbounds.*.connection_receive_window",
+            "inbounds.*.max_concurrent_streams",
+            "inbounds.*.initial_packet_size",
+            "inbounds.*.disable_path_mtu_discovery",
+            "outbounds.*.idle_timeout",
+            "outbounds.*.keep_alive_period",
+            "outbounds.*.stream_receive_window",
+            "outbounds.*.connection_receive_window",
+            "outbounds.*.max_concurrent_streams",
+            "outbounds.*.initial_packet_size",
+            "outbounds.*.disable_path_mtu_discovery",
+        ],
+    ),
+    t(
+        "Hysteria's congestion tuning and debugging, the longest hop interval, and its QUIC fingerprint: the same traffic",
+        Ignored,
+        &["hysteria2"],
+        &[
+            "inbounds.*.bbr_profile",
+            "inbounds.*.brutal_debug",
+            "outbounds.*.bbr_profile",
+            "outbounds.*.brutal_debug",
+            "outbounds.*.hop_interval_max",
+            "outbounds.*.disable_chrome_parrot",
+        ],
+    ),
+    t(
+        "Meeting peers through a Hysteria realm: connections would be made otherwise",
+        Unsupported,
+        &["hysteria2"],
+        &["inbounds.*.realm", "outbounds.*.realm"],
+    ),
+    t(
+        "The packet sizes of the gecko obfuscation: the packets would look otherwise",
+        Unsupported,
+        &["hysteria2"],
+        &[
+            "inbounds.*.obfs[gecko].min_packet_size",
+            "inbounds.*.obfs[gecko].max_packet_size",
+            "outbounds.*.obfs[gecko].min_packet_size",
+            "outbounds.*.obfs[gecko].max_packet_size",
+        ],
+    ),
+    // Endpoints: WireGuard's dial fields, as an outbound's.
+    g(
+        PROTECT,
+        Unsupported,
+        &["endpoints.*.protect_path", "endpoints.*.netns"],
+    ),
+    g(
+        NETWORKS,
+        Unsupported,
+        &[
+            "endpoints.*.network_strategy",
+            "endpoints.*.network_type",
+            "endpoints.*.fallback_network_type",
+            "endpoints.*.fallback_delay",
+        ],
+    ),
+    g(
+        SOCKET,
+        Ignored,
+        &[
+            "endpoints.*.bind_address_no_port",
+            "endpoints.*.reuse_addr",
+            "endpoints.*.tcp_fast_open",
+            "endpoints.*.tcp_multi_path",
+            "endpoints.*.udp_fragment",
+        ],
+    ),
 ];
 
-/// Fields of `FIELDS` that sail implements for some types of entry, by
+/// Fields of `GROUPS` that sail implements for some types of entry, by
 /// path: left to the schema in an entry of one of those types.
 pub const IMPLEMENTED_FOR: &[(&str, &[&str])] = &[
     // Handing connections to another inbound: ShadowTLS's, whose inbound
     // is of no use without it.
     ("inbounds.*.detour", &["shadowtls"]),
 ];
+
+/// Why values of `VALUES` are errors.
+pub const VALUES_WHY: &str = "A type or value sail does not implement: it would route otherwise";
 
 /// Values sing-box accepts that sail does not implement: all of them change
 /// routing.
@@ -322,4 +792,6 @@ pub const VALUES: &[(&str, &[&str])] = &[
         &["evaluate", "respond", "direct", "predefined"],
     ),
     ("route.rules.*.sniffer", &["ssh", "rdp", "ntp"]),
+    // A SOCKS outbound's, sail speaking SOCKS 5 only.
+    ("outbounds.*.version", &["4", "4a"]),
 ];
