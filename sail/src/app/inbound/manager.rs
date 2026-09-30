@@ -320,6 +320,23 @@ impl InboundManager {
         })
     }
 
+    /// The configuration of the inbound `tag`.
+    pub(crate) fn config(&self, tag: &str) -> Option<config::Inbound> {
+        self.configs.get(tag).cloned()
+    }
+
+    /// The inbounds whose configuration has the user `name`, by tag.
+    pub(crate) fn inbounds_of(&self, name: &str) -> Vec<String> {
+        let mut tags: Vec<_> = self
+            .configs
+            .values()
+            .filter(|i| i.user_names().contains(name))
+            .map(|i| i.tag.clone())
+            .collect();
+        tags.sort();
+        tags
+    }
+
     pub(crate) fn publish_resources(&mut self, prepared: PreparedResources) {
         for update in prepared.protocol_updates {
             update();

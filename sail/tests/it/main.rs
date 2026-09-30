@@ -78,6 +78,7 @@ mod test_tryall;
 mod test_tuic;
 mod test_udp_large;
 mod test_uot;
+mod test_user_api;
 mod test_vless;
 mod test_vmess;
 mod test_wireguard;

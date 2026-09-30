@@ -29,8 +29,10 @@ use std::time::SystemTime;
 
 use crate::app::stat_manager::{Counter, Counts};
 
+mod api;
 mod limits;
 mod rate;
+pub use api::{UserEvent, UserSnapshot};
 pub use limits::{Limits, Status};
 
 /// Bytes a second in a megabit a second, as sing-box's Hysteria2 counts
@@ -65,6 +67,8 @@ pub struct UserState {
     /// still let it open streams under the credentials it had; they are
     /// refused.
     removed: Mutex<std::collections::HashSet<Arc<str>>>,
+    /// Where what happens to it is told.
+    events: tokio::sync::broadcast::Sender<UserEvent>,
 }
 
 /// What closes a carrier.
@@ -97,8 +101,9 @@ impl fmt::Debug for UserState {
 }
 
 impl UserState {
-    fn new(name: &str, counts: Counts) -> Self {
+    fn new(name: &str, counts: Counts, events: tokio::sync::broadcast::Sender<UserEvent>) -> Self {
         UserState {
+            events,
             name: name.into(),
             traffic: UserTraffic::new(counts),
             limits: Mutex::default(),
@@ -230,6 +235,14 @@ impl UserState {
         let _live = self.live.lock().unwrap_or_else(|e| e.into_inner());
         let was = self.status.fetch_or(bits, Ordering::AcqRel);
         drop(_live);
+        for bit in [Status::EXHAUSTED, Status::EXPIRED] {
+            if bits & bit != 0 && was & bit == 0 {
+                let _ = self.events.send(UserEvent::Shut {
+                    user: self.name.to_string(),
+                    status: Status::from_bits(bit),
+                });
+            }
+        }
         if was == 0 && bits != 0 {
             let closed = self.disconnect();
             tracing::info!(
@@ -429,7 +442,8 @@ impl UserRef {
     /// A user of no registry, for tests that need a session with one.
     #[cfg(test)]
     pub fn unbound(name: &str) -> Self {
-        UserRef(Arc::new(UserState::new(name, Counts::default())))
+        let (events, _) = tokio::sync::broadcast::channel(1);
+        UserRef(Arc::new(UserState::new(name, Counts::default(), events)))
     }
 
     /// Whether `self` and `other` are the same user object, not only the
@@ -507,7 +521,6 @@ pub fn passwords(pairs: &[(&str, &str)]) -> Passwords {
 #[derive(Clone, Default)]
 pub struct UserRegistry(Arc<Mutex<Registry>>);
 
-#[derive(Default)]
 struct Registry {
     users: HashMap<Arc<str>, Weak<UserState>>,
     /// The counts the cache file kept, for users not made yet.
@@ -516,6 +529,20 @@ struct Registry {
     limits: HashMap<String, Limits>,
     /// Wakes what expires users when the limits change.
     changed: Arc<tokio::sync::Notify>,
+    /// Where what happens to users is told.
+    events: tokio::sync::broadcast::Sender<UserEvent>,
+}
+
+impl Default for Registry {
+    fn default() -> Self {
+        Registry {
+            users: HashMap::new(),
+            kept: HashMap::new(),
+            limits: HashMap::new(),
+            changed: Arc::default(),
+            events: tokio::sync::broadcast::channel(api::EVENTS).0,
+        }
+    }
 }
 
 impl UserRegistry {
@@ -532,7 +559,7 @@ impl UserRegistry {
         }
         registry.users.retain(|_, user| user.strong_count() > 0);
         let counts = registry.kept.remove(name).unwrap_or_default();
-        let user = Arc::new(UserState::new(name, counts));
+        let user = Arc::new(UserState::new(name, counts, registry.events.clone()));
         let limits = registry.limits.get(name).cloned().unwrap_or_default();
         user.apply(limits, SystemTime::now());
         registry
@@ -605,6 +632,33 @@ impl UserRegistry {
         })
     }
 
+    /// The user named `name`, if there is one.
+    pub fn get(&self, name: &str) -> Option<UserRef> {
+        self.lock()
+            .users
+            .get(name)
+            .and_then(Weak::upgrade)
+            .map(UserRef)
+    }
+
+    /// Limits `user` by `limits`, until the limits are set again.
+    pub fn set_limit(&self, user: &UserRef, limits: Limits) {
+        let changed = {
+            let mut registry = self.lock();
+            registry
+                .limits
+                .insert(user.name.to_string(), limits.clone());
+            registry.changed.clone()
+        };
+        user.apply(limits, SystemTime::now());
+        changed.notify_one();
+    }
+
+    /// What happens to users from now on.
+    pub fn subscribe(&self) -> tokio::sync::broadcast::Receiver<UserEvent> {
+        self.lock().events.subscribe()
+    }
+
     /// The users there are.
     pub fn users(&self) -> Vec<UserRef> {
         self.lock()
@@ -625,6 +679,10 @@ impl UserRegistry {
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .insert(tag.into());
+            let _ = user.events.send(UserEvent::Removed {
+                user: name.to_owned(),
+                inbound: tag.to_owned(),
+            });
             user.disconnect_inbound(tag)
         })
     }

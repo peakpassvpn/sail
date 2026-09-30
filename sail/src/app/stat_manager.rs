@@ -678,6 +678,8 @@ pub struct StatManager {
     inbounds: Tags,
     outbounds: Tags,
     users: UserRegistry,
+    /// Where the next `read_traffic` counts from, by kind and name.
+    read: Mutex<HashMap<(u8, String), Counts>>,
 }
 
 impl Default for StatManager {
@@ -700,6 +702,7 @@ impl StatManager {
             inbounds: Tags::default(),
             outbounds: Tags::default(),
             users,
+            read: Mutex::default(),
         }
     }
 
@@ -800,6 +803,46 @@ impl StatManager {
             users,
             inbounds: self.inbounds.counts(),
             outbounds: self.outbounds.counts(),
+        }
+    }
+
+    /// What was counted since the last read that cleared; `clear` starts
+    /// the next from now. A count that went back, as a user dropped and
+    /// made again has, is read from nothing.
+    pub fn read_traffic(&self, clear: bool) -> TrafficReport {
+        let now = self.traffic();
+        let mut read = self.read.lock().unwrap_or_else(|e| e.into_inner());
+        let mut since = |kind: u8, counts: Vec<(String, Counts)>| -> Vec<(String, Counts)> {
+            counts
+                .into_iter()
+                .map(|(name, c)| {
+                    let key = (kind, name);
+                    let base = read.get(&key).copied().unwrap_or_default();
+                    let base = match c.up >= base.up
+                        && c.down >= base.down
+                        && c.tcp >= base.tcp
+                        && c.udp >= base.udp
+                    {
+                        true => base,
+                        false => Counts::default(),
+                    };
+                    let delta = Counts {
+                        up: c.up - base.up,
+                        down: c.down - base.down,
+                        tcp: c.tcp - base.tcp,
+                        udp: c.udp - base.udp,
+                    };
+                    if clear {
+                        read.insert(key.clone(), c);
+                    }
+                    (key.1, delta)
+                })
+                .collect()
+        };
+        TrafficReport {
+            users: since(0, now.users),
+            inbounds: since(1, now.inbounds),
+            outbounds: since(2, now.outbounds),
         }
     }
 
