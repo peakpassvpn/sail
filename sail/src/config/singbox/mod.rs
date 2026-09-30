@@ -687,7 +687,7 @@ mod tests {
                 "outbound", "t", &blocks,
             )
             .unwrap()
-            .dialer("t", &Default::default())
+            .dialer("t", &Default::default(), None)
             .unwrap()
             .spec()
             .tcp_keep_alive
@@ -737,7 +737,11 @@ mod tests {
                         "private_key": "11".repeat(32), "short_id": "0123",
                     } },
                 }],
-                "outbounds": [{ "type": "direct", "tag": "direct" }, outbound],
+                // A detour to a direct of nothing would be refused first.
+                "outbounds": [
+                    { "type": "direct", "tag": "direct", "connect_timeout": "5s" },
+                    outbound,
+                ],
                 "dns": { "servers": [server] },
                 "http_clients": [client],
             });

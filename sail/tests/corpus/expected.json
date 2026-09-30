@@ -962,8 +962,7 @@
     "warnings": 1
   },
   "sing-box/0076.json": {
-    "ok": true,
-    "warnings": 2
+    "error": "dns.servers[dns-1]: detour: [Proxy 1] is a direct outbound of no fields of its own, through which it would dial as it does without a detour"
   },
   "sing-box/0077.json": {
     "error": "dns.servers[0]: missing field `type`"

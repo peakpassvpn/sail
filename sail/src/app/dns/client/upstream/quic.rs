@@ -12,7 +12,8 @@ use tracing::debug;
 
 use super::{Upstream, MAX_MESSAGE_LEN};
 use crate::app::dns::DnsClient;
-use crate::transport::quic::{bind, client_crypto, endpoint, endpoint_on, present};
+use crate::session::SocksAddr;
+use crate::transport::quic::{bind, client_crypto, endpoint, endpoint_on, present, DetourSocket};
 use crate::transport::tls::client::Identity;
 
 /// How long a connection without queries is kept. Neither side sends
@@ -213,13 +214,14 @@ impl DnsClient {
             &upstream.tls_options,
         )?;
         let dialer = &upstream.dialer;
-        let mut endpoint = if dialer.is_direct() {
+        let mut endpoint = if dialer.is_direct() && dialer.detour.is_none() {
             endpoint(bind(addr.ip(), &dialer.dial).await?, None)?
         } else {
-            // QUIC over the datagrams of the outbound.
+            // QUIC over the datagrams of the detour, or of the outbound the
+            // rules pick.
             let datagram = self.dial_datagram(dialer, addr).await?;
             endpoint_on(
-                Arc::new(super::socket::DatagramSocket::new(datagram, addr)),
+                Arc::new(DetourSocket::new(datagram, SocksAddr::from(addr))),
                 None,
             )?
         };

@@ -29,8 +29,6 @@ mod doh;
 mod dot;
 #[cfg(feature = "quic")]
 mod quic;
-#[cfg(feature = "quic")]
-mod socket;
 
 /// The largest DNS message: its length is a 16-bit field in DoT and DoQ,
 /// and DoH answers are held to it too.

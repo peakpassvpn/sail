@@ -1,5 +1,4 @@
 use std::io;
-use std::net::SocketAddr;
 use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
@@ -12,7 +11,7 @@ use crate::runtime::RuntimeEnv;
 use crate::transport::layers::OutboundTls;
 use crate::{adapter::*, app::SyncDnsClient, net::*, session::Session};
 
-use super::super::{endpoint, transport_config, ClientTls, CongestionControl, QuicStream, Side};
+use super::super::{endpoint_on, transport_config, ClientTls, CongestionControl, QuicStream, Side};
 
 struct Manager {
     address: String,
@@ -63,26 +62,30 @@ impl Manager {
             }
         }
 
-        // FIXME A better indicator.
-        let socket = self
+        let targets = self
             .dialer
-            .udp_socket(&self.dialer.unspecified())
+            .targets(&self.dns_client, &self.address, self.port)
             .instrument(tracing::Span::current())
             .await?;
-        let mut endpoint = endpoint(socket.into_std()?, None)?;
-        endpoint.set_default_client_config(self.client_config.clone());
-        let ips = self
-            .dialer
-            .lookup(&self.dns_client, &self.address)
-            .instrument(tracing::Span::current())
-            .await?;
-        if ips.is_empty() {
-            return Err(anyhow!("could not resolve to any address",));
-        }
         let mut last_err: Option<anyhow::Error> = None;
-        for ip in ips {
-            let connect_addr = SocketAddr::new(ip, self.port);
-            let connecting = match endpoint.connect(connect_addr, &self.server_name) {
+        for to in targets {
+            // A socket of its own for each address, or the detour's
+            // datagrams.
+            let (socket, remote) = match self
+                .dialer
+                .quic_socket(&self.dns_client, None, &to)
+                .instrument(tracing::Span::current())
+                .await
+            {
+                Ok(s) => s,
+                Err(e) => {
+                    last_err = Some(e.into());
+                    continue;
+                }
+            };
+            let mut endpoint = endpoint_on(socket, None)?;
+            endpoint.set_default_client_config(self.client_config.clone());
+            let connecting = match endpoint.connect(remote, &self.server_name) {
                 Ok(c) => c,
                 Err(e) => {
                     last_err = Some(e.into());

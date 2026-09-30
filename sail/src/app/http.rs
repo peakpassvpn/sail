@@ -41,8 +41,9 @@ pub(crate) struct Client {
 pub(crate) enum Via {
     /// Through the outbound of this tag.
     Outbound(String),
-    /// Straight to the server, as an HTTP client without a detour does.
-    Direct(Dialer),
+    /// With a dialer: an HTTP client's, which goes straight to the server
+    /// or through its detour.
+    Dialer(Dialer),
 }
 
 pub(crate) enum Response {
@@ -177,10 +178,9 @@ async fn get_once(
             .stream_via(detour, sess)
             .await
             .map_err(|e| anyhow!("connect {} through [{}]: {}", host, detour, e))?,
-        Via::Direct(dialer) => dialer
-            .tcp(&conn.dns, &host, port)
+        Via::Dialer(dialer) => dialer
+            .stream(&conn.dns, Some(&sess), &sess.destination)
             .await
-            .map(|stream| Box::new(stream) as AnyStream)
             .map_err(|e| anyhow!("connect {}: {}", host, e))?,
     };
     let mut stream = if tls {
@@ -486,14 +486,11 @@ impl HttpClients {
                 }
             }
         };
-        let via = match &client.dial.detour {
-            Some(detour) => Via::Outbound(detour.clone()),
-            None => Via::Direct(
-                client
-                    .dialer(&self.dial)
-                    .map_err(|e| anyhow!("http_client: {}", e))?,
-            ),
-        };
+        let via = Via::Dialer(
+            client
+                .dialer(&self.dial)
+                .map_err(|e| anyhow!("http_client: {}", e))?,
+        );
         Ok(Client {
             via: Some(via),
             headers: client.header_lines(),

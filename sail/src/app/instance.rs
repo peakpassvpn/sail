@@ -96,6 +96,9 @@ impl Instance {
                 &env,
                 dns_client.clone(),
             )?));
+        // The detours of DNS servers and HTTP clients, built before the
+        // outbounds, find them here.
+        dial_defaults.env.outbounds.set(&outbound_manager);
         let router: SyncRouter = Arc::new(ArcSwap::from_pointee(Router::with_rule_sets(
             &config.route,
             dns_client.clone(),

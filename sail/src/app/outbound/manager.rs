@@ -601,8 +601,8 @@ mod tests {
         format!(
             r#"{{
                 "outbounds": [
-                    {{ "type": "direct", "tag": "a" }},
-                    {{ "type": "direct", "tag": "relay"{} }}
+                    {{ "type": "direct", "tag": "a", "connect_timeout": "5s" }},
+                    {{ "type": "direct", "tag": "relay", "connect_timeout": "5s"{} }}
                 ],
                 "endpoints": [{{
                     "type": "wireguard", "tag": "wg", "detour": "{}",

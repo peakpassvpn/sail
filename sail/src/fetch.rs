@@ -54,7 +54,7 @@ pub async fn fetch(url: &str, options: &Options) -> Result<Vec<u8>> {
         dns,
         env: &env,
     };
-    get(&conn, &Via::Direct(Dialer::system()), url, options).await
+    get(&conn, &Via::Dialer(Dialer::system()), url, options).await
 }
 
 /// GETs `url` through the outbound `outbound` of the running instance

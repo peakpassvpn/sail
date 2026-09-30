@@ -44,11 +44,21 @@ pub fn wrap_socket(
     socket: std::net::UdpSocket,
     obfs: Option<&Salamander>,
 ) -> io::Result<Arc<dyn AsyncUdpSocket>> {
-    let socket = crate::transport::quic::wrap_socket(socket)?;
-    Ok(match obfs {
+    Ok(obfuscate(
+        crate::transport::quic::wrap_socket(socket)?,
+        obfs,
+    ))
+}
+
+/// `socket`, obfuscated if `obfs` is set.
+pub fn obfuscate(
+    socket: Arc<dyn AsyncUdpSocket>,
+    obfs: Option<&Salamander>,
+) -> Arc<dyn AsyncUdpSocket> {
+    match obfs {
         Some(obfs) => Arc::new(SalamanderSocket::new(socket, obfs.clone())),
         None => socket,
-    })
+    }
 }
 
 /// Opens our HTTP/3 control stream. It must stay open as long as the

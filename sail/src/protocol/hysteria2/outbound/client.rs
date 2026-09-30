@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 use std::io;
-use std::net::{IpAddr, SocketAddr};
+use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -19,7 +19,7 @@ use tracing::{debug, trace};
 use crate::app::SyncDnsClient;
 use crate::net::Dialer;
 use crate::session::SocksAddr;
-use crate::transport::quic::{bind, endpoint_on, QuicStream, Side};
+use crate::transport::quic::{endpoint_on, QuicStream, Side};
 
 use super::super::congestion::CongestionHandle;
 use super::super::h3;
@@ -125,37 +125,31 @@ impl Client {
 
     async fn connect(&self) -> Result<Connection> {
         let o = &self.options;
-        let ips = o
-            .dns_client
-            .load_full()
-            .lookup_dial(&o.server, o.dialer.resolve_spec())
+        let targets = o
+            .dialer
+            .targets(&o.dns_client, &o.server, o.ports[0])
             .await
             .with_context(|| format!("lookup {}", o.server))?;
         let mut last_err = anyhow!("could not resolve {} to any address", o.server);
-        for ip in ips {
-            match timeout(o.dialer.connect_timeout(), self.connect_to(ip)).await {
+        for to in targets {
+            match timeout(o.dialer.connect_timeout(), self.connect_to(&to)).await {
                 Ok(Ok(conn)) => return Ok(conn),
                 Ok(Err(e)) => last_err = e,
-                Err(_) => last_err = anyhow!("connect {} timed out", ip),
+                Err(_) => last_err = anyhow!("connect {} timed out", to),
             }
         }
         Err(last_err)
     }
 
-    async fn new_socket(&self, ip: IpAddr) -> io::Result<Arc<dyn quinn::AsyncUdpSocket>> {
+    async fn connect_to(&self, to: &SocksAddr) -> Result<Connection> {
         let o = &self.options;
-        quic::wrap_socket(bind(ip, &o.dialer).await?, o.obfs.as_ref())
-    }
-
-    async fn connect_to(&self, ip: IpAddr) -> Result<Connection> {
-        let o = &self.options;
-        let socket = self.new_socket(ip).await?;
+        let (socket, peer) = new_socket(&o.dialer, &o.dns_client, to, o.obfs.as_ref()).await?;
         let (socket, remote, hop): (Arc<dyn quinn::AsyncUdpSocket>, _, _) = if o.ports.len() > 1 {
-            let hop = Arc::new(HopSocket::new(ip, o.ports.clone(), socket));
+            let hop = Arc::new(HopSocket::new(peer.ip(), o.ports.clone(), socket));
             let remote = hop.virtual_addr();
             (hop.clone(), remote, Some(hop))
         } else {
-            (socket, SocketAddr::new(ip, o.ports[0]), None)
+            (socket, peer, None)
         };
         let endpoint = endpoint_on(socket, None)?;
         let congestion = CongestionHandle::default();
@@ -198,8 +192,9 @@ impl Client {
                 conn.clone(),
                 hop,
                 interval,
-                ip,
+                to.clone(),
                 o.dialer.clone(),
+                o.dns_client.clone(),
                 o.obfs.clone(),
             ));
         }
@@ -402,24 +397,35 @@ async fn receive_datagrams(conn: quinn::Connection, sessions: Arc<Sessions>) {
     sessions.lock().clear();
 }
 
+/// What quinn talks to `to`, an address of the dialer's `targets`, over:
+/// a socket of the dialer's or its detour's datagrams, obfuscated if
+/// `obfs` is set; and the address quinn is to connect to.
+async fn new_socket(
+    dialer: &Dialer,
+    dns_client: &SyncDnsClient,
+    to: &SocksAddr,
+    obfs: Option<&Salamander>,
+) -> io::Result<(Arc<dyn quinn::AsyncUdpSocket>, SocketAddr)> {
+    let (socket, peer) = dialer.quic_socket(dns_client, None, to).await?;
+    Ok((quic::obfuscate(socket, obfs), peer))
+}
+
 /// Moves to another port every `interval`, until the connection closes.
 async fn hop_ports(
     conn: quinn::Connection,
     hop: Arc<HopSocket>,
     interval: Duration,
-    ip: IpAddr,
+    to: SocksAddr,
     dialer: Dialer,
+    dns_client: SyncDnsClient,
     obfs: Option<Salamander>,
 ) {
     loop {
         if timeout(interval, conn.closed()).await.is_ok() {
             return;
         }
-        match bind(ip, &dialer)
-            .await
-            .and_then(|s| quic::wrap_socket(s, obfs.as_ref()))
-        {
-            Ok(socket) => {
+        match new_socket(&dialer, &dns_client, &to, obfs.as_ref()).await {
+            Ok((socket, _)) => {
                 hop.hop(socket);
                 trace!("hysteria2: hopped ports");
             }

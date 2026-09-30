@@ -24,10 +24,13 @@ use {
     tokio::net::UnixStream,
 };
 
+use super::detour::{DetourDialer, Outbounds, Target};
 use super::{DialFields, DialSpec, ResolveSpec, RouteDefaults, SocketProtect};
+use crate::adapter::{AnyOutboundDatagram, AnyOutboundHandler, AnyStream};
 use crate::app::SyncDnsClient;
 use crate::net::interface::AutoInterface;
 use crate::net::resolver::Resolver;
+use crate::session::{Session, SocksAddr};
 
 /// What of the running instance and its host a dialer applies: the
 /// interface `auto_detect_interface` finds, and the host's protection of
@@ -40,6 +43,9 @@ pub struct DialEnv {
     pub auto_interface: Option<Arc<AutoInterface>>,
     /// From the host, never from a configuration.
     pub protect: Option<SocketProtect>,
+    /// The outbounds the detour of a DNS server or an HTTP client goes
+    /// through.
+    pub outbounds: Outbounds,
 }
 
 /// What an instance builds its dialers from: its defaults, and the
@@ -61,13 +67,55 @@ impl DialDefaults {
     }
 
     /// A dialer for `fields` over these defaults, for the outbound
-    /// `outbound` if it is one. An error names the field.
+    /// `outbound` if it is one. An error names the field. A `detour` is
+    /// looked up among the instance's outbounds when it dials: for what is
+    /// built before them.
     pub fn dialer(&self, fields: &DialFields, outbound: Option<&str>) -> Result<Dialer> {
-        Ok(Dialer::new(
-            DialSpec::resolve(fields, &self.route)?,
-            ResolveSpec::resolve(fields, &self.route, outbound),
-            self.env.clone(),
-        ))
+        match &fields.detour {
+            Some(tag) => Ok(self.detour(
+                fields,
+                outbound,
+                tag,
+                Target::Lookup(self.env.outbounds.clone()),
+            )),
+            None => Ok(Dialer::new(
+                DialSpec::resolve(fields, &self.route)?,
+                ResolveSpec::resolve(fields, &self.route, outbound),
+                self.env.clone(),
+            )),
+        }
+    }
+
+    /// The dialer of the outbound `outbound`, whose `detour`, if it has
+    /// one, is built already as `detour`.
+    pub fn outbound_dialer(
+        &self,
+        fields: &DialFields,
+        outbound: &str,
+        detour: Option<AnyOutboundHandler>,
+    ) -> Result<Dialer> {
+        match (&fields.detour, detour) {
+            (Some(tag), Some(handler)) => {
+                Ok(self.detour(fields, Some(outbound), tag, Target::Handler(handler)))
+            }
+            _ => self.dialer(fields, Some(outbound)),
+        }
+    }
+
+    fn detour(
+        &self,
+        fields: &DialFields,
+        outbound: Option<&str>,
+        tag: &str,
+        target: Target,
+    ) -> Dialer {
+        Dialer(Arc::new(Kind::Detour(DetourDialer {
+            tag: tag.to_owned(),
+            target,
+            resolve: ResolveSpec::resolve(fields, &self.route, outbound),
+            resolves_here: fields.domain_resolver.is_some(),
+            owner: outbound.unwrap_or_default().to_owned(),
+        })))
     }
 }
 
@@ -188,7 +236,8 @@ impl std::fmt::Debug for InboundDialer {
 }
 
 /// Opens the sockets of one outbound, DNS server or HTTP client, as its
-/// dial fields and the instance's defaults say. Built once and shared:
+/// dial fields and the instance's defaults say, or has another outbound
+/// carry its connections, as its `detour` says. Built once and shared:
 /// clones are the same dialer.
 #[derive(Debug, Clone)]
 pub struct Dialer(Arc<Kind>);
@@ -197,6 +246,9 @@ pub struct Dialer(Arc<Kind>);
 enum Kind {
     /// Opens sockets of its own.
     Socket(SocketDialer),
+    /// Opens none: its TCP and UDP are those of the outbound its `detour`
+    /// names.
+    Detour(DetourDialer),
 }
 
 #[derive(Debug)]
@@ -222,24 +274,46 @@ impl Dialer {
         )
     }
 
-    fn socket(&self) -> &SocketDialer {
-        let Kind::Socket(socket) = &*self.0;
-        socket
+    fn socket(&self) -> io::Result<&SocketDialer> {
+        match &*self.0 {
+            Kind::Socket(socket) => Ok(socket),
+            Kind::Detour(detour) => Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                format!("dials through [{}], with no socket of its own", detour.tag),
+            )),
+        }
     }
 
-    /// How its sockets are opened.
+    /// The outbound it dials through, if it has a `detour`.
+    pub fn detour(&self) -> Option<&str> {
+        match &*self.0 {
+            Kind::Socket(_) => None,
+            Kind::Detour(detour) => Some(&detour.tag),
+        }
+    }
+
+    /// How its sockets are opened; a detour's, which opens none, are the
+    /// defaults.
     pub fn spec(&self) -> &DialSpec {
-        &self.socket().spec
+        static NONE: std::sync::OnceLock<DialSpec> = std::sync::OnceLock::new();
+        match &*self.0 {
+            Kind::Socket(socket) => &socket.spec,
+            Kind::Detour(_) => NONE.get_or_init(DialSpec::default),
+        }
     }
 
     /// How the names it dials resolve.
     pub fn resolve_spec(&self) -> &ResolveSpec {
-        &self.socket().resolve
+        match &*self.0 {
+            Kind::Socket(socket) => &socket.resolve,
+            Kind::Detour(detour) => &detour.resolve,
+        }
     }
 
     /// The handles it applies.
+    #[cfg(test)]
     pub fn env(&self) -> &DialEnv {
-        &self.socket().env
+        &self.socket().expect("a dialer of sockets").env
     }
 
     /// How long a connect to one address may take.
@@ -261,9 +335,107 @@ impl Dialer {
             .map_err(|e| io::Error::other(format!("lookup {} failed: {}", host, e)))
     }
 
+    /// Where a connection to `host` and `port` goes, to be tried in turn:
+    /// the addresses a name resolves to here, or, through a detour that
+    /// leaves names to the far end, the name itself.
+    pub async fn targets(
+        &self,
+        dns: &SyncDnsClient,
+        host: &str,
+        port: u16,
+    ) -> io::Result<Vec<SocksAddr>> {
+        let to = SocksAddr::try_from((host, port))?;
+        match &*self.0 {
+            Kind::Detour(detour) => detour.targets(dns, &to).await,
+            Kind::Socket(_) => match to {
+                SocksAddr::Ip(_) => Ok(vec![to]),
+                SocksAddr::Domain(..) => {
+                    let ips = self.lookup(dns, host).await?;
+                    if ips.is_empty() {
+                        return Err(io::Error::other(format!("{} resolves to nothing", host)));
+                    }
+                    Ok(ips
+                        .into_iter()
+                        .map(|ip| SocksAddr::from(SocketAddr::new(ip, port)))
+                        .collect())
+                }
+            },
+        }
+    }
+
+    /// A stream to `to`: a TCP connection of its own, or one through its
+    /// detour, which carries it in `sess` going to `to` (in a session of
+    /// its own without one).
+    pub async fn stream(
+        &self,
+        dns: &SyncDnsClient,
+        sess: Option<&Session>,
+        to: &SocksAddr,
+    ) -> io::Result<AnyStream> {
+        match &*self.0 {
+            Kind::Socket(_) => Ok(Box::new(self.tcp(dns, &to.host(), to.port()).await?)),
+            Kind::Detour(detour) => detour.stream(dns, sess, to).await,
+        }
+    }
+
+    /// Datagrams to `to`: a UDP socket of its own, a name resolved as each
+    /// datagram is sent, or the datagrams of its detour, as `stream`.
+    pub async fn datagram(
+        &self,
+        dns: &SyncDnsClient,
+        sess: Option<&Session>,
+        to: &SocksAddr,
+    ) -> io::Result<AnyOutboundDatagram> {
+        match &*self.0 {
+            Kind::Socket(_) => {
+                let socket = match to.ip() {
+                    Some(ip) if ip.is_loopback() => {
+                        self.udp_socket(&SocketAddr::new(ip, 0)).await?
+                    }
+                    _ => self.udp_socket(&self.unspecified()).await?,
+                };
+                Ok(Box::new(crate::net::DomainResolveOutboundDatagram::new(
+                    socket,
+                    dns.clone(),
+                    self.clone(),
+                )))
+            }
+            Kind::Detour(detour) => detour.datagram(dns, sess, to).await,
+        }
+    }
+
+    /// What quinn sends and receives through to reach `to`, an address of
+    /// `targets`, and the address quinn is to connect to: a UDP socket of
+    /// its own, or its detour's datagrams, a name standing for itself.
+    #[cfg(feature = "quic")]
+    pub async fn quic_socket(
+        &self,
+        dns: &SyncDnsClient,
+        sess: Option<&Session>,
+        to: &SocksAddr,
+    ) -> io::Result<(Arc<dyn quinn::AsyncUdpSocket>, SocketAddr)> {
+        match (&*self.0, to) {
+            (Kind::Socket(_), SocksAddr::Ip(addr)) => {
+                let socket = crate::transport::quic::bind(addr.ip(), self).await?;
+                Ok((crate::transport::quic::wrap_socket(socket)?, *addr))
+            }
+            (Kind::Socket(_), SocksAddr::Domain(..)) => Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("{}: not an address", to),
+            )),
+            (Kind::Detour(detour), _) => {
+                let datagram = detour.datagram(dns, sess, to).await?;
+                let socket = crate::transport::quic::DetourSocket::new(datagram, to.clone());
+                let peer = socket.peer();
+                Ok((Arc::new(socket), peer))
+            }
+        }
+    }
+
     /// A TCP connection to `host` and `port`, a name resolved with `dns`,
-    /// trying its addresses one by one.
+    /// trying its addresses one by one. A dialer with a detour has none.
     pub async fn tcp(&self, dns: &SyncDnsClient, host: &str, port: u16) -> io::Result<TcpStream> {
+        self.socket()?;
         let resolver = Resolver::new(dns.clone(), host, port, self.resolve_spec())
             .await
             .map_err(|e| io::Error::other(format!("resolve address failed: {}", e)))?;
@@ -287,7 +459,7 @@ impl Dialer {
 
     /// A TCP connection to `addr`.
     pub async fn tcp_to(&self, addr: SocketAddr) -> io::Result<TcpStream> {
-        let SocketDialer { spec, env, .. } = self.socket();
+        let SocketDialer { spec, env, .. } = self.socket()?;
         let socket = match addr {
             SocketAddr::V4(..) => TcpSocket::new_v4()?,
             SocketAddr::V6(..) => TcpSocket::new_v6()?,
@@ -328,9 +500,9 @@ impl Dialer {
 
     /// A UDP socket for talking to `indicator`'s address family; bound to
     /// `indicator` itself where that is unspecified and nothing else binds
-    /// it.
+    /// it. A dialer with a detour has none.
     pub async fn udp_socket(&self, indicator: &SocketAddr) -> io::Result<UdpSocket> {
-        let SocketDialer { spec, env, .. } = self.socket();
+        let SocketDialer { spec, env, .. } = self.socket()?;
         let socket = Socket::new(Domain::for_address(*indicator), Type::DGRAM, None)?;
         socket.set_nonblocking(true)?;
         crate::net::fit_largest_datagram(SockRef::from(&socket))?;
@@ -424,6 +596,7 @@ pub(crate) mod recording {
             env: DialEnv {
                 auto_interface: None,
                 protect: Some(SocketProtect::Platform(PlatformRef(protected.clone()))),
+                ..Default::default()
             },
         };
         (defaults, protected)
@@ -480,6 +653,7 @@ mod tests {
             env: DialEnv {
                 auto_interface: Some(auto.clone()),
                 protect: None,
+                ..Default::default()
             },
         };
         let dialer = defaults

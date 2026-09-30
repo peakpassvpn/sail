@@ -20,8 +20,8 @@ use sail::net::DialDefaults;
 /// The answer every server here gives for an A query.
 const ANSWER: Ipv4Addr = Ipv4Addr::new(10, 0, 0, 7);
 
-struct Cert {
-    cert_pem: String,
+pub(crate) struct Cert {
+    pub(crate) cert_pem: String,
     key_pem: String,
     /// The pin of its key, as `certificate_public_key_sha256` takes it.
     pin: String,
@@ -42,7 +42,7 @@ impl Cert {
 }
 
 /// A self-signed certificate for `localhost`.
-fn cert() -> Cert {
+pub(crate) fn cert() -> Cert {
     Cert::new(&["localhost"])
 }
 
@@ -71,9 +71,9 @@ fn answer(query: &[u8]) -> Option<Vec<u8>> {
 }
 
 #[derive(Default)]
-struct Counters {
+pub(crate) struct Counters {
     connections: AtomicUsize,
-    queries: AtomicUsize,
+    pub(crate) queries: AtomicUsize,
     /// Queries whose ID was not 0, which DoQ and DoH3 must send.
     nonzero_ids: AtomicUsize,
 }
@@ -219,7 +219,7 @@ fn quic_server_endpoint_with(
 }
 
 /// A DoQ server, and its port: a stream per query, as RFC 9250 has it.
-fn start_doq_server(cert: &Cert) -> (u16, Arc<Counters>) {
+pub(crate) fn start_doq_server(cert: &Cert) -> (u16, Arc<Counters>) {
     start_doq_server_with(cert, None)
 }
 
@@ -335,6 +335,15 @@ fn server(kind: &str, port: u16, path: Option<&str>) -> serde_json::Value {
 
 /// A client of `servers`, which trust `cert` when it is given.
 fn client(servers: &[serde_json::Value], cert: Option<&Cert>) -> DnsClient {
+    client_with(servers, cert, Arc::new(DialDefaults::default()))
+}
+
+/// `client`, dialling over `dial`.
+fn client_with(
+    servers: &[serde_json::Value],
+    cert: Option<&Cert>,
+    dial: Arc<DialDefaults>,
+) -> DnsClient {
     let mut servers = servers.to_vec();
     for (i, server) in servers.iter_mut().enumerate() {
         server["tag"] = format!("s{}", i).into();
@@ -350,12 +359,7 @@ fn client(servers: &[serde_json::Value], cert: Option<&Cert>) -> DnsClient {
         .to_string(),
     )
     .unwrap();
-    DnsClient::new(
-        &config.dns,
-        Arc::new(DialDefaults::default()),
-        &Default::default(),
-    )
-    .unwrap()
+    DnsClient::new(&config.dns, dial, &Default::default()).unwrap()
 }
 
 async fn lookup(client: &DnsClient, host: &str) -> anyhow::Result<Vec<IpAddr>> {
@@ -673,7 +677,7 @@ async fn servers_are_reached_through_their_detour() {
         let env = Arc::new(sail::runtime::RuntimeEnv::default());
         let mut server = server.clone();
         server["detour"] = "direct".into();
-        let dns_client = client(&[server.clone()], Some(&cert)).into_shared();
+        let dns_client = client_with(&[server.clone()], Some(&cert), dial.clone()).into_shared();
         let outbounds = vec![config::Outbound {
             protocol: "direct".to_string(),
             tag: "direct".to_string(),
@@ -682,6 +686,8 @@ async fn servers_are_reached_through_their_detour() {
         let outbound_manager = Arc::new(arc_swap::ArcSwap::from_pointee(
             OutboundManager::new(&outbounds, &dial, &env, dns_client.clone()).unwrap(),
         ));
+        // Where the servers' detour finds its outbound.
+        dial.env.outbounds.set(&outbound_manager);
         let router = Arc::new(arc_swap::ArcSwap::from_pointee(
             Router::new(&config::Route::default(), dns_client.clone(), &env).unwrap(),
         ));

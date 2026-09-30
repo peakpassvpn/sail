@@ -3,7 +3,6 @@
 
 use std::collections::HashMap;
 use std::io;
-use std::net::SocketAddr;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -18,7 +17,7 @@ use crate::adapter::*;
 use crate::app::SyncDnsClient;
 use crate::net::{peek_tcp_one_off, Dialer};
 use crate::session::{Session, SocksAddr};
-use crate::transport::quic::{bind, endpoint, ClientTls, QuicStream, Side};
+use crate::transport::quic::{endpoint_on, ClientTls, QuicStream, Side};
 
 use super::super::common::{
     heartbeat, send_packet, token, transport_config, ActiveGuard, Activity, CongestionControl,
@@ -117,18 +116,16 @@ impl Client {
     }
 
     async fn connect(&self) -> io::Result<Arc<ClientConn>> {
-        let ips = self
-            .dns_client
-            .load_full()
-            .lookup_dial(&self.server, self.dialer.resolve_spec())
-            .await
-            .map_err(|e| io::Error::other(format!("lookup {} failed: {}", self.server, e)))?;
+        let targets = self
+            .dialer
+            .targets(&self.dns_client, &self.server, self.port)
+            .await?;
         let mut last_err = None;
-        for ip in ips {
-            match self.connect_to(SocketAddr::new(ip, self.port)).await {
+        for to in targets {
+            match self.connect_to(&to).await {
                 Ok(conn) => return Ok(conn),
                 Err(e) => {
-                    debug!("tuic connect to {} failed: {}", ip, e);
+                    debug!("tuic connect to {} failed: {}", to, e);
                     last_err = Some(e);
                 }
             }
@@ -137,8 +134,11 @@ impl Client {
             .unwrap_or_else(|| io::Error::other(format!("{} resolved to no address", self.server))))
     }
 
-    async fn connect_to(&self, server: SocketAddr) -> io::Result<Arc<ClientConn>> {
-        let endpoint = endpoint(bind(server.ip(), &self.dialer).await?, None)?;
+    /// A connection to `to`, an address of the dialer's `targets`: over a
+    /// socket of the dialer's, or its detour's datagrams.
+    async fn connect_to(&self, to: &SocksAddr) -> io::Result<Arc<ClientConn>> {
+        let (socket, server) = self.dialer.quic_socket(&self.dns_client, None, to).await?;
+        let endpoint = endpoint_on(socket, None)?;
         let connecting = endpoint
             .connect_with(self.client_config.clone(), server, &self.server_name)
             .map_err(io::Error::other)?;

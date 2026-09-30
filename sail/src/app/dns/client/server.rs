@@ -99,9 +99,10 @@ pub(super) struct Dialer {
 }
 
 impl Dialer {
-    /// Whether it dials with its own dial fields, through no outbound.
+    /// Whether it dials with its own dialer: its sockets, or its detour's
+    /// (`dial` goes through that), not the outbound the rules pick.
     pub fn is_direct(&self) -> bool {
-        self.detour.is_none() && !self.respect_rules
+        !self.respect_rules
     }
 }
 

@@ -4,9 +4,9 @@
 //!
 //! In a configuration they are fields of the protocol's own entry, as in
 //! sing-box. Inside, an outbound with layers is a chain of handlers,
-//! `[tls, ws, vless]`, and one with a detour is a chain of that and the
-//! outbound it detours through; chains are not something a configuration
-//! names.
+//! `[tls, ws, vless]`; chains are not something a configuration names. A
+//! detour is not a layer: it is the outbound's dialer, which dials through
+//! the outbound it names in place of a socket.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -657,13 +657,19 @@ impl OutboundBlocks {
     }
 
     /// The dialer of the outbound `tag`: its dial fields, checked against
-    /// each other and the platform, over `defaults`.
-    pub fn dialer(&self, tag: &str, defaults: &DialDefaults) -> Result<Dialer> {
+    /// each other and the platform, over `defaults`; through `detour`, the
+    /// outbound its `detour` names, built already.
+    pub fn dialer(
+        &self,
+        tag: &str,
+        defaults: &DialDefaults,
+        detour: Option<AnyOutboundHandler>,
+    ) -> Result<Dialer> {
         self.dial
             .check(crate::net::dial::fields::IMPLEMENTED)
             .map_err(|e| anyhow!("[{}] outbound: {}", tag, e))?;
         defaults
-            .dialer(&self.dial, Some(tag))
+            .outbound_dialer(&self.dial, tag, detour)
             .map_err(|e| anyhow!("[{}] outbound: {}", tag, e))
     }
 }
@@ -675,10 +681,8 @@ pub struct OutboundLayering<'a> {
     pub options: &'a Options,
     pub dns_client: &'a SyncDnsClient,
     pub abort_handles: &'a mut Vec<AbortHandle>,
-    /// The outbound `detour` names, already built.
-    pub detour: Option<AnyOutboundHandler>,
     /// How the outbound dials: its dial fields over the instance's
-    /// defaults, from `OutboundBlocks::dialer`.
+    /// defaults, or its detour, from `OutboundBlocks::dialer`.
     pub dialer: Dialer,
     pub env: &'a RuntimeEnv,
 }
@@ -727,7 +731,7 @@ fn layered(
     }
     // gRPC multiplexes its streams over connections it keeps, and so is not
     // a layer dialled anew for every stream: it holds a `Connector` over
-    // the layers beneath it -- dial fields, detour, tls -- and comes first
+    // the layers beneath it -- its dialer, tls -- and comes first
     // in the chain, asking for nothing to be dialled.
     if let Some(OutboundTransport::Grpc {
         service_name,
@@ -832,17 +836,13 @@ fn layered(
         }
     }
 
-    let layered = if actors.is_empty() {
+    // What it asks to have dialled comes with its dialer, which goes
+    // through its detour if it has one.
+    let whole = if actors.is_empty() {
         core
     } else {
         actors.push(core);
         chain_outbound(tag, actors)?
-    };
-    // What it asks to have dialled comes with its dialer. Through a
-    // detour, that is what the detour asks for, with the detour's dialer.
-    let whole = match layering.detour {
-        Some(detour) => chain_outbound(tag, vec![detour, layered])?,
-        None => layered,
     };
     match sing_mux {
         Some(options) => sing_mux_outbound(
@@ -882,7 +882,7 @@ fn sing_mux_outbound(
 }
 
 /// Opens connections to a protocol's server through the layers its blocks
-/// configure: dial fields, detour, tls, transport.
+/// configure: its dialer (dial fields or detour), tls, transport.
 ///
 /// For a protocol whose connections outlive the streams on them, such as a
 /// session pool, and which therefore cannot be one more handler in a chain
@@ -974,6 +974,10 @@ impl Connector {
         else {
             return Ok((self.connect(sess).await?, None));
         };
+        // Through a detour there is no TCP connection of its own.
+        if dialer.detour().is_some() {
+            return Ok((self.connect(sess).await?, None));
+        }
         let tcp = dialer.tcp(&self.dns_client, &addr, port).await?;
         let socket = crate::transport::mux::brutal::Socket::of(&socket2::SockRef::from(&tcp)).ok();
         let stream = self
@@ -1447,8 +1451,9 @@ pub struct RealityHandshake {
     pub dial: DialFields,
 }
 
-/// The dial fields a REALITY handshake implements.
-const REALITY_HANDSHAKE_DIAL: &[&str] = &[
+/// The dial fields a handshake server is dialled with, REALITY's and
+/// ShadowTLS's.
+pub(crate) const HANDSHAKE_DIAL: &[&str] = &[
     "bind_interface",
     "inet4_bind_address",
     "inet6_bind_address",
@@ -1468,7 +1473,7 @@ impl RealityHandshake {
     #[cfg_attr(not(feature = "inbound-reality"), allow(dead_code))]
     fn dialer(&self, tag: &str, dial: &InstanceDial) -> Result<InboundDialer> {
         let context = |e: anyhow::Error| anyhow!("[{}] inbound: tls.reality.handshake: {}", tag, e);
-        self.dial.check(REALITY_HANDSHAKE_DIAL).map_err(context)?;
+        self.dial.check(HANDSHAKE_DIAL).map_err(context)?;
         dial.dialer(&self.dial).map_err(context)
     }
 }

@@ -1,5 +1,6 @@
 //! SOCKS5 `UDP ASSOCIATE` (RFC 1928, 7): a control connection to the
-//! server, and a UDP socket sending to the relay the server names.
+//! server, and a UDP socket sending to the relay the server names; both
+//! through the detour, when the outbound has one.
 //!
 //! The request declares 0.0.0.0:0, as RFC 1928 has a client that does not
 //! know the address it will send from do: behind NAT the server would see
@@ -117,18 +118,38 @@ impl OutboundDatagramHandler for Handler {
 
     async fn handle<'a>(
         &'a self,
-        _sess: &'a Session,
+        sess: &'a Session,
         _transport: Option<AnyOutboundTransport>,
     ) -> io::Result<AnyOutboundDatagram> {
         tracing::trace!("handling outbound datagram");
-        let mut stream: AnyStream = Box::new(
-            self.dialer
-                .tcp(&self.dns_client, &self.address, self.port)
-                .await?,
-        );
+        let server = SocksAddr::try_from((&self.address, self.port))?;
+        let mut stream = self
+            .dialer
+            .stream(&self.dns_client, Some(sess), &server)
+            .await?;
         let auth =
             (!self.username.is_empty()).then_some((self.username.as_str(), self.password.as_str()));
         let bound = associate(&mut stream, auth).await?;
+        // Through a detour, the relay is the detour's to reach: named as
+        // the server names it, and an unspecified address being the
+        // server's, the server as it is configured.
+        if self.dialer.detour().is_some() {
+            let to = match bound {
+                SocksAddr::Ip(addr) if addr.ip().is_unspecified() => {
+                    SocksAddr::try_from((&self.address, addr.port()))?
+                }
+                bound => bound,
+            };
+            tracing::debug!("socks udp relay {}", to);
+            let datagram = self
+                .dialer
+                .datagram(&self.dns_client, Some(sess), &to)
+                .await?;
+            return Ok(Box::new(Datagram {
+                relay: Relay::Detour(datagram, to),
+                control: stream,
+            }));
+        }
         let relay = match bound {
             SocksAddr::Ip(addr) if addr.ip().is_unspecified() => {
                 SocketAddr::new(self.server_ip().await?, addr.port())
@@ -145,16 +166,15 @@ impl OutboundDatagramHandler for Handler {
             .next()
             .ok_or_else(|| io::Error::other(format!("no address for socks relay {}", domain)))?,
         };
+        tracing::debug!("socks udp relay {}", relay);
         let unspecified = match relay {
             SocketAddr::V4(_) => SocketAddr::from(([0, 0, 0, 0], 0)),
             SocketAddr::V6(_) => SocketAddr::from(([0u16; 8], 0)),
         };
         let socket = self.dialer.udp_socket(&unspecified).await?;
         socket.connect(relay).await?;
-        tracing::debug!("socks udp relay {}", relay);
-        let socket = Arc::new(socket);
         Ok(Box::new(Datagram {
-            socket,
+            relay: Relay::Socket(Arc::new(socket)),
             control: stream,
         }))
     }
@@ -179,9 +199,35 @@ impl Handler {
 }
 
 pub struct Datagram {
-    socket: Arc<UdpSocket>,
+    relay: Relay,
     /// The control connection: the association lasts while it is open.
     control: AnyStream,
+}
+
+/// How the relay is reached: a socket connected to it, or the datagrams
+/// of the detour, sent to it.
+enum Relay {
+    Socket(Arc<UdpSocket>),
+    Detour(AnyOutboundDatagram, SocksAddr),
+}
+
+enum RelayRecv {
+    Socket(Arc<UdpSocket>),
+    Detour(Box<dyn OutboundDatagramRecvHalf>),
+}
+
+impl RelayRecv {
+    async fn recv(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        match self {
+            RelayRecv::Socket(socket) => socket.recv(buf).await,
+            RelayRecv::Detour(half) => half.recv_from(buf).await.map(|(n, _)| n),
+        }
+    }
+}
+
+enum RelaySend {
+    Socket(Arc<UdpSocket>),
+    Detour(Box<dyn OutboundDatagramSendHalf>, SocksAddr),
 }
 
 impl OutboundDatagram for Datagram {
@@ -194,14 +240,21 @@ impl OutboundDatagram for Datagram {
         // Each half holds a side of the control connection, which stays
         // open until both are gone.
         let (control_read, control_write) = tokio::io::split(self.control);
+        let (recv, send) = match self.relay {
+            Relay::Socket(socket) => (RelayRecv::Socket(socket.clone()), RelaySend::Socket(socket)),
+            Relay::Detour(datagram, to) => {
+                let (recv, send) = datagram.split();
+                (RelayRecv::Detour(recv), RelaySend::Detour(send, to))
+            }
+        };
         (
             Box::new(DatagramRecvHalf {
-                socket: self.socket.clone(),
+                relay: recv,
                 control: control_read,
                 packet: Vec::new(),
             }),
             Box::new(DatagramSendHalf {
-                socket: self.socket,
+                relay: send,
                 _control: control_write,
             }),
         )
@@ -209,7 +262,7 @@ impl OutboundDatagram for Datagram {
 }
 
 pub struct DatagramRecvHalf {
-    socket: Arc<UdpSocket>,
+    relay: RelayRecv,
     control: tokio::io::ReadHalf<AnyStream>,
     /// A reply is read into this, reused from one to the next.
     packet: Vec<u8>,
@@ -219,7 +272,7 @@ pub struct DatagramRecvHalf {
 impl OutboundDatagramRecvHalf for DatagramRecvHalf {
     async fn recv_from(&mut self, buf: &mut [u8]) -> io::Result<(usize, SocksAddr)> {
         let Self {
-            socket,
+            relay,
             control,
             packet,
         } = self;
@@ -232,7 +285,7 @@ impl OutboundDatagramRecvHalf for DatagramRecvHalf {
                 // queued here when the close arrives, and are handed out,
                 // not dropped by which branch a fair select picks.
                 biased;
-                received = socket.recv(packet) => {
+                received = relay.recv(packet) => {
                     let n = received?;
                     match unwrap(&packet[..n], buf) {
                         Some(r) => return Ok(r),
@@ -268,7 +321,7 @@ fn unwrap(packet: &[u8], buf: &mut [u8]) -> Option<(usize, SocksAddr)> {
 }
 
 pub struct DatagramSendHalf {
-    socket: Arc<UdpSocket>,
+    relay: RelaySend,
     _control: tokio::io::WriteHalf<AnyStream>,
 }
 
@@ -280,7 +333,10 @@ impl OutboundDatagramSendHalf for DatagramSendHalf {
         packet.put_u8(0);
         target.write_buf(&mut packet, SocksAddrWireType::PortLast);
         packet.put_slice(buf);
-        self.socket.send(&packet).await?;
+        match &mut self.relay {
+            RelaySend::Socket(socket) => socket.send(&packet).await?,
+            RelaySend::Detour(half, to) => half.send_to(&packet, to).await?,
+        };
         Ok(buf.len())
     }
 
@@ -339,7 +395,7 @@ mod tests {
                 .unwrap();
             let (server_control, _) = listener.accept().await.unwrap();
             let dgram = Box::new(Datagram {
-                socket: Arc::new(socket),
+                relay: Relay::Socket(Arc::new(socket)),
                 control: Box::new(control),
             });
             let (mut r, _s) = dgram.split();

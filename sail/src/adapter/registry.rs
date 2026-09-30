@@ -171,10 +171,6 @@ pub struct OutboundContext<'a> {
     /// What groups take members from besides their outbounds.
     #[cfg(feature = "outbound-provider")]
     pub providers: &'a mut crate::protocol::group::merge::Sources,
-    /// For an endpoint, the outbound its `detour` names: what it sends
-    /// its own traffic through. An outbound's detour is applied around it
-    /// instead, and is not here.
-    pub detour: Option<AnyOutboundHandler>,
     handlers: &'a Handlers<AnyOutboundHandler>,
     connector: Option<layers::Connector>,
 }
@@ -310,10 +306,9 @@ pub fn build_outbounds(
                     };
                     let mut ctx = OutboundContext {
                         tag: &endpoint.tag,
-                        detour,
                         options: &options,
                         dns_client: state.dns_client,
-                        dialer: blocks.dialer(&endpoint.tag, state.dial_defaults)?,
+                        dialer: blocks.dialer(&endpoint.tag, state.dial_defaults, detour)?,
                         env: state.env,
                         abort_handles: &mut tasks,
                         #[cfg(feature = "outbound-select")]
@@ -351,7 +346,6 @@ pub fn build_outbounds(
                 }
             }
             let mut tasks = Vec::new();
-            let dialer = blocks.dialer(&outbound.tag, state.dial_defaults)?;
             let detour = match &blocks.dial.detour {
                 Some(detour) => Some(dependency(
                     state.handlers,
@@ -361,6 +355,7 @@ pub fn build_outbounds(
                 )?),
                 None => None,
             };
+            let dialer = blocks.dialer(&outbound.tag, state.dial_defaults, detour)?;
             let connector = if factory.over_connector {
                 Some(layers::Connector::new(
                     &blocks,
@@ -369,7 +364,6 @@ pub fn build_outbounds(
                         options: &options,
                         dns_client: state.dns_client,
                         abort_handles: &mut tasks,
-                        detour: detour.clone(),
                         dialer: dialer.clone(),
                         env: state.env,
                     },
@@ -390,7 +384,6 @@ pub fn build_outbounds(
                 external_handlers: state.external_handlers,
                 #[cfg(feature = "outbound-provider")]
                 providers: state.providers,
-                detour: None,
                 handlers: state.handlers,
                 connector,
             };
@@ -406,7 +399,6 @@ pub fn build_outbounds(
                         options: &options,
                         dns_client: state.dns_client,
                         abort_handles: &mut tasks,
-                        detour,
                         dialer,
                         env: state.env,
                     },

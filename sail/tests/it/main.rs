@@ -18,6 +18,7 @@ mod test_components;
 mod test_config_clash;
 mod test_config_surge;
 mod test_corpus;
+mod test_detour;
 mod test_direct;
 mod test_dns_respect_rules;
 mod test_dns_server;

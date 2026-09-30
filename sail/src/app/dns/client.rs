@@ -435,20 +435,14 @@ impl DnsClient {
     }
 
     /// The outbound a server's connection goes through, and the session
-    /// it carries it in: its `detour`, or with `respect_rules`, the one
-    /// the routing rules pick for it; `None` for none.
+    /// it carries it in: with `respect_rules`, the one the routing rules
+    /// pick for it; `None` for its own dialer, a `detour` included.
     async fn outbound_for(
         &self,
         dialer: &Dialer,
         network: Network,
         addr: SocketAddr,
     ) -> Result<Option<(String, Session)>> {
-        if let Some(detour) = &dialer.detour {
-            return Ok(Some((
-                detour.clone(),
-                Self::detour_session(network, addr, detour),
-            )));
-        }
         if dialer.is_direct() {
             return Ok(None);
         }
@@ -477,6 +471,18 @@ impl DnsClient {
     /// A TCP connection to `addr`, as the server's dialer makes them.
     async fn dial_stream(&self, dialer: &Dialer, addr: SocketAddr) -> Result<AnyStream> {
         match self.outbound_for(dialer, Network::Tcp, addr).await? {
+            None if dialer.detour.is_some() => Ok(dialer
+                .dial
+                .stream(
+                    &self.dispatcher()?.dns_client(),
+                    Some(&Self::detour_session(
+                        Network::Tcp,
+                        addr,
+                        dialer.detour.as_deref().unwrap_or_default(),
+                    )),
+                    &SocksAddr::from(addr),
+                )
+                .await?),
             None => Ok(Box::new(dialer.dial.tcp_to(addr).await?)),
             Some((outbound, sess)) => self
                 .dispatcher()?
@@ -493,6 +499,18 @@ impl DnsClient {
         addr: SocketAddr,
     ) -> Result<AnyOutboundDatagram> {
         match self.outbound_for(dialer, Network::Udp, addr).await? {
+            None if dialer.detour.is_some() => Ok(dialer
+                .dial
+                .datagram(
+                    &self.dispatcher()?.dns_client(),
+                    Some(&Self::detour_session(
+                        Network::Udp,
+                        addr,
+                        dialer.detour.as_deref().unwrap_or_default(),
+                    )),
+                    &SocksAddr::from(addr),
+                )
+                .await?),
             None => {
                 let socket = dialer.dial.udp_socket(&addr).await?;
                 Ok(Box::new(StdOutboundDatagram::new(socket)))

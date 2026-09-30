@@ -442,9 +442,9 @@ pub const GROUPS: &[Group] = &[
         ],
     ),
     t(
-        "A detour for an outbound of this type: its connections would not go through it",
+        "A detour for a direct outbound, which sing-box refuses too",
         Unsupported,
-        &["direct", "hysteria2", "tuic"],
+        &["direct"],
         &["outbounds.*.detour"],
     ),
     // TLS, both ways.

@@ -1,6 +1,6 @@
 //! Where an endpoint's WireGuard datagrams go: a UDP socket of its own,
-//! opened with the endpoint's dial fields, or another outbound's datagram
-//! path (`detour`).
+//! opened with the endpoint's dial fields, or the datagrams of its dialer's
+//! `detour`.
 
 use std::io;
 use std::net::{IpAddr, SocketAddr};
@@ -11,7 +11,7 @@ use tokio::net::UdpSocket;
 use tokio::sync::{Mutex, Notify};
 use tracing::{debug, warn};
 
-use crate::adapter::{AnyOutboundHandler, OutboundDatagramRecvHalf, OutboundDatagramSendHalf};
+use crate::adapter::{OutboundDatagramRecvHalf, OutboundDatagramSendHalf};
 use crate::app::SyncDnsClient;
 use crate::net::Dialer;
 use crate::protocol::wireguard::Transport;
@@ -114,10 +114,10 @@ impl Transport for SocketTransport {
 /// How long a datagram waits for the detour to open.
 const OPEN_WAIT: Duration = Duration::from_secs(5);
 
-/// The datagram path of another outbound. It is opened when the first
-/// datagram is received for, and opened again when it fails.
+/// The datagrams of the dialer's detour. They are opened when the first
+/// datagram is received for, and opened again when they fail.
 pub struct DetourTransport {
-    detour: AnyOutboundHandler,
+    dialer: Dialer,
     dns_client: SyncDnsClient,
     /// What the path is opened for: the endpoint, and its first peer.
     session: Session,
@@ -132,7 +132,7 @@ pub struct DetourTransport {
 impl DetourTransport {
     pub fn new(
         tag: &str,
-        detour: AnyOutboundHandler,
+        dialer: Dialer,
         dns_client: SyncDnsClient,
         first_peer: SocksAddr,
     ) -> Self {
@@ -143,7 +143,7 @@ impl DetourTransport {
             ..Default::default()
         };
         DetourTransport {
-            detour,
+            dialer,
             dns_client,
             session,
             send: Mutex::new(None),
@@ -154,16 +154,13 @@ impl DetourTransport {
     }
 
     async fn open(&self) -> io::Result<()> {
-        let transport = crate::net::connect_datagram_outbound(
-            &self.session,
-            self.dns_client.clone(),
-            &self.detour,
-        )
-        .await?;
         let datagram = self
-            .detour
-            .datagram()?
-            .handle(&self.session, transport)
+            .dialer
+            .datagram(
+                &self.dns_client,
+                Some(&self.session),
+                &self.session.destination,
+            )
             .await?;
         let (recv, send) = datagram.split();
         *self.recv.lock().await = Some(recv);
@@ -172,7 +169,7 @@ impl DetourTransport {
         debug!(
             "wireguard [{}]: datagrams go through [{}]",
             self.session.inbound_tag,
-            self.detour.tag()
+            self.dialer.detour().unwrap_or_default()
         );
         Ok(())
     }
@@ -213,7 +210,7 @@ impl Transport for DetourTransport {
                     warn!(
                         "wireguard [{}]: opening the detour [{}] failed: {}",
                         self.session.inbound_tag,
-                        self.detour.tag(),
+                        self.dialer.detour().unwrap_or_default(),
                         e
                     );
                     tokio::time::sleep(Duration::from_secs(1)).await;

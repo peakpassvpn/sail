@@ -24,7 +24,7 @@ use super::{
 use crate::adapter::inbound::Handler as InboundHandlerImpl;
 use crate::adapter::registry::{InboundContext, InboundFactory, InboundRegistry, Options};
 use crate::adapter::*;
-use crate::net::InboundDialer;
+use crate::net::{InboundDialer, InstanceDial};
 use crate::protocol::fallback;
 use crate::session::Session;
 
@@ -76,18 +76,17 @@ struct ShadowTlsUser {
     password: String,
 }
 
-/// A server and port, and sing-box's dial fields, which sail does not
-/// implement here: the handshake server is dialled with the instance's
-/// dial defaults.
+/// A server and port, and sing-box's dial fields, which it is dialled
+/// with over the instance's defaults, as REALITY's handshake server is.
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ShadowTlsHandshake {
     #[serde(default)]
     server: String,
     #[serde(default)]
     server_port: u16,
-    /// The dial fields, which are errors, and any other field.
     #[serde(flatten)]
-    rest: serde_json::Map<String, Value>,
+    dial: crate::net::dial::DialFields,
 }
 
 /// Whether the handshake server is the one the ClientHello names, on port
@@ -107,23 +106,16 @@ enum WildcardSni {
 struct Target {
     server: String,
     port: u16,
+    dialer: InboundDialer,
 }
 
 impl ShadowTlsHandshake {
-    fn target(self, tag: &str, field: &str) -> Result<Target> {
-        if let Some(key) = self.rest.keys().next() {
-            return Err(
-                match crate::net::dial::DialFields::names().contains(&key.as_str()) {
-                    true => anyhow!(
-                        "[{}] inbound: {}.{}: sail does not implement this field yet",
-                        tag,
-                        field,
-                        key
-                    ),
-                    false => anyhow!("[{}] inbound: {}: unknown field `{}`", tag, field, key),
-                },
-            );
-        }
+    fn target(self, tag: &str, field: &str, dial: &InstanceDial) -> Result<Target> {
+        let context = |e: anyhow::Error| anyhow!("[{}] inbound: {}: {}", tag, field, e);
+        self.dial
+            .check(crate::transport::layers::HANDSHAKE_DIAL)
+            .map_err(context)?;
+        let dialer = dial.dialer(&self.dial).map_err(context)?;
         if self.server.is_empty() || self.server_port == 0 {
             return Err(anyhow!(
                 "[{}] inbound: {}: needs server and server_port",
@@ -134,6 +126,7 @@ impl ShadowTlsHandshake {
         Ok(Target {
             server: self.server,
             port: self.server_port,
+            dialer,
         })
     }
 }
@@ -179,7 +172,7 @@ fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
     }
     let default = options
         .handshake
-        .map(|h| h.target(tag, "handshake"))
+        .map(|h| h.target(tag, "handshake", ctx.dial))
         .transpose()?;
     if default.is_none() && options.wildcard_sni == WildcardSni::Off {
         return Err(anyhow!(
@@ -189,7 +182,11 @@ fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
     }
     let mut by_name = HashMap::new();
     for (name, handshake) in options.handshake_for_server_name {
-        let target = handshake.target(tag, &format!("handshake_for_server_name.{}", name))?;
+        let target = handshake.target(
+            tag,
+            &format!("handshake_for_server_name.{}", name),
+            ctx.dial,
+        )?;
         by_name.insert(name, target);
     }
     let detour_tag = options.detour.unwrap_or_default();
@@ -227,7 +224,8 @@ pub struct Handler {
     wildcard: WildcardSni,
     detour: AnyInboundHandler,
     detour_tag: String,
-    /// Dials the handshake servers: the instance's dial defaults.
+    /// Dials the wildcard handshake servers where there is no `handshake`
+    /// to dial them as: the instance's dial defaults.
     dialer: InboundDialer,
 }
 
@@ -238,9 +236,14 @@ impl Handler {
         if let Some(target) = self.by_name.get(name) {
             return (Some(target.clone()), Some(target.clone()));
         }
+        // Dialled as `handshake` is, if it is set.
         let wildcard = (!name.is_empty()).then(|| Target {
             server: name.to_string(),
             port: 443,
+            dialer: self
+                .default
+                .as_ref()
+                .map_or_else(|| self.dialer.clone(), |d| d.dialer.clone()),
         });
         match self.wildcard {
             WildcardSni::Off => (self.default.clone(), self.default.clone()),
@@ -304,7 +307,7 @@ impl InboundStreamHandler for Handler {
                 consumed.extend_from_slice(&records.into_inner());
                 tokio::spawn(
                     fallback::relay(
-                        self.dialer.clone(),
+                        other.dialer.clone(),
                         stream,
                         consumed,
                         other.server.clone(),
@@ -319,7 +322,7 @@ impl InboundStreamHandler for Handler {
             }
         };
         let target = target.ok_or_else(|| denied(format!("no handshake server for {:?}", name)))?;
-        let mut server = self.dialer.tcp(&target.server, target.port).await?;
+        let mut server = target.dialer.tcp(&target.server, target.port).await?;
         server.write_all(&hello).await?;
         let mut server_records = Records::default();
         let server_hello = server_records.expect(&mut server).await?;

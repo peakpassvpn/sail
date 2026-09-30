@@ -1,5 +1,5 @@
 use std::io;
-use std::net::{IpAddr, SocketAddr};
+use std::net::SocketAddr;
 use std::time::Duration;
 
 use socket2::{Domain, SockRef, Socket, Type};
@@ -198,14 +198,16 @@ pub async fn connect_stream_outbound(
     match handler.stream()?.connect_addr() {
         OutboundConnect::Proxy(Network::Tcp, addr, port, dialer) => {
             trace!("connect stream proxy outbound addr={} port={}", &addr, port);
-            Ok(Some(Box::new(dialer.tcp(&dns_client, &addr, port).await?)))
+            let to = SocksAddr::try_from((addr, port))?;
+            Ok(Some(dialer.stream(&dns_client, Some(sess), &to).await?))
         }
         OutboundConnect::Direct(dialer) => {
-            let dest = &sess.destination;
-            trace!("connect stream direct dst={}", &dest);
-            Ok(Some(Box::new(
-                dialer.tcp(&dns_client, &dest.host(), dest.port()).await?,
-            )))
+            trace!("connect stream direct dst={}", &sess.destination);
+            Ok(Some(
+                dialer
+                    .stream(&dns_client, Some(sess), &sess.destination)
+                    .await?,
+            ))
         }
         _ => {
             trace!("connect stream None");
@@ -222,23 +224,26 @@ pub async fn connect_datagram_outbound(
     handler: &AnyOutboundHandler,
 ) -> io::Result<Option<AnyOutboundTransport>> {
     match handler.datagram()?.connect_addr() {
-        OutboundConnect::Proxy(network, addr, port, dialer) => match network {
-            Network::Udp => {
-                let socket = match addr.parse::<IpAddr>() {
-                    Ok(ip) if ip.is_loopback() => {
-                        dialer.udp_socket(&SocketAddr::new(ip, 0)).await?
-                    }
-                    _ => dialer.udp_socket(&dialer.unspecified()).await?,
-                };
-                Ok(Some(OutboundTransport::Datagram(Box::new(
-                    DomainResolveOutboundDatagram::new(socket, dns_client.clone(), dialer),
-                ))))
+        OutboundConnect::Proxy(network, addr, port, dialer) => {
+            let to = SocksAddr::try_from((addr, port))?;
+            match network {
+                Network::Udp => Ok(Some(OutboundTransport::Datagram(
+                    dialer.datagram(&dns_client, Some(sess), &to).await?,
+                ))),
+                Network::Tcp => Ok(Some(OutboundTransport::Stream(
+                    dialer.stream(&dns_client, Some(sess), &to).await?,
+                ))),
             }
-            Network::Tcp => {
-                let stream = dialer.tcp(&dns_client, &addr, port).await?;
-                Ok(Some(OutboundTransport::Stream(Box::new(stream))))
-            }
-        },
+        }
+        // Through a detour, the session's destination is the detour's to
+        // reach.
+        OutboundConnect::Direct(dialer) if dialer.detour().is_some() => {
+            Ok(Some(OutboundTransport::Datagram(
+                dialer
+                    .datagram(&dns_client, Some(sess), &sess.destination)
+                    .await?,
+            )))
+        }
         OutboundConnect::Direct(dialer) if sess.route.udp_connect => {
             let addr = match &sess.destination {
                 SocksAddr::Ip(addr) => *addr,

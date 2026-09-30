@@ -114,18 +114,17 @@ impl MuxManager {
 
         // Create a new connection.
 
-        // Create the underlying TCP stream.
-        let mut conn: AnyStream = Box::new(
-            self.dialer
-                .tcp(&self.dns_client, &self.address, self.port)
-                .instrument(tracing::Span::current())
-                .await?,
-        );
-
-        // Pass the TCP stream through all sub-transports, e.g. TLS, WebSocket.
+        // Create the underlying connection, TCP or through a detour.
         let mut sess = sess.clone();
         sess.destination = SocksAddr::try_from((&self.address, self.port))?;
         sess.forget_sniffed();
+        let mut conn: AnyStream = self
+            .dialer
+            .stream(&self.dns_client, Some(&sess), &sess.destination)
+            .instrument(tracing::Span::current())
+            .await?;
+
+        // Pass it through all sub-transports, e.g. TLS, WebSocket.
         for a in self.actors.iter() {
             conn = a
                 .stream()?

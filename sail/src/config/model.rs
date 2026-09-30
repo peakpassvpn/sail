@@ -241,8 +241,8 @@ impl HttpClient {
         header_lines(&self.headers)
     }
 
-    /// The dialer it connects with, when it has no detour: its dial
-    /// fields over `defaults`. An error names the field.
+    /// The dialer it connects with: its dial fields over `defaults`, or
+    /// its detour. An error names the field.
     pub fn dialer(&self, defaults: &crate::net::DialDefaults) -> Result<crate::net::Dialer> {
         defaults.dialer(&self.dial, None)
     }
@@ -253,18 +253,13 @@ impl HttpClient {
                 return Err(anyhow!("detour: outbound [{}] does not exist", detour));
             }
             // Through an outbound, the names are that outbound's to
-            // resolve.
-            for (field, set) in [
-                ("domain_resolver", self.dial.domain_resolver.is_some()),
-                ("domain_strategy", self.dial.domain_strategy.is_some()),
-            ] {
-                if set {
-                    return Err(anyhow!(
-                        "{}: has no effect with a detour; set it on [{}]",
-                        field,
-                        detour
-                    ));
-                }
+            // resolve, unless a domain_resolver resolves them here first.
+            if self.dial.domain_strategy.is_some() && self.dial.domain_resolver.is_none() {
+                return Err(anyhow!(
+                    "domain_strategy: has no effect with a detour and no domain_resolver; \
+                     set it on [{}]",
+                    detour
+                ));
             }
         }
         self.dial.check(HTTP_CLIENT_DIAL)?;
@@ -2858,6 +2853,45 @@ impl Config {
                 )?;
             }
         }
+        // The handshake servers REALITY and ShadowTLS dial resolve with
+        // servers that must exist too.
+        for inbound in self.inbounds.iter() {
+            // A type sail does not build is refused as such when built.
+            if crate::include::INBOUNDS.get(&inbound.protocol).is_none() {
+                continue;
+            }
+            let get = |value: &serde_json::Value, key: &str| value.get(key).cloned();
+            let options = serde_json::Value::Object(inbound.options.clone());
+            let mut handshakes = Vec::new();
+            if let Some(h) = options
+                .get("tls")
+                .and_then(|t| t.get("reality"))
+                .and_then(|r| r.get("handshake"))
+            {
+                handshakes.push(("tls.reality.handshake".to_string(), h.clone()));
+            }
+            if inbound.protocol == "shadowtls" {
+                if let Some(h) = get(&options, "handshake") {
+                    handshakes.push(("handshake".to_string(), h));
+                }
+                if let Some(serde_json::Value::Object(by_name)) =
+                    get(&options, "handshake_for_server_name")
+                {
+                    for (name, h) in by_name {
+                        handshakes.push((format!("handshake_for_server_name.{}", name), h));
+                    }
+                }
+            }
+            for (field, handshake) in handshakes {
+                let Some(value) = handshake.get("domain_resolver") else {
+                    continue;
+                };
+                let at = format!("[{}] inbound: {}.domain_resolver", inbound.tag, field);
+                let resolver = <DomainResolver as serde::Deserialize>::deserialize(value)
+                    .map_err(|e| anyhow!("{}: {}", at, e))?;
+                dns_server(&at, &resolver.server)?;
+            }
+        }
 
         // An endpoint is an inbound and an outbound: its tag is taken in
         // both.
@@ -2926,6 +2960,7 @@ impl Config {
                 .check(&outbounds, &dns_servers)
                 .map_err(|e| anyhow!("http_clients[{}]: {}", i, e))?;
         }
+        self.check_detours()?;
         if let Some(tag) = &self.route.default_http_client {
             if !http_clients.contains(tag.as_str()) {
                 return Err(anyhow!(
@@ -3060,6 +3095,56 @@ impl Config {
     /// outbound, which is `final` when there is none; and `load-balance`
     /// and `smart` pick a member for each connection as it is dialled,
     /// after the rules, so they cannot pass it on.
+    /// The `detour` of no outbound, endpoint, DNS server or HTTP client
+    /// names a `direct` outbound of no fields of its own: that dials as no
+    /// detour does, which sing-box refuses as making no sense.
+    /// `download_detour` is let be, as in sing-box.
+    fn check_detours(&self) -> Result<()> {
+        let empty_direct = |tag: &str| {
+            self.outbounds
+                .iter()
+                .any(|o| o.tag == tag && o.protocol == "direct" && o.options.is_empty())
+        };
+        fn detour(options: &Options) -> Option<&str> {
+            options.get("detour").and_then(|v| v.as_str())
+        }
+        let places = self
+            .outbounds
+            .iter()
+            .map(|o| (format!("[{}] outbound", o.tag), detour(&o.options)))
+            .chain(
+                self.endpoints
+                    .iter()
+                    .map(|e| (format!("[{}] endpoint", e.tag), detour(&e.options))),
+            )
+            .chain(
+                self.dns
+                    .servers
+                    .iter()
+                    .map(|s| (format!("dns.servers[{}]", s.tag), detour(&s.options))),
+            )
+            .chain(
+                self.http_clients
+                    .iter()
+                    .enumerate()
+                    .map(|(i, c)| (format!("http_clients[{}]", i), c.dial.detour.as_deref())),
+            );
+        for (place, detour) in places {
+            let Some(detour) = detour else {
+                continue;
+            };
+            if empty_direct(detour) {
+                return Err(anyhow!(
+                    "{}: detour: [{}] is a direct outbound of no fields of its own, \
+                     through which it would dial as it does without a detour",
+                    place,
+                    detour
+                ));
+            }
+        }
+        Ok(())
+    }
+
     fn check_pass(&self, protocols: &HashMap<&str, &str>) -> Result<()> {
         let is_pass = |tag: &str| protocols.get(tag) == Some(&"pass");
         match &self.route.final_outbound {

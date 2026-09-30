@@ -22,7 +22,7 @@ pub(crate) fn register(registry: &mut OutboundRegistry) {
     // shared blocks only the dial fields apply.
     registry.register(
         "tuic",
-        OutboundFactory::standalone(build).with_blocks(Blocks::DIAL),
+        OutboundFactory::standalone(build).with_blocks(Blocks::DIALER),
     );
 }
 

@@ -389,8 +389,15 @@ fn an_outbound_through_a_detour_is_dialled_as_the_detour_says() {
         ),
     ])
     .unwrap();
-    let (connect, dial) = dial_of(&m, "via");
-    // The detour's server, with the detour's options.
+    // Its own server, dialled through the detour, which dials its own
+    // with its own options.
+    let (connect, _) = dial_of(&m, "via");
+    assert_eq!(server_of(&connect), 9000);
+    let sail::adapter::OutboundConnect::Proxy(_, _, _, dialer) = &connect else {
+        unreachable!()
+    };
+    assert_eq!(dialer.detour(), Some("hop"));
+    let (connect, dial) = dial_of(&m, "hop");
     assert_eq!(server_of(&connect), 9001);
     assert_eq!(dial.bind_interface.as_deref(), Some(LOOPBACK));
 }

@@ -7,10 +7,12 @@ use std::time::Duration;
 
 use tracing::debug;
 
+mod detour;
 mod dialer;
 pub mod fields;
 mod spec;
 
+pub use detour::Outbounds;
 pub use dialer::{DialDefaults, DialEnv, Dialer, InboundDialer, InstanceDial, SharedDialDefaults};
 pub use fields::DialFields;
 pub use spec::{DialSpec, ResolveSpec, RouteDefaults};

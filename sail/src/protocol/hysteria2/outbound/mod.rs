@@ -30,7 +30,7 @@ use client::{Client, ClientOptions, Packet, UdpSession};
 pub(crate) fn register(registry: &mut OutboundRegistry) {
     registry.register(
         "hysteria2",
-        OutboundFactory::standalone(build).with_blocks(Blocks::DIAL),
+        OutboundFactory::standalone(build).with_blocks(Blocks::DIALER),
     );
 }
 

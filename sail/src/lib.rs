@@ -410,6 +410,9 @@ impl RuntimeManager {
             .prepare_resources(&config.inbounds)
             .map_err(Error::Config)?;
         let dial_defaults = dial_defaults(&config, &self.env).map_err(Error::Config)?;
+        // The detours of DNS servers and HTTP clients find the outbounds
+        // that replace these.
+        dial_defaults.env.outbounds.set(&self.outbound_manager);
         // What is built from here on keeps its state in the new cache file;
         // a reload that fails puts the old one back.
         let cache_file = self

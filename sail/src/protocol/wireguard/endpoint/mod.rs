@@ -80,14 +80,13 @@ pub(crate) fn register(registry: &mut EndpointRegistry) {
 
 fn build(ctx: &mut OutboundContext<'_>) -> Result<BuiltEndpoint> {
     let options: WireGuardOptions = ctx.options()?;
-    let settings = Settings::parse(&options, ctx.detour.is_some())
+    let settings = Settings::parse(&options, ctx.dialer.detour().is_some())
         .map_err(|e| anyhow!("[{}] endpoint: {}", ctx.tag, e))?;
     let (running_tx, running_rx) = watch::channel(None);
     let shared = Arc::new(Shared {
         tag: ctx.tag.to_string(),
         settings,
         dialer: ctx.dialer.clone(),
-        detour: ctx.detour.clone(),
         dns_client: ctx.dns_client.clone(),
         netstack: ctx.env.options.netstack.clone(),
         started: AtomicBool::new(false),
@@ -109,8 +108,8 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<BuiltEndpoint> {
 struct Shared {
     tag: String,
     settings: Settings,
+    /// Its sockets, or its detour's datagrams.
     dialer: Dialer,
-    detour: Option<AnyOutboundHandler>,
     dns_client: SyncDnsClient,
     netstack: Netstack,
     started: AtomicBool,
@@ -231,7 +230,7 @@ impl Shared {
     }
 
     async fn transport(&self, peers: &[Option<SocketAddr>]) -> io::Result<Arc<dyn Transport>> {
-        if let Some(detour) = &self.detour {
+        if self.dialer.detour().is_some() {
             let first = self
                 .settings
                 .peers
@@ -244,7 +243,7 @@ impl Shared {
                 .expect("checked: a detour has a peer to send to");
             return Ok(Arc::new(DetourTransport::new(
                 &self.tag,
-                detour.clone(),
+                self.dialer.clone(),
                 self.dns_client.clone(),
                 first,
             )));
