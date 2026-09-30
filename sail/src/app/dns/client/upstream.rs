@@ -168,6 +168,10 @@ pub(super) struct Upstream {
     /// certificate is verified against `server_name` all the same.
     #[cfg(feature = "tls")]
     disable_sni: bool,
+    /// The versions offered and the keys pinned, `tls.min_version`,
+    /// `tls.max_version` and `tls.certificate_public_key_sha256`.
+    #[cfg(feature = "tls")]
+    pub(super) tls_options: crate::transport::tls::ClientOptions,
     /// The TLS client of DoT and DoH, built on first use.
     #[cfg(feature = "tls")]
     tls_client: std::sync::OnceLock<std::result::Result<crate::transport::tls::TlsClient, String>>,
@@ -248,6 +252,8 @@ impl Upstream {
         let mut identity = None;
         #[cfg(feature = "tls")]
         let mut disable_sni = false;
+        #[cfg(feature = "tls")]
+        let mut tls_options = crate::transport::tls::ClientOptions::default();
         #[allow(unused_mut)]
         let mut utls = None;
         if let Some(tls) = tls {
@@ -269,6 +275,7 @@ impl Upstream {
                     .map_err(|e| anyhow!("tls.{}", e))?
                     .map(Arc::new);
                 disable_sni = tls.disable_sni;
+                tls_options = tls.client_options().map_err(|e| anyhow!("tls.{}", e))?;
                 // Browsers send the name of a domain: a ClientHello without
                 // it is one no browser sends, as for TLS outbounds.
                 if disable_sni && tls.utls.as_ref().is_some_and(|u| u.enabled) {
@@ -279,7 +286,12 @@ impl Upstream {
                 }
             }
             #[cfg(not(feature = "tls"))]
-            if tls.disable_sni || tls.has_client_certificate() {
+            if tls.disable_sni
+                || tls.has_client_certificate()
+                || tls.min_version.is_some()
+                || tls.max_version.is_some()
+                || tls.certificate_public_key_sha256.is_some()
+            {
                 return Err(anyhow!(
                     "tls: needs the tls feature, which is not compiled in"
                 ));
@@ -310,6 +322,22 @@ impl Upstream {
             None if protocol == Protocol::Https => Some(crate::transport::tls::Fingerprint::Chrome),
             None => None,
         };
+        // A browser's ClientHello offers the browser's versions, as for TLS
+        // outbounds; QUIC is TLS 1.3 only.
+        #[cfg(feature = "tls")]
+        if fingerprint.is_some() {
+            if let Some(tls) = tls {
+                let context = format!("dns server {}://{}", protocol.scheme(), address);
+                tls_options = tls
+                    .stream_options(&context)
+                    .map_err(|e| anyhow!("tls.{}", e))?;
+            }
+        } else if matches!(protocol, Protocol::Quic | Protocol::H3) {
+            tls_options
+                .versions
+                .require_tls13(protocol.scheme())
+                .map_err(|e| anyhow!("tls.{}", e))?;
+        }
         #[cfg(feature = "tls")]
         if let Some(certificate) = &certificate {
             crate::transport::tls::client::load_certificates(certificate)
@@ -334,6 +362,8 @@ impl Upstream {
             #[cfg(feature = "tls")]
             disable_sni,
             #[cfg(feature = "tls")]
+            tls_options,
+            #[cfg(feature = "tls")]
             tls_client: Default::default(),
             #[cfg(feature = "tls")]
             roots: env.tls_roots.get()?,
@@ -346,13 +376,14 @@ impl Upstream {
     fn tls_client(&self) -> Result<&crate::transport::tls::TlsClient> {
         self.tls_client
             .get_or_init(|| {
-                crate::transport::tls::TlsClient::with_identity(
+                crate::transport::tls::TlsClient::with_options(
                     &[],
                     self.certificate.as_deref(),
                     self.insecure,
                     self.fingerprint,
                     &self.roots,
                     self.identity.as_deref(),
+                    &self.tls_options,
                 )
                 .map(|client| {
                     if self.disable_sni {

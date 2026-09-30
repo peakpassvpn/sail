@@ -92,10 +92,11 @@ impl Pool {
         insecure: bool,
         roots: &crate::transport::tls::roots::Roots,
         identity: Option<&Identity>,
+        options: &crate::transport::tls::ClientOptions,
     ) -> Result<quinn::ClientConfig> {
         self.client_config
             .get_or_init(|| {
-                build_client_config(self.kind, certificate, insecure, roots, identity)
+                build_client_config(self.kind, certificate, insecure, roots, identity, options)
                     .map_err(|e| e.to_string())
             })
             .clone()
@@ -109,9 +110,11 @@ fn build_client_config(
     insecure: bool,
     roots: &crate::transport::tls::roots::Roots,
     identity: Option<&Identity>,
+    options: &crate::transport::tls::ClientOptions,
 ) -> Result<quinn::ClientConfig> {
     // As for TLS: the instance's roots, or `certificate` instead.
     let mut crypto = client_crypto(certificate, insecure, &[kind.alpn().to_vec()], roots)?;
+    options.apply_quic(&mut crypto)?;
     if let Some(identity) = identity {
         present(&mut crypto, identity)?;
     }
@@ -207,6 +210,7 @@ impl DnsClient {
             upstream.insecure,
             &upstream.roots,
             upstream.identity.as_deref(),
+            &upstream.tls_options,
         )?;
         let dialer = &upstream.dialer;
         let mut endpoint = if dialer.is_direct() {

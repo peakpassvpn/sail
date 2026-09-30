@@ -92,8 +92,6 @@ const NETWORKS: &str =
 const PROTECT: &str =
     "Android's socket protection and Linux network namespaces: sockets would leave another way";
 const SOCKET: &str = "Socket tuning: connections go the same way without it";
-const TLS_VERSIONS: &str =
-    "TLS versions and cipher suites: sail's TLS would negotiate others than asked";
 const TLS_CIPHERS: &str =
     "TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked";
 const TLS_TUNING: &str =
@@ -290,19 +288,12 @@ pub const GROUPS: &[Group] = &[
         &["dns.servers.*.domain_resolver", "dns.servers.*.domain_strategy"],
     ),
     g(
-        TLS_VERSIONS,
+        TLS_CIPHERS,
         Unsupported,
         &[
-            "dns.servers.*.tls.min_version",
-            "dns.servers.*.tls.max_version",
             "dns.servers.*.tls.cipher_suites",
             "dns.servers.*.tls.curve_preferences",
         ],
-    ),
-    g(
-        "Pinning a DNS server's key: a server that should be refused would be taken",
-        Unsupported,
-        &["dns.servers.*.tls.certificate_public_key_sha256"],
     ),
     g(
         TLS_FRAGMENT,

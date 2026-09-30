@@ -23,15 +23,27 @@ const ANSWER: Ipv4Addr = Ipv4Addr::new(10, 0, 0, 7);
 struct Cert {
     cert_pem: String,
     key_pem: String,
+    /// The pin of its key, as `certificate_public_key_sha256` takes it.
+    pin: String,
+}
+
+impl Cert {
+    fn new(names: &[&str]) -> Cert {
+        let ck = rcgen::generate_simple_self_signed(
+            names.iter().map(|n| n.to_string()).collect::<Vec<_>>(),
+        )
+        .unwrap();
+        Cert {
+            cert_pem: ck.cert.pem(),
+            key_pem: ck.key_pair.serialize_pem(),
+            pin: btls::base64::encode_block(&btls::sha::sha256(&ck.key_pair.public_key_der())),
+        }
+    }
 }
 
 /// A self-signed certificate for `localhost`.
 fn cert() -> Cert {
-    let ck = rcgen::generate_simple_self_signed(vec!["localhost".to_string()]).unwrap();
-    Cert {
-        cert_pem: ck.cert.pem(),
-        key_pem: ck.key_pair.serialize_pem(),
-    }
+    Cert::new(&["localhost"])
 }
 
 /// Answers `query` with `ANSWER`; `None` when it is not a query.
@@ -410,11 +422,7 @@ async fn dot_rejects_a_certificate_for_another_name() {
 /// A client certificate, self-signed: the server trusts it as its own
 /// issuer.
 fn client_cert() -> Cert {
-    let ck = rcgen::generate_simple_self_signed(vec!["client".to_string()]).unwrap();
-    Cert {
-        cert_pem: ck.cert.pem(),
-        key_pem: ck.key_pair.serialize_pem(),
-    }
+    Cert::new(&["client"])
 }
 
 /// `server`, presenting `identity` as its client certificate.
@@ -476,6 +484,84 @@ async fn doq_presents_its_client_certificate() {
         vec![IpAddr::V4(ANSWER)]
     );
     assert_eq!(counters.queries.load(Ordering::SeqCst), 1);
+}
+
+/// A server pinned by its key is trusted without the certificate, and one
+/// with another key is refused, over TCP and QUIC alike.
+#[tokio::test(flavor = "multi_thread")]
+async fn dot_and_doq_take_the_server_by_its_pinned_key() {
+    let cert = cert();
+    let (dot, dot_counters) = start_dot_server(&cert, false);
+    let (doq, doq_counters) = start_doq_server(&cert);
+    let pinned = |kind: &str, port: u16, pin: &str| {
+        let mut server = server(kind, port, None);
+        server["tls"]["certificate_public_key_sha256"] = serde_json::json!([pin]);
+        server
+    };
+    for (kind, port) in [("tls", dot), ("quic", doq)] {
+        let right = client(&[pinned(kind, port, &cert.pin)], None);
+        assert_eq!(
+            lookup(&right, "a.example").await.unwrap(),
+            vec![IpAddr::V4(ANSWER)],
+            "{}",
+            kind
+        );
+        let other = Cert::new(&["localhost"]).pin;
+        let wrong = client(&[pinned(kind, port, &other)], None);
+        assert!(lookup(&wrong, "b.example").await.is_err(), "{}", kind);
+    }
+    assert_eq!(dot_counters.queries.load(Ordering::SeqCst), 1);
+    assert_eq!(doq_counters.queries.load(Ordering::SeqCst), 1);
+}
+
+/// A server's TLS versions: the range DoT asks for is taken, one that DoT
+/// cannot reach fails, and QUIC, TLS 1.3 only, refuses a range without it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_server_offers_the_tls_versions_it_is_given() {
+    let cert = cert();
+    let (port, counters) = start_dot_server(&cert, false);
+    let mut v12 = server("tls", port, None);
+    v12["tls"]["max_version"] = "1.2".into();
+    let v12 = client(&[v12], Some(&cert));
+    assert_eq!(
+        lookup(&v12, "a.example").await.unwrap(),
+        vec![IpAddr::V4(ANSWER)]
+    );
+    assert_eq!(counters.queries.load(Ordering::SeqCst), 1);
+
+    let error = |server: serde_json::Value| {
+        let config = config::Config::from_json(
+            &serde_json::json!({ "dns": { "servers": [server] } }).to_string(),
+        )
+        .unwrap();
+        DnsClient::new(
+            &config.dns,
+            Arc::new(DialDefaults::default()),
+            &Default::default(),
+        )
+        .err()
+        .map(|e| format!("{:#}", e))
+        .unwrap_or_default()
+    };
+    let err = error(serde_json::json!({
+        "type": "quic", "tag": "q", "server": "127.0.0.1",
+        "tls": { "max_version": "1.2" }
+    }));
+    assert!(
+        err.contains("max_version") && err.contains("1.3"),
+        "{}",
+        err
+    );
+    let err = error(serde_json::json!({
+        "type": "tls", "tag": "t", "server": "127.0.0.1",
+        "tls": { "min_version": "1.4" }
+    }));
+    assert!(err.contains("tls.min_version"), "{}", err);
+    let err = error(serde_json::json!({
+        "type": "tls", "tag": "t", "server": "127.0.0.1",
+        "tls": { "certificate": cert.cert_pem, "certificate_public_key_sha256": [cert.pin] }
+    }));
+    assert!(err.contains("certificate_public_key_sha256"), "{}", err);
 }
 
 #[test]
