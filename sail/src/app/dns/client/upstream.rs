@@ -239,6 +239,12 @@ impl Upstream {
             if tls.ech.is_some() {
                 return Err(anyhow!("tls.ech: not for a dns server"));
             }
+            if tls.disable_sni {
+                return Err(anyhow!("tls.disable_sni: not for a dns server yet"));
+            }
+            if tls.has_client_certificate() {
+                return Err(anyhow!("tls.client_certificate: not for a dns server yet"));
+            }
             if tls.alpn.is_some() {
                 return Err(anyhow!(
                     "tls.alpn: a {} server offers its own",
