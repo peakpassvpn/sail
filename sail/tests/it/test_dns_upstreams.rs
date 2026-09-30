@@ -354,7 +354,10 @@ fn client_with(
     let config = config::Config::from_json(
         // A queries alone, which the servers here count.
         &serde_json::json!({
-            "dns": { "servers": servers, "timeout": "3s", "strategy": "ipv4_only" }
+            // Room for a TLS or QUIC handshake emulated under qemu, which
+            // took more than 3 s in CI; a failing server fails at once, so
+            // no test waits for it.
+            "dns": { "servers": servers, "timeout": "30s", "strategy": "ipv4_only" }
         })
         .to_string(),
     )
