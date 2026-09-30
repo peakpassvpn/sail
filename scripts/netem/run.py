@@ -337,6 +337,7 @@ class Run:
         if self.client.startswith("sail"):
             profile = self.client.split("-", 1)[1]
             cmd = f"{self.args.sail} -c {path} --profile {profile}"
+            cmd += "".join(f" --set {setting}" for setting in self.args.client_set)
         else:
             cmd = f"{self.args.singbox} run -c {path}"
         self.procs["client"] = Proc("client", CLIENT_NS, cmd, log,
@@ -572,6 +573,9 @@ def main():
     ap.add_argument("--netgen", default="netem-work/netgen")
     ap.add_argument("--protocols", default="direct,ss,trojan")
     ap.add_argument("--clients", default="sail-server,sail-mobile,sing-box")
+    ap.add_argument("--client-set", action="append", default=[], metavar="KEY=VALUE",
+                    help="a runtime option for a sail client under test, as sail's --set; "
+                         "repeatable")
     ap.add_argument("--inbound", choices=["socks", "tun"], default="socks",
                     help="how traffic reaches the client: its SOCKS inbound, or a TUN "
                          "with auto_route that takes the namespace's traffic")
