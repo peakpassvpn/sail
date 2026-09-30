@@ -100,13 +100,21 @@ fn connections_go_the_way_the_network_calls_for() -> anyhow::Result<()> {
                 .ok_or_else(|| anyhow::anyhow!("at home: refused"))?;
             anyhow::ensure!(echoes(&mut open).await, "at home: direct");
 
-            // On cellular the rule rejects new connections; the one open
-            // stays.
+            // Another access point of the same network: a roam, which the
+            // connection open survives.
+            sail::set_network_state(id, r#"{ "type": "wifi", "ssid": "Home 5G" }"#)?;
+            anyhow::ensure!(
+                echoes(&mut open).await,
+                "the connection open survives a roam"
+            );
+
+            // On cellular the rule rejects new connections, and the one
+            // open, made on the network before, is closed (2.12).
             sail::set_network_state(id, r#"{ "type": "cellular", "mcc_mnc": "46001" }"#)?;
             anyhow::ensure!(!reaches(port, echo).await, "on cellular: rejected");
             anyhow::ensure!(
-                echoes(&mut open).await,
-                "the connection open before the change still relays"
+                !echoes(&mut open).await,
+                "the connection open before the change is closed"
             );
             anyhow::Ok(())
         });
