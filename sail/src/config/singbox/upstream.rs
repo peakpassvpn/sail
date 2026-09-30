@@ -237,13 +237,13 @@ pub const FIELDS: &[Field] = &[
     f("*.*.tls.max_version", Unsupported),
     f("*.*.tls.cipher_suites", Unsupported),
     f("*.*.tls.curve_preferences", Unsupported),
-    f("*.*.tls.client_certificate", Unsupported),
-    f("*.*.tls.client_certificate_path", Unsupported),
     f("*.*.tls.kernel_tx", Ignored),
     f("*.*.tls.kernel_rx", Ignored),
     f("*.*.tls.handshake_timeout", Ignored),
-    // Inbound TLS.
+    // Inbound TLS: verifying clients' certificates.
     f("inbounds.*.tls.client_authentication", Unsupported),
+    f("inbounds.*.tls.client_certificate", Unsupported),
+    f("inbounds.*.tls.client_certificate_path", Unsupported),
     f(
         "inbounds.*.tls.client_certificate_public_key_sha256",
         Unsupported,
@@ -253,10 +253,7 @@ pub const FIELDS: &[Field] = &[
     f("inbounds.*.tls.ech", Unsupported),
     // Outbound TLS.
     f("outbounds.*.tls.engine", Ignored),
-    f("outbounds.*.tls.disable_sni", Unsupported),
     f("outbounds.*.tls.certificate_public_key_sha256", Unsupported),
-    f("outbounds.*.tls.client_key", Unsupported),
-    f("outbounds.*.tls.client_key_path", Unsupported),
     f("outbounds.*.tls.fragment", Unsupported),
     f("outbounds.*.tls.fragment_fallback_delay", Unsupported),
     f("outbounds.*.tls.record_fragment", Unsupported),

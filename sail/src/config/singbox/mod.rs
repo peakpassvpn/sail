@@ -502,6 +502,30 @@ mod tests {
     }
 
     #[test]
+    fn outbound_client_certificates_and_disable_sni_pass_through() {
+        let config = parse(
+            r#"{ "outbounds": [{ "type": "trojan", "server": "a", "server_port": 443,
+                 "password": "p", "tls": { "enabled": true, "disable_sni": true,
+                 "client_certificate_path": "c.crt", "client_key_path": "c.key" } }] }"#,
+        )
+        .unwrap();
+        assert!(config.warnings.is_empty());
+        let tls = &config.outbounds[0].options["tls"];
+        assert_eq!(tls["disable_sni"], true);
+        assert_eq!(tls["client_key_path"], "c.key");
+        // An inbound verifying clients' certificates is another matter.
+        let err = parse(
+            r#"{ "inbounds": [{ "type": "trojan", "listen_port": 443, "users": [],
+                 "tls": { "enabled": true, "client_certificate_path": ["ca.crt"] } }] }"#,
+        )
+        .unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "inbounds[0].tls.client_certificate_path: sail does not implement this field yet"
+        );
+    }
+
+    #[test]
     fn dial_fields_sail_implements_pass_through() {
         let config = parse(
             r#"{ "outbounds": [{ "type": "direct", "inet4_bind_address": "192.0.2.1",
