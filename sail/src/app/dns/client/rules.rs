@@ -205,6 +205,7 @@ impl DnsClient {
                 .with_response(Arc::new(response.clone())),
             None => self.with_network(
                 Facts::new(&Self::session(host, ctx), &[]).with_query_type(ty.into()),
+                ctx,
             ),
         }
     }
@@ -222,14 +223,29 @@ impl DnsClient {
             Facts::new(&Self::session(host, ctx), ips)
                 .with_rcode(u16::from(rcode))
                 .with_query_type(ty.into()),
+            ctx,
         )
     }
 
-    /// `facts`, with the network the host is on now, when a rule needs it.
-    fn with_network(&self, facts: Facts) -> Facts {
+    /// `facts`, with the network the host is on, when a rule needs it: as
+    /// the lookup began, or now for one that took none.
+    fn with_network(&self, facts: Facts, ctx: &LookupContext) -> Facts {
+        match (&self.network, &ctx.network) {
+            (Some(_), Some(state)) => facts.with_network(state.clone()),
+            (Some(network), None) => facts.with_network(network.snapshot()),
+            (None, _) => facts,
+        }
+    }
+
+    /// `ctx` with the network as it is now, when a rule needs it and `ctx`
+    /// has none: every rule of a lookup then matches one network.
+    pub(super) fn pinned<'a>(&self, ctx: &'a LookupContext) -> std::borrow::Cow<'a, LookupContext> {
         match &self.network {
-            Some(network) => facts.with_network(network.snapshot()),
-            None => facts,
+            Some(network) if ctx.network.is_none() => std::borrow::Cow::Owned(LookupContext {
+                network: Some(network.snapshot()),
+                ..ctx.clone()
+            }),
+            _ => std::borrow::Cow::Borrowed(ctx),
         }
     }
 

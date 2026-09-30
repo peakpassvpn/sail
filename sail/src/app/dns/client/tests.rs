@@ -320,6 +320,18 @@ mod tests {
             ips(&["192.168.1.2", "fd00::2"])
         );
         assert!(!with_rules(serde_json::json!([])).unwrap().needs_network());
+
+        // A lookup matches the network as it began, whatever comes after.
+        env.network.push(Default::default());
+        let ctx = client.pinned(&Default::default()).into_owned();
+        env.network.push(crate::net::network::NetworkState {
+            ssid: Some("Home".into()),
+            ..Default::default()
+        });
+        assert_eq!(
+            client.lookup_in("nas.home.arpa", &ctx).await.unwrap(),
+            ips(&["203.0.113.9"])
+        );
     }
 
     #[tokio::test]

@@ -749,6 +749,7 @@ impl Router {
                         outbound: None,
                         strategy: how.strategy,
                         options: how.options.clone(),
+                        ..Default::default()
                     };
                     dns.lookup_in(domain, &ctx).await
                 }

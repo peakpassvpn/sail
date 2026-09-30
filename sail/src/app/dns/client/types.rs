@@ -146,6 +146,9 @@ pub struct LookupContext {
     /// How the queries are sent, before the rules' route options: a
     /// routing rule's `resolve` says.
     pub options: LookupOptions,
+    /// The network the host is on as the lookup began, which every rule
+    /// of it matches: the client takes it, when a rule needs it.
+    pub network: Option<Arc<crate::net::network::NetworkState>>,
 }
 
 /// How a lookup's queries are sent, as a routing rule's `resolve` says.

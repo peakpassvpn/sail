@@ -898,6 +898,7 @@ impl DnsClient {
     }
 
     async fn answer(&self, request: &Message, ctx: &LookupContext) -> Message {
+        let ctx = &*self.pinned(ctx);
         let Some(query) = request.queries().first() else {
             return Self::status(request, ResponseCode::FormErr);
         };
@@ -963,6 +964,7 @@ impl DnsClient {
         if let Ok(ip) = host.parse::<IpAddr>() {
             return Ok(vec![ip]);
         }
+        let ctx = &*self.pinned(ctx);
         let strategy = self.lookup_strategy(host, ctx);
         self.lookup_by(host, strategy, By::Rules(ctx)).await
     }
