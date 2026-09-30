@@ -997,12 +997,10 @@ mod tests {
             }"#,
         )
         .unwrap();
+        // `endpoint_independent_nat: false` is unset, as in sing-box.
         assert_eq!(
             config.warnings,
-            [
-                "inbounds[0].stack: sail does not implement this field; ignored",
-                "inbounds[0].endpoint_independent_nat: sail does not implement this field; ignored",
-            ]
+            ["inbounds[0].stack: sail does not implement this field; ignored"]
         );
         let settings = options(&config.inbounds[0]).unwrap();
         assert_eq!(settings.name, "tun0");

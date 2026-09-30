@@ -1102,7 +1102,8 @@
     "warnings": 0
   },
   "sing-box/0117.json": {
-    "error": "outbounds[0].tls.ech.config_path: sail does not implement this field yet"
+    "ok": true,
+    "warnings": 2
   },
   "sing-box/0118.json": {
     "ok": true,

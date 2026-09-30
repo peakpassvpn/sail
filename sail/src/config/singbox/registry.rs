@@ -420,7 +420,9 @@ fn measured_at(path: &str) -> String {
 /// and what it said.
 fn measure(config: &Value, path: &str) -> (Measured, String) {
     let text = config.to_string();
-    let message = match super::parse(&text) {
+    // A sample that is a zero value is set all the same: sail takes it as
+    // unset, so it would measure nothing.
+    let message = match super::read(&text, false) {
         Err(e) => format!("{:#}", e),
         Ok(config) if !config.warnings.is_empty() => {
             return (Measured::Ignored, config.warnings.join("; "));

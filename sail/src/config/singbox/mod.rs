@@ -27,10 +27,16 @@ use upstream::Tier;
 
 /// Reads a sing-box configuration.
 pub fn parse(s: &str) -> Result<Config> {
+    read(s, true)
+}
+
+/// `parse`; a field of `upstream` set to its zero value is unset, as in
+/// sing-box, unless `zero_unset` is false, which takes it as set.
+fn read(s: &str, zero_unset: bool) -> Result<Config> {
     // Comments and trailing commas, as sing-box takes them.
     let s = jsonc::strip(s);
     let mut value: Value = serde_json::from_str(&s).map_err(|e| anyhow!("{}", e))?;
-    let warnings = sort_out(&mut value)?;
+    let warnings = sort_out(&mut value, zero_unset)?;
     let mut config: Config = serde_path_to_error::deserialize(value)
         .map_err(|e| anyhow!("{}: {}", super::model::path(&e), e.inner()))?;
     config.validate()?;
@@ -46,8 +52,10 @@ impl Config {
 }
 
 /// Fails on the first field or value sail does not implement and cannot
-/// ignore, and drops, with a warning each, those it can.
-fn sort_out(value: &mut Value) -> Result<Vec<String>> {
+/// ignore, and drops, with a warning each, those it can. One set to its
+/// zero value (`""`, `false`, `0`, `[]`, `{}`) sing-box takes as unset:
+/// dropped without a word, when `zero_unset`.
+fn sort_out(value: &mut Value, zero_unset: bool) -> Result<Vec<String>> {
     for (path, values) in upstream::VALUES {
         for (at, found) in find(value, path) {
             let names: Vec<&str> = match &found {
@@ -63,12 +71,16 @@ fn sort_out(value: &mut Value) -> Result<Vec<String>> {
     let mut warnings = services(value)?;
     for group in upstream::GROUPS {
         for path in group.paths {
-            for (at, _) in find(value, path) {
+            for (at, found) in find(value, path) {
                 let kind = entry_type(value, path, &at);
                 if !group.types.is_empty() && !kind.is_some_and(|k| group.types.contains(&k)) {
                     continue;
                 }
                 if implemented_for(path, kind) {
+                    continue;
+                }
+                if zero_unset && zero(&found) {
+                    remove(value, &at);
                     continue;
                 }
                 match group.tier {
@@ -99,6 +111,19 @@ fn sort_out(value: &mut Value) -> Result<Vec<String>> {
         }
     }
     Ok(warnings)
+}
+
+/// Whether `value` is the zero value of its type, which sing-box's options
+/// take as unset.
+fn zero(value: &Value) -> bool {
+    match value {
+        Value::Null => true,
+        Value::Bool(b) => !b,
+        Value::Number(n) => n.as_f64() == Some(0.0),
+        Value::String(s) => s.is_empty(),
+        Value::Array(a) => a.is_empty(),
+        Value::Object(o) => o.is_empty(),
+    }
 }
 
 /// Drops the services sail can do without, with a warning each, and fails
@@ -307,6 +332,32 @@ mod tests {
             ]
         );
         assert!(!config.outbounds[0].options.contains_key("tcp_fast_open"));
+    }
+
+    #[test]
+    fn a_zero_value_is_unset() {
+        let config = parse(
+            r#"{ "inbounds": [{ "type": "socks", "listen_port": 1080, "detour": "",
+                   "tcp_fast_open": false, "udp_nat_max": 0 }],
+                 "outbounds": [{ "type": "trojan", "server": "a", "server_port": 443,
+                   "password": "p", "network": "", "tls": { "enabled": true,
+                   "min_version": "", "cipher_suites": [], "ech": { "enabled": true,
+                   "config_path": "" } } }],
+                 "ntp": {} }"#,
+        )
+        .unwrap();
+        assert!(config.warnings.is_empty(), "{:?}", config.warnings);
+        let tls = &config.outbounds[0].options["tls"];
+        assert!(tls.get("min_version").is_none() && tls["ech"].get("config_path").is_none());
+        assert!(!config.inbounds[0].options.contains_key("detour"));
+        // Set, it is what it was.
+        let err =
+            parse(r#"{ "inbounds": [{ "type": "socks", "listen_port": 1080, "detour": "x" }] }"#)
+                .unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "inbounds[0].detour: sail does not implement this field yet"
+        );
     }
 
     #[test]
