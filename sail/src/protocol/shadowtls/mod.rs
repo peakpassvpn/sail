@@ -56,6 +56,7 @@ const TAGGED_HEADER_LEN: usize = HEADER_LEN + TAG_LEN;
 const HANDSHAKE: u8 = 22;
 const ALERT: u8 = 21;
 const APPLICATION_DATA: u8 = 23;
+#[cfg_attr(not(feature = "inbound-shadowtls"), allow(dead_code))]
 const CLIENT_HELLO: u8 = 1;
 const SERVER_HELLO: u8 = 2;
 
@@ -109,6 +110,7 @@ fn xor(data: &mut [u8], key: &[u8; 32]) {
 /// The session ID a client sends: 28 random bytes, then the tag of the
 /// ClientHello message `hello` (with its four-byte header) as it is with
 /// those 28 bytes and four zeros for a session ID.
+#[cfg_attr(not(feature = "outbound-shadowtls"), allow(dead_code))]
 pub(crate) fn session_id(password: &[u8], hello: &[u8], random: [u8; 28]) -> io::Result<[u8; 32]> {
     // The handshake header, the version, the random and the length.
     const AT: usize = 4 + 2 + RANDOM_LEN + 1;
@@ -126,6 +128,7 @@ pub(crate) fn session_id(password: &[u8], hello: &[u8], random: [u8; 28]) -> io:
 }
 
 /// Which of `passwords` signed the ClientHello record `frame`, by index.
+#[cfg_attr(not(feature = "inbound-shadowtls"), allow(dead_code))]
 pub(crate) fn authenticate<'a>(
     frame: &[u8],
     passwords: impl IntoIterator<Item = &'a [u8]>,
@@ -201,6 +204,7 @@ pub(crate) fn picks_tls13(frame: &[u8]) -> bool {
 }
 
 /// The server name a ClientHello record asks for, empty without one.
+#[cfg_attr(not(feature = "inbound-shadowtls"), allow(dead_code))]
 pub(crate) fn server_name(frame: &[u8]) -> Option<String> {
     let body = frame.get(HEADER_LEN..)?;
     if *body.first()? != CLIENT_HELLO {
