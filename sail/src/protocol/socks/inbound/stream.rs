@@ -18,6 +18,16 @@ use crate::{
 /// its own, and a client that sends more is not one to hold memory for.
 const MAX_SOCKS4_FIELD: usize = 1024;
 
+/// SOCKS5 reply codes (RFC 1928, section 6).
+const REP_GENERAL_FAILURE: u8 = 0x01;
+const REP_COMMAND_NOT_SUPPORTED: u8 = 0x07;
+
+/// A SOCKS5 reply refusing a request with `code`: no address is bound, so
+/// BND.ADDR and BND.PORT are an IPv4 zero.
+const fn socks5_reply(code: u8) -> [u8; 10] {
+    [0x05, code, 0x00, 0x01, 0, 0, 0, 0, 0, 0]
+}
+
 /// Reads a SOCKS4 field up to its NUL, without the NUL.
 async fn read_nul_terminated(stream: &mut AnyStream) -> io::Result<Vec<u8>> {
     let mut field = Vec::new();
@@ -222,21 +232,26 @@ impl Handler {
         buf.resize(3, 0);
         // ver, cmd, rsv
         stream.read_exact(&mut buf[..]).await?;
+        // Not a SOCKS5 request at all: no SOCKS5 reply means anything to
+        // its sender, and none is sent, as sing-box sends none.
         if buf[0] != 0x05 {
-            // TODO reply?
             return Err(io::Error::other(format!(
                 "unknown socks version {}",
                 buf[0]
             )));
         }
+        // RSV must be zero (RFC 1928): a malformed request is a failure.
         if buf[2] != 0x0 {
-            // TODO reply?
+            stream.write_all(&socks5_reply(REP_GENERAL_FAILURE)).await?;
             return Err(io::Error::other("non-zero socks5 reserved field"));
         }
         let cmd = buf[1];
-        // connect, udp associate
+        // connect, udp associate; BIND, or anything else, is answered as
+        // not supported (RFC 1928, as sing-box answers it).
         if cmd != 0x01 && cmd != 0x03 {
-            // TODO reply?
+            stream
+                .write_all(&socks5_reply(REP_COMMAND_NOT_SUPPORTED))
+                .await?;
             return Err(io::Error::other(format!("unsupported socks5 cmd {}", cmd)));
         }
 
@@ -256,8 +271,7 @@ impl Handler {
                 Ok(InboundTransport::Stream(stream, sess))
             }
             0x03 => {
-                // General SOCKS server failure.
-                const FAILURE: [u8; 10] = [0x05, 0x01, 0x00, 0x01, 0, 0, 0, 0, 0, 0];
+                const FAILURE: [u8; 10] = socks5_reply(REP_GENERAL_FAILURE);
                 let Some(slot) = self.associations.acquire() else {
                     stream.write_all(&FAILURE).await?;
                     return Err(io::Error::other(
@@ -369,6 +383,47 @@ mod tests {
             assert_eq!(sess.destination.to_string(), "127.0.0.1:80");
             assert_eq!(&answer[..4], &[0x05, 0x02, 0x01, 0x00]);
         }
+    }
+
+    fn socks5_no_auth(request: &[u8]) -> Vec<u8> {
+        let mut bytes = vec![0x05, 0x01, 0x00];
+        bytes.extend_from_slice(request);
+        bytes
+    }
+
+    fn open_handler() -> Handler {
+        Handler::new(crate::user::passwords(&[]), Default::default(), None)
+    }
+
+    #[tokio::test]
+    async fn an_unsupported_command_is_answered_so() {
+        // BIND 127.0.0.1:80
+        let request = socks5_no_auth(&[0x05, 0x02, 0x00, 0x01, 127, 0, 0, 1, 0, 80]);
+        let (result, answer) = run(open_handler(), &request).await;
+        assert!(result.is_err());
+        assert_eq!(
+            answer,
+            [0x05, 0x00, 0x05, 0x07, 0x00, 0x01, 0, 0, 0, 0, 0, 0]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_non_zero_reserved_field_is_a_failure() {
+        let request = socks5_no_auth(&[0x05, 0x01, 0x01, 0x01, 127, 0, 0, 1, 0, 80]);
+        let (result, answer) = run(open_handler(), &request).await;
+        assert!(result.is_err());
+        assert_eq!(
+            answer,
+            [0x05, 0x00, 0x05, 0x01, 0x00, 0x01, 0, 0, 0, 0, 0, 0]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_request_of_another_version_gets_no_reply() {
+        let request = socks5_no_auth(&[0x04, 0x01, 0x00, 0x01, 127, 0, 0, 1, 0, 80]);
+        let (result, answer) = run(open_handler(), &request).await;
+        assert!(result.is_err());
+        assert_eq!(answer, [0x05, 0x00]);
     }
 
     #[tokio::test]
