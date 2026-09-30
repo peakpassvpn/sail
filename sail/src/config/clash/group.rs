@@ -323,6 +323,19 @@ fn group(f: &mut Fields, cx: &Context, warnings: &mut Vec<String>) -> Result<Val
             o.insert("type".into(), json!("selector"));
             f.take("url");
             f.take("interval");
+            // Where it starts, a member or a provider's; Mihomo starts on
+            // the first when there is none so named.
+            let at = f.at("default-selected");
+            if let Some(default) = f.string("default-selected")?.filter(|d| !d.is_empty()) {
+                if members.contains(&default) || !providers.is_empty() {
+                    o.insert("default".into(), json!(default));
+                } else {
+                    warnings.push(format!(
+                        "{}: {:?} is no member; the first is chosen, as in Mihomo",
+                        at, default
+                    ));
+                }
+            }
         }
         "url-test" => {
             o.insert("type".into(), json!("urltest"));

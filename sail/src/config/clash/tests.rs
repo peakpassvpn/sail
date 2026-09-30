@@ -2133,3 +2133,23 @@ fn pass_leaves_a_rule_for_the_next() {
         );
     }
 }
+
+#[test]
+fn a_select_group_starts_on_its_default_selected() {
+    let config = load(
+        "proxies: [{ name: A, type: socks5, server: a, port: 1 }]\n\
+         proxy-groups:\n\
+         - { name: G, type: select, proxies: [DIRECT, A], default-selected: A }\n\
+         - { name: H, type: select, proxies: [DIRECT, A], default-selected: B }\n",
+    );
+    assert_eq!(outbound(&config, "G").options["default"], "A");
+    assert!(outbound(&config, "H").options.get("default").is_none());
+    assert!(
+        config
+            .warnings
+            .iter()
+            .any(|w| w.contains("default-selected: \"B\" is no member")),
+        "{:?}",
+        config.warnings
+    );
+}

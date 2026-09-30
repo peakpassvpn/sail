@@ -55,6 +55,8 @@ pub const OVERRIDE_NAMES: &[&str] = &[
 ];
 
 const PROVIDER: &[(&str, Tier)] = &[
+    // Read by inline ones alone, and passed over by the others, as Mihomo.
+    ("payload", Ignored),
     // Groups test their members themselves.
     ("health-check", Ignored),
     ("size-limit", Ignored),

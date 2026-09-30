@@ -127,10 +127,12 @@ impl Proxy {
             }
             "reject" => {
                 o.insert("type".into(), json!("block"));
-                &[]
+                NO_DIAL
             }
             "dns" => {
-                f.finish(&[], |_| false, warnings)?;
+                let mut known = NO_DIAL.to_vec();
+                known.extend_from_slice(DIAL);
+                f.finish(&known, |_| false, warnings)?;
                 return Ok(Proxy {
                     name,
                     outbound: None,
@@ -205,6 +207,14 @@ impl Proxy {
         })
     }
 }
+
+/// The dial fields of a proxy that dials nothing: REJECT's and a DNS
+/// one's, which answer themselves.
+const NO_DIAL: &[(&str, Tier)] = &[
+    ("dialer-proxy", Ignored),
+    ("interface-name", Ignored),
+    ("routing-mark", Ignored),
+];
 
 /// The dial fields every proxy takes but a direct one's server.
 const DIAL: &[(&str, Tier)] = &[
