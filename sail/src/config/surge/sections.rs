@@ -19,7 +19,7 @@ const HTTP: &[&str] = &[
 ];
 
 /// What means nothing where sail runs, or only in Surge's interface.
-const SILENT: &[&str] = &["Replica", "Panel", "Testing", "Keystore"];
+const SILENT: &[&str] = &["Replica", "Panel", "Testing"];
 
 /// Surge's own servers, and its networks' settings.
 const SERVERS: &[(&str, &str)] = &[

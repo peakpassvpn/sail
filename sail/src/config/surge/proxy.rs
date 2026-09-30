@@ -10,6 +10,7 @@ use base64::Engine;
 use serde_json::{json, Map, Value};
 
 use super::general::keys;
+use super::keystore::Keystore;
 use super::params::{Params, Tier};
 use super::text::{self, Line, Profile};
 use super::Lowered;
@@ -85,7 +86,6 @@ const COMMON: &[(&str, Tier)] = &[
 const TLS: &[(&str, Tier)] = &[
     ("server-cert-fingerprint-sha256", Unsupported("")),
     ("server-cert-verify-name", Unsupported("")),
-    ("client-cert", Unsupported(" (C.5d)")),
 ];
 
 /// Every parameter a proxy line may hold, which a value in a place of the
@@ -99,6 +99,7 @@ const KNOWN: &[&str] = &[
     "skip-cert-verify",
     "sni",
     "alpn",
+    "client-cert",
     "username",
     "password",
     "encrypt-method",
@@ -132,6 +133,7 @@ pub fn lower(
     out: &mut Lowered,
     warnings: &mut Vec<String>,
 ) -> Result<Proxies> {
+    let keystore = Keystore::new(profile.take("Keystore"));
     let lines = profile.take("Proxy");
     let sections: HashMap<String, Vec<Line>> =
         profile.take_named("WireGuard").into_iter().collect();
@@ -145,7 +147,10 @@ pub fn lower(
     for line in lines {
         one(
             line,
-            &sections,
+            &Named {
+                sections: &sections,
+                keystore: &keystore,
+            },
             &mut used_sections,
             &mut tested,
             &mut proxies,
@@ -188,9 +193,10 @@ pub struct External {
 
 /// The policies of what a `policy-path` holds, as Surge reads it: a list
 /// of `[Proxy]` lines, or a profile whose `[Proxy]` section, with its
-/// `[WireGuard <name>]` sections, holds them. None when it is neither, no
-/// line of it being a policy. A line that does not read is not taken, as
-/// by Surge; the warnings of those that do are `warnings`.
+/// `[WireGuard <name>]` sections and its `[Keystore]`, holds them. None
+/// when it is neither, no line of it being a policy. A line that does not
+/// read is not taken, as by Surge; the warnings of those that do are
+/// `warnings`.
 #[cfg(feature = "outbound-provider")]
 pub fn external(body: &str, warnings: &mut Vec<String>) -> Result<Option<Vec<External>>> {
     // Not a share link, whose query may read `?type=http`.
@@ -209,6 +215,7 @@ pub fn external(body: &str, warnings: &mut Vec<String>) -> Result<Option<Vec<Ext
         return Ok(None);
     }
     let mut profile = Profile::read_list(body, "Proxy", warnings)?;
+    let keystore = Keystore::new(profile.take("Keystore"));
     let lines = profile.take("Proxy");
     let sections: HashMap<String, Vec<Line>> =
         profile.take_named("WireGuard").into_iter().collect();
@@ -225,7 +232,10 @@ pub fn external(body: &str, warnings: &mut Vec<String>) -> Result<Option<Vec<Ext
         let mut out = Lowered::default();
         let read = one(
             line,
-            &sections,
+            &Named {
+                sections: &sections,
+                keystore: &keystore,
+            },
             &mut Vec::new(),
             &mut Vec::new(),
             &mut proxies,
@@ -249,11 +259,19 @@ pub fn external(body: &str, warnings: &mut Vec<String>) -> Result<Option<Vec<Ext
     Ok(Some(policies))
 }
 
+/// What a proxy line names elsewhere in the profile.
+struct Named<'a> {
+    /// The `[WireGuard <name>]` sections.
+    sections: &'a HashMap<String, Vec<Line>>,
+    /// What `client-cert` names.
+    keystore: &'a Keystore,
+}
+
 /// A `[Proxy]` line, lowered onto `out` and named in `proxies`; a
-/// `wireguard` one of a section of `sections`, which it marks used.
+/// `wireguard` one of a section of `named`, which it marks used.
 fn one(
     line: Line,
-    sections: &HashMap<String, Vec<Line>>,
+    named: &Named,
     used_sections: &mut Vec<String>,
     tested: &mut Vec<String>,
     proxies: &mut Proxies,
@@ -287,6 +305,7 @@ fn one(
         name: &name,
         at: &at,
         positional,
+        keystore: named.keystore,
     };
     let (value, kind_of, known) = match kind.as_str() {
         "direct" => {
@@ -318,7 +337,7 @@ fn one(
             let section = p
                 .string("section-name")
                 .ok_or_else(|| anyhow!("{}: section-name: missing", at))?;
-            let lines = sections.get(&section).cloned().ok_or_else(|| {
+            let lines = named.sections.get(&section).cloned().ok_or_else(|| {
                 anyhow!("{}: section-name: there is no [WireGuard {}]", at, section)
             })?;
             used_sections.push(section.clone());
@@ -622,6 +641,8 @@ struct Proxy<'a> {
     name: &'a str,
     at: &'a str,
     positional: Vec<String>,
+    /// What its `client-cert` names.
+    keystore: &'a Keystore,
 }
 
 impl Proxy<'_> {
@@ -721,31 +742,49 @@ fn remote(
     dial(p, o, true)
 }
 
-/// The TLS parameters, with TLS on: the server name (`sni`, `off` for none),
-/// whether the certificate is checked, and ALPN.
-fn tls(p: &mut Params, on: bool) -> Result<Option<Value>> {
+/// How a proxy speaks TLS.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Over {
+    Tcp,
+    Quic,
+}
+
+/// The TLS parameters, with TLS on: the server name (`sni`, `off` for
+/// none, when not over QUIC), whether the certificate is checked, ALPN,
+/// and the `client-cert` of the proxy's keystore.
+fn tls(proxy: &Proxy, p: &mut Params, on: bool, over: Over) -> Result<Option<Value>> {
     let sni = p.take_at("sni");
     let insecure = p.bool("skip-cert-verify")?.unwrap_or(false);
     let alpn = p.list("alpn");
+    let client_cert = p.take_at("client-cert");
     if !on {
         return Ok(None);
     }
     let mut tls = Map::new();
     tls.insert("enabled".into(), json!(true));
     if let Some((sni, at)) = sni {
-        if sni.eq_ignore_ascii_case("off") {
+        if !sni.eq_ignore_ascii_case("off") {
+            tls.insert("server_name".into(), json!(sni));
+        } else if over == Over::Quic {
             return Err(anyhow!(
-                "{}: off: sail does not implement a handshake without SNI yet",
+                "{}: off: sail does not implement a QUIC handshake without SNI yet",
                 at
             ));
+        } else {
+            // The certificate is still verified, against the server.
+            tls.insert("disable_sni".into(), json!(true));
         }
-        tls.insert("server_name".into(), json!(sni));
     }
     if insecure {
         tls.insert("insecure".into(), json!(true));
     }
     if !alpn.is_empty() {
         tls.insert("alpn".into(), json!(alpn));
+    }
+    if let Some((name, at)) = client_cert.filter(|(name, _)| !name.is_empty()) {
+        let cert = proxy.keystore.client_cert(&name, &at)?;
+        tls.insert("client_certificate".into(), json!(cert.certificate));
+        tls.insert("client_key".into(), json!(cert.key));
     }
     Ok(Some(Value::Object(tls)))
 }
@@ -853,7 +892,7 @@ fn vmess(
         ));
     }
     let on = p.bool("tls")?.unwrap_or(false);
-    if let Some(tls) = tls(p, on)? {
+    if let Some(tls) = tls(proxy, p, on, Over::Tcp)? {
         o.insert("tls".into(), tls);
     }
     websocket(p, &mut o)?;
@@ -869,7 +908,7 @@ fn trojan(proxy: &Proxy, p: &mut Params, proxies: &mut Proxies) -> Result<Loweri
     o.insert("password".into(), json!(password));
     // Always over TLS.
     p.take_at("tls");
-    if let Some(tls) = tls(p, true)? {
+    if let Some(tls) = tls(proxy, p, true, Over::Tcp)? {
         o.insert("tls".into(), tls);
     }
     websocket(p, &mut o)?;
@@ -901,7 +940,7 @@ fn http(proxy: &Proxy, kind: &str, p: &mut Params, proxies: &mut Proxies) -> Res
     // sail's HTTP proxy asks with CONNECT always.
     p.bool("always-use-connect")?;
     let on = kind == "https" || p.bool("tls")?.unwrap_or(false);
-    if let Some(tls) = tls(p, on)? {
+    if let Some(tls) = tls(proxy, p, on, Over::Tcp)? {
         o.insert("tls".into(), tls);
     }
     Ok((Value::Object(o), Kind::Proxy { udp: false }, TLS))
@@ -913,7 +952,7 @@ fn socks5(proxy: &Proxy, kind: &str, p: &mut Params, proxies: &mut Proxies) -> R
     remote(proxy, p, &mut o, proxies)?;
     credentials(proxy, p, &mut o);
     let on = kind == "socks5-tls" || p.bool("tls")?.unwrap_or(false);
-    if let Some(tls) = tls(p, on)? {
+    if let Some(tls) = tls(proxy, p, on, Over::Tcp)? {
         o.insert("tls".into(), tls);
     }
     let udp = p.bool("udp-relay")?.unwrap_or(false);
@@ -964,7 +1003,7 @@ fn hysteria2(proxy: &Proxy, p: &mut Params, proxies: &mut Proxies) -> Result<Low
             json!({ "type": "salamander", "password": password }),
         );
     }
-    if let Some(tls) = tls(p, true)? {
+    if let Some(tls) = tls(proxy, p, true, Over::Quic)? {
         o.insert("tls".into(), tls);
     }
     Ok((
@@ -974,7 +1013,6 @@ fn hysteria2(proxy: &Proxy, p: &mut Params, proxies: &mut Proxies) -> Result<Low
             ("gecko-password", Unsupported("")),
             ("server-cert-fingerprint-sha256", Unsupported("")),
             ("server-cert-verify-name", Unsupported("")),
-            ("client-cert", Unsupported(" (C.5d)")),
         ],
     ))
 }
@@ -988,7 +1026,7 @@ fn tuic(proxy: &Proxy, p: &mut Params, proxies: &mut Proxies) -> Result<Lowering
             .ok_or_else(|| anyhow!("{}: {}: missing", proxy.at, key))?;
         o.insert(key.into(), json!(value));
     }
-    if let Some(tls) = tls(p, true)? {
+    if let Some(tls) = tls(proxy, p, true, Over::Quic)? {
         o.insert("tls".into(), tls);
     }
     Ok((
@@ -999,7 +1037,6 @@ fn tuic(proxy: &Proxy, p: &mut Params, proxies: &mut Proxies) -> Result<Lowering
             ("port-hopping-interval", Silent),
             ("server-cert-fingerprint-sha256", Unsupported("")),
             ("server-cert-verify-name", Unsupported("")),
-            ("client-cert", Unsupported(" (C.5d)")),
         ],
     ))
 }
@@ -1022,7 +1059,7 @@ fn anytls(
             proxy.at
         ));
     }
-    if let Some(tls) = tls(p, true)? {
+    if let Some(tls) = tls(proxy, p, true, Over::Tcp)? {
         o.insert("tls".into(), tls);
     }
     Ok((Value::Object(o), Kind::Proxy { udp: true }, TLS))

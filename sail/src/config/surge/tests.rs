@@ -612,8 +612,8 @@ fn mistakes_name_where_they_are() {
             "[Proxy] line 2: REJECT is Surge's own policy",
         ),
         (
-            "[Proxy]\nA = https, a, 443, sni=off\n[Rule]\nFINAL,DIRECT\n",
-            "[Proxy] line 2: A: sni: off",
+            "[Proxy]\nA = hysteria2, a, 443, password=p, sni=off\n[Rule]\nFINAL,DIRECT\n",
+            "[Proxy] line 2: A: sni: off: sail does not implement a QUIC handshake without SNI",
         ),
         (
             "[Proxy]\nA = trojan, a, 443, password=p, server-cert-fingerprint-sha256=ab\n\
@@ -1056,4 +1056,151 @@ fn subnet_groups_and_rules_follow_the_network() {
     assert!(rules
         .iter()
         .any(|r| r["network_mcc_mnc"] == serde_json::json!(["46001"]) && r["outbound"] == "Out"));
+}
+
+#[test]
+fn sni_off_sends_none() {
+    let config = load(
+        "[Proxy]\nA = https, a.example.com, 443, sni=off\n\
+         B = trojan, b.example.com, 443, password=p, sni=off, skip-cert-verify=true\n\
+         [Rule]\nFINAL,A\n",
+    );
+    assert_eq!(
+        outbound(&config, "A")["tls"],
+        json!({ "enabled": true, "disable_sni": true })
+    );
+    assert_eq!(
+        outbound(&config, "B")["tls"],
+        json!({ "enabled": true, "disable_sni": true, "insecure": true })
+    );
+}
+
+/// A PKCS#12 file of a client certificate, its CA and its key, opened
+/// with `password`: base64.
+#[cfg(feature = "tls")]
+fn p12(password: &str) -> String {
+    use base64::Engine;
+    use btls::pkcs12::Pkcs12;
+    use btls::pkey::PKey;
+    use btls::stack::Stack;
+    use btls::x509::X509;
+    let pki = crate::transport::tls::tests::client_pki();
+    let mut ca = Stack::new().unwrap();
+    ca.push(X509::from_pem(pki.ca.as_bytes()).unwrap()).unwrap();
+    let mut builder = Pkcs12::builder();
+    builder.ca(ca);
+    let p12 = builder
+        .build(
+            password,
+            "client",
+            &PKey::private_key_from_pem(pki.key.as_bytes()).unwrap(),
+            &X509::from_pem(pki.cert.as_bytes()).unwrap(),
+        )
+        .unwrap();
+    base64::engine::general_purpose::STANDARD.encode(p12.to_der().unwrap())
+}
+
+/// The client certificate the TLS block `tls` makes: its chain's length.
+#[cfg(feature = "tls")]
+fn chain_len(tls: &Value) -> usize {
+    let tls: crate::transport::layers::OutboundTls = serde_json::from_value(tls.clone()).unwrap();
+    let identity = tls
+        .client_identity(&crate::runtime::RuntimeEnv::default())
+        .unwrap()
+        .unwrap();
+    identity.chain().len()
+}
+
+#[cfg(feature = "tls")]
+#[test]
+fn client_cert_of_the_keystore() {
+    let profile = format!(
+        "[Proxy]\nA = https, a.example.com, 443, client-cert=cert1\n\
+         B = trojan, b.example.com, 443, password=p, client-cert=\"open\"\n\
+         C = hysteria2, c.example.com, 443, password=p, client-cert=cert1\n\
+         [Rule]\nFINAL,A\n\
+         [Keystore]\n\
+         cert1 = base64={}, password=\"1,2\"\n\
+         open = type=p12, base64={}\n\
+         ssh = type=openssh-private-key, base64=AAAA\n\
+         bare = base64=AAAA\n",
+        p12("1,2"),
+        p12("")
+    );
+    let mut warnings = Vec::new();
+    let config = parse(&profile).unwrap_or_else(|e| panic!("{:#}", e));
+    warnings.extend(config.warnings.iter().cloned());
+    // Items no policy names are not read.
+    assert!(
+        warnings.iter().all(|w| !w.contains("Keystore")),
+        "{:?}",
+        warnings
+    );
+    for tag in ["A", "B", "C"] {
+        let tls = &outbound(&config, tag)["tls"];
+        assert!(tls["client_certificate"]
+            .as_str()
+            .unwrap()
+            .starts_with("-----BEGIN CERTIFICATE-----"));
+        assert!(tls["client_key"]
+            .as_str()
+            .unwrap()
+            .starts_with("-----BEGIN PRIVATE KEY-----"));
+        // The certificate, then its CA.
+        assert_eq!(chain_len(tls), 2, "{}", tag);
+    }
+
+    let line = |param: &str, keystore: &str| {
+        error(&format!(
+            "[Proxy]\nA = https, a, 443, {}\n[Rule]\nFINAL,A\n[Keystore]\n{}\n",
+            param, keystore
+        ))
+    };
+    assert_eq!(
+        line("client-cert=nope", ""),
+        "[Proxy] line 2: A: client-cert: no [Keystore] item is named \"nope\""
+    );
+    let e = line(
+        "client-cert=c",
+        &format!("c = base64={}, password=hunter2", p12("right")),
+    );
+    assert_eq!(
+        e,
+        "[Proxy] line 2: A: client-cert: [Keystore] line 6: c: password: does not open the \
+         PKCS#12 file"
+    );
+    assert!(!e.contains("hunter2"));
+    assert!(
+        line("client-cert=c", "c = type=openssh-private-key, base64=AAAA")
+            .ends_with("c: a client certificate is a p12 item, not openssh-private-key")
+    );
+    // Untyped, an item without a password is an SSH key.
+    assert!(line("client-cert=c", "c = base64=AAAA")
+        .ends_with("c: a client certificate is a p12 item, not openssh-private-key"));
+    assert!(line("client-cert=c", "c = type=p12, password=x").ends_with("c: base64: missing"));
+    assert!(line("client-cert=c", "c = type=p12, base64=%%%").ends_with("c: base64: not base64"));
+    assert!(line("client-cert=c", "c = type=p12, base64=AAAA")
+        .ends_with("c: base64: not a PKCS#12 file"));
+}
+
+#[cfg(all(feature = "outbound-provider", feature = "tls"))]
+#[test]
+fn a_policy_path_has_a_keystore_of_its_own() {
+    let body = format!(
+        "[Proxy]\nA = https, a.example.com, 443, client-cert=c\n\
+         B = https, b.example.com, 443, client-cert=elsewhere\n\
+         [Keystore]\nc = base64={}, password=p\n",
+        p12("p")
+    );
+    let policies = crate::config::surge::external(&body, &mut Vec::new())
+        .unwrap()
+        .unwrap();
+    let a = policies[0].outbound.as_ref().unwrap();
+    assert_eq!(chain_len(&a["tls"]), 2);
+    let b = policies[1].outbound.as_ref().unwrap_err().to_string();
+    assert!(
+        b.ends_with("client-cert: no [Keystore] item is named \"elsewhere\""),
+        "{}",
+        b
+    );
 }

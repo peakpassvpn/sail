@@ -10,9 +10,10 @@
 //! processing (MITM, rewrites, scripts but for rule and DNS ones) is
 //! warned of once a section.
 //!
-//! It reads the listeners, the proxies, the groups, with the policies of
-//! their `policy-path` as outbound providers, the rules and the rule-sets
-//! they name, and DNS with `[Host]`.
+//! It reads the listeners, the proxies, with the client certificates of
+//! `[Keystore]`, the groups, with the policies of their `policy-path` as
+//! outbound providers, the rules and the rule-sets they name, and DNS
+//! with `[Host]`.
 //!
 //! Fetching the profile is the host's (the operations plane's), as is
 //! fetching what it includes from URLs: sail reads the copies a host keeps
@@ -45,6 +46,7 @@ use super::model::Config;
 mod dns;
 mod general;
 mod group;
+mod keystore;
 mod params;
 mod proxy;
 mod requirement;
