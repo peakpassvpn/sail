@@ -277,6 +277,14 @@ pub const FIELDS: &[Field] = &[
     f("inbounds.*.exclude_mac_address", Unsupported),
 ];
 
+/// Fields of `FIELDS` that sail implements for some types of entry, by
+/// path: left to the schema in an entry of one of those types.
+pub const IMPLEMENTED_FOR: &[(&str, &[&str])] = &[
+    // Handing connections to another inbound: ShadowTLS's, whose inbound
+    // is of no use without it.
+    ("inbounds.*.detour", &["shadowtls"]),
+];
+
 /// Values sing-box accepts that sail does not implement: all of them change
 /// routing.
 pub const VALUES: &[(&str, &[&str])] = &[

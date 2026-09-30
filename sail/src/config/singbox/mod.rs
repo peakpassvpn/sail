@@ -50,6 +50,9 @@ fn sort_out(value: &mut Value) -> Result<Vec<String>> {
     let mut warnings = services(value)?;
     for field in upstream::FIELDS {
         for (at, _) in find(value, field.path) {
+            if implemented_for(value, field.path, &at) {
+                continue;
+            }
             match field.tier {
                 Tier::Unsupported => {
                     return Err(anyhow!("{}: sail does not implement this field yet", at));
@@ -191,6 +194,32 @@ fn walk_rule(rule: &Value, segments: &[&str], at: &mut Vec<Step>, found: &mut Ve
     }
 }
 
+/// Whether the field at `at`, found by `path`, is one sail implements for
+/// the type of the entry it is in; see `upstream::IMPLEMENTED_FOR`.
+fn implemented_for(value: &Value, path: &str, at: &At) -> bool {
+    let Some((_, types)) = upstream::IMPLEMENTED_FOR.iter().find(|(p, _)| *p == path) else {
+        return false;
+    };
+    let mut entry = value;
+    for step in &at.0[..at.0.len().saturating_sub(1)] {
+        entry = match (step, entry) {
+            (Step::Key(k), Value::Object(map)) => match map.get(k) {
+                Some(v) => v,
+                None => return false,
+            },
+            (Step::Index(i), Value::Array(list)) => match list.get(*i) {
+                Some(v) => v,
+                None => return false,
+            },
+            _ => return false,
+        };
+    }
+    entry
+        .get("type")
+        .and_then(Value::as_str)
+        .is_some_and(|t| types.contains(&t))
+}
+
 fn remove(value: &mut Value, at: &At) {
     let Some((last, parents)) = at.0.split_last() else {
         return;
@@ -217,6 +246,25 @@ fn remove(value: &mut Value, at: &At) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_inbound_detour_is_only_shadowtls_s() {
+        let err =
+            parse(r#"{ "inbounds": [{ "type": "socks", "listen_port": 1080, "detour": "x" }] }"#)
+                .unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "inbounds[0].detour: sail does not implement this field yet"
+        );
+        let config = parse(
+            r#"{ "inbounds": [
+                { "type": "shadowtls", "listen_port": 443, "detour": "ss" },
+                { "type": "shadowsocks", "tag": "ss" }
+            ] }"#,
+        )
+        .unwrap();
+        assert_eq!(config.inbounds[0].options["detour"], "ss");
+    }
 
     #[test]
     fn a_field_sail_can_ignore_is_dropped_with_a_warning() {

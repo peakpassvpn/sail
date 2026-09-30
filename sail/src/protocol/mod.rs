@@ -10,7 +10,8 @@ pub mod drop;
 #[cfg(any(
     feature = "inbound-anytls",
     feature = "inbound-trojan",
-    feature = "inbound-vless"
+    feature = "inbound-vless",
+    feature = "inbound-shadowtls"
 ))]
 pub mod fallback;
 #[cfg(feature = "inbound-hc")]
@@ -29,6 +30,8 @@ pub mod nf;
 pub mod redirect;
 #[cfg(any(feature = "inbound-shadowsocks", feature = "outbound-shadowsocks"))]
 pub mod shadowsocks;
+#[cfg(any(feature = "inbound-shadowtls", feature = "outbound-shadowtls"))]
+pub mod shadowtls;
 #[cfg(any(feature = "inbound-socks", feature = "outbound-socks"))]
 pub mod socks;
 #[cfg(feature = "inbound-tproxy")]

@@ -2,7 +2,8 @@
 //! and VLESS, as sing-box's trojan inbound has it: a connection that fails
 //! to authenticate is relayed to a web server, starting with the bytes read
 //! of it so far, so that an active prober meets that server rather than a
-//! connection that closes on it.
+//! connection that closes on it. ShadowTLS relays to its handshake server
+//! the same way.
 
 use std::collections::HashMap;
 use std::io;
@@ -128,7 +129,7 @@ impl Fallback {
 
 /// Relays `stream` to `server`:`port`: `consumed` first, then both ways
 /// until either side is done.
-async fn relay(mut stream: AnyStream, consumed: Vec<u8>, server: String, port: u16) {
+pub(crate) async fn relay(mut stream: AnyStream, consumed: Vec<u8>, server: String, port: u16) {
     let result = async {
         let mut remote = dial(&server, port).await?;
         remote.write_all(&consumed).await?;
@@ -144,7 +145,7 @@ async fn relay(mut stream: AnyStream, consumed: Vec<u8>, server: String, port: u
 /// system resolves it to. It goes out as sail's own sockets do, with the
 /// default dial options: the fallback is a neighbour of the server, not a
 /// destination to be routed.
-async fn dial(server: &str, port: u16) -> io::Result<tokio::net::TcpStream> {
+pub(crate) async fn dial(server: &str, port: u16) -> io::Result<tokio::net::TcpStream> {
     let dial = DialOptions::default();
     let mut last = None;
     for addr in tokio::net::lookup_host((server, port)).await? {
