@@ -8,6 +8,26 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # Nothing with local paths, run logs or evidence reaches the public repository.
+  sensitive:
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: tracked files
+        run: tools/sensitive-check.sh tree
+
+      - name: added lines and messages
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [ -n "$BASE" ] && [ "$BASE" != 0000000000000000000000000000000000000000 ] && git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            tools/sensitive-check.sh range "$BASE" "$GITHUB_SHA"
+          fi
+
   test:
     runs-on: ubuntu-latest
     steps:

@@ -242,7 +242,7 @@ current_step=runtime-preconditions
 [ "$(id -u)" -eq 0 ] || die "runtime acceptance requires root inside the disposable system"
 [ "$(cat /proc/1/comm)" = systemd ] || die "PID 1 must be systemd"
 case $sail_binary in
-    /home/*|/root/*|/run/user/*) die "runtime binary is hidden by ProtectHome; install it under /usr or /opt" ;;
+    /home/*|/root/*|/run/user/*) die "runtime binary is hidden by ProtectHome; install it under /usr or /opt" ;; # sensitive-check: allow
 esac
 command -v systemctl >/dev/null 2>&1 || die "systemctl is required"
 command -v journalctl >/dev/null 2>&1 || die "journalctl is required"

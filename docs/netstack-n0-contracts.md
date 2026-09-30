@@ -1138,7 +1138,7 @@ flat: from about 15,000 iterations per minute to about 30 within an hour,
 with one CPU saturated and RSS creeping from 14 to 41 MiB. A fresh process
 started beside a degraded one ran at full speed, so the cause was state the
 process accumulated, not host contention. Stack samples from a symbolized
-build (in `/root/sail-soak/run3-kernel-leak`) show the native runtime's
+build show the native runtime's
 10 ms `retry_pending` pass over its `FlowBridge` map dominating after 15
 minutes: the map grew by about one entry per connection. A step fired the
 TIME-WAIT expiry, put the resulting `Closed` event in its local outcome,
@@ -1167,9 +1167,8 @@ later event-loss fix) ran 2026-09-26T00:55:43Z to 2026-09-27T00:55:57Z and
 exited 0 after 338,360 schema-v1 records. Every workload cycle verified that
 its leases returned to baseline. This settles the 24-hour VM soak; the soak
 on target router, mobile, and server hardware remains open.
-Completion status is appended to `/root/sail-soak/status`; the stopped and
-interrupted runs' logs are kept in `/root/sail-soak/run1-prefix` and
-`/root/sail-soak/run2-kernel-interrupted`. A VM soak does not replace the
+The stopped and interrupted runs' logs are kept on the soak host, outside the
+repository. A VM soak does not replace the
 24-hour soak on target router, mobile, and server hardware.
 
 The ignored `macos_kernel_tcp_udp_round_trips` test now provides the missing
