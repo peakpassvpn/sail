@@ -72,7 +72,6 @@ impl ExternalOutboundStreamHandler for TcpHandler {
             let mut buf = BytesMut::new();
             sess.destination
                 .write_buf(&mut buf, SocksAddrWireType::PortLast);
-            // FIXME combine header and first payload
             stream.write_all(&buf).await?;
             Ok(Box::new(stream) as Box<dyn ProxyStream>)
         }
