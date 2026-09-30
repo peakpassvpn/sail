@@ -943,6 +943,7 @@ async fn follow_default_interface(manager: Arc<RuntimeManager>) {
     let _ = manager
         .detect_network(net::network::ChangeReason::State)
         .await;
+    follow_nat64(&manager).await;
     // Linux: netlink's notices of links, addresses and routes.
     #[cfg(target_os = "linux")]
     let monitor = match platform::addr_monitor::AddressMonitor::open_with_routes() {
@@ -1005,10 +1006,42 @@ async fn follow_default_interface(manager: Arc<RuntimeManager>) {
             net::network::ChangeReason::State
         };
         let told = manager.detect_network(reason).await.unwrap_or(false);
+        follow_nat64(&manager).await;
         // The interface sail sends through moved though the state, pushed
         // or not detected, says nothing of it.
         if moved && !told {
             manager.network().announce(reason);
+        }
+    }
+}
+
+/// On a network with IPv6 addresses and no IPv4 one, finds its NAT64
+/// prefix, which IPv4 is then reached through; elsewhere uses none. The
+/// host's network only: a host that pushes the state (a phone) translates
+/// IPv4 itself.
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
+async fn follow_nat64(manager: &RuntimeManager) {
+    let network = manager.network().clone();
+    if network.pushed() {
+        return;
+    }
+    let state = network.snapshot();
+    let v6_only = !state.addresses.iter().any(|a| a.address().is_ipv4())
+        && state.addresses.iter().any(|a| match a.address() {
+            std::net::IpAddr::V6(v6) => (v6.segments()[0] & 0xffc0) != 0xfe80,
+            std::net::IpAddr::V4(_) => false,
+        });
+    let prefix = if v6_only {
+        tokio::task::spawn_blocking(net::nat64::discover)
+            .await
+            .unwrap_or(None)
+    } else {
+        None
+    };
+    if net::nat64::set(prefix) {
+        match prefix {
+            Some(prefix) => info!("network: IPv6 only, IPv4 reached through NAT64 {}", prefix),
+            None => info!("network: NAT64 no longer used"),
         }
     }
 }

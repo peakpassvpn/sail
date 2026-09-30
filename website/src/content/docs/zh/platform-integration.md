@@ -82,6 +82,14 @@ network changed: generation 3, reason=default-interface, interface=en0→en1, cl
 
 `reason` 为 `default-interface`、`state`（Sail 自己检测到的）、`host`（宿主推送或 `sail_network_changed`）或 `wake`。
 
+完全没有网络时（曾知道状态、现在为空），定时的健康检查与更新暂停；网络恢复即一次变化，它们立即重新检查。从休眠唤醒也算一次变化：Sail 以“含休眠时间的时钟”与“不含休眠时间的时钟”之差察觉，Linux、macOS、Windows 做法相同。
+
+桌面上的网络如果只有 IPv6 地址、没有 IPv4 地址，Sail 按 RFC 7050（查询 `ipv4only.arpa`）找到网络的 NAT64 前缀，经它访问 IPv4 地址：字面地址、DNS 给出的 A 记录、TUN 里应用发往 IPv4 的流量都一样。手机由系统自己转换 IPv4；推送状态的宿主不走这一套。
+
+### Captive portal
+
+宿主发现网络处于 captive portal（认证页）之后时，推送 `"captive": true`。在它推送不含此项的状态之前，**所有连接都直连，不看路由规则**，便于用户登录；被规则劫持的 DNS 仍按配置回答。Sail 自己不探测认证页。进入与解除都以 `info` 级别记录。
+
 ## Android 与 Apple 平台
 
 Android VPN 应用必须在启动前注册基于 `VpnService.protect` 的回调，让 Sail 出站套接字绕过 VPN 接口。回调可能从多个运行时线程调用，宿主实现必须线程安全；Wi-Fi/移动网络切换时也应转发网络变化。

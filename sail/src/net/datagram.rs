@@ -68,7 +68,7 @@ pub struct StdOutboundDatagramSendHalf(Arc<UdpSocket>);
 impl OutboundDatagramSendHalf for StdOutboundDatagramSendHalf {
     async fn send_to(&mut self, buf: &[u8], target: &SocksAddr) -> io::Result<usize> {
         match target {
-            SocksAddr::Ip(a) => self.0.send_to(buf, a).await,
+            SocksAddr::Ip(a) => self.0.send_to(buf, for_socket(&self.0, *a)).await,
             SocksAddr::Domain(domain, port) => Err(io::Error::other(format!(
                 "unexpected domain address {}:{}",
                 domain, port
@@ -140,7 +140,7 @@ impl OutboundDatagramSendHalf for DomainResolveOutboundDatagramSendHalf {
                 let addr = for_socket(&self.0, SocketAddr::new(*ip, *port));
                 self.0.send_to(buf, addr).await
             }
-            SocksAddr::Ip(addr) => self.0.send_to(buf, addr).await,
+            SocksAddr::Ip(addr) => self.0.send_to(buf, for_socket(&self.0, *addr)).await,
         }
     }
 
@@ -255,6 +255,8 @@ impl DomainTargetMap {
 /// `addr` as `socket` sends to it: an IPv4 address IPv4-mapped from an
 /// IPv6 socket, which fails to send to it as it is.
 fn for_socket(socket: &UdpSocket, addr: SocketAddr) -> SocketAddr {
+    // On an IPv6-only network, IPv4 is reached through NAT64.
+    let addr = super::nat64::map(addr);
     match (socket.local_addr(), addr) {
         (Ok(SocketAddr::V6(_)), SocketAddr::V4(v4)) => {
             SocketAddr::new(IpAddr::V6(v4.ip().to_ipv6_mapped()), v4.port())
@@ -264,6 +266,7 @@ fn for_socket(socket: &UdpSocket, addr: SocketAddr) -> SocketAddr {
 }
 
 fn unmapped_ipv4(addr: SocketAddr) -> SocketAddr {
+    let addr = super::nat64::unmap(addr);
     if let SocketAddr::V6(ref a) = addr {
         if let Some(a_v4) = a.ip().to_ipv4() {
             return SocketAddr::new(IpAddr::V4(a_v4), a.port());

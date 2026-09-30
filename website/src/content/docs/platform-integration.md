@@ -95,6 +95,14 @@ network changed: generation 3, reason=default-interface, interface=en0→en1, cl
 
 `reason` is `default-interface`, `state` (what Sail detects), `host` (a push, or `sail_network_changed`) or `wake`.
 
+Without a network at all -- a state known, and now empty -- timed health checks and updates wait; getting a network back is a change, and they look again at once. Waking from sleep is a change too: Sail tells it from a clock that counts the time asleep drifting from one that does not, on Linux, macOS and Windows alike.
+
+On a desktop network with IPv6 addresses and no IPv4 one, Sail finds the network's NAT64 prefix (RFC 7050, `ipv4only.arpa`) and reaches IPv4 addresses through it -- literals, the A records DNS gives, and what the TUN's applications send alike. Phones translate IPv4 themselves; a host that pushes the state gets none of this.
+
+### Captive portals
+
+A host that finds the network behind a captive portal pushes `"captive": true`. Until it pushes the state without it, **every connection goes direct, whatever the routing rules say**, so the user can log in; DNS the rules hijack is still answered as configured. Sail does not look for portals itself. Both transitions are logged at `info`.
+
 ## Android
 
 Android VPN applications must keep Sail's outbound sockets outside the VPN interface. Register the host callback backed by `VpnService.protect` before starting the instance. The callback can be invoked from multiple runtime threads, so the host implementation must be safe for concurrent calls.

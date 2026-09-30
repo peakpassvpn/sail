@@ -38,8 +38,8 @@ pub struct OutboundManager {
     selectors: Arc<super::Selectors>,
     default_handler: Option<String>,
     /// Where a connection goes when every rule, and `final`, passes it on
-    /// (Mihomo's DIRECT): built when there is a `pass` outbound.
-    #[cfg(feature = "outbound-pass")]
+    /// (Mihomo's DIRECT), and behind a captive portal.
+    #[cfg(feature = "outbound-direct")]
     direct: Option<AnyOutboundHandler>,
     /// The tasks each outbound's handler spawned.
     abort_handles: HashMap<String, Vec<AbortHandle>>,
@@ -211,7 +211,7 @@ impl OutboundManager {
                 .first()
                 .map(|o| o.tag.clone())
                 .or_else(|| endpoints.first().map(|e| e.tag.clone())),
-            #[cfg(feature = "outbound-pass")]
+            #[cfg(feature = "outbound-direct")]
             direct: None,
             abort_handles: HashMap::new(),
             dependencies: HashMap::new(),
@@ -295,8 +295,9 @@ impl OutboundManager {
         {
             next.selectors = Arc::new(selectors);
         }
-        #[cfg(feature = "outbound-pass")]
-        if next.direct.is_none() && next.handlers.values().any(|h| h.is_pass()) {
+        // Built anew with the defaults of each build.
+        #[cfg(feature = "outbound-direct")]
+        {
             next.direct = Some(implicit_direct(dial_defaults)?);
         }
         Ok(next)
@@ -469,9 +470,9 @@ impl OutboundManager {
     pub fn handler(&self, tag: Option<&str>) -> Option<AnyOutboundHandler> {
         match tag {
             Some(tag) => self.get(tag),
-            #[cfg(feature = "outbound-pass")]
+            #[cfg(feature = "outbound-direct")]
             None => self.direct.clone(),
-            #[cfg(not(feature = "outbound-pass"))]
+            #[cfg(not(feature = "outbound-direct"))]
             None => None,
         }
     }
@@ -490,11 +491,11 @@ impl OutboundManager {
 
 /// The tag the implicit direct goes by in logs and connection lists, as
 /// Mihomo's.
-#[cfg(feature = "outbound-pass")]
+#[cfg(feature = "outbound-direct")]
 pub const IMPLICIT_DIRECT: &str = "DIRECT";
 
 /// The implicit direct, which dials with the instance's defaults.
-#[cfg(feature = "outbound-pass")]
+#[cfg(feature = "outbound-direct")]
 fn implicit_direct(dial_defaults: &DialDefaults) -> Result<AnyOutboundHandler> {
     use crate::protocol::direct::outbound::{DatagramHandler, StreamHandler};
     let dialer = dial_defaults.dialer(&Default::default(), None)?;

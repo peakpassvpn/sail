@@ -802,6 +802,14 @@ impl Dispatcher {
             Decision::Reject { drop: true } => return Ok(Routed::Drop),
             Decision::HijackDns => return Ok(Routed::HijackDns),
         };
+        // Behind a captive portal, as the host says, every connection goes
+        // straight out, whatever the rules say, for the user to log in;
+        // DNS the rules hijack is still answered.
+        #[cfg(feature = "outbound-direct")]
+        if self.env.network.snapshot().captive {
+            debug!("behind a captive portal: direct, not [{}]", tag);
+            return Ok(Routed::Outbound(None));
+        }
         debug!(
             "picked route out={} src={} dst={}",
             tag, &sess.source, &sess.destination

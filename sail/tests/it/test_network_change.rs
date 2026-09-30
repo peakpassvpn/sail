@@ -79,3 +79,68 @@ fn a_move_closes_the_connections_and_a_roam_does_not() -> anyhow::Result<()> {
     common::shutdown_instances(&rt, ids);
     checked
 }
+
+// socks client -> (socks)sail(rules: block) -> server; behind a captive
+// portal, as the host says, it goes direct whatever the rules say.
+#[cfg(feature = "outbound-drop")]
+#[test]
+fn behind_a_captive_portal_every_connection_goes_direct() -> anyhow::Result<()> {
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()?;
+    let server = rt.block_on(async {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let port = listener.local_addr()?.port();
+        tokio::spawn(async move {
+            let mut held = Vec::new();
+            while let Ok((s, _)) = listener.accept().await {
+                held.push(s);
+            }
+        });
+        anyhow::Ok(port)
+    })?;
+    let (ids, socks) = common::retry_port_clash(|| {
+        let [socks] = common::free_ports();
+        let config = serde_json::json!({
+            "inbounds": [
+                { "type": "socks", "listen": "127.0.0.1", "listen_port": socks }
+            ],
+            "outbounds": [{ "type": "block", "tag": "block" }],
+            "route": { "final": "block" },
+        });
+        Ok((
+            common::run_sail_instances(&rt, vec![config.to_string()])?,
+            socks,
+        ))
+    })?;
+    let id = ids[0];
+    let checked = rt.block_on(async {
+        let sess = sail::session::Session {
+            destination: sail::session::SocksAddr::from(std::net::SocketAddr::from((
+                [127, 0, 0, 1],
+                server,
+            ))),
+            ..Default::default()
+        };
+        let connect = || common::new_socks_stream("127.0.0.1", socks, &sess, None, None);
+        let reaches = |stream: anyhow::Result<sail::adapter::AnyStream>| async move {
+            let Ok(mut stream) = stream else {
+                return false;
+            };
+            let mut buf = [0u8; 1];
+            stream.write_all(b"x").await.is_ok()
+                && tokio::time::timeout(Duration::from_millis(300), stream.read(&mut buf))
+                    .await
+                    .is_err()
+        };
+        assert!(!reaches(connect().await).await, "the rules block it");
+        sail::set_network_state(id, r#"{ "interface": "en0", "captive": true }"#)?;
+        assert!(reaches(connect().await).await, "direct behind the portal");
+        sail::set_network_state(id, r#"{ "interface": "en0" }"#)?;
+        assert!(!reaches(connect().await).await, "the rules again");
+        anyhow::Ok(())
+    });
+    common::shutdown_instances(&rt, ids);
+    checked
+}

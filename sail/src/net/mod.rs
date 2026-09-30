@@ -18,6 +18,7 @@ pub mod accept;
 pub mod datagram;
 pub mod dial;
 pub mod interface;
+pub mod nat64;
 #[cfg(feature = "netstack")]
 pub mod netstack;
 pub mod network;

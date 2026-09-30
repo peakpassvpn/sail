@@ -461,6 +461,8 @@ impl Dialer {
     /// A TCP connection to `addr`.
     pub async fn tcp_to(&self, addr: SocketAddr) -> io::Result<TcpStream> {
         let SocketDialer { spec, env, .. } = self.socket()?;
+        // On an IPv6-only network, IPv4 is reached through NAT64.
+        let addr = crate::net::nat64::map(addr);
         let socket = match addr {
             SocketAddr::V4(..) => TcpSocket::new_v4()?,
             SocketAddr::V6(..) => TcpSocket::new_v6()?,
@@ -503,6 +505,8 @@ impl Dialer {
     /// it. A dialer with a detour has none.
     pub async fn udp_socket(&self, indicator: &SocketAddr) -> io::Result<UdpSocket> {
         let SocketDialer { spec, env, .. } = self.socket()?;
+        // On an IPv6-only network, IPv4 is reached through NAT64, over IPv6.
+        let indicator = &crate::net::nat64::map(*indicator);
         let socket = Socket::new(Domain::for_address(*indicator), Type::DGRAM, None)?;
         socket.set_nonblocking(true)?;
         crate::net::fit_largest_datagram(SockRef::from(&socket))?;

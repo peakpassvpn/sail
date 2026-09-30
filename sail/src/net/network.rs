@@ -60,6 +60,11 @@ pub struct NetworkState {
     /// In a low data mode, as the system says.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub constrained: bool,
+    /// Behind a captive portal, as the host says: every connection goes
+    /// straight out, whatever the rules say, until it clears, for the user
+    /// to log in. sail does not look for one itself.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub captive: bool,
 }
 
 impl NetworkState {
@@ -326,6 +331,17 @@ impl Network {
         // The first state known, at the start, moves nothing.
         let known = self.known.swap(true, Ordering::Relaxed);
         let moved = changed && known && old.moved_to(&self.snapshot());
+        let captive = self.snapshot().captive;
+        if changed && captive != old.captive {
+            if captive {
+                tracing::info!(
+                    "network: behind a captive portal; every connection goes direct, whatever \
+                     the rules say, until it clears"
+                );
+            } else {
+                tracing::info!("network: the captive portal cleared; the rules apply again");
+            }
+        }
         if moved {
             self.publish(reason, old, self.snapshot());
         }
