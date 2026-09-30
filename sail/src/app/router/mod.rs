@@ -627,7 +627,9 @@ impl Router {
                             debug!("rule {} needs {} resolved", i, domain);
                             armed_resolve = None;
                             resolve_taken = true;
-                            resolved = self.resolve_as(how, &domain, sess).await?;
+                            resolved = self
+                                .resolve_as(how, &domain, sess, network.as_ref())
+                                .await?;
                             facts = facts_of(sess, &resolved);
                         }
                     }
@@ -687,7 +689,9 @@ impl Router {
                 Action::Resolve(how) => {
                     if resolved.is_empty() && !sess.skip_resolve {
                         if let Some(domain) = facts.domain().map(str::to_string) {
-                            resolved = self.resolve_as(how, &domain, sess).await?;
+                            resolved = self
+                                .resolve_as(how, &domain, sess, network.as_ref())
+                                .await?;
                         }
                     }
                 }
@@ -712,8 +716,14 @@ impl Router {
     /// The addresses of `domain`, as the resolve rule `how` says: none,
     /// with matching going on, for one that does not resolve when it
     /// ignores the failure.
-    async fn resolve_as(&self, how: &Resolve, domain: &str, sess: &Session) -> Result<Vec<IpAddr>> {
-        match self.resolve(domain, sess, how).await {
+    async fn resolve_as(
+        &self,
+        how: &Resolve,
+        domain: &str,
+        sess: &Session,
+        network: Option<&std::sync::Arc<crate::net::network::NetworkState>>,
+    ) -> Result<Vec<IpAddr>> {
+        match self.resolve(domain, sess, how, network).await {
             Ok(ips) => Ok(ips),
             Err(e) if how.ignore_failure => {
                 debug!("resolve {}: {}; matching goes on", domain, e);
@@ -725,8 +735,15 @@ impl Router {
 
     /// The addresses of `domain`. As in sing-box, a domain that does not
     /// resolve in time fails the connection rather than going on to rules
-    /// that would match it without its addresses.
-    async fn resolve(&self, domain: &str, sess: &Session, how: &Resolve) -> Result<Vec<IpAddr>> {
+    /// that would match it without its addresses. The DNS rules match the
+    /// network the routing rules matched, when these took it.
+    async fn resolve(
+        &self,
+        domain: &str,
+        sess: &Session,
+        how: &Resolve,
+        network: Option<&std::sync::Arc<crate::net::network::NetworkState>>,
+    ) -> Result<Vec<IpAddr>> {
         let dns = self.dns_client.load_full();
         let lookup = async {
             match &how.server {
@@ -749,7 +766,7 @@ impl Router {
                         outbound: None,
                         strategy: how.strategy,
                         options: how.options.clone(),
-                        ..Default::default()
+                        network: network.cloned(),
                     };
                     dns.lookup_in(domain, &ctx).await
                 }
@@ -1925,6 +1942,53 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(bypass.pre_match(&mut sess).await, PreMatch::Bypass);
+    }
+
+    /// A resolve in routing asks the DNS rules with the network the
+    /// routing rules matched.
+    #[tokio::test]
+    async fn a_resolve_s_dns_rules_match_the_same_network() {
+        let env = RuntimeEnv::default();
+        let config = crate::config::Config::from_json(
+            &serde_json::json!({
+                "dns": {
+                    "servers": [
+                        { "type": "hosts", "tag": "home",
+                          "predefined": { "nas.home.arpa": "192.168.1.2" } },
+                        { "type": "hosts", "tag": "world",
+                          "predefined": { "nas.home.arpa": "203.0.113.9" } }
+                    ],
+                    "rules": [{ "wifi_ssid": "Home", "server": "home" }],
+                    "final": "world"
+                },
+                "outbounds": [{ "type": "direct", "tag": "a" }, { "type": "direct", "tag": "b" }],
+                "route": {
+                    "rules": [
+                        { "network_type": "wifi", "action": "resolve" },
+                        { "ip_cidr": "192.168.1.2/32", "outbound": "a" }
+                    ],
+                    "final": "b"
+                },
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let dns = DnsClient::new(&config.dns, Default::default(), &env)
+            .unwrap()
+            .into_shared();
+        let router = Router::new(&config.route, dns, &env).unwrap();
+        env.network.push(
+            crate::net::network::NetworkState::from_json(r#"{ "type": "wifi", "ssid": "Home" }"#)
+                .unwrap(),
+        );
+        let mut sess = Session {
+            destination: SocksAddr::Domain("nas.home.arpa".into(), 443),
+            ..Default::default()
+        };
+        assert_eq!(
+            router.pick_route(&mut sess, &mut NoSniffer).await.unwrap(),
+            Decision::Route(Some("a".into()))
+        );
     }
 
     #[test]
