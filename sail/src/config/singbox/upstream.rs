@@ -512,15 +512,6 @@ pub const GROUPS: &[Group] = &[
         ],
     ),
     g(
-        "Keepalive of the connection to the REALITY handshake server, which sail does not take yet",
-        Unsupported,
-        &[
-            "inbounds.*.tls.reality.handshake.disable_tcp_keep_alive",
-            "inbounds.*.tls.reality.handshake.tcp_keep_alive",
-            "inbounds.*.tls.reality.handshake.tcp_keep_alive_interval",
-        ],
-    ),
-    g(
         NETWORKS,
         Unsupported,
         &[
@@ -528,14 +519,6 @@ pub const GROUPS: &[Group] = &[
             "inbounds.*.tls.reality.handshake.network_type",
             "inbounds.*.tls.reality.handshake.fallback_network_type",
             "inbounds.*.tls.reality.handshake.fallback_delay",
-        ],
-    ),
-    g(
-        "Resolving the REALITY handshake server's name with a resolver of its own: another server would answer",
-        Unsupported,
-        &[
-            "inbounds.*.tls.reality.handshake.domain_resolver",
-            "inbounds.*.tls.reality.handshake.domain_strategy",
         ],
     ),
     g(

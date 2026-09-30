@@ -693,11 +693,14 @@ mod tests {
 
     #[tokio::test]
     async fn a_fixed_masquerade_answers_strangers() {
-        let masquerade = Masquerade::new(MasqueradeOptions::Object(MasqueradeObject::String {
-            status_code: Some(200),
-            headers: [("Content-Type".to_string(), "text/plain".to_string())].into(),
-            content: "hello".into(),
-        }))
+        let masquerade = Masquerade::new(
+            MasqueradeOptions::Object(MasqueradeObject::String {
+                status_code: Some(200),
+                headers: [("Content-Type".to_string(), "text/plain".to_string())].into(),
+                content: "hello".into(),
+            }),
+            crate::net::InstanceDial::default().default_dialer(),
+        )
         .unwrap();
         let f = serve(masquerade).await;
         let conn = f.connect().await;
@@ -727,8 +730,11 @@ mod tests {
                 .unwrap();
             let _ = seen_tx.send(String::from_utf8(request).unwrap());
         });
-        let masquerade =
-            Masquerade::new(MasqueradeOptions::Url(format!("http://{}/base", site_addr))).unwrap();
+        let masquerade = Masquerade::new(
+            MasqueradeOptions::Url(format!("http://{}/base", site_addr)),
+            crate::net::InstanceDial::default().default_dialer(),
+        )
+        .unwrap();
         let f = serve(masquerade).await;
         let conn = f.connect().await;
         let (headers, body) = request(&conn, &GET).await;

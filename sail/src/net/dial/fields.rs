@@ -52,7 +52,7 @@ pub struct DialFields {
     /// Not implemented yet.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub netns: Option<Value>,
-    /// How long a TCP connect may take, e.g. `5s`.
+    /// How long a TCP connect to one address may take; 5s when unset.
     #[serde(
         default,
         with = "crate::config::model::duration",

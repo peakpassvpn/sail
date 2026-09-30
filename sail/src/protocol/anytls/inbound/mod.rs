@@ -79,7 +79,12 @@ fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
             .map_err(|e| anyhow!("[{}] inbound: padding_scheme: {}", tag, e))?,
         None => PaddingScheme::default_scheme(),
     };
-    let fallback = Fallback::new(tag, options.fallback, options.fallback_for_alpn)?;
+    let fallback = Fallback::new(
+        tag,
+        options.fallback,
+        options.fallback_for_alpn,
+        ctx.dial.default_dialer(),
+    )?;
     let mut users = HashMap::new();
     for user in options.users {
         let hash: [u8; 32] = Sha256::digest(user.password.as_bytes()).into();

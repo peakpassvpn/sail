@@ -101,7 +101,12 @@ fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
             ));
         }
     }
-    let fallback = fallback::Fallback::new(ctx.tag, options.fallback, options.fallback_for_alpn)?;
+    let fallback = fallback::Fallback::new(
+        ctx.tag,
+        options.fallback,
+        options.fallback_for_alpn,
+        ctx.dial.default_dialer(),
+    )?;
     let stream = Arc::new(StreamHandler::new(users, fallback));
     Ok(Arc::new(Handler::new(
         ctx.tag.to_owned(),

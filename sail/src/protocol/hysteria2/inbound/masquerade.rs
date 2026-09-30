@@ -13,6 +13,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::time::timeout;
 
 use super::super::h3::{self, Field};
+use crate::net::InboundDialer;
 
 /// Request bodies passed on at most.
 const MAX_REQUEST_BODY: usize = 1024 * 1024;
@@ -71,15 +72,18 @@ pub enum Masquerade {
         /// The URL's path, which requested paths are put under.
         base_path: String,
         rewrite_host: bool,
+        /// Dials the site: the instance's dial defaults.
+        dialer: InboundDialer,
     },
 }
 
 impl Masquerade {
-    pub fn new(options: MasqueradeOptions) -> Result<Self> {
+    /// What `options` asks for; a site behind is dialled with `dialer`.
+    pub fn new(options: MasqueradeOptions, dialer: InboundDialer) -> Result<Self> {
         match options {
-            MasqueradeOptions::Url(url) => Self::proxy(&url, false),
+            MasqueradeOptions::Url(url) => Self::proxy(&url, false, dialer),
             MasqueradeOptions::Object(MasqueradeObject::Proxy { url, rewrite_host }) => {
-                Self::proxy(&url, rewrite_host)
+                Self::proxy(&url, rewrite_host, dialer)
             }
             MasqueradeOptions::Object(MasqueradeObject::String {
                 status_code,
@@ -104,7 +108,7 @@ impl Masquerade {
 
     /// A proxy to `url`, which must be `http://`: `https://` and `file://`
     /// are not supported.
-    fn proxy(url: &str, rewrite_host: bool) -> Result<Self> {
+    fn proxy(url: &str, rewrite_host: bool, dialer: InboundDialer) -> Result<Self> {
         let url = url::Url::parse(url).map_err(|e| anyhow!("url: {}", e))?;
         if url.scheme() != "http" {
             return Err(anyhow!(
@@ -123,6 +127,7 @@ impl Masquerade {
             port: url.port_or_known_default().unwrap_or(80),
             base_path: url.path().trim_end_matches('/').to_string(),
             rewrite_host,
+            dialer,
         })
     }
 
@@ -182,6 +187,7 @@ impl Masquerade {
             port,
             base_path,
             rewrite_host,
+            dialer,
         } = self
         else {
             return Err(io::Error::other("not a proxy"));
@@ -226,7 +232,7 @@ impl Masquerade {
             body.len()
         ));
 
-        let mut upstream = tokio::net::TcpStream::connect((host.as_str(), *port)).await?;
+        let mut upstream = dialer.tcp(host, *port).await?;
         upstream.write_all(request.as_bytes()).await?;
         upstream.write_all(body).await?;
         let mut response = Vec::new();
@@ -287,14 +293,18 @@ mod tests {
 
     #[test]
     fn only_http_urls_are_proxied() {
-        let m =
-            Masquerade::new(MasqueradeOptions::Url("http://127.0.0.1:8080/base/".into())).unwrap();
+        let m = Masquerade::new(
+            MasqueradeOptions::Url("http://127.0.0.1:8080/base/".into()),
+            dialer(),
+        )
+        .unwrap();
         match m {
             Masquerade::Proxy {
                 host,
                 port,
                 base_path,
                 rewrite_host,
+                ..
             } => {
                 assert_eq!(
                     (host.as_str(), port, base_path.as_str()),
@@ -304,7 +314,49 @@ mod tests {
             }
             _ => panic!("not a proxy"),
         }
-        assert!(Masquerade::new(MasqueradeOptions::Url("https://example.com".into())).is_err());
-        assert!(Masquerade::new(MasqueradeOptions::Url("file:///var/www".into())).is_err());
+        assert!(Masquerade::new(
+            MasqueradeOptions::Url("https://example.com".into()),
+            dialer()
+        )
+        .is_err());
+        assert!(
+            Masquerade::new(MasqueradeOptions::Url("file:///var/www".into()), dialer()).is_err()
+        );
+    }
+
+    fn dialer() -> InboundDialer {
+        crate::net::InstanceDial::default().default_dialer()
+    }
+
+    /// The site behind is dialled with the instance's dial defaults, whose
+    /// host protects the socket.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn the_site_behind_is_dialled_with_the_instance_defaults() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let (dial, protected) = crate::net::dial::recording::instance();
+        let site = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = site.local_addr().unwrap();
+        tokio::spawn(async move {
+            let (mut stream, _) = site.accept().await.unwrap();
+            let mut request = Vec::new();
+            let mut buf = [0u8; 1024];
+            while !request.ends_with(b"\r\n\r\n") {
+                let n = stream.read(&mut buf).await.unwrap();
+                request.extend_from_slice(&buf[..n]);
+            }
+            stream
+                .write_all(b"HTTP/1.0 204 No Content\r\n\r\n")
+                .await
+                .unwrap();
+        });
+        let m = Masquerade::new(
+            MasqueradeOptions::Url(format!("http://{}/", addr)),
+            dial.default_dialer(),
+        )
+        .unwrap();
+        let (status, _, _) = m.forward(&[], b"").await.unwrap();
+        assert_eq!(status, 204);
+        assert_eq!(protected.count(), 1);
     }
 }

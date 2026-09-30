@@ -131,8 +131,8 @@ impl DialSpec {
     }
 
     /// `fields` over `defaults`, without checking them against the
-    /// platform: for `http_clients`, which have never been checked, and
-    /// fail when they dial instead.
+    /// platform: for fields checked already, over defaults a reload
+    /// replaced.
     pub(crate) fn merge(fields: &DialFields, defaults: &RouteDefaults) -> DialSpec {
         // A place bound to an interface or address of its own is not also
         // bound to the default interface, which could contradict it.
@@ -316,7 +316,7 @@ mod tests {
     #[test]
     fn unset_it_takes_the_runtime_defaults() {
         let spec = DialSpec::default();
-        assert_eq!(spec.connect_timeout, Duration::from_secs(8));
+        assert_eq!(spec.connect_timeout, Duration::from_secs(5));
         assert_eq!(spec.tcp_keep_alive, Some(TcpKeepAlive::DEFAULT));
         assert!(!spec.binds());
         assert!(!spec.auto_detect_interface);

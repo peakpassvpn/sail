@@ -25,7 +25,7 @@ pub mod relay;
 pub mod resolver;
 
 pub use datagram::*;
-pub use dial::{DialDefaults, Dialer};
+pub use dial::{DialDefaults, Dialer, InboundDialer, InstanceDial, SharedDialDefaults};
 
 pub struct TcpListener {
     inner: tokio::net::TcpListener,
@@ -600,7 +600,7 @@ mod tests {
             destination: SocksAddr::Ip(addr),
             ..Default::default()
         };
-        for (tag, timeout) in [("own", 3), ("plain", 8)] {
+        for (tag, timeout) in [("own", 3), ("plain", 5)] {
             let handler = manager.get(tag).unwrap();
             let OutboundConnect::Direct(dialer) = handler.stream().unwrap().connect_addr() else {
                 panic!("[{}] asks for no direct connection", tag);

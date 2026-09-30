@@ -39,9 +39,9 @@
 //!   served, as sing-box serves them; the latest Xray refuses them.
 //! - No `min_client_ver` / `max_client_ver`, as sing-box has none; no
 //!   PROXY protocol, no fallback rate limits and no ML-DSA-65 signature.
-//! - The handshake server's name is resolved by the system, not by sail's
-//!   DNS, which the inbound layers do not reach; the socket is sail's (the
-//!   dial fields, keepalive, no delay).
+//! - The handshake server is dialled as sail's own sockets are: its dial
+//!   fields over the instance's defaults, its name resolved by sail's DNS.
+//!   It cannot `detour` through an outbound yet.
 //!
 //! Chrome's ClientHello, which REALITY clients imitate, does not offer
 //! Ed25519 signatures, and BoringSSL signs only with what the client
@@ -83,7 +83,7 @@ use super::shape::{
 };
 use super::{parse_key, parse_short_id};
 use crate::adapter::*;
-use crate::net::Dialer;
+use crate::net::InboundDialer;
 use crate::session::Session;
 use crate::transport::tls::BoringConnection;
 use crate::transport::tls_stream::TlsStream;
@@ -126,7 +126,7 @@ pub struct Handler {
     short_ids: HashSet<[u8; 8]>,
     max_time_difference: Option<Duration>,
     handshake: (String, u16),
-    dialer: Dialer,
+    dialer: InboundDialer,
     pub(crate) timeouts: Timeouts,
     context: SslContext,
     key: PKey<Private>,
@@ -237,7 +237,7 @@ impl Handler {
         short_ids: &[String],
         max_time_difference: Option<Duration>,
         handshake: (String, u16),
-        dialer: Dialer,
+        dialer: InboundDialer,
     ) -> Result<Self> {
         if server_name.is_empty() {
             return Err(anyhow!("server_name is required"));
@@ -374,20 +374,7 @@ impl Handler {
     /// A TCP connection to the handshake server.
     async fn dial_target(&self) -> io::Result<TcpStream> {
         let (host, port) = (self.handshake.0.as_str(), self.handshake.1);
-        let addrs = tokio::time::timeout(
-            self.dialer.connect_timeout(),
-            tokio::net::lookup_host((host, port)),
-        )
-        .await
-        .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "resolve timed out"))??;
-        let mut last = None;
-        for addr in addrs {
-            match self.dialer.tcp_to(addr).await {
-                Ok(stream) => return Ok(stream),
-                Err(e) => last = Some(e),
-            }
-        }
-        Err(last.unwrap_or_else(|| io::Error::new(io::ErrorKind::NotFound, "no address")))
+        self.dialer.tcp(host, port).await
     }
 
     /// Relays the client to the handshake server until a whole ClientHello
@@ -863,6 +850,18 @@ mod tests {
     }
 
     fn server_to(max_time_difference: Option<Duration>, port: u16) -> Handler {
+        server_dialling(
+            max_time_difference,
+            port,
+            crate::net::InstanceDial::default().default_dialer(),
+        )
+    }
+
+    fn server_dialling(
+        max_time_difference: Option<Duration>,
+        port: u16,
+        dialer: crate::net::InboundDialer,
+    ) -> Handler {
         let (private, _) = keys();
         Handler::new(
             "www.example.com".to_string(),
@@ -870,9 +869,24 @@ mod tests {
             &["ab12".to_string()],
             max_time_difference,
             ("127.0.0.1".to_string(), port),
-            Dialer::system(),
+            dialer,
         )
         .unwrap()
+    }
+
+    /// The handshake server is dialled with the instance's dial defaults,
+    /// whose host protects the socket.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn the_handshake_server_is_dialled_with_the_instance_defaults() {
+        let (dial, protected) = crate::net::dial::recording::instance();
+        let site = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = site.local_addr().unwrap().port();
+        let server = server_dialling(None, port, dial.default_dialer());
+        let (dialled, accepted) = tokio::join!(server.dial_target(), site.accept());
+        dialled.unwrap();
+        accepted.unwrap();
+        assert_eq!(protected.count(), 1);
     }
 
     fn server(max_time_difference: Option<Duration>) -> Handler {

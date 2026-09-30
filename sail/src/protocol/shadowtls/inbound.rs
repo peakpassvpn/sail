@@ -24,6 +24,7 @@ use super::{
 use crate::adapter::inbound::Handler as InboundHandlerImpl;
 use crate::adapter::registry::{InboundContext, InboundFactory, InboundRegistry, Options};
 use crate::adapter::*;
+use crate::net::InboundDialer;
 use crate::protocol::fallback;
 use crate::session::Session;
 
@@ -76,7 +77,8 @@ struct ShadowTlsUser {
 }
 
 /// A server and port, and sing-box's dial fields, which sail does not
-/// implement here: the handshake server is dialled directly.
+/// implement here: the handshake server is dialled with the instance's
+/// dial defaults.
 #[derive(Deserialize)]
 struct ShadowTlsHandshake {
     #[serde(default)]
@@ -207,6 +209,7 @@ fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
         wildcard: options.wildcard_sni,
         detour,
         detour_tag,
+        dialer: ctx.dial.default_dialer(),
     });
     Ok(Arc::new(InboundHandlerImpl::new(
         tag.to_owned(),
@@ -224,6 +227,8 @@ pub struct Handler {
     wildcard: WildcardSni,
     detour: AnyInboundHandler,
     detour_tag: String,
+    /// Dials the handshake servers: the instance's dial defaults.
+    dialer: InboundDialer,
 }
 
 impl Handler {
@@ -298,8 +303,14 @@ impl InboundStreamHandler for Handler {
                 let mut consumed = hello.to_vec();
                 consumed.extend_from_slice(&records.into_inner());
                 tokio::spawn(
-                    fallback::relay(stream, consumed, other.server.clone(), other.port)
-                        .instrument(sess.span()),
+                    fallback::relay(
+                        self.dialer.clone(),
+                        stream,
+                        consumed,
+                        other.server.clone(),
+                        other.port,
+                    )
+                    .instrument(sess.span()),
                 );
                 return Err(denied(format!(
                     "{}; relayed to the handshake server {}:{}",
@@ -308,7 +319,7 @@ impl InboundStreamHandler for Handler {
             }
         };
         let target = target.ok_or_else(|| denied(format!("no handshake server for {:?}", name)))?;
-        let mut server = fallback::dial(&target.server, target.port).await?;
+        let mut server = self.dialer.tcp(&target.server, target.port).await?;
         server.write_all(&hello).await?;
         let mut server_records = Records::default();
         let server_hello = server_records.expect(&mut server).await?;

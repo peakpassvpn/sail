@@ -18,7 +18,7 @@ use super::router::Router;
 use super::stat_manager::StatManager;
 use super::{SyncDnsClient, SyncOutboundManager, SyncRouter, SyncStatManager};
 use crate::config::Config;
-use crate::net::DialDefaults;
+use crate::net::{DialDefaults, InstanceDial, SharedDialDefaults};
 use crate::runtime::SyncRuntimeEnv;
 use crate::Runner;
 
@@ -34,6 +34,9 @@ pub struct Instance {
     pub inbound_manager: Arc<std::sync::Mutex<InboundManager>>,
     /// Serves the UDP of the inbounds, and of the endpoints once started.
     nat_manager: Arc<NatManager>,
+    /// What the instance dials with where the dial fields leave off, which
+    /// a reload replaces.
+    pub(crate) dial_defaults: SharedDialDefaults,
     /// Controls the TUN inbound's stack once it is started.
     #[cfg(feature = "inbound-tun")]
     pub(crate) tun_control: Option<crate::net::netstack::NativeRuntimeControl>,
@@ -124,11 +127,17 @@ impl Instance {
             dispatcher.set_inbound_type(&inbound.tag, Some(&inbound.protocol));
         }
         let nat_manager = Arc::new(NatManager::new(dispatcher.clone(), &inbounds));
+        // Inbounds outlive a reload, and follow the defaults it brings.
+        let shared_dial_defaults: SharedDialDefaults = Arc::new(ArcSwap::new(dial_defaults));
         let inbound_manager = Arc::new(std::sync::Mutex::new(InboundManager::new(
             &config.inbounds,
             &env,
             dispatcher.clone(),
             nat_manager.clone(),
+            InstanceDial {
+                defaults: shared_dial_defaults.clone(),
+                dns: dns_client.clone(),
+            },
         )?));
         #[cfg(all(feature = "inbound-tun", any(target_os = "linux", target_os = "macos")))]
         let routed_tun = config
@@ -153,6 +162,7 @@ impl Instance {
             rule_sets,
             inbound_manager,
             nat_manager,
+            dial_defaults: shared_dial_defaults,
             #[cfg(feature = "inbound-tun")]
             tun_control: None,
             #[cfg(all(feature = "inbound-tun", any(target_os = "linux", target_os = "macos")))]

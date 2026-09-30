@@ -14,7 +14,7 @@ use serde_derive::Deserialize;
 use tokio::io::AsyncWriteExt;
 use tracing::Instrument;
 
-use crate::{adapter::AnyStream, net::Dialer, session::Session};
+use crate::{adapter::AnyStream, net::InboundDialer, session::Session};
 
 /// How long a peer that has sent less than a header is waited for before it
 /// is handed to the fallback, as Xray does: a prober that sends a few bytes
@@ -57,16 +57,18 @@ impl Target {
 pub struct Fallback {
     default: Option<Target>,
     by_alpn: HashMap<String, Target>,
+    dialer: InboundDialer,
 }
 
 impl Fallback {
     /// `fallback` and `fallback_for_alpn` as the inbound's options have
-    /// them; `None` if neither is set, which leaves the inbound closing
-    /// what fails to authenticate.
+    /// them, dialled with `dialer`; `None` if neither is set, which leaves
+    /// the inbound closing what fails to authenticate.
     pub fn new(
         tag: &str,
         fallback: Option<FallbackServer>,
         fallback_for_alpn: HashMap<String, FallbackServer>,
+        dialer: InboundDialer,
     ) -> Result<Option<Self>> {
         let default = fallback
             .map(|f| Target::parse("fallback", f))
@@ -87,7 +89,11 @@ impl Fallback {
         if default.is_none() && by_alpn.is_empty() {
             return Ok(None);
         }
-        Ok(Some(Fallback { default, by_alpn }))
+        Ok(Some(Fallback {
+            default,
+            by_alpn,
+            dialer,
+        }))
     }
 
     /// The server for a connection that negotiated `alpn`: the one for that
@@ -122,16 +128,28 @@ impl Fallback {
         let server = target.server.clone();
         let port = target.port;
         let message = format!("{}; relayed to the fallback {}:{}", why, server, port);
-        tokio::spawn(relay(stream, consumed, server, port).instrument(sess.span()));
+        tokio::spawn(
+            relay(self.dialer.clone(), stream, consumed, server, port).instrument(sess.span()),
+        );
         io::Error::new(io::ErrorKind::PermissionDenied, message)
     }
 }
 
-/// Relays `stream` to `server`:`port`: `consumed` first, then both ways
-/// until either side is done.
-pub(crate) async fn relay(mut stream: AnyStream, consumed: Vec<u8>, server: String, port: u16) {
+/// Relays `stream` to `server`:`port`, dialled with `dialer`: `consumed`
+/// first, then both ways until either side is done.
+///
+/// The server is dialled as sail's own sockets are, with the instance's
+/// dial defaults: it is a neighbour of the server, not a destination to be
+/// routed.
+pub(crate) async fn relay(
+    dialer: InboundDialer,
+    mut stream: AnyStream,
+    consumed: Vec<u8>,
+    server: String,
+    port: u16,
+) {
     let result = async {
-        let mut remote = dial(&server, port).await?;
+        let mut remote = dialer.tcp(&server, port).await?;
         remote.write_all(&consumed).await?;
         tokio::io::copy_bidirectional(&mut stream, &mut remote).await
     }
@@ -141,32 +159,13 @@ pub(crate) async fn relay(mut stream: AnyStream, consumed: Vec<u8>, server: Stri
     }
 }
 
-/// A direct TCP connection to `server`:`port`, trying each address the
-/// system resolves it to. It goes out as sail's own sockets do, with the
-/// default dial options: the fallback is a neighbour of the server, not a
-/// destination to be routed.
-pub(crate) async fn dial(server: &str, port: u16) -> io::Result<tokio::net::TcpStream> {
-    // Dialled with no dial fields, and not yet with the instance's
-    // defaults either.
-    let dialer = Dialer::system();
-    let mut last = None;
-    for addr in tokio::net::lookup_host((server, port)).await? {
-        match dialer.tcp_to(addr).await {
-            Ok(stream) => return Ok(stream),
-            Err(e) => last = Some(e),
-        }
-    }
-    Err(last.unwrap_or_else(|| {
-        io::Error::new(
-            io::ErrorKind::NotFound,
-            format!("{} has no address", server),
-        )
-    }))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn dialer() -> InboundDialer {
+        crate::net::InstanceDial::default().default_dialer()
+    }
 
     fn server(port: u16) -> FallbackServer {
         FallbackServer {
@@ -181,6 +180,7 @@ mod tests {
             "t",
             Some(server(1)),
             HashMap::from([("h2".to_string(), server(2))]),
+            dialer(),
         )
         .unwrap()
         .unwrap();
@@ -188,21 +188,60 @@ mod tests {
         assert_eq!(fallback.target(Some("http/1.1")).unwrap().port, 1);
         assert_eq!(fallback.target(None).unwrap().port, 1);
 
-        let only_alpn = Fallback::new("t", None, HashMap::from([("h2".to_string(), server(2))]))
-            .unwrap()
-            .unwrap();
+        let only_alpn = Fallback::new(
+            "t",
+            None,
+            HashMap::from([("h2".to_string(), server(2))]),
+            dialer(),
+        )
+        .unwrap()
+        .unwrap();
         assert!(only_alpn.target(None).is_none());
-        assert!(Fallback::new("t", None, HashMap::new()).unwrap().is_none());
+        assert!(Fallback::new("t", None, HashMap::new(), dialer())
+            .unwrap()
+            .is_none());
     }
 
     #[test]
     fn test_config_mistakes() {
-        assert!(Fallback::new("t", None, HashMap::from([(String::new(), server(2))])).is_err());
-        assert!(Fallback::new("t", Some(server(0)), HashMap::new()).is_err());
+        assert!(Fallback::new(
+            "t",
+            None,
+            HashMap::from([(String::new(), server(2))]),
+            dialer()
+        )
+        .is_err());
+        assert!(Fallback::new("t", Some(server(0)), HashMap::new(), dialer()).is_err());
         let empty = FallbackServer {
             server: String::new(),
             server_port: 80,
         };
-        assert!(Fallback::new("t", Some(empty), HashMap::new()).is_err());
+        assert!(Fallback::new("t", Some(empty), HashMap::new(), dialer()).is_err());
+    }
+
+    /// The fallback is dialled with the instance's dial defaults, whose
+    /// host protects the socket, and gets what was read first.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn the_fallback_is_dialled_with_the_instance_defaults() {
+        use tokio::io::AsyncReadExt;
+        let (dial, protected) = crate::net::dial::recording::instance();
+        let web = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let fallback = Fallback::new(
+            "t",
+            Some(server(web.local_addr().unwrap().port())),
+            HashMap::new(),
+            dial.default_dialer(),
+        )
+        .unwrap()
+        .unwrap();
+        let (peer, _ours) = tokio::io::duplex(64);
+        let e = fallback.relay(&Session::default(), Box::new(peer), b"GET".to_vec(), "no");
+        assert_eq!(e.kind(), io::ErrorKind::PermissionDenied);
+        let (mut accepted, _) = web.accept().await.unwrap();
+        let mut first = [0u8; 3];
+        accepted.read_exact(&mut first).await.unwrap();
+        assert_eq!(&first, b"GET");
+        assert_eq!(protected.count(), 1);
     }
 }

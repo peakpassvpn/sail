@@ -22,12 +22,12 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `http_clients` | 80 | 21 | 15 | 44 |
 | `network_namespaces` | 6 | 0 | 0 | 6 |
 | `endpoints` | 433 | 51 | 32 | 350 |
-| `inbounds` | 1367 | 409 | 187 | 771 |
+| `inbounds` | 1367 | 493 | 187 | 687 |
 | `outbounds` | 1228 | 564 | 140 | 524 |
 | `route` | 268 | 144 | 21 | 103 |
 | `services` | 751 | 1 | 166 | 584 |
 | `experimental` | 34 | 16 | 18 | 0 |
-| **All** | **5002** | **1508** | **687** | **2807** |
+| **All** | **5002** | **1592** | **687** | **2723** |
 
 ## `log`
 
@@ -867,16 +867,23 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `tls.reality.handshake.connect_timeout` | Supported |  |
 | `tls.reality.handshake.tcp_fast_open` | Warned | Socket tuning: connections go the same way without it |
 | `tls.reality.handshake.tcp_multi_path` | Warned | Socket tuning: connections go the same way without it |
-| `tls.reality.handshake.disable_tcp_keep_alive` | Error | Keepalive of the connection to the REALITY handshake server, which sail does not take yet |
-| `tls.reality.handshake.tcp_keep_alive` | Error | Keepalive of the connection to the REALITY handshake server, which sail does not take yet |
-| `tls.reality.handshake.tcp_keep_alive_interval` | Error | Keepalive of the connection to the REALITY handshake server, which sail does not take yet |
+| `tls.reality.handshake.disable_tcp_keep_alive` | Supported |  |
+| `tls.reality.handshake.tcp_keep_alive` | Supported |  |
+| `tls.reality.handshake.tcp_keep_alive_interval` | Supported |  |
 | `tls.reality.handshake.udp_fragment` | Warned | Socket tuning: connections go the same way without it |
-| `tls.reality.handshake.domain_resolver` | Error | Resolving the REALITY handshake server's name with a resolver of its own: another server would answer (and the 7 fields in it) |
+| `tls.reality.handshake.domain_resolver` | Supported |  |
+| `tls.reality.handshake.domain_resolver.server` | Supported |  |
+| `tls.reality.handshake.domain_resolver.timeout` | Supported |  |
+| `tls.reality.handshake.domain_resolver.strategy` | Supported |  |
+| `tls.reality.handshake.domain_resolver.disable_cache` | Supported |  |
+| `tls.reality.handshake.domain_resolver.disable_optimistic_cache` | Supported |  |
+| `tls.reality.handshake.domain_resolver.rewrite_ttl` | Supported |  |
+| `tls.reality.handshake.domain_resolver.client_subnet` | Supported |  |
 | `tls.reality.handshake.network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `tls.reality.handshake.network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `tls.reality.handshake.fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `tls.reality.handshake.fallback_delay` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `tls.reality.handshake.domain_strategy` (deprecated) | Error | Resolving the REALITY handshake server's name with a resolver of its own: another server would answer |
+| `tls.reality.handshake.domain_strategy` (deprecated) | Supported |  |
 | `tls.reality.private_key` | Supported |  |
 | `tls.reality.short_id` | Supported |  |
 | `tls.reality.max_time_difference` | Supported |  |
@@ -972,16 +979,23 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `tls.reality.handshake.connect_timeout` | Supported |  |
 | `tls.reality.handshake.tcp_fast_open` | Warned | Socket tuning: connections go the same way without it |
 | `tls.reality.handshake.tcp_multi_path` | Warned | Socket tuning: connections go the same way without it |
-| `tls.reality.handshake.disable_tcp_keep_alive` | Error | Keepalive of the connection to the REALITY handshake server, which sail does not take yet |
-| `tls.reality.handshake.tcp_keep_alive` | Error | Keepalive of the connection to the REALITY handshake server, which sail does not take yet |
-| `tls.reality.handshake.tcp_keep_alive_interval` | Error | Keepalive of the connection to the REALITY handshake server, which sail does not take yet |
+| `tls.reality.handshake.disable_tcp_keep_alive` | Supported |  |
+| `tls.reality.handshake.tcp_keep_alive` | Supported |  |
+| `tls.reality.handshake.tcp_keep_alive_interval` | Supported |  |
 | `tls.reality.handshake.udp_fragment` | Warned | Socket tuning: connections go the same way without it |
-| `tls.reality.handshake.domain_resolver` | Error | Resolving the REALITY handshake server's name with a resolver of its own: another server would answer (and the 7 fields in it) |
+| `tls.reality.handshake.domain_resolver` | Supported |  |
+| `tls.reality.handshake.domain_resolver.server` | Supported |  |
+| `tls.reality.handshake.domain_resolver.timeout` | Supported |  |
+| `tls.reality.handshake.domain_resolver.strategy` | Supported |  |
+| `tls.reality.handshake.domain_resolver.disable_cache` | Supported |  |
+| `tls.reality.handshake.domain_resolver.disable_optimistic_cache` | Supported |  |
+| `tls.reality.handshake.domain_resolver.rewrite_ttl` | Supported |  |
+| `tls.reality.handshake.domain_resolver.client_subnet` | Supported |  |
 | `tls.reality.handshake.network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `tls.reality.handshake.network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `tls.reality.handshake.fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `tls.reality.handshake.fallback_delay` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `tls.reality.handshake.domain_strategy` (deprecated) | Error | Resolving the REALITY handshake server's name with a resolver of its own: another server would answer |
+| `tls.reality.handshake.domain_strategy` (deprecated) | Supported |  |
 | `tls.reality.private_key` | Supported |  |
 | `tls.reality.short_id` | Supported |  |
 | `tls.reality.max_time_difference` | Supported |  |
@@ -1057,16 +1071,23 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `tls.reality.handshake.connect_timeout` | Supported |  |
 | `tls.reality.handshake.tcp_fast_open` | Warned | Socket tuning: connections go the same way without it |
 | `tls.reality.handshake.tcp_multi_path` | Warned | Socket tuning: connections go the same way without it |
-| `tls.reality.handshake.disable_tcp_keep_alive` | Error | Keepalive of the connection to the REALITY handshake server, which sail does not take yet |
-| `tls.reality.handshake.tcp_keep_alive` | Error | Keepalive of the connection to the REALITY handshake server, which sail does not take yet |
-| `tls.reality.handshake.tcp_keep_alive_interval` | Error | Keepalive of the connection to the REALITY handshake server, which sail does not take yet |
+| `tls.reality.handshake.disable_tcp_keep_alive` | Supported |  |
+| `tls.reality.handshake.tcp_keep_alive` | Supported |  |
+| `tls.reality.handshake.tcp_keep_alive_interval` | Supported |  |
 | `tls.reality.handshake.udp_fragment` | Warned | Socket tuning: connections go the same way without it |
-| `tls.reality.handshake.domain_resolver` | Error | Resolving the REALITY handshake server's name with a resolver of its own: another server would answer (and the 7 fields in it) |
+| `tls.reality.handshake.domain_resolver` | Supported |  |
+| `tls.reality.handshake.domain_resolver.server` | Supported |  |
+| `tls.reality.handshake.domain_resolver.timeout` | Supported |  |
+| `tls.reality.handshake.domain_resolver.strategy` | Supported |  |
+| `tls.reality.handshake.domain_resolver.disable_cache` | Supported |  |
+| `tls.reality.handshake.domain_resolver.disable_optimistic_cache` | Supported |  |
+| `tls.reality.handshake.domain_resolver.rewrite_ttl` | Supported |  |
+| `tls.reality.handshake.domain_resolver.client_subnet` | Supported |  |
 | `tls.reality.handshake.network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `tls.reality.handshake.network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `tls.reality.handshake.fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `tls.reality.handshake.fallback_delay` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `tls.reality.handshake.domain_strategy` (deprecated) | Error | Resolving the REALITY handshake server's name with a resolver of its own: another server would answer |
+| `tls.reality.handshake.domain_strategy` (deprecated) | Supported |  |
 | `tls.reality.private_key` | Supported |  |
 | `tls.reality.short_id` | Supported |  |
 | `tls.reality.max_time_difference` | Supported |  |
@@ -1326,16 +1347,23 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `tls.reality.handshake.connect_timeout` | Supported |  |
 | `tls.reality.handshake.tcp_fast_open` | Warned | Socket tuning: connections go the same way without it |
 | `tls.reality.handshake.tcp_multi_path` | Warned | Socket tuning: connections go the same way without it |
-| `tls.reality.handshake.disable_tcp_keep_alive` | Error | Keepalive of the connection to the REALITY handshake server, which sail does not take yet |
-| `tls.reality.handshake.tcp_keep_alive` | Error | Keepalive of the connection to the REALITY handshake server, which sail does not take yet |
-| `tls.reality.handshake.tcp_keep_alive_interval` | Error | Keepalive of the connection to the REALITY handshake server, which sail does not take yet |
+| `tls.reality.handshake.disable_tcp_keep_alive` | Supported |  |
+| `tls.reality.handshake.tcp_keep_alive` | Supported |  |
+| `tls.reality.handshake.tcp_keep_alive_interval` | Supported |  |
 | `tls.reality.handshake.udp_fragment` | Warned | Socket tuning: connections go the same way without it |
-| `tls.reality.handshake.domain_resolver` | Error | Resolving the REALITY handshake server's name with a resolver of its own: another server would answer (and the 7 fields in it) |
+| `tls.reality.handshake.domain_resolver` | Supported |  |
+| `tls.reality.handshake.domain_resolver.server` | Supported |  |
+| `tls.reality.handshake.domain_resolver.timeout` | Supported |  |
+| `tls.reality.handshake.domain_resolver.strategy` | Supported |  |
+| `tls.reality.handshake.domain_resolver.disable_cache` | Supported |  |
+| `tls.reality.handshake.domain_resolver.disable_optimistic_cache` | Supported |  |
+| `tls.reality.handshake.domain_resolver.rewrite_ttl` | Supported |  |
+| `tls.reality.handshake.domain_resolver.client_subnet` | Supported |  |
 | `tls.reality.handshake.network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `tls.reality.handshake.network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `tls.reality.handshake.fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `tls.reality.handshake.fallback_delay` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `tls.reality.handshake.domain_strategy` (deprecated) | Error | Resolving the REALITY handshake server's name with a resolver of its own: another server would answer |
+| `tls.reality.handshake.domain_strategy` (deprecated) | Supported |  |
 | `tls.reality.private_key` | Supported |  |
 | `tls.reality.short_id` | Supported |  |
 | `tls.reality.max_time_difference` | Supported |  |
@@ -1437,16 +1465,23 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `tls.reality.handshake.connect_timeout` | Supported |  |
 | `tls.reality.handshake.tcp_fast_open` | Warned | Socket tuning: connections go the same way without it |
 | `tls.reality.handshake.tcp_multi_path` | Warned | Socket tuning: connections go the same way without it |
-| `tls.reality.handshake.disable_tcp_keep_alive` | Error | Keepalive of the connection to the REALITY handshake server, which sail does not take yet |
-| `tls.reality.handshake.tcp_keep_alive` | Error | Keepalive of the connection to the REALITY handshake server, which sail does not take yet |
-| `tls.reality.handshake.tcp_keep_alive_interval` | Error | Keepalive of the connection to the REALITY handshake server, which sail does not take yet |
+| `tls.reality.handshake.disable_tcp_keep_alive` | Supported |  |
+| `tls.reality.handshake.tcp_keep_alive` | Supported |  |
+| `tls.reality.handshake.tcp_keep_alive_interval` | Supported |  |
 | `tls.reality.handshake.udp_fragment` | Warned | Socket tuning: connections go the same way without it |
-| `tls.reality.handshake.domain_resolver` | Error | Resolving the REALITY handshake server's name with a resolver of its own: another server would answer (and the 7 fields in it) |
+| `tls.reality.handshake.domain_resolver` | Supported |  |
+| `tls.reality.handshake.domain_resolver.server` | Supported |  |
+| `tls.reality.handshake.domain_resolver.timeout` | Supported |  |
+| `tls.reality.handshake.domain_resolver.strategy` | Supported |  |
+| `tls.reality.handshake.domain_resolver.disable_cache` | Supported |  |
+| `tls.reality.handshake.domain_resolver.disable_optimistic_cache` | Supported |  |
+| `tls.reality.handshake.domain_resolver.rewrite_ttl` | Supported |  |
+| `tls.reality.handshake.domain_resolver.client_subnet` | Supported |  |
 | `tls.reality.handshake.network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `tls.reality.handshake.network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `tls.reality.handshake.fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `tls.reality.handshake.fallback_delay` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `tls.reality.handshake.domain_strategy` (deprecated) | Error | Resolving the REALITY handshake server's name with a resolver of its own: another server would answer |
+| `tls.reality.handshake.domain_strategy` (deprecated) | Supported |  |
 | `tls.reality.private_key` | Supported |  |
 | `tls.reality.short_id` | Supported |  |
 | `tls.reality.max_time_difference` | Supported |  |
@@ -1567,16 +1602,23 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `tls.reality.handshake.connect_timeout` | Supported |  |
 | `tls.reality.handshake.tcp_fast_open` | Warned | Socket tuning: connections go the same way without it |
 | `tls.reality.handshake.tcp_multi_path` | Warned | Socket tuning: connections go the same way without it |
-| `tls.reality.handshake.disable_tcp_keep_alive` | Error | Keepalive of the connection to the REALITY handshake server, which sail does not take yet |
-| `tls.reality.handshake.tcp_keep_alive` | Error | Keepalive of the connection to the REALITY handshake server, which sail does not take yet |
-| `tls.reality.handshake.tcp_keep_alive_interval` | Error | Keepalive of the connection to the REALITY handshake server, which sail does not take yet |
+| `tls.reality.handshake.disable_tcp_keep_alive` | Supported |  |
+| `tls.reality.handshake.tcp_keep_alive` | Supported |  |
+| `tls.reality.handshake.tcp_keep_alive_interval` | Supported |  |
 | `tls.reality.handshake.udp_fragment` | Warned | Socket tuning: connections go the same way without it |
-| `tls.reality.handshake.domain_resolver` | Error | Resolving the REALITY handshake server's name with a resolver of its own: another server would answer (and the 7 fields in it) |
+| `tls.reality.handshake.domain_resolver` | Supported |  |
+| `tls.reality.handshake.domain_resolver.server` | Supported |  |
+| `tls.reality.handshake.domain_resolver.timeout` | Supported |  |
+| `tls.reality.handshake.domain_resolver.strategy` | Supported |  |
+| `tls.reality.handshake.domain_resolver.disable_cache` | Supported |  |
+| `tls.reality.handshake.domain_resolver.disable_optimistic_cache` | Supported |  |
+| `tls.reality.handshake.domain_resolver.rewrite_ttl` | Supported |  |
+| `tls.reality.handshake.domain_resolver.client_subnet` | Supported |  |
 | `tls.reality.handshake.network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `tls.reality.handshake.network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `tls.reality.handshake.fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `tls.reality.handshake.fallback_delay` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `tls.reality.handshake.domain_strategy` (deprecated) | Error | Resolving the REALITY handshake server's name with a resolver of its own: another server would answer |
+| `tls.reality.handshake.domain_strategy` (deprecated) | Supported |  |
 | `tls.reality.private_key` | Supported |  |
 | `tls.reality.short_id` | Supported |  |
 | `tls.reality.max_time_difference` | Supported |  |
@@ -1670,16 +1712,23 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `tls.reality.handshake.connect_timeout` | Supported |  |
 | `tls.reality.handshake.tcp_fast_open` | Warned | Socket tuning: connections go the same way without it |
 | `tls.reality.handshake.tcp_multi_path` | Warned | Socket tuning: connections go the same way without it |
-| `tls.reality.handshake.disable_tcp_keep_alive` | Error | Keepalive of the connection to the REALITY handshake server, which sail does not take yet |
-| `tls.reality.handshake.tcp_keep_alive` | Error | Keepalive of the connection to the REALITY handshake server, which sail does not take yet |
-| `tls.reality.handshake.tcp_keep_alive_interval` | Error | Keepalive of the connection to the REALITY handshake server, which sail does not take yet |
+| `tls.reality.handshake.disable_tcp_keep_alive` | Supported |  |
+| `tls.reality.handshake.tcp_keep_alive` | Supported |  |
+| `tls.reality.handshake.tcp_keep_alive_interval` | Supported |  |
 | `tls.reality.handshake.udp_fragment` | Warned | Socket tuning: connections go the same way without it |
-| `tls.reality.handshake.domain_resolver` | Error | Resolving the REALITY handshake server's name with a resolver of its own: another server would answer (and the 7 fields in it) |
+| `tls.reality.handshake.domain_resolver` | Supported |  |
+| `tls.reality.handshake.domain_resolver.server` | Supported |  |
+| `tls.reality.handshake.domain_resolver.timeout` | Supported |  |
+| `tls.reality.handshake.domain_resolver.strategy` | Supported |  |
+| `tls.reality.handshake.domain_resolver.disable_cache` | Supported |  |
+| `tls.reality.handshake.domain_resolver.disable_optimistic_cache` | Supported |  |
+| `tls.reality.handshake.domain_resolver.rewrite_ttl` | Supported |  |
+| `tls.reality.handshake.domain_resolver.client_subnet` | Supported |  |
 | `tls.reality.handshake.network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `tls.reality.handshake.network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `tls.reality.handshake.fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `tls.reality.handshake.fallback_delay` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `tls.reality.handshake.domain_strategy` (deprecated) | Error | Resolving the REALITY handshake server's name with a resolver of its own: another server would answer |
+| `tls.reality.handshake.domain_strategy` (deprecated) | Supported |  |
 | `tls.reality.private_key` | Supported |  |
 | `tls.reality.short_id` | Supported |  |
 | `tls.reality.max_time_difference` | Supported |  |

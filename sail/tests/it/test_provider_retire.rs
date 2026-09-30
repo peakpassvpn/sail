@@ -110,7 +110,7 @@ mod harness {
                 options: common::runtime_options(),
                 ..Default::default()
             });
-            let instance = sail::app::instance::Instance::build(&config, env, dial.clone())?;
+            let instance = sail::app::instance::Instance::build(&config, env, dial)?;
             // What refreshes the provider, every second, and stops the
             // tasks of the members it retires.
             let (reload_tx, _reload_rx) = tokio::sync::mpsc::channel(1);
@@ -128,7 +128,6 @@ mod harness {
                 #[cfg(feature = "inbound-tun")]
                 network_change_tx,
                 &instance,
-                dial,
             );
             let members_become = |expected: &'static [&'static str]| {
                 let manager = manager.clone();

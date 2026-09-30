@@ -99,7 +99,8 @@ fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
         .transpose()
         .map_err(|e| err(format!("obfs: {}", e)))?;
     let masquerade = match options.masquerade {
-        Some(m) => Masquerade::new(m).map_err(|e| err(format!("masquerade: {}", e)))?,
+        Some(m) => Masquerade::new(m, ctx.dial.default_dialer())
+            .map_err(|e| err(format!("masquerade: {}", e)))?,
         None => Masquerade::NotFound,
     };
 

@@ -11,15 +11,16 @@ mod dialer;
 pub mod fields;
 mod spec;
 
-pub use dialer::{DialDefaults, DialEnv, Dialer};
+pub use dialer::{DialDefaults, DialEnv, Dialer, InboundDialer, InstanceDial, SharedDialDefaults};
 pub use fields::DialFields;
 pub use spec::{DialSpec, ResolveSpec, RouteDefaults};
 
 #[cfg(all(test, unix))]
 pub(crate) use dialer::recording;
 
-/// The default time a TCP connect may take.
-pub const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_secs(8);
+/// The default time a TCP connect to one address may take: sing-box's
+/// and Mihomo's.
+pub const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub use super::TcpKeepAlive;
 

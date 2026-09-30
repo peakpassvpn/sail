@@ -683,18 +683,9 @@ mod tests {
                 )),
             );
             // Keepalive: taken wherever sail dials a TCP connection of its
-            // own accord; REALITY's handshake does not yet.
+            // own accord.
             let keepalive = json!({ "tcp_keep_alive": "1m", "tcp_keep_alive_interval": "10s" });
-            match place {
-                3 => assert_eq!(
-                    load(place, &keepalive),
-                    Err(format!(
-                        "{}.tcp_keep_alive: sail does not implement this field yet",
-                        at
-                    )),
-                ),
-                _ => assert_eq!(load(place, &keepalive), Ok(vec![]), "{}", at),
-            }
+            assert_eq!(load(place, &keepalive), Ok(vec![]), "{}", at);
         }
         // A value of the wrong type, and a detour that would leave a field
         // without effect: the same error, after the place.

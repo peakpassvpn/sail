@@ -9,6 +9,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Result;
+use arc_swap::ArcSwap;
 use socket2::{Domain, SockRef, Socket, Type};
 use tokio::net::{TcpSocket, TcpStream, UdpSocket};
 use tokio::time::timeout;
@@ -67,6 +68,122 @@ impl DialDefaults {
             ResolveSpec::resolve(fields, &self.route, outbound),
             self.env.clone(),
         ))
+    }
+}
+
+/// The instance's dial defaults as they are now: a reload replaces them.
+pub type SharedDialDefaults = Arc<ArcSwap<DialDefaults>>;
+
+/// What the inbounds dial with when they connect somewhere themselves, a
+/// fallback, a REALITY handshake server or a masquerade site: the
+/// instance's defaults, as a reload leaves them, and its DNS client.
+#[derive(Clone)]
+pub struct InstanceDial {
+    pub defaults: SharedDialDefaults,
+    pub dns: SyncDnsClient,
+}
+
+impl InstanceDial {
+    /// A dialer for `fields` over the instance's defaults, its fields
+    /// checked against this platform now. An error names the field.
+    pub fn dialer(&self, fields: &DialFields) -> Result<InboundDialer> {
+        DialSpec::resolve(fields, &self.defaults.load().route)?;
+        Ok(self.follow(fields.clone()))
+    }
+
+    /// A dialer of no fields of its own: the instance's defaults alone.
+    pub fn default_dialer(&self) -> InboundDialer {
+        self.follow(DialFields::default())
+    }
+
+    fn follow(&self, fields: DialFields) -> InboundDialer {
+        let defaults = self.defaults.load_full();
+        let built = Built::new(&fields, defaults);
+        InboundDialer(Arc::new(Following {
+            fields,
+            instance: self.clone(),
+            built: ArcSwap::from_pointee(built),
+        }))
+    }
+}
+
+#[cfg(test)]
+impl Default for InstanceDial {
+    /// No defaults, and a DNS client of no servers.
+    fn default() -> Self {
+        InstanceDial {
+            defaults: Default::default(),
+            dns: crate::app::dns::DnsClient::new(
+                &Default::default(),
+                Default::default(),
+                &Default::default(),
+            )
+            .expect("a DNS client of no servers")
+            .into_shared(),
+        }
+    }
+}
+
+/// An inbound's dialer: its dial fields over the instance's defaults as
+/// they are when it dials, so that it follows a reload, which builds the
+/// outbounds anew but keeps the inbounds. Clones are the same dialer.
+#[derive(Clone)]
+pub struct InboundDialer(Arc<Following>);
+
+struct Following {
+    /// Checked against the platform when it was built.
+    fields: DialFields,
+    instance: InstanceDial,
+    /// The dialer over the defaults it last saw.
+    built: ArcSwap<Built>,
+}
+
+struct Built {
+    defaults: Arc<DialDefaults>,
+    dialer: Dialer,
+}
+
+impl Built {
+    fn new(fields: &DialFields, defaults: Arc<DialDefaults>) -> Built {
+        let dialer = Dialer::new(
+            DialSpec::merge(fields, &defaults.route),
+            ResolveSpec::resolve(fields, &defaults.route, None),
+            defaults.env.clone(),
+        );
+        Built { defaults, dialer }
+    }
+}
+
+impl InboundDialer {
+    /// The dialer over the instance's defaults as they are now.
+    pub fn dialer(&self) -> Dialer {
+        let Following {
+            fields,
+            instance,
+            built,
+        } = &*self.0;
+        let defaults = instance.defaults.load_full();
+        let last = built.load();
+        if Arc::ptr_eq(&last.defaults, &defaults) {
+            return last.dialer.clone();
+        }
+        let now = Arc::new(Built::new(fields, defaults));
+        built.store(now.clone());
+        now.dialer.clone()
+    }
+
+    /// A TCP connection to `host` and `port`, a name resolved by the
+    /// instance's DNS client.
+    pub async fn tcp(&self, host: &str, port: u16) -> io::Result<TcpStream> {
+        self.dialer().tcp(&self.0.instance.dns, host, port).await
+    }
+}
+
+impl std::fmt::Debug for InboundDialer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("InboundDialer")
+            .field(&self.0.built.load().dialer)
+            .finish()
     }
 }
 
@@ -312,6 +429,28 @@ pub(crate) mod recording {
         (defaults, protected)
     }
 
+    /// What inbounds dial with, over defaults whose dialers are counted by
+    /// the returned counter.
+    #[cfg_attr(
+        not(any(
+            feature = "inbound-anytls",
+            feature = "inbound-trojan",
+            feature = "inbound-vless",
+            feature = "inbound-shadowtls",
+            feature = "inbound-reality",
+            feature = "inbound-hysteria2"
+        )),
+        allow(dead_code)
+    )]
+    pub(crate) fn instance() -> (InstanceDial, Arc<Protected>) {
+        let (defaults, protected) = defaults();
+        let dial = InstanceDial {
+            defaults: Arc::new(ArcSwap::from_pointee(defaults)),
+            ..InstanceDial::default()
+        };
+        (dial, protected)
+    }
+
     /// A dialer counted by the returned counter.
     pub(crate) fn dialer() -> (Dialer, Arc<Protected>) {
         let (defaults, protected) = defaults();
@@ -382,5 +521,68 @@ mod tests {
         // Another dialer, another host.
         Dialer::system().tcp_to(addr).await.unwrap();
         assert_eq!(protected.count(), 2);
+    }
+
+    #[test]
+    fn an_inbound_dialer_follows_the_defaults_a_reload_brings() {
+        let dial = InstanceDial::default();
+        let fields =
+            serde_json::from_value(serde_json::json!({ "connect_timeout": "2s" })).unwrap();
+        let inbound = dial.dialer(&fields).unwrap();
+        assert_eq!(inbound.dialer().spec().routing_mark, None);
+        // The same defaults, the same dialer.
+        assert!(Arc::ptr_eq(&inbound.dialer().0, &inbound.dialer().0));
+        dial.defaults.store(Arc::new(DialDefaults {
+            route: RouteDefaults {
+                routing_mark: Some(7),
+                bind_interface: Some("eth9".into()),
+                ..Default::default()
+            },
+            env: DialEnv::default(),
+        }));
+        let now = inbound.dialer();
+        assert_eq!(now.spec().routing_mark, Some(7));
+        assert_eq!(now.spec().bind_interface.as_deref(), Some("eth9"));
+        // Its own fields stay.
+        assert_eq!(now.connect_timeout(), Duration::from_secs(2));
+        // Of no fields, the defaults alone.
+        assert_eq!(
+            dial.default_dialer().dialer().connect_timeout(),
+            super::super::DEFAULT_CONNECT_TIMEOUT
+        );
+    }
+
+    #[test]
+    fn an_inbound_dialer_is_checked_against_the_platform() {
+        let fields = serde_json::from_value(serde_json::json!({ "routing_mark": 1 })).unwrap();
+        let built = InstanceDial::default().dialer(&fields);
+        assert_eq!(built.is_ok(), super::super::supports_routing_mark());
+        if let Err(e) = built {
+            assert_eq!(e.to_string(), "routing_mark: only supported on Linux");
+        }
+    }
+
+    /// A connect to one address that is never answered gives up after 5s,
+    /// sing-box's time.
+    #[tokio::test(start_paused = true)]
+    async fn a_connect_gives_up_after_five_seconds() {
+        assert_eq!(Dialer::system().connect_timeout(), Duration::from_secs(5));
+        // TEST-NET-1, which no one answers: the clock, paused, runs on to
+        // the timeout while the connect waits. Where the system refuses it
+        // at once, as without a route, there is nothing to wait for.
+        let addr = SocketAddr::from(([192, 0, 2, 1], 443));
+        let start = tokio::time::Instant::now();
+        let e = Dialer::system().tcp_to(addr).await.unwrap_err();
+        if e.kind() != io::ErrorKind::TimedOut {
+            eprintln!("{} refused at once: {}", addr, e);
+            assert!(start.elapsed() < Duration::from_secs(5));
+            return;
+        }
+        let elapsed = start.elapsed();
+        assert!(
+            elapsed >= Duration::from_secs(5) && elapsed < Duration::from_secs(6),
+            "{:?}",
+            elapsed
+        );
     }
 }

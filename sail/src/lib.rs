@@ -93,7 +93,7 @@ pub struct RuntimeManager {
     provider_updater: Mutex<Option<tokio::task::AbortHandle>>,
     /// What outbounds dial with where theirs leave off, as the current
     /// configuration has it.
-    dial_defaults: arc_swap::ArcSwap<net::DialDefaults>,
+    dial_defaults: net::SharedDialDefaults,
     /// Serializes the changes: reloads, and outbounds and inbounds added
     /// or removed.
     update: tokio::sync::Mutex<()>,
@@ -123,7 +123,6 @@ impl RuntimeManager {
         shutdown_tx: mpsc::Sender<()>,
         #[cfg(feature = "inbound-tun")] network_change_tx: mpsc::Sender<NetworkChange>,
         instance: &app::instance::Instance,
-        dial_defaults: Arc<net::DialDefaults>,
     ) -> Arc<Self> {
         Arc::new(Self {
             config_path,
@@ -159,7 +158,7 @@ impl RuntimeManager {
                     .providers()
                     .spawn_updater(Arc::downgrade(&instance.dispatcher)),
             ),
-            dial_defaults: arc_swap::ArcSwap::new(dial_defaults),
+            dial_defaults: instance.dial_defaults.clone(),
             update: tokio::sync::Mutex::new(()),
             #[cfg(feature = "auto-reload")]
             watcher: Mutex::new(None),
@@ -1149,7 +1148,7 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
     let dial_defaults = dial_defaults(&config, &env).map_err(Error::Config)?;
     #[cfg(target_os = "linux")]
     let follows_interface = dial_defaults.env.auto_interface.is_some();
-    let mut instance = app::instance::Instance::build(&config, env.clone(), dial_defaults.clone())
+    let mut instance = app::instance::Instance::build(&config, env.clone(), dial_defaults)
         .map_err(Error::Config)?;
     // The API server joins them, when it is compiled in.
     // Bound before anything starts: an address in use fails the start.
@@ -1193,7 +1192,6 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
         #[cfg(feature = "inbound-tun")]
         network_change_tx,
         &instance,
-        dial_defaults,
     );
 
     // Monitor config file changes.

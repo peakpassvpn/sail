@@ -242,16 +242,9 @@ impl HttpClient {
     }
 
     /// The dialer it connects with, when it has no detour: its dial
-    /// fields over `defaults`. Unlike an outbound's, its fields are not
-    /// checked against the platform, and one it cannot apply fails the
-    /// connection.
-    pub fn dialer(&self, defaults: &crate::net::DialDefaults) -> crate::net::Dialer {
-        use crate::net::dial::{DialSpec, ResolveSpec};
-        crate::net::Dialer::new(
-            DialSpec::merge(&self.dial, &defaults.route),
-            ResolveSpec::resolve(&self.dial, &defaults.route, None),
-            defaults.env.clone(),
-        )
+    /// fields over `defaults`. An error names the field.
+    pub fn dialer(&self, defaults: &crate::net::DialDefaults) -> Result<crate::net::Dialer> {
+        defaults.dialer(&self.dial, None)
     }
 
     fn check(&self, outbounds: &HashSet<&str>, dns_servers: &HashSet<String>) -> Result<()> {
@@ -275,6 +268,9 @@ impl HttpClient {
             }
         }
         self.dial.check(HTTP_CLIENT_DIAL)?;
+        // What this platform cannot apply, as an outbound's: the defaults
+        // take nothing away from it.
+        crate::net::dial::DialSpec::resolve(&self.dial, &Default::default())?;
         check_headers(&self.headers)?;
         if let Some(resolver) = &self.dial.domain_resolver {
             if !dns_servers.contains(&resolver.server) {
@@ -3630,6 +3626,7 @@ mod tests {
             serde_json::from_value::<HttpClient>(client)
                 .unwrap()
                 .dialer(&crate::net::DialDefaults::default())
+                .unwrap()
         };
         let set = dial(serde_json::json!({
             "tag": "h", "tcp_keep_alive": "40s", "tcp_keep_alive_interval": "7s",
@@ -3647,6 +3644,40 @@ mod tests {
         assert_eq!(keepalive_dialled(&unset).await, Some(TcpKeepAlive::DEFAULT));
     }
 
+    /// A field an HTTP client cannot apply here fails the configuration,
+    /// with its path, as an outbound's does, rather than its downloads.
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn an_http_client_is_checked_against_the_platform() {
+        let err = |json: serde_json::Value| {
+            Config::from_json(&json.to_string())
+                .unwrap_err()
+                .to_string()
+        };
+        assert_eq!(
+            err(serde_json::json!({
+                "http_clients": [{ "tag": "h", "bind_interface": "no-such-if0" }],
+            })),
+            "http_clients[0]: bind_interface: there is no interface \"no-such-if0\""
+        );
+        assert_eq!(
+            err(serde_json::json!({
+                "route": { "rule_set": [{
+                    "type": "remote", "tag": "r", "url": "https://example.com/r.srs",
+                    "http_client": { "bind_interface": "no-such-if0" },
+                }] },
+            })),
+            "route.rule_set[0].http_client: bind_interface: there is no interface \"no-such-if0\""
+        );
+        #[cfg(target_os = "macos")]
+        assert_eq!(
+            err(serde_json::json!({
+                "http_clients": [{ "tag": "h", "routing_mark": 1 }],
+            })),
+            "http_clients[0]: routing_mark: only supported on Linux"
+        );
+    }
+
     /// An HTTP client dials with its dial fields over the instance's
     /// defaults, whose host protects its sockets.
     #[cfg(unix)]
@@ -3658,7 +3689,8 @@ mod tests {
             "tag": "h", "connect_timeout": "3s",
         }))
         .unwrap()
-        .dialer(&defaults);
+        .dialer(&defaults)
+        .unwrap();
         assert_eq!(dialer.spec().routing_mark, Some(7));
         assert_eq!(dialer.connect_timeout(), std::time::Duration::from_secs(3));
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

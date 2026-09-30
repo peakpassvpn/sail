@@ -552,6 +552,8 @@ pub struct InboundContext<'a> {
     pub options: &'a Options,
     /// The instance's tuning and host.
     pub env: &'a RuntimeEnv,
+    /// What the inbound dials with when it connects somewhere itself.
+    pub dial: &'a crate::net::InstanceDial,
     #[cfg_attr(
         not(any(
             feature = "inbound-vmess",
@@ -643,11 +645,13 @@ impl InboundContext<'_> {
 /// Builds every inbound in `inbounds` whose protocol makes a handler, each
 /// after the ones it is built on. Protocols in `listeners` are served by a
 /// listener of their own rather than a handler, and are skipped.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn build_inbounds(
     registry: &InboundRegistry,
     inbounds: &[crate::config::model::Inbound],
     listeners: &[&str],
     env: &RuntimeEnv,
+    dial: &crate::net::InstanceDial,
     handlers: &mut Handlers<AnyInboundHandler>,
     dependencies: &mut HashMap<String, Vec<String>>,
     states: &mut HashMap<String, std::sync::Arc<InboundState>>,
@@ -681,6 +685,7 @@ pub(crate) fn build_inbounds(
                 tag: &inbound.tag,
                 options: &options,
                 env,
+                dial,
                 state: states.entry(inbound.tag.clone()).or_default(),
                 updates: &updates,
                 handlers,
@@ -961,6 +966,7 @@ mod tests {
             std::slice::from_ref(&listener),
             &["tun"],
             &env,
+            &Default::default(),
             &mut handlers,
             &mut HashMap::new(),
             &mut HashMap::new(),
@@ -971,6 +977,7 @@ mod tests {
             &[listener, unknown],
             &["tun"],
             &env,
+            &Default::default(),
             &mut handlers,
             &mut HashMap::new(),
             &mut HashMap::new(),

@@ -56,6 +56,7 @@ mod tests {
             &config.inbounds,
             include::LISTENER_INBOUNDS,
             &crate::runtime::RuntimeEnv::default(),
+            &Default::default(),
             &mut HashMap::new(),
             &mut HashMap::new(),
             &mut HashMap::new(),

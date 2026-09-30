@@ -62,7 +62,12 @@ fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
             ));
         }
     }
-    let fallback = fallback::Fallback::new(ctx.tag, options.fallback, options.fallback_for_alpn)?;
+    let fallback = fallback::Fallback::new(
+        ctx.tag,
+        options.fallback,
+        options.fallback_for_alpn,
+        ctx.dial.default_dialer(),
+    )?;
     let users = options
         .users
         .into_iter()

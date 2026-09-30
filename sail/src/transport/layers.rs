@@ -19,7 +19,7 @@ use crate::adapter::{AnyInboundHandler, AnyOutboundHandler};
 use crate::app::SyncDnsClient;
 use crate::config::model::{parse_options, Options};
 use crate::net::dial::DialFields;
-use crate::net::{DialDefaults, Dialer};
+use crate::net::{DialDefaults, Dialer, InboundDialer, InstanceDial};
 use crate::runtime::RuntimeEnv;
 
 /// Which blocks a protocol can be configured with.
@@ -1301,9 +1301,8 @@ pub struct InboundReality {
 }
 
 /// The site REALITY imitates, dialed for every connection, with sing-box's
-/// dial fields; of which it implements the ones that bind the socket, and
-/// the connect timeout. `detour` is not among them: inbounds do not reach
-/// the outbounds.
+/// dial fields over the instance's defaults; of which it implements all
+/// that sail does but `detour`: inbounds do not reach the outbounds yet.
 #[derive(Deserialize, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct RealityHandshake {
@@ -1320,19 +1319,22 @@ const REALITY_HANDSHAKE_DIAL: &[&str] = &[
     "inet6_bind_address",
     "routing_mark",
     "connect_timeout",
+    "disable_tcp_keep_alive",
+    "tcp_keep_alive",
+    "tcp_keep_alive_interval",
+    "domain_resolver",
+    "skip_default_domain_resolver",
+    "domain_strategy",
 ];
 
 impl RealityHandshake {
-    /// The dialer of the handshake: its own dial fields, over no
-    /// defaults of the instance's.
+    /// The dialer of the handshake: its own dial fields, over the
+    /// instance's defaults as they are when it dials.
     #[cfg_attr(not(feature = "inbound-reality"), allow(dead_code))]
-    fn dialer(&self, tag: &str) -> Result<Dialer> {
-        self.dial
-            .check(REALITY_HANDSHAKE_DIAL)
-            .map_err(|e| anyhow!("[{}] inbound: tls.reality.handshake: {}", tag, e))?;
-        DialDefaults::default()
-            .dialer(&self.dial, None)
-            .map_err(|e| anyhow!("[{}] inbound: tls.reality.handshake: {}", tag, e))
+    fn dialer(&self, tag: &str, dial: &InstanceDial) -> Result<InboundDialer> {
+        let context = |e: anyhow::Error| anyhow!("[{}] inbound: tls.reality.handshake: {}", tag, e);
+        self.dial.check(REALITY_HANDSHAKE_DIAL).map_err(context)?;
+        dial.dialer(&self.dial).map_err(context)
     }
 }
 
@@ -1577,7 +1579,7 @@ pub fn inbound(
                 Some(alpn) => alpn.clone().into_vec(),
                 None => default_inbound_alpn(blocks.transport.as_ref()),
             };
-            under_mux.push(tls_inbound(tag, tls, alpn, env)?);
+            under_mux.push(tls_inbound(tag, tls, alpn, env, ctx.dial)?);
         }
         if let Some(InboundTransport::Ws {
             path,
@@ -1728,6 +1730,7 @@ fn tls_inbound(
     tls: &InboundTls,
     alpn: Vec<String>,
     env: &RuntimeEnv,
+    dial: &InstanceDial,
 ) -> Result<AnyInboundHandler> {
     if let Some(reality) = tls.reality.as_ref().filter(|r| r.enabled) {
         // REALITY negotiates no ALPN, as Xray's does not by default.
@@ -1737,7 +1740,7 @@ fn tls_inbound(
                 tag
             ));
         }
-        return reality_inbound(tag, tls, reality);
+        return reality_inbound(tag, tls, reality, dial);
     }
     if tls.server_name.is_some() {
         return Err(anyhow!(
@@ -1768,6 +1771,7 @@ fn reality_inbound(
     tag: &str,
     tls: &InboundTls,
     reality: &InboundReality,
+    dial: &InstanceDial,
 ) -> Result<AnyInboundHandler> {
     if tls.certificate.is_some()
         || tls.certificate_path.is_some()
@@ -1794,7 +1798,7 @@ fn reality_inbound(
                 reality.handshake.server.clone(),
                 reality.handshake.server_port,
             ),
-            reality.handshake.dialer(tag)?,
+            reality.handshake.dialer(tag, dial)?,
         )
         .map_err(|e| anyhow!("[{}] inbound: tls.reality: {}", tag, e))?;
         Ok(Arc::new(crate::adapter::inbound::Handler::new(
@@ -2120,6 +2124,52 @@ mod tests {
         assert_eq!(
             identity(json!({"client_certificate": cert, "client_key": pkcs8})),
             Ok(true)
+        );
+    }
+
+    /// A REALITY handshake dials with its own dial fields over the
+    /// instance's defaults, and names the fields it does not take.
+    #[test]
+    fn a_reality_handshake_dials_its_fields_over_the_instance_defaults() {
+        use super::RealityHandshake;
+        use crate::net::dial::{DialEnv, RouteDefaults};
+        use crate::net::{DialDefaults, InstanceDial, TcpKeepAlive};
+        use std::time::Duration;
+
+        let dial = InstanceDial::default();
+        dial.defaults.store(std::sync::Arc::new(DialDefaults {
+            route: RouteDefaults {
+                routing_mark: Some(7),
+                ..Default::default()
+            },
+            env: DialEnv::default(),
+        }));
+        let handshake =
+            |json: serde_json::Value| -> RealityHandshake { serde_json::from_value(json).unwrap() };
+        let dialer = handshake(serde_json::json!({
+            "server": "example.com", "server_port": 443,
+            "connect_timeout": "2s", "tcp_keep_alive": "40s",
+        }))
+        .dialer("r", &dial)
+        .unwrap()
+        .dialer();
+        assert_eq!(dialer.spec().routing_mark, Some(7));
+        assert_eq!(dialer.connect_timeout(), Duration::from_secs(2));
+        assert_eq!(
+            dialer.spec().tcp_keep_alive,
+            Some(TcpKeepAlive {
+                idle: Duration::from_secs(40),
+                interval: TcpKeepAlive::DEFAULT.interval,
+            })
+        );
+        let err = handshake(serde_json::json!({
+            "server": "example.com", "server_port": 443, "detour": "proxy",
+        }))
+        .dialer("r", &dial)
+        .unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "[r] inbound: tls.reality.handshake: detour: sail does not implement this field yet"
         );
     }
 

@@ -22,12 +22,12 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `http_clients` | 80 | 21 | 15 | 44 |
 | `network_namespaces` | 6 | 0 | 0 | 6 |
 | `endpoints` | 433 | 51 | 32 | 350 |
-| `inbounds` | 1367 | 409 | 187 | 771 |
+| `inbounds` | 1367 | 493 | 187 | 687 |
 | `outbounds` | 1228 | 564 | 140 | 524 |
 | `route` | 268 | 144 | 21 | 103 |
 | `services` | 751 | 1 | 166 | 584 |
 | `experimental` | 34 | 16 | 18 | 0 |
-| **全部** | **5002** | **1508** | **687** | **2807** |
+| **全部** | **5002** | **1592** | **687** | **2723** |
 
 ## `log`
 
@@ -867,16 +867,23 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `tls.reality.handshake.connect_timeout` | 支持 |  |
 | `tls.reality.handshake.tcp_fast_open` | 警告 | Socket tuning: connections go the same way without it |
 | `tls.reality.handshake.tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
-| `tls.reality.handshake.disable_tcp_keep_alive` | 报错 | Keepalive of the connection to the REALITY handshake server, which sail does not take yet |
-| `tls.reality.handshake.tcp_keep_alive` | 报错 | Keepalive of the connection to the REALITY handshake server, which sail does not take yet |
-| `tls.reality.handshake.tcp_keep_alive_interval` | 报错 | Keepalive of the connection to the REALITY handshake server, which sail does not take yet |
+| `tls.reality.handshake.disable_tcp_keep_alive` | 支持 |  |
+| `tls.reality.handshake.tcp_keep_alive` | 支持 |  |
+| `tls.reality.handshake.tcp_keep_alive_interval` | 支持 |  |
 | `tls.reality.handshake.udp_fragment` | 警告 | Socket tuning: connections go the same way without it |
-| `tls.reality.handshake.domain_resolver` | 报错 | Resolving the REALITY handshake server's name with a resolver of its own: another server would answer (含其下 7 个字段) |
+| `tls.reality.handshake.domain_resolver` | 支持 |  |
+| `tls.reality.handshake.domain_resolver.server` | 支持 |  |
+| `tls.reality.handshake.domain_resolver.timeout` | 支持 |  |
+| `tls.reality.handshake.domain_resolver.strategy` | 支持 |  |
+| `tls.reality.handshake.domain_resolver.disable_cache` | 支持 |  |
+| `tls.reality.handshake.domain_resolver.disable_optimistic_cache` | 支持 |  |
+| `tls.reality.handshake.domain_resolver.rewrite_ttl` | 支持 |  |
+| `tls.reality.handshake.domain_resolver.client_subnet` | 支持 |  |
 | `tls.reality.handshake.network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `tls.reality.handshake.network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `tls.reality.handshake.fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `tls.reality.handshake.fallback_delay` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `tls.reality.handshake.domain_strategy` (已弃用) | 报错 | Resolving the REALITY handshake server's name with a resolver of its own: another server would answer |
+| `tls.reality.handshake.domain_strategy` (已弃用) | 支持 |  |
 | `tls.reality.private_key` | 支持 |  |
 | `tls.reality.short_id` | 支持 |  |
 | `tls.reality.max_time_difference` | 支持 |  |
@@ -972,16 +979,23 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `tls.reality.handshake.connect_timeout` | 支持 |  |
 | `tls.reality.handshake.tcp_fast_open` | 警告 | Socket tuning: connections go the same way without it |
 | `tls.reality.handshake.tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
-| `tls.reality.handshake.disable_tcp_keep_alive` | 报错 | Keepalive of the connection to the REALITY handshake server, which sail does not take yet |
-| `tls.reality.handshake.tcp_keep_alive` | 报错 | Keepalive of the connection to the REALITY handshake server, which sail does not take yet |
-| `tls.reality.handshake.tcp_keep_alive_interval` | 报错 | Keepalive of the connection to the REALITY handshake server, which sail does not take yet |
+| `tls.reality.handshake.disable_tcp_keep_alive` | 支持 |  |
+| `tls.reality.handshake.tcp_keep_alive` | 支持 |  |
+| `tls.reality.handshake.tcp_keep_alive_interval` | 支持 |  |
 | `tls.reality.handshake.udp_fragment` | 警告 | Socket tuning: connections go the same way without it |
-| `tls.reality.handshake.domain_resolver` | 报错 | Resolving the REALITY handshake server's name with a resolver of its own: another server would answer (含其下 7 个字段) |
+| `tls.reality.handshake.domain_resolver` | 支持 |  |
+| `tls.reality.handshake.domain_resolver.server` | 支持 |  |
+| `tls.reality.handshake.domain_resolver.timeout` | 支持 |  |
+| `tls.reality.handshake.domain_resolver.strategy` | 支持 |  |
+| `tls.reality.handshake.domain_resolver.disable_cache` | 支持 |  |
+| `tls.reality.handshake.domain_resolver.disable_optimistic_cache` | 支持 |  |
+| `tls.reality.handshake.domain_resolver.rewrite_ttl` | 支持 |  |
+| `tls.reality.handshake.domain_resolver.client_subnet` | 支持 |  |
 | `tls.reality.handshake.network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `tls.reality.handshake.network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `tls.reality.handshake.fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `tls.reality.handshake.fallback_delay` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `tls.reality.handshake.domain_strategy` (已弃用) | 报错 | Resolving the REALITY handshake server's name with a resolver of its own: another server would answer |
+| `tls.reality.handshake.domain_strategy` (已弃用) | 支持 |  |
 | `tls.reality.private_key` | 支持 |  |
 | `tls.reality.short_id` | 支持 |  |
 | `tls.reality.max_time_difference` | 支持 |  |
@@ -1057,16 +1071,23 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `tls.reality.handshake.connect_timeout` | 支持 |  |
 | `tls.reality.handshake.tcp_fast_open` | 警告 | Socket tuning: connections go the same way without it |
 | `tls.reality.handshake.tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
-| `tls.reality.handshake.disable_tcp_keep_alive` | 报错 | Keepalive of the connection to the REALITY handshake server, which sail does not take yet |
-| `tls.reality.handshake.tcp_keep_alive` | 报错 | Keepalive of the connection to the REALITY handshake server, which sail does not take yet |
-| `tls.reality.handshake.tcp_keep_alive_interval` | 报错 | Keepalive of the connection to the REALITY handshake server, which sail does not take yet |
+| `tls.reality.handshake.disable_tcp_keep_alive` | 支持 |  |
+| `tls.reality.handshake.tcp_keep_alive` | 支持 |  |
+| `tls.reality.handshake.tcp_keep_alive_interval` | 支持 |  |
 | `tls.reality.handshake.udp_fragment` | 警告 | Socket tuning: connections go the same way without it |
-| `tls.reality.handshake.domain_resolver` | 报错 | Resolving the REALITY handshake server's name with a resolver of its own: another server would answer (含其下 7 个字段) |
+| `tls.reality.handshake.domain_resolver` | 支持 |  |
+| `tls.reality.handshake.domain_resolver.server` | 支持 |  |
+| `tls.reality.handshake.domain_resolver.timeout` | 支持 |  |
+| `tls.reality.handshake.domain_resolver.strategy` | 支持 |  |
+| `tls.reality.handshake.domain_resolver.disable_cache` | 支持 |  |
+| `tls.reality.handshake.domain_resolver.disable_optimistic_cache` | 支持 |  |
+| `tls.reality.handshake.domain_resolver.rewrite_ttl` | 支持 |  |
+| `tls.reality.handshake.domain_resolver.client_subnet` | 支持 |  |
 | `tls.reality.handshake.network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `tls.reality.handshake.network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `tls.reality.handshake.fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `tls.reality.handshake.fallback_delay` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `tls.reality.handshake.domain_strategy` (已弃用) | 报错 | Resolving the REALITY handshake server's name with a resolver of its own: another server would answer |
+| `tls.reality.handshake.domain_strategy` (已弃用) | 支持 |  |
 | `tls.reality.private_key` | 支持 |  |
 | `tls.reality.short_id` | 支持 |  |
 | `tls.reality.max_time_difference` | 支持 |  |
@@ -1326,16 +1347,23 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `tls.reality.handshake.connect_timeout` | 支持 |  |
 | `tls.reality.handshake.tcp_fast_open` | 警告 | Socket tuning: connections go the same way without it |
 | `tls.reality.handshake.tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
-| `tls.reality.handshake.disable_tcp_keep_alive` | 报错 | Keepalive of the connection to the REALITY handshake server, which sail does not take yet |
-| `tls.reality.handshake.tcp_keep_alive` | 报错 | Keepalive of the connection to the REALITY handshake server, which sail does not take yet |
-| `tls.reality.handshake.tcp_keep_alive_interval` | 报错 | Keepalive of the connection to the REALITY handshake server, which sail does not take yet |
+| `tls.reality.handshake.disable_tcp_keep_alive` | 支持 |  |
+| `tls.reality.handshake.tcp_keep_alive` | 支持 |  |
+| `tls.reality.handshake.tcp_keep_alive_interval` | 支持 |  |
 | `tls.reality.handshake.udp_fragment` | 警告 | Socket tuning: connections go the same way without it |
-| `tls.reality.handshake.domain_resolver` | 报错 | Resolving the REALITY handshake server's name with a resolver of its own: another server would answer (含其下 7 个字段) |
+| `tls.reality.handshake.domain_resolver` | 支持 |  |
+| `tls.reality.handshake.domain_resolver.server` | 支持 |  |
+| `tls.reality.handshake.domain_resolver.timeout` | 支持 |  |
+| `tls.reality.handshake.domain_resolver.strategy` | 支持 |  |
+| `tls.reality.handshake.domain_resolver.disable_cache` | 支持 |  |
+| `tls.reality.handshake.domain_resolver.disable_optimistic_cache` | 支持 |  |
+| `tls.reality.handshake.domain_resolver.rewrite_ttl` | 支持 |  |
+| `tls.reality.handshake.domain_resolver.client_subnet` | 支持 |  |
 | `tls.reality.handshake.network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `tls.reality.handshake.network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `tls.reality.handshake.fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `tls.reality.handshake.fallback_delay` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `tls.reality.handshake.domain_strategy` (已弃用) | 报错 | Resolving the REALITY handshake server's name with a resolver of its own: another server would answer |
+| `tls.reality.handshake.domain_strategy` (已弃用) | 支持 |  |
 | `tls.reality.private_key` | 支持 |  |
 | `tls.reality.short_id` | 支持 |  |
 | `tls.reality.max_time_difference` | 支持 |  |
@@ -1437,16 +1465,23 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `tls.reality.handshake.connect_timeout` | 支持 |  |
 | `tls.reality.handshake.tcp_fast_open` | 警告 | Socket tuning: connections go the same way without it |
 | `tls.reality.handshake.tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
-| `tls.reality.handshake.disable_tcp_keep_alive` | 报错 | Keepalive of the connection to the REALITY handshake server, which sail does not take yet |
-| `tls.reality.handshake.tcp_keep_alive` | 报错 | Keepalive of the connection to the REALITY handshake server, which sail does not take yet |
-| `tls.reality.handshake.tcp_keep_alive_interval` | 报错 | Keepalive of the connection to the REALITY handshake server, which sail does not take yet |
+| `tls.reality.handshake.disable_tcp_keep_alive` | 支持 |  |
+| `tls.reality.handshake.tcp_keep_alive` | 支持 |  |
+| `tls.reality.handshake.tcp_keep_alive_interval` | 支持 |  |
 | `tls.reality.handshake.udp_fragment` | 警告 | Socket tuning: connections go the same way without it |
-| `tls.reality.handshake.domain_resolver` | 报错 | Resolving the REALITY handshake server's name with a resolver of its own: another server would answer (含其下 7 个字段) |
+| `tls.reality.handshake.domain_resolver` | 支持 |  |
+| `tls.reality.handshake.domain_resolver.server` | 支持 |  |
+| `tls.reality.handshake.domain_resolver.timeout` | 支持 |  |
+| `tls.reality.handshake.domain_resolver.strategy` | 支持 |  |
+| `tls.reality.handshake.domain_resolver.disable_cache` | 支持 |  |
+| `tls.reality.handshake.domain_resolver.disable_optimistic_cache` | 支持 |  |
+| `tls.reality.handshake.domain_resolver.rewrite_ttl` | 支持 |  |
+| `tls.reality.handshake.domain_resolver.client_subnet` | 支持 |  |
 | `tls.reality.handshake.network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `tls.reality.handshake.network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `tls.reality.handshake.fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `tls.reality.handshake.fallback_delay` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `tls.reality.handshake.domain_strategy` (已弃用) | 报错 | Resolving the REALITY handshake server's name with a resolver of its own: another server would answer |
+| `tls.reality.handshake.domain_strategy` (已弃用) | 支持 |  |
 | `tls.reality.private_key` | 支持 |  |
 | `tls.reality.short_id` | 支持 |  |
 | `tls.reality.max_time_difference` | 支持 |  |
@@ -1567,16 +1602,23 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `tls.reality.handshake.connect_timeout` | 支持 |  |
 | `tls.reality.handshake.tcp_fast_open` | 警告 | Socket tuning: connections go the same way without it |
 | `tls.reality.handshake.tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
-| `tls.reality.handshake.disable_tcp_keep_alive` | 报错 | Keepalive of the connection to the REALITY handshake server, which sail does not take yet |
-| `tls.reality.handshake.tcp_keep_alive` | 报错 | Keepalive of the connection to the REALITY handshake server, which sail does not take yet |
-| `tls.reality.handshake.tcp_keep_alive_interval` | 报错 | Keepalive of the connection to the REALITY handshake server, which sail does not take yet |
+| `tls.reality.handshake.disable_tcp_keep_alive` | 支持 |  |
+| `tls.reality.handshake.tcp_keep_alive` | 支持 |  |
+| `tls.reality.handshake.tcp_keep_alive_interval` | 支持 |  |
 | `tls.reality.handshake.udp_fragment` | 警告 | Socket tuning: connections go the same way without it |
-| `tls.reality.handshake.domain_resolver` | 报错 | Resolving the REALITY handshake server's name with a resolver of its own: another server would answer (含其下 7 个字段) |
+| `tls.reality.handshake.domain_resolver` | 支持 |  |
+| `tls.reality.handshake.domain_resolver.server` | 支持 |  |
+| `tls.reality.handshake.domain_resolver.timeout` | 支持 |  |
+| `tls.reality.handshake.domain_resolver.strategy` | 支持 |  |
+| `tls.reality.handshake.domain_resolver.disable_cache` | 支持 |  |
+| `tls.reality.handshake.domain_resolver.disable_optimistic_cache` | 支持 |  |
+| `tls.reality.handshake.domain_resolver.rewrite_ttl` | 支持 |  |
+| `tls.reality.handshake.domain_resolver.client_subnet` | 支持 |  |
 | `tls.reality.handshake.network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `tls.reality.handshake.network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `tls.reality.handshake.fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `tls.reality.handshake.fallback_delay` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `tls.reality.handshake.domain_strategy` (已弃用) | 报错 | Resolving the REALITY handshake server's name with a resolver of its own: another server would answer |
+| `tls.reality.handshake.domain_strategy` (已弃用) | 支持 |  |
 | `tls.reality.private_key` | 支持 |  |
 | `tls.reality.short_id` | 支持 |  |
 | `tls.reality.max_time_difference` | 支持 |  |
@@ -1670,16 +1712,23 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `tls.reality.handshake.connect_timeout` | 支持 |  |
 | `tls.reality.handshake.tcp_fast_open` | 警告 | Socket tuning: connections go the same way without it |
 | `tls.reality.handshake.tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
-| `tls.reality.handshake.disable_tcp_keep_alive` | 报错 | Keepalive of the connection to the REALITY handshake server, which sail does not take yet |
-| `tls.reality.handshake.tcp_keep_alive` | 报错 | Keepalive of the connection to the REALITY handshake server, which sail does not take yet |
-| `tls.reality.handshake.tcp_keep_alive_interval` | 报错 | Keepalive of the connection to the REALITY handshake server, which sail does not take yet |
+| `tls.reality.handshake.disable_tcp_keep_alive` | 支持 |  |
+| `tls.reality.handshake.tcp_keep_alive` | 支持 |  |
+| `tls.reality.handshake.tcp_keep_alive_interval` | 支持 |  |
 | `tls.reality.handshake.udp_fragment` | 警告 | Socket tuning: connections go the same way without it |
-| `tls.reality.handshake.domain_resolver` | 报错 | Resolving the REALITY handshake server's name with a resolver of its own: another server would answer (含其下 7 个字段) |
+| `tls.reality.handshake.domain_resolver` | 支持 |  |
+| `tls.reality.handshake.domain_resolver.server` | 支持 |  |
+| `tls.reality.handshake.domain_resolver.timeout` | 支持 |  |
+| `tls.reality.handshake.domain_resolver.strategy` | 支持 |  |
+| `tls.reality.handshake.domain_resolver.disable_cache` | 支持 |  |
+| `tls.reality.handshake.domain_resolver.disable_optimistic_cache` | 支持 |  |
+| `tls.reality.handshake.domain_resolver.rewrite_ttl` | 支持 |  |
+| `tls.reality.handshake.domain_resolver.client_subnet` | 支持 |  |
 | `tls.reality.handshake.network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `tls.reality.handshake.network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `tls.reality.handshake.fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `tls.reality.handshake.fallback_delay` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `tls.reality.handshake.domain_strategy` (已弃用) | 报错 | Resolving the REALITY handshake server's name with a resolver of its own: another server would answer |
+| `tls.reality.handshake.domain_strategy` (已弃用) | 支持 |  |
 | `tls.reality.private_key` | 支持 |  |
 | `tls.reality.short_id` | 支持 |  |
 | `tls.reality.max_time_difference` | 支持 |  |

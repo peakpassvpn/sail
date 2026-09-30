@@ -488,7 +488,11 @@ impl HttpClients {
         };
         let via = match &client.dial.detour {
             Some(detour) => Via::Outbound(detour.clone()),
-            None => Via::Direct(client.dialer(&self.dial)),
+            None => Via::Direct(
+                client
+                    .dialer(&self.dial)
+                    .map_err(|e| anyhow!("http_client: {}", e))?,
+            ),
         };
         Ok(Client {
             via: Some(via),

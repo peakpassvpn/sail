@@ -11,6 +11,7 @@ use crate::app::dispatcher::Dispatcher;
 use crate::app::nat_manager::NatManager;
 use crate::config;
 use crate::include;
+use crate::net::InstanceDial;
 use crate::Runner;
 
 use super::network_listener::NetworkInboundListener;
@@ -44,6 +45,8 @@ pub struct InboundManager {
     running: HashMap<String, Vec<AbortHandle>>,
     dispatcher: Arc<Dispatcher>,
     nat_manager: Arc<NatManager>,
+    /// What the inbounds dial with when they connect somewhere themselves.
+    dial: InstanceDial,
     #[cfg(feature = "inbound-tun")]
     tun_listener: Option<TunInboundListener>,
     #[cfg(feature = "inbound-cat")]
@@ -99,6 +102,7 @@ impl InboundManager {
         env: &crate::runtime::RuntimeEnv,
         dispatcher: Arc<Dispatcher>,
         nat_manager: Arc<NatManager>,
+        dial: InstanceDial,
     ) -> Result<Self> {
         let mut handlers: HashMap<String, AnyInboundHandler> = HashMap::new();
         let mut dependencies = HashMap::new();
@@ -108,6 +112,7 @@ impl InboundManager {
             inbounds,
             include::LISTENER_INBOUNDS,
             env,
+            &dial,
             &mut handlers,
             &mut dependencies,
             &mut states,
@@ -191,6 +196,7 @@ impl InboundManager {
             running: HashMap::new(),
             dispatcher,
             nat_manager,
+            dial,
             #[cfg(feature = "inbound-tun")]
             tun_listener,
             #[cfg(feature = "inbound-cat")]
@@ -282,6 +288,7 @@ impl InboundManager {
                 std::slice::from_ref(inbound),
                 include::LISTENER_INBOUNDS,
                 self.dispatcher.env(),
+                &self.dial,
                 &mut handlers,
                 &mut dependencies,
                 &mut states,
@@ -357,6 +364,7 @@ impl InboundManager {
             std::slice::from_ref(inbound),
             include::LISTENER_INBOUNDS,
             self.dispatcher.env(),
+            &self.dial,
             &mut handlers,
             &mut dependencies,
             &mut states,
@@ -603,6 +611,7 @@ mod tests {
             &config.inbounds,
             include::LISTENER_INBOUNDS,
             &crate::runtime::RuntimeEnv::default(),
+            &Default::default(),
             &mut handlers,
             &mut HashMap::new(),
             &mut HashMap::new(),
