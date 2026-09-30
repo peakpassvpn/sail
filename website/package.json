@@ -4,9 +4,11 @@
   "type": "module",
   "scripts": {
     "docs:config": "node scripts/build-config.mjs",
+    "docs:check": "node scripts/build-config.mjs --check",
+    "test:config": "node --test scripts/reference.test.mjs && cargo test --quiet --manifest-path tools/config-extract/Cargo.toml",
     "build:full": "npm run build",
     "dev": "npm run docs:config && astro dev",
-    "build": "npm run docs:config && astro check && astro build",
+    "build": "npm run test:config && npm run docs:check && astro check && astro build",
     "preview": "astro preview",
     "check": "astro check"
   },
