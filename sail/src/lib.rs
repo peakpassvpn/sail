@@ -435,10 +435,6 @@ impl RuntimeManager {
         Ok(self.stat_manager.get_last_peer_active(outbound))
     }
 
-    /// Reloads DNS, outbounds and routing from the configuration file. They
-    /// are all built before any is replaced: a configuration that fails to
-    /// build changes nothing. Connections already routed keep what they
-    /// were routed with.
     /// Stops taking connections, and waits for the TCP connections open to
     /// finish, for `lifecycle.drain_timeout` at most, or until
     /// `interrupted`.
@@ -480,6 +476,10 @@ impl RuntimeManager {
         }
     }
 
+    /// Reloads DNS, outbounds and routing from the configuration file. They
+    /// are all built before any is replaced: a configuration that fails to
+    /// build changes nothing. Connections already routed keep what they
+    /// were routed with.
     pub async fn reload(&self) -> Result<(), Error> {
         let config_path = if let Some(p) = self.config_path.as_ref() {
             p
