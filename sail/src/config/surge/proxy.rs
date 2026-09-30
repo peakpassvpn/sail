@@ -86,9 +86,6 @@ const TLS: &[(&str, Tier)] = &[
     ("server-cert-fingerprint-sha256", Unsupported("")),
     ("server-cert-verify-name", Unsupported("")),
     ("client-cert", Unsupported(" (C.5d)")),
-    ("shadow-tls-password", Unsupported(" (C.5d)")),
-    ("shadow-tls-sni", Unsupported(" (C.5d)")),
-    ("shadow-tls-version", Unsupported(" (C.5d)")),
 ];
 
 /// Every parameter a proxy line may hold, which a value in a place of the
@@ -125,6 +122,9 @@ const KNOWN: &[&str] = &[
     "reuse",
     "section-name",
     "ota",
+    "shadow-tls-password",
+    "shadow-tls-sni",
+    "shadow-tls-version",
 ];
 
 pub fn lower(
@@ -152,6 +152,16 @@ pub fn lower(
             out,
             warnings,
         )?;
+    }
+    for outbound in &out.outbounds {
+        let tag = outbound["tag"].as_str().unwrap_or_default();
+        if outbound["type"] == "shadowtls" && proxies.kinds.contains_key(tag) {
+            return Err(anyhow!(
+                "[Proxy]: {:?} is the name of the outbound sail makes for another \
+                 proxy's Shadow TLS",
+                tag
+            ));
+        }
     }
     if !tested.is_empty() {
         warnings.push(format!(
@@ -227,6 +237,9 @@ pub fn external(body: &str, warnings: &mut Vec<String>) -> Result<Option<Vec<Ext
             Ok(()) if proxies.names.is_empty() => continue,
             Ok(()) if !out.endpoints.is_empty() => Err(anyhow!(
                 "sail does not implement WireGuard policies of a policy-path yet"
+            )),
+            Ok(()) if out.outbounds.len() > 1 => Err(anyhow!(
+                "sail does not implement Shadow TLS in a policy-path yet"
             )),
             Ok(()) => Ok(out.outbounds.remove(0)),
         };
@@ -337,6 +350,8 @@ fn one(
         }
         _ => unreachable!("a type read checks"),
     };
+    let mut value = value;
+    let shadow_tls = shadow_tls(&name, &at, &kind, &mut p, &mut value)?;
     if let Some((value, at)) = p.take_at("block-quic") {
         if matches!(value.to_ascii_lowercase().as_str(), "on" | "true") {
             warnings.push(format!(
@@ -357,9 +372,90 @@ fn one(
     all.extend_from_slice(COMMON);
     p.finish(&all, "parameter", warnings)?;
     out.outbounds.push(value);
+    out.outbounds.extend(shadow_tls);
     proxies.names.push(name.clone());
     proxies.kinds.insert(name, kind_of);
     Ok(())
+}
+
+/// The Shadow TLS of a proxy of type `kind`, at `at`: a ShadowTLS outbound
+/// to its server, which the proxy, `o`, goes through, and which dials as it
+/// would. None without `shadow-tls-password`.
+fn shadow_tls(
+    name: &str,
+    at: &str,
+    kind: &str,
+    p: &mut Params,
+    o: &mut Value,
+) -> Result<Option<Value>> {
+    let Some((password, password_at)) = p.take_at("shadow-tls-password") else {
+        for key in ["shadow-tls-sni", "shadow-tls-version"] {
+            if p.has(key) {
+                return Err(anyhow!(
+                    "{}: needs shadow-tls-password, which turns Shadow TLS on",
+                    p.at(key)
+                ));
+            }
+        }
+        return Ok(None);
+    };
+    if !matches!(
+        kind,
+        "ss" | "custom"
+            | "vmess"
+            | "trojan"
+            | "http"
+            | "https"
+            | "socks5"
+            | "socks5-tls"
+            | "anytls"
+    ) {
+        return Err(anyhow!(
+            "{}: Shadow TLS wraps TCP proxies, not {} ones",
+            password_at,
+            kind
+        ));
+    }
+    if password.is_empty() {
+        return Err(anyhow!("{}: cannot be empty", password_at));
+    }
+    // Surge's default version is 2.
+    let version = p.num::<u32>("shadow-tls-version")?.unwrap_or(2);
+    if version != 3 {
+        return Err(anyhow!(
+            "{}: ShadowTLS v1/v2 are not supported; use version 3",
+            p.at("shadow-tls-version")
+        ));
+    }
+    let sni = p
+        .string("shadow-tls-sni")
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| anyhow!("{}: needed by version 3", p.at("shadow-tls-sni")))?;
+    let o = o
+        .as_object_mut()
+        .ok_or_else(|| anyhow!("{}: not an outbound", at))?;
+    let tag = shadow_tls_tag(name);
+    let mut shadow_tls = Map::new();
+    shadow_tls.insert("type".into(), json!("shadowtls"));
+    shadow_tls.insert("tag".into(), json!(tag));
+    shadow_tls.insert("server".into(), o["server"].clone());
+    shadow_tls.insert("server_port".into(), o["server_port"].clone());
+    shadow_tls.insert("version".into(), json!(3));
+    shadow_tls.insert("password".into(), json!(password));
+    shadow_tls.insert("tls".into(), json!({ "enabled": true, "server_name": sni }));
+    for key in ["detour", "bind_interface", "domain_strategy"] {
+        if let Some(value) = o.remove(key) {
+            shadow_tls.insert(key.into(), value);
+        }
+    }
+    o.insert("detour".into(), json!(tag));
+    Ok(Some(Value::Object(shadow_tls)))
+}
+
+/// The tag of the ShadowTLS outbound made for the proxy `name`, as the
+/// Clash front-end names it too.
+pub(crate) fn shadow_tls_tag(name: &str) -> String {
+    format!("{} (shadow-tls)", name)
 }
 
 /// The policy types sail reads.

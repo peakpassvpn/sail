@@ -947,3 +947,57 @@ fn filters_differing_by_provider_are_the_providers() {
     assert_eq!(p[3]["filter"], json!(["JP"]));
     assert_eq!(p[3]["url"], "https://b.example.com/s");
 }
+
+#[test]
+fn shadow_tls_is_an_outbound_the_proxy_goes_through() {
+    let config = load(
+        "[Proxy]\n\
+         ST = ss, st.example.com, 443, encrypt-method=aes-128-gcm, password=pw, interface=en0, \
+         underlying-proxy=Hop, shadow-tls-password=stpw, shadow-tls-sni=www.example.com, \
+         shadow-tls-version=3\n\
+         Hop = socks5, 127.0.0.1, 1080\n\
+         [Proxy Group]\nAll = select, include-all-proxies=true\n\
+         [Rule]\nFINAL,All\n",
+    );
+    let ss = outbound(&config, "ST");
+    assert_eq!(ss["detour"], "ST (shadow-tls)");
+    assert!(ss.get("bind_interface").is_none());
+    let shadow_tls = outbound(&config, "ST (shadow-tls)");
+    assert_eq!(
+        shadow_tls,
+        json!({
+            "type": "shadowtls",
+            "tag": "ST (shadow-tls)",
+            "server": "st.example.com",
+            "server_port": 443,
+            "version": 3,
+            "password": "stpw",
+            "detour": "Hop",
+            "bind_interface": "en0",
+            "tls": { "enabled": true, "server_name": "www.example.com" }
+        })
+    );
+    assert_eq!(outbound(&config, "All")["outbounds"], json!(["ST", "Hop"]));
+}
+
+#[test]
+fn shadow_tls_mistakes_name_the_parameter() {
+    let line = |params: &str| {
+        format!(
+            "[Proxy]\nST = trojan, st.example.com, 443, password=pw, {}\n[Rule]\nFINAL,ST\n",
+            params
+        )
+    };
+    assert!(
+        error(&line("shadow-tls-password=p, shadow-tls-sni=a.example"))
+            .ends_with("shadow-tls-version: ShadowTLS v1/v2 are not supported; use version 3"),
+        "{}",
+        error(&line("shadow-tls-password=p, shadow-tls-sni=a.example"))
+    );
+    assert!(error(&line("shadow-tls-password=p, shadow-tls-version=3"))
+        .ends_with("shadow-tls-sni: needed by version 3"));
+    assert!(error(&line("shadow-tls-sni=a.example"))
+        .ends_with("shadow-tls-sni: needs shadow-tls-password, which turns Shadow TLS on"));
+    let quic = "[Proxy]\nQ = hysteria2, q.example.com, 443, password=pw, shadow-tls-password=p\n";
+    assert!(error(quic).contains("Shadow TLS wraps TCP proxies, not hysteria2 ones"));
+}
