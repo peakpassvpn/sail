@@ -2004,3 +2004,19 @@ fn interface_name_wins_over_auto_detection() {
     assert!(!config.route.auto_detect_interface);
     assert!(config.warnings.is_empty(), "{:?}", config.warnings);
 }
+
+#[test]
+fn network_none_is_tcp() {
+    let config = load(
+        "proxies: [{ name: a, type: vmess, server: 192.0.2.1, port: 443, cipher: auto,\n\
+         \x20 uuid: 1b0e0a3e-1c2d-4e5f-8a9b-0c1d2e3f4a5b, alterId: 0, network: none }]\n",
+    );
+    assert!(outbound(&config, "a").options.get("transport").is_none());
+    assert_eq!(
+        error(
+            "proxies: [{ name: a, type: vmess, server: 192.0.2.1, port: 443, cipher: auto,\n\
+             \x20 uuid: 1b0e0a3e-1c2d-4e5f-8a9b-0c1d2e3f4a5b, network: carrier-pigeon }]\n"
+        ),
+        "proxies[0].network: \"carrier-pigeon\" is not a network Mihomo takes"
+    );
+}

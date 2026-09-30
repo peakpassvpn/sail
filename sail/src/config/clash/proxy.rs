@@ -475,7 +475,9 @@ fn transport(f: &mut Fields, o: &mut Map<String, Value>, w: &mut Vec<String>) ->
     let ws = f.map("ws-opts")?;
     let grpc = f.map("grpc-opts")?;
     match network.as_str() {
-        "tcp" => {}
+        // `none`, and nothing, are TCP as well: Mihomo dials TCP for any
+        // network it has no transport for.
+        "tcp" | "none" | "" => {}
         "ws" => {
             let mut transport = Map::new();
             let mut path = "/".to_string();

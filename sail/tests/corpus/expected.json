@@ -713,7 +713,7 @@
     "warnings": 20
   },
   "clash/0198.yaml": {
-    "error": "proxies[23].network: \"none\" is not a network Mihomo takes"
+    "error": "proxies[23].http-opts: sail does not implement this field yet"
   },
   "clash/0199.yaml": {
     "error": "proxies[1].network: sail does not implement the xhttp transport yet"
