@@ -20,6 +20,21 @@ pub enum Tier {
     Silent,
 }
 
+#[cfg(test)]
+thread_local! {
+    /// What was passed over without a word, as `silent` notes it.
+    pub static SILENT: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Notes that `what`, where a key is and the key, was passed over without
+/// a word: in tests, so that the field registry tells it from what is read.
+pub fn silent(what: &str) {
+    #[cfg(test)]
+    SILENT.with(|s| s.borrow_mut().push(what.to_string()));
+    #[cfg(not(test))]
+    let _ = what;
+}
+
 /// The keys, each with its value and where it is.
 pub struct Params {
     at: String,
@@ -136,7 +151,7 @@ impl Params {
                     "{}: sail does not implement this {}{}; ignored",
                     at, what, why
                 )),
-                Some((_, Tier::Silent)) => {}
+                Some((_, Tier::Silent)) => silent(&at),
                 None => warnings.push(format!(
                     "{}: not a {} Surge takes; ignored, as by Surge",
                     at, what

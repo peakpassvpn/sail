@@ -55,7 +55,9 @@ pub fn lower(
     }
     script(profile.take("Script"), warnings)?;
     for name in SILENT {
-        profile.take(name);
+        if !profile.take(name).is_empty() {
+            super::params::silent(&format!("[{}]", name));
+        }
     }
     for (name, why) in SERVERS {
         if !profile.take(name).is_empty() {

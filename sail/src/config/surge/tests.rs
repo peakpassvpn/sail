@@ -216,6 +216,8 @@ fn a_profile_loads() {
         "[Script]",
         "[Unknown Section]",
         "[WireGuard Home] line 40: dns-server",
+        // Dropped, as every warned field says.
+        "not through these servers; ignored",
     ] {
         assert!(
             warnings.contains(expected),
@@ -1203,4 +1205,23 @@ fn a_policy_path_has_a_keystore_of_its_own() {
         "{}",
         b
     );
+}
+
+/// An alias of a built-in policy takes the common parameters, as Surge's
+/// manual has it; a REJECT alias dials nothing, and its dial parameters
+/// are passed over without a word.
+#[test]
+fn a_reject_alias_passes_its_dial_parameters_over() {
+    for kind in ["reject", "reject-drop", "reject-no-drop", "reject-tinygif"] {
+        let config = load(&format!(
+            "[Proxy]\nOff = {}, interface = en0, ip-version = v4-only\n[Rule]\nFINAL,Off\n",
+            kind
+        ));
+        assert!(
+            config.warnings.is_empty(),
+            "{}: {:?}",
+            kind,
+            config.warnings
+        );
+    }
 }

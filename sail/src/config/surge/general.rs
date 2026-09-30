@@ -69,6 +69,9 @@ const KEYS: &[(&str, Tier)] = &[
     ("tls-provider", Silent),
     ("udp-priority", Silent),
     ("proxy-test-udp", Silent),
+    // What Surge tests its DIRECT policies with; sail tests a group's
+    // members with proxy-test-url.
+    ("internet-test-url", Silent),
     ("gateway-restricted-to-lan", Silent),
     // Where the GeoIP database comes from; sail downloads its own.
     ("geoip-maxmind-url", Silent),
@@ -150,7 +153,6 @@ pub fn lower(lines: Vec<Line>, out: &mut Lowered, warnings: &mut Vec<String>) ->
     if let Some(url) = p.string("proxy-test-url") {
         general.test_url = url;
     }
-    p.take_at("internet-test-url");
     if let Some(seconds) = p.num::<f64>("test-timeout")? {
         general.test_timeout = (seconds.ceil() as u64).max(1);
     }

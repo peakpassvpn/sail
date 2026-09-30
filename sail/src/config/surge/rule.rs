@@ -117,10 +117,12 @@ impl Flags {
                             .ok_or_else(|| anyhow!("{}: update-interval: not seconds", at))?,
                     )
                 }
+                // Surge's notifications and captures, which mean nothing
+                // where sail runs.
                 "notification-text"
                 | "notification-interval"
                 | "always-capture"
-                | "force-remote-dns" => {}
+                | "force-remote-dns" => super::params::silent(&format!("{}: {}", at, key)),
                 key => warnings.push(format!(
                     "{}: {}: not a parameter Surge takes; ignored, as by Surge",
                     at, key

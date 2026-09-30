@@ -249,7 +249,9 @@ fn subnet(at: &str, parts: &[String]) -> Result<Subnet> {
         match key.to_ascii_lowercase().as_str() {
             "default" => default = Some(value),
             "cellular" => cellular = Some(value),
-            "hidden" | "icon-url" | "category" | "no-alert" => {}
+            "hidden" | "icon-url" | "category" | "no-alert" => {
+                super::params::silent(&format!("{}: {}", at, key))
+            }
             k if PARAMS.iter().any(|(p, _)| *p == k)
                 || matches!(
                     k,

@@ -319,10 +319,12 @@ fn one(
                 "reject-no-drop" => Reject::NoDrop,
                 _ => Reject::Plain,
             };
+            // An alias takes the common parameters, as Surge's manual has
+            // it; how a reject would dial means nothing.
             (
                 json!({ "type": "block", "tag": name }),
                 Kind::Reject(how),
-                &[][..],
+                &[("interface", Silent), ("ip-version", Silent)][..],
             )
         }
         "ss" | "custom" => shadowsocks(&proxy, &kind, &mut p, proxies)?,
@@ -1132,7 +1134,7 @@ fn wireguard(
         }
         warnings.push(format!(
             "{}: sail resolves the names the tunnel's connections dial as its DNS says, not \
-             through these servers",
+             through these servers; ignored",
             at
         ));
     }
