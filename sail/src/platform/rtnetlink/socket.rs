@@ -172,7 +172,11 @@ impl Netlink {
 
 /// Reads the answer to request `seq`: None if it was a dump the kernel
 /// interrupted.
-fn read_answer(socket: &Socket, seq: u32, what: &str) -> io::Result<Option<Vec<Vec<u8>>>> {
+pub(in crate::platform) fn read_answer(
+    socket: &Socket,
+    seq: u32,
+    what: &str,
+) -> io::Result<Option<Vec<Vec<u8>>>> {
     let mut bodies = Vec::new();
     let mut interrupted = false;
     loop {

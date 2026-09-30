@@ -59,6 +59,9 @@ pub mod auto_redirect;
 #[cfg(target_os = "windows")]
 pub(crate) mod windows;
 
+// The network the host is on, as the system tells it.
+pub mod network;
+
 #[cfg(any(
     all(target_os = "linux", feature = "inbound-tun"),
     not(any(target_os = "linux", target_os = "macos"))

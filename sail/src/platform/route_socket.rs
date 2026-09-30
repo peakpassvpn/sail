@@ -148,11 +148,13 @@ fn sockaddrs(addrs: i32, mut bytes: &[u8]) -> [Option<IpAddr>; RTAX_MAX as usize
 }
 
 /// A default route of the table: the interface index, whether it is
-/// scoped to its interface, and whether it has a gateway.
+/// scoped to its interface, and its gateway, if it is an IP address (an
+/// interface's own route has a link address there).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct DefaultRoute {
-    index: u16,
+pub(crate) struct DefaultRoute {
+    pub(crate) index: u16,
     scoped: bool,
+    pub(crate) gateway: Option<IpAddr>,
 }
 
 /// The IPv4 default routes, up and through a gateway, of a table dump, in
@@ -178,6 +180,7 @@ fn default_routes(mut dump: &[u8]) -> Vec<DefaultRoute> {
                 routes.push(DefaultRoute {
                     index: header.rtm_index,
                     scoped: flags & RTF_IFSCOPE != 0,
+                    gateway: found[1],
                 });
             }
         }
@@ -238,20 +241,32 @@ fn dump_ipv4() -> io::Result<Vec<u8>> {
     }
 }
 
-/// The interface of the system's default route: the first unscoped IPv4
-/// one, or else the first, as sing-tun reads it from the table. A TUN's
-/// split routes are never a default route.
+/// The system's default route: the first unscoped IPv4 one, or else the
+/// first, as sing-tun reads it from the table. A TUN's split routes are
+/// never a default route.
 #[cfg(target_os = "macos")]
-pub(crate) fn default_interface() -> io::Result<String> {
+pub(crate) fn default_route() -> io::Result<DefaultRoute> {
     let routes = default_routes(&dump_ipv4()?);
-    let route = routes
+    routes
         .iter()
         .find(|r| !r.scoped)
         .or_else(|| routes.first())
-        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "no default route"))?;
+        .copied()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "no default route"))
+}
+
+/// The interface of the system's default route.
+#[cfg(target_os = "macos")]
+pub(crate) fn default_interface() -> io::Result<String> {
+    interface_name(default_route()?.index)
+}
+
+/// The name of interface `index`.
+#[cfg(target_os = "macos")]
+pub(crate) fn interface_name(index: u16) -> io::Result<String> {
     let mut name = [0 as libc::c_char; libc::IF_NAMESIZE];
     // SAFETY: `name` holds IF_NAMESIZE bytes, as if_indextoname needs.
-    let found = unsafe { libc::if_indextoname(u32::from(route.index), name.as_mut_ptr()) };
+    let found = unsafe { libc::if_indextoname(u32::from(index), name.as_mut_ptr()) };
     if found.is_null() {
         return Err(io::Error::last_os_error());
     }
@@ -433,11 +448,13 @@ mod tests {
             [
                 DefaultRoute {
                     index: 9,
-                    scoped: true
+                    scoped: true,
+                    gateway: Some("192.168.1.1".parse().unwrap()),
                 },
                 DefaultRoute {
                     index: 6,
-                    scoped: false
+                    scoped: false,
+                    gateway: Some("192.168.1.1".parse().unwrap()),
                 },
             ]
         );

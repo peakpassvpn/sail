@@ -27,7 +27,7 @@
 
 mod encode;
 #[cfg(target_os = "linux")]
-mod socket;
+pub(super) mod socket;
 mod sys;
 
 use std::io;

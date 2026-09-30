@@ -124,7 +124,7 @@ fn contains(network: IpAddr, len: u8, address: IpAddr) -> bool {
 /// The networks the interfaces that are up are directly on, loopback
 /// aside.
 #[cfg(unix)]
-fn subnets() -> io::Result<Vec<(IpAddr, u8, String)>> {
+pub(crate) fn subnets() -> io::Result<Vec<(IpAddr, u8, String)>> {
     let mut list: *mut libc::ifaddrs = std::ptr::null_mut();
     // SAFETY: getifaddrs fills `list`, freed below.
     if unsafe { libc::getifaddrs(&mut list) } != 0 {
