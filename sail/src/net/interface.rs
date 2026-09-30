@@ -156,7 +156,12 @@ pub(crate) fn subnets() -> io::Result<Vec<(IpAddr, u8, String)>> {
     Ok(subnets)
 }
 
-#[cfg(not(unix))]
+#[cfg(windows)]
+fn subnets() -> io::Result<Vec<(IpAddr, u8, String)>> {
+    crate::platform::windows::ip_helper::subnets()
+}
+
+#[cfg(not(any(unix, windows)))]
 fn subnets() -> io::Result<Vec<(IpAddr, u8, String)>> {
     Ok(Vec::new())
 }

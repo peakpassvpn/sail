@@ -186,7 +186,42 @@ fn bind_interface(socket: &socket2::Socket, _target: &SocketAddr, iface: &str) -
     socket.bind_device(Some(iface.as_bytes()))
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "android")))]
+/// `IP_UNICAST_IF` / `IPV6_UNICAST_IF`, as sing-box binds on Windows
+/// (bind_windows.go): the route is chosen among the interface's own. The
+/// IPv4 index goes in network byte order, the IPv6 one in host order.
+#[cfg(target_os = "windows")]
+fn bind_interface(socket: &socket2::Socket, target: &SocketAddr, iface: &str) -> io::Result<()> {
+    use std::os::windows::io::AsRawSocket;
+    use windows_sys::Win32::Networking::WinSock::{
+        setsockopt, IPPROTO_IP, IPPROTO_IPV6, IPV6_UNICAST_IF, IP_UNICAST_IF, SOCKET_ERROR,
+    };
+    let index = crate::platform::windows::ip_helper::Luid::by_alias(iface)?.index()?;
+    let (level, option, value) = match target {
+        SocketAddr::V4(_) => (IPPROTO_IP, IP_UNICAST_IF, index.to_be()),
+        SocketAddr::V6(_) => (IPPROTO_IPV6, IPV6_UNICAST_IF, index),
+    };
+    // SAFETY: a socket this owns, and a u32 as the option takes it.
+    let ret = unsafe {
+        setsockopt(
+            socket.as_raw_socket() as usize,
+            level,
+            option,
+            &value as *const u32 as *const u8,
+            std::mem::size_of::<u32>() as i32,
+        )
+    };
+    if ret == SOCKET_ERROR {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+#[cfg(not(any(
+    target_os = "macos",
+    target_os = "linux",
+    target_os = "android",
+    target_os = "windows"
+)))]
 fn bind_interface(_socket: &socket2::Socket, _target: &SocketAddr, _iface: &str) -> io::Result<()> {
     Err(io::Error::new(
         io::ErrorKind::Unsupported,
@@ -222,7 +257,11 @@ pub fn interface_exists(name: &str) -> Option<bool> {
         let name = std::ffi::CString::new(name).ok()?;
         Some(unsafe { libc::if_nametoindex(name.as_ptr()) } != 0)
     }
-    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    #[cfg(target_os = "windows")]
+    {
+        Some(crate::platform::windows::ip_helper::interface_exists(name))
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
     {
         let _ = name;
         None
@@ -234,7 +273,8 @@ pub fn supports_bind_interface() -> bool {
     cfg!(any(
         target_os = "macos",
         target_os = "linux",
-        target_os = "android"
+        target_os = "android",
+        target_os = "windows"
     ))
 }
 

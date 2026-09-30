@@ -105,7 +105,10 @@ pub struct RuntimeManager {
     #[cfg(feature = "auto-reload")]
     rule_set_files: Mutex<Vec<std::path::PathBuf>>,
     /// Where a reload's rule-sets go for the TUN's routing.
-    #[cfg(all(feature = "inbound-tun", any(target_os = "linux", target_os = "macos")))]
+    #[cfg(all(
+        feature = "inbound-tun",
+        any(target_os = "linux", target_os = "macos", target_os = "windows")
+    ))]
     tun_rule_sets: Option<app::instance::TunRuleSets>,
     /// What the Clash API tells of the configuration.
     #[cfg(feature = "clash-api")]
@@ -144,7 +147,10 @@ impl RuntimeManager {
             stat_manager: instance.stat_manager.clone(),
             env: instance.env.clone(),
             dispatcher: Arc::downgrade(&instance.dispatcher),
-            #[cfg(all(feature = "inbound-tun", any(target_os = "linux", target_os = "macos")))]
+            #[cfg(all(
+                feature = "inbound-tun",
+                any(target_os = "linux", target_os = "macos", target_os = "windows")
+            ))]
             tun_rule_sets: instance.tun_rule_sets(),
             rule_set_updater: Mutex::new(
                 instance
@@ -477,7 +483,10 @@ impl RuntimeManager {
         outbound_manager
             .restore_selected(&self.outbound_manager.load())
             .await;
-        #[cfg(all(feature = "inbound-tun", any(target_os = "linux", target_os = "macos")))]
+        #[cfg(all(
+            feature = "inbound-tun",
+            any(target_os = "linux", target_os = "macos", target_os = "windows")
+        ))]
         if let Some(feed) = &self.tun_rule_sets {
             feed.check(&rule_sets).map_err(Error::Config)?;
         }
@@ -511,7 +520,10 @@ impl RuntimeManager {
         self.dns_client.store(dns_client.into_arc());
         let replaced = self.outbound_manager.swap(Arc::new(outbound_manager));
         self.router.store(Arc::new(router));
-        #[cfg(all(feature = "inbound-tun", any(target_os = "linux", target_os = "macos")))]
+        #[cfg(all(
+            feature = "inbound-tun",
+            any(target_os = "linux", target_os = "macos", target_os = "windows")
+        ))]
         if let Some(feed) = &self.tun_rule_sets {
             feed.publish(rule_sets.clone());
         }
@@ -874,9 +886,11 @@ pub fn network_changed(key: RuntimeId, mtu: Option<usize>) -> Result<(), Error> 
 /// addresses or routes change, a second after the last change, as
 /// sing-box does; when the interface moved, the TUN's flows, bound to the
 /// old one, are reset. It never ends: the instance runs on without it.
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "windows"))]
 async fn follow_default_interface(manager: Arc<RuntimeManager>) {
     let _ = manager.detect_network().await;
+    // Linux: netlink's notices of links, addresses and routes.
+    #[cfg(target_os = "linux")]
     let monitor = match platform::addr_monitor::AddressMonitor::open_with_routes() {
         Ok(monitor) => monitor,
         Err(e) => {
@@ -884,16 +898,36 @@ async fn follow_default_interface(manager: Arc<RuntimeManager>) {
             return std::future::pending().await;
         }
     };
+    #[cfg(target_os = "linux")]
+    let changed = || monitor.changed();
+    // Windows: IP Helper's of routes and interfaces.
+    #[cfg(target_os = "windows")]
+    let notify = Arc::new(tokio::sync::Notify::new());
+    #[cfg(target_os = "windows")]
+    let _notices = match platform::windows::ip_helper::ChangeNotices::start(notify.clone()) {
+        Ok(notices) => notices,
+        Err(e) => {
+            warn!("not following the network as it changes: {}", e);
+            return std::future::pending().await;
+        }
+    };
+    #[cfg(target_os = "windows")]
+    let changed = || {
+        let notify = notify.clone();
+        async move {
+            notify.notified().await;
+            std::io::Result::Ok(())
+        }
+    };
     loop {
-        if let Err(e) = monitor.changed().await {
+        if let Err(e) = changed().await {
             warn!("not following the network as it changes: {}", e);
             return std::future::pending().await;
         }
         // Take every notice of the change before looking.
         while let Ok(Ok(())) =
-            tokio::time::timeout(std::time::Duration::from_secs(1), monitor.changed()).await
-        {
-        }
+            tokio::time::timeout(std::time::Duration::from_secs(1), changed()).await
+        {}
         if let Some(auto) = manager.dial_defaults.load().env.auto_interface.clone() {
             let moved = tokio::task::spawn_blocking(move || auto.refresh())
                 .await
@@ -1008,7 +1042,7 @@ pub(crate) fn dial_defaults(
     if !route.auto_detect_interface && !implicit {
         return Ok(Arc::new(defaults));
     }
-    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
     {
         let skip = config
             .inbounds
@@ -1023,7 +1057,7 @@ pub(crate) fn dial_defaults(
         ));
         Ok(Arc::new(defaults))
     }
-    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
     {
         // Bound to the default interface's addresses, found once: the
         // default interface is not taken with them.
@@ -1166,7 +1200,7 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
     let mut tasks: Vec<Runner> = Vec::new();
 
     let dial_defaults = dial_defaults(&config, &env).map_err(Error::Config)?;
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
     let follows_interface = dial_defaults.env.auto_interface.is_some();
     let mut instance = app::instance::Instance::build(&config, env.clone(), dial_defaults)
         .map_err(Error::Config)?;
@@ -1259,13 +1293,13 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
 
     // auto_detect_interface follows the default interface as it moves, and
     // detection the network the host is on, on one monitor.
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
     if follows_interface || runtime_manager.needs_network() {
         tasks.push(Box::pin(follow_default_interface(runtime_manager.clone())));
     }
     // Where there is no monitor, the network is detected at the start and
     // on each reload only.
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
     {
         let rm = runtime_manager.clone();
         tasks.push(Box::pin(async move {

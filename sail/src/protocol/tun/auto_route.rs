@@ -8,6 +8,10 @@
 //!   TUN's, through systemd-resolved where there is one.
 //! - macOS: routes through the utun more specific than the default route
 //!   (1/8, 2/7 ... 128/1), which win without replacing it.
+//! - Windows: 0/0 and ::/0 through wintun at metric 0, which win over the
+//!   default route by metric without replacing it; the adapter's DNS goes
+//!   to the address after the TUN's, and strict_route adds firewall rules
+//!   that keep DNS off every other interface.
 
 use std::net::IpAddr;
 use std::sync::{Arc, Mutex};
@@ -552,6 +556,112 @@ mod backend {
             );
             assert_eq!(show(true)[0], "100::/8");
             assert_eq!(show(true)[7], "8000::/1");
+        }
+    }
+}
+
+/// Windows: 0/0 and ::/0 through wintun at metric 0, which wins over the
+/// default route without replacing it; the adapter's DNS; strict_route by
+/// firewall rules (sing-tun, tun_windows.go:169-367).
+#[cfg(target_os = "windows")]
+mod backend {
+    use std::io;
+    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+    use std::sync::Mutex;
+
+    use anyhow::{anyhow, Result};
+
+    use super::super::inbound::{peer, TunSettings};
+    use crate::platform::windows::ip_helper::{self, Luid};
+    use crate::platform::windows::wfp::StrictRoute;
+
+    /// The routes are all of each family, as on Linux.
+    pub(super) const ROUTES_OWN_NETWORK: bool = false;
+
+    pub(super) fn all(v6: bool) -> Vec<(IpAddr, u8)> {
+        vec![if v6 {
+            (Ipv6Addr::UNSPECIFIED.into(), 0)
+        } else {
+            (Ipv4Addr::UNSPECIFIED.into(), 0)
+        }]
+    }
+
+    pub(super) struct Backend {
+        luid: Luid,
+        index: u32,
+        /// The address after the TUN's, of each family it has: the next
+        /// hop of its routes, and its DNS server.
+        gateway4: Option<IpAddr>,
+        gateway6: Option<IpAddr>,
+        strict_route: bool,
+        rules: Mutex<Option<StrictRoute>>,
+    }
+
+    impl Backend {
+        pub(super) fn start(settings: &TunSettings) -> Result<Backend> {
+            let luid = Luid::by_alias(&settings.name)
+                .map_err(|e| anyhow!("auto_route: {}: {}", settings.name, e))?;
+            let index = luid
+                .index()
+                .map_err(|e| anyhow!("auto_route: {}: {}", settings.name, e))?;
+            Ok(Backend {
+                luid,
+                index,
+                gateway4: settings.ipv4.map(|i| IpAddr::from(peer(i))),
+                gateway6: settings.ipv6.map(|i| IpAddr::from(peer(i))),
+                strict_route: settings.route.strict_route,
+                rules: Mutex::new(None),
+            })
+        }
+
+        fn gateway(&self, v6: bool) -> io::Result<IpAddr> {
+            if v6 { self.gateway6 } else { self.gateway4 }.ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "no address of this family on the tun",
+                )
+            })
+        }
+
+        pub(super) fn add(&self, prefix: (IpAddr, u8)) -> io::Result<()> {
+            ip_helper::add_route(self.luid, prefix, self.gateway(prefix.0.is_ipv6())?)
+        }
+
+        pub(super) fn delete(&self, prefix: (IpAddr, u8)) -> io::Result<()> {
+            ip_helper::delete_route(self.luid, prefix, self.gateway(prefix.0.is_ipv6())?)
+        }
+
+        /// The routes are there: DNS goes to the address after the TUN's,
+        /// and, with strict_route, nowhere else.
+        pub(super) fn routed(&self) -> Result<()> {
+            for (v6, gateway) in [(false, self.gateway4), (true, self.gateway6)] {
+                if let Some(gateway) = gateway {
+                    self.luid
+                        .set_dns(v6, &[gateway])
+                        .map_err(|e| anyhow!("auto_route: DNS: {}", e))?;
+                }
+            }
+            if self.strict_route {
+                let rules = StrictRoute::start(
+                    self.index,
+                    self.gateway4.is_some(),
+                    self.gateway6.is_some(),
+                )
+                .map_err(|e| anyhow!("auto_route: strict_route: firewall rules: {}", e))?;
+                *self.rules.lock().unwrap_or_else(|e| e.into_inner()) = Some(rules);
+            }
+            ip_helper::flush_dns_cache();
+            Ok(())
+        }
+
+        pub(super) fn stop(&self) {
+            drop(self.rules.lock().unwrap_or_else(|e| e.into_inner()).take());
+            for (v6, gateway) in [(false, self.gateway4), (true, self.gateway6)] {
+                if gateway.is_some() {
+                    let _ = self.luid.set_dns(v6, &[]);
+                }
+            }
+            ip_helper::flush_dns_cache();
         }
     }
 }

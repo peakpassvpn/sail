@@ -342,15 +342,21 @@ sail-netstack = { path = "../sail-netstack", optional = true }
 tun-rs = { version = "2.8.11", features = ["async"], optional = true }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-ipconfig = "0.3"
-# The network the host is on: IP Helper's adapters, the WLAN service.
+# The network the host is on (IP Helper's adapters, the WLAN service),
+# route management through IP Helper and the firewall (WFP), and the TUN
+# through wintun, as sing-tun does it.
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_NetworkManagement_IpHelper",
     "Win32_NetworkManagement_Ndis",
     "Win32_NetworkManagement_WiFi",
+    "Win32_NetworkManagement_WindowsFilteringPlatform",
     "Win32_Networking_WinSock",
+    "Win32_Security",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Rpc",
 ] }
+wintun-bindings = "0.7"
 
 [target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
 pnet_datalink = { version = "0.34", package = "pnet_datalink", optional = true }

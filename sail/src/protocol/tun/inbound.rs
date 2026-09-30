@@ -24,6 +24,7 @@ use crate::{
     Runner,
 };
 
+#[cfg(not(target_os = "windows"))]
 use super::packet_io::TunPacketIo;
 #[cfg(target_os = "linux")]
 use super::packet_io::TunRsPacketIo;
@@ -414,8 +415,7 @@ pub(crate) struct TunSettings {
     pub mtu: u16,
     pub auto_route: bool,
     pub auto_redirect: Option<AutoRedirectSettings>,
-    /// Routed by the instance on Linux; elsewhere only checked, for now.
-    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    /// What auto_route routes, on the systems it routes on.
     pub route: RouteSelection,
     /// Android apps and users the host's VPN takes in or leaves out.
     pub include_android_user: Vec<u32>,
@@ -425,6 +425,7 @@ pub(crate) struct TunSettings {
 
 impl TunSettings {
     /// What a host that opens the device itself is asked for.
+    #[cfg_attr(target_os = "windows", allow(dead_code))]
     pub fn request(&self) -> TunRequest {
         TunRequest {
             name: self.name.clone(),
@@ -662,7 +663,7 @@ fn route_selection(options: &TunInboundOptions) -> std::result::Result<RouteSele
         if let Some(field) = set(&rules).filter(|_| !cfg!(target_os = "linux")) {
             return Err(format!("{field}: Linux only"));
         }
-        // Route management of this system, not done yet.
+        // Route management of this system.
         let routes = [
             ("strict_route", options.strict_route && STRICT_ROUTE_ACTS),
             ("route_address", !options.route_address.is_empty()),
@@ -676,11 +677,15 @@ fn route_selection(options: &TunInboundOptions) -> std::result::Result<RouteSele
                 !options.route_exclude_address_set.is_empty(),
             ),
         ];
-        let routed_here = cfg!(any(target_os = "linux", target_os = "macos"));
+        let routed_here = cfg!(any(
+            target_os = "linux",
+            target_os = "macos",
+            target_os = "windows"
+        ));
         if let Some(field) = set(&routes).filter(|_| !routed_here) {
             return Err(format!(
-                "{field}: sail takes it with auto_route on Linux and macOS, or auto_redirect; \
-                 on this system it is route management, not implemented yet"
+                "{field}: sail takes it with auto_route on Linux, macOS and Windows, or \
+                 auto_redirect; on this system it is route management, not implemented yet"
             ));
         }
     }
@@ -800,8 +805,6 @@ pub(crate) fn new(
     tracing::debug!("Create TUN inbound");
 
     let settings = options(&inbound)?;
-    let netstack = &dispatcher.env().options.netstack;
-    let mtu = usize::from(settings.mtu);
 
     // A host that runs the VPN (Android, iOS) opens the device, with its
     // routes; the instance only reads and writes it.
@@ -830,6 +833,75 @@ pub(crate) fn new(
             ));
         }
     }
+    #[cfg(target_os = "windows")]
+    let opened = open_wintun(
+        inbound,
+        dispatcher,
+        nat_manager,
+        settings,
+        platform.is_some(),
+    );
+    #[cfg(not(target_os = "windows"))]
+    let opened = open_device(inbound, dispatcher, nat_manager, settings, platform);
+    opened
+}
+
+/// The TUN on Windows: a wintun adapter sail sets up itself.
+#[cfg(target_os = "windows")]
+fn open_wintun(
+    inbound: Inbound,
+    dispatcher: Arc<Dispatcher>,
+    nat_manager: Arc<NatManager>,
+    settings: TunSettings,
+    host_opens: bool,
+) -> Result<TunRunner> {
+    if host_opens {
+        return Err(anyhow!(
+            "[{}] inbound: a host that opens the tun is not taken on Windows",
+            inbound.tag
+        ));
+    }
+    let netstack = &dispatcher.env().options.netstack;
+    let mtu = usize::from(settings.mtu);
+    let addresses: Vec<(std::net::IpAddr, u8)> = settings
+        .ipv4
+        .map(|i| (i.address().into(), i.network_length()))
+        .into_iter()
+        .chain(
+            settings
+                .ipv6
+                .map(|i| (i.address().into(), i.network_length())),
+        )
+        .collect();
+    let device = crate::platform::windows::wintun::open(
+        &settings.name,
+        &addresses,
+        settings.mtu,
+        settings.auto_route,
+    )
+    .map_err(|e| anyhow!("[{}] inbound: {:#}", inbound.tag, e))?;
+    let io = super::packet_io::WintunPacketIo::new(device.session, mtu, netstack.batch_size)?;
+    run(
+        inbound,
+        dispatcher.clone(),
+        nat_manager,
+        vec![io],
+        mtu,
+        netstack,
+    )
+}
+
+/// The TUN elsewhere: opened by the host, or through the tun crates.
+#[cfg(not(target_os = "windows"))]
+fn open_device(
+    inbound: Inbound,
+    dispatcher: Arc<Dispatcher>,
+    nat_manager: Arc<NatManager>,
+    settings: TunSettings,
+    platform: Option<crate::runtime::PlatformRef>,
+) -> Result<TunRunner> {
+    let netstack = &dispatcher.env().options.netstack;
+    let mtu = usize::from(settings.mtu);
     let mut cfg = tun::Configuration::default();
     if let Some(platform) = platform {
         let fd = platform
@@ -863,21 +935,6 @@ pub(crate) fn new(
                 .netmask(ipv4.mask())
                 .mtu(settings.mtu)
                 .up();
-            #[cfg(target_os = "windows")]
-            {
-                if settings.ipv6.is_some() {
-                    return Err(anyhow!(
-                        "[{}] inbound: address: an IPv6 address on the tun is not supported on Windows",
-                        inbound.tag
-                    ));
-                }
-                use rand::Rng;
-                let mut rng = rand::thread_rng();
-                cfg.metric(0);
-                cfg.platform_config(|x| {
-                    x.device_guid(rng.gen());
-                });
-            }
         }
     }
 
@@ -1102,13 +1159,10 @@ mod tests {
             r#"{ "inbounds": [{ "type": "tun", "address": "172.18.0.1/30", "auto_route": true, "strict_route": true }] }"#,
         )
         .unwrap();
-        let strict = options(&config.inbounds[0]);
-        if cfg!(target_os = "windows") {
-            let err = strict.unwrap_err().to_string();
-            assert!(err.contains("strict_route"), "{err}");
-        } else {
-            assert!(strict.unwrap().auto_redirect.is_none());
-        }
+        assert!(options(&config.inbounds[0])
+            .unwrap()
+            .auto_redirect
+            .is_none());
     }
 
     #[test]
@@ -1157,7 +1211,11 @@ mod tests {
                 "route_address",
                 serde_json::json!("10.0.0.0/8"),
                 "route management",
-                cfg!(any(target_os = "linux", target_os = "macos")),
+                cfg!(any(
+                    target_os = "linux",
+                    target_os = "macos",
+                    target_os = "windows"
+                )),
             ),
             (
                 "include_uid",

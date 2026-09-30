@@ -21,14 +21,14 @@ pub(crate) mod original_dst;
 
 #[cfg(all(
     feature = "inbound-tun",
-    any(target_os = "linux", target_os = "macos", test)
+    any(target_os = "linux", target_os = "macos", target_os = "windows", test)
 ))]
 pub(crate) mod ip_ranges;
 
 // auto_route's rules without auto_redirect; built everywhere under test.
 #[cfg(all(
     feature = "inbound-tun",
-    any(target_os = "linux", target_os = "macos", test)
+    any(target_os = "linux", target_os = "macos", target_os = "windows", test)
 ))]
 pub(crate) mod auto_route;
 
@@ -64,7 +64,7 @@ pub mod network;
 
 #[cfg(any(
     all(target_os = "linux", feature = "inbound-tun"),
-    not(any(target_os = "linux", target_os = "macos"))
+    not(any(target_os = "linux", target_os = "macos", target_os = "windows"))
 ))]
 use anyhow::{anyhow, Result};
 
@@ -94,6 +94,11 @@ pub fn detect_default_interface() -> std::io::Result<String> {
     route_socket::default_interface()
 }
 
+/// On Windows, the IPv4 default route's with the lowest metric through an
+/// interface up, connected and not virtual, as sing-tun picks it.
+#[cfg(target_os = "windows")]
+pub use windows::detect_default_interface;
+
 /// On Linux, the main table's default route with the lowest metric, IPv4's
 /// first: asking where 1.1.1.1 goes would answer the TUN once it routes.
 #[cfg(target_os = "linux")]
@@ -112,30 +117,9 @@ pub fn detect_default_interface() -> std::io::Result<String> {
 
 /// The addresses of the system's default interface, IPv4's and IPv6's,
 /// which send through it: for `route.auto_detect_interface`, where it is
-/// not followed as it changes (`net::interface`).
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+/// not followed as it changes (`net::interface`); there is none here.
+#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
 pub fn default_interface() -> Result<(Option<std::net::Ipv4Addr>, Option<std::net::Ipv6Addr>)> {
-    #[cfg(target_os = "windows")]
-    {
-        let (mut inet4, mut inet6) = (None, None);
-        for ip in windows::get_default_interface_ips()
-            .split(',')
-            .filter(|s| !s.is_empty())
-        {
-            match ip.parse::<std::net::IpAddr>() {
-                Ok(std::net::IpAddr::V4(v4)) => inet4 = Some(v4),
-                Ok(std::net::IpAddr::V6(v6)) => inet6 = Some(v6),
-                Err(_) => {}
-            }
-        }
-        if inet4.is_none() && inet6.is_none() {
-            return Err(anyhow!(
-                "route.auto_detect_interface: no default interface found"
-            ));
-        }
-        Ok((inet4, inet6))
-    }
-    #[cfg(not(target_os = "windows"))]
     Err(anyhow!(
         "route.auto_detect_interface: not supported on this platform"
     ))

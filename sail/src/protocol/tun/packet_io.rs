@@ -1,15 +1,19 @@
 use std::io;
 
+#[cfg(not(target_os = "windows"))]
 use futures::FutureExt;
 #[cfg(target_os = "linux")]
 use sail_netstack::{parse_ip_packet, parse_tcp_segment};
 use sail_netstack::{
     ChecksumCapabilities, Packet, PacketBatch, PacketCapabilities, PacketIo, PacketToken,
 };
+#[cfg(not(target_os = "windows"))]
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+#[cfg(not(target_os = "windows"))]
 use crate::net::accept::AcceptBackoff;
 
+#[cfg(not(target_os = "windows"))]
 pub(crate) struct TunPacketIo {
     writer: tun::DeviceWriter,
     reader: tun::DeviceReader,
@@ -22,6 +26,7 @@ pub(crate) struct TunPacketIo {
     recv_backoff: AcceptBackoff,
 }
 
+#[cfg(not(target_os = "windows"))]
 impl TunPacketIo {
     pub(crate) fn new(device: tun::AsyncDevice, mtu: usize, max_batch: usize) -> io::Result<Self> {
         if max_batch == 0 {
@@ -51,6 +56,7 @@ impl TunPacketIo {
     }
 }
 
+#[cfg(not(target_os = "windows"))]
 impl PacketIo for TunPacketIo {
     async fn recv(&mut self, out: &mut PacketBatch) -> io::Result<usize> {
         if let Some(error) = self.pending_recv_error.take() {
@@ -126,6 +132,116 @@ impl PacketIo for TunPacketIo {
             }
             self.pending_send_error = Some(error);
             break;
+        }
+        Ok(sent)
+    }
+
+    fn capabilities(&self) -> PacketCapabilities {
+        PacketCapabilities {
+            max_batch: self.max_batch,
+            queue_count: 1,
+            headroom: 0,
+            vectored: false,
+            rx_checksum: ChecksumCapabilities::default(),
+            tx_checksum: ChecksumCapabilities::default(),
+            gso: None,
+        }
+    }
+}
+
+/// The TUN of a wintun session (Windows): packets from its ring, waited
+/// for on a blocking thread when there are none.
+#[cfg(target_os = "windows")]
+pub(crate) struct WintunPacketIo {
+    session: std::sync::Arc<wintun_bindings::Session>,
+    recv_buffer: Vec<u8>,
+    max_batch: usize,
+    next_token: u64,
+}
+
+#[cfg(target_os = "windows")]
+impl WintunPacketIo {
+    pub(crate) fn new(
+        session: std::sync::Arc<wintun_bindings::Session>,
+        mtu: usize,
+        max_batch: usize,
+    ) -> io::Result<Self> {
+        if max_batch == 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "native PacketIo batch size must be non-zero",
+            ));
+        }
+        Ok(Self {
+            session,
+            recv_buffer: vec![0; mtu.max(1500)],
+            max_batch,
+            next_token: 0,
+        })
+    }
+
+    fn push_received(&mut self, out: &mut PacketBatch, count: usize) -> io::Result<()> {
+        let token = PacketToken::new(self.next_token);
+        self.next_token = self.next_token.wrapping_add(1);
+        out.push(Packet::from_payload(token, 0, &self.recv_buffer[..count]))
+            .map_err(|_| io::Error::other("native PacketIo receive batch is full"))
+    }
+}
+
+#[cfg(target_os = "windows")]
+impl Drop for WintunPacketIo {
+    fn drop(&mut self) {
+        // A thread waiting for packets returns.
+        let _ = self.session.shutdown();
+    }
+}
+
+#[cfg(target_os = "windows")]
+impl PacketIo for WintunPacketIo {
+    async fn recv(&mut self, out: &mut PacketBatch) -> io::Result<usize> {
+        let initial_len = out.len();
+        let receive_limit = self.max_batch.min(out.limit().saturating_sub(initial_len));
+        if receive_limit == 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "native PacketIo receive batch has no free slots",
+            ));
+        }
+        loop {
+            match self.session.try_recv(&mut self.recv_buffer) {
+                Ok(count) => {
+                    self.push_received(out, count)?;
+                    break;
+                }
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                    let session = self.session.clone();
+                    tokio::task::spawn_blocking(move || session.wait_read())
+                        .await
+                        .map_err(io::Error::other)?
+                        .map_err(io::Error::other)?;
+                }
+                Err(e) => return Err(e),
+            }
+        }
+        while out.len().saturating_sub(initial_len) < receive_limit {
+            match self.session.try_recv(&mut self.recv_buffer) {
+                Ok(count) => self.push_received(out, count)?,
+                Err(_) => break,
+            }
+        }
+        Ok(out.len().saturating_sub(initial_len))
+    }
+
+    async fn send(&mut self, packets: &PacketBatch) -> io::Result<usize> {
+        let mut sent = 0;
+        for packet in packets.iter() {
+            match self.session.send(packet.payload()) {
+                Ok(_) => sent += 1,
+                // A full ring drops the packet, as a full queue does.
+                Err(e) if crate::platform::windows::wintun::ring_full(&e) => sent += 1,
+                Err(e) if sent == 0 => return Err(e),
+                Err(_) => break,
+            }
         }
         Ok(sent)
     }
@@ -466,7 +582,8 @@ impl PacketIo for TunRsPacketIo {
     }
 }
 
-#[cfg(test)]
+// They drive the tun crates' devices, which Windows does not use.
+#[cfg(all(test, not(target_os = "windows")))]
 mod tests {
     #[cfg(target_os = "linux")]
     use crate::util::DnsMessageExt;
