@@ -1,0 +1,2288 @@
+{
+  "clash/0001.yaml": {
+    "ok": true,
+    "warnings": 6
+  },
+  "clash/0002.yaml": {
+    "ok": true,
+    "warnings": 35
+  },
+  "clash/0003.yaml": {
+    "ok": true,
+    "warnings": 26
+  },
+  "clash/0004.yaml": {
+    "ok": true,
+    "warnings": 17
+  },
+  "clash/0005.yaml": {
+    "ok": true,
+    "warnings": 38
+  },
+  "clash/0006.yaml": {
+    "error": "proxy-groups[1].proxies: a group of no proxies and no providers"
+  },
+  "clash/0007.yaml": {
+    "ok": true,
+    "warnings": 0
+  },
+  "clash/0008.yaml": {
+    "ok": true,
+    "warnings": 1
+  },
+  "clash/0009.yaml": {
+    "error": "proxies[0].type: sail does not implement \"rematch\" yet"
+  },
+  "clash/0010.yaml": {
+    "ok": true,
+    "warnings": 8
+  },
+  "clash/0011.yaml": {
+    "ok": true,
+    "warnings": 11
+  },
+  "clash/0012.yaml": {
+    "error": "proxy-groups[0].type: sail does not implement \"relay\" groups yet"
+  },
+  "clash/0013.yaml": {
+    "ok": true,
+    "warnings": 12
+  },
+  "clash/0014.yaml": {
+    "ok": true,
+    "warnings": 24
+  },
+  "clash/0015.yaml": {
+    "ok": true,
+    "warnings": 0
+  },
+  "clash/0016.yaml": {
+    "error": "tun.dns-hijack[0]: \"192.0.2.1\" names no port"
+  },
+  "clash/0017.yaml": {
+    "ok": true,
+    "warnings": 1
+  },
+  "clash/0018.yaml": {
+    "error": "proxy-providers.provider-1.age-secret-key: sail does not implement this field yet"
+  },
+  "clash/0019.yaml": {
+    "error": "proxies[2].plugin: sail does not implement the v2ray-plugin plugin yet, only obfs and shadow-tls"
+  },
+  "clash/0020.yaml": {
+    "ok": true,
+    "warnings": 0
+  },
+  "clash/0021.yaml": {
+    "ok": true,
+    "warnings": 2
+  },
+  "clash/0022.yaml": {
+    "error": "proxy-groups[158].proxies[1]: Proxy 1 is a dns proxy, which sail takes in rules alone"
+  },
+  "clash/0023.yaml": {
+    "error": "proxy-groups[158].proxies[1]: Proxy 1 is a dns proxy, which sail takes in rules alone"
+  },
+  "clash/0024.yaml": {
+    "error": "proxies[47].network: \"raw\" is not a network Mihomo takes"
+  },
+  "clash/0025.yaml": {
+    "error": "proxies[2].client-fingerprint: sail has no fingerprint \"qq\", only chrome, firefox, safari, ios, android, edge and random"
+  },
+  "clash/0026.yaml": {
+    "error": "outbound_providers[0]: url: \"str2\" is not an http(s) URL"
+  },
+  "clash/0027.yaml": {
+    "error": "proxies[0].client-fingerprint: sail has no fingerprint \"qq\", only chrome, firefox, safari, ios, android, edge and random"
+  },
+  "clash/0028.yaml": {
+    "ok": true,
+    "warnings": 0
+  },
+  "clash/0029.yaml": {
+    "ok": true,
+    "warnings": 39
+  },
+  "clash/0030.yaml": {
+    "ok": true,
+    "warnings": 0
+  },
+  "clash/0031.yaml": {
+    "error": "iptables: sail does not implement this field yet"
+  },
+  "clash/0032.yaml": {
+    "error": "rules[26]: no policy to send what it matches to"
+  },
+  "clash/0033.yaml": {
+    "error": "outbound_providers[0]: url: \"\" is not an http(s) URL"
+  },
+  "clash/0034.yaml": {
+    "ok": true,
+    "warnings": 0
+  },
+  "clash/0035.yaml": {
+    "ok": true,
+    "warnings": 0
+  },
+  "clash/0036.yaml": {
+    "ok": true,
+    "warnings": 1
+  },
+  "clash/0037.yaml": {
+    "ok": true,
+    "warnings": 11
+  },
+  "clash/0038.yaml": {
+    "error": "proxy-groups[1].proxies: a group of no proxies and no providers"
+  },
+  "clash/0039.yaml": {
+    "ok": true,
+    "warnings": 3
+  },
+  "clash/0040.yaml": {
+    "error": "proxy-groups[0].proxies[0]: no proxy or group is named \"PASS\""
+  },
+  "clash/0041.yaml": {
+    "ok": true,
+    "warnings": 11
+  },
+  "clash/0042.yaml": {
+    "ok": true,
+    "warnings": 2
+  },
+  "clash/0043.yaml": {
+    "ok": true,
+    "warnings": 13
+  },
+  "clash/0044.yaml": {
+    "ok": true,
+    "warnings": 6
+  },
+  "clash/0045.yaml": {
+    "ok": true,
+    "warnings": 10
+  },
+  "clash/0046.yaml": {
+    "ok": true,
+    "warnings": 0
+  },
+  "clash/0047.yaml": {
+    "error": "proxy-groups[0].proxies[0]: no proxy or group is named \"Proxy 1\""
+  },
+  "clash/0048.yaml": {
+    "ok": true,
+    "warnings": 9
+  },
+  "clash/0049.yaml": {
+    "ok": true,
+    "warnings": 7
+  },
+  "clash/0050.yaml": {
+    "error": "proxy-groups[19].proxies[0]: no proxy or group is named \"PASS\""
+  },
+  "clash/0051.yaml": {
+    "error": "proxy-groups[19].proxies[0]: no proxy or group is named \"PASS\""
+  },
+  "clash/0052.yaml": {
+    "ok": true,
+    "warnings": 8
+  },
+  "clash/0053.yaml": {
+    "ok": true,
+    "warnings": 0
+  },
+  "clash/0054.yaml": {
+    "ok": true,
+    "warnings": 3
+  },
+  "clash/0055.yaml": {
+    "ok": true,
+    "warnings": 3
+  },
+  "clash/0056.yaml": {
+    "ok": true,
+    "warnings": 0
+  },
+  "clash/0057.yaml": {
+    "ok": true,
+    "warnings": 16
+  },
+  "clash/0058.yaml": {
+    "ok": true,
+    "warnings": 1
+  },
+  "clash/0059.yaml": {
+    "error": "proxies[0].type: sail does not implement \"wireguard\" yet"
+  },
+  "clash/0060.yaml": {
+    "ok": true,
+    "warnings": 0
+  },
+  "clash/0061.yaml": {
+    "ok": true,
+    "warnings": 0
+  },
+  "clash/0062.yaml": {
+    "ok": true,
+    "warnings": 6
+  },
+  "clash/0063.yaml": {
+    "error": "proxies[2].type: sail does not implement \"snell\" yet"
+  },
+  "clash/0064.yaml": {
+    "error": "proxy-groups[0].proxies: a group of no proxies and no providers"
+  },
+  "clash/0065.yaml": {
+    "ok": true,
+    "warnings": 0
+  },
+  "clash/0066.yaml": {
+    "ok": true,
+    "warnings": 12
+  },
+  "clash/0067.yaml": {
+    "ok": true,
+    "warnings": 1
+  },
+  "clash/0068.yaml": {
+    "error": "proxy-groups[0].proxies: a group of no proxies and no providers"
+  },
+  "clash/0069.yaml": {
+    "ok": true,
+    "warnings": 6
+  },
+  "clash/0070.yaml": {
+    "error": "outbound_providers[0]: url: \"str1\" is not an http(s) URL"
+  },
+  "clash/0071.yaml": {
+    "error": "lan-disallowed-ips[0]: a string, not nothing"
+  },
+  "clash/0072.yaml": {
+    "ok": true,
+    "warnings": 0
+  },
+  "clash/0073.yaml": {
+    "error": "outbound_providers[2]: url: \"\" is not an http(s) URL"
+  },
+  "clash/0074.yaml": {
+    "ok": true,
+    "warnings": 0
+  },
+  "clash/0075.yaml": {
+    "ok": true,
+    "warnings": 1
+  },
+  "clash/0076.yaml": {
+    "ok": true,
+    "warnings": 0
+  },
+  "clash/0077.yaml": {
+    "ok": true,
+    "warnings": 0
+  },
+  "clash/0078.yaml": {
+    "error": "outbound_providers[0]: url: \"str1\" is not an http(s) URL"
+  },
+  "clash/0079.yaml": {
+    "ok": true,
+    "warnings": 0
+  },
+  "clash/0080.yaml": {
+    "ok": true,
+    "warnings": 1
+  },
+  "clash/0081.yaml": {
+    "ok": true,
+    "warnings": 0
+  },
+  "clash/0082.yaml": {
+    "ok": true,
+    "warnings": 0
+  },
+  "clash/0083.yaml": {
+    "error": "outbound_providers[0]: url: \"str1\" is not an http(s) URL"
+  },
+  "clash/0084.yaml": {
+    "error": "proxy-groups[0].proxies[2]: no proxy or group is named \"Proxy 1\""
+  },
+  "clash/0085.yaml": {
+    "error": "outbound_providers[0]: url: \"str1\" is not an http(s) URL"
+  },
+  "clash/0086.yaml": {
+    "ok": true,
+    "warnings": 0
+  },
+  "clash/0087.yaml": {
+    "error": "outbound_providers[0]: url: \"str1\" is not an http(s) URL"
+  },
+  "clash/0088.yaml": {
+    "ok": true,
+    "warnings": 0
+  },
+  "clash/0089.yaml": {
+    "error": "outbound_providers[0]: url: \"str1\" is not an http(s) URL"
+  },
+  "clash/0090.yaml": {
+    "ok": true,
+    "warnings": 0
+  },
+  "clash/0091.yaml": {
+    "error": "proxy-groups[1].name: DIRECT is Mihomo's own policy"
+  },
+  "clash/0092.yaml": {
+    "ok": true,
+    "warnings": 1
+  },
+  "clash/0093.yaml": {
+    "ok": true,
+    "warnings": 1
+  },
+  "clash/0094.yaml": {
+    "ok": true,
+    "warnings": 0
+  },
+  "clash/0095.yaml": {
+    "ok": true,
+    "warnings": 0
+  },
+  "clash/0096.yaml": {
+    "ok": true,
+    "warnings": 0
+  },
+  "clash/0097.yaml": {
+    "error": "proxy-providers.provider-1.type: missing"
+  },
+  "clash/0098.yaml": {
+    "error": "route: set default_interface or auto_detect_interface, not both"
+  },
+  "clash/0099.yaml": {
+    "error": "proxies[0].port: not a number in range"
+  },
+  "clash/0100.yaml": {
+    "error": "proxy-groups[15].empty-fallback: no proxy, not a group, is named \"str5\""
+  },
+  "clash/0101.yaml": {
+    "ok": true,
+    "warnings": 0
+  },
+  "clash/0102.yaml": {
+    "ok": true,
+    "warnings": 5
+  },
+  "clash/0103.yaml": {
+    "ok": true,
+    "warnings": 8
+  },
+  "clash/0104.yaml": {
+    "ok": true,
+    "warnings": 0
+  },
+  "clash/0105.yaml": {
+    "ok": true,
+    "warnings": 15
+  },
+  "clash/0106.yaml": {
+    "ok": true,
+    "warnings": 0
+  },
+  "clash/0107.yaml": {
+    "ok": true,
+    "warnings": 0
+  },
+  "clash/0108.yaml": {
+    "ok": true,
+    "warnings": 5
+  },
+  "clash/0109.yaml": {
+    "error": "proxy-groups[30].proxies[0]: a string, not a map"
+  },
+  "clash/0110.yaml": {
+    "error": "outbound_providers[0]: url: \"str1\" is not an http(s) URL"
+  },
+  "clash/0111.yaml": {
+    "ok": true,
+    "warnings": 1
+  },
+  "clash/0112.yaml": {
+    "error": "proxies[1].type: sail does not implement \"wireguard\" yet"
+  },
+  "clash/0113.yaml": {
+    "ok": true,
+    "warnings": 2
+  },
+  "clash/0114.yaml": {
+    "ok": true,
+    "warnings": 18
+  },
+  "clash/0115.yaml": {
+    "ok": true,
+    "warnings": 0
+  },
+  "clash/0116.yaml": {
+    "ok": true,
+    "warnings": 0
+  },
+  "clash/0117.yaml": {
+    "error": "rules[392]: no policy to send what it matches to"
+  },
+  "clash/0118.yaml": {
+    "error": "proxy-groups[0].proxies[0]: no proxy or group is named \"Proxy 1\""
+  },
+  "clash/0119.yaml": {
+    "error": "dns.proxy-server-nameserver[4]: a string, not a map"
+  },
+  "clash/0120.yaml": {
+    "error": "outbound_providers[0]: url: \"str1\" is not an http(s) URL"
+  },
+  "clash/0121.yaml": {
+    "error": "outbound_providers[0]: url: \"str1\" is not an http(s) URL"
+  },
+  "clash/0122.yaml": {
+    "ok": true,
+    "warnings": 37
+  },
+  "clash/0123.yaml": {
+    "error": "dns.nameserver[2]: sail does not implement dhcp:// servers yet"
+  },
+  "clash/0124.yaml": {
+    "ok": true,
+    "warnings": 0
+  },
+  "clash/0125.yaml": {
+    "error": "proxies[0].type: \"nekotls\" is not a proxy type Mihomo takes"
+  },
+  "clash/0126.yaml": {
+    "ok": true,
+    "warnings": 0
+  },
+  "clash/0127.yaml": {
+    "ok": true,
+    "warnings": 5
+  },
+  "clash/0128.yaml": {
+    "error": "proxy-groups[7].proxies[3]: no proxy or group is named \"Proxy 1\""
+  },
+  "clash/0129.yaml": {
+    "error": "tun.dns-hijack[0]: \"192.0.2.2\" names no port"
+  },
+  "clash/0130.yaml": {
+    "ok": true,
+    "warnings": 2
+  },
+  "clash/0131.yaml": {
+    "error": "dns.proxy-server-nameserver[0]: dns.default-nameserver[3]: \"str1\" is not an address, as Mihomo requires"
+  },
+  "clash/0132.yaml": {
+    "ok": true,
+    "warnings": 0
+  },
+  "clash/0133.yaml": {
+    "error": "proxy-groups[1].proxies: a group of no proxies and no providers"
+  },
+  "clash/0134.yaml": {
+    "ok": true,
+    "warnings": 0
+  },
+  "clash/0135.yaml": {
+    "ok": true,
+    "warnings": 0
+  },
+  "clash/0136.yaml": {
+    "error": "proxies[2].type: sail does not implement \"snell\" yet"
+  },
+  "clash/0137.yaml": {
+    "error": "rules[12]: no policy to send what it matches to"
+  },
+  "clash/0138.yaml": {
+    "ok": true,
+    "warnings": 2
+  },
+  "clash/0139.yaml": {
+    "error": "proxies[1].network: sail does not implement the xhttp transport yet"
+  },
+  "clash/0140.yaml": {
+    "error": "proxies[13].network: sail does not implement the xhttp transport yet"
+  },
+  "clash/0141.yaml": {
+    "error": "proxies[7].type: sail does not implement \"hysteria\" yet"
+  },
+  "clash/0142.yaml": {
+    "ok": true,
+    "warnings": 10
+  },
+  "clash/0143.yaml": {
+    "error": "outbound_providers[0]: url: \"str1\" is not an http(s) URL"
+  },
+  "clash/0144.yaml": {
+    "error": "proxy-groups[0].proxies: a group of no proxies and no providers"
+  },
+  "clash/0145.yaml": {
+    "ok": true,
+    "warnings": 1
+  },
+  "clash/0146.yaml": {
+    "ok": true,
+    "warnings": 0
+  },
+  "clash/0147.yaml": {
+    "error": "proxies[0].plugin: sail does not implement the v2ray-plugin plugin yet, only obfs and shadow-tls"
+  },
+  "clash/0148.yaml": {
+    "error": "proxies[16].network: \"raw\" is not a network Mihomo takes"
+  },
+  "clash/0149.yaml": {
+    "ok": true,
+    "warnings": 0
+  },
+  "clash/0150.yaml": {
+    "error": "log-level: \"__mihomo_log_level__\" is none of silent, error, warning, info and debug"
+  },
+  "clash/0151.yaml": {
+    "error": "proxies[0].server: missing"
+  },
+  "clash/0152.yaml": {
+    "error": "outbound_providers[0]: url: \"str1\" is not an http(s) URL"
+  },
+  "clash/0153.yaml": {
+    "error": "rules[6]: SUB-RULE: its condition is written (TYPE,payload)"
+  },
+  "clash/0154.yaml": {
+    "error": "proxy-groups[0].proxies: a group of no proxies and no providers"
+  },
+  "clash/0155.yaml": {
+    "ok": true,
+    "warnings": 8
+  },
+  "clash/0156.yaml": {
+    "ok": true,
+    "warnings": 14
+  },
+  "clash/0157.yaml": {
+    "error": "rules[16]: no policy to send what it matches to"
+  },
+  "clash/0158.yaml": {
+    "ok": true,
+    "warnings": 3
+  },
+  "clash/0159.yaml": {
+    "error": "outbound_providers[0]: url: \"str1\" is not an http(s) URL"
+  },
+  "clash/0160.yaml": {
+    "ok": true,
+    "warnings": 0
+  },
+  "clash/0161.yaml": {
+    "ok": true,
+    "warnings": 6
+  },
+  "clash/0162.yaml": {
+    "ok": true,
+    "warnings": 59
+  },
+  "clash/0163.yaml": {
+    "ok": true,
+    "warnings": 0
+  },
+  "clash/0164.yaml": {
+    "ok": true,
+    "warnings": 9
+  },
+  "clash/0165.yaml": {
+    "ok": true,
+    "warnings": 0
+  },
+  "clash/0166.yaml": {
+    "error": "rules[17]: a string, not nothing"
+  },
+  "clash/0167.yaml": {
+    "ok": true,
+    "warnings": 0
+  },
+  "clash/0168.yaml": {
+    "ok": true,
+    "warnings": 0
+  },
+  "clash/0169.yaml": {
+    "ok": true,
+    "warnings": 8
+  },
+  "clash/0170.yaml": {
+    "ok": true,
+    "warnings": 1
+  },
+  "clash/0171.yaml": {
+    "error": "proxies[10].client-fingerprint: sail has no fingerprint \"qq\", only chrome, firefox, safari, ios, android, edge and random"
+  },
+  "clash/0172.yaml": {
+    "error": "tun.dns-hijack[0]: \"192.0.2.2\" names no port"
+  },
+  "clash/0173.yaml": {
+    "error": "tun.dns-hijack[0]: \"192.0.2.2\" names no port"
+  },
+  "clash/0174.yaml": {
+    "ok": true,
+    "warnings": 2
+  },
+  "clash/0175.yaml": {
+    "error": "proxy-groups[0].proxies: a group of no proxies and no providers"
+  },
+  "clash/0176.yaml": {
+    "error": "rules[14]: GEOIP: no payload"
+  },
+  "clash/0177.yaml": {
+    "ok": true,
+    "warnings": 1
+  },
+  "clash/0178.yaml": {
+    "error": "outbound_providers[0]: url: \"str1\" is not an http(s) URL"
+  },
+  "clash/0179.yaml": {
+    "ok": true,
+    "warnings": 0
+  },
+  "clash/0180.yaml": {
+    "error": "error: line 21 column 10: a map key must be a scalar"
+  },
+  "clash/0181.yaml": {
+    "error": "proxies[2].fingerprint: sail does not implement this field yet"
+  },
+  "clash/0182.yaml": {
+    "ok": true,
+    "warnings": 0
+  },
+  "clash/0183.yaml": {
+    "ok": true,
+    "warnings": 3
+  },
+  "clash/0184.yaml": {
+    "ok": true,
+    "warnings": 10
+  },
+  "clash/0185.yaml": {
+    "ok": true,
+    "warnings": 4
+  },
+  "clash/0186.yaml": {
+    "ok": true,
+    "warnings": 0
+  },
+  "clash/0187.yaml": {
+    "error": "tun.dns-hijack[0]: \"192.0.2.2\" names no port"
+  },
+  "clash/0188.yaml": {
+    "ok": true,
+    "warnings": 7
+  },
+  "clash/0189.yaml": {
+    "error": "rules[0]: no proxy or group is named \"Proxy 1\""
+  },
+  "clash/0190.yaml": {
+    "ok": true,
+    "warnings": 1
+  },
+  "clash/0191.yaml": {
+    "ok": true,
+    "warnings": 1
+  },
+  "clash/0192.yaml": {
+    "error": "proxy-providers.provider-1.url: missing"
+  },
+  "clash/0193.yaml": {
+    "ok": true,
+    "warnings": 5
+  },
+  "clash/0194.yaml": {
+    "ok": true,
+    "warnings": 0
+  },
+  "clash/0195.yaml": {
+    "ok": true,
+    "warnings": 1
+  },
+  "clash/0196.yaml": {
+    "error": "dns.proxy-server-nameserver: missing, which Mihomo requires with respect-rules"
+  },
+  "clash/0197.yaml": {
+    "ok": true,
+    "warnings": 20
+  },
+  "clash/0198.yaml": {
+    "error": "proxies[23].network: \"none\" is not a network Mihomo takes"
+  },
+  "clash/0199.yaml": {
+    "error": "proxies[1].network: sail does not implement the xhttp transport yet"
+  },
+  "clash/0200.yaml": {
+    "error": "proxy-groups[34].proxies[2]: no proxy or group is named \"PASS\""
+  },
+  "sing-box/0001.json": {
+    "error": "dns.servers[0]: missing field `type`"
+  },
+  "sing-box/0002.json": {
+    "error": "dns.servers[0]: missing field `type`"
+  },
+  "sing-box/0003.json": {
+    "error": "dns.fakeip: unknown field `fakeip`, expected one of `servers`, `rules`, `final`, `strategy`, `client_strategy`, `disable_cache`, `disable_expire`, `cache_capacity`, `optimistic`, `timeout`, `reverse_mapping`, `client_subnet`"
+  },
+  "sing-box/0004.json": {
+    "error": "log.level: unknown variant `warning`, expected one of `trace`, `debug`, `info`, `warn`, `error`, `fatal`, `panic`"
+  },
+  "sing-box/0005.json": {
+    "error": "[Group 15] outbound: filter[0]: invalid type: map, expected a string"
+  },
+  "sing-box/0006.json": {
+    "error": "route.rule_set[0]: url: several tags need {tag} in it"
+  },
+  "sing-box/0007.json": {
+    "ok": true,
+    "warnings": 2
+  },
+  "sing-box/0008.json": {
+    "ok": true,
+    "warnings": 3
+  },
+  "sing-box/0009.json": {
+    "ok": true,
+    "warnings": 0
+  },
+  "sing-box/0010.json": {
+    "error": "route.rule_set[0].update_interval: invalid duration \"1d\", expected e.g. 500ms, 5s, 1m30s"
+  },
+  "sing-box/0011.json": {
+    "error": "dns.fakeip: unknown field `fakeip`, expected one of `servers`, `rules`, `final`, `strategy`, `client_strategy`, `disable_cache`, `disable_expire`, `cache_capacity`, `optimistic`, `timeout`, `reverse_mapping`, `client_subnet`"
+  },
+  "sing-box/0012.json": {
+    "error": "dns.servers[0]: missing field `type`"
+  },
+  "sing-box/0013.json": {
+    "error": "dns.fakeip: unknown field `fakeip`, expected one of `servers`, `rules`, `final`, `strategy`, `client_strategy`, `disable_cache`, `disable_expire`, `cache_capacity`, `optimistic`, `timeout`, `reverse_mapping`, `client_subnet`"
+  },
+  "sing-box/0014.json": {
+    "error": "dns.servers[0]: missing field `type`"
+  },
+  "sing-box/0015.json": {
+    "ok": true,
+    "warnings": 1
+  },
+  "sing-box/0016.json": {
+    "ok": true,
+    "warnings": 0
+  },
+  "sing-box/0017.json": {
+    "error": "dns.fakeip: unknown field `fakeip`, expected one of `servers`, `rules`, `final`, `strategy`, `client_strategy`, `disable_cache`, `disable_expire`, `cache_capacity`, `optimistic`, `timeout`, `reverse_mapping`, `client_subnet`"
+  },
+  "sing-box/0018.json": {
+    "error": "dns.fakeip: unknown field `fakeip`, expected one of `servers`, `rules`, `final`, `strategy`, `client_strategy`, `disable_cache`, `disable_expire`, `cache_capacity`, `optimistic`, `timeout`, `reverse_mapping`, `client_subnet`"
+  },
+  "sing-box/0019.json": {
+    "error": "dns.fakeip: unknown field `fakeip`, expected one of `servers`, `rules`, `final`, `strategy`, `client_strategy`, `disable_cache`, `disable_expire`, `cache_capacity`, `optimistic`, `timeout`, `reverse_mapping`, `client_subnet`"
+  },
+  "sing-box/0020.json": {
+    "error": "dns.fakeip: unknown field `fakeip`, expected one of `servers`, `rules`, `final`, `strategy`, `client_strategy`, `disable_cache`, `disable_expire`, `cache_capacity`, `optimistic`, `timeout`, `reverse_mapping`, `client_subnet`"
+  },
+  "sing-box/0021.json": {
+    "ok": true,
+    "warnings": 0
+  },
+  "sing-box/0022.json": {
+    "ok": true,
+    "warnings": 0
+  },
+  "sing-box/0023.json": {
+    "ok": true,
+    "warnings": 3
+  },
+  "sing-box/0024.json": {
+    "error": "[Group 15] outbound: filter[0]: invalid type: map, expected a string"
+  },
+  "sing-box/0025.json": {
+    "error": "dns.servers[0]: missing field `type`"
+  },
+  "sing-box/0026.json": {
+    "ok": true,
+    "warnings": 0
+  },
+  "sing-box/0027.json": {
+    "error": "dns.fakeip: unknown field `fakeip`, expected one of `servers`, `rules`, `final`, `strategy`, `client_strategy`, `disable_cache`, `disable_expire`, `cache_capacity`, `optimistic`, `timeout`, `reverse_mapping`, `client_subnet`"
+  },
+  "sing-box/0028.json": {
+    "error": "[Group 15] outbound: filter[0]: invalid type: map, expected a string"
+  },
+  "sing-box/0029.json": {
+    "error": "[Group 15] outbound: filter[0]: invalid type: map, expected a string"
+  },
+  "sing-box/0030.json": {
+    "error": "route.rules[4]: outbound [Proxy 2] does not exist"
+  },
+  "sing-box/0031.json": {
+    "ok": true,
+    "warnings": 0
+  },
+  "sing-box/0032.json": {
+    "ok": true,
+    "warnings": 2
+  },
+  "sing-box/0033.json": {
+    "error": "dns.servers[0]: missing field `type`"
+  },
+  "sing-box/0034.json": {
+    "error": "dns.servers[0]: missing field `type`"
+  },
+  "sing-box/0035.json": {
+    "error": "dns.servers[3].type: sail does not implement \"tailscale\" yet"
+  },
+  "sing-box/0036.json": {
+    "error": "dns.servers[2].type: sail does not implement \"tailscale\" yet"
+  },
+  "sing-box/0037.json": {
+    "ok": true,
+    "warnings": 3
+  },
+  "sing-box/0038.json": {
+    "ok": true,
+    "warnings": 3
+  },
+  "sing-box/0039.json": {
+    "error": "dns.servers[0]: missing field `type`"
+  },
+  "sing-box/0040.json": {
+    "error": "dns.rules[0]: ip_accept_any: matches an evaluated response, and needs match_response (sail does not filter answers as sing-box's legacy DNS rules did)"
+  },
+  "sing-box/0041.json": {
+    "error": "dns.servers[0]: missing field `type`"
+  },
+  "sing-box/0042.json": {
+    "error": "route.rules[8]: outbound [Proxy 13] does not exist"
+  },
+  "sing-box/0043.json": {
+    "error": "route.rules[12]: the rule has no conditions; route.final is where everything else goes"
+  },
+  "sing-box/0044.json": {
+    "error": "dns.fakeip: unknown field `fakeip`, expected one of `servers`, `rules`, `final`, `strategy`, `client_strategy`, `disable_cache`, `disable_expire`, `cache_capacity`, `optimistic`, `timeout`, `reverse_mapping`, `client_subnet`"
+  },
+  "sing-box/0045.json": {
+    "error": "dns.servers[0]: missing field `type`"
+  },
+  "sing-box/0046.json": {
+    "ok": true,
+    "warnings": 0
+  },
+  "sing-box/0047.json": {
+    "error": "dns.rules[7]: the rule has no conditions; dns.final is where everything else goes"
+  },
+  "sing-box/0048.json": {
+    "error": "dns.fakeip: unknown field `fakeip`, expected one of `servers`, `rules`, `final`, `strategy`, `client_strategy`, `disable_cache`, `disable_expire`, `cache_capacity`, `optimistic`, `timeout`, `reverse_mapping`, `client_subnet`"
+  },
+  "sing-box/0049.json": {
+    "error": "dns.fakeip: unknown field `fakeip`, expected one of `servers`, `rules`, `final`, `strategy`, `client_strategy`, `disable_cache`, `disable_expire`, `cache_capacity`, `optimistic`, `timeout`, `reverse_mapping`, `client_subnet`"
+  },
+  "sing-box/0050.json": {
+    "error": "dns.servers[0]: missing field `type`"
+  },
+  "sing-box/0051.json": {
+    "ok": true,
+    "warnings": 0
+  },
+  "sing-box/0052.json": {
+    "error": "outbounds[12].fallback_delay: sail does not implement this field yet"
+  },
+  "sing-box/0053.json": {
+    "error": "dns.servers[0]: missing field `type`"
+  },
+  "sing-box/0054.json": {
+    "error": "route.final: outbound [] does not exist"
+  },
+  "sing-box/0055.json": {
+    "error": "dns.servers[0]: missing field `type`"
+  },
+  "sing-box/0056.json": {
+    "ok": true,
+    "warnings": 0
+  },
+  "sing-box/0057.json": {
+    "error": "dns.servers[0]: missing field `type`"
+  },
+  "sing-box/0058.json": {
+    "error": "route.final: outbound [Proxy 3] does not exist"
+  },
+  "sing-box/0059.json": {
+    "error": "route.default_http_client: http client [default] does not exist"
+  },
+  "sing-box/0060.json": {
+    "error": "dns.rules[0].rule_set_ip_cidr_accept_empty: sail does not implement this field yet"
+  },
+  "sing-box/0061.json": {
+    "error": "dns.rules[0].rule_set_ip_cidr_accept_empty: sail does not implement this field yet"
+  },
+  "sing-box/0062.json": {
+    "error": "dns.rules[17]: the rule has no conditions; dns.final is where everything else goes"
+  },
+  "sing-box/0063.json": {
+    "error": "route.rule_set[0].update_interval: invalid duration \"5d\", expected e.g. 500ms, 5s, 1m30s"
+  },
+  "sing-box/0064.json": {
+    "error": "dns.rules[2].geoip: sail does not implement this field yet"
+  },
+  "sing-box/0065.json": {
+    "error": "dns.rules[1]: server [dns-4] does not exist"
+  },
+  "sing-box/0066.json": {
+    "error": "dns.servers[0]: missing field `type`"
+  },
+  "sing-box/0067.json": {
+    "error": "route.rules[1].sniffer: sail does not implement \"ntp\" yet"
+  },
+  "sing-box/0068.json": {
+    "error": "dns.servers[0]: missing field `type`"
+  },
+  "sing-box/0069.json": {
+    "error": "dns.servers[0]: missing field `type`"
+  },
+  "sing-box/0070.json": {
+    "error": "dns.servers[0]: missing field `type`"
+  },
+  "sing-box/0071.json": {
+    "error": "route.rule_set[0].format: unknown variant `domain_suffix`, expected one of `source`, `binary`, `mrs`, `clash-yaml`, `clash-text`, `surge-text`"
+  },
+  "sing-box/0072.json": {
+    "error": "dns.fakeip: unknown field `fakeip`, expected one of `servers`, `rules`, `final`, `strategy`, `client_strategy`, `disable_cache`, `disable_expire`, `cache_capacity`, `optimistic`, `timeout`, `reverse_mapping`, `client_subnet`"
+  },
+  "sing-box/0073.json": {
+    "error": "dns.servers[0]: missing field `type`"
+  },
+  "sing-box/0074.json": {
+    "error": "dns.rules[2]: ip_accept_any: matches an evaluated response, and needs match_response (sail does not filter answers as sing-box's legacy DNS rules did)"
+  },
+  "sing-box/0075.json": {
+    "ok": true,
+    "warnings": 1
+  },
+  "sing-box/0076.json": {
+    "ok": true,
+    "warnings": 2
+  },
+  "sing-box/0077.json": {
+    "error": "dns.servers[0]: missing field `type`"
+  },
+  "sing-box/0078.json": {
+    "error": "dns.servers[0]: missing field `type`"
+  },
+  "sing-box/0079.json": {
+    "error": "route.rules[5]: outbound [Proxy 3] does not exist"
+  },
+  "sing-box/0080.json": {
+    "error": "dns.servers[0]: missing field `type`"
+  },
+  "sing-box/0081.json": {
+    "error": "route.rule_set[0].update_interval: invalid duration \"1d\", expected e.g. 500ms, 5s, 1m30s"
+  },
+  "sing-box/0082.json": {
+    "error": "dns.servers[0]: missing field `type`"
+  },
+  "sing-box/0083.json": {
+    "ok": true,
+    "warnings": 3
+  },
+  "sing-box/0084.json": {
+    "error": "dns.servers[0]: missing field `type`"
+  },
+  "sing-box/0085.json": {
+    "ok": true,
+    "warnings": 1
+  },
+  "sing-box/0086.json": {
+    "error": "dns.servers[0]: missing field `type`"
+  },
+  "sing-box/0087.json": {
+    "error": "route.default_domain_match_strategy: unknown field `default_domain_match_strategy`, expected one of `rules`, `rule_set`, `final`, `default_interface`, `default_mark`, `auto_detect_interface`, `default_domain_resolver`, `default_http_client`"
+  },
+  "sing-box/0088.json": {
+    "ok": true,
+    "warnings": 0
+  },
+  "sing-box/0089.json": {
+    "error": "route.rules[5]: outbound [Proxy 9] does not exist"
+  },
+  "sing-box/0090.json": {
+    "ok": true,
+    "warnings": 4
+  },
+  "sing-box/0091.json": {
+    "error": "dns.fakeip: unknown field `fakeip`, expected one of `servers`, `rules`, `final`, `strategy`, `client_strategy`, `disable_cache`, `disable_expire`, `cache_capacity`, `optimistic`, `timeout`, `reverse_mapping`, `client_subnet`"
+  },
+  "sing-box/0092.json": {
+    "ok": true,
+    "warnings": 1
+  },
+  "sing-box/0093.json": {
+    "ok": true,
+    "warnings": 0
+  },
+  "sing-box/0094.json": {
+    "error": "dns.fakeip: unknown field `fakeip`, expected one of `servers`, `rules`, `final`, `strategy`, `client_strategy`, `disable_cache`, `disable_expire`, `cache_capacity`, `optimistic`, `timeout`, `reverse_mapping`, `client_subnet`"
+  },
+  "sing-box/0095.json": {
+    "error": "dns.servers[0]: missing field `type`"
+  },
+  "sing-box/0096.json": {
+    "error": "dns.rules[4]: the rule has no conditions; dns.final is where everything else goes"
+  },
+  "sing-box/0097.json": {
+    "error": "route.final: outbound [Proxy 2] does not exist"
+  },
+  "sing-box/0098.json": {
+    "ok": true,
+    "warnings": 2
+  },
+  "sing-box/0099.json": {
+    "error": "route.rules[0].sniffer: sail does not implement \"rdp\" yet"
+  },
+  "sing-box/0100.json": {
+    "error": "dns.fakeip: unknown field `fakeip`, expected one of `servers`, `rules`, `final`, `strategy`, `client_strategy`, `disable_cache`, `disable_expire`, `cache_capacity`, `optimistic`, `timeout`, `reverse_mapping`, `client_subnet`"
+  },
+  "sing-box/0101.json": {
+    "error": "providers: unknown field `providers`, expected one of `log`, `dns`, `inbounds`, `outbounds`, `endpoints`, `route`, `api`, `clash_api`, `experimental`, `certificate`, `http_clients`, `outbound_providers`"
+  },
+  "sing-box/0102.json": {
+    "error": "route.rule_set[0]: url: several tags need {tag} in it"
+  },
+  "sing-box/0103.json": {
+    "error": "route.default_http_client: http client [default] does not exist"
+  },
+  "sing-box/0104.json": {
+    "ok": true,
+    "warnings": 0
+  },
+  "sing-box/0105.json": {
+    "error": "dns.rules[1].disable_cache: invalid type: string \"str4\", expected a boolean"
+  },
+  "sing-box/0106.json": {
+    "ok": true,
+    "warnings": 1
+  },
+  "sing-box/0107.json": {
+    "error": "dns.servers[0]: missing field `type`"
+  },
+  "sing-box/0108.json": {
+    "ok": true,
+    "warnings": 0
+  },
+  "sing-box/0109.json": {
+    "ok": true,
+    "warnings": 0
+  },
+  "sing-box/0110.json": {
+    "error": "outbounds[2].tls.min_version: sail does not implement this field yet"
+  },
+  "sing-box/0111.json": {
+    "error": "route.rule_set[0].update_interval: invalid duration \"1d\", expected e.g. 500ms, 5s, 1m30s"
+  },
+  "sing-box/0112.json": {
+    "error": "route.rule_set[0].update_interval: invalid duration \"1d\", expected e.g. 500ms, 5s, 1m30s"
+  },
+  "sing-box/0113.json": {
+    "error": "dns.fakeip: unknown field `fakeip`, expected one of `servers`, `rules`, `final`, `strategy`, `client_strategy`, `disable_cache`, `disable_expire`, `cache_capacity`, `optimistic`, `timeout`, `reverse_mapping`, `client_subnet`"
+  },
+  "sing-box/0114.json": {
+    "error": "dns.fakeip: unknown field `fakeip`, expected one of `servers`, `rules`, `final`, `strategy`, `client_strategy`, `disable_cache`, `disable_expire`, `cache_capacity`, `optimistic`, `timeout`, `reverse_mapping`, `client_subnet`"
+  },
+  "sing-box/0115.json": {
+    "error": "dns.rules[7]: the rule has no conditions; dns.final is where everything else goes"
+  },
+  "sing-box/0116.json": {
+    "ok": true,
+    "warnings": 0
+  },
+  "sing-box/0117.json": {
+    "ok": true,
+    "warnings": 2
+  },
+  "sing-box/0118.json": {
+    "ok": true,
+    "warnings": 1
+  },
+  "sing-box/0119.json": {
+    "error": "dns.servers[0]: missing field `type`"
+  },
+  "sing-box/0120.json": {
+    "error": "[Group 25] outbound: filter[0]: invalid type: map, expected a string"
+  },
+  "sing-box/0121.json": {
+    "error": "outbounds[0].tls.certificate_public_key_sha256: sail does not implement this field yet"
+  },
+  "sing-box/0122.json": {
+    "error": "outbounds[1].tls.certificate_public_key_sha256: sail does not implement this field yet"
+  },
+  "sing-box/0123.json": {
+    "error": "dns.fakeip: unknown field `fakeip`, expected one of `servers`, `rules`, `final`, `strategy`, `client_strategy`, `disable_cache`, `disable_expire`, `cache_capacity`, `optimistic`, `timeout`, `reverse_mapping`, `client_subnet`"
+  },
+  "sing-box/0124.json": {
+    "error": "[Group 16] outbound: filter[0]: invalid type: map, expected a string"
+  },
+  "sing-box/0125.json": {
+    "error": "dns.fakeip: unknown field `fakeip`, expected one of `servers`, `rules`, `final`, `strategy`, `client_strategy`, `disable_cache`, `disable_expire`, `cache_capacity`, `optimistic`, `timeout`, `reverse_mapping`, `client_subnet`"
+  },
+  "sing-box/0126.json": {
+    "error": "dns.servers[0]: missing field `type`"
+  },
+  "sing-box/0127.json": {
+    "error": "route.rules[0].override_tunnel_destination: unknown field `override_tunnel_destination`, expected one of `type`, `query_type`, `clash_mode`, `inbound`, `ip_version`, `network`, `auth_user`, `protocol`, `domain`, `domain_suffix`, `domain_keyword`, `domain_regex`, `geosite`, `geoip`, `external`, `source_ip_cidr`, `source_ip_is_private`, `ip_cidr`, `ip_is_private`, `http_user_agent`, `url_regex`, `ip_asn`, `source_port`, `source_port_range`, `port`, `port_range`, `process_name`, `process_path`, `process_path_regex`, `process_name_regex`, `package_name`, `package_name_regex`, `user`, `user_id`, `wifi_ssid`, `wifi_bssid`, `network_type`, `network_is_expensive`, `network_is_constrained`, `wifi_ssid_regex`, `wifi_bssid_regex`, `network_gateway`, `network_mcc_mnc`, `rule_set`, `rule_set_ip_cidr_match_source`, `no_resolve`, `invert`, `mode`, `rules`, `action`, `outbound`, `override_address`, `override_port`, `udp_disable_domain_unmapping`, `udp_connect`, `udp_timeout`, `tls_fragment`, `tls_fragment_fallback_delay`, `tls_record_fragment`, `method`, `no_drop`, `server`, `strategy`, `disable_cache`, `disable_optimistic_cache`, `rewrite_ttl`, `client_subnet`, `sniffer`, `timeout`, `override_destination`, `skip_rule_set`, `ignore_failure`, `on_demand`"
+  },
+  "sing-box/0128.json": {
+    "error": "dns.fakeip: unknown field `fakeip`, expected one of `servers`, `rules`, `final`, `strategy`, `client_strategy`, `disable_cache`, `disable_expire`, `cache_capacity`, `optimistic`, `timeout`, `reverse_mapping`, `client_subnet`"
+  },
+  "sing-box/0129.json": {
+    "error": "dns.fakeip: unknown field `fakeip`, expected one of `servers`, `rules`, `final`, `strategy`, `client_strategy`, `disable_cache`, `disable_expire`, `cache_capacity`, `optimistic`, `timeout`, `reverse_mapping`, `client_subnet`"
+  },
+  "sing-box/0130.json": {
+    "error": "route.rule_set[0].update_interval: invalid duration \"1d\", expected e.g. 500ms, 5s, 1m30s"
+  },
+  "sing-box/0131.json": {
+    "error": "route.rules[5]: outbound [Proxy 3] does not exist"
+  },
+  "sing-box/0132.json": {
+    "ok": true,
+    "warnings": 0
+  },
+  "sing-box/0133.json": {
+    "error": "dns.servers[0]: missing field `type`"
+  },
+  "sing-box/0134.json": {
+    "error": "dns.servers[0]: missing field `type`"
+  },
+  "sing-box/0135.json": {
+    "error": "route.rules[1].rules[1].default_interface_address: sail does not implement this field yet"
+  },
+  "sing-box/0136.json": {
+    "error": "dns.fakeip: unknown field `fakeip`, expected one of `servers`, `rules`, `final`, `strategy`, `client_strategy`, `disable_cache`, `disable_expire`, `cache_capacity`, `optimistic`, `timeout`, `reverse_mapping`, `client_subnet`"
+  },
+  "sing-box/0137.json": {
+    "ok": true,
+    "warnings": 1
+  },
+  "sing-box/0138.json": {
+    "ok": true,
+    "warnings": 4
+  },
+  "sing-box/0139.json": {
+    "error": "dns.fakeip: unknown field `fakeip`, expected one of `servers`, `rules`, `final`, `strategy`, `client_strategy`, `disable_cache`, `disable_expire`, `cache_capacity`, `optimistic`, `timeout`, `reverse_mapping`, `client_subnet`"
+  },
+  "sing-box/0140.json": {
+    "error": "dns.servers[0]: missing field `type`"
+  },
+  "sing-box/0141.json": {
+    "ok": true,
+    "warnings": 1
+  },
+  "sing-box/0142.json": {
+    "error": "dns.fakeip: unknown field `fakeip`, expected one of `servers`, `rules`, `final`, `strategy`, `client_strategy`, `disable_cache`, `disable_expire`, `cache_capacity`, `optimistic`, `timeout`, `reverse_mapping`, `client_subnet`"
+  },
+  "sing-box/0143.json": {
+    "error": "dns.servers[0]: missing field `type`"
+  },
+  "sing-box/0144.json": {
+    "error": "dns.servers[0]: missing field `type`"
+  },
+  "sing-box/0145.json": {
+    "error": "dns.fakeip: unknown field `fakeip`, expected one of `servers`, `rules`, `final`, `strategy`, `client_strategy`, `disable_cache`, `disable_expire`, `cache_capacity`, `optimistic`, `timeout`, `reverse_mapping`, `client_subnet`"
+  },
+  "sing-box/0146.json": {
+    "error": "dns.servers[0]: missing field `type`"
+  },
+  "sing-box/0147.json": {
+    "error": "dns.servers[0]: missing field `type`"
+  },
+  "sing-box/0148.json": {
+    "ok": true,
+    "warnings": 1
+  },
+  "sing-box/0149.json": {
+    "error": "dns.rules[11]: the rule has no conditions; dns.final is where everything else goes"
+  },
+  "sing-box/0150.json": {
+    "ok": true,
+    "warnings": 0
+  },
+  "surge/0001.conf": {
+    "error": "[Rule] line 44: no policy or group is named \"Proxy 1\""
+  },
+  "surge/0002.conf": {
+    "ok": true,
+    "warnings": 7
+  },
+  "surge/0003.conf": {
+    "ok": true,
+    "warnings": 4
+  },
+  "surge/0004.conf": {
+    "error": "[Proxy Group] line 37: Group 10: no policy or group is named \"Proxy 1\""
+  },
+  "surge/0005.conf": {
+    "ok": true,
+    "warnings": 11
+  },
+  "surge/0006.conf": {
+    "ok": true,
+    "warnings": 7
+  },
+  "surge/0007.conf": {
+    "ok": true,
+    "warnings": 2
+  },
+  "surge/0008.conf": {
+    "ok": true,
+    "warnings": 1
+  },
+  "surge/0009.conf": {
+    "error": "[Rule] line 111: sail does not implement DEVICE-NAME rules: they match the devices of Surge Mac's gateway mode, which sail has none of"
+  },
+  "surge/0010.conf": {
+    "error": "line 57: #!include ./path-1.ini: a profile read from text, or a file included from a URL, includes no files by path; read it from its file"
+  },
+  "surge/0011.conf": {
+    "error": "[Proxy] line 20: Proxy 6: sail does not implement SSH policies yet"
+  },
+  "surge/0012.conf": {
+    "error": "[Proxy] line 24: \"str2\" is not Name = type, ..."
+  },
+  "surge/0013.conf": {
+    "error": "[Proxy] line 30: \"str2\" is not Name = type, ..."
+  },
+  "surge/0014.conf": {
+    "ok": true,
+    "warnings": 5
+  },
+  "surge/0015.conf": {
+    "ok": true,
+    "warnings": 4
+  },
+  "surge/0016.conf": {
+    "error": "line 24: #!include ./path-1.conf: a profile read from text, or a file included from a URL, includes no files by path; read it from its file"
+  },
+  "surge/0017.conf": {
+    "ok": true,
+    "warnings": 9
+  },
+  "surge/0018.conf": {
+    "ok": true,
+    "warnings": 1
+  },
+  "surge/0019.conf": {
+    "ok": true,
+    "warnings": 0
+  },
+  "surge/0020.conf": {
+    "ok": true,
+    "warnings": 1
+  },
+  "surge/0021.conf": {
+    "error": "[Proxy Group] line 5: Group 2: interval: \"600s\" is not a number in range"
+  },
+  "surge/0022.conf": {
+    "error": "line 2: #!include ./path-1.conf: a profile read from text, or a file included from a URL, includes no files by path; read it from its file"
+  },
+  "surge/0023.conf": {
+    "error": "[Proxy Group] line 33: Group 4: no policy or group is named \"Proxy 1\""
+  },
+  "surge/0024.conf": {
+    "ok": true,
+    "warnings": 2
+  },
+  "surge/0025.conf": {
+    "ok": true,
+    "warnings": 1
+  },
+  "surge/0026.conf": {
+    "ok": true,
+    "warnings": 1
+  },
+  "surge/0027.conf": {
+    "error": "[Proxy Group] line 63: Group 29: interval: \"600s\" is not a number in range"
+  },
+  "surge/0028.conf": {
+    "ok": true,
+    "warnings": 7
+  },
+  "surge/0029.conf": {
+    "ok": true,
+    "warnings": 4
+  },
+  "surge/0030.conf": {
+    "error": "[Proxy] line 33: \"str1\" is not Name = type, ..."
+  },
+  "surge/0031.conf": {
+    "ok": true,
+    "warnings": 4
+  },
+  "surge/0032.conf": {
+    "ok": true,
+    "warnings": 4
+  },
+  "surge/0033.conf": {
+    "ok": true,
+    "warnings": 4
+  },
+  "surge/0034.conf": {
+    "ok": true,
+    "warnings": 4
+  },
+  "surge/0035.conf": {
+    "error": "[Rule] line 80: no policy or group is named \"Proxy 1\""
+  },
+  "surge/0036.conf": {
+    "ok": true,
+    "warnings": 0
+  },
+  "surge/0037.conf": {
+    "ok": true,
+    "warnings": 1
+  },
+  "surge/0038.conf": {
+    "ok": true,
+    "warnings": 5
+  },
+  "surge/0039.conf": {
+    "error": "[Rule] line 82: no policy or group is named \"Proxy 1\""
+  },
+  "surge/0040.conf": {
+    "error": "[Proxy] line 29: Proxy 1: section-name: there is no [WireGuard wg-1]"
+  },
+  "surge/0041.conf": {
+    "ok": true,
+    "warnings": 5
+  },
+  "surge/0042.conf": {
+    "ok": true,
+    "warnings": 2
+  },
+  "surge/0043.conf": {
+    "ok": true,
+    "warnings": 1
+  },
+  "surge/0044.conf": {
+    "ok": true,
+    "warnings": 1
+  },
+  "surge/0045.conf": {
+    "ok": true,
+    "warnings": 2
+  },
+  "surge/0046.conf": {
+    "error": "line 2: #!include ./path-1.dconf: a profile read from text, or a file included from a URL, includes no files by path; read it from its file"
+  },
+  "surge/0047.conf": {
+    "error": "[Rule] line 52: no policy or group is named \"Proxy 2\""
+  },
+  "surge/0048.conf": {
+    "error": "[Proxy Group] line 49: Group 10: interval: \"-1\" is not a number in range"
+  },
+  "surge/0049.conf": {
+    "error": "[Proxy Group] line 43: Group 1: no policy or group is named \"Proxy 1\""
+  },
+  "surge/0050.conf": {
+    "error": "[Proxy Group] line 56: Group 14: no policy or group is named \"Proxy 1\""
+  },
+  "surge/0051.conf": {
+    "error": "line 2: #!include ./path-1.conf: a profile read from text, or a file included from a URL, includes no files by path; read it from its file"
+  },
+  "surge/0052.conf": {
+    "ok": true,
+    "warnings": 3
+  },
+  "surge/0053.conf": {
+    "ok": true,
+    "warnings": 3
+  },
+  "surge/0054.conf": {
+    "error": "[Rule] line 26: no policy or group is named \"Proxy 1\""
+  },
+  "surge/0055.conf": {
+    "error": "[Proxy] line 22: \"str1\" is not Name = type, ..."
+  },
+  "surge/0056.conf": {
+    "ok": true,
+    "warnings": 1
+  },
+  "surge/0057.conf": {
+    "error": "[Proxy] line 8: \"str1\" is not Name = type, ..."
+  },
+  "surge/0058.conf": {
+    "ok": true,
+    "warnings": 0
+  },
+  "surge/0059.conf": {
+    "ok": true,
+    "warnings": 4
+  },
+  "surge/0060.conf": {
+    "ok": true,
+    "warnings": 60
+  },
+  "surge/0061.conf": {
+    "ok": true,
+    "warnings": 0
+  },
+  "surge/0062.conf": {
+    "ok": true,
+    "warnings": 6
+  },
+  "surge/0063.conf": {
+    "ok": true,
+    "warnings": 1
+  },
+  "surge/0064.conf": {
+    "error": "line 2: #!include ./path-1.conf: a profile read from text, or a file included from a URL, includes no files by path; read it from its file"
+  },
+  "surge/0065.conf": {
+    "error": "line 2: #!include ./path-1.conf: a profile read from text, or a file included from a URL, includes no files by path; read it from its file"
+  },
+  "surge/0066.conf": {
+    "ok": true,
+    "warnings": 4
+  },
+  "surge/0067.conf": {
+    "error": "[Proxy Group] line 15: Group 1: no policy or group is named \"Proxy 2\""
+  },
+  "surge/0068.conf": {
+    "error": "[Proxy] line 31: \"str3\" is not Name = type, ..."
+  },
+  "surge/0069.conf": {
+    "ok": true,
+    "warnings": 2
+  },
+  "surge/0070.conf": {
+    "ok": true,
+    "warnings": 4
+  },
+  "surge/0071.conf": {
+    "ok": true,
+    "warnings": 5
+  },
+  "surge/0072.conf": {
+    "ok": true,
+    "warnings": 2
+  },
+  "surge/0073.conf": {
+    "error": "[Rule] line 30: no policy or group is named \"Proxy 1\""
+  },
+  "surge/0074.conf": {
+    "error": "[Proxy] line 4: Proxy 2: \"shadowsocks\" is not a policy type Surge takes"
+  },
+  "surge/0075.conf": {
+    "error": "line 2: #!include https://h1.example.com/p1.conf: sail does not download a profile's includes itself; the host does: `sail --fetch-includes` keeps them in the cache directory"
+  },
+  "surge/0076.conf": {
+    "error": "[General] line 16: ipv6: \"ture\" is neither true nor false"
+  },
+  "surge/0077.conf": {
+    "ok": true,
+    "warnings": 0
+  },
+  "surge/0078.conf": {
+    "ok": true,
+    "warnings": 4
+  },
+  "surge/0079.conf": {
+    "error": "[Proxy] line 38: Proxy 1: sail does not implement Snell: versions 4 and 5, which most servers run, have no public specification"
+  },
+  "surge/0080.conf": {
+    "ok": true,
+    "warnings": 0
+  },
+  "surge/0081.conf": {
+    "ok": true,
+    "warnings": 3
+  },
+  "surge/0082.conf": {
+    "ok": true,
+    "warnings": 2
+  },
+  "surge/0083.conf": {
+    "error": "[Proxy] line 40: Proxy 1: sail does not implement Snell: versions 4 and 5, which most servers run, have no public specification"
+  },
+  "surge/0084.conf": {
+    "ok": true,
+    "warnings": 8
+  },
+  "surge/0085.conf": {
+    "ok": true,
+    "warnings": 0
+  },
+  "surge/0086.conf": {
+    "error": "[Proxy Group] line 14: Group 1: no policy or group is named \"Proxy 1\""
+  },
+  "surge/0087.conf": {
+    "error": "[Proxy] line 33: Proxy 1: sail does not implement Snell: versions 4 and 5, which most servers run, have no public specification"
+  },
+  "surge/0088.conf": {
+    "ok": true,
+    "warnings": 45
+  },
+  "surge/0089.conf": {
+    "ok": true,
+    "warnings": 0
+  },
+  "surge/0090.conf": {
+    "error": "[Proxy] line 30: Proxy 1: section-name: there is no [WireGuard wg-1]"
+  },
+  "surge/0091.conf": {
+    "ok": true,
+    "warnings": 3
+  },
+  "surge/0092.conf": {
+    "ok": true,
+    "warnings": 6
+  },
+  "surge/0093.conf": {
+    "ok": true,
+    "warnings": 0
+  },
+  "surge/0094.conf": {
+    "ok": true,
+    "warnings": 0
+  },
+  "surge/0095.conf": {
+    "error": "[Rule] line 81: no policy or group is named \"Proxy 1\""
+  },
+  "surge/0096.conf": {
+    "error": "[Proxy Group] line 34: Group 1: no policy or group is named \"Proxy 2\""
+  },
+  "surge/0097.conf": {
+    "error": "[Proxy] line 26: Proxy 5: \"password4\" is not a port"
+  },
+  "surge/0098.conf": {
+    "error": "[Proxy] line 26: Proxy 6: \"password8\" is not key=value, and the values in places of their own are all given"
+  },
+  "surge/0099.conf": {
+    "ok": true,
+    "warnings": 1
+  },
+  "surge/0100.conf": {
+    "ok": true,
+    "warnings": 1
+  },
+  "surge/0101.conf": {
+    "ok": true,
+    "warnings": 7
+  },
+  "surge/0102.conf": {
+    "error": "[Proxy Group] line 5: Group 2: interval: \"600s\" is not a number in range"
+  },
+  "surge/0103.conf": {
+    "ok": true,
+    "warnings": 6
+  },
+  "surge/0104.conf": {
+    "error": "[Proxy] line 29: \"str2\" is not Name = type, ..."
+  },
+  "surge/0105.conf": {
+    "ok": true,
+    "warnings": 2
+  },
+  "surge/0106.conf": {
+    "error": "[Rule] line 28: no policy or group is named \"Proxy 4\""
+  },
+  "surge/0107.conf": {
+    "error": "[Proxy] line 23: \"str1\" is not Name = type, ..."
+  },
+  "surge/0108.conf": {
+    "ok": true,
+    "warnings": 19
+  },
+  "surge/0109.conf": {
+    "ok": true,
+    "warnings": 4
+  },
+  "surge/0110.conf": {
+    "error": "[Proxy Group] line 36: Group 5: no policy or group is named \"Proxy 1\""
+  },
+  "surge/0111.conf": {
+    "ok": true,
+    "warnings": 0
+  },
+  "surge/0112.conf": {
+    "ok": true,
+    "warnings": 9
+  },
+  "surge/0113.conf": {
+    "error": "[Proxy Group] line 44: Group 15: \"Proxy 1\": a subnet group takes `default = policy` and `expression = policy`, no members"
+  },
+  "surge/0114.conf": {
+    "ok": true,
+    "warnings": 11
+  },
+  "surge/0115.conf": {
+    "ok": true,
+    "warnings": 0
+  },
+  "surge/0116.conf": {
+    "ok": true,
+    "warnings": 2
+  },
+  "surge/0117.conf": {
+    "error": "[Proxy Group] line 7: Group 1: no policy or group is named \"Proxy 1\""
+  },
+  "surge/0118.conf": {
+    "error": "[Proxy] line 15: Proxy 4: sail does not implement Snell: versions 4 and 5, which most servers run, have no public specification"
+  },
+  "surge/0119.conf": {
+    "error": "[Proxy] line 29: Proxy 1: sail does not implement Snell: versions 4 and 5, which most servers run, have no public specification"
+  },
+  "surge/0120.conf": {
+    "ok": true,
+    "warnings": 6
+  },
+  "surge/0121.conf": {
+    "ok": true,
+    "warnings": 44
+  },
+  "surge/0122.conf": {
+    "error": "[Rule] line 21: no policy or group is named \"Proxy 4\""
+  },
+  "surge/0123.conf": {
+    "error": "[Proxy Group] line 55: Group 17: policy-priority: \"Proxy [0-9]+|Group 7:0\": a factor is above 0"
+  },
+  "surge/0124.conf": {
+    "ok": true,
+    "warnings": 1
+  },
+  "surge/0125.conf": {
+    "error": "[WireGuard wg-1] line 102: peer: endpoint: \"192.0.2.4\" is not host:port"
+  },
+  "surge/0126.conf": {
+    "ok": true,
+    "warnings": 35
+  },
+  "surge/0127.conf": {
+    "ok": true,
+    "warnings": 3
+  },
+  "surge/0128.conf": {
+    "error": "[Proxy Group] line 35: Group 11: include-other-group: no group is named \"\\\"Group 18\\\"\""
+  },
+  "surge/0129.conf": {
+    "ok": true,
+    "warnings": 0
+  },
+  "surge/0130.conf": {
+    "error": "[General] line 3: ipv6: \"auto\" is neither true nor false"
+  },
+  "surge/0131.conf": {
+    "ok": true,
+    "warnings": 0
+  },
+  "surge/0132.conf": {
+    "ok": true,
+    "warnings": 1
+  },
+  "surge/0133.conf": {
+    "ok": true,
+    "warnings": 0
+  },
+  "surge/0134.conf": {
+    "error": "[Proxy Group] line 23: Group 1: no policy or group is named \"Proxy 4\""
+  },
+  "surge/0135.conf": {
+    "ok": true,
+    "warnings": 1
+  },
+  "surge/0136.conf": {
+    "error": "[Proxy] line 28: Proxy 3: \"password1\" is not a port"
+  },
+  "surge/0137.conf": {
+    "error": "[Proxy] line 40: Proxy 3: \"password2\" is not a port"
+  },
+  "surge/0138.conf": {
+    "ok": true,
+    "warnings": 20
+  },
+  "surge/0139.conf": {
+    "ok": true,
+    "warnings": 1
+  },
+  "surge/0140.conf": {
+    "ok": true,
+    "warnings": 40
+  },
+  "surge/0141.conf": {
+    "error": "[Proxy] line 29: \"str2\" is not Name = type, ..."
+  },
+  "surge/0142.conf": {
+    "error": "[Rule] line 186: no policy or group is named \"Proxy 6\""
+  },
+  "surge/0143.conf": {
+    "error": "[Proxy Group] line 21: Group 1: \"Proxy 1\": a subnet group takes `default = policy` and `expression = policy`, no members"
+  },
+  "surge/0144.conf": {
+    "ok": true,
+    "warnings": 0
+  },
+  "surge/0145.conf": {
+    "ok": true,
+    "warnings": 5
+  },
+  "surge/0146.conf": {
+    "ok": true,
+    "warnings": 0
+  },
+  "surge/0147.conf": {
+    "error": "[Proxy] line 35: Proxy 1: sail does not implement Snell: versions 4 and 5, which most servers run, have no public specification"
+  },
+  "surge/0148.conf": {
+    "ok": true,
+    "warnings": 0
+  },
+  "surge/0149.conf": {
+    "ok": true,
+    "warnings": 0
+  },
+  "surge/0150.conf": {
+    "ok": true,
+    "warnings": 1
+  },
+  "surge/0151.conf": {
+    "ok": true,
+    "warnings": 3
+  },
+  "surge/0152.conf": {
+    "error": "[Proxy] line 49: \"str2\" is not Name = type, ..."
+  },
+  "surge/0153.conf": {
+    "ok": true,
+    "warnings": 0
+  },
+  "surge/0154.conf": {
+    "ok": true,
+    "warnings": 0
+  },
+  "surge/0155.conf": {
+    "ok": true,
+    "warnings": 1
+  },
+  "surge/0156.conf": {
+    "ok": true,
+    "warnings": 6
+  },
+  "surge/0157.conf": {
+    "ok": true,
+    "warnings": 6
+  },
+  "surge/0158.conf": {
+    "ok": true,
+    "warnings": 5
+  },
+  "surge/0159.conf": {
+    "ok": true,
+    "warnings": 1
+  },
+  "surge/0160.conf": {
+    "ok": true,
+    "warnings": 1
+  },
+  "surge/0161.conf": {
+    "ok": true,
+    "warnings": 9
+  },
+  "surge/0162.conf": {
+    "ok": true,
+    "warnings": 2
+  },
+  "surge/0163.conf": {
+    "ok": true,
+    "warnings": 33
+  },
+  "surge/0164.conf": {
+    "ok": true,
+    "warnings": 12
+  },
+  "surge/0165.conf": {
+    "ok": true,
+    "warnings": 1
+  },
+  "surge/0166.conf": {
+    "error": "[Proxy Group] line 5: Group 2: interval: \"600s\" is not a number in range"
+  },
+  "surge/0167.conf": {
+    "ok": true,
+    "warnings": 3
+  },
+  "surge/0168.conf": {
+    "ok": true,
+    "warnings": 1
+  },
+  "surge/0169.conf": {
+    "ok": true,
+    "warnings": 4
+  },
+  "surge/0170.conf": {
+    "ok": true,
+    "warnings": 6
+  },
+  "surge/0171.conf": {
+    "error": "[Rule] line 63: no policy"
+  },
+  "surge/0172.conf": {
+    "error": "[Proxy Group] line 38: Group 2: no policy or group is named \"Proxy 4\""
+  },
+  "surge/0173.conf": {
+    "ok": true,
+    "warnings": 6
+  },
+  "surge/0174.conf": {
+    "ok": true,
+    "warnings": 0
+  },
+  "surge/0175.conf": {
+    "error": "[Rule] line 51: no policy or group is named \"Proxy 1\""
+  },
+  "surge/0176.conf": {
+    "error": "[Proxy] line 16: Proxy 1: \"password1\" is not a port"
+  },
+  "surge/0177.conf": {
+    "error": "[Rule] line 75: CELLULAR-ONLY: sail does not implement Surge iOS's cellular policies"
+  },
+  "surge/0178.conf": {
+    "ok": true,
+    "warnings": 1
+  },
+  "surge/0179.conf": {
+    "error": "[General] line 21: udp-policy-not-supported-behaviour: \"fallback\" is neither REJECT nor DIRECT"
+  },
+  "surge/0180.conf": {
+    "ok": true,
+    "warnings": 2
+  },
+  "surge/0181.conf": {
+    "ok": true,
+    "warnings": 2
+  },
+  "surge/0182.conf": {
+    "error": "[Rule]: no FINAL rule, which Surge requires at the end"
+  },
+  "surge/0183.conf": {
+    "ok": true,
+    "warnings": 13
+  },
+  "surge/0184.conf": {
+    "ok": true,
+    "warnings": 0
+  },
+  "surge/0185.conf": {
+    "ok": true,
+    "warnings": 3
+  },
+  "surge/0186.conf": {
+    "error": "[Proxy] line 28: \"str2\" is not Name = type, ..."
+  },
+  "surge/0187.conf": {
+    "ok": true,
+    "warnings": 0
+  },
+  "surge/0188.conf": {
+    "error": "line 21: #!include ./path-1.dconf: a profile read from text, or a file included from a URL, includes no files by path; read it from its file"
+  },
+  "surge/0189.conf": {
+    "error": "[General] line 25: udp-policy-not-supported-behaviour: \"false\" is neither REJECT nor DIRECT"
+  },
+  "surge/0190.conf": {
+    "ok": true,
+    "warnings": 4
+  },
+  "surge/0191.conf": {
+    "error": "[Proxy Group] line 44: Group 1: no policy or group is named \"Proxy 23\""
+  },
+  "surge/0192.conf": {
+    "error": "[Rule]: no FINAL rule, which Surge requires at the end"
+  },
+  "surge/0193.conf": {
+    "ok": true,
+    "warnings": 2
+  },
+  "surge/0194.conf": {
+    "ok": true,
+    "warnings": 5
+  },
+  "surge/0195.conf": {
+    "ok": true,
+    "warnings": 7
+  },
+  "surge/0196.conf": {
+    "error": "[Rule] line 51: no policy or group is named \"Proxy 1\""
+  },
+  "surge/0197.conf": {
+    "ok": true,
+    "warnings": 0
+  },
+  "surge/0198.conf": {
+    "error": "line 34: #!include ./path-1.dconf: a profile read from text, or a file included from a URL, includes no files by path; read it from its file"
+  },
+  "surge/0199.conf": {
+    "ok": true,
+    "warnings": 5
+  },
+  "surge/0200.conf": {
+    "ok": true,
+    "warnings": 1
+  },
+  "surge/0201.conf": {
+    "ok": true,
+    "warnings": 28
+  },
+  "surge/0202.conf": {
+    "error": "[Proxy Group] line 27: Group 1: no policy or group is named \"Proxy 2\""
+  },
+  "surge/0203.conf": {
+    "error": "[Proxy Group] line 36: Group 9: no policy or group is named \"Proxy 1\""
+  },
+  "surge/0204.conf": {
+    "ok": true,
+    "warnings": 5
+  },
+  "surge/0205.conf": {
+    "error": "[Proxy] line 22: Proxy 1: section-name: there is no [WireGuard wg-2]"
+  },
+  "surge/0206.conf": {
+    "ok": true,
+    "warnings": 3
+  },
+  "surge/0207.conf": {
+    "error": "[Proxy Group] line 17: Group 2: \"Proxy 7\": a subnet group takes `default = policy` and `expression = policy`, no members"
+  },
+  "surge/0208.conf": {
+    "ok": true,
+    "warnings": 3
+  },
+  "surge/0209.conf": {
+    "error": "[Rule] line 69: DOMAIN-SET: https://h3.example.com/p2.list is a RULE-SET too, which Surge refuses"
+  },
+  "surge/0210.conf": {
+    "error": "[Proxy] line 43: REJECT is Surge's own policy"
+  },
+  "surge/0211.conf": {
+    "error": "[Proxy] line 4: REJECT is Surge's own policy"
+  },
+  "surge/0212.conf": {
+    "ok": true,
+    "warnings": 7
+  },
+  "surge/0213.conf": {
+    "ok": true,
+    "warnings": 0
+  },
+  "surge/0214.conf": {
+    "ok": true,
+    "warnings": 0
+  },
+  "surge/0215.conf": {
+    "ok": true,
+    "warnings": 3
+  },
+  "surge/0216.conf": {
+    "error": "[Proxy] line 22: REJECT-TINYGIF is Surge's own policy"
+  },
+  "surge/0217.conf": {
+    "ok": true,
+    "warnings": 2
+  },
+  "surge/0218.conf": {
+    "error": "[Proxy Group] line 28: Group 3: no policy or group is named \"Proxy 1\""
+  },
+  "surge/0219.conf": {
+    "ok": true,
+    "warnings": 5
+  },
+  "surge/0220.conf": {
+    "ok": true,
+    "warnings": 3
+  },
+  "surge/0221.conf": {
+    "ok": true,
+    "warnings": 0
+  },
+  "surge/0222.conf": {
+    "ok": true,
+    "warnings": 9
+  },
+  "surge/0223.conf": {
+    "error": "[Rule]: no FINAL rule, which Surge requires at the end"
+  },
+  "surge/0224.conf": {
+    "ok": true,
+    "warnings": 5
+  },
+  "surge/0225.conf": {
+    "error": "[Proxy] line 7: Proxy 1: \"password1\" is not a port"
+  },
+  "surge/0226.conf": {
+    "ok": true,
+    "warnings": 5
+  },
+  "surge/0227.conf": {
+    "error": "[Proxy Group] line 20: Group 3: \"Proxy 7\": a subnet group takes `default = policy` and `expression = policy`, no members"
+  },
+  "surge/0228.conf": {
+    "ok": true,
+    "warnings": 2
+  },
+  "surge/0229.conf": {
+    "error": "line 18: #!include ./path-1.dconf: a profile read from text, or a file included from a URL, includes no files by path; read it from its file"
+  },
+  "surge/0230.conf": {
+    "error": "[Proxy] line 8: Proxy 2: section-name: there is no [WireGuard wg-1]"
+  },
+  "surge/0231.conf": {
+    "error": "[Proxy] line 39: Proxy 1: section-name: there is no [WireGuard wg-1]"
+  },
+  "surge/0232.conf": {
+    "error": "[Proxy Group] line 24: Group 3: \"Proxy 8\": a subnet group takes `default = policy` and `expression = policy`, no members"
+  },
+  "surge/0233.conf": {
+    "error": "[Proxy Group] line 27: Group 1: no policy or group is named \"Proxy 3\""
+  },
+  "surge/0234.conf": {
+    "ok": true,
+    "warnings": 11
+  },
+  "surge/0235.conf": {
+    "ok": true,
+    "warnings": 1
+  },
+  "surge/0236.conf": {
+    "ok": true,
+    "warnings": 1
+  },
+  "surge/0237.conf": {
+    "error": "line 11: #!include ./path-1.conf: a profile read from text, or a file included from a URL, includes no files by path; read it from its file"
+  },
+  "surge/0238.conf": {
+    "error": "[Rule] line 78: no policy or group is named \"Proxy 1\""
+  },
+  "surge/0239.conf": {
+    "ok": true,
+    "warnings": 1
+  },
+  "surge/0240.conf": {
+    "ok": true,
+    "warnings": 8
+  },
+  "surge/0241.conf": {
+    "error": "[Proxy Group] line 24: Group 1: no policy or group is named \"Proxy 1\""
+  },
+  "surge/0242.conf": {
+    "error": "[Proxy] line 31: Proxy 5: sail does not implement Snell: versions 4 and 5, which most servers run, have no public specification"
+  },
+  "surge/0243.conf": {
+    "error": "[Proxy] line 40: Proxy 17: section-name: there is no [WireGuard wg-1]"
+  },
+  "surge/0244.conf": {
+    "ok": true,
+    "warnings": 2
+  },
+  "surge/0245.conf": {
+    "ok": true,
+    "warnings": 12
+  },
+  "surge/0246.conf": {
+    "error": "[Proxy Group] line 55: Group 10: interval: \"-1\" is not a number in range"
+  },
+  "surge/0247.conf": {
+    "ok": true,
+    "warnings": 0
+  },
+  "surge/0248.conf": {
+    "ok": true,
+    "warnings": 1
+  },
+  "surge/0249.conf": {
+    "ok": true,
+    "warnings": 3
+  },
+  "surge/0250.conf": {
+    "error": "[Proxy Group] line 56: Group 14: no policy or group is named \"Proxy 1\""
+  },
+  "surge/0251.conf": {
+    "ok": true,
+    "warnings": 1
+  },
+  "surge/0252.conf": {
+    "ok": true,
+    "warnings": 1
+  },
+  "surge/0253.conf": {
+    "ok": true,
+    "warnings": 7
+  },
+  "surge/0254.conf": {
+    "ok": true,
+    "warnings": 2
+  },
+  "surge/0255.conf": {
+    "ok": true,
+    "warnings": 1
+  },
+  "surge/0256.conf": {
+    "ok": true,
+    "warnings": 0
+  },
+  "surge/0257.conf": {
+    "ok": true,
+    "warnings": 42
+  },
+  "surge/0258.conf": {
+    "error": "[Proxy Group] line 17: Group 14: no policy or group is named \"Proxy 1\""
+  },
+  "surge/0259.conf": {
+    "ok": true,
+    "warnings": 1
+  },
+  "surge/0260.conf": {
+    "ok": true,
+    "warnings": 7
+  },
+  "surge/0261.conf": {
+    "ok": true,
+    "warnings": 3
+  },
+  "surge/0262.conf": {
+    "ok": true,
+    "warnings": 7
+  },
+  "surge/0263.conf": {
+    "ok": true,
+    "warnings": 0
+  },
+  "surge/0264.conf": {
+    "ok": true,
+    "warnings": 12
+  },
+  "surge/0265.conf": {
+    "ok": true,
+    "warnings": 0
+  },
+  "surge/0266.conf": {
+    "ok": true,
+    "warnings": 0
+  },
+  "surge/0267.conf": {
+    "error": "[Proxy] line 6: Proxy 2: \"vless\" is not a policy type Surge takes"
+  },
+  "surge/0268.conf": {
+    "ok": true,
+    "warnings": 5
+  },
+  "surge/0269.conf": {
+    "error": "[Rule] line 86: no policy"
+  },
+  "surge/0270.conf": {
+    "ok": true,
+    "warnings": 1
+  },
+  "surge/0271.conf": {
+    "ok": true,
+    "warnings": 0
+  },
+  "surge/0272.conf": {
+    "ok": true,
+    "warnings": 3
+  },
+  "surge/0273.conf": {
+    "error": "[Proxy Group] line 40: Group 13: include-other-group: no group is named \"Proxy 3\""
+  },
+  "surge/0274.conf": {
+    "error": "[Proxy] line 11: \"str2\" is not Name = type, ..."
+  },
+  "surge/0275.conf": {
+    "ok": true,
+    "warnings": 6
+  },
+  "surge/0276.conf": {
+    "ok": true,
+    "warnings": 2
+  },
+  "surge/0277.conf": {
+    "ok": true,
+    "warnings": 28
+  },
+  "surge/0278.conf": {
+    "error": "[Proxy Group] line 48: Group 18: no policy or group is named \"Proxy 2\""
+  },
+  "surge/0279.conf": {
+    "ok": true,
+    "warnings": 0
+  },
+  "surge/0280.conf": {
+    "error": "[Proxy] line 29: \"str2\" is not Name = type, ..."
+  },
+  "surge/0281.conf": {
+    "ok": true,
+    "warnings": 3
+  },
+  "surge/0282.conf": {
+    "error": "[Proxy] line 29: \"str2\" is not Name = type, ..."
+  },
+  "surge/0283.conf": {
+    "error": "[Rule]: no FINAL rule, which Surge requires at the end"
+  },
+  "surge/0284.conf": {
+    "error": "[Rule] line 51: no policy or group is named \"Proxy 1\""
+  },
+  "surge/0285.conf": {
+    "ok": true,
+    "warnings": 2
+  },
+  "surge/0286.conf": {
+    "ok": true,
+    "warnings": 1
+  },
+  "surge/0287.conf": {
+    "ok": true,
+    "warnings": 3
+  },
+  "surge/0288.conf": {
+    "ok": true,
+    "warnings": 5
+  },
+  "surge/0289.conf": {
+    "ok": true,
+    "warnings": 5
+  },
+  "surge/0290.conf": {
+    "error": "line 32: #!include https://h3.example.com/p2: sail does not download a profile's includes itself; the host does: `sail --fetch-includes` keeps them in the cache directory"
+  },
+  "surge/0291.conf": {
+    "ok": true,
+    "warnings": 0
+  },
+  "surge/0292.conf": {
+    "ok": true,
+    "warnings": 6
+  },
+  "surge/0293.conf": {
+    "ok": true,
+    "warnings": 5
+  },
+  "surge/0294.conf": {
+    "ok": true,
+    "warnings": 5
+  },
+  "surge/0295.conf": {
+    "error": "[Proxy] line 18: Proxy 1: \"*\" is not a policy type Surge takes"
+  },
+  "surge/0296.conf": {
+    "error": "[Proxy Group] line 55: Group 10: interval: \"-1\" is not a number in range"
+  },
+  "surge/0297.conf": {
+    "error": "[Rule]: no FINAL rule, which Surge requires at the end"
+  },
+  "surge/0298.conf": {
+    "ok": true,
+    "warnings": 0
+  },
+  "surge/0299.conf": {
+    "ok": true,
+    "warnings": 3
+  },
+  "surge/0300.conf": {
+    "error": "[Proxy Group] line 34: Group 10: no policy or group is named \"Proxy 1\""
+  }
+}
