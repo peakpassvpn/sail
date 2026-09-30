@@ -149,6 +149,35 @@ impl PacketIo for TunPacketIo {
     }
 }
 
+/// A wait on a blocking thread that outlives the future awaiting it: a
+/// receive dropped while it waits, as the runtime drops it many times a
+/// second, leaves the thread to the next receive rather than starting
+/// another, so at most one is ever parked.
+#[cfg(any(target_os = "windows", test))]
+struct BlockingWait<T> {
+    waiting: Option<tokio::task::JoinHandle<T>>,
+}
+
+#[cfg(any(target_os = "windows", test))]
+impl<T: Send + 'static> BlockingWait<T> {
+    fn new() -> Self {
+        Self { waiting: None }
+    }
+
+    /// Waits for `wait`, run on a blocking thread, or for the one a
+    /// dropped call started.
+    async fn wait(&mut self, wait: impl FnOnce() -> T + Send + 'static) -> io::Result<T> {
+        let waiting = self
+            .waiting
+            .get_or_insert_with(|| tokio::task::spawn_blocking(wait));
+        // Awaiting the handle by reference is cancel-safe: dropped here,
+        // the same thread is awaited next time.
+        let result = waiting.await;
+        self.waiting = None;
+        result.map_err(io::Error::other)
+    }
+}
+
 /// The TUN of a wintun session (Windows): packets from its ring, waited
 /// for on a blocking thread when there are none.
 #[cfg(target_os = "windows")]
@@ -157,13 +186,13 @@ pub(crate) struct WintunPacketIo {
     recv_buffer: Vec<u8>,
     max_batch: usize,
     next_token: u64,
+    wait: BlockingWait<Result<(), wintun_bindings::Error>>,
 }
 
 #[cfg(target_os = "windows")]
 impl WintunPacketIo {
     pub(crate) fn new(
         session: std::sync::Arc<wintun_bindings::Session>,
-        mtu: usize,
         max_batch: usize,
     ) -> io::Result<Self> {
         if max_batch == 0 {
@@ -174,9 +203,13 @@ impl WintunPacketIo {
         }
         Ok(Self {
             session,
-            recv_buffer: vec![0; mtu.max(1500)],
+            // wintun's largest packet (WINTUN_MAX_IP_PACKET_SIZE): Windows
+            // may hand it one above the MTU, which a smaller buffer would
+            // make it drop, with an error.
+            recv_buffer: vec![0; usize::from(u16::MAX)],
             max_batch,
             next_token: 0,
+            wait: BlockingWait::new(),
         })
     }
 
@@ -215,11 +248,13 @@ impl PacketIo for WintunPacketIo {
                 }
                 Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
                     let session = self.session.clone();
-                    tokio::task::spawn_blocking(move || session.wait_read())
-                        .await
-                        .map_err(io::Error::other)?
+                    self.wait
+                        .wait(move || session.wait_read())
+                        .await?
                         .map_err(io::Error::other)?;
                 }
+                // Too large for the buffer: wintun dropped it already.
+                Err(e) if e.kind() == io::ErrorKind::InvalidInput => {}
                 Err(e) => return Err(e),
             }
         }
@@ -579,6 +614,46 @@ impl PacketIo for TunRsPacketIo {
             tx_checksum: ChecksumCapabilities::default(),
             gso: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod blocking_wait_tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{mpsc, Arc, Mutex};
+    use std::time::Duration;
+
+    use super::BlockingWait;
+
+    /// Dropped while it waits, as the runtime drops a receive many times a
+    /// second, the wait starts no second thread: the next call takes up
+    /// the one there is.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_dropped_wait_is_taken_up_not_started_again() {
+        let started = Arc::new(AtomicUsize::new(0));
+        let (release, released) = mpsc::channel::<()>();
+        let released = Arc::new(Mutex::new(released));
+        let mut wait = BlockingWait::new();
+        let waiter = || {
+            let started = started.clone();
+            let released = released.clone();
+            move || {
+                started.fetch_add(1, Ordering::SeqCst);
+                released.lock().unwrap().recv().unwrap();
+                7
+            }
+        };
+        for _ in 0..20 {
+            let dropped = tokio::time::timeout(Duration::from_millis(5), wait.wait(waiter())).await;
+            assert!(dropped.is_err(), "nothing released it yet");
+        }
+        release.send(()).unwrap();
+        assert_eq!(wait.wait(waiter()).await.unwrap(), 7);
+        assert_eq!(started.load(Ordering::SeqCst), 1);
+        // Done, the next wait is a new one.
+        release.send(()).unwrap();
+        assert_eq!(wait.wait(waiter()).await.unwrap(), 7);
+        assert_eq!(started.load(Ordering::SeqCst), 2);
     }
 }
 

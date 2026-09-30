@@ -880,7 +880,7 @@ fn open_wintun(
         settings.auto_route,
     )
     .map_err(|e| anyhow!("[{}] inbound: {:#}", inbound.tag, e))?;
-    let io = super::packet_io::WintunPacketIo::new(device.session, mtu, netstack.batch_size)?;
+    let io = super::packet_io::WintunPacketIo::new(device.session, netstack.batch_size)?;
     run(
         inbound,
         dispatcher.clone(),

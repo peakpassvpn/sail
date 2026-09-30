@@ -15,9 +15,10 @@ pub(crate) struct Device {
     pub session: Arc<Session>,
 }
 
-/// The adapter's GUID, the same for the same name, as sing-tun makes it
-/// (from "wintun" and the name): a run that died leaves an adapter the
-/// next one takes up.
+/// The adapter's GUID, the same for the same name: a run that died leaves
+/// an adapter the next one takes up. From "wintun" and the name, as
+/// sing-tun's, but hashed otherwise (sing-tun takes md5), so an adapter
+/// sing-box left under the same name is not taken up.
 fn guid(name: &str) -> u128 {
     // FNV-1a, twice over, for 128 bits.
     let fnv = |seed: u64| {
