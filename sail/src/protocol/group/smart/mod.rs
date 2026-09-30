@@ -31,7 +31,7 @@
 //!
 //! A connection goes to its site's member, while that member has not
 //! failed and is not more than twice as slow for the site as the best
-//! member is; else to one picked at random among the members whose score
+//! member is, or is within the tolerance of it; else to one picked at random among the members whose score
 //! is within `tolerance` ms or `tolerance_ratio` of the best. A site
 //! whose first responses through its member are more than twice the
 //! member's usual tries the next member on its next connection; after

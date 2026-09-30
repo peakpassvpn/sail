@@ -222,7 +222,8 @@ impl Tolerance {
 /// through, in turn, `MAX_ATTEMPTS` at most:
 ///
 /// 1. the site's member, while it has not failed, and is not more than
-///    twice as slow for the site as the best member is for all;
+///    twice as slow for the site as the best member is for all, or is
+///    within `tolerance` of it;
 /// 2. else one picked at random among the members up whose score is
 ///    within `tolerance` of the best (a member tried more than
 ///    `MAX_TRIED` times for a site settles it on the best of them);
@@ -259,7 +260,7 @@ pub fn order(
     let failed_for_site = |i: usize| site_failed.contains(&i);
     let mut first = None;
     if let Some(site) = site {
-        first = pinned(ranks, site, best, now, &position);
+        first = pinned(ranks, site, best, tolerance, now, &position);
         if first.is_none() && site.switch && !site.settled {
             site.switch = false;
             // Another member it has not tried, the best there is.
@@ -270,7 +271,7 @@ pub fn order(
                 .find(|&i| site.tried(&ranks[i].key).is_none() && !failed_for_site(i));
             if site.tried.len() >= MAX_TRIED || untried.is_none() {
                 settle(site, ranks, &position);
-                first = pinned(ranks, site, best, now, &position);
+                first = pinned(ranks, site, best, tolerance, now, &position);
             } else {
                 first = untried;
                 site.pinned = None;
@@ -318,6 +319,7 @@ fn pinned(
     ranks: &[Rank],
     site: &mut Site,
     best: Option<f64>,
+    tolerance: Tolerance,
     now: Instant,
     position: &impl Fn(&MemberKey) -> Option<usize>,
 ) -> Option<usize> {
@@ -333,8 +335,15 @@ fn pinned(
                 .and_then(|t| t.latency)
                 .map(|l| l.mean())
                 .or(ranks[i].score);
+            // Within the tolerance it would be picked as likely as any:
+            // leaving it would only move the site at random.
             match (for_site, best) {
-                (Some(latency), Some(best)) if super::score::slower(latency, best, SLOWER) => None,
+                (Some(latency), Some(best))
+                    if super::score::slower(latency, best, SLOWER)
+                        && !tolerance.admits(latency, best) =>
+                {
+                    None
+                }
                 _ => Some(i),
             }
         }
@@ -490,6 +499,12 @@ mod tests {
         far.tried[0].latency = Some(Ewma::new(201.0, 1.0, now));
         assert_eq!(order(&ranks, Some(&mut far), t, now, &mut rng())[0], 1);
         assert_eq!(far.pinned(), None);
+        // Twice as slow but within the tolerance: it stays.
+        let mut near = site.clone();
+        near.tried[0].latency = Some(Ewma::new(201.0, 1.0, now));
+        let wide = tolerance(10000.0, 0.0);
+        assert_eq!(order(&ranks, Some(&mut near), wide, now, &mut rng())[0], 0);
+        assert_eq!(near.pinned(), Some(&key("a")));
     }
 
     #[tokio::test(start_paused = true)]
