@@ -23,7 +23,7 @@ use crate::runtime::options::Quic as Tuning;
 use crate::runtime::RuntimeEnv;
 use crate::transport::layers::{trusted_certificate, InboundTls, Listable, OutboundTls};
 use crate::transport::muxcore::stall::{Guarded, Stallable, STALL_TIMEOUT};
-use crate::transport::tls::client::{load_certificates, load_private_key};
+use crate::transport::tls::client::{load_certificates, load_private_key, Identity};
 
 /// The ALPNs of a `tls` block's `alpn`, or `default` when it lists none.
 pub fn alpn_protocols(alpn: Option<&Listable>, default: &[&str]) -> Vec<Vec<u8>> {
@@ -75,25 +75,50 @@ pub struct ClientTls {
 
 impl ClientTls {
     /// From `tls`, for the server at `server`, offering `default_alpn`
-    /// unless `alpn` is set. Whatever `unsupported` finds is the caller's
-    /// to refuse; this reads none of it.
+    /// unless `alpn` is set, and presenting the client certificate if
+    /// set. Whatever `unsupported` finds is the caller's to refuse; this
+    /// reads none of it.
     pub fn new(
         tls: &OutboundTls,
         server: &str,
         default_alpn: &[&str],
         env: &RuntimeEnv,
     ) -> Result<Self> {
-        let crypto = client_crypto(
+        // quinn-btls sets the SNI of every name but an IP address.
+        if tls.disable_sni {
+            return Err(anyhow!("disable_sni: not over QUIC yet"));
+        }
+        let mut crypto = client_crypto(
             trusted_certificate(tls, env).as_deref(),
             tls.insecure,
             &alpn_protocols(tls.alpn.as_ref(), default_alpn),
             &env.tls_roots.get()?,
         )?;
+        if let Some(identity) = tls.client_identity(env)? {
+            present(&mut crypto, &identity)?;
+        }
         Ok(Self {
             server_name: tls.server_name.clone().unwrap_or_else(|| server.to_owned()),
             crypto,
         })
     }
+}
+
+/// Presents `identity` to a server that asks for a certificate.
+pub fn present(crypto: &mut quinn_btls::ClientConfig, identity: &Identity) -> Result<()> {
+    use quinn_btls::QuicSslContext;
+    let ctx = crypto.ctx_mut();
+    let mut chain = identity.chain().iter();
+    if let Some(cert) = chain.next() {
+        ctx.set_certificate(cert.clone())?;
+    }
+    for cert in chain {
+        ctx.add_to_cert_chain(cert.clone())?;
+    }
+    ctx.set_private_key(identity.key().clone())?;
+    ctx.check_private_key()
+        .map_err(|e| anyhow!("client_key: not the certificate's: {}", e))?;
+    Ok(())
 }
 
 /// The first of `tls.reality`, `tls.ech` and `tls.utls` that the block
@@ -442,6 +467,56 @@ mod tests {
         let (sni, conn) = tokio::join!(accept, connect);
         conn?;
         Ok(sni?)
+    }
+
+    #[tokio::test]
+    async fn client_certificate_when_the_server_asks() {
+        use quinn_btls::QuicSslContext;
+        let pki = crate::transport::tls::tests::client_pki();
+        let cert = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
+        let pem = cert.cert.pem();
+        let mut server = server_crypto(&pem, &cert.key_pair.serialize_pem(), &[]).unwrap();
+        let ctx = server.ctx_mut();
+        ctx.cert_store_mut()
+            .add_cert(btls::x509::X509::from_pem(pki.ca.as_bytes()).unwrap())
+            .unwrap();
+        ctx.verify_peer(true);
+        let server = endpoint(
+            std::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap(),
+            Some(server_config(server).unwrap()),
+        )
+        .unwrap();
+        let roots = crate::transport::tls::tests::test_roots();
+        let tls: OutboundTls = serde_json::from_value(serde_json::json!({
+            "enabled": true, "certificate": pem,
+            "client_certificate": pki.cert, "client_key": pki.key
+        }))
+        .unwrap();
+        let env = RuntimeEnv::default();
+        let with = ClientTls::new(&tls, "localhost", &["h3"], &env).unwrap();
+        assert_eq!(
+            dial(&server, with.crypto, "localhost").await.unwrap(),
+            Some("localhost".into())
+        );
+        let without = client_crypto(Some(&pem), false, &[b"h3".to_vec()], &roots).unwrap();
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            dial(&server, without, "localhost"),
+        )
+        .await
+        .expect("the handshake fails, not hangs");
+        assert!(result.is_err(), "{:?}", result);
+    }
+
+    #[test]
+    fn no_disable_sni_over_quic_yet() {
+        let tls: OutboundTls =
+            serde_json::from_value(serde_json::json!({"enabled": true, "disable_sni": true}))
+                .unwrap();
+        let err = ClientTls::new(&tls, "localhost", &[], &RuntimeEnv::default())
+            .err()
+            .unwrap();
+        assert_eq!(err.to_string(), "disable_sni: not over QUIC yet");
     }
 
     #[tokio::test]
