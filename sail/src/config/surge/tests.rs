@@ -1012,7 +1012,9 @@ fn shadow_tls_mistakes_name_the_parameter() {
         .ends_with("shadow-tls-sni: needs shadow-tls-password, which turns Shadow TLS on"));
     let quic = "[Proxy]\nQ = hysteria2, q.example.com, 443, password=pw, shadow-tls-password=p\n";
     assert!(error(quic).contains("Shadow TLS wraps TCP proxies, not hysteria2 ones"));
+}
 
+#[test]
 fn subnet_groups_and_rules_follow_the_network() {
     let config = load(
         "[Proxy]\nP = socks5, a, 1\n\
