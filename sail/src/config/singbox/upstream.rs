@@ -92,9 +92,6 @@ pub const FIELDS: &[Field] = &[
     f("http_clients.*.disable_path_mtu_discovery", Ignored),
     f("http_clients.*.bind_address_no_port", Ignored),
     f("http_clients.*.reuse_addr", Ignored),
-    f("http_clients.*.disable_tcp_keep_alive", Ignored),
-    f("http_clients.*.tcp_keep_alive", Ignored),
-    f("http_clients.*.tcp_keep_alive_interval", Ignored),
     f("http_clients.*.tcp_fast_open", Ignored),
     f("http_clients.*.tcp_multi_path", Ignored),
     f("http_clients.*.udp_fragment", Ignored),
@@ -135,15 +132,6 @@ pub const FIELDS: &[Field] = &[
     ),
     f("route.rule_set.*.http_client.bind_address_no_port", Ignored),
     f("route.rule_set.*.http_client.reuse_addr", Ignored),
-    f(
-        "route.rule_set.*.http_client.disable_tcp_keep_alive",
-        Ignored,
-    ),
-    f("route.rule_set.*.http_client.tcp_keep_alive", Ignored),
-    f(
-        "route.rule_set.*.http_client.tcp_keep_alive_interval",
-        Ignored,
-    ),
     f("route.rule_set.*.http_client.tcp_fast_open", Ignored),
     f("route.rule_set.*.http_client.tcp_multi_path", Ignored),
     f("route.rule_set.*.http_client.udp_fragment", Ignored),
@@ -161,9 +149,6 @@ pub const FIELDS: &[Field] = &[
     f("dns.servers.*.fallback_delay", Unsupported),
     f("dns.servers.*.bind_address_no_port", Ignored),
     f("dns.servers.*.reuse_addr", Ignored),
-    f("dns.servers.*.disable_tcp_keep_alive", Ignored),
-    f("dns.servers.*.tcp_keep_alive", Ignored),
-    f("dns.servers.*.tcp_keep_alive_interval", Ignored),
     f("dns.servers.*.tcp_fast_open", Ignored),
     f("dns.servers.*.tcp_multi_path", Ignored),
     f("dns.servers.*.udp_fragment", Ignored),
@@ -227,6 +212,52 @@ pub const FIELDS: &[Field] = &[
     f("outbounds.*.tcp_fast_open", Ignored),
     f("outbounds.*.tcp_multi_path", Ignored),
     f("outbounds.*.udp_fragment", Ignored),
+    // REALITY's handshake: the dial fields that bind its socket, and the
+    // connect timeout, are implemented.
+    f("inbounds.*.tls.reality.handshake.detour", Unsupported),
+    f("inbounds.*.tls.reality.handshake.protect_path", Unsupported),
+    f("inbounds.*.tls.reality.handshake.netns", Unsupported),
+    f(
+        "inbounds.*.tls.reality.handshake.disable_tcp_keep_alive",
+        Unsupported,
+    ),
+    f(
+        "inbounds.*.tls.reality.handshake.tcp_keep_alive",
+        Unsupported,
+    ),
+    f(
+        "inbounds.*.tls.reality.handshake.tcp_keep_alive_interval",
+        Unsupported,
+    ),
+    f(
+        "inbounds.*.tls.reality.handshake.domain_resolver",
+        Unsupported,
+    ),
+    f(
+        "inbounds.*.tls.reality.handshake.domain_strategy",
+        Unsupported,
+    ),
+    f(
+        "inbounds.*.tls.reality.handshake.network_strategy",
+        Unsupported,
+    ),
+    f("inbounds.*.tls.reality.handshake.network_type", Unsupported),
+    f(
+        "inbounds.*.tls.reality.handshake.fallback_network_type",
+        Unsupported,
+    ),
+    f(
+        "inbounds.*.tls.reality.handshake.fallback_delay",
+        Unsupported,
+    ),
+    f(
+        "inbounds.*.tls.reality.handshake.bind_address_no_port",
+        Ignored,
+    ),
+    f("inbounds.*.tls.reality.handshake.reuse_addr", Ignored),
+    f("inbounds.*.tls.reality.handshake.tcp_fast_open", Ignored),
+    f("inbounds.*.tls.reality.handshake.tcp_multi_path", Ignored),
+    f("inbounds.*.tls.reality.handshake.udp_fragment", Ignored),
     // TLS, both ways.
     f("*.*.tls.min_version", Unsupported),
     f("*.*.tls.max_version", Unsupported),

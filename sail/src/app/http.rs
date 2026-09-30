@@ -484,7 +484,7 @@ impl HttpClients {
                 }
             }
         };
-        let via = match &client.detour {
+        let via = match &client.dial.detour {
             Some(detour) => Via::Outbound(detour.clone()),
             None => Via::Direct(Arc::new(client.dial(&self.dial))),
         };

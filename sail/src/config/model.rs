@@ -172,6 +172,22 @@ pub struct Config {
     pub warnings: Vec<String>,
 }
 
+/// The dial fields an HTTP client implements: all that sail does but
+/// `skip_default_domain_resolver`.
+const HTTP_CLIENT_DIAL: &[&str] = &[
+    "detour",
+    "bind_interface",
+    "inet4_bind_address",
+    "inet6_bind_address",
+    "routing_mark",
+    "connect_timeout",
+    "disable_tcp_keep_alive",
+    "tcp_keep_alive",
+    "tcp_keep_alive_interval",
+    "domain_resolver",
+    "domain_strategy",
+];
+
 /// An HTTP client: the outbound it fetches through, or, with none, the
 /// dial fields it connects with itself.
 #[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
@@ -180,23 +196,9 @@ pub struct HttpClient {
     /// Of one in `http_clients`; none inline.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub tag: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub detour: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub bind_interface: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub inet4_bind_address: Option<std::net::Ipv4Addr>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub inet6_bind_address: Option<std::net::Ipv6Addr>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub routing_mark: Option<u32>,
-    #[serde(default, with = "duration", skip_serializing_if = "Option::is_none")]
-    pub connect_timeout: Option<std::time::Duration>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub domain_resolver: Option<DomainResolver>,
-    /// sing-box's deprecated field for the families names resolve to.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub domain_strategy: Option<DnsStrategy>,
+    /// How it connects, `detour` among them.
+    #[serde(flatten)]
+    pub dial: crate::net::dial::DialFields,
     /// Sent with each request, over sail's own of the same name.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub headers: BTreeMap<String, HeaderValues>,
@@ -242,45 +244,32 @@ impl HttpClient {
     /// The dial options it connects with, when it has no detour: its own,
     /// over `defaults`.
     pub fn dial(&self, defaults: &crate::net::DialOptions) -> crate::net::DialOptions {
-        crate::net::DialOptions {
-            bind_interface: self.bind_interface.clone(),
-            inet4_bind_address: self.inet4_bind_address,
-            inet6_bind_address: self.inet6_bind_address,
-            routing_mark: self.routing_mark,
-            connect_timeout: self
-                .connect_timeout
-                .unwrap_or(crate::net::dial::DEFAULT_CONNECT_TIMEOUT),
-            domain_resolver: self.domain_resolver.clone().map(|resolver| DomainResolver {
-                strategy: resolver.strategy.or(self.domain_strategy),
-                ..resolver
-            }),
-            strategy: self.domain_strategy,
-            ..Default::default()
-        }
-        .or(defaults)
+        self.dial.options().or(defaults)
     }
 
     fn check(&self, outbounds: &HashSet<&str>, dns_servers: &HashSet<String>) -> Result<()> {
-        if let Some(detour) = &self.detour {
+        if let Some(detour) = &self.dial.detour {
             if !outbounds.contains(detour.as_str()) {
                 return Err(anyhow!("detour: outbound [{}] does not exist", detour));
             }
-            let dials = self.bind_interface.is_some()
-                || self.inet4_bind_address.is_some()
-                || self.inet6_bind_address.is_some()
-                || self.routing_mark.is_some()
-                || self.connect_timeout.is_some()
-                || self.domain_resolver.is_some()
-                || self.domain_strategy.is_some();
-            if dials {
-                return Err(anyhow!(
-                    "the dial fields have no effect with a detour; set them on [{}]",
-                    detour
-                ));
+            // Through an outbound, the names are that outbound's to
+            // resolve.
+            for (field, set) in [
+                ("domain_resolver", self.dial.domain_resolver.is_some()),
+                ("domain_strategy", self.dial.domain_strategy.is_some()),
+            ] {
+                if set {
+                    return Err(anyhow!(
+                        "{}: has no effect with a detour; set it on [{}]",
+                        field,
+                        detour
+                    ));
+                }
             }
         }
+        self.dial.check(HTTP_CLIENT_DIAL)?;
         check_headers(&self.headers)?;
-        if let Some(resolver) = &self.domain_resolver {
+        if let Some(resolver) = &self.dial.domain_resolver {
             if !dns_servers.contains(&resolver.server) {
                 return Err(anyhow!(
                     "domain_resolver: dns server [{}] does not exist",
@@ -298,7 +287,7 @@ impl HttpClient {
 #[serde(untagged)]
 pub enum HttpClientRef {
     Tag(String),
-    Inline(HttpClient),
+    Inline(Box<HttpClient>),
 }
 
 /// sing-box's top-level `certificate`: a store of root certificates, and
@@ -3029,8 +3018,14 @@ pub fn parse_options<T: serde::de::DeserializeOwned>(
     tag: &str,
     options: &Options,
 ) -> Result<T> {
-    serde_path_to_error::deserialize(serde_json::Value::Object(options.clone()))
-        .map_err(|e| anyhow!("[{}] {}: {}: {}", tag, kind, path(&e), e.inner()))
+    serde_path_to_error::deserialize(serde_json::Value::Object(options.clone())).map_err(|e| {
+        // An error of the options as a whole, or of a field they flatten
+        // in, which names the field itself.
+        match e.path().to_string().as_str() {
+            "." => anyhow!("[{}] {}: {}", tag, kind, e.inner()),
+            path => anyhow!("[{}] {}: {}: {}", tag, kind, path, e.inner()),
+        }
+    })
 }
 
 pub(super) fn path<E>(e: &serde_path_to_error::Error<E>) -> String {
@@ -3614,5 +3609,34 @@ mod tests {
             "{}",
             err
         );
+    }
+
+    /// An HTTP client's TCP connections take sing-box's keepalive fields.
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[tokio::test]
+    async fn http_client_connections_get_the_keepalive_it_sets() {
+        use crate::net::dial::fields::keepalive_dialled;
+        use crate::net::TcpKeepAlive;
+        use std::time::Duration;
+
+        let dial = |client: serde_json::Value| {
+            serde_json::from_value::<HttpClient>(client)
+                .unwrap()
+                .dial(&crate::net::DialOptions::default())
+        };
+        let set = dial(serde_json::json!({
+            "tag": "h", "tcp_keep_alive": "40s", "tcp_keep_alive_interval": "7s",
+        }));
+        assert_eq!(
+            keepalive_dialled(&set).await,
+            Some(TcpKeepAlive {
+                idle: Duration::from_secs(40),
+                interval: Duration::from_secs(7),
+            })
+        );
+        let off = dial(serde_json::json!({ "tag": "h", "disable_tcp_keep_alive": true }));
+        assert_eq!(keepalive_dialled(&off).await, None);
+        let unset = dial(serde_json::json!({ "tag": "h" }));
+        assert_eq!(keepalive_dialled(&unset).await, Some(TcpKeepAlive::DEFAULT));
     }
 }

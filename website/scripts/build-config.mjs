@@ -8,7 +8,7 @@ const run = spawnSync('cargo', ['run', '--quiet', '--manifest-path', path.join(r
 if (run.status !== 0) throw new Error(run.stderr || String(run.error));
 const definitions = JSON.parse(run.stdout);
 const groups = {
-  common: definitions.filter(d => d.source.endsWith('config/model.rs')),
+  common: definitions.filter(d => d.source.endsWith('config/model.rs') || d.source.endsWith('net/dial/fields.rs')),
   inbounds: definitions.filter(d => d.source.includes('/protocol/') && (d.source.includes('/inbound') || /Inbound/.test(d.name))),
   outbounds: definitions.filter(d => d.source.includes('/protocol/') && !d.source.includes('/inbound') && !/Inbound/.test(d.name)),
   transport: definitions.filter(d => d.source.includes('/transport/')),

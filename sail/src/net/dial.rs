@@ -7,6 +7,10 @@ use std::time::Duration;
 
 use tracing::debug;
 
+pub mod fields;
+
+pub use fields::DialFields;
+
 /// The default time a TCP connect may take.
 pub const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_secs(8);
 

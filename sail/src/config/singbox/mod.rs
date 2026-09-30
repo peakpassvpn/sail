@@ -454,7 +454,11 @@ mod tests {
         )
         .unwrap();
         for (clients, route, message) in [
-            (r#"[{ "detour": "direct" }]"#, "{}".to_string(), "http_clients[0].tag: missing"),
+            (
+                r#"[{ "detour": "direct" }]"#,
+                "{}".to_string(),
+                "http_clients[0].tag: missing",
+            ),
             (
                 r#"[{ "tag": "c" }, { "tag": "c" }]"#,
                 "{}".to_string(),
@@ -468,7 +472,7 @@ mod tests {
             (
                 r#"[{ "tag": "c", "detour": "direct", "routing_mark": 1 }]"#,
                 "{}".to_string(),
-                "http_clients[0]: the dial fields have no effect with a detour; set them on [direct]",
+                "http_clients[0]: routing_mark: has no effect with a detour; set it on [direct]",
             ),
             (
                 r#"[{ "tag": "c", "headers": { "X-A": "1\r\nX-B: 2" } }]"#,
@@ -581,6 +585,118 @@ mod tests {
             })
         );
         assert_eq!(dial(1), None);
+    }
+
+    /// Outbounds, DNS servers, HTTP clients and REALITY's handshake read
+    /// the dial fields alike: the same fields, warnings and errors, each
+    /// under the place it is at. Built, as `sail -T` builds a
+    /// configuration.
+    #[cfg(all(
+        feature = "outbound-direct",
+        feature = "outbound-socks",
+        feature = "inbound-vless",
+        feature = "inbound-reality"
+    ))]
+    #[test]
+    fn dial_fields_read_alike_in_every_place() {
+        use serde_json::{json, Value};
+
+        let load = |place: usize, dial: &Value| -> Result<Vec<String>, String> {
+            let mut places = [
+                json!({ "type": "socks", "tag": "o", "server": "192.0.2.2", "server_port": 1080 }),
+                json!({ "type": "tcp", "tag": "d", "server": "192.0.2.53" }),
+                json!({ "tag": "h" }),
+                json!({ "server": "192.0.2.1", "server_port": 443 }),
+            ];
+            places[place]
+                .as_object_mut()
+                .unwrap()
+                .extend(dial.as_object().unwrap().clone());
+            let [outbound, server, client, handshake] = places;
+            let config = json!({
+                "inbounds": [{
+                    "type": "vless", "tag": "r", "listen_port": 1443,
+                    "users": [{ "uuid": "1b0e0a3e-1c2d-4e5f-8a9b-0c1d2e3f4a5b" }],
+                    "tls": { "enabled": true, "server_name": "example.com", "reality": {
+                        "enabled": true, "handshake": handshake,
+                        "private_key": "11".repeat(32), "short_id": "0123",
+                    } },
+                }],
+                "outbounds": [{ "type": "direct", "tag": "direct" }, outbound],
+                "dns": { "servers": [server] },
+                "http_clients": [client],
+            });
+            let config = parse(&config.to_string()).map_err(|e| format!("{:#}", e))?;
+            crate::check_config(&config, &Default::default()).map_err(|e| format!("{:#}", e))?;
+            Ok(config.warnings)
+        };
+        let at = [
+            "outbounds[1]",
+            "dns.servers[0]",
+            "http_clients[0]",
+            "inbounds[0].tls.reality.handshake",
+        ];
+        for (place, at) in at.into_iter().enumerate() {
+            // What each place took before, and takes still.
+            let bound = json!({
+                "inet4_bind_address": "127.0.0.1", "inet6_bind_address": "::1",
+                "connect_timeout": "3s",
+            });
+            assert_eq!(load(place, &bound), Ok(vec![]), "{}", at);
+            // Ignored, or not implemented, the same everywhere.
+            assert_eq!(
+                load(place, &json!({ "tcp_fast_open": true })),
+                Ok(vec![format!(
+                    "{}.tcp_fast_open: sail does not implement this field; ignored",
+                    at
+                )]),
+            );
+            assert_eq!(
+                load(place, &json!({ "netns": "n" })),
+                Err(format!(
+                    "{}.netns: sail does not implement this field yet",
+                    at
+                )),
+            );
+            // Keepalive: taken wherever sail dials a TCP connection of its
+            // own accord; REALITY's handshake does not yet.
+            let keepalive = json!({ "tcp_keep_alive": "1m", "tcp_keep_alive_interval": "10s" });
+            match place {
+                3 => assert_eq!(
+                    load(place, &keepalive),
+                    Err(format!(
+                        "{}.tcp_keep_alive: sail does not implement this field yet",
+                        at
+                    )),
+                ),
+                _ => assert_eq!(load(place, &keepalive), Ok(vec![]), "{}", at),
+            }
+        }
+        // A value of the wrong type, and a detour that would leave a field
+        // without effect: the same error, after the place.
+        let errors = |dial: Value| {
+            (0..4)
+                .map(|place| load(place, &dial).unwrap_err())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            errors(json!({ "routing_mark": "x" })),
+            [
+                r#"[o] outbound: routing_mark: invalid type: string "x", expected u32"#,
+                r#"[d] dns server: routing_mark: invalid type: string "x", expected u32"#,
+                r#"http_clients[0]: routing_mark: invalid type: string "x", expected u32"#,
+                r#"[r] inbound: tls.reality.handshake: routing_mark: invalid type: string "x", expected u32"#,
+            ]
+        );
+        assert_eq!(
+            errors(json!({ "detour": "direct", "tcp_keep_alive": "1m" })),
+            [
+                "[o] outbound: tcp_keep_alive: has no effect with a detour; set it on [direct]",
+                "dns.servers[d]: tcp_keep_alive: has no effect with a detour; set it on [direct]",
+                "http_clients[0]: tcp_keep_alive: has no effect with a detour; set it on [direct]",
+                "inbounds[0].tls.reality.handshake.detour: sail does not implement this field yet",
+            ]
+        );
     }
 
     #[test]

@@ -18,36 +18,20 @@ use serde_derive::Deserialize;
 use crate::adapter::{AnyInboundHandler, AnyOutboundHandler};
 use crate::app::SyncDnsClient;
 use crate::config::model::{parse_options, Options};
+use crate::net::dial::DialFields;
 use crate::net::DialOptions;
 use crate::runtime::RuntimeEnv;
 
 /// Which blocks a protocol can be configured with.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Blocks {
-    /// The dial fields: `bind_interface`, `inet4_bind_address`,
-    /// `inet6_bind_address`, `routing_mark`, `connect_timeout`,
-    /// `domain_resolver`, and TCP keepalive's.
+    /// The dial fields, `DialFields`, but `detour`.
     pub dial: bool,
     pub detour: bool,
     pub tls: bool,
     pub transport: bool,
     pub multiplex: bool,
 }
-
-/// The fields `Blocks::dial` covers.
-const DIAL_FIELDS: [&str; 11] = [
-    "bind_interface",
-    "inet4_bind_address",
-    "inet6_bind_address",
-    "routing_mark",
-    "connect_timeout",
-    "domain_resolver",
-    "skip_default_domain_resolver",
-    "domain_strategy",
-    "tcp_keep_alive",
-    "tcp_keep_alive_interval",
-    "disable_tcp_keep_alive",
-];
 
 impl Blocks {
     pub const NONE: Blocks = Blocks {
@@ -83,7 +67,10 @@ impl Blocks {
 
     fn keys(&self) -> impl Iterator<Item = &'static str> {
         let with_dial = self.dial;
-        let dial = DIAL_FIELDS.into_iter().filter(move |_| with_dial);
+        let dial = DialFields::names()
+            .iter()
+            .copied()
+            .filter(move |name| with_dial && *name != "detour");
         [
             (self.detour, "detour"),
             (self.tls, "tls"),
@@ -150,43 +137,9 @@ impl Listable {
 #[derive(Deserialize, Debug, Default)]
 #[serde(deny_unknown_fields)]
 pub struct OutboundBlocks {
-    /// The outbound to dial this one's server through.
-    #[serde(default)]
-    pub detour: Option<String>,
-    /// The interface to send through, by name.
-    #[serde(default)]
-    pub bind_interface: Option<String>,
-    #[serde(default)]
-    pub inet4_bind_address: Option<std::net::Ipv4Addr>,
-    #[serde(default)]
-    pub inet6_bind_address: Option<std::net::Ipv6Addr>,
-    /// `SO_MARK`, Linux only.
-    #[serde(default)]
-    pub routing_mark: Option<u32>,
-    /// How long a TCP connect may take, e.g. `5s`.
-    #[serde(default, with = "crate::config::model::duration")]
-    pub connect_timeout: Option<std::time::Duration>,
-    /// The DNS server that resolves the names this outbound dials.
-    #[serde(default)]
-    pub domain_resolver: Option<crate::config::model::DomainResolver>,
-    /// A sail extension: without a `domain_resolver` of its own, the names
-    /// it dials resolve as the DNS rules say, not as
-    /// `route.default_domain_resolver` does; as Mihomo's DIRECT resolves
-    /// apart from the proxies' servers.
-    #[serde(default)]
-    pub skip_default_domain_resolver: bool,
-    /// sing-box's deprecated field for the families they resolve to.
-    #[serde(default)]
-    pub domain_strategy: Option<crate::config::model::DnsStrategy>,
-    /// How long a TCP connection is idle before keepalive probes it; 5m
-    /// when unset.
-    #[serde(default, with = "crate::config::model::duration")]
-    pub tcp_keep_alive: Option<std::time::Duration>,
-    /// Between keepalive probes; 75s when unset.
-    #[serde(default, with = "crate::config::model::duration")]
-    pub tcp_keep_alive_interval: Option<std::time::Duration>,
-    #[serde(default)]
-    pub disable_tcp_keep_alive: bool,
+    /// How it dials its server, `detour` among them.
+    #[serde(flatten)]
+    pub dial: DialFields,
     #[serde(default)]
     pub tls: Option<OutboundTls>,
     #[serde(default)]
@@ -583,60 +536,13 @@ impl OutboundBlocks {
 
     /// The dial fields set, checked against each other and the platform.
     pub fn dial(&self, tag: &str) -> Result<DialOptions> {
+        self.dial
+            .check(crate::net::dial::fields::IMPLEMENTED)
+            .map_err(|e| anyhow!("[{}] outbound: {}", tag, e))?;
         let dial = DialOptions {
-            bind_interface: self.bind_interface.clone(),
-            auto_interface: None,
-            inet4_bind_address: self.inet4_bind_address,
-            inet6_bind_address: self.inet6_bind_address,
-            routing_mark: self.routing_mark,
-            connect_timeout: self
-                .connect_timeout
-                .unwrap_or(crate::net::dial::DEFAULT_CONNECT_TIMEOUT),
-            protect: None,
-            ipv6: false,
-            domain_resolver: self.domain_resolver.clone().map(|resolver| {
-                crate::config::model::DomainResolver {
-                    strategy: resolver.strategy.or(self.domain_strategy),
-                    ..resolver
-                }
-            }),
-            strategy: self.domain_strategy,
             outbound: Some(tag.to_string()),
-            tcp_keep_alive: self.tcp_keep_alive,
-            tcp_keep_alive_interval: self.tcp_keep_alive_interval,
-            disable_tcp_keep_alive: self.disable_tcp_keep_alive,
-            skip_default_resolver: self.skip_default_domain_resolver,
+            ..self.dial.options()
         };
-        if self.skip_default_domain_resolver && self.domain_resolver.is_some() {
-            return Err(anyhow!(
-                "[{}] outbound: skip_default_domain_resolver: not with a domain_resolver, \
-                 which the default never replaces",
-                tag
-            ));
-        }
-        if let Some(detour) = &self.detour {
-            let set = [
-                ("bind_interface", dial.bind_interface.is_some()),
-                ("inet4_bind_address", dial.inet4_bind_address.is_some()),
-                ("inet6_bind_address", dial.inet6_bind_address.is_some()),
-                ("routing_mark", dial.routing_mark.is_some()),
-                ("connect_timeout", self.connect_timeout.is_some()),
-                ("tcp_keep_alive", self.tcp_keep_alive.is_some()),
-                (
-                    "tcp_keep_alive_interval",
-                    self.tcp_keep_alive_interval.is_some(),
-                ),
-                ("disable_tcp_keep_alive", self.disable_tcp_keep_alive),
-            ];
-            if let Some((field, _)) = set.iter().find(|(_, set)| *set) {
-                return Err(anyhow!(
-                    "[{}] outbound: {}: has no effect with a detour; set it on [{}]",
-                    tag,
-                    field,
-                    detour
-                ));
-            }
-        }
         check_dial_platform("outbound", tag, &dial)?;
         Ok(dial)
     }
@@ -1418,41 +1324,34 @@ pub struct InboundReality {
 }
 
 /// The site REALITY imitates, dialed for every connection, with sing-box's
-/// dial fields. `detour` is not among them: inbounds do not reach the
-/// outbounds.
+/// dial fields; of which it implements the ones that bind the socket, and
+/// the connect timeout. `detour` is not among them: inbounds do not reach
+/// the outbounds.
 #[derive(Deserialize, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct RealityHandshake {
     pub server: String,
     pub server_port: u16,
-    #[serde(default)]
-    pub bind_interface: Option<String>,
-    #[serde(default)]
-    pub inet4_bind_address: Option<std::net::Ipv4Addr>,
-    #[serde(default)]
-    pub inet6_bind_address: Option<std::net::Ipv6Addr>,
-    /// `SO_MARK`, Linux only.
-    #[serde(default)]
-    pub routing_mark: Option<u32>,
-    /// How long the TCP connect may take, e.g. `5s`.
-    #[serde(default, with = "crate::config::model::duration")]
-    pub connect_timeout: Option<std::time::Duration>,
+    #[serde(flatten)]
+    pub dial: DialFields,
 }
+
+/// The dial fields a REALITY handshake implements.
+const REALITY_HANDSHAKE_DIAL: &[&str] = &[
+    "bind_interface",
+    "inet4_bind_address",
+    "inet6_bind_address",
+    "routing_mark",
+    "connect_timeout",
+];
 
 impl RealityHandshake {
     #[cfg_attr(not(feature = "inbound-reality"), allow(dead_code))]
     fn dial(&self, tag: &str) -> Result<DialOptions> {
-        let dial = DialOptions {
-            bind_interface: self.bind_interface.clone(),
-            auto_interface: None,
-            inet4_bind_address: self.inet4_bind_address,
-            inet6_bind_address: self.inet6_bind_address,
-            routing_mark: self.routing_mark,
-            connect_timeout: self
-                .connect_timeout
-                .unwrap_or(crate::net::dial::DEFAULT_CONNECT_TIMEOUT),
-            ..Default::default()
-        };
+        self.dial
+            .check(REALITY_HANDSHAKE_DIAL)
+            .map_err(|e| anyhow!("[{}] inbound: tls.reality.handshake: {}", tag, e))?;
+        let dial = self.dial.options();
         check_dial_platform("inbound: tls.reality.handshake", tag, &dial)?;
         Ok(dial)
     }

@@ -373,7 +373,7 @@ mod tests {
             (
                 serde_json::json!({ "type": "network", "tag": "g",
                     "branches": [{ "wifi_ssid": "Home", "outbound": "a" }] }),
-                "[g] outbound: options: missing field `default`",
+                "[g] outbound: missing field `default`",
             ),
             (
                 serde_json::json!({ "type": "network", "tag": "g",

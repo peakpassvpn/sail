@@ -258,7 +258,7 @@ pub fn build_outbounds(
         let blocks = OutboundBlocks::parse(&o.tag, &blocks)?;
         (factory.check)(&o.tag, &options, &blocks)?;
         let mut dependencies = (factory.dependencies)(&o.tag, &options)?;
-        dependencies.extend(blocks.detour.clone());
+        dependencies.extend(blocks.dial.detour.clone());
         Ok(Node {
             tag: &o.tag,
             dependencies,
@@ -270,7 +270,7 @@ pub fn build_outbounds(
         let (options, blocks) = factory.blocks.split(&e.options);
         let blocks = OutboundBlocks::parse(&e.tag, &blocks)?;
         let mut dependencies = (factory.dependencies)(&e.tag, &options)?;
-        dependencies.extend(blocks.detour.clone());
+        dependencies.extend(blocks.dial.detour.clone());
         Ok(Node {
             tag: &e.tag,
             dependencies,
@@ -298,7 +298,7 @@ pub fn build_outbounds(
                         .dependencies
                         .insert(endpoint.tag.clone(), dependencies);
                     let mut tasks = Vec::new();
-                    let detour = match &blocks.detour {
+                    let detour = match &blocks.dial.detour {
                         Some(detour) => Some(dependency(
                             state.handlers,
                             "endpoint",
@@ -351,7 +351,7 @@ pub fn build_outbounds(
             }
             let mut tasks = Vec::new();
             let dial = Arc::new(blocks.dial(&outbound.tag)?.or(state.dial_defaults));
-            let detour = match &blocks.detour {
+            let detour = match &blocks.dial.detour {
                 Some(detour) => Some(dependency(
                     state.handlers,
                     "outbound",

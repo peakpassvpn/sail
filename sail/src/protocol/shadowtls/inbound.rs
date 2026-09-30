@@ -88,32 +88,6 @@ struct ShadowTlsHandshake {
     rest: serde_json::Map<String, Value>,
 }
 
-/// sing-box's dial fields.
-const DIAL_FIELDS: &[&str] = &[
-    "detour",
-    "bind_interface",
-    "inet4_bind_address",
-    "inet6_bind_address",
-    "bind_address_no_port",
-    "protect_path",
-    "routing_mark",
-    "reuse_addr",
-    "netns",
-    "connect_timeout",
-    "tcp_fast_open",
-    "tcp_multi_path",
-    "disable_tcp_keep_alive",
-    "tcp_keep_alive",
-    "tcp_keep_alive_interval",
-    "udp_fragment",
-    "domain_resolver",
-    "network_strategy",
-    "network_type",
-    "fallback_network_type",
-    "fallback_delay",
-    "domain_strategy",
-];
-
 /// Whether the handshake server is the one the ClientHello names, on port
 /// 443, when no `handshake_for_server_name` entry does.
 #[derive(Deserialize, Default, Clone, Copy, PartialEq, Eq, Debug)]
@@ -136,15 +110,17 @@ struct Target {
 impl ShadowTlsHandshake {
     fn target(self, tag: &str, field: &str) -> Result<Target> {
         if let Some(key) = self.rest.keys().next() {
-            return Err(match DIAL_FIELDS.contains(&key.as_str()) {
-                true => anyhow!(
-                    "[{}] inbound: {}.{}: sail does not implement this field yet",
-                    tag,
-                    field,
-                    key
-                ),
-                false => anyhow!("[{}] inbound: {}: unknown field `{}`", tag, field, key),
-            });
+            return Err(
+                match crate::net::dial::DialFields::names().contains(&key.as_str()) {
+                    true => anyhow!(
+                        "[{}] inbound: {}.{}: sail does not implement this field yet",
+                        tag,
+                        field,
+                        key
+                    ),
+                    false => anyhow!("[{}] inbound: {}: unknown field `{}`", tag, field, key),
+                },
+            );
         }
         if self.server.is_empty() || self.server_port == 0 {
             return Err(anyhow!(

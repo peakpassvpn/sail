@@ -55,7 +55,7 @@ fn main() {
     let root = env::args().nth(1).expect("repository root");
     let root = Path::new(&root);
     let mut out = Vec::new();
-    for dir in ["sail/src/config/model.rs", "sail/src/protocol", "sail/src/transport"] {
+    for dir in ["sail/src/config/model.rs", "sail/src/net/dial/fields.rs", "sail/src/protocol", "sail/src/transport"] {
         scan(root, &root.join(dir), &mut out);
     }
     assert!(!out.is_empty(), "No configuration definitions extracted");

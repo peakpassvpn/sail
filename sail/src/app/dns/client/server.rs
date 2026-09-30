@@ -11,6 +11,7 @@ use serde_derive::Deserialize;
 
 use super::upstream::{Protocol, Upstream};
 use crate::config::model::{listable, parse_options, DnsServer, Prefix};
+use crate::net::dial::DialFields;
 use crate::net::DialOptions;
 use crate::runtime::RuntimeEnv;
 use crate::transport::layers::OutboundTls;
@@ -101,6 +102,23 @@ impl Dialer {
     }
 }
 
+/// The dial fields a server implements: all that sail does but
+/// `skip_default_domain_resolver`, a server's name resolving through its
+/// own `domain_resolver` alone.
+const DIAL: &[&str] = &[
+    "detour",
+    "bind_interface",
+    "inet4_bind_address",
+    "inet6_bind_address",
+    "routing_mark",
+    "connect_timeout",
+    "disable_tcp_keep_alive",
+    "tcp_keep_alive",
+    "tcp_keep_alive_interval",
+    "domain_resolver",
+    "domain_strategy",
+];
+
 /// The dial fields a server takes, and what the remote ones take besides.
 #[derive(Deserialize, Debug, Default)]
 #[serde(deny_unknown_fields)]
@@ -115,8 +133,6 @@ struct RemoteOptions {
     /// `tls`, `https`, `quic` and `h3`.
     #[serde(default)]
     tls: Option<OutboundTls>,
-    #[serde(default)]
-    detour: Option<String>,
     /// A sail extension, as Mihomo's `respect-rules`: the connections go
     /// through the outbound the routing rules pick for them, as for a
     /// connection from the inbound `dnsclient` to the server, its domain
@@ -127,22 +143,8 @@ struct RemoteOptions {
     /// any they have, as Mihomo's `ecs` with `ecs-override`.
     #[serde(default)]
     client_subnet: Option<Prefix>,
-    #[serde(default)]
-    bind_interface: Option<String>,
-    #[serde(default)]
-    inet4_bind_address: Option<std::net::Ipv4Addr>,
-    #[serde(default)]
-    inet6_bind_address: Option<std::net::Ipv6Addr>,
-    #[serde(default)]
-    routing_mark: Option<u32>,
-    #[serde(default, with = "crate::config::model::duration")]
-    connect_timeout: Option<std::time::Duration>,
-    #[serde(default)]
-    domain_resolver: Option<Resolver>,
-    /// sing-box's deprecated field for the families the server's name
-    /// resolves to, which the resolver's own `strategy` goes before.
-    #[serde(default)]
-    domain_strategy: Option<crate::config::model::DnsStrategy>,
+    #[serde(flatten)]
+    dial: DialFields,
     /// `https` and `h3`: sent with each request; a `Host` one is the
     /// host the requests name.
     #[serde(default)]
@@ -400,10 +402,7 @@ fn address_and_dialer(
         Some(port) => port,
         None => default_port,
     };
-    let resolver = o.domain_resolver.map(|resolver| Resolver {
-        strategy: resolver.strategy.or(o.domain_strategy),
-        ..resolver
-    });
+    let resolver = o.dial.domain_resolver();
     let is_ip = host.parse::<IpAddr>().is_ok();
     if !is_ip && resolver.is_none() {
         return Err(anyhow!(
@@ -417,43 +416,21 @@ fn address_and_dialer(
         ));
     }
     let own = DialOptions {
-        bind_interface: o.bind_interface,
-        inet4_bind_address: o.inet4_bind_address,
-        inet6_bind_address: o.inet6_bind_address,
-        routing_mark: o.routing_mark,
-        connect_timeout: o
-            .connect_timeout
-            .unwrap_or(crate::net::dial::DEFAULT_CONNECT_TIMEOUT),
-        protect: None,
-        ipv6: false,
         // Its own address resolves through `resolver`, and nothing else.
         domain_resolver: None,
         strategy: None,
-        outbound: None,
-        // DNS servers do not take sing-box's keepalive fields yet.
-        ..Default::default()
+        ..o.dial.options()
     };
-    let own_dial = own.bind_interface.is_some()
-        || own.inet4_bind_address.is_some()
-        || own.inet6_bind_address.is_some()
-        || own.routing_mark.is_some()
-        || o.connect_timeout.is_some();
-    if let Some(detour) = &o.detour {
-        if o.respect_rules {
-            return Err(anyhow!(
-                "respect_rules: not with a detour, which the rules would pick"
-            ));
-        }
-        if own_dial {
-            return Err(anyhow!(
-                "the dial fields have no effect with a detour; set them on [{}]",
-                detour
-            ));
-        }
-    }
-    if o.respect_rules && own_dial {
+    if o.dial.detour.is_some() && o.respect_rules {
         return Err(anyhow!(
-            "the dial fields have no effect with respect_rules; set them on the outbounds"
+            "respect_rules: not with a detour, which the rules would pick"
+        ));
+    }
+    o.dial.check(DIAL)?;
+    if let (true, Some(field)) = (o.respect_rules, o.dial.socket_field()) {
+        return Err(anyhow!(
+            "{}: has no effect with respect_rules; set it on the outbounds",
+            field
         ));
     }
     crate::transport::layers::check_dial_platform("dns server", tag, &own)?;
@@ -464,7 +441,7 @@ fn address_and_dialer(
             resolver,
         },
         Dialer {
-            detour: o.detour,
+            detour: o.dial.detour,
             respect_rules: o.respect_rules,
             domain: (!is_ip).then(|| host.to_ascii_lowercase()),
             dial: Arc::new(own.or(defaults)),
@@ -700,5 +677,45 @@ mod tests {
                 ("localhost".to_string(), "::1".parse().unwrap()),
             ]
         );
+    }
+
+    /// A server's TCP connections take sing-box's keepalive fields.
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[tokio::test]
+    async fn its_tcp_connections_get_the_keepalive_it_sets() {
+        use crate::net::dial::fields::keepalive_dialled;
+        use crate::net::TcpKeepAlive;
+        use std::time::Duration;
+
+        let dial = |fields: serde_json::Value| {
+            let mut options = serde_json::json!({ "server": "127.0.0.1" });
+            options
+                .as_object_mut()
+                .unwrap()
+                .extend(fields.as_object().unwrap().clone());
+            let config = DnsServer {
+                kind: "tcp".to_string(),
+                tag: "d".to_string(),
+                options: options.as_object().unwrap().clone(),
+            };
+            let (_, dialer) =
+                address_and_dialer(remote(&config).unwrap(), 53, "d", &DialOptions::default())
+                    .unwrap();
+            dialer.dial
+        };
+        let set = dial(serde_json::json!({
+            "tcp_keep_alive": "40s", "tcp_keep_alive_interval": "7s",
+        }));
+        assert_eq!(
+            keepalive_dialled(&set).await,
+            Some(TcpKeepAlive {
+                idle: Duration::from_secs(40),
+                interval: Duration::from_secs(7),
+            })
+        );
+        let off = dial(serde_json::json!({ "disable_tcp_keep_alive": true }));
+        assert_eq!(keepalive_dialled(&off).await, None);
+        let unset = dial(serde_json::json!({}));
+        assert_eq!(keepalive_dialled(&unset).await, Some(TcpKeepAlive::DEFAULT));
     }
 }
