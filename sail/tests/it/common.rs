@@ -262,6 +262,7 @@ impl Drop for Daemon {
 /// Shuts the instances down and waits until each has stopped, so that
 /// what they listened on is free again.
 pub fn shutdown_instances(rt: &tokio::runtime::Runtime, ids: Vec<sail::RuntimeId>) {
+    let _ = STARTED.try_with(|started| started.borrow_mut().0.retain(|id| !ids.contains(id)));
     for id in ids {
         sail::shutdown(id);
         let stopped =
@@ -353,7 +354,7 @@ fn instance_cache_dir(rt_id: sail::RuntimeId) -> std::path::PathBuf {
 }
 
 pub fn run_sail_instances(
-    rt: &tokio::runtime::Runtime,
+    _rt: &tokio::runtime::Runtime,
     configs: Vec<String>,
 ) -> anyhow::Result<Vec<sail::RuntimeId>> {
     let mut sail_rt_ids = Vec::new();
@@ -374,7 +375,11 @@ pub fn run_sail_instances(
                 ..Default::default()
             },
         };
-        let start = rt.spawn_blocking(move || sail::start(rt_id, opts));
+        // A thread of its own, not `rt`'s blocking pool: dropping `rt`,
+        // as a test that panics does, would wait for the instance to stop.
+        let start = std::thread::Builder::new()
+            .name(format!("sail-{}", rt_id))
+            .spawn(move || sail::start(rt_id, opts))?;
         // Returns once the instance runs, or with the error it failed with:
         // a start that fails must fail the test, not leave it waiting.
         let deadline = std::time::Instant::now() + Duration::from_secs(10);
@@ -383,10 +388,10 @@ pub fn run_sail_instances(
                 break None;
             }
             if start.is_finished() {
-                break Some(match rt.block_on(start) {
+                break Some(match start.join() {
                     Ok(Err(e)) => anyhow::anyhow!("start sail failed: {}", e),
                     Ok(Ok(())) => anyhow::anyhow!("sail stopped as soon as it started"),
-                    Err(e) => anyhow::anyhow!("start sail panicked: {}", e),
+                    Err(_) => anyhow::anyhow!("start sail panicked"),
                 });
             }
             if std::time::Instant::now() > deadline {
@@ -401,8 +406,43 @@ pub fn run_sail_instances(
             return Err(e);
         }
         sail_rt_ids.push(rt_id);
+        let _ = STARTED.try_with(|started| started.borrow_mut().0.push(rt_id));
     }
     Ok(sail_rt_ids)
+}
+
+/// The instances a thread started and has not shut down. A test that fails
+/// before `shutdown_instances` leaves them running; they are shut down when
+/// its thread ends, so that its ports are free again.
+struct Started(Vec<sail::RuntimeId>);
+
+thread_local! {
+    static STARTED: std::cell::RefCell<Started> = const { std::cell::RefCell::new(Started(Vec::new())) };
+}
+
+impl Drop for Started {
+    fn drop(&mut self) {
+        let ids = std::mem::take(&mut self.0);
+        if ids.is_empty() {
+            return;
+        }
+        // On a thread of its own: this thread's locals, which shutting an
+        // instance down may use, are being destroyed.
+        let stop = std::thread::spawn(move || {
+            for &id in &ids {
+                sail::shutdown(id);
+            }
+            let deadline = std::time::Instant::now() + Duration::from_secs(10);
+            while ids.iter().any(|&id| sail::is_running(id)) && std::time::Instant::now() < deadline
+            {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            for &id in &ids {
+                let _ = std::fs::remove_dir_all(instance_cache_dir(id));
+            }
+        });
+        let _ = stop.join();
+    }
 }
 
 fn new_socks_outbound(
