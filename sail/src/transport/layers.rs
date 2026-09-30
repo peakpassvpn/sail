@@ -118,6 +118,17 @@ pub enum Listable {
     Many(Vec<String>),
 }
 
+/// A secret, a private key: read as the value is, printed as none.
+#[derive(Deserialize, Clone)]
+#[serde(transparent)]
+pub struct Secret<T>(pub T);
+
+impl<T> std::fmt::Debug for Secret<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("<redacted>")
+    }
+}
+
 impl Listable {
     pub fn into_vec(self) -> Vec<String> {
         match self {
@@ -215,7 +226,7 @@ pub struct OutboundTls {
     pub client_certificate_path: Option<String>,
     /// The inline PEM key of the client certificate.
     #[serde(default)]
-    pub client_key: Option<Listable>,
+    pub client_key: Option<Secret<Listable>>,
     /// `client_key`, by path.
     #[serde(default)]
     pub client_key_path: Option<String>,
@@ -298,7 +309,8 @@ impl OutboundTls {
             &self.client_certificate_path,
             env,
         )?;
-        let key = pem_source("client_key", &self.client_key, &self.client_key_path, env)?;
+        let inline_key = self.client_key.as_ref().map(|k| k.0.clone());
+        let key = pem_source("client_key", &inline_key, &self.client_key_path, env)?;
         let (certificate, key) = match (certificate, key) {
             (None, None) => return Ok(None),
             (Some(certificate), Some(key)) => (certificate, key),
@@ -1115,6 +1127,15 @@ fn tls_outbound(
         let identity = tls
             .client_identity(env)
             .map_err(|e| anyhow!("[{}] outbound: tls.{}", tag, e))?;
+        // Browsers send the name of a domain: a ClientHello without it is
+        // one no browser sends, whatever it imitates otherwise.
+        if tls.disable_sni && tls.utls.as_ref().is_some_and(|u| u.enabled) {
+            tracing::warn!(
+                "[{}] outbound: tls.disable_sni: the ClientHello, with no SNI, is no longer \
+                 the one tls.utls's browser sends",
+                tag
+            );
+        }
         let handler = crate::transport::tls::outbound::StreamHandler::new(
             server_name,
             tls.alpn.clone().map(Listable::into_vec).unwrap_or_default(),
@@ -2124,6 +2145,13 @@ mod tests {
     fn test_client_certificate_options() {
         use serde_json::json;
         let pki = crate::transport::tls::tests::client_pki();
+        // The key is not printed.
+        let tls: OutboundTls =
+            serde_json::from_value(json!({"client_certificate": pki.cert, "client_key": pki.key}))
+                .unwrap();
+        let debug = format!("{:?}", tls);
+        assert!(!debug.contains("PRIVATE KEY"), "{}", debug);
+        assert!(debug.contains("<redacted>"), "{}", debug);
         assert_eq!(identity(json!({})), Ok(false));
         assert_eq!(
             identity(json!({"client_certificate": pki.cert, "client_key": pki.key})),
