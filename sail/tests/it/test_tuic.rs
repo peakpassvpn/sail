@@ -141,11 +141,22 @@ mod tuic {
                 for _ in 0..3 {
                     s.send_to(&msg, &sess.destination).await?;
                     let mut buf = vec![0u8; 65536];
-                    if let Ok(got) = timeout(Duration::from_secs(2), r.recv_from(&mut buf)).await {
+                    // An echo of another size answers an earlier packet,
+                    // sent again after it seemed lost: it is passed over.
+                    let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+                    while let Ok(got) =
+                        tokio::time::timeout_at(deadline, r.recv_from(&mut buf)).await
+                    {
                         let (n, from) = got?;
+                        if n != size {
+                            continue;
+                        }
                         anyhow::ensure!(buf[..n] == msg[..], "{}-byte packet corrupted", size);
                         anyhow::ensure!(from == sess.destination, "reply from {}", from);
                         echoed = true;
+                        break;
+                    }
+                    if echoed {
                         break;
                     }
                 }
