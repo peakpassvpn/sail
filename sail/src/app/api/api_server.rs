@@ -264,15 +264,7 @@ mod handlers {
         Ok(Json(stats))
     }
 
-    /// The sessions and streams of every multiplexing protocol on the
-    /// session core, and the streams reset for stalling.
-    #[cfg(any(
-        feature = "mux",
-        feature = "inbound-amux",
-        feature = "outbound-amux",
-        feature = "inbound-anytls",
-        feature = "outbound-anytls"
-    ))]
+    /// What the DNS cache holds and how it served.
     pub async fn dns_cache(
         State(rm): State<Arc<RuntimeManager>>,
     ) -> Json<crate::app::dns::CacheStats> {
@@ -284,6 +276,8 @@ mod handlers {
         StatusCode::NO_CONTENT
     }
 
+    /// The sessions and streams of every multiplexing protocol on the
+    /// session core, and the streams reset for stalling.
     #[cfg(any(
         feature = "mux",
         feature = "inbound-amux",

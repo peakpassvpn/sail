@@ -74,7 +74,8 @@ jobs:
             outbound-urltest,outbound-redirect \
             config-clash,inbound-mixed,outbound-direct \
             config-surge,inbound-mixed,outbound-direct \
-            outbound-provider,outbound-select,outbound-direct,inbound-socks
+            outbound-provider,outbound-select,outbound-direct,inbound-socks \
+            api,outbound-direct
           do
             echo "::group::$features"
             cargo check -p sail --no-default-features --features "$features" --all-targets
