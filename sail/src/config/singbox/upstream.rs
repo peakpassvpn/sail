@@ -289,29 +289,10 @@ pub const GROUPS: &[Group] = &[
         ],
     ),
     t(
-        "The system's resolver answers a local server's queries: they cannot go through a detour, or out of an interface or with a mark of their own",
-        Unsupported,
-        &["local"],
-        &[
-            "dns.servers.*.detour",
-            "dns.servers.*.bind_interface",
-            "dns.servers.*.inet4_bind_address",
-            "dns.servers.*.inet6_bind_address",
-            "dns.servers.*.routing_mark",
-        ],
-    ),
-    t(
-        "The system's resolver answers a local server's queries: it has no server to connect to or name to resolve",
+        "A local server's servers are the system's, addresses: it has no name to resolve",
         Ignored,
         &["local"],
-        &[
-            "dns.servers.*.connect_timeout",
-            "dns.servers.*.disable_tcp_keep_alive",
-            "dns.servers.*.tcp_keep_alive",
-            "dns.servers.*.tcp_keep_alive_interval",
-            "dns.servers.*.domain_resolver",
-            "dns.servers.*.domain_strategy",
-        ],
+        &["dns.servers.*.domain_resolver", "dns.servers.*.domain_strategy"],
     ),
     g(
         TLS_VERSIONS,

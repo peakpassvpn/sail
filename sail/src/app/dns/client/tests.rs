@@ -72,7 +72,7 @@ mod tests {
     fn no_servers_is_the_system_resolver() {
         let client = client(serde_json::json!([])).unwrap();
         assert_eq!(client.final_server, "local");
-        assert!(matches!(client.servers["local"].kind, Kind::Local));
+        assert!(matches!(client.servers["local"].kind, Kind::Local(None)));
     }
 
     #[test]
@@ -1554,6 +1554,33 @@ mod tests {
 
     fn asked(count: &std::sync::atomic::AtomicUsize) -> usize {
         count.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// A local server with dial fields asks the system's servers itself,
+    /// through its dialer, as sing-box's local server does off Apple's
+    /// systems; one without is the system's resolver.
+    #[tokio::test]
+    async fn a_local_server_with_dial_fields_asks_the_system_s_servers() {
+        let (port, count) = counting_server(60, false).await;
+        let config = crate::config::Config::from_json(
+            &serde_json::json!({ "dns": { "servers": [
+                { "type": "local", "tag": "sys", "connect_timeout": "2s" }
+            ] } })
+            .to_string(),
+        )
+        .unwrap();
+        let client = DnsClient::new(&config.dns, Default::default(), &Default::default())
+            .unwrap()
+            .into_arc();
+        let Kind::Local(Some(local)) = &client.servers["sys"].kind else {
+            panic!("dial fields make it ask the servers itself");
+        };
+        local
+            .servers
+            .set(vec![std::net::SocketAddr::from(([127, 0, 0, 1], port))]);
+        let answer = exchange(&client, "a.example", RecordType::A).await;
+        assert_eq!(answer_ips(&answer), ips(&["10.0.0.1"]));
+        assert_eq!(asked(&count), 1);
     }
 
     #[tokio::test]

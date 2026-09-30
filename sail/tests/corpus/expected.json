@@ -744,7 +744,8 @@
     "warnings": 2
   },
   "sing-box/0008.json": {
-    "error": "dns.servers[1].detour: sail does not implement this field yet"
+    "ok": true,
+    "warnings": 2
   },
   "sing-box/0009.json": {
     "ok": true,
@@ -845,7 +846,7 @@
     "error": "dns.servers[0]: missing field `type`"
   },
   "sing-box/0040.json": {
-    "error": "dns.servers[3].detour: sail does not implement this field yet"
+    "error": "[Group 4] outbound: filter[0]: invalid type: map, expected a string"
   },
   "sing-box/0041.json": {
     "error": "dns.servers[0]: missing field `type`"
@@ -968,7 +969,7 @@
     "error": "dns.servers[0]: missing field `type`"
   },
   "sing-box/0079.json": {
-    "error": "dns.servers[2].detour: sail does not implement this field yet"
+    "error": "route.rules[5]: outbound [Proxy 3] does not exist"
   },
   "sing-box/0080.json": {
     "error": "dns.servers[0]: missing field `type`"
@@ -1001,10 +1002,11 @@
     "warnings": 0
   },
   "sing-box/0089.json": {
-    "error": "dns.servers[2].detour: sail does not implement this field yet"
+    "error": "route.rules[5]: outbound [Proxy 9] does not exist"
   },
   "sing-box/0090.json": {
-    "error": "dns.servers[1].detour: sail does not implement this field yet"
+    "ok": true,
+    "warnings": 4
   },
   "sing-box/0091.json": {
     "error": "dns.fakeip: unknown field `fakeip`, expected one of `servers`, `rules`, `final`, `strategy`, `client_strategy`, `disable_cache`, `disable_expire`, `cache_capacity`, `optimistic`, `timeout`, `reverse_mapping`, `client_subnet`"
@@ -1074,10 +1076,10 @@
     "error": "outbounds[2].network: sail does not implement this field yet"
   },
   "sing-box/0111.json": {
-    "error": "dns.servers[0].detour: sail does not implement this field yet"
+    "error": "inbounds[1].dns_mode: sail does not implement this field yet"
   },
   "sing-box/0112.json": {
-    "error": "dns.servers[0].detour: sail does not implement this field yet"
+    "error": "inbounds[1].dns_mode: sail does not implement this field yet"
   },
   "sing-box/0113.json": {
     "error": "outbounds[4].network: sail does not implement this field yet"
@@ -1139,7 +1141,7 @@
     "warnings": 1
   },
   "sing-box/0131.json": {
-    "error": "dns.servers[2].detour: sail does not implement this field yet"
+    "error": "route.rules[5]: outbound [Proxy 3] does not exist"
   },
   "sing-box/0132.json": {
     "ok": true,

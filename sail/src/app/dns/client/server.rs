@@ -36,8 +36,9 @@ pub(super) enum Kind {
     },
     /// DoT, DoH, DoQ or DoH3.
     Upstream(Arc<Upstream>),
-    /// The system's resolver.
-    Local,
+    /// The system's resolver; with dial fields, the system's servers,
+    /// asked through its dialer.
+    Local(Option<Box<LocalDialed>>),
     /// Addresses given for names: files in the hosts format, and names
     /// given in place.
     Hosts(Hosts),
@@ -184,7 +185,31 @@ struct RaceOptions {
 
 #[derive(Deserialize, Debug, Default)]
 #[serde(deny_unknown_fields)]
-struct LocalOptions {}
+struct LocalOptions {
+    #[serde(flatten)]
+    dial: DialFields,
+}
+
+/// The dial fields a local server takes: those of a socket to the
+/// system's servers, which are addresses, with no name to resolve.
+const LOCAL_DIAL: &[&str] = &[
+    "detour",
+    "bind_interface",
+    "inet4_bind_address",
+    "inet6_bind_address",
+    "routing_mark",
+    "connect_timeout",
+    "disable_tcp_keep_alive",
+    "tcp_keep_alive",
+    "tcp_keep_alive_interval",
+];
+
+/// A local server with dial fields: the system's servers, and how they
+/// are reached.
+pub(super) struct LocalDialed {
+    pub dialer: Dialer,
+    pub servers: super::system::SystemServers,
+}
 
 impl Server {
     /// Builds `config`; `defaults` are the instance's dial options.
@@ -236,8 +261,24 @@ impl Server {
                 ))
             }
             "local" => {
-                let _: LocalOptions = parse_options("dns server", tag, &config.options)?;
-                Kind::Local
+                let o: LocalOptions = parse_options("dns server", tag, &config.options)?;
+                if o.dial == DialFields::default() {
+                    Kind::Local(None)
+                } else {
+                    o.dial.check(LOCAL_DIAL).map_err(err)?;
+                    let dial = defaults
+                        .dialer(&o.dial, None)
+                        .map_err(|e| err(anyhow!("[{}] dns server: {}", tag, e)))?;
+                    Kind::Local(Some(Box::new(LocalDialed {
+                        dialer: Dialer {
+                            detour: o.dial.detour.clone(),
+                            respect_rules: false,
+                            domain: None,
+                            dial,
+                        },
+                        servers: Default::default(),
+                    })))
+                }
             }
             "hosts" => {
                 let o: HostsOptions = parse_options("dns server", tag, &config.options)?;
@@ -299,7 +340,7 @@ impl Server {
                 .map(|r| r.server.as_str())
                 .collect(),
             Kind::Race { members } => members.iter().map(String::as_str).collect(),
-            Kind::Local | Kind::Hosts(_) | Kind::FakeIp(_) => vec![],
+            Kind::Local(_) | Kind::Hosts(_) | Kind::FakeIp(_) => vec![],
         }
     }
 }

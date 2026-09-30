@@ -93,6 +93,15 @@
   "dns.servers[https].headers",
   "dns.servers[https].domain_strategy",
   "dns.servers[local].tag",
+  "dns.servers[local].detour",
+  "dns.servers[local].bind_interface",
+  "dns.servers[local].inet4_bind_address",
+  "dns.servers[local].inet6_bind_address",
+  "dns.servers[local].routing_mark",
+  "dns.servers[local].connect_timeout",
+  "dns.servers[local].disable_tcp_keep_alive",
+  "dns.servers[local].tcp_keep_alive",
+  "dns.servers[local].tcp_keep_alive_interval",
   "dns.servers[quic].tag",
   "dns.servers[quic].detour",
   "dns.servers[quic].bind_interface",
@@ -1978,11 +1987,7 @@
    "dns.servers[quic].tls.fragment_fallback_delay",
    "dns.servers[tls].tls.fragment_fallback_delay"
   ],
-  "The system's resolver answers a local server's queries: it has no server to connect to or name to resolve": [
-   "dns.servers[local].connect_timeout",
-   "dns.servers[local].disable_tcp_keep_alive",
-   "dns.servers[local].tcp_keep_alive",
-   "dns.servers[local].tcp_keep_alive_interval",
+  "A local server's servers are the system's, addresses: it has no name to resolve": [
    "dns.servers[local].domain_resolver",
    "dns.servers[local].domain_resolver.server",
    "dns.servers[local].domain_resolver.timeout",
@@ -2892,13 +2897,6 @@
   ],
   "A https server offers its own": [
    "dns.servers[https].tls.alpn"
-  ],
-  "The system's resolver answers a local server's queries: they cannot go through a detour, or out of an interface or with a mark of their own": [
-   "dns.servers[local].detour",
-   "dns.servers[local].bind_interface",
-   "dns.servers[local].inet4_bind_address",
-   "dns.servers[local].inet6_bind_address",
-   "dns.servers[local].routing_mark"
   ],
   "A quic server offers its own": [
    "dns.servers[quic].tls.alpn"

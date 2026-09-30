@@ -15,7 +15,7 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | 部分 | 字段数 | 支持 | 警告 | 报错 |
 |---|--:|--:|--:|--:|
 | `log` | 5 | 5 | 0 | 0 |
-| `dns` | 578 | 292 | 73 | 213 |
+| `dns` | 578 | 301 | 69 | 208 |
 | `ntp` | 35 | 0 | 35 | 0 |
 | `certificate` | 5 | 5 | 0 | 0 |
 | `certificate_providers` | 212 | 0 | 0 | 212 |
@@ -27,7 +27,7 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `route` | 268 | 144 | 21 | 103 |
 | `services` | 751 | 1 | 166 | 584 |
 | `experimental` | 34 | 16 | 17 | 1 |
-| **全部** | **5002** | **1627** | **686** | **2689** |
+| **全部** | **5002** | **1636** | **682** | **2684** |
 
 ## `log`
 
@@ -246,30 +246,30 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | 字段 | 处理 | 说明 |
 |---|---|---|
 | `tag` | 支持 |  |
-| `detour` | 报错 | The system's resolver answers a local server's queries: they cannot go through a detour, or out of an interface or with a mark of their own |
-| `bind_interface` | 报错 | The system's resolver answers a local server's queries: they cannot go through a detour, or out of an interface or with a mark of their own |
-| `inet4_bind_address` | 报错 | The system's resolver answers a local server's queries: they cannot go through a detour, or out of an interface or with a mark of their own |
-| `inet6_bind_address` | 报错 | The system's resolver answers a local server's queries: they cannot go through a detour, or out of an interface or with a mark of their own |
+| `detour` | 支持 |  |
+| `bind_interface` | 支持 |  |
+| `inet4_bind_address` | 支持 |  |
+| `inet6_bind_address` | 支持 |  |
 | `bind_address_no_port` | 警告 | Socket tuning: connections go the same way without it |
 | `protect_path` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
-| `routing_mark` | 报错 | The system's resolver answers a local server's queries: they cannot go through a detour, or out of an interface or with a mark of their own |
+| `routing_mark` | 支持 |  |
 | `reuse_addr` | 警告 | Socket tuning: connections go the same way without it |
 | `netns` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
-| `connect_timeout` | 警告 | The system's resolver answers a local server's queries: it has no server to connect to or name to resolve |
+| `connect_timeout` | 支持 |  |
 | `tcp_fast_open` | 警告 | Socket tuning: connections go the same way without it |
 | `tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
-| `disable_tcp_keep_alive` | 警告 | The system's resolver answers a local server's queries: it has no server to connect to or name to resolve |
-| `tcp_keep_alive` | 警告 | The system's resolver answers a local server's queries: it has no server to connect to or name to resolve |
-| `tcp_keep_alive_interval` | 警告 | The system's resolver answers a local server's queries: it has no server to connect to or name to resolve |
+| `disable_tcp_keep_alive` | 支持 |  |
+| `tcp_keep_alive` | 支持 |  |
+| `tcp_keep_alive_interval` | 支持 |  |
 | `udp_fragment` | 警告 | Socket tuning: connections go the same way without it |
-| `domain_resolver` | 警告 | The system's resolver answers a local server's queries: it has no server to connect to or name to resolve (含其下 7 个字段) |
+| `domain_resolver` | 警告 | A local server's servers are the system's, addresses: it has no name to resolve (含其下 7 个字段) |
 | `network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `fallback_delay` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `prefer_go` | 警告 | Go's own resolver rather than the system's: sail is not Go |
 | `neighbor_domain` | 警告 | Single-label LAN names from sing-box's neighbor resolver (DHCP leases): sail has none, and the system's resolver answers them |
-| `domain_strategy` (已弃用) | 警告 | The system's resolver answers a local server's queries: it has no server to connect to or name to resolve |
+| `domain_strategy` (已弃用) | 警告 | A local server's servers are the system's, addresses: it has no name to resolve |
 
 ### `dns.servers[quic]`
 

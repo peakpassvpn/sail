@@ -28,6 +28,7 @@ mod cache;
 mod fakeip;
 mod rules;
 mod server;
+mod system;
 mod upstream;
 
 pub use cache::CacheStats;
@@ -558,7 +559,28 @@ impl DnsClient {
         let host = host.trim_end_matches('.').to_ascii_lowercase();
         let host = host.as_str();
         match &server.kind {
-            Kind::Local => {
+            // As sing-box's local server off Apple's systems: the system's
+            // servers, in turn, through the server's dialer.
+            Kind::Local(Some(local)) => {
+                let wire = Self::wire(server, request)?;
+                let mut last_err = None;
+                for addr in local.servers.get()? {
+                    let asked = async {
+                        let socket = self.dial_datagram(&local.dialer, addr).await?;
+                        self.exchange_udp(socket, &wire, addr, server, time).await
+                    }
+                    .await;
+                    match asked {
+                        Ok(response) => return Ok(Answer::Message(response)),
+                        Err(e) => {
+                            debug!("{}: {} failed: {}", server, addr, e);
+                            last_err = Some(e);
+                        }
+                    }
+                }
+                Err(last_err.unwrap_or_else(|| anyhow!("no answer")))
+            }
+            Kind::Local(None) => {
                 let family = match ty {
                     RecordType::A => IpAddr::is_ipv4,
                     RecordType::AAAA => IpAddr::is_ipv6,
