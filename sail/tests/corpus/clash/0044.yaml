@@ -77,25 +77,25 @@ dns:
     - '*.d5.example'
     - '*.d6.example'
     - '*.d7.example'
-    - d8*.example
-    - d9*.example
-    - d10*.example
-    - d11*.example
-    - d12*.example
-    - d13*.example
-    - d14*.example
-    - d15*.example
-    - d16*.example
-    - d17*.example
-    - d18*.example
-    - d19*.example
-    - d20*.example
-    - d21*.example
-    - d22*.example
-    - d23*.example
-    - d24*.example
-    - d25*.example
-    - d26*.example
+    - d8.*.example
+    - d9.*.example
+    - d10.*.example
+    - d11.*.example
+    - d12.*.example
+    - d13.*.example
+    - d14.*.example
+    - d15.*.example
+    - d16.*.example
+    - d17.*.example
+    - d18.*.example
+    - d19.*.example
+    - d20.*.example
+    - d21.*.example
+    - d22.*.example
+    - d23.*.example
+    - d24.*.example
+    - d25.*.example
+    - d26.*.example
     - '*.d27.example'
     - '*.d28.example'
     - +.d29.example
@@ -130,7 +130,7 @@ dns:
     - d53.example
     - +.d54.example
     - +.d55.example
-    - d56*.example
+    - d56.*.example
     - d57.example
     - +.d58.example
     - +.d59.example
@@ -138,11 +138,11 @@ dns:
     - +.d61.example
     - +.d62.example
     - d63.example
-    - d64*.example
-    - d65*.example
-    - +.d64*.example
-    - +.d65*.example
-    - +.d66*.example
+    - d64.*.example
+    - d65.*.example
+    - +.d64.*.example
+    - +.d65.*.example
+    - +.d66.*.example
     - d67.example
     - '*.d68.example'
     - '*.d69.example'

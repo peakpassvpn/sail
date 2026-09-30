@@ -139,7 +139,7 @@
     "warnings": 4
   },
   "clash/0040.yaml": {
-    "error": "proxy-groups[0].proxies[0]: no proxy or group is named \"PASS\""
+    "error": "outbound_providers[0]: url: \"str1\" is not an http(s) URL"
   },
   "clash/0041.yaml": {
     "ok": true,
@@ -177,10 +177,12 @@
     "warnings": 8
   },
   "clash/0050.yaml": {
-    "error": "proxy-groups[19].proxies[0]: no proxy or group is named \"PASS\""
+    "ok": true,
+    "warnings": 1
   },
   "clash/0051.yaml": {
-    "error": "proxy-groups[19].proxies[0]: no proxy or group is named \"PASS\""
+    "ok": true,
+    "warnings": 2
   },
   "clash/0052.yaml": {
     "ok": true,
@@ -719,7 +721,8 @@
     "error": "proxies[1].network: sail does not implement the xhttp transport yet"
   },
   "clash/0200.yaml": {
-    "error": "proxy-groups[34].proxies[2]: no proxy or group is named \"PASS\""
+    "ok": true,
+    "warnings": 0
   },
   "sing-box/0001.json": {
     "error": "dns.servers[0]: missing field `type`"

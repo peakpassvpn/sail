@@ -18,13 +18,16 @@ CORPUS = os.path.join(ROOT, "sail", "tests", "corpus")
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
 
-def first_error(text, corpus_dir):
-    """The first error line, its paths and log prefixes dropped."""
+def errors(text, corpus_dir):
+    """Every error the program logged, its paths and log prefixes dropped:
+    mihomo logs some at error level and goes on, so which of them failed
+    the test is not known; sing-box stops at its first."""
+    found = []
     for line in text.splitlines():
         line = ANSI.sub("", line)
         if "level=" in line and not re.search(r"level=(error|fatal)", line):
             continue
-        if line.startswith(("WARN", "INFO", "DEBUG")):
+        if line.startswith(("WARN", "INFO", "DEBUG")) or "test failed" in line:
             continue
         m = re.search(r'msg="(.*)"', line)
         if m:
@@ -33,8 +36,8 @@ def first_error(text, corpus_dir):
         line = line.replace(corpus_dir + os.sep, "")
         line = re.sub(r"/[^ :]*/(path-\d+\.\w+)", r"./\1", line)
         if line.strip():
-            return line.strip()
-    return "rejected"
+            found.append(line.strip())
+    return found or ["rejected"]
 
 
 def run(cmd, cwd):
@@ -65,13 +68,13 @@ def main():
             for file in sorted(os.listdir(directory)):
                 code, out = run(cmd(os.path.join(directory, file)), scratch)
                 key = f"{name}/{file}"
-                verdicts[key] = {"ok": True} if code == 0 else {"error": first_error(out, directory)}
+                verdicts[key] = {"ok": True} if code == 0 else {"errors": errors(out, directory)}
     reference = {
         "tools": {
             "sing-box": version([args.sing_box, "version"]),
             "mihomo": version([args.mihomo, "-v"]),
         },
-        "note": "By hand, with tools/corpus-rewrite/reference.py. Surge has no reference program.",
+        "note": "By hand, with tools/corpus-rewrite/reference.py. `errors` lists every error the program logged: mihomo logs some and goes on (global-client-fingerprint), so a rejection is any of them. A first rewriter wrote every wildcard domain as \"dN*.example\", which mihomo refuses; the Clash lists were repaired to \"dN.*.example\", a whole-label wildcard as the defaults have it (\"time.*.com\"). Surge has no reference program.",
         "verdicts": verdicts,
     }
     with open(os.path.join(CORPUS, "reference.json"), "w") as f:

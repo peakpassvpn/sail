@@ -316,7 +316,15 @@ class Synth:
         trail = "." if base.endswith(".") else ""
         base = base.rstrip(".").lower()
         if "*" in base or "?" in base:
-            new = self._one("dom", base, lambda n: "d%d*.example" % n)
+            # The wildcards stay where they were, a whole label or part of
+            # one: Mihomo takes `*` as a whole label only.
+            labels = base.split(".")
+            shape = ".".join(
+                l if l in ("*", "?") else re.sub(r"[^*?]+", "w", l) for l in labels[:-1]
+            )
+            new = self._one(
+                "dom", base, lambda n: "d%d%s.example" % (n, ("." + shape) if shape else "")
+            )
         else:
             fmt = {"server": "s%d.example.net", "sni": "sni%d.example.org"}.get(role, "d%d.example")
             new = self._one("dom", base, lambda n: fmt % n)

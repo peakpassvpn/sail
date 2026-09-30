@@ -23,7 +23,7 @@ dns:
     - +.d6.example
     - +.d7.example
     - d5.example
-    - d8*.example
+    - d8.*.example
     - "*.d9.example"
     - "*.d10.example"
     - "*.d11.example"

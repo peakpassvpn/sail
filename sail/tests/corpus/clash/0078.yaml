@@ -100,8 +100,8 @@ dns:
   fake-ip-filter:
     - "+.d8.example"
     - "+.d9.example"
-    - "d10*.example"
-    - "d11*.example"
+    - "d10.*.example"
+    - "d11.*.example"
     - "+.d12.example"
     - "+.d13.example"
     - "+.d1.example"

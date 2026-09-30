@@ -1,5 +1,5 @@
 {
-  "note": "By hand, with tools/corpus-rewrite/reference.py. Surge has no reference program.",
+  "note": "By hand, with tools/corpus-rewrite/reference.py. `errors` lists every error the program logged: mihomo logs some and goes on (global-client-fingerprint), so a rejection is any of them. A first rewriter wrote every wildcard domain as \"dN*.example\", which mihomo refuses; the Clash lists were repaired to \"dN.*.example\", a whole-label wildcard as the defaults have it (\"time.*.com\"). Surge has no reference program.",
   "tools": {
     "mihomo": "Mihomo Meta v1.19.31 darwin arm64 with go1.26.8 Mon Sep 14 13:24:49 UTC 2026",
     "sing-box": "sing-box version 1.14.2"
@@ -9,19 +9,22 @@
       "ok": true
     },
     "clash/0002.yaml": {
-      "error": "The `global-client-fingerprint` configuration is removed, please set `client-fingerprint` directly on the proxy instead"
+      "ok": true
     },
     "clash/0003.yaml": {
-      "error": "The `global-client-fingerprint` configuration is removed, please set `client-fingerprint` directly on the proxy instead"
+      "ok": true
     },
     "clash/0004.yaml": {
-      "error": "The `global-client-fingerprint` configuration is removed, please set `client-fingerprint` directly on the proxy instead"
+      "ok": true
     },
     "clash/0005.yaml": {
-      "error": "The `global-client-fingerprint` configuration is removed, please set `client-fingerprint` directly on the proxy instead"
+      "ok": true
     },
     "clash/0006.yaml": {
-      "error": "The `global-client-fingerprint` configuration is removed, please set `client-fingerprint` directly on the proxy instead"
+      "errors": [
+        "The `global-client-fingerprint` configuration is removed, please set `client-fingerprint` directly on the proxy instead",
+        "proxy group[2]: Group 2: `use` or `proxies` missing"
+      ]
     },
     "clash/0007.yaml": {
       "ok": true
@@ -30,16 +33,20 @@
       "ok": true
     },
     "clash/0009.yaml": {
-      "error": "rules[1] [SUB-RULE,sub-20,Proxy 20] error: sub-rule [Proxy 20] not found"
+      "errors": [
+        "rules[1] [SUB-RULE,sub-20,Proxy 20] error: sub-rule [Proxy 20] not found"
+      ]
     },
     "clash/0010.yaml": {
-      "error": "The `global-client-fingerprint` configuration is removed, please set `client-fingerprint` directly on the proxy instead"
+      "ok": true
     },
     "clash/0011.yaml": {
       "ok": true
     },
     "clash/0012.yaml": {
-      "error": "proxy group[5]: unsupported type: The group [Group 1] with relay type was removed, please using dialer-proxy instead"
+      "errors": [
+        "proxy group[5]: unsupported type: The group [Group 1] with relay type was removed, please using dialer-proxy instead"
+      ]
     },
     "clash/0013.yaml": {
       "ok": true
@@ -60,7 +67,9 @@
       "ok": true
     },
     "clash/0019.yaml": {
-      "error": "proxy Proxy 11 is the duplicate name"
+      "errors": [
+        "proxy Proxy 11 is the duplicate name"
+      ]
     },
     "clash/0020.yaml": {
       "ok": true
@@ -69,13 +78,15 @@
       "ok": true
     },
     "clash/0022.yaml": {
-      "error": "The `global-client-fingerprint` configuration is removed, please set `client-fingerprint` directly on the proxy instead"
+      "ok": true
     },
     "clash/0023.yaml": {
-      "error": "The `global-client-fingerprint` configuration is removed, please set `client-fingerprint` directly on the proxy instead"
+      "ok": true
     },
     "clash/0024.yaml": {
-      "error": "proxy 30: invalid REALITY public key"
+      "errors": [
+        "proxy 30: invalid REALITY public key"
+      ]
     },
     "clash/0025.yaml": {
       "ok": true
@@ -90,19 +101,27 @@
       "ok": true
     },
     "clash/0029.yaml": {
-      "error": "dns.fake-ip-filter[6]: invalid domain \\\"d5*.example\\\": \\\"*\\\" wildcard must occupy the entire label 1"
+      "ok": true
     },
     "clash/0030.yaml": {
-      "error": "proxy 0: invalid REALITY public key"
+      "errors": [
+        "proxy 0: invalid REALITY public key"
+      ]
     },
     "clash/0031.yaml": {
       "ok": true
     },
     "clash/0032.yaml": {
-      "error": "rules[26] [MATCH,,str1,str2, dns-failed] error: format invalid"
+      "errors": [
+        "rules[26] [MATCH,,str1,str2, dns-failed] error: format invalid"
+      ]
     },
     "clash/0033.yaml": {
-      "error": "The `global-client-fingerprint` configuration is removed, please set `client-fingerprint` directly on the proxy instead"
+      "errors": [
+        "The `global-client-fingerprint` configuration is removed, please set `client-fingerprint` directly on the proxy instead",
+        "can't initial GeoIP: can't download GeoIP.dat: Get \\\"https://h4.example.com/p2.dat\\\": EOF",
+        "rules[12] [GEOIP,google,Group 2] error: can't download GeoIP.dat: Get \\\"https://h4.example.com/p2.dat\\\": EOF"
+      ]
     },
     "clash/0034.yaml": {
       "ok": true
@@ -117,7 +136,9 @@
       "ok": true
     },
     "clash/0038.yaml": {
-      "error": "proxy group[0]: Group 8: `use` or `proxies` missing"
+      "errors": [
+        "proxy group[0]: Group 8: `use` or `proxies` missing"
+      ]
     },
     "clash/0039.yaml": {
       "ok": true
@@ -135,7 +156,7 @@
       "ok": true
     },
     "clash/0044.yaml": {
-      "error": "The `global-client-fingerprint` configuration is removed, please set `client-fingerprint` directly on the proxy instead"
+      "ok": true
     },
     "clash/0045.yaml": {
       "ok": true
@@ -144,13 +165,19 @@
       "ok": true
     },
     "clash/0047.yaml": {
-      "error": "proxy group[0]: Group 1: 'Proxy 1' not found"
+      "errors": [
+        "proxy group[0]: Group 1: 'Proxy 1' not found"
+      ]
     },
     "clash/0048.yaml": {
-      "error": "The `global-client-fingerprint` configuration is removed, please set `client-fingerprint` directly on the proxy instead"
+      "ok": true
     },
     "clash/0049.yaml": {
-      "error": "The `global-client-fingerprint` configuration is removed, please set `client-fingerprint` directly on the proxy instead"
+      "errors": [
+        "The `global-client-fingerprint` configuration is removed, please set `client-fingerprint` directly on the proxy instead",
+        "can't initial GeoIP: can't download GeoIP.dat: Get \\\"https://h4.example.com/p23.dat\\\": EOF",
+        "rules[16] [GEOIP,CN,Group 20] error: can't download GeoIP.dat: Get \\\"https://h4.example.com/p23.dat\\\": EOF"
+      ]
     },
     "clash/0050.yaml": {
       "ok": true
@@ -159,7 +186,7 @@
       "ok": true
     },
     "clash/0052.yaml": {
-      "error": "The `global-client-fingerprint` configuration is removed, please set `client-fingerprint` directly on the proxy instead"
+      "ok": true
     },
     "clash/0053.yaml": {
       "ok": true
@@ -177,10 +204,15 @@
       "ok": true
     },
     "clash/0058.yaml": {
-      "error": "proxy 0: invalid REALITY public key"
+      "errors": [
+        "proxy 0: invalid REALITY public key"
+      ]
     },
     "clash/0059.yaml": {
-      "error": "The `global-client-fingerprint` configuration is removed, please set `client-fingerprint` directly on the proxy instead"
+      "errors": [
+        "The `global-client-fingerprint` configuration is removed, please set `client-fingerprint` directly on the proxy instead",
+        "proxy 1: invalid REALITY public key"
+      ]
     },
     "clash/0060.yaml": {
       "ok": true
@@ -192,10 +224,15 @@
       "ok": true
     },
     "clash/0063.yaml": {
-      "error": "The `global-client-fingerprint` configuration is removed, please set `client-fingerprint` directly on the proxy instead"
+      "errors": [
+        "The `global-client-fingerprint` configuration is removed, please set `client-fingerprint` directly on the proxy instead",
+        "proxy 8: 'server' expected type 'string', got unconvertible type '[]interface {}','password' expected type 'string', got unconvertible type '[]interface {}'"
+      ]
     },
     "clash/0064.yaml": {
-      "error": "proxy group[0]: Group 1: `use` or `proxies` missing"
+      "errors": [
+        "proxy group[0]: Group 1: `use` or `proxies` missing"
+      ]
     },
     "clash/0065.yaml": {
       "ok": true
@@ -207,13 +244,17 @@
       "ok": true
     },
     "clash/0068.yaml": {
-      "error": "proxy group[0]: Group 1: `use` or `proxies` missing"
+      "errors": [
+        "proxy group[0]: Group 1: `use` or `proxies` missing"
+      ]
     },
     "clash/0069.yaml": {
       "ok": true
     },
     "clash/0070.yaml": {
-      "error": "proxy group[4]: unsupported type: smart"
+      "errors": [
+        "proxy group[4]: unsupported type: smart"
+      ]
     },
     "clash/0071.yaml": {
       "ok": true
@@ -222,7 +263,7 @@
       "ok": true
     },
     "clash/0073.yaml": {
-      "error": "The `global-client-fingerprint` configuration is removed, please set `client-fingerprint` directly on the proxy instead"
+      "ok": true
     },
     "clash/0074.yaml": {
       "ok": true
@@ -237,7 +278,7 @@
       "ok": true
     },
     "clash/0078.yaml": {
-      "error": "dns.fake-ip-filter[2]: invalid domain \\\"d10*.example\\\": \\\"*\\\" wildcard must occupy the entire label 1"
+      "ok": true
     },
     "clash/0079.yaml": {
       "ok": true
@@ -252,10 +293,13 @@
       "ok": true
     },
     "clash/0083.yaml": {
-      "error": "dns.fake-ip-filter[9]: invalid domain \\\"d9*.example\\\": \\\"*\\\" wildcard must occupy the entire label 1"
+      "ok": true
     },
     "clash/0084.yaml": {
-      "error": "The `global-client-fingerprint` configuration is removed, please set `client-fingerprint` directly on the proxy instead"
+      "errors": [
+        "The `global-client-fingerprint` configuration is removed, please set `client-fingerprint` directly on the proxy instead",
+        "proxy group[0]: Group 2: 'Proxy 1' not found"
+      ]
     },
     "clash/0085.yaml": {
       "ok": true
@@ -276,7 +320,9 @@
       "ok": true
     },
     "clash/0091.yaml": {
-      "error": "loop is detected in ProxyGroup, please check following ProxyGroups: [DIRECT]"
+      "errors": [
+        "loop is detected in ProxyGroup, please check following ProxyGroups: [DIRECT]"
+      ]
     },
     "clash/0092.yaml": {
       "ok": true
@@ -294,16 +340,22 @@
       "ok": true
     },
     "clash/0097.yaml": {
-      "error": "parse proxy provider provider-1 error: '' has unset fields: type"
+      "errors": [
+        "parse proxy provider provider-1 error: '' has unset fields: type"
+      ]
     },
     "clash/0098.yaml": {
       "ok": true
     },
     "clash/0099.yaml": {
-      "error": "proxy 0: cannot parse 'port' as int: strconv.ParseInt: parsing \\\"str2\\\": invalid syntax"
+      "errors": [
+        "proxy 0: cannot parse 'port' as int: strconv.ParseInt: parsing \\\"str2\\\": invalid syntax"
+      ]
     },
     "clash/0100.yaml": {
-      "error": "proxy group[1]: Group 23: empty fallback proxy 'str5' not found"
+      "errors": [
+        "proxy group[1]: Group 23: empty fallback proxy 'str5' not found"
+      ]
     },
     "clash/0101.yaml": {
       "ok": true
@@ -312,13 +364,13 @@
       "ok": true
     },
     "clash/0103.yaml": {
-      "error": "dns.fake-ip-filter[8]: invalid domain \\\"d9*.example\\\": \\\"*\\\" wildcard must occupy the entire label 1"
+      "ok": true
     },
     "clash/0104.yaml": {
       "ok": true
     },
     "clash/0105.yaml": {
-      "error": "dns.fake-ip-filter[14]: invalid domain \\\"d12*.example\\\": \\\"*\\\" wildcard must occupy the entire label 1"
+      "ok": true
     },
     "clash/0106.yaml": {
       "ok": true
@@ -330,22 +382,26 @@
       "ok": true
     },
     "clash/0109.yaml": {
-      "error": "ProxyGroup Group 31: 'proxies[0]' expected type 'string', got unconvertible type 'map[string]interface {}'"
+      "errors": [
+        "ProxyGroup Group 31: 'proxies[0]' expected type 'string', got unconvertible type 'map[string]interface {}'"
+      ]
     },
     "clash/0110.yaml": {
       "ok": true
     },
     "clash/0111.yaml": {
-      "error": "dns.fake-ip-filter[0]: invalid domain \\\"+.d1*.example\\\": \\\"*\\\" wildcard must occupy the entire label 2"
+      "ok": true
     },
     "clash/0112.yaml": {
-      "error": "proxy group[0]: unsupported type: The group [Group 1] with relay type was removed, please using dialer-proxy instead"
+      "errors": [
+        "proxy group[0]: unsupported type: The group [Group 1] with relay type was removed, please using dialer-proxy instead"
+      ]
     },
     "clash/0113.yaml": {
       "ok": true
     },
     "clash/0114.yaml": {
-      "error": "dns.fake-ip-filter[8]: invalid domain \\\"d8*.example\\\": \\\"*\\\" wildcard must occupy the entire label 1"
+      "ok": true
     },
     "clash/0115.yaml": {
       "ok": true
@@ -354,22 +410,30 @@
       "ok": true
     },
     "clash/0117.yaml": {
-      "error": "rules[392] [DOMAI] error: format invalid"
+      "errors": [
+        "rules[392] [DOMAI] error: format invalid"
+      ]
     },
     "clash/0118.yaml": {
-      "error": "proxy group[0]: Group 1: 'Proxy 1' not found"
+      "errors": [
+        "proxy group[0]: Group 1: 'Proxy 1' not found"
+      ]
     },
     "clash/0119.yaml": {
-      "error": "pipeline must contain YAML mapping, has 2"
+      "errors": [
+        "pipeline must contain YAML mapping, has 2"
+      ]
     },
     "clash/0120.yaml": {
-      "error": "dns.fake-ip-filter[8]: invalid domain \\\"d11*.example\\\": \\\"*\\\" wildcard must occupy the entire label 1"
+      "ok": true
     },
     "clash/0121.yaml": {
       "ok": true
     },
     "clash/0122.yaml": {
-      "error": "proxy 5: invalid REALITY public key"
+      "errors": [
+        "proxy 5: invalid REALITY public key"
+      ]
     },
     "clash/0123.yaml": {
       "ok": true
@@ -378,7 +442,9 @@
       "ok": true
     },
     "clash/0125.yaml": {
-      "error": "proxy 0: unsupport proxy type: nekotls"
+      "errors": [
+        "proxy 0: unsupport proxy type: nekotls"
+      ]
     },
     "clash/0126.yaml": {
       "ok": true
@@ -387,7 +453,9 @@
       "ok": true
     },
     "clash/0128.yaml": {
-      "error": "proxy group[6]: Group 9: 'Proxy 1' not found"
+      "errors": [
+        "proxy group[6]: Group 11: 'Proxy 1' not found"
+      ]
     },
     "clash/0129.yaml": {
       "ok": true
@@ -396,25 +464,36 @@
       "ok": true
     },
     "clash/0131.yaml": {
-      "error": "The `global-client-fingerprint` configuration is removed, please set `client-fingerprint` directly on the proxy instead"
+      "errors": [
+        "The `global-client-fingerprint` configuration is removed, please set `client-fingerprint` directly on the proxy instead",
+        "default nameserver should be pure IP"
+      ]
     },
     "clash/0132.yaml": {
       "ok": true
     },
     "clash/0133.yaml": {
-      "error": "proxy group[0]: Group 3: `use` or `proxies` missing"
+      "errors": [
+        "proxy group[0]: Group 3: `use` or `proxies` missing"
+      ]
     },
     "clash/0134.yaml": {
-      "error": "proxy 10: invalid REALITY public key"
+      "errors": [
+        "proxy 10: invalid REALITY public key"
+      ]
     },
     "clash/0135.yaml": {
       "ok": true
     },
     "clash/0136.yaml": {
-      "error": "proxy 4: snell str12:44046 initialize restls-plugin error: invalid version hint: should be either tls12 or tls13"
+      "errors": [
+        "proxy 4: snell str12:44046 initialize restls-plugin error: invalid version hint: should be either tls12 or tls13"
+      ]
     },
     "clash/0137.yaml": {
-      "error": "rules[12] [MATCH,,str1,dns-failed] error: format invalid"
+      "errors": [
+        "rules[12] [MATCH,,str1,dns-failed] error: format invalid"
+      ]
     },
     "clash/0138.yaml": {
       "ok": true
@@ -426,55 +505,78 @@
       "ok": true
     },
     "clash/0141.yaml": {
-      "error": "The `global-client-fingerprint` configuration is removed, please set `client-fingerprint` directly on the proxy instead"
+      "errors": [
+        "The `global-client-fingerprint` configuration is removed, please set `client-fingerprint` directly on the proxy instead",
+        "proxy 0: invalid REALITY public key"
+      ]
     },
     "clash/0142.yaml": {
-      "error": "dns.fake-ip-filter[8]: invalid domain \\\"d8*.example\\\": \\\"*\\\" wildcard must occupy the entire label 1"
+      "ok": true
     },
     "clash/0143.yaml": {
       "ok": true
     },
     "clash/0144.yaml": {
-      "error": "proxy group[0]: Group 1: `use` or `proxies` missing"
+      "errors": [
+        "proxy group[0]: Group 1: `use` or `proxies` missing"
+      ]
     },
     "clash/0145.yaml": {
-      "error": "DNS FallbackGeosite[0] format error: load GeoSite data error, failed to decode geodata file: GeoSite.dat, base error: list str1 not found in GeoSite.dat"
+      "errors": [
+        "DNS FallbackGeosite[0] format error: load GeoSite data error, failed to decode geodata file: GeoSite.dat, base error: list str1 not found in GeoSite.dat"
+      ]
     },
     "clash/0146.yaml": {
       "ok": true
     },
     "clash/0147.yaml": {
-      "error": "proxy group[1]: Group 2: '1' not found"
+      "errors": [
+        "proxy group[1]: Group 2: '1' not found"
+      ]
     },
     "clash/0148.yaml": {
-      "error": "proxy 9: invalid REALITY public key"
+      "errors": [
+        "proxy 9: invalid REALITY public key"
+      ]
     },
     "clash/0149.yaml": {
       "ok": true
     },
     "clash/0150.yaml": {
-      "error": "invalid log-level"
+      "errors": [
+        "invalid log-level"
+      ]
     },
     "clash/0151.yaml": {
       "ok": true
     },
     "clash/0152.yaml": {
-      "error": "The `global-client-fingerprint` configuration is removed, please set `client-fingerprint` directly on the proxy instead"
+      "ok": true
     },
     "clash/0153.yaml": {
-      "error": "rules[6] [SUB-RULE,sub-2,Proxy 1] error: sub-rule [Proxy 1] not found"
+      "errors": [
+        "rules[6] [SUB-RULE,sub-2,Proxy 1] error: sub-rule [Proxy 1] not found"
+      ]
     },
     "clash/0154.yaml": {
-      "error": "proxy group[0]: Group 1: `use` or `proxies` missing"
+      "errors": [
+        "proxy group[0]: Group 1: `use` or `proxies` missing"
+      ]
     },
     "clash/0155.yaml": {
-      "error": "The `global-client-fingerprint` configuration is removed, please set `client-fingerprint` directly on the proxy instead"
+      "errors": [
+        "The `global-client-fingerprint` configuration is removed, please set `client-fingerprint` directly on the proxy instead",
+        "DNS FallbackGeosite[0] format error: load GeoSite data error, failed to decode geodata file: GeoSite.dat, base error: list str3 not found in GeoSite.dat"
+      ]
     },
     "clash/0156.yaml": {
       "ok": true
     },
     "clash/0157.yaml": {
-      "error": "The `global-client-fingerprint` configuration is removed, please set `client-fingerprint` directly on the proxy instead"
+      "errors": [
+        "The `global-client-fingerprint` configuration is removed, please set `client-fingerprint` directly on the proxy instead",
+        "rules[16] [str2] error: format invalid"
+      ]
     },
     "clash/0158.yaml": {
       "ok": true
@@ -483,7 +585,9 @@
       "ok": true
     },
     "clash/0160.yaml": {
-      "error": "proxy 129: invalid REALITY public key"
+      "errors": [
+        "proxy 129: invalid REALITY public key"
+      ]
     },
     "clash/0161.yaml": {
       "ok": true
@@ -507,16 +611,20 @@
       "ok": true
     },
     "clash/0168.yaml": {
-      "error": "proxy 0: invalid REALITY public key"
+      "errors": [
+        "proxy 0: invalid REALITY public key"
+      ]
     },
     "clash/0169.yaml": {
-      "error": "The `global-client-fingerprint` configuration is removed, please set `client-fingerprint` directly on the proxy instead"
+      "ok": true
     },
     "clash/0170.yaml": {
-      "error": "dns.fake-ip-filter[2]: invalid domain \\\"d2*.example\\\": \\\"*\\\" wildcard must occupy the entire label 1"
+      "ok": true
     },
     "clash/0171.yaml": {
-      "error": "proxy 0: invalid REALITY public key"
+      "errors": [
+        "proxy 0: invalid REALITY public key"
+      ]
     },
     "clash/0172.yaml": {
       "ok": true
@@ -528,10 +636,14 @@
       "ok": true
     },
     "clash/0175.yaml": {
-      "error": "proxy group[0]: Group 1: `use` or `proxies` missing"
+      "errors": [
+        "proxy group[0]: Group 1: `use` or `proxies` missing"
+      ]
     },
     "clash/0176.yaml": {
-      "error": "rules[14] [GEOIP,,DIRECT] error: missing subsequent parameters: GEOIP"
+      "errors": [
+        "rules[14] [GEOIP,,DIRECT] error: missing subsequent parameters: GEOIP"
+      ]
     },
     "clash/0177.yaml": {
       "ok": true
@@ -543,7 +655,9 @@
       "ok": true
     },
     "clash/0180.yaml": {
-      "error": "yaml: invalid map key: map[string]interface {}{\\\"group\\\":interface {}(nil)}"
+      "errors": [
+        "yaml: invalid map key: map[string]interface {}{\\\"group\\\":interface {}(nil)}"
+      ]
     },
     "clash/0181.yaml": {
       "ok": true
@@ -570,7 +684,9 @@
       "ok": true
     },
     "clash/0189.yaml": {
-      "error": "rules[0] [RULE-SET,set-1,Proxy 1] error: proxy [Proxy 1] not found"
+      "errors": [
+        "rules[0] [RULE-SET,set-1,Proxy 1] error: proxy [Proxy 1] not found"
+      ]
     },
     "clash/0190.yaml": {
       "ok": true
@@ -579,7 +695,9 @@
       "ok": true
     },
     "clash/0192.yaml": {
-      "error": "DNS FallbackGeosite[0] format error: load GeoSite data error, failed to decode geodata file: GeoSite.dat, base error: list str1 not found in GeoSite.dat"
+      "errors": [
+        "DNS FallbackGeosite[0] format error: load GeoSite data error, failed to decode geodata file: GeoSite.dat, base error: list str1 not found in GeoSite.dat"
+      ]
     },
     "clash/0193.yaml": {
       "ok": true
@@ -591,7 +709,9 @@
       "ok": true
     },
     "clash/0196.yaml": {
-      "error": "if “respect-rules” is turned on, “proxy-server-nameserver” cannot be empty"
+      "errors": [
+        "if “respect-rules” is turned on, “proxy-server-nameserver” cannot be empty"
+      ]
     },
     "clash/0197.yaml": {
       "ok": true
@@ -600,73 +720,115 @@
       "ok": true
     },
     "clash/0199.yaml": {
-      "error": "proxy 0: invalid REALITY public key"
+      "errors": [
+        "proxy 0: invalid REALITY public key"
+      ]
     },
     "clash/0200.yaml": {
       "ok": true
     },
     "sing-box/0001.json": {
-      "error": "decode config at 0001.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      "errors": [
+        "decode config at 0001.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      ]
     },
     "sing-box/0002.json": {
-      "error": "decode config at 0002.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      "errors": [
+        "decode config at 0002.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      ]
     },
     "sing-box/0003.json": {
-      "error": "decode config at 0003.json: dns: legacy DNS fakeip options are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      "errors": [
+        "decode config at 0003.json: dns: legacy DNS fakeip options are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      ]
     },
     "sing-box/0004.json": {
       "ok": true
     },
     "sing-box/0005.json": {
-      "error": "decode config at 0005.json: outbounds[14].filter: json: unknown field \"filter\""
+      "errors": [
+        "decode config at 0005.json: outbounds[14].filter: json: unknown field \"filter\""
+      ]
     },
     "sing-box/0006.json": {
-      "error": "decode config at 0006.json: route.rule_set[0]: missing {tag} placeholder in url"
+      "errors": [
+        "decode config at 0006.json: route.rule_set[0]: missing {tag} placeholder in url"
+      ]
     },
     "sing-box/0007.json": {
-      "error": "initialize network manager: `override_android_vpn` is only supported on Android"
+      "errors": [
+        "initialize network manager: `override_android_vpn` is only supported on Android"
+      ]
     },
     "sing-box/0008.json": {
-      "error": "initialize outbound[1]: missing tags"
+      "errors": [
+        "initialize outbound[1]: missing tags"
+      ]
     },
     "sing-box/0009.json": {
-      "error": "decode config at 0009.json: endpoints[0].peers[0].reserved: illegal base64 data at input byte 8"
+      "errors": [
+        "decode config at 0009.json: endpoints[0].peers[0].reserved: illegal base64 data at input byte 8"
+      ]
     },
     "sing-box/0010.json": {
-      "error": "decode config at 0010.json: route.rule_set[0]: missing {tag} placeholder in url"
+      "errors": [
+        "decode config at 0010.json: route.rule_set[0]: missing {tag} placeholder in url"
+      ]
     },
     "sing-box/0011.json": {
-      "error": "decode config at 0011.json: dns: legacy DNS fakeip options are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      "errors": [
+        "decode config at 0011.json: dns: legacy DNS fakeip options are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      ]
     },
     "sing-box/0012.json": {
-      "error": "decode config at 0012.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      "errors": [
+        "decode config at 0012.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      ]
     },
     "sing-box/0013.json": {
-      "error": "decode config at 0013.json: dns: legacy DNS fakeip options are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      "errors": [
+        "decode config at 0013.json: dns: legacy DNS fakeip options are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      ]
     },
     "sing-box/0014.json": {
-      "error": "decode config at 0014.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      "errors": [
+        "decode config at 0014.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      ]
     },
     "sing-box/0015.json": {
-      "error": "initialize outbound[2]: missing tags"
+      "errors": [
+        "initialize outbound[2]: missing tags"
+      ]
     },
     "sing-box/0016.json": {
-      "error": "decode config at 0016.json: inbounds[0]: legacy inbound fields are deprecated in sing-box 1.11.0 and removed in sing-box 1.13.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-legacy-inbound-fields-to-rule-actions"
+      "errors": [
+        "decode config at 0016.json: inbounds[0]: legacy inbound fields are deprecated in sing-box 1.11.0 and removed in sing-box 1.13.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-legacy-inbound-fields-to-rule-actions"
+      ]
     },
     "sing-box/0017.json": {
-      "error": "decode config at 0017.json: dns: legacy DNS fakeip options are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      "errors": [
+        "decode config at 0017.json: dns: legacy DNS fakeip options are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      ]
     },
     "sing-box/0018.json": {
-      "error": "decode config at 0018.json: dns: legacy DNS fakeip options are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      "errors": [
+        "decode config at 0018.json: dns: legacy DNS fakeip options are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      ]
     },
     "sing-box/0019.json": {
-      "error": "decode config at 0019.json: dns: legacy DNS fakeip options are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      "errors": [
+        "decode config at 0019.json: dns: legacy DNS fakeip options are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      ]
     },
     "sing-box/0020.json": {
-      "error": "decode config at 0020.json: dns: legacy DNS fakeip options are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      "errors": [
+        "decode config at 0020.json: dns: legacy DNS fakeip options are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      ]
     },
     "sing-box/0021.json": {
-      "error": "decode config at 0021.json: outbounds[0].server_port: json: cannot unmarshal string into Go struct field SOCKSOutboundOptions.ServerOptions.server_port of type uint16"
+      "errors": [
+        "decode config at 0021.json: outbounds[0].server_port: json: cannot unmarshal string into Go struct field SOCKSOutboundOptions.ServerOptions.server_port of type uint16"
+      ]
     },
     "sing-box/0022.json": {
       "ok": true
@@ -675,118 +837,190 @@
       "ok": true
     },
     "sing-box/0024.json": {
-      "error": "decode config at 0024.json: outbounds[14].filter: json: unknown field \"filter\""
+      "errors": [
+        "decode config at 0024.json: outbounds[14].filter: json: unknown field \"filter\""
+      ]
     },
     "sing-box/0025.json": {
-      "error": "decode config at 0025.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      "errors": [
+        "decode config at 0025.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      ]
     },
     "sing-box/0026.json": {
-      "error": "initialize outbound[0]: invalid public_key"
+      "errors": [
+        "initialize outbound[0]: invalid public_key"
+      ]
     },
     "sing-box/0027.json": {
-      "error": "decode config at 0027.json: dns: legacy DNS fakeip options are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      "errors": [
+        "decode config at 0027.json: dns: legacy DNS fakeip options are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      ]
     },
     "sing-box/0028.json": {
-      "error": "decode config at 0028.json: outbounds[14].filter: json: unknown field \"filter\""
+      "errors": [
+        "decode config at 0028.json: outbounds[14].filter: json: unknown field \"filter\""
+      ]
     },
     "sing-box/0029.json": {
-      "error": "decode config at 0029.json: outbounds[14].filter: json: unknown field \"filter\""
+      "errors": [
+        "decode config at 0029.json: outbounds[14].filter: json: unknown field \"filter\""
+      ]
     },
     "sing-box/0030.json": {
-      "error": "initialize outbound[1]: missing tags"
+      "errors": [
+        "initialize outbound[1]: missing tags"
+      ]
     },
     "sing-box/0031.json": {
-      "error": "initialize outbound[1]: unknown uTLS fingerprint: password1"
+      "errors": [
+        "initialize outbound[1]: unknown uTLS fingerprint: password1"
+      ]
     },
     "sing-box/0032.json": {
-      "error": "initialize outbound[1]: missing tags"
+      "errors": [
+        "initialize outbound[1]: missing tags"
+      ]
     },
     "sing-box/0033.json": {
-      "error": "decode config at 0033.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      "errors": [
+        "decode config at 0033.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      ]
     },
     "sing-box/0034.json": {
-      "error": "decode config at 0034.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      "errors": [
+        "decode config at 0034.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      ]
     },
     "sing-box/0035.json": {
-      "error": "decode config at 0035.json: inbounds[0].route_exclude_address: (json: cannot unmarshal array into Go value of type **netip.Prefix | netip.ParsePrefix(\"str3\"): no '/')"
+      "errors": [
+        "decode config at 0035.json: inbounds[0].route_exclude_address: (json: cannot unmarshal array into Go value of type **netip.Prefix | netip.ParsePrefix(\"str3\"): no '/')"
+      ]
     },
     "sing-box/0036.json": {
-      "error": "decode config at 0036.json: inbounds[0].route_exclude_address: (json: cannot unmarshal array into Go value of type **netip.Prefix | netip.ParsePrefix(\"str3\"): no '/')"
+      "errors": [
+        "decode config at 0036.json: inbounds[0].route_exclude_address: (json: cannot unmarshal array into Go value of type **netip.Prefix | netip.ParsePrefix(\"str3\"): no '/')"
+      ]
     },
     "sing-box/0037.json": {
-      "error": "decode config at 0037.json: dns.rules[0].answer: (json: cannot unmarshal array into Go value of type string | [0]: parse binary DNS record)"
+      "errors": [
+        "decode config at 0037.json: dns.rules[0].answer: (json: cannot unmarshal array into Go value of type string | [0]: parse binary DNS record)"
+      ]
     },
     "sing-box/0038.json": {
-      "error": "decode config at 0038.json: dns.rules[0].answer: (json: cannot unmarshal array into Go value of type string | [0]: parse binary DNS record)"
+      "errors": [
+        "decode config at 0038.json: dns.rules[0].answer: (json: cannot unmarshal array into Go value of type string | [0]: parse binary DNS record)"
+      ]
     },
     "sing-box/0039.json": {
-      "error": "decode config at 0039.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      "errors": [
+        "decode config at 0039.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      ]
     },
     "sing-box/0040.json": {
-      "error": "decode config at 0040.json: outbounds[4].filter: json: unknown field \"filter\""
+      "errors": [
+        "decode config at 0040.json: outbounds[4].filter: json: unknown field \"filter\""
+      ]
     },
     "sing-box/0041.json": {
-      "error": "decode config at 0041.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      "errors": [
+        "decode config at 0041.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      ]
     },
     "sing-box/0042.json": {
-      "error": "initialize outbound[26]: decode public_key: illegal base64 data at input byte 33"
+      "errors": [
+        "initialize outbound[26]: decode public_key: illegal base64 data at input byte 33"
+      ]
     },
     "sing-box/0043.json": {
-      "error": "initialize outbound[1]: missing tags"
+      "errors": [
+        "initialize outbound[1]: missing tags"
+      ]
     },
     "sing-box/0044.json": {
-      "error": "decode config at 0044.json: dns: legacy DNS fakeip options are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      "errors": [
+        "decode config at 0044.json: dns: legacy DNS fakeip options are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      ]
     },
     "sing-box/0045.json": {
-      "error": "decode config at 0045.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      "errors": [
+        "decode config at 0045.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      ]
     },
     "sing-box/0046.json": {
       "ok": true
     },
     "sing-box/0047.json": {
-      "error": "decode config at 0047.json: route.rule_set[0]: missing {tag} placeholder in url"
+      "errors": [
+        "decode config at 0047.json: route.rule_set[0]: missing {tag} placeholder in url"
+      ]
     },
     "sing-box/0048.json": {
-      "error": "decode config at 0048.json: dns: legacy DNS fakeip options are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      "errors": [
+        "decode config at 0048.json: dns: legacy DNS fakeip options are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      ]
     },
     "sing-box/0049.json": {
-      "error": "decode config at 0049.json: dns: legacy DNS fakeip options are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      "errors": [
+        "decode config at 0049.json: dns: legacy DNS fakeip options are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      ]
     },
     "sing-box/0050.json": {
-      "error": "decode config at 0050.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      "errors": [
+        "decode config at 0050.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      ]
     },
     "sing-box/0051.json": {
-      "error": "initialize inbound[0]: decode private key: illegal base64 data at input byte 33"
+      "errors": [
+        "initialize inbound[0]: decode private key: illegal base64 data at input byte 33"
+      ]
     },
     "sing-box/0052.json": {
-      "error": "decode config at 0052.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      "errors": [
+        "decode config at 0052.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      ]
     },
     "sing-box/0053.json": {
-      "error": "decode config at 0053.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      "errors": [
+        "decode config at 0053.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      ]
     },
     "sing-box/0054.json": {
-      "error": "initialize outbound[0]: decode public_key: illegal base64 data at input byte 33"
+      "errors": [
+        "initialize outbound[0]: decode public_key: illegal base64 data at input byte 33"
+      ]
     },
     "sing-box/0055.json": {
-      "error": "decode config at 0055.json: inbounds[0]: legacy inbound fields are deprecated in sing-box 1.11.0 and removed in sing-box 1.13.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-legacy-inbound-fields-to-rule-actions"
+      "errors": [
+        "decode config at 0055.json: inbounds[0]: legacy inbound fields are deprecated in sing-box 1.11.0 and removed in sing-box 1.13.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-legacy-inbound-fields-to-rule-actions"
+      ]
     },
     "sing-box/0056.json": {
-      "error": "decode config at 0056.json: inbounds[0]: legacy inbound fields are deprecated in sing-box 1.11.0 and removed in sing-box 1.13.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-legacy-inbound-fields-to-rule-actions"
+      "errors": [
+        "decode config at 0056.json: inbounds[0]: legacy inbound fields are deprecated in sing-box 1.11.0 and removed in sing-box 1.13.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-legacy-inbound-fields-to-rule-actions"
+      ]
     },
     "sing-box/0057.json": {
-      "error": "decode config at 0057.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      "errors": [
+        "decode config at 0057.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      ]
     },
     "sing-box/0058.json": {
       "ok": true
     },
     "sing-box/0059.json": {
-      "error": "decode config at 0059.json: route.rule_set[0]: missing {tag} placeholder in url"
+      "errors": [
+        "decode config at 0059.json: route.rule_set[0]: missing {tag} placeholder in url"
+      ]
     },
     "sing-box/0060.json": {
-      "error": "initialize inbound[0]: unknown cipher_suite: wywOQgzCr2vr85JpoMxzCQ"
+      "errors": [
+        "initialize inbound[0]: unknown cipher_suite: wywOQgzCr2vr85JpoMxzCQ"
+      ]
     },
     "sing-box/0061.json": {
-      "error": "decode config at 0061.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      "errors": [
+        "decode config at 0061.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      ]
     },
     "sing-box/0062.json": {
       "ok": true
@@ -795,103 +1029,159 @@
       "ok": true
     },
     "sing-box/0064.json": {
-      "error": "decode config at 0064.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      "errors": [
+        "decode config at 0064.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      ]
     },
     "sing-box/0065.json": {
-      "error": "decode config at 0065.json: outbounds[5].filter: json: unknown field \"filter\""
+      "errors": [
+        "decode config at 0065.json: outbounds[5].filter: json: unknown field \"filter\""
+      ]
     },
     "sing-box/0066.json": {
-      "error": "decode config at 0066.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      "errors": [
+        "decode config at 0066.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      ]
     },
     "sing-box/0067.json": {
-      "error": "initialize outbound[1]: missing tags"
+      "errors": [
+        "initialize outbound[1]: missing tags"
+      ]
     },
     "sing-box/0068.json": {
-      "error": "decode config at 0068.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      "errors": [
+        "decode config at 0068.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      ]
     },
     "sing-box/0069.json": {
-      "error": "decode config at 0069.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      "errors": [
+        "decode config at 0069.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      ]
     },
     "sing-box/0070.json": {
-      "error": "decode config at 0070.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      "errors": [
+        "decode config at 0070.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      ]
     },
     "sing-box/0071.json": {
-      "error": "initialize router: parse rule[6]: port_range: bad port range: str1"
+      "errors": [
+        "initialize router: parse rule[6]: port_range: bad port range: str1"
+      ]
     },
     "sing-box/0072.json": {
-      "error": "decode config at 0072.json: dns: legacy DNS fakeip options are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      "errors": [
+        "decode config at 0072.json: dns: legacy DNS fakeip options are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      ]
     },
     "sing-box/0073.json": {
-      "error": "decode config at 0073.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      "errors": [
+        "decode config at 0073.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      ]
     },
     "sing-box/0074.json": {
       "ok": true
     },
     "sing-box/0075.json": {
-      "error": "initialize router: parse rule-set[0]: open ./path-1.srs: no such file or directory"
+      "errors": [
+        "initialize router: parse rule-set[0]: open ./path-1.srs: no such file or directory"
+      ]
     },
     "sing-box/0076.json": {
       "ok": true
     },
     "sing-box/0077.json": {
-      "error": "decode config at 0077.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      "errors": [
+        "decode config at 0077.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      ]
     },
     "sing-box/0078.json": {
-      "error": "decode config at 0078.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      "errors": [
+        "decode config at 0078.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      ]
     },
     "sing-box/0079.json": {
-      "error": "initialize network manager: `override_android_vpn` is only supported on Android"
+      "errors": [
+        "initialize network manager: `override_android_vpn` is only supported on Android"
+      ]
     },
     "sing-box/0080.json": {
-      "error": "decode config at 0080.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      "errors": [
+        "decode config at 0080.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      ]
     },
     "sing-box/0081.json": {
-      "error": "decode config at 0081.json: route.rules[2].rules[1]: rule action is not supported in nested rules"
+      "errors": [
+        "decode config at 0081.json: route.rules[2].rules[1]: rule action is not supported in nested rules"
+      ]
     },
     "sing-box/0082.json": {
-      "error": "decode config at 0082.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      "errors": [
+        "decode config at 0082.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      ]
     },
     "sing-box/0083.json": {
       "ok": true
     },
     "sing-box/0084.json": {
-      "error": "decode config at 0084.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      "errors": [
+        "decode config at 0084.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      ]
     },
     "sing-box/0085.json": {
       "ok": true
     },
     "sing-box/0086.json": {
-      "error": "decode config at 0086.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      "errors": [
+        "decode config at 0086.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      ]
     },
     "sing-box/0087.json": {
-      "error": "decode config at 0087.json: route.rules[12].match_only: json: unknown field \"match_only\""
+      "errors": [
+        "decode config at 0087.json: route.rules[12].match_only: json: unknown field \"match_only\""
+      ]
     },
     "sing-box/0088.json": {
-      "error": "initialize inbound[0]: read certificate: open ./path-1.pem: no such file or directory"
+      "errors": [
+        "initialize inbound[0]: read certificate: open ./path-1.pem: no such file or directory"
+      ]
     },
     "sing-box/0089.json": {
-      "error": "decode config at 0089.json: endpoints[0].peers[0].reserved: illegal base64 data at input byte 8"
+      "errors": [
+        "decode config at 0089.json: endpoints[0].peers[0].reserved: illegal base64 data at input byte 8"
+      ]
     },
     "sing-box/0090.json": {
-      "error": "initialize network manager: `override_android_vpn` is only supported on Android"
+      "errors": [
+        "initialize network manager: `override_android_vpn` is only supported on Android"
+      ]
     },
     "sing-box/0091.json": {
-      "error": "decode config at 0091.json: dns: legacy DNS fakeip options are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      "errors": [
+        "decode config at 0091.json: dns: legacy DNS fakeip options are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      ]
     },
     "sing-box/0092.json": {
-      "error": "initialize outbound[17]: missing tags"
+      "errors": [
+        "initialize outbound[17]: missing tags"
+      ]
     },
     "sing-box/0093.json": {
       "ok": true
     },
     "sing-box/0094.json": {
-      "error": "decode config at 0094.json: dns: legacy DNS fakeip options are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      "errors": [
+        "decode config at 0094.json: dns: legacy DNS fakeip options are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      ]
     },
     "sing-box/0095.json": {
-      "error": "decode config at 0095.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      "errors": [
+        "decode config at 0095.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      ]
     },
     "sing-box/0096.json": {
-      "error": "initialize outbound[0]: decode public_key: illegal base64 data at input byte 8"
+      "errors": [
+        "initialize outbound[0]: decode public_key: illegal base64 data at input byte 8"
+      ]
     },
     "sing-box/0097.json": {
       "ok": true
@@ -900,31 +1190,45 @@
       "ok": true
     },
     "sing-box/0099.json": {
-      "error": "decode config at 0099.json: certificate_providers[0].dns01_challenge: unknown provider type: str5"
+      "errors": [
+        "decode config at 0099.json: certificate_providers[0].dns01_challenge: unknown provider type: str5"
+      ]
     },
     "sing-box/0100.json": {
-      "error": "decode config at 0100.json: dns: legacy DNS fakeip options are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      "errors": [
+        "decode config at 0100.json: dns: legacy DNS fakeip options are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      ]
     },
     "sing-box/0101.json": {
-      "error": "decode config at 0101.json: providers: json: unknown field \"providers\""
+      "errors": [
+        "decode config at 0101.json: providers: json: unknown field \"providers\""
+      ]
     },
     "sing-box/0102.json": {
-      "error": "decode config at 0102.json: route.rule_set[0]: missing {tag} placeholder in url"
+      "errors": [
+        "decode config at 0102.json: route.rule_set[0]: missing {tag} placeholder in url"
+      ]
     },
     "sing-box/0103.json": {
-      "error": "initialize outbound[0]: missing tags"
+      "errors": [
+        "initialize outbound[0]: missing tags"
+      ]
     },
     "sing-box/0104.json": {
       "ok": true
     },
     "sing-box/0105.json": {
-      "error": "decode config at 0105.json: log.timestamp: json: cannot unmarshal string into Go struct field LogOptions.log.timestamp of type bool"
+      "errors": [
+        "decode config at 0105.json: log.timestamp: json: cannot unmarshal string into Go struct field LogOptions.log.timestamp of type bool"
+      ]
     },
     "sing-box/0106.json": {
       "ok": true
     },
     "sing-box/0107.json": {
-      "error": "decode config at 0107.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      "errors": [
+        "decode config at 0107.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      ]
     },
     "sing-box/0108.json": {
       "ok": true
@@ -936,19 +1240,29 @@
       "ok": true
     },
     "sing-box/0111.json": {
-      "error": "decode config at 0111.json: inbounds[1].udp_mapping: unknown UDP NAT behavior: str2"
+      "errors": [
+        "decode config at 0111.json: inbounds[1].udp_mapping: unknown UDP NAT behavior: str2"
+      ]
     },
     "sing-box/0112.json": {
-      "error": "decode config at 0112.json: inbounds[1].udp_mapping: unknown UDP NAT behavior: str2"
+      "errors": [
+        "decode config at 0112.json: inbounds[1].udp_mapping: unknown UDP NAT behavior: str2"
+      ]
     },
     "sing-box/0113.json": {
-      "error": "decode config at 0113.json: dns: legacy DNS fakeip options are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      "errors": [
+        "decode config at 0113.json: dns: legacy DNS fakeip options are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      ]
     },
     "sing-box/0114.json": {
-      "error": "decode config at 0114.json: dns: legacy DNS fakeip options are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      "errors": [
+        "decode config at 0114.json: dns: legacy DNS fakeip options are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      ]
     },
     "sing-box/0115.json": {
-      "error": "initialize router: parse rule-set[0]: open ./path-1.srs: no such file or directory"
+      "errors": [
+        "initialize router: parse rule-set[0]: open ./path-1.srs: no such file or directory"
+      ]
     },
     "sing-box/0116.json": {
       "ok": true
@@ -957,13 +1271,19 @@
       "ok": true
     },
     "sing-box/0118.json": {
-      "error": "initialize outbound[14]: missing tags"
+      "errors": [
+        "initialize outbound[14]: missing tags"
+      ]
     },
     "sing-box/0119.json": {
-      "error": "decode config at 0119.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      "errors": [
+        "decode config at 0119.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      ]
     },
     "sing-box/0120.json": {
-      "error": "decode config at 0120.json: outbounds[24].filter: json: unknown field \"filter\""
+      "errors": [
+        "decode config at 0120.json: outbounds[24].filter: json: unknown field \"filter\""
+      ]
     },
     "sing-box/0121.json": {
       "ok": true
@@ -972,88 +1292,145 @@
       "ok": true
     },
     "sing-box/0123.json": {
-      "error": "decode config at 0123.json: dns: legacy DNS fakeip options are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      "errors": [
+        "decode config at 0123.json: dns: legacy DNS fakeip options are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      ]
     },
     "sing-box/0124.json": {
-      "error": "decode config at 0124.json: outbounds[15].filter: json: unknown field \"filter\""
+      "errors": [
+        "decode config at 0124.json: outbounds[15].filter: json: unknown field \"filter\""
+      ]
     },
     "sing-box/0125.json": {
-      "error": "decode config at 0125.json: dns: legacy DNS fakeip options are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      "errors": [
+        "decode config at 0125.json: dns: legacy DNS fakeip options are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      ]
     },
     "sing-box/0126.json": {
-      "error": "decode config at 0126.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      "errors": [
+        "decode config at 0126.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      ]
     },
     "sing-box/0127.json": {
-      "error": "decode config at 0127.json: endpoints[0]: unknown endpoint type: tunnel_server"
+      "errors": [
+        "decode config at 0127.json: endpoints[0]: unknown endpoint type: tunnel_server"
+      ]
     },
     "sing-box/0128.json": {
-      "error": "decode config at 0128.json: dns: legacy DNS fakeip options are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      "errors": [
+        "decode config at 0128.json: dns: legacy DNS fakeip options are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      ]
     },
     "sing-box/0129.json": {
-      "error": "decode config at 0129.json: dns: legacy DNS fakeip options are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      "errors": [
+        "decode config at 0129.json: dns: legacy DNS fakeip options are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      ]
     },
     "sing-box/0130.json": {
-      "error": "missing `route.default_domain_resolver` or `domain_resolver` in dial fields is deprecated in sing-box 1.12.0 and will be removed in sing-box 1.14.0, checkout documentation for migration: https://sing-box.sagernet.org/migration/#migrate-outbound-dns-rule-items-to-domain-resolver"
+      "errors": [
+        "missing `route.default_domain_resolver` or `domain_resolver` in dial fields is deprecated in sing-box 1.12.0 and will be removed in sing-box 1.14.0, checkout documentation for migration: https://sing-box.sagernet.org/migration/#migrate-outbound-dns-rule-items-to-domain-resolver",
+        "to continuing using this feature, set environment variable ENABLE_DEPRECATED_MISSING_DOMAIN_RESOLVER=true"
+      ]
     },
     "sing-box/0131.json": {
-      "error": "missing `route.default_domain_resolver` or `domain_resolver` in dial fields is deprecated in sing-box 1.12.0 and will be removed in sing-box 1.14.0, checkout documentation for migration: https://sing-box.sagernet.org/migration/#migrate-outbound-dns-rule-items-to-domain-resolver"
+      "errors": [
+        "missing `route.default_domain_resolver` or `domain_resolver` in dial fields is deprecated in sing-box 1.12.0 and will be removed in sing-box 1.14.0, checkout documentation for migration: https://sing-box.sagernet.org/migration/#migrate-outbound-dns-rule-items-to-domain-resolver",
+        "to continuing using this feature, set environment variable ENABLE_DEPRECATED_MISSING_DOMAIN_RESOLVER=true"
+      ]
     },
     "sing-box/0132.json": {
       "ok": true
     },
     "sing-box/0133.json": {
-      "error": "decode config at 0133.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      "errors": [
+        "decode config at 0133.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      ]
     },
     "sing-box/0134.json": {
-      "error": "decode config at 0134.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      "errors": [
+        "decode config at 0134.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      ]
     },
     "sing-box/0135.json": {
-      "error": "decode config at 0135.json: experimental.urltest_unified_delay: json: unknown field \"urltest_unified_delay\""
+      "errors": [
+        "decode config at 0135.json: experimental.urltest_unified_delay: json: unknown field \"urltest_unified_delay\""
+      ]
     },
     "sing-box/0136.json": {
-      "error": "decode config at 0136.json: dns: legacy DNS fakeip options are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      "errors": [
+        "decode config at 0136.json: dns: legacy DNS fakeip options are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      ]
     },
     "sing-box/0137.json": {
-      "error": "initialize outbound[14]: missing tags"
+      "errors": [
+        "initialize outbound[14]: missing tags"
+      ]
     },
     "sing-box/0138.json": {
-      "error": "initialize outbound[1]: missing tags"
+      "errors": [
+        "initialize outbound[1]: missing tags"
+      ]
     },
     "sing-box/0139.json": {
-      "error": "decode config at 0139.json: dns: legacy DNS fakeip options are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      "errors": [
+        "decode config at 0139.json: dns: legacy DNS fakeip options are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      ]
     },
     "sing-box/0140.json": {
-      "error": "decode config at 0140.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      "errors": [
+        "decode config at 0140.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      ]
     },
     "sing-box/0141.json": {
-      "error": "missing `route.default_domain_resolver` or `domain_resolver` in dial fields is deprecated in sing-box 1.12.0 and will be removed in sing-box 1.14.0, checkout documentation for migration: https://sing-box.sagernet.org/migration/#migrate-outbound-dns-rule-items-to-domain-resolver"
+      "errors": [
+        "missing `route.default_domain_resolver` or `domain_resolver` in dial fields is deprecated in sing-box 1.12.0 and will be removed in sing-box 1.14.0, checkout documentation for migration: https://sing-box.sagernet.org/migration/#migrate-outbound-dns-rule-items-to-domain-resolver",
+        "to continuing using this feature, set environment variable ENABLE_DEPRECATED_MISSING_DOMAIN_RESOLVER=true"
+      ]
     },
     "sing-box/0142.json": {
-      "error": "decode config at 0142.json: dns: legacy DNS fakeip options are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      "errors": [
+        "decode config at 0142.json: dns: legacy DNS fakeip options are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      ]
     },
     "sing-box/0143.json": {
-      "error": "decode config at 0143.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      "errors": [
+        "decode config at 0143.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      ]
     },
     "sing-box/0144.json": {
-      "error": "decode config at 0144.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      "errors": [
+        "decode config at 0144.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      ]
     },
     "sing-box/0145.json": {
-      "error": "decode config at 0145.json: inbounds[0]: legacy inbound fields are deprecated in sing-box 1.11.0 and removed in sing-box 1.13.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-legacy-inbound-fields-to-rule-actions"
+      "errors": [
+        "decode config at 0145.json: inbounds[0]: legacy inbound fields are deprecated in sing-box 1.11.0 and removed in sing-box 1.13.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-legacy-inbound-fields-to-rule-actions"
+      ]
     },
     "sing-box/0146.json": {
-      "error": "decode config at 0146.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      "errors": [
+        "decode config at 0146.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      ]
     },
     "sing-box/0147.json": {
-      "error": "decode config at 0147.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      "errors": [
+        "decode config at 0147.json: dns.servers[0]: legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+      ]
     },
     "sing-box/0148.json": {
-      "error": "initialize network manager: `override_android_vpn` is only supported on Android"
+      "errors": [
+        "initialize network manager: `override_android_vpn` is only supported on Android"
+      ]
     },
     "sing-box/0149.json": {
-      "error": "initialize outbound[0]: missing tags"
+      "errors": [
+        "initialize outbound[0]: missing tags"
+      ]
     },
     "sing-box/0150.json": {
-      "error": "initialize router: parse rule-set[0]: open ./path-1.srs: no such file or directory"
+      "errors": [
+        "initialize router: parse rule-set[0]: open ./path-1.srs: no such file or directory"
+      ]
     }
   }
 }

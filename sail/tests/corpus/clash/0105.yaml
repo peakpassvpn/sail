@@ -34,8 +34,8 @@ dns:
     - d9.example
     - d10.example
     - d11.example
-    - d12*.example
-    - d13*.example
+    - d12.*.example
+    - d13.*.example
   default-nameserver:
     - https://192.0.2.1/dns-query
   direct-nameserver:

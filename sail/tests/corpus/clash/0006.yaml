@@ -41,8 +41,8 @@ dns:
     - '*.d4.example'
     - '*.d5.example'
     - '*.d6.example'
-    - 'd7*.example'
-    - 'd8*.example'
+    - 'd7.*.example'
+    - 'd8.*.example'
     - '*.d9.example'
   default-nameserver:
     - '192.0.2.1'

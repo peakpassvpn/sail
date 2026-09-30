@@ -23,10 +23,10 @@ dns:
   fake-ip-filter:
     - "*.d1.example"
     - "localhost"
-    - "d2*.example"
+    - "d2.*.example"
     - "d3.example"
     - "d4.example"
-    - "d5*.example"
+    - "d5.*.example"
     - "d6.example"
 proxy-providers:
   provider-1:

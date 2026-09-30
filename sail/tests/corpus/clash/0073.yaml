@@ -93,8 +93,8 @@ dns:
   fake-ip-filter:
     - +.d1.example
     - +.d2.example
-    - d3*.example
-    - d4*.example
+    - d3.*.example
+    - d4.*.example
     - +.d5.example
     - geosite:private
     - geosite:connectivity-check

@@ -43,8 +43,8 @@ dns:
   fake-ip-filter:
     - '*.d4.example'
     - '*.d5.example'
-    - 'd6*.example'
-    - 'd7*.example'
+    - 'd6.*.example'
+    - 'd7.*.example'
     - 'd8.example'
     - '*.d9.example'
     - '*.d10.example'

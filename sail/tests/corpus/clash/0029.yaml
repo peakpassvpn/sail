@@ -93,8 +93,8 @@ dns:
     - +.localhost
     - +.d3.example
     - +.d4.example
-    - d5*.example
-    - d6*.example
+    - d5.*.example
+    - d6.*.example
     - d7.example
     - d8.example
     - d9.example
@@ -113,8 +113,8 @@ dns:
     - d22.example
     - d23.example
     - +.d24.example
-    - '*.d25*.example'
-    - d26*.example
+    - '*.d25.*.example'
+    - d26.*.example
     - d27.example
   default-nameserver:
     - https://192.0.2.1/dns-query

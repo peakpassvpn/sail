@@ -761,7 +761,7 @@ rule-providers:
     behavior: domain
     payload:
       - '.d21.example'
-      - '*.d22*.example'
+      - '*.d22.*.example'
       - 'd23.example'
 rules:
   - RULE-SET,set-1,REJECT

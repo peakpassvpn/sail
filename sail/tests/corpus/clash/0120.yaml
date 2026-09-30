@@ -29,7 +29,7 @@ dns:
     - '+.d9.example'
     - '+.d10.example'
     - 'd8.example'
-    - 'd11*.example'
+    - 'd11.*.example'
     - '*.d12.example'
     - '*.d13.example'
     - '*.d14.example'

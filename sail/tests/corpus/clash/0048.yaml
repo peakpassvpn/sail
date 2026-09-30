@@ -76,7 +76,7 @@ dns:
     - "rule-set:set-1,set-17"
     - "+.d3.example"
     - "+.d4.example"
-    - "d5*.example"
+    - "d5.*.example"
   default-nameserver:
     - 192.0.2.1
   proxy-server-nameserver:

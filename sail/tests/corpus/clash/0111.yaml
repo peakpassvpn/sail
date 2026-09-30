@@ -38,26 +38,26 @@ dns:
     - 192.0.2.4
   fake-ip-range: 198.18.0.1/16
   fake-ip-filter:
-    - "+.d1*.example"
-    - d2*.example
-    - d3*.example
-    - d4*.example
-    - d5*.example
-    - d6*.example
-    - d7*.example
-    - d8*.example
-    - d9*.example
-    - d10*.example
-    - d11*.example
-    - d12*.example
-    - d13*.example
-    - d14*.example
-    - d15*.example
-    - d16*.example
-    - d17*.example
-    - d18*.example
-    - d19*.example
-    - d20*.example
+    - "+.d1.*.example"
+    - d2.*.example
+    - d3.*.example
+    - d4.*.example
+    - d5.*.example
+    - d6.*.example
+    - d7.*.example
+    - d8.*.example
+    - d9.*.example
+    - d10.*.example
+    - d11.*.example
+    - d12.*.example
+    - d13.*.example
+    - d14.*.example
+    - d15.*.example
+    - d16.*.example
+    - d17.*.example
+    - d18.*.example
+    - d19.*.example
+    - d20.*.example
     - "*.d21.example"
     - "*.d22.example"
     - "*.d23.example"

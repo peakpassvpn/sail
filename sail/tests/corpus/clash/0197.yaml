@@ -316,25 +316,25 @@ cfw-bypass:
   - d567.example
   - '*.d568.example'
   - localhost
-  - d569*.example
-  - d570*.example
-  - d571*.example
-  - d572*.example
-  - d573*.example
-  - d574*.example
-  - d575*.example
-  - d576*.example
-  - d577*.example
-  - d578*.example
-  - d579*.example
-  - d580*.example
-  - d581*.example
-  - d582*.example
-  - d583*.example
-  - d584*.example
-  - d585*.example
-  - d586*.example
-  - d587*.example
+  - d569.*.example
+  - d570.*.example
+  - d571.*.example
+  - d572.*.example
+  - d573.*.example
+  - d574.*.example
+  - d575.*.example
+  - d576.*.example
+  - d577.*.example
+  - d578.*.example
+  - d579.*.example
+  - d580.*.example
+  - d581.*.example
+  - d582.*.example
+  - d583.*.example
+  - d584.*.example
+  - d585.*.example
+  - d586.*.example
+  - d587.*.example
   - str2
 cfw-latency-timeout: 5000
 rules:

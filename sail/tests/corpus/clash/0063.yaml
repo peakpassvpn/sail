@@ -518,7 +518,7 @@ rule-providers:
     behavior: domain
     payload:
       - '.d17.example'
-      - '*.d18*.example'
+      - '*.d18.*.example'
       - 'd19.example'
 rules:
   - RULE-SET,set-1,REJECT
