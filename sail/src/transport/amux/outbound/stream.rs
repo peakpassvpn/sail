@@ -63,7 +63,6 @@ impl MuxManager {
         let connectors: Arc<Mutex<Vec<MuxConnector>>> = Arc::new(Mutex::new(Vec::new()));
         let connectors2 = connectors.clone();
         // A task to monitor and remove completed connectors.
-        // TODO passive detection
         let fut = async move {
             loop {
                 connectors2.lock().await.retain(|c| !c.is_done());
