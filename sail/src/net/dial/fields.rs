@@ -28,13 +28,16 @@ pub struct DialFields {
     /// The outbound to dial through, in place of a socket of its own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detour: Option<String>,
-    /// The interface to send through, by name.
+    /// The interface to send through, by name. Loopback destinations still
+    /// go over loopback, where sing-box applies the bind to them as well.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bind_interface: Option<String>,
-    /// The local address for IPv4 destinations.
+    /// The local address for IPv4 destinations, loopback ones aside: as
+    /// `bind_interface`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub inet4_bind_address: Option<Ipv4Addr>,
-    /// The local address for IPv6 destinations.
+    /// The local address for IPv6 destinations, loopback ones aside: as
+    /// `bind_interface`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub inet6_bind_address: Option<Ipv6Addr>,
     /// Not implemented yet.

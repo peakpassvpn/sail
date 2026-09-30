@@ -244,6 +244,7 @@ Serde: `serde (deny_unknown_fields)`
 | --- | --- | --- | --- |
 | `type` | `RuleType` | Default::default() | `default`, or `logical`.<br/>`serde (rename = "type" , default , skip_serializing_if = "RuleType::is_default")` |
 | `query_type` | `Vec < serde_json :: Value >` | Default::default() | Record types, by name (`A`, `AAAA`, `HTTPS`) or number.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
+| `preferred_by` | `Vec < String >` | Default::default() | Tags of DNS servers: matches a name one of them prefers, one it answers for itself, as sing-box's `preferred_by`.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
 | `inbound` | `Vec < String >` | Default::default() | Tags of the inbounds the connection that needs the name came in through.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
 | `clash_mode` | `Option < String >` | Default::default() | The mode of Clash's API, as in a routing rule.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
 | `ip_version` | `Option < u8 >` | Default::default() | —<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
@@ -461,6 +462,7 @@ Serde: `serde (deny_unknown_fields)`
 | --- | --- | --- | --- |
 | `type` | `RuleType` | Default::default() | `default`, or `logical`.<br/>`serde (rename = "type" , default , skip_serializing_if = "RuleType::is_default")` |
 | `query_type` | `Vec < serde_json :: Value >` | Default::default() | Record types, by name (`A`, `AAAA`, `HTTPS`) or number: of a DNS query, and so never of a connection.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
+| `preferred_by` | `Vec < String >` | Default::default() | Tags of DNS servers, one of which prefers the name: of a DNS query, and so never of a connection.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
 | `clash_mode` | `Option < String >` | Default::default() | The mode of Clash's API: matches while it is that, whatever the case; never without an API.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
 | `inbound` | `Vec < String >` | Default::default() | Tags of the inbounds a connection came in through.<br/>`serde (default , with = "listable" , skip_serializing_if = "Vec::is_empty")` |
 | `ip_version` | `Option < u8 >` | Default::default() | 4 or 6: the family of the destination address.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
@@ -626,9 +628,9 @@ Serde: `serde (remote = "Self" , deny_unknown_fields)`
 | Field | Type | Omission / flattening | Source notes |
 | --- | --- | --- | --- |
 | `detour` | `Option < String >` | Default::default() | The outbound to dial through, in place of a socket of its own.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `bind_interface` | `Option < String >` | Default::default() | The interface to send through, by name.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `inet4_bind_address` | `Option < Ipv4Addr >` | Default::default() | The local address for IPv4 destinations.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `inet6_bind_address` | `Option < Ipv6Addr >` | Default::default() | The local address for IPv6 destinations.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
+| `bind_interface` | `Option < String >` | Default::default() | The interface to send through, by name. Loopback destinations still go over loopback, where sing-box applies the bind to them as well.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
+| `inet4_bind_address` | `Option < Ipv4Addr >` | Default::default() | The local address for IPv4 destinations, loopback ones aside: as `bind_interface`.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
+| `inet6_bind_address` | `Option < Ipv6Addr >` | Default::default() | The local address for IPv6 destinations, loopback ones aside: as `bind_interface`.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
 | `bind_address_no_port` | `Option < Value >` | Default::default() | Not implemented yet.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
 | `protect_path` | `Option < Value >` | Default::default() | Not implemented yet.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
 | `routing_mark` | `Option < u32 >` | Default::default() | `SO_MARK`, Linux only.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |

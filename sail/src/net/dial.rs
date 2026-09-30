@@ -67,6 +67,12 @@ pub(crate) fn bind(
     spec: &DialSpec,
     auto: Option<&super::interface::AutoInterface>,
 ) -> io::Result<bool> {
+    // Loopback destinations go over loopback whatever the binds say, so
+    // that a bind does not cut sail off from local services. sing-box
+    // applies an explicit bind to them too (sing's common/control has no
+    // loopback case), and only its auto_detect_interface lands on loopback,
+    // by the interface that owns the address (route/network.go,
+    // AutoDetectInterfaceFunc): a deliberate deviation.
     if target.ip().is_loopback() {
         let loopback: SocketAddr = match target {
             SocketAddr::V4(_) => (Ipv4Addr::LOCALHOST, 0).into(),
