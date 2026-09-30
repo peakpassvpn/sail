@@ -120,6 +120,10 @@ pub enum PreMatch {
 pub enum Decision {
     /// To this outbound; to the default one when `None`.
     Route(Option<String>),
+    /// Direct, past every outbound configured: each rule that matched, and
+    /// `final`, routed to a group that passes, as Mihomo's DIRECT takes
+    /// what no rule decides.
+    Direct,
     /// Nowhere: it is closed at once, or left unanswered when `drop`.
     Reject { drop: bool },
     /// To sail's DNS client, which answers the queries it carries.
@@ -193,6 +197,14 @@ impl Eq for SniffSkip {}
 #[async_trait]
 pub trait Sniffer: Send {
     async fn sniff(&mut self, sess: &mut Session, action: &SniffAction) -> io::Result<()>;
+}
+
+/// Whether an outbound hands a connection on to the next rule, as
+/// Mihomo's PASS does: a `pass` outbound, or a group whose pick at the
+/// time is one, followed down through the groups picked. Only the
+/// dispatcher, which holds the outbounds, can tell.
+pub trait Passes: Sync {
+    fn passes(&self, tag: &str) -> impl std::future::Future<Output = bool> + Send;
 }
 
 /// For connections nothing can be read from.
@@ -540,17 +552,25 @@ impl Router {
 
     /// Matches `sess` against the rules in order, sniffing through
     /// `sniffer`, resolving and setting route options as they say, until
-    /// one decides.
+    /// one decides. A rule whose outbound `passes` does not: see `walk`.
+    /// `final` passing sends the connection direct.
     pub async fn pick_route(
         &self,
         sess: &mut Session,
         sniffer: &mut dyn Sniffer,
+        passes: &impl Passes,
     ) -> Result<Decision> {
-        Ok(match self.walk(sess, Some(sniffer)).await? {
+        Ok(match self.walk(sess, Some(sniffer), passes).await? {
             Stop::Route(tag) => Decision::Route(Some(tag)),
             Stop::Reject { drop } => Decision::Reject { drop },
             Stop::HijackDns => Decision::HijackDns,
-            Stop::Final => Decision::Route(self.final_outbound.clone()),
+            Stop::Final => match &self.final_outbound {
+                Some(tag) if passes.passes(tag).await => {
+                    debug!("final [{}] passes: direct", tag);
+                    Decision::Direct
+                }
+                tag => Decision::Route(tag.clone()),
+            },
             // With a sniffer the walk never stops at these; a release build
             // that somehow did routes to `final` rather than panicking.
             Stop::Bypass | Stop::NeedsData => {
@@ -570,8 +590,8 @@ impl Router {
     /// carry it past sail. A failure, such as a domain that does not
     /// resolve, leaves the connection to be set up too, where it fails, as
     /// sing-box accepts the packet on any other error.
-    pub async fn pre_match(&self, sess: &mut Session) -> PreMatch {
-        match self.walk(sess, None).await {
+    pub async fn pre_match(&self, sess: &mut Session, passes: &impl Passes) -> PreMatch {
+        match self.walk(sess, None, passes).await {
             Ok(Stop::Bypass) => PreMatch::Bypass,
             Ok(Stop::Reject { drop }) => PreMatch::Reject { drop },
             Ok(_) | Err(_) => PreMatch::Proceed,
@@ -581,10 +601,16 @@ impl Router {
     /// The one walk over the rules, for routing (with a sniffer) or for
     /// pre-match (without one, where nothing is read, and an armed sniff
     /// is never taken).
+    ///
+    /// A rule that routes to an outbound that `passes` is skipped, as
+    /// Mihomo's tunnel skips a rule whose proxy unwraps to PASS
+    /// (tunnel/tunnel.go `match`): its route options are not set, and the
+    /// sniff and resolve armed stay armed for the rules after.
     async fn walk(
         &self,
         sess: &mut Session,
         mut sniffer: Option<&mut dyn Sniffer>,
+        passes: &impl Passes,
     ) -> Result<Stop> {
         let pre_match = sniffer.is_none();
         sess.matched_rule = None;
@@ -639,6 +665,15 @@ impl Router {
                 continue;
             }
             match &rule.action {
+                // Pre-match's bypass leaves the connection to the kernel,
+                // and routes to no outbound.
+                Action::Route(tag, _) | Action::Bypass(Some((tag, _)))
+                    if !(pre_match && matches!(rule.action, Action::Bypass(_)))
+                        && passes.passes(tag).await =>
+                {
+                    debug!("rule {} routes to {}, which passes", i, tag);
+                    continue;
+                }
                 Action::Route(tag, options) => {
                     debug!("rule {} routes to {}", i, tag);
                     options.apply(sess);
@@ -790,6 +825,15 @@ mod tests {
     use crate::app::dns_client::DnsClient;
     use crate::session::SocksAddr;
 
+    /// Where no outbound passes.
+    struct NoPass;
+
+    impl Passes for NoPass {
+        async fn passes(&self, _tag: &str) -> bool {
+            false
+        }
+    }
+
     fn router(rules: serde_json::Value) -> Router {
         let config = crate::config::Config::from_json(
             &serde_json::json!({
@@ -836,7 +880,10 @@ mod tests {
                 destination: SocksAddr::Domain("x.example".into(), 443),
                 ..Default::default()
             };
-            router.pick_route(&mut sess, &mut NoSniffer).await.unwrap()
+            router
+                .pick_route(&mut sess, &mut NoSniffer, &NoPass)
+                .await
+                .unwrap()
         };
         let env = RuntimeEnv::default();
         assert_eq!(
@@ -901,7 +948,10 @@ mod tests {
             calls: 0,
         };
         let mut sess = to_ip();
-        let decision = router.pick_route(&mut sess, &mut sniffer).await.unwrap();
+        let decision = router
+            .pick_route(&mut sess, &mut sniffer, &NoPass)
+            .await
+            .unwrap();
         assert_eq!(decision, Decision::Route(Some("a".into())));
         assert_eq!(sniffer.calls, 1);
         assert_eq!(sess.sniffed_domain(), Some("www.example.com"));
@@ -931,7 +981,10 @@ mod tests {
                     domain: "www.example.com",
                     calls: 0,
                 };
-                router.pick_route(&mut sess, &mut sniffer).await.unwrap();
+                router
+                    .pick_route(&mut sess, &mut sniffer, &NoPass)
+                    .await
+                    .unwrap();
                 sniffer.calls
             }
         };
@@ -957,7 +1010,10 @@ mod tests {
             domain: "www.example.com",
             calls: 0,
         };
-        let decision = router.pick_route(&mut to_ip(), &mut sniffer).await.unwrap();
+        let decision = router
+            .pick_route(&mut to_ip(), &mut sniffer, &NoPass)
+            .await
+            .unwrap();
         assert_eq!(decision, Decision::Route(Some("b".into())));
         assert_eq!(sniffer.calls, 0);
     }
@@ -969,7 +1025,7 @@ mod tests {
             { "ip_cidr": ["1.2.3.0/24"], "outbound": "a" },
         ]));
         let decision = router
-            .pick_route(&mut to_ip(), &mut NoSniffer)
+            .pick_route(&mut to_ip(), &mut NoSniffer, &NoPass)
             .await
             .unwrap();
         assert_eq!(decision, Decision::Reject { drop: false });
@@ -985,12 +1041,18 @@ mod tests {
             destination: SocksAddr::Domain("test.sail".into(), 80),
             ..Default::default()
         };
-        let decision = router.pick_route(&mut sess, &mut NoSniffer).await.unwrap();
+        let decision = router
+            .pick_route(&mut sess, &mut NoSniffer, &NoPass)
+            .await
+            .unwrap();
         assert_eq!(decision, Decision::Route(Some("a".into())));
 
         // Not for the lookups the DNS client makes for itself.
         sess.skip_resolve = true;
-        let decision = router.pick_route(&mut sess, &mut NoSniffer).await.unwrap();
+        let decision = router
+            .pick_route(&mut sess, &mut NoSniffer, &NoPass)
+            .await
+            .unwrap();
         assert_eq!(decision, Decision::Route(Some("b".into())));
     }
 
@@ -1004,7 +1066,10 @@ mod tests {
             destination: SocksAddr::Domain("test.sail".into(), 80),
             ..Default::default()
         };
-        let decision = router.pick_route(&mut sess, &mut NoSniffer).await.unwrap();
+        let decision = router
+            .pick_route(&mut sess, &mut NoSniffer, &NoPass)
+            .await
+            .unwrap();
         assert_eq!(decision, Decision::Route(Some("a".into())));
     }
 
@@ -1076,7 +1141,12 @@ mod tests {
                 ..Default::default()
             };
             let router = &router;
-            async move { router.pick_route(&mut sess, &mut NoSniffer).await.unwrap() }
+            async move {
+                router
+                    .pick_route(&mut sess, &mut NoSniffer, &NoPass)
+                    .await
+                    .unwrap()
+            }
         };
         for domain in ["fresh.sail", "fresh.sail", "named.sail", "named.sail"] {
             assert_eq!(route(domain).await, Decision::Route(Some("a".into())));
@@ -1159,7 +1229,10 @@ mod tests {
     }
 
     async fn pick(router: &Router, sess: &mut Session) -> Decision {
-        router.pick_route(sess, &mut NoSniffer).await.unwrap()
+        router
+            .pick_route(sess, &mut NoSniffer, &NoPass)
+            .await
+            .unwrap()
     }
 
     /// The narrow rule-set a route rule matched by goes with the
@@ -1327,7 +1400,7 @@ mod tests {
             ("1.2.3.4:8080", PreMatch::Proceed),
         ] {
             assert_eq!(
-                router.pre_match(&mut to(destination)).await,
+                router.pre_match(&mut to(destination), &NoPass).await,
                 expected,
                 "{destination}"
             );
@@ -1347,12 +1420,12 @@ mod tests {
             { "port": 22, "action": "bypass" },
         ]));
         assert_eq!(
-            router.pre_match(&mut to("1.2.3.4:8443")).await,
+            router.pre_match(&mut to("1.2.3.4:8443"), &NoPass).await,
             PreMatch::Proceed
         );
         // Route options apply on the way, and the rules after them see it.
         assert_eq!(
-            router.pre_match(&mut to("1.2.3.4:443")).await,
+            router.pre_match(&mut to("1.2.3.4:443"), &NoPass).await,
             PreMatch::Bypass
         );
     }
@@ -1428,7 +1501,7 @@ mod tests {
         let mut sess = to("test.sail:80");
         let start = std::time::Instant::now();
         let err = router
-            .pick_route(&mut sess, &mut NoSniffer)
+            .pick_route(&mut sess, &mut NoSniffer, &NoPass)
             .await
             .unwrap_err();
         assert!(err.to_string().starts_with("resolve test.sail:"), "{}", err);
@@ -1499,7 +1572,10 @@ mod tests {
             calls: 0,
         };
         let mut sess = to_ip();
-        let decision = router.pick_route(&mut sess, &mut sniffer).await.unwrap();
+        let decision = router
+            .pick_route(&mut sess, &mut sniffer, &NoPass)
+            .await
+            .unwrap();
         assert_eq!(decision, Decision::Route(Some("a".into())));
         assert_eq!(sniffer.calls, 1);
         // Unsniffed, no protocol matches.
@@ -1551,7 +1627,7 @@ mod tests {
     /// failing it; else where it went.
     async fn resolved(router: &Router, destination: &str) -> std::result::Result<Decision, ()> {
         match router
-            .pick_route(&mut to(destination), &mut NoSniffer)
+            .pick_route(&mut to(destination), &mut NoSniffer, &NoPass)
             .await
         {
             Ok(decision) => Ok(decision),
@@ -1756,7 +1832,10 @@ mod tests {
                     domain: "www.example.com",
                     calls: 0,
                 };
-                let decision = router.pick_route(&mut sess, &mut sniffer).await.unwrap();
+                let decision = router
+                    .pick_route(&mut sess, &mut sniffer, &NoPass)
+                    .await
+                    .unwrap();
                 (decision, sniffer.calls)
             }
         };
@@ -1794,7 +1873,7 @@ mod tests {
                 calls: 0,
             };
             router
-                .pick_route(&mut to("www.example.com:443"), &mut sniffer)
+                .pick_route(&mut to("www.example.com:443"), &mut sniffer, &NoPass)
                 .await
                 .unwrap();
             assert_eq!(sniffer.calls, 1, "{}", rule);
@@ -1813,15 +1892,15 @@ mod tests {
             { "port": 443, "action": "bypass" },
         ]));
         assert_eq!(
-            router.pre_match(&mut to("1.2.3.4:443")).await,
+            router.pre_match(&mut to("1.2.3.4:443"), &NoPass).await,
             PreMatch::Bypass
         );
         assert_eq!(
-            router.pre_match(&mut to("test.sail:80")).await,
+            router.pre_match(&mut to("test.sail:80"), &NoPass).await,
             PreMatch::Bypass
         );
         assert_eq!(
-            router.pre_match(&mut to("1.2.3.4:80")).await,
+            router.pre_match(&mut to("1.2.3.4:80"), &NoPass).await,
             PreMatch::Proceed
         );
     }
@@ -1919,7 +1998,10 @@ mod tests {
                 destination: SocksAddr::Domain("x.example".into(), 443),
                 ..Default::default()
             };
-            router.pick_route(&mut sess, &mut NoSniffer).await.unwrap()
+            router
+                .pick_route(&mut sess, &mut NoSniffer, &NoPass)
+                .await
+                .unwrap()
         };
         // Nothing known: the rule does not match.
         assert_eq!(pick().await, Decision::Route(Some("b".into())));
@@ -1941,7 +2023,7 @@ mod tests {
             destination: SocksAddr::from(("10.0.0.1".parse::<IpAddr>().unwrap(), 443)),
             ..Default::default()
         };
-        assert_eq!(bypass.pre_match(&mut sess).await, PreMatch::Bypass);
+        assert_eq!(bypass.pre_match(&mut sess, &NoPass).await, PreMatch::Bypass);
     }
 
     /// A resolve in routing asks the DNS rules with the network the
@@ -1986,7 +2068,10 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(
-            router.pick_route(&mut sess, &mut NoSniffer).await.unwrap(),
+            router
+                .pick_route(&mut sess, &mut NoSniffer, &NoPass)
+                .await
+                .unwrap(),
             Decision::Route(Some("a".into()))
         );
     }
@@ -2045,6 +2130,181 @@ mod tests {
         assert_eq!(
             matcher::sniffed_protocol("protocol", "bittorrent").unwrap(),
             crate::session::SniffedProtocol::Bittorrent
+        );
+    }
+
+    /// The outbounds here pass, as a group picking PASS would.
+    struct PassesThese(&'static [&'static str]);
+
+    impl Passes for PassesThese {
+        async fn passes(&self, tag: &str) -> bool {
+            self.0.contains(&tag)
+        }
+    }
+
+    /// A router over `a`, `b`, a selector `g` of them and PASS, and a
+    /// pass outbound `PASS`, `final` going to `final_outbound`.
+    fn router_to(rules: serde_json::Value, final_outbound: &str) -> Result<Router> {
+        let config = crate::config::Config::from_json(
+            &serde_json::json!({
+                "dns": { "servers": [
+                    { "type": "hosts", "predefined": { "test.sail": "127.0.0.1" } },
+                ] },
+                "outbounds": [
+                    { "type": "direct", "tag": "a" },
+                    { "type": "direct", "tag": "b" },
+                    { "type": "selector", "tag": "g", "outbounds": ["PASS", "a"] },
+                    { "type": "pass", "tag": "PASS" },
+                ],
+                "route": { "rules": rules, "final": final_outbound },
+            })
+            .to_string(),
+        )?;
+        let dns =
+            DnsClient::new(&config.dns, Default::default(), &Default::default())?.into_shared();
+        Router::new(&config.route, dns, &RuntimeEnv::default())
+    }
+
+    fn to_domain(domain: &str) -> Session {
+        Session {
+            destination: SocksAddr::Domain(domain.into(), 443),
+            ..Default::default()
+        }
+    }
+
+    /// Mihomo's tunnel `match`: a rule whose proxy is PASS, or a group
+    /// picking it, is skipped, and the next rules decide.
+    #[tokio::test]
+    async fn a_rule_to_an_outbound_that_passes_is_skipped() {
+        let router = router_to(
+            serde_json::json!([
+                { "domain": ["x.example"], "outbound": "PASS" },
+                { "domain": ["y.example"], "outbound": "g" },
+                { "port": [443], "outbound": "a" },
+            ]),
+            "b",
+        )
+        .unwrap();
+        let passes = PassesThese(&["PASS", "g"]);
+        for domain in ["x.example", "y.example"] {
+            let mut sess = to_domain(domain);
+            let decision = router
+                .pick_route(&mut sess, &mut NoSniffer, &passes)
+                .await
+                .unwrap();
+            assert_eq!(decision, Decision::Route(Some("a".into())), "{}", domain);
+            assert_eq!(
+                sess.matched_rule.as_deref(),
+                Some("port=443 => route(a)"),
+                "{}",
+                domain
+            );
+        }
+        // The group picking a member that does not pass: it routes.
+        let decision = router
+            .pick_route(
+                &mut to_domain("y.example"),
+                &mut NoSniffer,
+                &PassesThese(&["PASS"]),
+            )
+            .await
+            .unwrap();
+        assert_eq!(decision, Decision::Route(Some("g".into())));
+    }
+
+    #[tokio::test]
+    async fn a_rule_skipped_sets_none_of_its_route_options() {
+        let router = router_to(
+            serde_json::json!([
+                { "port": [443], "outbound": "g", "override_port": 8443, "udp_timeout": "1m",
+                  "tls_record_fragment": true },
+                { "port": [443], "outbound": "a" },
+            ]),
+            "b",
+        )
+        .unwrap();
+        let mut sess = to_domain("x.example");
+        let decision = router
+            .pick_route(&mut sess, &mut NoSniffer, &PassesThese(&["g"]))
+            .await
+            .unwrap();
+        assert_eq!(decision, Decision::Route(Some("a".into())));
+        assert_eq!(sess.destination, SocksAddr::Domain("x.example".into(), 443));
+        assert!(sess.route.original_destination.is_none());
+        assert_eq!(sess.route.udp_timeout, None);
+        assert!(sess.route.tls_fragment.is_none());
+    }
+
+    #[tokio::test]
+    async fn an_armed_sniff_stays_armed_past_a_rule_skipped() {
+        let router = router_to(
+            serde_json::json!([
+                { "action": "sniff", "on_demand": true },
+                { "port": [443], "outbound": "g" },
+                { "domain_suffix": ["example.com"], "outbound": "a" },
+            ]),
+            "b",
+        )
+        .unwrap();
+        let mut sniffer = FakeSniffer {
+            domain: "www.example.com",
+            calls: 0,
+        };
+        let decision = router
+            .pick_route(&mut to_ip(), &mut sniffer, &PassesThese(&["g"]))
+            .await
+            .unwrap();
+        assert_eq!(decision, Decision::Route(Some("a".into())));
+        assert_eq!(sniffer.calls, 1);
+    }
+
+    /// Where every rule passes, Mihomo's DIRECT takes the connection:
+    /// `final` through a group that passes goes direct.
+    #[tokio::test]
+    async fn final_through_a_group_that_passes_goes_direct() {
+        let router =
+            router_to(serde_json::json!([{ "port": [443], "outbound": "g" }]), "g").unwrap();
+        let decision = router
+            .pick_route(&mut to_ip(), &mut NoSniffer, &PassesThese(&["g"]))
+            .await
+            .unwrap();
+        assert_eq!(decision, Decision::Direct);
+        let decision = router
+            .pick_route(&mut to_ip(), &mut NoSniffer, &NoPass)
+            .await
+            .unwrap();
+        assert_eq!(decision, Decision::Route(Some("g".into())));
+    }
+
+    #[tokio::test]
+    async fn pre_match_skips_a_rule_that_passes_too() {
+        let router = router_to(
+            serde_json::json!([
+                { "port": [443], "outbound": "g" },
+                { "port": [443], "action": "bypass" },
+            ]),
+            "b",
+        )
+        .unwrap();
+        assert_eq!(
+            router.pre_match(&mut to_ip(), &PassesThese(&["g"])).await,
+            PreMatch::Bypass
+        );
+        assert_eq!(
+            router.pre_match(&mut to_ip(), &NoPass).await,
+            PreMatch::Proceed
+        );
+    }
+
+    #[test]
+    fn final_naming_a_pass_outbound_is_refused() {
+        let err = router_to(serde_json::json!([]), "PASS")
+            .err()
+            .unwrap()
+            .to_string();
+        assert_eq!(
+            err,
+            "route.final: [PASS] is a pass outbound, and no rule comes after final"
         );
     }
 }

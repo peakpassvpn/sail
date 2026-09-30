@@ -32,6 +32,7 @@ fn clash_type(protocol: &str) -> &'static str {
     match protocol {
         "direct" => "Direct",
         "drop" | "block" | "reject" => "Reject",
+        "pass" => "Pass",
         "dns" => "Dns",
         "selector" => "Selector",
         "urltest" => "URLTest",

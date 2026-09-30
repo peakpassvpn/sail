@@ -478,8 +478,11 @@ impl Provider {
         // A plugin's library would be unloaded with what builds it here.
         if crate::config::model::GROUP_PROTOCOLS.contains(&outbound.protocol.as_str())
             || outbound.protocol == "plugin"
+            || outbound.protocol == "pass"
         {
-            return Err(anyhow!("a group or a plugin is not a provider's outbound"));
+            return Err(anyhow!(
+                "a group, a plugin or a pass outbound is not a provider's outbound"
+            ));
         }
         let tag = format!("{}/{}", self.tag, name);
         outbound.tag = tag.clone();

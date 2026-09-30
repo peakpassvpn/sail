@@ -28,6 +28,8 @@ pub(crate) static OUTBOUNDS: LazyLock<OutboundRegistry> = LazyLock::new(|| {
     crate::protocol::direct::outbound::register(&mut registry);
     #[cfg(feature = "outbound-drop")]
     crate::protocol::drop::register(&mut registry);
+    #[cfg(feature = "outbound-pass")]
+    crate::protocol::pass::register(&mut registry);
     #[cfg(feature = "outbound-redirect")]
     crate::protocol::redirect::outbound::register(&mut registry);
     #[cfg(feature = "outbound-socks")]

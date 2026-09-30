@@ -37,6 +37,10 @@ pub struct OutboundManager {
     #[cfg(feature = "outbound-select")]
     selectors: Arc<super::Selectors>,
     default_handler: Option<String>,
+    /// Where a connection goes when every rule, and `final`, passes it on
+    /// (Mihomo's DIRECT): built when there is a `pass` outbound.
+    #[cfg(feature = "outbound-pass")]
+    direct: Option<AnyOutboundHandler>,
     /// The tasks each outbound's handler spawned.
     abort_handles: HashMap<String, Vec<AbortHandle>>,
     /// The outbounds each outbound is built on.
@@ -207,6 +211,8 @@ impl OutboundManager {
                 .first()
                 .map(|o| o.tag.clone())
                 .or_else(|| endpoints.first().map(|e| e.tag.clone())),
+            #[cfg(feature = "outbound-pass")]
+            direct: None,
             abort_handles: HashMap::new(),
             dependencies: HashMap::new(),
             endpoints: HashMap::new(),
@@ -288,6 +294,10 @@ impl OutboundManager {
         #[cfg(feature = "outbound-select")]
         {
             next.selectors = Arc::new(selectors);
+        }
+        #[cfg(feature = "outbound-pass")]
+        if next.direct.is_none() && next.handlers.values().any(|h| h.is_pass()) {
+            next.direct = Some(implicit_direct(dial_defaults)?);
         }
         Ok(next)
     }
@@ -454,6 +464,18 @@ impl OutboundManager {
         self.default_handler.clone()
     }
 
+    /// The handler of the outbound `tag`, or with `None`, the implicit
+    /// direct connections go to when every rule and `final` pass them on.
+    pub fn handler(&self, tag: Option<&str>) -> Option<AnyOutboundHandler> {
+        match tag {
+            Some(tag) => self.get(tag),
+            #[cfg(feature = "outbound-pass")]
+            None => self.direct.clone(),
+            #[cfg(not(feature = "outbound-pass"))]
+            None => None,
+        }
+    }
+
     pub fn handlers(&self) -> Handlers<'_> {
         Handlers {
             inner: self.handlers.values(),
@@ -463,6 +485,65 @@ impl OutboundManager {
     #[cfg(feature = "outbound-select")]
     pub fn get_selector(&self, tag: &str) -> Option<Arc<RwLock<OutboundSelector>>> {
         self.selectors.get(tag).map(Clone::clone)
+    }
+}
+
+/// The tag the implicit direct goes by in logs and connection lists, as
+/// Mihomo's.
+#[cfg(feature = "outbound-pass")]
+pub const IMPLICIT_DIRECT: &str = "DIRECT";
+
+/// The implicit direct, which dials with the instance's defaults.
+#[cfg(feature = "outbound-pass")]
+fn implicit_direct(dial_defaults: &DialDefaults) -> Result<AnyOutboundHandler> {
+    use crate::protocol::direct::outbound::{DatagramHandler, StreamHandler};
+    let dialer = dial_defaults.dialer(&Default::default(), None)?;
+    Ok(crate::adapter::outbound::HandlerBuilder::default()
+        .tag(IMPLICIT_DIRECT.to_owned())
+        .stream_handler(Arc::new(StreamHandler(dialer.clone())))
+        .datagram_handler(Arc::new(DatagramHandler(dialer)))
+        .is_direct(true)
+        .build())
+}
+
+/// Tells the router which outbounds pass a connection on: a `pass`
+/// outbound, or a group of those that pick one member at a time
+/// (`selector`, `urltest`, `fallback`, `network`) whose pick, followed
+/// down, is one. Every other outbound is looked up once and does not.
+impl crate::app::router::Passes for OutboundManager {
+    async fn passes(&self, tag: &str) -> bool {
+        let Some(handler) = self.handlers.get(tag) else {
+            return false;
+        };
+        if handler.is_pass() {
+            return true;
+        }
+        #[cfg(feature = "outbound-select")]
+        {
+            let mut group = match self.selectors.get(tag) {
+                Some(selector) => selector.clone(),
+                None => return false,
+            };
+            // Groups are built on the members they pick, so they cannot
+            // pick in a circle; one pick per group is the most there are.
+            for _ in 0..self.selectors.len() {
+                let Some(member) = group.read().await.selected_member() else {
+                    return false;
+                };
+                if member.handler.is_pass() {
+                    return true;
+                }
+                // A provider's member is no group.
+                if member.key.source.is_some() {
+                    return false;
+                }
+                group = match self.selectors.get(&*member.key.name) {
+                    Some(selector) => selector.clone(),
+                    None => return false,
+                };
+            }
+        }
+        false
     }
 }
 
@@ -575,5 +656,93 @@ mod tests {
         );
         let err = first.without_outbound("wg").err().unwrap();
         assert!(err.to_string().contains("endpoint"), "{}", err);
+    }
+}
+
+#[cfg(all(
+    test,
+    feature = "outbound-pass",
+    feature = "outbound-urltest",
+    feature = "outbound-fallback"
+))]
+mod pass_tests {
+    use super::*;
+    use crate::app::router::Passes;
+    use crate::config::Config;
+
+    fn build(outbounds: &str) -> OutboundManager {
+        let config = Config::from_json(&format!(
+            r#"{{ "outbounds": [{{ "type": "direct", "tag": "a" }},
+                                 {{ "type": "pass", "tag": "PASS" }}, {}] }}"#,
+            outbounds
+        ))
+        .unwrap();
+        let dial = DialDefaults::default();
+        let dns = crate::app::dns::DnsClient::new(
+            &config.dns,
+            Arc::new(dial.clone()),
+            &Default::default(),
+        )
+        .unwrap()
+        .into_shared();
+        OutboundManager::new(&config.outbounds, &dial, &RuntimeEnv::default(), dns).unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_group_passes_while_its_pick_followed_down_is_pass() {
+        let om = build(
+            r#"{ "type": "selector", "tag": "s", "outbounds": ["PASS", "a"] },
+               { "type": "selector", "tag": "outer", "outbounds": ["s", "a"] },
+               { "type": "urltest", "tag": "u", "outbounds": ["PASS", "a"] },
+               { "type": "fallback", "tag": "f", "outbounds": ["PASS", "a"] },
+               { "type": "urltest", "tag": "only", "outbounds": ["PASS"] }"#,
+        );
+        assert!(om.passes("PASS").await);
+        assert!(!om.passes("a").await);
+        assert!(!om.passes("nothing").await);
+        assert!(om.passes("s").await);
+        assert!(om.passes("outer").await);
+        // Tested groups never take PASS while another member may be up.
+        assert!(!om.passes("u").await);
+        assert!(!om.passes("f").await);
+        assert!(om.passes("only").await);
+
+        om.get_selector("s")
+            .unwrap()
+            .write()
+            .await
+            .set_selected("a")
+            .unwrap();
+        assert!(!om.passes("s").await);
+        assert!(!om.passes("outer").await);
+    }
+
+    #[tokio::test]
+    async fn pass_fails_what_is_dialled_and_the_implicit_direct_is_built() {
+        let om = build(r#"{ "type": "selector", "tag": "s", "outbounds": ["PASS", "a"] }"#);
+        let pass = om.get("PASS").unwrap();
+        assert!(pass.is_pass());
+        let sess = crate::session::Session::default();
+        let err = pass
+            .stream()
+            .unwrap()
+            .handle(&sess, None, None)
+            .await
+            .err()
+            .unwrap();
+        assert_eq!(err.to_string(), "routed to PASS");
+        let err = pass
+            .datagram()
+            .unwrap()
+            .handle(&sess, None)
+            .await
+            .err()
+            .unwrap();
+        assert_eq!(err.to_string(), "routed to PASS");
+
+        let direct = om.handler(None).unwrap();
+        assert_eq!(direct.tag(), IMPLICIT_DIRECT);
+        assert!(direct.is_direct());
+        assert!(om.get(IMPLICIT_DIRECT).is_none());
     }
 }

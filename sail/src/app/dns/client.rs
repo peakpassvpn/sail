@@ -445,6 +445,11 @@ impl DnsClient {
             .outbound_for(&mut sess)
             .await
             .map_err(|e| anyhow!("routing {}: {}", addr, e))?;
+        // Every rule and `final` passed it on: direct, as the server dials.
+        let Some(outbound) = outbound else {
+            debug!("dns server at {} routed direct", addr);
+            return Ok(None);
+        };
         debug!("dns server at {} routed to [{}]", addr, outbound);
         Ok(Some((outbound, sess)))
     }

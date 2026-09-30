@@ -106,7 +106,9 @@ impl Checker {
         self.latencies.clone()
     }
 
-    /// Whether `member` passed its last test, or was not tested yet.
+    /// Whether `member` passed its last test, or was not tested yet. A
+    /// `pass` outbound is never up, see `Snapshot::first_up`; this goes by
+    /// the tests only.
     #[cfg(any(feature = "outbound-load-balance", feature = "outbound-fallback"))]
     pub fn is_up(&self, member: &MemberKey) -> bool {
         self.latencies
@@ -157,6 +159,11 @@ impl Checker {
             .iter()
             .map(|m| &m.handler)
             .map(|member| async move {
+                // A pass outbound fails any connection: it is down, and
+                // not tested.
+                if member.is_pass() {
+                    return None;
+                }
                 match tokio::time::timeout(
                     self.timeout,
                     self.probe.run(self.dns_client.clone(), member),

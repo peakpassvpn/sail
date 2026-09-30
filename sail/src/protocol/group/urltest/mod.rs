@@ -139,8 +139,7 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
     // The first member until the first tests are done.
     let first = members
         .load()
-        .members
-        .first()
+        .first_up()
         .map(|m| m.key.clone())
         .unwrap_or_else(|| MemberKey::outbound(""));
     let selected = Arc::new(Selection::new(&first.name, first.clone()));

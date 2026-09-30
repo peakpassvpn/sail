@@ -10,6 +10,7 @@ pub struct Handler {
     stream_handler: Option<AnyOutboundStreamHandler>,
     datagram_handler: Option<AnyOutboundDatagramHandler>,
     is_direct: bool,
+    is_pass: bool,
 }
 
 impl Handler {
@@ -18,12 +19,14 @@ impl Handler {
         stream_handler: Option<AnyOutboundStreamHandler>,
         datagram_handler: Option<AnyOutboundDatagramHandler>,
         is_direct: bool,
+        is_pass: bool,
     ) -> Arc<Self> {
         Arc::new(Handler {
             tag,
             stream_handler,
             datagram_handler,
             is_direct,
+            is_pass,
         })
     }
 }
@@ -46,6 +49,10 @@ impl OutboundHandler for Handler {
     fn is_direct(&self) -> bool {
         self.is_direct
     }
+
+    fn is_pass(&self) -> bool {
+        self.is_pass
+    }
 }
 
 impl Tag for Handler {
@@ -59,6 +66,7 @@ pub struct HandlerBuilder {
     stream_handler: Option<AnyOutboundStreamHandler>,
     datagram_handler: Option<AnyOutboundDatagramHandler>,
     is_direct: bool,
+    is_pass: bool,
 }
 
 impl HandlerBuilder {
@@ -68,6 +76,7 @@ impl HandlerBuilder {
             stream_handler: None,
             datagram_handler: None,
             is_direct: false,
+            is_pass: false,
         }
     }
 
@@ -91,12 +100,19 @@ impl HandlerBuilder {
         self
     }
 
+    /// Marks a `pass` outbound, see `OutboundHandler::is_pass`.
+    pub fn is_pass(mut self, v: bool) -> Self {
+        self.is_pass = v;
+        self
+    }
+
     pub fn build(self) -> AnyOutboundHandler {
         Handler::new(
             self.tag,
             self.stream_handler,
             self.datagram_handler,
             self.is_direct,
+            self.is_pass,
         )
     }
 }

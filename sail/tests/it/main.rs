@@ -59,6 +59,7 @@ mod test_reload;
 mod test_route_actions;
 mod test_route_network;
 mod test_route_on_demand;
+mod test_route_pass;
 mod test_route_sing_box;
 mod test_rule_set;
 mod test_shadowsocks;

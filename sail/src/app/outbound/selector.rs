@@ -8,7 +8,7 @@ use tracing::warn;
 
 use anyhow::{anyhow, Result};
 
-use crate::protocol::group::members::{MemberKey, MemberLatencies, Members, Snapshot};
+use crate::protocol::group::members::{Member, MemberKey, MemberLatencies, Members, Snapshot};
 use crate::runtime::cache_file::CacheFile;
 
 /// Which member a group sends its connections to, shared by the group's
@@ -174,6 +174,19 @@ impl OutboundSelector {
             .pick(&snapshot)
             .map(|(i, _)| snapshot.members[i].key.name.to_string())
             .unwrap_or_default()
+    }
+
+    /// The member connections go to, as `get_selected_tag` names it.
+    pub fn selected_member(&self) -> Option<Member> {
+        let snapshot = self.members.load();
+        let member = match &self.selected_by {
+            SelectedBy::State(now) => snapshot.find(&now()),
+            _ => self
+                .selected
+                .pick(&snapshot)
+                .map(|(i, _)| &snapshot.members[i]),
+        };
+        member.cloned()
     }
 
     /// Each member with its latency, for a group that measures them.

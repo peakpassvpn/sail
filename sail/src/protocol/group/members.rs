@@ -56,6 +56,17 @@ impl Snapshot {
     pub fn find(&self, name: &str) -> Option<&Member> {
         self.members.iter().find(|m| &*m.key.name == name)
     }
+
+    /// The member a group that tests its members takes until the first
+    /// tests are done: the first not a `pass` outbound, which is never
+    /// tested and counts as down; the first when all are.
+    #[cfg(any(feature = "outbound-urltest", feature = "outbound-fallback"))]
+    pub fn first_up(&self) -> Option<&Member> {
+        self.members
+            .iter()
+            .find(|m| !m.handler.is_pass())
+            .or(self.members.first())
+    }
 }
 
 /// The latency of each member, as the last check measured it; `None`

@@ -85,6 +85,7 @@ pub fn mihomo_type(protocol: &str) -> &'static str {
     match protocol {
         "direct" => "Direct",
         "block" => "Reject",
+        "pass" => "Pass",
         "shadowsocks" => "Shadowsocks",
         "socks" => "Socks5",
         "http" => "Http",

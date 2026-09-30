@@ -26,6 +26,8 @@ pub mod mixed;
 pub mod mptp;
 #[cfg(all(feature = "inbound-nf", windows))]
 pub mod nf;
+#[cfg(feature = "outbound-pass")]
+pub mod pass;
 #[cfg(any(feature = "inbound-redirect", feature = "outbound-redirect"))]
 pub mod redirect;
 #[cfg(any(feature = "inbound-shadowsocks", feature = "outbound-shadowsocks"))]

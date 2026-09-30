@@ -60,6 +60,7 @@ all-endpoints = [
     # outbounds
     "outbound-direct",
     "outbound-drop",
+    "outbound-pass",
     "outbound-redirect",
     "outbound-shadowsocks",
     "outbound-obfs",
@@ -118,6 +119,9 @@ outbound-provider = ["config-clash", "rule-set"]
 # Outbounds
 outbound-direct = []
 outbound-drop = []
+# Mihomo's PASS: a group's pick that hands a connection to the next rule.
+# Where every rule and `final` pass, the connection goes direct.
+outbound-pass = ["outbound-direct"]
 outbound-redirect = []
 outbound-shadowsocks = ["aead", "hkdf", "sha-1", "md-5", "percent-encoding", "tokio-util", "blake3", "base64"]
 outbound-obfs = ["base64", "memchr"]

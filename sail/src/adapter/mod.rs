@@ -53,6 +53,11 @@ pub trait OutboundHandler: BaseHandler {
     fn is_direct(&self) -> bool {
         false
     }
+    /// Whether it is a `pass` outbound: a rule that routes to it, or to a
+    /// group whose pick it is, hands the connection on to the next rule.
+    fn is_pass(&self) -> bool {
+        false
+    }
 }
 
 pub type AnyOutboundHandler = Arc<dyn OutboundHandler>;

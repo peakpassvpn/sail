@@ -31,12 +31,13 @@ where
 
 use crate::app::SyncStatManager;
 
-use super::router::{Decision, NoSniffer, PreMatch, SniffAction, Sniffer};
+use super::router::{Decision, NoSniffer, Passes, PreMatch, SniffAction, Sniffer};
 
 /// Where routing sends a connection.
 enum Routed {
-    /// Through this outbound.
-    Outbound(String),
+    /// Through this outbound; `None`, through the implicit direct, where
+    /// every rule and `final` passed the connection on.
+    Outbound(Option<String>),
     /// To the DNS client, which answers the queries it carries.
     HijackDns,
     /// Nowhere, and it is left unanswered.
@@ -418,17 +419,13 @@ impl Dispatcher {
             }
         };
 
-        sess.outbound_tag = outbound.clone();
-        // The groups on the way record the members they take here.
-        sess.chain = Default::default();
-
-        let h = if let Some(h) = self.outbound_manager.load().get(&outbound) {
-            h
-        } else {
-            // FIXME use  the default handler
+        let Some(h) = self.outbound_manager.load().handler(outbound.as_deref()) else {
             warn!("handler not found");
             return;
         };
+        sess.outbound_tag = h.tag().clone();
+        // The groups on the way record the members they take here.
+        sess.chain = Default::default();
 
         let handshake_start = tokio::time::Instant::now();
         let stream =
@@ -518,7 +515,7 @@ impl Dispatcher {
 
     pub async fn dispatch_stream_outbound(&self, mut sess: Session) -> io::Result<AnyStream> {
         match self.route(&mut sess, &mut NoSniffer).await? {
-            Routed::Outbound(outbound) => self.stream_via(&outbound, sess).await,
+            Routed::Outbound(outbound) => self.stream_through(outbound.as_deref(), sess).await,
             Routed::HijackDns | Routed::Drop => Err(io::Error::new(
                 io::ErrorKind::ConnectionRefused,
                 "not routed to an outbound",
@@ -527,8 +524,10 @@ impl Dispatcher {
     }
 
     /// The outbound the rules pick for `sess`, which is not dialled: for
-    /// a DNS server that respects the rules. An error when they pick none.
-    pub async fn outbound_for(&self, sess: &mut Session) -> io::Result<String> {
+    /// a DNS server that respects the rules; `None` when every rule and
+    /// `final` passed it on, and it goes direct. An error when they pick
+    /// none.
+    pub async fn outbound_for(&self, sess: &mut Session) -> io::Result<Option<String>> {
         match self.route(sess, &mut NoSniffer).await? {
             Routed::Outbound(outbound) => Ok(outbound),
             Routed::HijackDns | Routed::Drop => Err(io::Error::new(
@@ -551,14 +550,18 @@ impl Dispatcher {
 
     /// A stream to the session's destination through the outbound `tag`,
     /// whatever the rules say: for a DNS server's `detour`.
-    pub async fn stream_via(&self, tag: &str, mut sess: Session) -> io::Result<AnyStream> {
-        sess.outbound_tag = tag.to_string();
+    pub async fn stream_via(&self, tag: &str, sess: Session) -> io::Result<AnyStream> {
+        self.stream_through(Some(tag), sess).await
+    }
+
+    /// A stream to the session's destination through the outbound `tag`,
+    /// or the implicit direct.
+    async fn stream_through(&self, tag: Option<&str>, mut sess: Session) -> io::Result<AnyStream> {
+        let h = self.outbound_manager.load().handler(tag).ok_or_else(|| {
+            io::Error::other(format!("outbound [{}] not found", tag.unwrap_or_default()))
+        })?;
+        sess.outbound_tag = h.tag().clone();
         sess.chain = Default::default();
-        let h = self
-            .outbound_manager
-            .load()
-            .get(tag)
-            .ok_or_else(|| io::Error::other(format!("outbound [{}] not found", tag)))?;
         let stream =
             crate::net::connect_stream_outbound(&sess, self.dns_client.clone(), &h).await?;
         h.stream()?.handle(&sess, None, stream).await
@@ -630,16 +633,13 @@ impl Dispatcher {
             }
         };
 
-        sess.outbound_tag = outbound.clone();
-        // The groups on the way record the members they take here.
-        sess.chain = Default::default();
-
-        let h = if let Some(h) = self.outbound_manager.load().get(&outbound) {
-            h
-        } else {
+        let Some(h) = self.outbound_manager.load().handler(outbound.as_deref()) else {
             warn!("handler not found");
             return Err(io::Error::other("handler not found"));
         };
+        sess.outbound_tag = h.tag().clone();
+        // The groups on the way record the members they take here.
+        sess.chain = Default::default();
 
         let handshake_start = tokio::time::Instant::now();
 
@@ -777,25 +777,35 @@ impl Dispatcher {
             return PreMatch::Proceed;
         }
         self.reverse_map(sess).await;
-        self.router.load_full().pre_match(sess).await
+        let outbounds = self.outbound_manager.load_full();
+        self.router.load_full().pre_match(sess, &*outbounds).await
     }
 
     /// Where `sess` goes, as the rules decide; an error when a rule rejects
     /// it.
     async fn route(&self, sess: &mut Session, sniffer: &mut dyn Sniffer) -> io::Result<Routed> {
+        let outbounds = self.outbound_manager.load_full();
         let decision = self
             .router
             .load_full()
-            .pick_route(sess, sniffer)
+            .pick_route(sess, sniffer, &*outbounds)
             .await
             .map_err(|e| io::Error::other(format!("pick route: {}", e)))?;
         let tag = match decision {
             Decision::Route(Some(tag)) => tag,
-            Decision::Route(None) => self
-                .outbound_manager
-                .load()
-                .default_handler()
-                .ok_or_else(|| io::Error::other("no outbound found"))?,
+            // The default outbound, no `final` naming another, passes as
+            // `final` would.
+            Decision::Route(None) => {
+                let tag = outbounds
+                    .default_handler()
+                    .ok_or_else(|| io::Error::other("no outbound found"))?;
+                if outbounds.passes(&tag).await {
+                    debug!("the default outbound [{}] passes: direct", tag);
+                    return Ok(Routed::Outbound(None));
+                }
+                tag
+            }
+            Decision::Direct => return Ok(Routed::Outbound(None)),
             Decision::Reject { drop: false } => {
                 return Err(io::Error::new(
                     io::ErrorKind::ConnectionRefused,
@@ -809,7 +819,7 @@ impl Dispatcher {
             "picked route out={} src={} dst={}",
             tag, &sess.source, &sess.destination
         );
-        Ok(Routed::Outbound(tag))
+        Ok(Routed::Outbound(Some(tag)))
     }
 
     pub async fn is_direct_outbound(&self, tag: &str) -> bool {

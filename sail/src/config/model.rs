@@ -1625,9 +1625,11 @@ impl OutboundProvider {
                     }
                     if GROUP_PROTOCOLS.contains(&outbound.protocol.as_str())
                         || outbound.protocol == "plugin"
+                        || outbound.protocol == "pass"
                     {
                         return Err(anyhow!(
-                            "outbounds[{}]: a group or a plugin is not a provider's outbound",
+                            "outbounds[{}]: a group, a plugin or a pass outbound is not a \
+                             provider's outbound",
                             i
                         ));
                     }
@@ -2860,6 +2862,7 @@ impl Config {
                     .map(|e| (e.tag.as_str(), e.protocol.as_str())),
             )
             .collect();
+        self.check_pass(&protocols)?;
         let mut users: HashMap<&str, Vec<String>> = HashMap::new();
         for group in self
             .outbounds
@@ -2909,6 +2912,108 @@ impl Config {
         }
         Ok(())
     }
+}
+
+impl Config {
+    /// Where a `pass` outbound may be: a rule's outbound, or a member of
+    /// a group that picks one member at a time, which the rules follow to
+    /// it. `final` has no rule after it to pass to, nor the default
+    /// outbound, which is `final` when there is none; and `load-balance`
+    /// and `smart` pick a member for each connection as it is dialled,
+    /// after the rules, so they cannot pass it on.
+    fn check_pass(&self, protocols: &HashMap<&str, &str>) -> Result<()> {
+        let is_pass = |tag: &str| protocols.get(tag) == Some(&"pass");
+        match &self.route.final_outbound {
+            Some(tag) if is_pass(tag) => {
+                return Err(anyhow!(
+                    "route.final: [{}] is a pass outbound, and no rule comes after final",
+                    tag
+                ));
+            }
+            None if self.outbounds.first().is_some_and(|o| o.protocol == "pass") => {
+                return Err(anyhow!(
+                    "outbounds[0]: [{}] is a pass outbound, and the first outbound is final \
+                     when route.final is not set",
+                    self.outbounds[0].tag
+                ));
+            }
+            _ => {}
+        }
+        let groups: HashMap<&str, &Outbound> = self
+            .outbounds
+            .iter()
+            .filter(|o| GROUP_PROTOCOLS.contains(&o.protocol.as_str()))
+            .map(|o| (o.tag.as_str(), o))
+            .collect();
+        // Whether `tag` is a pass outbound, or a group that picks one
+        // member at a time and can pick one, followed down.
+        fn can_pass<'a>(
+            tag: &'a str,
+            protocols: &HashMap<&str, &str>,
+            groups: &HashMap<&str, &'a Outbound>,
+            seen: &mut Vec<&'a str>,
+        ) -> bool {
+            match protocols.get(tag) {
+                Some(&"pass") => true,
+                Some(&("selector" | "urltest" | "fallback" | "network"))
+                    if !seen.contains(&tag) =>
+                {
+                    seen.push(tag);
+                    group_members(groups[tag])
+                        .into_iter()
+                        .any(|(_, member)| can_pass(member, protocols, groups, seen))
+                }
+                _ => false,
+            }
+        }
+        for group in self
+            .outbounds
+            .iter()
+            .filter(|o| matches!(o.protocol.as_str(), "load-balance" | "smart"))
+        {
+            for (field, member) in group_members(group) {
+                if can_pass(member, protocols, &groups, &mut Vec::new()) {
+                    return Err(anyhow!(
+                        "[{}] outbound: {}: [{}] {}; PASS is not supported in load-balance/smart",
+                        group.tag,
+                        field,
+                        member,
+                        if is_pass(member) {
+                            "is a pass outbound"
+                        } else {
+                            "can pick a pass outbound"
+                        }
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+/// The members of the group `group`, by tag, each with the field that
+/// names it: `outbounds[i]` and `empty_fallback`, or a network group's
+/// `branches[i].outbound` and `default`.
+fn group_members(group: &Outbound) -> Vec<(String, &str)> {
+    let options = &group.options;
+    let mut members: Vec<(String, Option<&serde_json::Value>)> = Vec::new();
+    if group.protocol == "network" {
+        let branches = options.get("branches").and_then(|b| b.as_array());
+        for (i, branch) in branches.into_iter().flatten().enumerate() {
+            members.push((format!("branches[{}].outbound", i), branch.get("outbound")));
+        }
+        members.push(("default".to_string(), options.get("default")));
+    } else {
+        let outbounds = options.get("outbounds").and_then(|o| o.as_array());
+        for (i, member) in outbounds.into_iter().flatten().enumerate() {
+            members.push((format!("outbounds[{}]", i), Some(member)));
+        }
+        members.push(("empty_fallback".to_string(), options.get("empty_fallback")));
+    }
+    members
+        .into_iter()
+        .filter_map(|(field, v)| Some((field, v?.as_str()?)))
+        .collect()
 }
 
 /// Parses a duration as sing-box writes them: a sequence of numbers with
@@ -3476,6 +3581,72 @@ mod tests {
         }
     }
 
+    /// PASS has no rule after `final` to pass to, and load-balance and
+    /// smart pick after the rules, where nothing can pass.
+    #[test]
+    fn a_pass_outbound_where_nothing_can_pass_is_an_error() {
+        let pass = r#"{ "type": "pass", "tag": "PASS" }"#;
+        let with = |outbounds: &str, route: &str| {
+            format!(
+                r#"{{ "outbounds": [{{ "type": "direct", "tag": "d" }}, {}, {}],
+                      "route": {{ {} }} }}"#,
+                pass, outbounds, route
+            )
+        };
+        for (json, message) in [
+            (
+                with(r#"{ "type": "direct", "tag": "x" }"#, r#""final": "PASS""#),
+                "route.final: [PASS] is a pass outbound, and no rule comes after final",
+            ),
+            (
+                format!(r#"{{ "outbounds": [{}, {{ "type": "direct" }}] }}"#, pass),
+                "outbounds[0]: [PASS] is a pass outbound, and the first outbound is final when \
+                 route.final is not set",
+            ),
+            (
+                with(
+                    r#"{ "type": "load-balance", "tag": "lb", "outbounds": ["d", "PASS"] }"#,
+                    "",
+                ),
+                "[lb] outbound: outbounds[1]: [PASS] is a pass outbound; PASS is not supported \
+                 in load-balance/smart",
+            ),
+            (
+                with(
+                    r#"{ "type": "selector", "tag": "s", "outbounds": ["d", "u"] },
+                       { "type": "urltest", "tag": "u", "outbounds": ["PASS"] },
+                       { "type": "smart", "tag": "sm", "outbounds": ["d", "s"] }"#,
+                    "",
+                ),
+                "[sm] outbound: outbounds[1]: [s] can pick a pass outbound; PASS is not \
+                 supported in load-balance/smart",
+            ),
+            (
+                format!(
+                    r#"{{ "outbounds": [{{ "type": "direct", "tag": "d" }}],
+                          "outbound_providers": [{{ "type": "inline", "tag": "p",
+                              "outbounds": [{}] }}] }}"#,
+                    pass
+                ),
+                "outbound_providers[0]: outbounds[0]: a group, a plugin or a pass outbound is \
+                 not a provider's outbound",
+            ),
+        ]
+        .into_iter()
+        .filter(|(json, _)| cfg!(feature = "outbound-provider") || !json.contains("providers"))
+        {
+            let err = Config::from_json(&json).unwrap_err();
+            assert_eq!(err.to_string(), message, "{}", json);
+        }
+        // A rule's outbound, final through a group, a group's member.
+        Config::from_json(&with(
+            r#"{ "type": "selector", "tag": "s", "outbounds": ["PASS", "d"] },
+               { "type": "load-balance", "tag": "lb", "outbounds": ["d"] }"#,
+            r#""rules": [{ "port": 1, "outbound": "PASS" }], "final": "s""#,
+        ))
+        .unwrap();
+    }
+
     #[test]
     fn zero_timeouts_and_capacity_and_env_are_errors() {
         for (json, field) in [
@@ -3578,7 +3749,7 @@ mod tests {
                 r#"{ "type": "inline", "tag": "p",
                   "outbounds": [{ "type": "selector", "tag": "a", "outbounds": ["d"] }] }"#,
                 r#"{ "type": "direct", "tag": "g" }"#,
-                "outbounds[0]: a group or a plugin is not a provider's outbound",
+                "outbounds[0]: a group, a plugin or a pass outbound is not a provider's outbound",
             ),
             (
                 r#"{ "type": "remote", "tag": "p", "url": "https://a", "detour": "x" }"#,

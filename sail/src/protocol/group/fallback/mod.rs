@@ -124,8 +124,7 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
     // The first member until the first tests are done.
     let first = members
         .load()
-        .members
-        .first()
+        .first_up()
         .map(|m| m.key.clone())
         .unwrap_or_else(|| MemberKey::outbound(""));
     let selected = Arc::new(Selection::new(&first.name, first.clone()));
@@ -165,7 +164,11 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
             // The first member up in the new order, new ones untested and
             // so taken to be up.
             let current = selected.get();
-            if let Some(next) = snapshot.members.iter().find(|m| checker.is_up(&m.key)) {
+            if let Some(next) = snapshot
+                .members
+                .iter()
+                .find(|m| !m.handler.is_pass() && checker.is_up(&m.key))
+            {
                 if next.key != *current {
                     debug!(
                         "[{}] switches from [{}] to [{}], as its members changed",
@@ -238,7 +241,8 @@ impl Group {
             return Err(io::Error::other("no outbound to try"));
         };
         let order = candidates(selected, snapshot.members.len(), |i| {
-            self.checker.is_up(&snapshot.members[i].key)
+            let member = &snapshot.members[i];
+            !member.handler.is_pass() && self.checker.is_up(&member.key)
         });
         let mut last_error = None;
         for (n, &i) in order.iter().enumerate() {
