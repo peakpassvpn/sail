@@ -48,6 +48,12 @@ pub struct RunnerConfig {
     pub tcp: TcpTableConfig,
     pub timer_tick_ms: u64,
     pub debug_trace_capacity: usize,
+    /// How many packets one step sends, and how many it receives, while the
+    /// device takes or has them at once: a device batch of one packet (a
+    /// mobile TUN) would otherwise cost one pass of the caller's loop per
+    /// packet. Waiting stays at one batch. One, the default, is one batch a
+    /// step.
+    pub packets_per_step: usize,
 }
 
 impl Default for RunnerConfig {
@@ -71,6 +77,7 @@ impl Default for RunnerConfig {
             tcp: TcpTableConfig::default(),
             timer_tick_ms: 10,
             debug_trace_capacity: 0,
+            packets_per_step: 1,
         }
     }
 }
@@ -127,6 +134,9 @@ impl RunnerConfig {
         }
         if self.timer_tick_ms == 0 {
             return Err(RunnerError::InvalidConfig("timer tick must be non-zero"));
+        }
+        if self.packets_per_step == 0 {
+            return Err(RunnerError::InvalidConfig("packets per step must be non-zero"));
         }
         if self.debug_trace_capacity > MAX_DEBUG_TRACE_EVENTS {
             return Err(RunnerError::InvalidConfig(
@@ -271,6 +281,7 @@ pub struct SingleShardRunner<I> {
     tcp_timer_ids: HashMap<(TcpFlowToken, TimerEvent), (TimerId, u64)>,
     next_timer_serial: u64,
     timer_tick_ms: u64,
+    packets_per_step: usize,
     state: RunnerState,
     last_pressure: PressureLevel,
     mtu: usize,
@@ -825,6 +836,7 @@ impl<I: PacketIo> SingleShardRunner<I> {
             ),
             counters: RunnerCounters::default(),
             trace: DebugTrace::new(config.debug_trace_capacity),
+            packets_per_step: config.packets_per_step,
         })
     }
 
@@ -985,6 +997,17 @@ impl<I: PacketIo> SingleShardRunner<I> {
             return Ok(outcome);
         }
         self.flush_tx(&mut outcome).await?;
+        while !outcome.would_block
+            && outcome.sent_packets < self.packets_per_step
+            && (!self.tx.is_empty() || !self.tx_pending.is_empty())
+        {
+            let before = outcome.sent_packets;
+            if poll_once(self.flush_tx(&mut outcome)).transpose()?.is_none()
+                || outcome.sent_packets == before
+            {
+                break;
+            }
+        }
         if outcome.would_block || !self.tx.is_empty() {
             return Ok(outcome);
         }
@@ -1001,6 +1024,32 @@ impl<I: PacketIo> SingleShardRunner<I> {
             }
             Err(error) => return self.fail(error),
         };
+        self.take_received(&mut received, reported, now_ms, &mut outcome)?;
+        // More while the device has them at once, as sending does.
+        while outcome.received_packets < self.packets_per_step {
+            let Some(result) = poll_once(self.recv_batch(&mut received)) else {
+                break;
+            };
+            match result {
+                Ok(reported) => {
+                    self.take_received(&mut received, reported, now_ms, &mut outcome)?;
+                }
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => break,
+                Err(error) => return self.fail(error),
+            }
+        }
+        self.process_scheduled(now_ms, &mut outcome)?;
+        Ok(outcome)
+    }
+
+    /// Budgets and queues one batch the device returned.
+    fn take_received(
+        &mut self,
+        received: &mut PacketBatch,
+        reported: usize,
+        now_ms: u64,
+        outcome: &mut StepOutcome,
+    ) -> Result<(), RunnerError> {
         if reported == 0 {
             return self.fail(io::Error::from(io::ErrorKind::UnexpectedEof));
         }
@@ -1015,7 +1064,7 @@ impl<I: PacketIo> SingleShardRunner<I> {
         self.counters.rx_batch_max = self.counters.rx_batch_max.max(reported);
         self.trace
             .record(now_ms, TraceKind::RxBatch { packets: reported });
-        outcome.received_packets = reported;
+        outcome.received_packets = outcome.received_packets.saturating_add(reported);
         while let Some(packet) = received.pop_front() {
             increment_counter(&mut self.counters.rx_packets);
             self.counters.rx_bytes = self
@@ -1025,7 +1074,7 @@ impl<I: PacketIo> SingleShardRunner<I> {
             match self.budget_and_enqueue(&packet, now_ms) {
                 Ok(EnqueueDisposition::Queued | EnqueueDisposition::Consumed) => {}
                 Ok(EnqueueDisposition::Dropped(reason)) => {
-                    self.record_drop(&mut outcome, now_ms, reason);
+                    self.record_drop(outcome, now_ms, reason);
                 }
                 Err(
                     RunnerError::Wire(_)
@@ -1036,7 +1085,7 @@ impl<I: PacketIo> SingleShardRunner<I> {
                         | FragmentError::Malformed(_)
                         | FragmentError::Overlap,
                     ),
-                ) => self.record_drop(&mut outcome, now_ms, PacketDropReason::Wire),
+                ) => self.record_drop(outcome, now_ms, PacketDropReason::Wire),
                 Err(
                     RunnerError::Budget(_)
                     | RunnerError::Udp(UdpError::Budget(_))
@@ -1044,16 +1093,15 @@ impl<I: PacketIo> SingleShardRunner<I> {
                     | RunnerError::Fragment(FragmentError::Budget(_))
                     | RunnerError::RxQueueFull,
                 ) => {
-                    self.record_drop(&mut outcome, now_ms, PacketDropReason::Resource);
+                    self.record_drop(outcome, now_ms, PacketDropReason::Resource);
                 }
                 Err(RunnerError::PacketExceedsMtu | RunnerError::Tcp(_)) => {
-                    self.record_drop(&mut outcome, now_ms, PacketDropReason::Policy);
+                    self.record_drop(outcome, now_ms, PacketDropReason::Policy);
                 }
                 Err(error) => return Err(error),
             }
         }
-        self.process_scheduled(now_ms, &mut outcome)?;
-        Ok(outcome)
+        Ok(())
     }
 
     /// Queues a budgeted UDP reply for the next send pass.
@@ -1584,7 +1632,7 @@ impl<I: PacketIo> SingleShardRunner<I> {
             .counters
             .tx_bytes
             .saturating_add(u64::try_from(sent_bytes).unwrap_or(u64::MAX));
-        outcome.sent_packets = sent;
+        outcome.sent_packets = outcome.sent_packets.saturating_add(sent);
         self.trace.record(
             self.tcp_timers.now_ms(),
             TraceKind::TxBatch { packets: sent },
@@ -2126,6 +2174,17 @@ impl<I: PacketIo> SingleShardRunner<I> {
                 break;
             }
         }
+    }
+}
+
+/// Polls `future` once: its output if it is ready at once, otherwise
+/// nothing, dropping it as a cancelled step would be.
+fn poll_once<F: Future>(future: F) -> Option<F::Output> {
+    let mut future = pin!(future);
+    let mut context = std::task::Context::from_waker(std::task::Waker::noop());
+    match future.as_mut().poll(&mut context) {
+        std::task::Poll::Ready(output) => Some(output),
+        std::task::Poll::Pending => None,
     }
 }
 

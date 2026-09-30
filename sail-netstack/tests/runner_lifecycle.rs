@@ -1731,6 +1731,71 @@ fn runner_rejects_accept_overflow_and_cancels_embryonic_timer() {
     assert_eq!(sent.lock().unwrap().len(), sent_before_deadline);
 }
 
+/// A device that takes and returns one packet at a time (a mobile TUN)
+/// still has a step send and receive several while it has them at once: a
+/// step each cost one pass of the caller's loop per packet, which held a
+/// download through such a TUN to a fifth of what batching gave.
+#[test]
+fn a_step_moves_several_packets_through_a_one_packet_device() {
+    let source = SocketAddr::from((Ipv4Addr::new(10, 2, 0, 2), 40_002));
+    let destination = SocketAddr::from((Ipv4Addr::new(10, 2, 0, 1), 443));
+    let recv = Arc::new(Mutex::new(VecDeque::from([tcp_packet(
+        source,
+        destination,
+        100,
+        0,
+        TcpFlags::SYN,
+    )])));
+    let sent = Arc::new(Mutex::new(Vec::new()));
+    let io = DynamicIo {
+        recv: Arc::clone(&recv),
+        sent: Arc::clone(&sent),
+        max_batch: 1,
+    };
+    let ledger = ResourceLedger::new(BudgetProfile::Mobile.budget()).unwrap();
+    let mut config = deterministic_runner_config();
+    config.tcp.max_segment_payload_bytes = 200;
+    config.packets_per_step = 8;
+    let mut runner = SingleShardRunner::new(io, ledger, config).unwrap();
+
+    block_on(runner.step(1)).unwrap();
+    block_on(runner.step(2)).unwrap();
+    let (syn_ack, _) = last_sent_tcp(&sent);
+    let server_next = syn_ack.sequence.wrapping_add(1).get();
+    recv.lock().unwrap().push_back(tcp_packet(
+        source,
+        destination,
+        101,
+        server_next,
+        TcpFlags::ACK,
+    ));
+    let accepted = block_on(runner.step(3)).unwrap();
+    let token = match accepted.tcp_events.as_slice() {
+        [TcpEvent::Accepted(connection)] => connection.token,
+        events => panic!("unexpected TCP events: {events:?}"),
+    };
+    runner.accept_tcp(token).unwrap();
+
+    let before = sent.lock().unwrap().len();
+    for byte in 0_u8..6 {
+        runner.write_tcp(token, &[byte; 100]).unwrap();
+    }
+    assert_eq!(block_on(runner.step(4)).unwrap().sent_packets, 6);
+    assert_eq!(sent.lock().unwrap().len(), before + 6);
+
+    for acked in 1_u32..=3 {
+        recv.lock().unwrap().push_back(tcp_packet(
+            source,
+            destination,
+            101,
+            server_next.wrapping_add(200 * acked),
+            TcpFlags::ACK,
+        ));
+    }
+    assert_eq!(block_on(runner.step(5)).unwrap().received_packets, 3);
+    assert!(recv.lock().unwrap().is_empty());
+}
+
 #[test]
 fn runner_queues_multiple_sack_recovery_packets_with_batch_size_one() {
     let source = SocketAddr::from((Ipv4Addr::new(10, 2, 0, 2), 40_001));
