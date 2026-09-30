@@ -140,6 +140,8 @@ pub fn lower(
             tun.insert((*name).into(), json!(on));
         }
     }
+    // Mihomo's default: the TUN takes the routes.
+    tun.entry("auto_route").or_insert(json!(true));
     for (key, name) in SAME_LISTS {
         let list = f.strings(key)?;
         if !list.is_empty() {
@@ -216,13 +218,19 @@ pub fn lower(
     }
     // `interface-name` wins, as Mihomo's dialer looks the interface up
     // only without one.
-    if f.bool("auto-detect-interface")?.unwrap_or(false)
+    // On unless set off, as in Mihomo.
+    if f.bool("auto-detect-interface")?.unwrap_or(true)
         && !out.route.contains_key("default_interface")
     {
         out.route
             .insert("auto_detect_interface".into(), json!(true));
     }
-    let hijack = hijack(&f.strings("dns-hijack")?, &f.at("dns-hijack"), &gateways)?;
+    // Unset, every query to port 53, as Mihomo's default has it.
+    let entries = match f.has("dns-hijack") {
+        true => f.strings("dns-hijack")?,
+        false => vec!["0.0.0.0:53".to_string()],
+    };
+    let hijack = hijack(&entries, &f.at("dns-hijack"), &gateways)?;
     if let Some(fd) = f.int::<i64>("file-descriptor")?.filter(|fd| *fd > 0) {
         return Err(anyhow!(
             "{}: {}: sail does not take a device opened elsewhere yet",

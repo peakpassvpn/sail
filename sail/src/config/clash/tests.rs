@@ -2038,3 +2038,44 @@ fn the_global_client_fingerprint_is_mihomo_s_no_more() {
     );
     assert!(outbound(&config, "t").options["tls"].get("utls").is_none());
 }
+
+#[test]
+fn a_tun_takes_mihomo_s_defaults() {
+    let tun = |yaml: &str| {
+        let config = load(yaml);
+        let tun = config
+            .inbounds
+            .iter()
+            .find(|i| i.tag == "DEFAULT-TUN")
+            .expect("the TUN inbound");
+        let hijack = all_rules(&config)
+            .into_iter()
+            .find(|r| r["action"] == "hijack-dns")
+            .expect("the hijack rule");
+        (
+            serde_json::Value::Object(tun.options.clone()),
+            config.route.auto_detect_interface,
+            hijack,
+        )
+    };
+    // Unset: routes taken, the interface followed, every query to port 53
+    // answered.
+    let (o, detect, hijack) = tun("tun: { enable: true }\n");
+    assert_eq!(o["auto_route"], true);
+    assert!(detect);
+    assert_eq!(
+        hijack["rules"][1]["rules"][0],
+        serde_json::json!({ "port": [53] })
+    );
+    // Set, as set.
+    let (o, detect, hijack) = tun(
+        "tun: { enable: true, auto-route: false, auto-detect-interface: false, dns-hijack: [] }\n",
+    );
+    assert_eq!(o["auto_route"], false);
+    assert!(!detect);
+    assert!(!hijack["rules"][1]["rules"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|r| r == &serde_json::json!({ "port": [53] })));
+}
