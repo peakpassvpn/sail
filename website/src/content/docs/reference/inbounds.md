@@ -249,7 +249,7 @@ Serde: `serde (deny_unknown_fields)`
 
 [Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/shadowtls/inbound.rs)
 
-A server and port, and sing-box's dial fields, which sail does not implement here: the handshake server is dialled directly.
+A server and port, and sing-box's dial fields, which sail does not implement here: the handshake server is dialled with the instance's dial defaults.
 
 | Field | Type | Omission / flattening | Source notes |
 | --- | --- | --- | --- |

@@ -262,6 +262,17 @@ Serde: `serde (deny_unknown_fields)`
 | `server` | `String` | 必填 | — |
 | `server_port` | `u16` | 必填 | — |
 
+## PassOptions
+
+[配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/pass/mod.rs)
+
+A pass outbound has nothing to configure but its tag.
+
+Serde: `serde (deny_unknown_fields)`
+
+| 字段 | 类型 | 省略 / 展开规则 | 源码说明 |
+| --- | --- | --- | --- |
+
 ## RedirectOptions
 
 [配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/redirect/outbound/mod.rs)

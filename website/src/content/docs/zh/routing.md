@@ -51,6 +51,12 @@ Sail 从上到下评估路由规则。`route` 和 `reject` 会停止匹配；`sn
 
 兜底路径使用 `final`。没有条件的 route/reject 规则会在验证阶段被拒绝，因为它会遮蔽所有后续规则。
 
+## 跳过规则（PASS）
+
+`pass` 出站是 Sail 的扩展，对应 Mihomo 的 PASS：`{ "type": "pass", "tag": "PASS" }`。规则指向它，或者指向当前选中 PASS 的 `selector`、`urltest`、`fallback`、`network` 组（嵌套组逐层往下看）时，这条规则被跳过：它的路由选项不生效，由后面的规则决定。在 selector 里选 PASS，就能在不改配置的情况下关掉指向它的规则。`final` 经由组解析到 PASS 时，连接走直连。
+
+`final`（未设置 `final` 时为第一个出站）直接写 pass 出站属于配置错误；PASS 出现在 `load-balance` 或 `smart` 组里（包括经由嵌套组）也是配置错误。`urltest` 和 `fallback` 从不测试 PASS，并把它视为不可用。如果连接仍然到达 PASS（例如路由之后 selector 才切到 PASS），连接会失败，错误为 "routed to PASS"。
+
 ## 嗅探与解析
 
 `sniff` 可从 TCP 流开头读取 TLS SNI 或 HTTP Host；它不会解密 TLS。`resolve` 会先解析域名，让后续 IP、CIDR 或 GeoIP 规则能够匹配。应用若本地解析域名，建议使用代理远程 DNS、DNS 反向映射或提前嗅探。

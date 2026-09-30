@@ -188,7 +188,7 @@ Serde: `serde (deny_unknown_fields)`
 
 [配置定义源码](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
 
-The site REALITY imitates, dialed for every connection, with sing-box's dial fields; of which it implements the ones that bind the socket, and the connect timeout. `detour` is not among them: inbounds do not reach the outbounds.
+The site REALITY imitates, dialed for every connection, with sing-box's dial fields over the instance's defaults; of which it implements all that sail does but `detour`: inbounds do not reach the outbounds yet.
 
 Serde: `serde (deny_unknown_fields)`
 

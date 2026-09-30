@@ -66,7 +66,7 @@ Serde: `serde (untagged)`
 | 可选值 / 形态 | 源码说明 |
 | --- | --- |
 | `(String)` | — |
-| `(HttpClient)` | — |
+| `(Box < HttpClient >)` | — |
 
 ## CertificateOptions
 
@@ -634,7 +634,7 @@ Serde: `serde (remote = "Self" , deny_unknown_fields)`
 | `routing_mark` | `Option < u32 >` | Default::default() | `SO_MARK`, Linux only.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
 | `reuse_addr` | `Option < Value >` | Default::default() | Not implemented yet.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
 | `netns` | `Option < Value >` | Default::default() | Not implemented yet.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `connect_timeout` | `Option < Duration >` | Default::default() | How long a TCP connect may take, e.g. `5s`.<br/>`serde (default , with = "crate::config::model::duration" , skip_serializing_if = "Option::is_none")` |
+| `connect_timeout` | `Option < Duration >` | Default::default() | How long a TCP connect to one address may take; 5s when unset.<br/>`serde (default , with = "crate::config::model::duration" , skip_serializing_if = "Option::is_none")` |
 | `tcp_fast_open` | `Option < Value >` | Default::default() | Not implemented yet.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
 | `tcp_multi_path` | `Option < Value >` | Default::default() | Not implemented yet.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
 | `disable_tcp_keep_alive` | `bool` | Default::default() | No TCP keepalive at all.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
