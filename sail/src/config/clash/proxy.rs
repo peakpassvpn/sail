@@ -36,6 +36,7 @@ pub fn lower(doc: &mut Fields, out: &mut Lowered, warnings: &mut Vec<String>) ->
         names: Vec::new(),
         dns: HashSet::new(),
     };
+    let mut derived = Vec::new();
     for (i, node) in doc.list("proxies")?.into_iter().enumerate() {
         let f = Fields::of(node, &format!("proxies[{}]", i))?;
         let proxy = Proxy::read(f, fingerprint.as_deref(), warnings)?;
@@ -59,7 +60,18 @@ pub fn lower(doc: &mut Fields, out: &mut Lowered, warnings: &mut Vec<String>) ->
                 proxies.dns.insert(proxy.name.clone());
             }
         }
+        derived.extend(proxy.derived);
         proxies.names.push(proxy.name);
+    }
+    for outbound in derived {
+        let tag = outbound["tag"].as_str().unwrap_or_default();
+        if proxies.names.iter().any(|n| n == tag) {
+            return Err(anyhow!(
+                "proxies: {:?} is the name of the outbound sail makes for another proxy's plugin",
+                tag
+            ));
+        }
+        out.outbounds.push(outbound);
     }
     Ok(proxies)
 }
@@ -69,6 +81,11 @@ pub fn lower(doc: &mut Fields, out: &mut Lowered, warnings: &mut Vec<String>) ->
 #[cfg(feature = "outbound-provider")]
 pub(super) fn lower_one(f: Fields, warnings: &mut Vec<String>) -> Result<Value> {
     let proxy = Proxy::read(f, None, warnings)?;
+    if !proxy.derived.is_empty() {
+        return Err(anyhow!(
+            "the shadow-tls plugin: sail does not implement it in a provider yet"
+        ));
+    }
     proxy
         .outbound
         .ok_or_else(|| anyhow!("a dns proxy: sail does not implement it in a provider"))
@@ -79,6 +96,8 @@ struct Proxy {
     name: String,
     /// None for a `dns` proxy.
     outbound: Option<Value>,
+    /// Outbounds it goes through, made for it: a shadow-tls plugin's.
+    derived: Vec<Value>,
 }
 
 impl Proxy {
@@ -92,6 +111,7 @@ impl Proxy {
             .ok_or_else(|| anyhow!("{}.type: missing", f.path()))?
             .to_ascii_lowercase();
         let mut o = Map::new();
+        let mut derived = Vec::new();
         let known: &[(&str, Tier)] = match kind.as_str() {
             "direct" => {
                 o.insert("type".into(), json!("direct"));
@@ -107,10 +127,14 @@ impl Proxy {
                 return Ok(Proxy {
                     name,
                     outbound: None,
+                    derived: Vec::new(),
                 });
             }
             "ss" => {
-                shadowsocks(&mut f, &mut o, warnings)?;
+                if let Some(shadow_tls) = shadowsocks(&mut f, &mut o, warnings, &name, fingerprint)?
+                {
+                    derived.push(shadow_tls);
+                }
                 SHADOWSOCKS
             }
             "vmess" => {
@@ -171,6 +195,7 @@ impl Proxy {
         Ok(Proxy {
             name,
             outbound: Some(Value::Object(o)),
+            derived,
         })
     }
 }
@@ -381,21 +406,8 @@ fn tls(
         tls.insert("alpn".into(), json!(alpn));
     }
     let fp = client_fingerprint.as_deref().or(fingerprint);
-    if let Some(fp) = fp.filter(|fp| !fp.is_empty() && *fp != "none") {
-        let fp = match fp.to_ascii_lowercase().as_str() {
-            fp @ ("chrome" | "firefox" | "safari" | "ios" | "android" | "edge" | "random") => {
-                fp.to_string()
-            }
-            other => {
-                return Err(anyhow!(
-                    "{}: sail has no fingerprint {:?}, only chrome, firefox, safari, ios, \
-                     android, edge and random",
-                    f.at("client-fingerprint"),
-                    other
-                ))
-            }
-        };
-        tls.insert("utls".into(), json!({ "enabled": true, "fingerprint": fp }));
+    if let Some(utls) = utls(&f.at("client-fingerprint"), fp)? {
+        tls.insert("utls".into(), utls);
     }
     if let Some(mut r) = reality {
         let key = r
@@ -423,6 +435,28 @@ fn tls(
     }
     o.insert("tls".into(), Value::Object(tls));
     Ok(())
+}
+
+/// The `utls` block of a `client-fingerprint` (at `at`), or of the global
+/// one; none for none.
+fn utls(at: &str, fp: Option<&str>) -> Result<Option<Value>> {
+    let Some(fp) = fp.filter(|fp| !fp.is_empty() && *fp != "none") else {
+        return Ok(None);
+    };
+    let fp = match fp.to_ascii_lowercase().as_str() {
+        fp @ ("chrome" | "firefox" | "safari" | "ios" | "android" | "edge" | "random") => {
+            fp.to_string()
+        }
+        other => {
+            return Err(anyhow!(
+                "{}: sail has no fingerprint {:?}, only chrome, firefox, safari, ios, \
+                 android, edge and random",
+                at,
+                other
+            ))
+        }
+    };
+    Ok(Some(json!({ "enabled": true, "fingerprint": fp })))
 }
 
 /// `network` and its options: `tcp`, `ws` (or HTTPUpgrade) and `grpc`.
@@ -517,7 +551,15 @@ fn transport(f: &mut Fields, o: &mut Map<String, Value>, w: &mut Vec<String>) ->
     Ok(())
 }
 
-fn shadowsocks(f: &mut Fields, o: &mut Map<String, Value>, w: &mut Vec<String>) -> Result<()> {
+/// A Shadowsocks proxy; with the shadow-tls plugin, also the ShadowTLS
+/// outbound it goes through.
+fn shadowsocks(
+    f: &mut Fields,
+    o: &mut Map<String, Value>,
+    w: &mut Vec<String>,
+    name: &str,
+    fp: Option<&str>,
+) -> Result<Option<Value>> {
     o.insert("type".into(), json!("shadowsocks"));
     server(f, o, w)?;
     let cipher = f
@@ -529,6 +571,7 @@ fn shadowsocks(f: &mut Fields, o: &mut Map<String, Value>, w: &mut Vec<String>) 
         json!(f.string("password")?.unwrap_or_default()),
     );
     let opts = f.map("plugin-opts")?;
+    let mut shadow_tls = None;
     match f.string("plugin")?.as_deref() {
         None | Some("") => {}
         Some("obfs") => {
@@ -544,9 +587,13 @@ fn shadowsocks(f: &mut Fields, o: &mut Map<String, Value>, w: &mut Vec<String>) 
             o.insert("plugin".into(), json!("obfs-local"));
             o.insert("plugin_opts".into(), json!(spec));
         }
+        Some("shadow-tls") => {
+            let opts = opts.ok_or_else(|| anyhow!("{}: missing", f.at("plugin-opts")))?;
+            shadow_tls = Some(shadow_tls_plugin(f, o, opts, w, name, fp)?);
+        }
         Some(other) => {
             return Err(anyhow!(
-                "{}: sail does not implement the {} plugin yet, only obfs",
+                "{}: sail does not implement the {} plugin yet, only obfs and shadow-tls",
                 f.at("plugin"),
                 other
             ))
@@ -561,7 +608,84 @@ fn shadowsocks(f: &mut Fields, o: &mut Map<String, Value>, w: &mut Vec<String>) 
     } else {
         f.take("udp-over-tcp-version");
     }
-    Ok(())
+    Ok(shadow_tls)
+}
+
+/// The tag of the ShadowTLS outbound made for the proxy `name`.
+pub(crate) fn shadow_tls_tag(name: &str) -> String {
+    format!("{} (shadow-tls)", name)
+}
+
+/// The shadow-tls plugin of a Shadowsocks proxy: a ShadowTLS outbound to
+/// its server, which the proxy goes through and which dials as it would.
+fn shadow_tls_plugin(
+    f: &mut Fields,
+    o: &mut Map<String, Value>,
+    mut opts: Fields,
+    w: &mut Vec<String>,
+    name: &str,
+    fp: Option<&str>,
+) -> Result<Value> {
+    // Mihomo's default version is 2.
+    let version = opts.int::<u32>("version")?.unwrap_or(2);
+    if version != 3 {
+        return Err(anyhow!(
+            "{}: ShadowTLS v1/v2 are not supported; use version 3",
+            opts.at("version")
+        ));
+    }
+    let password = opts
+        .string("password")?
+        .filter(|p| !p.is_empty())
+        .ok_or_else(|| anyhow!("{}: missing", opts.at("password")))?;
+    let host = opts
+        .string("host")?
+        .filter(|h| !h.is_empty())
+        .ok_or_else(|| anyhow!("{}: missing", opts.at("host")))?;
+    let mut tls = Map::new();
+    tls.insert("enabled".into(), json!(true));
+    tls.insert("server_name".into(), json!(host));
+    if opts.bool("skip-cert-verify")?.unwrap_or(false) {
+        tls.insert("insecure".into(), json!(true));
+    }
+    // Mihomo's default ALPN; an empty list offers none.
+    let alpn = match opts.has("alpn") {
+        true => opts.strings("alpn")?,
+        false => vec!["h2".to_string(), "http/1.1".to_string()],
+    };
+    if !alpn.is_empty() {
+        tls.insert("alpn".into(), json!(alpn));
+    }
+    let client_fingerprint = f.string("client-fingerprint")?;
+    if let Some(utls) = utls(
+        &f.at("client-fingerprint"),
+        client_fingerprint.as_deref().or(fp),
+    )? {
+        tls.insert("utls".into(), utls);
+    }
+    opts.finish(TLS, |_| false, w)?;
+    let tag = shadow_tls_tag(name);
+    let mut shadow_tls = Map::new();
+    shadow_tls.insert("type".into(), json!("shadowtls"));
+    shadow_tls.insert("tag".into(), json!(tag));
+    shadow_tls.insert("server".into(), o["server"].clone());
+    shadow_tls.insert("server_port".into(), o["server_port"].clone());
+    shadow_tls.insert("version".into(), json!(3));
+    shadow_tls.insert("password".into(), json!(password));
+    shadow_tls.insert("tls".into(), Value::Object(tls));
+    // It makes the connections, so it dials as the proxy would.
+    for key in [
+        "detour",
+        "bind_interface",
+        "routing_mark",
+        "domain_strategy",
+    ] {
+        if let Some(value) = o.remove(key) {
+            shadow_tls.insert(key.into(), value);
+        }
+    }
+    o.insert("detour".into(), json!(tag));
+    Ok(Value::Object(shadow_tls))
 }
 
 /// The packet encoding of VMess and VLESS: `packet-encoding`, or the older

@@ -49,6 +49,7 @@ fn clash_type(protocol: &str) -> &'static str {
         "hysteria2" => "Hysteria2",
         "tuic" => "Tuic",
         "anytls" => "AnyTLS",
+        "shadowtls" => "ShadowTLS",
         "wireguard" => "WireGuard",
         "redirect" => "Redirect",
         _ => "Unknown",

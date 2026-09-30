@@ -260,6 +260,83 @@ fn a_reject_proxy_is_a_block() {
 }
 
 #[test]
+fn a_shadow_tls_plugin_is_an_outbound_the_proxy_goes_through() {
+    let config = load(
+        r#"
+global-client-fingerprint: firefox
+proxies:
+  - name: st
+    type: ss
+    server: st.example.com
+    port: 443
+    cipher: aes-128-gcm
+    password: pw
+    dialer-proxy: hop
+    interface-name: en0
+    smux: { enabled: true }
+    plugin: shadow-tls
+    plugin-opts: { host: www.example.com, password: stpw, version: 3, skip-cert-verify: true }
+  - { name: hop, type: socks5, server: 127.0.0.1, port: 1080 }
+proxy-groups:
+  - { name: all, type: select, include-all: true }
+rules: ["MATCH,all"]
+"#,
+    );
+    let ss = &outbound(&config, "st").options;
+    assert_eq!(ss["detour"], "st (shadow-tls)");
+    assert!(ss.get("bind_interface").is_none());
+    assert_eq!(ss["multiplex"]["enabled"], true);
+    let shadow_tls = outbound(&config, "st (shadow-tls)");
+    assert_eq!(shadow_tls.protocol, "shadowtls");
+    assert_eq!(
+        serde_json::Value::Object(shadow_tls.options.clone().into_iter().collect()),
+        serde_json::json!({
+            "server": "st.example.com",
+            "server_port": 443,
+            "version": 3,
+            "password": "stpw",
+            "detour": "hop",
+            "bind_interface": "en0",
+            "tls": {
+                "enabled": true,
+                "server_name": "www.example.com",
+                "insecure": true,
+                "alpn": ["h2", "http/1.1"],
+                "utls": { "enabled": true, "fingerprint": "firefox" }
+            }
+        })
+    );
+    // Groups take the proxies Mihomo has, not what sail makes for them.
+    let all = &outbound(&config, "all").options;
+    assert_eq!(all["outbounds"], serde_json::json!(["hop", "st"]));
+}
+
+#[test]
+fn shadow_tls_plugin_mistakes_name_the_field() {
+    let proxy = |opts: &str| {
+        format!(
+            "proxies: [{{ name: st, type: ss, server: s, port: 443, cipher: aes-128-gcm, \
+             password: pw, plugin: shadow-tls, plugin-opts: {{ {} }} }}]\nrules: [\"MATCH,st\"]\n",
+            opts
+        )
+    };
+    assert_eq!(
+        error(&proxy("host: a.example, password: p")),
+        "proxies[0].plugin-opts.version: ShadowTLS v1/v2 are not supported; use version 3"
+    );
+    assert_eq!(
+        error(&proxy("password: p, version: 3")),
+        "proxies[0].plugin-opts.host: missing"
+    );
+    assert_eq!(
+        error(&proxy(
+            "host: a.example, password: p, version: 3, fingerprint: ab"
+        )),
+        "proxies[0].plugin-opts.fingerprint: sail does not implement this field yet"
+    );
+}
+
+#[test]
 fn off_sections_and_the_system_resolver() {
     let config = load("dns: { enable: false, nameserver: [1.1.1.1] }\ntun: { enable: false }\nrules: [\"MATCH,DIRECT\"]\n");
     assert_eq!(config.dns.servers[0].kind, "local");
