@@ -1,6 +1,6 @@
 [Unit]
 Description=Sail proxy service
-Documentation=https://github.com/eycorsican/leaf
+Documentation=https://github.com/peakpassvpn/sail
 After=network-online.target
 Wants=network-online.target
 
@@ -11,8 +11,16 @@ Group=sail
 EnvironmentFile=/etc/sail/sail.env
 ExecStartPre=@SAIL_BINARY@ --config ${SAIL_CONFIG} --data-dir ${SAIL_DATA_DIR} --cache-dir ${SAIL_CACHE_DIR} --profile ${SAIL_PROFILE} --test
 ExecStart=@SAIL_BINARY@ --config ${SAIL_CONFIG} --data-dir ${SAIL_DATA_DIR} --cache-dir ${SAIL_CACHE_DIR} --profile ${SAIL_PROFILE}
+# A reload is checked before it is sent: a configuration that fails the
+# check fails `systemctl reload`, and one that fails in the process leaves
+# the configuration before running.
+ExecReload=@SAIL_BINARY@ --config ${SAIL_CONFIG} --data-dir ${SAIL_DATA_DIR} --cache-dir ${SAIL_CACHE_DIR} --profile ${SAIL_PROFILE} --test
+ExecReload=/bin/kill -HUP $MAINPID
+# SIGTERM stops taking connections and lets those open finish, 30 s at
+# most with the server profile (lifecycle.drain_timeout); past this bound
+# systemd kills the process.
 KillSignal=SIGTERM
-TimeoutStopSec=30s
+TimeoutStopSec=45s
 Restart=on-failure
 RestartSec=2s
 

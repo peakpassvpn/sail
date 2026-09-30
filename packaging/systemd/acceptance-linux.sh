@@ -301,10 +301,82 @@ restarts=$(systemctl show "$unit_name" -p NRestarts --value)
 [ "$restarts" -ge 1 ] || die "systemd did not record a failure restart"
 note "PASS runtime: failure restart created PID $new_pid (NRestarts=$restarts)"
 
+current_step=reload-valid
+reload_pid=$(systemctl show "$unit_name" -p MainPID --value)
+reload_at=$(date +%s)
+systemctl reload "$unit_name" || die "systemctl reload of a valid configuration failed"
+attempt=0
+until journalctl -u "$unit_name" --since "@$reload_at" --no-pager | grep -q 'SIGHUP: reloaded'; do
+    attempt=$((attempt + 1))
+    [ "$attempt" -lt 50 ] || die "no reload in the journal"
+    sleep 0.2
+done
+[ "$(systemctl show "$unit_name" -p MainPID --value)" = "$reload_pid" ] || die "reload replaced the process"
+note "PASS runtime: systemctl reload reloaded in place (PID $reload_pid)"
+
+current_step=reload-invalid
+cp "$runtime_dir/config.json" "$tmp_dir/config-good.json"
+printf '{ invalid json\n' >"$runtime_dir/config.json"
+if systemctl reload "$unit_name"; then
+    die "systemctl reload of an invalid configuration succeeded"
+fi
+systemctl is-active --quiet "$unit_name" || die "a refused reload stopped the service"
+# Past the check too: the process itself keeps the configuration before.
+signal_at=$(date +%s)
+kill -HUP "$reload_pid"
+attempt=0
+until journalctl -u "$unit_name" --since "@$signal_at" --no-pager | grep -q 'the one before runs on'; do
+    attempt=$((attempt + 1))
+    [ "$attempt" -lt 50 ] || die "no refused reload in the journal"
+    sleep 0.2
+done
+systemctl is-active --quiet "$unit_name" || die "a failed reload stopped the service"
+[ "$(systemctl show "$unit_name" -p MainPID --value)" = "$reload_pid" ] || die "a failed reload replaced the process"
+cp "$tmp_dir/config-good.json" "$runtime_dir/config.json"
+note "PASS runtime: an invalid configuration fails systemctl reload and leaves the service running"
+
+current_step=drain-stop
+command -v python3 >/dev/null 2>&1 || die "the drain check needs python3"
+# A server that holds a connection, and a client that holds one to it
+# through the SOCKS inbound for 3 s.
+python3 - "$port" "$tmp_dir/drain-client.txt" <<'PY' &
+import socket, sys, threading, time
+socks_port, out = int(sys.argv[1]), sys.argv[2]
+server = socket.socket(); server.bind(("127.0.0.1", 0)); server.listen()
+target = server.getsockname()[1]
+threading.Thread(target=lambda: [server.accept() for _ in range(4)], daemon=True).start()
+c = socket.create_connection(("127.0.0.1", socks_port), timeout=5)
+c.sendall(b"\x05\x01\x00"); c.recv(2)
+c.sendall(b"\x05\x01\x00\x01\x7f\x00\x00\x01" + target.to_bytes(2, "big"))
+reply = c.recv(10)
+open(out, "w").write("connected %d\n" % reply[1])
+time.sleep(3)
+c.close()
+open(out, "a").write("closed\n")
+PY
+client_pid=$!
+attempt=0
+until grep -q '^connected 0$' "$tmp_dir/drain-client.txt" 2>/dev/null; do
+    attempt=$((attempt + 1))
+    [ "$attempt" -lt 50 ] || die "the drain client did not connect through the service"
+    sleep 0.1
+done
+stop_started=$(date +%s)
+systemctl stop "$unit_name"
+stop_took=$(( $(date +%s) - stop_started ))
+wait "$client_pid" || true
+grep -q '^closed$' "$tmp_dir/drain-client.txt" || die "the stop did not wait for the open connection"
+[ "$stop_took" -ge 2 ] || die "the stop took ${stop_took}s: it did not wait for the open connection"
+[ "$stop_took" -lt 30 ] || die "the stop took ${stop_took}s: it waited past the connection"
+journalctl -u "$unit_name" --since "@$stop_started" --no-pager >"$tmp_dir/journal-drain.txt"
+grep -q 'every connection finished' "$tmp_dir/journal-drain.txt" || die "no drain in the journal"
+note "PASS runtime: systemctl stop drained the open connection (${stop_took}s)"
+
 current_step=normal-stop
+systemctl start "$unit_name"
 systemctl stop "$unit_name"
 systemctl is-active --quiet "$unit_name" && die "service remained active after stop"
-note "PASS runtime: systemctl stop completed through the unit's SIGTERM policy"
+note "PASS runtime: systemctl stop with nothing open completed through the unit's SIGTERM policy"
 
 current_step=invalid-config-gate
 printf '{ invalid json\n' >"$runtime_dir/config.json"

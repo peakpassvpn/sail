@@ -217,6 +217,19 @@ impl InboundManager {
         Ok(())
     }
 
+    /// Stops accepting on every listener; the connections they accepted
+    /// run on. Returns how many listeners there were.
+    pub fn stop_listening(&mut self) -> usize {
+        let mut stopped = 0;
+        for (_, handles) in self.running.drain() {
+            for handle in handles {
+                handle.abort();
+                stopped += 1;
+            }
+        }
+        stopped
+    }
+
     fn run(&mut self, tag: String, runners: Vec<Runner>) {
         let handles = runners
             .into_iter()

@@ -53,6 +53,7 @@ pub struct RuntimeOptions {
     pub dns: Dns,
     pub stats: Stats,
     pub mux: Mux,
+    pub lifecycle: Lifecycle,
 }
 
 /// Forwarding a TCP connection.
@@ -207,6 +208,17 @@ pub struct Stats {
     pub max_recent_connections: usize,
 }
 
+/// Starting and stopping.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct Lifecycle {
+    /// On SIGTERM or Ctrl-C, how long the TCP connections open may finish
+    /// once no new ones are taken; 0 stops at once. A second signal stops
+    /// at once too.
+    #[serde(with = "duration")]
+    pub drain_timeout: Duration,
+}
+
 /// The streams of a multiplexed connection: sing-mux's smux and yamux,
 /// AnyTLS, amux.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -340,6 +352,9 @@ impl RuntimeOptions {
             stats: Stats {
                 max_recent_connections: 0,
             },
+            lifecycle: Lifecycle {
+                drain_timeout: Duration::ZERO,
+            },
             mux: Mux {
                 stream_window_max: 16 << 10,
                 stream_buffer: 256,
@@ -467,6 +482,12 @@ impl RuntimeOptions {
                 quic: Quic {
                     max_concurrent_streams: 4096,
                     ..desktop.quic
+                },
+                // Kubernetes' default grace period (terminationGracePeriod-
+                // Seconds); the systemd unit's stop timeout leaves room
+                // past it.
+                lifecycle: Lifecycle {
+                    drain_timeout: Duration::from_secs(30),
                 },
                 ..desktop
             },

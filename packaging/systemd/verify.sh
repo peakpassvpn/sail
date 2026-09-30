@@ -85,7 +85,9 @@ printf '# locally modified\n' >>"$root/etc/sail/sail.env"
 
 grep -q '^User=sail$' "$script_dir/sail.service.in" || die "base unit is not unprivileged"
 grep -q '^CapabilityBoundingSet=$' "$script_dir/sail.service.in" || die "base capability set is not empty"
-if grep -q '^ExecReload=' "$script_dir/sail.service.in"; then die "unsupported ExecReload is present"; fi
+grep -q '^ExecReload=.* --test$' "$script_dir/sail.service.in" || die "reload is not checked before it is sent"
+grep -q '^ExecReload=/bin/kill -HUP \$MAINPID$' "$script_dir/sail.service.in" || die "reload does not send SIGHUP"
+grep -q '^TimeoutStopSec=45s$' "$script_dir/sail.service.in" || die "the stop timeout does not leave room for the 30 s drain"
 grep -q '^KillSignal=SIGTERM$' "$script_dir/sail.service.in" || die "SIGTERM stop is not explicit"
 grep -q '^ExecStartPre=.* --test$' "$script_dir/sail.service.in" || die "config check is not an ExecStartPre gate"
 grep -q 'CAP_NET_ADMIN' "$script_dir/sail-tun-transparent.conf" || die "TUN override lacks CAP_NET_ADMIN"

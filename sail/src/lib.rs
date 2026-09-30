@@ -439,6 +439,47 @@ impl RuntimeManager {
     /// are all built before any is replaced: a configuration that fails to
     /// build changes nothing. Connections already routed keep what they
     /// were routed with.
+    /// Stops taking connections, and waits for the TCP connections open to
+    /// finish, for `lifecycle.drain_timeout` at most, or until
+    /// `interrupted`.
+    #[cfg_attr(not(feature = "ctrlc"), allow(dead_code))]
+    async fn drain<S: std::fmt::Display>(&self, interrupted: impl std::future::Future<Output = S>) {
+        let timeout = self.env.options.lifecycle.drain_timeout;
+        if timeout.is_zero() {
+            return;
+        }
+        let listeners = self
+            .inbound_manager
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .stop_listening();
+        let open = self.stat_manager.read().await.open_streams();
+        if open == 0 {
+            return;
+        }
+        info!(
+            "stopping: {} listeners closed; waiting up to {:?} for {} connections",
+            listeners, timeout, open
+        );
+        let finished = async {
+            // How soon the stop follows the last connection; judgment, as
+            // it costs one count a tick.
+            let mut tick = tokio::time::interval(std::time::Duration::from_millis(100));
+            while self.stat_manager.read().await.open_streams() > 0 {
+                tick.tick().await;
+            }
+        };
+        tokio::select! {
+            _ = finished => info!("stopping: every connection finished"),
+            _ = tokio::time::sleep(timeout) => info!(
+                "stopping: {} connections still open after {:?} are closed",
+                self.stat_manager.read().await.open_streams(),
+                timeout
+            ),
+            signal = interrupted => info!("{} again: stopping now", signal),
+        }
+    }
+
     pub async fn reload(&self) -> Result<(), Error> {
         let config_path = if let Some(p) = self.config_path.as_ref() {
             p
@@ -1058,6 +1099,38 @@ async fn follow_network_changes(manager: Arc<RuntimeManager>) {
     std::future::pending().await
 }
 
+/// The signals that stop the CLI: Ctrl-C, and SIGTERM on Unix.
+#[cfg(feature = "ctrlc")]
+struct StopSignals {
+    #[cfg(unix)]
+    terminate: Option<tokio::signal::unix::Signal>,
+}
+
+#[cfg(feature = "ctrlc")]
+impl StopSignals {
+    fn new() -> Self {
+        StopSignals {
+            #[cfg(unix)]
+            terminate: tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                .map_err(|e| warn!("cannot watch SIGTERM: {}", e))
+                .ok(),
+        }
+    }
+
+    /// The next one to come, by name.
+    async fn next(&mut self) -> &'static str {
+        #[cfg(unix)]
+        if let Some(terminate) = &mut self.terminate {
+            return tokio::select! {
+                _ = tokio::signal::ctrl_c() => "SIGINT",
+                _ = terminate.recv() => "SIGTERM",
+            };
+        }
+        let _ = tokio::signal::ctrl_c().await;
+        "SIGINT"
+    }
+}
+
 /// Stops the TUN inbound's stack, so that its flows are reset rather than
 /// left open, before the instance goes.
 #[cfg(feature = "inbound-tun")]
@@ -1464,32 +1537,45 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
         stop_tun(control).await;
     }));
 
-    // Monitor ctrl-c exit signal.
+    // Ctrl-C, and SIGTERM, as systemd, kill and container runtimes send
+    // it: what the instance changed on the system is put back, and the
+    // connections open may finish.
     #[cfg(feature = "ctrlc")]
     {
         #[cfg(feature = "inbound-tun")]
         let control = tun_control.clone();
+        let rm = runtime_manager.clone();
         tasks.push(Box::pin(async move {
-            let _ = tokio::signal::ctrl_c().await;
+            let mut signals = StopSignals::new();
+            let signal = signals.next().await;
+            info!("{}: stopping", signal);
             #[cfg(feature = "inbound-tun")]
             stop_tun(control).await;
+            rm.drain(signals.next()).await;
         }));
     }
 
-    // SIGTERM too, as systemd, kill and container runtimes send it, so that
-    // what the instance changed on the system is put back.
+    // SIGHUP reloads the configuration file, as ExecReload sends it; a
+    // configuration that fails leaves the one before running.
     #[cfg(all(feature = "ctrlc", unix))]
-    match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
-        Ok(mut terminate) => {
-            #[cfg(feature = "inbound-tun")]
-            let control = tun_control.clone();
+    match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup()) {
+        Ok(mut hangup) => {
+            let rm = runtime_manager.clone();
             tasks.push(Box::pin(async move {
-                terminate.recv().await;
-                #[cfg(feature = "inbound-tun")]
-                stop_tun(control).await;
+                while hangup.recv().await.is_some() {
+                    info!("SIGHUP: reloading");
+                    match rm.reload().await {
+                        Ok(()) => info!("SIGHUP: reloaded"),
+                        Err(e) => tracing::error!(
+                            "SIGHUP: the configuration is not loaded, the one before runs on: {}",
+                            e
+                        ),
+                    }
+                }
+                std::future::pending::<()>().await
             }))
         }
-        Err(e) => warn!("cannot watch SIGTERM: {}", e),
+        Err(e) => warn!("cannot watch SIGHUP: {}", e),
     }
 
     runtime_managers().insert(rt_id, runtime_manager);
