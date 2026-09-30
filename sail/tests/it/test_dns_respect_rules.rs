@@ -123,7 +123,7 @@ async fn a_server_that_respects_the_rules_goes_where_they_say() {
         let router = Arc::new(arc_swap::ArcSwap::from_pointee(
             Router::new(&config.route, dns_client.clone(), &env).unwrap(),
         ));
-        let stat_manager = Arc::new(tokio::sync::RwLock::new(StatManager::new()));
+        let stat_manager = Arc::new(StatManager::default());
         let dispatcher = Arc::new(Dispatcher::new(
             outbound_manager,
             router,

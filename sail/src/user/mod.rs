@@ -7,22 +7,88 @@
 //! authenticates: nothing is looked up by name on the data path. A reload
 //! binds the names again and gets the same users, as long as the old
 //! tables hold them.
+//!
+//! A user's traffic is counted in its state, so it goes on across reloads;
+//! with `experimental.cache_file`, across restarts too. A user no table or
+//! session holds any more is dropped with its counts, as sing-box's
+//! ssm-api drops a deleted user's.
 
 use std::collections::HashMap;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::ops::Deref;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, Weak};
+
+use crate::app::stat_manager::Counts;
 
 /// What sail keeps of a user while it runs.
 #[derive(Debug)]
 pub struct UserState {
     name: Arc<str>,
+    traffic: UserTraffic,
 }
 
 impl UserState {
+    fn new(name: &str, counts: Counts) -> Self {
+        UserState {
+            name: name.into(),
+            traffic: UserTraffic::new(counts),
+        }
+    }
+
     pub fn name(&self) -> &Arc<str> {
         &self.name
+    }
+
+    pub fn traffic(&self) -> &UserTraffic {
+        &self.traffic
+    }
+}
+
+/// A user's traffic: plain counters, as only the user's own connections
+/// add to them.
+#[derive(Debug, Default)]
+pub struct UserTraffic {
+    up: AtomicU64,
+    down: AtomicU64,
+    tcp: AtomicU64,
+    udp: AtomicU64,
+}
+
+impl UserTraffic {
+    fn new(counts: Counts) -> Self {
+        UserTraffic {
+            up: counts.up.into(),
+            down: counts.down.into(),
+            tcp: counts.tcp.into(),
+            udp: counts.udp.into(),
+        }
+    }
+
+    pub(crate) fn add_up(&self, n: u64) {
+        self.up.fetch_add(n, Ordering::Relaxed);
+    }
+
+    pub(crate) fn add_down(&self, n: u64) {
+        self.down.fetch_add(n, Ordering::Relaxed);
+    }
+
+    pub(crate) fn add_session(&self, udp: bool) {
+        match udp {
+            false => &self.tcp,
+            true => &self.udp,
+        }
+        .fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn counts(&self) -> Counts {
+        Counts {
+            up: self.up.load(Ordering::Relaxed),
+            down: self.down.load(Ordering::Relaxed),
+            tcp: self.tcp.load(Ordering::Relaxed),
+            udp: self.udp.load(Ordering::Relaxed),
+        }
     }
 }
 
@@ -35,7 +101,7 @@ impl UserRef {
     /// A user of no registry, for tests that need a session with one.
     #[cfg(test)]
     pub fn unbound(name: &str) -> Self {
-        UserRef(Arc::new(UserState { name: name.into() }))
+        UserRef(Arc::new(UserState::new(name, Counts::default())))
     }
 
     /// Whether `self` and `other` are the same user object, not only the
@@ -105,20 +171,50 @@ pub fn passwords(pairs: &[(&str, &str)]) -> Passwords {
 /// The instance's users by name. Copies share them. It holds them weakly:
 /// a user lives as long as a credential table or a session holds it.
 #[derive(Clone, Default)]
-pub struct UserRegistry(Arc<Mutex<HashMap<Arc<str>, Weak<UserState>>>>);
+pub struct UserRegistry(Arc<Mutex<Registry>>);
+
+#[derive(Default)]
+struct Registry {
+    users: HashMap<Arc<str>, Weak<UserState>>,
+    /// The counts the cache file kept, for users not made yet.
+    kept: HashMap<String, Counts>,
+}
 
 impl UserRegistry {
+    fn lock(&self) -> std::sync::MutexGuard<'_, Registry> {
+        self.0.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     /// The user named `name`, made if there is none. Used when inbounds
     /// build, not on the data path.
     pub fn bind(&self, name: &str) -> UserRef {
-        let mut users = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(user) = users.get(name).and_then(Weak::upgrade) {
+        let mut registry = self.lock();
+        if let Some(user) = registry.users.get(name).and_then(Weak::upgrade) {
             return UserRef(user);
         }
-        users.retain(|_, user| user.strong_count() > 0);
-        let user = Arc::new(UserState { name: name.into() });
-        users.insert(user.name.clone(), Arc::downgrade(&user));
+        registry.users.retain(|_, user| user.strong_count() > 0);
+        let counts = registry.kept.remove(name).unwrap_or_default();
+        let user = Arc::new(UserState::new(name, counts));
+        registry
+            .users
+            .insert(user.name.clone(), Arc::downgrade(&user));
         UserRef(user)
+    }
+
+    /// Starts the users made from now on with the counts `kept`, the cache
+    /// file's.
+    pub(crate) fn keep(&self, kept: HashMap<String, Counts>) {
+        self.lock().kept = kept;
+    }
+
+    /// The users there are.
+    pub fn users(&self) -> Vec<UserRef> {
+        self.lock()
+            .users
+            .values()
+            .filter_map(Weak::upgrade)
+            .map(UserRef)
+            .collect()
     }
 
     /// The user named `name` for a credential that may have none: sing-box
@@ -131,10 +227,11 @@ impl UserRegistry {
 
 impl fmt::Debug for UserRegistry {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let users = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        let registry = self.lock();
         f.debug_set()
             .entries(
-                users
+                registry
+                    .users
                     .iter()
                     .filter(|(_, u)| u.strong_count() > 0)
                     .map(|(n, _)| n),
@@ -162,7 +259,7 @@ mod tests {
         let old = Arc::downgrade(&users.bind("alice").0);
         assert!(old.upgrade().is_none());
         let _new = users.bind("alice");
-        assert_eq!(users.0.lock().unwrap().len(), 1);
+        assert_eq!(users.lock().users.len(), 1);
     }
 
     #[test]

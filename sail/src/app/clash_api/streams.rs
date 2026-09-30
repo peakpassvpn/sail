@@ -62,11 +62,11 @@ pub(super) async fn traffic(
     ws: Option<WebSocketUpgrade>,
 ) -> Response {
     let stats = clash.rm.stat_manager();
-    let first = stats.read().await.totals();
+    let first = stats.totals();
     let frames = ticks()
         .then(move |()| {
             let stats = stats.clone();
-            async move { stats.read().await.totals() }
+            async move { stats.totals() }
         })
         .scan(first, |last, (up, down)| {
             let (up0, down0) = std::mem::replace(last, (up, down));

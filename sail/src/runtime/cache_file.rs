@@ -16,6 +16,9 @@
 //! with the cursor, so that the file always holds a state the store was in.
 //! With `store_dns`, the DNS answers kept are written by it too, and those
 //! long expired are pruned as sing-box prunes them.
+//!
+//! The traffic of each user, inbound and outbound is written every minute
+//! and as the instance stops, as sing-box's ssm-api keeps its users'.
 
 use std::net::IpAddr;
 use std::path::{Path, PathBuf};
@@ -51,6 +54,9 @@ const FAKEIP_CURSOR: &str = "fakeip_cursor";
 /// A DNS answer's key (server, name, type, client subnet) to the message
 /// and when it expires, in milliseconds since the Unix epoch.
 const DNS: &str = "dns";
+/// `user:`, `inbound:` or `outbound:` and a name or tag, to the bytes up
+/// and down and the TCP and UDP sessions counted.
+const TRAFFIC: &str = "traffic";
 
 /// The instance's cache file, as its configuration has it; none without
 /// one. Shared by what the instance builds, and replaced by a reload.
@@ -327,6 +333,62 @@ impl CacheFile {
 
     pub fn store_selected(&self, group: &str, selected: &str) -> Result<()> {
         self.put_str(SELECTED, group, selected)
+    }
+
+    /// The traffic counted when the instance last wrote it.
+    pub fn load_traffic(&self) -> Result<crate::app::stat_manager::TrafficReport> {
+        use crate::app::stat_manager::Counts;
+        let table = self.table(TRAFFIC);
+        self.shared.with(|db| {
+            let mut report = crate::app::stat_manager::TrafficReport::default();
+            let tx = db.begin_read()?;
+            let table =
+                match tx.open_table(TableDefinition::<&str, (u64, u64, u64, u64)>::new(&table)) {
+                    Ok(table) => table,
+                    Err(redb::TableError::TableDoesNotExist(_)) => return Ok(report),
+                    Err(e) => return Err(e.into()),
+                };
+            for entry in table.iter()? {
+                let (key, value) = entry?;
+                let (up, down, tcp, udp) = value.value();
+                let counts = Counts { up, down, tcp, udp };
+                let into = match key.value().split_once(':') {
+                    Some(("user", name)) => (&mut report.users, name),
+                    Some(("inbound", tag)) => (&mut report.inbounds, tag),
+                    Some(("outbound", tag)) => (&mut report.outbounds, tag),
+                    _ => continue,
+                };
+                into.0.push((into.1.to_owned(), counts));
+            }
+            Ok(report)
+        })
+    }
+
+    /// Replaces the traffic kept with `report`.
+    pub fn store_traffic(&self, report: &crate::app::stat_manager::TrafficReport) -> Result<()> {
+        let table = self.table(TRAFFIC);
+        self.shared.with(|db| {
+            let tx = db.begin_write()?;
+            let definition = TableDefinition::<&str, (u64, u64, u64, u64)>::new(&table);
+            tx.delete_table(definition)?;
+            {
+                let mut table = tx.open_table(definition)?;
+                for (kind, counts) in [
+                    ("user", &report.users),
+                    ("inbound", &report.inbounds),
+                    ("outbound", &report.outbounds),
+                ] {
+                    for (name, c) in counts {
+                        table.insert(
+                            format!("{}:{}", kind, name).as_str(),
+                            (c.up, c.down, c.tcp, c.udp),
+                        )?;
+                    }
+                }
+            }
+            tx.commit()?;
+            Ok(())
+        })
     }
 
     /// The Clash API's mode when the instance last ran.
@@ -732,6 +794,45 @@ pub(crate) mod tests {
         assert_eq!(cache.load_selected("g").unwrap().as_deref(), Some("b"));
         assert_eq!(cache.load_mode().unwrap().as_deref(), Some("Global"));
         drop(cache);
+        slot.replace(None, &env).unwrap().keep();
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// What was counted is kept across a restart, and replaced whole: a
+    /// user no longer counted is gone from the file.
+    #[test]
+    fn traffic_is_kept_and_replaced_whole() {
+        use crate::app::stat_manager::{Counts, TrafficReport};
+        let dir = temp_dir("traffic");
+        let env = env(&dir);
+        let slot = CacheFileSlot::default();
+        slot.replace(Some(&enabled()), &env).unwrap().keep();
+        let cache = slot.get().unwrap();
+        assert_eq!(cache.load_traffic().unwrap(), TrafficReport::default());
+        let c = |n| Counts {
+            up: n,
+            down: n + 1,
+            tcp: n + 2,
+            udp: n + 3,
+        };
+        let first = TrafficReport {
+            users: vec![("alice".into(), c(1)), ("bob".into(), c(2))],
+            inbounds: vec![("in:with:colons".into(), c(10))],
+            outbounds: vec![("out".into(), c(20))],
+        };
+        cache.store_traffic(&first).unwrap();
+        let second = TrafficReport {
+            users: vec![("alice".into(), c(5))],
+            ..first.clone()
+        };
+        cache.store_traffic(&second).unwrap();
+        drop(cache);
+
+        slot.replace(None, &env).unwrap().keep();
+        slot.replace(Some(&enabled()), &env).unwrap().keep();
+        let mut kept = slot.get().unwrap().load_traffic().unwrap();
+        kept.users.sort_by(|a, b| a.0.cmp(&b.0));
+        assert_eq!(kept, second);
         slot.replace(None, &env).unwrap().keep();
         std::fs::remove_dir_all(&dir).unwrap();
     }

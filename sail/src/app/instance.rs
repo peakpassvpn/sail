@@ -7,7 +7,6 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use arc_swap::ArcSwap;
-use tokio::sync::RwLock;
 
 use super::dispatcher::Dispatcher;
 use super::dns::DnsClient;
@@ -105,10 +104,17 @@ impl Instance {
             &env,
             &rule_sets,
         )?));
-        let stat_manager = Arc::new(RwLock::new(
-            StatManager::new()
-                .with_max_recent_connections(env.options.stats.max_recent_connections),
+        let stat_manager = Arc::new(StatManager::new(
+            env.options.stats.max_recent_connections,
+            env.users.clone(),
         ));
+        // Before the inbounds bind their users.
+        if let Some(cache) = env.cache_file.get() {
+            match cache.load_traffic() {
+                Ok(kept) => stat_manager.restore(kept),
+                Err(e) => tracing::warn!("cache_file: traffic not read: {:#}", e),
+            }
+        }
         let dispatcher = Arc::new(Dispatcher::new(
             outbound_manager.clone(),
             router.clone(),
@@ -179,7 +185,10 @@ impl Instance {
     /// start before the system is touched; then the TUN device, and the
     /// routes into it. Returns what runs the instance.
     pub fn start(&mut self) -> Result<Vec<Runner>> {
-        let mut runners = vec![StatManager::cleanup_task(self.stat_manager.clone())];
+        let mut runners = vec![StatManager::store_task(
+            self.stat_manager.clone(),
+            self.env.clone(),
+        )];
         let inbound_manager = self.inbound_manager.clone();
         let mut inbounds = inbound_manager.lock().unwrap_or_else(|e| e.into_inner());
         inbounds.start_network_listeners()?;
@@ -252,6 +261,7 @@ impl Instance {
     /// Undoes what `start` did to the system.
     pub fn stop(&mut self) {
         // What it kept is written, and the file freed for the next start.
+        self.stat_manager.store(&self.env);
         self.env.cache_file.close();
         // Before the device goes, as sing-box closes it.
         #[cfg(all(feature = "inbound-tun", any(target_os = "linux", target_os = "macos")))]

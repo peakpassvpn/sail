@@ -382,11 +382,7 @@ impl RuntimeManager {
         &self,
         outbound: &str,
     ) -> Result<Option<u32>, Error> {
-        Ok(self
-            .stat_manager
-            .read()
-            .await
-            .get_last_peer_active(outbound))
+        Ok(self.stat_manager.get_last_peer_active(outbound))
     }
 
     /// Reloads DNS, outbounds and routing from the configuration file. They
@@ -551,10 +547,32 @@ impl RuntimeManager {
         #[cfg(feature = "tls")]
         roots.keep();
         cache_file.keep();
+        self.prune_stats(&config);
         info!("reloaded from config file: {}", config_path);
         // What it matches on may be new to this configuration.
         self.detect_network();
         Ok(())
+    }
+
+    /// Drops the traffic counts of the inbounds and outbounds `config` no
+    /// longer has, once nothing counts to them.
+    fn prune_stats(&self, config: &config::Config) {
+        let inbounds = config
+            .inbounds
+            .iter()
+            .map(|i| i.tag.clone())
+            .chain(config.endpoints.iter().map(|e| e.tag.clone()))
+            .collect();
+        #[allow(unused_mut)]
+        let mut outbounds: std::collections::HashSet<String> = self
+            .outbound_manager
+            .load()
+            .handlers()
+            .map(|h| h.tag().clone())
+            .collect();
+        #[cfg(feature = "outbound-pass")]
+        outbounds.insert(app::outbound::manager::IMPLICIT_DIRECT.to_owned());
+        self.stat_manager.configure(&inbounds, &outbounds);
     }
 
     /// Builds `outbound` and makes it available to routing. It may be built

@@ -258,9 +258,7 @@ mod handlers {
         State(rm): State<Arc<RuntimeManager>>,
     ) -> Result<Json<Vec<models::Stat>>, Infallible> {
         let mut stats = Vec::new();
-        let sm = rm.stat_manager();
-        let sm = sm.read().await;
-        for c in sm.counters.values() {
+        for c in rm.stat_manager().connections() {
             stats.push(models::Stat {
                 network: c.sess.network.to_string(),
                 inbound_tag: c.sess.inbound_tag.to_owned(),
@@ -315,9 +313,7 @@ mod handlers {
         State(rm): State<Arc<RuntimeManager>>,
     ) -> Result<Json<Vec<models::Stat>>, Infallible> {
         let mut stats = Vec::new();
-        let sm = rm.stat_manager();
-        let sm = sm.read().await;
-        for c in sm.recent_counters.iter() {
+        for c in rm.stat_manager().recent() {
             stats.push(models::Stat {
                 network: c.sess.network.to_string(),
                 inbound_tag: c.sess.inbound_tag.to_owned(),
@@ -360,24 +356,22 @@ table, th, td {
 <table style="border=4px solid">
         "#,
         );
-        let sm = rm.stat_manager();
-        let sm = sm.read().await;
-        let total_counters = sm.counters.len();
-        let active_counters = sm
-            .counters
-            .values()
+        let counters = rm.stat_manager().connections();
+        let total_counters = counters.len();
+        let active_counters = counters
+            .iter()
             .filter(|x| !x.send_completed() || !x.recv_completed())
             .count();
         let active_sources = HashSet::<IpAddr>::from_iter(
-            sm.counters
-                .values()
+            counters
+                .iter()
                 .filter(|x| !x.send_completed() || !x.recv_completed())
                 .map(|c| c.sess.source.ip()),
         )
         .len();
         let active_forwarded_source = HashSet::<IpAddr>::from_iter(
-            sm.counters
-                .values()
+            counters
+                .iter()
                 .filter(|x| !x.send_completed() || !x.recv_completed())
                 .filter_map(|c| c.sess.forwarded_source),
         )
@@ -387,7 +381,7 @@ table, th, td {
             total_counters, active_counters, active_sources, active_forwarded_source,
         ));
         body.push_str("<tr><td>Network</td><td>Inbound</td><td>Forwarded</td><td>Source</td><td>Destination</td><td>Outbound</td><td>SentBytes</td><td>RecvdBytes</td><td>SendFin</td><td>RecvFin</td><td>StartTime</td></tr>");
-        for c in sm.counters.values() {
+        for c in &counters {
             body.push_str(&format!(
                 "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
                 c.sess.network,
@@ -427,11 +421,10 @@ table, th, td {
 <table style="border=4px solid">
         "#,
         );
-        let sm = rm.stat_manager();
-        let sm = sm.read().await;
-        body.push_str(&format!("Recent {}<br><br>", sm.recent_counters.len(),));
+        let recent = rm.stat_manager().recent();
+        body.push_str(&format!("Recent {}<br><br>", recent.len(),));
         body.push_str("<tr><td>Network</td><td>Inbound</td><td>Forwarded</td><td>Source</td><td>Destination</td><td>Outbound</td><td>SentBytes</td><td>RecvdBytes</td><td>SendFin</td><td>RecvFin</td><td>StartTime</td></tr>");
-        for c in sm.recent_counters.iter() {
+        for c in &recent {
             body.push_str(&format!(
                 "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
                 c.sess.network,
@@ -466,8 +459,7 @@ table, th, td {
         Path(tag): Path<String>,
         State(rm): State<Arc<RuntimeManager>>,
     ) -> Result<Json<models::SinceLastPeerActive>, Infallible> {
-        let sm = rm.stat_manager();
-        let since = sm.read().await.since_last_peer_active(&tag);
+        let since = rm.stat_manager().since_last_peer_active(&tag);
         Ok(Json(models::SinceLastPeerActive {
             tag,
             since_last_peer_active: since,

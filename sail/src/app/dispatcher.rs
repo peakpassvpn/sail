@@ -445,14 +445,10 @@ impl Dispatcher {
             };
 
         let (stream, stats_wrapped) = if let Some(s) = stream {
-            let s = self.stat_manager.write().await.stat_stream(s, sess.clone());
+            let s = self.stat_manager.stat_stream(s, sess.clone());
             (Some(s), true)
         } else {
-            lhs = self
-                .stat_manager
-                .write()
-                .await
-                .stat_inbound_stream(lhs, sess.clone());
+            lhs = self.stat_manager.stat_inbound_stream(lhs, sess.clone());
             (None, true)
         };
 
@@ -473,11 +469,7 @@ impl Dispatcher {
                 log_request(&sess, h.tag(), Some(elapsed.as_millis()));
 
                 if !stats_wrapped {
-                    rhs = self
-                        .stat_manager
-                        .write()
-                        .await
-                        .stat_stream(rhs, sess.clone());
+                    rhs = self.stat_manager.stat_stream(rhs, sess.clone());
                 }
 
                 match net::relay::copy_buf_bidirectional_with_timeout(
@@ -652,11 +644,7 @@ impl Dispatcher {
 
                 log_request(&sess, h.tag(), Some(elapsed.as_millis()));
 
-                d = self
-                    .stat_manager
-                    .write()
-                    .await
-                    .stat_outbound_datagram(d, sess.clone());
+                d = self.stat_manager.stat_outbound_datagram(d, sess.clone());
 
                 if reverse_mapping && sess.destination.port() == 53 {
                     d = Box::new(SniffingDatagram::new(d, self.dns_sniffer.clone()));

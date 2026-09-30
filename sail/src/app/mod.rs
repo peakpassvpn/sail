@@ -1,7 +1,5 @@
 use std::sync::Arc;
 
-use tokio::sync::RwLock;
-
 pub mod dispatcher;
 pub mod dns;
 pub mod healthcheck;
@@ -54,4 +52,4 @@ pub type SyncRouter = Arc<arc_swap::ArcSwap<router::Router>>;
 /// The outbounds of an instance, replaced whole on reload.
 pub type SyncOutboundManager = Arc<arc_swap::ArcSwap<outbound::manager::OutboundManager>>;
 
-pub type SyncStatManager = Arc<RwLock<stat_manager::StatManager>>;
+pub use stat_manager::SyncStatManager;

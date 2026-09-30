@@ -1,20 +1,49 @@
-use std::collections::{HashMap, VecDeque};
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
-use std::sync::Arc;
+//! What connections send and receive: each connection's own counts, which
+//! the Clash API lists, and the totals of each user, inbound and outbound,
+//! which go on across reloads and, with `experimental.cache_file`, across
+//! restarts.
+//!
+//! Nothing here takes a lock every connection shares. The live connections
+//! are kept in shards, each behind a lock held only to add or remove one;
+//! a connection is removed when the last of what counts it is dropped.
+//! Each read or write adds to the connection's, its user's, its inbound's
+//! and its outbound's counts, with atomic additions only. Inbounds and
+//! outbounds are shared by every connection, so their counts are striped:
+//! a thread adds to a stripe of its own, and a read sums them.
+
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use std::{io, pin::Pin};
 
+use arc_swap::ArcSwap;
 use async_trait::async_trait;
 use futures::{
     ready,
     task::{Context, Poll},
 };
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
-use tokio::sync::{mpsc, RwLock};
-use tracing::debug;
+use tracing::{debug, warn};
 
+use crate::user::{UserRef, UserRegistry};
 use crate::{adapter::*, session::*};
 
-pub type SyncStatManager = Arc<RwLock<StatManager>>;
+pub type SyncStatManager = Arc<StatManager>;
+
+/// The stripes of an inbound's or outbound's counts. Measured on 4 cores
+/// with 1.2 KiB copied between additions: one counter took 3.5-4 times as
+/// long per addition as 8, 16 or 32 stripes, which were alike.
+const STRIPES: usize = 16;
+
+/// The shards of the live connections. Measured with 100k connections,
+/// 20k opened a second and a listing each second: the time to add one was
+/// 15-45 us at the 99.9th percentile with 256 shards, 43-84 us with 64 and
+/// 150-340 us with 16; under one lock, 18-45 ms at the 99th.
+const SHARDS: usize = 256;
+
+/// How often the counts are written to the cache file, and once more as
+/// the instance stops: sing-box's ssm-api writes its every minute.
+pub const STORE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60);
 
 /// Closes a connection from outside, as the Clash API does: its streams
 /// and datagrams fail from then on, which ends what relays them, both
@@ -66,224 +95,184 @@ fn closed_by_api() -> io::Error {
     io::Error::new(io::ErrorKind::ConnectionAborted, "closed by API")
 }
 
-pub struct Stream {
-    pub inner: AnyStream,
-    pub closer: Arc<Closer>,
-    pub bytes_recvd: Arc<AtomicU64>,
-    pub bytes_sent: Arc<AtomicU64>,
-    pub recv_completed: Arc<AtomicBool>,
-    pub send_completed: Arc<AtomicBool>,
-    pub last_peer_active: Arc<AtomicU32>,
-    pub id: u64,
-    pub tx: mpsc::UnboundedSender<u64>,
+/// What was sent and received, as payload: up is what the client sent on
+/// to where it connects. `tcp` and `udp` count the sessions.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Counts {
+    pub up: u64,
+    pub down: u64,
+    pub tcp: u64,
+    pub udp: u64,
 }
 
-impl Drop for Stream {
-    fn drop(&mut self) {
-        // In case of abnormal shutdown.
-        self.recv_completed.store(true, Ordering::Relaxed);
-        self.send_completed.store(true, Ordering::Relaxed);
-        let _ = self.tx.send(self.id);
+#[repr(align(128))]
+#[derive(Default)]
+struct Stripe(AtomicU64);
+
+/// A count many threads add to.
+struct Striped([Stripe; STRIPES]);
+
+static NEXT_STRIPE: AtomicUsize = AtomicUsize::new(0);
+thread_local!(static STRIPE: usize = NEXT_STRIPE.fetch_add(1, Ordering::Relaxed) % STRIPES);
+
+impl Striped {
+    fn new(start: u64) -> Self {
+        let stripes: [Stripe; STRIPES] = Default::default();
+        stripes[0].0.store(start, Ordering::Relaxed);
+        Striped(stripes)
     }
-}
 
-impl AsyncRead for Stream {
-    fn poll_read(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context,
-        buf: &mut ReadBuf,
-    ) -> Poll<io::Result<()>> {
-        if self.closer.poll_read_closed(cx) {
-            return Poll::Ready(Err(closed_by_api()));
-        }
-        let len = buf.filled().len();
-        let remaining = buf.remaining();
-        ready!(Pin::new(&mut self.inner).poll_read(cx, buf))?;
-        let new_len = buf.filled().len();
-        if new_len > len {
-            self.bytes_recvd
-                .fetch_add((new_len - len) as u64, Ordering::Relaxed);
-            self.last_peer_active
-                .store(get_unix_timestamp(), Ordering::Relaxed);
-        } else if remaining > 0 {
-            self.recv_completed.store(true, Ordering::Relaxed);
-        }
-        Poll::Ready(Ok(()))
+    fn add(&self, n: u64) {
+        let i = STRIPE.with(|i| *i);
+        self.0[i].0.fetch_add(n, Ordering::Relaxed);
+    }
+
+    fn get(&self) -> u64 {
+        self.0.iter().map(|s| s.0.load(Ordering::Relaxed)).sum()
     }
 }
 
-impl AsyncWrite for Stream {
-    fn poll_write(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context,
-        buf: &[u8],
-    ) -> Poll<io::Result<usize>> {
-        if self.closer.poll_write_closed(cx) {
-            return Poll::Ready(Err(closed_by_api()));
-        }
-        let n = ready!(Pin::new(&mut self.inner).poll_write(cx, buf))?;
-        self.bytes_sent.fetch_add(n as u64, Ordering::Relaxed);
-        Poll::Ready(Ok(n))
-    }
-
-    // Forwarded so TLS can hand several records to one writev.
-    fn poll_write_vectored(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context,
-        bufs: &[io::IoSlice<'_>],
-    ) -> Poll<io::Result<usize>> {
-        if self.closer.poll_write_closed(cx) {
-            return Poll::Ready(Err(closed_by_api()));
-        }
-        let n = ready!(Pin::new(&mut self.inner).poll_write_vectored(cx, bufs))?;
-        self.bytes_sent.fetch_add(n as u64, Ordering::Relaxed);
-        Poll::Ready(Ok(n))
-    }
-
-    fn is_write_vectored(&self) -> bool {
-        self.inner.is_write_vectored()
-    }
-
-    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.inner).poll_flush(cx)
-    }
-
-    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<io::Result<()>> {
-        ready!(Pin::new(&mut self.inner).poll_shutdown(cx))?;
-        self.send_completed.store(true, Ordering::Relaxed);
-        Poll::Ready(Ok(()))
-    }
+/// The counts of an inbound or an outbound.
+pub struct Traffic {
+    up: Striped,
+    down: Striped,
+    tcp: AtomicU64,
+    udp: AtomicU64,
+    /// Up and down as the cache file had them.
+    kept: (u64, u64),
 }
 
-pub struct Datagram {
-    pub inner: Option<AnyOutboundDatagram>,
-    pub closer: Arc<Closer>,
-    pub bytes_recvd: Arc<AtomicU64>,
-    pub bytes_sent: Arc<AtomicU64>,
-    pub recv_completed: Arc<AtomicBool>,
-    pub send_completed: Arc<AtomicBool>,
-    pub last_peer_active: Arc<AtomicU32>,
-    pub id: u64,
-    pub tx: mpsc::UnboundedSender<u64>,
-}
-
-impl Drop for Datagram {
-    fn drop(&mut self) {
-        // If the datagram is dropped before being split, treat it as a completed
-        // session and notify the cleanup task immediately. Once split, the recv/send
-        // halves own the completion state and will drive retirement via move_to_recent.
-        if self.inner.is_some() {
-            self.recv_completed.store(true, Ordering::Relaxed);
-            self.send_completed.store(true, Ordering::Relaxed);
-            let _ = self.tx.send(self.id);
+impl Traffic {
+    fn new(counts: Counts) -> Self {
+        Traffic {
+            up: Striped::new(counts.up),
+            down: Striped::new(counts.down),
+            tcp: counts.tcp.into(),
+            udp: counts.udp.into(),
+            kept: (counts.up, counts.down),
         }
     }
-}
 
-impl OutboundDatagram for Datagram {
-    fn split(
-        mut self: Box<Self>,
-    ) -> (
-        Box<dyn OutboundDatagramRecvHalf>,
-        Box<dyn OutboundDatagramSendHalf>,
-    ) {
-        let (r, s) = self
-            .inner
-            .take()
-            .expect("split takes the datagram, so inner is still here")
-            .split();
+    /// Up and down since the instance started.
+    fn since_start(&self) -> (u64, u64) {
         (
-            Box::new(DatagramRecvHalf(
-                r,
-                self.bytes_recvd.clone(),
-                self.recv_completed.clone(),
-                self.last_peer_active.clone(),
-                self.closer.clone(),
-            )),
-            Box::new(DatagramSendHalf(
-                s,
-                self.bytes_sent.clone(),
-                self.send_completed.clone(),
-                self.closer.clone(),
-            )),
+            self.up.get().saturating_sub(self.kept.0),
+            self.down.get().saturating_sub(self.kept.1),
         )
     }
-}
 
-pub struct DatagramRecvHalf(
-    Box<dyn OutboundDatagramRecvHalf>,
-    Arc<AtomicU64>,
-    Arc<AtomicBool>,
-    Arc<AtomicU32>,
-    Arc<Closer>,
-);
-
-impl Drop for DatagramRecvHalf {
-    fn drop(&mut self) {
-        self.2.store(true, Ordering::Relaxed);
-    }
-}
-
-#[async_trait]
-impl OutboundDatagramRecvHalf for DatagramRecvHalf {
-    async fn recv_from(&mut self, buf: &mut [u8]) -> io::Result<(usize, SocksAddr)> {
-        let closer = self.4.clone();
-        let received = tokio::select! {
-            received = self.0.recv_from(buf) => received,
-            () = closer.closed() => Err(closed_by_api()),
-        };
-        received.map(|(n, a)| {
-            self.1.fetch_add(n as u64, Ordering::Relaxed);
-            self.3.store(get_unix_timestamp(), Ordering::Relaxed);
-            (n, a)
-        })
-    }
-}
-
-pub struct DatagramSendHalf(
-    Box<dyn OutboundDatagramSendHalf>,
-    Arc<AtomicU64>,
-    Arc<AtomicBool>,
-    Arc<Closer>,
-);
-
-impl Drop for DatagramSendHalf {
-    fn drop(&mut self) {
-        self.2.store(true, Ordering::Relaxed);
-    }
-}
-
-#[async_trait]
-impl OutboundDatagramSendHalf for DatagramSendHalf {
-    async fn send_to(&mut self, buf: &[u8], target: &SocksAddr) -> io::Result<usize> {
-        if self.3.is_closed() {
-            return Err(closed_by_api());
+    pub fn counts(&self) -> Counts {
+        Counts {
+            up: self.up.get(),
+            down: self.down.get(),
+            tcp: self.tcp.load(Ordering::Relaxed),
+            udp: self.udp.load(Ordering::Relaxed),
         }
-        self.0.send_to(buf, target).await.inspect(|&n| {
-            self.1.fetch_add(n as u64, Ordering::Relaxed);
-        })
-    }
-
-    async fn close(&mut self) -> io::Result<()> {
-        self.0.close().await
     }
 }
 
+/// Counts by tag. Looked up once per connection, without a lock; a tag not
+/// seen before is added under one.
+#[derive(Default)]
+struct Tags {
+    counts: ArcSwap<HashMap<String, Arc<Traffic>>>,
+    /// The counts the cache file kept, for tags not seen yet. Its lock is
+    /// the one adding and pruning take.
+    kept: Mutex<HashMap<String, Counts>>,
+    /// What the tags pruned had counted since the start, which the totals
+    /// keep.
+    pruned: Mutex<(u64, u64)>,
+}
+
+impl Tags {
+    fn get(&self, tag: &str) -> Arc<Traffic> {
+        if let Some(traffic) = self.counts.load().get(tag) {
+            return traffic.clone();
+        }
+        let mut kept = self.kept.lock().unwrap_or_else(|e| e.into_inner());
+        // Another may have added it while this waited.
+        if let Some(traffic) = self.counts.load().get(tag) {
+            return traffic.clone();
+        }
+        let traffic = Arc::new(Traffic::new(kept.remove(tag).unwrap_or_default()));
+        let mut counts = HashMap::clone(&self.counts.load());
+        counts.insert(tag.to_owned(), traffic.clone());
+        self.counts.store(Arc::new(counts));
+        traffic
+    }
+
+    fn counts(&self) -> Vec<(String, Counts)> {
+        let mut counts: Vec<_> = self
+            .counts
+            .load()
+            .iter()
+            .map(|(tag, traffic)| (tag.clone(), traffic.counts()))
+            .collect();
+        counts.sort_by(|a, b| a.0.cmp(&b.0));
+        counts
+    }
+
+    /// Up and down since the start over every tag, those pruned too.
+    fn totals(&self) -> (u64, u64) {
+        let pruned = *self.pruned.lock().unwrap_or_else(|e| e.into_inner());
+        self.counts.load().values().fold(pruned, |(up, down), t| {
+            let (u, d) = t.since_start();
+            (up + u, down + d)
+        })
+    }
+
+    /// Drops the counts of the tags not in `configured` that no connection
+    /// counts to any more.
+    fn prune(&self, configured: &HashSet<String>) {
+        let _adding = self.kept.lock().unwrap_or_else(|e| e.into_inner());
+        let mut pruned = self.pruned.lock().unwrap_or_else(|e| e.into_inner());
+        let mut counts = HashMap::new();
+        // Counted to while something besides this map holds it.
+        for (tag, traffic) in self.counts.load().iter() {
+            if configured.contains(tag) || Arc::strong_count(traffic) > 1 {
+                counts.insert(tag.clone(), traffic.clone());
+            } else {
+                let (up, down) = traffic.since_start();
+                pruned.0 += up;
+                pruned.1 += down;
+            }
+        }
+        self.counts.store(Arc::new(counts));
+    }
+}
+
+/// A connection's counts, as the Clash API lists it.
 pub struct Counter {
     pub id: u64,
     pub sess: Session,
-    pub start_time: u32,
-    pub bytes_recvd: Arc<AtomicU64>,
-    pub bytes_sent: Arc<AtomicU64>,
-    pub recv_completed: Arc<AtomicBool>,
-    pub send_completed: Arc<AtomicBool>,
-    pub last_peer_active: Arc<AtomicU32>,
-    pub logged: Arc<AtomicBool>,
+    start_time: u32,
+    bytes_recvd: AtomicU64,
+    bytes_sent: AtomicU64,
+    recv_completed: AtomicBool,
+    send_completed: AtomicBool,
+    last_peer_active: AtomicU32,
+    logged: AtomicBool,
     /// Closes the connection, as the Clash API does.
-    pub closer: Arc<Closer>,
+    pub closer: Closer,
 }
 
 impl Counter {
+    fn new(id: u64, sess: Session) -> Self {
+        let now = get_unix_timestamp();
+        Counter {
+            id,
+            sess,
+            start_time: now,
+            bytes_recvd: Default::default(),
+            bytes_sent: Default::default(),
+            recv_completed: Default::default(),
+            send_completed: Default::default(),
+            last_peer_active: now.into(),
+            logged: Default::default(),
+            closer: Default::default(),
+        }
+    }
+
     pub fn bytes_recvd(&self) -> u64 {
         self.bytes_recvd.load(Ordering::Relaxed)
     }
@@ -322,12 +311,6 @@ impl Counter {
     }
 }
 
-impl Drop for Counter {
-    fn drop(&mut self) {
-        self.log_session_end();
-    }
-}
-
 fn get_unix_timestamp() -> u32 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -335,49 +318,316 @@ fn get_unix_timestamp() -> u32 {
         .unwrap_or(0)
 }
 
+#[derive(Default)]
+struct Shard {
+    live: HashMap<u64, Arc<Counter>>,
+    recent: VecDeque<Arc<Counter>>,
+}
+
+/// The live connections, and some of those finished.
+struct Table {
+    shards: Box<[Mutex<Shard>]>,
+    /// How many finished connections each shard keeps.
+    recent_per_shard: usize,
+}
+
+impl Table {
+    fn shard(&self, id: u64) -> std::sync::MutexGuard<'_, Shard> {
+        self.shards[id as usize % SHARDS]
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn retire(&self, id: u64) {
+        let mut shard = self.shard(id);
+        if let Some(counter) = shard.live.remove(&id) {
+            counter.log_session_end();
+            if self.recent_per_shard > 0 {
+                if shard.recent.len() == self.recent_per_shard {
+                    shard.recent.pop_front();
+                }
+                shard.recent.push_back(counter);
+            }
+        }
+    }
+
+    /// What `f` takes of each shard, in the order the connections started.
+    fn collect(&self, f: impl Fn(&Shard) -> Vec<Arc<Counter>>) -> Vec<Arc<Counter>> {
+        let mut counters = Vec::new();
+        for shard in self.shards.iter() {
+            counters.extend(f(&shard.lock().unwrap_or_else(|e| e.into_inner())));
+        }
+        counters.sort_by_key(|c| c.id);
+        counters
+    }
+}
+
+/// Where a connection's bytes are counted. The connection is retired when
+/// this is dropped.
+struct Accounts {
+    counter: Arc<Counter>,
+    user: Option<UserRef>,
+    inbound: Arc<Traffic>,
+    outbound: Arc<Traffic>,
+    table: Arc<Table>,
+}
+
+impl Accounts {
+    /// Bytes sent on to where the connection goes: up.
+    fn sent(&self, n: u64) {
+        self.counter.bytes_sent.fetch_add(n, Ordering::Relaxed);
+        if let Some(user) = &self.user {
+            user.traffic().add_up(n);
+        }
+        self.inbound.up.add(n);
+        self.outbound.up.add(n);
+    }
+
+    /// Bytes received from where the connection goes: down.
+    fn recvd(&self, n: u64) {
+        self.counter.bytes_recvd.fetch_add(n, Ordering::Relaxed);
+        self.counter
+            .last_peer_active
+            .store(get_unix_timestamp(), Ordering::Relaxed);
+        if let Some(user) = &self.user {
+            user.traffic().add_down(n);
+        }
+        self.inbound.down.add(n);
+        self.outbound.down.add(n);
+    }
+}
+
+impl Drop for Accounts {
+    fn drop(&mut self) {
+        self.counter.recv_completed.store(true, Ordering::Relaxed);
+        self.counter.send_completed.store(true, Ordering::Relaxed);
+        self.table.retire(self.counter.id);
+    }
+}
+
+/// A stream, counted. `client` when it is the client's side, whose reads
+/// are what is sent on.
+pub struct Stream {
+    inner: AnyStream,
+    accounts: Accounts,
+    client: bool,
+}
+
+impl Stream {
+    fn read(&self, n: u64) {
+        match self.client {
+            false => self.accounts.recvd(n),
+            true => self.accounts.sent(n),
+        }
+    }
+
+    fn written(&self, n: u64) {
+        match self.client {
+            false => self.accounts.sent(n),
+            true => self.accounts.recvd(n),
+        }
+    }
+
+    /// Marks the direction it reads, or writes, finished.
+    fn completed(&self, reading: bool) {
+        let counter = &self.accounts.counter;
+        match reading != self.client {
+            true => &counter.recv_completed,
+            false => &counter.send_completed,
+        }
+        .store(true, Ordering::Relaxed);
+    }
+}
+
+impl AsyncRead for Stream {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context,
+        buf: &mut ReadBuf,
+    ) -> Poll<io::Result<()>> {
+        if self.accounts.counter.closer.poll_read_closed(cx) {
+            return Poll::Ready(Err(closed_by_api()));
+        }
+        let len = buf.filled().len();
+        let remaining = buf.remaining();
+        ready!(Pin::new(&mut self.inner).poll_read(cx, buf))?;
+        let new_len = buf.filled().len();
+        if new_len > len {
+            self.read((new_len - len) as u64);
+        } else if remaining > 0 {
+            self.completed(true);
+        }
+        Poll::Ready(Ok(()))
+    }
+}
+
+impl AsyncWrite for Stream {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context,
+        buf: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        if self.accounts.counter.closer.poll_write_closed(cx) {
+            return Poll::Ready(Err(closed_by_api()));
+        }
+        let n = ready!(Pin::new(&mut self.inner).poll_write(cx, buf))?;
+        self.written(n as u64);
+        Poll::Ready(Ok(n))
+    }
+
+    // Forwarded so TLS can hand several records to one writev.
+    fn poll_write_vectored(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context,
+        bufs: &[io::IoSlice<'_>],
+    ) -> Poll<io::Result<usize>> {
+        if self.accounts.counter.closer.poll_write_closed(cx) {
+            return Poll::Ready(Err(closed_by_api()));
+        }
+        let n = ready!(Pin::new(&mut self.inner).poll_write_vectored(cx, bufs))?;
+        self.written(n as u64);
+        Poll::Ready(Ok(n))
+    }
+
+    fn is_write_vectored(&self) -> bool {
+        self.inner.is_write_vectored()
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.inner).poll_flush(cx)
+    }
+
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<io::Result<()>> {
+        ready!(Pin::new(&mut self.inner).poll_shutdown(cx))?;
+        self.completed(false);
+        Poll::Ready(Ok(()))
+    }
+}
+
+/// An outbound's datagrams, counted. Its halves share the accounts: the
+/// session is retired when both are dropped.
+pub struct Datagram {
+    inner: AnyOutboundDatagram,
+    accounts: Arc<Accounts>,
+}
+
+impl OutboundDatagram for Datagram {
+    fn split(
+        self: Box<Self>,
+    ) -> (
+        Box<dyn OutboundDatagramRecvHalf>,
+        Box<dyn OutboundDatagramSendHalf>,
+    ) {
+        let (r, s) = self.inner.split();
+        (
+            Box::new(DatagramRecvHalf(r, self.accounts.clone())),
+            Box::new(DatagramSendHalf(s, self.accounts)),
+        )
+    }
+}
+
+pub struct DatagramRecvHalf(Box<dyn OutboundDatagramRecvHalf>, Arc<Accounts>);
+
+impl Drop for DatagramRecvHalf {
+    fn drop(&mut self) {
+        self.1.counter.recv_completed.store(true, Ordering::Relaxed);
+    }
+}
+
+#[async_trait]
+impl OutboundDatagramRecvHalf for DatagramRecvHalf {
+    async fn recv_from(&mut self, buf: &mut [u8]) -> io::Result<(usize, SocksAddr)> {
+        let accounts = self.1.clone();
+        let received = tokio::select! {
+            received = self.0.recv_from(buf) => received,
+            () = accounts.counter.closer.closed() => Err(closed_by_api()),
+        };
+        received.inspect(|&(n, _)| accounts.recvd(n as u64))
+    }
+}
+
+pub struct DatagramSendHalf(Box<dyn OutboundDatagramSendHalf>, Arc<Accounts>);
+
+impl Drop for DatagramSendHalf {
+    fn drop(&mut self) {
+        self.1.counter.send_completed.store(true, Ordering::Relaxed);
+    }
+}
+
+#[async_trait]
+impl OutboundDatagramSendHalf for DatagramSendHalf {
+    async fn send_to(&mut self, buf: &[u8], target: &SocksAddr) -> io::Result<usize> {
+        if self.1.counter.closer.is_closed() {
+            return Err(closed_by_api());
+        }
+        self.0
+            .send_to(buf, target)
+            .await
+            .inspect(|&n| self.1.sent(n as u64))
+    }
+
+    async fn close(&mut self) -> io::Result<()> {
+        self.0.close().await
+    }
+}
+
+/// The counts of every user, inbound and outbound, by name and tag.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct TrafficReport {
+    pub users: Vec<(String, Counts)>,
+    pub inbounds: Vec<(String, Counts)>,
+    pub outbounds: Vec<(String, Counts)>,
+}
+
 pub struct StatManager {
-    pub counters: HashMap<u64, Counter>,
-    pub recent_counters: VecDeque<Counter>,
-    pub max_recent_connections: usize,
-    pub next_id: u64,
-    pub tx: mpsc::UnboundedSender<u64>,
-    pub rx: Option<mpsc::UnboundedReceiver<u64>>,
-    /// What the connections no longer counted sent and received.
-    closed_sent: u64,
-    closed_recvd: u64,
+    table: Arc<Table>,
+    max_recent_connections: usize,
+    next_id: AtomicU64,
+    inbounds: Tags,
+    outbounds: Tags,
+    users: UserRegistry,
 }
 
 impl Default for StatManager {
     fn default() -> Self {
-        let (tx, rx) = mpsc::unbounded_channel();
-        Self {
-            counters: HashMap::new(),
-            recent_counters: VecDeque::new(),
-            max_recent_connections: 0,
-            next_id: 1,
-            tx,
-            rx: Some(rx),
-            closed_sent: 0,
-            closed_recvd: 0,
-        }
+        Self::new(0, UserRegistry::default())
     }
 }
 
 impl StatManager {
-    pub fn new() -> Self {
-        Self::default()
+    /// Keeps up to about `max_recent_connections` finished connections for
+    /// the API to list; counts the traffic of the users of `users`.
+    pub fn new(max_recent_connections: usize, users: UserRegistry) -> Self {
+        StatManager {
+            table: Arc::new(Table {
+                shards: (0..SHARDS).map(|_| Mutex::default()).collect(),
+                recent_per_shard: max_recent_connections.div_ceil(SHARDS),
+            }),
+            max_recent_connections,
+            next_id: AtomicU64::new(1),
+            inbounds: Tags::default(),
+            outbounds: Tags::default(),
+            users,
+        }
     }
 
-    /// Keeps up to `n` finished connections for the API to list.
-    pub fn with_max_recent_connections(mut self, n: usize) -> Self {
-        self.max_recent_connections = n;
-        self
+    /// Goes on from the counts `kept`, as the cache file had them. Called
+    /// before anything is counted.
+    pub fn restore(&self, kept: TrafficReport) {
+        *self.inbounds.kept.lock().unwrap_or_else(|e| e.into_inner()) =
+            kept.inbounds.into_iter().collect();
+        *self
+            .outbounds
+            .kept
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = kept.outbounds.into_iter().collect();
+        self.users.keep(kept.users.into_iter().collect());
     }
 
     /// Closes the connection `id`, as the Clash API does; false when there
     /// is none so numbered.
     pub fn close(&self, id: u64) -> bool {
-        match self.counters.get(&id) {
+        match self.table.shard(id).live.get(&id) {
             Some(counter) => {
                 counter.closer.close();
                 true
@@ -386,228 +636,150 @@ impl StatManager {
         }
     }
 
-    /// Closes every connection.
-    pub fn close_all(&self) {
-        for counter in self.counters.values() {
+    /// Closes every connection; how many there were.
+    pub fn close_all(&self) -> usize {
+        let counters = self.connections();
+        for counter in &counters {
             counter.closer.close();
         }
+        counters.len()
+    }
+
+    /// The live connections, in the order they started.
+    pub fn connections(&self) -> Vec<Arc<Counter>> {
+        self.table
+            .collect(|shard| shard.live.values().cloned().collect())
+    }
+
+    /// How many live connections `f` holds for.
+    fn count(&self, f: impl Fn(&Counter) -> bool) -> usize {
+        self.table
+            .shards
+            .iter()
+            .map(|s| {
+                let shard = s.lock().unwrap_or_else(|e| e.into_inner());
+                shard.live.values().filter(|c| f(c)).count()
+            })
+            .sum()
+    }
+
+    /// How many connections are live.
+    pub fn live(&self) -> usize {
+        self.count(|_| true)
+    }
+
+    /// The finished connections kept, at most `max_recent_connections`,
+    /// the latest.
+    pub fn recent(&self) -> Vec<Arc<Counter>> {
+        let mut recent = self
+            .table
+            .collect(|shard| shard.recent.iter().cloned().collect());
+        let extra = recent.len().saturating_sub(self.max_recent_connections);
+        recent.drain(..extra);
+        recent
+    }
+
+    /// The TCP connections not yet finished both ways: what is still to be
+    /// drained.
+    pub fn open_streams(&self) -> usize {
+        self.count(|c| {
+            c.sess.network == Network::Tcp && !(c.recv_completed() && c.send_completed())
+        })
     }
 
     /// What every connection since the start sent and received, those
-    /// closed too: the traffic totals.
+    /// closed too: the traffic totals. Counts kept from before a restart
+    /// are not in them.
     pub fn totals(&self) -> (u64, u64) {
-        self.counters
-            .values()
-            .fold((self.closed_sent, self.closed_recvd), |(sent, recvd), c| {
-                (sent + c.bytes_sent(), recvd + c.bytes_recvd())
-            })
+        self.inbounds.totals()
     }
 
-    /// Stops counting the connection `id`, keeping its bytes in the
-    /// totals, and it among the recent ones.
-    fn retire(&mut self, id: u64) {
-        if let Some(counter) = self.counters.remove(&id) {
-            counter.log_session_end();
-            self.closed_sent += counter.bytes_sent();
-            self.closed_recvd += counter.bytes_recvd();
-            if self.max_recent_connections > 0 {
-                self.recent_counters.push_back(counter);
+    /// The counts of every user, inbound and outbound since they were
+    /// first counted, kept across restarts with the cache file.
+    pub fn traffic(&self) -> TrafficReport {
+        let mut users: Vec<_> = self
+            .users
+            .users()
+            .into_iter()
+            .map(|u| (u.name().to_string(), u.traffic().counts()))
+            .collect();
+        users.sort_by(|a, b| a.0.cmp(&b.0));
+        TrafficReport {
+            users,
+            inbounds: self.inbounds.counts(),
+            outbounds: self.outbounds.counts(),
+        }
+    }
+
+    /// Drops the counts of the inbounds and outbounds not among those
+    /// configured once no connection counts to them, as a reload leaves
+    /// them.
+    pub fn configure(&self, inbounds: &HashSet<String>, outbounds: &HashSet<String>) {
+        self.inbounds.prune(inbounds);
+        self.outbounds.prune(outbounds);
+    }
+
+    fn register(&self, sess: Session) -> Accounts {
+        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        let udp = sess.network == Network::Udp;
+        let user = sess.user.clone();
+        let inbound = self.inbounds.get(&sess.inbound_tag);
+        let outbound = self.outbounds.get(&sess.outbound_tag);
+        for traffic in [&inbound, &outbound] {
+            match udp {
+                false => &traffic.tcp,
+                true => &traffic.udp,
             }
+            .fetch_add(1, Ordering::Relaxed);
+        }
+        if let Some(user) = &user {
+            user.traffic().add_session(udp);
+        }
+        let counter = Arc::new(Counter::new(id, sess));
+        self.table.shard(id).live.insert(id, counter.clone());
+        Accounts {
+            counter,
+            user,
+            inbound,
+            outbound,
+            table: self.table.clone(),
         }
     }
 
-    pub fn move_to_recent(&mut self) {
-        let mut to_move = Vec::new();
-        for (id, c) in self.counters.iter() {
-            if c.recv_completed() && c.send_completed() {
-                to_move.push(*id);
-            }
-        }
-        for id in to_move {
-            self.retire(id);
-        }
-        if self.max_recent_connections > 0 {
-            self.prune_recent();
-        }
-    }
-
-    fn prune_recent(&mut self) {
-        // Only prune when exceeding 2x the limit to reduce sorting frequency
-        if self.recent_counters.len() > self.max_recent_connections * 2 {
-            let mut recent_vec: Vec<Counter> = self.recent_counters.drain(..).collect();
-            recent_vec.sort_by_key(|c| c.start_time());
-            let to_remove = recent_vec.len() - self.max_recent_connections;
-            self.recent_counters = recent_vec.into_iter().skip(to_remove).collect();
-        }
-    }
-
-    pub fn cleanup_task(sm: SyncStatManager) -> crate::Runner {
-        Box::pin(async move {
-            // Only the first cleanup task of a manager gets the receiver.
-            let Some(mut rx) = sm.write().await.rx.take() else {
-                tracing::warn!("stat manager cleanup is already running");
-                return;
-            };
-            loop {
-                let mut ids = Vec::new();
-                // Batch up to 100 IDs or wait for a bit
-                match tokio::time::timeout(std::time::Duration::from_millis(100), rx.recv()).await {
-                    Ok(Some(id)) => {
-                        ids.push(id);
-                        // Try to collect more IDs without waiting
-                        while let Ok(id) = rx.try_recv() {
-                            ids.push(id);
-                            if ids.len() >= 500 {
-                                break;
-                            }
-                        }
-                    }
-                    Ok(None) => break, // Channel closed
-                    Err(_) => {
-                        // Timeout reached, check if we need to do periodic cleanup anyway
-                        let mut sm_w = sm.write().await;
-                        sm_w.move_to_recent();
-                        continue;
-                    }
-                }
-
-                if !ids.is_empty() {
-                    let mut sm_w = sm.write().await;
-                    for id in ids {
-                        sm_w.retire(id);
-                    }
-                    if sm_w.max_recent_connections > 0 {
-                        sm_w.prune_recent();
-                    }
-                }
-            }
-        })
-    }
-
-    pub fn stat_stream(&mut self, stream: AnyStream, sess: Session) -> AnyStream {
-        let bytes_recvd = Arc::new(AtomicU64::new(0));
-        let bytes_sent = Arc::new(AtomicU64::new(0));
-        let recv_completed = Arc::new(AtomicBool::new(false));
-        let send_completed = Arc::new(AtomicBool::new(false));
-        let logged = Arc::new(AtomicBool::new(false));
-        let closer = Arc::new(Closer::default());
-        let ts = get_unix_timestamp();
-        let last_peer_active = Arc::new(AtomicU32::new(ts));
-        let id = self.next_id;
-        self.next_id += 1;
-        self.counters.insert(
-            id,
-            Counter {
-                id,
-                sess,
-                start_time: ts,
-                bytes_recvd: bytes_recvd.clone(),
-                bytes_sent: bytes_sent.clone(),
-                recv_completed: recv_completed.clone(),
-                send_completed: send_completed.clone(),
-                last_peer_active: last_peer_active.clone(),
-                logged,
-                closer: closer.clone(),
-            },
-        );
+    /// Counts `stream`, the outbound's side of a TCP connection.
+    pub fn stat_stream(&self, stream: AnyStream, sess: Session) -> AnyStream {
         Box::new(Stream {
             inner: stream,
-            closer,
-            bytes_recvd,
-            bytes_sent,
-            recv_completed,
-            send_completed,
-            last_peer_active,
-            id,
-            tx: self.tx.clone(),
+            accounts: self.register(sess),
+            client: false,
         })
     }
 
-    pub fn stat_inbound_stream(&mut self, stream: AnyStream, sess: Session) -> AnyStream {
-        let bytes_recvd = Arc::new(AtomicU64::new(0));
-        let bytes_sent = Arc::new(AtomicU64::new(0));
-        let recv_completed = Arc::new(AtomicBool::new(false));
-        let send_completed = Arc::new(AtomicBool::new(false));
-        let logged = Arc::new(AtomicBool::new(false));
-        let closer = Arc::new(Closer::default());
-        let ts = get_unix_timestamp();
-        let last_peer_active = Arc::new(AtomicU32::new(ts));
-        let id = self.next_id;
-        self.next_id += 1;
-        self.counters.insert(
-            id,
-            Counter {
-                id,
-                sess,
-                start_time: ts,
-                bytes_recvd: bytes_recvd.clone(),
-                bytes_sent: bytes_sent.clone(),
-                recv_completed: recv_completed.clone(),
-                send_completed: send_completed.clone(),
-                last_peer_active: last_peer_active.clone(),
-                logged,
-                closer: closer.clone(),
-            },
-        );
+    /// Counts `stream`, the client's side of a TCP connection, for an
+    /// outbound that gives no stream of its own.
+    pub fn stat_inbound_stream(&self, stream: AnyStream, sess: Session) -> AnyStream {
         Box::new(Stream {
             inner: stream,
-            closer,
-            bytes_recvd: bytes_sent,
-            bytes_sent: bytes_recvd,
-            recv_completed: send_completed,
-            send_completed: recv_completed,
-            last_peer_active,
-            id,
-            tx: self.tx.clone(),
+            accounts: self.register(sess),
+            client: true,
         })
     }
 
+    /// Counts `dgram`, the outbound's side of a UDP session.
     pub fn stat_outbound_datagram(
-        &mut self,
+        &self,
         dgram: AnyOutboundDatagram,
         sess: Session,
     ) -> AnyOutboundDatagram {
-        let bytes_recvd = Arc::new(AtomicU64::new(0));
-        let bytes_sent = Arc::new(AtomicU64::new(0));
-        let recv_completed = Arc::new(AtomicBool::new(false));
-        let send_completed = Arc::new(AtomicBool::new(false));
-        let logged = Arc::new(AtomicBool::new(false));
-        let closer = Arc::new(Closer::default());
-        let ts = get_unix_timestamp();
-        let last_peer_active = Arc::new(AtomicU32::new(ts));
-        let id = self.next_id;
-        self.next_id += 1;
-        self.counters.insert(
-            id,
-            Counter {
-                id,
-                sess,
-                start_time: ts,
-                bytes_recvd: bytes_recvd.clone(),
-                bytes_sent: bytes_sent.clone(),
-                recv_completed: recv_completed.clone(),
-                send_completed: send_completed.clone(),
-                last_peer_active: last_peer_active.clone(),
-                logged,
-                closer: closer.clone(),
-            },
-        );
         Box::new(Datagram {
-            inner: Some(dgram),
-            closer,
-            bytes_recvd,
-            bytes_sent,
-            recv_completed,
-            send_completed,
-            last_peer_active,
-            id,
-            tx: self.tx.clone(),
+            inner: dgram,
+            accounts: Arc::new(self.register(sess)),
         })
     }
 
     pub fn get_last_peer_active(&self, outbound_tag: &str) -> Option<u32> {
-        self.counters
-            .values()
+        self.connections()
+            .iter()
             .filter(|counter| counter.sess.outbound_tag == outbound_tag)
             .map(|counter| counter.last_peer_active())
             .max()
@@ -617,206 +789,29 @@ impl StatManager {
         self.get_last_peer_active(outbound_tag)
             .map(|ts| get_unix_timestamp().saturating_sub(ts))
     }
+
+    /// Writes the counts to the cache file, if there is one.
+    pub fn store(&self, env: &crate::runtime::RuntimeEnv) {
+        if let Some(cache) = env.cache_file.get() {
+            if let Err(e) = cache.store_traffic(&self.traffic()) {
+                warn!("cache_file: traffic not written: {:#}", e);
+            }
+        }
+    }
+
+    /// Writes the counts to the cache file every `STORE_INTERVAL`.
+    pub fn store_task(sm: SyncStatManager, env: crate::runtime::SyncRuntimeEnv) -> crate::Runner {
+        Box::pin(async move {
+            let mut interval = tokio::time::interval(STORE_INTERVAL);
+            interval.tick().await;
+            loop {
+                interval.tick().await;
+                let (sm, env) = (sm.clone(), env.clone());
+                let _ = tokio::task::spawn_blocking(move || sm.store(&env)).await;
+            }
+        })
+    }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::adapter::{OutboundDatagram, OutboundDatagramRecvHalf, OutboundDatagramSendHalf};
-    use crate::session::SocksAddr;
-    use async_trait::async_trait;
-    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-    use tokio::io::ReadBuf;
-
-    struct MockStream {
-        data: Vec<u8>,
-        read_pos: usize,
-    }
-
-    impl AsyncRead for MockStream {
-        fn poll_read(
-            mut self: Pin<&mut Self>,
-            _cx: &mut Context,
-            buf: &mut ReadBuf,
-        ) -> Poll<io::Result<()>> {
-            let rem = self.data.len() - self.read_pos;
-            if rem == 0 {
-                return Poll::Ready(Ok(()));
-            }
-            let to_read = std::cmp::min(rem, buf.remaining());
-            buf.put_slice(&self.data[self.read_pos..self.read_pos + to_read]);
-            self.read_pos += to_read;
-            Poll::Ready(Ok(()))
-        }
-    }
-
-    impl AsyncWrite for MockStream {
-        fn poll_write(
-            self: Pin<&mut Self>,
-            _cx: &mut Context,
-            buf: &[u8],
-        ) -> Poll<io::Result<usize>> {
-            Poll::Ready(Ok(buf.len()))
-        }
-        fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context) -> Poll<io::Result<()>> {
-            Poll::Ready(Ok(()))
-        }
-        fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context) -> Poll<io::Result<()>> {
-            Poll::Ready(Ok(()))
-        }
-    }
-
-    struct MockOutboundDatagramRecvHalf;
-
-    #[async_trait]
-    impl OutboundDatagramRecvHalf for MockOutboundDatagramRecvHalf {
-        async fn recv_from(&mut self, _buf: &mut [u8]) -> io::Result<(usize, SocksAddr)> {
-            Err(io::Error::new(io::ErrorKind::UnexpectedEof, "eof"))
-        }
-    }
-
-    struct MockOutboundDatagramSendHalf;
-
-    #[async_trait]
-    impl OutboundDatagramSendHalf for MockOutboundDatagramSendHalf {
-        async fn send_to(&mut self, _buf: &[u8], _dst_addr: &SocksAddr) -> io::Result<usize> {
-            Ok(0)
-        }
-
-        async fn close(&mut self) -> io::Result<()> {
-            Ok(())
-        }
-    }
-
-    struct MockOutboundDatagram;
-
-    impl OutboundDatagram for MockOutboundDatagram {
-        fn split(
-            self: Box<Self>,
-        ) -> (
-            Box<dyn OutboundDatagramRecvHalf>,
-            Box<dyn OutboundDatagramSendHalf>,
-        ) {
-            (
-                Box::new(MockOutboundDatagramRecvHalf),
-                Box::new(MockOutboundDatagramSendHalf),
-            )
-        }
-    }
-
-    #[tokio::test]
-    async fn test_stat_stream_non_empty_buf() {
-        let mock = MockStream {
-            data: vec![1, 2, 3, 4, 5],
-            read_pos: 0,
-        };
-        let stream = Box::new(mock);
-
-        let bytes_recvd = Arc::new(AtomicU64::new(0));
-        let bytes_sent = Arc::new(AtomicU64::new(0));
-        let recv_completed = Arc::new(AtomicBool::new(false));
-        let send_completed = Arc::new(AtomicBool::new(false));
-        let last_peer_active = Arc::new(AtomicU32::new(0));
-
-        let (tx, _rx) = mpsc::unbounded_channel();
-        let mut stat_stream = Stream {
-            inner: stream,
-            bytes_recvd: bytes_recvd.clone(),
-            bytes_sent: bytes_sent.clone(),
-            recv_completed: recv_completed.clone(),
-            send_completed: send_completed.clone(),
-            last_peer_active: last_peer_active.clone(),
-            id: 0,
-            tx,
-            closer: Default::default(),
-        };
-
-        let mut data = vec![0u8; 20];
-        // Simulate existing data in buffer
-        let mut buf = ReadBuf::new(&mut data);
-        buf.put_slice(&[0xAA; 5]);
-
-        use futures::future::poll_fn;
-        poll_fn(|cx| Pin::new(&mut stat_stream).poll_read(cx, &mut buf))
-            .await
-            .unwrap();
-
-        assert_eq!(buf.filled().len(), 10);
-
-        let received = bytes_recvd.load(Ordering::Relaxed);
-        assert_eq!(received, 5, "Expected 5 bytes received, got {}", received);
-    }
-
-    /// A connection the API closes fails its reads and writes, waiting
-    /// ones too.
-    #[tokio::test]
-    async fn a_closed_connection_fails_its_reads_and_writes() {
-        use tokio::io::{AsyncReadExt, AsyncWriteExt};
-        let mut sm = StatManager::new();
-        let (a, _b) = tokio::io::duplex(64);
-        let mut stream = sm.stat_stream(Box::new(a), Session::default());
-        let id = *sm.counters.keys().next().unwrap();
-        let reading = tokio::spawn(async move {
-            let mut buf = [0u8; 8];
-            let read = stream.read(&mut buf).await;
-            (read, stream.write_all(b"x").await)
-        });
-        tokio::task::yield_now().await;
-        assert!(sm.close(id));
-        let (read, write) = reading.await.unwrap();
-        assert_eq!(read.unwrap_err().kind(), io::ErrorKind::ConnectionAborted);
-        assert_eq!(write.unwrap_err().kind(), io::ErrorKind::ConnectionAborted);
-        assert!(!sm.close(id + 1));
-    }
-
-    #[test]
-    fn stat_outbound_datagram_does_not_end_on_split() {
-        let mut sm = StatManager::new();
-        let sess = Session {
-            outbound_tag: "ss-cabi".to_string(),
-            destination: SocksAddr::from(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 8001)),
-            ..Default::default()
-        };
-
-        let dgram = sm.stat_outbound_datagram(Box::new(MockOutboundDatagram), sess);
-        assert_eq!(sm.counters.len(), 1);
-
-        let (recv_half, send_half) = dgram.split();
-        assert_eq!(sm.counters.len(), 1);
-        assert!(
-            sm.rx.as_mut().expect("rx should exist").try_recv().is_err(),
-            "splitting datagram should not end the session immediately"
-        );
-
-        drop(recv_half);
-        drop(send_half);
-        sm.move_to_recent();
-
-        assert!(sm.counters.is_empty());
-        assert!(
-            sm.rx.as_mut().expect("rx should exist").try_recv().is_err(),
-            "split datagram retirement should be driven by half completion, not drop notifications"
-        );
-    }
-
-    #[test]
-    fn stat_outbound_datagram_unsplit_drop_ends_session() {
-        let mut sm = StatManager::new();
-        let sess = Session {
-            outbound_tag: "ss-cabi".to_string(),
-            destination: SocksAddr::from(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 8001)),
-            ..Default::default()
-        };
-
-        let dgram = sm.stat_outbound_datagram(Box::new(MockOutboundDatagram), sess);
-        drop(dgram);
-
-        let id = sm
-            .rx
-            .as_mut()
-            .expect("rx should exist")
-            .try_recv()
-            .expect("unsplit datagram drop should enqueue cleanup");
-        assert_eq!(id, 1);
-    }
-}
+mod tests;

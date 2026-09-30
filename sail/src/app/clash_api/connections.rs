@@ -32,7 +32,7 @@ pub(super) async fn list(
 ) -> Response {
     let stats = clash.rm.stat_manager();
     let Some(ws) = ws else {
-        return Json(snapshot(&*stats.read().await)).into_response();
+        return Json(snapshot(&stats)).into_response();
     };
     let interval = query
         .get("interval")
@@ -47,19 +47,18 @@ pub(super) async fn list(
         })
         .then(move |()| {
             let stats = stats.clone();
-            async move { snapshot(&*stats.read().await) }
+            async move { snapshot(&stats) }
         });
     send(Some(ws), frames)
 }
 
 fn snapshot(stats: &StatManager) -> Value {
     let (up, down) = stats.totals();
-    let mut counters: Vec<&Counter> = stats.counters.values().collect();
-    counters.sort_by_key(|c| c.id);
+    let counters = stats.connections();
     json!({
         "downloadTotal": down,
         "uploadTotal": up,
-        "connections": counters.into_iter().map(connection).collect::<Vec<_>>(),
+        "connections": counters.iter().map(|c| connection(c)).collect::<Vec<_>>(),
         "memory": resident_memory(),
     })
 }
@@ -104,14 +103,14 @@ fn connection(counter: &Counter) -> Value {
 
 /// Closes every connection.
 pub(super) async fn close_all(State(clash): State<Arc<Clash>>) -> StatusCode {
-    clash.rm.stat_manager().read().await.close_all();
+    clash.rm.stat_manager().close_all();
     StatusCode::NO_CONTENT
 }
 
 /// Closes one; one there is not is no error, as in Mihomo.
 pub(super) async fn close(State(clash): State<Arc<Clash>>, Path(id): Path<String>) -> StatusCode {
     if let Ok(id) = id.parse() {
-        clash.rm.stat_manager().read().await.close(id);
+        clash.rm.stat_manager().close(id);
     }
     StatusCode::NO_CONTENT
 }
