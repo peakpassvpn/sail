@@ -5,7 +5,9 @@ use serde_json::json;
 use sail::app::dns_client::DnsClient;
 use sail::app::outbound::manager::OutboundManager;
 use sail::config;
-use sail::net::dial::{DialSpec, RouteDefaults};
+use sail::net::dial::DialSpec;
+#[cfg(not(windows))]
+use sail::net::dial::RouteDefaults;
 use sail::net::DialDefaults;
 
 fn outbound(tag: &str, protocol: &str, options: serde_json::Value) -> config::Outbound {

@@ -12,7 +12,9 @@ use anyhow::Result;
 use socket2::{Domain, SockRef, Socket, Type};
 use tokio::net::{TcpSocket, TcpStream, UdpSocket};
 use tokio::time::timeout;
-use tracing::{debug, trace};
+use tracing::debug;
+#[cfg(unix)]
+use tracing::trace;
 
 #[cfg(unix)]
 use {
