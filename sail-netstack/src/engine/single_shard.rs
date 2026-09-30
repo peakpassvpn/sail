@@ -1752,7 +1752,9 @@ impl<I: PacketIo> SingleShardRunner<I> {
         let ip = parse_ip_packet(payload, true).map_err(RunnerError::Wire)?;
         let work_class = match ip.next_header {
             6 => {
-                let segment = parse_tcp_segment(ip, true).map_err(RunnerError::Wire)?;
+                // Its class needs only the ports and whether it carries
+                // data; the table checks the checksum when it takes it.
+                let segment = parse_tcp_segment(ip, false).map_err(RunnerError::Wire)?;
                 if segment.payload.is_empty() {
                     WorkClass::Control
                 } else {
@@ -1768,7 +1770,7 @@ impl<I: PacketIo> SingleShardRunner<I> {
                 }
             }
             17 => {
-                let datagram = parse_udp_datagram(ip, true).map_err(RunnerError::Wire)?;
+                let datagram = parse_udp_datagram(ip, false).map_err(RunnerError::Wire)?;
                 let flow_key = (
                     datagram.source,
                     datagram.destination,

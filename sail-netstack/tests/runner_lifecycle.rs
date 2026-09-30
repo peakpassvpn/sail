@@ -8,8 +8,8 @@ use std::time::Duration;
 
 use futures::executor::block_on;
 use sail_netstack::{
-    emit_icmp_error, emit_tcp_segment, emit_tcp_segment_with_options, emit_udp_packet,
-    parse_icmp_packet, parse_ip_packet, parse_tcp_segment, parse_udp_datagram,
+    classify_packet, emit_icmp_error, emit_tcp_segment, emit_tcp_segment_with_options,
+    emit_udp_packet, parse_icmp_packet, parse_ip_packet, parse_tcp_segment, parse_udp_datagram,
     AcceptOverflowPolicy, BudgetProfile, ChecksumCapabilities, FragmentReassembler, IcmpErrorKind,
     IcmpMessage, NetworkGeneration, Packet, PacketBatch, PacketCapabilities, PacketIo, PacketToken,
     PressureLevel, ResourceKind, ResourceLedger, RunnerConfig, RunnerError, RunnerState,
@@ -1794,6 +1794,58 @@ fn a_step_moves_several_packets_through_a_one_packet_device() {
     }
     assert_eq!(block_on(runner.step(5)).unwrap().received_packets, 3);
     assert!(recv.lock().unwrap().is_empty());
+}
+
+/// Flips the transport checksum of an IPv4 packet: the TCP one at 16 bytes
+/// into its header, the UDP one at 6.
+fn corrupt_transport_checksum(mut packet: Vec<u8>) -> Vec<u8> {
+    let header = usize::from(packet[0] & 0x0f) * 4;
+    let offset = header + if packet[9] == 6 { 16 } else { 6 };
+    packet[offset] ^= 0x5a;
+    packet
+}
+
+/// Feeds one packet to a fresh runner and returns what it sent back, the
+/// datagrams it handed over, and its malformed-packet counts.
+fn feed_one(packet: Vec<u8>) -> (usize, usize, u64, u64) {
+    let sent = Arc::new(Mutex::new(Vec::new()));
+    let io = DynamicIo {
+        recv: Arc::new(Mutex::new(VecDeque::from([packet]))),
+        sent: Arc::clone(&sent),
+        max_batch: 1,
+    };
+    let ledger = ResourceLedger::new(BudgetProfile::Mobile.budget()).unwrap();
+    let mut runner = SingleShardRunner::new(io, ledger, deterministic_runner_config()).unwrap();
+    let received = block_on(runner.step(1)).unwrap();
+    block_on(runner.step(2)).unwrap();
+    let stats = runner.stats_snapshot();
+    let replies = sent.lock().unwrap().len();
+    (
+        replies,
+        received.datagrams.len(),
+        stats.tcp_malformed_packets,
+        stats.udp_malformed_packets,
+    )
+}
+
+/// The shard and the work class are chosen without checking the checksum,
+/// which the table checks once when it takes the packet: a segment with a
+/// bad one still reaches its own shard, and goes no further.
+#[test]
+fn a_bad_checksum_is_classified_and_then_dropped() {
+    let source = SocketAddr::from((Ipv4Addr::new(10, 2, 0, 2), 40_003));
+    let destination = SocketAddr::from((Ipv4Addr::new(10, 2, 0, 1), 443));
+    let good = tcp_packet(source, destination, 100, 0, TcpFlags::SYN);
+    let bad = corrupt_transport_checksum(good.clone());
+    let generation = NetworkGeneration::default();
+    assert_eq!(
+        classify_packet(&bad, generation).unwrap(),
+        classify_packet(&good, generation).unwrap()
+    );
+    assert_eq!(feed_one(bad), (0, 0, 1, 0));
+    assert_eq!(feed_one(good), (1, 0, 0, 0));
+    let datagram = corrupt_transport_checksum(udp_packet(40_004, b"x"));
+    assert_eq!(feed_one(datagram), (0, 0, 0, 1));
 }
 
 #[test]

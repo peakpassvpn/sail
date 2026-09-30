@@ -56,7 +56,9 @@ pub(crate) fn classify_packet_with_class(
     }
     let (endpoint, class) = match ip.next_header {
         6 => {
-            let segment = parse_tcp_segment(ip, true)?;
+            // Only the ports and whether it carries data: the checksum is
+            // the table's to check, once, when it takes the segment.
+            let segment = parse_tcp_segment(ip, false)?;
             (
                 IpEndpoint {
                     source: segment.source,
@@ -71,7 +73,8 @@ pub(crate) fn classify_packet_with_class(
             )
         }
         17 => {
-            let datagram = parse_udp_datagram(ip, true)?;
+            // As a TCP segment: the table checks the checksum.
+            let datagram = parse_udp_datagram(ip, false)?;
             (
                 IpEndpoint {
                     source: datagram.source,
