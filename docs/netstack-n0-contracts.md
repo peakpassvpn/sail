@@ -1191,6 +1191,32 @@ fail with `EPERM`; `sudo -n` confirms this host requires an administrator
 password. Consequently this is a ready privileged gate, not evidence that the
 macOS kernel path has passed yet.
 
+- TUN throughput (2026-10-01), found by the weak-network tests (roadmap
+  5.5):
+  - Segments follow the link. The MSS a flow announces is the MTU less
+    the fixed IP and TCP headers (RFC 9293 3.7.1, RFC 6691), and a
+    segment leaves room for the options negotiated: the whole 40-byte
+    option space with SACK, 12 bytes with timestamps alone. The TUN
+    inbound no longer caps segments at 1200 bytes.
+  - One write goes out as many segments; see the write contract above.
+  - `RunnerConfig::packets_per_step` lets a step go on sending, and
+    receiving, while the device takes or has packets at once. Only the
+    first batch is waited for. The default is one batch a step; the TUN
+    uses 16.
+  - A receive window grows. It starts at `receive_credit_bytes`, reserved
+    when the flow opens, and doubles up to `max_receive_credit_bytes`
+    when the application read at least half of it within a round trip
+    (the test of Linux's `tcp_rcv_space_adjust`). Each step is reserved
+    before it is announced, and a refused step leaves the window as it
+    is, so an announced window is always backed by reserved credit. The
+    window scale is chosen for the ceiling.
+  Measured over a Linux TUN at MTU 9000, direct, medians of 3 on an
+  otherwise idle host, against sing-box 1.13 on the same host: download
+  1.05 times sing-box on the server profile and 1.33 on mobile, upload
+  1.47 and 1.32; echo p99 0.47 and 0.40 times. Before, the download was
+  about 100 Mbit/s. On the mobile profile, 2000 of 2000 connections now
+  open at once, against 653 with the 16 KiB windows before.
+
 ## RFC coverage matrix
 
 | Area | RFC / behavior | Status | Test oracle |
