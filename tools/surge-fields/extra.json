@@ -1,0 +1,26 @@
+{
+ "note": "Hand-maintained: what Surge's manual says only in prose, which extract.py cannot read from its headings and tables. Each entry names the page that says it.",
+ "tls": {
+  "note": "The types that take the TLS parameters (policies/tls.html): those always over TLS or QUIC, and vmess with tls=true (each protocol's page, Common Parameters and Notes).",
+  "types": ["https", "h2-connect", "socks5-tls", "vmess", "trojan", "tuic", "tuic-v5", "hysteria2", "masque", "anytls", "trust-tunnel"]
+ },
+ "no-shadow-tls": {
+  "note": "Types with a server that Shadow TLS does not wrap, besides the QUIC-based ones (policies/tls.html, Shadow TLS).",
+  "types": []
+ },
+ "group-aliases": {
+  "note": "ssid is the legacy keyword of subnet (policy-groups/overview.html, policy-groups/subnet.html).",
+  "ssid": "subnet"
+ },
+ "group-limited": {
+  "note": "Subnet groups take only hidden, icon-url and category of the parameters every group takes (policy-groups/subnet.html).",
+  "subnet": ["hidden", "icon-url", "category"]
+ },
+ "group-params": {
+  "note": "policy-path, which policy-groups/policy-including.html describes in prose.",
+  "keys": ["policy-path"]
+ },
+ "fields": [
+  {"path": "General.vif-mode", "json": "string", "sample": "v2", "page": "features/enhanced-mode.html"}
+ ]
+}
