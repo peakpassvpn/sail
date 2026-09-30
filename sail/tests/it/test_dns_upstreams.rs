@@ -79,8 +79,22 @@ impl Counters {
 /// `close_after_answer` it closes every connection once it has answered,
 /// as a server whose idle timeout has passed would.
 fn start_dot_server(cert: &Cert, close_after_answer: bool) -> (u16, Arc<Counters>) {
+    start_dot_server_with(cert, close_after_answer, None, None)
+}
+
+/// The SNI each connection a server took sent, if any.
+type Snis = Arc<std::sync::Mutex<Vec<Option<String>>>>;
+
+/// `start_dot_server`, asking for a client certificate `client_ca`
+/// issued, when given, and keeping the SNI of each connection in `snis`.
+fn start_dot_server_with(
+    cert: &Cert,
+    close_after_answer: bool,
+    client_ca: Option<&Cert>,
+    snis: Option<Snis>,
+) -> (u16, Arc<Counters>) {
     use btls::pkey::PKey;
-    use btls::ssl::{SslAcceptor, SslMethod};
+    use btls::ssl::{NameType, SslAcceptor, SslMethod, SslVerifyMode};
     use btls::x509::X509;
 
     let mut acceptor = SslAcceptor::mozilla_intermediate_v5(SslMethod::tls()).unwrap();
@@ -90,6 +104,21 @@ fn start_dot_server(cert: &Cert, close_after_answer: bool) -> (u16, Arc<Counters
     acceptor
         .set_private_key(&PKey::private_key_from_pem(cert.key_pem.as_bytes()).unwrap())
         .unwrap();
+    if let Some(ca) = client_ca {
+        acceptor
+            .cert_store_mut()
+            .add_cert(X509::from_pem(ca.cert_pem.as_bytes()).unwrap())
+            .unwrap();
+        acceptor.set_verify(SslVerifyMode::PEER | SslVerifyMode::FAIL_IF_NO_PEER_CERT);
+    }
+    if let Some(snis) = snis {
+        acceptor.set_servername_callback(move |ssl, _| {
+            snis.lock()
+                .unwrap()
+                .push(ssl.servername(NameType::HOST_NAME).map(str::to_owned));
+            Ok(())
+        });
+    }
     let acceptor = Arc::new(acceptor.build());
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
@@ -134,6 +163,16 @@ fn start_dot_server(cert: &Cert, close_after_answer: bool) -> (u16, Arc<Counters
 
 /// A QUIC server endpoint on a port of its own, and that port.
 fn quic_server_endpoint(cert: &Cert, alpn: &[u8]) -> (u16, quinn::Endpoint) {
+    quic_server_endpoint_with(cert, alpn, None)
+}
+
+/// `quic_server_endpoint`, asking for a client certificate `client_ca`
+/// issued, when given.
+fn quic_server_endpoint_with(
+    cert: &Cert,
+    alpn: &[u8],
+    client_ca: Option<&Cert>,
+) -> (u16, quinn::Endpoint) {
     use btls::pkey::PKey;
     use btls::x509::X509;
     use quinn_btls::QuicSslContext;
@@ -144,7 +183,16 @@ fn quic_server_endpoint(cert: &Cert, alpn: &[u8]) -> (u16, quinn::Endpoint) {
         .unwrap();
     ctx.set_private_key(PKey::private_key_from_pem(cert.key_pem.as_bytes()).unwrap())
         .unwrap();
+    if let Some(ca) = client_ca {
+        ctx.cert_store_mut()
+            .add_cert(X509::from_pem(ca.cert_pem.as_bytes()).unwrap())
+            .unwrap();
+    }
     crypto.set_alpn(&[alpn.to_vec()]).unwrap();
+    // Asks for a certificate, and fails without one.
+    if client_ca.is_some() {
+        crypto.verify_peer(true);
+    }
     let server_config = quinn_btls::helpers::server_config(Arc::new(crypto)).unwrap();
     let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
     let port = socket.local_addr().unwrap().port();
@@ -160,7 +208,12 @@ fn quic_server_endpoint(cert: &Cert, alpn: &[u8]) -> (u16, quinn::Endpoint) {
 
 /// A DoQ server, and its port: a stream per query, as RFC 9250 has it.
 fn start_doq_server(cert: &Cert) -> (u16, Arc<Counters>) {
-    let (port, endpoint) = quic_server_endpoint(cert, b"doq");
+    start_doq_server_with(cert, None)
+}
+
+/// `start_doq_server`, asking for a client certificate `client_ca` issued.
+fn start_doq_server_with(cert: &Cert, client_ca: Option<&Cert>) -> (u16, Arc<Counters>) {
+    let (port, endpoint) = quic_server_endpoint_with(cert, b"doq", client_ca);
     let counters = Arc::new(Counters::default());
     let c = counters.clone();
     tokio::spawn(async move {
@@ -352,6 +405,97 @@ async fn dot_rejects_a_certificate_for_another_name() {
     let client = client(&[server], Some(&cert));
     assert!(lookup(&client, "a.example").await.is_err());
     assert_eq!(counters.queries.load(Ordering::SeqCst), 0);
+}
+
+/// A client certificate, self-signed: the server trusts it as its own
+/// issuer.
+fn client_cert() -> Cert {
+    let ck = rcgen::generate_simple_self_signed(vec!["client".to_string()]).unwrap();
+    Cert {
+        cert_pem: ck.cert.pem(),
+        key_pem: ck.key_pair.serialize_pem(),
+    }
+}
+
+/// `server`, presenting `identity` as its client certificate.
+fn presenting(mut server: serde_json::Value, identity: &Cert) -> serde_json::Value {
+    server["tls"]["client_certificate"] = identity.cert_pem.clone().into();
+    server["tls"]["client_key"] = identity.key_pem.clone().into();
+    server
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn dot_presents_its_client_certificate() {
+    let (cert, identity) = (cert(), client_cert());
+    let (port, counters) = start_dot_server_with(&cert, false, Some(&identity), None);
+    let client = client(
+        &[presenting(server("tls", port, None), &identity)],
+        Some(&cert),
+    );
+    assert_eq!(
+        lookup(&client, "a.example").await.unwrap(),
+        vec![IpAddr::V4(ANSWER)]
+    );
+    // Without one, the server fails the handshake.
+    let bare = self::client(&[server("tls", port, None)], Some(&cert));
+    assert!(lookup(&bare, "b.example").await.is_err());
+    assert_eq!(counters.queries.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn dot_sends_no_sni_with_disable_sni() {
+    let cert = cert();
+    let snis = Snis::default();
+    let (port, _) = start_dot_server_with(&cert, false, None, Some(snis.clone()));
+    let with = client(&[server("tls", port, None)], Some(&cert));
+    lookup(&with, "a.example").await.unwrap();
+    let mut without = server("tls", port, None);
+    without["tls"]["disable_sni"] = true.into();
+    let without = client(&[without], Some(&cert));
+    lookup(&without, "b.example").await.unwrap();
+    assert_eq!(*snis.lock().unwrap(), [Some("localhost".to_string()), None]);
+    // The certificate is verified against the name all the same.
+    let mut wrong = server("tls", port, None);
+    wrong["tls"]["disable_sni"] = true.into();
+    wrong["tls"]["server_name"] = "example.com".into();
+    assert!(lookup(&client(&[wrong], Some(&cert)), "c.example")
+        .await
+        .is_err());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn doq_presents_its_client_certificate() {
+    let (cert, identity) = (cert(), client_cert());
+    let (port, counters) = start_doq_server_with(&cert, Some(&identity));
+    let client = client(
+        &[presenting(server("quic", port, None), &identity)],
+        Some(&cert),
+    );
+    assert_eq!(
+        lookup(&client, "a.example").await.unwrap(),
+        vec![IpAddr::V4(ANSWER)]
+    );
+    assert_eq!(counters.queries.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn disable_sni_is_not_over_quic_yet() {
+    let config = config::Config::from_json(
+        &serde_json::json!({ "dns": { "servers": [{
+            "type": "quic", "tag": "q", "server": "127.0.0.1",
+            "tls": { "disable_sni": true }
+        }] } })
+        .to_string(),
+    )
+    .unwrap();
+    let err = DnsClient::new(
+        &config.dns,
+        Arc::new(DialOptions::default()),
+        &Default::default(),
+    )
+    .err()
+    .unwrap();
+    assert!(err.to_string().contains("not over QUIC yet"), "{:#}", err);
 }
 
 #[tokio::test(flavor = "multi_thread")]

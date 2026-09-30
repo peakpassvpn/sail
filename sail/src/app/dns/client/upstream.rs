@@ -10,6 +10,8 @@
 
 use std::fmt;
 #[cfg(feature = "tls")]
+use std::sync::Arc;
+#[cfg(feature = "tls")]
 use std::time::Duration;
 use std::time::Instant;
 
@@ -154,6 +156,14 @@ pub(super) struct Upstream {
     /// for DoH when unset.
     #[cfg(feature = "tls")]
     fingerprint: Option<crate::transport::tls::Fingerprint>,
+    /// The client certificate presented to a server that asks for one,
+    /// `tls.client_certificate` and `tls.client_key`.
+    #[cfg(feature = "tls")]
+    pub(super) identity: Option<Arc<crate::transport::tls::client::Identity>>,
+    /// DoT and DoH: no SNI in the ClientHello, `tls.disable_sni`; the
+    /// certificate is verified against `server_name` all the same.
+    #[cfg(feature = "tls")]
+    disable_sni: bool,
     /// The TLS client of DoT and DoH, built on first use.
     #[cfg(feature = "tls")]
     tls_client: std::sync::OnceLock<std::result::Result<crate::transport::tls::TlsClient, String>>,
@@ -230,6 +240,10 @@ impl Upstream {
         let mut server_name = address.host.clone();
         let mut certificate = None;
         let mut insecure = false;
+        #[cfg(feature = "tls")]
+        let mut identity = None;
+        #[cfg(feature = "tls")]
+        let mut disable_sni = false;
         #[allow(unused_mut)]
         let mut utls = None;
         if let Some(tls) = tls {
@@ -239,11 +253,32 @@ impl Upstream {
             if tls.ech.is_some() {
                 return Err(anyhow!("tls.ech: not for a dns server"));
             }
-            if tls.disable_sni {
-                return Err(anyhow!("tls.disable_sni: not for a dns server yet"));
+            if tls.disable_sni && matches!(protocol, Protocol::Quic | Protocol::H3) {
+                // As for QUIC outbounds: quinn-btls sends the SNI of every
+                // name but an IP address.
+                return Err(anyhow!("tls.disable_sni: not over QUIC yet"));
             }
-            if tls.has_client_certificate() {
-                return Err(anyhow!("tls.client_certificate: not for a dns server yet"));
+            #[cfg(feature = "tls")]
+            {
+                identity = tls
+                    .client_identity(env)
+                    .map_err(|e| anyhow!("tls.{}", e))?
+                    .map(Arc::new);
+                disable_sni = tls.disable_sni;
+                // Browsers send the name of a domain: a ClientHello without
+                // it is one no browser sends, as for TLS outbounds.
+                if disable_sni && tls.utls.as_ref().is_some_and(|u| u.enabled) {
+                    tracing::warn!(
+                        "tls.disable_sni: the ClientHello, with no SNI, is no longer the one \
+                         tls.utls's browser sends"
+                    );
+                }
+            }
+            #[cfg(not(feature = "tls"))]
+            if tls.disable_sni || tls.has_client_certificate() {
+                return Err(anyhow!(
+                    "tls: needs the tls feature, which is not compiled in"
+                ));
             }
             if tls.alpn.is_some() {
                 return Err(anyhow!(
@@ -290,6 +325,10 @@ impl Upstream {
             #[cfg(feature = "tls")]
             fingerprint,
             #[cfg(feature = "tls")]
+            identity,
+            #[cfg(feature = "tls")]
+            disable_sni,
+            #[cfg(feature = "tls")]
             tls_client: Default::default(),
             #[cfg(feature = "tls")]
             roots: env.tls_roots.get()?,
@@ -302,13 +341,21 @@ impl Upstream {
     fn tls_client(&self) -> Result<&crate::transport::tls::TlsClient> {
         self.tls_client
             .get_or_init(|| {
-                crate::transport::tls::TlsClient::new(
+                crate::transport::tls::TlsClient::with_identity(
                     &[],
                     self.certificate.as_deref(),
                     self.insecure,
                     self.fingerprint,
                     &self.roots,
+                    self.identity.as_deref(),
                 )
+                .map(|client| {
+                    if self.disable_sni {
+                        client.without_sni()
+                    } else {
+                        client
+                    }
+                })
                 .map_err(|e| e.to_string())
             })
             .as_ref()

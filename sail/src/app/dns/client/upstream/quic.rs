@@ -12,7 +12,8 @@ use tracing::debug;
 
 use super::{Upstream, MAX_MESSAGE_LEN};
 use crate::app::dns::DnsClient;
-use crate::transport::quic::{bind, client_crypto, endpoint, endpoint_on};
+use crate::transport::quic::{bind, client_crypto, endpoint, endpoint_on, present};
+use crate::transport::tls::client::Identity;
 
 /// How long a connection without queries is kept. Neither side sends
 /// keep-alives: a connection that went idle is dropped, and the next query
@@ -90,10 +91,11 @@ impl Pool {
         certificate: Option<&str>,
         insecure: bool,
         roots: &crate::transport::tls::roots::Roots,
+        identity: Option<&Identity>,
     ) -> Result<quinn::ClientConfig> {
         self.client_config
             .get_or_init(|| {
-                build_client_config(self.kind, certificate, insecure, roots)
+                build_client_config(self.kind, certificate, insecure, roots, identity)
                     .map_err(|e| e.to_string())
             })
             .clone()
@@ -106,9 +108,13 @@ fn build_client_config(
     certificate: Option<&str>,
     insecure: bool,
     roots: &crate::transport::tls::roots::Roots,
+    identity: Option<&Identity>,
 ) -> Result<quinn::ClientConfig> {
     // As for TLS: the instance's roots, or `certificate` instead.
-    let crypto = client_crypto(certificate, insecure, &[kind.alpn().to_vec()], roots)?;
+    let mut crypto = client_crypto(certificate, insecure, &[kind.alpn().to_vec()], roots)?;
+    if let Some(identity) = identity {
+        present(&mut crypto, identity)?;
+    }
     let mut client_config = quinn::ClientConfig::new(Arc::new(crypto));
     let mut transport = quinn::TransportConfig::default();
     transport.max_idle_timeout(quinn::IdleTimeout::try_from(IDLE_TIMEOUT).ok());
@@ -200,6 +206,7 @@ impl DnsClient {
             upstream.certificate.as_deref(),
             upstream.insecure,
             &upstream.roots,
+            upstream.identity.as_deref(),
         )?;
         let dialer = &upstream.dialer;
         let mut endpoint = if dialer.is_direct() {
