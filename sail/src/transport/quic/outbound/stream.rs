@@ -4,7 +4,6 @@ use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
-use futures::TryFutureExt;
 use tokio::sync::RwLock;
 use tokio::time::timeout;
 use tracing::{debug, trace, Instrument};
@@ -20,14 +19,14 @@ struct Manager {
     port: u16,
     server_name: String,
     dns_client: SyncDnsClient,
-    dial: Arc<crate::net::DialOptions>,
+    dialer: Dialer,
     client_config: quinn::ClientConfig,
     connections: RwLock<Vec<quinn::Connection>>,
 }
 
 impl Manager {
     pub async fn new_stream(&self) -> Result<QuicStream> {
-        let dial_timeout = self.dial.connect_timeout;
+        let dial_timeout = self.dialer.connect_timeout();
         let start = std::time::Instant::now();
         loop {
             let conn = {
@@ -66,19 +65,17 @@ impl Manager {
 
         // FIXME A better indicator.
         let socket = self
-            .new_udp_socket(&self.dial.unspecified(), &self.dial)
+            .dialer
+            .udp_socket(&self.dialer.unspecified())
             .instrument(tracing::Span::current())
             .await?;
         let mut endpoint = endpoint(socket.into_std()?, None)?;
         endpoint.set_default_client_config(self.client_config.clone());
-        let ips = {
-            self.dns_client
-                .load_full()
-                .lookup_dial(&self.address, &self.dial)
-                .map_err(|e| io::Error::other(format!("lookup {} failed: {}", self.address, e)))
-                .instrument(tracing::Span::current())
-                .await?
-        };
+        let ips = self
+            .dialer
+            .lookup(&self.dns_client, &self.address)
+            .instrument(tracing::Span::current())
+            .await?;
         if ips.is_empty() {
             return Err(anyhow!("could not resolve to any address",));
         }
@@ -130,8 +127,6 @@ impl Manager {
     }
 }
 
-impl UdpConnector for Manager {}
-
 pub struct Handler {
     manager: Manager,
 }
@@ -142,7 +137,7 @@ impl Handler {
         address: String,
         port: u16,
         dns_client: SyncDnsClient,
-        dial: Arc<crate::net::DialOptions>,
+        dialer: Dialer,
         env: &RuntimeEnv,
     ) -> Result<Self> {
         // As the tls transport: `certificate` replaces the bundled roots,
@@ -160,7 +155,7 @@ impl Handler {
                 port,
                 server_name: tls.server_name,
                 dns_client,
-                dial,
+                dialer,
                 client_config,
                 connections: RwLock::new(Vec::new()),
             },
@@ -174,8 +169,6 @@ impl Handler {
             .map_err(|e| io::Error::other(format!("new quic stream failed: {}", e)))
     }
 }
-
-impl UdpConnector for Handler {}
 
 #[async_trait]
 impl OutboundStreamHandler for Handler {

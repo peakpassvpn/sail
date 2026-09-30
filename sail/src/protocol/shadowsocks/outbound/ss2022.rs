@@ -11,6 +11,7 @@ use super::sip022::{stream, udp, Method};
 pub struct StreamHandler {
     pub address: String,
     pub port: u16,
+    pub dialer: crate::net::Dialer,
     pub method: Method,
     /// The key chain: the server's first, the user's last.
     pub psks: Arc<Vec<Vec<u8>>>,
@@ -19,7 +20,12 @@ pub struct StreamHandler {
 #[async_trait]
 impl OutboundStreamHandler for StreamHandler {
     fn connect_addr(&self) -> OutboundConnect {
-        OutboundConnect::Proxy(Network::Tcp, self.address.clone(), self.port)
+        OutboundConnect::Proxy(
+            Network::Tcp,
+            self.address.clone(),
+            self.port,
+            self.dialer.clone(),
+        )
     }
 
     async fn handle<'a>(
@@ -42,6 +48,7 @@ impl OutboundStreamHandler for StreamHandler {
 pub struct DatagramHandler {
     pub address: String,
     pub port: u16,
+    pub dialer: crate::net::Dialer,
     pub method: Method,
     pub psks: Arc<Vec<Vec<u8>>>,
 }
@@ -49,7 +56,12 @@ pub struct DatagramHandler {
 #[async_trait]
 impl OutboundDatagramHandler for DatagramHandler {
     fn connect_addr(&self) -> OutboundConnect {
-        OutboundConnect::Proxy(Network::Udp, self.address.clone(), self.port)
+        OutboundConnect::Proxy(
+            Network::Udp,
+            self.address.clone(),
+            self.port,
+            self.dialer.clone(),
+        )
     }
 
     fn transport_type(&self) -> DatagramTransportType {

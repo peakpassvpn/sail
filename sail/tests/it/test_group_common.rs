@@ -68,7 +68,7 @@ pub fn manager(
     let config = sail::config::Config::from_json(
         &serde_json::json!({ "outbounds": outbounds }).to_string(),
     )?;
-    let dial_defaults = sail::net::DialOptions::default();
+    let dial_defaults = sail::net::DialDefaults::default();
     let dns_client = sail::app::dns_client::DnsClient::new(
         &config.dns,
         Arc::new(dial_defaults.clone()),
@@ -231,7 +231,7 @@ pub async fn connect(m: &OutboundManager, tag: &str, sess: &Session) -> Result<A
     let handler = m.get(tag).ok_or_else(|| anyhow!("no outbound [{}]", tag))?;
     let dns_client = sail::app::dns_client::DnsClient::new(
         &Default::default(),
-        Arc::new(sail::net::DialOptions::default()),
+        Arc::new(sail::net::DialDefaults::default()),
         &Default::default(),
     )?
     .into_shared();

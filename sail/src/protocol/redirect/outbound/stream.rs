@@ -8,12 +8,18 @@ use crate::{adapter::*, session::*};
 pub struct Handler {
     pub address: String,
     pub port: u16,
+    pub dialer: crate::net::Dialer,
 }
 
 #[async_trait]
 impl OutboundStreamHandler for Handler {
     fn connect_addr(&self) -> OutboundConnect {
-        OutboundConnect::Proxy(Network::Tcp, self.address.clone(), self.port)
+        OutboundConnect::Proxy(
+            Network::Tcp,
+            self.address.clone(),
+            self.port,
+            self.dialer.clone(),
+        )
     }
 
     async fn handle<'a>(

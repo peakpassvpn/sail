@@ -426,7 +426,7 @@ fn new_socks_outbound(
     }
     let config =
         sail::config::Config::from_json(&serde_json::json!({ "outbounds": [socks] }).to_string())?;
-    let dial_defaults = sail::net::DialOptions::default();
+    let dial_defaults = sail::net::DialDefaults::default();
     let dns_client = sail::app::dns_client::DnsClient::new(
         &config.dns,
         Arc::new(dial_defaults.clone()),

@@ -93,7 +93,7 @@ pub struct RuntimeManager {
     provider_updater: Mutex<Option<tokio::task::AbortHandle>>,
     /// What outbounds dial with where theirs leave off, as the current
     /// configuration has it.
-    dial_defaults: arc_swap::ArcSwap<net::DialOptions>,
+    dial_defaults: arc_swap::ArcSwap<net::DialDefaults>,
     /// Serializes the changes: reloads, and outbounds and inbounds added
     /// or removed.
     update: tokio::sync::Mutex<()>,
@@ -123,7 +123,7 @@ impl RuntimeManager {
         shutdown_tx: mpsc::Sender<()>,
         #[cfg(feature = "inbound-tun")] network_change_tx: mpsc::Sender<NetworkChange>,
         instance: &app::instance::Instance,
-        dial_defaults: Arc<net::DialOptions>,
+        dial_defaults: Arc<net::DialDefaults>,
     ) -> Arc<Self> {
         Arc::new(Self {
             config_path,
@@ -875,7 +875,7 @@ async fn follow_default_interface(manager: Arc<RuntimeManager>) {
             tokio::time::timeout(std::time::Duration::from_secs(1), monitor.changed()).await
         {
         }
-        if let Some(auto) = manager.dial_defaults.load().auto_interface.clone() {
+        if let Some(auto) = manager.dial_defaults.load().env.auto_interface.clone() {
             let moved = tokio::task::spawn_blocking(move || auto.refresh())
                 .await
                 .unwrap_or(false);
@@ -961,22 +961,22 @@ fn auto_redirect_output_mark(config: &config::Config) -> anyhow::Result<Option<u
 pub(crate) fn dial_defaults(
     config: &config::Config,
     env: &runtime::RuntimeEnv,
-) -> anyhow::Result<Arc<net::DialOptions>> {
+) -> anyhow::Result<Arc<net::DialDefaults>> {
     let route = &config.route;
-    let mut defaults = net::DialOptions::defaults(route)?;
+    let mut defaults = net::DialDefaults::new(route)?;
     #[cfg(feature = "inbound-tun")]
     if let Some(mark) = auto_redirect_output_mark(config)? {
         // auto_redirect's only guard against loops: its rules let sail's
         // own sockets, which carry this mark, go out as they are.
-        defaults.routing_mark = Some(mark);
+        defaults.route.routing_mark = Some(mark);
     }
-    defaults.protect = match &env.host.platform {
+    defaults.env.protect = match &env.host.platform {
         Some(platform) if platform.protects_sockets() => {
             Some(net::dial::SocketProtect::Platform(platform.clone()))
         }
         _ => env.host.socket_protect.clone(),
     };
-    defaults.ipv6 = config.dns.strategy.ipv6();
+    defaults.route.ipv6 = config.dns.strategy.ipv6();
     let host_routes = env
         .host
         .platform
@@ -997,7 +997,8 @@ pub(crate) fn dial_defaults(
             .filter(|i| i.protocol == "tun")
             .filter_map(|i| i.options.get("interface_name")?.as_str().map(str::to_owned))
             .collect();
-        defaults.auto_interface = Some(net::interface::AutoInterface::new(
+        defaults.route.auto_detect_interface = true;
+        defaults.env.auto_interface = Some(net::interface::AutoInterface::new(
             skip,
             platform::detect_default_interface,
         ));
@@ -1005,17 +1006,20 @@ pub(crate) fn dial_defaults(
     }
     #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     {
-        let detected = platform::default_interface()?;
+        // Bound to the default interface's addresses, found once: the
+        // default interface is not taken with them.
+        let (inet4, inet6) = platform::default_interface()?;
         info!(
             "outbound traffic goes through the default interface: {}",
-            detected
-                .bind_interface
-                .clone()
-                .or_else(|| detected.inet4_bind_address.map(|a| a.to_string()))
-                .or_else(|| detected.inet6_bind_address.map(|a| a.to_string()))
+            inet4
+                .map(|a| a.to_string())
+                .or_else(|| inet6.map(|a| a.to_string()))
                 .unwrap_or_default()
         );
-        Ok(Arc::new(detected.or(&defaults)))
+        defaults.route.bind_interface = None;
+        defaults.route.inet4_bind_address = inet4;
+        defaults.route.inet6_bind_address = inet6;
+        Ok(Arc::new(defaults))
     }
 }
 
@@ -1040,7 +1044,7 @@ pub fn check_config(config: &config::Config, env: &runtime::RuntimeEnv) -> anyho
         .build()?;
     let _g = rt.enter();
     // The interface auto_detect_interface would find is the start's to ask.
-    let dial_defaults = Arc::new(net::DialOptions::defaults(&config.route)?);
+    let dial_defaults = Arc::new(net::DialDefaults::new(&config.route)?);
     app::instance::Instance::build(config, Arc::new(env.clone()), dial_defaults)?;
     Ok(())
 }
@@ -1144,7 +1148,7 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
 
     let dial_defaults = dial_defaults(&config, &env).map_err(Error::Config)?;
     #[cfg(target_os = "linux")]
-    let follows_interface = dial_defaults.auto_interface.is_some();
+    let follows_interface = dial_defaults.env.auto_interface.is_some();
     let mut instance = app::instance::Instance::build(&config, env.clone(), dial_defaults.clone())
         .map_err(Error::Config)?;
     // The API server joins them, when it is compiled in.

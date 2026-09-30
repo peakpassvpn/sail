@@ -11,6 +11,7 @@ use super::shadow::{self, ShadowedDatagram};
 pub struct Handler {
     pub address: String,
     pub port: u16,
+    pub dialer: crate::net::Dialer,
     pub cipher: String,
     pub password: String,
 }
@@ -18,7 +19,12 @@ pub struct Handler {
 #[async_trait]
 impl OutboundDatagramHandler for Handler {
     fn connect_addr(&self) -> OutboundConnect {
-        OutboundConnect::Proxy(Network::Udp, self.address.clone(), self.port)
+        OutboundConnect::Proxy(
+            Network::Udp,
+            self.address.clone(),
+            self.port,
+            self.dialer.clone(),
+        )
     }
 
     fn transport_type(&self) -> DatagramTransportType {

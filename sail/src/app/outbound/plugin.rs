@@ -13,7 +13,11 @@ use crate::adapter::outbound::HandlerBuilder;
 use crate::adapter::registry::{OutboundContext, OutboundFactory, OutboundRegistry};
 use serde_derive::Deserialize;
 
-use crate::{adapter::*, session::Session};
+use crate::net::Dialer;
+use crate::{
+    adapter::*,
+    session::{Network, Session},
+};
 
 pub struct PluginSpec {
     pub add_handler_fn: unsafe fn(&mut dyn PluginRegistrar, &str, args: &str),
@@ -28,8 +32,30 @@ pub trait PluginRegistrar {
     );
 }
 
+/// What a plugin's handler asks to have dialled, which the plugin
+/// outbound's dialer dials.
+#[derive(Debug, Clone)]
+pub enum PluginConnect {
+    /// Its server.
+    Proxy(Network, String, u16),
+    /// The session's destination.
+    Direct,
+}
+
+impl PluginConnect {
+    /// The request, to be dialled by `dialer`.
+    fn dialled_by(self, dialer: &Dialer) -> OutboundConnect {
+        match self {
+            PluginConnect::Proxy(network, address, port) => {
+                OutboundConnect::Proxy(network, address, port, dialer.clone())
+            }
+            PluginConnect::Direct => OutboundConnect::Direct(dialer.clone()),
+        }
+    }
+}
+
 pub trait ExternalOutboundStreamHandler: Send + Sync + Unpin {
-    fn connect_addr(&self) -> Option<OutboundConnect>;
+    fn connect_addr(&self) -> Option<PluginConnect>;
 
     fn handle<'a>(
         &'a self,
@@ -40,7 +66,7 @@ pub trait ExternalOutboundStreamHandler: Send + Sync + Unpin {
 pub type AnyExternalOutboundStreamHandler = Arc<dyn ExternalOutboundStreamHandler>;
 
 pub trait ExternalOutboundDatagramHandler: Send + Sync + Unpin {
-    fn connect_addr(&self) -> Option<OutboundConnect>;
+    fn connect_addr(&self) -> Option<PluginConnect>;
 
     fn transport_type(&self) -> DatagramTransportType;
 
@@ -99,7 +125,7 @@ impl OutboundStreamHandlerProxy {
 }
 
 impl ExternalOutboundStreamHandler for OutboundStreamHandlerProxy {
-    fn connect_addr(&self) -> Option<OutboundConnect> {
+    fn connect_addr(&self) -> Option<PluginConnect> {
         self.handler.connect_addr()
     }
 
@@ -124,7 +150,7 @@ impl OutboundDatagramHandlerProxy {
 }
 
 impl ExternalOutboundDatagramHandler for OutboundDatagramHandlerProxy {
-    fn connect_addr(&self) -> Option<OutboundConnect> {
+    fn connect_addr(&self) -> Option<PluginConnect> {
         self.handler.connect_addr()
     }
 
@@ -196,12 +222,14 @@ impl ExternalHandlers {
     }
 }
 
-pub struct ExternalOutboundStreamHandlerProxy(pub AnyExternalOutboundStreamHandler);
+pub struct ExternalOutboundStreamHandlerProxy(pub AnyExternalOutboundStreamHandler, pub Dialer);
 
 #[async_trait]
 impl OutboundStreamHandler for ExternalOutboundStreamHandlerProxy {
     fn connect_addr(&self) -> OutboundConnect {
-        self.0.connect_addr().unwrap_or(OutboundConnect::Unknown)
+        self.0
+            .connect_addr()
+            .map_or(OutboundConnect::Unknown, |c| c.dialled_by(&self.1))
     }
 
     async fn handle<'a>(
@@ -215,12 +243,14 @@ impl OutboundStreamHandler for ExternalOutboundStreamHandlerProxy {
     }
 }
 
-pub struct ExternalOutboundDatagramHandlerProxy(pub AnyExternalOutboundDatagramHandler);
+pub struct ExternalOutboundDatagramHandlerProxy(pub AnyExternalOutboundDatagramHandler, pub Dialer);
 
 #[async_trait]
 impl OutboundDatagramHandler for ExternalOutboundDatagramHandlerProxy {
     fn connect_addr(&self) -> OutboundConnect {
-        self.0.connect_addr().unwrap_or(OutboundConnect::Unknown)
+        self.0
+            .connect_addr()
+            .map_or(OutboundConnect::Unknown, |c| c.dialled_by(&self.1))
     }
 
     fn transport_type(&self) -> DatagramTransportType {
@@ -274,11 +304,13 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
         ctx.external_handlers
             .get_stream_handler(ctx.tag)
             .ok_or_else(missing)?,
+        ctx.dialer.clone(),
     ));
     let datagram = Arc::new(ExternalOutboundDatagramHandlerProxy(
         ctx.external_handlers
             .get_datagram_handler(ctx.tag)
             .ok_or_else(missing)?,
+        ctx.dialer.clone(),
     ));
     Ok(HandlerBuilder::default()
         .tag(ctx.tag.to_owned())

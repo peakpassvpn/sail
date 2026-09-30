@@ -241,10 +241,17 @@ impl HttpClient {
         header_lines(&self.headers)
     }
 
-    /// The dial options it connects with, when it has no detour: its own,
-    /// over `defaults`.
-    pub fn dial(&self, defaults: &crate::net::DialOptions) -> crate::net::DialOptions {
-        self.dial.options().or(defaults)
+    /// The dialer it connects with, when it has no detour: its dial
+    /// fields over `defaults`. Unlike an outbound's, its fields are not
+    /// checked against the platform, and one it cannot apply fails the
+    /// connection.
+    pub fn dialer(&self, defaults: &crate::net::DialDefaults) -> crate::net::Dialer {
+        use crate::net::dial::{DialSpec, ResolveSpec};
+        crate::net::Dialer::new(
+            DialSpec::merge(&self.dial, &defaults.route),
+            ResolveSpec::resolve(&self.dial, &defaults.route, None),
+            defaults.env.clone(),
+        )
     }
 
     fn check(&self, outbounds: &HashSet<&str>, dns_servers: &HashSet<String>) -> Result<()> {
@@ -3622,7 +3629,7 @@ mod tests {
         let dial = |client: serde_json::Value| {
             serde_json::from_value::<HttpClient>(client)
                 .unwrap()
-                .dial(&crate::net::DialOptions::default())
+                .dialer(&crate::net::DialDefaults::default())
         };
         let set = dial(serde_json::json!({
             "tag": "h", "tcp_keep_alive": "40s", "tcp_keep_alive_interval": "7s",

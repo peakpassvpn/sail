@@ -29,8 +29,8 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
     let DirectOptions {} = ctx.options()?;
     Ok(HandlerBuilder::default()
         .tag(ctx.tag.to_owned())
-        .stream_handler(Arc::new(StreamHandler))
-        .datagram_handler(Arc::new(DatagramHandler))
+        .stream_handler(Arc::new(StreamHandler(ctx.dialer.clone())))
+        .datagram_handler(Arc::new(DatagramHandler(ctx.dialer.clone())))
         .is_direct(true)
         .build())
 }

@@ -10,6 +10,7 @@ use crate::{adapter::*, session::*, transport::vision::VisionState};
 pub struct Handler {
     pub address: String,
     pub port: u16,
+    pub dialer: crate::net::Dialer,
     pub uuid: [u8; 16],
     pub flow: Flow,
 }
@@ -47,7 +48,12 @@ pub(super) async fn open(
 #[async_trait]
 impl OutboundStreamHandler for Handler {
     fn connect_addr(&self) -> OutboundConnect {
-        OutboundConnect::Proxy(Network::Tcp, self.address.clone(), self.port)
+        OutboundConnect::Proxy(
+            Network::Tcp,
+            self.address.clone(),
+            self.port,
+            self.dialer.clone(),
+        )
     }
 
     async fn handle<'a>(

@@ -136,7 +136,7 @@ fn fake_member(name: &str, behaviour: Behaviour) -> (Member, Arc<Mutex<Vec<Vec<u
 fn group_of(members: Vec<Member>) -> Arc<Group> {
     let dns_client = crate::app::dns::DnsClient::new(
         &Default::default(),
-        Arc::new(crate::net::DialOptions::default()),
+        Arc::new(crate::net::DialDefaults::default()),
         &Default::default(),
     )
     .unwrap()

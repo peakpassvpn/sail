@@ -27,7 +27,7 @@ use crate::app::dispatcher::Dispatcher;
 use crate::app::http::HttpClients;
 use crate::app::SyncDnsClient;
 use crate::config::model::OutboundProvider;
-use crate::net::DialOptions;
+use crate::net::DialDefaults;
 use crate::protocol::group::members::Members;
 use crate::runtime::RuntimeEnv;
 
@@ -54,7 +54,7 @@ impl Providers {
     pub(crate) fn load(
         configs: &[OutboundProvider],
         clients: &HttpClients,
-        dial_defaults: Arc<DialOptions>,
+        dial_defaults: Arc<DialDefaults>,
         env: &RuntimeEnv,
         previous: Option<&Providers>,
     ) -> Result<Self> {

@@ -17,7 +17,7 @@ use tokio::time::timeout;
 use tracing::{debug, trace};
 
 use crate::app::SyncDnsClient;
-use crate::net::DialOptions;
+use crate::net::Dialer;
 use crate::session::SocksAddr;
 use crate::transport::quic::{bind, endpoint_on, QuicStream, Side};
 
@@ -49,7 +49,7 @@ pub struct ClientOptions {
     pub crypto: Arc<quinn_btls::ClientConfig>,
     pub tuning: crate::runtime::options::Quic,
     pub dns_client: SyncDnsClient,
-    pub dial: Arc<DialOptions>,
+    pub dialer: Dialer,
 }
 
 pub struct Client {
@@ -115,7 +115,7 @@ impl Client {
             .await
             .map_err(io::Error::other)?;
         timeout(
-            self.options.dial.connect_timeout,
+            self.options.dialer.connect_timeout(),
             proto::read_tcp_response(&mut recv),
         )
         .await
@@ -128,12 +128,12 @@ impl Client {
         let ips = o
             .dns_client
             .load_full()
-            .lookup_dial(&o.server, &o.dial)
+            .lookup_dial(&o.server, o.dialer.resolve_spec())
             .await
             .with_context(|| format!("lookup {}", o.server))?;
         let mut last_err = anyhow!("could not resolve {} to any address", o.server);
         for ip in ips {
-            match timeout(o.dial.connect_timeout, self.connect_to(ip)).await {
+            match timeout(o.dialer.connect_timeout(), self.connect_to(ip)).await {
                 Ok(Ok(conn)) => return Ok(conn),
                 Ok(Err(e)) => last_err = e,
                 Err(_) => last_err = anyhow!("connect {} timed out", ip),
@@ -144,7 +144,7 @@ impl Client {
 
     async fn new_socket(&self, ip: IpAddr) -> io::Result<Arc<dyn quinn::AsyncUdpSocket>> {
         let o = &self.options;
-        quic::wrap_socket(bind(ip, &o.dial).await?, o.obfs.as_ref())
+        quic::wrap_socket(bind(ip, &o.dialer).await?, o.obfs.as_ref())
     }
 
     async fn connect_to(&self, ip: IpAddr) -> Result<Connection> {
@@ -199,7 +199,7 @@ impl Client {
                 hop,
                 interval,
                 ip,
-                o.dial.clone(),
+                o.dialer.clone(),
                 o.obfs.clone(),
             ));
         }
@@ -408,14 +408,14 @@ async fn hop_ports(
     hop: Arc<HopSocket>,
     interval: Duration,
     ip: IpAddr,
-    dial: Arc<DialOptions>,
+    dialer: Dialer,
     obfs: Option<Salamander>,
 ) {
     loop {
         if timeout(interval, conn.closed()).await.is_ok() {
             return;
         }
-        match bind(ip, &dial)
+        match bind(ip, &dialer)
             .await
             .and_then(|s| quic::wrap_socket(s, obfs.as_ref()))
         {

@@ -45,7 +45,7 @@ use crate::net::netstack::{
     ChannelPacketIo, NativeRuntimeControl, NativeRuntimeGroup, NativeUdpDatagram,
     NativeUdpReplyHandle,
 };
-use crate::net::DialOptions;
+use crate::net::Dialer;
 use crate::runtime::options::{Netstack, NetstackBudget};
 use crate::session::{DatagramSource, Network, Session, SocksAddr};
 use crate::transport::layers::Blocks;
@@ -86,7 +86,7 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<BuiltEndpoint> {
     let shared = Arc::new(Shared {
         tag: ctx.tag.to_string(),
         settings,
-        dial: ctx.dial.clone(),
+        dialer: ctx.dialer.clone(),
         detour: ctx.detour.clone(),
         dns_client: ctx.dns_client.clone(),
         netstack: ctx.env.options.netstack.clone(),
@@ -109,7 +109,7 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<BuiltEndpoint> {
 struct Shared {
     tag: String,
     settings: Settings,
-    dial: Arc<DialOptions>,
+    dialer: Dialer,
     detour: Option<AnyOutboundHandler>,
     dns_client: SyncDnsClient,
     netstack: Netstack,
@@ -206,7 +206,7 @@ impl Shared {
                 match self
                     .dns_client
                     .load_full()
-                    .lookup_dial(host, &self.dial)
+                    .lookup_dial(host, self.dialer.resolve_spec())
                     .await
                 {
                     Ok(ips) if !ips.is_empty() => {
@@ -249,9 +249,9 @@ impl Shared {
                 first,
             )));
         }
-        let v6 = self.dial.ipv6 || peers.iter().flatten().any(|p| p.is_ipv6());
+        let v6 = self.dialer.spec().ipv6 || peers.iter().flatten().any(|p| p.is_ipv6());
         let socket =
-            SocketTransport::bind(self.settings.listen_port.unwrap_or(0), v6, &self.dial).await?;
+            SocketTransport::bind(self.settings.listen_port.unwrap_or(0), v6, &self.dialer).await?;
         info!(
             "wireguard [{}]: listening on udp {}",
             self.tag,

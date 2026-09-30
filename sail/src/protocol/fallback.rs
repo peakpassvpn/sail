@@ -14,7 +14,7 @@ use serde_derive::Deserialize;
 use tokio::io::AsyncWriteExt;
 use tracing::Instrument;
 
-use crate::{adapter::AnyStream, net::DialOptions, session::Session};
+use crate::{adapter::AnyStream, net::Dialer, session::Session};
 
 /// How long a peer that has sent less than a header is waited for before it
 /// is handed to the fallback, as Xray does: a prober that sends a few bytes
@@ -146,10 +146,12 @@ pub(crate) async fn relay(mut stream: AnyStream, consumed: Vec<u8>, server: Stri
 /// default dial options: the fallback is a neighbour of the server, not a
 /// destination to be routed.
 pub(crate) async fn dial(server: &str, port: u16) -> io::Result<tokio::net::TcpStream> {
-    let dial = DialOptions::default();
+    // Dialled with no dial fields, and not yet with the instance's
+    // defaults either.
+    let dialer = Dialer::system();
     let mut last = None;
     for addr in tokio::net::lookup_host((server, port)).await? {
-        match crate::net::tcp_connect(addr, &dial).await {
+        match dialer.tcp_to(addr).await {
             Ok(stream) => return Ok(stream),
             Err(e) => last = Some(e),
         }

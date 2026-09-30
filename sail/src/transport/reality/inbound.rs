@@ -83,7 +83,7 @@ use super::shape::{
 };
 use super::{parse_key, parse_short_id};
 use crate::adapter::*;
-use crate::net::DialOptions;
+use crate::net::Dialer;
 use crate::session::Session;
 use crate::transport::tls::BoringConnection;
 use crate::transport::tls_stream::TlsStream;
@@ -126,7 +126,7 @@ pub struct Handler {
     short_ids: HashSet<[u8; 8]>,
     max_time_difference: Option<Duration>,
     handshake: (String, u16),
-    dial: DialOptions,
+    dialer: Dialer,
     pub(crate) timeouts: Timeouts,
     context: SslContext,
     key: PKey<Private>,
@@ -230,14 +230,14 @@ unsafe extern "C" fn keylog(ssl: *const btls_sys::SSL, line: *const std::os::raw
 impl Handler {
     /// `private_key` is hex or base64url, each short ID up to 16 hex
     /// digits; `handshake` is the site REALITY imitates and relays to,
-    /// dialed as `dial` says.
+    /// dialed by `dialer`.
     pub fn new(
         server_name: String,
         private_key: &str,
         short_ids: &[String],
         max_time_difference: Option<Duration>,
         handshake: (String, u16),
-        dial: DialOptions,
+        dialer: Dialer,
     ) -> Result<Self> {
         if server_name.is_empty() {
             return Err(anyhow!("server_name is required"));
@@ -279,7 +279,7 @@ impl Handler {
             short_ids,
             max_time_difference,
             handshake,
-            dial,
+            dialer,
             timeouts: Timeouts::default(),
             context: builder.build(),
             key,
@@ -375,14 +375,14 @@ impl Handler {
     async fn dial_target(&self) -> io::Result<TcpStream> {
         let (host, port) = (self.handshake.0.as_str(), self.handshake.1);
         let addrs = tokio::time::timeout(
-            self.dial.connect_timeout,
+            self.dialer.connect_timeout(),
             tokio::net::lookup_host((host, port)),
         )
         .await
         .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "resolve timed out"))??;
         let mut last = None;
         for addr in addrs {
-            match crate::net::tcp_connect(addr, &self.dial).await {
+            match self.dialer.tcp_to(addr).await {
                 Ok(stream) => return Ok(stream),
                 Err(e) => last = Some(e),
             }
@@ -870,7 +870,7 @@ mod tests {
             &["ab12".to_string()],
             max_time_difference,
             ("127.0.0.1".to_string(), port),
-            DialOptions::default(),
+            Dialer::system(),
         )
         .unwrap()
     }

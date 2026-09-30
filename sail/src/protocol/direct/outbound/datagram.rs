@@ -4,12 +4,13 @@ use async_trait::async_trait;
 
 use crate::{adapter::*, session::Session};
 
-pub struct Handler;
+/// Dials the session's destination with the outbound's dialer.
+pub struct Handler(pub crate::net::Dialer);
 
 #[async_trait]
 impl OutboundDatagramHandler for Handler {
     fn connect_addr(&self) -> OutboundConnect {
-        OutboundConnect::Direct
+        OutboundConnect::Direct(self.0.clone())
     }
 
     fn transport_type(&self) -> DatagramTransportType {

@@ -2,28 +2,17 @@ use std::io;
 use std::net::{IpAddr, SocketAddr};
 use std::time::Duration;
 
-use async_trait::async_trait;
-use futures::TryFutureExt;
 use socket2::{Domain, SockRef, Socket, Type};
 use tokio::io::AsyncReadExt;
-use tokio::net::{TcpSocket, TcpStream, UdpSocket};
+use tokio::net::TcpStream;
 use tokio::time::timeout;
 use tracing::{debug, trace};
-
-#[cfg(unix)]
-use {
-    std::os::unix::io::{AsRawFd, RawFd},
-    tokio::io::AsyncWriteExt,
-    tokio::net::UnixStream,
-};
 
 use crate::{
     adapter::*,
     app::SyncDnsClient,
     session::{Network, Session, SocksAddr},
 };
-
-use resolver::Resolver;
 
 pub mod accept;
 pub mod datagram;
@@ -36,44 +25,7 @@ pub mod relay;
 pub mod resolver;
 
 pub use datagram::*;
-pub use dial::DialOptions;
-
-/// Keeps an outbound socket out of the host's VPN, as `dial.protect` says.
-#[cfg(unix)]
-async fn protect_socket(fd: RawFd, dial: &DialOptions) -> io::Result<()> {
-    let answer = match &dial.protect {
-        None => return Ok(()),
-        Some(dial::SocketProtect::Platform(platform)) => {
-            let start = std::time::Instant::now();
-            platform.protect_socket(fd).map_err(|e| {
-                io::Error::other(format!("failed to protect outbound socket {}: {}", fd, e))
-            })?;
-            trace!(
-                "protected socket {} in {} µs",
-                fd,
-                start.elapsed().as_micros()
-            );
-            return Ok(());
-        }
-        Some(dial::SocketProtect::Tcp(addr)) => {
-            let mut stream = TcpStream::connect(addr).await?;
-            stream.write_i32(fd).await?;
-            stream.read_i32().await?
-        }
-        Some(dial::SocketProtect::Unix(path)) => {
-            let mut stream = UnixStream::connect(path).await?;
-            stream.write_i32(fd).await?;
-            stream.read_i32().await?
-        }
-    };
-    if answer != 0 {
-        return Err(io::Error::other(format!(
-            "failed to protect outbound socket {}",
-            fd
-        )));
-    }
-    Ok(())
-}
+pub use dial::{DialDefaults, Dialer};
 
 pub struct TcpListener {
     inner: tokio::net::TcpListener,
@@ -190,23 +142,6 @@ pub fn fit_largest_datagram(socket: SockRef) -> io::Result<()> {
     Ok(())
 }
 
-/// A UDP socket for talking to `indicator`'s address family, opened as
-/// `dial` says.
-pub async fn new_udp_socket(indicator: &SocketAddr, dial: &DialOptions) -> io::Result<UdpSocket> {
-    let socket = Socket::new(Domain::for_address(*indicator), Type::DGRAM, None)?;
-    socket.set_nonblocking(true)?;
-    fit_largest_datagram(SockRef::from(&socket))?;
-    let bound = dial::bind(&socket, indicator, dial)?;
-    if !bound && indicator.ip().is_unspecified() {
-        socket.bind(&(*indicator).into())?;
-    }
-
-    #[cfg(unix)]
-    protect_socket(socket.as_raw_fd(), dial).await?;
-
-    UdpSocket::from_std(socket.into())
-}
-
 /// TCP keepalive: probes once a connection has carried nothing for `idle`,
 /// then every `interval` until the peer answers or the system gives up on
 /// it (after 9 probes on Linux, 8 on macOS, 10 on Windows).
@@ -245,7 +180,7 @@ impl TcpKeepAlive {
 
 /// What every TCP connection sail makes or accepts gets: no Nagle delay,
 /// and keepalive as `keepalive` says, none if unset.
-fn apply_socket_opts(s: SockRef, keepalive: Option<TcpKeepAlive>) -> io::Result<()> {
+pub(crate) fn apply_socket_opts(s: SockRef, keepalive: Option<TcpKeepAlive>) -> io::Result<()> {
     match keepalive {
         Some(keepalive) => keepalive.apply(&s)?,
         None => s.set_keepalive(false)?,
@@ -253,58 +188,24 @@ fn apply_socket_opts(s: SockRef, keepalive: Option<TcpKeepAlive>) -> io::Result<
     s.set_nodelay(true)
 }
 
-/// A TCP connection to `addr`, opened as `dial` says.
-pub async fn tcp_connect(addr: SocketAddr, dial: &DialOptions) -> io::Result<TcpStream> {
-    let socket = match addr {
-        SocketAddr::V4(..) => TcpSocket::new_v4()?,
-        SocketAddr::V6(..) => TcpSocket::new_v6()?,
-    };
-
-    dial::bind(&SockRef::from(&socket), &addr, dial)?;
-
-    #[cfg(unix)]
-    protect_socket(socket.as_raw_fd(), dial).await?;
-
-    debug!("tcp dialing {}", &addr);
-    let start = tokio::time::Instant::now();
-    let stream = timeout(dial.connect_timeout, socket.connect(addr))
-        .await
-        .map_err(|_| {
-            io::Error::new(
-                io::ErrorKind::TimedOut,
-                format!("connect {} timed out", addr),
-            )
-        })??;
-    let elapsed = tokio::time::Instant::now().duration_since(start);
-
-    apply_socket_opts(SockRef::from(&stream), dial.tcp_keep_alive())?;
-
-    debug!(
-        "tcp {} <-> {} connected in {}ms",
-        stream.local_addr()?,
-        &addr,
-        elapsed.as_millis()
-    );
-    Ok(stream)
-}
-
+/// Dials what `handler`'s stream handler asks for, with the dialer that
+/// comes with the request: `None` when it asks for nothing.
 pub async fn connect_stream_outbound(
     sess: &Session,
     dns_client: SyncDnsClient,
     handler: &AnyOutboundHandler,
 ) -> io::Result<Option<AnyStream>> {
-    let (connect, dial) = handler.stream()?.connect_addr().with_dial();
-    match connect {
-        OutboundConnect::Proxy(Network::Tcp, addr, port) => {
+    match handler.stream()?.connect_addr() {
+        OutboundConnect::Proxy(Network::Tcp, addr, port, dialer) => {
             trace!("connect stream proxy outbound addr={} port={}", &addr, port);
-            Ok(Some(new_tcp_stream(dns_client, &addr, &port, &dial).await?))
+            Ok(Some(Box::new(dialer.tcp(&dns_client, &addr, port).await?)))
         }
-        OutboundConnect::Direct => {
+        OutboundConnect::Direct(dialer) => {
             let dest = &sess.destination;
             trace!("connect stream direct dst={}", &dest);
-            Ok(Some(
-                new_tcp_stream(dns_client, &dest.host(), &dest.port(), &dial).await?,
-            ))
+            Ok(Some(Box::new(
+                dialer.tcp(&dns_client, &dest.host(), dest.port()).await?,
+            )))
         }
         _ => {
             trace!("connect stream None");
@@ -313,48 +214,43 @@ pub async fn connect_stream_outbound(
     }
 }
 
+/// Dials what `handler`'s datagram handler asks for, with the dialer that
+/// comes with the request: `None` when it asks for nothing.
 pub async fn connect_datagram_outbound(
     sess: &Session,
     dns_client: SyncDnsClient,
     handler: &AnyOutboundHandler,
 ) -> io::Result<Option<AnyOutboundTransport>> {
-    let (connect, dial) = handler.datagram()?.connect_addr().with_dial();
-    match connect {
-        OutboundConnect::Proxy(network, addr, port) => match network {
+    match handler.datagram()?.connect_addr() {
+        OutboundConnect::Proxy(network, addr, port, dialer) => match network {
             Network::Udp => {
                 let socket = match addr.parse::<IpAddr>() {
                     Ok(ip) if ip.is_loopback() => {
-                        new_udp_socket(&SocketAddr::new(ip, 0), &dial).await?
+                        dialer.udp_socket(&SocketAddr::new(ip, 0)).await?
                     }
-                    _ => new_udp_socket(&dial.unspecified(), &dial).await?,
+                    _ => dialer.udp_socket(&dialer.unspecified()).await?,
                 };
                 Ok(Some(OutboundTransport::Datagram(Box::new(
-                    DomainResolveOutboundDatagram::new(socket, dns_client.clone(), dial.clone()),
+                    DomainResolveOutboundDatagram::new(socket, dns_client.clone(), dialer),
                 ))))
             }
             Network::Tcp => {
-                let stream = new_tcp_stream(dns_client.clone(), &addr, &port, &dial).await?;
-                Ok(Some(OutboundTransport::Stream(stream)))
+                let stream = dialer.tcp(&dns_client, &addr, port).await?;
+                Ok(Some(OutboundTransport::Stream(Box::new(stream))))
             }
         },
-        OutboundConnect::Direct if sess.route.udp_connect => {
+        OutboundConnect::Direct(dialer) if sess.route.udp_connect => {
             let addr = match &sess.destination {
                 SocksAddr::Ip(addr) => *addr,
                 SocksAddr::Domain(domain, port) => {
-                    let ips = dns_client
-                        .load_full()
-                        .lookup_dial(domain, &dial)
-                        .await
-                        .map_err(|e| {
-                            io::Error::other(format!("lookup {} failed: {}", domain, e))
-                        })?;
+                    let ips = dialer.lookup(&dns_client, domain).await?;
                     let ip = ips.first().ok_or_else(|| {
                         io::Error::other(format!("{} resolves to nothing", domain))
                     })?;
                     SocketAddr::new(*ip, *port)
                 }
             };
-            let socket = new_udp_socket(&addr, &dial).await?;
+            let socket = dialer.udp_socket(&addr).await?;
             socket.connect(addr).await?;
             let from = match &sess.destination {
                 SocksAddr::Domain(..) if !sess.route.udp_disable_domain_unmapping => {
@@ -366,93 +262,27 @@ pub async fn connect_datagram_outbound(
                 ConnectedOutboundDatagram::new(socket, from),
             ))))
         }
-        OutboundConnect::Direct => match &sess.destination {
+        OutboundConnect::Direct(dialer) => match &sess.destination {
             SocksAddr::Domain(domain, port) => {
-                let socket = new_udp_socket(&dial.unspecified(), &dial).await?;
+                let socket = dialer.udp_socket(&dialer.unspecified()).await?;
                 Ok(Some(OutboundTransport::Datagram(Box::new(
                     DomainAssociatedOutboundDatagram::new(
                         socket,
                         SocksAddr::Domain(domain.to_owned(), *port),
                         dns_client.clone(),
-                        dial.clone(),
+                        dialer,
                     )
                     .without_unmapping(sess.route.udp_disable_domain_unmapping),
                 ))))
             }
             SocksAddr::Ip(addr) => {
-                let socket = new_udp_socket(addr, &dial).await?;
+                let socket = dialer.udp_socket(addr).await?;
                 Ok(Some(OutboundTransport::Datagram(Box::new(
                     StdOutboundDatagram::new(socket),
                 ))))
             }
         },
         _ => Ok(None),
-    }
-}
-
-/// Dials a TCP stream to `address`, trying its addresses one by one.
-pub async fn new_tcp_stream(
-    dns_client: SyncDnsClient,
-    address: &String,
-    port: &u16,
-    dial: &DialOptions,
-) -> io::Result<AnyStream> {
-    Ok(Box::new(dial_tcp(dns_client, address, port, dial).await?))
-}
-
-/// `new_tcp_stream`, the TCP stream itself.
-pub async fn dial_tcp(
-    dns_client: SyncDnsClient,
-    address: &String,
-    port: &u16,
-    dial: &DialOptions,
-) -> io::Result<TcpStream> {
-    let resolver = Resolver::new(dns_client.clone(), address, port, dial)
-        .map_err(|e| io::Error::other(format!("resolve address failed: {}", e)))
-        .await?;
-
-    let mut last_err = None;
-    for dial_addr in resolver {
-        match tcp_connect(dial_addr, dial).await {
-            Ok(stream) => return Ok(stream),
-            Err(e) => last_err = Some(e),
-        }
-    }
-
-    Err(match last_err {
-        Some(e) => io::Error::other(format!("all attempts failed, last error: {}", e)),
-        None => io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "could not resolve to any address",
-        ),
-    })
-}
-
-/// An interface with the ability to dial TCP connections.
-#[async_trait]
-pub trait TcpConnector: Send + Sync + Unpin {
-    /// Dials a TCP connection.
-    async fn new_tcp_stream(
-        &self,
-        dns_client: SyncDnsClient,
-        address: &String,
-        port: &u16,
-        dial: &DialOptions,
-    ) -> io::Result<AnyStream> {
-        new_tcp_stream(dns_client, address, port, dial).await
-    }
-}
-
-/// An interface with the ability to create UDP sockets.
-#[async_trait]
-pub trait UdpConnector: Send + Sync + Unpin {
-    /// Creates a UDP socket.
-    async fn new_udp_socket(
-        &self,
-        indicator: &SocketAddr,
-        dial: &DialOptions,
-    ) -> io::Result<UdpSocket> {
-        new_udp_socket(indicator, dial).await
     }
 }
 
@@ -521,24 +351,27 @@ mod tests {
                 assert_eq!(s.keepalive_interval().unwrap(), want.interval);
             }
         };
-        for (listen, dial) in [
-            (None, DialOptions::default()),
+        let fields = |json| -> dial::DialFields { serde_json::from_value(json).unwrap() };
+        for (listen, dial, want) in [
+            (
+                None,
+                fields(serde_json::json!({})),
+                Some(TcpKeepAlive::DEFAULT),
+            ),
             (
                 Some(custom),
-                DialOptions {
-                    tcp_keep_alive: Some(custom.idle),
-                    tcp_keep_alive_interval: Some(custom.interval),
-                    ..Default::default()
-                },
+                fields(
+                    serde_json::json!({ "tcp_keep_alive": "40s", "tcp_keep_alive_interval": "7s" }),
+                ),
+                Some(custom),
             ),
             (
                 None,
-                DialOptions {
-                    disable_tcp_keep_alive: true,
-                    ..Default::default()
-                },
+                fields(serde_json::json!({ "disable_tcp_keep_alive": true })),
+                None,
             ),
         ] {
+            let dialer = DialDefaults::default().dialer(&dial, None).unwrap();
             runtime().block_on(async {
                 let listener = TcpListener::bind(&"127.0.0.1:0".parse().unwrap())
                     .await
@@ -548,21 +381,13 @@ mod tests {
                     None => listener,
                 };
                 let addr = listener.io().local_addr().unwrap();
-                let dialling = dial.clone();
-                let dialled = tokio::spawn(async move { tcp_connect(addr, &dialling).await });
+                let dialled = tokio::spawn(async move { dialer.tcp_to(addr).await });
                 let (accepted, _) = listener.accept().await.unwrap();
                 let dialled = dialled.await.unwrap().unwrap();
                 check(
                     SockRef::from(&accepted),
                     Some(listen.unwrap_or(TcpKeepAlive::DEFAULT)),
                 );
-                let want = if dial.disable_tcp_keep_alive {
-                    None
-                } else if dial.tcp_keep_alive.is_some() {
-                    Some(custom)
-                } else {
-                    Some(TcpKeepAlive::DEFAULT)
-                };
                 check(SockRef::from(&dialled), want);
             });
         }

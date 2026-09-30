@@ -17,7 +17,7 @@ use crate::adapter::AnyStream;
 use crate::app::dispatcher::Dispatcher;
 use crate::app::SyncDnsClient;
 use crate::config::model::{HttpClient, HttpClientRef};
-use crate::net::DialOptions;
+use crate::net::{DialDefaults, Dialer};
 use crate::runtime::RuntimeEnv;
 use crate::session::{Network, Session, SocksAddr};
 
@@ -42,7 +42,7 @@ pub(crate) enum Via {
     /// Through the outbound of this tag.
     Outbound(String),
     /// Straight to the server, as an HTTP client without a detour does.
-    Direct(Arc<DialOptions>),
+    Direct(Dialer),
 }
 
 pub(crate) enum Response {
@@ -177,8 +177,10 @@ async fn get_once(
             .stream_via(detour, sess)
             .await
             .map_err(|e| anyhow!("connect {} through [{}]: {}", host, detour, e))?,
-        Via::Direct(dial) => crate::net::new_tcp_stream(conn.dns.clone(), &host, &port, dial)
+        Via::Direct(dialer) => dialer
+            .tcp(&conn.dns, &host, port)
             .await
+            .map(|stream| Box::new(stream) as AnyStream)
             .map_err(|e| anyhow!("connect {}: {}", host, e))?,
     };
     let mut stream = if tls {
@@ -430,18 +432,18 @@ pub(crate) fn file_name(tag: &str) -> String {
     }
 }
 
-/// What downloads go with: `http_clients`, and the dial options of those
-/// that dial directly. Remote rule-sets and outbound providers take theirs
+/// What downloads go with: `http_clients`, and the defaults the dialers of
+/// those that dial directly are built over. Remote rule-sets and outbound providers take theirs
 /// from it.
 #[derive(Default)]
 pub(crate) struct HttpClients {
     clients: Vec<HttpClient>,
     default: Option<String>,
-    dial: Arc<DialOptions>,
+    dial: Arc<DialDefaults>,
 }
 
 impl HttpClients {
-    pub(crate) fn new(config: &crate::config::Config, dial: Arc<DialOptions>) -> Self {
+    pub(crate) fn new(config: &crate::config::Config, dial: Arc<DialDefaults>) -> Self {
         Self {
             clients: config.http_clients.clone(),
             default: config.route.default_http_client.clone(),
@@ -486,7 +488,7 @@ impl HttpClients {
         };
         let via = match &client.dial.detour {
             Some(detour) => Via::Outbound(detour.clone()),
-            None => Via::Direct(Arc::new(client.dial(&self.dial))),
+            None => Via::Direct(client.dialer(&self.dial)),
         };
         Ok(Client {
             via: Some(via),

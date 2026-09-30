@@ -34,7 +34,7 @@ impl Shared {
             SocksAddr::Domain(host, port) => self
                 .dns_client
                 .load_full()
-                .lookup_dial(host, &self.dial)
+                .lookup_dial(host, self.dialer.resolve_spec())
                 .await
                 .map_err(|e| io::Error::other(format!("lookup {} failed: {}", host, e)))?
                 .into_iter()
@@ -81,8 +81,11 @@ impl OutboundStreamHandler for StreamHandler {
                 0,
             );
             let mut control = running.control.clone();
-            match tokio::time::timeout(self.0.dial.connect_timeout, control.connect(local, target))
-                .await
+            match tokio::time::timeout(
+                self.0.dialer.connect_timeout(),
+                control.connect(local, target),
+            )
+            .await
             {
                 Ok(Ok(conn)) => return Ok(Box::new(conn.stream)),
                 Ok(Err(e)) => last = Some(e),

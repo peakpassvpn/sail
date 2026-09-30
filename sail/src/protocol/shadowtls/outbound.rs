@@ -99,6 +99,7 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
     let handler = Handler {
         server: options.server.clone(),
         port: options.server_port,
+        dialer: ctx.dialer.clone(),
         server_name: tls.server_name.clone().unwrap_or(options.server),
         password: options.password.into_bytes().into(),
         client,
@@ -112,6 +113,7 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
 pub struct Handler {
     server: String,
     port: u16,
+    dialer: crate::net::Dialer,
     server_name: String,
     password: Arc<[u8]>,
     client: TlsClient,
@@ -246,7 +248,12 @@ impl Handler {
 #[async_trait]
 impl OutboundStreamHandler for Handler {
     fn connect_addr(&self) -> OutboundConnect {
-        OutboundConnect::Proxy(Network::Tcp, self.server.clone(), self.port)
+        OutboundConnect::Proxy(
+            Network::Tcp,
+            self.server.clone(),
+            self.port,
+            self.dialer.clone(),
+        )
     }
 
     async fn handle<'a>(
@@ -269,6 +276,7 @@ mod tests {
         Handler {
             server: "127.0.0.1".into(),
             port: 443,
+            dialer: crate::net::Dialer::system(),
             server_name: "www.example.com".into(),
             password: Arc::from(&b"pw"[..]),
             client: TlsClient::new(

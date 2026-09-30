@@ -156,9 +156,10 @@ pub struct OutboundContext<'a> {
     pub tag: &'a str,
     pub options: &'a Options,
     pub dns_client: &'a SyncDnsClient,
-    /// How this outbound opens its sockets, for a handler that dials by
-    /// itself rather than asking through `connect_addr`.
-    pub dial: Arc<crate::net::DialOptions>,
+    /// How this outbound opens its sockets: what it asks to have dialled
+    /// through `connect_addr` comes with it, and a handler that dials by
+    /// itself dials with it.
+    pub dialer: crate::net::Dialer,
     /// The instance's tuning and host.
     pub env: &'a RuntimeEnv,
     /// Tasks the handler spawned, aborted when the outbounds are replaced.
@@ -217,7 +218,7 @@ impl OutboundContext<'_> {
 pub struct OutboundBuildState<'a> {
     pub dns_client: &'a SyncDnsClient,
     /// What outbounds dial with where their dial fields leave off.
-    pub dial_defaults: &'a crate::net::DialOptions,
+    pub dial_defaults: &'a crate::net::DialDefaults,
     pub env: &'a RuntimeEnv,
     /// Built already, besides those built here; they may be depended on.
     pub handlers: &'a mut Handlers<AnyOutboundHandler>,
@@ -312,7 +313,7 @@ pub fn build_outbounds(
                         detour,
                         options: &options,
                         dns_client: state.dns_client,
-                        dial: Arc::new(blocks.dial(&endpoint.tag)?.or(state.dial_defaults)),
+                        dialer: blocks.dialer(&endpoint.tag, state.dial_defaults)?,
                         env: state.env,
                         abort_handles: &mut tasks,
                         #[cfg(feature = "outbound-select")]
@@ -350,7 +351,7 @@ pub fn build_outbounds(
                 }
             }
             let mut tasks = Vec::new();
-            let dial = Arc::new(blocks.dial(&outbound.tag)?.or(state.dial_defaults));
+            let dialer = blocks.dialer(&outbound.tag, state.dial_defaults)?;
             let detour = match &blocks.dial.detour {
                 Some(detour) => Some(dependency(
                     state.handlers,
@@ -369,7 +370,7 @@ pub fn build_outbounds(
                         dns_client: state.dns_client,
                         abort_handles: &mut tasks,
                         detour: detour.clone(),
-                        dial: dial.clone(),
+                        dialer: dialer.clone(),
                         env: state.env,
                     },
                 )?)
@@ -380,7 +381,7 @@ pub fn build_outbounds(
                 tag: &outbound.tag,
                 options: &options,
                 dns_client: state.dns_client,
-                dial: dial.clone(),
+                dialer: dialer.clone(),
                 env: state.env,
                 abort_handles: &mut tasks,
                 #[cfg(feature = "outbound-select")]
@@ -406,7 +407,7 @@ pub fn build_outbounds(
                         dns_client: state.dns_client,
                         abort_handles: &mut tasks,
                         detour,
-                        dial,
+                        dialer,
                         env: state.env,
                     },
                 )?

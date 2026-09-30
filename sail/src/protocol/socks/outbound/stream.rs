@@ -11,12 +11,18 @@ pub struct Handler {
     pub port: u16,
     pub username: String,
     pub password: String,
+    pub dialer: crate::net::Dialer,
 }
 
 #[async_trait]
 impl OutboundStreamHandler for Handler {
     fn connect_addr(&self) -> OutboundConnect {
-        OutboundConnect::Proxy(Network::Tcp, self.address.clone(), self.port)
+        OutboundConnect::Proxy(
+            Network::Tcp,
+            self.address.clone(),
+            self.port,
+            self.dialer.clone(),
+        )
     }
 
     async fn handle<'a>(
@@ -65,6 +71,7 @@ mod tests {
             port: addr.port(),
             username: "".to_string(),
             password: "".to_string(),
+            dialer: crate::net::Dialer::system(),
         };
 
         let sess = Session {

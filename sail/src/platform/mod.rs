@@ -68,9 +68,6 @@ pub mod network;
 ))]
 use anyhow::{anyhow, Result};
 
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
-use crate::net::DialOptions;
-
 /// Runs a command that reads the system, and returns what it printed.
 #[cfg(all(target_os = "linux", feature = "inbound-tun"))]
 fn output(cmd: &mut std::process::Command) -> Result<String> {
@@ -113,30 +110,30 @@ pub fn detect_default_interface() -> std::io::Result<String> {
     ))
 }
 
-/// Dial options that send through the system's default interface, for
-/// `route.auto_detect_interface`, where it is not followed as it changes
-/// (`net::interface`): its addresses.
+/// The addresses of the system's default interface, IPv4's and IPv6's,
+/// which send through it: for `route.auto_detect_interface`, where it is
+/// not followed as it changes (`net::interface`).
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-pub fn default_interface() -> Result<DialOptions> {
+pub fn default_interface() -> Result<(Option<std::net::Ipv4Addr>, Option<std::net::Ipv6Addr>)> {
     #[cfg(target_os = "windows")]
     {
-        let mut dial = DialOptions::default();
+        let (mut inet4, mut inet6) = (None, None);
         for ip in windows::get_default_interface_ips()
             .split(',')
             .filter(|s| !s.is_empty())
         {
             match ip.parse::<std::net::IpAddr>() {
-                Ok(std::net::IpAddr::V4(v4)) => dial.inet4_bind_address = Some(v4),
-                Ok(std::net::IpAddr::V6(v6)) => dial.inet6_bind_address = Some(v6),
+                Ok(std::net::IpAddr::V4(v4)) => inet4 = Some(v4),
+                Ok(std::net::IpAddr::V6(v6)) => inet6 = Some(v6),
                 Err(_) => {}
             }
         }
-        if dial.inet4_bind_address.is_none() && dial.inet6_bind_address.is_none() {
+        if inet4.is_none() && inet6.is_none() {
             return Err(anyhow!(
                 "route.auto_detect_interface: no default interface found"
             ));
         }
-        Ok(dial)
+        Ok((inet4, inet6))
     }
     #[cfg(not(target_os = "windows"))]
     Err(anyhow!(

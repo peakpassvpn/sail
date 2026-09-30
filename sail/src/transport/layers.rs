@@ -19,7 +19,7 @@ use crate::adapter::{AnyInboundHandler, AnyOutboundHandler};
 use crate::app::SyncDnsClient;
 use crate::config::model::{parse_options, Options};
 use crate::net::dial::DialFields;
-use crate::net::DialOptions;
+use crate::net::{DialDefaults, Dialer};
 use crate::runtime::RuntimeEnv;
 
 /// Which blocks a protocol can be configured with.
@@ -534,47 +534,16 @@ impl OutboundBlocks {
         self.multiplex.as_ref().filter(|m| m.enabled)
     }
 
-    /// The dial fields set, checked against each other and the platform.
-    pub fn dial(&self, tag: &str) -> Result<DialOptions> {
+    /// The dialer of the outbound `tag`: its dial fields, checked against
+    /// each other and the platform, over `defaults`.
+    pub fn dialer(&self, tag: &str, defaults: &DialDefaults) -> Result<Dialer> {
         self.dial
             .check(crate::net::dial::fields::IMPLEMENTED)
             .map_err(|e| anyhow!("[{}] outbound: {}", tag, e))?;
-        let dial = DialOptions {
-            outbound: Some(tag.to_string()),
-            ..self.dial.options()
-        };
-        check_dial_platform("outbound", tag, &dial)?;
-        Ok(dial)
+        defaults
+            .dialer(&self.dial, Some(tag))
+            .map_err(|e| anyhow!("[{}] outbound: {}", tag, e))
     }
-}
-
-/// Fails for dial options this platform cannot apply.
-pub fn check_dial_platform(kind: &str, tag: &str, dial: &DialOptions) -> Result<()> {
-    if dial.routing_mark.is_some() && !crate::net::dial::supports_routing_mark() {
-        return Err(anyhow!(
-            "[{}] {}: routing_mark: only supported on Linux",
-            tag,
-            kind
-        ));
-    }
-    if let Some(name) = &dial.bind_interface {
-        if !crate::net::dial::supports_bind_interface() {
-            return Err(anyhow!(
-                "[{}] {}: bind_interface: not supported on this platform",
-                tag,
-                kind
-            ));
-        }
-        if crate::net::dial::interface_exists(name) == Some(false) {
-            return Err(anyhow!(
-                "[{}] {}: bind_interface: there is no interface \"{}\"",
-                tag,
-                kind,
-                name
-            ));
-        }
-    }
-    Ok(())
 }
 
 /// What layering an outbound needs from where it is built.
@@ -587,8 +556,8 @@ pub struct OutboundLayering<'a> {
     /// The outbound `detour` names, already built.
     pub detour: Option<AnyOutboundHandler>,
     /// How the outbound dials: its dial fields over the instance's
-    /// defaults, from `OutboundBlocks::dial`.
-    pub dial: Arc<DialOptions>,
+    /// defaults, from `OutboundBlocks::dialer`.
+    pub dialer: Dialer,
     pub env: &'a RuntimeEnv,
 }
 
@@ -663,7 +632,7 @@ fn layered(
         return chain_outbound(tag, vec![grpc, core]);
     }
 
-    let dial = layering.dial;
+    let dialer = layering.dialer;
     let mut actors: Vec<AnyOutboundHandler> = Vec::new();
     // sing-mux runs above everything else, over connections of the whole.
     let mut sing_mux = None;
@@ -688,7 +657,7 @@ fn layered(
             address,
             port,
             layering.dns_client,
-            &dial,
+            &dialer,
             layering.env,
         )?);
     } else {
@@ -733,7 +702,7 @@ fn layered(
                     server(tag, layering.options)?,
                     under_mux,
                     layering.dns_client,
-                    &dial,
+                    &dialer,
                     layering.env,
                     layering.abort_handles,
                 )?);
@@ -747,9 +716,8 @@ fn layered(
         actors.push(core);
         chain_outbound(tag, actors)?
     };
-    // What it asks to have dialled is dialled as it says. Through a detour,
-    // that is what the detour asks for, with the detour's own options.
-    let layered = crate::adapter::outbound::with_dial(layered, dial);
+    // What it asks to have dialled comes with its dialer. Through a
+    // detour, that is what the detour asks for, with the detour's dialer.
     let whole = match layering.detour {
         Some(detour) => chain_outbound(tag, vec![detour, layered])?,
         None => layered,
@@ -822,7 +790,11 @@ impl Connector {
         let dns_client = layering.dns_client.clone();
         let handover = crate::adapter::outbound::HandlerBuilder::default()
             .tag(layering.tag.to_owned())
-            .stream_handler(Arc::new(Handover { server, port }))
+            .stream_handler(Arc::new(Handover {
+                server,
+                port,
+                dialer: layering.dialer.clone(),
+            }))
             .build();
         Ok(Connector {
             layers: layered(handover, blocks, layering, with_transport)?,
@@ -871,13 +843,16 @@ impl Connector {
         crate::adapter::AnyStream,
         Option<crate::transport::mux::brutal::Socket>,
     )> {
-        let (connect, dial) = self.layers.stream()?.connect_addr().with_dial();
-        let crate::adapter::OutboundConnect::Proxy(crate::session::Network::Tcp, addr, port) =
-            connect
+        let crate::adapter::OutboundConnect::Proxy(
+            crate::session::Network::Tcp,
+            addr,
+            port,
+            dialer,
+        ) = self.layers.stream()?.connect_addr()
         else {
             return Ok((self.connect(sess).await?, None));
         };
-        let tcp = crate::net::dial_tcp(self.dns_client.clone(), &addr, &port, &dial).await?;
+        let tcp = dialer.tcp(&self.dns_client, &addr, port).await?;
         let socket = crate::transport::mux::brutal::Socket::of(&socket2::SockRef::from(&tcp)).ok();
         let stream = self
             .layers
@@ -893,6 +868,7 @@ impl Connector {
 struct Handover {
     server: String,
     port: u16,
+    dialer: Dialer,
 }
 
 #[async_trait::async_trait]
@@ -902,6 +878,7 @@ impl crate::adapter::OutboundStreamHandler for Handover {
             crate::session::Network::Tcp,
             self.server.clone(),
             self.port,
+            self.dialer.clone(),
         )
     }
 
@@ -1187,7 +1164,7 @@ fn quic_outbound(
     address: String,
     port: u16,
     dns_client: &SyncDnsClient,
-    dial: &Arc<DialOptions>,
+    dialer: &Dialer,
     env: &RuntimeEnv,
 ) -> Result<AnyOutboundHandler> {
     #[cfg(feature = "outbound-quic")]
@@ -1199,7 +1176,7 @@ fn quic_outbound(
                 address,
                 port,
                 dns_client.clone(),
-                dial.clone(),
+                dialer.clone(),
                 env,
             )
             .map_err(|e| anyhow!("[{}] outbound: transport quic: {}", tag, e))?,
@@ -1224,7 +1201,7 @@ fn amux_outbound(
     (address, port): (String, u16),
     actors: Vec<AnyOutboundHandler>,
     dns_client: &SyncDnsClient,
-    dial: &Arc<DialOptions>,
+    dialer: &Dialer,
     env: &RuntimeEnv,
     abort_handles: &mut Vec<AbortHandle>,
 ) -> Result<AnyOutboundHandler> {
@@ -1253,7 +1230,7 @@ fn amux_outbound(
             mux.max_recv_bytes.unwrap_or(0),
             mux.max_lifetime.unwrap_or(0),
             dns_client.clone(),
-            dial.clone(),
+            dialer.clone(),
             (&env.options.mux).into(),
             format!("outbound={}", tag),
         );
@@ -1346,14 +1323,16 @@ const REALITY_HANDSHAKE_DIAL: &[&str] = &[
 ];
 
 impl RealityHandshake {
+    /// The dialer of the handshake: its own dial fields, over no
+    /// defaults of the instance's.
     #[cfg_attr(not(feature = "inbound-reality"), allow(dead_code))]
-    fn dial(&self, tag: &str) -> Result<DialOptions> {
+    fn dialer(&self, tag: &str) -> Result<Dialer> {
         self.dial
             .check(REALITY_HANDSHAKE_DIAL)
             .map_err(|e| anyhow!("[{}] inbound: tls.reality.handshake: {}", tag, e))?;
-        let dial = self.dial.options();
-        check_dial_platform("inbound: tls.reality.handshake", tag, &dial)?;
-        Ok(dial)
+        DialDefaults::default()
+            .dialer(&self.dial, None)
+            .map_err(|e| anyhow!("[{}] inbound: tls.reality.handshake: {}", tag, e))
     }
 }
 
@@ -1815,7 +1794,7 @@ fn reality_inbound(
                 reality.handshake.server.clone(),
                 reality.handshake.server_port,
             ),
-            reality.handshake.dial(tag)?,
+            reality.handshake.dialer(tag)?,
         )
         .map_err(|e| anyhow!("[{}] inbound: tls.reality: {}", tag, e))?;
         Ok(Arc::new(crate::adapter::inbound::Handler::new(

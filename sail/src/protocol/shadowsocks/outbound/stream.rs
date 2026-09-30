@@ -12,6 +12,7 @@ use crate::{adapter::*, net::*, session::*};
 pub struct Handler {
     pub address: String,
     pub port: u16,
+    pub dialer: crate::net::Dialer,
     pub cipher: String,
     pub password: String,
     pub prefix: Option<Box<[u8]>>,
@@ -24,6 +25,7 @@ impl Handler {
         cipher: String,
         password: String,
         prefix: Option<String>,
+        dialer: Dialer,
     ) -> Result<Self> {
         let prefix = prefix
             .as_ref()
@@ -33,6 +35,7 @@ impl Handler {
         Ok(Self {
             address,
             port,
+            dialer,
             cipher,
             password,
             prefix,
@@ -43,7 +46,12 @@ impl Handler {
 #[async_trait]
 impl OutboundStreamHandler for Handler {
     fn connect_addr(&self) -> OutboundConnect {
-        OutboundConnect::Proxy(Network::Tcp, self.address.clone(), self.port)
+        OutboundConnect::Proxy(
+            Network::Tcp,
+            self.address.clone(),
+            self.port,
+            self.dialer.clone(),
+        )
     }
 
     async fn handle<'a>(

@@ -25,11 +25,8 @@ pub struct Handler {
     pub username: String,
     pub password: String,
     pub dns_client: SyncDnsClient,
-    pub dial: std::sync::Arc<crate::net::DialOptions>,
+    pub dialer: Dialer,
 }
-
-impl TcpConnector for Handler {}
-impl UdpConnector for Handler {}
 
 /// Negotiates with the server on `stream` and asks it to associate,
 /// authenticating as `auth` if given. Returns the relay the reply names.
@@ -106,7 +103,12 @@ where
 #[async_trait]
 impl OutboundDatagramHandler for Handler {
     fn connect_addr(&self) -> OutboundConnect {
-        OutboundConnect::Proxy(Network::Udp, self.address.clone(), self.port)
+        OutboundConnect::Proxy(
+            Network::Udp,
+            self.address.clone(),
+            self.port,
+            self.dialer.clone(),
+        )
     }
 
     fn transport_type(&self) -> DatagramTransportType {
@@ -119,14 +121,11 @@ impl OutboundDatagramHandler for Handler {
         _transport: Option<AnyOutboundTransport>,
     ) -> io::Result<AnyOutboundDatagram> {
         tracing::trace!("handling outbound datagram");
-        let mut stream = self
-            .new_tcp_stream(
-                self.dns_client.clone(),
-                &self.address,
-                &self.port,
-                &self.dial,
-            )
-            .await?;
+        let mut stream: AnyStream = Box::new(
+            self.dialer
+                .tcp(&self.dns_client, &self.address, self.port)
+                .await?,
+        );
         let auth =
             (!self.username.is_empty()).then_some((self.username.as_str(), self.password.as_str()));
         let bound = associate(&mut stream, auth).await?;
@@ -135,23 +134,22 @@ impl OutboundDatagramHandler for Handler {
                 SocketAddr::new(self.server_ip().await?, addr.port())
             }
             SocksAddr::Ip(addr) => addr,
-            SocksAddr::Domain(domain, port) => {
-                Resolver::new(self.dns_client.clone(), &domain, &port, &self.dial)
-                    .await
-                    .map_err(|e| {
-                        io::Error::other(format!("resolve socks relay {}: {}", domain, e))
-                    })?
-                    .next()
-                    .ok_or_else(|| {
-                        io::Error::other(format!("no address for socks relay {}", domain))
-                    })?
-            }
+            SocksAddr::Domain(domain, port) => Resolver::new(
+                self.dns_client.clone(),
+                &domain,
+                port,
+                self.dialer.resolve_spec(),
+            )
+            .await
+            .map_err(|e| io::Error::other(format!("resolve socks relay {}: {}", domain, e)))?
+            .next()
+            .ok_or_else(|| io::Error::other(format!("no address for socks relay {}", domain)))?,
         };
         let unspecified = match relay {
             SocketAddr::V4(_) => SocketAddr::from(([0, 0, 0, 0], 0)),
             SocketAddr::V6(_) => SocketAddr::from(([0u16; 8], 0)),
         };
-        let socket = self.new_udp_socket(&unspecified, &self.dial).await?;
+        let socket = self.dialer.udp_socket(&unspecified).await?;
         socket.connect(relay).await?;
         tracing::debug!("socks udp relay {}", relay);
         let socket = Arc::new(socket);
@@ -169,8 +167,8 @@ impl Handler {
         Resolver::new(
             self.dns_client.clone(),
             &self.address,
-            &self.port,
-            &self.dial,
+            self.port,
+            self.dialer.resolve_spec(),
         )
         .await
         .map_err(|e| io::Error::other(format!("resolve socks server: {}", e)))?

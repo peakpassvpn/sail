@@ -93,7 +93,7 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
         zero_rtt: options.zero_rtt_handshake,
         heartbeat: options.heartbeat.unwrap_or(DEFAULT_HEARTBEAT),
         dns_client: ctx.dns_client.clone(),
-        dial: ctx.dial.clone(),
+        dialer: ctx.dialer.clone(),
         tuning: &ctx.env.options.quic,
     }));
     let stream: AnyOutboundStreamHandler = Arc::new(StreamHandler(client.clone()));

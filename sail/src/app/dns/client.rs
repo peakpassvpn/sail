@@ -55,7 +55,7 @@ const HOSTS_TTL: u32 = 600;
 impl DnsClient {
     pub fn new(
         dns: &crate::config::Dns,
-        dial: Arc<crate::net::DialOptions>,
+        dial: Arc<crate::net::DialDefaults>,
         env: &crate::runtime::RuntimeEnv,
     ) -> Result<Self> {
         Self::with_rule_sets(dns, dial, env, &Default::default())
@@ -64,7 +64,7 @@ impl DnsClient {
     /// A client whose rules can name the rule-sets of `rule_sets`.
     pub(crate) fn with_rule_sets(
         dns: &crate::config::Dns,
-        dial: Arc<crate::net::DialOptions>,
+        dial: Arc<crate::net::DialDefaults>,
         env: &crate::runtime::RuntimeEnv,
         rule_sets: &crate::app::router::rule_set::RuleSets,
     ) -> Result<Self> {
@@ -73,7 +73,7 @@ impl DnsClient {
 
     fn build(
         dns: &crate::config::Dns,
-        dial: Arc<crate::net::DialOptions>,
+        dial: Arc<crate::net::DialDefaults>,
         env: &crate::runtime::RuntimeEnv,
         rule_sets: &crate::app::router::rule_set::RuleSets,
         fake_ips: Option<&Arc<fakeip::FakeIpStore>>,
@@ -210,7 +210,7 @@ impl DnsClient {
     pub(crate) fn reloaded(
         &self,
         dns: &crate::config::Dns,
-        dial: Arc<crate::net::DialOptions>,
+        dial: Arc<crate::net::DialDefaults>,
         env: &crate::runtime::RuntimeEnv,
         rule_sets: &crate::app::router::rule_set::RuleSets,
     ) -> Result<Self> {
@@ -452,7 +452,7 @@ impl DnsClient {
     /// A TCP connection to `addr`, as the server's dialer makes them.
     async fn dial_stream(&self, dialer: &Dialer, addr: SocketAddr) -> Result<AnyStream> {
         match self.outbound_for(dialer, Network::Tcp, addr).await? {
-            None => Ok(Box::new(crate::net::tcp_connect(addr, &dialer.dial).await?)),
+            None => Ok(Box::new(dialer.dial.tcp_to(addr).await?)),
             Some((outbound, sess)) => self
                 .dispatcher()?
                 .stream_via(&outbound, sess)
@@ -469,7 +469,7 @@ impl DnsClient {
     ) -> Result<AnyOutboundDatagram> {
         match self.outbound_for(dialer, Network::Udp, addr).await? {
             None => {
-                let socket = crate::net::new_udp_socket(&addr, &dialer.dial).await?;
+                let socket = dialer.dial.udp_socket(&addr).await?;
                 Ok(Box::new(StdOutboundDatagram::new(socket)))
             }
             Some((outbound, sess)) => {
@@ -969,13 +969,14 @@ impl DnsClient {
         self.lookup_by(host, strategy, By::Rules(ctx)).await
     }
 
-    /// The addresses of `host`, which an outbound dials with `dial`: from
-    /// its `domain_resolver`, or else from the server the rules pick for
-    /// that outbound, of the families its `domain_strategy` says.
+    /// The addresses of `host`, which an outbound dials, its names
+    /// resolving as `dial` says: from its `domain_resolver`, or else from
+    /// the server the rules pick for that outbound, of the families its
+    /// `domain_strategy` says.
     pub async fn lookup_dial(
         &self,
         host: &str,
-        dial: &crate::net::DialOptions,
+        dial: &crate::net::dial::ResolveSpec,
     ) -> Result<Vec<IpAddr>> {
         match &dial.domain_resolver {
             Some(resolver) => self.lookup_resolver(resolver, host).await,

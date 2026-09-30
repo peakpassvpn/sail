@@ -34,7 +34,7 @@ pub struct MuxManager {
     pub max_recv_bytes: usize,
     pub max_lifetime: u64,
     pub dns_client: SyncDnsClient,
-    pub dial: Arc<crate::net::DialOptions>,
+    pub dialer: Dialer,
     pub tuning: Tuning,
     /// Who the sessions serve, in their logs.
     pub label: String,
@@ -55,7 +55,7 @@ impl MuxManager {
         max_recv_bytes: usize,
         max_lifetime: u64,
         dns_client: SyncDnsClient,
-        dial: Arc<crate::net::DialOptions>,
+        dialer: Dialer,
         tuning: Tuning,
         label: String,
     ) -> (Self, Vec<AbortHandle>) {
@@ -83,7 +83,7 @@ impl MuxManager {
                 max_recv_bytes,
                 max_lifetime,
                 dns_client,
-                dial,
+                dialer,
                 tuning,
                 label,
                 connectors,
@@ -115,15 +115,12 @@ impl MuxManager {
         // Create a new connection.
 
         // Create the underlying TCP stream.
-        let mut conn = self
-            .new_tcp_stream(
-                self.dns_client.clone(),
-                &self.address,
-                &self.port,
-                &self.dial,
-            )
-            .instrument(tracing::Span::current())
-            .await?;
+        let mut conn: AnyStream = Box::new(
+            self.dialer
+                .tcp(&self.dns_client, &self.address, self.port)
+                .instrument(tracing::Span::current())
+                .await?,
+        );
 
         // Pass the TCP stream through all sub-transports, e.g. TLS, WebSocket.
         let mut sess = sess.clone();
@@ -168,8 +165,6 @@ impl MuxManager {
     }
 }
 
-impl TcpConnector for MuxManager {}
-
 pub struct Handler {
     manager: MuxManager,
 }
@@ -185,7 +180,7 @@ impl Handler {
         max_recv_bytes: usize,
         max_lifetime: u64,
         dns_client: SyncDnsClient,
-        dial: Arc<crate::net::DialOptions>,
+        dialer: Dialer,
         tuning: Tuning,
         label: String,
     ) -> (Self, Vec<AbortHandle>) {
@@ -198,7 +193,7 @@ impl Handler {
             max_recv_bytes,
             max_lifetime,
             dns_client,
-            dial,
+            dialer,
             tuning,
             label,
         );

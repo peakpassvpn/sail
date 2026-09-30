@@ -498,7 +498,7 @@ mod tests {
             { "outbound": "lan-proxy", "server": "home" }
         ]))
         .unwrap();
-        let mut dial = crate::net::DialOptions::default();
+        let mut dial = crate::net::dial::ResolveSpec::default();
         // No resolver: `final`, and the rules for the outbound.
         assert_eq!(
             client.lookup_dial("nas.home.arpa", &dial).await.unwrap(),
@@ -1086,7 +1086,7 @@ mod tests {
                                 "timeout": "1s", "rewrite_ttl": 5 }),
         )
         .unwrap();
-        let dial = crate::net::DialOptions {
+        let dial = crate::net::dial::ResolveSpec {
             domain_resolver: Some(resolver),
             ..Default::default()
         };
@@ -1105,7 +1105,7 @@ mod tests {
     async fn domain_strategy_sets_the_families_of_what_is_dialled() {
         let client = with_rules(serde_json::json!([])).unwrap();
         // With no resolver, the rules', of its families.
-        let dial = crate::net::DialOptions {
+        let dial = crate::net::dial::ResolveSpec {
             strategy: Some(crate::config::model::DnsStrategy::Ipv6Only),
             ..Default::default()
         };
@@ -1115,7 +1115,7 @@ mod tests {
         );
         // Over the default resolver's strategy, as in sing-box; not over
         // a resolver of its own.
-        let defaults = crate::net::DialOptions {
+        let defaults = crate::net::dial::RouteDefaults {
             domain_resolver: Some(crate::config::model::DomainResolver {
                 server: "world".into(),
                 strategy: Some(crate::config::model::DnsStrategy::Ipv4Only),
@@ -1123,25 +1123,22 @@ mod tests {
             }),
             ..Default::default()
         };
-        let dial = crate::net::DialOptions {
-            strategy: Some(crate::config::model::DnsStrategy::Ipv6Only),
-            ..Default::default()
-        }
-        .or(&defaults);
+        let resolve = |fields: serde_json::Value| {
+            crate::net::dial::ResolveSpec::resolve(
+                &serde_json::from_value(fields).unwrap(),
+                &defaults,
+                None,
+            )
+        };
+        let dial = resolve(serde_json::json!({ "domain_strategy": "ipv6_only" }));
         assert_eq!(
             dial.domain_resolver.as_ref().unwrap().strategy,
             Some(crate::config::model::DnsStrategy::Ipv6Only)
         );
-        let own = crate::net::DialOptions {
-            domain_resolver: Some(crate::config::model::DomainResolver {
-                server: "world".into(),
-                strategy: Some(crate::config::model::DnsStrategy::Ipv4Only),
-                ..Default::default()
-            }),
-            strategy: Some(crate::config::model::DnsStrategy::Ipv6Only),
-            ..Default::default()
-        }
-        .or(&defaults);
+        let own = resolve(serde_json::json!({
+            "domain_resolver": { "server": "world", "strategy": "ipv4_only" },
+            "domain_strategy": "ipv6_only",
+        }));
         assert_eq!(
             own.domain_resolver.as_ref().unwrap().strategy,
             Some(crate::config::model::DnsStrategy::Ipv4Only)

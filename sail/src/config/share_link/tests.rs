@@ -683,13 +683,13 @@ async fn the_corpus_builds() {
     use std::sync::Arc;
 
     use crate::app::outbound::manager::OutboundManager;
-    use crate::net::DialOptions;
+    use crate::net::DialDefaults;
     use crate::runtime::RuntimeEnv;
 
     let build = |outbound: &Value| {
         let config = json!({ "outbounds": [outbound] }).to_string();
         let config = crate::config::Config::from_json(&config).unwrap();
-        let dial = DialOptions::default();
+        let dial = DialDefaults::default();
         let dns = crate::app::dns::DnsClient::new(
             &config.dns,
             Arc::new(dial.clone()),

@@ -18,7 +18,7 @@ use quinn::{AsyncUdpSocket, Runtime};
 use serde_derive::Deserialize;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
-use crate::net::DialOptions;
+use crate::net::Dialer;
 use crate::runtime::options::Quic as Tuning;
 use crate::runtime::RuntimeEnv;
 use crate::transport::layers::{trusted_certificate, InboundTls, Listable, OutboundTls};
@@ -240,15 +240,13 @@ pub fn transport_config(
     config
 }
 
-/// A UDP socket for talking to `peer`, bound as `dial` says.
-pub async fn bind(peer: IpAddr, dial: &DialOptions) -> io::Result<std::net::UdpSocket> {
+/// A UDP socket for talking to `peer`, opened by `dialer`.
+pub async fn bind(peer: IpAddr, dialer: &Dialer) -> io::Result<std::net::UdpSocket> {
     let unspecified = match peer {
         IpAddr::V4(_) => SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), 0),
         IpAddr::V6(_) => SocketAddr::new(Ipv6Addr::UNSPECIFIED.into(), 0),
     };
-    crate::net::new_udp_socket(&unspecified, dial)
-        .await?
-        .into_std()
+    dialer.udp_socket(&unspecified).await?.into_std()
 }
 
 /// `socket` as quinn takes it, for wrapping further.

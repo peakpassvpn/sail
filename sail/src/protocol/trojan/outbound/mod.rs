@@ -34,11 +34,13 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
     let stream = Arc::new(StreamHandler {
         address: options.server.clone(),
         port: options.server_port,
+        dialer: ctx.dialer.clone(),
         password: options.password.clone(),
     });
     let datagram = Arc::new(DatagramHandler {
         address: options.server,
         port: options.server_port,
+        dialer: ctx.dialer.clone(),
         password: options.password,
     });
     Ok(HandlerBuilder::default()

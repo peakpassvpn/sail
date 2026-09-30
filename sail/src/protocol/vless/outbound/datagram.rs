@@ -12,6 +12,7 @@ use crate::{adapter::*, session::*};
 pub struct Handler {
     pub address: String,
     pub port: u16,
+    pub dialer: crate::net::Dialer,
     pub uuid: [u8; 16],
     pub flow: Flow,
     pub packet_encoding: PacketEncoding,
@@ -20,7 +21,12 @@ pub struct Handler {
 #[async_trait]
 impl OutboundDatagramHandler for Handler {
     fn connect_addr(&self) -> OutboundConnect {
-        OutboundConnect::Proxy(Network::Tcp, self.address.clone(), self.port)
+        OutboundConnect::Proxy(
+            Network::Tcp,
+            self.address.clone(),
+            self.port,
+            self.dialer.clone(),
+        )
     }
 
     fn transport_type(&self) -> DatagramTransportType {

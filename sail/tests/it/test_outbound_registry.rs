@@ -5,7 +5,8 @@ use serde_json::json;
 use sail::app::dns_client::DnsClient;
 use sail::app::outbound::manager::OutboundManager;
 use sail::config;
-use sail::net::DialOptions;
+use sail::net::dial::{DialSpec, RouteDefaults};
+use sail::net::DialDefaults;
 
 fn outbound(tag: &str, protocol: &str, options: serde_json::Value) -> config::Outbound {
     let serde_json::Value::Object(options) = options else {
@@ -37,12 +38,12 @@ fn ss(tag: &str, extra: serde_json::Value) -> config::Outbound {
 }
 
 fn manager(outbounds: &[config::Outbound]) -> anyhow::Result<OutboundManager> {
-    manager_with(outbounds, &DialOptions::default())
+    manager_with(outbounds, &DialDefaults::default())
 }
 
 fn manager_with(
     outbounds: &[config::Outbound],
-    dial_defaults: &DialOptions,
+    dial_defaults: &DialDefaults,
 ) -> anyhow::Result<OutboundManager> {
     let dns_client = DnsClient::new(
         &config::Dns::default(),
@@ -309,21 +310,20 @@ fn chain_and_transports_are_not_types_of_their_own() {
     }
 }
 
-/// What `tag` asks to have dialled, and the options it is dialled with.
-fn dial_of(m: &OutboundManager, tag: &str) -> (sail::adapter::OutboundConnect, DialOptions) {
-    let (connect, dial) = m
-        .get(tag)
-        .unwrap()
-        .stream()
-        .unwrap()
-        .connect_addr()
-        .with_dial();
-    (connect, (*dial).clone())
+/// What `tag` asks to have dialled, and how its dialer opens sockets.
+fn dial_of(m: &OutboundManager, tag: &str) -> (sail::adapter::OutboundConnect, DialSpec) {
+    let connect = m.get(tag).unwrap().stream().unwrap().connect_addr();
+    let spec = match &connect {
+        sail::adapter::OutboundConnect::Proxy(_, _, _, dialer)
+        | sail::adapter::OutboundConnect::Direct(dialer) => dialer.spec().clone(),
+        other => panic!("nothing to dial: {:?}", other),
+    };
+    (connect, spec)
 }
 
 fn server_of(connect: &sail::adapter::OutboundConnect) -> u16 {
     match connect {
-        sail::adapter::OutboundConnect::Proxy(_, _, port) => *port,
+        sail::adapter::OutboundConnect::Proxy(_, _, port, _) => *port,
         other => panic!("not a proxy: {:?}", other),
     }
 }
@@ -338,8 +338,11 @@ const LOOPBACK: &str = if cfg!(target_os = "macos") {
 #[cfg(not(windows))]
 #[test]
 fn an_outbound_dials_with_its_own_options_over_the_defaults() {
-    let defaults = DialOptions {
-        bind_interface: Some("default0".into()),
+    let defaults = DialDefaults {
+        route: RouteDefaults {
+            bind_interface: Some("default0".into()),
+            ..Default::default()
+        },
         ..Default::default()
     };
     let m = manager_with(
@@ -368,7 +371,7 @@ fn an_outbound_dials_with_its_own_options_over_the_defaults() {
 
     // Bound to an address, it does not also take the default interface.
     let (connect, direct) = dial_of(&m, "direct");
-    assert!(matches!(connect, sail::adapter::OutboundConnect::Direct));
+    assert!(matches!(connect, sail::adapter::OutboundConnect::Direct(_)));
     assert_eq!(direct.inet4_bind_address, Some("10.0.0.2".parse().unwrap()));
     assert_eq!(direct.bind_interface, None);
 }

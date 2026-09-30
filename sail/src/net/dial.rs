@@ -2,14 +2,18 @@
 //! bound to, their routing mark, and how long a connect may take.
 
 use std::io;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::time::Duration;
 
 use tracing::debug;
 
+mod dialer;
 pub mod fields;
+mod spec;
 
+pub use dialer::{DialDefaults, DialEnv, Dialer};
 pub use fields::DialFields;
+pub use spec::{DialSpec, ResolveSpec, RouteDefaults};
 
 /// The default time a TCP connect may take.
 pub const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_secs(8);
@@ -44,195 +48,18 @@ pub enum SocketProtect {
     Platform(crate::runtime::PlatformRef),
 }
 
-/// Options for the sockets one outbound opens, already combined with the
-/// instance's defaults (`route.default_interface`, `route.default_mark`).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DialOptions {
-    /// The interface to send through, by name.
-    pub bind_interface: Option<String>,
-    /// Without `bind_interface`: the interface `auto_detect_interface`
-    /// finds for each destination, as the system changes.
-    pub auto_interface: Option<std::sync::Arc<super::interface::AutoInterface>>,
-    /// The local address for IPv4 destinations.
-    pub inet4_bind_address: Option<Ipv4Addr>,
-    /// The local address for IPv6 destinations.
-    pub inet6_bind_address: Option<Ipv6Addr>,
-    /// `SO_MARK`, Linux only.
-    pub routing_mark: Option<u32>,
-    pub connect_timeout: Duration,
-    /// From the host, never from a configuration.
-    pub protect: Option<SocketProtect>,
-    /// Whether IPv6 is used at all (`dns.strategy`), which makes the UDP
-    /// sockets that are not bound to anything in particular dual-stack.
-    pub ipv6: bool,
-    /// The DNS server that resolves the names dialled: the outbound's
-    /// `domain_resolver`, or `route.default_domain_resolver`. Unset, the
-    /// DNS rules decide.
-    pub domain_resolver: Option<crate::config::model::DomainResolver>,
-    /// The families the names dialled resolve to: sing-box's deprecated
-    /// `domain_strategy`, which a `domain_resolver`'s own `strategy` goes
-    /// before, where there is one.
-    pub strategy: Option<crate::config::model::DnsStrategy>,
-    /// The outbound these options are for, which DNS rules can match.
-    pub outbound: Option<String>,
-    /// TCP keepalive: how long a connection is idle before the first probe;
-    /// [`TcpKeepAlive::DEFAULT`]'s when unset.
-    pub tcp_keep_alive: Option<Duration>,
-    /// Between probes; [`TcpKeepAlive::DEFAULT`]'s when unset.
-    pub tcp_keep_alive_interval: Option<Duration>,
-    /// No keepalive at all.
-    pub disable_tcp_keep_alive: bool,
-    /// Whether the default's `domain_resolver` is not taken, and the DNS
-    /// rules resolve where these name none.
-    pub skip_default_resolver: bool,
-}
-
-impl Default for DialOptions {
-    fn default() -> Self {
-        Self {
-            bind_interface: None,
-            auto_interface: None,
-            inet4_bind_address: None,
-            inet6_bind_address: None,
-            routing_mark: None,
-            connect_timeout: DEFAULT_CONNECT_TIMEOUT,
-            protect: None,
-            ipv6: false,
-            domain_resolver: None,
-            strategy: None,
-            outbound: None,
-            tcp_keep_alive: None,
-            tcp_keep_alive_interval: None,
-            disable_tcp_keep_alive: false,
-            skip_default_resolver: false,
-        }
-    }
-}
-
-impl DialOptions {
-    /// These options, with what they leave unset taken from `defaults`.
-    pub fn or(&self, defaults: &DialOptions) -> DialOptions {
-        let binds_itself = self.bind_interface.is_some()
-            || self.inet4_bind_address.is_some()
-            || self.inet6_bind_address.is_some();
-        DialOptions {
-            // An outbound bound to an address is not also bound to the
-            // default interface, which could contradict it.
-            auto_interface: if binds_itself {
-                None
-            } else {
-                defaults.auto_interface.clone()
-            },
-            bind_interface: self.bind_interface.clone().or_else(|| {
-                if binds_itself {
-                    None
-                } else {
-                    defaults.bind_interface.clone()
-                }
-            }),
-            inet4_bind_address: self.inet4_bind_address.or(if binds_itself {
-                None
-            } else {
-                defaults.inet4_bind_address
-            }),
-            inet6_bind_address: self.inet6_bind_address.or(if binds_itself {
-                None
-            } else {
-                defaults.inet6_bind_address
-            }),
-            routing_mark: self.routing_mark.or(defaults.routing_mark),
-            connect_timeout: self.connect_timeout,
-            protect: self.protect.clone().or_else(|| defaults.protect.clone()),
-            ipv6: defaults.ipv6,
-            // Its strategy goes before that of the default resolver, as
-            // in sing-box, but not before its own resolver's.
-            domain_resolver: self.domain_resolver.clone().or_else(|| {
-                if self.skip_default_resolver {
-                    return None;
-                }
-                defaults.domain_resolver.clone().map(|resolver| {
-                    crate::config::model::DomainResolver {
-                        strategy: self.strategy.or(resolver.strategy),
-                        ..resolver
-                    }
-                })
-            }),
-            strategy: self.strategy,
-            outbound: self.outbound.clone(),
-            tcp_keep_alive: self.tcp_keep_alive.or(defaults.tcp_keep_alive),
-            tcp_keep_alive_interval: self
-                .tcp_keep_alive_interval
-                .or(defaults.tcp_keep_alive_interval),
-            disable_tcp_keep_alive: self.disable_tcp_keep_alive || defaults.disable_tcp_keep_alive,
-            skip_default_resolver: self.skip_default_resolver,
-        }
-    }
-
-    /// The keepalive TCP connections dialled with these options get.
-    pub fn tcp_keep_alive(&self) -> Option<TcpKeepAlive> {
-        tcp_keep_alive(
-            self.disable_tcp_keep_alive,
-            self.tcp_keep_alive,
-            self.tcp_keep_alive_interval,
-        )
-    }
-
-    /// The local address for a UDP socket that is not bound to anything in
-    /// particular.
-    pub fn unspecified(&self) -> SocketAddr {
-        if self.ipv6 {
-            (Ipv6Addr::UNSPECIFIED, 0).into()
-        } else {
-            (Ipv4Addr::UNSPECIFIED, 0).into()
-        }
-    }
-
-    /// The instance's defaults, as `route` sets them. What
-    /// `auto_detect_interface` finds is added at start, where the system is
-    /// asked.
-    pub fn defaults(route: &crate::config::Route) -> anyhow::Result<DialOptions> {
-        let defaults = DialOptions {
-            bind_interface: route.default_interface.clone(),
-            routing_mark: route.default_mark,
-            domain_resolver: route.default_domain_resolver.clone(),
-            ..Default::default()
-        };
-        if defaults.routing_mark.is_some() && !supports_routing_mark() {
-            anyhow::bail!("route.default_mark: only supported on Linux");
-        }
-        if let Some(name) = &defaults.bind_interface {
-            if !supports_bind_interface() {
-                anyhow::bail!("route.default_interface: not supported on this platform");
-            }
-            if interface_exists(name) == Some(false) {
-                anyhow::bail!(
-                    "route.default_interface: there is no interface \"{}\"",
-                    name
-                );
-            }
-        }
-        Ok(defaults)
-    }
-
-    /// Whether any option would be applied to a socket.
-    fn binds(&self) -> bool {
-        self.bind_interface.is_some()
-            || self.auto_interface.is_some()
-            || self.inet4_bind_address.is_some()
-            || self.inet6_bind_address.is_some()
-            || self.routing_mark.is_some()
-    }
-}
-
-/// Applies `dial` to `socket`, which is about to talk to `target`, and
-/// returns whether that bound it to a local address.
+/// Applies `spec` to `socket`, which is about to talk to `target`, with
+/// `auto` finding the interface where the spec leaves that to
+/// `auto_detect_interface`; returns whether that bound it to a local
+/// address.
 ///
 /// A socket to a loopback address is bound to loopback and nothing else:
 /// binding it to an interface would make the destination unreachable.
 pub(crate) fn bind(
     socket: &socket2::Socket,
     target: &SocketAddr,
-    dial: &DialOptions,
+    spec: &DialSpec,
+    auto: Option<&super::interface::AutoInterface>,
 ) -> io::Result<bool> {
     if target.ip().is_loopback() {
         let loopback: SocketAddr = match target {
@@ -243,10 +70,11 @@ pub(crate) fn bind(
         debug!("socket bind loopback {}", loopback);
         return Ok(true);
     }
-    if !dial.binds() {
+    let auto = auto.filter(|_| spec.auto_detect_interface);
+    if !spec.binds() && auto.is_none() {
         return Ok(false);
     }
-    let detected = match (&dial.bind_interface, &dial.auto_interface) {
+    let detected = match (&spec.bind_interface, auto) {
         (None, Some(auto)) => Some(auto.for_target(target.ip()).ok_or_else(|| {
             io::Error::new(
                 io::ErrorKind::NetworkUnreachable,
@@ -255,20 +83,17 @@ pub(crate) fn bind(
         })?),
         _ => None,
     };
-    if let Some(iface) = dial.bind_interface.as_ref().or(detected.as_ref()) {
+    if let Some(iface) = spec.bind_interface.as_ref().or(detected.as_ref()) {
         bind_interface(socket, target, iface)
             .map_err(|e| io::Error::new(e.kind(), format!("bind to interface {}: {}", iface, e)))?;
         debug!("socket bind {}", iface);
     }
-    let address = match target.ip() {
-        IpAddr::V4(_) => dial.inet4_bind_address.map(IpAddr::V4),
-        IpAddr::V6(_) => dial.inet6_bind_address.map(IpAddr::V6),
-    };
+    let address = spec.bind_address(target.ip());
     if let Some(address) = address {
         socket.bind(&SocketAddr::new(address, 0).into())?;
         debug!("socket bind {}", address);
     }
-    if let Some(mark) = dial.routing_mark {
+    if let Some(mark) = spec.routing_mark {
         set_mark(socket, mark)?;
     }
     Ok(address.is_some())
@@ -363,66 +188,19 @@ pub fn supports_bind_interface() -> bool {
 mod tests {
     use super::*;
 
-    #[test]
-    fn an_outbound_bound_to_an_address_does_not_take_the_default_interface() {
-        let defaults = DialOptions {
-            bind_interface: Some("en0".into()),
-            routing_mark: Some(1),
+    fn bound_to(iface: &str) -> DialSpec {
+        DialSpec {
+            bind_interface: Some(iface.into()),
             ..Default::default()
-        };
-        let own = DialOptions {
-            inet4_bind_address: Some(Ipv4Addr::new(10, 0, 0, 2)),
-            ..Default::default()
-        };
-        let combined = own.or(&defaults);
-        assert_eq!(combined.bind_interface, None);
-        assert_eq!(
-            combined.inet4_bind_address,
-            Some(Ipv4Addr::new(10, 0, 0, 2))
-        );
-        // A mark is not an address and still applies.
-        assert_eq!(combined.routing_mark, Some(1));
-    }
-
-    #[test]
-    fn an_unbound_outbound_takes_the_defaults() {
-        let defaults = DialOptions {
-            bind_interface: Some("en0".into()),
-            ..Default::default()
-        };
-        let combined = DialOptions::default().or(&defaults);
-        assert_eq!(combined.bind_interface.as_deref(), Some("en0"));
-    }
-
-    #[test]
-    fn skipping_the_default_resolver_leaves_the_dns_rules() {
-        let defaults = DialOptions {
-            domain_resolver: Some(crate::config::model::DomainResolver {
-                server: "proxy-dns".into(),
-                ..Default::default()
-            }),
-            ..Default::default()
-        };
-        let own = DialOptions {
-            skip_default_resolver: true,
-            ..Default::default()
-        };
-        assert_eq!(own.or(&defaults).domain_resolver, None);
-        assert!(DialOptions::default()
-            .or(&defaults)
-            .domain_resolver
-            .is_some());
+        }
     }
 
     #[test]
     fn a_loopback_target_is_bound_to_loopback_only() {
         let socket =
             socket2::Socket::new(socket2::Domain::IPV4, socket2::Type::DGRAM, None).unwrap();
-        let dial = DialOptions {
-            bind_interface: Some("no-such-interface".into()),
-            ..Default::default()
-        };
-        bind(&socket, &"127.0.0.1:53".parse().unwrap(), &dial).unwrap();
+        let spec = bound_to("no-such-interface");
+        bind(&socket, &"127.0.0.1:53".parse().unwrap(), &spec, None).unwrap();
         let local = socket.local_addr().unwrap().as_socket().unwrap();
         assert!(local.ip().is_loopback());
     }
@@ -432,11 +210,13 @@ mod tests {
     fn binding_to_an_interface_applies_to_the_socket() {
         let socket =
             socket2::Socket::new(socket2::Domain::IPV4, socket2::Type::DGRAM, None).unwrap();
-        let dial = DialOptions {
-            bind_interface: Some("lo0".into()),
-            ..Default::default()
-        };
-        let bound = bind(&socket, &"1.1.1.1:53".parse().unwrap(), &dial).unwrap();
+        let bound = bind(
+            &socket,
+            &"1.1.1.1:53".parse().unwrap(),
+            &bound_to("lo0"),
+            None,
+        )
+        .unwrap();
         // Bound to an interface, not to an address.
         assert!(!bound);
     }
@@ -458,24 +238,32 @@ mod tests {
     fn binding_to_a_missing_interface_fails() {
         let socket =
             socket2::Socket::new(socket2::Domain::IPV4, socket2::Type::DGRAM, None).unwrap();
-        let dial = DialOptions {
-            bind_interface: Some("no-such-interface".into()),
-            ..Default::default()
-        };
-        assert!(bind(&socket, &"1.1.1.1:53".parse().unwrap(), &dial).is_err());
+        let spec = bound_to("no-such-interface");
+        assert!(bind(&socket, &"1.1.1.1:53".parse().unwrap(), &spec, None).is_err());
     }
 
+    /// The interface auto_detect_interface finds is applied only where the
+    /// spec leaves the interface to it.
+    #[cfg(target_os = "macos")]
     #[test]
-    fn unbound_udp_sockets_are_dual_stack_only_with_ipv6() {
-        let v4 = DialOptions::default();
-        assert_eq!(v4.unspecified(), "0.0.0.0:0".parse().unwrap());
-        let defaults = DialOptions {
-            ipv6: true,
+    fn the_detected_interface_applies_where_the_spec_says() {
+        let auto =
+            crate::net::interface::AutoInterface::new(Vec::new(), || Ok("no-such-if0".into()));
+        let socket =
+            || socket2::Socket::new(socket2::Domain::IPV4, socket2::Type::DGRAM, None).unwrap();
+        let target = "1.1.1.1:53".parse().unwrap();
+        let following = DialSpec {
+            auto_detect_interface: true,
             ..Default::default()
         };
-        assert_eq!(
-            DialOptions::default().or(&defaults).unspecified(),
-            "[::]:0".parse().unwrap()
-        );
+        // Bound to the missing interface it detected, which fails.
+        assert!(bind(&socket(), &target, &following, Some(&auto)).is_err());
+        // Not following, or bound itself, it does not look.
+        assert!(!bind(&socket(), &target, &DialSpec::default(), Some(&auto)).unwrap());
+        let own = DialSpec {
+            auto_detect_interface: true,
+            ..bound_to("lo0")
+        };
+        bind(&socket(), &target, &own, Some(&auto)).unwrap();
     }
 }

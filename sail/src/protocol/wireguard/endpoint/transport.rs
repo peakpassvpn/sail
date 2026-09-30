@@ -13,7 +13,7 @@ use tracing::{debug, warn};
 
 use crate::adapter::{AnyOutboundHandler, OutboundDatagramRecvHalf, OutboundDatagramSendHalf};
 use crate::app::SyncDnsClient;
-use crate::net::DialOptions;
+use crate::net::Dialer;
 use crate::protocol::wireguard::Transport;
 use crate::session::{Network, Session, SocksAddr};
 
@@ -29,13 +29,13 @@ pub struct SocketTransport {
 
 impl SocketTransport {
     /// A socket on `port` (0: any), IPv6 and dual-stack when `v6`.
-    pub async fn bind(port: u16, v6: bool, dial: &DialOptions) -> io::Result<Self> {
+    pub async fn bind(port: u16, v6: bool, dialer: &Dialer) -> io::Result<Self> {
         let ip: IpAddr = if v6 {
             std::net::Ipv6Addr::UNSPECIFIED.into()
         } else {
             std::net::Ipv4Addr::UNSPECIFIED.into()
         };
-        let socket = crate::net::new_udp_socket(&SocketAddr::new(ip, port), dial).await?;
+        let socket = dialer.udp_socket(&SocketAddr::new(ip, port)).await?;
         set_buffers(&socket);
         let v6 = socket.local_addr()?.is_ipv6();
         Ok(SocketTransport { socket, v6 })

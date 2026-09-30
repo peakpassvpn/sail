@@ -10,24 +10,24 @@ pub struct Resolver {
 }
 
 impl Resolver {
-    /// The addresses of `address`, which an outbound dials with `dial`.
-    pub async fn new<'a>(
+    /// The addresses of `address`, whose names resolve as `resolve` says.
+    pub async fn new(
         dns_client: SyncDnsClient,
-        address: &'a String,
-        port: &'a u16,
-        dial: &crate::net::DialOptions,
+        address: &str,
+        port: u16,
+        resolve: &crate::net::dial::ResolveSpec,
     ) -> Result<Self> {
         let mut ips = {
             dns_client
                 .load_full()
-                .lookup_dial(address, dial)
+                .lookup_dial(address, resolve)
                 .map_err(|e| anyhow!("lookup {} failed: {}", address, e))
                 .await?
         };
         // Tried in the order the DNS client gives them; `next` pops.
         ips.reverse();
         Ok(Resolver {
-            addrs: ips.into_iter().map(|x| SocketAddr::new(x, *port)).collect(),
+            addrs: ips.into_iter().map(|x| SocketAddr::new(x, port)).collect(),
         })
     }
 }

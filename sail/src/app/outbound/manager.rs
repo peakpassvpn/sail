@@ -13,7 +13,7 @@ use crate::{
     app::SyncDnsClient,
     config::{model::Endpoint, Outbound},
     include,
-    net::DialOptions,
+    net::DialDefaults,
     runtime::RuntimeEnv,
 };
 
@@ -60,7 +60,7 @@ impl OutboundManager {
     /// where their own dial fields leave off.
     pub fn new(
         outbounds: &[Outbound],
-        dial_defaults: &DialOptions,
+        dial_defaults: &DialDefaults,
         env: &RuntimeEnv,
         dns_client: SyncDnsClient,
     ) -> Result<Self> {
@@ -81,7 +81,7 @@ impl OutboundManager {
         outbounds: &[Outbound],
         endpoints: &[Endpoint],
         #[cfg(feature = "outbound-provider")] providers: Providers,
-        dial_defaults: &DialOptions,
+        dial_defaults: &DialDefaults,
         env: &RuntimeEnv,
         dns_client: SyncDnsClient,
     ) -> Result<Self> {
@@ -105,7 +105,7 @@ impl OutboundManager {
         outbounds: &[Outbound],
         endpoints: &[Endpoint],
         #[cfg(feature = "outbound-provider")] providers: Providers,
-        dial_defaults: &DialOptions,
+        dial_defaults: &DialDefaults,
         env: &RuntimeEnv,
         dns_client: SyncDnsClient,
     ) -> Result<Self> {
@@ -228,7 +228,7 @@ impl OutboundManager {
         &self,
         outbounds: &[Outbound],
         endpoints: &[Endpoint],
-        dial_defaults: &DialOptions,
+        dial_defaults: &DialDefaults,
         env: &RuntimeEnv,
         dns_client: SyncDnsClient,
     ) -> Result<Self> {
@@ -296,7 +296,7 @@ impl OutboundManager {
     pub fn with_outbound(
         &self,
         outbound: &Outbound,
-        dial_defaults: &DialOptions,
+        dial_defaults: &DialDefaults,
         env: &RuntimeEnv,
         dns_client: SyncDnsClient,
     ) -> Result<Self> {
@@ -485,7 +485,7 @@ mod tests {
 
     fn build(json: &str, previous: Option<&OutboundManager>) -> Result<OutboundManager> {
         let config = Config::from_json(json)?;
-        let dial = DialOptions::default();
+        let dial = DialDefaults::default();
         let dns = crate::app::dns::DnsClient::new(
             &config.dns,
             Arc::new(dial.clone()),

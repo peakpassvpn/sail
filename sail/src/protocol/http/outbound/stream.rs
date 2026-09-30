@@ -16,6 +16,7 @@ const MAX_STATUS_LINE_IN_ERROR: usize = 256;
 pub struct Handler {
     pub address: String,
     pub port: u16,
+    pub dialer: crate::net::Dialer,
     /// The whole `Proxy-Authorization` value, if the proxy wants one.
     pub authorization: Option<String>,
     /// The request target in place of the destination.
@@ -105,7 +106,12 @@ fn check_status(head: &[u8]) -> io::Result<()> {
 #[async_trait]
 impl OutboundStreamHandler for Handler {
     fn connect_addr(&self) -> OutboundConnect {
-        OutboundConnect::Proxy(Network::Tcp, self.address.clone(), self.port)
+        OutboundConnect::Proxy(
+            Network::Tcp,
+            self.address.clone(),
+            self.port,
+            self.dialer.clone(),
+        )
     }
 
     async fn handle<'a>(
@@ -181,6 +187,7 @@ mod tests {
         Handler {
             address: "proxy".into(),
             port: 8080,
+            dialer: crate::net::Dialer::system(),
             authorization: Some("Basic dTpw".into()),
             path: None,
             headers: vec![("X-Test".into(), "1".into())],

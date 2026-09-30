@@ -18,7 +18,7 @@ use super::router::Router;
 use super::stat_manager::StatManager;
 use super::{SyncDnsClient, SyncOutboundManager, SyncRouter, SyncStatManager};
 use crate::config::Config;
-use crate::net::DialOptions;
+use crate::net::DialDefaults;
 use crate::runtime::SyncRuntimeEnv;
 use crate::Runner;
 
@@ -56,7 +56,7 @@ impl Instance {
     pub fn build(
         config: &Config,
         env: SyncRuntimeEnv,
-        dial_defaults: Arc<DialOptions>,
+        dial_defaults: Arc<DialDefaults>,
     ) -> Result<Self> {
         // Closed again if the build fails.
         let cache_file = env

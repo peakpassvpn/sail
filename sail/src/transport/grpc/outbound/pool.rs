@@ -286,7 +286,12 @@ mod tests {
     #[async_trait]
     impl OutboundStreamHandler for Direct {
         fn connect_addr(&self) -> OutboundConnect {
-            OutboundConnect::Proxy(Network::Tcp, "127.0.0.1".to_string(), self.0)
+            OutboundConnect::Proxy(
+                Network::Tcp,
+                "127.0.0.1".to_string(),
+                self.0,
+                crate::net::Dialer::system(),
+            )
         }
 
         async fn handle<'a>(

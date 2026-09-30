@@ -10,7 +10,8 @@ use bytes::BytesMut;
 use sail::{
     adapter::*,
     app::outbound::plugin::{
-        ExternalOutboundDatagramHandler, ExternalOutboundStreamHandler, PluginRegistrar, PluginSpec,
+        ExternalOutboundDatagramHandler, ExternalOutboundStreamHandler, PluginConnect,
+        PluginRegistrar, PluginSpec,
     },
     protocol::shadowsocks::shadow::{self, ShadowedDatagram, ShadowedStream},
     session::{Network, Session, SocksAddr, SocksAddrWireType},
@@ -52,8 +53,8 @@ pub struct TcpHandler {
 }
 
 impl ExternalOutboundStreamHandler for TcpHandler {
-    fn connect_addr(&self) -> Option<OutboundConnect> {
-        Some(OutboundConnect::Proxy(
+    fn connect_addr(&self) -> Option<PluginConnect> {
+        Some(PluginConnect::Proxy(
             Network::Tcp,
             self.address.clone(),
             self.port,
@@ -87,9 +88,9 @@ pub struct UdpHandler {
 }
 
 impl ExternalOutboundDatagramHandler for UdpHandler {
-    fn connect_addr(&self) -> Option<OutboundConnect> {
+    fn connect_addr(&self) -> Option<PluginConnect> {
         if !self.address.is_empty() && self.port != 0 {
-            Some(OutboundConnect::Proxy(
+            Some(PluginConnect::Proxy(
                 Network::Udp,
                 self.address.clone(),
                 self.port,

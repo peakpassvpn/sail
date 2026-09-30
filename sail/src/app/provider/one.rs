@@ -22,7 +22,7 @@ use crate::app::http::{file_name, write_atomically};
 use crate::app::SyncDnsClient;
 use crate::config::clash::subscription::{self, Selection};
 use crate::config::model::{Outbound, OutboundProvider, OutboundProviderKind};
-use crate::net::DialOptions;
+use crate::net::DialDefaults;
 use crate::protocol::group::members::{Member, MemberKey, Members};
 use crate::protocol::group::merge::{mihomo_type, Sources};
 use crate::runtime::RuntimeEnv;
@@ -40,7 +40,7 @@ pub(crate) struct Provider {
     /// Which of what it holds it takes, and what it changes in them.
     selection: Selection,
     /// What its members dial with where their dial fields leave off.
-    dial_defaults: Arc<DialOptions>,
+    dial_defaults: Arc<DialDefaults>,
     members: Arc<Members>,
     state: Mutex<State>,
     /// One update at a time.
@@ -105,7 +105,7 @@ impl Provider {
     pub(super) fn load(
         config: &OutboundProvider,
         clients: &HttpClients,
-        dial_defaults: Arc<DialOptions>,
+        dial_defaults: Arc<DialDefaults>,
         env: &RuntimeEnv,
         previous: Option<&Provider>,
         retired: Arc<Retired>,
@@ -541,7 +541,7 @@ mod tests {
     fn dns_client() -> SyncDnsClient {
         crate::app::dns::DnsClient::new(
             &Default::default(),
-            Arc::new(DialOptions::default()),
+            Arc::new(DialDefaults::default()),
             &Default::default(),
         )
         .unwrap()
@@ -556,7 +556,7 @@ mod tests {
         Provider::load(
             config,
             &HttpClients::default(),
-            Arc::new(DialOptions::default()),
+            Arc::new(DialDefaults::default()),
             env,
             previous,
             Default::default(),
@@ -716,7 +716,7 @@ mod tests {
         let err = Provider::load(
             &config,
             &HttpClients::default(),
-            Arc::new(DialOptions::default()),
+            Arc::new(DialDefaults::default()),
             &RuntimeEnv::default(),
             None,
             Default::default(),

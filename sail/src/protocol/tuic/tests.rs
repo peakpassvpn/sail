@@ -92,7 +92,7 @@ async fn fixture(server_zero_rtt: bool, client_zero_rtt: bool) -> Fixture {
         zero_rtt: client_zero_rtt,
         heartbeat: Duration::from_secs(10),
         dns_client: dns,
-        dial: Default::default(),
+        dialer: crate::net::Dialer::system(),
         tuning: &tuning,
     }));
     Fixture {

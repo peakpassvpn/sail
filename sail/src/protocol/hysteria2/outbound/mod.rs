@@ -134,7 +134,7 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
         crypto: Arc::new(client_tls.crypto),
         tuning: ctx.env.options.quic.clone(),
         dns_client: ctx.dns_client.clone(),
-        dial: ctx.dial.clone(),
+        dialer: ctx.dialer.clone(),
     }));
 
     let mut builder = HandlerBuilder::default().tag(ctx.tag.to_owned());

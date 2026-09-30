@@ -12,7 +12,7 @@ use std::time::Duration;
 use anyhow::{anyhow, Result};
 
 use crate::app::http::{self, Conn, Limits, Response, Via};
-use crate::net::DialOptions;
+use crate::net::{DialDefaults, Dialer};
 use crate::runtime::RuntimeEnv;
 use crate::RuntimeManager;
 
@@ -43,15 +43,18 @@ impl Default for Options {
 /// system and its certificate checked against the system's roots.
 pub async fn fetch(url: &str, options: &Options) -> Result<Vec<u8>> {
     let env = RuntimeEnv::default();
-    let dial = Arc::new(DialOptions::default());
-    let dns =
-        crate::app::dns::DnsClient::new(&Default::default(), dial.clone(), &env)?.into_shared();
+    let dns = crate::app::dns::DnsClient::new(
+        &Default::default(),
+        Arc::new(DialDefaults::default()),
+        &env,
+    )?
+    .into_shared();
     let conn = Conn {
         dispatcher: None,
         dns,
         env: &env,
     };
-    get(&conn, &Via::Direct(dial), url, options).await
+    get(&conn, &Via::Direct(Dialer::system()), url, options).await
 }
 
 /// GETs `url` through the outbound `outbound` of the running instance

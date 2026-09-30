@@ -573,9 +573,10 @@ mod tests {
                 "outbound", "t", &blocks,
             )
             .unwrap()
-            .dial("t")
+            .dialer("t", &Default::default())
             .unwrap()
-            .tcp_keep_alive()
+            .spec()
+            .tcp_keep_alive
         };
         assert_eq!(
             dial(0),

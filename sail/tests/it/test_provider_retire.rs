@@ -105,7 +105,7 @@ mod harness {
             .enable_all()
             .build()?;
         rt.block_on(async {
-            let dial = Arc::new(sail::net::DialOptions::defaults(&config.route)?);
+            let dial = Arc::new(sail::net::DialDefaults::new(&config.route)?);
             let env = Arc::new(sail::runtime::RuntimeEnv {
                 options: common::runtime_options(),
                 ..Default::default()

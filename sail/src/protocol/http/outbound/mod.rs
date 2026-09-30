@@ -118,6 +118,7 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
     let stream = Arc::new(StreamHandler {
         address: options.server,
         port: options.server_port,
+        dialer: ctx.dialer.clone(),
         authorization,
         path,
         headers,

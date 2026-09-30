@@ -15,7 +15,7 @@ use hickory_proto::rr::{rdata::A, RData, Record, RecordType};
 
 use sail::app::dns_client::DnsClient;
 use sail::config;
-use sail::net::DialOptions;
+use sail::net::DialDefaults;
 
 /// The answer every server here gives for an A query.
 const ANSWER: Ipv4Addr = Ipv4Addr::new(10, 0, 0, 7);
@@ -340,7 +340,7 @@ fn client(servers: &[serde_json::Value], cert: Option<&Cert>) -> DnsClient {
     .unwrap();
     DnsClient::new(
         &config.dns,
-        Arc::new(DialOptions::default()),
+        Arc::new(DialDefaults::default()),
         &Default::default(),
     )
     .unwrap()
@@ -490,7 +490,7 @@ fn disable_sni_is_not_over_quic_yet() {
     .unwrap();
     let err = DnsClient::new(
         &config.dns,
-        Arc::new(DialOptions::default()),
+        Arc::new(DialDefaults::default()),
         &Default::default(),
     )
     .err()
@@ -582,7 +582,7 @@ async fn servers_are_reached_through_their_detour() {
         servers.push((server("https", doh_port, None), doh));
     }
     for (server, counters) in &servers {
-        let dial = Arc::new(DialOptions::default());
+        let dial = Arc::new(DialDefaults::default());
         let env = Arc::new(sail::runtime::RuntimeEnv::default());
         let mut server = server.clone();
         server["detour"] = "direct".into();

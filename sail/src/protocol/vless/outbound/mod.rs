@@ -103,12 +103,14 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
     let stream = Arc::new(StreamHandler {
         address: options.server.clone(),
         port: options.server_port,
+        dialer: ctx.dialer.clone(),
         uuid,
         flow,
     });
     let datagram = Arc::new(DatagramHandler {
         address: options.server,
         port: options.server_port,
+        dialer: ctx.dialer.clone(),
         uuid,
         flow,
         packet_encoding,

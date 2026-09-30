@@ -223,7 +223,7 @@ impl DnsClient {
         let connecting = endpoint
             .connect(addr, &upstream.server_name)
             .map_err(|e| anyhow!("connect quic failed: {}", e))?;
-        let conn = timeout(dialer.dial.connect_timeout, connecting)
+        let conn = timeout(dialer.dial.connect_timeout(), connecting)
             .await
             .map_err(|_| anyhow!("quic handshake timed out"))?
             .map_err(|e| anyhow!("quic handshake failed: {}", e))?;

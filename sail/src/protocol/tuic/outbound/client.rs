@@ -16,7 +16,7 @@ use tracing::{debug, trace};
 
 use crate::adapter::*;
 use crate::app::SyncDnsClient;
-use crate::net::{peek_tcp_one_off, DialOptions};
+use crate::net::{peek_tcp_one_off, Dialer};
 use crate::session::{Session, SocksAddr};
 use crate::transport::quic::{bind, endpoint, ClientTls, QuicStream, Side};
 
@@ -44,7 +44,7 @@ pub struct ClientOptions<'a> {
     pub zero_rtt: bool,
     pub heartbeat: Duration,
     pub dns_client: SyncDnsClient,
-    pub dial: Arc<DialOptions>,
+    pub dialer: Dialer,
     pub tuning: &'a crate::runtime::options::Quic,
 }
 
@@ -58,7 +58,7 @@ pub struct Client {
     zero_rtt: bool,
     heartbeat: Duration,
     dns_client: SyncDnsClient,
-    dial: Arc<DialOptions>,
+    dialer: Dialer,
     client_config: quinn::ClientConfig,
     /// The connection in use. Held while dialling, so that requests
     /// arriving meanwhile wait for the one connection being made.
@@ -83,7 +83,7 @@ impl Client {
             zero_rtt: options.zero_rtt,
             heartbeat: options.heartbeat,
             dns_client: options.dns_client,
-            dial: options.dial,
+            dialer: options.dialer,
             client_config,
             conn: tokio::sync::Mutex::new(None),
         }
@@ -120,7 +120,7 @@ impl Client {
         let ips = self
             .dns_client
             .load_full()
-            .lookup_dial(&self.server, &self.dial)
+            .lookup_dial(&self.server, self.dialer.resolve_spec())
             .await
             .map_err(|e| io::Error::other(format!("lookup {} failed: {}", self.server, e)))?;
         let mut last_err = None;
@@ -138,11 +138,11 @@ impl Client {
     }
 
     async fn connect_to(&self, server: SocketAddr) -> io::Result<Arc<ClientConn>> {
-        let endpoint = endpoint(bind(server.ip(), &self.dial).await?, None)?;
+        let endpoint = endpoint(bind(server.ip(), &self.dialer).await?, None)?;
         let connecting = endpoint
             .connect_with(self.client_config.clone(), server, &self.server_name)
             .map_err(io::Error::other)?;
-        let connect_timeout = self.dial.connect_timeout;
+        let connect_timeout = self.dialer.connect_timeout();
         let handshake = |connecting: quinn::Connecting| async move {
             timeout(connect_timeout, connecting)
                 .await

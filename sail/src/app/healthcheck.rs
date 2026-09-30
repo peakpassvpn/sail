@@ -243,7 +243,7 @@ mod tests {
     fn dns() -> SyncDnsClient {
         crate::app::dns_client::DnsClient::new(
             &Default::default(),
-            std::sync::Arc::new(crate::net::DialOptions::default()),
+            std::sync::Arc::new(crate::net::DialDefaults::default()),
             &Default::default(),
         )
         .unwrap()

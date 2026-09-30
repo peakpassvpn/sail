@@ -48,6 +48,7 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
         port: options.server_port,
         username: options.username.clone(),
         password: options.password.clone(),
+        dialer: ctx.dialer.clone(),
     });
     let datagram = Arc::new(DatagramHandler {
         address: options.server,
@@ -55,7 +56,7 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
         username: options.username,
         password: options.password,
         dns_client: ctx.dns_client.clone(),
-        dial: ctx.dial.clone(),
+        dialer: ctx.dialer.clone(),
     });
     let socks = HandlerBuilder::default()
         .tag(ctx.tag.to_owned())

@@ -6,7 +6,6 @@ use std::{
 };
 
 use async_trait::async_trait;
-use futures::TryFutureExt;
 use lru::LruCache;
 use tokio::net::UdpSocket;
 use tokio::sync::Mutex;
@@ -85,16 +84,16 @@ impl OutboundDatagramSendHalf for StdOutboundDatagramSendHalf {
 pub struct DomainResolveOutboundDatagram {
     inner: UdpSocket,
     dns_client: SyncDnsClient,
-    /// The outbound's, which say how its names resolve.
-    dial: Arc<DialOptions>,
+    /// The outbound's, which says how its names resolve.
+    dialer: Dialer,
 }
 
 impl DomainResolveOutboundDatagram {
-    pub fn new(inner: UdpSocket, dns_client: SyncDnsClient, dial: Arc<DialOptions>) -> Self {
+    pub fn new(inner: UdpSocket, dns_client: SyncDnsClient, dialer: Dialer) -> Self {
         Self {
             inner,
             dns_client,
-            dial,
+            dialer,
         }
     }
 }
@@ -113,7 +112,7 @@ impl OutboundDatagram for DomainResolveOutboundDatagram {
             Box::new(DomainResolveOutboundDatagramSendHalf(
                 s,
                 self.dns_client,
-                self.dial,
+                self.dialer,
             )),
         )
     }
@@ -129,19 +128,14 @@ impl OutboundDatagramRecvHalf for DomainResolveOutboundDatagramRecvHalf {
     }
 }
 
-pub struct DomainResolveOutboundDatagramSendHalf(Arc<UdpSocket>, SyncDnsClient, Arc<DialOptions>);
+pub struct DomainResolveOutboundDatagramSendHalf(Arc<UdpSocket>, SyncDnsClient, Dialer);
 
 #[async_trait]
 impl OutboundDatagramSendHalf for DomainResolveOutboundDatagramSendHalf {
     async fn send_to(&mut self, buf: &[u8], target: &SocksAddr) -> io::Result<usize> {
         match target {
             SocksAddr::Domain(domain, port) => {
-                let ips = self
-                    .1
-                    .load_full()
-                    .lookup_dial(domain, &self.2)
-                    .map_err(|e| io::Error::other(format!("lookup {} failed: {}", domain, e)))
-                    .await?;
+                let ips = self.2.lookup(&self.1, domain).await?;
                 let ip = ips.first().ok_or_else(|| io::Error::other("no results"))?;
                 let addr = for_socket(&self.0, SocketAddr::new(*ip, *port));
                 self.0.send_to(buf, addr).await
@@ -160,8 +154,8 @@ pub struct DomainAssociatedOutboundDatagram {
     inner: UdpSocket,
     destination: SocksAddr,
     dns_client: SyncDnsClient,
-    /// The outbound's, which say how its names resolve.
-    dial: Arc<DialOptions>,
+    /// The outbound's, which says how its names resolve.
+    dialer: Dialer,
     /// Answers come as from the domain they were sent to.
     unmap: bool,
 }
@@ -171,13 +165,13 @@ impl DomainAssociatedOutboundDatagram {
         inner: UdpSocket,
         destination: SocksAddr,
         dns_client: SyncDnsClient,
-        dial: Arc<DialOptions>,
+        dialer: Dialer,
     ) -> Self {
         DomainAssociatedOutboundDatagram {
             inner,
             destination,
             dns_client,
-            dial,
+            dialer,
             unmap: true,
         }
     }
@@ -212,7 +206,7 @@ impl OutboundDatagram for DomainAssociatedOutboundDatagram {
                 s,
                 self.dns_client,
                 targets,
-                self.dial,
+                self.dialer,
             )),
         )
     }
@@ -354,7 +348,7 @@ pub struct DomainAssociatedOutboundDatagramSendHalf(
     Arc<UdpSocket>,
     SyncDnsClient,
     DomainTargetMap,
-    Arc<DialOptions>,
+    Dialer,
 );
 
 #[async_trait]
@@ -362,13 +356,7 @@ impl OutboundDatagramSendHalf for DomainAssociatedOutboundDatagramSendHalf {
     async fn send_to(&mut self, buf: &[u8], target: &SocksAddr) -> io::Result<usize> {
         let addr = match target {
             SocksAddr::Domain(domain, port) => {
-                let ips = {
-                    self.1
-                        .load_full()
-                        .lookup_dial(domain, &self.3)
-                        .map_err(|e| io::Error::other(format!("lookup {} failed: {}", domain, e)))
-                        .await?
-                };
+                let ips = self.3.lookup(&self.1, domain).await?;
                 // An IPv4 socket sends to IPv4 addresses only; a dual-stack
                 // IPv6 one to either.
                 let dual_stack = self.0.local_addr()?.is_ipv6();

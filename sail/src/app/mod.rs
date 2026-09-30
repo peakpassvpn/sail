@@ -16,7 +16,7 @@ pub(crate) mod http {
     impl HttpClients {
         pub(crate) fn new(
             _config: &crate::config::Config,
-            _dial: std::sync::Arc<crate::net::DialOptions>,
+            _dial: std::sync::Arc<crate::net::DialDefaults>,
         ) -> Self {
             HttpClients
         }

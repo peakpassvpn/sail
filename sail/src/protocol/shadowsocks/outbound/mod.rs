@@ -62,7 +62,7 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
         None => false,
     };
     let ss = if sip022::is_2022(&options.method) {
-        build_2022(ctx.tag, &options)?
+        build_2022(ctx.tag, &options, &ctx.dialer)?
     } else {
         shadow::check_method("outbound", ctx.tag, &options.method)?;
         let stream = Arc::new(StreamHandler::new(
@@ -71,10 +71,12 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
             options.method.clone(),
             options.password.clone(),
             options.prefix.clone(),
+            ctx.dialer.clone(),
         )?);
         let datagram = Arc::new(DatagramHandler {
             address: options.server.clone(),
             port: options.server_port,
+            dialer: ctx.dialer.clone(),
             cipher: options.method.clone(),
             password: options.password.clone(),
         });
@@ -103,7 +105,11 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
     }
 }
 
-fn build_2022(tag: &str, options: &ShadowsocksOutboundOptions) -> Result<AnyOutboundHandler> {
+fn build_2022(
+    tag: &str,
+    options: &ShadowsocksOutboundOptions,
+    dialer: &crate::net::Dialer,
+) -> Result<AnyOutboundHandler> {
     let method = sip022::Method::from_name(&options.method)
         .map_err(|e| anyhow!("[{}] outbound: method: {}", tag, e))?;
     let psks = sip022::decode_psk_list(method, &options.password)
@@ -119,12 +125,14 @@ fn build_2022(tag: &str, options: &ShadowsocksOutboundOptions) -> Result<AnyOutb
     let stream = Arc::new(ss2022::StreamHandler {
         address: options.server.clone(),
         port: options.server_port,
+        dialer: dialer.clone(),
         method,
         psks: psks.clone(),
     });
     let datagram = Arc::new(ss2022::DatagramHandler {
         address: options.server.clone(),
         port: options.server_port,
+        dialer: dialer.clone(),
         method,
         psks,
     });

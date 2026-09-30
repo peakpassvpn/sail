@@ -203,8 +203,8 @@ fn connect_addr(actor: &AnyOutboundHandler, kind: Kind) -> OutboundConnect {
 /// Only a proxy endpoint replaces an actor's destination. `Direct` means the
 /// actor goes to the session's own destination, which is already there.
 fn proxy_address(connect: &OutboundConnect) -> Option<SocksAddr> {
-    match connect.target() {
-        OutboundConnect::Proxy(_, address, port) => {
+    match connect {
+        OutboundConnect::Proxy(_, address, port, _) => {
             SocksAddr::try_from((address.clone(), *port)).ok()
         }
         _ => None,
@@ -264,7 +264,12 @@ mod tests {
     }
 
     fn proxy(port: u16) -> OutboundConnect {
-        OutboundConnect::Proxy(Network::Tcp, "127.0.0.1".to_string(), port)
+        OutboundConnect::Proxy(
+            Network::Tcp,
+            "127.0.0.1".to_string(),
+            port,
+            crate::net::Dialer::system(),
+        )
     }
 
     /// A transport: wraps whatever is inside it and names no endpoint of its
@@ -313,7 +318,7 @@ mod tests {
         let actors = vec![wrapper("tls"), wrapper("ws"), protocol("trojan", 3001)];
         let plan = Plan::for_stream(&actors);
         assert!(
-            matches!(plan.dial, OutboundConnect::Proxy(_, _, 3001)),
+            matches!(plan.dial, OutboundConnect::Proxy(_, _, 3001, _)),
             "the transports name nothing, so the protocol inside them decides"
         );
     }

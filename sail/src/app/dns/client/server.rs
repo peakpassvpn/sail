@@ -12,7 +12,7 @@ use serde_derive::Deserialize;
 use super::upstream::{Protocol, Upstream};
 use crate::config::model::{listable, parse_options, DnsServer, Prefix};
 use crate::net::dial::DialFields;
-use crate::net::DialOptions;
+use crate::net::DialDefaults;
 use crate::runtime::RuntimeEnv;
 use crate::transport::layers::OutboundTls;
 
@@ -92,7 +92,7 @@ pub(super) struct Dialer {
     /// The server's domain, which the routing rules see with
     /// `respect_rules`.
     pub domain: Option<String>,
-    pub dial: Arc<DialOptions>,
+    pub dial: crate::net::Dialer,
 }
 
 impl Dialer {
@@ -192,7 +192,7 @@ impl Server {
     /// fakeip server with the ranges of `fake_ips` takes it over.
     pub fn new(
         config: &DnsServer,
-        defaults: &DialOptions,
+        defaults: &DialDefaults,
         env: &RuntimeEnv,
         fake_ips: Option<&Arc<super::fakeip::FakeIpStore>>,
     ) -> Result<Self> {
@@ -391,7 +391,7 @@ fn address_and_dialer(
     o: RemoteOptions,
     default_port: u16,
     tag: &str,
-    defaults: &DialOptions,
+    defaults: &DialDefaults,
 ) -> Result<(Address, Dialer)> {
     let host = o
         .server
@@ -415,11 +415,11 @@ fn address_and_dialer(
             "domain_resolver: the server is an address, with nothing to resolve"
         ));
     }
-    let own = DialOptions {
+    let own = DialFields {
         // Its own address resolves through `resolver`, and nothing else.
         domain_resolver: None,
-        strategy: None,
-        ..o.dial.options()
+        domain_strategy: None,
+        ..o.dial.clone()
     };
     if o.dial.detour.is_some() && o.respect_rules {
         return Err(anyhow!(
@@ -433,7 +433,9 @@ fn address_and_dialer(
             field
         ));
     }
-    crate::transport::layers::check_dial_platform("dns server", tag, &own)?;
+    let dial = defaults
+        .dialer(&own, None)
+        .map_err(|e| anyhow!("[{}] dns server: {}", tag, e))?;
     Ok((
         Address {
             host: host.to_ascii_lowercase(),
@@ -444,7 +446,7 @@ fn address_and_dialer(
             detour: o.dial.detour,
             respect_rules: o.respect_rules,
             domain: (!is_ip).then(|| host.to_ascii_lowercase()),
-            dial: Arc::new(own.or(defaults)),
+            dial,
         },
     ))
 }
@@ -699,7 +701,7 @@ mod tests {
                 options: options.as_object().unwrap().clone(),
             };
             let (_, dialer) =
-                address_and_dialer(remote(&config).unwrap(), 53, "d", &DialOptions::default())
+                address_and_dialer(remote(&config).unwrap(), 53, "d", &DialDefaults::default())
                     .unwrap();
             dialer.dial
         };

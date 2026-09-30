@@ -111,7 +111,7 @@ async fn a_server_that_respects_the_rules_goes_where_they_say() {
         )
         .unwrap();
         let env = Arc::new(sail::runtime::RuntimeEnv::default());
-        let dial = Arc::new(sail::net::DialOptions::default());
+        let dial = Arc::new(sail::net::DialDefaults::default());
         let client = DnsClient::new(&config.dns, dial.clone(), &env).unwrap();
         client
             .check_loops(&config.outbounds, &config.route)

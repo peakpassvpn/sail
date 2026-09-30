@@ -10,7 +10,6 @@ use serde::de::{self, Deserializer, MapAccess, Visitor};
 use serde::{Deserialize, Serialize, Serializer};
 use serde_json::Value;
 
-use super::{DialOptions, DEFAULT_CONNECT_TIMEOUT};
 use crate::config::model::{DnsStrategy, DomainResolver};
 
 /// How something dials: sing-box's dial fields (`DialerOptions` in 1.14),
@@ -241,24 +240,6 @@ impl DialFields {
             ..resolver
         })
     }
-
-    /// The options the fields give, before the instance's defaults.
-    pub fn options(&self) -> DialOptions {
-        DialOptions {
-            bind_interface: self.bind_interface.clone(),
-            inet4_bind_address: self.inet4_bind_address,
-            inet6_bind_address: self.inet6_bind_address,
-            routing_mark: self.routing_mark,
-            connect_timeout: self.connect_timeout.unwrap_or(DEFAULT_CONNECT_TIMEOUT),
-            domain_resolver: self.domain_resolver(),
-            strategy: self.domain_strategy,
-            tcp_keep_alive: self.tcp_keep_alive,
-            tcp_keep_alive_interval: self.tcp_keep_alive_interval,
-            disable_tcp_keep_alive: self.disable_tcp_keep_alive,
-            skip_default_resolver: self.skip_default_domain_resolver,
-            ..Default::default()
-        }
-    }
 }
 
 impl Serialize for DialFields {
@@ -339,12 +320,12 @@ impl<'de> Deserializer<'de> for Names<'_> {
     }
 }
 
-/// The keepalive the system gives a TCP connection dialled with `dial`.
+/// The keepalive the system gives a TCP connection dialled by `dialer`.
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
-pub(crate) async fn keepalive_dialled(dial: &DialOptions) -> Option<super::TcpKeepAlive> {
+pub(crate) async fn keepalive_dialled(dialer: &super::Dialer) -> Option<super::TcpKeepAlive> {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
-    let (dialled, accepted) = tokio::join!(crate::net::tcp_connect(addr, dial), listener.accept());
+    let (dialled, accepted) = tokio::join!(dialer.tcp_to(addr), listener.accept());
     let (dialled, _accepted) = (dialled.unwrap(), accepted.unwrap());
     let socket = socket2::SockRef::from(&dialled);
     socket.keepalive().unwrap().then(|| super::TcpKeepAlive {
