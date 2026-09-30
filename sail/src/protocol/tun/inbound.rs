@@ -162,7 +162,6 @@ fn run<I: sail_netstack::PacketIo + 'static>(
     let udp_idle = inbound.udp_timeout() + dispatcher.env().options.udp.session_check_interval;
     config.udp_idle_timeout_ms = u64::try_from(udp_idle.as_millis()).unwrap_or(u64::MAX);
     config.tcp.keepalive_idle_ms = Some(2 * 60 * 60 * 1_000);
-    config.tcp.nagle_enabled = true;
     let (runtime, mut accepted, datagrams, udp_reply, mut control) = NativeRuntimeGroup::new(
         queues,
         ledger,

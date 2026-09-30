@@ -497,8 +497,12 @@ those cross-target library checks need to be rerun.
   budget is full, the creation-order index deterministically evicts the oldest
   compact record, cancels its timer, invalidates its token, and increments an
   exported eviction counter before admitting the new record.
-  Nagle is likewise opt-in at the protocol layer and enabled by the native
-  adapter: while data is in flight, one additional small write is retained in
+  Nagle is likewise opt-in at the protocol layer, and the TUN inbound leaves
+  it off (2026-10-01): what the proxy writes into the stack is already the
+  application's data as the remote end sent it, and holding the last short
+  segment until the application's delayed ACK arrives cost every
+  request/response exchange about 40 ms. With Nagle on, while data is in
+  flight, one additional small write is retained in
   the same hard-budgeted pending slot and released after cumulative ACK clears
   the flight. It never creates an unbounded coalescing buffer. The stream
   bridge queries the live congestion/peer-window capacity before taking
