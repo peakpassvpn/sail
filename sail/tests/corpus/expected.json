@@ -361,7 +361,8 @@
     "error": "proxy-providers.provider-1.type: missing"
   },
   "clash/0098.yaml": {
-    "error": "route: set default_interface or auto_detect_interface, not both"
+    "ok": true,
+    "warnings": 3
   },
   "clash/0099.yaml": {
     "error": "proxies[0].port: not a number in range"

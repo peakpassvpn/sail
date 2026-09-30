@@ -1992,3 +1992,15 @@ fn a_null_item_is_none_where_mihomo_drops_it() {
         "proxy-groups[0].proxies[1]: a string, not nothing"
     );
 }
+
+#[test]
+fn interface_name_wins_over_auto_detection() {
+    // Mihomo's dialer looks the interface up only without interface-name.
+    let config = load(
+        "interface-name: en0\n\
+         tun: { enable: true, auto-detect-interface: true }\n",
+    );
+    assert_eq!(config.route.default_interface.as_deref(), Some("en0"));
+    assert!(!config.route.auto_detect_interface);
+    assert!(config.warnings.is_empty(), "{:?}", config.warnings);
+}

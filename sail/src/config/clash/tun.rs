@@ -214,7 +214,11 @@ pub fn lower(
         }
         tun.insert(name.into(), json!(names));
     }
-    if f.bool("auto-detect-interface")?.unwrap_or(false) {
+    // `interface-name` wins, as Mihomo's dialer looks the interface up
+    // only without one.
+    if f.bool("auto-detect-interface")?.unwrap_or(false)
+        && !out.route.contains_key("default_interface")
+    {
         out.route
             .insert("auto_detect_interface".into(), json!(true));
     }
