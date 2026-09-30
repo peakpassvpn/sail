@@ -127,6 +127,14 @@ impl Sets {
                 tags.push(name.to_string());
             }
         } else {
+            // Mihomo's domain trie takes `*` as a whole label only.
+            let labels = lower.strip_prefix("+.").unwrap_or(&lower);
+            if labels.split('.').any(|l| l.contains('*') && l != "*") {
+                return Err(anyhow!(
+                    "{:?}: \"*\" must be a whole label, as Mihomo takes it",
+                    entry
+                ));
+            }
             patterns.push(entry.to_string());
         }
         Ok(())

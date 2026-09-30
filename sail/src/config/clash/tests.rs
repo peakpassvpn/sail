@@ -2079,3 +2079,16 @@ fn a_tun_takes_mihomo_s_defaults() {
         .iter()
         .any(|r| r == &serde_json::json!({ "port": [53] })));
 }
+
+#[test]
+fn a_wildcard_is_a_whole_label() {
+    let err = error(
+        "dns: { enable: true, enhanced-mode: fake-ip, fake-ip-filter: ['+.a.example', 'time*.b.example'] }\n",
+    );
+    assert!(
+        err.contains("dns.fake-ip-filter[1]: \"time*.b.example\": \"*\" must be a whole label"),
+        "{}",
+        err
+    );
+    load("dns: { enable: true, enhanced-mode: fake-ip, fake-ip-filter: ['*.a.example', 'b.*.example'] }\n");
+}
