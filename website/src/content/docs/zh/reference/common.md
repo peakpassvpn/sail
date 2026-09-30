@@ -169,7 +169,7 @@ Serde: `serde (rename_all = "lowercase")`
 | `trace` | — |
 | `debug` | — |
 | `info` (default) | — |
-| `warn` | — |
+| `warn` | Also `warning`, as sing-box takes it. |
 | `error` | — |
 | `fatal` | As `error`: sail logs nothing more severe. |
 | `panic` | As `error`. |
@@ -353,7 +353,7 @@ Serde: `serde (rename_all = "snake_case")`
 | `tag` | `String` | Default::default() | Defaults to the type.<br/>`serde (default)` |
 | `listen` | `Option < String >` | Default::default() | The address to listen on; defaults to `127.0.0.1`.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
 | `listen_port` | `Option < u16 >` | Default::default() | The port to listen on. An inbound without one does not listen, and is only useful as a part of another inbound.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `udp_timeout` | `Option < std :: time :: Duration >` | Default::default() | How long a UDP session through this inbound lives without traffic; 5m when unset, as in sing-box.<br/>`serde (default , with = "duration" , skip_serializing_if = "Option::is_none")` |
+| `udp_timeout` | `Option < std :: time :: Duration >` | Default::default() | How long a UDP session through this inbound lives without traffic; 5m when unset, as in sing-box. A number is of seconds.<br/>`serde (default , with = "duration_or_seconds" , skip_serializing_if = "Option::is_none")` |
 | `tcp_keep_alive` | `Option < std :: time :: Duration >` | Default::default() | How long an accepted TCP connection is idle before keepalive probes it; 5m when unset.<br/>`serde (default , with = "duration" , skip_serializing_if = "Option::is_none")` |
 | `tcp_keep_alive_interval` | `Option < std :: time :: Duration >` | Default::default() | Between keepalive probes; 75s when unset.<br/>`serde (default , with = "duration" , skip_serializing_if = "Option::is_none")` |
 | `disable_tcp_keep_alive` | `bool` | Default::default() | —<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |

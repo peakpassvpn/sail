@@ -249,13 +249,15 @@ Serde: `serde (deny_unknown_fields)`
 
 [Configuration source](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/shadowtls/inbound.rs)
 
-A server and port, and sing-box's dial fields, which sail does not implement here: the handshake server is dialled with the instance's dial defaults.
+A server and port, and sing-box's dial fields, which it is dialled with over the instance's defaults, as REALITY's handshake server is.
+
+Serde: `serde (deny_unknown_fields)`
 
 | Field | Type | Omission / flattening | Source notes |
 | --- | --- | --- | --- |
 | `server` | `String` | Default::default() | —<br/>`serde (default)` |
 | `server_port` | `u16` | Default::default() | —<br/>`serde (default)` |
-| `rest` | `serde_json :: Map < String , Value >` | Flattened into this object | The dial fields, which are errors, and any other field.<br/>`serde (flatten)` |
+| `dial` | `crate :: net :: dial :: DialFields` | Flattened into this object | —<br/>`serde (flatten)` |
 
 ## WildcardSni
 

@@ -58,8 +58,11 @@ Serde: `serde (deny_unknown_fields)`
 | `disable_sni` | `bool` | Default::default() | Sends no SNI. The certificate is still verified against `server_name`, unless `insecure`.<br/>`serde (default)` |
 | `insecure` | `bool` | Default::default() | —<br/>`serde (default)` |
 | `alpn` | `Option < Listable >` | Default::default() | —<br/>`serde (default)` |
+| `min_version` | `Option < String >` | Default::default() | The lowest TLS version to negotiate, `1.0` to `1.3`; unset, 1.2.<br/>`serde (default)` |
+| `max_version` | `Option < String >` | Default::default() | The highest; unset, 1.3.<br/>`serde (default)` |
 | `certificate` | `Option < Listable >` | Default::default() | An inline PEM certificate to trust.<br/>`serde (default)` |
 | `certificate_path` | `Option < String >` | Default::default() | A PEM certificate to trust, by path.<br/>`serde (default)` |
+| `certificate_public_key_sha256` | `Option < Listable >` | Default::default() | The SHA-256 hashes, base64, of the public keys to take a server's certificate by, in place of the certificates trusted, the name and `insecure`.<br/>`serde (default)` |
 | `client_certificate` | `Option < Listable >` | Default::default() | An inline PEM certificate, its chain after it, presented when the server asks for one; with `client_key`.<br/>`serde (default)` |
 | `client_certificate_path` | `Option < String >` | Default::default() | `client_certificate`, by path.<br/>`serde (default)` |
 | `client_key` | `Option < Secret < Listable > >` | Default::default() | The inline PEM key of the client certificate.<br/>`serde (default)` |
@@ -165,6 +168,8 @@ Serde: `serde (deny_unknown_fields)`
 | `key` | `Option < Listable >` | Default::default() | An inline PEM key.<br/>`serde (default)` |
 | `key_path` | `Option < String >` | Default::default() | —<br/>`serde (default)` |
 | `alpn` | `Option < Listable >` | Default::default() | —<br/>`serde (default)` |
+| `min_version` | `Option < String >` | Default::default() | The lowest TLS version to accept, `1.0` to `1.3`; unset, 1.2.<br/>`serde (default)` |
+| `max_version` | `Option < String >` | Default::default() | The highest; unset, 1.3.<br/>`serde (default)` |
 | `server_name` | `Option < String >` | Default::default() | The name REALITY clients must ask for; only REALITY uses it.<br/>`serde (default)` |
 | `reality` | `Option < InboundReality >` | Default::default() | —<br/>`serde (default)` |
 
