@@ -535,6 +535,38 @@ pub struct DnsRule {
     pub user: Vec<String>,
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
     pub user_id: Vec<i32>,
+    /// The network the host is on, as the routing rules match it.
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub wifi_ssid: Vec<String>,
+    /// The address of the Wi-Fi access point, `aa:bb:cc:dd:ee:ff`, in any
+    /// case, with `:` or `-`, or as 12 hex digits.
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub wifi_bssid: Vec<String>,
+    /// The kind of network: `wifi`, `cellular`, `ethernet`, `other`.
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub network_type: Vec<String>,
+    /// The network is metered, as the system says.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub network_is_expensive: bool,
+    /// The network is in a low data mode, as the system says.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub network_is_constrained: bool,
+    /// A sail extension, for Surge's `SSID:`: regular expressions found in
+    /// the Wi-Fi network's name, with case.
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub wifi_ssid_regex: Vec<String>,
+    /// A sail extension, for Surge's `BSSID:`: regular expressions found in
+    /// the access point's address as `aa:bb:cc:dd:ee:ff`, whatever the case.
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub wifi_bssid_regex: Vec<String>,
+    /// A sail extension, for Surge's `ROUTER:`: the address of the default
+    /// gateway.
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub network_gateway: Vec<String>,
+    /// A sail extension, for Surge's `MCCMNC:` and `CELLULAR-CARRIER`: the
+    /// cellular carrier, its MCC and MNC as 5 or 6 digits; only off Wi-Fi.
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub network_mcc_mnc: Vec<String>,
     /// Tags of the outbounds that dial the name; of the rule itself, not
     /// of a rule a logical one combines.
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
@@ -868,6 +900,15 @@ impl DnsRule {
             package_name_regex: self.package_name_regex.clone(),
             user: self.user.clone(),
             user_id: self.user_id.clone(),
+            wifi_ssid: self.wifi_ssid.clone(),
+            wifi_bssid: self.wifi_bssid.clone(),
+            network_type: self.network_type.clone(),
+            network_is_expensive: self.network_is_expensive,
+            network_is_constrained: self.network_is_constrained,
+            wifi_ssid_regex: self.wifi_ssid_regex.clone(),
+            wifi_bssid_regex: self.wifi_bssid_regex.clone(),
+            network_gateway: self.network_gateway.clone(),
+            network_mcc_mnc: self.network_mcc_mnc.clone(),
             rule_set: self.rule_set.clone(),
             rule_set_ip_cidr_match_source: self.rule_set_ip_cidr_match_source,
             ip_cidr: self.ip_cidr.clone(),

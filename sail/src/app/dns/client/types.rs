@@ -191,4 +191,6 @@ pub struct DnsClient {
     /// Whether any rule has a `strategy` of its own, which then decides
     /// the families of a lookup.
     rules_set_strategy: bool,
+    /// The network the host is on, when a rule has conditions on it.
+    network: Option<crate::net::network::Network>,
 }

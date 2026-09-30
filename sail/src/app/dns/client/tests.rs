@@ -252,6 +252,13 @@ mod tests {
     }
 
     fn with_rules(rules: serde_json::Value) -> anyhow::Result<DnsClient> {
+        with_rules_in(rules, &Default::default())
+    }
+
+    fn with_rules_in(
+        rules: serde_json::Value,
+        env: &crate::runtime::RuntimeEnv,
+    ) -> anyhow::Result<DnsClient> {
         let config = crate::config::Config::from_json(
             &serde_json::json!({ "dns": {
                 "servers": [
@@ -266,7 +273,7 @@ mod tests {
             } })
             .to_string(),
         )?;
-        DnsClient::new(&config.dns, Default::default(), &Default::default())
+        DnsClient::new(&config.dns, Default::default(), env)
     }
 
     fn ips(ips: &[&str]) -> Vec<IpAddr> {
@@ -287,6 +294,32 @@ mod tests {
             client.lookup("a.example").await.unwrap(),
             ips(&["10.0.0.1", "2001:db8::1"])
         );
+    }
+
+    #[tokio::test]
+    async fn rules_pick_the_server_by_the_network() {
+        let env = crate::runtime::RuntimeEnv::default();
+        let client = with_rules_in(
+            serde_json::json!([{ "wifi_ssid": "Home", "server": "home" }]),
+            &env,
+        )
+        .unwrap();
+        assert!(client.needs_network());
+        // Unknown, it does not match.
+        assert_eq!(
+            client.lookup("nas.home.arpa").await.unwrap(),
+            ips(&["203.0.113.9"])
+        );
+        env.network.push(crate::net::network::NetworkState {
+            kind: Some(crate::net::network::NetworkType::Wifi),
+            ssid: Some("Home".into()),
+            ..Default::default()
+        });
+        assert_eq!(
+            client.lookup("nas.home.arpa").await.unwrap(),
+            ips(&["192.168.1.2", "fd00::2"])
+        );
+        assert!(!with_rules(serde_json::json!([])).unwrap().needs_network());
     }
 
     #[tokio::test]
@@ -438,8 +471,8 @@ mod tests {
                 "dns.rules[0].query_type: unknown record type \"NOPE\"",
             ),
             (
-                serde_json::json!([{ "wifi_ssid": "home", "server": "home" }]),
-                "dns.rules[0].wifi_ssid: sail does not implement this field yet",
+                serde_json::json!([{ "network_type": "wired", "server": "home" }]),
+                "dns.rules[0].network_type",
             ),
         ] {
             let err = with_rules(rules.clone()).err().unwrap().to_string();

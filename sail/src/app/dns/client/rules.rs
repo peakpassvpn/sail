@@ -186,31 +186,51 @@ impl DnsClient {
     }
 
     /// The facts of a query of type `ty` for `host`, made for `ctx`.
-    fn facts(host: &str, ty: RecordType, ctx: &LookupContext, response: Option<&Message>) -> Facts {
+    fn facts(
+        &self,
+        host: &str,
+        ty: RecordType,
+        ctx: &LookupContext,
+        response: Option<&Message>,
+    ) -> Facts {
         match response {
-            Some(response) => Self::response_facts(
-                host,
-                ty,
-                ctx,
-                response.response_code(),
-                &addresses(response),
-            )
-            .with_response(Arc::new(response.clone())),
-            None => Facts::new(&Self::session(host, ctx), &[]).with_query_type(ty.into()),
+            Some(response) => self
+                .response_facts(
+                    host,
+                    ty,
+                    ctx,
+                    response.response_code(),
+                    &addresses(response),
+                )
+                .with_response(Arc::new(response.clone())),
+            None => self.with_network(
+                Facts::new(&Self::session(host, ctx), &[]).with_query_type(ty.into()),
+            ),
         }
     }
 
     /// The facts of a response with `rcode` and the addresses `ips`.
     fn response_facts(
+        &self,
         host: &str,
         ty: RecordType,
         ctx: &LookupContext,
         rcode: ResponseCode,
         ips: &[IpAddr],
     ) -> Facts {
-        Facts::new(&Self::session(host, ctx), ips)
-            .with_rcode(u16::from(rcode))
-            .with_query_type(ty.into())
+        self.with_network(
+            Facts::new(&Self::session(host, ctx), ips)
+                .with_rcode(u16::from(rcode))
+                .with_query_type(ty.into()),
+        )
+    }
+
+    /// `facts`, with the network the host is on now, when a rule needs it.
+    fn with_network(&self, facts: Facts) -> Facts {
+        match &self.network {
+            Some(network) => facts.with_network(network.snapshot()),
+            None => facts,
+        }
     }
 
     fn session(host: &str, ctx: &LookupContext) -> Session {
@@ -225,6 +245,7 @@ impl DnsClient {
     /// Whether `rule` matches `response`: with `ip_match_all`, as each of
     /// its addresses alone.
     fn matches_response(
+        &self,
         rule: &Rule,
         host: &str,
         ty: RecordType,
@@ -234,7 +255,7 @@ impl DnsClient {
     ) -> bool {
         if !rule.ip_match_all {
             return rule.matcher.matches(&Self::with_responses(
-                Self::facts(host, ty, ctx, Some(response)),
+                self.facts(host, ty, ctx, Some(response)),
                 responses,
             ));
         }
@@ -242,7 +263,7 @@ impl DnsClient {
         !ips.is_empty()
             && ips.iter().all(|ip| {
                 rule.matcher.matches(&Self::with_responses(
-                    Self::response_facts(
+                    self.response_facts(
                         host,
                         ty,
                         ctx,
@@ -455,10 +476,10 @@ impl DnsClient {
             // sing-box.
             Some(None) => rule.invert,
             Some(Some(response)) => {
-                Self::matches_response(rule, q.host, q.ty, q.ctx, response, responses.as_ref())
+                self.matches_response(rule, q.host, q.ty, q.ctx, response, responses.as_ref())
             }
             None => rule.matcher.matches(&Self::with_responses(
-                Self::facts(q.host, q.ty, q.ctx, None),
+                self.facts(q.host, q.ty, q.ctx, None),
                 responses.as_ref(),
             )),
         }
@@ -630,7 +651,7 @@ impl DnsClient {
     }
 
     fn rule_strategy(&self, host: &str, ty: RecordType, ctx: &LookupContext) -> RuleStrategy {
-        let facts = Self::facts(host, ty, ctx, None);
+        let facts = self.facts(host, ty, ctx, None);
         for rule in &self.rules {
             if rule.response.is_some()
                 || rule.nested_responses
@@ -658,7 +679,7 @@ impl DnsClient {
     /// those of the `evaluate` rules that match it, and of the rules that
     /// may send it, up to the first that surely does.
     pub(super) fn reach(&self, host: &str, ty: RecordType, ctx: &LookupContext) -> Reach {
-        let facts = Self::facts(host, ty, ctx, None);
+        let facts = self.facts(host, ty, ctx, None);
         let mut servers = Vec::new();
         for rule in &self.rules {
             if !Self::for_outbound(rule, ctx) {

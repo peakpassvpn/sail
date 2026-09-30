@@ -110,6 +110,10 @@ impl DnsClient {
             .clone()
             .unwrap_or_else(|| configs[0].tag.clone());
         let rules = Self::load_rules(dns, env, rule_sets)?;
+        let network = rules
+            .iter()
+            .any(|r| r.matcher.needs().network)
+            .then(|| env.network.clone());
         let capacity = NonZeroUsize::new(dns.cache_capacity())
             .ok_or_else(|| anyhow!("dns.cache_capacity: must be at least 1"))?;
         let optimistic = dns.optimistic_timeout();
@@ -142,7 +146,13 @@ impl DnsClient {
             reverse_mapping: dns.reverse_mapping,
             client_subnet: dns.client_subnet,
             rules_set_strategy: dns.rules.iter().any(|r| r.strategy.is_some()),
+            network,
         })
+    }
+
+    /// Whether a rule has conditions on the network the host is on.
+    pub fn needs_network(&self) -> bool {
+        self.network.is_some()
     }
 
     /// Shares the client between its users, who see it replaced whole on

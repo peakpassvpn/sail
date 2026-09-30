@@ -234,7 +234,9 @@ impl RuntimeManager {
     /// download replaces, so it is asked once before the instance starts
     /// and again after each reload.
     pub fn needs_network(&self) -> bool {
-        self.router.load().needs_network() || self.outbound_manager.load().needs_network()
+        self.router.load().needs_network()
+            || self.outbound_manager.load().needs_network()
+            || self.dns_client.load().needs_network()
     }
 
     /// What the Clash API tells of the configuration.
