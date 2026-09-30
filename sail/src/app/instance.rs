@@ -89,7 +89,7 @@ impl Instance {
         )?;
         let dns_client =
             DnsClient::with_rule_sets(&config.dns, dial_defaults.clone(), &env, &rule_sets)?;
-        dns_client.check_loops(&config.outbounds, &config.route)?;
+        dns_client.check_loops(config)?;
         let dns_client = dns_client.into_shared();
         let outbound_manager: SyncOutboundManager =
             Arc::new(ArcSwap::from_pointee(OutboundManager::with_endpoints(

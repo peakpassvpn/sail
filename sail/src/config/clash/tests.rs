@@ -846,9 +846,7 @@ fn a_lowered_dns_builds_and_has_no_loop() {
         &rule_sets,
     )
     .unwrap();
-    client
-        .check_loops(&config.outbounds, &config.route)
-        .unwrap();
+    client.check_loops(&config).unwrap();
 }
 
 fn dns_of(fields: &str) -> Config {

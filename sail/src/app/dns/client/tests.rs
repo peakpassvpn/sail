@@ -641,7 +641,32 @@ mod tests {
     fn loops(config: serde_json::Value) -> anyhow::Result<()> {
         let config = crate::config::Config::from_json(&config.to_string())?;
         let client = DnsClient::new(&config.dns, Default::default(), &Default::default())?;
-        client.check_loops(&config.outbounds, &config.route)
+        client.check_loops(&config)
+    }
+
+    /// A local server with a detour is followed as a remote one is, and a
+    /// detour names an outbound that exists.
+    #[test]
+    fn a_local_server_s_detour_is_checked_as_a_remote_one_s() {
+        let config = |detour: &str| {
+            serde_json::json!({
+                "dns": { "servers": [
+                    { "type": "local", "tag": "local", "detour": detour }
+                ] },
+                "outbounds": [
+                    { "type": "socks", "tag": "proxy", "server": "proxy.example",
+                      "server_port": 1080 }
+                ]
+            })
+        };
+        let err = loops(config("proxy")).unwrap_err().to_string();
+        assert!(
+            err.contains("dns server [local] -> outbound [proxy] -> dns server [local]"),
+            "{}",
+            err
+        );
+        let err = loops(config("nope")).unwrap_err().to_string();
+        assert_eq!(err, "dns.servers[local]: detour: outbound [nope] does not exist");
     }
 
     /// A remote server reached through a proxy whose own name the remote

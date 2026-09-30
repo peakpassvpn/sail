@@ -497,9 +497,7 @@ impl RuntimeManager {
             .load()
             .reloaded(&config.dns, dial_defaults.clone(), &self.env, &rule_sets)
             .map_err(Error::Config)?;
-        dns_client
-            .check_loops(&config.outbounds, &config.route)
-            .map_err(Error::Config)?;
+        dns_client.check_loops(&config).map_err(Error::Config)?;
         // Outbounds and routing reach the DNS client through the shared
         // cell, and so find the new one once it is stored.
         let outbound_manager = OutboundManager::reloaded(
