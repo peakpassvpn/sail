@@ -325,9 +325,11 @@ pub fn lower(
         for name in subs.keys() {
             let at = subs.at(&name);
             let rules = match subs.take(&name) {
+                // A null rule is none, as in the top-level `rules`.
                 Some(Node::Seq(items)) => items
                     .iter()
                     .enumerate()
+                    .filter(|(_, n)| !matches!(n, Node::Null))
                     .map(|(i, n)| {
                         n.as_string()
                             .ok_or_else(|| anyhow!("{}[{}]: a rule, not {}", at, i, n.kind()))

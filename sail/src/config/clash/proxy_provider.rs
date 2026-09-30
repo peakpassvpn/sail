@@ -64,7 +64,7 @@ const PROVIDER: &[(&str, Tier)] = &[
 
 pub fn lower(doc: &mut Fields, out: &mut Lowered, warnings: &mut Vec<String>) -> Result<Providers> {
     let mut providers = Providers::default();
-    let Some(mut all) = doc.map("proxy-providers")? else {
+    let Some(mut all) = doc.map("proxy-providers")?.map(Fields::loose) else {
         return Ok(providers);
     };
     for name in all.keys() {

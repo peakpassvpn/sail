@@ -258,7 +258,7 @@
     }
   },
   "clash/0071.yaml": {
-    "error": "lan-disallowed-ips[0]: a string, not nothing"
+    "error": "dns.nameserver[0]: sail does not implement dhcp:// servers yet"
   },
   "clash/0072.yaml": {
     "ok": true,
@@ -597,7 +597,8 @@
     "warnings": 0
   },
   "clash/0166.yaml": {
-    "error": "rules[17]: a string, not nothing"
+    "ok": true,
+    "warnings": 0
   },
   "clash/0167.yaml": {
     "ok": true,

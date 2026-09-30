@@ -40,7 +40,7 @@ use fields::Fields;
 pub fn parse(s: &str) -> Result<Config> {
     let root = node::parse(s)?;
     let holders = node::anchor_holders(s);
-    let mut doc = Fields::of(root, "")?;
+    let mut doc = Fields::typed(root, "")?;
     let mut warnings = Vec::new();
     let mut out = Lowered::default();
     let fake_ip = tun::fake_ip_address(&mut doc);
@@ -89,7 +89,7 @@ pub(crate) fn headless(line: &str) -> Result<super::rule_set::HeadlessRule> {
 /// The `payload`, or `rules`, of a YAML rule-provider.
 #[cfg(feature = "rule-set")]
 pub(crate) fn payload(s: &str) -> Result<Vec<String>> {
-    let mut doc = Fields::of(node::parse(s)?, "")?;
+    let mut doc = Fields::typed(node::parse(s)?, "")?;
     let payload = doc.strings("payload")?;
     if !payload.is_empty() {
         return Ok(payload);

@@ -20,22 +20,42 @@ pub enum Tier {
 pub struct Fields {
     map: IndexMap<String, Node>,
     path: String,
+    /// Whether Mihomo reads the map into a struct of its own, which drops
+    /// a null item of a list of strings; see `strings`.
+    typed: bool,
 }
 
 impl Fields {
-    /// The map `node`, at `path`.
+    /// The map `node`, at `path`, which Mihomo reads loosely, as a map of
+    /// anything: a proxy's, a group's, a provider's.
     pub fn of(node: Node, path: &str) -> Result<Self> {
         match node {
             Node::Map(map) => Ok(Fields {
                 map,
                 path: path.to_string(),
+                typed: false,
             }),
             Node::Null => Ok(Fields {
                 map: IndexMap::new(),
                 path: path.to_string(),
+                typed: false,
             }),
             other => Err(anyhow!("{}: a map, not {}", path, other.kind())),
         }
+    }
+
+    /// `of`, for a map Mihomo reads into a struct of its own, as its top
+    /// level; the maps in it are too, unless `loose` says otherwise.
+    pub fn typed(node: Node, path: &str) -> Result<Self> {
+        let mut f = Self::of(node, path)?;
+        f.typed = true;
+        Ok(f)
+    }
+
+    /// A map within a typed one that Mihomo reads loosely all the same.
+    pub fn loose(mut self) -> Self {
+        self.typed = false;
+        self
     }
 
     pub fn path(&self) -> &str {
@@ -104,14 +124,18 @@ impl Fields {
     }
 
     /// A list of strings; a single string is a list of one, as Mihomo
-    /// takes it for most lists.
+    /// takes it for most lists. In a typed map a null item is no item, as
+    /// Mihomo's YAML decoder drops it (`rules: [ , MATCH,DIRECT]`); in a
+    /// loose one it is an error, as Mihomo's is.
     pub fn strings(&mut self, key: &str) -> Result<Vec<String>> {
         let at = self.at(key);
+        let typed = self.typed;
         match self.take(key) {
             None => Ok(Vec::new()),
             Some(Node::Seq(items)) => items
                 .iter()
                 .enumerate()
+                .filter(|(_, n)| !(typed && matches!(n, Node::Null)))
                 .map(|(i, n)| {
                     n.as_string()
                         .ok_or_else(|| anyhow!("{}[{}]: a string, not {}", at, i, n.kind()))
@@ -124,10 +148,16 @@ impl Fields {
         }
     }
 
-    /// A map within, to read field by field.
+    /// A map within, to read field by field; typed if this one is.
     pub fn map(&mut self, key: &str) -> Result<Option<Fields>> {
         let at = self.at(key);
-        self.take(key).map(|n| Fields::of(n, &at)).transpose()
+        let typed = self.typed;
+        self.take(key)
+            .map(|n| match typed {
+                true => Fields::typed(n, &at),
+                false => Fields::of(n, &at),
+            })
+            .transpose()
     }
 
     /// A list within, of what it holds.

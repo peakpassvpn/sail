@@ -1966,3 +1966,29 @@ fn a_client_certificate_is_pem_or_a_path() {
         e
     );
 }
+
+#[test]
+fn a_null_item_is_none_where_mihomo_drops_it() {
+    // Mihomo reads these into lists of strings, and its YAML decoder
+    // drops a null item.
+    let config = load(
+        "mixed-port: 7890\n\
+         allow-lan: true\n\
+         lan-allowed-ips: [192.168.0.0/16, ~]\n\
+         lan-disallowed-ips:\n  -\n\
+         dns: { enable: true, nameserver: [1.1.1.1, ~], fake-ip-filter: [~] }\n\
+         sub-rules: { s: [~, 'MATCH,DIRECT'] }\n\
+         rules:\n  -\n  - SUB-RULE,(NETWORK,tcp),s\n  - MATCH,DIRECT\n",
+    );
+    assert!(config.warnings.is_empty(), "{:?}", config.warnings);
+    // A proxy's, a group's or a provider's are read as maps of anything,
+    // and keep it, which Mihomo refuses.
+    assert_eq!(
+        error(
+            "proxies: [{ name: a, type: socks5, server: 192.0.2.1, port: 1080 }]\n\
+             proxy-groups: [{ name: g, type: select, proxies: [a, ~] }]\n\
+             rules: ['MATCH,g']\n"
+        ),
+        "proxy-groups[0].proxies[1]: a string, not nothing"
+    );
+}

@@ -161,7 +161,7 @@ pub fn lower(
     warnings: &mut Vec<String>,
 ) -> Result<Sets> {
     let mut sets = Sets::default();
-    let Some(mut providers) = doc.map("rule-providers")? else {
+    let Some(mut providers) = doc.map("rule-providers")?.map(Fields::loose) else {
         return Ok(sets);
     };
     for name in providers.keys() {

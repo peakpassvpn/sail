@@ -272,7 +272,7 @@ fn tunnel(node: super::node::Node, at: &str, warnings: &mut Vec<String>) -> Resu
             }
         }
         None => {
-            let mut f = Fields::of(node, at)?;
+            let mut f = Fields::typed(node, at)?;
             let tunnel = Tunnel {
                 network: f.strings("network")?,
                 address: f
