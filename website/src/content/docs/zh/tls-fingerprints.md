@@ -1,6 +1,6 @@
 ---
 title: TLS 与指纹
-description: 配置 TLS、证书信任、ECH、REALITY 与浏览器 ClientHello 指纹。
+description: 配置 TLS、证书信任、客户端证书、SNI、ECH、REALITY 与浏览器 ClientHello 指纹。
 ---
 
 Sail 使用 BoringSSL 处理 TCP 和 QUIC 上的 TLS。出站 TLS 默认发送浏览器形态的 ClientHello，而不是 BoringSSL 原生握手形态。
@@ -55,6 +55,41 @@ Sail 使用 BoringSSL 处理 TCP 和 QUIC 上的 TLS。出站 TLS 默认发送�
 ```
 
 ECH 开启且未提供 `config` 时，可通过 DNS 发现 ECHConfigList；设置 `disable_dns_lookup` 可强制使用显式配置。
+
+## 客户端证书
+
+以证书认证客户端（双向 TLS）的服务器会在握手中索要证书。按 sing-box 的字段名给出证书与私钥，可内联 PEM，也可给路径：
+
+```json
+{
+  "tls": {
+    "enabled": true,
+    "server_name": "edge.example.com",
+    "client_certificate_path": "certs/client.crt",
+    "client_key_path": "certs/client.key"
+  }
+}
+```
+
+`client_certificate` 与 `client_key` 为内联 PEM，可写成一个字符串或每行一项。二者须同时设置或都不设置，内联与路径每对至多设一个。证书文件可在证书后附上证书链。私钥可为 RSA、ECDSA 或 Ed25519，PKCS#8、PKCS#1 或 SEC1 格式的 PEM，且须与证书匹配。TCP 与 QUIC（Hysteria2、TUIC、quic 传输层）均支持；不可与 REALITY 同用（其服务器不索要证书），DNS 服务器暂不支持。
+
+Surge 的 `client-cert=<条目>` 读取 `[Keystore]` 中的 `p12` 条目；Mihomo 的 `certificate` 与 `private-key` 对应这两个字段。
+
+## 不发送 SNI
+
+`disable_sni: true` 使 ClientHello 不带服务器名，无论是否使用浏览器指纹。除非设置 `insecure`，证书仍按 `server_name`（未设置时为服务器地址）校验：
+
+```json
+{
+  "tls": {
+    "enabled": true,
+    "server_name": "edge.example.com",
+    "disable_sni": true
+  }
+}
+```
+
+不可与 ECH 或 REALITY 同用（二者的 ClientHello 须带服务器名），QUIC 上暂不支持。Surge 的 `sni=off` 即此选项。
 
 ## REALITY
 

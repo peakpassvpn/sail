@@ -54,10 +54,15 @@ Serde: `serde (deny_unknown_fields)`
 | --- | --- | --- | --- |
 | `enabled` | `bool` | Default::default() | —<br/>`serde (default)` |
 | `server_name` | `Option < String >` | Default::default() | Defaults to the server's address.<br/>`serde (default)` |
+| `disable_sni` | `bool` | Default::default() | Sends no SNI. The certificate is still verified against `server_name`, unless `insecure`.<br/>`serde (default)` |
 | `insecure` | `bool` | Default::default() | —<br/>`serde (default)` |
 | `alpn` | `Option < Listable >` | Default::default() | —<br/>`serde (default)` |
 | `certificate` | `Option < Listable >` | Default::default() | An inline PEM certificate to trust.<br/>`serde (default)` |
 | `certificate_path` | `Option < String >` | Default::default() | A PEM certificate to trust, by path.<br/>`serde (default)` |
+| `client_certificate` | `Option < Listable >` | Default::default() | An inline PEM certificate, its chain after it, presented when the server asks for one; with `client_key`.<br/>`serde (default)` |
+| `client_certificate_path` | `Option < String >` | Default::default() | `client_certificate`, by path.<br/>`serde (default)` |
+| `client_key` | `Option < Listable >` | Default::default() | The inline PEM key of the client certificate.<br/>`serde (default)` |
+| `client_key_path` | `Option < String >` | Default::default() | `client_key`, by path.<br/>`serde (default)` |
 | `ech` | `Option < OutboundEch >` | Default::default() | —<br/>`serde (default)` |
 | `reality` | `Option < OutboundReality >` | Default::default() | —<br/>`serde (default)` |
 | `utls` | `Option < OutboundUtls >` | Default::default() | The browser the ClientHello imitates. Unset, it is Chrome's.<br/>`serde (default)` |

@@ -304,7 +304,7 @@ Serde: `serde (deny_unknown_fields)`
 | `server_port` | `u16` | Required | — |
 | `version` | `u32` | default: version_one() | Must be 3: versions 1 and 2 are not supported. sing-box's default is 1.<br/>`serde (default = "version_one")` |
 | `password` | `String` | Default::default() | Cannot be empty.<br/>`serde (default)` |
-| `tls` | `Option < OutboundTls >` | Default::default() | Must be enabled: the handshake with the site the server imitates, `server_name` being the site's (the server's address when unset). A browser fingerprint applies as for TLS; REALITY and ECH do not.<br/>`serde (default)` |
+| `tls` | `Option < OutboundTls >` | Default::default() | Must be enabled: the handshake with the site the server imitates, `server_name` being the site's (the server's address when unset). A browser fingerprint, disable_sni and a client certificate apply as for TLS; REALITY and ECH do not.<br/>`serde (default)` |
 
 ## SocksOutboundOptions
 

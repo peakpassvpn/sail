@@ -1,6 +1,6 @@
 ---
 title: TLS and fingerprints
-description: Configure TLS, trust, ECH, REALITY and browser ClientHello profiles.
+description: Configure TLS, trust, client certificates, SNI, ECH, REALITY and browser ClientHello profiles.
 ---
 
 Sail uses BoringSSL for TLS over TCP and QUIC. Outbound TLS sends a browser-shaped ClientHello by default instead of BoringSSL's native one.
@@ -102,6 +102,41 @@ Use `alpn` when the server requires a specific application protocol:
 ```
 
 When ECH is enabled and `config` is omitted, Sail can discover the ECHConfigList through DNS. Set `disable_dns_lookup` to require an explicit base64 or PEM configuration instead.
+
+## Client certificates
+
+A server that authenticates clients by certificate (mutual TLS) asks for one during the handshake. Give the certificate and its key, inline PEM or by path, as sing-box names them:
+
+```json
+{
+  "tls": {
+    "enabled": true,
+    "server_name": "edge.example.com",
+    "client_certificate_path": "certs/client.crt",
+    "client_key_path": "certs/client.key"
+  }
+}
+```
+
+`client_certificate` and `client_key` take the PEM inline instead, as one string or one line per entry. Set both halves or neither, and at most one of each inline and path pair. The certificate file may hold its chain after it. The key may be RSA, ECDSA or Ed25519, in PKCS#8, PKCS#1 or SEC1 PEM, and must match the certificate. It works over TCP and over QUIC (Hysteria2, TUIC, the quic transport); not with REALITY, whose server asks for no certificate, and not on DNS servers yet.
+
+Surge's `client-cert=<item>` reads a `p12` item of its `[Keystore]`, and Mihomo's `certificate` and `private-key` become these fields.
+
+## ClientHello without SNI
+
+`disable_sni: true` leaves the server name out of the ClientHello, with or without a browser profile. The certificate is still verified against `server_name`, or the server address, unless `insecure` is set:
+
+```json
+{
+  "tls": {
+    "enabled": true,
+    "server_name": "edge.example.com",
+    "disable_sni": true
+  }
+}
+```
+
+It cannot be combined with ECH or REALITY, whose ClientHello names a server, and it is not available over QUIC yet. Surge's `sni=off` sets it.
 
 ## REALITY
 
