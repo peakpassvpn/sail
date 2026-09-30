@@ -296,6 +296,48 @@ mod tests {
         );
     }
 
+    /// A rule with no conditions takes every query, as in sing-box.
+    #[tokio::test]
+    async fn a_rule_without_conditions_takes_everything() {
+        let client = with_rules(serde_json::json!([{ "server": "home" }])).unwrap();
+        assert_eq!(
+            client.lookup("nas.home.arpa").await.unwrap(),
+            ips(&["192.168.1.2", "fd00::2"])
+        );
+        assert!(client.lookup("a.example").await.is_err());
+    }
+
+    /// sing-box's legacy address filter: a route rule's conditions on the
+    /// answer's addresses without match_response. An answer they hold for
+    /// is the server's; any other goes on to the rules after.
+    #[tokio::test]
+    async fn a_legacy_address_filter_takes_the_answers_it_holds_for() {
+        let client = with_rules(serde_json::json!([
+            { "ip_cidr": "192.168.0.0/16", "server": "home" }
+        ]))
+        .unwrap();
+        // The A answer holds: home's. Its AAAA answer does not, and goes
+        // on to `final`, which has none.
+        assert_eq!(
+            client.lookup("nas.home.arpa").await.unwrap(),
+            ips(&["192.168.1.2"])
+        );
+        // home has nothing for it: `final`.
+        assert_eq!(
+            client.lookup("a.example").await.unwrap(),
+            ips(&["10.0.0.1", "2001:db8::1"])
+        );
+        // ip_accept_any: any address at all.
+        let client = with_rules(serde_json::json!([
+            { "domain_suffix": "example", "ip_accept_any": true, "server": "home" }
+        ]))
+        .unwrap();
+        assert_eq!(
+            client.lookup("a.example").await.unwrap(),
+            ips(&["10.0.0.1", "2001:db8::1"])
+        );
+    }
+
     #[tokio::test]
     async fn rules_pick_the_server_by_the_network() {
         let env = crate::runtime::RuntimeEnv::default();
@@ -471,8 +513,9 @@ mod tests {
                 "dns.rules[0]: server [nowhere] does not exist",
             ),
             (
-                serde_json::json!([{ "server": "home" }]),
-                "dns.rules[0]: the rule has no conditions",
+                serde_json::json!([{ "invert": true, "ip_cidr": "10.0.0.0/8", "server": "home" }]),
+                "dns.rules[0]: ip_cidr: matches an evaluated response, and needs match_response \
+                 (sing-box's legacy form, without it, is a route rule's, not inverted)",
             ),
             (
                 serde_json::json!([{ "domain": "a", "action": "reject", "server": "home" }]),
@@ -1221,7 +1264,10 @@ mod tests {
                  and there is none",
             ),
             (
-                serde_json::json!([{ "ip_cidr": "1.0.0.0/8", "server": "home" }]),
+                // sing-box's legacy form, without match_response, is a
+                // route rule's only.
+                serde_json::json!([{ "ip_cidr": "1.0.0.0/8", "action": "evaluate",
+                                     "server": "home" }]),
                 "dns.rules[0]: ip_cidr: matches an evaluated response, and needs \
                  match_response",
             ),

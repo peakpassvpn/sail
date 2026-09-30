@@ -751,7 +751,7 @@
     "warnings": 0
   },
   "sing-box/0010.json": {
-    "error": "dns.rules[6]: the rule has no conditions; dns.final is where everything else goes"
+    "error": "route.default_http_client: http client [default] does not exist"
   },
   "sing-box/0011.json": {
     "error": "dns.fakeip: unknown field `fakeip`, expected one of `servers`, `rules`, `final`, `strategy`, `client_strategy`, `disable_cache`, `disable_expire`, `cache_capacity`, `optimistic`, `timeout`, `reverse_mapping`, `client_subnet`"
@@ -912,7 +912,8 @@
     "error": "dns.rules[0].rule_set_ip_cidr_accept_empty: sail does not implement this field yet"
   },
   "sing-box/0062.json": {
-    "error": "dns.rules[17]: the rule has no conditions; dns.final is where everything else goes"
+    "ok": true,
+    "warnings": 2
   },
   "sing-box/0063.json": {
     "ok": true,
@@ -949,7 +950,8 @@
     "error": "dns.servers[0]: missing field `type`"
   },
   "sing-box/0074.json": {
-    "error": "dns.rules[2]: ip_accept_any: matches an evaluated response, and needs match_response (sail does not filter answers as sing-box's legacy DNS rules did)"
+    "ok": true,
+    "warnings": 3
   },
   "sing-box/0075.json": {
     "ok": true,
@@ -1195,7 +1197,8 @@
     "error": "inbounds[0].network: sail does not implement this field yet"
   },
   "sing-box/0149.json": {
-    "error": "dns.rules[11]: the rule has no conditions; dns.final is where everything else goes"
+    "ok": true,
+    "warnings": 1
   },
   "sing-box/0150.json": {
     "error": "[Proxy 1] outbound: tls.reality.public_key: must be 32 bytes"

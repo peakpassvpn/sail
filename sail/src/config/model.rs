@@ -1163,12 +1163,19 @@ impl DnsRule {
             ("response_ns", !self.response_ns.is_empty()),
             ("response_extra", !self.response_extra.is_empty()),
         ];
-        if self.match_response.is_none() {
+        // sing-box's legacy address filter: a route rule's conditions on the
+        // answer's addresses, without match_response (see `legacy_split`).
+        let legacy = self.is_legacy_address_filter();
+        if self.match_response.is_none() && !legacy {
             if let Some((field, _)) = response_fields.iter().find(|(_, set)| *set) {
                 return Err(anyhow!(
-                    "{}: matches an evaluated response, and needs match_response \
-                     (sail does not filter answers as sing-box's legacy DNS rules did)",
-                    field
+                    "{}: matches an evaluated response, and needs match_response{}",
+                    field,
+                    if self.has_legacy_address_fields() {
+                        " (sing-box's legacy form, without it, is a route rule's, not inverted)"
+                    } else {
+                        ""
+                    }
                 ));
             }
         }
@@ -1176,12 +1183,67 @@ impl DnsRule {
             rule.check_combined(self.match_response.is_some())
                 .map_err(|e| anyhow!("rules[{}]: {}", i, e))?;
         }
-        if !self.has_conditions() {
-            return Err(anyhow!(
-                "the rule has no conditions; dns.final is where everything else goes"
-            ));
-        }
+        // One with no conditions matches every query, as in sing-box.
         Ok(())
+    }
+
+    /// Whether it sets conditions on an answer's addresses, which sing-box
+    /// took before 1.14 without match_response.
+    fn has_legacy_address_fields(&self) -> bool {
+        !self.ip_cidr.is_empty() || self.ip_is_private || self.ip_accept_any
+    }
+
+    /// sing-box's legacy address filter, which 1.14 still takes: a route
+    /// rule with conditions on the answer's addresses and no match_response
+    /// (dns/router.go, `addressLimitResponseCheck`). Only its conditions on
+    /// the answer, none that 1.14 added, nor inverted.
+    fn is_legacy_address_filter(&self) -> bool {
+        self.match_response.is_none()
+            && self.has_legacy_address_fields()
+            && self.action.unwrap_or_default() == DnsRuleAction::Route
+            && !self.invert
+            && !self.ip_match_all
+            && self.response_rcode.is_none()
+            && self.response_answer.is_empty()
+            && self.response_ns.is_empty()
+            && self.response_extra.is_empty()
+    }
+
+    /// The legacy address filter as sail's rules have it, the `index`th of
+    /// `dns.rules`: an evaluate rule, with its conditions but those on the
+    /// answer, for address queries alone (A, AAAA, HTTPS); then a respond
+    /// rule matching what it evaluated by those. An answer they do not hold
+    /// for goes on to the rules after, as in sing-box. None for another
+    /// rule.
+    pub fn legacy_split(&self, index: usize) -> Option<(DnsRule, DnsRule)> {
+        if !self.is_legacy_address_filter() {
+            return None;
+        }
+        // A tag no configuration can name.
+        let tag = format!("\0legacy dns.rules[{}]", index);
+        let mut evaluate = DnsRule {
+            action: Some(DnsRuleAction::Evaluate),
+            tag: Some(tag.clone()),
+            ip_cidr: Vec::new(),
+            ip_is_private: false,
+            ip_accept_any: false,
+            ..self.clone()
+        };
+        if evaluate.query_type.is_empty() {
+            evaluate.query_type = ["A", "AAAA", "HTTPS"]
+                .into_iter()
+                .map(serde_json::Value::from)
+                .collect();
+        }
+        let respond = DnsRule {
+            action: Some(DnsRuleAction::Respond),
+            match_response: Some(ResponseRef::Tag(tag)),
+            ip_cidr: self.ip_cidr.clone(),
+            ip_is_private: self.ip_is_private,
+            ip_accept_any: self.ip_accept_any,
+            ..DnsRule::default()
+        };
+        Some((evaluate, respond))
     }
 
     /// A rule a logical one combines: conditions, and nothing else; those

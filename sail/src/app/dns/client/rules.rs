@@ -120,7 +120,22 @@ impl DnsClient {
         rule_sets: &crate::app::router::rule_set::RuleSets,
     ) -> Result<Vec<Rule>> {
         let mut rules = Vec::new();
-        for (i, rule) in dns.rules.iter().enumerate() {
+        // sing-box's legacy address filters become the two rules sail has
+        // for them.
+        let expanded: Vec<(usize, std::borrow::Cow<crate::config::model::DnsRule>)> = dns
+            .rules
+            .iter()
+            .enumerate()
+            .flat_map(|(i, rule)| match rule.legacy_split(i) {
+                Some((evaluate, respond)) => vec![
+                    (i, std::borrow::Cow::Owned(evaluate)),
+                    (i, std::borrow::Cow::Owned(respond)),
+                ],
+                None => vec![(i, std::borrow::Cow::Borrowed(rule))],
+            })
+            .collect();
+        for (i, rule) in expanded.iter() {
+            let (i, rule) = (*i, rule.as_ref());
             let matcher = crate::app::router::matcher::Matcher::at(
                 &rule.conditions(),
                 &format!("dns.rules[{}]", i),
