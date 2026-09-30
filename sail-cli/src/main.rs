@@ -467,6 +467,9 @@ fn fetch_includes(config: &str, cache_dir: Option<&str>) -> Result<(), String> {
 }
 
 fn main() {
+    #[cfg(unix)]
+    raise_file_limit();
+
     let args: Args = argh::from_env();
 
     if args.version {
@@ -605,9 +608,78 @@ fn main() {
     }
 }
 
+/// Raises the soft limit on open files to the hard one, as Go does at
+/// start (`syscall/rlimit.go`, since Go 1.19): a proxy holds two
+/// descriptors a connection, and the soft limit systems give, 1024 or
+/// 256, runs out long before the system does. On macOS no higher than
+/// `kern.maxfilesperproc`, past which setrlimit fails
+/// (`syscall/rlimit_darwin.go`). The core leaves the limit to its host
+/// and logs the one it starts with; a failure here leaves it as it was.
+#[cfg(unix)]
+fn raise_file_limit() {
+    let mut limit = libc::rlimit {
+        rlim_cur: 0,
+        rlim_max: 0,
+    };
+    // SAFETY: getrlimit writes the struct it is given, nothing else.
+    if unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut limit) } != 0 {
+        return;
+    }
+    let target = file_limit_target(limit.rlim_max);
+    if limit.rlim_cur >= target {
+        return;
+    }
+    limit.rlim_cur = target;
+    // SAFETY: setrlimit reads the struct it is given, nothing else.
+    unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &limit) };
+}
+
+/// The soft limit to raise to under `hard`.
+#[cfg(all(unix, not(target_os = "macos")))]
+fn file_limit_target(hard: libc::rlim_t) -> libc::rlim_t {
+    hard
+}
+
+#[cfg(target_os = "macos")]
+fn file_limit_target(hard: libc::rlim_t) -> libc::rlim_t {
+    let mut max: libc::c_int = 0;
+    let mut size = std::mem::size_of::<libc::c_int>();
+    // SAFETY: the name is NUL-terminated, and the value is written to an
+    // int of the size given, which is what this sysctl holds.
+    let got = unsafe {
+        libc::sysctlbyname(
+            c"kern.maxfilesperproc".as_ptr(),
+            (&mut max as *mut libc::c_int).cast(),
+            &mut size,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    match libc::rlim_t::try_from(max) {
+        Ok(max) if got == 0 && max > 0 => hard.min(max),
+        _ => hard,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn file_limit_is_raised_to_the_hard_one() {
+        raise_file_limit();
+        let mut limit = libc::rlimit {
+            rlim_cur: 0,
+            rlim_max: 0,
+        };
+        assert_eq!(
+            unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut limit) },
+            0
+        );
+        // Never lowered, should it be higher already.
+        assert!(limit.rlim_cur >= file_limit_target(limit.rlim_max));
+    }
 
     #[test]
     fn assets_takes_a_configuration_and_sources() {

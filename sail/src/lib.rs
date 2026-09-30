@@ -1134,6 +1134,8 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
     app::logger::setup_logger(&config.log, &env.host)?;
     log_warnings(&config);
     tracing::debug!("runtime options: {:?}", env.options);
+    #[cfg(unix)]
+    log_file_limit();
 
     let rt = new_runtime(&opts.runtime_opt)?;
     let _g = rt.enter();
@@ -1330,6 +1332,25 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
     trace!("removed runtime {}", &rt_id);
 
     Ok(())
+}
+
+/// The open-file limit the process runs with, which every connection
+/// counts against. The embedding host's to set: the CLI raises it to the
+/// hard limit.
+#[cfg(unix)]
+fn log_file_limit() {
+    let mut limit = libc::rlimit {
+        rlim_cur: 0,
+        rlim_max: 0,
+    };
+    // SAFETY: getrlimit writes the struct it is given, nothing else.
+    if unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut limit) } == 0 {
+        tracing::debug!(
+            "open file limit: {} (hard {})",
+            limit.rlim_cur,
+            limit.rlim_max
+        );
+    }
 }
 
 #[cfg(test)]
