@@ -310,7 +310,6 @@ impl OutboundStreamHandler for Handler {
                     format!("connect tls failed: {}", e),
                 )
             })?;
-        // FIXME check negotiated alpn
         Ok(Box::new(tls_stream))
     }
 }

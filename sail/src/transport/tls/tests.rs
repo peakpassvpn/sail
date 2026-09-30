@@ -949,3 +949,26 @@ async fn test_certificate_pin_not_sent_fails() {
         }
     }
 }
+
+/// The ALPN the client settles on with a server that picks `pick`, or none;
+/// or the handshake's error. The client offers h2 and http/1.1.
+async fn alpn_with(pick: Option<&'static [u8]>) -> Result<Option<Vec<u8>>, String> {
+    let server = server_with(|builder| {
+        builder.set_alpn_select_callback(move |_, _| pick.ok_or(btls::ssl::AlpnError::NOACK));
+    });
+    let alpn = ["h2".to_string(), "http/1.1".to_string()];
+    let client = TlsClient::new(&alpn, Some(&server.cert_pem), false, None, &test_roots()).unwrap();
+    let (c, _) = pair(&server, &client, "localhost", None, None).await;
+    let c = c.map_err(|e| e.to_string())?;
+    Ok(c.conn().ssl().selected_alpn_protocol().map(<[u8]>::to_vec))
+}
+
+// A protocol the client did not offer fails the handshake; a server that
+// picks none is taken as it is, as sing-box takes it, and a layer that needs
+// one (h2 for DoH) checks for it itself.
+#[tokio::test]
+async fn test_negotiated_alpn() {
+    assert_eq!(alpn_with(Some(b"h2")).await, Ok(Some(b"h2".to_vec())));
+    assert_eq!(alpn_with(None).await, Ok(None));
+    assert!(alpn_with(Some(b"h3")).await.is_err());
+}
