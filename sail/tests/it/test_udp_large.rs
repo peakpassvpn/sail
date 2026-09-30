@@ -8,6 +8,8 @@
 //! bound by the path MTU; the WireGuard tunnel carries it as IP fragments.
 //! UDP may lose a packet, and losing one fragment loses the whole payload,
 //! so each echo is tried a few times, as a UDP application would.
+//! Shadowsocks sends each payload as one datagram, so it may fragment it
+//! only with `udp_fragment`.
 
 #![cfg(all(
     feature = "inbound-socks",
@@ -144,6 +146,10 @@ fn test_udp_large_ss2022() -> anyhow::Result<()> {
                 "server_port": ss_port,
                 "method": METHOD,
                 "password": KEY,
+                // Each payload is one datagram: larger than a loopback's
+                // MTU on macOS, where "don't fragment", the default as in
+                // sing-box, refuses it.
+                "udp_fragment": true,
             }],
         });
         echo_large(socks_port, None, |_| {

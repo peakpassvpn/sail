@@ -457,10 +457,22 @@ mod tests {
         let tcp = socket2::Socket::new(socket2::Domain::IPV4, socket2::Type::STREAM, None).unwrap();
         crate::net::dial::bind(&tcp, &target, &spec, None).unwrap();
         let tcp = SockRef::from(&tcp);
-        assert_eq!(
-            get_int(&tcp, libc::IPPROTO_IP, libc::IP_BIND_ADDRESS_NO_PORT).unwrap(),
-            1
-        );
+        match get_int(&tcp, libc::IPPROTO_IP, libc::IP_BIND_ADDRESS_NO_PORT) {
+            // A kernel, or an emulator, that does not know it: the bind
+            // goes on without it.
+            Err(e) if e.raw_os_error() == Some(libc::ENOPROTOOPT) => {
+                // To stderr itself, which the test harness does not capture,
+                // so that a skip shows in the log.
+                use std::io::Write;
+                let _ = writeln!(
+                    std::io::stderr(),
+                    "bind_address_no_port_is_set_before_binding_tcp: skipped, \
+                     IP_BIND_ADDRESS_NO_PORT is unknown here (ENOPROTOOPT)"
+                );
+                return;
+            }
+            r => assert_eq!(r.unwrap(), 1),
+        }
         // UDP has no use for it.
         let udp = socket2::Socket::new(socket2::Domain::IPV4, socket2::Type::DGRAM, None).unwrap();
         crate::net::dial::bind(&udp, &target, &spec, None).unwrap();

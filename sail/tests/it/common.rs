@@ -452,11 +452,13 @@ fn new_socks_outbound(
     password: Option<String>,
 ) -> anyhow::Result<AnyOutboundHandler> {
     // Make use of a socks outbound to initiate a socks request to a sail instance.
+    // It stands for an application, whose datagrams may be fragmented.
     let mut socks = serde_json::json!({
         "type": "socks",
         "tag": "socks",
         "server": socks_addr,
         "server_port": socks_port,
+        "udp_fragment": true,
     });
     if let Some(username) = username {
         socks["username"] = username.into();
