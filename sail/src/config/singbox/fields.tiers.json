@@ -2302,6 +2302,8 @@
    "services[api].tls.alpn",
    "services[api].tls.min_version",
    "services[api].tls.max_version",
+   "services[api].tls.cipher_suites",
+   "services[api].tls.curve_preferences",
    "services[api].tls.certificate",
    "services[api].tls.certificate_path",
    "services[api].tls.client_authentication",
@@ -2354,10 +2356,6 @@
    "services[api].tls.reality.max_time_difference",
    "services[api].tls.acme"
   ],
-  "TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked": [
-   "services[api].tls.cipher_suites",
-   "services[api].tls.curve_preferences"
-  ],
   "The cache of the legacy address filter's rejected responses, which sail does not have; deprecated in sing-box 1.14": [
    "experimental.cache_file.rdrc_timeout",
    "experimental.cache_file.store_rdrc"
@@ -2379,8 +2377,7 @@
    "experimental.debug.max_threads",
    "experimental.debug.panic_on_fault",
    "experimental.debug.trace_back",
-   "experimental.debug.memory_limit",
-   "experimental.debug.oom_killer"
+   "experimental.debug.memory_limit"
   ]
  },
  "unsupported": {
@@ -2390,11 +2387,16 @@
    "dns.servers[dhcp].bind_interface",
    "dns.servers[dhcp].inet4_bind_address",
    "dns.servers[dhcp].inet6_bind_address",
+   "dns.servers[dhcp].bind_address_no_port",
    "dns.servers[dhcp].routing_mark",
+   "dns.servers[dhcp].reuse_addr",
    "dns.servers[dhcp].connect_timeout",
+   "dns.servers[dhcp].tcp_fast_open",
+   "dns.servers[dhcp].tcp_multi_path",
    "dns.servers[dhcp].disable_tcp_keep_alive",
    "dns.servers[dhcp].tcp_keep_alive",
    "dns.servers[dhcp].tcp_keep_alive_interval",
+   "dns.servers[dhcp].udp_fragment",
    "dns.servers[dhcp].domain_resolver",
    "dns.servers[dhcp].domain_resolver.server",
    "dns.servers[dhcp].domain_resolver.timeout",
@@ -2403,6 +2405,8 @@
    "dns.servers[dhcp].domain_resolver.disable_optimistic_cache",
    "dns.servers[dhcp].domain_resolver.rewrite_ttl",
    "dns.servers[dhcp].domain_resolver.client_subnet",
+   "dns.servers[dhcp].prefer_go",
+   "dns.servers[dhcp].neighbor_domain",
    "dns.servers[dhcp].interface",
    "dns.servers[dhcp].domain_strategy",
    "dns.servers[mdns].tag",
@@ -2410,11 +2414,16 @@
    "dns.servers[mdns].bind_interface",
    "dns.servers[mdns].inet4_bind_address",
    "dns.servers[mdns].inet6_bind_address",
+   "dns.servers[mdns].bind_address_no_port",
    "dns.servers[mdns].routing_mark",
+   "dns.servers[mdns].reuse_addr",
    "dns.servers[mdns].connect_timeout",
+   "dns.servers[mdns].tcp_fast_open",
+   "dns.servers[mdns].tcp_multi_path",
    "dns.servers[mdns].disable_tcp_keep_alive",
    "dns.servers[mdns].tcp_keep_alive",
    "dns.servers[mdns].tcp_keep_alive_interval",
+   "dns.servers[mdns].udp_fragment",
    "dns.servers[mdns].domain_resolver",
    "dns.servers[mdns].domain_resolver.server",
    "dns.servers[mdns].domain_resolver.timeout",
@@ -2423,6 +2432,8 @@
    "dns.servers[mdns].domain_resolver.disable_optimistic_cache",
    "dns.servers[mdns].domain_resolver.rewrite_ttl",
    "dns.servers[mdns].domain_resolver.client_subnet",
+   "dns.servers[mdns].prefer_go",
+   "dns.servers[mdns].neighbor_domain",
    "dns.servers[mdns].interface",
    "dns.servers[mdns].domain_strategy",
    "dns.servers[openconnect].tag",
@@ -2466,18 +2477,6 @@
    "route.rules[action=direct].network_type",
    "route.rules[action=direct].fallback_network_type",
    "route.rules[action=direct].domain_strategy"
-  ],
-  "Socket tuning: connections go the same way without it": [
-   "dns.servers[dhcp].bind_address_no_port",
-   "dns.servers[dhcp].reuse_addr",
-   "dns.servers[dhcp].tcp_fast_open",
-   "dns.servers[dhcp].tcp_multi_path",
-   "dns.servers[dhcp].udp_fragment",
-   "dns.servers[mdns].bind_address_no_port",
-   "dns.servers[mdns].reuse_addr",
-   "dns.servers[mdns].tcp_fast_open",
-   "dns.servers[mdns].tcp_multi_path",
-   "dns.servers[mdns].udp_fragment"
   ],
   "Android's socket protection and Linux network namespaces: sockets would leave another way": [
    "dns.servers[dhcp].protect_path",
@@ -2735,14 +2734,6 @@
    "route.default_network_type",
    "route.default_fallback_network_type",
    "route.default_fallback_delay"
-  ],
-  "Go's own resolver rather than the system's: sail is not Go": [
-   "dns.servers[dhcp].prefer_go",
-   "dns.servers[mdns].prefer_go"
-  ],
-  "Single-label LAN names from sing-box's neighbor resolver (DHCP leases): sail has none, and the system's resolver answers them": [
-   "dns.servers[dhcp].neighbor_domain",
-   "dns.servers[mdns].neighbor_domain"
   ],
   "A h3 server offers its own": [
    "dns.servers[h3].tls.alpn"
@@ -4628,6 +4619,9 @@
    "services[ccm].tls.client_certificate_public_key_sha256",
    "services[ccm].tls.key",
    "services[ccm].tls.key_path",
+   "services[ccm].tls.kernel_tx",
+   "services[ccm].tls.kernel_rx",
+   "services[ccm].tls.handshake_timeout",
    "services[ccm].tls.certificate_provider",
    "services[ccm].tls.ech",
    "services[ccm].tls.ech.enabled",
@@ -4707,6 +4701,9 @@
    "services[derp].tls.client_certificate_public_key_sha256",
    "services[derp].tls.key",
    "services[derp].tls.key_path",
+   "services[derp].tls.kernel_tx",
+   "services[derp].tls.kernel_rx",
+   "services[derp].tls.handshake_timeout",
    "services[derp].tls.certificate_provider",
    "services[derp].tls.ech",
    "services[derp].tls.ech.enabled",
@@ -4873,6 +4870,9 @@
    "services[hysteria-realm].tls.client_certificate_public_key_sha256",
    "services[hysteria-realm].tls.key",
    "services[hysteria-realm].tls.key_path",
+   "services[hysteria-realm].tls.kernel_tx",
+   "services[hysteria-realm].tls.kernel_rx",
+   "services[hysteria-realm].tls.handshake_timeout",
    "services[hysteria-realm].tls.certificate_provider",
    "services[hysteria-realm].tls.ech",
    "services[hysteria-realm].tls.ech.enabled",
@@ -4955,6 +4955,9 @@
    "services[ocm].tls.client_certificate_public_key_sha256",
    "services[ocm].tls.key",
    "services[ocm].tls.key_path",
+   "services[ocm].tls.kernel_tx",
+   "services[ocm].tls.kernel_rx",
+   "services[ocm].tls.handshake_timeout",
    "services[ocm].tls.certificate_provider",
    "services[ocm].tls.ech",
    "services[ocm].tls.ech.enabled",
@@ -5056,6 +5059,9 @@
    "services[ssm-api].tls.client_certificate_public_key_sha256",
    "services[ssm-api].tls.key",
    "services[ssm-api].tls.key_path",
+   "services[ssm-api].tls.kernel_tx",
+   "services[ssm-api].tls.kernel_rx",
+   "services[ssm-api].tls.handshake_timeout",
    "services[ssm-api].tls.certificate_provider",
    "services[ssm-api].tls.ech",
    "services[ssm-api].tls.ech.enabled",
@@ -5158,22 +5164,8 @@
    "services[usbip-server].devices[].product_id",
    "services[usbip-server].devices[].serial"
   ],
-  "The TLS stack, kernel TLS and the handshake's timeout: the same TLS without them": [
-   "services[ccm].tls.kernel_tx",
-   "services[ccm].tls.kernel_rx",
-   "services[ccm].tls.handshake_timeout",
-   "services[derp].tls.kernel_tx",
-   "services[derp].tls.kernel_rx",
-   "services[derp].tls.handshake_timeout",
-   "services[hysteria-realm].tls.kernel_tx",
-   "services[hysteria-realm].tls.kernel_rx",
-   "services[hysteria-realm].tls.handshake_timeout",
-   "services[ocm].tls.kernel_tx",
-   "services[ocm].tls.kernel_rx",
-   "services[ocm].tls.handshake_timeout",
-   "services[ssm-api].tls.kernel_tx",
-   "services[ssm-api].tls.kernel_rx",
-   "services[ssm-api].tls.handshake_timeout"
+  "Removed in sing-box 1.13, which refuses it: the oom-killer service took its place": [
+   "experimental.debug.oom_killer"
   ]
  }
 }

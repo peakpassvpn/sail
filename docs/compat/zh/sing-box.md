@@ -26,8 +26,8 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `outbounds` | 1228 | 588 | 140 | 500 |
 | `route` | 268 | 144 | 21 | 103 |
 | `services` | 751 | 1 | 166 | 584 |
-| `experimental` | 34 | 16 | 18 | 0 |
-| **全部** | **5002** | **1630** | **687** | **2685** |
+| `experimental` | 34 | 16 | 17 | 1 |
+| **全部** | **5002** | **1592** | **686** | **2724** |
 
 ## `log`
 
@@ -3016,7 +3016,8 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `clash_api.access_control_allow_origin` | 支持 |  |
 | `clash_api.access_control_allow_private_network` | 支持 |  |
 | `v2ray_api` | 警告 | V2Ray's statistics API, for watching the instance (含其下 6 个字段) |
-| `debug` | 警告 | Go runtime tuning and debugging: sail is not Go (含其下 8 个字段) |
+| `debug` | 警告 | Go runtime tuning and debugging: sail is not Go (含其下 7 个字段) |
+| `debug.oom_killer` | 报错 | Removed in sing-box 1.13, which refuses it: the oom-killer service took its place |
 
 ## sail 扩展
 

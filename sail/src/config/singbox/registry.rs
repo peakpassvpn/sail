@@ -485,11 +485,14 @@ fn entry_of(path: &str) -> Option<&str> {
 
 impl Registry {
     /// How sail treats `field`: supported if it takes one of the samples.
-    fn measure(&self, field: &Field) -> (Measured, String) {
+    /// With the configuration that decided it.
+    fn measure(&self, field: &Field) -> (Measured, String, Value) {
         let at = measured_at(&field.path);
         let mut first = None;
         for value in samples(field) {
-            let measured = measure(&self.probe(&at, value), &at);
+            let probe = self.probe(&at, value);
+            let (tier, message) = measure(&probe, &at);
+            let measured = (tier, message, probe);
             // Only a protocol's refusal, or of a value `upstream::VALUES`
             // lists, may be of the value.
             let whatever = match measured.0 {
@@ -527,7 +530,7 @@ impl Registry {
                         fields
                             .iter()
                             .map(|field| {
-                                let (tier, message) = self.measure(field);
+                                let (tier, message, probe) = self.measure(field);
                                 let (parent, name) = parent(&field.path);
                                 // A union's own tag has no object to be
                                 // known in.
@@ -548,6 +551,7 @@ impl Registry {
                                     message,
                                     control,
                                     entry,
+                                    probe,
                                 }
                             })
                             .collect::<Vec<_>>()
@@ -572,6 +576,8 @@ struct Measurement {
     /// How an unknown field in the entry of a type it is in fared:
     /// `Unsupported` or `Ignored` for a type sail does not implement.
     entry: Option<Measured>,
+    /// The configuration measured.
+    probe: Value,
 }
 
 impl Measurement {
@@ -667,10 +673,16 @@ fn names(pattern: &str, types: &[&str], path: &[Token]) -> bool {
 /// or else as its error does.
 fn why(registry: &Registry, path: &str, measurement: &Measurement) -> String {
     let path = registry.tokens(path);
+    // Of the tier measured: a field an object of the other tier holds has
+    // a group of its own.
+    let tier = match measurement.tier {
+        Measured::Ignored => upstream::Tier::Ignored,
+        _ => upstream::Tier::Unsupported,
+    };
     let found = upstream::GROUPS
         .iter()
         .flat_map(|g| g.paths.iter().map(move |p| (g, *p)))
-        .filter(|(g, p)| names(p, g.types, &path))
+        .filter(|(g, p)| g.tier == tier && names(p, g.types, &path))
         .min_by_key(|(_, p)| p.split('.').count());
     if let Some((group, _)) = found {
         return group.why.to_string();
@@ -736,6 +748,21 @@ fn registry() {
     let start = std::time::Instant::now();
     let registry = Registry::new();
     let measured = registry.measure_all();
+    // The configurations of the fields sail warns on, for sing-box to
+    // check: `SAIL_REGISTRY_DUMP=<dir>` writes each, and `index.tsv`.
+    if let Some(dir) = std::env::var_os("SAIL_REGISTRY_DUMP") {
+        let dir = PathBuf::from(dir);
+        std::fs::create_dir_all(&dir).expect("a directory");
+        let mut index = String::new();
+        for (i, (field, m)) in registry.fields.iter().zip(&measured).enumerate() {
+            if m.tier == Measured::Ignored {
+                let name = format!("{}.json", i);
+                std::fs::write(dir.join(&name), m.probe.to_string()).expect("written");
+                index.push_str(&format!("{}\t{}\n", name, field.path));
+            }
+        }
+        std::fs::write(dir.join("index.tsv"), index).expect("written");
+    }
     let _ = std::fs::remove_file(&registry.local_rule_set);
     // What sail said of each field, for a look at why it is measured so.
     if std::env::var_os("SAIL_REGISTRY_DEBUG").is_some() {
@@ -1173,13 +1200,19 @@ fn render(
         .enumerate()
         .map(|(i, f)| (f.path.as_str(), i))
         .collect();
-    // A field sail does not implement stands for the fields in it.
+    // A field sail does not implement stands for the fields in it, but
+    // for an error in one it drops.
     let covered: Vec<Option<usize>> = fields
         .iter()
-        .map(|f| {
+        .zip(measured)
+        .map(|(f, m)| {
             ancestors(&f.path)
                 .filter_map(|a| index.get(a).copied())
-                .find(|&a| measured[a].tier != Measured::Supported)
+                .find(|&a| match measured[a].tier {
+                    Measured::Supported => false,
+                    Measured::Ignored => m.tier != Measured::Unsupported,
+                    _ => true,
+                })
         })
         .collect();
     let mut inside: HashMap<usize, usize> = HashMap::new();

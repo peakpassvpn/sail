@@ -26,8 +26,8 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `outbounds` | 1228 | 588 | 140 | 500 |
 | `route` | 268 | 144 | 21 | 103 |
 | `services` | 751 | 1 | 166 | 584 |
-| `experimental` | 34 | 16 | 18 | 0 |
-| **All** | **5002** | **1630** | **687** | **2685** |
+| `experimental` | 34 | 16 | 17 | 1 |
+| **All** | **5002** | **1592** | **686** | **2724** |
 
 ## `log`
 
@@ -3016,7 +3016,8 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `clash_api.access_control_allow_origin` | Supported |  |
 | `clash_api.access_control_allow_private_network` | Supported |  |
 | `v2ray_api` | Warned | V2Ray's statistics API, for watching the instance (and the 6 fields in it) |
-| `debug` | Warned | Go runtime tuning and debugging: sail is not Go (and the 8 fields in it) |
+| `debug` | Warned | Go runtime tuning and debugging: sail is not Go (and the 7 fields in it) |
+| `debug.oom_killer` | Error | Removed in sing-box 1.13, which refuses it: the oom-killer service took its place |
 
 ## sail extensions
 

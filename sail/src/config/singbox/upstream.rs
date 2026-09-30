@@ -116,6 +116,12 @@ pub const GROUPS: &[Group] = &[
         Ignored,
         &["experimental.v2ray_api"],
     ),
+    // Before the object it is in, which is dropped.
+    g(
+        "Removed in sing-box 1.13, which refuses it: the oom-killer service took its place",
+        Unsupported,
+        &["experimental.debug.oom_killer"],
+    ),
     g(
         "Go runtime tuning and debugging: sail is not Go",
         Ignored,
