@@ -55,7 +55,11 @@ impl Gcra {
 
     /// `take`, `burst` ahead at most.
     pub(crate) fn take_within(&self, n: u64, bps: u64, burst: Duration) -> Option<Duration> {
-        let now = now();
+        self.take_at(n, bps, burst, now())
+    }
+
+    /// `take_within` at `now`, in nanoseconds since the first use.
+    fn take_at(&self, n: u64, bps: u64, burst: Duration, now: u64) -> Option<Duration> {
         let cost = cost(n, bps);
         let mut due = self.due.load(Ordering::Relaxed);
         loop {
@@ -82,7 +86,11 @@ impl Gcra {
 
     /// `admit`, `burst` ahead at most.
     pub(crate) fn admit_within(&self, n: u64, bps: u64, burst: Duration) -> bool {
-        let now = now();
+        self.admit_at(n, bps, burst, now())
+    }
+
+    /// `admit_within` at `now`, in nanoseconds since the first use.
+    fn admit_at(&self, n: u64, bps: u64, burst: Duration, now: u64) -> bool {
         let cost = cost(n, bps);
         let burst = burst.as_nanos() as u64;
         let mut due = self.due.load(Ordering::Relaxed);
@@ -106,19 +114,21 @@ impl Gcra {
 mod tests {
     use super::*;
 
+    const MS: u64 = 1_000_000;
+
     #[test]
     fn a_burst_goes_at_once_and_then_the_rate() {
         let rate = Gcra::default();
         let bps = 1_000_000;
+        let take = |n, at| rate.take_at(n, bps, BURST, at);
         // 100 ms at 1 MB/s: 100 kB go without waiting.
-        assert_eq!(rate.take(50_000, bps), None);
-        assert_eq!(rate.take(50_000, bps), None);
-        let wait = rate.take(10_000, bps).unwrap();
-        assert!(
-            wait > Duration::from_millis(9) && wait <= Duration::from_millis(10),
-            "{:?}",
-            wait
-        );
+        assert_eq!(take(50_000, 0), None);
+        assert_eq!(take(50_000, 0), None);
+        assert_eq!(take(10_000, 0), Some(Duration::from_millis(10)));
+        // Waited out, the next goes; what was not used is not kept.
+        assert_eq!(take(10_000, 10 * MS), Some(Duration::from_millis(10)));
+        assert_eq!(take(1_000, 1_000 * MS), None);
+        assert_eq!(take(100_000, 1_000 * MS), Some(Duration::from_millis(1)));
     }
 
     #[test]
@@ -132,8 +142,14 @@ mod tests {
     fn datagrams_over_the_burst_are_dropped() {
         let rate = Gcra::default();
         let bps = 1_000_000;
-        let admitted = (0..300).filter(|_| rate.admit(1000, bps)).count();
-        // The burst and the one it overlaps: about 100 kB of 300.
-        assert!((100..=102).contains(&admitted), "{}", admitted);
+        let admit = |at| rate.admit_at(1000, bps, BURST, at);
+        // At once: the burst of 100 kB and the one it overlaps; the rest are
+        // dropped, and not counted.
+        let admitted = (0..300).filter(|_| admit(0)).count();
+        assert_eq!(admitted, 101);
+        // Each millisecond after lets one more through.
+        assert!(!admit(0));
+        assert!(admit(MS));
+        assert!(!admit(MS));
     }
 }

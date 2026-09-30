@@ -1019,7 +1019,7 @@ mod tests {
             let sm = StatManager::new(0, users.clone());
             let _a = stream(&sm, &alice);
             let expiry = tokio::spawn(users.expiry_task());
-            let at = SystemTime::now() + Duration::from_millis(300);
+            let at = SystemTime::now() + Duration::from_secs(1);
             limited(
                 &users,
                 "alice",
@@ -1029,9 +1029,13 @@ mod tests {
                 },
             );
             assert!(alice.active());
-            tokio::time::sleep(Duration::from_millis(150)).await;
-            assert!(alice.active());
-            tokio::time::sleep(Duration::from_millis(400)).await;
+            // Expired once its time comes, however slow the machine.
+            let deadline = std::time::Instant::now() + Duration::from_secs(10);
+            while alice.active() {
+                assert!(std::time::Instant::now() < deadline, "not expired");
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+            assert!(SystemTime::now() >= at);
             assert!(alice.status().expired());
             assert_eq!(closed(&sm), [true]);
             // Later expiry, and it may come back.
@@ -1112,7 +1116,7 @@ mod tests {
             let took = started.elapsed();
             // (50 kB - the burst) at 125 kB/s: 0.3 s.
             assert!(
-                took >= Duration::from_millis(250) && took < Duration::from_secs(1),
+                took >= Duration::from_millis(250) && took < Duration::from_secs(5),
                 "{:?}",
                 took
             );
@@ -1127,7 +1131,8 @@ mod tests {
             let mut free = sm.stat_stream(Box::new(b), session(&bob));
             let started = std::time::Instant::now();
             free.write_all(&[0u8; 500_000]).await.unwrap();
-            assert!(started.elapsed() < Duration::from_millis(200));
+            // At alice's rate it would take 4 s.
+            assert!(started.elapsed() < Duration::from_secs(2));
             bfar.write_all(&[0u8; 100_000]).await.unwrap();
             assert_eq!(free.read(&mut buf).await.unwrap(), 100_000);
         }
@@ -1153,7 +1158,8 @@ mod tests {
             let mut s = sm.stat_stream(Box::new(a), session(&alice));
             let started = std::time::Instant::now();
             s.write_all(&vec![0u8; 1 << 21]).await.unwrap();
-            assert!(started.elapsed() < Duration::from_secs(1));
+            // At 1 Mbps it would take 16 s.
+            assert!(started.elapsed() < Duration::from_secs(5));
             assert!(alice.police(true, 65_535));
             assert_eq!(alice.shape(true, 65_535), None);
         }
@@ -1212,15 +1218,19 @@ mod tests {
             let (_r, mut s) = sm
                 .stat_outbound_datagram(Box::new(Datagram(sent.clone())), sess)
                 .split();
+            let started = std::time::Instant::now();
             for _ in 0..100 {
                 assert_eq!(
                     s.send_to(&[0u8; 1200], &SocksAddr::any()).await.unwrap(),
                     1200
                 );
             }
-            // The 12.5 kB burst, and the one datagram it overlaps.
+            // The 12.5 kB burst and the one datagram it overlaps, and what
+            // the rate let through while they were sent.
             let sent = sent.load(Ordering::Relaxed);
-            assert!((12_000..=14_400).contains(&sent), "{}", sent);
+            let refilled = (started.elapsed().as_secs_f64() * 125_000.0) as u64 + 1200;
+            assert!(sent >= 12_000 && sent <= 14_400 + refilled, "{}", sent);
+            assert!(sent < 100 * 1200, "{}", sent);
             assert_eq!(alice.traffic().counts().up, sent);
         }
 
