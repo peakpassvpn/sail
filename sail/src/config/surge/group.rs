@@ -178,6 +178,110 @@ impl Policies {
     }
 }
 
+/// A `subnet` group (once `ssid`): the policy of the first expression
+/// the network matches, else the default one; a `network` group.
+struct Subnet {
+    /// The expressions' conditions, and their policies, in order.
+    branches: Vec<(Map<String, Value>, String)>,
+    default: String,
+}
+
+impl Subnet {
+    /// Every policy it may choose.
+    fn policies(&self) -> Vec<String> {
+        let mut policies: Vec<String> = Vec::new();
+        for policy in self.branches.iter().map(|(_, p)| p).chain([&self.default]) {
+            if !policies.contains(policy) {
+                policies.push(policy.clone());
+            }
+        }
+        policies
+    }
+
+    /// The `network` group, the REJECT policies as REJECT.
+    fn lower(self, name: &str, proxies: &HashMap<String, Kind>) -> Value {
+        let policy = |p: String| match p.starts_with("REJECT") && !proxies.contains_key(&p) {
+            true => "REJECT".to_string(),
+            false => p,
+        };
+        let branches: Vec<Value> = self
+            .branches
+            .into_iter()
+            .map(|(mut conditions, p)| {
+                conditions.insert("outbound".into(), json!(policy(p)));
+                Value::Object(conditions)
+            })
+            .collect();
+        json!({
+            "type": "network",
+            "tag": name,
+            "branches": branches,
+            "default": policy(self.default),
+        })
+    }
+}
+
+/// A `subnet` group's entries: `default`, `cellular` (before the others,
+/// as it takes precedence), and `expression = policy`, in order; only
+/// `hidden`, `icon-url` and `category` besides, as Surge has it.
+fn subnet(at: &str, parts: &[String]) -> Result<Subnet> {
+    let mut branches = Vec::new();
+    let mut default = None;
+    let mut cellular = None;
+    for part in parts {
+        if part.trim().is_empty() {
+            continue;
+        }
+        let (key, value) = part
+            .split_once('=')
+            .map(|(k, v)| (text::unquote(k.trim()), text::unquote(v.trim())))
+            .ok_or_else(|| {
+                anyhow!(
+                    "{}: {:?}: a subnet group takes `default = policy` and \
+                     `expression = policy`, no members",
+                    at,
+                    part
+                )
+            })?;
+        if value.is_empty() {
+            return Err(anyhow!("{}: {}: no policy", at, key));
+        }
+        match key.to_ascii_lowercase().as_str() {
+            "default" => default = Some(value),
+            "cellular" => cellular = Some(value),
+            "hidden" | "icon-url" | "category" | "no-alert" => {}
+            k if PARAMS.iter().any(|(p, _)| *p == k)
+                || matches!(
+                    k,
+                    "policy-path"
+                        | "include-all-proxies"
+                        | "include-other-group"
+                        | "policy-regex-filter"
+                ) =>
+            {
+                return Err(anyhow!(
+                    "{}: {}: subnet groups take no {}, as in Surge",
+                    at,
+                    key,
+                    key
+                ))
+            }
+            _ => {
+                let conditions =
+                    super::subnet::conditions(&key).map_err(|e| anyhow!("{}: {}", at, e))?;
+                branches.push((conditions, value));
+            }
+        }
+    }
+    if let Some(policy) = cellular {
+        let mut conditions = Map::new();
+        conditions.insert("network_type".into(), json!(["cellular"]));
+        branches.insert(0, (conditions, policy));
+    }
+    let default = default.ok_or_else(|| anyhow!("{}: default: missing", at))?;
+    Ok(Subnet { branches, default })
+}
+
 /// A group line, read.
 struct Group {
     name: String,
@@ -228,6 +332,7 @@ pub fn lower(
 ) -> Result<Policies> {
     // Every name first: groups may name those after them.
     let mut groups: Vec<Group> = Vec::new();
+    let mut subnets: HashMap<String, Subnet> = HashMap::new();
     for line in lines {
         let at = format!("[Proxy Group] {}", line.loc);
         let (name, rest) = text::key_value(&line.text)
@@ -245,11 +350,16 @@ pub fn lower(
         match kind.as_str() {
             "select" | "url-test" | "fallback" | "load-balance" | "smart" => {}
             "subnet" | "ssid" => {
-                return Err(anyhow!(
-                    "{}: sail does not implement {} groups yet (C.5d)",
-                    at,
-                    kind
-                ))
+                let subnet = subnet(&at, &parts[1..])?;
+                let members = subnet.policies();
+                subnets.insert(name.clone(), subnet);
+                groups.push(Group {
+                    name,
+                    kind,
+                    members,
+                    p: Params::new(at),
+                });
+                continue;
             }
             other => {
                 return Err(anyhow!(
@@ -387,6 +497,12 @@ pub fn lower(
             if !outbounds.contains(&m) {
                 outbounds.push(m);
             }
+        }
+        if let Some(subnet) = subnets.remove(&g.name) {
+            out.outbounds.push(subnet.lower(&g.name, &proxies.kinds));
+            kinds.remove(&g.name);
+            outbound_members.insert(g.name.clone(), outbounds);
+            continue;
         }
         let (providers, filter) = registry
             .assign(&g.name, entries.remove(&g.name).unwrap_or_default())

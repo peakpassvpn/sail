@@ -592,7 +592,7 @@ proxies:
         let warnings = proxies.warnings.join("\n");
         assert!(
             warnings.contains("2 policies left out, as they do not read")
-                && warnings.contains("snell"),
+                && warnings.contains("Snell"),
             "{}",
             warnings
         );

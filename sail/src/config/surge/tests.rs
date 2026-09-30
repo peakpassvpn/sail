@@ -634,8 +634,20 @@ fn mistakes_name_where_they_are() {
             "[Proxy Group] line 4: G: policy-priority: \"A:0\": a factor is above 0",
         ),
         (
-            "[Proxy Group]\nG = subnet, default=DIRECT\n[Rule]\nFINAL,G\n",
-            "sail does not implement subnet groups yet (C.5d)",
+            "[Proxy Group]\nG = subnet, SSID:a = DIRECT\n[Rule]\nFINAL,G\n",
+            "[Proxy Group] line 2: G: default: missing",
+        ),
+        (
+            "[Proxy Group]\nG = subnet, default=DIRECT, include-all-proxies=true\n[Rule]\nFINAL,G\n",
+            "subnet groups take no include-all-proxies",
+        ),
+        (
+            "[Proxy Group]\nG = ssid, default=DIRECT, TYPE:LTE = DIRECT\n[Rule]\nFINAL,G\n",
+            "none of WIFI, WIRED and CELLULAR",
+        ),
+        (
+            "[Rule]\nCELLULAR-RADIO,LTE,DIRECT\nFINAL,DIRECT\n",
+            "no host tells sail the radio technology",
         ),
         (
             "[Proxy Group]\nA = select, B\nB = select, A\n[Rule]\nFINAL,A\n",
@@ -665,8 +677,8 @@ fn mistakes_name_where_they_are() {
             "[Rule] line 2: HOSTNAME-TYPE: \"ipv4\" is none of IPv4",
         ),
         (
-            "[Rule]\nAND,((DOMAIN,a),(SUBNET,TYPE:WIFI)),DIRECT\nFINAL,DIRECT\n",
-            "[Rule] line 2: sail does not implement SUBNET rules",
+            "[Rule]\nAND,((DOMAIN,a),(DEVICE-NAME,tv)),DIRECT\nFINAL,DIRECT\n",
+            "[Rule] line 2: sail does not implement DEVICE-NAME rules: they match the devices",
         ),
         (
             "[Rule]\nDOMAIN,a,Nowhere\nFINAL,DIRECT\n",
@@ -1000,4 +1012,46 @@ fn shadow_tls_mistakes_name_the_parameter() {
         .ends_with("shadow-tls-sni: needs shadow-tls-password, which turns Shadow TLS on"));
     let quic = "[Proxy]\nQ = hysteria2, q.example.com, 443, password=pw, shadow-tls-password=p\n";
     assert!(error(quic).contains("Shadow TLS wraps TCP proxies, not hysteria2 ones"));
+
+fn subnet_groups_and_rules_follow_the_network() {
+    let config = load(
+        "[Proxy]\nP = socks5, a, 1\n\
+         [Proxy Group]\n\
+         Scene = ssid, default = P, cellular = DIRECT, \"Home Wi-Fi\" = DIRECT, \"BSSID:58:C6:7E:DF:2D:51\"=REJECT\n\
+         Out = subnet, default=P, TYPE:WIRED = DIRECT, ROUTER:192.168.1.1 = Scene, hidden=true\n\
+         [Rule]\n\
+         SUBNET,SSID:Office-*,DIRECT\n\
+         CELLULAR-CARRIER,46001,Out\n\
+         FINAL,Scene\n",
+    );
+    assert_eq!(
+        outbound(&config, "Scene"),
+        serde_json::json!({
+            "type": "network", "tag": "Scene",
+            "branches": [
+                { "network_type": ["cellular"], "outbound": "DIRECT" },
+                { "wifi_ssid": ["Home Wi-Fi"], "outbound": "DIRECT" },
+                { "wifi_bssid": ["58:c6:7e:df:2d:51"], "outbound": "REJECT" },
+            ],
+            "default": "P",
+        })
+    );
+    let out = outbound(&config, "Out");
+    assert_eq!(
+        out["branches"][1]["network_gateway"],
+        serde_json::json!(["192.168.1.1"])
+    );
+    assert_eq!(out["branches"][1]["outbound"], "Scene");
+    let rules = rules(&config);
+    let subnet = rules
+        .iter()
+        .find(|r| r.get("wifi_ssid_regex").is_some())
+        .unwrap();
+    assert_eq!(
+        subnet["wifi_ssid_regex"],
+        serde_json::json!(["^Office\\-.*$"])
+    );
+    assert!(rules
+        .iter()
+        .any(|r| r["network_mcc_mnc"] == serde_json::json!(["46001"]) && r["outbound"] == "Out"));
 }

@@ -29,7 +29,8 @@ const SERVERS: &[(&str, &str)] = &[
     ("DHCP", "sail serves no DHCP"),
     (
         "SSID Setting",
-        "sail does not implement settings by network yet (C.5d)",
+        "sail does not change its settings by network: whether it runs on a network is the \
+         host's to decide",
     ),
 ];
 

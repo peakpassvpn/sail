@@ -51,6 +51,7 @@ mod requirement;
 mod rule;
 mod sections;
 mod sets;
+mod subnet;
 mod text;
 
 #[cfg(feature = "outbound-provider")]

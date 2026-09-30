@@ -250,9 +250,9 @@ mod tests {
             &RuntimeEnv::default(),
         )
         .unwrap();
-        // The plain ones as one, those with no-resolve as another, and the
-        // wildcard and the logical one.
-        assert_eq!(rules.len(), 4);
+        // The plain ones as one, those with no-resolve as another, the
+        // wildcard, the logical one and the one on the network.
+        assert_eq!(rules.len(), 5);
         for (to, want) in [
             (domain("a.example.com"), true),
             (domain("exact.org"), true),

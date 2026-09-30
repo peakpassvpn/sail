@@ -42,11 +42,14 @@ use super::Lowered;
 /// How deep logical rules nest, as Surge has it.
 const MAX_LOGICAL_DEPTH: usize = 10;
 
-/// The rule types sail does not implement, or not yet.
+/// The rule types sail does not implement, and why.
 fn later(kind: &str) -> Option<&'static str> {
     match kind {
-        "SUBNET" | "CELLULAR-RADIO" | "CELLULAR-CARRIER" | "DEVICE-NAME" | "MAC-ADDRESS"
-        | "SCRIPT" => Some(""),
+        "CELLULAR-RADIO" => Some(": no host tells sail the radio technology"),
+        "DEVICE-NAME" | "MAC-ADDRESS" => {
+            Some(": they match the devices of Surge Mac's gateway mode, which sail has none of")
+        }
+        "SCRIPT" => Some(""),
         _ => None,
     }
 }
@@ -496,6 +499,16 @@ pub(super) fn condition(
         "IP-CIDR" | "IP-CIDR6" => {
             rule.insert("ip_cidr".into(), json!([prefix(value)?]));
             resolves(&mut rule);
+            return Ok(Some((rule, needs)));
+        }
+        // The network the host is on.
+        "SUBNET" => {
+            let rule = super::subnet::conditions(value).map_err(|e| anyhow!("SUBNET: {}", e))?;
+            return Ok(Some((rule, needs)));
+        }
+        "CELLULAR-CARRIER" => {
+            super::subnet::mcc_mnc(value, &mut rule)
+                .map_err(|e| anyhow!("CELLULAR-CARRIER: {}", e))?;
             return Ok(Some((rule, needs)));
         }
         "SRC-IP" => {
@@ -988,7 +1001,7 @@ fn process(value: &str) -> (&'static str, String) {
 
 /// A glob as a regular expression, with case, `*` and `?` within a part
 /// of a path or across parts alike, as Surge's.
-fn glob(pattern: &str) -> String {
+pub(super) fn glob(pattern: &str) -> String {
     let mut regex = String::from("^");
     for c in pattern.chars() {
         match c {
