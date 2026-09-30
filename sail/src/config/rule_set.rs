@@ -298,10 +298,10 @@ pub struct HeadlessRule {
     pub package_name: Vec<String>,
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
     pub package_name_regex: Vec<String>,
-    /// Conditions sail does not match yet; a rule that sets one is refused
-    /// when the rule-set is read.
+    /// Conditions on the network the host is on, as a routing rule's:
+    /// `wifi|cellular|ethernet|other`.
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
-    pub network_type: Vec<serde_json::Value>,
+    pub network_type: Vec<String>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub network_is_expensive: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -310,6 +310,18 @@ pub struct HeadlessRule {
     pub wifi_ssid: Vec<String>,
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
     pub wifi_bssid: Vec<String>,
+    /// Sail extensions, as a routing rule's: the Wi-Fi name and access
+    /// point by pattern, the gateway, the cellular carrier.
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub wifi_ssid_regex: Vec<String>,
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub wifi_bssid_regex: Vec<String>,
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub network_gateway: Vec<String>,
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub network_mcc_mnc: Vec<String>,
+    /// Conditions sail does not match yet; a rule that sets one is refused
+    /// when the rule-set is read.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub network_interface_address: Option<serde_json::Value>,
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
@@ -344,11 +356,6 @@ impl HeadlessRule {
     /// The first condition set that sail does not match yet.
     pub fn unsupported(&self) -> Option<&'static str> {
         [
-            ("network_type", !self.network_type.is_empty()),
-            ("network_is_expensive", self.network_is_expensive),
-            ("network_is_constrained", self.network_is_constrained),
-            ("wifi_ssid", !self.wifi_ssid.is_empty()),
-            ("wifi_bssid", !self.wifi_bssid.is_empty()),
             (
                 "network_interface_address",
                 self.network_interface_address.is_some(),

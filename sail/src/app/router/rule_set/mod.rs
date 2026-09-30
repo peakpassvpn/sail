@@ -838,17 +838,76 @@ mod tests {
     #[test]
     fn unsupported_conditions_are_refused_with_their_name() {
         let configs: Vec<config::RuleSet> = serde_json::from_value(serde_json::json!([
-            { "tag": "w", "rules": [{ "wifi_ssid": "home" }] }
+            { "tag": "w", "rules": [{ "default_interface_address": "10.0.0.0/8" }] }
         ]))
         .unwrap();
         let err = RuleSets::load(&configs, &HttpClients::default(), &RuntimeEnv::default())
             .err()
             .unwrap();
         assert!(
-            format!("{:#}", err).contains("wifi_ssid: sail does not match it yet"),
+            format!("{:#}", err).contains("default_interface_address: sail does not match it yet"),
             "{:#}",
             err
         );
+    }
+
+    fn on_network(state: serde_json::Value) -> Facts {
+        at("a.example", 443, Tcp).with_network(std::sync::Arc::new(
+            crate::net::network::NetworkState::from_json(&state.to_string()).unwrap(),
+        ))
+    }
+
+    /// A rule-set's rules match the network the host is on, as a routing
+    /// rule's do, and the rule naming it needs the network then.
+    #[test]
+    fn a_rule_set_matches_the_network() {
+        let m = rule(
+            serde_json::json!({ "rule_set": "home", "outbound": "x" }),
+            serde_json::json!([{ "tag": "home", "rules": [
+                { "wifi_ssid": "Home", "network_type": "wifi" }
+            ] }]),
+        );
+        assert!(m.needs().network);
+        assert!(m.matches(&on_network(
+            serde_json::json!({ "type": "wifi", "ssid": "Home" })
+        )));
+        assert!(!m.matches(&on_network(
+            serde_json::json!({ "type": "wifi", "ssid": "Cafe" })
+        )));
+        assert!(!m.matches(&at("a.example", 443, Tcp)));
+    }
+
+    /// A binary rule of sing-box's: `wifi_ssid` Home, `network_type`
+    /// wifi (0), `network_is_expensive`.
+    #[test]
+    fn a_binary_rule_set_matches_the_network() {
+        let mut rules = vec![1u8, 0];
+        rules.extend([14, 1, 4]);
+        rules.extend(b"Home");
+        rules.extend([18, 1, 0]);
+        rules.extend([19]);
+        rules.extend([0xff, 0]);
+        let mut data = b"SRS\x03".to_vec();
+        data.extend(miniz_oxide::deflate::compress_to_vec_zlib(&rules, 6));
+        let set =
+            RuleSet::read(&data, RuleSetFormat::Binary, None, &RuntimeEnv::default()).unwrap();
+        assert!(set.needs(false).network);
+        let home = |expensive: bool| {
+            on_network(serde_json::json!({
+                "type": "wifi", "ssid": "Home", "expensive": expensive
+            }))
+        };
+        assert!(set.matches(&home(true), false));
+        assert!(!set.matches(&home(false), false));
+        assert!(!set.matches(&at("a.example", 443, Tcp), false));
+
+        // A kind of network sing-box does not number is an error.
+        let mut data = b"SRS\x03".to_vec();
+        data.extend(miniz_oxide::deflate::compress_to_vec_zlib(
+            &[1, 0, 18, 1, 9, 0xff, 0],
+            6,
+        ));
+        assert!(RuleSet::read(&data, RuleSetFormat::Binary, None, &RuntimeEnv::default()).is_err());
     }
 
     #[test]

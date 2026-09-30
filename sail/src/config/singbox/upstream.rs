@@ -203,11 +203,6 @@ pub const FIELDS: &[Field] = &[
     // Rule conditions.
     f("route.rules.*.client", Unsupported),
     f("route.rules.*.source_geoip", Unsupported),
-    f("route.rules.*.network_type", Unsupported),
-    f("route.rules.*.network_is_expensive", Unsupported),
-    f("route.rules.*.network_is_constrained", Unsupported),
-    f("route.rules.*.wifi_ssid", Unsupported),
-    f("route.rules.*.wifi_bssid", Unsupported),
     f("route.rules.*.interface_address", Unsupported),
     f("route.rules.*.network_interface_address", Unsupported),
     f("route.rules.*.default_interface_address", Unsupported),

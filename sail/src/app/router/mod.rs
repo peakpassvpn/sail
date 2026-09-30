@@ -466,6 +466,9 @@ pub struct Router {
     rule_sets: rule_set::RuleSets,
     final_outbound: Option<String>,
     dns_client: SyncDnsClient,
+    /// The network the host is on, when a rule may have conditions on
+    /// it: its state is taken once for each connection matched.
+    network: Option<crate::net::network::Network>,
 }
 
 impl Router {
@@ -493,13 +496,25 @@ impl Router {
         env: &RuntimeEnv,
         rule_sets: &rule_set::RuleSets,
     ) -> Result<Self> {
+        let rules = Self::load_rules(route, env, rule_sets)?;
+        let network = rules
+            .iter()
+            .any(|rule| rule.matcher.may_need_network())
+            .then(|| env.network.clone());
         Ok(Router {
-            rules: Self::load_rules(route, env, rule_sets)?,
+            rules,
             #[cfg(all(feature = "clash-api", feature = "rule-set"))]
             rule_sets: rule_sets.clone(),
             final_outbound: route.final_outbound.clone(),
             dns_client,
+            network,
         })
+    }
+
+    /// Whether a rule has conditions on the network the host is on
+    /// (`wifi_ssid`, `network_type`, …), its rule-sets' as they are now.
+    pub fn needs_network(&self) -> bool {
+        self.rules.iter().any(|rule| rule.matcher.needs().network)
     }
 
     /// Whether a rule, or `final`, routes to the outbound `tag`.
@@ -573,8 +588,18 @@ impl Router {
     ) -> Result<Stop> {
         let pre_match = sniffer.is_none();
         sess.matched_rule = None;
+        // The network as it is when the connection is matched, for every
+        // rule alike.
+        let network = self.network.as_ref().map(|n| n.snapshot());
+        let facts_of = |sess: &Session, resolved: &[IpAddr]| {
+            let facts = Facts::new(sess, resolved);
+            match &network {
+                Some(state) => facts.with_network(state.clone()),
+                None => facts,
+            }
+        };
         let mut resolved: Vec<IpAddr> = Vec::new();
-        let mut facts = Facts::new(sess, &resolved);
+        let mut facts = facts_of(sess, &resolved);
         // The on_demand actions armed and not yet taken, and whether an
         // armed resolve was, which it is at most once for a destination.
         let mut armed_sniff: Option<&SniffAction> = None;
@@ -592,7 +617,7 @@ impl Router {
                                 .sniff(sess, action)
                                 .await
                                 .map_err(|e| anyhow!("sniff: {}", e))?;
-                            facts = Facts::new(sess, &resolved);
+                            facts = facts_of(sess, &resolved);
                         }
                     }
                 }
@@ -603,7 +628,7 @@ impl Router {
                             armed_resolve = None;
                             resolve_taken = true;
                             resolved = self.resolve_as(how, &domain, sess).await?;
-                            facts = Facts::new(sess, &resolved);
+                            facts = facts_of(sess, &resolved);
                         }
                     }
                 }
@@ -679,7 +704,7 @@ impl Router {
                     armed_resolve = Some(how);
                 }
             }
-            facts = Facts::new(sess, &resolved);
+            facts = facts_of(sess, &resolved);
         }
         Ok(Stop::Final)
     }
@@ -1828,6 +1853,109 @@ mod tests {
         let mut unresolved = logical;
         unresolved["no_resolve"] = serde_json::json!(true);
         assert_eq!(needs(unresolved), domain.or(sniff));
+        let network = Needs {
+            network: true,
+            ..Default::default()
+        };
+        assert_eq!(needs(serde_json::json!({ "wifi_ssid": "Home" })), network);
+        assert_eq!(
+            needs(
+                serde_json::json!({ "type": "logical", "mode": "or", "rules": [
+                { "port": 1 }, { "network_is_expensive": true }
+            ] })
+            ),
+            network
+        );
+    }
+
+    /// A router of `rules` whose network is `env`'s.
+    fn router_in(rules: serde_json::Value, env: &RuntimeEnv) -> Router {
+        let config = crate::config::Config::from_json(
+            &serde_json::json!({
+                "outbounds": [{ "type": "direct", "tag": "a" }, { "type": "direct", "tag": "b" }],
+                "route": { "rules": rules, "final": "b" },
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let dns = DnsClient::new(&config.dns, Default::default(), env)
+            .unwrap()
+            .into_shared();
+        Router::new(&config.route, dns, env).unwrap()
+    }
+
+    /// The rules match the network as it is when a connection is routed:
+    /// a router built before a change sees it.
+    #[tokio::test]
+    async fn rules_match_the_network_the_host_is_on() {
+        let env = RuntimeEnv::default();
+        let router = router_in(
+            serde_json::json!([
+                { "wifi_ssid": "Home", "network_type": "wifi", "outbound": "a" }
+            ]),
+            &env,
+        );
+        assert!(router.needs_network());
+        let pick = || async {
+            let mut sess = Session {
+                destination: SocksAddr::Domain("x.example".into(), 443),
+                ..Default::default()
+            };
+            router.pick_route(&mut sess, &mut NoSniffer).await.unwrap()
+        };
+        // Nothing known: the rule does not match.
+        assert_eq!(pick().await, Decision::Route(Some("b".into())));
+        let push = |json: serde_json::Value| {
+            env.network
+                .push(crate::net::network::NetworkState::from_json(&json.to_string()).unwrap())
+        };
+        push(serde_json::json!({ "type": "wifi", "ssid": "Home" }));
+        assert_eq!(pick().await, Decision::Route(Some("a".into())));
+        push(serde_json::json!({ "type": "cellular" }));
+        assert_eq!(pick().await, Decision::Route(Some("b".into())));
+        // Pre-match sees it too.
+        push(serde_json::json!({ "type": "wifi", "ssid": "Home" }));
+        let bypass = router_in(
+            serde_json::json!([{ "wifi_ssid": "Home", "action": "bypass" }]),
+            &env,
+        );
+        let mut sess = Session {
+            destination: SocksAddr::from(("10.0.0.1".parse::<IpAddr>().unwrap(), 443)),
+            ..Default::default()
+        };
+        assert_eq!(bypass.pre_match(&mut sess).await, PreMatch::Bypass);
+    }
+
+    #[test]
+    fn a_router_needs_the_network_only_for_rules_on_it() {
+        let env = RuntimeEnv::default();
+        assert!(
+            !router_in(serde_json::json!([{ "port": 1, "outbound": "a" }]), &env).needs_network()
+        );
+        assert!(router_in(
+            serde_json::json!([{ "network_mcc_mnc": "46001", "outbound": "a" }]),
+            &env
+        )
+        .needs_network());
+        // Such a rule's mistakes are the configuration's.
+        let config = crate::config::Config::from_json(
+            &serde_json::json!({
+                "outbounds": [{ "type": "direct", "tag": "a" }],
+                "route": { "rules": [{ "network_type": "wimax", "outbound": "a" }] },
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let dns = DnsClient::new(&config.dns, Default::default(), &env)
+            .unwrap()
+            .into_shared();
+        let err = Router::new(&config.route, dns, &env).err().unwrap();
+        assert!(
+            err.to_string()
+                .starts_with("route.rules[0].network_type: unknown network type \"wimax\""),
+            "{}",
+            err
+        );
     }
 
     #[test]

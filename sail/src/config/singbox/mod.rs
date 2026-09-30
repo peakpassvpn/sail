@@ -243,13 +243,13 @@ mod tests {
         let err = parse(
             r#"{
                 "outbounds": [{ "type": "direct" }],
-                "route": { "rules": [{ "wifi_ssid": "home", "outbound": "direct" }] }
+                "route": { "rules": [{ "source_mac_address": "aa:bb:cc:dd:ee:ff", "outbound": "direct" }] }
             }"#,
         )
         .unwrap_err();
         assert_eq!(
             err.to_string(),
-            "route.rules[0].wifi_ssid: sail does not implement this field yet"
+            "route.rules[0].source_mac_address: sail does not implement this field yet"
         );
     }
 

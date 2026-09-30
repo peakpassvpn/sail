@@ -18,6 +18,9 @@ use crate::config::model::{self, LogicalMode, RuleType};
 use crate::runtime::RuntimeEnv;
 use crate::session::{Network, Session, SniffedProtocol};
 
+mod network;
+pub(crate) use network::NetworkConditions;
+
 /// What rules are matched against: what is known about a connection at
 /// the time.
 #[derive(Clone)]
@@ -49,6 +52,9 @@ pub(crate) struct Facts {
     /// The evaluated DNS responses, by what `match_response` calls them,
     /// for the rules a logical one combines that name their own.
     responses: Option<Arc<Responses>>,
+    /// The network the host is on, at the time: taken only for rules
+    /// with conditions on it, which do not match without it.
+    network_state: Option<Arc<crate::net::network::NetworkState>>,
 }
 
 /// The evaluated DNS responses a DNS rule may match, by what
@@ -89,7 +95,15 @@ impl Facts {
             rcode: None,
             response: None,
             responses: None,
+            network_state: None,
         }
+    }
+
+    /// With the network the host is on, which conditions on it
+    /// (`wifi_ssid`, `network_type`, …) match.
+    pub fn with_network(mut self, state: Arc<crate::net::network::NetworkState>) -> Self {
+        self.network_state = Some(state);
+        self
     }
 
     /// The facts of the DNS response `message`, whose records the rules
@@ -616,6 +630,9 @@ pub(crate) struct Needs {
     pub domain: bool,
     /// What sniffing alone tells: the protocol, the plain HTTP request.
     pub sniff: bool,
+    /// The network the host is on: never learnt of a connection, but
+    /// taken for it only when a rule needs it.
+    pub network: bool,
 }
 
 impl Needs {
@@ -624,6 +641,7 @@ impl Needs {
             ip: self.ip || other.ip,
             domain: self.domain || other.domain,
             sniff: self.sniff || other.sniff,
+            network: self.network || other.network,
         }
     }
 
@@ -749,6 +767,15 @@ impl Condition {
         }
     }
 
+    /// Whether it names rule-sets, however deep: rules a download may
+    /// replace with others that need more.
+    pub(crate) fn names_rule_sets(&self) -> bool {
+        match self {
+            Condition::Default(c) => c.has_rule_sets(),
+            Condition::Logical { rules, .. } => rules.iter().any(Condition::names_rule_sets),
+        }
+    }
+
     /// The destination `ip_cidr` ranges of its default rules, however
     /// deep, as sing-box extracts a rule-set's addresses.
     #[cfg_attr(not(feature = "rule-set"), allow(dead_code))]
@@ -838,6 +865,8 @@ pub(crate) struct Conditions {
     http_user_agent: Vec<Pattern>,
     url_regex: Vec<Pattern>,
     query_types: Vec<u16>,
+    /// On the network the host is on.
+    network: NetworkConditions,
     /// Each by its tag.
     #[cfg(feature = "rule-set")]
     rule_sets: Vec<(std::sync::Arc<str>, super::rule_set::SharedRuleSet)>,
@@ -1065,6 +1094,7 @@ impl Conditions {
             } else {
                 extras.query_types
             },
+            network: NetworkConditions::compile(rule, path)?,
             #[cfg(feature = "rule-set")]
             rule_sets,
             #[cfg(feature = "rule-set")]
@@ -1103,6 +1133,7 @@ impl Conditions {
             && self.response_ns.is_empty()
             && self.response_extra.is_empty()
             && self.clash_mode.is_none()
+            && self.network.is_empty()
             && !self.has_rule_sets()
     }
 
@@ -1180,6 +1211,7 @@ impl Conditions {
             sniff: !self.protocols.is_empty()
                 || !self.http_user_agent.is_empty()
                 || !self.url_regex.is_empty(),
+            network: self.network.needs(),
         };
         #[cfg(feature = "rule-set")]
         for (_, set) in &self.rule_sets {
@@ -1306,7 +1338,8 @@ impl Conditions {
             && self
                 .clash_mode
                 .as_ref()
-                .is_none_or(|(wanted, mode)| mode.is(wanted));
+                .is_none_or(|(wanted, mode)| mode.is(wanted))
+            && self.network.matches(facts.network_state.as_deref());
         holds.then_some(groups)
     }
 
@@ -1380,6 +1413,13 @@ impl Matcher {
     /// as they are now.
     pub fn needs(&self) -> Needs {
         self.0.needs(false)
+    }
+
+    /// Whether it may need the network the host is on: it does now, or it
+    /// names rule-sets, whose rules a download may replace with some that
+    /// do.
+    pub fn may_need_network(&self) -> bool {
+        self.needs().network || self.0.names_rule_sets()
     }
 
     /// The tag of a narrow rule-set (see `RuleSet::is_narrow`) the rule

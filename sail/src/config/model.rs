@@ -1893,6 +1893,41 @@ pub struct Rule {
     pub user: Vec<String>,
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
     pub user_id: Vec<i32>,
+    /// The name of the Wi-Fi network the host is on, whole and with case.
+    /// This and the other conditions on the network match the network as
+    /// the host tells it or sail detects it at the time; one on something
+    /// not known of it does not match.
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub wifi_ssid: Vec<String>,
+    /// The address of the Wi-Fi access point, `aa:bb:cc:dd:ee:ff`, in any
+    /// case, with `:` or `-`, or as 12 hex digits.
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub wifi_bssid: Vec<String>,
+    /// The kind of network: `wifi`, `cellular`, `ethernet`, `other`.
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub network_type: Vec<String>,
+    /// The network is metered, as the system says.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub network_is_expensive: bool,
+    /// The network is in a low data mode, as the system says.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub network_is_constrained: bool,
+    /// A sail extension, for Surge's `SSID:`: regular expressions found in
+    /// the Wi-Fi network's name, with case.
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub wifi_ssid_regex: Vec<String>,
+    /// A sail extension, for Surge's `BSSID:`: regular expressions found in
+    /// the access point's address as `aa:bb:cc:dd:ee:ff`, whatever the case.
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub wifi_bssid_regex: Vec<String>,
+    /// A sail extension, for Surge's `ROUTER:`: the address of the default
+    /// gateway.
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub network_gateway: Vec<String>,
+    /// A sail extension, for Surge's `MCCMNC:` and `CELLULAR-CARRIER`: the
+    /// cellular carrier, its MCC and MNC as 5 or 6 digits; only off Wi-Fi.
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub network_mcc_mnc: Vec<String>,
     /// Tags of rule-sets, any of whose rules matching matches.
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
     pub rule_set: Vec<String>,
@@ -2149,6 +2184,15 @@ impl Rule {
             ("package_name_regex", !self.package_name_regex.is_empty()),
             ("user", !self.user.is_empty()),
             ("user_id", !self.user_id.is_empty()),
+            ("wifi_ssid", !self.wifi_ssid.is_empty()),
+            ("wifi_bssid", !self.wifi_bssid.is_empty()),
+            ("network_type", !self.network_type.is_empty()),
+            ("network_is_expensive", self.network_is_expensive),
+            ("network_is_constrained", self.network_is_constrained),
+            ("wifi_ssid_regex", !self.wifi_ssid_regex.is_empty()),
+            ("wifi_bssid_regex", !self.wifi_bssid_regex.is_empty()),
+            ("network_gateway", !self.network_gateway.is_empty()),
+            ("network_mcc_mnc", !self.network_mcc_mnc.is_empty()),
             ("rule_set", !self.rule_set.is_empty()),
             (
                 "rule_set_ip_cidr_match_source",

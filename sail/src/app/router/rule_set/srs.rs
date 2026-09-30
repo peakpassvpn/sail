@@ -35,19 +35,19 @@ const PORT_RANGE: u8 = 10;
 const PROCESS_NAME: u8 = 11;
 const PROCESS_PATH: u8 = 12;
 const PACKAGE_NAME: u8 = 13;
+const WIFI_SSID: u8 = 14;
+const WIFI_BSSID: u8 = 15;
 const PROCESS_PATH_REGEX: u8 = 17;
+const NETWORK_TYPE: u8 = 18;
+const NETWORK_IS_EXPENSIVE: u8 = 19;
+const NETWORK_IS_CONSTRAINED: u8 = 20;
 const PACKAGE_NAME_REGEX: u8 = 23;
 const FINAL: u8 = 0xff;
 
 /// The names of the item types sail does not match yet, by type.
 fn unsupported(item: u8) -> Option<&'static str> {
     Some(match item {
-        14 => "wifi_ssid",
-        15 => "wifi_bssid",
         16 => "adguard_domain",
-        18 => "network_type",
-        19 => "network_is_expensive",
-        20 => "network_is_constrained",
         21 => "network_interface_address",
         22 => "default_interface_address",
         _ => return None,
@@ -136,6 +136,17 @@ fn read_plain(reader: &mut Reader) -> Result<Parts> {
             PROCESS_PATH => rule.process_path = reader.strings()?,
             PACKAGE_NAME => rule.package_name = reader.strings()?,
             PROCESS_PATH_REGEX => rule.process_path_regex = reader.strings()?,
+            WIFI_SSID => rule.wifi_ssid = reader.strings()?,
+            WIFI_BSSID => rule.wifi_bssid = reader.strings()?,
+            NETWORK_TYPE => {
+                rule.network_type = reader
+                    .bytes()?
+                    .iter()
+                    .map(|&t| network_type(t))
+                    .collect::<Result<_>>()?
+            }
+            NETWORK_IS_EXPENSIVE => rule.network_is_expensive = true,
+            NETWORK_IS_CONSTRAINED => rule.network_is_constrained = true,
             PACKAGE_NAME_REGEX => rule.package_name_regex = reader.strings()?,
             FINAL => {
                 rule.invert = reader.bool()?;
@@ -149,6 +160,19 @@ fn read_plain(reader: &mut Reader) -> Result<Parts> {
             }
         }
     }
+}
+
+/// A kind of network as sing-box numbers them (`C.InterfaceType`), by
+/// its name.
+fn network_type(t: u8) -> Result<String> {
+    Ok(match t {
+        0 => "wifi",
+        1 => "cellular",
+        2 => "ethernet",
+        3 => "other",
+        t => return Err(anyhow!("network_type: unknown network type {}", t)),
+    }
+    .to_string())
 }
 
 /// An address set as sing-box writes one: version 1, a big-endian u64
