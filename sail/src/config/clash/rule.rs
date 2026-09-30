@@ -145,6 +145,13 @@ impl Walk<'_> {
                 guard.push((not(inner.0), inner.1));
                 continue;
             }
+            if self.policies.passes.contains(s.target) {
+                return Err(anyhow!(
+                    "{}: {}: PASS inside SUB-RULE is not supported",
+                    at,
+                    s.target
+                ));
+            }
             let target = target(s.target, self.policies).map_err(|e| anyhow!("{}: {}", at, e))?;
             let mut conditions: Vec<_> = guard.clone();
             if s.kind != "MATCH" {

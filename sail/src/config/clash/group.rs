@@ -19,6 +19,8 @@ pub struct Policies {
     names: HashSet<String>,
     /// The `dns` proxies, which answer DNS themselves.
     pub dns: HashSet<String>,
+    /// PASS, and the groups that may choose it, however deep.
+    pub passes: HashSet<String>,
 }
 
 impl Policies {
@@ -79,7 +81,7 @@ pub fn lower(
     let known: HashSet<String> = names
         .iter()
         .cloned()
-        .chain(["DIRECT", "REJECT", "REJECT-DROP", "COMPATIBLE"].map(String::from))
+        .chain(["DIRECT", "REJECT", "REJECT-DROP", "COMPATIBLE", "PASS"].map(String::from))
         .collect();
     // The proxies `include-all-proxies` takes, by name as Mihomo sorts them.
     let mut all_proxies: Vec<&str> = proxies
@@ -114,6 +116,29 @@ pub fn lower(
         )?;
         out.outbounds.push(group);
     }
+    // The groups that may choose PASS, which leaves a rule for the next:
+    // sail's `pass` outbound, where one does.
+    let mut passes: HashSet<String> = HashSet::from(["PASS".to_string()]);
+    loop {
+        let before = passes.len();
+        for o in &out.outbounds {
+            let takes = o["outbounds"].as_array().is_some_and(|m| {
+                m.iter()
+                    .any(|m| m.as_str().is_some_and(|m| passes.contains(m)))
+            });
+            if takes {
+                if let Some(tag) = o["tag"].as_str() {
+                    passes.insert(tag.to_string());
+                }
+            }
+        }
+        if passes.len() == before {
+            break;
+        }
+    }
+    if passes.len() > 1 {
+        out.outbounds.push(json!({ "type": "pass", "tag": "PASS" }));
+    }
     // Mihomo's own: DIRECT, which is also where connections no rule matches
     // go, REJECT, and GLOBAL, unless a group takes the name.
     out.outbounds
@@ -144,6 +169,7 @@ pub fn lower(
     Ok(Policies {
         names: all,
         dns: proxies.dns.clone(),
+        passes,
     })
 }
 

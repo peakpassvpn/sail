@@ -2092,3 +2092,46 @@ fn a_wildcard_is_a_whole_label() {
     );
     load("dns: { enable: true, enhanced-mode: fake-ip, fake-ip-filter: ['*.a.example', 'b.*.example'] }\n");
 }
+
+#[test]
+fn pass_leaves_a_rule_for_the_next() {
+    let config = load(
+        "proxies: [{ name: A, type: socks5, server: a, port: 1 }]\n\
+         proxy-groups:\n\
+         - { name: G, type: select, proxies: [PASS, A] }\n\
+         - { name: H, type: select, proxies: [G, DIRECT] }\n\
+         rules:\n\
+         - DOMAIN,a.example,H\n\
+         - DOMAIN,b.example,PASS\n\
+         - MATCH,PASS\n",
+    );
+    assert_eq!(outbound(&config, "PASS").protocol, "pass");
+    // A rule to PASS itself is none; MATCH,PASS is Mihomo's DIRECT.
+    assert!(rules(&config)
+        .iter()
+        .all(|r| r.get("domain") != Some(&serde_json::json!(["b.example"]))));
+    assert_eq!(config.route.final_outbound.as_deref(), Some("DIRECT"));
+    // Without a group taking it, there is none.
+    let config = load("rules: [\"MATCH,PASS\"]\n");
+    assert!(config.outbounds.iter().all(|o| o.tag != "PASS"));
+
+    for (target, message) in [
+        ("PASS", "PASS: PASS inside SUB-RULE"),
+        ("H", "H: PASS inside SUB-RULE"),
+    ] {
+        let err = error(&format!(
+            "proxy-groups:\n\
+             - {{ name: G, type: select, proxies: [PASS, DIRECT] }}\n\
+             - {{ name: H, type: select, proxies: [G] }}\n\
+             sub-rules:\n\
+             \x20 s: [\"DOMAIN,a.example,{}\"]\n\
+             rules: [\"SUB-RULE,(NETWORK,tcp),s\", \"MATCH,DIRECT\"]\n",
+            target
+        ));
+        assert!(
+            err.contains(&format!("sub-rules.s[0]: {}", message)),
+            "{}",
+            err
+        );
+    }
+}
