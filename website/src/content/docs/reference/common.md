@@ -631,23 +631,24 @@ Serde: `serde (remote = "Self" , deny_unknown_fields)`
 | `bind_interface` | `Option < String >` | Default::default() | The interface to send through, by name. Loopback destinations still go over loopback, where sing-box applies the bind to them as well.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
 | `inet4_bind_address` | `Option < Ipv4Addr >` | Default::default() | The local address for IPv4 destinations, loopback ones aside: as `bind_interface`.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
 | `inet6_bind_address` | `Option < Ipv6Addr >` | Default::default() | The local address for IPv6 destinations, loopback ones aside: as `bind_interface`.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `bind_address_no_port` | `Option < Value >` | Default::default() | Not implemented yet.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
+| `bind_address_no_port` | `bool` | Default::default() | `IP_BIND_ADDRESS_NO_PORT` on TCP sockets bound to an address, so that the port is picked at connect: Linux only.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
 | `protect_path` | `Option < Value >` | Default::default() | Not implemented yet.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
 | `routing_mark` | `Option < u32 >` | Default::default() | `SO_MARK`, Linux only.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `reuse_addr` | `Option < Value >` | Default::default() | Not implemented yet.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
+| `reuse_addr` | `bool` | Default::default() | `SO_REUSEADDR`, and `SO_REUSEPORT` on Unix, on UDP sockets.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
 | `netns` | `Option < Value >` | Default::default() | Not implemented yet.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
 | `connect_timeout` | `Option < Duration >` | Default::default() | How long a TCP connect to one address may take; 5s when unset.<br/>`serde (default , with = "crate::config::model::duration" , skip_serializing_if = "Option::is_none")` |
-| `tcp_fast_open` | `Option < Value >` | Default::default() | Not implemented yet.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
+| `tcp_fast_open` | `bool` | Default::default() | TCP Fast Open: the first data written goes with the SYN. Its addresses are then tried one by one, not raced.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
 | `tcp_multi_path` | `Option < Value >` | Default::default() | Not implemented yet.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
 | `disable_tcp_keep_alive` | `bool` | Default::default() | No TCP keepalive at all.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
 | `tcp_keep_alive` | `Option < Duration >` | Default::default() | How long a TCP connection is idle before keepalive probes it; 5m when unset.<br/>`serde (default , with = "crate::config::model::duration" , skip_serializing_if = "Option::is_none")` |
 | `tcp_keep_alive_interval` | `Option < Duration >` | Default::default() | Between keepalive probes; 75s when unset.<br/>`serde (default , with = "crate::config::model::duration" , skip_serializing_if = "Option::is_none")` |
-| `udp_fragment` | `Option < Value >` | Default::default() | Not implemented yet.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
+| `udp_fragment` | `Option < bool >` | Default::default() | Whether UDP datagrams may be fragmented on the way; unset, as the place says, see `udp_fragment_default`.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
+| `udp_fragment_default` | `bool` | Required | What `udp_fragment` is when unset: sing-box's hidden `UDPFragmentDefault`, which direct, hysteria2 and tuic set. Not read from a configuration.<br/>`serde (skip)` |
 | `domain_resolver` | `Option < DomainResolver >` | Default::default() | The DNS server that resolves the names dialled.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
 | `skip_default_domain_resolver` | `bool` | Default::default() | A sail extension: without a `domain_resolver` of its own, the names dialled resolve as the DNS rules say, not as `route.default_domain_resolver` does; as Mihomo's DIRECT resolves apart from the proxies' servers.<br/>`serde (default , skip_serializing_if = "std::ops::Not::not")` |
 | `domain_strategy` | `Option < DnsStrategy >` | Default::default() | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
 | `network_strategy` | `Option < Value >` | Default::default() | Not implemented yet.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
 | `network_type` | `Option < Value >` | Default::default() | Not implemented yet.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
 | `fallback_network_type` | `Option < Value >` | Default::default() | Not implemented yet.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
-| `fallback_delay` | `Option < Value >` | Default::default() | Not implemented yet.<br/>`serde (default , skip_serializing_if = "Option::is_none")` |
+| `fallback_delay` | `Option < Duration >` | Default::default() | How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs); 300ms when unset.<br/>`serde (default , with = "crate::config::model::duration" , skip_serializing_if = "Option::is_none")` |
 
