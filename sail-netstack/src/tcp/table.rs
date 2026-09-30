@@ -18,6 +18,14 @@ const TIME_WAIT_METADATA_CHARGE: usize = 128;
 const IPV4_BLACK_HOLE_FALLBACK_MTU: usize = 576;
 const IPV6_BLACK_HOLE_FALLBACK_MTU: usize = 1_280;
 const PAWS_IDLE_INVALIDATION_MS: u64 = 24 * 24 * 60 * 60 * 1_000;
+// Fixed header sizes (RFC 791, RFC 8200 3, RFC 9293 3.1).
+const IPV4_HEADER_BYTES: usize = 20;
+const IPV6_HEADER_BYTES: usize = 40;
+const TCP_HEADER_BYTES: usize = 20;
+// The TCP option space: a data offset of at most 15 words (RFC 9293 3.1).
+const TCP_MAX_OPTION_BYTES: usize = 40;
+// Timestamps, 10 bytes, with the two NOPs that align them (RFC 7323 3).
+const TCP_TIMESTAMP_OPTION_BYTES: usize = 12;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum AcceptOverflowPolicy {
@@ -33,7 +41,12 @@ pub enum AcceptOverflowPolicy {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct TcpTableConfig {
     pub receive_credit_bytes: usize,
+    /// The most payload one segment carries, whatever the link allows.
     pub max_segment_payload_bytes: usize,
+    /// The MTU of the link the table's packets cross, when known. Each flow
+    /// then sizes its segments from it for its own address family and
+    /// options (see [`link_mss`]), under `max_segment_payload_bytes`.
+    pub link_mtu: Option<usize>,
     pub time_wait_ms: u64,
     /// How long a flow the application has let go of waits in FIN-WAIT-2
     /// for the peer's FIN, as Linux's `tcp_fin_timeout`. A flow the
@@ -65,6 +78,7 @@ impl Default for TcpTableConfig {
         Self {
             receive_credit_bytes: 16 * 1024,
             max_segment_payload_bytes: 1_200,
+            link_mtu: None,
             hop_limit: 64,
             time_wait_ms: 60_000,
             fin_wait2_timeout_ms: 60_000,
@@ -786,10 +800,11 @@ impl TcpTable {
         let isn = self.initial_sequence(key, id);
         let timestamp_offset = self.timestamp_offset(key);
         let local_window_scale = window_scale_for(self.config.receive_credit_bytes);
+        let local_mss = self.local_mss(remote);
         let (tcb, actions) = TcpTcb::connect(
             isn,
             self.config.receive_credit_bytes,
-            self.config.max_segment_payload_bytes,
+            local_mss,
             local_window_scale,
         );
         let default_peer_mss = if remote.is_ipv4() { 536 } else { 1_220 };
@@ -816,7 +831,7 @@ impl TcpTable {
                 orphaned: false,
                 fin_wait2_armed: false,
                 retransmission_timeouts: 0,
-                max_send_segment_bytes: self.config.max_segment_payload_bytes.min(default_peer_mss),
+                max_send_segment_bytes: local_mss.min(default_peer_mss),
                 sack_permitted: false,
                 peer_window_scale: None,
                 local_window_scale,
@@ -888,7 +903,8 @@ impl TcpTable {
         options: &TcpOptions,
     ) -> Result<TcpIngress, TcpTableError> {
         let now_ms = self.now_ms;
-        let max_segment_payload_bytes = self.config.max_segment_payload_bytes;
+        let max_segment_payload_bytes = self.local_mss(key.source);
+        let link_mtu = self.config.link_mtu;
         let flow = self
             .by_key
             .get_mut(&key)
@@ -914,6 +930,9 @@ impl TcpTable {
             flow.max_send_segment_bytes = max_segment_payload_bytes.min(usize::from(
                 options.maximum_segment_size.unwrap_or(default_peer_mss),
             ));
+            if let Some(mtu) = link_mtu {
+                lower_flow_mtu(key, flow, mtu);
+            }
             if options.window_scale_clamped {
                 increment_counter(&mut self.stats.window_scale_clamps);
             }
@@ -968,10 +987,8 @@ impl TcpTable {
         let id = FlowId::new(self.next_flow_id);
         let isn = self.initial_sequence(key, id);
         let timestamp_offset = self.timestamp_offset(key);
-        let default_peer_mss = if key.source.is_ipv4() { 536 } else { 1_220 };
-        let max_send_segment_bytes = self.config.max_segment_payload_bytes.min(usize::from(
-            options.maximum_segment_size.unwrap_or(default_peer_mss),
-        ));
+        let local_mss = self.local_mss(key.source);
+        let max_send_segment_bytes = self.passive_segment_bytes(key, &options);
         let local_window_scale = options
             .window_scale
             .map_or(0, |_| window_scale_for(self.config.receive_credit_bytes));
@@ -979,7 +996,7 @@ impl TcpTable {
             segment,
             isn,
             self.config.receive_credit_bytes,
-            self.config.max_segment_payload_bytes,
+            local_mss,
             local_window_scale,
         )?;
         let rtt_probe = Some(RttProbe {
@@ -1683,6 +1700,42 @@ impl TcpTable {
         self.config.max_segment_payload_bytes
     }
 
+    /// Sets the MTU flows opened from now on size their segments by; flows
+    /// already open follow a lower one through [`Self::lower_platform_mtu`].
+    pub fn set_link_mtu(&mut self, mtu: usize) {
+        self.config.link_mtu = Some(mtu);
+    }
+
+    /// The segment size of a flow a peer's SYN opens: our MSS, the peer's
+    /// (RFC 9293 3.7.1 defaults when it sends none), and room for the
+    /// options the SYN asks for.
+    fn passive_segment_bytes(&self, key: TcpFlowKey, options: &TcpOptions) -> usize {
+        let default_peer_mss = if key.source.is_ipv4() { 536 } else { 1_220 };
+        let bytes = self.local_mss(key.source).min(usize::from(
+            options.maximum_segment_size.unwrap_or(default_peer_mss),
+        ));
+        self.config.link_mtu.map_or(bytes, |mtu| {
+            bytes.min(segment_ceiling(
+                key.source.is_ipv4(),
+                options.sack_permitted,
+                options.timestamps.is_some(),
+                mtu,
+            ))
+        })
+    }
+
+    /// The MSS for a flow with `peer`: announced in its SYN, and the most
+    /// it sends before options are known.
+    fn local_mss(&self, peer: SocketAddr) -> usize {
+        self.config
+            .link_mtu
+            .map_or(self.config.max_segment_payload_bytes, |mtu| {
+                self.config
+                    .max_segment_payload_bytes
+                    .min(link_mss(peer.is_ipv4(), mtu))
+            })
+    }
+
     /// Returns whether an outgoing packet quote names the reverse direction
     /// of a live intercepted flow in the current network generation.
     #[must_use]
@@ -1740,9 +1793,11 @@ impl TcpTable {
             .ok_or(TcpTableError::StaleToken)
     }
 
-    /// Returns how many application bytes this flow can take ownership of now.
-    /// A zero-window flow may still accept one segment into its persist slot;
-    /// otherwise the result is constrained by peer and congestion windows.
+    /// Returns how many application bytes this flow can take ownership of now:
+    /// what the peer and congestion windows leave room for, possibly many
+    /// segments, which [`crate::SingleShardRunner::write_tcp`] cuts. A
+    /// zero-window flow, or one Nagle holds back, may still accept one
+    /// segment into its pending slot.
     ///
     /// # Errors
     ///
@@ -1756,7 +1811,7 @@ impl TcpTable {
         if flow.tcb.peer_window() == 0 || (self.config.nagle_enabled && !flow.send.is_empty()) {
             return Ok(flow.max_send_segment_bytes);
         }
-        Ok(flow.max_send_segment_bytes.min(flow.tcb.send_available()))
+        Ok(flow.tcb.send_available())
     }
 
     /// Returns the exact IP plus TCP packet size for a payload on this flow.
@@ -2234,8 +2289,7 @@ impl TcpTable {
     /// the peer's SYN-ACK to accept.
     fn syn_options(&self, key: TcpFlowKey) -> Result<Vec<u8>, TcpTableError> {
         let flow = self.by_key.get(&key).ok_or(TcpTableError::UnknownFlow)?;
-        let advertised_mss =
-            u16::try_from(self.config.max_segment_payload_bytes).unwrap_or(u16::MAX);
+        let advertised_mss = u16::try_from(self.local_mss(key.source)).unwrap_or(u16::MAX);
         let mut options = vec![2, 4];
         options.extend_from_slice(&advertised_mss.to_be_bytes());
         options.extend_from_slice(&[4, 2, 8, 10]);
@@ -2248,8 +2302,7 @@ impl TcpTable {
 
     fn syn_ack_options(&self, key: TcpFlowKey) -> Result<Vec<u8>, TcpTableError> {
         let flow = self.by_key.get(&key).ok_or(TcpTableError::UnknownFlow)?;
-        let advertised_mss =
-            u16::try_from(self.config.max_segment_payload_bytes).unwrap_or(u16::MAX);
+        let advertised_mss = u16::try_from(self.local_mss(key.source)).unwrap_or(u16::MAX);
         let mut options = vec![2, 4];
         options.extend_from_slice(&advertised_mss.to_be_bytes());
         if flow.sack_permitted {
@@ -3231,14 +3284,40 @@ fn promote_initial_receive(
     Ok(())
 }
 
+/// The MSS this stack announces for a link: the MTU less the fixed IP and
+/// TCP headers, options not counted (RFC 9293 3.7.1, RFC 6691 2).
+fn link_mss(ipv4: bool, mtu: usize) -> usize {
+    let fixed_headers = if ipv4 {
+        IPV4_HEADER_BYTES
+    } else {
+        IPV6_HEADER_BYTES
+    } + TCP_HEADER_BYTES;
+    mtu.saturating_sub(fixed_headers).max(1)
+}
+
+/// The most payload a segment of a flow carries within `mtu`: the MSS less
+/// the options its segments may carry (RFC 6691 2). With SACK that is the
+/// whole 40-byte option space (RFC 9293 3.1), as a segment may carry
+/// timestamps and three SACK blocks; with timestamps alone, their 10 bytes
+/// padded to 12 (RFC 7323 3).
+fn segment_ceiling(ipv4: bool, sack_permitted: bool, timestamps: bool, mtu: usize) -> usize {
+    let options = if sack_permitted {
+        TCP_MAX_OPTION_BYTES
+    } else if timestamps {
+        TCP_TIMESTAMP_OPTION_BYTES
+    } else {
+        0
+    };
+    link_mss(ipv4, mtu).saturating_sub(options).max(1)
+}
+
 fn lower_flow_mtu(key: TcpFlowKey, flow: &mut TcpFlow, mtu: usize) -> bool {
-    let mut header_len: usize = if key.source.is_ipv4() { 40 } else { 60 };
-    if flow.sack_permitted {
-        header_len += 40;
-    } else if flow.timestamp.is_some() {
-        header_len += 12;
-    }
-    let ceiling = mtu.saturating_sub(header_len).max(1);
+    let ceiling = segment_ceiling(
+        key.source.is_ipv4(),
+        flow.sack_permitted,
+        flow.timestamp.is_some(),
+        mtu,
+    );
     if ceiling >= flow.max_send_segment_bytes {
         return false;
     }

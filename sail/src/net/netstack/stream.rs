@@ -78,7 +78,6 @@ pub(crate) struct NativeTcpStream {
     cleanup: tokio_mpsc::Sender<TcpFlowToken>,
     cleanup_overflow: Arc<Notify>,
     cleanup_active: Arc<AtomicBool>,
-    max_segment_bytes: usize,
     read_buffer: VecDeque<u8>,
     pending_read: Option<oneshot::Receiver<io::Result<Vec<u8>>>>,
     pending_write_reservation: Option<oneshot::Receiver<io::Result<usize>>>,
@@ -92,20 +91,17 @@ pub(crate) struct NativeTcpStream {
 impl NativeTcpStream {
     pub(super) fn new(
         token: TcpFlowToken,
-        max_segment_bytes: usize,
         commands: mpsc::Sender<TcpCommand>,
         cleanup: tokio_mpsc::Sender<TcpFlowToken>,
         cleanup_overflow: Arc<Notify>,
         cleanup_active: Arc<AtomicBool>,
     ) -> Self {
-        assert!(max_segment_bytes > 0, "TCP segment size must be non-zero");
         Self {
             token,
             commands,
             cleanup,
             cleanup_overflow,
             cleanup_active,
-            max_segment_bytes,
             read_buffer: VecDeque::new(),
             pending_read: None,
             pending_write_reservation: None,
@@ -213,9 +209,15 @@ impl AsyncWrite for NativeTcpStream {
                 "TCP stream is closed",
             )));
         }
+        // The last commit's result is taken when it is there, but the next
+        // reservation does not wait for it: the runtime answers commands in
+        // order, so it finds room only after that commit, and only the next
+        // commit waits for it.
         if let Some(response) = &mut self.pending_write_completion {
-            ready!(Pin::new(response).poll(context)).map_err(|_| Self::cancelled())??;
-            self.pending_write_completion = None;
+            if let Poll::Ready(result) = Pin::new(response).poll(context) {
+                self.pending_write_completion = None;
+                result.map_err(|_| Self::cancelled())??;
+            }
         }
         if buffer.is_empty() {
             return Poll::Ready(Ok(0));
@@ -227,6 +229,10 @@ impl AsyncWrite for NativeTcpStream {
             self.write_reservation = Some(amount);
         }
         if let Some(reserved) = self.write_reservation {
+            if let Some(response) = &mut self.pending_write_completion {
+                ready!(Pin::new(response).poll(context)).map_err(|_| Self::cancelled())??;
+                self.pending_write_completion = None;
+            }
             ready!(self.poll_command_ready(context))?;
             let amount = buffer.len().min(reserved);
             let (response, receiver) = oneshot::channel();
@@ -241,7 +247,9 @@ impl AsyncWrite for NativeTcpStream {
             return Poll::Ready(Ok(amount));
         }
         ready!(self.poll_command_ready(context))?;
-        let amount = buffer.len().min(self.max_segment_bytes);
+        // As much as the caller has: the runtime grants what the windows
+        // allow, and the stack cuts it into segments.
+        let amount = buffer.len();
         let (response, receiver) = oneshot::channel();
         let token = self.token;
         self.start_command(TcpCommand::ReserveWrite {
@@ -320,7 +328,6 @@ mod tests {
         (
             NativeTcpStream::new(
                 TcpFlowToken::new(FlowId::new(7), NetworkGeneration::new(3)),
-                4,
                 sender,
                 cleanup,
                 cleanup_overflow,
@@ -358,8 +365,9 @@ mod tests {
                 response,
                 ..
             } => {
-                assert_eq!(max_bytes, 4);
-                response.send(Ok(max_bytes)).unwrap();
+                // The whole buffer is asked for; the grant bounds the write.
+                assert_eq!(max_bytes, 6);
+                response.send(Ok(4)).unwrap();
             }
             _ => panic!("expected write reservation command"),
         }
@@ -409,6 +417,53 @@ mod tests {
         stream.flush().await.unwrap();
     }
 
+    #[tokio::test]
+    async fn the_next_reservation_goes_before_the_last_commit_is_answered() {
+        let (mut stream, mut commands) = pair();
+        let application = tokio::spawn(async move {
+            assert_eq!(stream.write(b"ab").await.unwrap(), 2);
+            assert_eq!(stream.write(b"cd").await.unwrap(), 2);
+            stream.flush().await.unwrap();
+        });
+
+        match next_command(&mut commands).await.unwrap() {
+            TcpCommand::ReserveWrite { response, .. } => response.send(Ok(2)).unwrap(),
+            _ => panic!("expected write reservation command"),
+        }
+        let first_commit = match next_command(&mut commands).await.unwrap() {
+            TcpCommand::CommitWrite {
+                payload, response, ..
+            } => {
+                assert_eq!(payload, b"ab");
+                response
+            }
+            _ => panic!("expected write commit command"),
+        };
+        // The first commit is still unanswered.
+        let second_reservation = match next_command(&mut commands).await.unwrap() {
+            TcpCommand::ReserveWrite { response, .. } => response,
+            _ => panic!("expected the second reservation before the first commit's answer"),
+        };
+        second_reservation.send(Ok(2)).unwrap();
+        // The second commit waits for the first's answer.
+        assert!(
+            timeout(Duration::from_millis(50), next_command(&mut commands))
+                .await
+                .is_err()
+        );
+        first_commit.send(Ok(2)).unwrap();
+        match next_command(&mut commands).await.unwrap() {
+            TcpCommand::CommitWrite {
+                payload, response, ..
+            } => {
+                assert_eq!(payload, b"cd");
+                response.send(Ok(2)).unwrap();
+            }
+            _ => panic!("expected write commit command"),
+        }
+        application.await.unwrap();
+    }
+
     #[test]
     fn stream_meets_dispatcher_thread_safety_bounds() {
         fn assert_bounds<T: Send + Sync + Unpin>() {}
@@ -423,7 +478,6 @@ mod tests {
         let cleanup_overflow = Arc::new(Notify::new());
         let stream = NativeTcpStream::new(
             token,
-            4,
             commands.clone(),
             cleanup,
             cleanup_overflow,
@@ -448,7 +502,6 @@ mod tests {
         let active = Arc::new(AtomicBool::new(true));
         let stream = NativeTcpStream::new(
             token,
-            4,
             commands,
             cleanup,
             Arc::clone(&cleanup_overflow),
@@ -480,7 +533,6 @@ mod tests {
         let cleanup_overflow = Arc::new(Notify::new());
         let stream = NativeTcpStream::new(
             token,
-            4,
             commands,
             cleanup,
             Arc::clone(&cleanup_overflow),

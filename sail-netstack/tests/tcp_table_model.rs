@@ -2654,7 +2654,9 @@ fn duplicate_acks_wake_a_blocked_writer_for_limited_transmit() {
 
     let duplicate = packet(source, destination, 101, server_next, TcpFlags::ACK, &[]);
     let first = table.ingest(&duplicate).unwrap();
-    assert_eq!(table.write_capacity(token).unwrap(), 536);
+    // The whole limited-transmit allowance, which a runner write cuts into
+    // segments.
+    assert_eq!(table.write_capacity(token).unwrap(), 1_000);
     assert_eq!(first.events, [TcpEvent::Writable(token)]);
     table.write(token, &[1_u8; 536]).unwrap();
     table.write(token, &[2_u8; 464]).unwrap();
@@ -2662,7 +2664,7 @@ fn duplicate_acks_wake_a_blocked_writer_for_limited_transmit() {
 
     let second = table.ingest(&duplicate).unwrap();
     assert_eq!(second.events, [TcpEvent::Writable(token)]);
-    assert_eq!(table.write_capacity(token).unwrap(), 536);
+    assert_eq!(table.write_capacity(token).unwrap(), 1_000);
 }
 
 #[test]

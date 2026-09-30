@@ -151,11 +151,9 @@ fn run<I: sail_netstack::PacketIo + 'static>(
     let mut config = RunnerConfig::default();
     config.mtu = mtu;
     config.max_packet_size = config.max_packet_size.max(mtu);
-    // Room for the largest IPv6 and TCP headers with options.
-    config.tcp.max_segment_payload_bytes = config
-        .tcp
-        .max_segment_payload_bytes
-        .min(mtu.saturating_sub(sail_netstack::TCP_MAX_HEADER_BYTES));
+    // No ceiling of its own: each flow sizes its segments from the MTU for
+    // its address family and options.
+    config.tcp.max_segment_payload_bytes = mtu;
     // A UDP flow of the stack outlives the NAT session it carries, which
     // ends within one check after `udp_timeout` of silence: a reply until
     // then still needs the flow to reach the client.

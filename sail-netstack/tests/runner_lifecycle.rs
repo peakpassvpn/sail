@@ -1071,7 +1071,9 @@ fn network_reset_invalidates_reply_token() {
     io.push_recv(vec![udp_packet(10, b"x")]);
     let (mut runner, _) = runner(io);
     runner.update_mtu(1_400).unwrap();
-    assert!(runner.update_mtu(1_200).is_err());
+    // Below the IPv4 minimum (RFC 791); a lower valid MTU only shrinks
+    // segments.
+    assert!(runner.update_mtu(500).is_err());
     let received = block_on(runner.step(1)).unwrap();
     let token = received.datagrams[0].token;
     let source = received.datagrams[0].destination;
@@ -2290,6 +2292,96 @@ fn a_full_segment_with_sack_blocks_fits_the_mtu_on_ipv6() {
         .unwrap()
         .iter()
         .all(|packet| packet.len() <= mtu));
+}
+
+/// Segments follow the link: at an MTU of 9000 an IPv4 flow announces an
+/// MSS of 9000 less 40 bytes of fixed headers, sends segments that leave room
+/// for the options it negotiated, and one application write the windows
+/// allow goes out as many segments.
+#[test]
+fn one_write_goes_out_as_segments_sized_by_the_link() {
+    let source = SocketAddr::from((Ipv4Addr::new(10, 0, 0, 2), 40_000));
+    let destination = SocketAddr::from((Ipv4Addr::new(10, 0, 0, 1), 443));
+    let mtu = 9_000;
+    let mut config = deterministic_runner_config();
+    config.mtu = mtu;
+    // Room for the test I/O's headroom.
+    config.max_packet_size = config.max_packet_size.max(mtu + 64);
+    config.tcp.max_segment_payload_bytes = mtu;
+    let timestamps = |value: u32, echo: u32| {
+        let mut options = vec![1, 1, 8, 10];
+        options.extend_from_slice(&value.to_be_bytes());
+        options.extend_from_slice(&echo.to_be_bytes());
+        options
+    };
+    // MSS 8960, SACK permitted, timestamps, window scale 7.
+    let mut syn_options = vec![2, 4, 0x23, 0x00, 4, 2];
+    syn_options.extend_from_slice(&timestamps(100, 0)[2..]);
+    syn_options.extend_from_slice(&[1, 3, 3, 7]);
+    let recv = Arc::new(Mutex::new(VecDeque::from([tcp_packet_with_options(
+        source,
+        destination,
+        100,
+        0,
+        TcpFlags::SYN,
+        &syn_options,
+    )])));
+    let sent = Arc::new(Mutex::new(Vec::new()));
+    let io = DynamicIo {
+        recv: Arc::clone(&recv),
+        sent: Arc::clone(&sent),
+        max_batch: 64,
+    };
+    let ledger = ResourceLedger::new(BudgetProfile::Server.budget()).unwrap();
+    let mut runner = SingleShardRunner::new(io, ledger, config).unwrap();
+    block_on(runner.step(1_000)).unwrap();
+    block_on(runner.step(1_001)).unwrap();
+    let packet = sent.lock().unwrap().last().unwrap().clone();
+    let syn_ack = parse_tcp_segment(parse_ip_packet(&packet, true).unwrap(), true).unwrap();
+    assert_eq!(syn_ack.options.maximum_segment_size, Some(8_960));
+    let server_next = syn_ack.meta.sequence.wrapping_add(1).get();
+    let echo = syn_ack.options.timestamps.unwrap().0;
+
+    recv.lock().unwrap().push_back(tcp_packet_with_options(
+        source,
+        destination,
+        101,
+        server_next,
+        TcpFlags::ACK,
+        &timestamps(101, echo),
+    ));
+    let accepted = block_on(runner.step(1_010)).unwrap();
+    block_on(runner.step(1_011)).unwrap();
+    let token = match accepted.tcp_events.as_slice() {
+        [TcpEvent::Accepted(connection)] => connection.token,
+        events => panic!("unexpected TCP events: {events:?}"),
+    };
+    runner.accept_tcp(token).unwrap();
+    // SACK permitted: the whole 40-byte option space stays free.
+    let segment = 8_960 - 40;
+    assert_eq!(runner.tcp_write_limit(token).unwrap(), segment);
+    // The initial window, max(2 MSS, 14600) at this MSS (RFC 6928 2), is
+    // more than two segments and less than three.
+    let capacity = runner.tcp_write_capacity(token).unwrap();
+    assert!(capacity > 2 * segment && capacity < 3 * segment);
+
+    let sent_before = sent.lock().unwrap().len();
+    let payload: Vec<u8> = (0..capacity)
+        .map(|i| u8::try_from(i % 251).unwrap())
+        .collect();
+    let (written, _) = runner.write_tcp_segments(token, &payload).unwrap();
+    assert_eq!(written, payload.len());
+    block_on(runner.step(1_100)).unwrap();
+    block_on(runner.step(1_101)).unwrap();
+    let packets = sent.lock().unwrap()[sent_before..].to_vec();
+    let mut received = Vec::new();
+    for packet in &packets {
+        assert!(packet.len() <= mtu);
+        let segment = parse_tcp_segment(parse_ip_packet(packet, true).unwrap(), true).unwrap();
+        received.extend_from_slice(segment.payload);
+    }
+    assert_eq!(packets.len(), 3);
+    assert_eq!(received, payload);
 }
 
 /// A connect made after a long quiet spell measures its RTT from when it

@@ -632,7 +632,6 @@ impl<I: PacketIo> NativeRuntime<I> {
         let cleanup_active = Arc::new(CleanupActive::new(true));
         let stream = NativeTcpStream::new(
             token,
-            connection.max_segment_payload_bytes,
             self.commands_tx.clone(),
             self.cleanup_tx.clone(),
             Arc::clone(&self.cleanup_overflow),
@@ -722,11 +721,16 @@ impl<I: PacketIo> NativeRuntime<I> {
             )));
             return;
         }
-        match self.runner.write_tcp(token, &payload) {
-            Ok(_) => {
+        match self.runner.write_tcp_segments(token, &payload) {
+            Ok((written, _)) if written == payload.len() => {
                 if response.send(Ok(payload.len())).is_err() {
                     self.abort_flow(token);
                 }
+            }
+            // Memory ran out partway: the rest goes once the flow is
+            // writable again, and the writer hears when all of it went.
+            Ok((written, _)) => {
+                flow.pending_write = Some((payload[written..].to_vec(), response));
             }
             Err(error) if retryable(&error) => flow.pending_write = Some((payload, response)),
             Err(error) => {
@@ -751,7 +755,6 @@ impl<I: PacketIo> NativeRuntime<I> {
         if max_bytes == 0
             || flow.pending_write_reservation.is_some()
             || flow.reserved_write_bytes != 0
-            || flow.pending_write.is_some()
         {
             let _ = response.send(Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -759,11 +762,17 @@ impl<I: PacketIo> NativeRuntime<I> {
             )));
             return;
         }
-        let limit = match self.runner.tcp_write_capacity(token) {
-            Ok(limit) => limit,
-            Err(error) => {
-                let _ = response.send(Err(runner_io_error(error)));
-                return;
+        // A reservation made while the last commit still waits comes after
+        // it: the stream sends the next reservation without waiting.
+        let limit = if flow.pending_write.is_some() {
+            0
+        } else {
+            match self.runner.tcp_write_capacity(token) {
+                Ok(limit) => limit,
+                Err(error) => {
+                    let _ = response.send(Err(runner_io_error(error)));
+                    return;
+                }
             }
         };
         if limit == 0 {

@@ -133,16 +133,6 @@ impl RunnerConfig {
                 "debug trace capacity exceeds the hard limit",
             ));
         }
-        if self
-            .tcp
-            .max_segment_payload_bytes
-            .saturating_add(TCP_CONTROL_PACKET_BYTES)
-            > self.mtu
-        {
-            return Err(RunnerError::InvalidConfig(
-                "TCP segment plus worst-case headers must fit MTU",
-            ));
-        }
         self.scheduler
             .validate()
             .map_err(|_| RunnerError::InvalidConfig("invalid shard scheduler configuration"))?;
@@ -781,11 +771,15 @@ impl<I: PacketIo> SingleShardRunner<I> {
             config.udp_idle_timeout_ms,
             config.payload_chunk_size,
         );
+        // Each flow sizes its segments from the link, for its family and
+        // options, under the configured ceiling.
+        let mut tcp_config = config.tcp;
+        tcp_config.link_mtu = Some(config.mtu);
         let tcp = TcpTable::new_on_shard(
             Arc::clone(&ledger),
             config.generation,
             config.shard,
-            config.tcp,
+            tcp_config,
         );
         let fragments = FragmentReassembler::new(Arc::clone(&ledger), config.fragment_timeout_ms);
         let pmtu = PmtuTable::new(
@@ -1243,6 +1237,41 @@ impl<I: PacketIo> SingleShardRunner<I> {
         self.finish_tcp_output(allocation, output)
     }
 
+    /// Sends `payload` as many segments as it takes, each no larger than the
+    /// flow's segment size, and returns how many bytes it took. It stops at
+    /// the first segment it cannot send and reports the bytes before it;
+    /// the caller offers the rest again once the flow is writable. Sized by
+    /// [`Self::tcp_write_capacity`], it takes the whole payload unless
+    /// packet or payload memory runs out.
+    ///
+    /// # Errors
+    ///
+    /// Returns the error of the first segment when it could send none.
+    pub fn write_tcp_segments(
+        &mut self,
+        token: TcpFlowToken,
+        payload: &[u8],
+    ) -> Result<(usize, TcpIngress), RunnerError> {
+        let segment = self.tcp_write_limit(token)?;
+        let mut written = 0;
+        let mut ingress = TcpIngress::default();
+        while written < payload.len() {
+            let end = payload.len().min(written + segment);
+            match self.write_tcp(token, &payload[written..end]) {
+                Ok(output) => {
+                    ingress.outgoing.extend(output.outgoing);
+                    ingress.events.extend(output.events);
+                    ingress.timers.extend(output.timers);
+                    ingress.cancelled_timers.extend(output.cancelled_timers);
+                    written = end;
+                }
+                Err(error) if written == 0 => return Err(error),
+                Err(_) => break,
+            }
+        }
+        Ok((written, ingress))
+    }
+
     /// Returns the current peer- and PMTU-constrained TCP write size.
     ///
     /// # Errors
@@ -1359,17 +1388,11 @@ impl<I: PacketIo> SingleShardRunner<I> {
     ///
     /// Returns [`RunnerError::InvalidConfig`] for an invalid MTU.
     pub fn update_mtu(&mut self, mtu: usize) -> Result<(), RunnerError> {
-        if !(576..=65_535).contains(&mtu)
-            || mtu > self.arena.max_packet_size()
-            || self
-                .tcp
-                .max_segment_payload_bytes()
-                .saturating_add(TCP_CONTROL_PACKET_BYTES)
-                > mtu
-        {
+        if !(576..=65_535).contains(&mtu) || mtu > self.arena.max_packet_size() {
             return Err(RunnerError::InvalidConfig("invalid runtime MTU"));
         }
         self.mtu = mtu;
+        self.tcp.set_link_mtu(mtu);
         self.tcp.lower_platform_mtu(mtu);
         self.counters.mtu_changes = self.counters.mtu_changes.saturating_add(1);
         self.trace
@@ -2056,8 +2079,10 @@ impl<I: PacketIo> SingleShardRunner<I> {
                 continue;
             }
             self.tcp_timer_ids.remove(&key);
-            let capacity =
-                TCP_CONTROL_PACKET_BYTES.saturating_add(self.tcp.max_segment_payload_bytes());
+            // A retransmitted segment fits the link, whatever the ceiling.
+            let capacity = TCP_CONTROL_PACKET_BYTES
+                .saturating_add(self.tcp.max_segment_payload_bytes())
+                .min(self.mtu);
             let allocation = match self.reserve_tcp_control_packet(capacity) {
                 Ok(allocation) => allocation,
                 Err(RunnerError::TxQueueFull | RunnerError::Budget(_)) => {

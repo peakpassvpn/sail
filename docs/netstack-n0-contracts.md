@@ -507,10 +507,18 @@ those cross-target library checks need to be rerun.
   the flight. It never creates an unbounded coalescing buffer. The stream
   bridge queries the live congestion/peer-window capacity before taking
   ownership, so a window smaller than the caller's write produces a truthful
-  partial write instead of an unretryable oversized segment. That handoff is a
+  partial write instead of an unretryable oversized segment. The capacity is
+  everything the windows leave room for, many segments at once, and the
+  runner's `write_tcp_segments` cuts a commit into segments of the flow's
+  size (2026-10-01; it was one segment per write, which held a TUN download
+  to about 100 Mbit/s whatever the windows). That handoff is a
   two-phase reservation/commit protocol: a `Pending` `poll_write` may reserve
   capacity but never copies or submits the caller's bytes, and only a later
   poll that can enqueue the current buffer's committed prefix returns `Ready`.
+  The next reservation goes out without waiting for the last commit's answer:
+  the runtime answers in order, so it grants room only after that commit,
+  queueing the reservation while the commit waits for memory; only the next
+  commit waits for the answer.
   Cancelling a write future therefore cannot transmit its abandoned buffer or
   misattribute its completion count to a later write; deferred commit errors
   are reported by the next write, flush, or shutdown. Once committed, the
