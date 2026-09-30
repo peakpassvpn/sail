@@ -45,26 +45,26 @@ Rust 定义：[`WireGuardOptions`](https://github.com/peakpassvpn/sail/blob/dev/
 | `udp_nat_max` | number | — | 警告：How UDP mappings are made and how many are kept: the same traffic | — |
 | `workers` | number | 未设置 | 支持 | sing-box's worker count; sail has no use for it. |
 | `detour` | string | 未设置 | 支持 | The outbound to dial through, in place of a socket of its own. |
-| `bind_interface` | string | 未设置 | 支持 | The interface to send through, by name. |
-| `inet4_bind_address` | string | 未设置 | 支持 | The local address for IPv4 destinations. |
-| `inet6_bind_address` | string | 未设置 | 支持 | The local address for IPv6 destinations. |
-| `bind_address_no_port` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `bind_interface` | string | 未设置 | 支持 | The interface to send through, by name. Loopback destinations still go over loopback, where sing-box applies the bind to them as well. |
+| `inet4_bind_address` | string | 未设置 | 支持 | The local address for IPv4 destinations, loopback ones aside: as `bind_interface`. |
+| `inet6_bind_address` | string | 未设置 | 支持 | The local address for IPv6 destinations, loopback ones aside: as `bind_interface`. |
+| `bind_address_no_port` | bool | `false` | 支持 | `IP_BIND_ADDRESS_NO_PORT` on TCP sockets bound to an address, so that the port is picked at connect: Linux only. |
 | `protect_path` | string | — | 报错：Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
 | `routing_mark` | number\|string | 未设置 | 支持 | `SO_MARK`, Linux only. |
-| `reuse_addr` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `reuse_addr` | bool | `false` | 支持 | `SO_REUSEADDR`, and `SO_REUSEPORT` on Unix, on UDP sockets. |
 | `netns` | string | — | 报错：Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
 | `connect_timeout` | duration | 未设置 | 支持 | How long a TCP connect to one address may take; 5s when unset. |
-| `tcp_fast_open` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `tcp_fast_open` | bool | `false` | 支持 | TCP Fast Open: the first data written goes with the SYN. Its addresses are then tried one by one, not raced. |
 | `tcp_multi_path` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
 | `disable_tcp_keep_alive` | bool | `false` | 支持 | No TCP keepalive at all. |
 | `tcp_keep_alive` | duration | 未设置 | 支持 | How long a TCP connection is idle before keepalive probes it; 5m when unset. |
 | `tcp_keep_alive_interval` | duration | 未设置 | 支持 | Between keepalive probes; 75s when unset. |
-| `udp_fragment` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `udp_fragment` | bool | 未设置 | 支持 | Whether UDP datagrams may be fragmented on the way; unset, as the place says, see `udp_fragment_default`. |
 | `domain_resolver` | string\|object → [对象](/sail/zh/reference/shared/#domain-resolver-default-domain-resolver) | 未设置 | 支持 | The DNS server that resolves the names dialled. |
 | `network_strategy` | string, 取值 `default`, `fallback`, `hybrid` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
 | `network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
 | `fallback_network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
-| `fallback_delay` | duration | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `fallback_delay` | duration | 未设置 | 支持 | How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs); 300ms when unset. |
 | `domain_strategy` | string | 未设置 | 支持 (sing-box 已弃用) | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
 
 <a id="endpoints-wireguard-peers"></a>

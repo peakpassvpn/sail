@@ -339,23 +339,23 @@ Rust: [`RuleSet`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/r
 | `bind_interface` | string | — | Supported | — |
 | `inet4_bind_address` | string | — | Supported | — |
 | `inet6_bind_address` | string | — | Supported | — |
-| `bind_address_no_port` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `bind_address_no_port` | bool | — | Supported | — |
 | `protect_path` | string | — | Error: Android's socket protection and Linux network namespaces: sockets would leave another way | — |
 | `routing_mark` | number\|string | — | Supported | — |
-| `reuse_addr` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `reuse_addr` | bool | — | Supported | — |
 | `netns` | string | — | Error: Android's socket protection and Linux network namespaces: sockets would leave another way | — |
 | `connect_timeout` | duration | — | Supported | — |
-| `tcp_fast_open` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `tcp_fast_open` | bool | — | Supported | — |
 | `tcp_multi_path` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
 | `disable_tcp_keep_alive` | bool | — | Supported | — |
 | `tcp_keep_alive` | duration | — | Supported | — |
 | `tcp_keep_alive_interval` | duration | — | Supported | — |
-| `udp_fragment` | bool | — | Warned: Socket tuning: connections go the same way without it | — |
+| `udp_fragment` | bool | — | Supported | — |
 | `domain_resolver` | string\|object → [object](/sail/reference/shared/#domain-resolver-inbounds-route-rule-set) | — | Supported | — |
 | `network_strategy` | string, one of `default`, `fallback`, `hybrid` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | — |
 | `network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | — |
 | `fallback_network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | — |
-| `fallback_delay` | duration | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | — |
+| `fallback_delay` | duration | — | Supported | — |
 | `idle_timeout` | duration | — | Warned: HTTP/2 and HTTP/3 tuning: a download over HTTP/1.1 is the same download | — |
 | `keep_alive_period` | duration | — | Warned: HTTP/2 and HTTP/3 tuning: a download over HTTP/1.1 is the same download | — |
 | `stream_receive_window` | number\|string | — | Warned: HTTP/2 and HTTP/3 tuning: a download over HTTP/1.1 is the same download | — |

@@ -339,23 +339,23 @@ Rust 定义：[`RuleSet`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/
 | `bind_interface` | string | — | 支持 | — |
 | `inet4_bind_address` | string | — | 支持 | — |
 | `inet6_bind_address` | string | — | 支持 | — |
-| `bind_address_no_port` | bool | — | 警告：Socket tuning: connections go the same way without it | — |
+| `bind_address_no_port` | bool | — | 支持 | — |
 | `protect_path` | string | — | 报错：Android's socket protection and Linux network namespaces: sockets would leave another way | — |
 | `routing_mark` | number\|string | — | 支持 | — |
-| `reuse_addr` | bool | — | 警告：Socket tuning: connections go the same way without it | — |
+| `reuse_addr` | bool | — | 支持 | — |
 | `netns` | string | — | 报错：Android's socket protection and Linux network namespaces: sockets would leave another way | — |
 | `connect_timeout` | duration | — | 支持 | — |
-| `tcp_fast_open` | bool | — | 警告：Socket tuning: connections go the same way without it | — |
+| `tcp_fast_open` | bool | — | 支持 | — |
 | `tcp_multi_path` | bool | — | 警告：Socket tuning: connections go the same way without it | — |
 | `disable_tcp_keep_alive` | bool | — | 支持 | — |
 | `tcp_keep_alive` | duration | — | 支持 | — |
 | `tcp_keep_alive_interval` | duration | — | 支持 | — |
-| `udp_fragment` | bool | — | 警告：Socket tuning: connections go the same way without it | — |
+| `udp_fragment` | bool | — | 支持 | — |
 | `domain_resolver` | string\|object → [对象](/sail/zh/reference/shared/#domain-resolver-inbounds-route-rule-set) | — | 支持 | — |
 | `network_strategy` | string, 取值 `default`, `fallback`, `hybrid` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | — |
 | `network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | — |
 | `fallback_network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | — |
-| `fallback_delay` | duration | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | — |
+| `fallback_delay` | duration | — | 支持 | — |
 | `idle_timeout` | duration | — | 警告：HTTP/2 and HTTP/3 tuning: a download over HTTP/1.1 is the same download | — |
 | `keep_alive_period` | duration | — | 警告：HTTP/2 and HTTP/3 tuning: a download over HTTP/1.1 is the same download | — |
 | `stream_receive_window` | number\|string | — | 警告：HTTP/2 and HTTP/3 tuning: a download over HTTP/1.1 is the same download | — |

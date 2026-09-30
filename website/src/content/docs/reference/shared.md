@@ -189,26 +189,26 @@ Rust: [`RealityHandshake`](https://github.com/peakpassvpn/sail/blob/dev/sail/src
 | `server` | string | required | Supported | — |
 | `server_port` | number | required | Supported | — |
 | `detour` | string | — | Error: A detour to the REALITY handshake server: it would be reached otherwise | The outbound to dial through, in place of a socket of its own. |
-| `bind_interface` | string | unset | Supported | The interface to send through, by name. |
-| `inet4_bind_address` | string | unset | Supported | The local address for IPv4 destinations. |
-| `inet6_bind_address` | string | unset | Supported | The local address for IPv6 destinations. |
-| `bind_address_no_port` | bool | — | Warned: Socket tuning: connections go the same way without it | Not implemented yet. |
+| `bind_interface` | string | unset | Supported | The interface to send through, by name. Loopback destinations still go over loopback, where sing-box applies the bind to them as well. |
+| `inet4_bind_address` | string | unset | Supported | The local address for IPv4 destinations, loopback ones aside: as `bind_interface`. |
+| `inet6_bind_address` | string | unset | Supported | The local address for IPv6 destinations, loopback ones aside: as `bind_interface`. |
+| `bind_address_no_port` | bool | `false` | Supported | `IP_BIND_ADDRESS_NO_PORT` on TCP sockets bound to an address, so that the port is picked at connect: Linux only. |
 | `protect_path` | string | — | Error: Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
 | `routing_mark` | number\|string | unset | Supported | `SO_MARK`, Linux only. |
-| `reuse_addr` | bool | — | Warned: Socket tuning: connections go the same way without it | Not implemented yet. |
+| `reuse_addr` | bool | `false` | Supported | `SO_REUSEADDR`, and `SO_REUSEPORT` on Unix, on UDP sockets. |
 | `netns` | string | — | Error: Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
 | `connect_timeout` | duration | unset | Supported | How long a TCP connect to one address may take; 5s when unset. |
-| `tcp_fast_open` | bool | — | Warned: Socket tuning: connections go the same way without it | Not implemented yet. |
+| `tcp_fast_open` | bool | `false` | Supported | TCP Fast Open: the first data written goes with the SYN. Its addresses are then tried one by one, not raced. |
 | `tcp_multi_path` | bool | — | Warned: Socket tuning: connections go the same way without it | Not implemented yet. |
 | `disable_tcp_keep_alive` | bool | `false` | Supported | No TCP keepalive at all. |
 | `tcp_keep_alive` | duration | unset | Supported | How long a TCP connection is idle before keepalive probes it; 5m when unset. |
 | `tcp_keep_alive_interval` | duration | unset | Supported | Between keepalive probes; 75s when unset. |
-| `udp_fragment` | bool | — | Warned: Socket tuning: connections go the same way without it | Not implemented yet. |
+| `udp_fragment` | bool | unset | Supported | Whether UDP datagrams may be fragmented on the way; unset, as the place says, see `udp_fragment_default`. |
 | `domain_resolver` | string\|object → [object](#domain-resolver-default-domain-resolver) | unset | Supported | The DNS server that resolves the names dialled. |
 | `network_strategy` | string, one of `default`, `fallback`, `hybrid` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
 | `network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
 | `fallback_network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
-| `fallback_delay` | duration | — | Error: Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `fallback_delay` | duration | unset | Supported | How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs); 300ms when unset. |
 | `domain_strategy` | string | unset | Supported (deprecated in sing-box) | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
 
 <a id="http-client"></a>
@@ -516,7 +516,7 @@ Used at: `inbounds[hysteria2].realm.http_client.tls`, `outbounds[hysteria2].real
 
 ## `tls` — outbounds
 
-Used at: `outbounds[anytls, http, shadowtls, trojan, vless, vmess].tls`
+Used at: `outbounds[anytls, http, shadowtls, vless, vmess].tls`
 
 Rust: [`OutboundTls`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
 

@@ -33,26 +33,26 @@ Rust 定义：[`AnyTlsOutboundOptions`](https://github.com/peakpassvpn/sail/blob
 | --- | --- | --- | --- | --- |
 | `tag` | string | `""` | 支持 | Defaults to the type. |
 | `detour` | string | 未设置 | 支持 | The outbound to dial through, in place of a socket of its own. |
-| `bind_interface` | string | 未设置 | 支持 | The interface to send through, by name. |
-| `inet4_bind_address` | string | 未设置 | 支持 | The local address for IPv4 destinations. |
-| `inet6_bind_address` | string | 未设置 | 支持 | The local address for IPv6 destinations. |
-| `bind_address_no_port` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `bind_interface` | string | 未设置 | 支持 | The interface to send through, by name. Loopback destinations still go over loopback, where sing-box applies the bind to them as well. |
+| `inet4_bind_address` | string | 未设置 | 支持 | The local address for IPv4 destinations, loopback ones aside: as `bind_interface`. |
+| `inet6_bind_address` | string | 未设置 | 支持 | The local address for IPv6 destinations, loopback ones aside: as `bind_interface`. |
+| `bind_address_no_port` | bool | `false` | 支持 | `IP_BIND_ADDRESS_NO_PORT` on TCP sockets bound to an address, so that the port is picked at connect: Linux only. |
 | `protect_path` | string | — | 报错：Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
 | `routing_mark` | number\|string | 未设置 | 支持 | `SO_MARK`, Linux only. |
-| `reuse_addr` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `reuse_addr` | bool | `false` | 支持 | `SO_REUSEADDR`, and `SO_REUSEPORT` on Unix, on UDP sockets. |
 | `netns` | string | — | 报错：Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
 | `connect_timeout` | duration | 未设置 | 支持 | How long a TCP connect to one address may take; 5s when unset. |
-| `tcp_fast_open` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `tcp_fast_open` | bool | `false` | 支持 | TCP Fast Open: the first data written goes with the SYN. Its addresses are then tried one by one, not raced. |
 | `tcp_multi_path` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
 | `disable_tcp_keep_alive` | bool | `false` | 支持 | No TCP keepalive at all. |
 | `tcp_keep_alive` | duration | 未设置 | 支持 | How long a TCP connection is idle before keepalive probes it; 5m when unset. |
 | `tcp_keep_alive_interval` | duration | 未设置 | 支持 | Between keepalive probes; 75s when unset. |
-| `udp_fragment` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `udp_fragment` | bool | 未设置 | 支持 | Whether UDP datagrams may be fragmented on the way; unset, as the place says, see `udp_fragment_default`. |
 | `domain_resolver` | string\|object → [对象](/sail/zh/reference/shared/#domain-resolver-default-domain-resolver) | 未设置 | 支持 | The DNS server that resolves the names dialled. |
 | `network_strategy` | string, 取值 `default`, `fallback`, `hybrid` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
 | `network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
 | `fallback_network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
-| `fallback_delay` | duration | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `fallback_delay` | duration | 未设置 | 支持 | How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs); 300ms when unset. |
 | `server` | string | 必填 | 支持 | — |
 | `server_port` | number | 必填 | 支持 | — |
 | `tls` | object → [对象](/sail/zh/reference/shared/#tls-outbounds) | 未设置 | 支持 | — |
@@ -83,26 +83,26 @@ Rust 定义：[`DirectOptions`](https://github.com/peakpassvpn/sail/blob/dev/sai
 | --- | --- | --- | --- | --- |
 | `tag` | string | `""` | 支持 | Defaults to the type. |
 | `detour` | string | — | 报错：A detour for a direct outbound, which sing-box refuses too | The outbound to dial through, in place of a socket of its own. |
-| `bind_interface` | string | 未设置 | 支持 | The interface to send through, by name. |
-| `inet4_bind_address` | string | 未设置 | 支持 | The local address for IPv4 destinations. |
-| `inet6_bind_address` | string | 未设置 | 支持 | The local address for IPv6 destinations. |
-| `bind_address_no_port` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `bind_interface` | string | 未设置 | 支持 | The interface to send through, by name. Loopback destinations still go over loopback, where sing-box applies the bind to them as well. |
+| `inet4_bind_address` | string | 未设置 | 支持 | The local address for IPv4 destinations, loopback ones aside: as `bind_interface`. |
+| `inet6_bind_address` | string | 未设置 | 支持 | The local address for IPv6 destinations, loopback ones aside: as `bind_interface`. |
+| `bind_address_no_port` | bool | `false` | 支持 | `IP_BIND_ADDRESS_NO_PORT` on TCP sockets bound to an address, so that the port is picked at connect: Linux only. |
 | `protect_path` | string | — | 报错：Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
 | `routing_mark` | number\|string | 未设置 | 支持 | `SO_MARK`, Linux only. |
-| `reuse_addr` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `reuse_addr` | bool | `false` | 支持 | `SO_REUSEADDR`, and `SO_REUSEPORT` on Unix, on UDP sockets. |
 | `netns` | string | — | 报错：Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
 | `connect_timeout` | duration | 未设置 | 支持 | How long a TCP connect to one address may take; 5s when unset. |
-| `tcp_fast_open` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `tcp_fast_open` | bool | `false` | 支持 | TCP Fast Open: the first data written goes with the SYN. Its addresses are then tried one by one, not raced. |
 | `tcp_multi_path` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
 | `disable_tcp_keep_alive` | bool | `false` | 支持 | No TCP keepalive at all. |
 | `tcp_keep_alive` | duration | 未设置 | 支持 | How long a TCP connection is idle before keepalive probes it; 5m when unset. |
 | `tcp_keep_alive_interval` | duration | 未设置 | 支持 | Between keepalive probes; 75s when unset. |
-| `udp_fragment` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `udp_fragment` | bool | 未设置 | 支持 | Whether UDP datagrams may be fragmented on the way; unset, as the place says, see `udp_fragment_default`. |
 | `domain_resolver` | string\|object → [对象](/sail/zh/reference/shared/#domain-resolver-default-domain-resolver) | 未设置 | 支持 | The DNS server that resolves the names dialled. |
 | `network_strategy` | string, 取值 `default`, `fallback`, `hybrid` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
 | `network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
 | `fallback_network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
-| `fallback_delay` | duration | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `fallback_delay` | duration | 未设置 | 支持 | How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs); 300ms when unset. |
 | `domain_strategy` | string | 未设置 | 支持 (sing-box 已弃用) | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
 | `skip_default_domain_resolver` | bool | `false` | sail 扩展 | A sail extension: without a `domain_resolver` of its own, the names dialled resolve as the DNS rules say, not as `route.default_domain_resolver` does; as Mihomo's DIRECT resolves apart from the proxies' servers. |
 
@@ -137,26 +137,26 @@ Rust 定义：[`HttpOutboundOptions`](https://github.com/peakpassvpn/sail/blob/d
 | --- | --- | --- | --- | --- |
 | `tag` | string | `""` | 支持 | Defaults to the type. |
 | `detour` | string | 未设置 | 支持 | The outbound to dial through, in place of a socket of its own. |
-| `bind_interface` | string | 未设置 | 支持 | The interface to send through, by name. |
-| `inet4_bind_address` | string | 未设置 | 支持 | The local address for IPv4 destinations. |
-| `inet6_bind_address` | string | 未设置 | 支持 | The local address for IPv6 destinations. |
-| `bind_address_no_port` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `bind_interface` | string | 未设置 | 支持 | The interface to send through, by name. Loopback destinations still go over loopback, where sing-box applies the bind to them as well. |
+| `inet4_bind_address` | string | 未设置 | 支持 | The local address for IPv4 destinations, loopback ones aside: as `bind_interface`. |
+| `inet6_bind_address` | string | 未设置 | 支持 | The local address for IPv6 destinations, loopback ones aside: as `bind_interface`. |
+| `bind_address_no_port` | bool | `false` | 支持 | `IP_BIND_ADDRESS_NO_PORT` on TCP sockets bound to an address, so that the port is picked at connect: Linux only. |
 | `protect_path` | string | — | 报错：Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
 | `routing_mark` | number\|string | 未设置 | 支持 | `SO_MARK`, Linux only. |
-| `reuse_addr` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `reuse_addr` | bool | `false` | 支持 | `SO_REUSEADDR`, and `SO_REUSEPORT` on Unix, on UDP sockets. |
 | `netns` | string | — | 报错：Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
 | `connect_timeout` | duration | 未设置 | 支持 | How long a TCP connect to one address may take; 5s when unset. |
-| `tcp_fast_open` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `tcp_fast_open` | bool | `false` | 支持 | TCP Fast Open: the first data written goes with the SYN. Its addresses are then tried one by one, not raced. |
 | `tcp_multi_path` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
 | `disable_tcp_keep_alive` | bool | `false` | 支持 | No TCP keepalive at all. |
 | `tcp_keep_alive` | duration | 未设置 | 支持 | How long a TCP connection is idle before keepalive probes it; 5m when unset. |
 | `tcp_keep_alive_interval` | duration | 未设置 | 支持 | Between keepalive probes; 75s when unset. |
-| `udp_fragment` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `udp_fragment` | bool | 未设置 | 支持 | Whether UDP datagrams may be fragmented on the way; unset, as the place says, see `udp_fragment_default`. |
 | `domain_resolver` | string\|object → [对象](/sail/zh/reference/shared/#domain-resolver-default-domain-resolver) | 未设置 | 支持 | The DNS server that resolves the names dialled. |
 | `network_strategy` | string, 取值 `default`, `fallback`, `hybrid` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
 | `network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
 | `fallback_network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
-| `fallback_delay` | duration | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `fallback_delay` | duration | 未设置 | 支持 | How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs); 300ms when unset. |
 | `server` | string | 必填 | 支持 | — |
 | `server_port` | number | 必填 | 支持 | — |
 | `username` | string | 未设置 | 支持 | — |
@@ -176,26 +176,26 @@ Rust 定义：[`Hysteria2OutboundOptions`](https://github.com/peakpassvpn/sail/b
 | --- | --- | --- | --- | --- |
 | `tag` | string | `""` | 支持 | Defaults to the type. |
 | `detour` | string | 未设置 | 支持 | The outbound to dial through, in place of a socket of its own. |
-| `bind_interface` | string | 未设置 | 支持 | The interface to send through, by name. |
-| `inet4_bind_address` | string | 未设置 | 支持 | The local address for IPv4 destinations. |
-| `inet6_bind_address` | string | 未设置 | 支持 | The local address for IPv6 destinations. |
-| `bind_address_no_port` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `bind_interface` | string | 未设置 | 支持 | The interface to send through, by name. Loopback destinations still go over loopback, where sing-box applies the bind to them as well. |
+| `inet4_bind_address` | string | 未设置 | 支持 | The local address for IPv4 destinations, loopback ones aside: as `bind_interface`. |
+| `inet6_bind_address` | string | 未设置 | 支持 | The local address for IPv6 destinations, loopback ones aside: as `bind_interface`. |
+| `bind_address_no_port` | bool | `false` | 支持 | `IP_BIND_ADDRESS_NO_PORT` on TCP sockets bound to an address, so that the port is picked at connect: Linux only. |
 | `protect_path` | string | — | 报错：Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
 | `routing_mark` | number\|string | 未设置 | 支持 | `SO_MARK`, Linux only. |
-| `reuse_addr` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `reuse_addr` | bool | `false` | 支持 | `SO_REUSEADDR`, and `SO_REUSEPORT` on Unix, on UDP sockets. |
 | `netns` | string | — | 报错：Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
 | `connect_timeout` | duration | 未设置 | 支持 | How long a TCP connect to one address may take; 5s when unset. |
-| `tcp_fast_open` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `tcp_fast_open` | bool | `false` | 支持 | TCP Fast Open: the first data written goes with the SYN. Its addresses are then tried one by one, not raced. |
 | `tcp_multi_path` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
 | `disable_tcp_keep_alive` | bool | `false` | 支持 | No TCP keepalive at all. |
 | `tcp_keep_alive` | duration | 未设置 | 支持 | How long a TCP connection is idle before keepalive probes it; 5m when unset. |
 | `tcp_keep_alive_interval` | duration | 未设置 | 支持 | Between keepalive probes; 75s when unset. |
-| `udp_fragment` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `udp_fragment` | bool | 未设置 | 支持 | Whether UDP datagrams may be fragmented on the way; unset, as the place says, see `udp_fragment_default`. |
 | `domain_resolver` | string\|object → [对象](/sail/zh/reference/shared/#domain-resolver-default-domain-resolver) | 未设置 | 支持 | The DNS server that resolves the names dialled. |
 | `network_strategy` | string, 取值 `default`, `fallback`, `hybrid` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
 | `network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
 | `fallback_network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
-| `fallback_delay` | duration | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `fallback_delay` | duration | 未设置 | 支持 | How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs); 300ms when unset. |
 | `server` | string | 必填 | 支持 | — |
 | `server_port` | number | 未设置 | 支持 | The one port; with `server_ports`, not needed. |
 | `server_ports` | listable-string | 未设置 | 支持 | Ports or ranges ("20000:30000") to hop between. |
@@ -378,51 +378,51 @@ Rust 定义：[`RedirectOptions`](https://github.com/peakpassvpn/sail/blob/dev/s
 | --- | --- | --- | --- | --- |
 | `tag` | string | `""` | sail 扩展 | Defaults to the type. |
 | `detour` | string | 未设置 | sail 扩展 | The outbound to dial through, in place of a socket of its own. |
-| `bind_interface` | string | 未设置 | sail 扩展 | The interface to send through, by name. |
-| `inet4_bind_address` | string | 未设置 | sail 扩展 | The local address for IPv4 destinations. |
-| `inet6_bind_address` | string | 未设置 | sail 扩展 | The local address for IPv6 destinations. |
-| `bind_address_no_port` | 任意 JSON | 未设置 | sail 扩展 | Not implemented yet. |
+| `bind_interface` | string | 未设置 | sail 扩展 | The interface to send through, by name. Loopback destinations still go over loopback, where sing-box applies the bind to them as well. |
+| `inet4_bind_address` | string | 未设置 | sail 扩展 | The local address for IPv4 destinations, loopback ones aside: as `bind_interface`. |
+| `inet6_bind_address` | string | 未设置 | sail 扩展 | The local address for IPv6 destinations, loopback ones aside: as `bind_interface`. |
+| `bind_address_no_port` | bool | `false` | sail 扩展 | `IP_BIND_ADDRESS_NO_PORT` on TCP sockets bound to an address, so that the port is picked at connect: Linux only. |
 | `protect_path` | 任意 JSON | 未设置 | sail 扩展 | Not implemented yet. |
 | `routing_mark` | number | 未设置 | sail 扩展 | `SO_MARK`, Linux only. |
-| `reuse_addr` | 任意 JSON | 未设置 | sail 扩展 | Not implemented yet. |
+| `reuse_addr` | bool | `false` | sail 扩展 | `SO_REUSEADDR`, and `SO_REUSEPORT` on Unix, on UDP sockets. |
 | `netns` | 任意 JSON | 未设置 | sail 扩展 | Not implemented yet. |
 | `connect_timeout` | duration | 未设置 | sail 扩展 | How long a TCP connect to one address may take; 5s when unset. |
-| `tcp_fast_open` | 任意 JSON | 未设置 | sail 扩展 | Not implemented yet. |
+| `tcp_fast_open` | bool | `false` | sail 扩展 | TCP Fast Open: the first data written goes with the SYN. Its addresses are then tried one by one, not raced. |
 | `tcp_multi_path` | 任意 JSON | 未设置 | sail 扩展 | Not implemented yet. |
 | `disable_tcp_keep_alive` | bool | `false` | sail 扩展 | No TCP keepalive at all. |
 | `tcp_keep_alive` | duration | 未设置 | sail 扩展 | How long a TCP connection is idle before keepalive probes it; 5m when unset. |
 | `tcp_keep_alive_interval` | duration | 未设置 | sail 扩展 | Between keepalive probes; 75s when unset. |
-| `udp_fragment` | 任意 JSON | 未设置 | sail 扩展 | Not implemented yet. |
+| `udp_fragment` | bool | 未设置 | sail 扩展 | Whether UDP datagrams may be fragmented on the way; unset, as the place says, see `udp_fragment_default`. |
 | `domain_resolver` | 对象 → [对象](#outbounds-redirect-domain-resolver) | 未设置 | sail 扩展 | The DNS server that resolves the names dialled. |
 | `skip_default_domain_resolver` | bool | `false` | sail 扩展 | A sail extension: without a `domain_resolver` of its own, the names dialled resolve as the DNS rules say, not as `route.default_domain_resolver` does; as Mihomo's DIRECT resolves apart from the proxies' servers. |
 | `domain_strategy` | string, 取值 `prefer_ipv4`, `prefer_ipv6`, `ipv4_only`, `ipv6_only` | 未设置 | sail 扩展 | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
 | `network_strategy` | 任意 JSON | 未设置 | sail 扩展 | Not implemented yet. |
 | `network_type` | 任意 JSON | 未设置 | sail 扩展 | Not implemented yet. |
 | `fallback_network_type` | 任意 JSON | 未设置 | sail 扩展 | Not implemented yet. |
-| `fallback_delay` | 任意 JSON | 未设置 | sail 扩展 | Not implemented yet. |
+| `fallback_delay` | duration | 未设置 | sail 扩展 | How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs); 300ms when unset. |
 | `detour` | string | 未设置 | sail 扩展 | The outbound to dial through, in place of a socket of its own. |
-| `bind_interface` | string | 未设置 | sail 扩展 | The interface to send through, by name. |
-| `inet4_bind_address` | string | 未设置 | sail 扩展 | The local address for IPv4 destinations. |
-| `inet6_bind_address` | string | 未设置 | sail 扩展 | The local address for IPv6 destinations. |
-| `bind_address_no_port` | 任意 JSON | 未设置 | sail 扩展 | Not implemented yet. |
+| `bind_interface` | string | 未设置 | sail 扩展 | The interface to send through, by name. Loopback destinations still go over loopback, where sing-box applies the bind to them as well. |
+| `inet4_bind_address` | string | 未设置 | sail 扩展 | The local address for IPv4 destinations, loopback ones aside: as `bind_interface`. |
+| `inet6_bind_address` | string | 未设置 | sail 扩展 | The local address for IPv6 destinations, loopback ones aside: as `bind_interface`. |
+| `bind_address_no_port` | bool | `false` | sail 扩展 | `IP_BIND_ADDRESS_NO_PORT` on TCP sockets bound to an address, so that the port is picked at connect: Linux only. |
 | `protect_path` | 任意 JSON | 未设置 | sail 扩展 | Not implemented yet. |
 | `routing_mark` | number | 未设置 | sail 扩展 | `SO_MARK`, Linux only. |
-| `reuse_addr` | 任意 JSON | 未设置 | sail 扩展 | Not implemented yet. |
+| `reuse_addr` | bool | `false` | sail 扩展 | `SO_REUSEADDR`, and `SO_REUSEPORT` on Unix, on UDP sockets. |
 | `netns` | 任意 JSON | 未设置 | sail 扩展 | Not implemented yet. |
 | `connect_timeout` | duration | 未设置 | sail 扩展 | How long a TCP connect to one address may take; 5s when unset. |
-| `tcp_fast_open` | 任意 JSON | 未设置 | sail 扩展 | Not implemented yet. |
+| `tcp_fast_open` | bool | `false` | sail 扩展 | TCP Fast Open: the first data written goes with the SYN. Its addresses are then tried one by one, not raced. |
 | `tcp_multi_path` | 任意 JSON | 未设置 | sail 扩展 | Not implemented yet. |
 | `disable_tcp_keep_alive` | bool | `false` | sail 扩展 | No TCP keepalive at all. |
 | `tcp_keep_alive` | duration | 未设置 | sail 扩展 | How long a TCP connection is idle before keepalive probes it; 5m when unset. |
 | `tcp_keep_alive_interval` | duration | 未设置 | sail 扩展 | Between keepalive probes; 75s when unset. |
-| `udp_fragment` | 任意 JSON | 未设置 | sail 扩展 | Not implemented yet. |
+| `udp_fragment` | bool | 未设置 | sail 扩展 | Whether UDP datagrams may be fragmented on the way; unset, as the place says, see `udp_fragment_default`. |
 | `domain_resolver` | 对象 → [对象](#outbounds-redirect-domain-resolver) | 未设置 | sail 扩展 | The DNS server that resolves the names dialled. |
 | `skip_default_domain_resolver` | bool | `false` | sail 扩展 | A sail extension: without a `domain_resolver` of its own, the names dialled resolve as the DNS rules say, not as `route.default_domain_resolver` does; as Mihomo's DIRECT resolves apart from the proxies' servers. |
 | `domain_strategy` | string, 取值 `prefer_ipv4`, `prefer_ipv6`, `ipv4_only`, `ipv6_only` | 未设置 | sail 扩展 | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
 | `network_strategy` | 任意 JSON | 未设置 | sail 扩展 | Not implemented yet. |
 | `network_type` | 任意 JSON | 未设置 | sail 扩展 | Not implemented yet. |
 | `fallback_network_type` | 任意 JSON | 未设置 | sail 扩展 | Not implemented yet. |
-| `fallback_delay` | 任意 JSON | 未设置 | sail 扩展 | Not implemented yet. |
+| `fallback_delay` | duration | 未设置 | sail 扩展 | How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs); 300ms when unset. |
 | `server` | string | 必填 | sail 扩展 | — |
 | `server_port` | number | 必填 | sail 扩展 | — |
 
@@ -465,26 +465,26 @@ Rust 定义：[`ShadowsocksOutboundOptions`](https://github.com/peakpassvpn/sail
 | --- | --- | --- | --- | --- |
 | `tag` | string | `""` | 支持 | Defaults to the type. |
 | `detour` | string | 未设置 | 支持 | The outbound to dial through, in place of a socket of its own. |
-| `bind_interface` | string | 未设置 | 支持 | The interface to send through, by name. |
-| `inet4_bind_address` | string | 未设置 | 支持 | The local address for IPv4 destinations. |
-| `inet6_bind_address` | string | 未设置 | 支持 | The local address for IPv6 destinations. |
-| `bind_address_no_port` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `bind_interface` | string | 未设置 | 支持 | The interface to send through, by name. Loopback destinations still go over loopback, where sing-box applies the bind to them as well. |
+| `inet4_bind_address` | string | 未设置 | 支持 | The local address for IPv4 destinations, loopback ones aside: as `bind_interface`. |
+| `inet6_bind_address` | string | 未设置 | 支持 | The local address for IPv6 destinations, loopback ones aside: as `bind_interface`. |
+| `bind_address_no_port` | bool | `false` | 支持 | `IP_BIND_ADDRESS_NO_PORT` on TCP sockets bound to an address, so that the port is picked at connect: Linux only. |
 | `protect_path` | string | — | 报错：Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
 | `routing_mark` | number\|string | 未设置 | 支持 | `SO_MARK`, Linux only. |
-| `reuse_addr` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `reuse_addr` | bool | `false` | 支持 | `SO_REUSEADDR`, and `SO_REUSEPORT` on Unix, on UDP sockets. |
 | `netns` | string | — | 报错：Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
 | `connect_timeout` | duration | 未设置 | 支持 | How long a TCP connect to one address may take; 5s when unset. |
-| `tcp_fast_open` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `tcp_fast_open` | bool | `false` | 支持 | TCP Fast Open: the first data written goes with the SYN. Its addresses are then tried one by one, not raced. |
 | `tcp_multi_path` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
 | `disable_tcp_keep_alive` | bool | `false` | 支持 | No TCP keepalive at all. |
 | `tcp_keep_alive` | duration | 未设置 | 支持 | How long a TCP connection is idle before keepalive probes it; 5m when unset. |
 | `tcp_keep_alive_interval` | duration | 未设置 | 支持 | Between keepalive probes; 75s when unset. |
-| `udp_fragment` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `udp_fragment` | bool | 未设置 | 支持 | Whether UDP datagrams may be fragmented on the way; unset, as the place says, see `udp_fragment_default`. |
 | `domain_resolver` | string\|object → [对象](/sail/zh/reference/shared/#domain-resolver-default-domain-resolver) | 未设置 | 支持 | The DNS server that resolves the names dialled. |
 | `network_strategy` | string, 取值 `default`, `fallback`, `hybrid` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
 | `network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
 | `fallback_network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
-| `fallback_delay` | duration | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `fallback_delay` | duration | 未设置 | 支持 | How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs); 300ms when unset. |
 | `server` | string | 必填 | 支持 | — |
 | `server_port` | number | 必填 | 支持 | — |
 | `method` | string, 取值 `none`, `aes-128-gcm`, `aes-192-gcm`, `aes-256-gcm`, `chacha20-ietf-poly1305`, `xchacha20-ietf-poly1305`, `2022-blake3-aes-128-gcm`, `2022-blake3-aes-256-gcm`, `2022-blake3-chacha20-poly1305`, `aes-128-ctr`, `aes-192-ctr`, `aes-256-ctr`, `aes-128-cfb`, `aes-192-cfb`, `aes-256-cfb`, `rc4-md5`, `chacha20-ietf`, `xchacha20` | 必填 | 支持 | — |
@@ -506,26 +506,26 @@ Rust 定义：[`ShadowTlsOutboundOptions`](https://github.com/peakpassvpn/sail/b
 | --- | --- | --- | --- | --- |
 | `tag` | string | `""` | 支持 | Defaults to the type. |
 | `detour` | string | 未设置 | 支持 | The outbound to dial through, in place of a socket of its own. |
-| `bind_interface` | string | 未设置 | 支持 | The interface to send through, by name. |
-| `inet4_bind_address` | string | 未设置 | 支持 | The local address for IPv4 destinations. |
-| `inet6_bind_address` | string | 未设置 | 支持 | The local address for IPv6 destinations. |
-| `bind_address_no_port` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `bind_interface` | string | 未设置 | 支持 | The interface to send through, by name. Loopback destinations still go over loopback, where sing-box applies the bind to them as well. |
+| `inet4_bind_address` | string | 未设置 | 支持 | The local address for IPv4 destinations, loopback ones aside: as `bind_interface`. |
+| `inet6_bind_address` | string | 未设置 | 支持 | The local address for IPv6 destinations, loopback ones aside: as `bind_interface`. |
+| `bind_address_no_port` | bool | `false` | 支持 | `IP_BIND_ADDRESS_NO_PORT` on TCP sockets bound to an address, so that the port is picked at connect: Linux only. |
 | `protect_path` | string | — | 报错：Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
 | `routing_mark` | number\|string | 未设置 | 支持 | `SO_MARK`, Linux only. |
-| `reuse_addr` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `reuse_addr` | bool | `false` | 支持 | `SO_REUSEADDR`, and `SO_REUSEPORT` on Unix, on UDP sockets. |
 | `netns` | string | — | 报错：Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
 | `connect_timeout` | duration | 未设置 | 支持 | How long a TCP connect to one address may take; 5s when unset. |
-| `tcp_fast_open` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `tcp_fast_open` | bool | `false` | 支持 | TCP Fast Open: the first data written goes with the SYN. Its addresses are then tried one by one, not raced. |
 | `tcp_multi_path` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
 | `disable_tcp_keep_alive` | bool | `false` | 支持 | No TCP keepalive at all. |
 | `tcp_keep_alive` | duration | 未设置 | 支持 | How long a TCP connection is idle before keepalive probes it; 5m when unset. |
 | `tcp_keep_alive_interval` | duration | 未设置 | 支持 | Between keepalive probes; 75s when unset. |
-| `udp_fragment` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `udp_fragment` | bool | 未设置 | 支持 | Whether UDP datagrams may be fragmented on the way; unset, as the place says, see `udp_fragment_default`. |
 | `domain_resolver` | string\|object → [对象](/sail/zh/reference/shared/#domain-resolver-default-domain-resolver) | 未设置 | 支持 | The DNS server that resolves the names dialled. |
 | `network_strategy` | string, 取值 `default`, `fallback`, `hybrid` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
 | `network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
 | `fallback_network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
-| `fallback_delay` | duration | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `fallback_delay` | duration | 未设置 | 支持 | How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs); 300ms when unset. |
 | `server` | string | 必填 | 支持 | — |
 | `server_port` | number | 必填 | 支持 | — |
 | `version` | number, 取值 `1`, `2`, `3` | `1` | 支持 | Must be 3: versions 1 and 2 are not supported. sing-box's default is 1. |
@@ -583,26 +583,26 @@ Rust 定义：[`SocksOutboundOptions`](https://github.com/peakpassvpn/sail/blob/
 | --- | --- | --- | --- | --- |
 | `tag` | string | `""` | 支持 | Defaults to the type. |
 | `detour` | string | 未设置 | 支持 | The outbound to dial through, in place of a socket of its own. |
-| `bind_interface` | string | 未设置 | 支持 | The interface to send through, by name. |
-| `inet4_bind_address` | string | 未设置 | 支持 | The local address for IPv4 destinations. |
-| `inet6_bind_address` | string | 未设置 | 支持 | The local address for IPv6 destinations. |
-| `bind_address_no_port` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `bind_interface` | string | 未设置 | 支持 | The interface to send through, by name. Loopback destinations still go over loopback, where sing-box applies the bind to them as well. |
+| `inet4_bind_address` | string | 未设置 | 支持 | The local address for IPv4 destinations, loopback ones aside: as `bind_interface`. |
+| `inet6_bind_address` | string | 未设置 | 支持 | The local address for IPv6 destinations, loopback ones aside: as `bind_interface`. |
+| `bind_address_no_port` | bool | `false` | 支持 | `IP_BIND_ADDRESS_NO_PORT` on TCP sockets bound to an address, so that the port is picked at connect: Linux only. |
 | `protect_path` | string | — | 报错：Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
 | `routing_mark` | number\|string | 未设置 | 支持 | `SO_MARK`, Linux only. |
-| `reuse_addr` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `reuse_addr` | bool | `false` | 支持 | `SO_REUSEADDR`, and `SO_REUSEPORT` on Unix, on UDP sockets. |
 | `netns` | string | — | 报错：Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
 | `connect_timeout` | duration | 未设置 | 支持 | How long a TCP connect to one address may take; 5s when unset. |
-| `tcp_fast_open` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `tcp_fast_open` | bool | `false` | 支持 | TCP Fast Open: the first data written goes with the SYN. Its addresses are then tried one by one, not raced. |
 | `tcp_multi_path` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
 | `disable_tcp_keep_alive` | bool | `false` | 支持 | No TCP keepalive at all. |
 | `tcp_keep_alive` | duration | 未设置 | 支持 | How long a TCP connection is idle before keepalive probes it; 5m when unset. |
 | `tcp_keep_alive_interval` | duration | 未设置 | 支持 | Between keepalive probes; 75s when unset. |
-| `udp_fragment` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `udp_fragment` | bool | 未设置 | 支持 | Whether UDP datagrams may be fragmented on the way; unset, as the place says, see `udp_fragment_default`. |
 | `domain_resolver` | string\|object → [对象](/sail/zh/reference/shared/#domain-resolver-default-domain-resolver) | 未设置 | 支持 | The DNS server that resolves the names dialled. |
 | `network_strategy` | string, 取值 `default`, `fallback`, `hybrid` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
 | `network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
 | `fallback_network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
-| `fallback_delay` | duration | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `fallback_delay` | duration | 未设置 | 支持 | How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs); 300ms when unset. |
 | `server` | string | 必填 | 支持 | — |
 | `server_port` | number | 必填 | 支持 | — |
 | `version` | string, 取值 `4`, `4a`, `5` | — | 警告：sail speaks SOCKS 5, the default, and drops the field; 4 and 4a are errors | — |
@@ -622,34 +622,72 @@ Rust 定义：[`TrojanOutboundOptions`](https://github.com/peakpassvpn/sail/blob
 | --- | --- | --- | --- | --- |
 | `tag` | string | `""` | 支持 | Defaults to the type. |
 | `detour` | string | 未设置 | 支持 | The outbound to dial through, in place of a socket of its own. |
-| `bind_interface` | string | 未设置 | 支持 | The interface to send through, by name. |
-| `inet4_bind_address` | string | 未设置 | 支持 | The local address for IPv4 destinations. |
-| `inet6_bind_address` | string | 未设置 | 支持 | The local address for IPv6 destinations. |
-| `bind_address_no_port` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `bind_interface` | string | 未设置 | 支持 | The interface to send through, by name. Loopback destinations still go over loopback, where sing-box applies the bind to them as well. |
+| `inet4_bind_address` | string | 未设置 | 支持 | The local address for IPv4 destinations, loopback ones aside: as `bind_interface`. |
+| `inet6_bind_address` | string | 未设置 | 支持 | The local address for IPv6 destinations, loopback ones aside: as `bind_interface`. |
+| `bind_address_no_port` | bool | `false` | 支持 | `IP_BIND_ADDRESS_NO_PORT` on TCP sockets bound to an address, so that the port is picked at connect: Linux only. |
 | `protect_path` | string | — | 报错：Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
 | `routing_mark` | number\|string | 未设置 | 支持 | `SO_MARK`, Linux only. |
-| `reuse_addr` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `reuse_addr` | bool | `false` | 支持 | `SO_REUSEADDR`, and `SO_REUSEPORT` on Unix, on UDP sockets. |
 | `netns` | string | — | 报错：Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
 | `connect_timeout` | duration | 未设置 | 支持 | How long a TCP connect to one address may take; 5s when unset. |
-| `tcp_fast_open` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `tcp_fast_open` | bool | `false` | 支持 | TCP Fast Open: the first data written goes with the SYN. Its addresses are then tried one by one, not raced. |
 | `tcp_multi_path` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
 | `disable_tcp_keep_alive` | bool | `false` | 支持 | No TCP keepalive at all. |
 | `tcp_keep_alive` | duration | 未设置 | 支持 | How long a TCP connection is idle before keepalive probes it; 5m when unset. |
 | `tcp_keep_alive_interval` | duration | 未设置 | 支持 | Between keepalive probes; 75s when unset. |
-| `udp_fragment` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `udp_fragment` | bool | 未设置 | 支持 | Whether UDP datagrams may be fragmented on the way; unset, as the place says, see `udp_fragment_default`. |
 | `domain_resolver` | string\|object → [对象](/sail/zh/reference/shared/#domain-resolver-default-domain-resolver) | 未设置 | 支持 | The DNS server that resolves the names dialled. |
 | `network_strategy` | string, 取值 `default`, `fallback`, `hybrid` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
 | `network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
 | `fallback_network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
-| `fallback_delay` | duration | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `fallback_delay` | duration | 未设置 | 支持 | How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs); 300ms when unset. |
 | `server` | string | 必填 | 支持 | — |
 | `server_port` | number | 必填 | 支持 | — |
 | `password` | string | 必填 | 支持 | — |
 | `network` | listable-string, 取值 `tcp`, `udp` | — | 报错：Which networks an outbound carries: connections it should refuse would go through it | — |
-| `tls` | object → [对象](/sail/zh/reference/shared/#tls-outbounds) | 未设置 | 支持 | — |
+| `tls` | object → [对象](#outbounds-trojan-tls) | 未设置 | 支持 | — |
 | `multiplex` | object → [对象](/sail/zh/reference/shared/#multiplex-outbounds) | 未设置 | 支持 | — |
 | `transport` | object → [对象](/sail/zh/reference/shared/#transport-outbounds), [[grpc]](/sail/zh/reference/shared/#transport-grpc-outbounds), [[http]](/sail/zh/reference/shared/#transport-http-outbounds), [[httpupgrade]](/sail/zh/reference/shared/#transport-httpupgrade-outbounds), [[ws]](/sail/zh/reference/shared/#transport-ws-outbounds) | 未设置 | 支持 | — |
 | `domain_strategy` | string | 未设置 | 支持 (sing-box 已弃用) | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
+
+<a id="outbounds-trojan-tls"></a>
+
+### `outbounds[trojan].tls`
+
+Rust 定义：[`OutboundTls`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/transport/layers.rs)
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `enabled` | bool | `false` | 支持 | — |
+| `engine` | string, 取值 `go`, `apple`, `windows` | — | 警告：The TLS stack: sail has one | — |
+| `disable_sni` | bool | `false` | 支持 | Sends no SNI. The certificate is still verified against `server_name`, unless `insecure`. |
+| `server_name` | string | 未设置 | 支持 | Defaults to the server's address. |
+| `insecure` | bool | `false` | 支持 | — |
+| `alpn` | listable-string | 未设置 | 支持 | — |
+| `min_version` | string, 取值 `1.0`, `1.1`, `1.2`, `1.3` | 未设置 | 支持 | The lowest TLS version to negotiate, `1.0` to `1.3`; unset, 1.2. |
+| `max_version` | string, 取值 `1.0`, `1.1`, `1.2`, `1.3` | 未设置 | 支持 | The highest; unset, 1.3. |
+| `cipher_suites` | listable-string | — | 报错：TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked | — |
+| `curve_preferences` | listable-string, 取值 `P256`, `P384`, `P521`, `X25519`, `X25519MLKEM768` | — | 报错：TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked | — |
+| `certificate` | listable-string | 未设置 | 支持 | An inline PEM certificate to trust. |
+| `certificate_path` | string | 未设置 | 支持 | A PEM certificate to trust, by path. |
+| `certificate_public_key_sha256` | listable-string\|array | 未设置 | 支持 | The SHA-256 hashes, base64, of the public keys to take a server's certificate by, in place of the certificates trusted, the name and `insecure`. |
+| `client_certificate` | listable-string | 未设置 | 支持 | An inline PEM certificate, its chain after it, presented when the server asks for one; with `client_key`. |
+| `client_certificate_path` | string | 未设置 | 支持 | `client_certificate`, by path. |
+| `client_key` | listable-string | 未设置 | 支持 | The inline PEM key of the client certificate. |
+| `client_key_path` | string | 未设置 | 支持 | `client_key`, by path. |
+| `fragment` | bool | — | 报错：Fragmenting or spoofing the TLS handshake against censorship | — |
+| `fragment_fallback_delay` | duration | — | 报错：Fragmenting or spoofing the TLS handshake against censorship | — |
+| `record_fragment` | bool | — | 报错：Fragmenting or spoofing the TLS handshake against censorship | — |
+| `spoof` | string | — | 报错：Fragmenting or spoofing the TLS handshake against censorship | — |
+| `spoof_method` | string, 取值 `wrong-sequence`, `wrong-checksum`, `wrong-ack`, `wrong-md5`, `wrong-timestamp` | — | 报错：Fragmenting or spoofing the TLS handshake against censorship | — |
+| `kernel_tx` | bool | — | 警告：The TLS stack, kernel TLS and the handshake's timeout: the same TLS without them | — |
+| `kernel_rx` | bool | — | 警告：The TLS stack, kernel TLS and the handshake's timeout: the same TLS without them | — |
+| `handshake_timeout` | duration | — | 警告：The TLS stack, kernel TLS and the handshake's timeout: the same TLS without them | — |
+| `ech` | object → [对象](/sail/zh/reference/shared/#ech-outbounds) | 未设置 | 支持 | — |
+| `utls` | object → [对象](/sail/zh/reference/shared/#utls-dns-servers-outbounds) | 未设置 | 支持 | The browser the ClientHello imitates. Unset, it is Chrome's. |
+| `reality` | object → [对象](/sail/zh/reference/shared/#reality-outbounds) | 未设置 | 支持 | — |
+| `certificate_sha256` | string 或 数组，元素为 string | 未设置 | sail 扩展 | A sail extension, Mihomo's `fingerprint`: the SHA-256 hashes, hex, of whole certificates (DER) to take a server by, in place of the certificates trusted and `insecure`. A hash of the server's own certificate takes it outright: no CA and no name are checked, so that exact certificate is trusted for any server name. A hash of a certificate sent after it, an intermediate or a root, is the only CA the server's certificate is verified by, with the server name. |
 
 <a id="outbounds-tryall"></a>
 
@@ -673,26 +711,26 @@ Rust 定义：[`TuicOutboundOptions`](https://github.com/peakpassvpn/sail/blob/d
 | --- | --- | --- | --- | --- |
 | `tag` | string | `""` | 支持 | Defaults to the type. |
 | `detour` | string | 未设置 | 支持 | The outbound to dial through, in place of a socket of its own. |
-| `bind_interface` | string | 未设置 | 支持 | The interface to send through, by name. |
-| `inet4_bind_address` | string | 未设置 | 支持 | The local address for IPv4 destinations. |
-| `inet6_bind_address` | string | 未设置 | 支持 | The local address for IPv6 destinations. |
-| `bind_address_no_port` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `bind_interface` | string | 未设置 | 支持 | The interface to send through, by name. Loopback destinations still go over loopback, where sing-box applies the bind to them as well. |
+| `inet4_bind_address` | string | 未设置 | 支持 | The local address for IPv4 destinations, loopback ones aside: as `bind_interface`. |
+| `inet6_bind_address` | string | 未设置 | 支持 | The local address for IPv6 destinations, loopback ones aside: as `bind_interface`. |
+| `bind_address_no_port` | bool | `false` | 支持 | `IP_BIND_ADDRESS_NO_PORT` on TCP sockets bound to an address, so that the port is picked at connect: Linux only. |
 | `protect_path` | string | — | 报错：Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
 | `routing_mark` | number\|string | 未设置 | 支持 | `SO_MARK`, Linux only. |
-| `reuse_addr` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `reuse_addr` | bool | `false` | 支持 | `SO_REUSEADDR`, and `SO_REUSEPORT` on Unix, on UDP sockets. |
 | `netns` | string | — | 报错：Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
 | `connect_timeout` | duration | 未设置 | 支持 | How long a TCP connect to one address may take; 5s when unset. |
-| `tcp_fast_open` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `tcp_fast_open` | bool | `false` | 支持 | TCP Fast Open: the first data written goes with the SYN. Its addresses are then tried one by one, not raced. |
 | `tcp_multi_path` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
 | `disable_tcp_keep_alive` | bool | `false` | 支持 | No TCP keepalive at all. |
 | `tcp_keep_alive` | duration | 未设置 | 支持 | How long a TCP connection is idle before keepalive probes it; 5m when unset. |
 | `tcp_keep_alive_interval` | duration | 未设置 | 支持 | Between keepalive probes; 75s when unset. |
-| `udp_fragment` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `udp_fragment` | bool | 未设置 | 支持 | Whether UDP datagrams may be fragmented on the way; unset, as the place says, see `udp_fragment_default`. |
 | `domain_resolver` | string\|object → [对象](/sail/zh/reference/shared/#domain-resolver-default-domain-resolver) | 未设置 | 支持 | The DNS server that resolves the names dialled. |
 | `network_strategy` | string, 取值 `default`, `fallback`, `hybrid` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
 | `network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
 | `fallback_network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
-| `fallback_delay` | duration | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `fallback_delay` | duration | 未设置 | 支持 | How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs); 300ms when unset. |
 | `server` | string | 必填 | 支持 | — |
 | `server_port` | number | 必填 | 支持 | — |
 | `uuid` | string | 必填 | 支持 | — |
@@ -787,26 +825,26 @@ Rust 定义：[`VlessOutboundOptions`](https://github.com/peakpassvpn/sail/blob/
 | --- | --- | --- | --- | --- |
 | `tag` | string | `""` | 支持 | Defaults to the type. |
 | `detour` | string | 未设置 | 支持 | The outbound to dial through, in place of a socket of its own. |
-| `bind_interface` | string | 未设置 | 支持 | The interface to send through, by name. |
-| `inet4_bind_address` | string | 未设置 | 支持 | The local address for IPv4 destinations. |
-| `inet6_bind_address` | string | 未设置 | 支持 | The local address for IPv6 destinations. |
-| `bind_address_no_port` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `bind_interface` | string | 未设置 | 支持 | The interface to send through, by name. Loopback destinations still go over loopback, where sing-box applies the bind to them as well. |
+| `inet4_bind_address` | string | 未设置 | 支持 | The local address for IPv4 destinations, loopback ones aside: as `bind_interface`. |
+| `inet6_bind_address` | string | 未设置 | 支持 | The local address for IPv6 destinations, loopback ones aside: as `bind_interface`. |
+| `bind_address_no_port` | bool | `false` | 支持 | `IP_BIND_ADDRESS_NO_PORT` on TCP sockets bound to an address, so that the port is picked at connect: Linux only. |
 | `protect_path` | string | — | 报错：Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
 | `routing_mark` | number\|string | 未设置 | 支持 | `SO_MARK`, Linux only. |
-| `reuse_addr` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `reuse_addr` | bool | `false` | 支持 | `SO_REUSEADDR`, and `SO_REUSEPORT` on Unix, on UDP sockets. |
 | `netns` | string | — | 报错：Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
 | `connect_timeout` | duration | 未设置 | 支持 | How long a TCP connect to one address may take; 5s when unset. |
-| `tcp_fast_open` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `tcp_fast_open` | bool | `false` | 支持 | TCP Fast Open: the first data written goes with the SYN. Its addresses are then tried one by one, not raced. |
 | `tcp_multi_path` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
 | `disable_tcp_keep_alive` | bool | `false` | 支持 | No TCP keepalive at all. |
 | `tcp_keep_alive` | duration | 未设置 | 支持 | How long a TCP connection is idle before keepalive probes it; 5m when unset. |
 | `tcp_keep_alive_interval` | duration | 未设置 | 支持 | Between keepalive probes; 75s when unset. |
-| `udp_fragment` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `udp_fragment` | bool | 未设置 | 支持 | Whether UDP datagrams may be fragmented on the way; unset, as the place says, see `udp_fragment_default`. |
 | `domain_resolver` | string\|object → [对象](/sail/zh/reference/shared/#domain-resolver-default-domain-resolver) | 未设置 | 支持 | The DNS server that resolves the names dialled. |
 | `network_strategy` | string, 取值 `default`, `fallback`, `hybrid` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
 | `network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
 | `fallback_network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
-| `fallback_delay` | duration | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `fallback_delay` | duration | 未设置 | 支持 | How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs); 300ms when unset. |
 | `server` | string | 必填 | 支持 | — |
 | `server_port` | number | 必填 | 支持 | — |
 | `uuid` | string | 必填 | 支持 | — |
@@ -828,26 +866,26 @@ Rust 定义：[`VMessOutboundOptions`](https://github.com/peakpassvpn/sail/blob/
 | --- | --- | --- | --- | --- |
 | `tag` | string | `""` | 支持 | Defaults to the type. |
 | `detour` | string | 未设置 | 支持 | The outbound to dial through, in place of a socket of its own. |
-| `bind_interface` | string | 未设置 | 支持 | The interface to send through, by name. |
-| `inet4_bind_address` | string | 未设置 | 支持 | The local address for IPv4 destinations. |
-| `inet6_bind_address` | string | 未设置 | 支持 | The local address for IPv6 destinations. |
-| `bind_address_no_port` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `bind_interface` | string | 未设置 | 支持 | The interface to send through, by name. Loopback destinations still go over loopback, where sing-box applies the bind to them as well. |
+| `inet4_bind_address` | string | 未设置 | 支持 | The local address for IPv4 destinations, loopback ones aside: as `bind_interface`. |
+| `inet6_bind_address` | string | 未设置 | 支持 | The local address for IPv6 destinations, loopback ones aside: as `bind_interface`. |
+| `bind_address_no_port` | bool | `false` | 支持 | `IP_BIND_ADDRESS_NO_PORT` on TCP sockets bound to an address, so that the port is picked at connect: Linux only. |
 | `protect_path` | string | — | 报错：Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
 | `routing_mark` | number\|string | 未设置 | 支持 | `SO_MARK`, Linux only. |
-| `reuse_addr` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `reuse_addr` | bool | `false` | 支持 | `SO_REUSEADDR`, and `SO_REUSEPORT` on Unix, on UDP sockets. |
 | `netns` | string | — | 报错：Android's socket protection and Linux network namespaces: sockets would leave another way | Not implemented yet. |
 | `connect_timeout` | duration | 未设置 | 支持 | How long a TCP connect to one address may take; 5s when unset. |
-| `tcp_fast_open` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `tcp_fast_open` | bool | `false` | 支持 | TCP Fast Open: the first data written goes with the SYN. Its addresses are then tried one by one, not raced. |
 | `tcp_multi_path` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
 | `disable_tcp_keep_alive` | bool | `false` | 支持 | No TCP keepalive at all. |
 | `tcp_keep_alive` | duration | 未设置 | 支持 | How long a TCP connection is idle before keepalive probes it; 5m when unset. |
 | `tcp_keep_alive_interval` | duration | 未设置 | 支持 | Between keepalive probes; 75s when unset. |
-| `udp_fragment` | bool | — | 警告：Socket tuning: connections go the same way without it | Not implemented yet. |
+| `udp_fragment` | bool | 未设置 | 支持 | Whether UDP datagrams may be fragmented on the way; unset, as the place says, see `udp_fragment_default`. |
 | `domain_resolver` | string\|object → [对象](/sail/zh/reference/shared/#domain-resolver-default-domain-resolver) | 未设置 | 支持 | The DNS server that resolves the names dialled. |
 | `network_strategy` | string, 取值 `default`, `fallback`, `hybrid` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
 | `network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
 | `fallback_network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
-| `fallback_delay` | duration | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
+| `fallback_delay` | duration | 未设置 | 支持 | How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs); 300ms when unset. |
 | `server` | string | 必填 | 支持 | — |
 | `server_port` | number | 必填 | 支持 | — |
 | `uuid` | string | 必填 | 支持 | — |
