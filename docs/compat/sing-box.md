@@ -15,7 +15,7 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | Section | Fields | Supported | Warned | Error |
 |---|--:|--:|--:|--:|
 | `log` | 5 | 5 | 0 | 0 |
-| `dns` | 578 | 315 | 69 | 194 |
+| `dns` | 578 | 318 | 94 | 166 |
 | `ntp` | 35 | 0 | 35 | 0 |
 | `certificate` | 5 | 5 | 0 | 0 |
 | `certificate_providers` | 212 | 0 | 0 | 212 |
@@ -27,7 +27,7 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `route` | 268 | 144 | 21 | 103 |
 | `services` | 751 | 1 | 166 | 584 |
 | `experimental` | 34 | 16 | 17 | 1 |
-| **All** | **5002** | **1669** | **682** | **2651** |
+| **All** | **5002** | **1672** | **707** | **2623** |
 
 ## `log`
 
@@ -48,7 +48,6 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | Type | Tier | Note | Fields |
 |---|---|---|--:|
 | `dns.servers[dhcp]` | Error | A type or value sail does not implement: it would route otherwise | 33 |
-| `dns.servers[mdns]` | Error | A type or value sail does not implement: it would route otherwise | 33 |
 | `dns.servers[openconnect]` | Error | A type or value sail does not implement: it would route otherwise | 4 |
 | `dns.servers[openvpn]` | Error | A type or value sail does not implement: it would route otherwise | 4 |
 | `dns.servers[resolved]` | Error | A type or value sail does not implement: it would route otherwise | 3 |
@@ -270,6 +269,37 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `prefer_go` | Warned | Go's own resolver rather than the system's: sail is not Go |
 | `neighbor_domain` | Warned | Single-label LAN names from sing-box's neighbor resolver (DHCP leases): sail has none, and the system's resolver answers them |
 | `domain_strategy` (deprecated) | Warned | A local server's servers are the system's, addresses: it has no name to resolve |
+
+### `dns.servers[mdns]`
+
+| Field | Tier | Note |
+|---|---|---|
+| `tag` | Supported |  |
+| `detour` | Warned | An mDNS server asks on each interface itself, as sing-box's, which dials nothing |
+| `bind_interface` | Warned | An mDNS server asks on each interface itself, as sing-box's, which dials nothing |
+| `inet4_bind_address` | Warned | An mDNS server asks on each interface itself, as sing-box's, which dials nothing |
+| `inet6_bind_address` | Warned | An mDNS server asks on each interface itself, as sing-box's, which dials nothing |
+| `bind_address_no_port` | Warned | Socket tuning: connections go the same way without it |
+| `protect_path` | Error | Android's socket protection and Linux network namespaces: sockets would leave another way |
+| `routing_mark` | Warned | An mDNS server asks on each interface itself, as sing-box's, which dials nothing |
+| `reuse_addr` | Warned | Socket tuning: connections go the same way without it |
+| `netns` | Error | Android's socket protection and Linux network namespaces: sockets would leave another way |
+| `connect_timeout` | Warned | An mDNS server asks on each interface itself, as sing-box's, which dials nothing |
+| `tcp_fast_open` | Warned | Socket tuning: connections go the same way without it |
+| `tcp_multi_path` | Warned | Socket tuning: connections go the same way without it |
+| `disable_tcp_keep_alive` | Warned | An mDNS server asks on each interface itself, as sing-box's, which dials nothing |
+| `tcp_keep_alive` | Warned | An mDNS server asks on each interface itself, as sing-box's, which dials nothing |
+| `tcp_keep_alive_interval` | Warned | An mDNS server asks on each interface itself, as sing-box's, which dials nothing |
+| `udp_fragment` | Warned | Socket tuning: connections go the same way without it |
+| `domain_resolver` | Warned | An mDNS server asks on each interface itself, as sing-box's, which dials nothing (and the 7 fields in it) |
+| `network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `fallback_delay` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `prefer_go` | Warned | Go's own resolver rather than the system's: sail is not Go |
+| `neighbor_domain` | Warned | Single-label LAN names from sing-box's neighbor resolver (DHCP leases): sail has none, and the system's resolver answers them |
+| `interface` | Supported |  |
+| `domain_strategy` (deprecated) | Warned | An mDNS server asks on each interface itself, as sing-box's, which dials nothing |
 
 ### `dns.servers[quic]`
 
@@ -527,7 +557,7 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `[].default_interface_address` | Error | A condition sail does not match: the rule would match otherwise |
 | `[].source_mac_address` | Error | A condition sail does not match: the rule would match otherwise |
 | `[].source_hostname` | Error | A condition sail does not match: the rule would match otherwise |
-| `[].preferred_by` | Error | A condition sail does not match: the rule would match otherwise |
+| `[].preferred_by` | Supported |  |
 | `[].rule_set` | Supported |  |
 | `[].rule_set_ip_cidr_match_source` | Supported |  |
 | `[].match_response` | Supported |  |
