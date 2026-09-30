@@ -26,6 +26,7 @@ pub mod app;
 pub mod assets;
 pub mod common;
 pub mod config;
+pub mod control;
 #[cfg(feature = "http-client")]
 pub mod fetch;
 #[cfg(feature = "fuzzing")]
@@ -113,6 +114,10 @@ pub struct RuntimeManager {
     /// What the Clash API tells of the configuration.
     #[cfg(feature = "clash-api")]
     clash_view: arc_swap::ArcSwap<app::clash_api::ConfigView>,
+    /// The modes the rules name, as sing-box lists them.
+    modes: arc_swap::ArcSwap<Vec<String>>,
+    /// The delays measured of each outbound.
+    delays: control::Delays,
     /// The assets the configuration reads.
     assets: Mutex<Vec<assets::Asset>>,
 }
@@ -175,6 +180,8 @@ impl RuntimeManager {
             rule_set_files: Mutex::new(instance.rule_sets.files()),
             #[cfg(feature = "clash-api")]
             clash_view: Default::default(),
+            modes: Default::default(),
+            delays: Default::default(),
             assets: Default::default(),
         })
     }
@@ -197,8 +204,8 @@ impl RuntimeManager {
             assets::required(config, &self.env);
     }
 
-    #[cfg(feature = "clash-api")]
     /// The outbounds, as they are now.
+    #[cfg(all(feature = "clash-api", feature = "outbound-provider"))]
     pub(crate) fn outbound_manager(&self) -> Arc<app::outbound::manager::OutboundManager> {
         self.outbound_manager.load_full()
     }
@@ -308,8 +315,10 @@ impl RuntimeManager {
         (**self.clash_view.load()).clone()
     }
 
-    #[cfg(feature = "clash-api")]
-    fn set_clash_view(&self, config: &config::Config) {
+    /// What the Clash API and the modes tell of `config`, as it is now.
+    fn set_views(&self, config: &config::Config) {
+        self.modes.store(Arc::new(control::modes(config)));
+        #[cfg(feature = "clash-api")]
         self.clash_view
             .store(Arc::new(app::clash_api::ConfigView::of(config)));
     }
@@ -589,8 +598,7 @@ impl RuntimeManager {
             config.clash_api.as_ref(),
             self.env.cache_file.get().as_deref(),
         );
-        #[cfg(feature = "clash-api")]
-        self.set_clash_view(&config);
+        self.set_views(&config);
         self.set_assets(&config);
         inbounds.publish_resources(inbound_resources);
         // The users the new inbounds bound are limited as configured now.
@@ -1453,9 +1461,9 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
         let api_server = ApiServer::new(runtime_manager.clone());
         runners.push(api_server.serve(listener)?);
     }
+    runtime_manager.set_views(&config);
     #[cfg(feature = "clash-api")]
     {
-        runtime_manager.set_clash_view(&config);
         if let Some((listener, api)) = clash_api {
             runners.push(app::clash_api::serve(
                 listener,

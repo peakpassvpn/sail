@@ -88,7 +88,6 @@ impl Providers {
     }
 
     /// Each provider, in the configuration's order.
-    #[cfg(feature = "clash-api")]
     pub(crate) fn all(&self) -> &[Arc<Provider>] {
         &self.providers
     }

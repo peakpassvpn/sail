@@ -17,6 +17,7 @@ mod test_clash_api;
 mod test_components;
 mod test_config_clash;
 mod test_config_surge;
+mod test_control;
 mod test_corpus;
 mod test_detour;
 mod test_direct;

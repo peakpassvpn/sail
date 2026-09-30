@@ -15,7 +15,8 @@ use serde_json::{json, Value};
 
 use super::streams::{resident_memory, send};
 use super::Clash;
-use crate::app::stat_manager::{Counter, StatManager};
+use crate::control::ConnectionInfo;
+use crate::RuntimeManager;
 
 /// How often a WebSocket is sent the connections, unless `?interval=`
 /// (milliseconds) says otherwise, as in Mihomo.
@@ -30,9 +31,8 @@ pub(super) async fn list(
     Query(query): Query<HashMap<String, String>>,
     ws: Option<WebSocketUpgrade>,
 ) -> Response {
-    let stats = clash.rm.stat_manager();
     let Some(ws) = ws else {
-        return Json(snapshot(&stats)).into_response();
+        return Json(snapshot(&clash.rm).await).into_response();
     };
     let interval = query
         .get("interval")
@@ -46,71 +46,60 @@ pub(super) async fn list(
             Some(((), interval))
         })
         .then(move |()| {
-            let stats = stats.clone();
-            async move { snapshot(&stats) }
+            let clash = clash.clone();
+            async move { snapshot(&clash.rm).await }
         });
     send(Some(ws), frames)
 }
 
-fn snapshot(stats: &StatManager) -> Value {
-    let (up, down) = stats.totals();
-    let counters = stats.connections();
+async fn snapshot(rm: &RuntimeManager) -> Value {
+    let traffic = rm.traffic().await;
+    let connections = rm.connections().await;
     json!({
-        "downloadTotal": down,
-        "uploadTotal": up,
-        "connections": counters.iter().map(|c| connection(c)).collect::<Vec<_>>(),
+        "downloadTotal": traffic.down_total,
+        "uploadTotal": traffic.up_total,
+        "connections": connections.iter().map(connection).collect::<Vec<_>>(),
         "memory": resident_memory(),
     })
 }
 
-fn connection(counter: &Counter) -> Value {
-    let sess = &counter.sess;
-    let host = sess
-        .destination
-        .domain()
-        .cloned()
-        .or_else(|| sess.sniffed.as_ref().map(|(_, domain)| domain.clone()))
-        .unwrap_or_default();
-    // The group took members to get here, last first; the outbound the
-    // rules picked comes last, as Mihomo lists them.
-    let mut chains = sess.chain.get();
-    chains.push(sess.outbound_tag.clone());
-    let start = chrono::DateTime::from_timestamp(i64::from(counter.start_time()), 0)
+fn connection(c: &ConnectionInfo) -> Value {
+    let start = chrono::DateTime::from_timestamp(i64::from(c.start), 0)
         .unwrap_or_default()
         .to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
     json!({
-        "id": counter.id.to_string(),
+        "id": c.id.to_string(),
         "metadata": {
-            "network": sess.network.to_string(),
-            "type": format!("{}/{}", sess.inbound_type, sess.inbound_tag),
-            "sourceIP": sess.source.ip().to_string(),
-            "sourcePort": sess.source.port().to_string(),
-            "destinationIP": sess.destination.ip().map(|ip| ip.to_string()).unwrap_or_default(),
-            "destinationPort": sess.destination.port().to_string(),
-            "host": host,
+            "network": c.network.to_string(),
+            "type": format!("{}/{}", c.inbound_type, c.inbound_tag),
+            "sourceIP": c.source.ip().to_string(),
+            "sourcePort": c.source.port().to_string(),
+            "destinationIP": c.destination.ip().map(|ip| ip.to_string()).unwrap_or_default(),
+            "destinationPort": c.destination.port().to_string(),
+            "host": c.host.clone().unwrap_or_default(),
             "dnsMode": "normal",
-            "processPath": sess.process_name.clone().unwrap_or_default(),
-            "inboundName": sess.inbound_tag,
+            "processPath": c.process.clone().unwrap_or_default(),
+            "inboundName": c.inbound_tag,
         },
-        "upload": counter.bytes_sent(),
-        "download": counter.bytes_recvd(),
+        "upload": c.upload,
+        "download": c.download,
         "start": start,
-        "chains": chains,
-        "rule": sess.matched_rule.as_deref().unwrap_or("final"),
+        "chains": c.chains,
+        "rule": c.rule.as_deref().unwrap_or("final"),
         "rulePayload": "",
     })
 }
 
 /// Closes every connection.
 pub(super) async fn close_all(State(clash): State<Arc<Clash>>) -> StatusCode {
-    clash.rm.stat_manager().close_all();
+    clash.rm.close_all_connections().await;
     StatusCode::NO_CONTENT
 }
 
 /// Closes one; one there is not is no error, as in Mihomo.
 pub(super) async fn close(State(clash): State<Arc<Clash>>, Path(id): Path<String>) -> StatusCode {
     if let Ok(id) = id.parse() {
-        clash.rm.stat_manager().close(id);
+        clash.rm.close_connection(id).await;
     }
     StatusCode::NO_CONTENT
 }

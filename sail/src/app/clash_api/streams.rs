@@ -61,12 +61,12 @@ pub(super) async fn traffic(
     State(clash): State<Arc<Clash>>,
     ws: Option<WebSocketUpgrade>,
 ) -> Response {
-    let stats = clash.rm.stat_manager();
-    let first = stats.totals();
+    let totals = |t: crate::control::Traffic| (t.up_total, t.down_total);
+    let first = totals(clash.rm.traffic().await);
     let frames = ticks()
         .then(move |()| {
-            let stats = stats.clone();
-            async move { stats.totals() }
+            let clash = clash.clone();
+            async move { totals(clash.rm.traffic().await) }
         })
         .scan(first, |last, (up, down)| {
             let (up0, down0) = std::mem::replace(last, (up, down));

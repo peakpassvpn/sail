@@ -11,6 +11,8 @@ use axum::Json;
 use serde_json::{json, Map, Value};
 
 use super::proxies::test_params;
+#[cfg(feature = "outbound-provider")]
+use super::proxies::{delay_error, millis, proxy};
 use super::{ApiError, Clash};
 
 /// How long a provider's health check waits on each member.
@@ -53,33 +55,21 @@ impl Clash {
         url: &str,
         timeout: std::time::Duration,
     ) -> Result<std::time::Duration, ApiError> {
-        let handler = self
-            .provider(provider)?
-            .members()
-            .load()
-            .find(name)
-            .map(|m| m.handler.clone())
-            .ok_or_else(ApiError::not_found)?;
-        self.probe(name, &handler, url, timeout).await
+        self.rm
+            .url_test_provider_member(provider, name, Some(url), timeout)
+            .await
+            .map_err(delay_error)
     }
 
     async fn show_provider(&self, provider: &crate::app::provider::Provider) -> Value {
-        let latencies = HashMap::new();
-        let mut proxies = Vec::new();
-        for member in provider.members().load().members.iter() {
-            if let Some(proxy) = self
-                .describe(
-                    &member.key.name,
-                    &member.handler,
-                    member.kind,
-                    false,
-                    &latencies,
-                )
-                .await
-            {
-                proxies.push(proxy);
-            }
-        }
+        let proxies: Vec<Value> = self
+            .rm
+            .provider_members(&provider.tag)
+            .await
+            .unwrap_or_default()
+            .iter()
+            .map(proxy)
+            .collect();
         json!({
             "name": &*provider.tag,
             "type": "Proxy",
@@ -197,13 +187,15 @@ pub(super) async fn member(
 ) -> Result<Json<Value>, ApiError> {
     #[cfg(feature = "outbound-provider")]
     {
-        let provider = clash.provider(&name)?;
-        let members = provider.members().load();
-        let member = members.find(&proxy).ok_or_else(ApiError::not_found)?;
+        clash.provider(&name)?;
         clash
-            .describe(&proxy, &member.handler, member.kind, false, &HashMap::new())
+            .rm
+            .provider_members(&name)
             .await
-            .map(Json)
+            .unwrap_or_default()
+            .iter()
+            .find(|m| m.tag == proxy)
+            .map(|m| Json(self::proxy(m)))
             .ok_or_else(ApiError::not_found)
     }
     #[cfg(not(feature = "outbound-provider"))]
@@ -223,7 +215,7 @@ pub(super) async fn member_delay(
     #[cfg(feature = "outbound-provider")]
     {
         let delay = clash.probe_member(&name, &proxy, &url, timeout).await?;
-        Ok(Json(json!({ "delay": delay.as_millis().max(1) as u64 })))
+        Ok(Json(json!({ "delay": millis(delay) })))
     }
     #[cfg(not(feature = "outbound-provider"))]
     {

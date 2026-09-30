@@ -86,7 +86,10 @@ fn the_view_tells_the_listeners_and_modes() {
     assert!(!view.ipv6);
     assert_eq!(view.log_level, "warning");
     // sing-box's order: others sorted, then Clash's; the default first.
-    assert_eq!(view.modes, ["Rule", "Custom", "Global", "Direct"]);
+    assert_eq!(
+        crate::control::modes(&config),
+        ["Rule", "Custom", "Global", "Direct"]
+    );
 }
 
 #[test]

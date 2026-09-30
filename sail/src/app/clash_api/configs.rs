@@ -13,7 +13,7 @@ use axum::Json;
 use serde_json::{json, Map, Value};
 
 use super::{ApiError, Clash};
-use crate::config::model::{Config, DnsStrategy, LogLevel, Rule};
+use crate::config::model::{Config, DnsStrategy, LogLevel};
 
 /// What `/configs` tells of a configuration, worked out as it is loaded.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -31,8 +31,6 @@ pub(crate) struct ConfigView {
     /// Whether names resolve to IPv6 addresses.
     pub ipv6: bool,
     pub log_level: &'static str,
-    /// The modes rules match on, as sing-box lists them.
-    pub modes: Vec<String>,
 }
 
 impl ConfigView {
@@ -49,7 +47,6 @@ impl ConfigView {
                     LogLevel::Error | LogLevel::Fatal | LogLevel::Panic => "error",
                 }
             },
-            modes: modes(config),
             ..Default::default()
         };
         for inbound in &config.inbounds {
@@ -82,46 +79,6 @@ impl ConfigView {
     }
 }
 
-/// The modes, as sing-box lists them: those the routing and DNS rules
-/// name that are not Clash's own, sorted, then Clash's own they name, in
-/// Clash's order; the default mode first if none of them.
-fn modes(config: &Config) -> Vec<String> {
-    fn collect(rule: &Rule, into: &mut Vec<String>) {
-        if let Some(mode) = &rule.clash_mode {
-            into.push(mode.clone());
-        }
-        for rule in &rule.rules {
-            collect(rule, into);
-        }
-    }
-    let mut named = Vec::new();
-    for rule in &config.route.rules {
-        collect(rule, &mut named);
-    }
-    for rule in &config.dns.rules {
-        collect(&rule.conditions(), &mut named);
-    }
-    const CLASH: [&str; 3] = ["Rule", "Global", "Direct"];
-    let is_clash = |m: &str| CLASH.iter().any(|c| c.eq_ignore_ascii_case(m));
-    let mut modes: Vec<String> = named.iter().filter(|m| !is_clash(m)).cloned().collect();
-    modes.sort();
-    modes.dedup();
-    for clash in CLASH {
-        if named.iter().any(|m| m.eq_ignore_ascii_case(clash)) {
-            modes.push(clash.to_string());
-        }
-    }
-    let default = config
-        .clash_api
-        .as_ref()
-        .and_then(|api| api.default_mode.clone())
-        .unwrap_or_else(|| "Rule".to_string());
-    if !modes.iter().any(|m| m.eq_ignore_ascii_case(&default)) {
-        modes.insert(0, default);
-    }
-    modes
-}
-
 pub(super) async fn version() -> Json<Value> {
     Json(json!({
         "version": format!("sail {}", env!("CARGO_PKG_VERSION")),
@@ -132,12 +89,10 @@ pub(super) async fn version() -> Json<Value> {
 
 pub(super) async fn get_configs(State(clash): State<Arc<Clash>>) -> Json<Value> {
     let view = clash.rm.clash_view();
-    let mode = clash
-        .rm
-        .env()
-        .clash_mode
-        .get()
-        .unwrap_or_else(|| "Rule".to_string());
+    let (mode, modes) = match clash.rm.mode() {
+        Some(mode) => (mode.current, mode.modes),
+        None => ("Rule".to_string(), Vec::new()),
+    };
     Json(json!({
         "port": view.port,
         "socks-port": view.socks_port,
@@ -147,7 +102,7 @@ pub(super) async fn get_configs(State(clash): State<Arc<Clash>>) -> Json<Value> 
         "allow-lan": view.allow_lan,
         "bind-address": "*",
         "mode": mode,
-        "mode-list": view.modes,
+        "mode-list": modes,
         "log-level": view.log_level,
         "ipv6": view.ipv6,
         "tun": { "enable": view.tun },
@@ -164,14 +119,8 @@ pub(super) async fn patch_configs(
     let fields: Map<String, Value> =
         serde_json::from_slice(&body).map_err(|_| ApiError::bad_request("Body invalid"))?;
     if let Some(mode) = fields.get("mode").and_then(Value::as_str) {
-        let modes = clash.rm.clash_view().modes;
-        let found = modes
-            .iter()
-            .find(|m| *m == mode)
-            .or_else(|| modes.iter().find(|m| m.eq_ignore_ascii_case(mode)));
-        if let Some(mode) = found {
-            clash.rm.switch_clash_mode(mode);
-        }
+        // A mode not among them is left alone, as in sing-box.
+        let _ = clash.rm.set_mode(mode);
     }
     if let Some(level) = fields.get("log-level").and_then(Value::as_str) {
         let level = match level {

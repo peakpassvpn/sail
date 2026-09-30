@@ -9,10 +9,9 @@
 //! `Authorization: Bearer`, or a WebSocket's `?token=`; without one, or
 //! with a weak one, the instance runs without it, and says why.
 
-use std::collections::{HashMap, VecDeque};
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
 use axum::extract::{Request, State};
@@ -105,8 +104,6 @@ pub(crate) struct Clash {
     /// One download at a time.
     #[cfg_attr(not(feature = "http-client"), allow(dead_code))]
     ui_downloading: tokio::sync::Mutex<()>,
-    /// The delays measured of each outbound, the latest last.
-    history: Mutex<HashMap<String, VecDeque<proxies::Delay>>>,
 }
 
 /// Serves the API on `listener` until the instance stops.
@@ -133,7 +130,6 @@ pub(crate) fn serve(
         ui_downloading: Default::default(),
         ui,
         rm,
-        history: Default::default(),
     });
     let addr = listener.local_addr()?;
     listener.set_nonblocking(true)?;
