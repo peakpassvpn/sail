@@ -74,14 +74,51 @@ fn the_corpus_reads_as_expected() {
             .flat_map(|w| w.join().unwrap())
             .collect()
     });
+    // An outcome that differs by system (a check only one system makes
+    // comes first there) is kept for that system under `on`, beside the
+    // one of the others.
     let expected_path = root.join("expected.json");
+    let mut expected: BTreeMap<String, Value> =
+        serde_json::from_str(&std::fs::read_to_string(&expected_path).unwrap()).unwrap();
+    let os = std::env::consts::OS;
+    let here = |entry: &Value| -> Value {
+        match entry.get("on").and_then(|on| on.get(os)) {
+            Some(variant) => variant.clone(),
+            None => {
+                let mut base = entry.clone();
+                if let Some(map) = base.as_object_mut() {
+                    map.remove("on");
+                }
+                base
+            }
+        }
+    };
     if std::env::var_os("SAIL_CORPUS_UPDATE").is_some() {
-        let text = serde_json::to_string_pretty(&found).unwrap() + "\n";
+        let mut written = BTreeMap::new();
+        for (name, outcome) in &found {
+            let entry = match expected.remove(name) {
+                Some(mut entry) if entry.get("on").and_then(|on| on.get(os)).is_some() => {
+                    entry["on"][os] = outcome.clone();
+                    entry
+                }
+                Some(entry) => match entry.get("on") {
+                    Some(on) => {
+                        let mut entry = outcome.clone();
+                        entry["on"] = on.clone();
+                        entry
+                    }
+                    None => outcome.clone(),
+                },
+                None => outcome.clone(),
+            };
+            written.insert(name.clone(), entry);
+        }
+        let text = serde_json::to_string_pretty(&written).unwrap() + "\n";
         std::fs::write(&expected_path, text).unwrap();
         return;
     }
     let expected: BTreeMap<String, Value> =
-        serde_json::from_str(&std::fs::read_to_string(&expected_path).unwrap()).unwrap();
+        expected.iter().map(|(n, e)| (n.clone(), here(e))).collect();
     let names: BTreeSet<_> = expected.keys().chain(found.keys()).collect();
     let changed: Vec<_> = names
         .into_iter()

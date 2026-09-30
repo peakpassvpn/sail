@@ -252,7 +252,12 @@
     "warnings": 6
   },
   "clash/0070.yaml": {
-    "error": "outbound_providers[0]: url: \"str1\" is not an http(s) URL"
+    "error": "outbound_providers[0]: url: \"str1\" is not an http(s) URL",
+    "on": {
+      "linux": {
+        "error": "tun.route-exclude-address-set[0]: no rule-provider is named \"str5\""
+      }
+    }
   },
   "clash/0071.yaml": {
     "error": "lan-disallowed-ips[0]: a string, not nothing"
@@ -313,7 +318,12 @@
     "warnings": 0
   },
   "clash/0087.yaml": {
-    "error": "outbound_providers[0]: url: \"str1\" is not an http(s) URL"
+    "error": "outbound_providers[0]: url: \"str1\" is not an http(s) URL",
+    "on": {
+      "linux": {
+        "error": "tun.route-exclude-address-set[0]: no rule-provider is named \"str3\""
+      }
+    }
   },
   "clash/0088.yaml": {
     "ok": true,
