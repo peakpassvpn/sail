@@ -5,19 +5,19 @@
   },
   "clash/0002.yaml": {
     "ok": true,
-    "warnings": 35
+    "warnings": 36
   },
   "clash/0003.yaml": {
     "ok": true,
-    "warnings": 26
+    "warnings": 27
   },
   "clash/0004.yaml": {
     "ok": true,
-    "warnings": 17
+    "warnings": 18
   },
   "clash/0005.yaml": {
     "ok": true,
-    "warnings": 38
+    "warnings": 39
   },
   "clash/0006.yaml": {
     "error": "proxy-groups[1].proxies: a group of no proxies and no providers"
@@ -35,7 +35,7 @@
   },
   "clash/0010.yaml": {
     "ok": true,
-    "warnings": 8
+    "warnings": 9
   },
   "clash/0011.yaml": {
     "ok": true,
@@ -136,7 +136,7 @@
   },
   "clash/0039.yaml": {
     "ok": true,
-    "warnings": 3
+    "warnings": 4
   },
   "clash/0040.yaml": {
     "error": "proxy-groups[0].proxies[0]: no proxy or group is named \"PASS\""
@@ -155,7 +155,7 @@
   },
   "clash/0044.yaml": {
     "ok": true,
-    "warnings": 6
+    "warnings": 7
   },
   "clash/0045.yaml": {
     "ok": true,
@@ -170,11 +170,11 @@
   },
   "clash/0048.yaml": {
     "ok": true,
-    "warnings": 9
+    "warnings": 10
   },
   "clash/0049.yaml": {
     "ok": true,
-    "warnings": 7
+    "warnings": 8
   },
   "clash/0050.yaml": {
     "error": "proxy-groups[19].proxies[0]: no proxy or group is named \"PASS\""
@@ -184,7 +184,7 @@
   },
   "clash/0052.yaml": {
     "ok": true,
-    "warnings": 8
+    "warnings": 9
   },
   "clash/0053.yaml": {
     "ok": true,
@@ -343,7 +343,7 @@
   },
   "clash/0093.yaml": {
     "ok": true,
-    "warnings": 1
+    "warnings": 2
   },
   "clash/0094.yaml": {
     "ok": true,
@@ -558,7 +558,7 @@
   },
   "clash/0155.yaml": {
     "ok": true,
-    "warnings": 8
+    "warnings": 9
   },
   "clash/0156.yaml": {
     "ok": true,
@@ -610,7 +610,7 @@
   },
   "clash/0169.yaml": {
     "ok": true,
-    "warnings": 8
+    "warnings": 9
   },
   "clash/0170.yaml": {
     "ok": true,
@@ -677,7 +677,7 @@
   },
   "clash/0188.yaml": {
     "ok": true,
-    "warnings": 7
+    "warnings": 8
   },
   "clash/0189.yaml": {
     "error": "rules[0]: no proxy or group is named \"Proxy 1\""

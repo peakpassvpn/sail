@@ -31,7 +31,14 @@ pub struct Proxies {
 }
 
 pub fn lower(doc: &mut Fields, out: &mut Lowered, warnings: &mut Vec<String>) -> Result<Proxies> {
-    let fingerprint = doc.string("global-client-fingerprint")?;
+    // Mihomo 1.19 dropped it, and logs an error, but reads on.
+    if doc.take("global-client-fingerprint").is_some() {
+        warnings.push(
+            "global-client-fingerprint: removed from Mihomo; set client-fingerprint directly \
+             on the proxy instead; ignored"
+                .to_string(),
+        );
+    }
     let mut proxies = Proxies {
         names: Vec::new(),
         dns: HashSet::new(),
@@ -39,7 +46,7 @@ pub fn lower(doc: &mut Fields, out: &mut Lowered, warnings: &mut Vec<String>) ->
     let mut derived = Vec::new();
     for (i, node) in doc.list("proxies")?.into_iter().enumerate() {
         let f = Fields::of(node, &format!("proxies[{}]", i))?;
-        let proxy = Proxy::read(f, fingerprint.as_deref(), warnings)?;
+        let proxy = Proxy::read(f, warnings)?;
         if BUILT_IN.contains(&proxy.name.as_str()) {
             return Err(anyhow!(
                 "proxies[{}].name: {} is Mihomo's own policy",
@@ -80,7 +87,7 @@ pub fn lower(doc: &mut Fields, out: &mut Lowered, warnings: &mut Vec<String>) ->
 /// is left out, as sail does not implement it in a provider.
 #[cfg(feature = "outbound-provider")]
 pub(super) fn lower_one(f: Fields, warnings: &mut Vec<String>) -> Result<Value> {
-    let proxy = Proxy::read(f, None, warnings)?;
+    let proxy = Proxy::read(f, warnings)?;
     if !proxy.derived.is_empty() {
         return Err(anyhow!(
             "the shadow-tls plugin: sail does not implement it in a provider yet"
@@ -101,7 +108,7 @@ struct Proxy {
 }
 
 impl Proxy {
-    fn read(mut f: Fields, fingerprint: Option<&str>, warnings: &mut Vec<String>) -> Result<Self> {
+    fn read(mut f: Fields, warnings: &mut Vec<String>) -> Result<Self> {
         let name = f
             .string("name")?
             .filter(|n| !n.is_empty())
@@ -131,22 +138,21 @@ impl Proxy {
                 });
             }
             "ss" => {
-                if let Some(shadow_tls) = shadowsocks(&mut f, &mut o, warnings, &name, fingerprint)?
-                {
+                if let Some(shadow_tls) = shadowsocks(&mut f, &mut o, warnings, &name)? {
                     derived.push(shadow_tls);
                 }
                 SHADOWSOCKS
             }
             "vmess" => {
-                vmess(&mut f, &mut o, warnings, fingerprint)?;
+                vmess(&mut f, &mut o, warnings)?;
                 V2RAY
             }
             "vless" => {
-                vless(&mut f, &mut o, warnings, fingerprint)?;
+                vless(&mut f, &mut o, warnings)?;
                 V2RAY
             }
             "trojan" => {
-                trojan(&mut f, &mut o, warnings, fingerprint)?;
+                trojan(&mut f, &mut o, warnings)?;
                 V2RAY
             }
             "hysteria2" => {
@@ -158,15 +164,15 @@ impl Proxy {
                 TUIC
             }
             "anytls" => {
-                anytls(&mut f, &mut o, warnings, fingerprint)?;
+                anytls(&mut f, &mut o, warnings)?;
                 ANYTLS
             }
             "socks5" => {
-                socks5(&mut f, &mut o, warnings, fingerprint)?;
+                socks5(&mut f, &mut o, warnings)?;
                 TLS_ONLY
             }
             "http" => {
-                http(&mut f, &mut o, warnings, fingerprint)?;
+                http(&mut f, &mut o, warnings)?;
                 TLS_ONLY
             }
             "ssr" | "hysteria" | "snell" | "mieru" | "ssh" | "sudoku" | "masque" | "wireguard"
@@ -372,7 +378,6 @@ fn tls(
     w: &mut Vec<String>,
     name_key: &str,
     on: bool,
-    fingerprint: Option<&str>,
 ) -> Result<()> {
     let enabled = f.bool("tls")?.unwrap_or(on);
     let reality = f.map("reality-opts")?;
@@ -412,8 +417,7 @@ fn tls(
         (Some(_), None) => return Err(anyhow!("{}: needed with certificate", f.at("private-key"))),
         (None, Some(_)) => return Err(anyhow!("{}: needed with private-key", f.at("certificate"))),
     }
-    let fp = client_fingerprint.as_deref().or(fingerprint);
-    if let Some(utls) = utls(&f.at("client-fingerprint"), fp)? {
+    if let Some(utls) = utls(&f.at("client-fingerprint"), client_fingerprint.as_deref())? {
         tls.insert("utls".into(), utls);
     }
     if let Some(mut r) = reality {
@@ -444,8 +448,7 @@ fn tls(
     Ok(())
 }
 
-/// The `utls` block of a `client-fingerprint` (at `at`), or of the global
-/// one; none for none.
+/// The `utls` block of a `client-fingerprint` (at `at`); none for none.
 fn utls(at: &str, fp: Option<&str>) -> Result<Option<Value>> {
     let Some(fp) = fp.filter(|fp| !fp.is_empty() && *fp != "none") else {
         return Ok(None);
@@ -567,7 +570,6 @@ fn shadowsocks(
     o: &mut Map<String, Value>,
     w: &mut Vec<String>,
     name: &str,
-    fp: Option<&str>,
 ) -> Result<Option<Value>> {
     o.insert("type".into(), json!("shadowsocks"));
     server(f, o, w)?;
@@ -598,7 +600,7 @@ fn shadowsocks(
         }
         Some("shadow-tls") => {
             let opts = opts.ok_or_else(|| anyhow!("{}: missing", f.at("plugin-opts")))?;
-            shadow_tls = Some(shadow_tls_plugin(f, o, opts, w, name, fp)?);
+            shadow_tls = Some(shadow_tls_plugin(f, o, opts, w, name)?);
         }
         Some(other) => {
             return Err(anyhow!(
@@ -633,7 +635,6 @@ fn shadow_tls_plugin(
     mut opts: Fields,
     w: &mut Vec<String>,
     name: &str,
-    fp: Option<&str>,
 ) -> Result<Value> {
     // Mihomo's default version is 2.
     let version = opts.int::<u32>("version")?.unwrap_or(2);
@@ -666,10 +667,7 @@ fn shadow_tls_plugin(
         tls.insert("alpn".into(), json!(alpn));
     }
     let client_fingerprint = f.string("client-fingerprint")?;
-    if let Some(utls) = utls(
-        &f.at("client-fingerprint"),
-        client_fingerprint.as_deref().or(fp),
-    )? {
+    if let Some(utls) = utls(&f.at("client-fingerprint"), client_fingerprint.as_deref())? {
         tls.insert("utls".into(), utls);
     }
     opts.finish(TLS, |_| false, w)?;
@@ -723,12 +721,7 @@ fn packet_encoding(f: &mut Fields, o: &mut Map<String, Value>) -> Result<()> {
     Ok(())
 }
 
-fn vmess(
-    f: &mut Fields,
-    o: &mut Map<String, Value>,
-    w: &mut Vec<String>,
-    fp: Option<&str>,
-) -> Result<()> {
+fn vmess(f: &mut Fields, o: &mut Map<String, Value>, w: &mut Vec<String>) -> Result<()> {
     o.insert("type".into(), json!("vmess"));
     server(f, o, w)?;
     let uuid = f
@@ -752,16 +745,11 @@ fn vmess(
         ));
     }
     packet_encoding(f, o)?;
-    tls(f, o, w, "servername", false, fp)?;
+    tls(f, o, w, "servername", false)?;
     transport(f, o, w)
 }
 
-fn vless(
-    f: &mut Fields,
-    o: &mut Map<String, Value>,
-    w: &mut Vec<String>,
-    fp: Option<&str>,
-) -> Result<()> {
+fn vless(f: &mut Fields, o: &mut Map<String, Value>, w: &mut Vec<String>) -> Result<()> {
     o.insert("type".into(), json!("vless"));
     server(f, o, w)?;
     let uuid = f
@@ -787,23 +775,18 @@ fn vless(
             f.at("ws-headers")
         ));
     }
-    tls(f, o, w, "servername", false, fp)?;
+    tls(f, o, w, "servername", false)?;
     transport(f, o, w)
 }
 
-fn trojan(
-    f: &mut Fields,
-    o: &mut Map<String, Value>,
-    w: &mut Vec<String>,
-    fp: Option<&str>,
-) -> Result<()> {
+fn trojan(f: &mut Fields, o: &mut Map<String, Value>, w: &mut Vec<String>) -> Result<()> {
     o.insert("type".into(), json!("trojan"));
     server(f, o, w)?;
     let password = f
         .string("password")?
         .ok_or_else(|| anyhow!("{}: missing", f.at("password")))?;
     o.insert("password".into(), json!(password));
-    tls(f, o, w, "sni", true, fp)?;
+    tls(f, o, w, "sni", true)?;
     transport(f, o, w)
 }
 
@@ -858,7 +841,7 @@ fn hysteria2(f: &mut Fields, o: &mut Map<String, Value>, w: &mut Vec<String>) ->
         }
         Some(other) => return Err(anyhow!("{}: {:?} is not salamander", f.at("obfs"), other)),
     }
-    tls(f, o, w, "sni", true, None)
+    tls(f, o, w, "sni", true)
 }
 
 /// A rate as Mihomo writes one, in Mbps: a number is in Mbps.
@@ -929,15 +912,10 @@ fn tuic(f: &mut Fields, o: &mut Map<String, Value>, w: &mut Vec<String>) -> Resu
             f.at("disable-sni")
         ));
     }
-    tls(f, o, w, "sni", true, None)
+    tls(f, o, w, "sni", true)
 }
 
-fn anytls(
-    f: &mut Fields,
-    o: &mut Map<String, Value>,
-    w: &mut Vec<String>,
-    fp: Option<&str>,
-) -> Result<()> {
+fn anytls(f: &mut Fields, o: &mut Map<String, Value>, w: &mut Vec<String>) -> Result<()> {
     o.insert("type".into(), json!("anytls"));
     server(f, o, w)?;
     let password = f
@@ -955,27 +933,17 @@ fn anytls(
     if let Some(n) = f.int::<u32>("min-idle-session")? {
         o.insert("min_idle_session".into(), json!(n));
     }
-    tls(f, o, w, "sni", true, fp)
+    tls(f, o, w, "sni", true)
 }
 
-fn socks5(
-    f: &mut Fields,
-    o: &mut Map<String, Value>,
-    w: &mut Vec<String>,
-    fp: Option<&str>,
-) -> Result<()> {
+fn socks5(f: &mut Fields, o: &mut Map<String, Value>, w: &mut Vec<String>) -> Result<()> {
     o.insert("type".into(), json!("socks"));
     server(f, o, w)?;
     credentials(f, o)?;
-    tls(f, o, w, "sni", false, fp)
+    tls(f, o, w, "sni", false)
 }
 
-fn http(
-    f: &mut Fields,
-    o: &mut Map<String, Value>,
-    w: &mut Vec<String>,
-    fp: Option<&str>,
-) -> Result<()> {
+fn http(f: &mut Fields, o: &mut Map<String, Value>, w: &mut Vec<String>) -> Result<()> {
     o.insert("type".into(), json!("http"));
     server(f, o, w)?;
     credentials(f, o)?;
@@ -988,7 +956,7 @@ fn http(
         }
         o.insert("headers".into(), Value::Object(headers));
     }
-    tls(f, o, w, "sni", false, fp)
+    tls(f, o, w, "sni", false)
 }
 
 fn credentials(f: &mut Fields, o: &mut Map<String, Value>) -> Result<()> {

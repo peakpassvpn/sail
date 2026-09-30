@@ -266,7 +266,6 @@ fn a_reject_proxy_is_a_block() {
 fn a_shadow_tls_plugin_is_an_outbound_the_proxy_goes_through() {
     let config = load(
         r#"
-global-client-fingerprint: firefox
 proxies:
   - name: st
     type: ss
@@ -274,6 +273,7 @@ proxies:
     port: 443
     cipher: aes-128-gcm
     password: pw
+    client-fingerprint: firefox
     dialer-proxy: hop
     interface-name: en0
     smux: { enabled: true }
@@ -2019,4 +2019,22 @@ fn network_none_is_tcp() {
         ),
         "proxies[0].network: \"carrier-pigeon\" is not a network Mihomo takes"
     );
+}
+
+#[test]
+fn the_global_client_fingerprint_is_mihomo_s_no_more() {
+    // Mihomo 1.19 logs an error for it and reads on, fingerprinting no
+    // proxy by it.
+    let config = load(
+        "global-client-fingerprint: chrome\n\
+         proxies: [{ name: t, type: trojan, server: 192.0.2.1, port: 443, password: p }]\n",
+    );
+    assert_eq!(
+        config.warnings,
+        [
+            "global-client-fingerprint: removed from Mihomo; set client-fingerprint directly \
+          on the proxy instead; ignored"
+        ]
+    );
+    assert!(outbound(&config, "t").options["tls"].get("utls").is_none());
 }
