@@ -88,59 +88,17 @@ pub(super) async fn memory(ws: Option<WebSocketUpgrade>) -> Response {
         let inuse = if std::mem::take(&mut first) {
             0
         } else {
-            resident_memory()
+            crate::control::resident_memory()
         };
         json!({ "inuse": inuse, "oslimit": 0 })
     });
     send(ws, frames)
 }
 
-/// The process's resident memory, in bytes; 0 where it is not known.
-pub(super) fn resident_memory() -> u64 {
-    #[cfg(any(target_os = "linux", target_os = "android"))]
-    {
-        let pages = std::fs::read_to_string("/proc/self/statm")
-            .ok()
-            .and_then(|s| s.split_whitespace().nth(1)?.parse::<u64>().ok())
-            .unwrap_or(0);
-        // SAFETY: sysconf only reads a constant.
-        let page = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
-        pages * page.max(0) as u64
-    }
-    #[cfg(any(target_os = "macos", target_os = "ios"))]
-    {
-        let mut info: libc::proc_taskinfo = unsafe { std::mem::zeroed() };
-        let size = std::mem::size_of::<libc::proc_taskinfo>() as libc::c_int;
-        // SAFETY: `info` is as large as the call is told it is.
-        let read = unsafe {
-            libc::proc_pidinfo(
-                libc::getpid(),
-                libc::PROC_PIDTASKINFO,
-                0,
-                &mut info as *mut _ as *mut libc::c_void,
-                size,
-            )
-        };
-        if read == size {
-            info.pti_resident_size
-        } else {
-            0
-        }
-    }
-    #[cfg(not(any(
-        target_os = "linux",
-        target_os = "android",
-        target_os = "macos",
-        target_os = "ios"
-    )))]
-    {
-        0
-    }
-}
-
 /// The log lines at `?level=` (`info` when unset) and above, as they are
 /// logged: `{"type": level, "payload": line}`.
 pub(super) async fn logs(
+    State(clash): State<Arc<Clash>>,
     Query(params): Query<HashMap<String, String>>,
     ws: Option<WebSocketUpgrade>,
 ) -> Result<Response, ApiError> {
@@ -155,12 +113,17 @@ pub(super) async fn logs(
         }
         _ => return Err(ApiError::bad_request("Body invalid")),
     };
-    let lines = crate::app::logger::follow();
+    // Those logged from now on, as Mihomo sends them: none kept before.
+    let Some(log) = clash.rm.logs() else {
+        return Ok(send(ws, futures::stream::pending()));
+    };
+    let (_, lines) = log.follow();
     let frames = futures::stream::unfold(lines, move |mut lines| async move {
+        use crate::app::logger::LogEvent;
         loop {
             match lines.recv().await {
                 // A lower level is more verbose.
-                Ok(line) if line.level <= least => {
+                Ok(LogEvent::Line(line)) if line.level <= least => {
                     let kind = match line.level {
                         Level::ERROR => "error",
                         Level::WARN => "warning",

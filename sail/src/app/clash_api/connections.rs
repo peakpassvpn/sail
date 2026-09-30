@@ -13,7 +13,7 @@ use axum::Json;
 use futures::StreamExt;
 use serde_json::{json, Value};
 
-use super::streams::{resident_memory, send};
+use super::streams::send;
 use super::Clash;
 use crate::control::ConnectionInfo;
 use crate::RuntimeManager;
@@ -59,7 +59,7 @@ async fn snapshot(rm: &RuntimeManager) -> Value {
         "downloadTotal": traffic.down_total,
         "uploadTotal": traffic.up_total,
         "connections": connections.iter().map(connection).collect::<Vec<_>>(),
-        "memory": resident_memory(),
+        "memory": crate::control::resident_memory(),
     })
 }
 

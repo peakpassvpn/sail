@@ -240,7 +240,11 @@ impl Shared {
             .name("sail-cache-file".into())
             .spawn({
                 let (db, pruned) = (db.clone(), pruned.clone());
-                move || write(&db, queue, &pruned)
+                let log = crate::app::logger::current();
+                move || {
+                    let _log = crate::app::logger::enter(log);
+                    write(&db, queue, &pruned)
+                }
             })
             .context("cache_file: start its writer")?;
         static SERIAL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);

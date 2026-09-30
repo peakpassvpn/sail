@@ -220,6 +220,49 @@ pub(crate) fn modes(config: &crate::config::model::Config) -> Vec<String> {
     modes
 }
 
+/// The process's resident memory, in bytes; 0 where it is not known.
+pub fn resident_memory() -> u64 {
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    {
+        let pages = std::fs::read_to_string("/proc/self/statm")
+            .ok()
+            .and_then(|s| s.split_whitespace().nth(1)?.parse::<u64>().ok())
+            .unwrap_or(0);
+        // SAFETY: sysconf only reads a constant.
+        let page = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
+        pages * page.max(0) as u64
+    }
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    {
+        let mut info: libc::proc_taskinfo = unsafe { std::mem::zeroed() };
+        let size = std::mem::size_of::<libc::proc_taskinfo>() as libc::c_int;
+        // SAFETY: `info` is as large as the call is told it is.
+        let read = unsafe {
+            libc::proc_pidinfo(
+                libc::getpid(),
+                libc::PROC_PIDTASKINFO,
+                0,
+                &mut info as *mut _ as *mut libc::c_void,
+                size,
+            )
+        };
+        if read == size {
+            info.pti_resident_size
+        } else {
+            0
+        }
+    }
+    #[cfg(not(any(
+        target_os = "linux",
+        target_os = "android",
+        target_os = "macos",
+        target_os = "ios"
+    )))]
+    {
+        0
+    }
+}
+
 /// How many members of a group are measured at a time: Mihomo's.
 const MEMBER_TESTS: usize = 10;
 

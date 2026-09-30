@@ -62,11 +62,15 @@ pub enum Error {
     SyncChannelRecv(#[from] std::sync::mpsc::RecvError),
     #[error("runtime manager error")]
     RuntimeManager,
+    #[error("runtime {0} is in use: it is starting or running")]
+    InUse(RuntimeId),
 }
 
 pub type Runner = futures::future::BoxFuture<'static, ()>;
 
 pub struct RuntimeManager {
+    /// The runtime the instance runs on.
+    handle: tokio::runtime::Handle,
     config_path: Option<String>,
     #[cfg(feature = "auto-reload")]
     auto_reload: bool,
@@ -134,6 +138,7 @@ impl RuntimeManager {
         instance: &app::instance::Instance,
     ) -> Arc<Self> {
         Arc::new(Self {
+            handle: tokio::runtime::Handle::current(),
             config_path,
             #[cfg(feature = "auto-reload")]
             auto_reload,
@@ -184,6 +189,17 @@ impl RuntimeManager {
             delays: Default::default(),
             assets: Default::default(),
         })
+    }
+
+    /// The instance's log: the lines logged on its threads.
+    pub fn logs(&self) -> Option<&Arc<app::logger::InstanceLog>> {
+        self.env.host.log.as_ref().map(|log| &log.0)
+    }
+
+    /// The runtime the instance runs on, for the host to run calls into
+    /// it on rather than a runtime of its own.
+    pub fn handle(&self) -> &tokio::runtime::Handle {
+        &self.handle
     }
 
     /// The assets the configuration reads, as they are now.
@@ -498,6 +514,24 @@ impl RuntimeManager {
         let _update = self.update.lock().await;
         info!("reloading from config file: {}", config_path);
         let config = config::from_file_for(config_path, &self.env.host).map_err(Error::Config)?;
+        self.apply(config).await?;
+        info!("reloaded from config file: {}", config_path);
+        Ok(())
+    }
+
+    /// Reloads with `config`, as a reload from the file does: the host's,
+    /// for an instance started from a string.
+    pub async fn reload_with(&self, config: config::Config) -> Result<(), Error> {
+        let _update = self.update.lock().await;
+        info!("reloading with the configuration given");
+        self.apply(config).await?;
+        info!("reloaded with the configuration given");
+        Ok(())
+    }
+
+    /// Replaces what the instance runs with what `config` makes, keeping
+    /// all that did not change; the changes lock is held.
+    async fn apply(&self, config: config::Config) -> Result<(), Error> {
         self.env.neighbors.start_if_needed(&config);
         let inbound_resources = self
             .inbound_manager
@@ -654,7 +688,6 @@ impl RuntimeManager {
         roots.keep();
         cache_file.keep();
         self.prune_stats(&config);
-        info!("reloaded from config file: {}", config_path);
         // What it matches on may be new to this configuration.
         self.detect_network(net::network::ChangeReason::State);
         Ok(())
@@ -865,13 +898,14 @@ impl RuntimeManager {
         res_rx.recv().map_err(Error::SyncChannelRecv)?
     }
 
+    /// Asks the instance to stop, without waiting: a stop already asked
+    /// for is this one too. It never blocks, so any thread may ask, one
+    /// of the instance's runtime too. False when the instance has stopped.
     pub fn blocking_shutdown(&self) -> bool {
-        let tx = self.shutdown_tx.clone();
-        if let Err(e) = tx.blocking_send(()) {
-            warn!("sending shutdown signal failed: {}", e);
-            return false;
+        match self.shutdown_tx.try_send(()) {
+            Ok(()) | Err(mpsc::error::TrySendError::Full(())) => true,
+            Err(mpsc::error::TrySendError::Closed(())) => false,
         }
-        true
     }
 
     #[cfg(feature = "auto-reload")]
@@ -943,28 +977,79 @@ pub fn runtime_managers() -> std::sync::MutexGuard<'static, HashMap<RuntimeId, A
     RUNTIME_MANAGER.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-pub fn reload(key: RuntimeId) -> Result<(), Error> {
-    if let Some(m) = runtime_managers().get(&key) {
-        return m.blocking_reload();
-    }
-    Err(Error::RuntimeManager)
+/// An instance being started, not running yet: a stop asked for now
+/// ends the start at its next step, or its download.
+#[derive(Default)]
+struct Starting {
+    stopped: std::sync::atomic::AtomicBool,
+    notify: tokio::sync::Notify,
 }
 
+impl Starting {
+    fn stop(&self) {
+        self.stopped
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        self.notify.notify_waiters();
+    }
+
+    fn is_stopped(&self) -> bool {
+        self.stopped.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    async fn stopped(&self) {
+        let notified = self.notify.notified();
+        tokio::pin!(notified);
+        notified.as_mut().enable();
+        if self.is_stopped() {
+            return;
+        }
+        notified.await
+    }
+}
+
+lazy_static! {
+    /// The instances starting. Locked after the running ones, never before.
+    static ref STARTING: Mutex<HashMap<RuntimeId, Arc<Starting>>> = Mutex::new(HashMap::new());
+}
+
+fn starting() -> std::sync::MutexGuard<'static, HashMap<RuntimeId, Arc<Starting>>> {
+    STARTING.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// The instance `key`, if it runs. The registry is not held on to: calls
+/// into the instance, which may block, leave every other free.
+pub fn runtime_manager(key: RuntimeId) -> Option<Arc<RuntimeManager>> {
+    runtime_managers().get(&key).cloned()
+}
+
+pub fn reload(key: RuntimeId) -> Result<(), Error> {
+    runtime_manager(key)
+        .ok_or(Error::RuntimeManager)?
+        .blocking_reload()
+}
+
+/// Asks the instance `key` to stop, without waiting for it: one running
+/// stops, one starting ends its start. False when there is none.
 pub fn shutdown(key: RuntimeId) -> bool {
-    if let Some(m) = runtime_managers().get(&key) {
+    let running = runtime_managers();
+    if let Some(m) = running.get(&key).cloned() {
+        drop(running);
         return m.blocking_shutdown();
     }
-    false
+    match starting().get(&key) {
+        Some(start) => {
+            start.stop();
+            true
+        }
+        None => false,
+    }
 }
 
 /// Tells runtime `key` what network the host is on (JSON, as
 /// [`net::network::NetworkState`] reads it); sail's own detection is left
 /// from then on.
 pub fn set_network_state(key: RuntimeId, json: &str) -> Result<(), Error> {
-    let manager = runtime_managers()
-        .get(&key)
-        .cloned()
-        .ok_or(Error::RuntimeManager)?;
+    let manager = runtime_manager(key).ok_or(Error::RuntimeManager)?;
     let state = net::network::NetworkState::from_json(json).map_err(Error::Config)?;
     manager.network().push(state);
     Ok(())
@@ -973,10 +1058,7 @@ pub fn set_network_state(key: RuntimeId, json: &str) -> Result<(), Error> {
 /// Tells the TUN inbound of runtime `key` that the host's network changed,
 /// with the new interface MTU when it changed too.
 pub fn network_changed(key: RuntimeId, mtu: Option<usize>) -> Result<(), Error> {
-    let manager = runtime_managers()
-        .get(&key)
-        .cloned()
-        .ok_or(Error::RuntimeManager)?;
+    let manager = runtime_manager(key).ok_or(Error::RuntimeManager)?;
     #[cfg(feature = "inbound-tun")]
     return manager.blocking_network_changed(mtu);
     #[cfg(not(feature = "inbound-tun"))]
@@ -1308,26 +1390,33 @@ fn log_warnings(config: &config::Config) {
     }
 }
 
-fn new_runtime(opt: &RuntimeOption) -> Result<tokio::runtime::Runtime, Error> {
-    match opt {
-        RuntimeOption::SingleThread => tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .map_err(Error::Io),
-        RuntimeOption::MultiThreadAuto(stack_size) => tokio::runtime::Builder::new_multi_thread()
-            .thread_stack_size(*stack_size)
-            .enable_all()
-            .build()
-            .map_err(Error::Io),
-        RuntimeOption::MultiThread(worker_threads, stack_size) => {
-            tokio::runtime::Builder::new_multi_thread()
-                .worker_threads(*worker_threads)
-                .thread_stack_size(*stack_size)
-                .enable_all()
-                .build()
-                .map_err(Error::Io)
+/// The instance's runtime; what its threads log goes to `log`.
+fn new_runtime(
+    opt: &RuntimeOption,
+    log: Arc<app::logger::InstanceLog>,
+) -> Result<tokio::runtime::Runtime, Error> {
+    let mut builder = match opt {
+        RuntimeOption::SingleThread => tokio::runtime::Builder::new_current_thread(),
+        RuntimeOption::MultiThreadAuto(stack_size) => {
+            let mut builder = tokio::runtime::Builder::new_multi_thread();
+            builder.thread_stack_size(*stack_size);
+            builder
         }
-    }
+        RuntimeOption::MultiThread(worker_threads, stack_size) => {
+            let mut builder = tokio::runtime::Builder::new_multi_thread();
+            builder
+                .worker_threads(*worker_threads)
+                .thread_stack_size(*stack_size);
+            builder
+        }
+    };
+    builder
+        .enable_all()
+        // Each thread the runtime starts, its blocking ones too, logs to the
+        // instance's log for as long as it lives.
+        .on_thread_start(move || std::mem::forget(app::logger::enter(Some(log.clone()))))
+        .build()
+        .map_err(Error::Io)
 }
 
 #[derive(Debug)]
@@ -1362,7 +1451,30 @@ pub struct StartOptions {
     pub host: runtime::Host,
 }
 
+/// Starts the instance `rt_id` and runs it on this thread until it is
+/// stopped. `shutdown(rt_id)` stops it from the moment this is called, a
+/// start not finished too. An id starting or running already is an error.
 pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
+    let start = {
+        let running = runtime_managers();
+        let mut starting = starting();
+        if running.contains_key(&rt_id) || starting.contains_key(&rt_id) {
+            return Err(Error::InUse(rt_id));
+        }
+        let start = Arc::new(Starting::default());
+        starting.insert(rt_id, start.clone());
+        start
+    };
+    let result = run(rt_id, opts, &start);
+    // Gone once it runs; here when the start failed or was stopped.
+    let mut starting = starting();
+    if starting.get(&rt_id).is_some_and(|s| Arc::ptr_eq(s, &start)) {
+        starting.remove(&rt_id);
+    }
+    result
+}
+
+fn run(rt_id: RuntimeId, opts: StartOptions, start: &Arc<Starting>) -> Result<(), Error> {
     let (reload_tx, mut reload_rx) = mpsc::channel(1);
     let (shutdown_tx, mut shutdown_rx) = mpsc::channel(1);
     #[cfg(feature = "inbound-tun")]
@@ -1379,9 +1491,17 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
         Config::Internal(c) => *c,
     };
 
+    let mut host = opts.host;
+    let log = host
+        .log
+        .get_or_insert_with(|| app::logger::InstanceLogRef(app::logger::InstanceLog::new(0)))
+        .0
+        .clone();
+    // What this thread logs while it starts and runs the instance is its.
+    let _log = app::logger::enter(Some(log.clone()));
     let env = Arc::new(runtime::RuntimeEnv {
         options: opts.runtime,
-        host: opts.host,
+        host,
         #[cfg(feature = "inbound-tun")]
         listen_mark: auto_redirect_output_mark(&config).map_err(Error::Config)?,
         ..Default::default()
@@ -1393,7 +1513,10 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
     #[cfg(unix)]
     log_file_limit();
 
-    let rt = new_runtime(&opts.runtime_opt)?;
+    if start.is_stopped() {
+        return Ok(());
+    }
+    let rt = new_runtime(&opts.runtime_opt, log)?;
     let _g = rt.enter();
 
     let mut tasks: Vec<Runner> = Vec::new();
@@ -1418,18 +1541,31 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
         .transpose()?;
     // The rules cannot match a rule-set not downloaded yet: before any
     // connection comes in.
-    rt.block_on(instance.rule_sets.fetch_missing(&instance.dispatcher))
-        .map_err(Error::Config)?;
+    let fetched = rt.block_on(async {
+        tokio::select! {
+            fetched = instance.rule_sets.fetch_missing(&instance.dispatcher) => Some(fetched),
+            _ = start.stopped() => None,
+        }
+    });
+    match fetched {
+        Some(fetched) => fetched.map_err(Error::Config)?,
+        None => return Ok(()),
+    }
     // Groups have no members from a provider not downloaded yet; one that
     // fails is left to the updater.
     #[cfg(feature = "outbound-provider")]
-    rt.block_on(
-        instance
-            .outbound_manager
-            .load()
-            .providers()
-            .fetch_missing(&instance.dispatcher),
-    );
+    {
+        let providers = instance.outbound_manager.load().providers();
+        rt.block_on(async {
+            tokio::select! {
+                _ = providers.fetch_missing(&instance.dispatcher) => {}
+                _ = start.stopped() => {}
+            }
+        });
+    }
+    if start.is_stopped() {
+        return Ok(());
+    }
     // Without the API nothing is added to them.
     #[cfg_attr(not(any(feature = "api", feature = "clash-api")), allow(unused_mut))]
     let mut runners = instance.start().map_err(Error::Config)?;
@@ -1598,16 +1734,43 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
         Err(e) => warn!("cannot watch SIGHUP: {}", e),
     }
 
-    runtime_managers().insert(rt_id, runtime_manager);
+    // Running from here, unless a stop came while it started: checked and
+    // done under the registry's lock, as `shutdown` looks, so that no stop
+    // falls between.
+    {
+        let mut running = runtime_managers();
+        let mut starting = starting();
+        if start.is_stopped() {
+            drop((running, starting));
+            #[cfg(feature = "inbound-tun")]
+            rt.block_on(stop_tun(tun_control));
+            instance.stop();
+            drop(instance);
+            rt.shutdown_background();
+            return Ok(());
+        }
+        running.insert(rt_id, runtime_manager.clone());
+        starting.remove(&rt_id);
+    }
 
     trace!("added runtime {}", &rt_id);
+    if let Some(platform) = &runtime_manager.env.host.platform {
+        platform.running(&runtime_manager);
+    }
 
     rt.block_on(futures::future::select_all(tasks));
 
     instance.stop();
     drop(instance);
 
-    runtime_managers().remove(&rt_id);
+    let mut running = runtime_managers();
+    if running
+        .get(&rt_id)
+        .is_some_and(|m| Arc::ptr_eq(m, &runtime_manager))
+    {
+        running.remove(&rt_id);
+    }
+    drop(running);
 
     rt.shutdown_background();
 

@@ -38,6 +38,7 @@ mod test_http_proxy;
 mod test_hysteria2;
 mod test_in_chain_1;
 mod test_inbound_resources;
+mod test_lifecycle;
 mod test_listen;
 mod test_mixed;
 mod test_mptp;

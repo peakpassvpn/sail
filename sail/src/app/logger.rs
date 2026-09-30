@@ -1,6 +1,7 @@
+use std::collections::VecDeque;
 use std::fs::OpenOptions;
 use std::path::Path;
-use std::sync::RwLock;
+use std::sync::{Arc, Mutex, RwLock};
 
 use anyhow::{anyhow, Result};
 use tracing::field::Visit;
@@ -178,8 +179,6 @@ fn get_writer(config: &config::Log, host: &Host) -> Result<(WriterLayer, WorkerG
     })
 }
 
-/// Sets up logging as `config` says; `host` may send console output to the
-/// system log instead of standard output.
 /// Writes out the lines logged so far, before the process exits: a thread
 /// of their own writes them, which exiting stops with lines unwritten, and
 /// the static that holds it is never dropped. Lines logged after are lost
@@ -193,6 +192,11 @@ pub fn flush() {
     drop(guard);
 }
 
+/// Sets up logging as `config` says; `host` may send console output to the
+/// system log instead of standard output. Logging is the process's: the
+/// last instance to start or reload sets its level and output. Where the
+/// host installed a subscriber of its own already, sail's is not
+/// installed, and logs nothing.
 pub fn setup_logger(config: &config::Log, host: &Host) -> Result<()> {
     use config::model::LogLevel;
     // Installed even when disabled, so that a reload can turn it back on,
@@ -213,13 +217,17 @@ pub fn setup_logger(config: &config::Log, host: &Host) -> Result<()> {
         let (filter, filter_handle) = reload::Layer::new(filter);
         let (writer, writer_handle) = reload::Layer::new(writer);
         let sail_filter = filter_fn(|metadata| metadata.target().starts_with("sail"));
-        tracing_subscriber::registry()
+        let installed = tracing_subscriber::registry()
             .with(filter)
             .with(writer.with_filter(sail_filter))
             .with(
                 Broadcast.with_filter(filter_fn(|metadata| metadata.target().starts_with("sail"))),
             )
-            .init();
+            .try_init();
+        if installed.is_err() {
+            // The host's own; tried again at the next start or reload.
+            return Ok(());
+        }
         *h = Some(HandleController::new(
             filter_handle,
             writer_handle,
@@ -234,23 +242,127 @@ pub fn setup_logger(config: &config::Log, host: &Host) -> Result<()> {
 pub struct LogLine {
     pub level: tracing::Level,
     pub message: String,
+    pub time: std::time::SystemTime,
 }
 
-/// The log lines, to those who follow them (the Clash API's `/logs`).
-fn log_lines() -> &'static tokio::sync::broadcast::Sender<std::sync::Arc<LogLine>> {
-    static LINES: std::sync::OnceLock<tokio::sync::broadcast::Sender<std::sync::Arc<LogLine>>> =
-        std::sync::OnceLock::new();
-    // Those who fall this far behind miss lines, rather than hold them.
-    LINES.get_or_init(|| tokio::sync::broadcast::channel(256).0)
+/// What an instance's log tells those who follow it.
+#[derive(Debug, Clone)]
+pub enum LogEvent {
+    Line(Arc<LogLine>),
+    /// The lines kept were cleared.
+    Cleared,
 }
 
-/// Follows the log lines from now on, at the level they are logged.
-pub fn follow() -> tokio::sync::broadcast::Receiver<std::sync::Arc<LogLine>> {
-    log_lines().subscribe()
+/// Those who fall this far behind miss lines, rather than hold them.
+const FOLLOWERS_BEHIND: usize = 256;
+
+/// An instance's log: the lines logged on its threads, from its start or
+/// before, which it keeps the latest of, and those who follow them. The
+/// host may give an instance one of its own, to read what a start that
+/// failed logged.
+pub struct InstanceLog {
+    kept: Mutex<VecDeque<Arc<LogLine>>>,
+    capacity: usize,
+    events: tokio::sync::broadcast::Sender<LogEvent>,
 }
 
-/// Sends each event to those who follow the logs; with none, nothing is
-/// formatted.
+impl std::fmt::Debug for InstanceLog {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "InstanceLog(keeps {})", self.capacity)
+    }
+}
+
+impl InstanceLog {
+    /// A log keeping the latest `capacity` lines; none with 0.
+    pub fn new(capacity: usize) -> Arc<Self> {
+        Arc::new(Self {
+            kept: Mutex::new(VecDeque::new()),
+            capacity,
+            events: tokio::sync::broadcast::channel(FOLLOWERS_BEHIND).0,
+        })
+    }
+
+    /// The lines kept, and what comes after them: none missed, none twice.
+    pub fn follow(
+        &self,
+    ) -> (
+        Vec<Arc<LogLine>>,
+        tokio::sync::broadcast::Receiver<LogEvent>,
+    ) {
+        let kept = self.kept.lock().unwrap_or_else(|e| e.into_inner());
+        (kept.iter().cloned().collect(), self.events.subscribe())
+    }
+
+    /// Forgets the lines kept; those who follow are told.
+    pub fn clear(&self) {
+        let mut kept = self.kept.lock().unwrap_or_else(|e| e.into_inner());
+        kept.clear();
+        let _ = self.events.send(LogEvent::Cleared);
+    }
+
+    fn wanted(&self) -> bool {
+        self.capacity > 0 || self.events.receiver_count() > 0
+    }
+
+    fn push(&self, line: Arc<LogLine>) {
+        let mut kept = self.kept.lock().unwrap_or_else(|e| e.into_inner());
+        if self.capacity > 0 {
+            if kept.len() == self.capacity {
+                kept.pop_front();
+            }
+            kept.push_back(line.clone());
+        }
+        let _ = self.events.send(LogEvent::Line(line));
+    }
+}
+
+/// An instance's log, as the host gives it; equal when the same.
+#[derive(Clone)]
+pub struct InstanceLogRef(pub Arc<InstanceLog>);
+
+impl std::fmt::Debug for InstanceLogRef {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl PartialEq for InstanceLogRef {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl Eq for InstanceLogRef {}
+
+thread_local! {
+    /// The log of the instance whose thread this is.
+    static CURRENT: std::cell::RefCell<Option<Arc<InstanceLog>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Makes what this thread logs `log`'s, until the guard goes.
+pub fn enter(log: Option<Arc<InstanceLog>>) -> LogScope {
+    LogScope(Some(CURRENT.with(|c| c.replace(log))))
+}
+
+/// The log of the instance whose thread this is, for a thread it starts.
+pub fn current() -> Option<Arc<InstanceLog>> {
+    CURRENT.with(|c| c.borrow().clone())
+}
+
+/// Puts back the log this thread logged to before.
+pub struct LogScope(Option<Option<Arc<InstanceLog>>>);
+
+impl Drop for LogScope {
+    fn drop(&mut self) {
+        if let Some(previous) = self.0.take() {
+            CURRENT.with(|c| *c.borrow_mut() = previous);
+        }
+    }
+}
+
+/// Sends each event to its instance's log; with no one to tell, nothing
+/// is formatted.
 struct Broadcast;
 
 impl<S: tracing::Subscriber> Layer<S> for Broadcast {
@@ -259,10 +371,9 @@ impl<S: tracing::Subscriber> Layer<S> for Broadcast {
         event: &tracing::Event<'_>,
         _ctx: tracing_subscriber::layer::Context<'_, S>,
     ) {
-        let lines = log_lines();
-        if lines.receiver_count() == 0 {
+        let Some(log) = current().filter(|log| log.wanted()) else {
             return;
-        }
+        };
         struct Fields(String);
         impl Visit for Fields {
             fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
@@ -289,9 +400,10 @@ impl<S: tracing::Subscriber> Layer<S> for Broadcast {
         }
         let mut fields = Fields(String::new());
         event.record(&mut fields);
-        let _ = lines.send(std::sync::Arc::new(LogLine {
+        log.push(Arc::new(LogLine {
             level: *event.metadata().level(),
             message: fields.0,
+            time: std::time::SystemTime::now(),
         }));
     }
 }
@@ -310,5 +422,51 @@ pub fn set_level(level: Option<config::model::LogLevel>) {
     };
     if let Some(h) = HANDLE.read().unwrap_or_else(|e| e.into_inner()).as_ref() {
         let _ = h.filter.modify(|f| *f = filter);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn line(message: &str) -> Arc<LogLine> {
+        Arc::new(LogLine {
+            level: tracing::Level::INFO,
+            message: message.into(),
+            time: std::time::SystemTime::now(),
+        })
+    }
+
+    #[test]
+    fn a_log_keeps_the_latest_lines_and_tells_its_followers() {
+        let log = InstanceLog::new(2);
+        for m in ["a", "b", "c"] {
+            log.push(line(m));
+        }
+        let (kept, mut events) = log.follow();
+        let kept: Vec<&str> = kept.iter().map(|l| l.message.as_str()).collect();
+        assert_eq!(kept, ["b", "c"]);
+        log.push(line("d"));
+        log.clear();
+        assert!(matches!(events.try_recv(), Ok(LogEvent::Line(l)) if l.message == "d"));
+        assert!(matches!(events.try_recv(), Ok(LogEvent::Cleared)));
+        assert!(log.follow().0.is_empty());
+    }
+
+    #[test]
+    fn a_thread_logs_to_the_log_it_entered_until_it_leaves() {
+        let log = InstanceLog::new(1);
+        assert!(current().is_none());
+        {
+            let _scope = enter(Some(log.clone()));
+            assert!(current().is_some_and(|c| Arc::ptr_eq(&c, &log)));
+            let other = InstanceLog::new(1);
+            {
+                let _inner = enter(Some(other.clone()));
+                assert!(current().is_some_and(|c| Arc::ptr_eq(&c, &other)));
+            }
+            assert!(current().is_some_and(|c| Arc::ptr_eq(&c, &log)));
+        }
+        assert!(current().is_none());
     }
 }

@@ -58,6 +58,12 @@ pub trait Platform: Send + Sync {
         let _ = request;
         Err(std::io::Error::from(std::io::ErrorKind::Unsupported))
     }
+
+    /// Told once the instance runs, on the thread that started it, with
+    /// what controls it; a stop asked for from here on stops it.
+    fn running(&self, manager: &Arc<crate::RuntimeManager>) {
+        let _ = manager;
+    }
 }
 
 /// The device a TUN inbound asks its host for.

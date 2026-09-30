@@ -48,6 +48,9 @@ pub struct Host {
     /// (`asn.mmdb`), for an update the runtime API is asked for without a
     /// URL. The operations plane's: the core has none.
     pub asset_sources: BTreeMap<String, String>,
+    /// Where the instance's log lines go, the host's to read; one keeping
+    /// none when unset.
+    pub log: Option<crate::app::logger::InstanceLogRef>,
 }
 
 /// The base URL of a Sub-Store backend. It may carry a secret path, so it
@@ -259,6 +262,7 @@ impl StartSettings {
                 sub_store: self.sub_store,
                 ui_download_url: self.ui_download_url,
                 asset_sources: self.asset_sources,
+                log: None,
             },
         ))
     }
