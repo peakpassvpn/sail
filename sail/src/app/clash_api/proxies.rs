@@ -278,7 +278,7 @@ pub(super) async fn list(State(clash): State<Arc<Clash>>) -> Json<Value> {
             .filter(|t| {
                 !matches!(
                     om.protocol(t).unwrap_or_default(),
-                    "direct" | "drop" | "block" | "dns"
+                    "direct" | "drop" | "block" | "reject" | "pass" | "dns"
                 )
             })
             .collect();

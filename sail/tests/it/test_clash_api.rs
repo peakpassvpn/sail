@@ -384,6 +384,65 @@ fn a_dashboard_controls_the_instance_through_the_clash_api() -> anyhow::Result<(
     }
 }
 
+// dashboard -> (clash api)sail: a PASS outbound is listed, a selector
+// picks it, and GLOBAL leaves it out as it does DIRECT.
+#[cfg(all(
+    feature = "clash-api",
+    feature = "outbound-select",
+    feature = "outbound-direct",
+    feature = "outbound-pass",
+    feature = "inbound-socks",
+    feature = "tokio-tungstenite"
+))]
+#[test]
+fn a_dashboard_picks_pass_in_a_selector() -> anyhow::Result<()> {
+    let secret = sail::generate::secret();
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()?;
+    let (ids, port) = common::retry_port_clash(|| {
+        let [port] = common::free_ports();
+        let config = serde_json::json!({
+            "clash_api": {
+                "external_controller": format!("127.0.0.1:{}", port),
+                "secret": secret,
+            },
+            "outbounds": [
+                { "type": "selector", "tag": "g", "outbounds": ["a", "PASS"] },
+                { "type": "direct", "tag": "a" },
+                { "type": "pass", "tag": "PASS" },
+            ],
+        });
+        Ok((
+            common::run_sail_instances(&rt, vec![config.to_string()])?,
+            port,
+        ))
+    })?;
+    let s = Some(secret.as_str());
+    let checked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        rt.block_on(async {
+            let (_, _, body) = call(port, "GET", "/proxies", s, &[], "").await?;
+            let proxies = json(&body)["proxies"].clone();
+            assert_eq!(proxies["PASS"]["type"], "Pass", "{}", body);
+            assert_eq!(proxies["g"]["all"], serde_json::json!(["a", "PASS"]));
+            assert_eq!(proxies["GLOBAL"]["all"], serde_json::json!(["g"]));
+
+            let (status, _, body) =
+                call(port, "PUT", "/proxies/g", s, &[], r#"{"name":"PASS"}"#).await?;
+            assert_eq!(status, 204, "{}", body);
+            let (_, _, body) = call(port, "GET", "/proxies/g", s, &[], "").await?;
+            assert_eq!(json(&body)["now"], "PASS");
+            anyhow::Ok(())
+        })
+    }));
+    common::shutdown_instances(&rt, ids);
+    match checked {
+        Ok(checked) => checked,
+        Err(panic) => std::panic::resume_unwind(panic),
+    }
+}
+
 // dashboard -> (clash api)sail: the outbound providers, their members
 // among the proxies, and the rule-sets, as Mihomo's providers.
 #[cfg(all(
