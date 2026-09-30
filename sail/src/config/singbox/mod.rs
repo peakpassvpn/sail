@@ -10,6 +10,19 @@ use super::model::Config;
 pub mod jsonc;
 pub mod upstream;
 
+/// Measured in the default build, whose support tables it writes.
+#[cfg(all(
+    test,
+    feature = "all-endpoints",
+    feature = "rule-set",
+    feature = "outbound-provider",
+    feature = "api",
+    feature = "clash-api",
+    feature = "dns-doh",
+    feature = "dns-h3"
+))]
+mod registry;
+
 use upstream::Tier;
 
 /// Reads a sing-box configuration.

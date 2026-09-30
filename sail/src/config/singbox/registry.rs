@@ -1,0 +1,1375 @@
+//! The registry of sing-box's fields: every field sing-box accepts, as
+//! `fields.json` lists it (tools/singbox-fields extracts it from sing-box's
+//! source), and how sail treats each, measured by reading a configuration
+//! that sets it and building what it configures, short of listening or
+//! connecting.
+//!
+//! What it measures is kept in `fields.tiers.json`, and written out as the
+//! support tables in docs/compat; the test fails where either differs from
+//! the measurement. `SAIL_REGISTRY_UPDATE=1 cargo test -p sail registry`
+//! rewrites them.
+
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
+
+use super::upstream;
+
+const FIELDS: &str = include_str!("fields.json");
+
+/// A field of `fields.json`.
+#[derive(Deserialize)]
+struct Field {
+    path: String,
+    json: String,
+    #[serde(default)]
+    r#enum: Vec<Value>,
+    #[serde(default)]
+    deprecated: bool,
+}
+
+#[derive(Deserialize)]
+struct Inventory {
+    sing_box: String,
+    fields: Vec<Field>,
+}
+
+/// How sail treats a field, as measured.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[serde(rename_all = "lowercase")]
+enum Measured {
+    /// Read, and acted on.
+    Supported,
+    /// Dropped with a warning.
+    Ignored,
+    /// An error saying sail does not implement it.
+    Unsupported,
+    /// An error for a field sail does not know: neither implemented nor
+    /// sorted out in `upstream`.
+    Unknown,
+}
+
+/// A step of a registry path.
+#[derive(Debug, Clone, PartialEq)]
+enum Step {
+    Key(String),
+    /// Into a list's entries, or those of one type: `[]`, `[vless]`,
+    /// `[action=route]`.
+    Entry(Option<(String, String)>),
+}
+
+fn steps(path: &str) -> Vec<Step> {
+    let mut out = Vec::new();
+    let mut rest = path;
+    while !rest.is_empty() {
+        if let Some(inner) = rest.strip_prefix('[') {
+            let end = inner.find(']').expect("a closed selector");
+            let sel = &inner[..end];
+            out.push(Step::Entry(match sel.split_once('=') {
+                _ if sel.is_empty() => None,
+                Some((k, v)) => Some((k.to_string(), v.to_string())),
+                None => Some(("type".to_string(), sel.to_string())),
+            }));
+            rest = &inner[end + 1..];
+        } else {
+            let rest_ = rest.strip_prefix('.').unwrap_or(rest);
+            let end = rest_.find(['.', '[']).unwrap_or(rest_.len());
+            out.push(Step::Key(rest_[..end].to_string()));
+            rest = &rest_[end..];
+        }
+    }
+    out
+}
+
+/// Values of a field's JSON type to set it to: each of its values when
+/// sing-box lists them, the first sail takes deciding.
+fn samples(field: &Field) -> Vec<Value> {
+    if !field.r#enum.is_empty() {
+        return field.r#enum.clone();
+    }
+    field.json.split('|').flat_map(samples_of).collect()
+}
+
+fn samples_of(kind: &str) -> Vec<Value> {
+    match kind {
+        "string" => vec![json!("x")],
+        // Turns nothing on that would reach out of the test.
+        "bool" => vec![json!(false)],
+        "number" => vec![json!(1), json!(2), json!(3), json!(0)],
+        "duration" => vec![json!("1s")],
+        "array" => vec![json!([])],
+        "object" | "map" | "any" => vec![json!({})],
+        _ => match kind.strip_prefix("listable-") {
+            Some(item) => samples_of(item),
+            None => panic!("fields.json: unknown JSON type {}", kind),
+        },
+    }
+}
+
+/// The configuration every probe starts from: what rules and servers
+/// name.
+fn base() -> Value {
+    json!({
+        "inbounds": [{ "type": "shadowsocks", "tag": "ss", "method": "aes-128-gcm",
+            "password": "p" }],
+        "outbounds": [{ "type": "direct", "tag": "direct" }],
+        "dns": { "servers": [{ "type": "local", "tag": "local" }] },
+    })
+}
+
+/// A list's entry that is valid on its own, of the type `sel` names; `at`
+/// is where the list is, without selectors (`inbounds`, `route.rules`,
+/// `inbounds.users`).
+fn entry(at: &str, sel: Option<(&str, &str)>, local_rule_set: &Path, pki: &Pki) -> Value {
+    let label = sel.map(|(_, v)| v);
+    let last = at.rsplit('.').next().unwrap_or(at);
+    match (at, sel) {
+        ("inbounds", _) => inbound(label.unwrap_or("mixed"), pki),
+        ("outbounds", _) => outbound(label.unwrap_or("direct")),
+        ("endpoints", _) => endpoint(label.unwrap_or("wireguard")),
+        ("dns.servers", _) => dns_server(label.unwrap_or("udp")),
+        ("services", _) => json!({ "type": label.unwrap_or("api"), "tag": "probe" }),
+        ("route.rules", Some(("action", action))) => route_action(action),
+        ("route.rules", Some((_, "logical"))) => json!({ "type": "logical", "mode": "and",
+            "rules": [{ "domain": "a" }], "outbound": "direct" }),
+        ("route.rules", _) => json!({ "domain": "a", "outbound": "direct" }),
+        ("dns.rules", Some(("action", action))) => dns_action(action),
+        ("dns.rules", Some((_, "logical"))) => json!({ "type": "logical", "mode": "and",
+            "rules": [{ "domain": "a" }], "server": "local" }),
+        ("dns.rules", _) => json!({ "domain": "a", "server": "local" }),
+        ("route.rule_set", _) => match label.unwrap_or("inline") {
+            "local" => json!({ "type": "local", "tag": "probe", "format": "source",
+                "path": local_rule_set }),
+            "remote" => json!({ "type": "remote", "tag": "probe", "format": "source",
+                "url": "https://example.com/probe.json" }),
+            kind => json!({ "type": kind, "tag": "probe", "rules": [{ "domain": "a" }] }),
+        },
+        ("http_clients", _) => json!({ "tag": "probe" }),
+        (_, Some((_, "logical"))) if last == "rules" => {
+            json!({ "type": "logical", "mode": "and", "rules": [{ "domain": "a" }] })
+        }
+        (_, Some((key, value))) => json!({ key: value }),
+        (_, None) => json!({}),
+    }
+}
+
+fn inbound(kind: &str, pki: &Pki) -> Value {
+    let mut v = json!({ "type": kind, "tag": "probe", "listen_port": 10800 });
+    let tls = json!({ "tls": { "enabled": true, "certificate": pki.cert, "key": pki.key } });
+    let extra = match kind {
+        "shadowsocks" => json!({ "method": "aes-128-gcm", "password": "p" }),
+        "trojan" | "naive" | "hysteria" | "vless" | "vmess" => json!({ "users": [] }),
+        "anytls" | "hysteria2" | "tuic" => {
+            let mut v = json!({ "users": [] });
+            merge(&mut v, tls);
+            v
+        }
+        // Handing its connections to the Shadowsocks inbound `base` has.
+        "shadowtls" => json!({ "version": 3, "users": [{ "password": "p" }],
+            "handshake": { "server": "example.com", "server_port": 443 }, "detour": "ss" }),
+        "tun" => {
+            v.as_object_mut().map(|v| v.remove("listen_port"));
+            json!({ "address": ["172.19.0.1/30"] })
+        }
+        _ => json!({}),
+    };
+    merge(&mut v, extra);
+    v
+}
+
+fn outbound(kind: &str) -> Value {
+    let mut v = json!({ "type": kind, "tag": "probe" });
+    let server = json!({ "server": "example.com", "server_port": 443 });
+    let extra = match kind {
+        "direct" | "block" | "bridge" => json!({}),
+        "selector" | "urltest" => json!({ "outbounds": ["direct"] }),
+        "shadowsocks" => json!({ "method": "aes-128-gcm", "password": "p" }),
+        "trojan" | "naive" => json!({ "password": "p" }),
+        "anytls" | "hysteria2" => json!({ "password": "p",
+            "tls": { "enabled": true, "server_name": "example.com" } }),
+        "vless" | "vmess" => json!({ "uuid": "1b0e0a3e-1c2d-4e5f-8a9b-0c1d2e3f4a5b" }),
+        "tuic" => json!({ "uuid": "1b0e0a3e-1c2d-4e5f-8a9b-0c1d2e3f4a5b", "password": "p",
+            "tls": { "enabled": true, "server_name": "example.com" } }),
+        "shadowtls" => json!({ "version": 3, "password": "p",
+            "tls": { "enabled": true, "server_name": "example.com" } }),
+        _ => json!({}),
+    };
+    if !matches!(kind, "direct" | "block" | "bridge" | "selector" | "urltest") {
+        merge(&mut v, server);
+    }
+    merge(&mut v, extra);
+    v
+}
+
+fn endpoint(kind: &str) -> Value {
+    match kind {
+        "wireguard" => json!({ "type": kind, "tag": "probe", "address": ["10.0.0.2/32"],
+            "private_key": "yAnz5TF+lXXJte14tji3zlMNq+hd2rYUIgJBgB3fBmk=",
+            "peers": [{ "address": "example.com", "port": 51820,
+                "public_key": "xTIBA5rboUvnH4htodjb6e697QjLERt1NAB4mZqp8Dg=",
+                "allowed_ips": ["0.0.0.0/0"] }] }),
+        _ => json!({ "type": kind, "tag": "probe" }),
+    }
+}
+
+fn dns_server(kind: &str) -> Value {
+    let mut v = json!({ "type": kind, "tag": "probe" });
+    let extra = match kind {
+        "udp" | "tcp" | "tls" | "https" | "quic" | "h3" => json!({ "server": "1.1.1.1" }),
+        "fakeip" => json!({ "inet4_range": "198.18.0.0/15" }),
+        _ => json!({}),
+    };
+    merge(&mut v, extra);
+    v
+}
+
+fn route_action(action: &str) -> Value {
+    let mut v = json!({ "domain": "a", "action": action });
+    if matches!(action, "route" | "bypass") {
+        merge(&mut v, json!({ "outbound": "direct" }));
+    }
+    v
+}
+
+fn dns_action(action: &str) -> Value {
+    let mut v = json!({ "domain": "a", "action": action });
+    if matches!(action, "route" | "evaluate") {
+        merge(&mut v, json!({ "server": "local" }));
+    }
+    v
+}
+
+fn merge(into: &mut Value, from: Value) {
+    if let (Value::Object(into), Value::Object(from)) = (into, from) {
+        into.extend(from);
+    }
+}
+
+/// The value an object on the way to a field starts as.
+fn object(key: &str) -> Value {
+    match key {
+        "domain_resolver" => json!({ "server": "local" }),
+        // REALITY's and ShadowTLS's handshake server.
+        "handshake" => json!({ "server": "example.com", "server_port": 443 }),
+        _ => json!({}),
+    }
+}
+
+/// A certificate and its key, for the inbounds that need TLS.
+struct Pki {
+    cert: String,
+    key: String,
+}
+
+struct Registry {
+    /// The sing-box release `fields.json` is of.
+    version: String,
+    fields: Vec<Field>,
+    kinds: HashMap<String, String>,
+    local_rule_set: PathBuf,
+    pki: Pki,
+}
+
+impl Registry {
+    fn new() -> Self {
+        let inventory: Inventory = serde_json::from_str(FIELDS).expect("fields.json reads");
+        let kinds = inventory
+            .fields
+            .iter()
+            .map(|f| (f.path.clone(), f.json.clone()))
+            .collect();
+        let local_rule_set =
+            std::env::temp_dir().join(format!("sail-registry-{}.json", std::process::id()));
+        std::fs::write(
+            &local_rule_set,
+            r#"{ "version": 3, "rules": [{ "domain": "a" }] }"#,
+        )
+        .expect("a rule-set written");
+        let rcgen::CertifiedKey { cert, key_pair } =
+            rcgen::generate_simple_self_signed(vec!["localhost".into()]).expect("a certificate");
+        Self {
+            version: inventory.sing_box,
+            fields: inventory.fields,
+            kinds,
+            local_rule_set,
+            pki: Pki {
+                cert: cert.pem(),
+                key: key_pair.serialize_pem(),
+            },
+        }
+    }
+
+    /// A configuration that sets `path` to `value`, and is otherwise valid.
+    fn probe(&self, path: &str, value: Value) -> Value {
+        let mut config = base();
+        let steps = steps(path);
+        let mut cur = &mut config;
+        let mut prefix = String::new();
+        let mut at = String::new();
+        for (i, step) in steps.iter().enumerate() {
+            match step {
+                Step::Key(key) => {
+                    if !prefix.is_empty() {
+                        prefix.push('.');
+                        at.push('.');
+                    }
+                    prefix.push_str(key);
+                    at.push_str(key);
+                    let map = cur.as_object_mut().expect("an object on the way");
+                    if i + 1 == steps.len() {
+                        // A union's own tag keeps the entry's.
+                        if !(matches!(key.as_str(), "type" | "action") && map.contains_key(key)) {
+                            map.insert(key.clone(), value);
+                        }
+                        break;
+                    }
+                    let list = matches!(steps[i + 1], Step::Entry(_))
+                        && self
+                            .kinds
+                            .get(&prefix)
+                            .is_some_and(|k| k.contains("array") || k.starts_with("listable"));
+                    let child = map.entry(key.clone()).or_insert(Value::Null);
+                    match list {
+                        true if !child.is_array() => *child = json!([]),
+                        false if !child.is_object() => *child = object(key),
+                        _ => {}
+                    }
+                    cur = child;
+                }
+                Step::Entry(sel) => {
+                    let label = sel.as_ref().map(|(k, v)| (k.as_str(), v.as_str()));
+                    prefix.push_str(&match &sel {
+                        None => "[]".to_string(),
+                        Some((k, v)) if k == "type" => format!("[{}]", v),
+                        Some((k, v)) => format!("[{}={}]", k, v),
+                    });
+                    let top = !at.contains('.')
+                        || matches!(
+                            at.as_str(),
+                            "dns.servers" | "dns.rules" | "route.rules" | "route.rule_set"
+                        );
+                    let fresh = entry(&at, label, &self.local_rule_set, &self.pki);
+                    match cur {
+                        Value::Array(list) => {
+                            // A nested list's first entry is the one to set, if
+                            // it is of the type.
+                            let reuse = !top
+                                && list.first().is_some_and(|e| match &label {
+                                    None => e.is_object(),
+                                    Some((k, v)) => e.get(*k).and_then(Value::as_str) == Some(v),
+                                });
+                            if !reuse {
+                                list.insert(if top { list.len() } else { 0 }, fresh);
+                            }
+                            let index = if top { list.len() - 1 } else { 0 };
+                            cur = &mut list[index];
+                        }
+                        Value::Object(map) => {
+                            if let Some((k, v)) = label {
+                                if map.get(k).and_then(Value::as_str) != Some(v) {
+                                    *cur = fresh;
+                                }
+                            }
+                        }
+                        _ => *cur = fresh,
+                    }
+                }
+            }
+        }
+        config
+    }
+}
+
+/// Errors that say sail does not implement what the configuration sets,
+/// whatever its value: sail's own (`upstream`), a protocol it lacks, and
+/// the refusals of the protocols', the transports' and the router's own.
+/// A refusal of a value is taken for one of the field when every sample
+/// is refused.
+const UNSUPPORTED: &[&str] = &[
+    "does not implement",
+    "unknown protocol",
+    "not supported",
+    "not for a",
+    "cannot tell",
+    "does not match it",
+    "does not create",
+    "offers its own",
+];
+
+/// Conditions supported only with a cargo feature, which the tests have
+/// on: the tables name it.
+const FEATURES: &[(&str, &str)] = &[
+    ("process_name", "rule-process-name"),
+    ("process_path", "rule-process-name"),
+    ("process_path_regex", "rule-process-name"),
+];
+
+/// Where a field is measured: an HTTP client in place is one of
+/// `http_clients`, whose errors it gets, while in place an unknown field
+/// only fails it as neither a tag nor a client.
+fn measured_at(path: &str) -> String {
+    match path.strip_prefix("route.rule_set[remote].http_client") {
+        Some(rest) => format!("http_clients[]{}", rest),
+        None => path.to_string(),
+    }
+}
+
+/// Reads and builds `config`: how sail treats the field at `path` in it,
+/// and what it said.
+fn measure(config: &Value, path: &str) -> (Measured, String) {
+    let text = config.to_string();
+    let message = match super::parse(&text) {
+        Err(e) => format!("{:#}", e),
+        Ok(config) if !config.warnings.is_empty() => {
+            return (Measured::Ignored, config.warnings.join("; "));
+        }
+        Ok(config) => match crate::check_config(&config, &Default::default()) {
+            Ok(()) => return (Measured::Supported, String::new()),
+            Err(e) => format!("{:#}", e),
+        },
+    };
+    // The field, or an object it is in.
+    let unknown = steps(path).iter().any(|step| match step {
+        Step::Key(key) => message.contains(&format!("unknown field `{}`", key)),
+        Step::Entry(_) => false,
+    });
+    let tier = if unknown {
+        Measured::Unknown
+    } else if UNSUPPORTED.iter().any(|m| message.contains(m)) {
+        Measured::Unsupported
+    } else {
+        // Refused for the value alone.
+        Measured::Supported
+    };
+    (tier, message)
+}
+
+/// A field no other field would do for: sail takes an unknown field next
+/// to it as a mistake, so what it says of this one is to be believed.
+const PROBE: &str = "sail_registry_probe";
+
+/// The object a field is in, and the field; the list or union entry for a
+/// union's own tag.
+fn parent(path: &str) -> (&str, &str) {
+    match path.rsplit_once('.') {
+        Some((parent, name)) => (parent, name),
+        None => ("", path),
+    }
+}
+
+/// The entries of these, by type, are what sail implements or not as a
+/// whole.
+const TYPED: &[&str] = &[
+    "inbounds",
+    "outbounds",
+    "endpoints",
+    "services",
+    "certificate_providers",
+    "network_namespaces",
+    "dns.servers",
+    "dns.rules",
+    "route.rules",
+    "route.rule_set",
+];
+
+/// The entry of a type `path` is in, as `inbounds[vless]`.
+fn entry_of(path: &str) -> Option<&str> {
+    TYPED.iter().find_map(|list| {
+        let rest = path.strip_prefix(list)?.strip_prefix('[')?;
+        let end = rest.find(']')?;
+        (end > 0).then(|| &path[..list.len() + end + 2])
+    })
+}
+
+impl Registry {
+    /// How sail treats `field`: supported if it takes one of the samples.
+    fn measure(&self, field: &Field) -> (Measured, String) {
+        let at = measured_at(&field.path);
+        let mut first = None;
+        for value in samples(field) {
+            let measured = measure(&self.probe(&at, value), &at);
+            // Only a protocol's refusal, or of a value `upstream::VALUES`
+            // lists, may be of the value.
+            let whatever = match measured.0 {
+                Measured::Supported | Measured::Ignored | Measured::Unknown => true,
+                Measured::Unsupported => {
+                    measured.1.contains("does not implement this field")
+                        || measured.1.contains("unknown protocol")
+                }
+            };
+            if whatever {
+                return measured;
+            }
+            first.get_or_insert(measured);
+        }
+        first.expect("a sample")
+    }
+
+    /// How sail treats an unknown field in the object at `path`.
+    fn control(&self, path: &str) -> Measured {
+        let at = format!("{}.{}", measured_at(path), PROBE);
+        measure(&self.probe(&at, json!("x")), &at).0
+    }
+
+    /// Measures every field, on as many threads as there are cores.
+    fn measure_all(&self) -> Vec<Measurement> {
+        let threads = std::thread::available_parallelism().map_or(4, |n| n.get());
+        let chunk = self.fields.len().div_ceil(threads).max(1);
+        std::thread::scope(|scope| {
+            let handles: Vec<_> = self
+                .fields
+                .chunks(chunk)
+                .map(|fields| {
+                    scope.spawn(move || {
+                        let mut controls: HashMap<&str, Measured> = HashMap::new();
+                        fields
+                            .iter()
+                            .map(|field| {
+                                let (tier, message) = self.measure(field);
+                                let (parent, name) = parent(&field.path);
+                                // A union's own tag has no object to be
+                                // known in.
+                                let tag =
+                                    matches!(name, "type" | "action") && !field.r#enum.is_empty();
+                                // Needed only to believe an error.
+                                let control = match tag || message.is_empty() {
+                                    true => Measured::Unknown,
+                                    false => *controls
+                                        .entry(parent)
+                                        .or_insert_with(|| self.control(parent)),
+                                };
+                                let entry = entry_of(&field.path).map(|entry| {
+                                    *controls.entry(entry).or_insert_with(|| self.control(entry))
+                                });
+                                Measurement {
+                                    tier,
+                                    message,
+                                    control,
+                                    entry,
+                                }
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                })
+                .collect();
+            handles
+                .into_iter()
+                .flat_map(|h| h.join().expect("a probe thread"))
+                .collect()
+        })
+    }
+}
+
+/// A field, as measured.
+struct Measurement {
+    tier: Measured,
+    message: String,
+    /// How an unknown field next to it fared: unless as unknown, what
+    /// sail said of the field is not to be believed.
+    control: Measured,
+    /// How an unknown field in the entry of a type it is in fared:
+    /// `Unsupported` or `Ignored` for a type sail does not implement.
+    entry: Option<Measured>,
+}
+
+impl Measurement {
+    /// Whether sail said something of the field it may have said of any
+    /// field there, and took none: an object it reads loosely.
+    fn unverified(&self) -> bool {
+        self.control == Measured::Supported && !self.message.is_empty()
+    }
+}
+
+/// A step of a registry path as a pattern of `upstream` matches it: a
+/// field, maybe of an object of a type, or a list's entry.
+struct Token {
+    key: String,
+    label: Option<String>,
+}
+
+impl Registry {
+    fn tokens(&self, path: &str) -> Vec<Token> {
+        let mut out: Vec<Token> = Vec::new();
+        let mut prefix = String::new();
+        for step in steps(path) {
+            match step {
+                Step::Key(key) => {
+                    if !prefix.is_empty() {
+                        prefix.push('.');
+                    }
+                    prefix.push_str(&key);
+                    out.push(Token { key, label: None });
+                }
+                Step::Entry(sel) => {
+                    let list = self
+                        .kinds
+                        .get(&prefix)
+                        .is_some_and(|k| k.contains("array") || k.starts_with("listable"));
+                    prefix.push_str(&match &sel {
+                        None => "[]".to_string(),
+                        Some((k, v)) if k == "type" => format!("[{}]", v),
+                        Some((k, v)) => format!("[{}={}]", k, v),
+                    });
+                    let label = sel.map(|(_, v)| v);
+                    match (list, out.last_mut()) {
+                        (false, Some(last)) => last.label = label,
+                        _ => out.push(Token {
+                            key: "*".to_string(),
+                            label,
+                        }),
+                    }
+                }
+            }
+        }
+        out
+    }
+}
+
+/// Whether `pattern` names the field `path` or an object it is in, for
+/// the types `types` (any, if none).
+fn names(pattern: &str, types: &[&str], path: &[Token]) -> bool {
+    let segments: Vec<&str> = pattern.split('.').collect();
+    if segments.len() > path.len() {
+        return false;
+    }
+    let mut first = true;
+    for (segment, token) in segments.iter().zip(path) {
+        let label = token.label.as_deref();
+        if *segment == "*" {
+            if first {
+                if !types.is_empty() && !label.is_some_and(|l| types.contains(&l)) {
+                    return false;
+                }
+                let implemented = upstream::IMPLEMENTED_FOR
+                    .iter()
+                    .any(|(p, types)| *p == pattern && label.is_some_and(|l| types.contains(&l)));
+                if implemented {
+                    return false;
+                }
+            }
+            first = false;
+            continue;
+        }
+        let (key, kind) = match segment.strip_suffix(']').and_then(|s| s.split_once('[')) {
+            Some((key, kind)) => (key, Some(kind)),
+            None => (*segment, None),
+        };
+        if key != token.key || kind.is_some_and(|k| Some(k) != label) {
+            return false;
+        }
+    }
+    true
+}
+
+/// Why sail does not implement the field at `path`, as `upstream` says,
+/// or else as its error does.
+fn why(registry: &Registry, path: &str, measurement: &Measurement) -> String {
+    let path = registry.tokens(path);
+    let found = upstream::GROUPS
+        .iter()
+        .flat_map(|g| g.paths.iter().map(move |p| (g, *p)))
+        .filter(|(g, p)| names(p, g.types, &path))
+        .min_by_key(|(_, p)| p.split('.').count());
+    if let Some((group, _)) = found {
+        return group.why.to_string();
+    }
+    if path.first().is_some_and(|t| t.key == "services") {
+        let kind = path.get(1).and_then(|t| t.label.as_deref());
+        return upstream::IGNORED_SERVICES
+            .iter()
+            .find(|(k, _)| Some(*k) == kind)
+            .map_or(upstream::OTHER_SERVICES, |(_, why)| why)
+            .to_string();
+    }
+    for (pattern, values) in upstream::VALUES {
+        let (list, _) = pattern.rsplit_once(".*.").expect("a list's field");
+        let at: Vec<&str> = list.split('.').collect();
+        let label = path.get(at.len()).and_then(|t| t.label.as_deref());
+        if path.iter().zip(&at).all(|(t, a)| t.key == *a)
+            && label.is_some_and(|l| values.contains(&l))
+        {
+            return upstream::VALUES_WHY.to_string();
+        }
+    }
+    let message = &measurement.message;
+    if message.contains("unknown protocol") {
+        return "A protocol sail does not implement".to_string();
+    }
+    // The protocol's own words, without the entry and field they are of.
+    let mut message = message.as_str();
+    while let Some((head, rest)) = message.split_once(": ") {
+        if head.contains(' ') && !head.starts_with('[') {
+            break;
+        }
+        message = rest;
+    }
+    if message.starts_with("sail does not implement this field") {
+        return "The protocol's own check: not implemented yet".to_string();
+    }
+    match message.strip_prefix("sail ") {
+        Some(_) => message.to_string(),
+        None => {
+            let mut chars = message.chars();
+            chars
+                .next()
+                .map(|c| c.to_uppercase().chain(chars).collect())
+                .unwrap_or_default()
+        }
+    }
+}
+
+/// What the registry writes.
+struct Output {
+    tiers: String,
+    tables: [(PathBuf, String); 2],
+}
+
+/// Where the files the test writes are, from the crate.
+fn root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).to_path_buf()
+}
+
+#[test]
+fn registry() {
+    let start = std::time::Instant::now();
+    let registry = Registry::new();
+    let measured = registry.measure_all();
+    let _ = std::fs::remove_file(&registry.local_rule_set);
+    // What sail said of each field, for a look at why it is measured so.
+    if std::env::var_os("SAIL_REGISTRY_DEBUG").is_some() {
+        for (field, m) in registry.fields.iter().zip(&measured) {
+            println!(
+                "{:?}\t{}\t{}",
+                m.tier,
+                field.path,
+                m.message.replace('\n', " ")
+            );
+        }
+    }
+    let mut problems = Vec::new();
+    for (field, m) in registry.fields.iter().zip(&measured) {
+        if m.tier == Measured::Unknown {
+            problems.push(format!(
+                "{}: unknown to sail, and not in upstream.rs: {}",
+                field.path, m.message
+            ));
+        } else if m.unverified() {
+            problems.push(format!(
+                "{}: an unknown field there is no error, and this one is: {}",
+                field.path, m.message
+            ));
+        }
+    }
+    assert!(problems.is_empty(), "{}", problems.join("\n"));
+    let notes: Vec<String> = registry
+        .fields
+        .iter()
+        .zip(&measured)
+        .map(|(field, m)| match m.tier {
+            Measured::Supported => String::new(),
+            _ => why(&registry, &field.path, m),
+        })
+        .collect();
+    let extensions = registry.extensions();
+    let output = render(&registry, &measured, &notes, &extensions);
+    let update = std::env::var_os("SAIL_REGISTRY_UPDATE").is_some_and(|v| v == "1");
+    let tiers = root().join("src/config/singbox/fields.tiers.json");
+    let mut stale = Vec::new();
+    for (path, content) in std::iter::once((tiers, output.tiers)).chain(output.tables) {
+        if update {
+            std::fs::create_dir_all(path.parent().expect("a directory")).expect("a directory");
+            std::fs::write(&path, content).expect("written");
+        } else if std::fs::read_to_string(&path).ok().as_deref() != Some(content.as_str()) {
+            stale.push(path.display().to_string());
+        }
+    }
+    assert!(
+        stale.is_empty(),
+        "not what sail does now: {}; SAIL_REGISTRY_UPDATE=1 cargo test -p sail registry rewrites them",
+        stale.join(", ")
+    );
+    println!(
+        "{} fields measured in {:?}",
+        measured.len(),
+        start.elapsed()
+    );
+}
+
+/// What sail accepts that sing-box does not, as the path of a field (or of
+/// an entry of a type) in the registry's form, a value it takes, and what
+/// it is. The test checks sail takes each, and that sing-box has none.
+const EXTENSIONS: &[(&str, &str, &str)] = &[
+    ("api", "{}", "The control API"),
+    (
+        "clash_api",
+        "{}",
+        "The Clash API at the top level, as well as under `experimental`",
+    ),
+    (
+        "outbound_providers",
+        "[]",
+        "Outbounds given together, downloaded or in place, for groups to take (Mihomo's proxy-providers)",
+    ),
+    ("log.format", r#""compact""#, "`compact` writes the message alone"),
+    (
+        "dns.client_strategy",
+        r#""ipv4_only""#,
+        "The address families of the answers to clients' queries",
+    ),
+    (
+        "dns.servers[race].servers",
+        r#"["local"]"#,
+        "A server that asks its members at once and takes the first good answer",
+    ),
+    (
+        "dns.servers[udp].respect_rules",
+        "true",
+        "Queries go through the outbound the routing rules pick (Mihomo's respect-rules)",
+    ),
+    (
+        "dns.servers[udp].client_subnet",
+        r#""1.2.3.0/24""#,
+        "The EDNS Client Subnet its queries carry (Mihomo's ecs)",
+    ),
+    ("dns.rules[].geosite", r#"["cn"]"#, "Domains of a geosite category"),
+    (
+        "dns.rules[].external",
+        r#"["site:geosite.dat:cn"]"#,
+        "Domains or addresses from a geosite or mmdb file",
+    ),
+    (
+        "dns.rules[].process_name_regex",
+        r#"["^a"]"#,
+        "Process names by regular expression (Mihomo's PROCESS-NAME-REGEX)",
+    ),
+    (
+        "dns.rules[].wifi_ssid_regex",
+        r#"["^a"]"#,
+        "Wi-Fi names by regular expression (Surge's SSID)",
+    ),
+    (
+        "dns.rules[].wifi_bssid_regex",
+        r#"["^a"]"#,
+        "Wi-Fi access points by regular expression (Surge's BSSID)",
+    ),
+    (
+        "dns.rules[].network_gateway",
+        r#"["192.168.1.1"]"#,
+        "The default route's gateway (Surge's ROUTER)",
+    ),
+    (
+        "dns.rules[].network_mcc_mnc",
+        r#"["460-00"]"#,
+        "The cellular carrier (Surge's MCCMNC)",
+    ),
+    (
+        "dns.rules[].ip_match_all",
+        "true",
+        "The response's address conditions hold for every address, not any",
+    ),
+    ("route.rules[].geoip", r#"["cn"]"#, "Addresses of a GeoIP country"),
+    ("route.rules[].geosite", r#"["cn"]"#, "Domains of a geosite category"),
+    (
+        "route.rules[].external",
+        r#"["site:geosite.dat:cn"]"#,
+        "Domains or addresses from a geosite or mmdb file",
+    ),
+    (
+        "route.rules[].http_user_agent",
+        r#"["curl*"]"#,
+        "A plain HTTP request's User-Agent (Surge's USER-AGENT)",
+    ),
+    (
+        "route.rules[].url_regex",
+        r#"["^http://a/"]"#,
+        "A plain HTTP request's URL by regular expression (Surge's URL-REGEX)",
+    ),
+    (
+        "route.rules[].ip_asn",
+        "[13335]",
+        "The destination's autonomous system (Surge's IP-ASN)",
+    ),
+    (
+        "route.rules[].process_name_regex",
+        r#"["^a"]"#,
+        "Process names by regular expression (Mihomo's PROCESS-NAME-REGEX)",
+    ),
+    (
+        "route.rules[].wifi_ssid_regex",
+        r#"["^a"]"#,
+        "Wi-Fi names by regular expression (Surge's SSID)",
+    ),
+    (
+        "route.rules[].wifi_bssid_regex",
+        r#"["^a"]"#,
+        "Wi-Fi access points by regular expression (Surge's BSSID)",
+    ),
+    (
+        "route.rules[].network_gateway",
+        r#"["192.168.1.1"]"#,
+        "The default route's gateway (Surge's ROUTER)",
+    ),
+    (
+        "route.rules[].network_mcc_mnc",
+        r#"["460-00"]"#,
+        "The cellular carrier (Surge's MCCMNC)",
+    ),
+    (
+        "route.rules[].no_resolve",
+        "true",
+        "Address conditions do not resolve a domain (Surge's and Clash's no-resolve)",
+    ),
+    (
+        "route.rules[action=sniff].override_destination",
+        "true",
+        "Connects to the sniffed domain rather than the address asked for",
+    ),
+    (
+        "route.rules[action=sniff].skip_rule_set",
+        r#"[]"#,
+        "Sniffed domains a rule-set matches are not taken (Mihomo's skip-domain)",
+    ),
+    (
+        "route.rules[action=resolve].ignore_failure",
+        "true",
+        "A domain that does not resolve has no addresses, and matching goes on",
+    ),
+    (
+        "route.rules[action=resolve].on_demand",
+        "true",
+        "Resolves, or sniffs, only when a later rule needs it (Surge and Mihomo)",
+    ),
+    (
+        "route.rule_set[remote].behavior",
+        r#""domain""#,
+        "What each line of a Clash rule-provider is",
+    ),
+    (
+        "route.rule_set[inline].rules[].ip_asn",
+        "[13335]",
+        "As a routing rule's",
+    ),
+    (
+        "route.rule_set[inline].rules[].http_user_agent",
+        r#"["curl*"]"#,
+        "As a routing rule's",
+    ),
+    (
+        "route.rule_set[inline].rules[].process_name_regex",
+        r#"["^a"]"#,
+        "As a routing rule's",
+    ),
+    (
+        "route.rule_set[inline].rules[].wifi_ssid_regex",
+        r#"["^a"]"#,
+        "As a routing rule's",
+    ),
+    (
+        "route.rule_set[inline].rules[].no_resolve",
+        "true",
+        "As a routing rule's",
+    ),
+    (
+        "outbounds[direct].skip_default_domain_resolver",
+        "true",
+        "Names resolve as the DNS rules say, not by `route.default_domain_resolver`",
+    ),
+    (
+        "outbounds[fallback].outbounds",
+        r#"["direct"]"#,
+        "A group: the first member that works",
+    ),
+    (
+        "outbounds[load-balance].outbounds",
+        r#"["direct"]"#,
+        "A group spreading connections over its members",
+    ),
+    (
+        "outbounds[smart].outbounds",
+        r#"["direct"]"#,
+        "A group scoring its members by the connections through them",
+    ),
+    (
+        "outbounds[network].default",
+        r#""direct""#,
+        "A group picking its member by the network the host is on",
+    ),
+    (
+        "outbounds[tryall].outbounds",
+        r#"["direct"]"#,
+        "A group trying its members at once",
+    ),
+];
+
+impl Registry {
+    /// The sail extensions, each checked: not sing-box's, and taken.
+    fn extensions(&self) -> Vec<(&'static str, &'static str)> {
+        EXTENSIONS
+            .iter()
+            .map(|(path, value, what)| {
+                assert!(
+                    !self.kinds.contains_key(*path),
+                    "{}: sing-box has it; not an extension",
+                    path
+                );
+                let value: Value = serde_json::from_str(value).expect("a sample");
+                let (tier, message) = measure(&self.probe(path, value), path);
+                assert_eq!(tier, Measured::Supported, "{}: {}", path, message);
+                let (parent, _) = parent(path);
+                assert_eq!(
+                    self.control(parent),
+                    Measured::Unknown,
+                    "{}: an unknown field there is no error",
+                    path
+                );
+                (*path, *what)
+            })
+            .collect()
+    }
+}
+
+/// The words of a support table.
+struct Words {
+    file: &'static str,
+    title: &'static str,
+    intro: &'static str,
+    summary: &'static str,
+    area: &'static str,
+    total: &'static str,
+    all: &'static str,
+    tiers: [&'static str; 3],
+    types: &'static str,
+    kind: &'static str,
+    field: &'static str,
+    fields: &'static str,
+    tier: &'static str,
+    note: &'static str,
+    inside: &'static str,
+    feature: &'static str,
+    deprecated: &'static str,
+    extensions: &'static str,
+    extensions_intro: &'static str,
+    what: &'static str,
+}
+
+const EN: Words = Words {
+    file: "../docs/compat/sing-box.md",
+    title: "# sing-box compatibility",
+    intro: "sail reads sing-box configurations as they are. Below is every field sing-box {v} accepts \
+(`sail/src/config/singbox/fields.json`, extracted from its source by `tools/singbox-fields`), \
+with how sail treats it, measured by reading and building a configuration that sets it:
+
+- **Supported**: read and acted on; a value sail cannot take is still an error.
+- **Warned**: dropped with a warning: ignoring it changes no routing or security.
+- **Error**: the configuration is refused: ignoring it would.
+
+Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail gives.",
+    summary: "## Summary",
+    area: "Section",
+    total: "Fields",
+    all: "All",
+    tiers: ["Supported", "Warned", "Error"],
+    types: "Types sail does not implement",
+    kind: "Type",
+    field: "Field",
+    fields: "Fields",
+    tier: "Tier",
+    note: "Note",
+    inside: "and the {n} fields in it",
+    feature: "With the `{f}` feature, off by default, and only where sail tells the program (the NetFilter inbound on Windows)",
+    deprecated: "deprecated",
+    extensions: "## sail extensions",
+    extensions_intro: "Fields and types sail accepts that sing-box does not.",
+    what: "What",
+};
+
+const ZH: Words = Words {
+    file: "../docs/compat/zh/sing-box.md",
+    title: "# sing-box 兼容性",
+    intro: "sail 原样读取 sing-box 配置。下表列出 sing-box {v} 接受的全部字段\
+（`sail/src/config/singbox/fields.json`，由 `tools/singbox-fields` 从其源码提取），\
+以及 sail 对每个字段的处理方式——逐一构造设置该字段的配置、读取并构建后测得：
+
+- **支持**：读取并生效；sail 不接受的取值仍会报错。
+- **警告**：忽略并给出警告：忽略它不改变路由或安全。
+- **报错**：拒绝该配置：忽略它会改变路由或安全。
+
+说明列取自 `sail/src/config/singbox/upstream.rs`，否则为 sail 给出的错误，均保留英文原文。",
+    summary: "## 汇总",
+    area: "部分",
+    total: "字段数",
+    all: "全部",
+    tiers: ["支持", "警告", "报错"],
+    types: "sail 未实现的类型",
+    kind: "类型",
+    field: "字段",
+    fields: "字段数",
+    tier: "处理",
+    note: "说明",
+    inside: "含其下 {n} 个字段",
+    feature:
+        "需启用 `{f}` feature（默认关闭），且仅在 sail 能识别程序时（Windows 的 NetFilter 入站）",
+    deprecated: "已弃用",
+    extensions: "## sail 扩展",
+    extensions_intro: "sail 接受而 sing-box 没有的字段和类型。",
+    what: "用途",
+};
+
+const GENERATED: &str =
+    "<!-- Generated by `SAIL_REGISTRY_UPDATE=1 cargo test -p sail registry`; do not edit. -->";
+
+fn tier_index(tier: Measured) -> usize {
+    match tier {
+        Measured::Supported => 0,
+        Measured::Ignored => 1,
+        _ => 2,
+    }
+}
+
+/// The section a field is listed under: the entry of a type it is in, or
+/// the list of rules, or the top-level field.
+fn section(path: &str) -> &str {
+    if let Some(entry) = entry_of(path) {
+        return entry;
+    }
+    for list in ["dns.servers", "dns.rules", "route.rules", "route.rule_set"] {
+        if path.starts_with(list) {
+            return list;
+        }
+    }
+    let end = path.find(['.', '[']).unwrap_or(path.len());
+    &path[..end]
+}
+
+/// The top-level field a field is in.
+fn area(path: &str) -> &str {
+    let end = path.find(['.', '[']).unwrap_or(path.len());
+    &path[..end]
+}
+
+/// The objects and entries a field is in, nearest last.
+fn ancestors(path: &str) -> impl Iterator<Item = &str> {
+    path.char_indices()
+        .filter(|(i, c)| *i > 0 && matches!(c, '.' | '['))
+        .map(move |(i, _)| &path[..i])
+}
+
+fn escape(text: &str) -> String {
+    text.replace('|', "\\|")
+}
+
+fn render(
+    registry: &Registry,
+    measured: &[Measurement],
+    notes: &[String],
+    extensions: &[(&str, &str)],
+) -> Output {
+    let fields = &registry.fields;
+    let version = &registry.version;
+    let index: HashMap<&str, usize> = fields
+        .iter()
+        .enumerate()
+        .map(|(i, f)| (f.path.as_str(), i))
+        .collect();
+    // A field sail does not implement stands for the fields in it.
+    let covered: Vec<Option<usize>> = fields
+        .iter()
+        .map(|f| {
+            ancestors(&f.path)
+                .filter_map(|a| index.get(a).copied())
+                .find(|&a| measured[a].tier != Measured::Supported)
+        })
+        .collect();
+    let mut inside: HashMap<usize, usize> = HashMap::new();
+    for owner in covered.iter().flatten() {
+        *inside.entry(*owner).or_default() += 1;
+    }
+    // By tier, and those sail does not implement by why, in the order of
+    // fields.json: a field that changes tier moves from one list to another.
+    let mut supported = Vec::new();
+    let mut others: [Vec<(&str, Vec<&str>)>; 2] = [Vec::new(), Vec::new()];
+    for ((f, m), note) in fields.iter().zip(measured).zip(notes) {
+        match tier_index(m.tier) {
+            0 => supported.push(f.path.as_str()),
+            i => {
+                let list = &mut others[i - 1];
+                match list.iter_mut().find(|(why, _)| why == note) {
+                    Some((_, paths)) => paths.push(&f.path),
+                    None => list.push((note, vec![&f.path])),
+                }
+            }
+        }
+    }
+    let lines = |paths: &[&str], indent: &str| -> String {
+        paths
+            .iter()
+            .map(|p| format!("{}{}", indent, json!(p)))
+            .collect::<Vec<_>>()
+            .join(",\n")
+    };
+    let mut tiers = format!(
+        "{{\n \"sing_box\": {},\n \"supported\": [\n{}\n ]",
+        json!(version),
+        lines(&supported, "  ")
+    );
+    for (name, list) in ["ignored", "unsupported"].iter().zip(&others) {
+        let groups: Vec<String> = list
+            .iter()
+            .map(|(why, paths)| format!("  {}: [\n{}\n  ]", json!(why), lines(paths, "   ")))
+            .collect();
+        tiers.push_str(&format!(
+            ",\n \"{}\": {{\n{}\n }}",
+            name,
+            groups.join(",\n")
+        ));
+    }
+    tiers.push_str("\n}\n");
+
+    let table = |words: &Words| -> String {
+        let mut out = format!(
+            "{}\n\n{}\n\n{}\n\n{}\n\n",
+            GENERATED,
+            words.title,
+            words.intro.replace("{v}", version),
+            words.summary
+        );
+        // Counts by area, in the order sing-box has them.
+        let mut areas: Vec<&str> = Vec::new();
+        let mut counts: HashMap<&str, [usize; 3]> = HashMap::new();
+        for (f, m) in fields.iter().zip(measured) {
+            let a = area(&f.path);
+            if !areas.contains(&a) {
+                areas.push(a);
+            }
+            counts.entry(a).or_default()[tier_index(m.tier)] += 1;
+        }
+        out.push_str(&format!(
+            "| {} | {} | {} | {} | {} |\n|---|--:|--:|--:|--:|\n",
+            words.area, words.total, words.tiers[0], words.tiers[1], words.tiers[2]
+        ));
+        let mut all = [0; 3];
+        for a in &areas {
+            let c = counts[a];
+            for i in 0..3 {
+                all[i] += c[i];
+            }
+            out.push_str(&format!(
+                "| `{}` | {} | {} | {} | {} |\n",
+                a,
+                c.iter().sum::<usize>(),
+                c[0],
+                c[1],
+                c[2]
+            ));
+        }
+        out.push_str(&format!(
+            "| **{}** | **{}** | **{}** | **{}** | **{}** |\n",
+            words.all,
+            all.iter().sum::<usize>(),
+            all[0],
+            all[1],
+            all[2]
+        ));
+        for a in &areas {
+            out.push_str(&format!("\n## `{}`\n", a));
+            // The types sail lacks, a line each.
+            let mut lacking: Vec<(&str, Measured, &str, usize)> = Vec::new();
+            let mut sections: Vec<&str> = Vec::new();
+            for (i, f) in fields.iter().enumerate() {
+                if area(&f.path) != *a {
+                    continue;
+                }
+                let m = &measured[i];
+                match (entry_of(&f.path), m.entry) {
+                    (Some(entry), Some(tier)) if tier != Measured::Unknown => {
+                        match lacking.iter_mut().find(|l| l.0 == entry) {
+                            Some(l) => l.3 += 1,
+                            None => lacking.push((entry, tier, &notes[i], 1)),
+                        }
+                    }
+                    _ => {
+                        let s = section(&f.path);
+                        if !sections.contains(&s) {
+                            sections.push(s);
+                        }
+                    }
+                }
+            }
+            if !lacking.is_empty() {
+                out.push_str(&format!(
+                    "\n### {}\n\n| {} | {} | {} | {} |\n|---|---|---|--:|\n",
+                    words.types, words.kind, words.tier, words.note, words.fields
+                ));
+                for (entry, tier, note, n) in &lacking {
+                    out.push_str(&format!(
+                        "| `{}` | {} | {} | {} |\n",
+                        entry,
+                        words.tiers[tier_index(*tier)],
+                        escape(note),
+                        n
+                    ));
+                }
+            }
+            for s in sections {
+                out.push_str(&format!(
+                    "\n### `{}`\n\n| {} | {} | {} |\n|---|---|---|\n",
+                    s, words.field, words.tier, words.note
+                ));
+                for (i, f) in fields.iter().enumerate() {
+                    let m = &measured[i];
+                    let lacking = m.entry.is_some_and(|t| t != Measured::Unknown);
+                    if section(&f.path) != s || lacking || covered[i].is_some() {
+                        continue;
+                    }
+                    let name = f.path[s.len()..].trim_start_matches('.');
+                    let name = if name.is_empty() { s } else { name };
+                    let mut note = escape(&notes[i]);
+                    let (_, name_) = parent(&f.path);
+                    if let Some((_, feature)) = FEATURES
+                        .iter()
+                        .find(|(n, _)| *n == name_ && f.path.contains("rules["))
+                    {
+                        note = words.feature.replace("{f}", feature);
+                    }
+                    if let Some(n) = inside.get(&i) {
+                        let n = words.inside.replace("{n}", &n.to_string());
+                        note = if note.is_empty() {
+                            n
+                        } else {
+                            format!("{} ({})", note, n)
+                        };
+                    }
+                    let deprecated = if f.deprecated {
+                        format!(" ({})", words.deprecated)
+                    } else {
+                        String::new()
+                    };
+                    out.push_str(&format!(
+                        "| `{}`{} | {} | {} |\n",
+                        name,
+                        deprecated,
+                        words.tiers[tier_index(m.tier)],
+                        note
+                    ));
+                }
+            }
+        }
+        out.push_str(&format!(
+            "\n{}\n\n{}\n\n| {} | {} |\n|---|---|\n",
+            words.extensions, words.extensions_intro, words.field, words.what
+        ));
+        for (path, what) in extensions {
+            out.push_str(&format!("| `{}` | {} |\n", path, escape(what)));
+        }
+        out
+    };
+    Output {
+        tiers,
+        tables: [
+            (root().join(EN.file), table(&EN)),
+            (root().join(ZH.file), table(&ZH)),
+        ],
+    }
+}
