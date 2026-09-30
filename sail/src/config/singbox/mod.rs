@@ -794,6 +794,8 @@ mod tests {
             parse(r#"{ "log": { "disabled": true, "level": "fatal", "timestamp": true } }"#)
                 .unwrap();
         assert!(config.log.disabled && config.log.timestamp);
+        let config = parse(r#"{ "log": { "level": "warning" } }"#).unwrap();
+        assert_eq!(config.log.level, crate::config::model::LogLevel::Warn);
         let err = parse(r#"{ "log": { "level": "none" } }"#).unwrap_err();
         assert!(err.to_string().starts_with("log.level"), "{}", err);
     }

@@ -426,6 +426,8 @@ pub enum LogLevel {
     Debug,
     #[default]
     Info,
+    /// Also `warning`, as sing-box takes it.
+    #[serde(alias = "warning")]
     Warn,
     Error,
     /// As `error`: sail logs nothing more severe.

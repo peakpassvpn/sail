@@ -735,7 +735,7 @@
     "error": "dns.fakeip: unknown field `fakeip`, expected one of `servers`, `rules`, `final`, `strategy`, `client_strategy`, `disable_cache`, `disable_expire`, `cache_capacity`, `optimistic`, `timeout`, `reverse_mapping`, `client_subnet`"
   },
   "sing-box/0004.json": {
-    "error": "log.level: unknown variant `warning`, expected one of `trace`, `debug`, `info`, `warn`, `error`, `fatal`, `panic`"
+    "error": "route.rules[4]: the rule has no conditions; route.final is where everything else goes"
   },
   "sing-box/0005.json": {
     "error": "[Group 15] outbound: filter[0]: invalid type: map, expected a string"
