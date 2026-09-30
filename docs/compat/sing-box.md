@@ -15,7 +15,7 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | Section | Fields | Supported | Warned | Error |
 |---|--:|--:|--:|--:|
 | `log` | 5 | 5 | 0 | 0 |
-| `dns` | 578 | 292 | 73 | 213 |
+| `dns` | 578 | 315 | 69 | 194 |
 | `ntp` | 35 | 0 | 35 | 0 |
 | `certificate` | 5 | 5 | 0 | 0 |
 | `certificate_providers` | 212 | 0 | 0 | 212 |
@@ -27,7 +27,7 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `route` | 268 | 144 | 21 | 103 |
 | `services` | 751 | 1 | 166 | 584 |
 | `experimental` | 34 | 16 | 17 | 1 |
-| **All** | **5002** | **1646** | **686** | **2670** |
+| **All** | **5002** | **1669** | **682** | **2651** |
 
 ## `log`
 
@@ -129,13 +129,13 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `tls.server_name` | Supported |  |
 | `tls.insecure` | Supported |  |
 | `tls.alpn` | Error | A h3 server offers its own |
-| `tls.min_version` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.max_version` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.cipher_suites` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.curve_preferences` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
+| `tls.min_version` | Supported |  |
+| `tls.max_version` | Supported |  |
+| `tls.cipher_suites` | Error | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
+| `tls.curve_preferences` | Error | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
 | `tls.certificate` | Supported |  |
 | `tls.certificate_path` | Supported |  |
-| `tls.certificate_public_key_sha256` | Error | Pinning a DNS server's key: a server that should be refused would be taken |
+| `tls.certificate_public_key_sha256` | Supported |  |
 | `tls.client_certificate` | Supported |  |
 | `tls.client_certificate_path` | Supported |  |
 | `tls.client_key` | Supported |  |
@@ -155,7 +155,7 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `tls.reality.public_key` | Error | Not for a dns server |
 | `tls.reality.short_id` | Supported |  |
 | `path` | Supported |  |
-| `method` | Error | The HTTP method of DNS-over-HTTPS queries: a server that takes one would be asked with another |
+| `method` | Supported |  |
 | `headers` | Supported |  |
 | `domain_strategy` (deprecated) | Supported |  |
 
@@ -209,13 +209,13 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `tls.server_name` | Supported |  |
 | `tls.insecure` | Supported |  |
 | `tls.alpn` | Error | A https server offers its own |
-| `tls.min_version` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.max_version` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.cipher_suites` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.curve_preferences` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
+| `tls.min_version` | Supported |  |
+| `tls.max_version` | Supported |  |
+| `tls.cipher_suites` | Error | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
+| `tls.curve_preferences` | Error | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
 | `tls.certificate` | Supported |  |
 | `tls.certificate_path` | Supported |  |
-| `tls.certificate_public_key_sha256` | Error | Pinning a DNS server's key: a server that should be refused would be taken |
+| `tls.certificate_public_key_sha256` | Supported |  |
 | `tls.client_certificate` | Supported |  |
 | `tls.client_certificate_path` | Supported |  |
 | `tls.client_key` | Supported |  |
@@ -237,7 +237,7 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `tls.reality.public_key` | Error | Not for a dns server |
 | `tls.reality.short_id` | Supported |  |
 | `path` | Supported |  |
-| `method` | Error | The HTTP method of DNS-over-HTTPS queries: a server that takes one would be asked with another |
+| `method` | Supported |  |
 | `headers` | Supported |  |
 | `domain_strategy` (deprecated) | Supported |  |
 
@@ -246,30 +246,30 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | Field | Tier | Note |
 |---|---|---|
 | `tag` | Supported |  |
-| `detour` | Error | The system's resolver answers a local server's queries: they cannot go through a detour, or out of an interface or with a mark of their own |
-| `bind_interface` | Error | The system's resolver answers a local server's queries: they cannot go through a detour, or out of an interface or with a mark of their own |
-| `inet4_bind_address` | Error | The system's resolver answers a local server's queries: they cannot go through a detour, or out of an interface or with a mark of their own |
-| `inet6_bind_address` | Error | The system's resolver answers a local server's queries: they cannot go through a detour, or out of an interface or with a mark of their own |
+| `detour` | Supported |  |
+| `bind_interface` | Supported |  |
+| `inet4_bind_address` | Supported |  |
+| `inet6_bind_address` | Supported |  |
 | `bind_address_no_port` | Warned | Socket tuning: connections go the same way without it |
 | `protect_path` | Error | Android's socket protection and Linux network namespaces: sockets would leave another way |
-| `routing_mark` | Error | The system's resolver answers a local server's queries: they cannot go through a detour, or out of an interface or with a mark of their own |
+| `routing_mark` | Supported |  |
 | `reuse_addr` | Warned | Socket tuning: connections go the same way without it |
 | `netns` | Error | Android's socket protection and Linux network namespaces: sockets would leave another way |
-| `connect_timeout` | Warned | The system's resolver answers a local server's queries: it has no server to connect to or name to resolve |
+| `connect_timeout` | Supported |  |
 | `tcp_fast_open` | Warned | Socket tuning: connections go the same way without it |
 | `tcp_multi_path` | Warned | Socket tuning: connections go the same way without it |
-| `disable_tcp_keep_alive` | Warned | The system's resolver answers a local server's queries: it has no server to connect to or name to resolve |
-| `tcp_keep_alive` | Warned | The system's resolver answers a local server's queries: it has no server to connect to or name to resolve |
-| `tcp_keep_alive_interval` | Warned | The system's resolver answers a local server's queries: it has no server to connect to or name to resolve |
+| `disable_tcp_keep_alive` | Supported |  |
+| `tcp_keep_alive` | Supported |  |
+| `tcp_keep_alive_interval` | Supported |  |
 | `udp_fragment` | Warned | Socket tuning: connections go the same way without it |
-| `domain_resolver` | Warned | The system's resolver answers a local server's queries: it has no server to connect to or name to resolve (and the 7 fields in it) |
+| `domain_resolver` | Warned | A local server's servers are the system's, addresses: it has no name to resolve (and the 7 fields in it) |
 | `network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `fallback_delay` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `prefer_go` | Warned | Go's own resolver rather than the system's: sail is not Go |
 | `neighbor_domain` | Warned | Single-label LAN names from sing-box's neighbor resolver (DHCP leases): sail has none, and the system's resolver answers them |
-| `domain_strategy` (deprecated) | Warned | The system's resolver answers a local server's queries: it has no server to connect to or name to resolve |
+| `domain_strategy` (deprecated) | Warned | A local server's servers are the system's, addresses: it has no name to resolve |
 
 ### `dns.servers[quic]`
 
@@ -313,13 +313,13 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `tls.server_name` | Supported |  |
 | `tls.insecure` | Supported |  |
 | `tls.alpn` | Error | A quic server offers its own |
-| `tls.min_version` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.max_version` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.cipher_suites` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.curve_preferences` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
+| `tls.min_version` | Supported |  |
+| `tls.max_version` | Supported |  |
+| `tls.cipher_suites` | Error | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
+| `tls.curve_preferences` | Error | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
 | `tls.certificate` | Supported |  |
 | `tls.certificate_path` | Supported |  |
-| `tls.certificate_public_key_sha256` | Error | Pinning a DNS server's key: a server that should be refused would be taken |
+| `tls.certificate_public_key_sha256` | Supported |  |
 | `tls.client_certificate` | Supported |  |
 | `tls.client_certificate_path` | Supported |  |
 | `tls.client_key` | Supported |  |
@@ -419,13 +419,13 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `tls.server_name` | Supported |  |
 | `tls.insecure` | Supported |  |
 | `tls.alpn` | Error | A tls server offers its own |
-| `tls.min_version` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.max_version` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.cipher_suites` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
-| `tls.curve_preferences` | Error | TLS versions and cipher suites: sail's TLS would negotiate others than asked |
+| `tls.min_version` | Supported |  |
+| `tls.max_version` | Supported |  |
+| `tls.cipher_suites` | Error | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
+| `tls.curve_preferences` | Error | TLS cipher suites and key exchanges: sail's TLS would negotiate others than asked |
 | `tls.certificate` | Supported |  |
 | `tls.certificate_path` | Supported |  |
-| `tls.certificate_public_key_sha256` | Error | Pinning a DNS server's key: a server that should be refused would be taken |
+| `tls.certificate_public_key_sha256` | Supported |  |
 | `tls.client_certificate` | Supported |  |
 | `tls.client_certificate_path` | Supported |  |
 | `tls.client_key` | Supported |  |
