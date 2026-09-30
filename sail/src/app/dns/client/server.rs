@@ -121,6 +121,11 @@ const DIAL: &[&str] = &[
     "tcp_keep_alive_interval",
     "domain_resolver",
     "domain_strategy",
+    "bind_address_no_port",
+    "reuse_addr",
+    "tcp_fast_open",
+    "udp_fragment",
+    "fallback_delay",
 ];
 
 /// The dial fields a server takes, and what the remote ones take besides.
@@ -217,6 +222,11 @@ const LOCAL_DIAL: &[&str] = &[
     "disable_tcp_keep_alive",
     "tcp_keep_alive",
     "tcp_keep_alive_interval",
+    "bind_address_no_port",
+    "reuse_addr",
+    "tcp_fast_open",
+    "udp_fragment",
+    "fallback_delay",
 ];
 
 /// A local server, as sing-box's: it answers the names of the system's

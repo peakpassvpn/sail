@@ -10,7 +10,7 @@ use anyhow::{anyhow, Result};
 
 use super::{
     interface_exists, supports_bind_interface, supports_routing_mark, tcp_keep_alive, DialFields,
-    TcpKeepAlive, DEFAULT_CONNECT_TIMEOUT,
+    TcpKeepAlive, DEFAULT_CONNECT_TIMEOUT, DEFAULT_FALLBACK_DELAY,
 };
 use crate::config::model::{DnsStrategy, DomainResolver};
 
@@ -93,6 +93,17 @@ pub struct DialSpec {
     /// Whether the UDP sockets not bound to anything in particular are
     /// dual-stack.
     pub ipv6: bool,
+    /// `IP_BIND_ADDRESS_NO_PORT` on TCP sockets bound to an address.
+    pub bind_address_no_port: bool,
+    /// `SO_REUSEADDR` (and `SO_REUSEPORT`) on UDP sockets.
+    pub reuse_addr: bool,
+    /// Whether UDP datagrams may be fragmented; if not, DF is set.
+    pub udp_fragment: bool,
+    /// TCP Fast Open, which tries addresses one by one.
+    pub tcp_fast_open: bool,
+    /// How long one family's addresses are tried before the other's race
+    /// them.
+    pub fallback_delay: Duration,
 }
 
 impl Default for DialSpec {
@@ -115,6 +126,13 @@ impl DialSpec {
     fn check(fields: &DialFields) -> Result<()> {
         if fields.routing_mark.is_some() && !supports_routing_mark() {
             return Err(anyhow!("routing_mark: only supported on Linux"));
+        }
+        if fields.bind_address_no_port && !super::sockopt::SUPPORTS_BIND_ADDRESS_NO_PORT {
+            return Err(anyhow!("bind_address_no_port: only supported on Linux"));
+        }
+        if fields.tcp_fast_open {
+            super::sockopt::supports_tcp_fast_open()
+                .map_err(|e| anyhow!("tcp_fast_open: {}", e))?;
         }
         if let Some(name) = &fields.bind_interface {
             if !supports_bind_interface() {
@@ -166,6 +184,15 @@ impl DialSpec {
                 fields.tcp_keep_alive_interval,
             ),
             ipv6: defaults.ipv6,
+            bind_address_no_port: fields.bind_address_no_port,
+            reuse_addr: fields.reuse_addr,
+            udp_fragment: fields.udp_fragment.unwrap_or(fields.udp_fragment_default),
+            tcp_fast_open: fields.tcp_fast_open,
+            // Zero is unset, as in sing-box.
+            fallback_delay: fields
+                .fallback_delay
+                .filter(|d| !d.is_zero())
+                .unwrap_or(DEFAULT_FALLBACK_DELAY),
         }
     }
 
@@ -240,6 +267,16 @@ impl ResolveSpec {
             strategy: fields.domain_strategy,
             outbound: outbound.map(str::to_owned),
         }
+    }
+    /// Whether the IPv6 addresses of a name are raced first: with
+    /// `prefer_ipv6` only, as in sing-box; otherwise IPv4's are.
+    pub(crate) fn prefers_ipv6(&self) -> bool {
+        let strategy = self
+            .domain_resolver
+            .as_ref()
+            .and_then(|r| r.strategy)
+            .or(self.strategy);
+        strategy == Some(DnsStrategy::PreferIpv6)
     }
 }
 
@@ -328,6 +365,61 @@ mod tests {
     }
 
     #[test]
+    fn socket_options_are_sing_box_s_defaults_unless_set() {
+        let spec = DialSpec::default();
+        assert!(!spec.udp_fragment);
+        assert!(!spec.tcp_fast_open && !spec.reuse_addr && !spec.bind_address_no_port);
+        assert_eq!(spec.fallback_delay, Duration::from_millis(300));
+        // Zero is unset.
+        let merge = |json| DialSpec::merge(&fields(json), &RouteDefaults::default());
+        assert_eq!(
+            merge(serde_json::json!({ "fallback_delay": "0s" })).fallback_delay,
+            Duration::from_millis(300)
+        );
+        let spec = merge(serde_json::json!({
+            "fallback_delay": "50ms", "tcp_fast_open": true, "reuse_addr": true,
+            "udp_fragment": true, "bind_address_no_port": true,
+        }));
+        assert_eq!(spec.fallback_delay, Duration::from_millis(50));
+        assert!(spec.tcp_fast_open && spec.reuse_addr && spec.udp_fragment);
+        assert!(spec.bind_address_no_port);
+        // The protocol's default where the field is unset, the field
+        // where set.
+        let protocol = |json| DialFields {
+            udp_fragment_default: true,
+            ..fields(json)
+        };
+        let merged = |f: DialFields| DialSpec::merge(&f, &RouteDefaults::default()).udp_fragment;
+        assert!(merged(protocol(serde_json::json!({}))));
+        assert!(!merged(protocol(
+            serde_json::json!({ "udp_fragment": false })
+        )));
+    }
+
+    #[test]
+    fn ipv6_goes_first_with_prefer_ipv6_only() {
+        let resolve = |json| ResolveSpec::resolve(&fields(json), &RouteDefaults::default(), None);
+        assert!(!resolve(serde_json::json!({})).prefers_ipv6());
+        assert!(!resolve(serde_json::json!({ "domain_strategy": "prefer_ipv4" })).prefers_ipv6());
+        assert!(resolve(serde_json::json!({ "domain_strategy": "prefer_ipv6" })).prefers_ipv6());
+        assert!(resolve(serde_json::json!({
+            "domain_resolver": { "server": "a", "strategy": "prefer_ipv6" },
+            "domain_strategy": "prefer_ipv4",
+        }))
+        .prefers_ipv6());
+        // The default resolver's strategy counts too.
+        let defaults = RouteDefaults {
+            domain_resolver: Some(DomainResolver {
+                server: "a".into(),
+                strategy: Some(DnsStrategy::PreferIpv6),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        assert!(ResolveSpec::resolve(&DialFields::default(), &defaults, None).prefers_ipv6());
+    }
+
+    #[test]
     fn unbound_udp_sockets_are_dual_stack_only_with_ipv6() {
         assert_eq!(
             DialSpec::default().unspecified(),
@@ -360,6 +452,34 @@ mod tests {
             assert_eq!(
                 check(serde_json::json!({ "bind_interface": "no-such-if0" })),
                 Err("bind_interface: there is no interface \"no-such-if0\"".into())
+            );
+        }
+        let no_port = check(serde_json::json!({ "bind_address_no_port": true }));
+        if cfg!(any(target_os = "linux", target_os = "android")) {
+            no_port.unwrap();
+        } else {
+            assert_eq!(
+                no_port,
+                Err("bind_address_no_port: only supported on Linux".into())
+            );
+        }
+        let fast_open = check(serde_json::json!({ "tcp_fast_open": true }));
+        if cfg!(any(
+            target_os = "linux",
+            target_os = "android",
+            target_os = "macos",
+            target_os = "ios"
+        )) {
+            fast_open.unwrap();
+        } else if cfg!(windows) {
+            assert_eq!(
+                fast_open,
+                Err("tcp_fast_open: not supported on Windows yet".into())
+            );
+        } else {
+            assert_eq!(
+                fast_open,
+                Err("tcp_fast_open: not supported on this platform".into())
             );
         }
         // The defaults are theirs to check, as route's.

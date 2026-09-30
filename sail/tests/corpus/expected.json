@@ -885,7 +885,7 @@
     "error": "[in-1] inbound: tls.reality.private_key: neither hex nor base64url"
   },
   "sing-box/0052.json": {
-    "error": "outbounds[12].fallback_delay: sail does not implement this field yet"
+    "error": "outbounds[13].authenticated_length: sail does not implement this field yet"
   },
   "sing-box/0053.json": {
     "error": "outbounds[2].network: sail does not implement this field yet"
@@ -983,7 +983,7 @@
   },
   "sing-box/0083.json": {
     "ok": true,
-    "warnings": 3
+    "warnings": 2
   },
   "sing-box/0084.json": {
     "error": "dns.servers[0]: missing field `type`"

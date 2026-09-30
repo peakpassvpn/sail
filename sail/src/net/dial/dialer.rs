@@ -25,6 +25,7 @@ use {
 };
 
 use super::detour::{DetourDialer, Outbounds, Target};
+use super::happy::Order;
 use super::{DialFields, DialSpec, ResolveSpec, RouteDefaults, SocketProtect};
 use crate::adapter::{AnyOutboundDatagram, AnyOutboundHandler, AnyStream};
 use crate::app::SyncDnsClient;
@@ -432,29 +433,29 @@ impl Dialer {
         }
     }
 
-    /// A TCP connection to `host` and `port`, a name resolved with `dns`,
-    /// trying its addresses one by one. A dialer with a detour has none.
+    /// A TCP connection to `host` and `port`, a name resolved with `dns`:
+    /// its two families raced (Happy Eyeballs), or, with TCP Fast Open,
+    /// its addresses tried one by one. A dialer with a detour has none.
     pub async fn tcp(&self, dns: &SyncDnsClient, host: &str, port: u16) -> io::Result<TcpStream> {
-        self.socket()?;
-        let resolver = Resolver::new(dns.clone(), host, port, self.resolve_spec())
+        let SocketDialer { spec, resolve, .. } = self.socket()?;
+        let addrs: Vec<SocketAddr> = Resolver::new(dns.clone(), host, port, resolve)
             .await
-            .map_err(|e| io::Error::other(format!("resolve address failed: {}", e)))?;
-
-        let mut last_err = None;
-        for addr in resolver {
-            match self.tcp_to(addr).await {
-                Ok(stream) => return Ok(stream),
-                Err(e) => last_err = Some(e),
-            }
-        }
-
-        Err(match last_err {
-            Some(e) => io::Error::other(format!("all attempts failed, last error: {}", e)),
-            None => io::Error::new(
+            .map_err(|e| io::Error::other(format!("resolve address failed: {}", e)))?
+            .collect();
+        if addrs.is_empty() {
+            return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "could not resolve to any address",
-            ),
-        })
+            ));
+        }
+        let order = Order {
+            // A Fast Open connect completes before the server answers, so
+            // there is nothing to race: as in sing-box.
+            race: !spec.tcp_fast_open,
+            prefer_ipv6: resolve.prefers_ipv6(),
+            fallback_delay: spec.fallback_delay,
+        };
+        super::happy::connect(&addrs, order, |addr| self.tcp_to(addr)).await
     }
 
     /// A TCP connection to `addr`.
@@ -477,14 +478,13 @@ impl Dialer {
 
         debug!("tcp dialing {}", &addr);
         let start = tokio::time::Instant::now();
-        let stream = timeout(spec.connect_timeout, socket.connect(addr))
-            .await
-            .map_err(|_| {
-                io::Error::new(
-                    io::ErrorKind::TimedOut,
-                    format!("connect {} timed out", addr),
-                )
-            })??;
+        let connect = super::sockopt::connect(socket, addr, spec.tcp_fast_open);
+        let stream = timeout(spec.connect_timeout, connect).await.map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::TimedOut,
+                format!("connect {} timed out", addr),
+            )
+        })??;
         let elapsed = tokio::time::Instant::now().duration_since(start);
 
         crate::net::apply_socket_opts(SockRef::from(&stream), spec.tcp_keep_alive)?;
@@ -506,6 +506,12 @@ impl Dialer {
         let socket = Socket::new(Domain::for_address(*indicator), Type::DGRAM, None)?;
         socket.set_nonblocking(true)?;
         crate::net::fit_largest_datagram(SockRef::from(&socket))?;
+        if spec.reuse_addr {
+            super::sockopt::reuse_addr(SockRef::from(&socket))?;
+        }
+        if !spec.udp_fragment {
+            super::sockopt::dont_fragment(SockRef::from(&socket), indicator.is_ipv6())?;
+        }
         let bound = super::bind(&socket, indicator, spec, env.auto_interface.as_deref())?;
         if !bound && indicator.ip().is_unspecified() {
             socket.bind(&(*indicator).into())?;

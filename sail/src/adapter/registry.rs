@@ -308,7 +308,12 @@ pub fn build_outbounds(
                         tag: &endpoint.tag,
                         options: &options,
                         dns_client: state.dns_client,
-                        dialer: blocks.dialer(&endpoint.tag, state.dial_defaults, detour)?,
+                        dialer: blocks.dialer(
+                            &endpoint.tag,
+                            &endpoint.protocol,
+                            state.dial_defaults,
+                            detour,
+                        )?,
                         env: state.env,
                         abort_handles: &mut tasks,
                         #[cfg(feature = "outbound-select")]
@@ -355,7 +360,12 @@ pub fn build_outbounds(
                 )?),
                 None => None,
             };
-            let dialer = blocks.dialer(&outbound.tag, state.dial_defaults, detour)?;
+            let dialer = blocks.dialer(
+                &outbound.tag,
+                &outbound.protocol,
+                state.dial_defaults,
+                detour,
+            )?;
             let connector = if factory.over_connector {
                 Some(layers::Connector::new(
                     &blocks,

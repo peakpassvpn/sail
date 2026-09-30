@@ -10,6 +10,8 @@ use tracing::debug;
 mod detour;
 mod dialer;
 pub mod fields;
+mod happy;
+mod sockopt;
 mod spec;
 
 pub use detour::Outbounds;
@@ -23,6 +25,10 @@ pub(crate) use dialer::recording;
 /// The default time a TCP connect to one address may take: sing-box's
 /// and Mihomo's.
 pub const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// How long the addresses of one family are tried before the other's
+/// race them, where `fallback_delay` is unset: sing-box's and Mihomo's.
+pub const DEFAULT_FALLBACK_DELAY: Duration = Duration::from_millis(300);
 
 pub use super::TcpKeepAlive;
 
@@ -102,6 +108,9 @@ pub(crate) fn bind(
     }
     let address = spec.bind_address(target.ip());
     if let Some(address) = address {
+        if spec.bind_address_no_port && socket.r#type()? == socket2::Type::STREAM {
+            sockopt::bind_address_no_port(socket2::SockRef::from(socket))?;
+        }
         socket.bind(&SocketAddr::new(address, 0).into())?;
         debug!("socket bind {}", address);
     }
@@ -139,8 +148,41 @@ fn bind_interface(socket: &socket2::Socket, target: &SocketAddr, iface: &str) ->
     Ok(())
 }
 
+/// By index with `SO_BINDTOIFINDEX` (Linux 5.0); by name with
+/// `SO_BINDTODEVICE` where the kernel does not know that, from then on, as
+/// sing-box does.
 #[cfg(any(target_os = "linux", target_os = "android"))]
 fn bind_interface(socket: &socket2::Socket, _target: &SocketAddr, iface: &str) -> io::Result<()> {
+    use std::os::unix::io::AsRawFd;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    /// `SO_BINDTOIFINDEX`, which the libc crate has for Android only.
+    const SO_BINDTOIFINDEX: libc::c_int = 62;
+    static BY_NAME: AtomicBool = AtomicBool::new(false);
+    if !BY_NAME.load(Ordering::Relaxed) {
+        let name = std::ffi::CString::new(iface.as_bytes())
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid interface name"))?;
+        let index = unsafe { libc::if_nametoindex(name.as_ptr()) } as libc::c_int;
+        if index == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let ret = unsafe {
+            libc::setsockopt(
+                socket.as_raw_fd(),
+                libc::SOL_SOCKET,
+                SO_BINDTOIFINDEX,
+                &index as *const _ as *const libc::c_void,
+                std::mem::size_of::<libc::c_int>() as libc::socklen_t,
+            )
+        };
+        if ret == 0 {
+            return Ok(());
+        }
+        let e = io::Error::last_os_error();
+        if !matches!(e.raw_os_error(), Some(libc::ENOPROTOOPT | libc::EINVAL)) {
+            return Err(e);
+        }
+        BY_NAME.store(true, Ordering::Relaxed);
+    }
     socket.bind_device(Some(iface.as_bytes()))
 }
 

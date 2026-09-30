@@ -15,19 +15,19 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | Section | Fields | Supported | Warned | Error |
 |---|--:|--:|--:|--:|
 | `log` | 5 | 5 | 0 | 0 |
-| `dns` | 578 | 318 | 94 | 166 |
+| `dns` | 578 | 353 | 67 | 158 |
 | `ntp` | 35 | 0 | 35 | 0 |
 | `certificate` | 5 | 5 | 0 | 0 |
 | `certificate_providers` | 212 | 0 | 0 | 212 |
-| `http_clients` | 80 | 21 | 15 | 44 |
+| `http_clients` | 80 | 26 | 11 | 43 |
 | `network_namespaces` | 6 | 0 | 0 | 6 |
-| `endpoints` | 433 | 51 | 32 | 350 |
-| `inbounds` | 1367 | 521 | 187 | 659 |
-| `outbounds` | 1228 | 590 | 140 | 498 |
-| `route` | 268 | 144 | 21 | 103 |
+| `endpoints` | 433 | 56 | 13 | 364 |
+| `inbounds` | 1367 | 561 | 151 | 655 |
+| `outbounds` | 1228 | 645 | 76 | 507 |
+| `route` | 268 | 149 | 17 | 102 |
 | `services` | 751 | 1 | 166 | 584 |
 | `experimental` | 34 | 16 | 17 | 1 |
-| **All** | **5002** | **1672** | **707** | **2623** |
+| **All** | **5002** | **1817** | **553** | **2632** |
 
 ## `log`
 
@@ -95,18 +95,18 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `bind_interface` | Supported |  |
 | `inet4_bind_address` | Supported |  |
 | `inet6_bind_address` | Supported |  |
-| `bind_address_no_port` | Warned | Socket tuning: connections go the same way without it |
+| `bind_address_no_port` | Supported |  |
 | `protect_path` | Error | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `routing_mark` | Supported |  |
-| `reuse_addr` | Warned | Socket tuning: connections go the same way without it |
+| `reuse_addr` | Supported |  |
 | `netns` | Error | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `connect_timeout` | Supported |  |
-| `tcp_fast_open` | Warned | Socket tuning: connections go the same way without it |
+| `tcp_fast_open` | Supported |  |
 | `tcp_multi_path` | Warned | Socket tuning: connections go the same way without it |
 | `disable_tcp_keep_alive` | Supported |  |
 | `tcp_keep_alive` | Supported |  |
 | `tcp_keep_alive_interval` | Supported |  |
-| `udp_fragment` | Warned | Socket tuning: connections go the same way without it |
+| `udp_fragment` | Supported |  |
 | `domain_resolver` | Supported |  |
 | `domain_resolver.server` | Supported |  |
 | `domain_resolver.timeout` | Supported |  |
@@ -118,7 +118,7 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_delay` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `fallback_delay` | Supported |  |
 | `server` | Supported |  |
 | `server_port` | Supported |  |
 | `tls` | Supported |  |
@@ -175,18 +175,18 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `bind_interface` | Supported |  |
 | `inet4_bind_address` | Supported |  |
 | `inet6_bind_address` | Supported |  |
-| `bind_address_no_port` | Warned | Socket tuning: connections go the same way without it |
+| `bind_address_no_port` | Supported |  |
 | `protect_path` | Error | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `routing_mark` | Supported |  |
-| `reuse_addr` | Warned | Socket tuning: connections go the same way without it |
+| `reuse_addr` | Supported |  |
 | `netns` | Error | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `connect_timeout` | Supported |  |
-| `tcp_fast_open` | Warned | Socket tuning: connections go the same way without it |
+| `tcp_fast_open` | Supported |  |
 | `tcp_multi_path` | Warned | Socket tuning: connections go the same way without it |
 | `disable_tcp_keep_alive` | Supported |  |
 | `tcp_keep_alive` | Supported |  |
 | `tcp_keep_alive_interval` | Supported |  |
-| `udp_fragment` | Warned | Socket tuning: connections go the same way without it |
+| `udp_fragment` | Supported |  |
 | `domain_resolver` | Supported |  |
 | `domain_resolver.server` | Supported |  |
 | `domain_resolver.timeout` | Supported |  |
@@ -198,7 +198,7 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_delay` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `fallback_delay` | Supported |  |
 | `server` | Supported |  |
 | `server_port` | Supported |  |
 | `tls` | Supported |  |
@@ -249,23 +249,23 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `bind_interface` | Supported |  |
 | `inet4_bind_address` | Supported |  |
 | `inet6_bind_address` | Supported |  |
-| `bind_address_no_port` | Warned | Socket tuning: connections go the same way without it |
+| `bind_address_no_port` | Supported |  |
 | `protect_path` | Error | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `routing_mark` | Supported |  |
-| `reuse_addr` | Warned | Socket tuning: connections go the same way without it |
+| `reuse_addr` | Supported |  |
 | `netns` | Error | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `connect_timeout` | Supported |  |
-| `tcp_fast_open` | Warned | Socket tuning: connections go the same way without it |
+| `tcp_fast_open` | Supported |  |
 | `tcp_multi_path` | Warned | Socket tuning: connections go the same way without it |
 | `disable_tcp_keep_alive` | Supported |  |
 | `tcp_keep_alive` | Supported |  |
 | `tcp_keep_alive_interval` | Supported |  |
-| `udp_fragment` | Warned | Socket tuning: connections go the same way without it |
+| `udp_fragment` | Supported |  |
 | `domain_resolver` | Warned | A local server's servers are the system's, addresses: it has no name to resolve (and the 7 fields in it) |
 | `network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_delay` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `fallback_delay` | Supported |  |
 | `prefer_go` | Warned | Go's own resolver rather than the system's: sail is not Go |
 | `neighbor_domain` | Warned | Single-label LAN names from sing-box's neighbor resolver (DHCP leases): sail has none, and the system's resolver answers them |
 | `domain_strategy` (deprecated) | Warned | A local server's servers are the system's, addresses: it has no name to resolve |
@@ -279,23 +279,23 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `bind_interface` | Warned | An mDNS server asks on each interface itself, as sing-box's, which dials nothing |
 | `inet4_bind_address` | Warned | An mDNS server asks on each interface itself, as sing-box's, which dials nothing |
 | `inet6_bind_address` | Warned | An mDNS server asks on each interface itself, as sing-box's, which dials nothing |
-| `bind_address_no_port` | Warned | Socket tuning: connections go the same way without it |
+| `bind_address_no_port` | Warned | An mDNS server asks on each interface itself, as sing-box's, which dials nothing |
 | `protect_path` | Error | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `routing_mark` | Warned | An mDNS server asks on each interface itself, as sing-box's, which dials nothing |
-| `reuse_addr` | Warned | Socket tuning: connections go the same way without it |
+| `reuse_addr` | Warned | An mDNS server asks on each interface itself, as sing-box's, which dials nothing |
 | `netns` | Error | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `connect_timeout` | Warned | An mDNS server asks on each interface itself, as sing-box's, which dials nothing |
-| `tcp_fast_open` | Warned | Socket tuning: connections go the same way without it |
+| `tcp_fast_open` | Warned | An mDNS server asks on each interface itself, as sing-box's, which dials nothing |
 | `tcp_multi_path` | Warned | Socket tuning: connections go the same way without it |
 | `disable_tcp_keep_alive` | Warned | An mDNS server asks on each interface itself, as sing-box's, which dials nothing |
 | `tcp_keep_alive` | Warned | An mDNS server asks on each interface itself, as sing-box's, which dials nothing |
 | `tcp_keep_alive_interval` | Warned | An mDNS server asks on each interface itself, as sing-box's, which dials nothing |
-| `udp_fragment` | Warned | Socket tuning: connections go the same way without it |
+| `udp_fragment` | Warned | An mDNS server asks on each interface itself, as sing-box's, which dials nothing |
 | `domain_resolver` | Warned | An mDNS server asks on each interface itself, as sing-box's, which dials nothing (and the 7 fields in it) |
 | `network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_delay` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `fallback_delay` | Warned | An mDNS server asks on each interface itself, as sing-box's, which dials nothing |
 | `prefer_go` | Warned | Go's own resolver rather than the system's: sail is not Go |
 | `neighbor_domain` | Warned | Single-label LAN names from sing-box's neighbor resolver (DHCP leases): sail has none, and the system's resolver answers them |
 | `interface` | Supported |  |
@@ -310,18 +310,18 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `bind_interface` | Supported |  |
 | `inet4_bind_address` | Supported |  |
 | `inet6_bind_address` | Supported |  |
-| `bind_address_no_port` | Warned | Socket tuning: connections go the same way without it |
+| `bind_address_no_port` | Supported |  |
 | `protect_path` | Error | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `routing_mark` | Supported |  |
-| `reuse_addr` | Warned | Socket tuning: connections go the same way without it |
+| `reuse_addr` | Supported |  |
 | `netns` | Error | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `connect_timeout` | Supported |  |
-| `tcp_fast_open` | Warned | Socket tuning: connections go the same way without it |
+| `tcp_fast_open` | Supported |  |
 | `tcp_multi_path` | Warned | Socket tuning: connections go the same way without it |
 | `disable_tcp_keep_alive` | Supported |  |
 | `tcp_keep_alive` | Supported |  |
 | `tcp_keep_alive_interval` | Supported |  |
-| `udp_fragment` | Warned | Socket tuning: connections go the same way without it |
+| `udp_fragment` | Supported |  |
 | `domain_resolver` | Supported |  |
 | `domain_resolver.server` | Supported |  |
 | `domain_resolver.timeout` | Supported |  |
@@ -333,7 +333,7 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_delay` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `fallback_delay` | Supported |  |
 | `server` | Supported |  |
 | `server_port` | Supported |  |
 | `tls` | Supported |  |
@@ -379,18 +379,18 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `bind_interface` | Supported |  |
 | `inet4_bind_address` | Supported |  |
 | `inet6_bind_address` | Supported |  |
-| `bind_address_no_port` | Warned | Socket tuning: connections go the same way without it |
+| `bind_address_no_port` | Supported |  |
 | `protect_path` | Error | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `routing_mark` | Supported |  |
-| `reuse_addr` | Warned | Socket tuning: connections go the same way without it |
+| `reuse_addr` | Supported |  |
 | `netns` | Error | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `connect_timeout` | Supported |  |
-| `tcp_fast_open` | Warned | Socket tuning: connections go the same way without it |
+| `tcp_fast_open` | Supported |  |
 | `tcp_multi_path` | Warned | Socket tuning: connections go the same way without it |
 | `disable_tcp_keep_alive` | Supported |  |
 | `tcp_keep_alive` | Supported |  |
 | `tcp_keep_alive_interval` | Supported |  |
-| `udp_fragment` | Warned | Socket tuning: connections go the same way without it |
+| `udp_fragment` | Supported |  |
 | `domain_resolver` | Supported |  |
 | `domain_resolver.server` | Supported |  |
 | `domain_resolver.timeout` | Supported |  |
@@ -402,7 +402,7 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_delay` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `fallback_delay` | Supported |  |
 | `server` | Supported |  |
 | `server_port` | Supported |  |
 | `domain_strategy` (deprecated) | Supported |  |
@@ -416,18 +416,18 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `bind_interface` | Supported |  |
 | `inet4_bind_address` | Supported |  |
 | `inet6_bind_address` | Supported |  |
-| `bind_address_no_port` | Warned | Socket tuning: connections go the same way without it |
+| `bind_address_no_port` | Supported |  |
 | `protect_path` | Error | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `routing_mark` | Supported |  |
-| `reuse_addr` | Warned | Socket tuning: connections go the same way without it |
+| `reuse_addr` | Supported |  |
 | `netns` | Error | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `connect_timeout` | Supported |  |
-| `tcp_fast_open` | Warned | Socket tuning: connections go the same way without it |
+| `tcp_fast_open` | Supported |  |
 | `tcp_multi_path` | Warned | Socket tuning: connections go the same way without it |
 | `disable_tcp_keep_alive` | Supported |  |
 | `tcp_keep_alive` | Supported |  |
 | `tcp_keep_alive_interval` | Supported |  |
-| `udp_fragment` | Warned | Socket tuning: connections go the same way without it |
+| `udp_fragment` | Supported |  |
 | `domain_resolver` | Supported |  |
 | `domain_resolver.server` | Supported |  |
 | `domain_resolver.timeout` | Supported |  |
@@ -439,7 +439,7 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_delay` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `fallback_delay` | Supported |  |
 | `server` | Supported |  |
 | `server_port` | Supported |  |
 | `tls` | Supported |  |
@@ -487,18 +487,18 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `bind_interface` | Supported |  |
 | `inet4_bind_address` | Supported |  |
 | `inet6_bind_address` | Supported |  |
-| `bind_address_no_port` | Warned | Socket tuning: connections go the same way without it |
+| `bind_address_no_port` | Supported |  |
 | `protect_path` | Error | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `routing_mark` | Supported |  |
-| `reuse_addr` | Warned | Socket tuning: connections go the same way without it |
+| `reuse_addr` | Supported |  |
 | `netns` | Error | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `connect_timeout` | Supported |  |
-| `tcp_fast_open` | Warned | Socket tuning: connections go the same way without it |
+| `tcp_fast_open` | Supported |  |
 | `tcp_multi_path` | Warned | Socket tuning: connections go the same way without it |
 | `disable_tcp_keep_alive` | Supported |  |
 | `tcp_keep_alive` | Supported |  |
 | `tcp_keep_alive_interval` | Supported |  |
-| `udp_fragment` | Warned | Socket tuning: connections go the same way without it |
+| `udp_fragment` | Supported |  |
 | `domain_resolver` | Supported |  |
 | `domain_resolver.server` | Supported |  |
 | `domain_resolver.timeout` | Supported |  |
@@ -510,7 +510,7 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_delay` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `fallback_delay` | Supported |  |
 | `server` | Supported |  |
 | `server_port` | Supported |  |
 | `domain_strategy` (deprecated) | Supported |  |
@@ -702,18 +702,18 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `[].bind_interface` | Supported |  |
 | `[].inet4_bind_address` | Supported |  |
 | `[].inet6_bind_address` | Supported |  |
-| `[].bind_address_no_port` | Warned | Socket tuning: connections go the same way without it |
+| `[].bind_address_no_port` | Supported |  |
 | `[].protect_path` | Error | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `[].routing_mark` | Supported |  |
-| `[].reuse_addr` | Warned | Socket tuning: connections go the same way without it |
+| `[].reuse_addr` | Supported |  |
 | `[].netns` | Error | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `[].connect_timeout` | Supported |  |
-| `[].tcp_fast_open` | Warned | Socket tuning: connections go the same way without it |
+| `[].tcp_fast_open` | Supported |  |
 | `[].tcp_multi_path` | Warned | Socket tuning: connections go the same way without it |
 | `[].disable_tcp_keep_alive` | Supported |  |
 | `[].tcp_keep_alive` | Supported |  |
 | `[].tcp_keep_alive_interval` | Supported |  |
-| `[].udp_fragment` | Warned | Socket tuning: connections go the same way without it |
+| `[].udp_fragment` | Supported |  |
 | `[].domain_resolver` | Supported |  |
 | `[].domain_resolver.server` | Supported |  |
 | `[].domain_resolver.timeout` | Supported |  |
@@ -725,7 +725,7 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `[].network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `[].network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `[].fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `[].fallback_delay` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `[].fallback_delay` | Supported |  |
 | `[].idle_timeout` | Warned | HTTP/2 and HTTP/3 tuning: a download over HTTP/1.1 is the same download |
 | `[].keep_alive_period` | Warned | HTTP/2 and HTTP/3 tuning: a download over HTTP/1.1 is the same download |
 | `[].stream_receive_window` | Warned | HTTP/2 and HTTP/3 tuning: a download over HTTP/1.1 is the same download |
@@ -795,18 +795,18 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `bind_interface` | Supported |  |
 | `inet4_bind_address` | Supported |  |
 | `inet6_bind_address` | Supported |  |
-| `bind_address_no_port` | Warned | Socket tuning: connections go the same way without it |
+| `bind_address_no_port` | Supported |  |
 | `protect_path` | Error | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `routing_mark` | Supported |  |
-| `reuse_addr` | Warned | Socket tuning: connections go the same way without it |
+| `reuse_addr` | Supported |  |
 | `netns` | Error | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `connect_timeout` | Supported |  |
-| `tcp_fast_open` | Warned | Socket tuning: connections go the same way without it |
+| `tcp_fast_open` | Supported |  |
 | `tcp_multi_path` | Warned | Socket tuning: connections go the same way without it |
 | `disable_tcp_keep_alive` | Supported |  |
 | `tcp_keep_alive` | Supported |  |
 | `tcp_keep_alive_interval` | Supported |  |
-| `udp_fragment` | Warned | Socket tuning: connections go the same way without it |
+| `udp_fragment` | Supported |  |
 | `domain_resolver` | Supported |  |
 | `domain_resolver.server` | Supported |  |
 | `domain_resolver.timeout` | Supported |  |
@@ -818,7 +818,7 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_delay` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `fallback_delay` | Supported |  |
 | `domain_strategy` (deprecated) | Supported |  |
 
 ## `inbounds`
@@ -889,18 +889,18 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `tls.reality.handshake.bind_interface` | Supported |  |
 | `tls.reality.handshake.inet4_bind_address` | Supported |  |
 | `tls.reality.handshake.inet6_bind_address` | Supported |  |
-| `tls.reality.handshake.bind_address_no_port` | Warned | Socket tuning: connections go the same way without it |
+| `tls.reality.handshake.bind_address_no_port` | Supported |  |
 | `tls.reality.handshake.protect_path` | Error | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `tls.reality.handshake.routing_mark` | Supported |  |
-| `tls.reality.handshake.reuse_addr` | Warned | Socket tuning: connections go the same way without it |
+| `tls.reality.handshake.reuse_addr` | Supported |  |
 | `tls.reality.handshake.netns` | Error | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `tls.reality.handshake.connect_timeout` | Supported |  |
-| `tls.reality.handshake.tcp_fast_open` | Warned | Socket tuning: connections go the same way without it |
+| `tls.reality.handshake.tcp_fast_open` | Supported |  |
 | `tls.reality.handshake.tcp_multi_path` | Warned | Socket tuning: connections go the same way without it |
 | `tls.reality.handshake.disable_tcp_keep_alive` | Supported |  |
 | `tls.reality.handshake.tcp_keep_alive` | Supported |  |
 | `tls.reality.handshake.tcp_keep_alive_interval` | Supported |  |
-| `tls.reality.handshake.udp_fragment` | Warned | Socket tuning: connections go the same way without it |
+| `tls.reality.handshake.udp_fragment` | Supported |  |
 | `tls.reality.handshake.domain_resolver` | Supported |  |
 | `tls.reality.handshake.domain_resolver.server` | Supported |  |
 | `tls.reality.handshake.domain_resolver.timeout` | Supported |  |
@@ -912,7 +912,7 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `tls.reality.handshake.network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `tls.reality.handshake.network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `tls.reality.handshake.fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `tls.reality.handshake.fallback_delay` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `tls.reality.handshake.fallback_delay` | Supported |  |
 | `tls.reality.handshake.domain_strategy` (deprecated) | Supported |  |
 | `tls.reality.private_key` | Supported |  |
 | `tls.reality.short_id` | Supported |  |
@@ -1001,18 +1001,18 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `tls.reality.handshake.bind_interface` | Supported |  |
 | `tls.reality.handshake.inet4_bind_address` | Supported |  |
 | `tls.reality.handshake.inet6_bind_address` | Supported |  |
-| `tls.reality.handshake.bind_address_no_port` | Warned | Socket tuning: connections go the same way without it |
+| `tls.reality.handshake.bind_address_no_port` | Supported |  |
 | `tls.reality.handshake.protect_path` | Error | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `tls.reality.handshake.routing_mark` | Supported |  |
-| `tls.reality.handshake.reuse_addr` | Warned | Socket tuning: connections go the same way without it |
+| `tls.reality.handshake.reuse_addr` | Supported |  |
 | `tls.reality.handshake.netns` | Error | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `tls.reality.handshake.connect_timeout` | Supported |  |
-| `tls.reality.handshake.tcp_fast_open` | Warned | Socket tuning: connections go the same way without it |
+| `tls.reality.handshake.tcp_fast_open` | Supported |  |
 | `tls.reality.handshake.tcp_multi_path` | Warned | Socket tuning: connections go the same way without it |
 | `tls.reality.handshake.disable_tcp_keep_alive` | Supported |  |
 | `tls.reality.handshake.tcp_keep_alive` | Supported |  |
 | `tls.reality.handshake.tcp_keep_alive_interval` | Supported |  |
-| `tls.reality.handshake.udp_fragment` | Warned | Socket tuning: connections go the same way without it |
+| `tls.reality.handshake.udp_fragment` | Supported |  |
 | `tls.reality.handshake.domain_resolver` | Supported |  |
 | `tls.reality.handshake.domain_resolver.server` | Supported |  |
 | `tls.reality.handshake.domain_resolver.timeout` | Supported |  |
@@ -1024,7 +1024,7 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `tls.reality.handshake.network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `tls.reality.handshake.network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `tls.reality.handshake.fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `tls.reality.handshake.fallback_delay` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `tls.reality.handshake.fallback_delay` | Supported |  |
 | `tls.reality.handshake.domain_strategy` (deprecated) | Supported |  |
 | `tls.reality.private_key` | Supported |  |
 | `tls.reality.short_id` | Supported |  |
@@ -1093,18 +1093,18 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `tls.reality.handshake.bind_interface` | Supported |  |
 | `tls.reality.handshake.inet4_bind_address` | Supported |  |
 | `tls.reality.handshake.inet6_bind_address` | Supported |  |
-| `tls.reality.handshake.bind_address_no_port` | Warned | Socket tuning: connections go the same way without it |
+| `tls.reality.handshake.bind_address_no_port` | Supported |  |
 | `tls.reality.handshake.protect_path` | Error | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `tls.reality.handshake.routing_mark` | Supported |  |
-| `tls.reality.handshake.reuse_addr` | Warned | Socket tuning: connections go the same way without it |
+| `tls.reality.handshake.reuse_addr` | Supported |  |
 | `tls.reality.handshake.netns` | Error | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `tls.reality.handshake.connect_timeout` | Supported |  |
-| `tls.reality.handshake.tcp_fast_open` | Warned | Socket tuning: connections go the same way without it |
+| `tls.reality.handshake.tcp_fast_open` | Supported |  |
 | `tls.reality.handshake.tcp_multi_path` | Warned | Socket tuning: connections go the same way without it |
 | `tls.reality.handshake.disable_tcp_keep_alive` | Supported |  |
 | `tls.reality.handshake.tcp_keep_alive` | Supported |  |
 | `tls.reality.handshake.tcp_keep_alive_interval` | Supported |  |
-| `tls.reality.handshake.udp_fragment` | Warned | Socket tuning: connections go the same way without it |
+| `tls.reality.handshake.udp_fragment` | Supported |  |
 | `tls.reality.handshake.domain_resolver` | Supported |  |
 | `tls.reality.handshake.domain_resolver.server` | Supported |  |
 | `tls.reality.handshake.domain_resolver.timeout` | Supported |  |
@@ -1116,7 +1116,7 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `tls.reality.handshake.network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `tls.reality.handshake.network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `tls.reality.handshake.fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `tls.reality.handshake.fallback_delay` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `tls.reality.handshake.fallback_delay` | Supported |  |
 | `tls.reality.handshake.domain_strategy` (deprecated) | Supported |  |
 | `tls.reality.private_key` | Supported |  |
 | `tls.reality.short_id` | Supported |  |
@@ -1246,18 +1246,18 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `handshake.bind_interface` | Supported |  |
 | `handshake.inet4_bind_address` | Supported |  |
 | `handshake.inet6_bind_address` | Supported |  |
-| `handshake.bind_address_no_port` | Error | The protocol's own check: not implemented yet |
+| `handshake.bind_address_no_port` | Supported |  |
 | `handshake.protect_path` | Error | The protocol's own check: not implemented yet |
 | `handshake.routing_mark` | Supported |  |
-| `handshake.reuse_addr` | Error | The protocol's own check: not implemented yet |
+| `handshake.reuse_addr` | Supported |  |
 | `handshake.netns` | Error | The protocol's own check: not implemented yet |
 | `handshake.connect_timeout` | Supported |  |
-| `handshake.tcp_fast_open` | Error | The protocol's own check: not implemented yet |
+| `handshake.tcp_fast_open` | Supported |  |
 | `handshake.tcp_multi_path` | Error | The protocol's own check: not implemented yet |
 | `handshake.disable_tcp_keep_alive` | Supported |  |
 | `handshake.tcp_keep_alive` | Supported |  |
 | `handshake.tcp_keep_alive_interval` | Supported |  |
-| `handshake.udp_fragment` | Error | The protocol's own check: not implemented yet |
+| `handshake.udp_fragment` | Supported |  |
 | `handshake.domain_resolver` | Supported |  |
 | `handshake.domain_resolver.server` | Supported |  |
 | `handshake.domain_resolver.timeout` | Supported |  |
@@ -1269,7 +1269,7 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `handshake.network_strategy` | Error | The protocol's own check: not implemented yet |
 | `handshake.network_type` | Error | The protocol's own check: not implemented yet |
 | `handshake.fallback_network_type` | Error | The protocol's own check: not implemented yet |
-| `handshake.fallback_delay` | Error | The protocol's own check: not implemented yet |
+| `handshake.fallback_delay` | Supported |  |
 | `handshake.domain_strategy` (deprecated) | Supported |  |
 | `handshake_for_server_name` | Supported |  |
 | `strict_mode` | Supported |  |
@@ -1376,18 +1376,18 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `tls.reality.handshake.bind_interface` | Supported |  |
 | `tls.reality.handshake.inet4_bind_address` | Supported |  |
 | `tls.reality.handshake.inet6_bind_address` | Supported |  |
-| `tls.reality.handshake.bind_address_no_port` | Warned | Socket tuning: connections go the same way without it |
+| `tls.reality.handshake.bind_address_no_port` | Supported |  |
 | `tls.reality.handshake.protect_path` | Error | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `tls.reality.handshake.routing_mark` | Supported |  |
-| `tls.reality.handshake.reuse_addr` | Warned | Socket tuning: connections go the same way without it |
+| `tls.reality.handshake.reuse_addr` | Supported |  |
 | `tls.reality.handshake.netns` | Error | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `tls.reality.handshake.connect_timeout` | Supported |  |
-| `tls.reality.handshake.tcp_fast_open` | Warned | Socket tuning: connections go the same way without it |
+| `tls.reality.handshake.tcp_fast_open` | Supported |  |
 | `tls.reality.handshake.tcp_multi_path` | Warned | Socket tuning: connections go the same way without it |
 | `tls.reality.handshake.disable_tcp_keep_alive` | Supported |  |
 | `tls.reality.handshake.tcp_keep_alive` | Supported |  |
 | `tls.reality.handshake.tcp_keep_alive_interval` | Supported |  |
-| `tls.reality.handshake.udp_fragment` | Warned | Socket tuning: connections go the same way without it |
+| `tls.reality.handshake.udp_fragment` | Supported |  |
 | `tls.reality.handshake.domain_resolver` | Supported |  |
 | `tls.reality.handshake.domain_resolver.server` | Supported |  |
 | `tls.reality.handshake.domain_resolver.timeout` | Supported |  |
@@ -1399,7 +1399,7 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `tls.reality.handshake.network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `tls.reality.handshake.network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `tls.reality.handshake.fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `tls.reality.handshake.fallback_delay` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `tls.reality.handshake.fallback_delay` | Supported |  |
 | `tls.reality.handshake.domain_strategy` (deprecated) | Supported |  |
 | `tls.reality.private_key` | Supported |  |
 | `tls.reality.short_id` | Supported |  |
@@ -1494,18 +1494,18 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `tls.reality.handshake.bind_interface` | Supported |  |
 | `tls.reality.handshake.inet4_bind_address` | Supported |  |
 | `tls.reality.handshake.inet6_bind_address` | Supported |  |
-| `tls.reality.handshake.bind_address_no_port` | Warned | Socket tuning: connections go the same way without it |
+| `tls.reality.handshake.bind_address_no_port` | Supported |  |
 | `tls.reality.handshake.protect_path` | Error | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `tls.reality.handshake.routing_mark` | Supported |  |
-| `tls.reality.handshake.reuse_addr` | Warned | Socket tuning: connections go the same way without it |
+| `tls.reality.handshake.reuse_addr` | Supported |  |
 | `tls.reality.handshake.netns` | Error | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `tls.reality.handshake.connect_timeout` | Supported |  |
-| `tls.reality.handshake.tcp_fast_open` | Warned | Socket tuning: connections go the same way without it |
+| `tls.reality.handshake.tcp_fast_open` | Supported |  |
 | `tls.reality.handshake.tcp_multi_path` | Warned | Socket tuning: connections go the same way without it |
 | `tls.reality.handshake.disable_tcp_keep_alive` | Supported |  |
 | `tls.reality.handshake.tcp_keep_alive` | Supported |  |
 | `tls.reality.handshake.tcp_keep_alive_interval` | Supported |  |
-| `tls.reality.handshake.udp_fragment` | Warned | Socket tuning: connections go the same way without it |
+| `tls.reality.handshake.udp_fragment` | Supported |  |
 | `tls.reality.handshake.domain_resolver` | Supported |  |
 | `tls.reality.handshake.domain_resolver.server` | Supported |  |
 | `tls.reality.handshake.domain_resolver.timeout` | Supported |  |
@@ -1517,7 +1517,7 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `tls.reality.handshake.network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `tls.reality.handshake.network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `tls.reality.handshake.fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `tls.reality.handshake.fallback_delay` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `tls.reality.handshake.fallback_delay` | Supported |  |
 | `tls.reality.handshake.domain_strategy` (deprecated) | Supported |  |
 | `tls.reality.private_key` | Supported |  |
 | `tls.reality.short_id` | Supported |  |
@@ -1631,18 +1631,18 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `tls.reality.handshake.bind_interface` | Supported |  |
 | `tls.reality.handshake.inet4_bind_address` | Supported |  |
 | `tls.reality.handshake.inet6_bind_address` | Supported |  |
-| `tls.reality.handshake.bind_address_no_port` | Warned | Socket tuning: connections go the same way without it |
+| `tls.reality.handshake.bind_address_no_port` | Supported |  |
 | `tls.reality.handshake.protect_path` | Error | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `tls.reality.handshake.routing_mark` | Supported |  |
-| `tls.reality.handshake.reuse_addr` | Warned | Socket tuning: connections go the same way without it |
+| `tls.reality.handshake.reuse_addr` | Supported |  |
 | `tls.reality.handshake.netns` | Error | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `tls.reality.handshake.connect_timeout` | Supported |  |
-| `tls.reality.handshake.tcp_fast_open` | Warned | Socket tuning: connections go the same way without it |
+| `tls.reality.handshake.tcp_fast_open` | Supported |  |
 | `tls.reality.handshake.tcp_multi_path` | Warned | Socket tuning: connections go the same way without it |
 | `tls.reality.handshake.disable_tcp_keep_alive` | Supported |  |
 | `tls.reality.handshake.tcp_keep_alive` | Supported |  |
 | `tls.reality.handshake.tcp_keep_alive_interval` | Supported |  |
-| `tls.reality.handshake.udp_fragment` | Warned | Socket tuning: connections go the same way without it |
+| `tls.reality.handshake.udp_fragment` | Supported |  |
 | `tls.reality.handshake.domain_resolver` | Supported |  |
 | `tls.reality.handshake.domain_resolver.server` | Supported |  |
 | `tls.reality.handshake.domain_resolver.timeout` | Supported |  |
@@ -1654,7 +1654,7 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `tls.reality.handshake.network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `tls.reality.handshake.network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `tls.reality.handshake.fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `tls.reality.handshake.fallback_delay` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `tls.reality.handshake.fallback_delay` | Supported |  |
 | `tls.reality.handshake.domain_strategy` (deprecated) | Supported |  |
 | `tls.reality.private_key` | Supported |  |
 | `tls.reality.short_id` | Supported |  |
@@ -1741,18 +1741,18 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `tls.reality.handshake.bind_interface` | Supported |  |
 | `tls.reality.handshake.inet4_bind_address` | Supported |  |
 | `tls.reality.handshake.inet6_bind_address` | Supported |  |
-| `tls.reality.handshake.bind_address_no_port` | Warned | Socket tuning: connections go the same way without it |
+| `tls.reality.handshake.bind_address_no_port` | Supported |  |
 | `tls.reality.handshake.protect_path` | Error | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `tls.reality.handshake.routing_mark` | Supported |  |
-| `tls.reality.handshake.reuse_addr` | Warned | Socket tuning: connections go the same way without it |
+| `tls.reality.handshake.reuse_addr` | Supported |  |
 | `tls.reality.handshake.netns` | Error | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `tls.reality.handshake.connect_timeout` | Supported |  |
-| `tls.reality.handshake.tcp_fast_open` | Warned | Socket tuning: connections go the same way without it |
+| `tls.reality.handshake.tcp_fast_open` | Supported |  |
 | `tls.reality.handshake.tcp_multi_path` | Warned | Socket tuning: connections go the same way without it |
 | `tls.reality.handshake.disable_tcp_keep_alive` | Supported |  |
 | `tls.reality.handshake.tcp_keep_alive` | Supported |  |
 | `tls.reality.handshake.tcp_keep_alive_interval` | Supported |  |
-| `tls.reality.handshake.udp_fragment` | Warned | Socket tuning: connections go the same way without it |
+| `tls.reality.handshake.udp_fragment` | Supported |  |
 | `tls.reality.handshake.domain_resolver` | Supported |  |
 | `tls.reality.handshake.domain_resolver.server` | Supported |  |
 | `tls.reality.handshake.domain_resolver.timeout` | Supported |  |
@@ -1764,7 +1764,7 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `tls.reality.handshake.network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `tls.reality.handshake.network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `tls.reality.handshake.fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `tls.reality.handshake.fallback_delay` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `tls.reality.handshake.fallback_delay` | Supported |  |
 | `tls.reality.handshake.domain_strategy` (deprecated) | Supported |  |
 | `tls.reality.private_key` | Supported |  |
 | `tls.reality.short_id` | Supported |  |
@@ -1826,18 +1826,18 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `bind_interface` | Supported |  |
 | `inet4_bind_address` | Supported |  |
 | `inet6_bind_address` | Supported |  |
-| `bind_address_no_port` | Warned | Socket tuning: connections go the same way without it |
+| `bind_address_no_port` | Supported |  |
 | `protect_path` | Error | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `routing_mark` | Supported |  |
-| `reuse_addr` | Warned | Socket tuning: connections go the same way without it |
+| `reuse_addr` | Supported |  |
 | `netns` | Error | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `connect_timeout` | Supported |  |
-| `tcp_fast_open` | Warned | Socket tuning: connections go the same way without it |
+| `tcp_fast_open` | Supported |  |
 | `tcp_multi_path` | Warned | Socket tuning: connections go the same way without it |
 | `disable_tcp_keep_alive` | Supported |  |
 | `tcp_keep_alive` | Supported |  |
 | `tcp_keep_alive_interval` | Supported |  |
-| `udp_fragment` | Warned | Socket tuning: connections go the same way without it |
+| `udp_fragment` | Supported |  |
 | `domain_resolver` | Supported |  |
 | `domain_resolver.server` | Supported |  |
 | `domain_resolver.timeout` | Supported |  |
@@ -1849,7 +1849,7 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_delay` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `fallback_delay` | Supported |  |
 | `server` | Supported |  |
 | `server_port` | Supported |  |
 | `tls` | Supported |  |
@@ -1912,18 +1912,18 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `bind_interface` | Supported |  |
 | `inet4_bind_address` | Supported |  |
 | `inet6_bind_address` | Supported |  |
-| `bind_address_no_port` | Warned | Socket tuning: connections go the same way without it |
+| `bind_address_no_port` | Supported |  |
 | `protect_path` | Error | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `routing_mark` | Supported |  |
-| `reuse_addr` | Warned | Socket tuning: connections go the same way without it |
+| `reuse_addr` | Supported |  |
 | `netns` | Error | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `connect_timeout` | Supported |  |
-| `tcp_fast_open` | Warned | Socket tuning: connections go the same way without it |
+| `tcp_fast_open` | Supported |  |
 | `tcp_multi_path` | Warned | Socket tuning: connections go the same way without it |
 | `disable_tcp_keep_alive` | Supported |  |
 | `tcp_keep_alive` | Supported |  |
 | `tcp_keep_alive_interval` | Supported |  |
-| `udp_fragment` | Warned | Socket tuning: connections go the same way without it |
+| `udp_fragment` | Supported |  |
 | `domain_resolver` | Supported |  |
 | `domain_resolver.server` | Supported |  |
 | `domain_resolver.timeout` | Supported |  |
@@ -1935,7 +1935,7 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_delay` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `fallback_delay` | Supported |  |
 | `domain_strategy` (deprecated) | Supported |  |
 
 ### `outbounds[http]`
@@ -1947,18 +1947,18 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `bind_interface` | Supported |  |
 | `inet4_bind_address` | Supported |  |
 | `inet6_bind_address` | Supported |  |
-| `bind_address_no_port` | Warned | Socket tuning: connections go the same way without it |
+| `bind_address_no_port` | Supported |  |
 | `protect_path` | Error | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `routing_mark` | Supported |  |
-| `reuse_addr` | Warned | Socket tuning: connections go the same way without it |
+| `reuse_addr` | Supported |  |
 | `netns` | Error | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `connect_timeout` | Supported |  |
-| `tcp_fast_open` | Warned | Socket tuning: connections go the same way without it |
+| `tcp_fast_open` | Supported |  |
 | `tcp_multi_path` | Warned | Socket tuning: connections go the same way without it |
 | `disable_tcp_keep_alive` | Supported |  |
 | `tcp_keep_alive` | Supported |  |
 | `tcp_keep_alive_interval` | Supported |  |
-| `udp_fragment` | Warned | Socket tuning: connections go the same way without it |
+| `udp_fragment` | Supported |  |
 | `domain_resolver` | Supported |  |
 | `domain_resolver.server` | Supported |  |
 | `domain_resolver.timeout` | Supported |  |
@@ -1970,7 +1970,7 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_delay` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `fallback_delay` | Supported |  |
 | `server` | Supported |  |
 | `server_port` | Supported |  |
 | `username` | Supported |  |
@@ -2026,18 +2026,18 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `bind_interface` | Supported |  |
 | `inet4_bind_address` | Supported |  |
 | `inet6_bind_address` | Supported |  |
-| `bind_address_no_port` | Warned | Socket tuning: connections go the same way without it |
+| `bind_address_no_port` | Supported |  |
 | `protect_path` | Error | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `routing_mark` | Supported |  |
-| `reuse_addr` | Warned | Socket tuning: connections go the same way without it |
+| `reuse_addr` | Supported |  |
 | `netns` | Error | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `connect_timeout` | Supported |  |
-| `tcp_fast_open` | Warned | Socket tuning: connections go the same way without it |
+| `tcp_fast_open` | Supported |  |
 | `tcp_multi_path` | Warned | Socket tuning: connections go the same way without it |
 | `disable_tcp_keep_alive` | Supported |  |
 | `tcp_keep_alive` | Supported |  |
 | `tcp_keep_alive_interval` | Supported |  |
-| `udp_fragment` | Warned | Socket tuning: connections go the same way without it |
+| `udp_fragment` | Supported |  |
 | `domain_resolver` | Supported |  |
 | `domain_resolver.server` | Supported |  |
 | `domain_resolver.timeout` | Supported |  |
@@ -2049,7 +2049,7 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_delay` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `fallback_delay` | Supported |  |
 | `server` | Supported |  |
 | `server_port` | Supported |  |
 | `server_ports` | Supported |  |
@@ -2132,18 +2132,18 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `bind_interface` | Supported |  |
 | `inet4_bind_address` | Supported |  |
 | `inet6_bind_address` | Supported |  |
-| `bind_address_no_port` | Warned | Socket tuning: connections go the same way without it |
+| `bind_address_no_port` | Supported |  |
 | `protect_path` | Error | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `routing_mark` | Supported |  |
-| `reuse_addr` | Warned | Socket tuning: connections go the same way without it |
+| `reuse_addr` | Supported |  |
 | `netns` | Error | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `connect_timeout` | Supported |  |
-| `tcp_fast_open` | Warned | Socket tuning: connections go the same way without it |
+| `tcp_fast_open` | Supported |  |
 | `tcp_multi_path` | Warned | Socket tuning: connections go the same way without it |
 | `disable_tcp_keep_alive` | Supported |  |
 | `tcp_keep_alive` | Supported |  |
 | `tcp_keep_alive_interval` | Supported |  |
-| `udp_fragment` | Warned | Socket tuning: connections go the same way without it |
+| `udp_fragment` | Supported |  |
 | `domain_resolver` | Supported |  |
 | `domain_resolver.server` | Supported |  |
 | `domain_resolver.timeout` | Supported |  |
@@ -2155,7 +2155,7 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_delay` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `fallback_delay` | Supported |  |
 | `server` | Supported |  |
 | `server_port` | Supported |  |
 | `method` | Supported |  |
@@ -2188,18 +2188,18 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `bind_interface` | Supported |  |
 | `inet4_bind_address` | Supported |  |
 | `inet6_bind_address` | Supported |  |
-| `bind_address_no_port` | Warned | Socket tuning: connections go the same way without it |
+| `bind_address_no_port` | Supported |  |
 | `protect_path` | Error | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `routing_mark` | Supported |  |
-| `reuse_addr` | Warned | Socket tuning: connections go the same way without it |
+| `reuse_addr` | Supported |  |
 | `netns` | Error | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `connect_timeout` | Supported |  |
-| `tcp_fast_open` | Warned | Socket tuning: connections go the same way without it |
+| `tcp_fast_open` | Supported |  |
 | `tcp_multi_path` | Warned | Socket tuning: connections go the same way without it |
 | `disable_tcp_keep_alive` | Supported |  |
 | `tcp_keep_alive` | Supported |  |
 | `tcp_keep_alive_interval` | Supported |  |
-| `udp_fragment` | Warned | Socket tuning: connections go the same way without it |
+| `udp_fragment` | Supported |  |
 | `domain_resolver` | Supported |  |
 | `domain_resolver.server` | Supported |  |
 | `domain_resolver.timeout` | Supported |  |
@@ -2211,7 +2211,7 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_delay` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `fallback_delay` | Supported |  |
 | `server` | Supported |  |
 | `server_port` | Supported |  |
 | `version` | Supported |  |
@@ -2265,18 +2265,18 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `bind_interface` | Supported |  |
 | `inet4_bind_address` | Supported |  |
 | `inet6_bind_address` | Supported |  |
-| `bind_address_no_port` | Warned | Socket tuning: connections go the same way without it |
+| `bind_address_no_port` | Supported |  |
 | `protect_path` | Error | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `routing_mark` | Supported |  |
-| `reuse_addr` | Warned | Socket tuning: connections go the same way without it |
+| `reuse_addr` | Supported |  |
 | `netns` | Error | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `connect_timeout` | Supported |  |
-| `tcp_fast_open` | Warned | Socket tuning: connections go the same way without it |
+| `tcp_fast_open` | Supported |  |
 | `tcp_multi_path` | Warned | Socket tuning: connections go the same way without it |
 | `disable_tcp_keep_alive` | Supported |  |
 | `tcp_keep_alive` | Supported |  |
 | `tcp_keep_alive_interval` | Supported |  |
-| `udp_fragment` | Warned | Socket tuning: connections go the same way without it |
+| `udp_fragment` | Supported |  |
 | `domain_resolver` | Supported |  |
 | `domain_resolver.server` | Supported |  |
 | `domain_resolver.timeout` | Supported |  |
@@ -2288,7 +2288,7 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_delay` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `fallback_delay` | Supported |  |
 | `server` | Supported |  |
 | `server_port` | Supported |  |
 | `version` | Warned | sail speaks SOCKS 5, the default, and drops the field; 4 and 4a are errors |
@@ -2309,18 +2309,18 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `bind_interface` | Supported |  |
 | `inet4_bind_address` | Supported |  |
 | `inet6_bind_address` | Supported |  |
-| `bind_address_no_port` | Warned | Socket tuning: connections go the same way without it |
+| `bind_address_no_port` | Supported |  |
 | `protect_path` | Error | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `routing_mark` | Supported |  |
-| `reuse_addr` | Warned | Socket tuning: connections go the same way without it |
+| `reuse_addr` | Supported |  |
 | `netns` | Error | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `connect_timeout` | Supported |  |
-| `tcp_fast_open` | Warned | Socket tuning: connections go the same way without it |
+| `tcp_fast_open` | Supported |  |
 | `tcp_multi_path` | Warned | Socket tuning: connections go the same way without it |
 | `disable_tcp_keep_alive` | Supported |  |
 | `tcp_keep_alive` | Supported |  |
 | `tcp_keep_alive_interval` | Supported |  |
-| `udp_fragment` | Warned | Socket tuning: connections go the same way without it |
+| `udp_fragment` | Supported |  |
 | `domain_resolver` | Supported |  |
 | `domain_resolver.server` | Supported |  |
 | `domain_resolver.timeout` | Supported |  |
@@ -2332,7 +2332,7 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_delay` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `fallback_delay` | Supported |  |
 | `server` | Supported |  |
 | `server_port` | Supported |  |
 | `password` | Supported |  |
@@ -2416,18 +2416,18 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `bind_interface` | Supported |  |
 | `inet4_bind_address` | Supported |  |
 | `inet6_bind_address` | Supported |  |
-| `bind_address_no_port` | Warned | Socket tuning: connections go the same way without it |
+| `bind_address_no_port` | Supported |  |
 | `protect_path` | Error | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `routing_mark` | Supported |  |
-| `reuse_addr` | Warned | Socket tuning: connections go the same way without it |
+| `reuse_addr` | Supported |  |
 | `netns` | Error | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `connect_timeout` | Supported |  |
-| `tcp_fast_open` | Warned | Socket tuning: connections go the same way without it |
+| `tcp_fast_open` | Supported |  |
 | `tcp_multi_path` | Warned | Socket tuning: connections go the same way without it |
 | `disable_tcp_keep_alive` | Supported |  |
 | `tcp_keep_alive` | Supported |  |
 | `tcp_keep_alive_interval` | Supported |  |
-| `udp_fragment` | Warned | Socket tuning: connections go the same way without it |
+| `udp_fragment` | Supported |  |
 | `domain_resolver` | Supported |  |
 | `domain_resolver.server` | Supported |  |
 | `domain_resolver.timeout` | Supported |  |
@@ -2439,7 +2439,7 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_delay` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `fallback_delay` | Supported |  |
 | `server` | Supported |  |
 | `server_port` | Supported |  |
 | `uuid` | Supported |  |
@@ -2516,18 +2516,18 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `bind_interface` | Supported |  |
 | `inet4_bind_address` | Supported |  |
 | `inet6_bind_address` | Supported |  |
-| `bind_address_no_port` | Warned | Socket tuning: connections go the same way without it |
+| `bind_address_no_port` | Supported |  |
 | `protect_path` | Error | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `routing_mark` | Supported |  |
-| `reuse_addr` | Warned | Socket tuning: connections go the same way without it |
+| `reuse_addr` | Supported |  |
 | `netns` | Error | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `connect_timeout` | Supported |  |
-| `tcp_fast_open` | Warned | Socket tuning: connections go the same way without it |
+| `tcp_fast_open` | Supported |  |
 | `tcp_multi_path` | Warned | Socket tuning: connections go the same way without it |
 | `disable_tcp_keep_alive` | Supported |  |
 | `tcp_keep_alive` | Supported |  |
 | `tcp_keep_alive_interval` | Supported |  |
-| `udp_fragment` | Warned | Socket tuning: connections go the same way without it |
+| `udp_fragment` | Supported |  |
 | `domain_resolver` | Supported |  |
 | `domain_resolver.server` | Supported |  |
 | `domain_resolver.timeout` | Supported |  |
@@ -2539,7 +2539,7 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_delay` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `fallback_delay` | Supported |  |
 | `server` | Supported |  |
 | `server_port` | Supported |  |
 | `uuid` | Supported |  |
@@ -2625,18 +2625,18 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `bind_interface` | Supported |  |
 | `inet4_bind_address` | Supported |  |
 | `inet6_bind_address` | Supported |  |
-| `bind_address_no_port` | Warned | Socket tuning: connections go the same way without it |
+| `bind_address_no_port` | Supported |  |
 | `protect_path` | Error | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `routing_mark` | Supported |  |
-| `reuse_addr` | Warned | Socket tuning: connections go the same way without it |
+| `reuse_addr` | Supported |  |
 | `netns` | Error | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `connect_timeout` | Supported |  |
-| `tcp_fast_open` | Warned | Socket tuning: connections go the same way without it |
+| `tcp_fast_open` | Supported |  |
 | `tcp_multi_path` | Warned | Socket tuning: connections go the same way without it |
 | `disable_tcp_keep_alive` | Supported |  |
 | `tcp_keep_alive` | Supported |  |
 | `tcp_keep_alive_interval` | Supported |  |
-| `udp_fragment` | Warned | Socket tuning: connections go the same way without it |
+| `udp_fragment` | Supported |  |
 | `domain_resolver` | Supported |  |
 | `domain_resolver.server` | Supported |  |
 | `domain_resolver.timeout` | Supported |  |
@@ -2648,7 +2648,7 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_delay` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `fallback_delay` | Supported |  |
 | `server` | Supported |  |
 | `server_port` | Supported |  |
 | `uuid` | Supported |  |
@@ -2969,18 +2969,18 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `http_client.bind_interface` | Supported |  |
 | `http_client.inet4_bind_address` | Supported |  |
 | `http_client.inet6_bind_address` | Supported |  |
-| `http_client.bind_address_no_port` | Warned | Socket tuning: connections go the same way without it |
+| `http_client.bind_address_no_port` | Supported |  |
 | `http_client.protect_path` | Error | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `http_client.routing_mark` | Supported |  |
-| `http_client.reuse_addr` | Warned | Socket tuning: connections go the same way without it |
+| `http_client.reuse_addr` | Supported |  |
 | `http_client.netns` | Error | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `http_client.connect_timeout` | Supported |  |
-| `http_client.tcp_fast_open` | Warned | Socket tuning: connections go the same way without it |
+| `http_client.tcp_fast_open` | Supported |  |
 | `http_client.tcp_multi_path` | Warned | Socket tuning: connections go the same way without it |
 | `http_client.disable_tcp_keep_alive` | Supported |  |
 | `http_client.tcp_keep_alive` | Supported |  |
 | `http_client.tcp_keep_alive_interval` | Supported |  |
-| `http_client.udp_fragment` | Warned | Socket tuning: connections go the same way without it |
+| `http_client.udp_fragment` | Supported |  |
 | `http_client.domain_resolver` | Supported |  |
 | `http_client.domain_resolver.server` | Supported |  |
 | `http_client.domain_resolver.timeout` | Supported |  |
@@ -2992,7 +2992,7 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `http_client.network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `http_client.network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `http_client.fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `http_client.fallback_delay` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `http_client.fallback_delay` | Supported |  |
 | `http_client.idle_timeout` | Warned | HTTP/2 and HTTP/3 tuning: a download over HTTP/1.1 is the same download |
 | `http_client.keep_alive_period` | Warned | HTTP/2 and HTTP/3 tuning: a download over HTTP/1.1 is the same download |
 | `http_client.stream_receive_window` | Warned | HTTP/2 and HTTP/3 tuning: a download over HTTP/1.1 is the same download |

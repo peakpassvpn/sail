@@ -336,7 +336,7 @@ mod tests {
             r#"{
                 "$schema": "https://example.com/schema.json",
                 "experimental": { "cache_file": { "enabled": true, "store_rdrc": true } },
-                "outbounds": [{ "type": "direct", "tcp_fast_open": true }]
+                "outbounds": [{ "type": "direct", "tcp_multi_path": true }]
             }"#,
         )
         .unwrap();
@@ -344,10 +344,10 @@ mod tests {
             config.warnings,
             [
                 "experimental.cache_file.store_rdrc: sail does not implement this field; ignored",
-                "outbounds[0].tcp_fast_open: sail does not implement this field; ignored",
+                "outbounds[0].tcp_multi_path: sail does not implement this field; ignored",
             ]
         );
-        assert!(!config.outbounds[0].options.contains_key("tcp_fast_open"));
+        assert!(!config.outbounds[0].options.contains_key("tcp_multi_path"));
     }
 
     #[test]
@@ -687,7 +687,7 @@ mod tests {
                 "outbound", "t", &blocks,
             )
             .unwrap()
-            .dialer("t", &Default::default(), None)
+            .dialer("t", "direct", &Default::default(), None)
             .unwrap()
             .spec()
             .tcp_keep_alive
@@ -764,9 +764,9 @@ mod tests {
             assert_eq!(load(place, &bound), Ok(vec![]), "{}", at);
             // Ignored, or not implemented, the same everywhere.
             assert_eq!(
-                load(place, &json!({ "tcp_fast_open": true })),
+                load(place, &json!({ "tcp_multi_path": true })),
                 Ok(vec![format!(
-                    "{}.tcp_fast_open: sail does not implement this field; ignored",
+                    "{}.tcp_multi_path: sail does not implement this field; ignored",
                     at
                 )]),
             );
@@ -777,6 +777,13 @@ mod tests {
                     at
                 )),
             );
+            // The socket options of step 5, and the Happy Eyeballs delay:
+            // taken wherever sail dials.
+            let socket = json!({
+                "tcp_fast_open": cfg!(any(target_os = "linux", target_os = "macos")),
+                "udp_fragment": false, "reuse_addr": true, "fallback_delay": "100ms",
+            });
+            assert_eq!(load(place, &socket), Ok(vec![]), "{}", at);
             // Keepalive: taken wherever sail dials a TCP connection of its
             // own accord.
             let keepalive = json!({ "tcp_keep_alive": "1m", "tcp_keep_alive_interval": "10s" });

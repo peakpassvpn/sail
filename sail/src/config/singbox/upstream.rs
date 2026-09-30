@@ -194,11 +194,9 @@ pub const GROUPS: &[Group] = &[
             "http_clients.*.network_strategy",
             "http_clients.*.network_type",
             "http_clients.*.fallback_network_type",
-            "http_clients.*.fallback_delay",
             "route.rule_set.*.http_client.network_strategy",
             "route.rule_set.*.http_client.network_type",
             "route.rule_set.*.http_client.fallback_network_type",
-            "route.rule_set.*.http_client.fallback_delay",
         ],
     ),
     g(
@@ -231,16 +229,8 @@ pub const GROUPS: &[Group] = &[
         SOCKET,
         Ignored,
         &[
-            "http_clients.*.bind_address_no_port",
-            "http_clients.*.reuse_addr",
-            "http_clients.*.tcp_fast_open",
             "http_clients.*.tcp_multi_path",
-            "http_clients.*.udp_fragment",
-            "route.rule_set.*.http_client.bind_address_no_port",
-            "route.rule_set.*.http_client.reuse_addr",
-            "route.rule_set.*.http_client.tcp_fast_open",
             "route.rule_set.*.http_client.tcp_multi_path",
-            "route.rule_set.*.http_client.udp_fragment",
         ],
     ),
     // DNS servers.
@@ -266,18 +256,13 @@ pub const GROUPS: &[Group] = &[
             "dns.servers.*.network_strategy",
             "dns.servers.*.network_type",
             "dns.servers.*.fallback_network_type",
-            "dns.servers.*.fallback_delay",
         ],
     ),
     g(
         SOCKET,
         Ignored,
         &[
-            "dns.servers.*.bind_address_no_port",
-            "dns.servers.*.reuse_addr",
-            "dns.servers.*.tcp_fast_open",
             "dns.servers.*.tcp_multi_path",
-            "dns.servers.*.udp_fragment",
         ],
     ),
     t(
@@ -296,6 +281,11 @@ pub const GROUPS: &[Group] = &[
             "dns.servers.*.tcp_keep_alive_interval",
             "dns.servers.*.domain_resolver",
             "dns.servers.*.domain_strategy",
+            "dns.servers.*.bind_address_no_port",
+            "dns.servers.*.reuse_addr",
+            "dns.servers.*.tcp_fast_open",
+            "dns.servers.*.udp_fragment",
+            "dns.servers.*.fallback_delay",
         ],
     ),
     t(
@@ -427,18 +417,13 @@ pub const GROUPS: &[Group] = &[
             "outbounds.*.network_strategy",
             "outbounds.*.network_type",
             "outbounds.*.fallback_network_type",
-            "outbounds.*.fallback_delay",
         ],
     ),
     g(
         SOCKET,
         Ignored,
         &[
-            "outbounds.*.bind_address_no_port",
-            "outbounds.*.reuse_addr",
-            "outbounds.*.tcp_fast_open",
             "outbounds.*.tcp_multi_path",
-            "outbounds.*.udp_fragment",
         ],
     ),
     t(
@@ -519,18 +504,13 @@ pub const GROUPS: &[Group] = &[
             "inbounds.*.tls.reality.handshake.network_strategy",
             "inbounds.*.tls.reality.handshake.network_type",
             "inbounds.*.tls.reality.handshake.fallback_network_type",
-            "inbounds.*.tls.reality.handshake.fallback_delay",
         ],
     ),
     g(
         SOCKET,
         Ignored,
         &[
-            "inbounds.*.tls.reality.handshake.bind_address_no_port",
-            "inbounds.*.tls.reality.handshake.reuse_addr",
-            "inbounds.*.tls.reality.handshake.tcp_fast_open",
             "inbounds.*.tls.reality.handshake.tcp_multi_path",
-            "inbounds.*.tls.reality.handshake.udp_fragment",
         ],
     ),
     // Outbound TLS.
@@ -725,18 +705,13 @@ pub const GROUPS: &[Group] = &[
             "endpoints.*.network_strategy",
             "endpoints.*.network_type",
             "endpoints.*.fallback_network_type",
-            "endpoints.*.fallback_delay",
         ],
     ),
     g(
         SOCKET,
         Ignored,
         &[
-            "endpoints.*.bind_address_no_port",
-            "endpoints.*.reuse_addr",
-            "endpoints.*.tcp_fast_open",
             "endpoints.*.tcp_multi_path",
-            "endpoints.*.udp_fragment",
         ],
     ),
 ];

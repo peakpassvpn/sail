@@ -691,23 +691,34 @@ impl OutboundBlocks {
         self.multiplex.as_ref().filter(|m| m.enabled)
     }
 
-    /// The dialer of the outbound `tag`: its dial fields, checked against
-    /// each other and the platform, over `defaults`; through `detour`, the
-    /// outbound its `detour` names, built already.
+    /// The dialer of the outbound `tag` of `protocol`: its dial fields,
+    /// checked against each other and the platform, over `defaults`;
+    /// through `detour`, the outbound its `detour` names, built already.
     pub fn dialer(
         &self,
         tag: &str,
+        protocol: &str,
         defaults: &DialDefaults,
         detour: Option<AnyOutboundHandler>,
     ) -> Result<Dialer> {
         self.dial
             .check(crate::net::dial::fields::IMPLEMENTED)
             .map_err(|e| anyhow!("[{}] outbound: {}", tag, e))?;
+        let dial = DialFields {
+            udp_fragment_default: UDP_FRAGMENT_BY_DEFAULT.contains(&protocol),
+            ..self.dial.clone()
+        };
         defaults
-            .outbound_dialer(&self.dial, tag, detour)
+            .outbound_dialer(&dial, tag, detour)
             .map_err(|e| anyhow!("[{}] outbound: {}", tag, e))
     }
 }
+
+/// The protocols whose UDP may be fragmented unless `udp_fragment` says
+/// otherwise, as in sing-box: direct, which relays the datagrams it is
+/// given, and the QUIC ones, which size their packets themselves. Every
+/// other outbound's UDP has "don't fragment" set.
+const UDP_FRAGMENT_BY_DEFAULT: &[&str] = &["direct", "hysteria2", "tuic"];
 
 /// What layering an outbound needs from where it is built.
 pub struct OutboundLayering<'a> {
@@ -1500,6 +1511,11 @@ pub(crate) const HANDSHAKE_DIAL: &[&str] = &[
     "domain_resolver",
     "skip_default_domain_resolver",
     "domain_strategy",
+    "bind_address_no_port",
+    "reuse_addr",
+    "tcp_fast_open",
+    "udp_fragment",
+    "fallback_delay",
 ];
 
 impl RealityHandshake {

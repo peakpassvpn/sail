@@ -40,18 +40,19 @@ pub struct DialFields {
     /// `bind_interface`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub inet6_bind_address: Option<Ipv6Addr>,
-    /// Not implemented yet.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub bind_address_no_port: Option<Value>,
+    /// `IP_BIND_ADDRESS_NO_PORT` on TCP sockets bound to an address, so
+    /// that the port is picked at connect: Linux only.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub bind_address_no_port: bool,
     /// Not implemented yet.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub protect_path: Option<Value>,
     /// `SO_MARK`, Linux only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub routing_mark: Option<u32>,
-    /// Not implemented yet.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub reuse_addr: Option<Value>,
+    /// `SO_REUSEADDR`, and `SO_REUSEPORT` on Unix, on UDP sockets.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub reuse_addr: bool,
     /// Not implemented yet.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub netns: Option<Value>,
@@ -62,9 +63,10 @@ pub struct DialFields {
         skip_serializing_if = "Option::is_none"
     )]
     pub connect_timeout: Option<Duration>,
-    /// Not implemented yet.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tcp_fast_open: Option<Value>,
+    /// TCP Fast Open: the first data written goes with the SYN. Its
+    /// addresses are then tried one by one, not raced.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub tcp_fast_open: bool,
     /// Not implemented yet.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tcp_multi_path: Option<Value>,
@@ -86,9 +88,15 @@ pub struct DialFields {
         skip_serializing_if = "Option::is_none"
     )]
     pub tcp_keep_alive_interval: Option<Duration>,
-    /// Not implemented yet.
+    /// Whether UDP datagrams may be fragmented on the way; unset, as the
+    /// place says, see `udp_fragment_default`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub udp_fragment: Option<Value>,
+    pub udp_fragment: Option<bool>,
+    /// What `udp_fragment` is when unset: sing-box's hidden
+    /// `UDPFragmentDefault`, which direct, hysteria2 and tuic set. Not
+    /// read from a configuration.
+    #[serde(skip)]
+    pub udp_fragment_default: bool,
     /// The DNS server that resolves the names dialled.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub domain_resolver: Option<DomainResolver>,
@@ -111,9 +119,14 @@ pub struct DialFields {
     /// Not implemented yet.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fallback_network_type: Option<Value>,
-    /// Not implemented yet.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub fallback_delay: Option<Value>,
+    /// How long the addresses of one family are tried before those of the
+    /// other are raced against them (Happy Eyeballs); 300ms when unset.
+    #[serde(
+        default,
+        with = "crate::config::model::duration",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub fallback_delay: Option<Duration>,
 }
 
 /// The fields sail implements, where it implements them all: outbounds and
@@ -123,14 +136,19 @@ pub const IMPLEMENTED: &[&str] = &[
     "bind_interface",
     "inet4_bind_address",
     "inet6_bind_address",
+    "bind_address_no_port",
     "routing_mark",
+    "reuse_addr",
     "connect_timeout",
+    "tcp_fast_open",
     "disable_tcp_keep_alive",
     "tcp_keep_alive",
     "tcp_keep_alive_interval",
+    "udp_fragment",
     "domain_resolver",
     "skip_default_domain_resolver",
     "domain_strategy",
+    "fallback_delay",
 ];
 
 /// The fields that shape the socket itself, which a detour replaces.
@@ -174,13 +192,13 @@ impl DialFields {
             ("bind_interface", self.bind_interface.is_some()),
             ("inet4_bind_address", self.inet4_bind_address.is_some()),
             ("inet6_bind_address", self.inet6_bind_address.is_some()),
-            ("bind_address_no_port", self.bind_address_no_port.is_some()),
+            ("bind_address_no_port", self.bind_address_no_port),
             ("protect_path", self.protect_path.is_some()),
             ("routing_mark", self.routing_mark.is_some()),
-            ("reuse_addr", self.reuse_addr.is_some()),
+            ("reuse_addr", self.reuse_addr),
             ("netns", self.netns.is_some()),
             ("connect_timeout", self.connect_timeout.is_some()),
-            ("tcp_fast_open", self.tcp_fast_open.is_some()),
+            ("tcp_fast_open", self.tcp_fast_open),
             ("tcp_multi_path", self.tcp_multi_path.is_some()),
             ("disable_tcp_keep_alive", self.disable_tcp_keep_alive),
             ("tcp_keep_alive", self.tcp_keep_alive.is_some()),
@@ -218,6 +236,11 @@ impl DialFields {
     pub fn check(&self, taken: &[&str]) -> Result<()> {
         if let Some(name) = self.set().find(|name| !taken.contains(name)) {
             return Err(anyhow!("{}: sail does not implement this field yet", name));
+        }
+        if self.tcp_fast_open && self.network_strategy.is_some() {
+            return Err(anyhow!(
+                "tcp_fast_open: not with network_strategy, which races the interfaces"
+            ));
         }
         if self.skip_default_domain_resolver && self.domain_resolver.is_some() {
             return Err(anyhow!(
@@ -454,8 +477,24 @@ mod tests {
             fields(json).check(taken).map_err(|e| e.to_string())
         };
         assert_eq!(
-            check(serde_json::json!({ "tcp_fast_open": true }), IMPLEMENTED),
-            Err("tcp_fast_open: sail does not implement this field yet".into())
+            check(serde_json::json!({ "tcp_multi_path": true }), IMPLEMENTED),
+            Err("tcp_multi_path: sail does not implement this field yet".into())
+        );
+        // Where network_strategy is taken, not with Fast Open, as in
+        // sing-box.
+        let mut with_networks = IMPLEMENTED.to_vec();
+        with_networks.push("network_strategy");
+        assert_eq!(
+            check(
+                serde_json::json!({ "tcp_fast_open": true, "network_strategy": "hybrid" }),
+                &with_networks
+            ),
+            Err("tcp_fast_open: not with network_strategy, which races the interfaces".into())
+        );
+        // False is unset.
+        assert_eq!(
+            fields(serde_json::json!({ "tcp_fast_open": false })),
+            DialFields::default()
         );
         assert_eq!(
             check(

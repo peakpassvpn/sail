@@ -15,19 +15,19 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | 部分 | 字段数 | 支持 | 警告 | 报错 |
 |---|--:|--:|--:|--:|
 | `log` | 5 | 5 | 0 | 0 |
-| `dns` | 578 | 318 | 94 | 166 |
+| `dns` | 578 | 353 | 67 | 158 |
 | `ntp` | 35 | 0 | 35 | 0 |
 | `certificate` | 5 | 5 | 0 | 0 |
 | `certificate_providers` | 212 | 0 | 0 | 212 |
-| `http_clients` | 80 | 21 | 15 | 44 |
+| `http_clients` | 80 | 26 | 11 | 43 |
 | `network_namespaces` | 6 | 0 | 0 | 6 |
-| `endpoints` | 433 | 51 | 32 | 350 |
-| `inbounds` | 1367 | 521 | 187 | 659 |
-| `outbounds` | 1228 | 590 | 140 | 498 |
-| `route` | 268 | 144 | 21 | 103 |
+| `endpoints` | 433 | 56 | 13 | 364 |
+| `inbounds` | 1367 | 561 | 151 | 655 |
+| `outbounds` | 1228 | 645 | 76 | 507 |
+| `route` | 268 | 149 | 17 | 102 |
 | `services` | 751 | 1 | 166 | 584 |
 | `experimental` | 34 | 16 | 17 | 1 |
-| **全部** | **5002** | **1672** | **707** | **2623** |
+| **全部** | **5002** | **1817** | **553** | **2632** |
 
 ## `log`
 
@@ -95,18 +95,18 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `bind_interface` | 支持 |  |
 | `inet4_bind_address` | 支持 |  |
 | `inet6_bind_address` | 支持 |  |
-| `bind_address_no_port` | 警告 | Socket tuning: connections go the same way without it |
+| `bind_address_no_port` | 支持 |  |
 | `protect_path` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `routing_mark` | 支持 |  |
-| `reuse_addr` | 警告 | Socket tuning: connections go the same way without it |
+| `reuse_addr` | 支持 |  |
 | `netns` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `connect_timeout` | 支持 |  |
-| `tcp_fast_open` | 警告 | Socket tuning: connections go the same way without it |
+| `tcp_fast_open` | 支持 |  |
 | `tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
 | `disable_tcp_keep_alive` | 支持 |  |
 | `tcp_keep_alive` | 支持 |  |
 | `tcp_keep_alive_interval` | 支持 |  |
-| `udp_fragment` | 警告 | Socket tuning: connections go the same way without it |
+| `udp_fragment` | 支持 |  |
 | `domain_resolver` | 支持 |  |
 | `domain_resolver.server` | 支持 |  |
 | `domain_resolver.timeout` | 支持 |  |
@@ -118,7 +118,7 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_delay` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `fallback_delay` | 支持 |  |
 | `server` | 支持 |  |
 | `server_port` | 支持 |  |
 | `tls` | 支持 |  |
@@ -175,18 +175,18 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `bind_interface` | 支持 |  |
 | `inet4_bind_address` | 支持 |  |
 | `inet6_bind_address` | 支持 |  |
-| `bind_address_no_port` | 警告 | Socket tuning: connections go the same way without it |
+| `bind_address_no_port` | 支持 |  |
 | `protect_path` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `routing_mark` | 支持 |  |
-| `reuse_addr` | 警告 | Socket tuning: connections go the same way without it |
+| `reuse_addr` | 支持 |  |
 | `netns` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `connect_timeout` | 支持 |  |
-| `tcp_fast_open` | 警告 | Socket tuning: connections go the same way without it |
+| `tcp_fast_open` | 支持 |  |
 | `tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
 | `disable_tcp_keep_alive` | 支持 |  |
 | `tcp_keep_alive` | 支持 |  |
 | `tcp_keep_alive_interval` | 支持 |  |
-| `udp_fragment` | 警告 | Socket tuning: connections go the same way without it |
+| `udp_fragment` | 支持 |  |
 | `domain_resolver` | 支持 |  |
 | `domain_resolver.server` | 支持 |  |
 | `domain_resolver.timeout` | 支持 |  |
@@ -198,7 +198,7 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_delay` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `fallback_delay` | 支持 |  |
 | `server` | 支持 |  |
 | `server_port` | 支持 |  |
 | `tls` | 支持 |  |
@@ -249,23 +249,23 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `bind_interface` | 支持 |  |
 | `inet4_bind_address` | 支持 |  |
 | `inet6_bind_address` | 支持 |  |
-| `bind_address_no_port` | 警告 | Socket tuning: connections go the same way without it |
+| `bind_address_no_port` | 支持 |  |
 | `protect_path` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `routing_mark` | 支持 |  |
-| `reuse_addr` | 警告 | Socket tuning: connections go the same way without it |
+| `reuse_addr` | 支持 |  |
 | `netns` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `connect_timeout` | 支持 |  |
-| `tcp_fast_open` | 警告 | Socket tuning: connections go the same way without it |
+| `tcp_fast_open` | 支持 |  |
 | `tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
 | `disable_tcp_keep_alive` | 支持 |  |
 | `tcp_keep_alive` | 支持 |  |
 | `tcp_keep_alive_interval` | 支持 |  |
-| `udp_fragment` | 警告 | Socket tuning: connections go the same way without it |
+| `udp_fragment` | 支持 |  |
 | `domain_resolver` | 警告 | A local server's servers are the system's, addresses: it has no name to resolve (含其下 7 个字段) |
 | `network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_delay` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `fallback_delay` | 支持 |  |
 | `prefer_go` | 警告 | Go's own resolver rather than the system's: sail is not Go |
 | `neighbor_domain` | 警告 | Single-label LAN names from sing-box's neighbor resolver (DHCP leases): sail has none, and the system's resolver answers them |
 | `domain_strategy` (已弃用) | 警告 | A local server's servers are the system's, addresses: it has no name to resolve |
@@ -279,23 +279,23 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `bind_interface` | 警告 | An mDNS server asks on each interface itself, as sing-box's, which dials nothing |
 | `inet4_bind_address` | 警告 | An mDNS server asks on each interface itself, as sing-box's, which dials nothing |
 | `inet6_bind_address` | 警告 | An mDNS server asks on each interface itself, as sing-box's, which dials nothing |
-| `bind_address_no_port` | 警告 | Socket tuning: connections go the same way without it |
+| `bind_address_no_port` | 警告 | An mDNS server asks on each interface itself, as sing-box's, which dials nothing |
 | `protect_path` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `routing_mark` | 警告 | An mDNS server asks on each interface itself, as sing-box's, which dials nothing |
-| `reuse_addr` | 警告 | Socket tuning: connections go the same way without it |
+| `reuse_addr` | 警告 | An mDNS server asks on each interface itself, as sing-box's, which dials nothing |
 | `netns` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `connect_timeout` | 警告 | An mDNS server asks on each interface itself, as sing-box's, which dials nothing |
-| `tcp_fast_open` | 警告 | Socket tuning: connections go the same way without it |
+| `tcp_fast_open` | 警告 | An mDNS server asks on each interface itself, as sing-box's, which dials nothing |
 | `tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
 | `disable_tcp_keep_alive` | 警告 | An mDNS server asks on each interface itself, as sing-box's, which dials nothing |
 | `tcp_keep_alive` | 警告 | An mDNS server asks on each interface itself, as sing-box's, which dials nothing |
 | `tcp_keep_alive_interval` | 警告 | An mDNS server asks on each interface itself, as sing-box's, which dials nothing |
-| `udp_fragment` | 警告 | Socket tuning: connections go the same way without it |
+| `udp_fragment` | 警告 | An mDNS server asks on each interface itself, as sing-box's, which dials nothing |
 | `domain_resolver` | 警告 | An mDNS server asks on each interface itself, as sing-box's, which dials nothing (含其下 7 个字段) |
 | `network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_delay` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `fallback_delay` | 警告 | An mDNS server asks on each interface itself, as sing-box's, which dials nothing |
 | `prefer_go` | 警告 | Go's own resolver rather than the system's: sail is not Go |
 | `neighbor_domain` | 警告 | Single-label LAN names from sing-box's neighbor resolver (DHCP leases): sail has none, and the system's resolver answers them |
 | `interface` | 支持 |  |
@@ -310,18 +310,18 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `bind_interface` | 支持 |  |
 | `inet4_bind_address` | 支持 |  |
 | `inet6_bind_address` | 支持 |  |
-| `bind_address_no_port` | 警告 | Socket tuning: connections go the same way without it |
+| `bind_address_no_port` | 支持 |  |
 | `protect_path` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `routing_mark` | 支持 |  |
-| `reuse_addr` | 警告 | Socket tuning: connections go the same way without it |
+| `reuse_addr` | 支持 |  |
 | `netns` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `connect_timeout` | 支持 |  |
-| `tcp_fast_open` | 警告 | Socket tuning: connections go the same way without it |
+| `tcp_fast_open` | 支持 |  |
 | `tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
 | `disable_tcp_keep_alive` | 支持 |  |
 | `tcp_keep_alive` | 支持 |  |
 | `tcp_keep_alive_interval` | 支持 |  |
-| `udp_fragment` | 警告 | Socket tuning: connections go the same way without it |
+| `udp_fragment` | 支持 |  |
 | `domain_resolver` | 支持 |  |
 | `domain_resolver.server` | 支持 |  |
 | `domain_resolver.timeout` | 支持 |  |
@@ -333,7 +333,7 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_delay` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `fallback_delay` | 支持 |  |
 | `server` | 支持 |  |
 | `server_port` | 支持 |  |
 | `tls` | 支持 |  |
@@ -379,18 +379,18 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `bind_interface` | 支持 |  |
 | `inet4_bind_address` | 支持 |  |
 | `inet6_bind_address` | 支持 |  |
-| `bind_address_no_port` | 警告 | Socket tuning: connections go the same way without it |
+| `bind_address_no_port` | 支持 |  |
 | `protect_path` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `routing_mark` | 支持 |  |
-| `reuse_addr` | 警告 | Socket tuning: connections go the same way without it |
+| `reuse_addr` | 支持 |  |
 | `netns` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `connect_timeout` | 支持 |  |
-| `tcp_fast_open` | 警告 | Socket tuning: connections go the same way without it |
+| `tcp_fast_open` | 支持 |  |
 | `tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
 | `disable_tcp_keep_alive` | 支持 |  |
 | `tcp_keep_alive` | 支持 |  |
 | `tcp_keep_alive_interval` | 支持 |  |
-| `udp_fragment` | 警告 | Socket tuning: connections go the same way without it |
+| `udp_fragment` | 支持 |  |
 | `domain_resolver` | 支持 |  |
 | `domain_resolver.server` | 支持 |  |
 | `domain_resolver.timeout` | 支持 |  |
@@ -402,7 +402,7 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_delay` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `fallback_delay` | 支持 |  |
 | `server` | 支持 |  |
 | `server_port` | 支持 |  |
 | `domain_strategy` (已弃用) | 支持 |  |
@@ -416,18 +416,18 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `bind_interface` | 支持 |  |
 | `inet4_bind_address` | 支持 |  |
 | `inet6_bind_address` | 支持 |  |
-| `bind_address_no_port` | 警告 | Socket tuning: connections go the same way without it |
+| `bind_address_no_port` | 支持 |  |
 | `protect_path` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `routing_mark` | 支持 |  |
-| `reuse_addr` | 警告 | Socket tuning: connections go the same way without it |
+| `reuse_addr` | 支持 |  |
 | `netns` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `connect_timeout` | 支持 |  |
-| `tcp_fast_open` | 警告 | Socket tuning: connections go the same way without it |
+| `tcp_fast_open` | 支持 |  |
 | `tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
 | `disable_tcp_keep_alive` | 支持 |  |
 | `tcp_keep_alive` | 支持 |  |
 | `tcp_keep_alive_interval` | 支持 |  |
-| `udp_fragment` | 警告 | Socket tuning: connections go the same way without it |
+| `udp_fragment` | 支持 |  |
 | `domain_resolver` | 支持 |  |
 | `domain_resolver.server` | 支持 |  |
 | `domain_resolver.timeout` | 支持 |  |
@@ -439,7 +439,7 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_delay` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `fallback_delay` | 支持 |  |
 | `server` | 支持 |  |
 | `server_port` | 支持 |  |
 | `tls` | 支持 |  |
@@ -487,18 +487,18 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `bind_interface` | 支持 |  |
 | `inet4_bind_address` | 支持 |  |
 | `inet6_bind_address` | 支持 |  |
-| `bind_address_no_port` | 警告 | Socket tuning: connections go the same way without it |
+| `bind_address_no_port` | 支持 |  |
 | `protect_path` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `routing_mark` | 支持 |  |
-| `reuse_addr` | 警告 | Socket tuning: connections go the same way without it |
+| `reuse_addr` | 支持 |  |
 | `netns` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `connect_timeout` | 支持 |  |
-| `tcp_fast_open` | 警告 | Socket tuning: connections go the same way without it |
+| `tcp_fast_open` | 支持 |  |
 | `tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
 | `disable_tcp_keep_alive` | 支持 |  |
 | `tcp_keep_alive` | 支持 |  |
 | `tcp_keep_alive_interval` | 支持 |  |
-| `udp_fragment` | 警告 | Socket tuning: connections go the same way without it |
+| `udp_fragment` | 支持 |  |
 | `domain_resolver` | 支持 |  |
 | `domain_resolver.server` | 支持 |  |
 | `domain_resolver.timeout` | 支持 |  |
@@ -510,7 +510,7 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_delay` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `fallback_delay` | 支持 |  |
 | `server` | 支持 |  |
 | `server_port` | 支持 |  |
 | `domain_strategy` (已弃用) | 支持 |  |
@@ -702,18 +702,18 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `[].bind_interface` | 支持 |  |
 | `[].inet4_bind_address` | 支持 |  |
 | `[].inet6_bind_address` | 支持 |  |
-| `[].bind_address_no_port` | 警告 | Socket tuning: connections go the same way without it |
+| `[].bind_address_no_port` | 支持 |  |
 | `[].protect_path` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `[].routing_mark` | 支持 |  |
-| `[].reuse_addr` | 警告 | Socket tuning: connections go the same way without it |
+| `[].reuse_addr` | 支持 |  |
 | `[].netns` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `[].connect_timeout` | 支持 |  |
-| `[].tcp_fast_open` | 警告 | Socket tuning: connections go the same way without it |
+| `[].tcp_fast_open` | 支持 |  |
 | `[].tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
 | `[].disable_tcp_keep_alive` | 支持 |  |
 | `[].tcp_keep_alive` | 支持 |  |
 | `[].tcp_keep_alive_interval` | 支持 |  |
-| `[].udp_fragment` | 警告 | Socket tuning: connections go the same way without it |
+| `[].udp_fragment` | 支持 |  |
 | `[].domain_resolver` | 支持 |  |
 | `[].domain_resolver.server` | 支持 |  |
 | `[].domain_resolver.timeout` | 支持 |  |
@@ -725,7 +725,7 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `[].network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `[].network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `[].fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `[].fallback_delay` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `[].fallback_delay` | 支持 |  |
 | `[].idle_timeout` | 警告 | HTTP/2 and HTTP/3 tuning: a download over HTTP/1.1 is the same download |
 | `[].keep_alive_period` | 警告 | HTTP/2 and HTTP/3 tuning: a download over HTTP/1.1 is the same download |
 | `[].stream_receive_window` | 警告 | HTTP/2 and HTTP/3 tuning: a download over HTTP/1.1 is the same download |
@@ -795,18 +795,18 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `bind_interface` | 支持 |  |
 | `inet4_bind_address` | 支持 |  |
 | `inet6_bind_address` | 支持 |  |
-| `bind_address_no_port` | 警告 | Socket tuning: connections go the same way without it |
+| `bind_address_no_port` | 支持 |  |
 | `protect_path` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `routing_mark` | 支持 |  |
-| `reuse_addr` | 警告 | Socket tuning: connections go the same way without it |
+| `reuse_addr` | 支持 |  |
 | `netns` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `connect_timeout` | 支持 |  |
-| `tcp_fast_open` | 警告 | Socket tuning: connections go the same way without it |
+| `tcp_fast_open` | 支持 |  |
 | `tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
 | `disable_tcp_keep_alive` | 支持 |  |
 | `tcp_keep_alive` | 支持 |  |
 | `tcp_keep_alive_interval` | 支持 |  |
-| `udp_fragment` | 警告 | Socket tuning: connections go the same way without it |
+| `udp_fragment` | 支持 |  |
 | `domain_resolver` | 支持 |  |
 | `domain_resolver.server` | 支持 |  |
 | `domain_resolver.timeout` | 支持 |  |
@@ -818,7 +818,7 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_delay` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `fallback_delay` | 支持 |  |
 | `domain_strategy` (已弃用) | 支持 |  |
 
 ## `inbounds`
@@ -889,18 +889,18 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `tls.reality.handshake.bind_interface` | 支持 |  |
 | `tls.reality.handshake.inet4_bind_address` | 支持 |  |
 | `tls.reality.handshake.inet6_bind_address` | 支持 |  |
-| `tls.reality.handshake.bind_address_no_port` | 警告 | Socket tuning: connections go the same way without it |
+| `tls.reality.handshake.bind_address_no_port` | 支持 |  |
 | `tls.reality.handshake.protect_path` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `tls.reality.handshake.routing_mark` | 支持 |  |
-| `tls.reality.handshake.reuse_addr` | 警告 | Socket tuning: connections go the same way without it |
+| `tls.reality.handshake.reuse_addr` | 支持 |  |
 | `tls.reality.handshake.netns` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `tls.reality.handshake.connect_timeout` | 支持 |  |
-| `tls.reality.handshake.tcp_fast_open` | 警告 | Socket tuning: connections go the same way without it |
+| `tls.reality.handshake.tcp_fast_open` | 支持 |  |
 | `tls.reality.handshake.tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
 | `tls.reality.handshake.disable_tcp_keep_alive` | 支持 |  |
 | `tls.reality.handshake.tcp_keep_alive` | 支持 |  |
 | `tls.reality.handshake.tcp_keep_alive_interval` | 支持 |  |
-| `tls.reality.handshake.udp_fragment` | 警告 | Socket tuning: connections go the same way without it |
+| `tls.reality.handshake.udp_fragment` | 支持 |  |
 | `tls.reality.handshake.domain_resolver` | 支持 |  |
 | `tls.reality.handshake.domain_resolver.server` | 支持 |  |
 | `tls.reality.handshake.domain_resolver.timeout` | 支持 |  |
@@ -912,7 +912,7 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `tls.reality.handshake.network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `tls.reality.handshake.network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `tls.reality.handshake.fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `tls.reality.handshake.fallback_delay` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `tls.reality.handshake.fallback_delay` | 支持 |  |
 | `tls.reality.handshake.domain_strategy` (已弃用) | 支持 |  |
 | `tls.reality.private_key` | 支持 |  |
 | `tls.reality.short_id` | 支持 |  |
@@ -1001,18 +1001,18 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `tls.reality.handshake.bind_interface` | 支持 |  |
 | `tls.reality.handshake.inet4_bind_address` | 支持 |  |
 | `tls.reality.handshake.inet6_bind_address` | 支持 |  |
-| `tls.reality.handshake.bind_address_no_port` | 警告 | Socket tuning: connections go the same way without it |
+| `tls.reality.handshake.bind_address_no_port` | 支持 |  |
 | `tls.reality.handshake.protect_path` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `tls.reality.handshake.routing_mark` | 支持 |  |
-| `tls.reality.handshake.reuse_addr` | 警告 | Socket tuning: connections go the same way without it |
+| `tls.reality.handshake.reuse_addr` | 支持 |  |
 | `tls.reality.handshake.netns` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `tls.reality.handshake.connect_timeout` | 支持 |  |
-| `tls.reality.handshake.tcp_fast_open` | 警告 | Socket tuning: connections go the same way without it |
+| `tls.reality.handshake.tcp_fast_open` | 支持 |  |
 | `tls.reality.handshake.tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
 | `tls.reality.handshake.disable_tcp_keep_alive` | 支持 |  |
 | `tls.reality.handshake.tcp_keep_alive` | 支持 |  |
 | `tls.reality.handshake.tcp_keep_alive_interval` | 支持 |  |
-| `tls.reality.handshake.udp_fragment` | 警告 | Socket tuning: connections go the same way without it |
+| `tls.reality.handshake.udp_fragment` | 支持 |  |
 | `tls.reality.handshake.domain_resolver` | 支持 |  |
 | `tls.reality.handshake.domain_resolver.server` | 支持 |  |
 | `tls.reality.handshake.domain_resolver.timeout` | 支持 |  |
@@ -1024,7 +1024,7 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `tls.reality.handshake.network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `tls.reality.handshake.network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `tls.reality.handshake.fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `tls.reality.handshake.fallback_delay` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `tls.reality.handshake.fallback_delay` | 支持 |  |
 | `tls.reality.handshake.domain_strategy` (已弃用) | 支持 |  |
 | `tls.reality.private_key` | 支持 |  |
 | `tls.reality.short_id` | 支持 |  |
@@ -1093,18 +1093,18 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `tls.reality.handshake.bind_interface` | 支持 |  |
 | `tls.reality.handshake.inet4_bind_address` | 支持 |  |
 | `tls.reality.handshake.inet6_bind_address` | 支持 |  |
-| `tls.reality.handshake.bind_address_no_port` | 警告 | Socket tuning: connections go the same way without it |
+| `tls.reality.handshake.bind_address_no_port` | 支持 |  |
 | `tls.reality.handshake.protect_path` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `tls.reality.handshake.routing_mark` | 支持 |  |
-| `tls.reality.handshake.reuse_addr` | 警告 | Socket tuning: connections go the same way without it |
+| `tls.reality.handshake.reuse_addr` | 支持 |  |
 | `tls.reality.handshake.netns` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `tls.reality.handshake.connect_timeout` | 支持 |  |
-| `tls.reality.handshake.tcp_fast_open` | 警告 | Socket tuning: connections go the same way without it |
+| `tls.reality.handshake.tcp_fast_open` | 支持 |  |
 | `tls.reality.handshake.tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
 | `tls.reality.handshake.disable_tcp_keep_alive` | 支持 |  |
 | `tls.reality.handshake.tcp_keep_alive` | 支持 |  |
 | `tls.reality.handshake.tcp_keep_alive_interval` | 支持 |  |
-| `tls.reality.handshake.udp_fragment` | 警告 | Socket tuning: connections go the same way without it |
+| `tls.reality.handshake.udp_fragment` | 支持 |  |
 | `tls.reality.handshake.domain_resolver` | 支持 |  |
 | `tls.reality.handshake.domain_resolver.server` | 支持 |  |
 | `tls.reality.handshake.domain_resolver.timeout` | 支持 |  |
@@ -1116,7 +1116,7 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `tls.reality.handshake.network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `tls.reality.handshake.network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `tls.reality.handshake.fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `tls.reality.handshake.fallback_delay` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `tls.reality.handshake.fallback_delay` | 支持 |  |
 | `tls.reality.handshake.domain_strategy` (已弃用) | 支持 |  |
 | `tls.reality.private_key` | 支持 |  |
 | `tls.reality.short_id` | 支持 |  |
@@ -1246,18 +1246,18 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `handshake.bind_interface` | 支持 |  |
 | `handshake.inet4_bind_address` | 支持 |  |
 | `handshake.inet6_bind_address` | 支持 |  |
-| `handshake.bind_address_no_port` | 报错 | The protocol's own check: not implemented yet |
+| `handshake.bind_address_no_port` | 支持 |  |
 | `handshake.protect_path` | 报错 | The protocol's own check: not implemented yet |
 | `handshake.routing_mark` | 支持 |  |
-| `handshake.reuse_addr` | 报错 | The protocol's own check: not implemented yet |
+| `handshake.reuse_addr` | 支持 |  |
 | `handshake.netns` | 报错 | The protocol's own check: not implemented yet |
 | `handshake.connect_timeout` | 支持 |  |
-| `handshake.tcp_fast_open` | 报错 | The protocol's own check: not implemented yet |
+| `handshake.tcp_fast_open` | 支持 |  |
 | `handshake.tcp_multi_path` | 报错 | The protocol's own check: not implemented yet |
 | `handshake.disable_tcp_keep_alive` | 支持 |  |
 | `handshake.tcp_keep_alive` | 支持 |  |
 | `handshake.tcp_keep_alive_interval` | 支持 |  |
-| `handshake.udp_fragment` | 报错 | The protocol's own check: not implemented yet |
+| `handshake.udp_fragment` | 支持 |  |
 | `handshake.domain_resolver` | 支持 |  |
 | `handshake.domain_resolver.server` | 支持 |  |
 | `handshake.domain_resolver.timeout` | 支持 |  |
@@ -1269,7 +1269,7 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `handshake.network_strategy` | 报错 | The protocol's own check: not implemented yet |
 | `handshake.network_type` | 报错 | The protocol's own check: not implemented yet |
 | `handshake.fallback_network_type` | 报错 | The protocol's own check: not implemented yet |
-| `handshake.fallback_delay` | 报错 | The protocol's own check: not implemented yet |
+| `handshake.fallback_delay` | 支持 |  |
 | `handshake.domain_strategy` (已弃用) | 支持 |  |
 | `handshake_for_server_name` | 支持 |  |
 | `strict_mode` | 支持 |  |
@@ -1376,18 +1376,18 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `tls.reality.handshake.bind_interface` | 支持 |  |
 | `tls.reality.handshake.inet4_bind_address` | 支持 |  |
 | `tls.reality.handshake.inet6_bind_address` | 支持 |  |
-| `tls.reality.handshake.bind_address_no_port` | 警告 | Socket tuning: connections go the same way without it |
+| `tls.reality.handshake.bind_address_no_port` | 支持 |  |
 | `tls.reality.handshake.protect_path` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `tls.reality.handshake.routing_mark` | 支持 |  |
-| `tls.reality.handshake.reuse_addr` | 警告 | Socket tuning: connections go the same way without it |
+| `tls.reality.handshake.reuse_addr` | 支持 |  |
 | `tls.reality.handshake.netns` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `tls.reality.handshake.connect_timeout` | 支持 |  |
-| `tls.reality.handshake.tcp_fast_open` | 警告 | Socket tuning: connections go the same way without it |
+| `tls.reality.handshake.tcp_fast_open` | 支持 |  |
 | `tls.reality.handshake.tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
 | `tls.reality.handshake.disable_tcp_keep_alive` | 支持 |  |
 | `tls.reality.handshake.tcp_keep_alive` | 支持 |  |
 | `tls.reality.handshake.tcp_keep_alive_interval` | 支持 |  |
-| `tls.reality.handshake.udp_fragment` | 警告 | Socket tuning: connections go the same way without it |
+| `tls.reality.handshake.udp_fragment` | 支持 |  |
 | `tls.reality.handshake.domain_resolver` | 支持 |  |
 | `tls.reality.handshake.domain_resolver.server` | 支持 |  |
 | `tls.reality.handshake.domain_resolver.timeout` | 支持 |  |
@@ -1399,7 +1399,7 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `tls.reality.handshake.network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `tls.reality.handshake.network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `tls.reality.handshake.fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `tls.reality.handshake.fallback_delay` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `tls.reality.handshake.fallback_delay` | 支持 |  |
 | `tls.reality.handshake.domain_strategy` (已弃用) | 支持 |  |
 | `tls.reality.private_key` | 支持 |  |
 | `tls.reality.short_id` | 支持 |  |
@@ -1494,18 +1494,18 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `tls.reality.handshake.bind_interface` | 支持 |  |
 | `tls.reality.handshake.inet4_bind_address` | 支持 |  |
 | `tls.reality.handshake.inet6_bind_address` | 支持 |  |
-| `tls.reality.handshake.bind_address_no_port` | 警告 | Socket tuning: connections go the same way without it |
+| `tls.reality.handshake.bind_address_no_port` | 支持 |  |
 | `tls.reality.handshake.protect_path` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `tls.reality.handshake.routing_mark` | 支持 |  |
-| `tls.reality.handshake.reuse_addr` | 警告 | Socket tuning: connections go the same way without it |
+| `tls.reality.handshake.reuse_addr` | 支持 |  |
 | `tls.reality.handshake.netns` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `tls.reality.handshake.connect_timeout` | 支持 |  |
-| `tls.reality.handshake.tcp_fast_open` | 警告 | Socket tuning: connections go the same way without it |
+| `tls.reality.handshake.tcp_fast_open` | 支持 |  |
 | `tls.reality.handshake.tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
 | `tls.reality.handshake.disable_tcp_keep_alive` | 支持 |  |
 | `tls.reality.handshake.tcp_keep_alive` | 支持 |  |
 | `tls.reality.handshake.tcp_keep_alive_interval` | 支持 |  |
-| `tls.reality.handshake.udp_fragment` | 警告 | Socket tuning: connections go the same way without it |
+| `tls.reality.handshake.udp_fragment` | 支持 |  |
 | `tls.reality.handshake.domain_resolver` | 支持 |  |
 | `tls.reality.handshake.domain_resolver.server` | 支持 |  |
 | `tls.reality.handshake.domain_resolver.timeout` | 支持 |  |
@@ -1517,7 +1517,7 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `tls.reality.handshake.network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `tls.reality.handshake.network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `tls.reality.handshake.fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `tls.reality.handshake.fallback_delay` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `tls.reality.handshake.fallback_delay` | 支持 |  |
 | `tls.reality.handshake.domain_strategy` (已弃用) | 支持 |  |
 | `tls.reality.private_key` | 支持 |  |
 | `tls.reality.short_id` | 支持 |  |
@@ -1631,18 +1631,18 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `tls.reality.handshake.bind_interface` | 支持 |  |
 | `tls.reality.handshake.inet4_bind_address` | 支持 |  |
 | `tls.reality.handshake.inet6_bind_address` | 支持 |  |
-| `tls.reality.handshake.bind_address_no_port` | 警告 | Socket tuning: connections go the same way without it |
+| `tls.reality.handshake.bind_address_no_port` | 支持 |  |
 | `tls.reality.handshake.protect_path` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `tls.reality.handshake.routing_mark` | 支持 |  |
-| `tls.reality.handshake.reuse_addr` | 警告 | Socket tuning: connections go the same way without it |
+| `tls.reality.handshake.reuse_addr` | 支持 |  |
 | `tls.reality.handshake.netns` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `tls.reality.handshake.connect_timeout` | 支持 |  |
-| `tls.reality.handshake.tcp_fast_open` | 警告 | Socket tuning: connections go the same way without it |
+| `tls.reality.handshake.tcp_fast_open` | 支持 |  |
 | `tls.reality.handshake.tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
 | `tls.reality.handshake.disable_tcp_keep_alive` | 支持 |  |
 | `tls.reality.handshake.tcp_keep_alive` | 支持 |  |
 | `tls.reality.handshake.tcp_keep_alive_interval` | 支持 |  |
-| `tls.reality.handshake.udp_fragment` | 警告 | Socket tuning: connections go the same way without it |
+| `tls.reality.handshake.udp_fragment` | 支持 |  |
 | `tls.reality.handshake.domain_resolver` | 支持 |  |
 | `tls.reality.handshake.domain_resolver.server` | 支持 |  |
 | `tls.reality.handshake.domain_resolver.timeout` | 支持 |  |
@@ -1654,7 +1654,7 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `tls.reality.handshake.network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `tls.reality.handshake.network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `tls.reality.handshake.fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `tls.reality.handshake.fallback_delay` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `tls.reality.handshake.fallback_delay` | 支持 |  |
 | `tls.reality.handshake.domain_strategy` (已弃用) | 支持 |  |
 | `tls.reality.private_key` | 支持 |  |
 | `tls.reality.short_id` | 支持 |  |
@@ -1741,18 +1741,18 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `tls.reality.handshake.bind_interface` | 支持 |  |
 | `tls.reality.handshake.inet4_bind_address` | 支持 |  |
 | `tls.reality.handshake.inet6_bind_address` | 支持 |  |
-| `tls.reality.handshake.bind_address_no_port` | 警告 | Socket tuning: connections go the same way without it |
+| `tls.reality.handshake.bind_address_no_port` | 支持 |  |
 | `tls.reality.handshake.protect_path` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `tls.reality.handshake.routing_mark` | 支持 |  |
-| `tls.reality.handshake.reuse_addr` | 警告 | Socket tuning: connections go the same way without it |
+| `tls.reality.handshake.reuse_addr` | 支持 |  |
 | `tls.reality.handshake.netns` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `tls.reality.handshake.connect_timeout` | 支持 |  |
-| `tls.reality.handshake.tcp_fast_open` | 警告 | Socket tuning: connections go the same way without it |
+| `tls.reality.handshake.tcp_fast_open` | 支持 |  |
 | `tls.reality.handshake.tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
 | `tls.reality.handshake.disable_tcp_keep_alive` | 支持 |  |
 | `tls.reality.handshake.tcp_keep_alive` | 支持 |  |
 | `tls.reality.handshake.tcp_keep_alive_interval` | 支持 |  |
-| `tls.reality.handshake.udp_fragment` | 警告 | Socket tuning: connections go the same way without it |
+| `tls.reality.handshake.udp_fragment` | 支持 |  |
 | `tls.reality.handshake.domain_resolver` | 支持 |  |
 | `tls.reality.handshake.domain_resolver.server` | 支持 |  |
 | `tls.reality.handshake.domain_resolver.timeout` | 支持 |  |
@@ -1764,7 +1764,7 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `tls.reality.handshake.network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `tls.reality.handshake.network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `tls.reality.handshake.fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `tls.reality.handshake.fallback_delay` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `tls.reality.handshake.fallback_delay` | 支持 |  |
 | `tls.reality.handshake.domain_strategy` (已弃用) | 支持 |  |
 | `tls.reality.private_key` | 支持 |  |
 | `tls.reality.short_id` | 支持 |  |
@@ -1826,18 +1826,18 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `bind_interface` | 支持 |  |
 | `inet4_bind_address` | 支持 |  |
 | `inet6_bind_address` | 支持 |  |
-| `bind_address_no_port` | 警告 | Socket tuning: connections go the same way without it |
+| `bind_address_no_port` | 支持 |  |
 | `protect_path` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `routing_mark` | 支持 |  |
-| `reuse_addr` | 警告 | Socket tuning: connections go the same way without it |
+| `reuse_addr` | 支持 |  |
 | `netns` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `connect_timeout` | 支持 |  |
-| `tcp_fast_open` | 警告 | Socket tuning: connections go the same way without it |
+| `tcp_fast_open` | 支持 |  |
 | `tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
 | `disable_tcp_keep_alive` | 支持 |  |
 | `tcp_keep_alive` | 支持 |  |
 | `tcp_keep_alive_interval` | 支持 |  |
-| `udp_fragment` | 警告 | Socket tuning: connections go the same way without it |
+| `udp_fragment` | 支持 |  |
 | `domain_resolver` | 支持 |  |
 | `domain_resolver.server` | 支持 |  |
 | `domain_resolver.timeout` | 支持 |  |
@@ -1849,7 +1849,7 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_delay` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `fallback_delay` | 支持 |  |
 | `server` | 支持 |  |
 | `server_port` | 支持 |  |
 | `tls` | 支持 |  |
@@ -1912,18 +1912,18 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `bind_interface` | 支持 |  |
 | `inet4_bind_address` | 支持 |  |
 | `inet6_bind_address` | 支持 |  |
-| `bind_address_no_port` | 警告 | Socket tuning: connections go the same way without it |
+| `bind_address_no_port` | 支持 |  |
 | `protect_path` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `routing_mark` | 支持 |  |
-| `reuse_addr` | 警告 | Socket tuning: connections go the same way without it |
+| `reuse_addr` | 支持 |  |
 | `netns` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `connect_timeout` | 支持 |  |
-| `tcp_fast_open` | 警告 | Socket tuning: connections go the same way without it |
+| `tcp_fast_open` | 支持 |  |
 | `tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
 | `disable_tcp_keep_alive` | 支持 |  |
 | `tcp_keep_alive` | 支持 |  |
 | `tcp_keep_alive_interval` | 支持 |  |
-| `udp_fragment` | 警告 | Socket tuning: connections go the same way without it |
+| `udp_fragment` | 支持 |  |
 | `domain_resolver` | 支持 |  |
 | `domain_resolver.server` | 支持 |  |
 | `domain_resolver.timeout` | 支持 |  |
@@ -1935,7 +1935,7 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_delay` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `fallback_delay` | 支持 |  |
 | `domain_strategy` (已弃用) | 支持 |  |
 
 ### `outbounds[http]`
@@ -1947,18 +1947,18 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `bind_interface` | 支持 |  |
 | `inet4_bind_address` | 支持 |  |
 | `inet6_bind_address` | 支持 |  |
-| `bind_address_no_port` | 警告 | Socket tuning: connections go the same way without it |
+| `bind_address_no_port` | 支持 |  |
 | `protect_path` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `routing_mark` | 支持 |  |
-| `reuse_addr` | 警告 | Socket tuning: connections go the same way without it |
+| `reuse_addr` | 支持 |  |
 | `netns` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `connect_timeout` | 支持 |  |
-| `tcp_fast_open` | 警告 | Socket tuning: connections go the same way without it |
+| `tcp_fast_open` | 支持 |  |
 | `tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
 | `disable_tcp_keep_alive` | 支持 |  |
 | `tcp_keep_alive` | 支持 |  |
 | `tcp_keep_alive_interval` | 支持 |  |
-| `udp_fragment` | 警告 | Socket tuning: connections go the same way without it |
+| `udp_fragment` | 支持 |  |
 | `domain_resolver` | 支持 |  |
 | `domain_resolver.server` | 支持 |  |
 | `domain_resolver.timeout` | 支持 |  |
@@ -1970,7 +1970,7 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_delay` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `fallback_delay` | 支持 |  |
 | `server` | 支持 |  |
 | `server_port` | 支持 |  |
 | `username` | 支持 |  |
@@ -2026,18 +2026,18 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `bind_interface` | 支持 |  |
 | `inet4_bind_address` | 支持 |  |
 | `inet6_bind_address` | 支持 |  |
-| `bind_address_no_port` | 警告 | Socket tuning: connections go the same way without it |
+| `bind_address_no_port` | 支持 |  |
 | `protect_path` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `routing_mark` | 支持 |  |
-| `reuse_addr` | 警告 | Socket tuning: connections go the same way without it |
+| `reuse_addr` | 支持 |  |
 | `netns` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `connect_timeout` | 支持 |  |
-| `tcp_fast_open` | 警告 | Socket tuning: connections go the same way without it |
+| `tcp_fast_open` | 支持 |  |
 | `tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
 | `disable_tcp_keep_alive` | 支持 |  |
 | `tcp_keep_alive` | 支持 |  |
 | `tcp_keep_alive_interval` | 支持 |  |
-| `udp_fragment` | 警告 | Socket tuning: connections go the same way without it |
+| `udp_fragment` | 支持 |  |
 | `domain_resolver` | 支持 |  |
 | `domain_resolver.server` | 支持 |  |
 | `domain_resolver.timeout` | 支持 |  |
@@ -2049,7 +2049,7 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_delay` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `fallback_delay` | 支持 |  |
 | `server` | 支持 |  |
 | `server_port` | 支持 |  |
 | `server_ports` | 支持 |  |
@@ -2132,18 +2132,18 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `bind_interface` | 支持 |  |
 | `inet4_bind_address` | 支持 |  |
 | `inet6_bind_address` | 支持 |  |
-| `bind_address_no_port` | 警告 | Socket tuning: connections go the same way without it |
+| `bind_address_no_port` | 支持 |  |
 | `protect_path` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `routing_mark` | 支持 |  |
-| `reuse_addr` | 警告 | Socket tuning: connections go the same way without it |
+| `reuse_addr` | 支持 |  |
 | `netns` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `connect_timeout` | 支持 |  |
-| `tcp_fast_open` | 警告 | Socket tuning: connections go the same way without it |
+| `tcp_fast_open` | 支持 |  |
 | `tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
 | `disable_tcp_keep_alive` | 支持 |  |
 | `tcp_keep_alive` | 支持 |  |
 | `tcp_keep_alive_interval` | 支持 |  |
-| `udp_fragment` | 警告 | Socket tuning: connections go the same way without it |
+| `udp_fragment` | 支持 |  |
 | `domain_resolver` | 支持 |  |
 | `domain_resolver.server` | 支持 |  |
 | `domain_resolver.timeout` | 支持 |  |
@@ -2155,7 +2155,7 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_delay` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `fallback_delay` | 支持 |  |
 | `server` | 支持 |  |
 | `server_port` | 支持 |  |
 | `method` | 支持 |  |
@@ -2188,18 +2188,18 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `bind_interface` | 支持 |  |
 | `inet4_bind_address` | 支持 |  |
 | `inet6_bind_address` | 支持 |  |
-| `bind_address_no_port` | 警告 | Socket tuning: connections go the same way without it |
+| `bind_address_no_port` | 支持 |  |
 | `protect_path` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `routing_mark` | 支持 |  |
-| `reuse_addr` | 警告 | Socket tuning: connections go the same way without it |
+| `reuse_addr` | 支持 |  |
 | `netns` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `connect_timeout` | 支持 |  |
-| `tcp_fast_open` | 警告 | Socket tuning: connections go the same way without it |
+| `tcp_fast_open` | 支持 |  |
 | `tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
 | `disable_tcp_keep_alive` | 支持 |  |
 | `tcp_keep_alive` | 支持 |  |
 | `tcp_keep_alive_interval` | 支持 |  |
-| `udp_fragment` | 警告 | Socket tuning: connections go the same way without it |
+| `udp_fragment` | 支持 |  |
 | `domain_resolver` | 支持 |  |
 | `domain_resolver.server` | 支持 |  |
 | `domain_resolver.timeout` | 支持 |  |
@@ -2211,7 +2211,7 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_delay` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `fallback_delay` | 支持 |  |
 | `server` | 支持 |  |
 | `server_port` | 支持 |  |
 | `version` | 支持 |  |
@@ -2265,18 +2265,18 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `bind_interface` | 支持 |  |
 | `inet4_bind_address` | 支持 |  |
 | `inet6_bind_address` | 支持 |  |
-| `bind_address_no_port` | 警告 | Socket tuning: connections go the same way without it |
+| `bind_address_no_port` | 支持 |  |
 | `protect_path` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `routing_mark` | 支持 |  |
-| `reuse_addr` | 警告 | Socket tuning: connections go the same way without it |
+| `reuse_addr` | 支持 |  |
 | `netns` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `connect_timeout` | 支持 |  |
-| `tcp_fast_open` | 警告 | Socket tuning: connections go the same way without it |
+| `tcp_fast_open` | 支持 |  |
 | `tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
 | `disable_tcp_keep_alive` | 支持 |  |
 | `tcp_keep_alive` | 支持 |  |
 | `tcp_keep_alive_interval` | 支持 |  |
-| `udp_fragment` | 警告 | Socket tuning: connections go the same way without it |
+| `udp_fragment` | 支持 |  |
 | `domain_resolver` | 支持 |  |
 | `domain_resolver.server` | 支持 |  |
 | `domain_resolver.timeout` | 支持 |  |
@@ -2288,7 +2288,7 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_delay` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `fallback_delay` | 支持 |  |
 | `server` | 支持 |  |
 | `server_port` | 支持 |  |
 | `version` | 警告 | sail speaks SOCKS 5, the default, and drops the field; 4 and 4a are errors |
@@ -2309,18 +2309,18 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `bind_interface` | 支持 |  |
 | `inet4_bind_address` | 支持 |  |
 | `inet6_bind_address` | 支持 |  |
-| `bind_address_no_port` | 警告 | Socket tuning: connections go the same way without it |
+| `bind_address_no_port` | 支持 |  |
 | `protect_path` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `routing_mark` | 支持 |  |
-| `reuse_addr` | 警告 | Socket tuning: connections go the same way without it |
+| `reuse_addr` | 支持 |  |
 | `netns` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `connect_timeout` | 支持 |  |
-| `tcp_fast_open` | 警告 | Socket tuning: connections go the same way without it |
+| `tcp_fast_open` | 支持 |  |
 | `tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
 | `disable_tcp_keep_alive` | 支持 |  |
 | `tcp_keep_alive` | 支持 |  |
 | `tcp_keep_alive_interval` | 支持 |  |
-| `udp_fragment` | 警告 | Socket tuning: connections go the same way without it |
+| `udp_fragment` | 支持 |  |
 | `domain_resolver` | 支持 |  |
 | `domain_resolver.server` | 支持 |  |
 | `domain_resolver.timeout` | 支持 |  |
@@ -2332,7 +2332,7 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_delay` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `fallback_delay` | 支持 |  |
 | `server` | 支持 |  |
 | `server_port` | 支持 |  |
 | `password` | 支持 |  |
@@ -2416,18 +2416,18 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `bind_interface` | 支持 |  |
 | `inet4_bind_address` | 支持 |  |
 | `inet6_bind_address` | 支持 |  |
-| `bind_address_no_port` | 警告 | Socket tuning: connections go the same way without it |
+| `bind_address_no_port` | 支持 |  |
 | `protect_path` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `routing_mark` | 支持 |  |
-| `reuse_addr` | 警告 | Socket tuning: connections go the same way without it |
+| `reuse_addr` | 支持 |  |
 | `netns` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `connect_timeout` | 支持 |  |
-| `tcp_fast_open` | 警告 | Socket tuning: connections go the same way without it |
+| `tcp_fast_open` | 支持 |  |
 | `tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
 | `disable_tcp_keep_alive` | 支持 |  |
 | `tcp_keep_alive` | 支持 |  |
 | `tcp_keep_alive_interval` | 支持 |  |
-| `udp_fragment` | 警告 | Socket tuning: connections go the same way without it |
+| `udp_fragment` | 支持 |  |
 | `domain_resolver` | 支持 |  |
 | `domain_resolver.server` | 支持 |  |
 | `domain_resolver.timeout` | 支持 |  |
@@ -2439,7 +2439,7 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_delay` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `fallback_delay` | 支持 |  |
 | `server` | 支持 |  |
 | `server_port` | 支持 |  |
 | `uuid` | 支持 |  |
@@ -2516,18 +2516,18 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `bind_interface` | 支持 |  |
 | `inet4_bind_address` | 支持 |  |
 | `inet6_bind_address` | 支持 |  |
-| `bind_address_no_port` | 警告 | Socket tuning: connections go the same way without it |
+| `bind_address_no_port` | 支持 |  |
 | `protect_path` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `routing_mark` | 支持 |  |
-| `reuse_addr` | 警告 | Socket tuning: connections go the same way without it |
+| `reuse_addr` | 支持 |  |
 | `netns` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `connect_timeout` | 支持 |  |
-| `tcp_fast_open` | 警告 | Socket tuning: connections go the same way without it |
+| `tcp_fast_open` | 支持 |  |
 | `tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
 | `disable_tcp_keep_alive` | 支持 |  |
 | `tcp_keep_alive` | 支持 |  |
 | `tcp_keep_alive_interval` | 支持 |  |
-| `udp_fragment` | 警告 | Socket tuning: connections go the same way without it |
+| `udp_fragment` | 支持 |  |
 | `domain_resolver` | 支持 |  |
 | `domain_resolver.server` | 支持 |  |
 | `domain_resolver.timeout` | 支持 |  |
@@ -2539,7 +2539,7 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_delay` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `fallback_delay` | 支持 |  |
 | `server` | 支持 |  |
 | `server_port` | 支持 |  |
 | `uuid` | 支持 |  |
@@ -2625,18 +2625,18 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `bind_interface` | 支持 |  |
 | `inet4_bind_address` | 支持 |  |
 | `inet6_bind_address` | 支持 |  |
-| `bind_address_no_port` | 警告 | Socket tuning: connections go the same way without it |
+| `bind_address_no_port` | 支持 |  |
 | `protect_path` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `routing_mark` | 支持 |  |
-| `reuse_addr` | 警告 | Socket tuning: connections go the same way without it |
+| `reuse_addr` | 支持 |  |
 | `netns` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `connect_timeout` | 支持 |  |
-| `tcp_fast_open` | 警告 | Socket tuning: connections go the same way without it |
+| `tcp_fast_open` | 支持 |  |
 | `tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
 | `disable_tcp_keep_alive` | 支持 |  |
 | `tcp_keep_alive` | 支持 |  |
 | `tcp_keep_alive_interval` | 支持 |  |
-| `udp_fragment` | 警告 | Socket tuning: connections go the same way without it |
+| `udp_fragment` | 支持 |  |
 | `domain_resolver` | 支持 |  |
 | `domain_resolver.server` | 支持 |  |
 | `domain_resolver.timeout` | 支持 |  |
@@ -2648,7 +2648,7 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `fallback_delay` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `fallback_delay` | 支持 |  |
 | `server` | 支持 |  |
 | `server_port` | 支持 |  |
 | `uuid` | 支持 |  |
@@ -2969,18 +2969,18 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `http_client.bind_interface` | 支持 |  |
 | `http_client.inet4_bind_address` | 支持 |  |
 | `http_client.inet6_bind_address` | 支持 |  |
-| `http_client.bind_address_no_port` | 警告 | Socket tuning: connections go the same way without it |
+| `http_client.bind_address_no_port` | 支持 |  |
 | `http_client.protect_path` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `http_client.routing_mark` | 支持 |  |
-| `http_client.reuse_addr` | 警告 | Socket tuning: connections go the same way without it |
+| `http_client.reuse_addr` | 支持 |  |
 | `http_client.netns` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
 | `http_client.connect_timeout` | 支持 |  |
-| `http_client.tcp_fast_open` | 警告 | Socket tuning: connections go the same way without it |
+| `http_client.tcp_fast_open` | 支持 |  |
 | `http_client.tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
 | `http_client.disable_tcp_keep_alive` | 支持 |  |
 | `http_client.tcp_keep_alive` | 支持 |  |
 | `http_client.tcp_keep_alive_interval` | 支持 |  |
-| `http_client.udp_fragment` | 警告 | Socket tuning: connections go the same way without it |
+| `http_client.udp_fragment` | 支持 |  |
 | `http_client.domain_resolver` | 支持 |  |
 | `http_client.domain_resolver.server` | 支持 |  |
 | `http_client.domain_resolver.timeout` | 支持 |  |
@@ -2992,7 +2992,7 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `http_client.network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `http_client.network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `http_client.fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
-| `http_client.fallback_delay` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
+| `http_client.fallback_delay` | 支持 |  |
 | `http_client.idle_timeout` | 警告 | HTTP/2 and HTTP/3 tuning: a download over HTTP/1.1 is the same download |
 | `http_client.keep_alive_period` | 警告 | HTTP/2 and HTTP/3 tuning: a download over HTTP/1.1 is the same download |
 | `http_client.stream_receive_window` | 警告 | HTTP/2 and HTTP/3 tuning: a download over HTTP/1.1 is the same download |

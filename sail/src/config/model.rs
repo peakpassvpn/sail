@@ -186,6 +186,11 @@ const HTTP_CLIENT_DIAL: &[&str] = &[
     "tcp_keep_alive_interval",
     "domain_resolver",
     "domain_strategy",
+    "bind_address_no_port",
+    "reuse_addr",
+    "tcp_fast_open",
+    "udp_fragment",
+    "fallback_delay",
 ];
 
 /// An HTTP client: the outbound it fetches through, or, with none, the
