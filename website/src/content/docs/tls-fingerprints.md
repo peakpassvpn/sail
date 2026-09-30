@@ -85,6 +85,26 @@ Or load it from a path:
 
 Relative certificate paths are resolved against the data directory configured with `-D` or the executable directory by default.
 
+### Pin a certificate
+
+`certificate_sha256`, a sail extension with the semantics of Mihomo's `fingerprint`, takes a server by the SHA-256 hash of a whole certificate (its DER), in hex, with or without colons, as `openssl x509 -noout -fingerprint -sha256` prints it. It replaces `certificate`, `certificate_path` and `insecure`, and cannot be combined with sing-box's `certificate_public_key_sha256`, which pins public keys instead.
+
+```json
+{
+  "tls": {
+    "enabled": true,
+    "server_name": "edge.example.com",
+    "certificate_sha256": ["5A:1F:...:C3"]
+  }
+}
+```
+
+- A hash of the server's own (leaf) certificate accepts it outright: no CA, no expiry and no name are checked. **A leaf pin trusts that exact certificate for any server name.**
+- A hash of an intermediate or root the server sends in its chain makes that certificate the only CA: the leaf must chain to it and must be valid for `server_name`, whatever `insecure` says.
+- Anything else fails the handshake, and the error names the hash of the certificate the server sent.
+
+The field works over TCP and QUIC, and in the `tls` of DNS servers. REALITY verifies the server itself and ignores it with a warning.
+
 ## ALPN and ECH
 
 Use `alpn` when the server requires a specific application protocol:

@@ -63,6 +63,7 @@ Serde: `serde (deny_unknown_fields)`
 | `certificate` | `Option < Listable >` | Default::default() | An inline PEM certificate to trust.<br/>`serde (default)` |
 | `certificate_path` | `Option < String >` | Default::default() | A PEM certificate to trust, by path.<br/>`serde (default)` |
 | `certificate_public_key_sha256` | `Option < Listable >` | Default::default() | The SHA-256 hashes, base64, of the public keys to take a server's certificate by, in place of the certificates trusted, the name and `insecure`.<br/>`serde (default)` |
+| `certificate_sha256` | `Option < Listable >` | Default::default() | A sail extension, Mihomo's `fingerprint`: the SHA-256 hashes, hex, of whole certificates (DER) to take a server by, in place of the certificates trusted and `insecure`. A hash of the server's own certificate takes it outright: no CA and no name are checked, so that exact certificate is trusted for any server name. A hash of a certificate sent after it, an intermediate or a root, is the only CA the server's certificate is verified by, with the server name.<br/>`serde (default)` |
 | `client_certificate` | `Option < Listable >` | Default::default() | An inline PEM certificate, its chain after it, presented when the server asks for one; with `client_key`.<br/>`serde (default)` |
 | `client_certificate_path` | `Option < String >` | Default::default() | `client_certificate`, by path.<br/>`serde (default)` |
 | `client_key` | `Option < Secret < Listable > >` | Default::default() | The inline PEM key of the client certificate.<br/>`serde (default)` |

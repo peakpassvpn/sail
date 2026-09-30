@@ -3070,6 +3070,7 @@ Fields and types sail accepts that sing-box does not.
 | `dns.servers[race].servers` | A server that asks its members at once and takes the first good answer |
 | `dns.servers[udp].respect_rules` | Queries go through the outbound the routing rules pick (Mihomo's respect-rules) |
 | `dns.servers[udp].client_subnet` | The EDNS Client Subnet its queries carry (Mihomo's ecs) |
+| `dns.servers[tls].tls.certificate_sha256` | As an outbound's `tls.certificate_sha256` |
 | `dns.rules[].geosite` | Domains of a geosite category |
 | `dns.rules[].external` | Domains or addresses from a geosite or mmdb file |
 | `dns.rules[].process_name_regex` | Process names by regular expression (Mihomo's PROCESS-NAME-REGEX) |
@@ -3100,6 +3101,7 @@ Fields and types sail accepts that sing-box does not.
 | `route.rule_set[inline].rules[].process_name_regex` | As a routing rule's |
 | `route.rule_set[inline].rules[].wifi_ssid_regex` | As a routing rule's |
 | `route.rule_set[inline].rules[].no_resolve` | As a routing rule's |
+| `outbounds[trojan].tls.certificate_sha256` | In any outbound's `tls`: whole certificates pinned by SHA-256, hex (Mihomo's fingerprint); the server's own is trusted for any name, a CA's in its chain is the only CA it is verified by |
 | `outbounds[direct].skip_default_domain_resolver` | Names resolve as the DNS rules say, not by `route.default_domain_resolver` |
 | `outbounds[fallback].outbounds` | A group: the first member that works |
 | `outbounds[load-balance].outbounds` | A group spreading connections over its members |
