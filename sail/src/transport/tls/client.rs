@@ -96,8 +96,8 @@ impl TlsClient {
     /// `with_identity`, with the versions and pins of `options`. A range
     /// set there replaces the fingerprint's, the ClientHello then differing
     /// from the browser's: whether it should is the caller's to settle, as
-    /// `OutboundTls::stream_options` does. Pins replace the certificates
-    /// trusted and `insecure`.
+    /// `OutboundTls::stream_options` does. Pins, of keys or of whole
+    /// certificates, replace the certificates trusted and `insecure`.
     pub fn with_options(
         alpn: &[String],
         certificate: Option<&str>,
@@ -148,7 +148,9 @@ impl TlsClient {
         }
         Ok(Self {
             connector: builder.build(),
-            insecure,
+            // With pins, the SSL keeps the name to verify: the pins of a
+            // certificate after the leaf verify it, whatever `insecure`.
+            insecure: insecure && options.pins.is_none(),
             fingerprint,
             alpn,
             sni: true,

@@ -167,7 +167,8 @@ pub(super) struct Upstream {
     #[cfg(feature = "tls")]
     disable_sni: bool,
     /// The versions offered and the keys pinned, `tls.min_version`,
-    /// `tls.max_version` and `tls.certificate_public_key_sha256`.
+    /// `tls.max_version`, `tls.certificate_public_key_sha256` and
+    /// `tls.certificate_sha256`.
     #[cfg(feature = "tls")]
     pub(super) tls_options: crate::transport::tls::ClientOptions,
     /// The TLS client of DoT and DoH, built on first use.
@@ -289,6 +290,7 @@ impl Upstream {
                 || tls.min_version.is_some()
                 || tls.max_version.is_some()
                 || tls.certificate_public_key_sha256.is_some()
+                || tls.certificate_sha256.is_some()
             {
                 return Err(anyhow!(
                     "tls: needs the tls feature, which is not compiled in"

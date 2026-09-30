@@ -181,6 +181,15 @@ pub struct OutboundTls {
     /// `insecure`.
     #[serde(default)]
     pub certificate_public_key_sha256: Option<Listable>,
+    /// A sail extension, Mihomo's `fingerprint`: the SHA-256 hashes, hex,
+    /// of whole certificates (DER) to take a server by, in place of the
+    /// certificates trusted and `insecure`. A hash of the server's own
+    /// certificate takes it outright: no CA and no name are checked, so
+    /// that exact certificate is trusted for any server name. A hash of a
+    /// certificate sent after it, an intermediate or a root, is the only
+    /// CA the server's certificate is verified by, with the server name.
+    #[serde(default)]
+    pub certificate_sha256: Option<Listable>,
     /// An inline PEM certificate, its chain after it, presented when the
     /// server asks for one; with `client_key`.
     #[serde(default)]
@@ -243,9 +252,9 @@ impl OutboundTls {
         }
     }
 
-    /// The versions and the pinned keys set, checked against each other and
-    /// against the certificate to trust, which pins replace, as in
-    /// sing-box. Errors name the field, under `tls`.
+    /// The versions and the pinned keys or certificates set, checked
+    /// against each other and against the certificate to trust, which pins
+    /// replace, as in sing-box. Errors name the field, under `tls`.
     #[cfg(feature = "tls")]
     #[cfg_attr(
         not(any(
@@ -257,16 +266,37 @@ impl OutboundTls {
         allow(dead_code)
     )]
     pub(crate) fn client_options(&self) -> Result<crate::transport::tls::ClientOptions> {
-        use crate::transport::tls::{ClientOptions, PublicKeyPins, TlsVersionRange};
+        use crate::transport::tls::{
+            CertificatePins, ClientOptions, Pins, PublicKeyPins, TlsVersionRange,
+        };
         let versions =
             TlsVersionRange::parse(self.min_version.as_deref(), self.max_version.as_deref())?;
-        let pins = match &self.certificate_public_key_sha256 {
+        let keys = match &self.certificate_public_key_sha256 {
             Some(hashes) => PublicKeyPins::parse(&hashes.clone().into_vec())?,
             None => None,
         };
+        let certificates = match &self.certificate_sha256 {
+            Some(hashes) => CertificatePins::parse(&hashes.clone().into_vec())?,
+            None => None,
+        };
+        let pins = match (keys, certificates) {
+            (Some(_), Some(_)) => {
+                return Err(anyhow!(
+                    "certificate_sha256: not with certificate_public_key_sha256"
+                ))
+            }
+            (Some(keys), None) => Some(Pins::PublicKeys(keys)),
+            (None, Some(certificates)) => Some(Pins::Certificates(certificates)),
+            (None, None) => None,
+        };
         if pins.is_some() && (self.certificate.is_some() || self.certificate_path.is_some()) {
+            let field = match pins {
+                Some(Pins::Certificates(_)) => "certificate_sha256",
+                _ => "certificate_public_key_sha256",
+            };
             return Err(anyhow!(
-                "certificate_public_key_sha256: not with certificate or certificate_path"
+                "{}: not with certificate or certificate_path",
+                field
             ));
         }
         Ok(ClientOptions { versions, pins })
@@ -297,7 +327,7 @@ impl OutboundTls {
         context: &str,
     ) -> Result<crate::transport::tls::ClientOptions> {
         use crate::transport::tls::options::Version;
-        use crate::transport::tls::{ClientOptions, Fingerprint, TlsVersionRange};
+        use crate::transport::tls::{ClientOptions, Fingerprint, Pins, TlsVersionRange};
         let mut options = self.client_options()?;
         let versions = options.versions;
         if self.reality.as_ref().is_some_and(|r| r.enabled) {
@@ -308,11 +338,16 @@ impl OutboundTls {
                     context
                 );
             }
-            if options.pins.is_some() {
+            if let Some(pins) = &options.pins {
+                let field = match pins {
+                    Pins::PublicKeys(_) => "certificate_public_key_sha256",
+                    Pins::Certificates(_) => "certificate_sha256",
+                };
                 tracing::warn!(
-                    "{}: tls.certificate_public_key_sha256: ignored with tls.reality, which \
-                     verifies the server by its public_key",
-                    context
+                    "{}: tls.{}: ignored with tls.reality, which verifies the server by its \
+                     public_key",
+                    context,
+                    field
                 );
             }
             return Ok(ClientOptions::default());
@@ -2440,6 +2475,65 @@ mod tests {
                  not with certificate or certificate_path"
                 .into())
         );
+
+        // Whole certificates, hex: each entry checked, the pins exclusive of
+        // the certificate to trust and of the keys pinned.
+        let hex = "ab".repeat(32);
+        let colons = vec!["AB"; 32].join(":");
+        assert!(build(json!({"enabled": true, "certificate_sha256": [&hex, &colons]})).is_ok());
+        for (bad, why) in [
+            (
+                "xy".repeat(32),
+                "tls.certificate_sha256[1]: not the hex of a SHA-256 hash",
+            ),
+            (
+                "abc".to_string(),
+                "tls.certificate_sha256[1]: not the hex of a SHA-256 hash",
+            ),
+            (
+                "ab".repeat(20),
+                "tls.certificate_sha256[1]: 20 bytes, where a SHA-256 hash has 32",
+            ),
+            (
+                format!(" {}", hex),
+                "tls.certificate_sha256[1]: not the hex of a SHA-256 hash",
+            ),
+            (
+                pin.clone(),
+                "tls.certificate_sha256[1]: not the hex of a SHA-256 hash",
+            ),
+        ] {
+            let err =
+                build(json!({"enabled": true, "certificate_sha256": [&hex, bad]})).unwrap_err();
+            assert_eq!(err, format!("[t] outbound: {}", why));
+        }
+        for other in [
+            json!({"certificate": "PEM"}),
+            json!({"certificate_path": "ca.pem"}),
+        ] {
+            let mut tls = json!({"enabled": true, "certificate_sha256": &hex});
+            tls.as_object_mut()
+                .unwrap()
+                .extend(other.as_object().unwrap().clone());
+            assert_eq!(
+                build(tls),
+                Err("[t] outbound: tls.certificate_sha256: \
+                     not with certificate or certificate_path"
+                    .into())
+            );
+        }
+        assert_eq!(
+            build(json!({"enabled": true, "certificate_sha256": &hex,
+                "certificate_public_key_sha256": pin})),
+            Err("[t] outbound: tls.certificate_sha256: \
+                 not with certificate_public_key_sha256"
+                .into())
+        );
+        let reality = json!({"enabled": true, "public_key": "x"});
+        let ignored = options(json!({"enabled": true, "reality": reality,
+            "certificate_sha256": &hex}))
+        .unwrap();
+        assert!(ignored.pins.is_none());
 
         // With REALITY both are ignored, as sing-box's REALITY client does.
         let reality = json!({"enabled": true, "public_key": "x"});

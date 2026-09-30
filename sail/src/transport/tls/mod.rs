@@ -15,7 +15,7 @@ pub mod roots;
 pub use client::TlsClient;
 pub use conn::BoringConnection;
 pub use fingerprint::Fingerprint;
-pub use options::{ClientOptions, PublicKeyPins, TlsVersionRange};
+pub use options::{CertificatePins, ClientOptions, Pins, PublicKeyPins, TlsVersionRange};
 
 #[cfg(test)]
 pub(crate) mod tests;

@@ -609,7 +609,9 @@ fn test_client_hello_without_sni() {
 fn pinning(pins: &[&str]) -> super::ClientOptions {
     let pins: Vec<String> = pins.iter().map(|p| p.to_string()).collect();
     super::ClientOptions {
-        pins: super::PublicKeyPins::parse(&pins).unwrap(),
+        pins: super::PublicKeyPins::parse(&pins)
+            .unwrap()
+            .map(super::Pins::PublicKeys),
         ..Default::default()
     }
 }
@@ -714,5 +716,236 @@ async fn test_version_range() {
         let tls13 = insecure(fingerprint, Some(Version::Tls13), None);
         assert_eq!(negotiated(&server, &tls13).await, Ok("TLSv1.3"));
         assert!(negotiated(&tls12_server, &tls13).await.is_err());
+    }
+}
+
+/// A root CA, an intermediate it issued and a leaf for `localhost` the
+/// intermediate issued, with a CA that issued none of them; PEM, and the
+/// `certificate_sha256` pin of each.
+pub(crate) struct CertChain {
+    pub leaf: String,
+    pub leaf_key: String,
+    pub intermediate: String,
+    pub root: String,
+    pub unrelated: String,
+    pub leaf_pin: String,
+    pub intermediate_pin: String,
+    pub root_pin: String,
+    pub unrelated_pin: String,
+}
+
+/// The pin of a certificate, `certificate_sha256`'s: the SHA-256 of its
+/// DER, hex.
+pub(crate) fn certificate_pin(der: &[u8]) -> String {
+    btls::sha::sha256(der)
+        .iter()
+        .map(|b| format!("{:02x}", b))
+        .collect()
+}
+
+pub(crate) fn cert_chain() -> CertChain {
+    let ca = |name: &str| {
+        let mut params = rcgen::CertificateParams::new(Vec::<String>::new()).unwrap();
+        params.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
+        params.distinguished_name = rcgen::DistinguishedName::new();
+        params
+            .distinguished_name
+            .push(rcgen::DnType::CommonName, name);
+        params
+    };
+    let root_key = rcgen::KeyPair::generate().unwrap();
+    let root = ca("sail test root").self_signed(&root_key).unwrap();
+    let intermediate_key = rcgen::KeyPair::generate().unwrap();
+    let intermediate = ca("sail test intermediate")
+        .signed_by(&intermediate_key, &root, &root_key)
+        .unwrap();
+    let leaf_key = rcgen::KeyPair::generate().unwrap();
+    let mut params = rcgen::CertificateParams::new(vec!["localhost".into()]).unwrap();
+    params.distinguished_name = rcgen::DistinguishedName::new();
+    params
+        .distinguished_name
+        .push(rcgen::DnType::CommonName, "localhost");
+    let leaf = params
+        .signed_by(&leaf_key, &intermediate, &intermediate_key)
+        .unwrap();
+    let unrelated_key = rcgen::KeyPair::generate().unwrap();
+    let unrelated = ca("sail test unrelated")
+        .self_signed(&unrelated_key)
+        .unwrap();
+    CertChain {
+        leaf_pin: certificate_pin(leaf.der()),
+        intermediate_pin: certificate_pin(intermediate.der()),
+        root_pin: certificate_pin(root.der()),
+        unrelated_pin: certificate_pin(unrelated.der()),
+        leaf: leaf.pem(),
+        leaf_key: leaf_key.serialize_pem(),
+        intermediate: intermediate.pem(),
+        root: root.pem(),
+        unrelated: unrelated.pem(),
+    }
+}
+
+/// A server presenting `certs`, PEM, the leaf first, with the leaf's `key`.
+fn server_presenting(certs: &[&str], key: &str) -> Server {
+    let mut builder = SslAcceptor::mozilla_intermediate_v5(SslMethod::tls()).unwrap();
+    let mut certs = certs
+        .iter()
+        .map(|pem| X509::from_pem(pem.as_bytes()).unwrap());
+    builder.set_certificate(&certs.next().unwrap()).unwrap();
+    for cert in certs {
+        builder.add_extra_chain_cert(cert).unwrap();
+    }
+    builder
+        .set_private_key(&PKey::private_key_from_pem(key.as_bytes()).unwrap())
+        .unwrap();
+    Server {
+        acceptor: builder.build(),
+        cert_pem: String::new(),
+        pin: String::new(),
+    }
+}
+
+/// Options pinning the certificates of `pins`.
+fn pinning_certificates(pins: &[&str]) -> super::ClientOptions {
+    let pins: Vec<String> = pins.iter().map(|p| p.to_string()).collect();
+    super::ClientOptions {
+        pins: super::CertificatePins::parse(&pins)
+            .unwrap()
+            .map(super::Pins::Certificates),
+        ..Default::default()
+    }
+}
+
+/// Whether a client with `options` completes a handshake with `server` as
+/// `name`, and exchanges data; the client's error if not.
+async fn connects(
+    server: &Server,
+    insecure: bool,
+    fingerprint: Option<super::Fingerprint>,
+    options: &super::ClientOptions,
+    name: &str,
+) -> Result<(), String> {
+    let client = client_with(insecure, fingerprint, options);
+    let (c, s) = pair(server, &client, name, None, None).await;
+    let mut c = c.map_err(|e| e.to_string())?;
+    let mut s = s.map_err(|e| format!("the server: {}", e))?;
+    c.write_all(b"ping").await.unwrap();
+    c.flush().await.unwrap();
+    let mut buf = [0; 4];
+    s.read_exact(&mut buf).await.unwrap();
+    assert_eq!(&buf, b"ping");
+    Ok(())
+}
+
+// A pin of the leaf takes it outright: no CA, and no name either, the
+// certificate being trusted for any server name; whatever `insecure`.
+#[tokio::test]
+async fn test_certificate_pin_of_the_leaf() {
+    let chain = cert_chain();
+    for server in [
+        server_presenting(&[&chain.leaf], &chain.leaf_key),
+        server_presenting(&[&chain.leaf, &chain.intermediate], &chain.leaf_key),
+    ] {
+        // Colons and upper case, as `openssl x509 -fingerprint` writes it.
+        let colons = chain
+            .leaf_pin
+            .to_uppercase()
+            .as_bytes()
+            .chunks(2)
+            .map(|p| std::str::from_utf8(p).unwrap())
+            .collect::<Vec<_>>()
+            .join(":");
+        for pin in [&chain.leaf_pin, &colons] {
+            let options = pinning_certificates(&[&chain.unrelated_pin, pin]);
+            for fingerprint in [None, Some(super::Fingerprint::Chrome)] {
+                for insecure in [false, true] {
+                    for name in ["localhost", "example.com", "127.0.0.1"] {
+                        let result = connects(&server, insecure, fingerprint, &options, name).await;
+                        assert_eq!(result, Ok(()), "{} {}", name, insecure);
+                    }
+                }
+            }
+        }
+    }
+}
+
+// A pin of a certificate after the leaf is the only CA the leaf is
+// verified by, and the name is verified, whatever `insecure`.
+#[tokio::test]
+async fn test_certificate_pin_of_a_ca() {
+    let chain = cert_chain();
+    let full = server_presenting(
+        &[&chain.leaf, &chain.intermediate, &chain.root],
+        &chain.leaf_key,
+    );
+    for pin in [&chain.intermediate_pin, &chain.root_pin] {
+        let options = pinning_certificates(&[pin]);
+        for fingerprint in [None, Some(super::Fingerprint::Chrome)] {
+            for insecure in [false, true] {
+                assert_eq!(
+                    connects(&full, insecure, fingerprint, &options, "localhost").await,
+                    Ok(())
+                );
+                let err = connects(&full, insecure, fingerprint, &options, "example.com")
+                    .await
+                    .unwrap_err();
+                assert!(
+                    err.contains("certificate_sha256: the server's certificate")
+                        && err.contains(&chain.leaf_pin)
+                        && err.contains(&format!("is not verified by the pinned {}", pin))
+                        && err.contains("Hostname mismatch"),
+                    "{}",
+                    err
+                );
+            }
+        }
+    }
+    // Sent with the leaf, but not what issued it: the leaf does not chain
+    // to it.
+    let unrelated = server_presenting(&[&chain.leaf, &chain.unrelated], &chain.leaf_key);
+    let options = pinning_certificates(&[&chain.unrelated_pin]);
+    for insecure in [false, true] {
+        let err = connects(&unrelated, insecure, None, &options, "localhost")
+            .await
+            .unwrap_err();
+        assert!(
+            err.contains("is not verified by the pinned")
+                && err.contains("unable to get local issuer certificate"),
+            "{}",
+            err
+        );
+    }
+    // The root pinned, the intermediate between not sent: no chain.
+    let short = server_presenting(&[&chain.leaf, &chain.root], &chain.leaf_key);
+    let options = pinning_certificates(&[&chain.root_pin]);
+    assert!(connects(&short, false, None, &options, "localhost")
+        .await
+        .is_err());
+}
+
+// A certificate pinned that the server does not send fails the handshake,
+// naming the leaf's hash, in every mode.
+#[tokio::test]
+async fn test_certificate_pin_not_sent_fails() {
+    let chain = cert_chain();
+    let server = server_presenting(&[&chain.leaf, &chain.intermediate], &chain.leaf_key);
+    // The root is the intermediate's issuer, but not sent.
+    for pin in [&chain.unrelated_pin, &chain.root_pin] {
+        let options = pinning_certificates(&[pin]);
+        for fingerprint in [None, Some(super::Fingerprint::Chrome)] {
+            for insecure in [false, true] {
+                let err = connects(&server, insecure, fingerprint, &options, "localhost")
+                    .await
+                    .unwrap_err();
+                assert!(
+                    err.contains(&format!(
+                        "certificate_sha256: the server's certificate, {}, is not pinned",
+                        chain.leaf_pin
+                    )),
+                    "{}",
+                    err
+                );
+            }
+        }
     }
 }

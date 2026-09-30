@@ -862,6 +862,11 @@ const EXTENSIONS: &[(&str, &str, &str)] = &[
         r#""1.2.3.0/24""#,
         "The EDNS Client Subnet its queries carry (Mihomo's ecs)",
     ),
+    (
+        "dns.servers[tls].tls.certificate_sha256",
+        r#"["abababababababababababababababababababababababababababababababab"]"#,
+        "As an outbound's `tls.certificate_sha256`",
+    ),
     ("dns.rules[].geosite", r#"["cn"]"#, "Domains of a geosite category"),
     (
         "dns.rules[].external",
@@ -999,6 +1004,11 @@ const EXTENSIONS: &[(&str, &str, &str)] = &[
         "route.rule_set[inline].rules[].no_resolve",
         "true",
         "As a routing rule's",
+    ),
+    (
+        "outbounds[trojan].tls.certificate_sha256",
+        r#"["abababababababababababababababababababababababababababababababab"]"#,
+        "In any outbound's `tls`: whole certificates pinned by SHA-256, hex (Mihomo's fingerprint); the server's own is trusted for any name, a CA's in its chain is the only CA it is verified by",
     ),
     (
         "outbounds[direct].skip_default_domain_resolver",

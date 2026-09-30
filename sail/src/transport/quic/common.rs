@@ -549,6 +549,53 @@ mod tests {
         }
     }
 
+    // Pinned certificates take a server as over TCP: the leaf's for any
+    // name, a CA's for the name the leaf is for; `insecure` or not.
+    #[tokio::test]
+    async fn pinned_certificates_over_quic() {
+        let chain = crate::transport::tls::tests::cert_chain();
+        let pem = format!("{}{}{}", chain.leaf, chain.intermediate, chain.root);
+        let server = server_crypto(&pem, &chain.leaf_key, &[]).unwrap();
+        let server = endpoint(
+            std::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap(),
+            Some(server_config(server).unwrap()),
+        )
+        .unwrap();
+        let env = RuntimeEnv::default();
+        let crypto = |pins: &[&str], insecure: bool, name: &str| {
+            let tls: OutboundTls = serde_json::from_value(serde_json::json!({
+                "enabled": true, "insecure": insecure, "certificate_sha256": pins,
+            }))
+            .unwrap();
+            ClientTls::new(&tls, name, &["h3"], &env).unwrap().crypto
+        };
+        for insecure in [false, true] {
+            for (pin, name, taken) in [
+                (&chain.leaf_pin, "localhost", true),
+                (&chain.leaf_pin, "example.com", true),
+                (&chain.root_pin, "localhost", true),
+                (&chain.root_pin, "example.com", false),
+                (&chain.unrelated_pin, "localhost", false),
+            ] {
+                let result = tokio::time::timeout(
+                    std::time::Duration::from_secs(5),
+                    dial(&server, crypto(&[pin.as_str()], insecure, name), name),
+                )
+                .await
+                .expect("the handshake ends, not hangs");
+                assert_eq!(
+                    result.is_ok(),
+                    taken,
+                    "{} {} {}: {:?}",
+                    pin,
+                    name,
+                    insecure,
+                    result
+                );
+            }
+        }
+    }
+
     #[test]
     fn versions_over_quic() {
         let client = |json: serde_json::Value| {
