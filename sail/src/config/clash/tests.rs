@@ -1919,3 +1919,47 @@ fn the_forks_smart_groups_are_sail_s() {
         );
     }
 }
+
+#[test]
+fn a_client_certificate_is_pem_or_a_path() {
+    let config = load(
+        "proxies:\n\
+         \x20 - { name: a, type: trojan, server: s, port: 443, password: p,\n\
+         \x20     certificate: certs/client.crt, private-key: /etc/client.key }\n\
+         \x20 - { name: b, type: hysteria2, server: s, port: 443, password: p,\n\
+         \x20     certificate: \"-----BEGIN CERTIFICATE-----\\nAA\\n-----END CERTIFICATE-----\",\n\
+         \x20     private-key: \"-----BEGIN PRIVATE KEY-----\\nAA\\n-----END PRIVATE KEY-----\" }\n",
+    );
+    let tls = |tag: &str| serde_json::to_value(outbound(&config, tag)).unwrap()["tls"].clone();
+    let a = tls("a");
+    assert_eq!(a["client_certificate_path"], "certs/client.crt");
+    assert_eq!(a["client_key_path"], "/etc/client.key");
+    let b = tls("b");
+    assert!(b["client_certificate"]
+        .as_str()
+        .unwrap()
+        .starts_with("-----BEGIN CERTIFICATE-----"));
+    assert!(b["client_key"]
+        .as_str()
+        .unwrap()
+        .starts_with("-----BEGIN PRIVATE KEY-----"));
+
+    let e = error(
+        "proxies: [{ name: a, type: trojan, server: s, port: 443, password: p, \
+         private-key: \"-----BEGIN PRIVATE KEY-----\" }]",
+    );
+    assert!(
+        e.contains("proxies[0].certificate: needed with private-key"),
+        "{}",
+        e
+    );
+    assert!(!e.contains("BEGIN"), "{}", e);
+    let e = error(
+        "proxies: [{ name: a, type: http, server: s, port: 443, tls: true, certificate: c.crt }]",
+    );
+    assert!(
+        e.contains("proxies[0].private-key: needed with certificate"),
+        "{}",
+        e
+    );
+}

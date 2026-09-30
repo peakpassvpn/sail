@@ -209,8 +209,6 @@ const DIAL: &[(&str, Tier)] = &[
 
 const TLS: &[(&str, Tier)] = &[
     ("fingerprint", Unsupported),
-    ("certificate", Unsupported),
-    ("private-key", Unsupported),
     ("name-cert-verify", Unsupported),
 ];
 
@@ -218,8 +216,6 @@ const SHADOWSOCKS: &[(&str, Tier)] = &[("client-fingerprint", Ignored)];
 
 const V2RAY: &[(&str, Tier)] = &[
     ("fingerprint", Unsupported),
-    ("certificate", Unsupported),
-    ("private-key", Unsupported),
     ("name-cert-verify", Unsupported),
     ("shadow-tls-opts", Unsupported),
     ("restls-opts", Unsupported),
@@ -235,8 +231,6 @@ const V2RAY: &[(&str, Tier)] = &[
 
 const HYSTERIA2: &[(&str, Tier)] = &[
     ("fingerprint", Unsupported),
-    ("certificate", Unsupported),
-    ("private-key", Unsupported),
     ("name-cert-verify", Unsupported),
     ("obfs-min-packet-size", Unsupported),
     ("obfs-max-packet-size", Unsupported),
@@ -253,8 +247,6 @@ const HYSTERIA2: &[(&str, Tier)] = &[
 
 const TUIC: &[(&str, Tier)] = &[
     ("fingerprint", Unsupported),
-    ("certificate", Unsupported),
-    ("private-key", Unsupported),
     ("name-cert-verify", Unsupported),
     ("request-timeout", Ignored),
     ("max-udp-relay-packet-size", Ignored),
@@ -270,8 +262,6 @@ const TUIC: &[(&str, Tier)] = &[
 
 const ANYTLS: &[(&str, Tier)] = &[
     ("fingerprint", Unsupported),
-    ("certificate", Unsupported),
-    ("private-key", Unsupported),
     ("name-cert-verify", Unsupported),
     ("shadow-tls-opts", Unsupported),
     ("restls-opts", Unsupported),
@@ -391,6 +381,8 @@ fn tls(
     let insecure = f.bool("skip-cert-verify")?.unwrap_or(false);
     let alpn = f.strings("alpn")?;
     let client_fingerprint = f.string("client-fingerprint")?;
+    let certificate = f.string("certificate")?.filter(|c| !c.is_empty());
+    let private_key = f.string("private-key")?.filter(|k| !k.is_empty());
     if !enabled {
         return Ok(());
     }
@@ -404,6 +396,21 @@ fn tls(
     }
     if !alpn.is_empty() {
         tls.insert("alpn".into(), json!(alpn));
+    }
+    // The client certificate: PEM, or a path, as Mihomo tells them apart.
+    match (certificate, private_key) {
+        (None, None) => {}
+        (Some(certificate), Some(key)) => {
+            for (field, value) in [("client_certificate", certificate), ("client_key", key)] {
+                if value.contains("-----BEGIN") {
+                    tls.insert(field.into(), json!(value));
+                } else {
+                    tls.insert(format!("{}_path", field), json!(value));
+                }
+            }
+        }
+        (Some(_), None) => return Err(anyhow!("{}: needed with certificate", f.at("private-key"))),
+        (None, Some(_)) => return Err(anyhow!("{}: needed with private-key", f.at("certificate"))),
     }
     let fp = client_fingerprint.as_deref().or(fingerprint);
     if let Some(utls) = utls(&f.at("client-fingerprint"), fp)? {
