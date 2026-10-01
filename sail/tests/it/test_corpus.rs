@@ -150,6 +150,12 @@ fn the_corpus_reads_as_expected() {
     );
 }
 
+#[cfg(all(
+    feature = "config-surge",
+    feature = "all-endpoints",
+    feature = "rule-set",
+    feature = "outbound-provider"
+))]
 /// An error's first line, the directories it names written as names: the
 /// corpus's (a Surge profile's paths are its own) and the data directory.
 fn placed(message: &str, data_dir: &std::path::Path) -> String {
@@ -159,10 +165,22 @@ fn placed(message: &str, data_dir: &std::path::Path) -> String {
         .replace(&data_dir.display().to_string(), "<data_dir>")
 }
 
+#[cfg(all(
+    feature = "config-surge",
+    feature = "all-endpoints",
+    feature = "rule-set",
+    feature = "outbound-provider"
+))]
 fn first_line(message: &str) -> String {
     message.lines().next().unwrap_or_default().to_string()
 }
 
+#[cfg(all(
+    feature = "config-surge",
+    feature = "all-endpoints",
+    feature = "rule-set",
+    feature = "outbound-provider"
+))]
 fn panic_message(panic: Box<dyn std::any::Any + Send>) -> String {
     let message = panic
         .downcast_ref::<String>()
