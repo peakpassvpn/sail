@@ -44,7 +44,10 @@ pub struct SailPlatform {
     /// `VpnService.Builder.establish`, iOS's packet flow's utun), as the
     /// JSON `request` says: `interface_name`, `mtu`, `ipv4` and `ipv6` (an
     /// address with its prefix, or null), `auto_route`, and for Android
-    /// `include_android_user`, `include_package`, `exclude_package`.
+    /// `include_package` and `exclude_package`, which the host applies with
+    /// `addAllowedApplication` / `addDisallowedApplication` (sail refuses a
+    /// configuration with uid or `include_android_user` options, which a
+    /// VpnService cannot apply, as sing-box's libbox does).
     /// Returns the device's file descriptor, which the instance then owns,
     /// or a negative number. With it, the host routes the device: sail
     /// changes no routes. Called while the instance starts, on the thread
@@ -60,6 +63,27 @@ pub struct SailPlatform {
     /// `ServiceReload`), as `service_stop` is called. Null: sail reloads
     /// it from its file.
     pub service_reload: Option<extern "C" fn(context: *mut c_void) -> i32>,
+    /// Who opened a connection (Android: `ConnectivityManager.
+    /// getConnectionOwnerUid`, then `PackageManager.getPackagesForUid`).
+    /// With it, every connection is asked about before it is routed, as
+    /// sing-box's libbox does on Android, and the rules `package_name`,
+    /// `package_name_regex`, `user` and `user_id` match.
+    ///
+    /// `query` is JSON: `{"network": "tcp" | "udp", "source": "ip:port",
+    /// "destination": "host:port"}`. The host writes `{"uid", "user" (or
+    /// null), "packages": [...]}` into `out`, at most `out_len` bytes,
+    /// and returns how many it wrote; 0 when it cannot tell; when `out_len`
+    /// is too small, minus the length it needs, and it is called again
+    /// with that much. Called on the instance's threads, as it routes: it
+    /// must not wait on sail.
+    pub find_connection_owner: Option<
+        extern "C" fn(
+            query: *const c_char,
+            out: *mut c_char,
+            out_len: usize,
+            context: *mut c_void,
+        ) -> isize,
+    >,
 }
 
 impl SailPlatform {
@@ -72,6 +96,7 @@ impl SailPlatform {
             open_tun: None,
             service_stop: None,
             service_reload: None,
+            find_connection_owner: None,
         }
     }
 
@@ -147,6 +172,12 @@ impl Drop for Callbacks {
     }
 }
 
+/// The buffer a connection's owner is first asked into: a uid and a few
+/// package names fit, as Android gives them.
+const OWNER_FIRST: usize = 1024;
+/// The most a host may ask for it: more is a host gone wrong.
+const OWNER_MOST: usize = 64 * 1024;
+
 /// The platform an instance runs with: the host's callbacks, the system
 /// log, and the instance to tell once it runs.
 pub(crate) struct FfiPlatform {
@@ -186,6 +217,52 @@ impl sail::runtime::Platform for FfiPlatform {
         match open(request.as_ptr(), self.callbacks.0.context) {
             fd if fd >= 0 => Ok(fd),
             _ => Err(std::io::Error::other("the host could not open the tun")),
+        }
+    }
+
+    fn finds_connection_owner(&self) -> bool {
+        self.callbacks.0.find_connection_owner.is_some()
+    }
+
+    fn find_connection_owner(
+        &self,
+        query: &sail::runtime::platform::ConnectionQuery,
+    ) -> std::io::Result<Option<sail::runtime::platform::ConnectionOwner>> {
+        let Some(find) = self.callbacks.0.find_connection_owner else {
+            return Ok(None);
+        };
+        let query = serde_json::to_string(query)
+            .ok()
+            .and_then(|json| CString::new(json).ok())
+            .ok_or_else(|| std::io::Error::other("the query does not encode"))?;
+        let mut capacity = OWNER_FIRST;
+        loop {
+            let mut out = vec![0u8; capacity];
+            let n = find(
+                query.as_ptr(),
+                out.as_mut_ptr() as *mut c_char,
+                out.len(),
+                self.callbacks.0.context,
+            );
+            match n {
+                0 => return Ok(None),
+                n if n > 0 => {
+                    let n = (n as usize).min(out.len());
+                    return serde_json::from_slice(&out[..n])
+                        .map(Some)
+                        .map_err(|e| std::io::Error::other(format!("the host's owner: {}", e)));
+                }
+                n => {
+                    let needed = n.unsigned_abs();
+                    if needed <= capacity || needed > OWNER_MOST {
+                        return Err(std::io::Error::other(format!(
+                            "the host's owner needs {} bytes",
+                            needed
+                        )));
+                    }
+                    capacity = needed;
+                }
+            }
         }
     }
 

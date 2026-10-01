@@ -143,6 +143,9 @@ pub struct LookupContext {
     /// from, as routing looked it up: what `source_mac_address` and
     /// `source_hostname` match.
     pub neighbor: Option<Arc<crate::net::neighbor::Neighbor>>,
+    /// Who opened the connection that needs the name, as the host told
+    /// routing: what `package_name` and `user_id` match.
+    pub owner: Option<Arc<crate::runtime::platform::ConnectionOwner>>,
     /// The outbound that dials the name.
     pub outbound: Option<String>,
     /// The address families, over what the rules and `dns.strategy` say.

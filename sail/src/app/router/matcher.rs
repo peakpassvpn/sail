@@ -48,6 +48,8 @@ pub(crate) struct Facts {
     preferred_by: Option<Arc<Vec<String>>>,
     /// The LAN device the source is, when it was looked up.
     neighbor: Option<Arc<crate::net::neighbor::Neighbor>>,
+    /// Who opened the connection, as the host tells it.
+    owner: Option<Arc<crate::runtime::platform::ConnectionOwner>>,
     /// The code of the DNS response matched.
     rcode: Option<u16>,
     /// The DNS response matched, whose records `response_answer`,
@@ -98,6 +100,7 @@ impl Facts {
             query_type: None,
             preferred_by: None,
             neighbor: sess.neighbor.clone(),
+            owner: sess.owner.clone(),
             rcode: None,
             response: None,
             responses: None,
@@ -873,6 +876,11 @@ pub(crate) struct Conditions {
     process_paths: Vec<String>,
     process_path_regex: Vec<Pattern>,
     process_name_regex: Vec<Pattern>,
+    /// Of who opened the connection, as the host tells it.
+    package_names: Vec<String>,
+    package_name_regex: Vec<Pattern>,
+    process_users: Vec<String>,
+    process_user_ids: Vec<i32>,
     /// Of the plain HTTP request sniffed.
     http_user_agent: Vec<Pattern>,
     url_regex: Vec<Pattern>,
@@ -990,24 +998,24 @@ impl Conditions {
                 process_known(&field(name), PROCESS_COMPILED, PROCESS_KNOWN)?;
             }
         }
+        // Who opened a connection only the host tells (Android's
+        // VpnService); without it, these never match, so they are errors.
+        let host_tells = ctx
+            .env
+            .host
+            .platform
+            .as_ref()
+            .is_some_and(|p| p.finds_connection_owner());
         for (name, set) in [
             ("package_name", !rule.package_name.is_empty()),
             ("package_name_regex", !rule.package_name_regex.is_empty()),
-        ] {
-            if set {
-                return Err(anyhow!(
-                    "{}: sail cannot tell which Android package a connection comes from yet",
-                    field(name)
-                ));
-            }
-        }
-        for (name, set) in [
             ("user", !rule.user.is_empty()),
             ("user_id", !rule.user_id.is_empty()),
         ] {
-            if set {
+            if set && !host_tells {
                 return Err(anyhow!(
-                    "{}: sail cannot tell which user a connection's program runs as yet",
+                    "{}: sail tells who opened a connection only from a host that finds it \
+                     (find_connection_owner, on Android)",
                     field(name)
                 ));
             }
@@ -1090,6 +1098,10 @@ impl Conditions {
             process_paths: rule.process_path.clone(),
             process_path_regex: patterns(&field("process_path_regex"), &rule.process_path_regex)?,
             process_name_regex: patterns(&field("process_name_regex"), &rule.process_name_regex)?,
+            package_names: rule.package_name.clone(),
+            package_name_regex: patterns(&field("package_name_regex"), &rule.package_name_regex)?,
+            process_users: rule.user.clone(),
+            process_user_ids: rule.user_id.clone(),
             http_user_agent: patterns(
                 &field("http_user_agent"),
                 &rule
@@ -1150,6 +1162,10 @@ impl Conditions {
             && self.process_paths.is_empty()
             && self.process_path_regex.is_empty()
             && self.process_name_regex.is_empty()
+            && self.package_names.is_empty()
+            && self.package_name_regex.is_empty()
+            && self.process_users.is_empty()
+            && self.process_user_ids.is_empty()
             && self.http_user_agent.is_empty()
             && self.url_regex.is_empty()
             && self.query_types.is_empty()
@@ -1321,70 +1337,91 @@ impl Conditions {
                 in_ranges(&self.ports, facts.port()),
             );
         }
-        let holds = (self.inbounds.is_empty() || self.inbounds.contains(&facts.inbound))
-            && self.ip_version.is_none_or(|v| facts.ip_version == Some(v))
-            && (self.networks.is_empty() || self.networks.contains(&facts.network()))
-            && (self.auth_users.is_empty()
-                || facts
-                    .user
+        let holds =
+            (self.inbounds.is_empty() || self.inbounds.contains(&facts.inbound))
+                && self.ip_version.is_none_or(|v| facts.ip_version == Some(v))
+                && (self.networks.is_empty() || self.networks.contains(&facts.network()))
+                && (self.auth_users.is_empty()
+                    || facts
+                        .user
+                        .as_ref()
+                        .is_some_and(|user| self.auth_users.iter().any(|u| **u == **user.name())))
+                && (self.protocols.is_empty()
+                    || facts.protocol.is_some_and(|p| self.protocols.contains(&p)))
+                && (self.process_names.is_empty()
+                    || facts
+                        .process_name()
+                        .is_some_and(|name| self.process_names.iter().any(|p| p == name)))
+                && (self.process_paths.is_empty()
+                    || facts
+                        .process_path
+                        .as_deref()
+                        .is_some_and(|path| self.process_paths.iter().any(|p| p == path)))
+                && (self.process_path_regex.is_empty()
+                    || facts.process_path.as_deref().is_some_and(|path| {
+                        self.process_path_regex.iter().any(|r| r.is_match(path))
+                    }))
+                && (self.process_name_regex.is_empty()
+                    || facts.process_name().is_some_and(|name| {
+                        self.process_name_regex.iter().any(|r| r.is_match(name))
+                    }))
+                && (self.package_names.is_empty()
+                    || facts.owner.as_ref().is_some_and(|o| {
+                        o.packages.iter().any(|p| self.package_names.contains(p))
+                    }))
+                && (self.package_name_regex.is_empty()
+                    || facts.owner.as_ref().is_some_and(|o| {
+                        o.packages
+                            .iter()
+                            .any(|p| self.package_name_regex.iter().any(|r| r.is_match(p)))
+                    }))
+                && (self.process_users.is_empty()
+                    || facts.owner.as_ref().is_some_and(|o| {
+                        o.user
+                            .as_ref()
+                            .is_some_and(|u| self.process_users.contains(u))
+                    }))
+                && (self.process_user_ids.is_empty()
+                    || facts
+                        .owner
+                        .as_ref()
+                        .is_some_and(|o| self.process_user_ids.contains(&(o.uid as i32))))
+                && (self.http_user_agent.is_empty()
+                    || facts
+                        .user_agent()
+                        .is_some_and(|ua| self.http_user_agent.iter().any(|r| r.is_match(ua))))
+                && (self.url_regex.is_empty()
+                    || facts
+                        .url()
+                        .is_some_and(|url| self.url_regex.iter().any(|r| r.is_match(url))))
+                && (self.query_types.is_empty()
+                    || facts
+                        .query_type()
+                        .is_some_and(|t| self.query_types.contains(&t)))
+                && (self.preferred_by.is_empty()
+                    || facts
+                        .preferred_by
+                        .as_ref()
+                        .is_some_and(|tags| self.preferred_by.iter().any(|t| tags.contains(t))))
+                && (self.source_macs.is_empty()
+                    || facts
+                        .neighbor
+                        .as_ref()
+                        .and_then(|n| n.mac_string())
+                        .is_some_and(|mac| self.source_macs.contains(&mac)))
+                && (self.source_hostnames.is_empty()
+                    || facts
+                        .neighbor
+                        .as_ref()
+                        .and_then(|n| n.hostname.as_ref())
+                        .is_some_and(|name| self.source_hostnames.contains(name)))
+                && self.response_rcode.is_none_or(|c| facts.rcode == Some(c))
+                && self.response_records_match(facts)
+                && self
+                    .clash_mode
                     .as_ref()
-                    .is_some_and(|user| self.auth_users.iter().any(|u| **u == **user.name())))
-            && (self.protocols.is_empty()
-                || facts.protocol.is_some_and(|p| self.protocols.contains(&p)))
-            && (self.process_names.is_empty()
-                || facts
-                    .process_name()
-                    .is_some_and(|name| self.process_names.iter().any(|p| p == name)))
-            && (self.process_paths.is_empty()
-                || facts
-                    .process_path
-                    .as_deref()
-                    .is_some_and(|path| self.process_paths.iter().any(|p| p == path)))
-            && (self.process_path_regex.is_empty()
-                || facts
-                    .process_path
-                    .as_deref()
-                    .is_some_and(|path| self.process_path_regex.iter().any(|r| r.is_match(path))))
-            && (self.process_name_regex.is_empty()
-                || facts
-                    .process_name()
-                    .is_some_and(|name| self.process_name_regex.iter().any(|r| r.is_match(name))))
-            && (self.http_user_agent.is_empty()
-                || facts
-                    .user_agent()
-                    .is_some_and(|ua| self.http_user_agent.iter().any(|r| r.is_match(ua))))
-            && (self.url_regex.is_empty()
-                || facts
-                    .url()
-                    .is_some_and(|url| self.url_regex.iter().any(|r| r.is_match(url))))
-            && (self.query_types.is_empty()
-                || facts
-                    .query_type()
-                    .is_some_and(|t| self.query_types.contains(&t)))
-            && (self.preferred_by.is_empty()
-                || facts
-                    .preferred_by
-                    .as_ref()
-                    .is_some_and(|tags| self.preferred_by.iter().any(|t| tags.contains(t))))
-            && (self.source_macs.is_empty()
-                || facts
-                    .neighbor
-                    .as_ref()
-                    .and_then(|n| n.mac_string())
-                    .is_some_and(|mac| self.source_macs.contains(&mac)))
-            && (self.source_hostnames.is_empty()
-                || facts
-                    .neighbor
-                    .as_ref()
-                    .and_then(|n| n.hostname.as_ref())
-                    .is_some_and(|name| self.source_hostnames.contains(name)))
-            && self.response_rcode.is_none_or(|c| facts.rcode == Some(c))
-            && self.response_records_match(facts)
-            && self
-                .clash_mode
-                .as_ref()
-                .is_none_or(|(wanted, mode)| mode.is(wanted))
-            && self.network.matches(facts.network_state.as_deref());
+                    .is_none_or(|(wanted, mode)| mode.is(wanted))
+                && self.network.matches(facts.network_state.as_deref());
         holds.then_some(groups)
     }
 
@@ -1923,6 +1960,65 @@ pub(crate) mod tests {
         }
     }
 
+    /// A host that tells who opened a connection, as an Android app's does.
+    struct Tells;
+
+    impl crate::runtime::platform::Platform for Tells {
+        fn log(&self, _: &str) {}
+
+        fn finds_connection_owner(&self) -> bool {
+            true
+        }
+    }
+
+    #[test]
+    fn apps_and_users_match_who_the_host_says_opened_it() {
+        let env = RuntimeEnv {
+            host: crate::runtime::Host {
+                platform: Some(crate::runtime::PlatformRef(std::sync::Arc::new(Tells))),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let compile = |rule: serde_json::Value| {
+            let rule: model::Rule = serde_json::from_value(rule).unwrap();
+            Matcher::new(&rule, &env, &Default::default()).unwrap()
+        };
+        let opened_by = |uid: u32, user: Option<&str>, packages: &[&str]| {
+            Facts::new(
+                &Session {
+                    owner: Some(std::sync::Arc::new(
+                        crate::runtime::platform::ConnectionOwner {
+                            uid,
+                            user: user.map(str::to_owned),
+                            packages: packages.iter().map(|p| p.to_string()).collect(),
+                        },
+                    )),
+                    ..Default::default()
+                },
+                &[],
+            )
+        };
+        let unknown = Facts::new(&Session::default(), &[]);
+        // Any of the uid's packages, as sing-box's package_name.
+        let m = compile(serde_json::json!({ "package_name": "com.example.b" }));
+        assert!(m.matches(&opened_by(10123, None, &["com.example.a", "com.example.b"])));
+        assert!(!m.matches(&opened_by(10123, None, &["com.example.a"])));
+        assert!(!m.matches(&unknown));
+        let m = compile(serde_json::json!({ "user_id": [10123, 0] }));
+        assert!(m.matches(&opened_by(10123, None, &[])));
+        assert!(!m.matches(&opened_by(10124, None, &[])));
+        assert!(!m.matches(&unknown));
+        let m = compile(serde_json::json!({ "user": "u0_a123" }));
+        assert!(m.matches(&opened_by(10123, Some("u0_a123"), &[])));
+        assert!(!m.matches(&opened_by(10123, None, &[])));
+        if cfg!(feature = "regex") {
+            let m = compile(serde_json::json!({ "package_name_regex": "^com\\.google\\." }));
+            assert!(m.matches(&opened_by(10010, None, &["com.google.android.gms"])));
+            assert!(!m.matches(&opened_by(10011, None, &["org.mozilla.firefox"])));
+        }
+    }
+
     #[test]
     fn what_the_platform_cannot_tell_is_refused() {
         assert_eq!(
@@ -1938,19 +2034,19 @@ pub(crate) mod tests {
         for (rule, message) in [
             (
                 serde_json::json!({ "package_name": "com.android.chrome" }),
-                "route.rules[3].package_name: sail cannot tell",
+                "route.rules[3].package_name: sail tells who opened a connection only from a host",
             ),
             (
                 serde_json::json!({ "package_name_regex": "^com\\." }),
-                "route.rules[3].package_name_regex: sail cannot tell",
+                "route.rules[3].package_name_regex: sail tells who opened a connection only from a host",
             ),
             (
                 serde_json::json!({ "user": "root" }),
-                "route.rules[3].user: sail cannot tell",
+                "route.rules[3].user: sail tells who opened a connection only from a host",
             ),
             (
                 serde_json::json!({ "user_id": [0, 1000] }),
-                "route.rules[3].user_id: sail cannot tell",
+                "route.rules[3].user_id: sail tells who opened a connection only from a host",
             ),
             (
                 serde_json::json!({ "type": "logical", "mode": "or", "rules": [

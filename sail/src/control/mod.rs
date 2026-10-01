@@ -42,6 +42,10 @@ pub struct ConnectionInfo {
     pub host: Option<String>,
     pub process: Option<String>,
     pub user: Option<String>,
+    /// Who opened it, as the host tells it (Android): the uid, and the
+    /// packages that run as it.
+    pub uid: Option<u32>,
+    pub packages: Vec<String>,
     /// Since the connection started.
     pub upload: u64,
     pub download: u64,
@@ -448,6 +452,12 @@ impl RuntimeManager {
                         .or_else(|| sess.sniffed.as_ref().map(|(_, domain)| domain.clone())),
                     process: sess.process_name.clone(),
                     user: crate::user::name(&sess.user).map(str::to_owned),
+                    uid: sess.owner.as_ref().map(|o| o.uid),
+                    packages: sess
+                        .owner
+                        .as_ref()
+                        .map(|o| o.packages.clone())
+                        .unwrap_or_default(),
                     upload: counter.bytes_sent(),
                     download: counter.bytes_recvd(),
                     start: counter.start_time(),

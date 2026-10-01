@@ -124,6 +124,11 @@ pub struct Connection {
     pub chains: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     #[prost(string, optional, tag = "14")]
     pub rule: ::core::option::Option<::prost::alloc::string::String>,
+    /// Who opened it, as the host tells it (Android).
+    #[prost(uint32, optional, tag = "15")]
+    pub uid: ::core::option::Option<u32>,
+    #[prost(string, repeated, tag = "16")]
+    pub packages: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Connections {

@@ -331,7 +331,7 @@ pub(crate) fn produce(
         SAIL_EVENT_NETWORK => {
             return Err(Failure::new(
                 crate::SAIL_ERR_UNSUPPORTED,
-                "network events are not followed yet",
+                "the network is followed in the tunnel process, as libbox's apps follow it",
             ))
         }
         other => return Err(Failure::invalid(format!("no event kind {}", other))),

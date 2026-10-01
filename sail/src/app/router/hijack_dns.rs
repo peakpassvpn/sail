@@ -24,6 +24,7 @@ pub(crate) async fn answer(dns: &SyncDnsClient, query: &[u8], sess: &Session) ->
         inbound: Some(sess.inbound_tag.clone()),
         user: sess.user.clone(),
         neighbor: sess.neighbor.clone(),
+        owner: sess.owner.clone(),
         ..Default::default()
     };
     match dns.load().exchange(query, &ctx).await {

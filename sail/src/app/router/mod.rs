@@ -861,6 +861,7 @@ impl Router {
                         inbound: Some(sess.inbound_tag.clone()),
                         user: sess.user.clone(),
                         neighbor: sess.neighbor.clone(),
+                        owner: sess.owner.clone(),
                         outbound: None,
                         strategy: how.strategy,
                         options: how.options.clone(),

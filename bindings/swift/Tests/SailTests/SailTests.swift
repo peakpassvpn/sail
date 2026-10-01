@@ -140,8 +140,8 @@ final class Tracked: @unchecked Sendable {
 final class SailTests: XCTestCase {
     func testCapabilities() throws {
         let capabilities = try Sail.capabilities()
-        XCTAssertEqual(capabilities.apiVersion, 1)
-        XCTAssertEqual(capabilities.jsonVersion, 1)
+        XCTAssertEqual(capabilities.apiVersion, 2)
+        XCTAssertEqual(capabilities.jsonVersion, 2)
         XCTAssertTrue(capabilities.features.contains("inbound-socks"))
     }
 
@@ -235,6 +235,30 @@ final class SailTests: XCTestCase {
         let deadline = Date().addingTimeInterval(10)
         while Tracked.gone == before && Date() < deadline { Thread.sleep(forTimeInterval: 0.02) }
         XCTAssertEqual(Tracked.gone, before + 1)
+    }
+
+    func testTheHostSaysWhichAppOpenedAConnection() throws {
+        let asked = NSLock()
+        var queries: [ConnectionQuery] = []
+        let sail = try Sail(platform: Platform(findConnectionOwner: { query in
+            asked.lock()
+            queries.append(query)
+            asked.unlock()
+            return ConnectionOwner(uid: 10123, packages: ["com.blocked"])
+        }))
+        let port = freePort()
+        try sail.start(config: """
+        {
+          "inbounds": [{ "type": "socks", "listen": "127.0.0.1", "listen_port": \(port) }],
+          "outbounds": [{ "type": "direct" }],
+          "route": { "rules": [{ "package_name": "com.blocked", "action": "reject" }] }
+        }
+        """)
+        XCTAssertFalse(echoThroughSocks(port), "the app's connection was not rejected")
+        asked.lock()
+        XCTAssertEqual(queries.first?.network, "tcp")
+        asked.unlock()
+        try sail.stop()
     }
 
     func testStartsAndStopsAgainAndAgain() throws {

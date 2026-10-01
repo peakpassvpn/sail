@@ -59,11 +59,55 @@ pub trait Platform: Send + Sync {
         Err(std::io::Error::from(std::io::ErrorKind::Unsupported))
     }
 
+    /// Whether `find_connection_owner` tells: the rules on the program a
+    /// connection comes from (`package_name`, `user_id`, …) then match.
+    fn finds_connection_owner(&self) -> bool {
+        false
+    }
+
+    /// Who opened the connection `query` describes, as Android's
+    /// `ConnectivityManager.getConnectionOwnerUid` and
+    /// `PackageManager.getPackagesForUid` tell it; none when the host
+    /// cannot tell. Asked of every connection, before it is routed, on the
+    /// instance's threads, as sing-box's libbox asks on Android.
+    fn find_connection_owner(
+        &self,
+        query: &ConnectionQuery,
+    ) -> std::io::Result<Option<ConnectionOwner>> {
+        let _ = query;
+        Ok(None)
+    }
+
     /// Told once the instance runs, on the thread that started it, with
     /// what controls it; a stop asked for from here on stops it.
     fn running(&self, manager: &Arc<crate::RuntimeManager>) {
         let _ = manager;
     }
+}
+
+/// A connection whose owner the host is asked for.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct ConnectionQuery {
+    /// `tcp` or `udp`.
+    pub network: String,
+    /// Where it comes from: the program's address.
+    pub source: std::net::SocketAddr,
+    /// Where it goes, as the program asked: an address, or a domain with
+    /// its port.
+    pub destination: String,
+}
+
+/// Who opened a connection, as the host tells it.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ConnectionOwner {
+    pub uid: u32,
+    /// The user's name, where the host has one.
+    #[serde(default)]
+    pub user: Option<String>,
+    /// Android: the packages that run as the uid.
+    #[serde(default)]
+    pub packages: Vec<String>,
 }
 
 /// The device a TUN inbound asks its host for.
@@ -80,9 +124,8 @@ pub struct TunRequest {
     pub ipv6: Option<cidr::Ipv6Inet>,
     /// Routes all traffic into the device.
     pub auto_route: bool,
-    /// Android: the users and apps the VPN takes in, and the apps it
-    /// leaves out, as `VpnService.Builder` applies them.
-    pub include_android_user: Vec<u32>,
+    /// Android: the apps the VPN takes in, and those it leaves out, as
+    /// `VpnService.Builder` applies them.
     pub include_package: Vec<String>,
     pub exclude_package: Vec<String>,
 }

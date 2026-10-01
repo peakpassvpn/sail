@@ -56,6 +56,9 @@ public struct Connection: Decodable, Equatable, Sendable {
     public let host: String?
     public let process: String?
     public let user: String?
+    /// Who opened it, as the host told (Android).
+    public let uid: UInt32?
+    public let packages: [String]
     public let upload: UInt64
     public let download: UInt64
     /// Unix seconds.
@@ -86,6 +89,27 @@ public struct Outbound: Decodable, Equatable, Sendable {
     public let udp: Bool
     public let history: [Delay]
     public let group: Group?
+}
+
+/// A connection whose owner the host is asked for.
+public struct ConnectionQuery: Decodable, Equatable, Sendable {
+    /// tcp or udp.
+    public let network: String
+    public let source: String
+    public let destination: String
+}
+
+/// Who opened a connection, as the host tells sail.
+public struct ConnectionOwner: Encodable, Equatable, Sendable {
+    public let uid: UInt32
+    public let user: String?
+    public let packages: [String]
+
+    public init(uid: UInt32, user: String? = nil, packages: [String] = []) {
+        self.uid = uid
+        self.user = user
+        self.packages = packages
+    }
 }
 
 public struct Mode: Decodable, Equatable, Sendable {

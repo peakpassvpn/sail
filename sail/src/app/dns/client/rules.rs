@@ -285,6 +285,7 @@ impl DnsClient {
             inbound_tag: ctx.inbound.clone().unwrap_or_default(),
             user: ctx.user.clone(),
             neighbor: ctx.neighbor.clone(),
+            owner: ctx.owner.clone(),
             ..Default::default()
         }
     }

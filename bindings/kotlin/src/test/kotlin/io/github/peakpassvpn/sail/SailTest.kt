@@ -74,7 +74,8 @@ class SailTest {
     @Test
     fun theCapabilitiesNameTheApi() {
         val capabilities = Sail.capabilities()
-        assertEquals(1, capabilities.apiVersion)
+        assertEquals(2, capabilities.apiVersion)
+        assertEquals(2, capabilities.jsonVersion)
         assertTrue("inbound-socks" in capabilities.features)
     }
 
@@ -157,6 +158,29 @@ class SailTest {
             sail.start(config(port))
             assertTrue(echoThroughSocks(port))
             assertTrue(protected.get() >= 1, "the socket was not protected")
+            sail.stop()
+        }
+    }
+
+    @Test
+    fun theHostSaysWhichAppOpenedAConnection() {
+        val asked = AtomicInteger()
+        val platform = Platform(findConnectionOwner = { query ->
+            asked.incrementAndGet()
+            assertEquals("tcp", query.network)
+            ConnectionOwner(10123, packages = listOf("com.blocked"))
+        })
+        Sail.create(platform = platform).use { sail ->
+            val port = freePort()
+            sail.start("""
+                {
+                  "inbounds": [{ "type": "socks", "listen": "127.0.0.1", "listen_port": $port }],
+                  "outbounds": [{ "type": "direct" }],
+                  "route": { "rules": [{ "package_name": "com.blocked", "action": "reject" }] }
+                }
+            """.trimIndent())
+            assertTrue(!echoThroughSocks(port), "the app's connection was not rejected")
+            assertTrue(asked.get() >= 1)
             sail.stop()
         }
     }

@@ -227,7 +227,7 @@ pub unsafe extern "C" fn sail_free_string(s: *mut c_char) {
 }
 
 /// The version of this C ABI: raised when a function changes.
-pub const SAIL_API_VERSION: u32 = 1;
+pub const SAIL_API_VERSION: u32 = 2;
 
 /// What this build of sail has, as JSON: `{"api_version", "json_version"
 /// (the shape of the JSON sail answers with), "version", "features":

@@ -133,6 +133,9 @@ message Connection {
   uint32 start = 12;
   repeated string chains = 13;
   optional string rule = 14;
+  // Who opened it, as the host tells it (Android).
+  optional uint32 uid = 15;
+  repeated string packages = 16;
 }
 
 message Connections {

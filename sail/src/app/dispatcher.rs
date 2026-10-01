@@ -785,6 +785,7 @@ impl Dispatcher {
             return PreMatch::Proceed;
         }
         self.find_neighbor(sess);
+        self.find_owner(sess);
         self.reverse_map(sess).await;
         let outbounds = self.outbound_manager.load_full();
         self.router.load_full().pre_match(sess, &*outbounds).await
@@ -798,10 +799,38 @@ impl Dispatcher {
         }
     }
 
+    /// Who opened the connection, when the host tells: asked of every
+    /// connection, as sing-box's libbox asks on Android, so that the rules
+    /// on it match and the connections list shows it.
+    fn find_owner(&self, sess: &mut Session) {
+        if sess.owner.is_some() {
+            return;
+        }
+        let Some(platform) = self
+            .env
+            .host
+            .platform
+            .as_ref()
+            .filter(|p| p.finds_connection_owner())
+        else {
+            return;
+        };
+        let query = crate::runtime::platform::ConnectionQuery {
+            network: sess.network.to_string(),
+            source: sess.source,
+            destination: sess.destination.to_string(),
+        };
+        match platform.find_connection_owner(&query) {
+            Ok(owner) => sess.owner = owner.map(std::sync::Arc::new),
+            Err(e) => debug!("the host did not find who opened {:?}: {}", query, e),
+        }
+    }
+
     /// Where `sess` goes, as the rules decide; an error when a rule rejects
     /// it.
     async fn route(&self, sess: &mut Session, sniffer: &mut dyn Sniffer) -> io::Result<Routed> {
         self.find_neighbor(sess);
+        self.find_owner(sess);
         let outbounds = self.outbound_manager.load_full();
         let decision = self
             .router

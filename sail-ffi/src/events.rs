@@ -13,7 +13,7 @@ use serde::Serialize;
 
 use crate::handles::Table;
 use crate::instance::{Instance, SailInstance};
-use crate::{call, json, opt_str_arg, out_value, Failure, SAIL_ERR_UNSUPPORTED};
+use crate::{call, json, opt_str_arg, out_value, Failure};
 
 /// A subscription, as the host holds it; 0 is none.
 pub type SailSubscription = u64;
@@ -46,8 +46,12 @@ pub const SAIL_EVENT_CONNECTIONS: u32 = 4;
 /// change: a selection, a delay measured. Options: `{"interval_ms": 250}`,
 /// how often they are looked at.
 pub const SAIL_EVENT_OUTBOUNDS: u32 = 5;
-/// The network the instance is on as it changes. Not yet: its
-/// subscription fails with SAIL_ERR_UNSUPPORTED.
+/// A change of network the connections made on the one before do not
+/// survive (2.12): `{"generation", "reason": "default-interface" |
+/// "state" | "host" | "wake", "old", "new"}`, the networks as
+/// `sail_set_network_state` takes them; while the instance runs. In the
+/// tunnel process only: a command service client's subscription fails with
+/// SAIL_ERR_UNSUPPORTED, as libbox's apps follow the network there.
 pub const SAIL_EVENT_NETWORK: u32 = 6;
 /// A command service client's connection was lost, or the service closed:
 /// `{"error": why, or null}`, once, the subscription's last event. Its
@@ -396,13 +400,54 @@ fn produce(kind: u32, options: &Options, instance: &Arc<Instance>) -> Result<Pro
             Box::new(move |sink| Box::pin(follow_outbounds(sink, weak, every, false)))
         }
         SAIL_EVENT_NETWORK => {
-            return Err(Failure::new(
-                SAIL_ERR_UNSUPPORTED,
-                "network events are not followed yet",
-            ))
+            // Changes from this call on: taken now, not when the task
+            // starts on the events thread.
+            let now = instance.manager().ok().map(|m| {
+                let mut changes = m.network().changes();
+                changes.borrow_and_update();
+                changes
+            });
+            Box::new(move |sink| Box::pin(follow_network(sink, weak, now)))
         }
         other => return Err(Failure::invalid(format!("no event kind {}", other))),
     })
+}
+
+/// Each change of network, while the instance runs; through stops and
+/// starts, the network of each run. `now`: the running instance's changes,
+/// as the subscription was made.
+async fn follow_network(
+    mut out: impl Emit<json::NetworkEvent>,
+    instance: Weak<Instance>,
+    mut now: Option<tokio::sync::watch::Receiver<Option<Arc<sail::net::network::NetworkChange>>>>,
+) {
+    // How often a stopped instance is looked at again.
+    let mut ticker = ticker(Duration::from_millis(250));
+    while out.open() {
+        let mut changes = match now.take() {
+            Some(changes) => changes,
+            None => {
+                let Some(manager) = tick(&mut ticker, &instance).await else {
+                    return;
+                };
+                let Some(manager) = manager else {
+                    continue;
+                };
+                let mut changes = manager.network().changes();
+                // Those from now on: the last one before is no news.
+                changes.borrow_and_update();
+                changes
+            }
+        };
+        while changes.changed().await.is_ok() {
+            let change = changes.borrow_and_update().clone();
+            if let Some(change) = change {
+                if !out.emit(json::NetworkEvent::of(&change)).await {
+                    return;
+                }
+            }
+        }
+    }
 }
 
 /// Each `every`, what controls the instance, while it runs; none once it

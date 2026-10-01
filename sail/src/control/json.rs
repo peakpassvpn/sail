@@ -6,7 +6,7 @@
 //! version of each API that answers with it.
 
 /// The version of the shape, raised with any change to it.
-pub const VERSION: u32 = 1;
+pub const VERSION: u32 = 2;
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -97,6 +97,9 @@ pub struct Connection {
     pub host: Option<String>,
     pub process: Option<String>,
     pub user: Option<String>,
+    /// Who opened it, as the host tells it (Android).
+    pub uid: Option<u32>,
+    pub packages: Vec<String>,
     pub upload: u64,
     pub download: u64,
     /// Unix seconds.
@@ -117,6 +120,8 @@ impl Connection {
             host: c.host.clone(),
             process: c.process.clone(),
             user: c.user.clone(),
+            uid: c.uid,
+            packages: c.packages.clone(),
             upload: c.upload,
             download: c.download,
             start: c.start,
@@ -217,6 +222,30 @@ impl LogLine {
     }
 }
 
+/// A `network` event: a change of network the connections made on the one
+/// before do not survive.
+#[derive(Serialize)]
+pub struct NetworkEvent {
+    /// Counts the changes since the instance started, from 1.
+    pub generation: u64,
+    /// `default-interface`, `state`, `host` or `wake`.
+    pub reason: String,
+    /// The network before and now, as `sail_set_network_state` takes it.
+    pub old: crate::net::network::NetworkState,
+    pub new: crate::net::network::NetworkState,
+}
+
+impl NetworkEvent {
+    pub fn of(change: &crate::net::network::NetworkChange) -> Self {
+        Self {
+            generation: change.generation,
+            reason: change.reason.to_string(),
+            old: (*change.old).clone(),
+            new: (*change.new).clone(),
+        }
+    }
+}
+
 /// A `log` event.
 #[derive(Serialize)]
 pub struct Log {
@@ -246,7 +275,8 @@ mod tests {
                 id: 12, network: "tcp".into(), inbound_type: "socks".into(),
                 inbound_tag: "in".into(), source: "127.0.0.1:5000".into(),
                 destination: "example.com:443".into(), host: Some("example.com".into()),
-                process: None, user: Some("alice".into()), upload: 4, download: 5,
+                process: None, user: Some("alice".into()), uid: Some(10123),
+                packages: vec!["com.example".into()], upload: 4, download: 5,
                 start: 1_759_300_000, chains: vec!["b".into(), "sel".into()], rule: None,
             },
             "outbound": Outbound {
@@ -258,6 +288,15 @@ mod tests {
             },
             "mode": Mode { mode: "Rule".into(), modes: vec!["Rule".into(), "Global".into()] },
             "log": Log { reset: true, lines: vec![LogLine { level: "info".into(), message: "m".into(), time_ms: 1 }], dropped: 2 },
+            "network": NetworkEvent {
+                generation: 2,
+                reason: "host".into(),
+                old: crate::net::network::NetworkState::default(),
+                new: crate::net::network::NetworkState::from_json(
+                    r#"{"type": "wifi", "interface": "wlan0", "ssid": "home"}"#,
+                )
+                .unwrap(),
+            },
             "capabilities": InstanceCapabilities {
                 has_tun: true, opens_tun: false, protects_sockets: true, needs_network: false, has_modes: true,
             },
@@ -265,10 +304,13 @@ mod tests {
         let published = r#"{
   "capabilities": {"has_modes": true, "has_tun": true, "needs_network": false, "opens_tun": false, "protects_sockets": true},
   "connection": {"chains": ["b", "sel"], "destination": "example.com:443", "download": 5, "host": "example.com", "id": 12,
-                 "inbound_tag": "in", "inbound_type": "socks", "network": "tcp", "process": null, "rule": null,
-                 "source": "127.0.0.1:5000", "start": 1759300000, "upload": 4, "user": "alice"},
+                 "inbound_tag": "in", "inbound_type": "socks", "network": "tcp", "packages": ["com.example"],
+                 "process": null, "rule": null, "source": "127.0.0.1:5000", "start": 1759300000,
+                 "uid": 10123, "upload": 4, "user": "alice"},
   "log": {"dropped": 2, "lines": [{"level": "info", "message": "m", "time_ms": 1}], "reset": true},
   "mode": {"mode": "Rule", "modes": ["Rule", "Global"]},
+  "network": {"generation": 2, "new": {"interface": "wlan0", "ssid": "home", "type": "wifi"}, "old": {},
+              "reason": "host"},
   "outbound": {"group": {"members": ["a", "b"], "selectable": true, "selected": "b"},
                "history": [{"delay_ms": 1, "time_ms": 1759300000123}, {"delay_ms": null, "time_ms": 0}],
                "kind": "Selector", "protocol": "selector", "provider": null, "tag": "sel", "udp": true},

@@ -18,6 +18,13 @@ data class Platform(
     val openTun: ((String) -> Int)? = null,
     val serviceStop: (() -> Int)? = null,
     val serviceReload: (() -> Int)? = null,
+    /**
+     * Who opened a connection; null when the host cannot tell. Asked of
+     * every connection as it is routed, on sail's threads: be quick. On
+     * Android: `ConnectivityManager.getConnectionOwnerUid` (API 29+), then
+     * `PackageManager.getPackagesForUid`.
+     */
+    val findConnectionOwner: ((ConnectionQuery) -> ConnectionOwner?)? = null,
 )
 
 /** What sail calls of a [Platform], from jni/sail_jni.c. */
@@ -26,6 +33,9 @@ internal class PlatformBridge(private val platform: Platform) {
     fun openTun(request: String): Int = platform.openTun?.invoke(request) ?: -1
     fun serviceStop(): Int = platform.serviceStop?.invoke() ?: 0
     fun serviceReload(): Int = platform.serviceReload?.invoke() ?: 0
+    fun findConnectionOwner(query: String): String? = platform.findConnectionOwner
+        ?.invoke(json.decodeFromString(query))
+        ?.let { json.encodeToString(ConnectionOwner.serializer(), it) }
 }
 
 /** What sail calls of a subscription, from jni/sail_jni.c. */
@@ -66,6 +76,7 @@ class Sail private constructor(private val handle: Long) : AutoCloseable {
                 platform?.openTun != null,
                 platform?.serviceStop != null,
                 platform?.serviceReload != null,
+                platform?.findConnectionOwner != null,
             )
         )
 

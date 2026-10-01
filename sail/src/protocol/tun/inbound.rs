@@ -417,7 +417,8 @@ pub(crate) struct TunSettings {
     pub auto_redirect: Option<AutoRedirectSettings>,
     /// What auto_route routes, on the systems it routes on.
     pub route: RouteSelection,
-    /// Android apps and users the host's VPN takes in or leaves out.
+    /// Android: the users a VPN takes in, which a host's cannot (refused
+    /// with one), and the apps the host's takes in or leaves out.
     pub include_android_user: Vec<u32>,
     pub include_package: Vec<String>,
     pub exclude_package: Vec<String>,
@@ -433,7 +434,6 @@ impl TunSettings {
             ipv4: self.ipv4,
             ipv6: self.ipv6,
             auto_route: self.auto_route,
-            include_android_user: self.include_android_user.clone(),
             include_package: self.include_package.clone(),
             exclude_package: self.exclude_package.clone(),
         }
@@ -553,9 +553,33 @@ pub(crate) fn peer<I: Inet>(inet: I) -> I::Address {
         .map_or(inet.address(), |peer| peer.address())
 }
 
-pub(crate) fn options(inbound: &Inbound) -> Result<TunSettings> {
+/// Whether `host` opens the TUN device (Android, iOS), with its routes.
+pub(crate) fn host_opens(host: &crate::runtime::Host) -> bool {
+    host.platform
+        .as_ref()
+        .is_some_and(|platform| platform.opens_tun())
+}
+
+/// The options of the TUN inbound `inbound`, checked, for `host`.
+pub(crate) fn options(inbound: &Inbound, host: &crate::runtime::Host) -> Result<TunSettings> {
     let options: TunInboundOptions = parse_options("inbound", &inbound.tag, &inbound.options)?;
     let error = |message: String| anyhow!("[{}] inbound: {}", inbound.tag, message);
+    // A host's VPN takes in or leaves out apps, as Android's VpnService
+    // does, and nothing by user: sing-box's libbox refuses these, with these
+    // words (experimental/libbox/service.go), before anything else of them
+    // is looked at.
+    if host_opens(host) {
+        if !options.include_uid.is_empty()
+            || !options.include_uid_range.is_empty()
+            || !options.exclude_uid.is_empty()
+            || !options.exclude_uid_range.is_empty()
+        {
+            return Err(error("platform: unsupported uid options".into()));
+        }
+        if !options.include_android_user.is_empty() {
+            return Err(error("platform: unsupported android_user option".into()));
+        }
+    }
     let (mut ipv4, mut ipv6) = (None, None);
     for address in &options.address {
         // As sing-box, the prefix is required: a bare address is no /32.
@@ -804,8 +828,6 @@ pub(crate) fn new(
 ) -> Result<TunRunner> {
     tracing::debug!("Create TUN inbound");
 
-    let settings = options(&inbound)?;
-
     // A host that runs the VPN (Android, iOS) opens the device, with its
     // routes; the instance only reads and writes it.
     let platform = dispatcher
@@ -814,6 +836,7 @@ pub(crate) fn new(
         .platform
         .clone()
         .filter(|platform| platform.opens_tun());
+    let settings = options(&inbound, &dispatcher.env().host)?;
     if platform.is_none() {
         if let Some(field) = [
             (
@@ -972,6 +995,11 @@ fn cfg_opened_here(dispatcher: &Dispatcher) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The options, for an instance whose host does not open the device.
+    fn options(inbound: &Inbound) -> Result<TunSettings> {
+        super::options(inbound, &Default::default())
+    }
 
     /// The mobile profile's stack takes 2000 connections at once. Every
     /// connection reserves its starting receive window from the budget, and

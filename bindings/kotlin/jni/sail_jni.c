@@ -11,6 +11,7 @@
 
 #include <jni.h>
 #include <pthread.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -27,6 +28,7 @@ static jmethodID protect_socket;
 static jmethodID open_tun;
 static jmethodID service_stop;
 static jmethodID service_reload;
+static jmethodID find_owner;
 
 static void detach(void *unused) {
     (void)unused;
@@ -72,6 +74,7 @@ JNIEXPORT jint JNI_OnLoad(JavaVM *jvm, void *reserved) {
     open_tun = (*env)->GetMethodID(env, platform, "openTun", "(Ljava/lang/String;)I");
     service_stop = (*env)->GetMethodID(env, platform, "serviceStop", "()I");
     service_reload = (*env)->GetMethodID(env, platform, "serviceReload", "()I");
+    find_owner = (*env)->GetMethodID(env, platform, "findConnectionOwner", "(Ljava/lang/String;)Ljava/lang/String;");
     return JNI_VERSION_1_6;
 }
 
@@ -145,6 +148,33 @@ static int32_t platform_service(void *context, jmethodID method) {
     return code;
 }
 
+/* Who opened a connection: the bridge's JSON, into sail's buffer; minus
+ * what it needs when the buffer is too small, 0 when it cannot tell. */
+static ptrdiff_t platform_find_owner(const char *query, char *out, size_t out_len, void *context) {
+    JNIEnv *env = env_here();
+    if (!env) return 0;
+    jstring q = (*env)->NewStringUTF(env, query);
+    jstring reply = (jstring)(*env)->CallObjectMethod(env, (jobject)context, find_owner, q);
+    (*env)->DeleteLocalRef(env, q);
+    if ((*env)->ExceptionCheck(env)) {
+        (*env)->ExceptionClear(env);
+        return 0;
+    }
+    if (!reply) return 0;
+    const char *json = (*env)->GetStringUTFChars(env, reply, NULL);
+    size_t len = strlen(json);
+    ptrdiff_t written;
+    if (len > out_len) {
+        written = -(ptrdiff_t)len;
+    } else {
+        memcpy(out, json, len);
+        written = (ptrdiff_t)len;
+    }
+    (*env)->ReleaseStringUTFChars(env, reply, json);
+    (*env)->DeleteLocalRef(env, reply);
+    return written;
+}
+
 static int32_t platform_stop(void *context) { return platform_service(context, service_stop); }
 static int32_t platform_reload(void *context) { return platform_service(context, service_reload); }
 
@@ -170,7 +200,8 @@ static void event_release(void *context) {
 #define NATIVE(name) Java_io_github_peakpassvpn_sail_Native_##name
 
 JNIEXPORT jlong JNICALL NATIVE(instanceNew)(JNIEnv *env, jclass cls, jstring settings, jobject bridge,
-                                            jboolean protect, jboolean tun, jboolean stop, jboolean reload) {
+                                            jboolean protect, jboolean tun, jboolean stop, jboolean reload,
+                                            jboolean owner) {
     (void)cls;
     SailPlatform platform;
     memset(&platform, 0, sizeof platform);
@@ -182,6 +213,7 @@ JNIEXPORT jlong JNICALL NATIVE(instanceNew)(JNIEnv *env, jclass cls, jstring set
         if (tun) platform.open_tun = platform_open_tun;
         if (stop) platform.service_stop = platform_stop;
         if (reload) platform.service_reload = platform_reload;
+        if (owner) platform.find_connection_owner = platform_find_owner;
     }
     const char *s = c_string(env, settings);
     SailInstance instance = 0;

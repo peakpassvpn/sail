@@ -61,6 +61,9 @@ data class Connection(
     val host: String? = null,
     val process: String? = null,
     val user: String? = null,
+    /** Who opened it, as the host told (Android). */
+    val uid: Long? = null,
+    val packages: List<String> = emptyList(),
     val upload: Long,
     val download: Long,
     /** Unix seconds. */
@@ -91,6 +94,14 @@ data class Outbound(
     val history: List<Delay>,
     val group: Group? = null,
 )
+
+/** A connection whose owner the host is asked for. */
+@Serializable
+data class ConnectionQuery(val network: String, val source: String, val destination: String)
+
+/** Who opened a connection, as the host tells sail. */
+@Serializable
+data class ConnectionOwner(val uid: Long, val user: String? = null, val packages: List<String> = emptyList())
 
 @Serializable
 data class Mode(val mode: String, val modes: List<String>)

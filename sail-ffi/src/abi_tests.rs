@@ -291,6 +291,7 @@ fn platform_of(recorder: &Arc<Recorder>) -> SailPlatform {
         open_tun: None,
         service_stop: None,
         service_reload: None,
+        find_connection_owner: None,
     }
 }
 
@@ -976,6 +977,7 @@ fn a_call_that_would_wait_on_its_own_thread_fails() {
             open_tun: None,
             service_stop: None,
             service_reload: None,
+            find_connection_owner: None,
         };
         let instance = new_instance(None, Some(&platform));
         *protector.instance.lock().unwrap() = instance;
@@ -1286,6 +1288,7 @@ mod command {
                 open_tun: None,
                 service_stop: Some(host_stop),
                 service_reload: Some(host_reload),
+                find_connection_owner: None,
             };
             let instance = new_instance(None, Some(&platform));
             *host.instance.lock().unwrap() = instance;
@@ -1385,4 +1388,307 @@ mod command {
             sail_instance_free(instance);
         });
     }
+}
+
+/// Who opened a connection, as an Android host tells it (2.13).
+mod owner {
+    use super::*;
+
+    /// A host that tells each connection to the blocked port is
+    /// `com.blocked`'s, and the others `com.allowed`'s, with a reply as long
+    /// as `packages` makes it.
+    struct Owners {
+        blocked: Mutex<u16>,
+        padding: usize,
+        calls: AtomicUsize,
+    }
+
+    extern "C" fn find(
+        query: *const c_char,
+        out: *mut c_char,
+        out_len: usize,
+        context: *mut c_void,
+    ) -> isize {
+        let owners = unsafe { &*(context as *const Owners) };
+        owners.calls.fetch_add(1, Ordering::SeqCst);
+        let query: serde_json::Value =
+            serde_json::from_str(unsafe { CStr::from_ptr(query) }.to_str().unwrap()).unwrap();
+        let blocked = format!(":{}", *owners.blocked.lock().unwrap());
+        let package = if query["destination"].as_str().unwrap().ends_with(&blocked) {
+            "com.blocked"
+        } else {
+            "com.allowed"
+        };
+        let mut packages = vec![package.to_string()];
+        packages.extend((0..owners.padding).map(|i| format!("com.padding.number{:04}", i)));
+        let reply =
+            serde_json::json!({ "uid": 10123, "user": null, "packages": packages }).to_string();
+        if reply.len() > out_len {
+            return -(reply.len() as isize);
+        }
+        unsafe { std::ptr::copy_nonoverlapping(reply.as_ptr(), out as *mut u8, reply.len()) };
+        reply.len() as isize
+    }
+
+    fn platform(owners: &Arc<Owners>) -> SailPlatform {
+        SailPlatform {
+            struct_size: std::mem::size_of::<SailPlatform>() as u32,
+            context: Arc::as_ptr(owners) as *mut c_void,
+            release: None,
+            protect_socket: None,
+            open_tun: None,
+            service_stop: None,
+            service_reload: None,
+            find_connection_owner: Some(find),
+        }
+    }
+
+    fn config(port: u16, rule: serde_json::Value) -> String {
+        serde_json::json!({
+            "inbounds": [{ "type": "socks", "tag": "socks-in", "listen": "127.0.0.1", "listen_port": port }],
+            "outbounds": [{ "type": "direct" }],
+            "route": { "rules": [rule] },
+        })
+        .to_string()
+    }
+
+    /// A connection through the SOCKS inbound at `port` to an echo server,
+    /// kept open; the echo server's port with it.
+    fn open_through_socks(port: u16) -> (std::net::TcpStream, u16) {
+        let echo = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let echo_port = echo.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            if let Ok((mut s, _)) = echo.accept() {
+                let mut buf = [0u8; 64];
+                while let Ok(n) = s.read(&mut buf) {
+                    if n == 0 || s.write_all(&buf[..n]).is_err() {
+                        break;
+                    }
+                }
+            }
+        });
+        let mut s = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+        s.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        s.write_all(&[5, 1, 0]).unwrap();
+        let mut reply = [0u8; 2];
+        s.read_exact(&mut reply).unwrap();
+        let mut request = vec![5, 1, 0, 1, 127, 0, 0, 1];
+        request.extend_from_slice(&echo_port.to_be_bytes());
+        s.write_all(&request).unwrap();
+        let mut reply = [0u8; 10];
+        s.read_exact(&mut reply).unwrap();
+        s.write_all(b"ping").unwrap();
+        let mut back = [0u8; 4];
+        s.read_exact(&mut back).unwrap();
+        (s, echo_port)
+    }
+
+    #[test]
+    fn a_package_rule_routes_by_the_app_the_host_names() {
+        let _serial = serial();
+        within(Duration::from_secs(60), || {
+            let owners = Arc::new(Owners {
+                blocked: Mutex::new(0),
+                padding: 0,
+                calls: AtomicUsize::new(0),
+            });
+            let instance = new_instance(None, Some(&platform(&owners)));
+            let port = free_port();
+            start(
+                instance,
+                &config(
+                    port,
+                    serde_json::json!({ "package_name": "com.blocked", "action": "reject" }),
+                ),
+            );
+            // com.allowed's goes through, and is listed with its app.
+            let (open, echo_port) = open_through_socks(port);
+            let connections = json_of(|out, err| unsafe { sail_connections(instance, out, err) });
+            let c = connections["connections"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|c| c["destination"] == format!("127.0.0.1:{}", echo_port))
+                .cloned()
+                .unwrap();
+            assert_eq!(c["uid"], 10123);
+            assert_eq!(c["packages"], serde_json::json!(["com.allowed"]));
+            drop(open);
+            // com.blocked's is rejected.
+            let echo = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            *owners.blocked.lock().unwrap() = echo.local_addr().unwrap().port();
+            drop(echo);
+            assert!(!socks_connects_to(port, *owners.blocked.lock().unwrap()));
+            assert!(owners.calls.load(Ordering::SeqCst) >= 2);
+            stop(instance);
+            sail_instance_free(instance);
+        });
+    }
+
+    /// Whether a connection through the SOCKS inbound at `port` to
+    /// 127.0.0.1:`target` echoes.
+    fn socks_connects_to(port: u16, target: u16) -> bool {
+        let echo = std::net::TcpListener::bind(("127.0.0.1", target)).unwrap();
+        std::thread::spawn(move || {
+            if let Ok((mut s, _)) = echo.accept() {
+                let mut buf = [0u8; 4];
+                if s.read_exact(&mut buf).is_ok() {
+                    let _ = s.write_all(&buf);
+                }
+            }
+        });
+        let attempt = || -> std::io::Result<bool> {
+            let mut s = std::net::TcpStream::connect(("127.0.0.1", port))?;
+            s.set_read_timeout(Some(Duration::from_secs(3)))?;
+            s.write_all(&[5, 1, 0])?;
+            let mut reply = [0u8; 2];
+            s.read_exact(&mut reply)?;
+            let mut request = vec![5, 1, 0, 1, 127, 0, 0, 1];
+            request.extend_from_slice(&target.to_be_bytes());
+            s.write_all(&request)?;
+            let mut reply = [0u8; 10];
+            s.read_exact(&mut reply)?;
+            s.write_all(b"ping")?;
+            let mut back = [0u8; 4];
+            s.read_exact(&mut back)?;
+            Ok(&back == b"ping")
+        };
+        attempt().unwrap_or(false)
+    }
+
+    #[test]
+    fn a_long_answer_is_asked_for_again_with_the_room_it_needs() {
+        let _serial = serial();
+        within(Duration::from_secs(60), || {
+            let owners = Arc::new(Owners {
+                blocked: Mutex::new(0),
+                // About 2.5 KiB of package names: more than the first ask.
+                padding: 100,
+                calls: AtomicUsize::new(0),
+            });
+            let instance = new_instance(None, Some(&platform(&owners)));
+            let port = free_port();
+            start(
+                instance,
+                &config(
+                    port,
+                    serde_json::json!({ "package_name": "com.padding.number0099", "outbound": "direct" }),
+                ),
+            );
+            let (open, _) = open_through_socks(port);
+            let connections = json_of(|out, err| unsafe { sail_connections(instance, out, err) });
+            assert_eq!(
+                connections["connections"][0]["packages"]
+                    .as_array()
+                    .unwrap()
+                    .len(),
+                101
+            );
+            assert_eq!(
+                owners.calls.load(Ordering::SeqCst),
+                2,
+                "asked once more, with room"
+            );
+            drop(open);
+            stop(instance);
+            sail_instance_free(instance);
+        });
+    }
+
+    #[test]
+    fn without_a_host_that_tells_a_package_rule_is_an_error() {
+        let _serial = serial();
+        let instance = new_instance(None, None);
+        for rule in [
+            serde_json::json!({ "package_name": "com.x", "action": "reject" }),
+            serde_json::json!({ "package_name_regex": "^com\\.", "action": "reject" }),
+            serde_json::json!({ "user_id": [10123], "action": "reject" }),
+            serde_json::json!({ "user": ["u0_a123"], "action": "reject" }),
+        ] {
+            let config = CString::new(config(free_port(), rule.clone())).unwrap();
+            let mut err = std::ptr::null_mut();
+            let code = unsafe { sail_instance_start(instance, config.as_ptr(), &mut err) };
+            let message = take(err);
+            assert_eq!(code, SAIL_ERR_CONFIG, "{}", rule);
+            assert!(message.contains("find_connection_owner"), "{}", message);
+        }
+        sail_instance_free(instance);
+    }
+
+    extern "C" fn no_tun(_: *const c_char, _: *mut c_void) -> i32 {
+        -1
+    }
+
+    #[test]
+    fn a_host_tun_refuses_what_a_vpn_service_cannot_apply() {
+        let _serial = serial();
+        let platform = SailPlatform {
+            open_tun: Some(no_tun),
+            ..platform(&Arc::new(Owners {
+                blocked: Mutex::new(0),
+                padding: 0,
+                calls: AtomicUsize::new(0),
+            }))
+        };
+        let instance = new_instance(None, Some(&platform));
+        for (field, value, said) in [
+            (
+                "include_uid",
+                serde_json::json!([1000]),
+                "platform: unsupported uid options",
+            ),
+            (
+                "exclude_uid_range",
+                serde_json::json!(["1000:2000"]),
+                "platform: unsupported uid options",
+            ),
+            (
+                "include_android_user",
+                serde_json::json!([0]),
+                "platform: unsupported android_user option",
+            ),
+        ] {
+            let mut tun =
+                serde_json::json!({ "type": "tun", "tag": "tun-in", "address": ["172.19.0.1/30"] });
+            tun[field] = value;
+            let config = CString::new(
+                serde_json::json!({ "inbounds": [tun], "outbounds": [{ "type": "direct" }] })
+                    .to_string(),
+            )
+            .unwrap();
+            let mut err = std::ptr::null_mut();
+            let code = unsafe { sail_instance_start(instance, config.as_ptr(), &mut err) };
+            let message = take(err);
+            assert_eq!(code, SAIL_ERR_CONFIG, "{}", field);
+            assert!(message.contains(said), "{}: {}", field, message);
+        }
+        sail_instance_free(instance);
+    }
+}
+
+#[test]
+fn a_change_of_network_is_followed() {
+    let _serial = serial();
+    within(Duration::from_secs(60), || {
+        let instance = new_instance(None, None);
+        start(instance, &config(free_port()));
+        let changes = Recorder::new();
+        subscribe(instance, SAIL_EVENT_NETWORK, None, &changes, record);
+        let push = |state: &str| {
+            let state = CString::new(state).unwrap();
+            ok("set network", |err| unsafe {
+                sail_set_network_state(instance, state.as_ptr(), err)
+            });
+        };
+        // The first the instance hears of is no change; the next is.
+        push(r#"{"type": "wifi", "interface": "wlan0", "ssid": "home"}"#);
+        push(r#"{"type": "cellular", "interface": "rmnet0"}"#);
+        let change = changes.wait(SAIL_EVENT_NETWORK, |e| e["new"]["interface"] == "rmnet0");
+        assert_eq!(change["reason"], "host");
+        assert_eq!(change["old"]["ssid"], "home");
+        assert!(change["generation"].as_u64().unwrap() >= 1);
+        stop(instance);
+        sail_instance_free(instance);
+        eventually("released", || changes.released.load(Ordering::SeqCst) == 1);
+    });
 }

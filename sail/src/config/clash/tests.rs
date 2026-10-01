@@ -1449,7 +1449,7 @@ fn tun_is_a_tun_inbound_and_its_dns_hijack_a_rule_before_every_other() {
     // implemented yet.
     #[cfg(all(feature = "inbound-tun", target_os = "linux"))]
     {
-        let settings = crate::protocol::tun::inbound::options(tun).unwrap();
+        let settings = crate::protocol::tun::inbound::options(tun, &Default::default()).unwrap();
         assert_eq!(settings.mtu, 1500);
         assert!(settings.auto_route);
     }

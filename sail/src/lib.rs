@@ -1287,11 +1287,14 @@ pub fn is_running(key: RuntimeId) -> bool {
 /// `route.default_mark` and an outbound's `routing_mark` are errors then, as
 /// in sing-box.
 #[cfg(feature = "inbound-tun")]
-fn auto_redirect_output_mark(config: &config::Config) -> anyhow::Result<Option<u32>> {
+fn auto_redirect_output_mark(
+    config: &config::Config,
+    host: &runtime::Host,
+) -> anyhow::Result<Option<u32>> {
     let Some(tun) = config.inbounds.iter().find(|i| i.protocol == "tun") else {
         return Ok(None);
     };
-    let Some(redirect) = protocol::tun::inbound::options(tun)?.auto_redirect else {
+    let Some(redirect) = protocol::tun::inbound::options(tun, host)?.auto_redirect else {
         return Ok(None);
     };
     if config.route.default_mark.is_some() {
@@ -1325,7 +1328,7 @@ pub(crate) fn dial_defaults(
     let route = &config.route;
     let mut defaults = net::DialDefaults::new(route)?;
     #[cfg(feature = "inbound-tun")]
-    if let Some(mark) = auto_redirect_output_mark(config)? {
+    if let Some(mark) = auto_redirect_output_mark(config, &env.host)? {
         // auto_redirect's only guard against loops: its rules let sail's
         // own sockets, which carry this mark, go out as they are.
         defaults.route.routing_mark = Some(mark);
@@ -1528,11 +1531,13 @@ fn run(rt_id: RuntimeId, opts: StartOptions, start: &Arc<Starting>) -> Result<()
         .clone();
     // What this thread logs while it starts and runs the instance is its.
     let _log = app::logger::enter(Some(log.clone()));
+    #[cfg(feature = "inbound-tun")]
+    let listen_mark = auto_redirect_output_mark(&config, &host).map_err(Error::Config)?;
     let env = Arc::new(runtime::RuntimeEnv {
         options: opts.runtime,
         host,
         #[cfg(feature = "inbound-tun")]
-        listen_mark: auto_redirect_output_mark(&config).map_err(Error::Config)?,
+        listen_mark,
         ..Default::default()
     });
 

@@ -4,7 +4,7 @@ package io.github.peakpassvpn.sail
 internal object Native {
     @JvmStatic external fun instanceNew(
         settings: String?, bridge: PlatformBridge?,
-        protect: Boolean, tun: Boolean, stop: Boolean, reload: Boolean,
+        protect: Boolean, tun: Boolean, stop: Boolean, reload: Boolean, owner: Boolean,
     ): Long
     @JvmStatic external fun clientConnect(options: String): Long
     @JvmStatic external fun instanceFree(instance: Long)

@@ -75,7 +75,7 @@
 /*
  The version of this C ABI: raised when a function changes.
  */
-#define SAIL_API_VERSION 1
+#define SAIL_API_VERSION 2
 
 /*
  The instance's state, as `sail_instance_state` gives it: now, then on
@@ -173,7 +173,10 @@ typedef struct SailPlatform {
    `VpnService.Builder.establish`, iOS's packet flow's utun), as the
    JSON `request` says: `interface_name`, `mtu`, `ipv4` and `ipv6` (an
    address with its prefix, or null), `auto_route`, and for Android
-   `include_android_user`, `include_package`, `exclude_package`.
+   `include_package` and `exclude_package`, which the host applies with
+   `addAllowedApplication` / `addDisallowedApplication` (sail refuses a
+   configuration with uid or `include_android_user` options, which a
+   VpnService cannot apply, as sing-box's libbox does).
    Returns the device's file descriptor, which the instance then owns,
    or a negative number. With it, the host routes the device: sail
    changes no routes. Called while the instance starts, on the thread
@@ -194,6 +197,22 @@ typedef struct SailPlatform {
    it from its file.
    */
   int32_t (*service_reload)(void *context);
+  /*
+   Who opened a connection (Android: `ConnectivityManager.
+   getConnectionOwnerUid`, then `PackageManager.getPackagesForUid`).
+   With it, every connection is asked about before it is routed, as
+   sing-box's libbox does on Android, and the rules `package_name`,
+   `package_name_regex`, `user` and `user_id` match.
+
+   `query` is JSON: `{"network": "tcp" | "udp", "source": "ip:port",
+   "destination": "host:port"}`. The host writes `{"uid", "user" (or
+   null), "packages": [...]}` into `out`, at most `out_len` bytes,
+   and returns how many it wrote; 0 when it cannot tell; when `out_len`
+   is too small, minus the length it needs, and it is called again
+   with that much. Called on the instance's threads, as it routes: it
+   must not wait on sail.
+   */
+  ptrdiff_t (*find_connection_owner)(const char *query, char *out, size_t out_len, void *context);
 } SailPlatform;
 
 #ifdef __cplusplus

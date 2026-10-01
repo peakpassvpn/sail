@@ -126,7 +126,7 @@ and the next start with the same directories runs.
 | Delays | `sail_delay` (waits), `sail_url_test` (does not; a group's members), `sail_cancel` | through `SAIL_EVENT_OUTBOUNDS` |
 | Mode | `sail_mode`, `sail_set_mode` (an instance has modes though its configuration has no Clash API, as libbox's apps do) | |
 | Log | `sail_clear_logs` | `SAIL_EVENT_LOG` |
-| Network | `sail_set_network_state`, `sail_network_changed` | `SAIL_EVENT_NETWORK` (not yet) |
+| Network | `sail_set_network_state`, `sail_network_changed` | `SAIL_EVENT_NETWORK` (each change the connections do not survive) |
 | Capabilities | `sail_capabilities`, `sail_instance_capabilities` | |
 
 Without an instance: `sail_check_config`, `sail_import_share_links`,
@@ -135,6 +135,23 @@ Without an instance: `sail_check_config`, `sail_import_share_links`,
 The data is what the Clash API reads: the traffic, connections, delays and
 selections are the instance's, whoever asks. An instance keeps the delays
 measured of each outbound (the last ten), with or without a Clash API.
+
+## Android: per-app proxying
+
+What goes through the VPN by app is the host's VpnService's to apply, as in
+sing-box's apps; sail hands it the lists and routes by app:
+
+| | Who |
+| --- | --- |
+| `include_package` / `exclude_package` of the tun inbound, in `open_tun`'s request | sail passes them |
+| `VpnService.Builder.addAllowedApplication` / `addDisallowedApplication` for them, skipping packages not installed, and the app's own package (added in include mode, left out in exclude mode) | the host |
+| `include_uid`, `exclude_uid`, their ranges, `include_android_user` | refused when the host opens the tun (`platform: unsupported uid options`, `platform: unsupported android_user option`, as libbox): a VpnService has no way to apply them |
+| Who opened a connection: `ConnectivityManager.getConnectionOwnerUid` (API 29+), then `PackageManager.getPackagesForUid` | the host, in `find_connection_owner` |
+| The rules `package_name`, `package_name_regex`, `user`, `user_id`, in routing and DNS rules, against what the host said; the uid and packages in the connections list | sail |
+
+With `find_connection_owner`, every connection is asked about before it is
+routed, as libbox asks on Android. Without it, those rules are errors.
+Below API 29 the host cannot tell, and the rules do not match there.
 
 ## The command service
 

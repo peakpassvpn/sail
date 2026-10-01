@@ -161,7 +161,7 @@ impl InboundManager {
             match inbound.protocol.as_str() {
                 #[cfg(feature = "inbound-tun")]
                 "tun" => {
-                    crate::protocol::tun::inbound::options(inbound)?;
+                    crate::protocol::tun::inbound::options(inbound, &dispatcher.env().host)?;
                     let listener = TunInboundListener {
                         inbound: inbound.clone(),
                         dispatcher: dispatcher.clone(),

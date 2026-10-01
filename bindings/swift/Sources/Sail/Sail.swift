@@ -17,17 +17,22 @@ public struct Platform {
     public var serviceStop: (() -> Int32)?
     /// Reloads it as the host does, for a client; a SAIL code.
     public var serviceReload: (() -> Int32)?
+    /// Who opened a connection; nil when the host cannot tell. Asked of
+    /// every connection as it is routed, on sail's threads: be quick.
+    public var findConnectionOwner: ((ConnectionQuery) -> ConnectionOwner?)?
 
     public init(
         protectSocket: ((Int32) -> Bool)? = nil,
         openTun: ((String) -> Int32)? = nil,
         serviceStop: (() -> Int32)? = nil,
-        serviceReload: (() -> Int32)? = nil
+        serviceReload: (() -> Int32)? = nil,
+        findConnectionOwner: ((ConnectionQuery) -> ConnectionOwner?)? = nil
     ) {
         self.protectSocket = protectSocket
         self.openTun = openTun
         self.serviceStop = serviceStop
         self.serviceReload = serviceReload
+        self.findConnectionOwner = findConnectionOwner
     }
 }
 
@@ -103,6 +108,23 @@ public final class Sail {
             }
             if platform.serviceReload != nil {
                 raw.service_reload = { context in PlatformBox.of(context).serviceReload!() }
+            }
+            if platform.findConnectionOwner != nil {
+                raw.find_connection_owner = { query, out, outLen, context in
+                    let find = PlatformBox.of(context).findConnectionOwner!
+                    guard let query = try? decode(ConnectionQuery.self, String(cString: query!)),
+                          let owner = find(query),
+                          let reply = try? JSONEncoder().encode(owner)
+                    else { return 0 }
+                    // Too small: what it needs, to be asked again with.
+                    guard reply.count <= outLen else { return -reply.count }
+                    reply.withUnsafeBytes { bytes in
+                        out!.withMemoryRebound(to: UInt8.self, capacity: outLen) {
+                            $0.update(from: bytes.bindMemory(to: UInt8.self).baseAddress!, count: reply.count)
+                        }
+                    }
+                    return reply.count
+                }
             }
         }
         do {

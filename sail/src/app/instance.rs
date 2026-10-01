@@ -169,7 +169,8 @@ impl Instance {
             .iter()
             .find(|i| i.protocol == "tun")
             .map(|i| {
-                crate::protocol::tun::inbound::options(i).map(|settings| (i.tag.clone(), settings))
+                crate::protocol::tun::inbound::options(i, &env.host)
+                    .map(|settings| (i.tag.clone(), settings))
             })
             .transpose()?
             .filter(|(_, settings)| {
