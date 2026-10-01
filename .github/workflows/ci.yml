@@ -1,40 +1,35 @@
 name: ci
 
-# Day-to-day checks, Linux only: macOS runners are costly, so the Apple
-# builds run at release (release.yml) and nowhere else.
+# Day-to-day checks, Linux only. A ci/* branch runs two jobs (check,
+# features); master adds three cross jobs. Apple builds run at release.
 on: [push, pull_request, workflow_dispatch]
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # Nothing with local paths, run logs or evidence reaches the public repository.
-  sensitive:
+  # The pre-merge check, on every push: the sensitive check, format, lint
+  # and the tests, in one job.
+  check:
     runs-on: ubuntu-latest
     steps:
       - name: checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          submodules: true
 
-      - name: tracked files
+      # Nothing with local paths, run logs or evidence reaches the public repository.
+      - name: sensitive (tracked files)
         run: tools/sensitive-check.sh tree
 
-      - name: added lines and messages
+      - name: sensitive (added lines and messages)
         env:
           BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
         run: |
           if [ -n "$BASE" ] && [ "$BASE" != 0000000000000000000000000000000000000000 ] && git cat-file -e "$BASE^{commit}" 2>/dev/null; then
             tools/sensitive-check.sh range "$BASE" "$GITHUB_SHA"
           fi
-
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - name: checkout
-        uses: actions/checkout@v4
-        with:
-          submodules: true
 
       # The version is rust-toolchain.toml's; keep them in step.
       - name: install rust toolchain
@@ -64,7 +59,7 @@ jobs:
 
   # Small builds, one feature set at a time, tests included, so that cfg
   # gates and feature dependencies stay right.
-  check-features:
+  features:
     runs-on: ubuntu-latest
     env:
       RUSTFLAGS: -D warnings
@@ -113,15 +108,14 @@ jobs:
       - name: configuration reference is current
         run: cd website && node scripts/build-config.mjs --check
 
-  # Every non-Apple release target, built from Linux with the scripts the
-  # release uses. A debug build: it links, which `cargo check` would not,
-  # and BoringSSL is compiled either way. Then, where the runner can run
-  # the result: `test` runs the sail tests (natively, or under qemu-user),
-  # `smoke` runs `sail --version` (qemu-user, wine), which catches a binary
-  # that does not load. Android libraries are only built.
-  #
-  # The matrix is most of a run's minutes, so a ci/* branch (the pre-merge
-  # check) skips it: it runs on master, and by hand.
+  # The non-Apple release targets, built from Linux with the scripts the
+  # release uses, in three jobs: a debug build links, which `cargo check`
+  # would not, and BoringSSL is compiled either way. On master and by hand
+  # only; a ci/* branch skips them.
+  # - linux: the musl and Windows CLIs, each started once (`sail --version`,
+  #   under qemu-user or wine), which catches a binary that does not load;
+  # - aarch64: the sail tests under qemu-user, the one non-x86 test run;
+  # - android: the four sail-ffi libraries, built only.
   cross:
     if: github.ref == 'refs/heads/master' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
@@ -129,16 +123,19 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { target: x86_64-unknown-linux-musl, package: sail-cli, run: test }
-          - { target: i686-unknown-linux-musl, package: sail-cli, run: smoke }
-          - { target: aarch64-unknown-linux-musl, package: sail-cli, run: test }
-          - { target: armv7-unknown-linux-musleabihf, package: sail-cli, run: smoke }
-          - { target: arm-unknown-linux-musleabi, package: sail-cli, run: smoke }
-          - { target: x86_64-pc-windows-gnu, package: sail-cli, run: smoke }
-          - { target: aarch64-linux-android, package: sail-ffi }
-          - { target: armv7-linux-androideabi, package: sail-ffi }
-          - { target: x86_64-linux-android, package: sail-ffi }
-          - { target: i686-linux-android, package: sail-ffi }
+          - name: linux
+            targets: x86_64-unknown-linux-musl i686-unknown-linux-musl armv7-unknown-linux-musleabihf arm-unknown-linux-musleabi x86_64-pc-windows-gnu
+            package: sail-cli
+            run: smoke
+          - name: aarch64
+            targets: aarch64-unknown-linux-musl
+            package: sail-cli
+            run: test
+          - name: android
+            targets: aarch64-linux-android armv7-linux-androideabi x86_64-linux-android i686-linux-android
+            package: sail-ffi
+            run: ''
+    name: cross (${{ matrix.name }})
     env:
       # Debug info and incremental state only cost disk and time here; the
       # statically linked test binaries are large enough without them.
@@ -155,26 +152,36 @@ jobs:
         with:
           toolchain: 1.98.1
 
-      # scripts/install_cross_toolchain.sh downloads into ~/.sail-cross.
+      # scripts/install_cross_toolchain.sh downloads into ~/.sail-cross. No
+      # build cache: the targets' builds would evict the check job's cache.
       - name: cache cross toolchain
         uses: actions/cache@v4
         with:
           path: ~/.sail-cross
-          # The four Android targets share one NDK.
-          key: sail-cross-${{ contains(matrix.target, 'android') && 'android' || matrix.target }}-${{ hashFiles('scripts/install_cross_toolchain.sh') }}
+          key: sail-cross-${{ matrix.name }}-${{ hashFiles('scripts/install_cross_toolchain.sh') }}
 
-      # No build cache here: ten targets at about 0.7 GB each would evict the
-      # test and feature caches every ci/* run depends on.
+      - name: install cross toolchains
+        run: |
+          for t in ${{ matrix.targets }}; do
+            scripts/install_cross_toolchain.sh "$t" ${{ matrix.run && '--run' || '' }}
+          done
 
-      - name: install cross toolchain
-        run: scripts/install_cross_toolchain.sh ${{ matrix.target }} ${{ matrix.run && '--run' || '' }}
-
-      - name: build
-        run: scripts/cross.sh ${{ matrix.target }} build -p ${{ matrix.package }}
-
-      - name: smoke
-        if: ${{ matrix.run == 'smoke' }}
-        run: scripts/cross.sh ${{ matrix.target }} run -p sail-cli -- --version
+      # One target at a time, its output removed after use, so that the
+      # several targets of a job fit on the runner's disk; the host-side
+      # build (scripts, proc macros) is shared.
+      - name: build, then smoke or nothing
+        if: ${{ matrix.run != 'test' }}
+        run: |
+          for t in ${{ matrix.targets }}; do
+            echo "::group::$t"
+            scripts/cross.sh "$t" build -p ${{ matrix.package }}
+            if [ "${{ matrix.run }}" = smoke ]; then
+              scripts/cross.sh "$t" run -p sail-cli -- --version
+            fi
+            rm -rf "target/$t"
+            echo "::endgroup::"
+          done
+          df -h / | tail -1
 
       # test_tls_split pushes 32 MiB each way within a 20 s deadline. Its
       # tests run one at a time here: side by side under qemu-user they
@@ -182,5 +189,7 @@ jobs:
       - name: test sail
         if: ${{ matrix.run == 'test' }}
         run: |
-          scripts/cross.sh ${{ matrix.target }} test -p sail -- --skip test_tls_split_
-          scripts/cross.sh ${{ matrix.target }} test -p sail --test test_tls_split -- --test-threads=1
+          for t in ${{ matrix.targets }}; do
+            scripts/cross.sh "$t" test -p sail -- --skip test_tls_split_
+            scripts/cross.sh "$t" test -p sail --test test_tls_split -- --test-threads=1
+          done
