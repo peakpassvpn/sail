@@ -319,6 +319,35 @@ fn the_quic_transport_refuses_what_its_handshake_cannot_do() {
     manager(&[trojan(json!({ "utls": { "enabled": false } }))]).unwrap();
 }
 
+/// `tls.ech.disable_dns_lookup` requires the ECHConfigList to be given: a
+/// given one is used without DNS anyway, and without one, ECH would be off.
+#[test]
+fn ech_without_dns_needs_its_config() {
+    let trojan = |ech: serde_json::Value| {
+        outbound(
+            "t",
+            "trojan",
+            json!({ "server": "1.2.3.4", "server_port": 443, "password": "p",
+                "tls": { "enabled": true, "server_name": "example.com", "ech": ech } }),
+        )
+    };
+    let err = manager(&[trojan(
+        json!({ "enabled": true, "disable_dns_lookup": true }),
+    )])
+    .err()
+    .unwrap();
+    assert_eq!(
+        err.to_string(),
+        "[t] outbound: tls.ech.disable_dns_lookup: needs tls.ech.config"
+    );
+    manager(
+        &[trojan(json!({ "enabled": true, "disable_dns_lookup": true,
+        "config": "AAT+DQBB" }))],
+    )
+    .unwrap();
+    manager(&[trojan(json!({ "enabled": true }))]).unwrap();
+}
+
 #[test]
 fn shadowsocks_takes_the_obfs_plugin_and_nothing_else() {
     manager(&[ss(

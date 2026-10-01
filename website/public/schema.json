@@ -14370,7 +14370,7 @@
     },
     "disable_dns_lookup": {
      "type": "boolean",
-     "description": "Never look the ECHConfigList up in DNS."
+     "description": "Never look the ECHConfigList up in DNS: `config` is then required."
     }
    },
    "additionalProperties": false
@@ -15208,7 +15208,7 @@
     },
     "disable_dns_lookup": {
      "type": "boolean",
-     "description": "Never look the ECHConfigList up in DNS."
+     "description": "Never look the ECHConfigList up in DNS: `config` is then required."
     }
    },
    "additionalProperties": false
@@ -16314,7 +16314,7 @@
     },
     "disable_dns_lookup": {
      "type": "boolean",
-     "description": "Never look the ECHConfigList up in DNS."
+     "description": "Never look the ECHConfigList up in DNS: `config` is then required."
     }
    },
    "additionalProperties": false
@@ -17748,7 +17748,7 @@
     },
     "disable_dns_lookup": {
      "type": "boolean",
-     "description": "Never look the ECHConfigList up in DNS."
+     "description": "Never look the ECHConfigList up in DNS: `config` is then required."
     }
    },
    "additionalProperties": false
@@ -18815,7 +18815,7 @@
     },
     "disable_dns_lookup": {
      "type": "boolean",
-     "description": "Never look the ECHConfigList up in DNS."
+     "description": "Never look the ECHConfigList up in DNS: `config` is then required."
     }
    },
    "additionalProperties": false
@@ -19538,7 +19538,7 @@
     },
     "disable_dns_lookup": {
      "type": "boolean",
-     "description": "Never look the ECHConfigList up in DNS."
+     "description": "Never look the ECHConfigList up in DNS: `config` is then required."
     }
    },
    "additionalProperties": false
@@ -20282,7 +20282,7 @@
     },
     "disable_dns_lookup": {
      "type": "boolean",
-     "description": "Never look the ECHConfigList up in DNS."
+     "description": "Never look the ECHConfigList up in DNS: `config` is then required."
     }
    },
    "additionalProperties": false
@@ -21068,7 +21068,7 @@
     },
     "disable_dns_lookup": {
      "type": "boolean",
-     "description": "Never look the ECHConfigList up in DNS."
+     "description": "Never look the ECHConfigList up in DNS: `config` is then required."
     }
    },
    "additionalProperties": false

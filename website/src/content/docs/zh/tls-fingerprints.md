@@ -69,7 +69,7 @@ Sail 通过 `btls` 绑定使用 BoringSSL，处理 TCP 和 QUIC 上的 TLS。TCP
 
 指纹只改变握手形态，不改变 TLS 内承载的应用协议。与浏览器一样，每个指纹都提供 TLS 1.2 和 1.3：开启 `utls` 时，`min_version` 与 `max_version` 会被忽略并给出警告。没有 `utls` 块时，这两个字段设置的范围会生效，并有警告说明此时的 ClientHello 已不再是浏览器的。
 
-在 QUIC 上（Hysteria2、TUIC），ClientHello 是 BoringSSL 自己的：在那里开启 `utls`、`ech` 或 `reality` 是配置错误。
+在 QUIC 上（Hysteria2、TUIC 与 `quic` 传输层），ClientHello 是 BoringSSL 自己的：在那里开启 `utls`、`ech` 或 `reality` 是配置错误。
 
 ## 自定义信任
 
@@ -135,7 +135,7 @@ TCP 与 QUIC 均支持，DNS 服务器的 `tls` 也支持。REALITY 自行验证
 }
 ```
 
-开启 ECH 时，Sail 从服务器名的 HTTPS（或 SVCB）DNS 记录中查询 ECHConfigList。查询失败时使用 `config`（base64 或 PEM 格式的 ECHConfigList）；没有 `config` 则连接失败。设置 `disable_dns_lookup: true` 时只使用 `config`。
+设置了 `config` 时，就使用它作为 ECHConfigList，不发任何 DNS 查询，与 sing-box 一致。未设置时，Sail 从服务器名的 HTTPS 记录（或 SVCB 记录）查找 ECHConfigList；查询失败或记录里没有 ECH 配置时，连接失败。设置 `disable_dns_lookup` 可强制要求显式的 base64 或 PEM `config`：缺少时配置被拒绝。
 
 ECH 只用于 TLS 1.3，因此开启 ECH 且 `min_version` 或 `max_version` 低于 `1.3` 属于配置错误。sing-box 会接受这样的配置，但之后每条连接都会失败（Go 的 TLS 要求开启 ECH 时最低版本为 1.3）；Sail 在读取配置时就报错。
 

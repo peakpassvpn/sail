@@ -489,7 +489,7 @@ pub struct OutboundEch {
     /// An ECHConfigList, base64 or PEM. Looked up in DNS when not set.
     #[serde(default)]
     pub config: Option<Listable>,
-    /// Never look the ECHConfigList up in DNS.
+    /// Never look the ECHConfigList up in DNS: `config` is then required.
     #[serde(default)]
     pub disable_dns_lookup: bool,
 }
@@ -1202,6 +1202,15 @@ fn tls_outbound(
         if ech.is_some() && tls.disable_sni {
             return Err(anyhow!(
                 "[{}] outbound: tls.disable_sni: not with tls.ech",
+                tag
+            ));
+        }
+        // A configured list is the only one used, as in sing-box: DNS is
+        // asked only without one, so with it the lookup is off anyway, and
+        // without it, ECH would be.
+        if ech.is_some_and(|e| e.disable_dns_lookup && e.config.is_none()) {
+            return Err(anyhow!(
+                "[{}] outbound: tls.ech.disable_dns_lookup: needs tls.ech.config",
                 tag
             ));
         }

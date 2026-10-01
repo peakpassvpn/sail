@@ -175,7 +175,7 @@ Rust: [`OutboundEch`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/tran
 | `config` | listable-string | unset | Supported | An ECHConfigList, base64 or PEM. Looked up in DNS when not set. |
 | `config_path` | string | — | Error: An ECH configuration from a file, or looked up under another name: the server name would go in the clear | — |
 | `query_server_name` | string | — | Error: An ECH configuration from a file, or looked up under another name: the server name would go in the clear | — |
-| `disable_dns_lookup` | bool | `false` | sail extension | Never look the ECHConfigList up in DNS. |
+| `disable_dns_lookup` | bool | `false` | sail extension | Never look the ECHConfigList up in DNS: `config` is then required. |
 
 <a id="fallback-fallback-for-alpn"></a>
 

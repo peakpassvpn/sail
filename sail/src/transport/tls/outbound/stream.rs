@@ -17,8 +17,8 @@ pub struct Handler {
 }
 
 struct Ech {
-    /// The configured ECHConfigList, base64; used when DNS has none.
-    fixed_config_list: Option<String>,
+    /// The configured ECHConfigList: when set, the only one offered.
+    config_list: Option<Vec<u8>>,
     disable_dns_lookup: bool,
 }
 
@@ -39,9 +39,10 @@ impl Handler {
         roots: &crate::transport::tls::roots::Roots,
         options: &ClientOptions,
     ) -> Result<Self> {
-        if let Some(list) = ech_config_list.as_deref() {
-            decode_ech_config_list(list)?;
-        }
+        let ech_config_list = ech_config_list
+            .as_deref()
+            .map(decode_ech_config_list)
+            .transpose()?;
         let mut client = TlsClient::with_options(
             &alpns,
             certificate.as_deref(),
@@ -58,52 +59,11 @@ impl Handler {
             server_name,
             client,
             ech: ech.then_some(Ech {
-                fixed_config_list: ech_config_list,
+                config_list: ech_config_list,
                 disable_dns_lookup: ech_disable_dns_lookup,
             }),
             dns_client,
         })
-    }
-
-    fn resolve_selected_ech_config_list(
-        name: &str,
-        fixed_ech_config_list: Option<&str>,
-        auto_result: Option<anyhow::Result<String>>,
-    ) -> io::Result<Option<String>> {
-        match auto_result {
-            Some(Ok(value)) => {
-                trace!("ech source for {}: https/svcb dns record", name);
-                Ok(Some(value))
-            }
-            Some(Err(err)) => {
-                if let Some(fixed) = fixed_ech_config_list {
-                    trace!(
-                        "auto ech fetch failed for {}, fallback to fixed ech config: {}",
-                        name,
-                        err
-                    );
-                    Ok(Some(fixed.to_string()))
-                } else {
-                    trace!(
-                        "auto ech fetch failed for {}, no fixed ech config available: {}",
-                        name,
-                        err
-                    );
-                    Err(io::Error::other(format!(
-                        "auto ech fetch failed for {}: {}",
-                        name, err
-                    )))
-                }
-            }
-            None => {
-                if fixed_ech_config_list.is_some() {
-                    trace!("ech source for {}: fixed ech config", name);
-                } else {
-                    trace!("ech source for {}: none", name);
-                }
-                Ok(fixed_ech_config_list.map(str::to_string))
-            }
-        }
     }
 
     /// The DNS client's own connections must not look ECH up in DNS.
@@ -111,7 +71,11 @@ impl Handler {
         sess.inbound_tag == "dnsclient"
     }
 
-    /// The ECHConfigList to offer to `name`, if any.
+    /// The ECHConfigList to offer to `name`, if any. As in sing-box, a
+    /// configured one is used as it is, and DNS is asked only without one
+    /// (its common/tls/ech.go, parseECHClientConfig): no HTTPS record to
+    /// override it, nor any query to give the name away. What DNS fails to
+    /// give fails the connection, as there.
     async fn select_ech_config_list(
         &self,
         name: &str,
@@ -120,27 +84,21 @@ impl Handler {
         let Some(ech) = &self.ech else {
             return Ok(None);
         };
-        let fixed = ech.fixed_config_list.as_deref();
-        let selected = if ech.disable_dns_lookup {
-            trace!(
-                "ech source for {}: fixed-or-none (dns lookup disabled)",
-                name
-            );
-            fixed.map(str::to_string)
-        } else if Self::should_skip_ech_dns_lookup_for_session(sess) {
-            trace!(
-                "ech source for {}: fixed-or-none (dns lookup skipped)",
-                name
-            );
-            fixed.map(str::to_string)
-        } else {
-            let dns_client = self.dns_client.load_full();
-            let auto_result = dns_client.lookup_ech_config_list(name).await;
-            Self::resolve_selected_ech_config_list(name, fixed, Some(auto_result))?
-        };
-        selected
-            .map(|list| decode_ech_config_list(&list))
-            .transpose()
+        if let Some(list) = &ech.config_list {
+            trace!("ech source for {}: the configured one", name);
+            return Ok(Some(list.clone()));
+        }
+        if ech.disable_dns_lookup || Self::should_skip_ech_dns_lookup_for_session(sess) {
+            trace!("ech source for {}: none (no dns lookup)", name);
+            return Ok(None);
+        }
+        let dns_client = self.dns_client.load_full();
+        let list = dns_client
+            .lookup_ech_config_list(name)
+            .await
+            .map_err(|e| io::Error::other(format!("ech fetch failed for {}: {}", name, e)))?;
+        trace!("ech source for {}: https/svcb dns record", name);
+        decode_ech_config_list(&list).map(Some)
     }
 }
 
@@ -316,7 +274,8 @@ impl OutboundStreamHandler for Handler {
 
 #[cfg(test)]
 mod tests {
-    use anyhow::anyhow;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
 
     use crate::app::{dns::DnsClient, SyncDnsClient};
     use crate::session::Session;
@@ -372,39 +331,99 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_resolve_selected_ech_config_list_auto_success() {
-        let result = Handler::resolve_selected_ech_config_list(
-            "example.com",
-            Some("AQI="),
-            Some(Ok("AQID".to_string())),
-        )
-        .unwrap();
-        assert_eq!(result, Some("AQID".to_string()));
+    /// A UDP DNS server answering every query NXDOMAIN, and the queries it
+    /// has had.
+    async fn counting_server() -> (u16, Arc<AtomicUsize>) {
+        let socket = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let port = socket.local_addr().unwrap().port();
+        let queries = Arc::new(AtomicUsize::new(0));
+        let counted = queries.clone();
+        tokio::spawn(async move {
+            let mut buf = [0u8; 1500];
+            while let Ok((n, peer)) = socket.recv_from(&mut buf).await {
+                counted.fetch_add(1, Ordering::SeqCst);
+                // The query, as a response with NXDOMAIN.
+                let mut reply = buf[..n].to_vec();
+                reply[2] |= 0x80;
+                reply[3] = (reply[3] & 0xf0) | 3;
+                let _ = socket.send_to(&reply, peer).await;
+            }
+        });
+        (port, queries)
     }
 
-    #[test]
-    fn test_resolve_selected_ech_config_list_auto_failed_fallback() {
-        let result = Handler::resolve_selected_ech_config_list(
-            "example.com",
-            Some("AQI="),
-            Some(Err(anyhow!("dns failed"))),
+    fn ech_handler(port: u16, ech_config: Option<&str>, disable_dns_lookup: bool) -> Handler {
+        let config = crate::config::Config::from_json(
+            &serde_json::json!({ "dns": { "timeout": "2s", "servers": [
+                { "type": "udp", "tag": "u", "server": "127.0.0.1", "server_port": port },
+            ] } })
+            .to_string(),
         )
         .unwrap();
-        assert_eq!(result, Some("AQI=".to_string()));
-    }
-
-    #[test]
-    fn test_resolve_selected_ech_config_list_auto_failed_without_fallback() {
-        let err = Handler::resolve_selected_ech_config_list(
-            "example.com",
+        let dns = DnsClient::new(&config.dns, Default::default(), &Default::default())
+            .unwrap()
+            .into_shared();
+        Handler::new(
+            "example.com".to_string(),
+            vec![],
             None,
-            Some(Err(anyhow!("dns failed"))),
+            false,
+            None,
+            false,
+            None,
+            true,
+            disable_dns_lookup,
+            ech_config.map(str::to_string),
+            dns,
+            &crate::transport::tls::tests::test_roots(),
+            &Default::default(),
         )
-        .unwrap_err();
-        assert!(err
-            .to_string()
-            .contains("auto ech fetch failed for example.com: dns failed"));
+        .unwrap()
+    }
+
+    /// As in sing-box, a configured ECHConfigList is the one offered, and
+    /// DNS is not asked for another.
+    #[tokio::test]
+    async fn a_configured_ech_config_is_used_without_asking_dns() {
+        let (port, queries) = counting_server().await;
+        let handler = ech_handler(port, Some("AAT+DQBB"), false);
+        let list = handler
+            .select_ech_config_list("example.com", &Session::default())
+            .await
+            .unwrap();
+        assert_eq!(list, Some(vec![0x00, 0x04, 0xfe, 0x0d, 0x00, 0x41]));
+        assert_eq!(queries.load(Ordering::SeqCst), 0, "DNS was asked");
+    }
+
+    /// Without one, DNS is asked, and a failed lookup fails the connection,
+    /// as in sing-box, rather than going without ECH.
+    #[tokio::test]
+    async fn without_a_configured_ech_config_a_failed_lookup_fails() {
+        let (port, queries) = counting_server().await;
+        let handler = ech_handler(port, None, false);
+        let err = handler
+            .select_ech_config_list("example.com", &Session::default())
+            .await
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("ech fetch failed for example.com"),
+            "{}",
+            err
+        );
+        assert!(queries.load(Ordering::SeqCst) > 0);
+    }
+
+    /// `disable_dns_lookup` keeps DNS out of it.
+    #[tokio::test]
+    async fn with_the_dns_lookup_disabled_dns_is_not_asked() {
+        let (port, queries) = counting_server().await;
+        let handler = ech_handler(port, None, true);
+        let list = handler
+            .select_ech_config_list("example.com", &Session::default())
+            .await
+            .unwrap();
+        assert_eq!(list, None);
+        assert_eq!(queries.load(Ordering::SeqCst), 0, "DNS was asked");
     }
 
     #[test]
