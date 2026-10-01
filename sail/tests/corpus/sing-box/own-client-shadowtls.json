@@ -14,8 +14,6 @@
     {
       "type": "shadowsocks",
       "tag": "ss",
-      "server": "s1.example.net",
-      "server_port": 443,
       "method": "2022-blake3-aes-128-gcm",
       "password": "AAECAwQFBgcICQoLDA0ODw==",
       "detour": "shadowtls"

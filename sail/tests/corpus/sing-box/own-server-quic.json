@@ -48,7 +48,7 @@
           "h3"
         ]
       },
-      "masquerade": "http://127.0.0.1:8080"
+      "masquerade": "https://www.example.com"
     },
     {
       "type": "tuic",

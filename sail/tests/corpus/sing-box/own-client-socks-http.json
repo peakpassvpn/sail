@@ -16,6 +16,7 @@
       "tag": "socks",
       "server": "s1.example.net",
       "server_port": 1080,
+      "version": "5",
       "username": "user1",
       "password": "a synthetic password",
       "udp_over_tcp": false
