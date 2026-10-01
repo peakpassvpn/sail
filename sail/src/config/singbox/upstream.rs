@@ -574,12 +574,6 @@ pub const GROUPS: &[Group] = &[
         &["outbounds.*.network"],
     ),
     t(
-        "sail speaks SOCKS 5, the default, and drops the field; 4 and 4a are errors",
-        Ignored,
-        &["socks"],
-        &["outbounds.*.version"],
-    ),
-    t(
         "VMess's authenticated length: sail would speak VMess otherwise",
         Unsupported,
         &["vmess"],
@@ -702,6 +696,4 @@ pub const VALUES: &[(&str, &[&str])] = &[
         &["evaluate", "respond", "predefined"],
     ),
     ("route.rules.*.sniffer", &["ssh", "rdp", "ntp"]),
-    // A SOCKS outbound's, sail speaking SOCKS 5 only.
-    ("outbounds.*.version", &["4", "4a"]),
 ];

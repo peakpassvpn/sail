@@ -1380,6 +1380,7 @@
   "outbounds[socks].fallback_delay",
   "outbounds[socks].server",
   "outbounds[socks].server_port",
+  "outbounds[socks].version",
   "outbounds[socks].username",
   "outbounds[socks].password",
   "outbounds[socks].udp_over_tcp",
@@ -2296,9 +2297,6 @@
   ],
   "Metadata the client tells the server: the connection goes the same way without it": [
    "outbounds[anytls].client_metadata"
-  ],
-  "sail speaks SOCKS 5, the default, and drops the field; 4 and 4a are errors": [
-   "outbounds[socks].version"
   ],
   "Accepted, no effect (as sing-box)": [
    "route.rules[action=direct].bind_interface",

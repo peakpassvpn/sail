@@ -24,11 +24,11 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `network_namespaces` | 6 | 0 | 0 | 6 |
 | `endpoints` | 433 | 47 | 13 | 373 |
 | `inbounds` | 1367 | 584 | 151 | 632 |
-| `outbounds` | 1228 | 668 | 76 | 484 |
+| `outbounds` | 1228 | 669 | 75 | 484 |
 | `route` | 268 | 172 | 41 | 55 |
 | `services` | 751 | 1 | 166 | 584 |
 | `experimental` | 34 | 16 | 17 | 1 |
-| **All** | **5003** | **1888** | **576** | **2539** |
+| **All** | **5003** | **1889** | **575** | **2539** |
 
 ## `$schema`
 
@@ -2300,7 +2300,7 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `fallback_delay` | Supported |  |
 | `server` | Supported |  |
 | `server_port` | Supported |  |
-| `version` | Warned | sail speaks SOCKS 5, the default, and drops the field; 4 and 4a are errors |
+| `version` | Supported |  |
 | `username` | Supported |  |
 | `password` | Supported |  |
 | `network` | Error | Which networks an outbound carries: connections it should refuse would go through it |

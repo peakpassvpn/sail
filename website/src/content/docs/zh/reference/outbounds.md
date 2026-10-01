@@ -617,7 +617,7 @@ Rust 定义：[`SocksOutboundOptions`](https://github.com/peakpassvpn/sail/blob/
 | `fallback_delay` | duration | 未设置 | 支持 | How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs), and the first interfaces before the fallback ones; 300ms when unset. |
 | `server` | string | 未设置 | 支持 | May be left out, with `server_port`, by an outbound with a `detour`: one over ShadowTLS, which dials its own server. |
 | `server_port` | number | 未设置 | 支持 | — |
-| `version` | string, 取值 `4`, `4a`, `5` | — | 警告：sail speaks SOCKS 5, the default, and drops the field; 4 and 4a are errors | — |
+| `version` | string, 取值 `4`, `4a`, `5` | 未设置 | 支持 | `5`, the default, which is all sail speaks. sing-box also takes `4` and `4a` (option/simple.go:25), which are errors here. |
 | `username` | string | `""` | 支持 | — |
 | `password` | string | `""` | 支持 | — |
 | `network` | listable-string, 取值 `tcp`, `udp` | — | 报错：Which networks an outbound carries: connections it should refuse would go through it | — |

@@ -1364,7 +1364,7 @@
   "sing-box/0106.json": {
     "check": "ok",
     "ok": true,
-    "warnings": 2
+    "warnings": 1
   },
   "sing-box/0107.json": {
     "error": "outbounds[6].authenticated_length: sail does not implement this field yet"

@@ -617,7 +617,7 @@ Rust: [`SocksOutboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail
 | `fallback_delay` | duration | unset | Supported | How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs), and the first interfaces before the fallback ones; 300ms when unset. |
 | `server` | string | unset | Supported | May be left out, with `server_port`, by an outbound with a `detour`: one over ShadowTLS, which dials its own server. |
 | `server_port` | number | unset | Supported | — |
-| `version` | string, one of `4`, `4a`, `5` | — | Warned: sail speaks SOCKS 5, the default, and drops the field; 4 and 4a are errors | — |
+| `version` | string, one of `4`, `4a`, `5` | unset | Supported | `5`, the default, which is all sail speaks. sing-box also takes `4` and `4a` (option/simple.go:25), which are errors here. |
 | `username` | string | `""` | Supported | — |
 | `password` | string | `""` | Supported | — |
 | `network` | listable-string, one of `tcp`, `udp` | — | Error: Which networks an outbound carries: connections it should refuse would go through it | — |

@@ -18112,8 +18112,7 @@
       "4a",
       "5"
      ],
-     "deprecated": true,
-     "description": "sail ignores this field, with a warning: sail speaks SOCKS 5, the default, and drops the field; 4 and 4a are errors"
+     "description": "`5`, the default, which is all sail speaks. sing-box also takes `4` and `4a` (option/simple.go:25), which are errors here."
     },
     "username": {
      "type": "string"
