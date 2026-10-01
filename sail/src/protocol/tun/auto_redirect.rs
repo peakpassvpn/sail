@@ -387,7 +387,7 @@ fn listen(ipv6: bool) -> Result<std::net::TcpListener> {
     socket.set_nonblocking(true)?;
     socket
         .bind(&addr.into())
-        .and_then(|()| socket.listen(1024))
+        .and_then(|()| socket.listen(crate::net::backlog::max_listener_backlog()))
         .map_err(|e| anyhow!("auto_redirect: listen on {}: {}", addr, e))?;
     Ok(socket.into())
 }

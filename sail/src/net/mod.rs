@@ -15,6 +15,7 @@ use crate::{
 };
 
 pub mod accept;
+pub mod backlog;
 pub mod datagram;
 pub mod dial;
 pub mod interface;
@@ -50,7 +51,7 @@ impl TcpListener {
         #[cfg(not(windows))]
         socket.set_reuse_address(true)?;
         socket.bind(&(*addr).into())?;
-        socket.listen(1024)?;
+        socket.listen(backlog::max_listener_backlog())?;
         socket.set_nonblocking(true)?;
         Ok(Self {
             inner: tokio::net::TcpListener::from_std(socket.into())?,
