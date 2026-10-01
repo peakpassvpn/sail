@@ -23,6 +23,14 @@ lto = true
 panic = "abort"
 strip = "symbols"
 
+# What a release ships: release, with line tables kept so that
+# scripts/release/split-symbols.sh can move them out of the shipped file
+# into one of their own, matched to it by build ID.
+[profile.dist]
+inherits = "release"
+debug = "line-tables-only"
+strip = false
+
 [profile.dev]
 opt-level = 0
 debug = true
