@@ -14,7 +14,7 @@ Full table: [docs/compat/sing-box.md](https://github.com/peakpassvpn/sail/blob/d
 | Section | Fields | Supported | Warned | Error |
 |---|--:|--:|--:|--:|
 | `log` | 5 | 5 | 0 | 0 |
-| `dns` | 578 | 353 | 67 | 158 |
+| `dns` | 578 | 356 | 66 | 156 |
 | `ntp` | 35 | 0 | 35 | 0 |
 | `certificate` | 5 | 5 | 0 | 0 |
 | `certificate_providers` | 212 | 0 | 0 | 212 |
@@ -23,10 +23,10 @@ Full table: [docs/compat/sing-box.md](https://github.com/peakpassvpn/sail/blob/d
 | `endpoints` | 433 | 56 | 13 | 364 |
 | `inbounds` | 1367 | 561 | 151 | 655 |
 | `outbounds` | 1228 | 645 | 76 | 507 |
-| `route` | 268 | 149 | 17 | 102 |
+| `route` | 268 | 153 | 15 | 100 |
 | `services` | 751 | 1 | 166 | 584 |
 | `experimental` | 34 | 16 | 17 | 1 |
-| **All** | **5002** | **1817** | **553** | **2632** |
+| **All** | **5002** | **1824** | **550** | **2628** |
 
 ## Clash / Mihomo
 

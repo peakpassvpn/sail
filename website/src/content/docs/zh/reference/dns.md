@@ -272,7 +272,7 @@ Rust 定义：[`LocalOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail
 | `fallback_network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | Not implemented yet. |
 | `fallback_delay` | duration | 未设置 | 支持 | How long the addresses of one family are tried before those of the other are raced against them (Happy Eyeballs); 300ms when unset. |
 | `prefer_go` | bool | — | 警告：Go's own resolver rather than the system's: sail is not Go | — |
-| `neighbor_domain` | listable-string | — | 警告：Single-label LAN names from sing-box's neighbor resolver (DHCP leases): sail has none, and the system's resolver answers them | — |
+| `neighbor_domain` | listable-string | `[]` | 支持 | Suffixes, each starting with `.`, of the single-label names the LAN devices' addresses answer for, as sing-box's local server has them; `.` for bare single-label names. |
 | `domain_strategy` | string | — | 警告：A local server's servers are the system's, addresses: it has no name to resolve (sing-box 已弃用) | sing-box's deprecated field for the families names resolve to, which a resolver's own `strategy` goes before. |
 
 <a id="dns-servers-local-domain-resolver"></a>
@@ -322,7 +322,7 @@ Rust 定义：[`MdnsOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/
 | `fallback_network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route | — |
 | `fallback_delay` | duration | — | 警告：An mDNS server asks on each interface itself, as sing-box's, which dials nothing | — |
 | `prefer_go` | bool | — | 警告：Go's own resolver rather than the system's: sail is not Go | — |
-| `neighbor_domain` | listable-string | — | 警告：Single-label LAN names from sing-box's neighbor resolver (DHCP leases): sail has none, and the system's resolver answers them | — |
+| `neighbor_domain` | listable-string | — | 警告：An mDNS server asks on each interface itself, as sing-box's, which dials nothing | — |
 | `interface` | listable-string | `[]` | 支持 | The interfaces to ask on; all that are up and take multicast when none are named. |
 | `domain_strategy` | string | — | 警告：An mDNS server asks on each interface itself, as sing-box's, which dials nothing (sing-box 已弃用) | — |
 
@@ -620,8 +620,8 @@ Rust 定义：[`DnsRule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/
 | `interface_address` | map | — | 报错：A condition sail does not match: the rule would match otherwise | — |
 | `network_interface_address` | map | — | 报错：A condition sail does not match: the rule would match otherwise | — |
 | `default_interface_address` | listable-string | — | 报错：A condition sail does not match: the rule would match otherwise | — |
-| `source_mac_address` | listable-string | — | 报错：A condition sail does not match: the rule would match otherwise | — |
-| `source_hostname` | listable-string | — | 报错：A condition sail does not match: the rule would match otherwise | — |
+| `source_mac_address` | listable-string | `[]` | 支持 | MAC addresses of the LAN device the query comes from, as the neighbor table and DHCP leases know it. |
+| `source_hostname` | listable-string | `[]` | 支持 | Host names of the LAN device the query comes from, as its DHCP lease has it. |
 | `preferred_by` | listable-string | `[]` | 支持 | Tags of DNS servers: matches a name one of them prefers, one it answers for itself, as sing-box's `preferred_by`. |
 | `rule_set` | listable-string | `[]` | 支持 | Tags of rule-sets, any of whose rules matching matches. Their `ip_cidr` rules match no query, which has no address yet. |
 | `rule_set_ip_cidr_match_source` | bool | `false` | 支持 | The rule-sets' `ip_cidr` match the source address. |

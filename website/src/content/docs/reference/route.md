@@ -25,8 +25,8 @@ Rust: [`Route`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/mod
 | `rule_set` | array → [[]](#route-rule-set), [[inline]](#route-rule-set-inline), [[local]](#route-rule-set-local), [[remote]](#route-rule-set-remote) | `[]` | Supported | The rule-sets rules name, by tag. |
 | `final` | string | unset | Supported | The outbound for connections no rule matches; defaults to the first outbound. |
 | `find_process` | bool | — | Warned: sail looks processes up when a rule asks for them | — |
-| `find_neighbor` | bool | — | Warned: Neighbors' MAC addresses and host names, for conditions sail does not match | — |
-| `dhcp_lease_files` | listable-string | — | Warned: Neighbors' MAC addresses and host names, for conditions sail does not match | — |
+| `find_neighbor` | bool | `false` | Supported | Looks up the LAN device of each connection's source even without a rule on it, for the logs (sing-box's, since 1.14). |
+| `dhcp_lease_files` | listable-string | `[]` | Supported | The DHCP lease files the LAN devices' names are read from; the usual ones of dnsmasq, odhcpd, ISC dhcpd and Kea when none. |
 | `auto_detect_interface` | bool | `false` | Supported | Sends outbounds that name no interface of their own through the system's default interface, found at start. Needed when a TUN inbound routes everything, or outbound traffic would loop back into it. |
 | `override_android_vpn` | bool | — | Warned: Android's VPN is the host's to handle | — |
 | `default_interface` | string | unset | Supported | The interface outbounds that name none of their own send through. |
@@ -83,8 +83,8 @@ Rust: [`Rule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/mode
 | `interface_address` | map | — | Error: A condition sail does not match: the rule would match otherwise | — |
 | `network_interface_address` | map | — | Error: A condition sail does not match: the rule would match otherwise | — |
 | `default_interface_address` | listable-string | — | Error: A condition sail does not match: the rule would match otherwise | — |
-| `source_mac_address` | listable-string | — | Error: A condition sail does not match: the rule would match otherwise | — |
-| `source_hostname` | listable-string | — | Error: A condition sail does not match: the rule would match otherwise | — |
+| `source_mac_address` | listable-string | `[]` | Supported | MAC addresses of the LAN device the connection comes from, as the neighbor table and DHCP leases know it (sing-box's, since 1.14). |
+| `source_hostname` | listable-string | `[]` | Supported | Host names of the LAN device the connection comes from, as its DHCP lease has it. |
 | `preferred_by` | listable-string | — | Error: A condition sail does not match: the rule would match otherwise | Tags of DNS servers, one of which prefers the name: of a DNS query, and so never of a connection. |
 | `rule_set` | listable-string | `[]` | Supported | Tags of rule-sets, any of whose rules matching matches. |
 | `rule_set_ip_cidr_match_source` | bool | `false` | Supported | The rule-sets' `ip_cidr` match the source address, not the destination. |
