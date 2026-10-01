@@ -14,6 +14,7 @@ use crate::app::router::matcher::{Condition, Facts, Groups, Needs};
 use crate::config::rule_set::{
     self as config, ClashBehavior, RuleSetFormat, RuleSetKind, MAX_VERSION,
 };
+use crate::net::network::{Network, NetworkChange};
 use crate::runtime::RuntimeEnv;
 
 mod clash;
@@ -205,6 +206,8 @@ pub(crate) type SharedRuleSet = HotResource<RuleSet>;
 pub(crate) struct RuleSets {
     sets: HashMap<String, SharedRuleSet>,
     remotes: Vec<Arc<remote::Remote>>,
+    /// Updates wait while it is down.
+    network: Network,
     /// Each rule-set's tag and configuration, in order, for the Clash API.
     #[cfg(feature = "clash-api")]
     configs: Vec<(String, Arc<config::RuleSet>)>,
@@ -265,6 +268,7 @@ impl RuleSets {
         Ok(Self {
             sets,
             remotes,
+            network: env.network.clone(),
             #[cfg(feature = "clash-api")]
             configs: listed,
             #[cfg(feature = "auto-reload")]
@@ -301,16 +305,11 @@ impl RuleSets {
             return None;
         }
         let remotes = self.remotes.clone();
+        let network = self.network.clone();
         let task = tokio::spawn(async move {
+            let mut changes = network.changes();
             loop {
-                let now = std::time::SystemTime::now();
-                let next = remotes
-                    .iter()
-                    .map(|r| r.due_in(now))
-                    .min()
-                    .unwrap_or_default();
-                // At least a second apart, whatever the clock does.
-                tokio::time::sleep(next.max(std::time::Duration::from_secs(1))).await;
+                until_due(&remotes, &network, &mut changes).await;
                 let Some(dispatcher) = dispatcher.upgrade() else {
                     return;
                 };
@@ -390,6 +389,36 @@ impl RuleSets {
             .get(tag)
             .cloned()
             .ok_or_else(|| anyhow!("rule-set [{}] does not exist", tag))
+    }
+}
+
+/// Waits until one of `remotes` falls due while the network is up. While
+/// it is down, updates wait rather than fail; the change that ends that
+/// sends those due by then at once.
+async fn until_due(
+    remotes: &[Arc<remote::Remote>],
+    network: &Network,
+    changes: &mut tokio::sync::watch::Receiver<Option<Arc<NetworkChange>>>,
+) {
+    loop {
+        changes.borrow_and_update();
+        if network.is_down() {
+            tracing::debug!("rule-set: the network is down, updates wait for it");
+            // The instance's network outlives the task: this never fails.
+            let _ = changes.changed().await;
+            continue;
+        }
+        let now = std::time::SystemTime::now();
+        let next = remotes
+            .iter()
+            .map(|r| r.due_in(now))
+            .min()
+            .unwrap_or_default();
+        // At least a second apart, whatever the clock does.
+        tokio::time::sleep(next.max(std::time::Duration::from_secs(1))).await;
+        if !network.is_down() {
+            return;
+        }
     }
 }
 
@@ -940,5 +969,42 @@ mod tests {
             bad[i] ^= 0x5a;
             let _ = RuleSet::read(&bad, RuleSetFormat::Binary, None, &RuntimeEnv::default());
         }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn updates_wait_while_the_network_is_down() {
+        use crate::net::network::{ChangeReason, NetworkState};
+        use std::time::Duration;
+        let network = Network::default();
+        let up = NetworkState {
+            interface: Some("en0".into()),
+            ..Default::default()
+        };
+        network.detected(up.clone(), ChangeReason::State);
+        network.detected(NetworkState::default(), ChangeReason::State);
+        assert!(network.is_down());
+        let env = RuntimeEnv {
+            network: network.clone(),
+            ..Default::default()
+        };
+        let config: config::RuleSet = serde_json::from_value(serde_json::json!({
+            "type": "remote", "tag": "s", "url": "https://example.com/s.json"
+        }))
+        .unwrap();
+        // Never downloaded: due now.
+        let remote =
+            Arc::new(remote::Remote::load(&config, "s", Default::default(), &env).unwrap());
+        let remotes = [remote];
+        let mut changes = network.changes();
+        let wait = until_due(&remotes, &network, &mut changes);
+        tokio::pin!(wait);
+        assert!(tokio::time::timeout(Duration::from_secs(3600), &mut wait)
+            .await
+            .is_err());
+        // Back: what fell due goes at once.
+        network.detected(up, ChangeReason::State);
+        tokio::time::timeout(Duration::from_secs(2), &mut wait)
+            .await
+            .unwrap();
     }
 }
