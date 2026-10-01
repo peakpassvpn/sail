@@ -14,6 +14,9 @@ use crate::app::healthcheck::{HttpProbe, DEFAULT_URL};
 use crate::session::{Network, SocksAddr};
 use crate::RuntimeManager;
 
+pub mod json;
+pub mod listen;
+
 /// What the instance sent and received since it started, those
 /// connections closed included.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -675,6 +678,13 @@ impl RuntimeManager {
             .iter()
             .find(|p| &*p.tag == tag)
             .cloned()
+    }
+
+    /// What the configuration sets that sail ignores or that is
+    /// deprecated, since the last start or reload: told once, as libbox's
+    /// deprecated notes are, then gone.
+    pub fn take_warnings(&self) -> Vec<String> {
+        std::mem::take(&mut *self.warnings.lock().unwrap_or_else(|e| e.into_inner()))
     }
 
     /// The mode rules match and the modes they name; none when the

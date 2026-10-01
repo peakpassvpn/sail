@@ -127,6 +127,8 @@ pub struct RuntimeManager {
     order: arc_swap::ArcSwap<Vec<String>>,
     /// The delays measured of each outbound.
     delays: control::Delays,
+    /// What the configuration sets that sail ignores, until read.
+    warnings: Mutex<Vec<String>>,
     /// The assets the configuration reads.
     assets: Mutex<Vec<assets::Asset>>,
 }
@@ -193,6 +195,7 @@ impl RuntimeManager {
             modes: Default::default(),
             order: Default::default(),
             delays: Default::default(),
+            warnings: Default::default(),
             assets: Default::default(),
         })
     }
@@ -340,6 +343,7 @@ impl RuntimeManager {
     /// What the Clash API and the modes tell of `config`, as it is now.
     fn set_views(&self, config: &config::Config) {
         self.modes.store(Arc::new(control::modes(config)));
+        *self.warnings.lock().unwrap_or_else(|e| e.into_inner()) = config.warnings.clone();
         self.order.store(Arc::new(
             config
                 .outbounds
