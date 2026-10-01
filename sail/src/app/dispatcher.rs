@@ -772,6 +772,7 @@ impl Dispatcher {
         if self.restore_fake_ip(&mut sess.destination).is_err() {
             return PreMatch::Proceed;
         }
+        self.find_neighbor(sess);
         self.reverse_map(sess).await;
         let outbounds = self.outbound_manager.load_full();
         self.router.load_full().pre_match(sess, &*outbounds).await
@@ -779,7 +780,16 @@ impl Dispatcher {
 
     /// Where `sess` goes, as the rules decide; an error when a rule rejects
     /// it.
+    /// The LAN device the session comes from, when the instance looks
+    /// devices up, as sing-box's prepareMatchMetadata finds it.
+    fn find_neighbor(&self, sess: &mut Session) {
+        if sess.neighbor.is_none() {
+            sess.neighbor = self.env.neighbors.lookup(sess.source);
+        }
+    }
+
     async fn route(&self, sess: &mut Session, sniffer: &mut dyn Sniffer) -> io::Result<Routed> {
+        self.find_neighbor(sess);
         let outbounds = self.outbound_manager.load_full();
         let decision = self
             .router

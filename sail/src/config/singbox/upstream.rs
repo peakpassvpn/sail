@@ -161,8 +161,6 @@ pub const GROUPS: &[Group] = &[
             "dns.rules.*.interface_address",
             "dns.rules.*.network_interface_address",
             "dns.rules.*.default_interface_address",
-            "dns.rules.*.source_mac_address",
-            "dns.rules.*.source_hostname",
             "dns.rules.*.rule_set_ip_cidr_accept_empty",
         ],
     ),
@@ -240,11 +238,6 @@ pub const GROUPS: &[Group] = &[
         &["dns.servers.*.prefer_go"],
     ),
     g(
-        "Single-label LAN names from sing-box's neighbor resolver (DHCP leases): sail has none, and the system's resolver answers them",
-        Ignored,
-        &["dns.servers.*.neighbor_domain"],
-    ),
-    g(
         PROTECT,
         Unsupported,
         &["dns.servers.*.netns", "dns.servers.*.protect_path"],
@@ -281,6 +274,9 @@ pub const GROUPS: &[Group] = &[
             "dns.servers.*.tcp_keep_alive_interval",
             "dns.servers.*.domain_resolver",
             "dns.servers.*.domain_strategy",
+            // In the local options sing-box's mdns server takes, and
+            // unused by it.
+            "dns.servers.*.neighbor_domain",
             "dns.servers.*.bind_address_no_port",
             "dns.servers.*.reuse_addr",
             "dns.servers.*.tcp_fast_open",
@@ -344,11 +340,6 @@ pub const GROUPS: &[Group] = &[
         &["route.find_process"],
     ),
     g(
-        "Neighbors' MAC addresses and host names, for conditions sail does not match",
-        Ignored,
-        &["route.find_neighbor", "route.dhcp_lease_files"],
-    ),
-    g(
         "Android's VPN is the host's to handle",
         Ignored,
         &["route.override_android_vpn"],
@@ -362,8 +353,6 @@ pub const GROUPS: &[Group] = &[
             "route.rules.*.interface_address",
             "route.rules.*.network_interface_address",
             "route.rules.*.default_interface_address",
-            "route.rules.*.source_mac_address",
-            "route.rules.*.source_hostname",
             "route.rules.*.preferred_by",
         ],
     ),

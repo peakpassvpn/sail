@@ -805,6 +805,78 @@ mod tests {
         response
     }
 
+    /// `source_hostname` and `source_mac_address` match the LAN device the
+    /// query comes from, as routing found it.
+    #[tokio::test]
+    async fn rules_match_the_source_s_lan_device() {
+        let client = with_rules(serde_json::json!([
+            { "source_hostname": "tv", "server": "home" },
+            { "source_mac_address": "02:00:00:00:00:0b", "server": "home" }
+        ]))
+        .unwrap();
+        let from = |mac: Option<[u8; 6]>, hostname: Option<&str>| super::LookupContext {
+            neighbor: Some(std::sync::Arc::new(crate::net::neighbor::Neighbor {
+                mac,
+                hostname: hostname.map(str::to_string),
+            })),
+            ..Default::default()
+        };
+        let home = ips(&["192.168.1.2", "fd00::2"]);
+        let world = ips(&["203.0.113.9"]);
+        assert_eq!(client.lookup_in("nas.home.arpa", &from(None, Some("tv"))).await.unwrap(), home);
+        assert_eq!(
+            client.lookup_in("nas.home.arpa", &from(Some([2, 0, 0, 0, 0, 0x0b]), None)).await.unwrap(),
+            home
+        );
+        assert_eq!(client.lookup_in("nas.home.arpa", &from(None, Some("pc"))).await.unwrap(), world);
+        assert_eq!(client.lookup("nas.home.arpa").await.unwrap(), world);
+    }
+
+    /// A local server answers the single-label names of LAN devices under
+    /// its `neighbor_domain` with their addresses of the query's family, as
+    /// sing-box's does, and prefers them; other names it leaves to the
+    /// system.
+    #[tokio::test]
+    async fn a_local_server_answers_for_the_lan_devices() {
+        let mut leases = crate::net::neighbor::lease::Leases::default();
+        leases.ip_to_hostname.insert("192.168.1.50".parse().unwrap(), "nas".into());
+        let env = crate::runtime::RuntimeEnv::default();
+        env.neighbors.set(crate::net::neighbor::NeighborResolver::with(
+            Default::default(),
+            leases,
+        ));
+        let config = crate::config::Config::from_json(
+            &serde_json::json!({ "dns": { "servers": [
+                { "type": "local", "tag": "l", "neighbor_domain": [".lan", "."] }
+            ] } })
+            .to_string(),
+        )
+        .unwrap();
+        let client = DnsClient::new(&config.dns, Default::default(), &env).unwrap();
+        let answer = exchange(&client, "nas.lan", RecordType::A).await;
+        assert_eq!(answer_ips(&answer), ips(&["192.168.1.50"]));
+        assert_eq!(answer.answers()[0].ttl, 600);
+        // "." takes a bare single label.
+        let answer = exchange(&client, "nas", RecordType::A).await;
+        assert_eq!(answer_ips(&answer), ips(&["192.168.1.50"]));
+        // No IPv6 address: an empty answer, not the system's.
+        let answer = exchange(&client, "nas.lan", RecordType::AAAA).await;
+        assert!(answer_ips(&answer).is_empty());
+        let local = &client.servers["l"];
+        assert!(local.prefers("nas.lan"));
+        assert!(local.prefers("nas"));
+        assert!(!local.prefers("tv.lan"));
+        assert!(!local.prefers("x.nas.lan"));
+    }
+
+    #[test]
+    fn a_neighbor_domain_starts_with_a_dot() {
+        let err = error(serde_json::json!([
+            { "type": "local", "tag": "l", "neighbor_domain": ["lan"] }
+        ]));
+        assert!(err.contains("neighbor_domain: \"lan\" does not start with '.'"), "{}", err);
+    }
+
     /// A name a hosts server gives another is answered with a CNAME and
     /// the other's addresses, looked up as the rules say; a pattern's
     /// names with its own.

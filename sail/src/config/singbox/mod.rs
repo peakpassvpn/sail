@@ -405,13 +405,13 @@ mod tests {
         let err = parse(
             r#"{
                 "outbounds": [{ "type": "direct" }],
-                "route": { "rules": [{ "source_mac_address": "aa:bb:cc:dd:ee:ff", "outbound": "direct" }] }
+                "route": { "rules": [{ "interface_address": { "eth0": "10.0.0.0/8" }, "outbound": "direct" }] }
             }"#,
         )
         .unwrap_err();
         assert_eq!(
             err.to_string(),
-            "route.rules[0].source_mac_address: sail does not implement this field yet"
+            "route.rules[0].interface_address: sail does not implement this field yet"
         );
     }
 

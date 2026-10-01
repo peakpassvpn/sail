@@ -15,7 +15,7 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | Section | Fields | Supported | Warned | Error |
 |---|--:|--:|--:|--:|
 | `log` | 5 | 5 | 0 | 0 |
-| `dns` | 578 | 353 | 67 | 158 |
+| `dns` | 578 | 356 | 66 | 156 |
 | `ntp` | 35 | 0 | 35 | 0 |
 | `certificate` | 5 | 5 | 0 | 0 |
 | `certificate_providers` | 212 | 0 | 0 | 212 |
@@ -24,10 +24,10 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `endpoints` | 433 | 56 | 13 | 364 |
 | `inbounds` | 1367 | 561 | 151 | 655 |
 | `outbounds` | 1228 | 645 | 76 | 507 |
-| `route` | 268 | 149 | 17 | 102 |
+| `route` | 268 | 153 | 15 | 100 |
 | `services` | 751 | 1 | 166 | 584 |
 | `experimental` | 34 | 16 | 17 | 1 |
-| **All** | **5002** | **1817** | **553** | **2632** |
+| **All** | **5002** | **1824** | **550** | **2628** |
 
 ## `log`
 
@@ -267,7 +267,7 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `fallback_delay` | Supported |  |
 | `prefer_go` | Warned | Go's own resolver rather than the system's: sail is not Go |
-| `neighbor_domain` | Warned | Single-label LAN names from sing-box's neighbor resolver (DHCP leases): sail has none, and the system's resolver answers them |
+| `neighbor_domain` | Supported |  |
 | `domain_strategy` (deprecated) | Warned | A local server's servers are the system's, addresses: it has no name to resolve |
 
 ### `dns.servers[mdns]`
@@ -297,7 +297,7 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `fallback_network_type` | Error | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `fallback_delay` | Warned | An mDNS server asks on each interface itself, as sing-box's, which dials nothing |
 | `prefer_go` | Warned | Go's own resolver rather than the system's: sail is not Go |
-| `neighbor_domain` | Warned | Single-label LAN names from sing-box's neighbor resolver (DHCP leases): sail has none, and the system's resolver answers them |
+| `neighbor_domain` | Warned | An mDNS server asks on each interface itself, as sing-box's, which dials nothing |
 | `interface` | Supported |  |
 | `domain_strategy` (deprecated) | Warned | An mDNS server asks on each interface itself, as sing-box's, which dials nothing |
 
@@ -555,8 +555,8 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `[].interface_address` | Error | A condition sail does not match: the rule would match otherwise |
 | `[].network_interface_address` | Error | A condition sail does not match: the rule would match otherwise |
 | `[].default_interface_address` | Error | A condition sail does not match: the rule would match otherwise |
-| `[].source_mac_address` | Error | A condition sail does not match: the rule would match otherwise |
-| `[].source_hostname` | Error | A condition sail does not match: the rule would match otherwise |
+| `[].source_mac_address` | Supported |  |
+| `[].source_hostname` | Supported |  |
 | `[].preferred_by` | Supported |  |
 | `[].rule_set` | Supported |  |
 | `[].rule_set_ip_cidr_match_source` | Supported |  |
@@ -2743,8 +2743,8 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `route` | Supported |  |
 | `final` | Supported |  |
 | `find_process` | Warned | sail looks processes up when a rule asks for them |
-| `find_neighbor` | Warned | Neighbors' MAC addresses and host names, for conditions sail does not match |
-| `dhcp_lease_files` | Warned | Neighbors' MAC addresses and host names, for conditions sail does not match |
+| `find_neighbor` | Supported |  |
+| `dhcp_lease_files` | Supported |  |
 | `auto_detect_interface` | Supported |  |
 | `override_android_vpn` | Warned | Android's VPN is the host's to handle |
 | `default_interface` | Supported |  |
@@ -2805,8 +2805,8 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `[].interface_address` | Error | A condition sail does not match: the rule would match otherwise |
 | `[].network_interface_address` | Error | A condition sail does not match: the rule would match otherwise |
 | `[].default_interface_address` | Error | A condition sail does not match: the rule would match otherwise |
-| `[].source_mac_address` | Error | A condition sail does not match: the rule would match otherwise |
-| `[].source_hostname` | Error | A condition sail does not match: the rule would match otherwise |
+| `[].source_mac_address` | Supported |  |
+| `[].source_hostname` | Supported |  |
 | `[].preferred_by` | Error | A condition sail does not match: the rule would match otherwise |
 | `[].rule_set` | Supported |  |
 | `[].rule_set_ip_cidr_match_source` | Supported |  |

@@ -15,7 +15,7 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | 部分 | 字段数 | 支持 | 警告 | 报错 |
 |---|--:|--:|--:|--:|
 | `log` | 5 | 5 | 0 | 0 |
-| `dns` | 578 | 353 | 67 | 158 |
+| `dns` | 578 | 356 | 66 | 156 |
 | `ntp` | 35 | 0 | 35 | 0 |
 | `certificate` | 5 | 5 | 0 | 0 |
 | `certificate_providers` | 212 | 0 | 0 | 212 |
@@ -24,10 +24,10 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `endpoints` | 433 | 56 | 13 | 364 |
 | `inbounds` | 1367 | 561 | 151 | 655 |
 | `outbounds` | 1228 | 645 | 76 | 507 |
-| `route` | 268 | 149 | 17 | 102 |
+| `route` | 268 | 153 | 15 | 100 |
 | `services` | 751 | 1 | 166 | 584 |
 | `experimental` | 34 | 16 | 17 | 1 |
-| **全部** | **5002** | **1817** | **553** | **2632** |
+| **全部** | **5002** | **1824** | **550** | **2628** |
 
 ## `log`
 
@@ -267,7 +267,7 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `fallback_delay` | 支持 |  |
 | `prefer_go` | 警告 | Go's own resolver rather than the system's: sail is not Go |
-| `neighbor_domain` | 警告 | Single-label LAN names from sing-box's neighbor resolver (DHCP leases): sail has none, and the system's resolver answers them |
+| `neighbor_domain` | 支持 |  |
 | `domain_strategy` (已弃用) | 警告 | A local server's servers are the system's, addresses: it has no name to resolve |
 
 ### `dns.servers[mdns]`
@@ -297,7 +297,7 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `fallback_network_type` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) per connection: sail's go out the default route |
 | `fallback_delay` | 警告 | An mDNS server asks on each interface itself, as sing-box's, which dials nothing |
 | `prefer_go` | 警告 | Go's own resolver rather than the system's: sail is not Go |
-| `neighbor_domain` | 警告 | Single-label LAN names from sing-box's neighbor resolver (DHCP leases): sail has none, and the system's resolver answers them |
+| `neighbor_domain` | 警告 | An mDNS server asks on each interface itself, as sing-box's, which dials nothing |
 | `interface` | 支持 |  |
 | `domain_strategy` (已弃用) | 警告 | An mDNS server asks on each interface itself, as sing-box's, which dials nothing |
 
@@ -555,8 +555,8 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `[].interface_address` | 报错 | A condition sail does not match: the rule would match otherwise |
 | `[].network_interface_address` | 报错 | A condition sail does not match: the rule would match otherwise |
 | `[].default_interface_address` | 报错 | A condition sail does not match: the rule would match otherwise |
-| `[].source_mac_address` | 报错 | A condition sail does not match: the rule would match otherwise |
-| `[].source_hostname` | 报错 | A condition sail does not match: the rule would match otherwise |
+| `[].source_mac_address` | 支持 |  |
+| `[].source_hostname` | 支持 |  |
 | `[].preferred_by` | 支持 |  |
 | `[].rule_set` | 支持 |  |
 | `[].rule_set_ip_cidr_match_source` | 支持 |  |
@@ -2743,8 +2743,8 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `route` | 支持 |  |
 | `final` | 支持 |  |
 | `find_process` | 警告 | sail looks processes up when a rule asks for them |
-| `find_neighbor` | 警告 | Neighbors' MAC addresses and host names, for conditions sail does not match |
-| `dhcp_lease_files` | 警告 | Neighbors' MAC addresses and host names, for conditions sail does not match |
+| `find_neighbor` | 支持 |  |
+| `dhcp_lease_files` | 支持 |  |
 | `auto_detect_interface` | 支持 |  |
 | `override_android_vpn` | 警告 | Android's VPN is the host's to handle |
 | `default_interface` | 支持 |  |
@@ -2805,8 +2805,8 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `[].interface_address` | 报错 | A condition sail does not match: the rule would match otherwise |
 | `[].network_interface_address` | 报错 | A condition sail does not match: the rule would match otherwise |
 | `[].default_interface_address` | 报错 | A condition sail does not match: the rule would match otherwise |
-| `[].source_mac_address` | 报错 | A condition sail does not match: the rule would match otherwise |
-| `[].source_hostname` | 报错 | A condition sail does not match: the rule would match otherwise |
+| `[].source_mac_address` | 支持 |  |
+| `[].source_hostname` | 支持 |  |
 | `[].preferred_by` | 报错 | A condition sail does not match: the rule would match otherwise |
 | `[].rule_set` | 支持 |  |
 | `[].rule_set_ip_cidr_match_source` | 支持 |  |

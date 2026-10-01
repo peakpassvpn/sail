@@ -356,6 +356,10 @@ pub struct Session {
     /// the innermost first: shared by the session's copies, as each group
     /// adds its member once the member has taken the connection.
     pub chain: Chain,
+    /// The LAN device the source address is, as the neighbor table and
+    /// DHCP leases know it: looked up before routing, when a rule or a DNS
+    /// server needs it, as sing-box does.
+    pub neighbor: Option<std::sync::Arc<crate::net::neighbor::Neighbor>>,
 }
 
 /// The members groups handed a connection to, the innermost first, as
@@ -440,6 +444,7 @@ impl Clone for Session {
             matched_rule_set: self.matched_rule_set.clone(),
             matched_rule: self.matched_rule.clone(),
             chain: self.chain.clone(),
+            neighbor: self.neighbor.clone(),
         }
     }
 }
@@ -473,6 +478,7 @@ impl Default for Session {
             matched_rule_set: None,
             matched_rule: None,
             chain: Chain::default(),
+            neighbor: None,
         }
     }
 }

@@ -284,6 +284,7 @@ impl DnsClient {
             destination: SocksAddr::Domain(host.to_string(), 0),
             inbound_tag: ctx.inbound.clone().unwrap_or_default(),
             user: ctx.user.clone(),
+            neighbor: ctx.neighbor.clone(),
             ..Default::default()
         }
     }

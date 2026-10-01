@@ -125,6 +125,7 @@
   "dns.servers[local].tcp_keep_alive_interval",
   "dns.servers[local].udp_fragment",
   "dns.servers[local].fallback_delay",
+  "dns.servers[local].neighbor_domain",
   "dns.servers[mdns].tag",
   "dns.servers[mdns].interface",
   "dns.servers[quic].tag",
@@ -295,6 +296,8 @@
   "dns.rules[].network_is_constrained",
   "dns.rules[].wifi_ssid",
   "dns.rules[].wifi_bssid",
+  "dns.rules[].source_mac_address",
+  "dns.rules[].source_hostname",
   "dns.rules[].preferred_by",
   "dns.rules[].rule_set",
   "dns.rules[].rule_set_ip_cidr_match_source",
@@ -1681,6 +1684,8 @@
   "route.rules[].network_is_constrained",
   "route.rules[].wifi_ssid",
   "route.rules[].wifi_bssid",
+  "route.rules[].source_mac_address",
+  "route.rules[].source_hostname",
   "route.rules[].rule_set",
   "route.rules[].rule_set_ip_cidr_match_source",
   "route.rules[].invert",
@@ -1789,6 +1794,8 @@
   "route.rule_set[remote].update_interval",
   "route.rule_set[remote].download_detour",
   "route.final",
+  "route.find_neighbor",
+  "route.dhcp_lease_files",
   "route.auto_detect_interface",
   "route.default_interface",
   "route.default_mark",
@@ -2029,10 +2036,6 @@
    "dns.servers[local].prefer_go",
    "dns.servers[mdns].prefer_go"
   ],
-  "Single-label LAN names from sing-box's neighbor resolver (DHCP leases): sail has none, and the system's resolver answers them": [
-   "dns.servers[local].neighbor_domain",
-   "dns.servers[mdns].neighbor_domain"
-  ],
   "An mDNS server asks on each interface itself, as sing-box's, which dials nothing": [
    "dns.servers[mdns].detour",
    "dns.servers[mdns].bind_interface",
@@ -2056,6 +2059,7 @@
    "dns.servers[mdns].domain_resolver.rewrite_ttl",
    "dns.servers[mdns].domain_resolver.client_subnet",
    "dns.servers[mdns].fallback_delay",
+   "dns.servers[mdns].neighbor_domain",
    "dns.servers[mdns].domain_strategy"
   ],
   "How a rejected query is answered: it is rejected all the same": [
@@ -2233,10 +2237,6 @@
   ],
   "sail looks processes up when a rule asks for them": [
    "route.find_process"
-  ],
-  "Neighbors' MAC addresses and host names, for conditions sail does not match": [
-   "route.find_neighbor",
-   "route.dhcp_lease_files"
   ],
   "Android's VPN is the host's to handle": [
    "route.override_android_vpn"
@@ -2933,15 +2933,11 @@
    "dns.rules[].interface_address",
    "dns.rules[].network_interface_address",
    "dns.rules[].default_interface_address",
-   "dns.rules[].source_mac_address",
-   "dns.rules[].source_hostname",
    "dns.rules[].rule_set_ip_cidr_accept_empty",
    "route.rules[].client",
    "route.rules[].interface_address",
    "route.rules[].network_interface_address",
    "route.rules[].default_interface_address",
-   "route.rules[].source_mac_address",
-   "route.rules[].source_hostname",
    "route.rules[].preferred_by"
   ],
   "sail cannot tell which Android package a connection comes from yet": [

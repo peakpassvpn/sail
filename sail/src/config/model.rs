@@ -727,6 +727,14 @@ pub struct DnsRule {
     pub source_ip_cidr: Vec<String>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub source_ip_is_private: bool,
+    /// MAC addresses of the LAN device the query comes from, as the
+    /// neighbor table and DHCP leases know it.
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub source_mac_address: Vec<String>,
+    /// Host names of the LAN device the query comes from, as its DHCP
+    /// lease has it.
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub source_hostname: Vec<String>,
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
     pub source_port: Vec<u16>,
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
@@ -1107,6 +1115,8 @@ impl DnsRule {
             external: self.external.clone(),
             source_ip_cidr: self.source_ip_cidr.clone(),
             source_ip_is_private: self.source_ip_is_private,
+            source_mac_address: self.source_mac_address.clone(),
+            source_hostname: self.source_hostname.clone(),
             source_port: self.source_port.clone(),
             source_port_range: self.source_port_range.clone(),
             port: self.port.clone(),
@@ -2007,6 +2017,14 @@ pub struct Route {
     /// decide.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_domain_resolver: Option<DomainResolver>,
+    /// Looks up the LAN device of each connection's source even without a
+    /// rule on it, for the logs (sing-box's, since 1.14).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub find_neighbor: bool,
+    /// The DHCP lease files the LAN devices' names are read from; the
+    /// usual ones of dnsmasq, odhcpd, ISC dhcpd and Kea when none.
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub dhcp_lease_files: Vec<String>,
     /// The HTTP client of what names none, by tag; the first of
     /// `http_clients` when unset, or with none, the default outbound.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2165,6 +2183,14 @@ pub struct Rule {
     /// The source address is not a public one.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub source_ip_is_private: bool,
+    /// MAC addresses of the LAN device the connection comes from, as the
+    /// neighbor table and DHCP leases know it (sing-box's, since 1.14).
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub source_mac_address: Vec<String>,
+    /// Host names of the LAN device the connection comes from, as its DHCP
+    /// lease has it.
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub source_hostname: Vec<String>,
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
     pub ip_cidr: Vec<String>,
     /// The destination address, or one the domain resolved to, is not a
@@ -2511,6 +2537,8 @@ impl Rule {
             ("external", !self.external.is_empty()),
             ("source_ip_cidr", !self.source_ip_cidr.is_empty()),
             ("source_ip_is_private", self.source_ip_is_private),
+            ("source_mac_address", !self.source_mac_address.is_empty()),
+            ("source_hostname", !self.source_hostname.is_empty()),
             ("ip_cidr", !self.ip_cidr.is_empty()),
             ("ip_is_private", self.ip_is_private),
             ("ip_asn", !self.ip_asn.is_empty()),

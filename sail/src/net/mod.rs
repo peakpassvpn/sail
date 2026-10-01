@@ -19,6 +19,7 @@ pub mod datagram;
 pub mod dial;
 pub mod interface;
 pub mod nat64;
+pub(crate) mod neighbor;
 #[cfg(feature = "netstack")]
 pub mod netstack;
 pub mod network;

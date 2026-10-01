@@ -208,6 +208,11 @@ struct MdnsOptions {
 struct LocalOptions {
     #[serde(flatten)]
     dial: DialFields,
+    /// Suffixes, each starting with `.`, of the single-label names the
+    /// LAN devices' addresses answer for, as sing-box's local server has
+    /// them; `.` for bare single-label names.
+    #[serde(default, with = "listable")]
+    neighbor_domain: Vec<String>,
 }
 
 /// The dial fields a local server takes: those of a socket to the
@@ -236,10 +241,54 @@ pub(super) struct Local {
     /// With dial fields: the system's servers, which it asks itself.
     pub dialed: Option<LocalDialed>,
     pub hosts: Hosts,
+    /// The `neighbor_domain` suffixes, lower case, without a trailing dot
+    /// but for `.` itself.
+    pub neighbor_suffixes: Vec<String>,
+    /// The LAN devices, whose names `neighbor_domain` answers for.
+    pub neighbors: crate::net::neighbor::Neighbors,
     pub mdns: super::mdns::Mdns,
 }
 
+/// sing-box's buildNeighborMatchers: each entry starts with `.`.
+fn neighbor_suffixes(domains: &[String]) -> Result<Vec<String>> {
+    domains
+        .iter()
+        .map(|d| {
+            if !d.starts_with('.') {
+                return Err(anyhow!("neighbor_domain: {:?} does not start with '.'", d));
+            }
+            let d = d.to_ascii_lowercase();
+            Ok(match d.trim_end_matches('.') {
+                "" => ".".to_string(),
+                trimmed => trimmed.to_string(),
+            })
+        })
+        .collect()
+}
+
+/// sing-box's extractNeighborHost: the single label `host` holds before
+/// one of `suffixes`; `.` takes a name that is a single label already.
+pub(super) fn neighbor_host<'a>(host: &'a str, suffixes: &[String]) -> Option<&'a str> {
+    suffixes.iter().find_map(|suffix| {
+        let label = if suffix == "." {
+            host
+        } else {
+            host.strip_suffix(suffix.as_str())?
+        };
+        (!label.is_empty() && !label.contains('.')).then_some(label)
+    })
+}
+
 impl Local {
+    /// sing-box's lookupNeighbor: the addresses of the LAN device whose
+    /// name `host` is, under a `neighbor_domain` suffix; none when no
+    /// device has the name, or the resolver does not run.
+    pub fn neighbor_addresses(&self, host: &str) -> Option<Vec<IpAddr>> {
+        let label = neighbor_host(host, &self.neighbor_suffixes)?;
+        let ips = self.neighbors.get()?.lookup_addresses(label);
+        (!ips.is_empty()).then_some(ips)
+    }
+
     /// Whether it asks mDNS for `host`.
     pub fn asks_mdns(&self, host: &str) -> bool {
         !cfg!(target_vendor = "apple") && super::mdns::is_local_domain(host)
@@ -319,6 +368,7 @@ impl Server {
             }
             "local" => {
                 let o: LocalOptions = parse_options("dns server", tag, &config.options)?;
+                let neighbor_suffixes = neighbor_suffixes(&o.neighbor_domain).map_err(err)?;
                 let dialed = if o.dial == DialFields::default() {
                     None
                 } else {
@@ -341,6 +391,8 @@ impl Server {
                 Kind::Local(Box::new(Local {
                     dialed,
                     hosts,
+                    neighbor_suffixes,
+                    neighbors: env.neighbors.clone(),
                     mdns: Default::default(),
                 }))
             }
@@ -423,7 +475,9 @@ impl Server {
         match &self.kind {
             Kind::Hosts(hosts) => hosts.get(host).is_some(),
             Kind::Local(local) => {
-                local.hosts.get(host).is_some() || super::mdns::is_local_domain(host)
+                local.hosts.get(host).is_some()
+                    || local.neighbor_addresses(host).is_some()
+                    || super::mdns::is_local_domain(host)
             }
             Kind::Mdns(_) => super::mdns::is_local_domain(host),
             Kind::Udp { .. }

@@ -23,6 +23,7 @@ pub(crate) async fn answer(dns: &SyncDnsClient, query: &[u8], sess: &Session) ->
     let ctx = LookupContext {
         inbound: Some(sess.inbound_tag.clone()),
         user: sess.user.clone(),
+        neighbor: sess.neighbor.clone(),
         ..Default::default()
     };
     match dns.load().exchange(query, &ctx).await {

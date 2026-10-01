@@ -46,6 +46,8 @@ pub(crate) struct Facts {
     query_type: Option<u16>,
     /// The DNS servers that prefer the name, for a DNS query.
     preferred_by: Option<Arc<Vec<String>>>,
+    /// The LAN device the source is, when it was looked up.
+    neighbor: Option<Arc<crate::net::neighbor::Neighbor>>,
     /// The code of the DNS response matched.
     rcode: Option<u16>,
     /// The DNS response matched, whose records `response_answer`,
@@ -95,6 +97,7 @@ impl Facts {
             source: sess.source,
             query_type: None,
             preferred_by: None,
+            neighbor: sess.neighbor.clone(),
             rcode: None,
             response: None,
             responses: None,
@@ -876,6 +879,10 @@ pub(crate) struct Conditions {
     query_types: Vec<u16>,
     /// DNS servers, one of which prefers the name.
     preferred_by: Vec<String>,
+    /// MAC addresses of the source's LAN device, as sing-box writes them.
+    source_macs: Vec<String>,
+    /// Host names of the source's LAN device.
+    source_hostnames: Vec<String>,
     /// On the network the host is on.
     network: NetworkConditions,
     /// Each by its tag.
@@ -1106,6 +1113,12 @@ impl Conditions {
                 extras.query_types
             },
             preferred_by: rule.preferred_by.clone(),
+            source_macs: rule
+                .source_mac_address
+                .iter()
+                .map(|m| normalized_mac(m))
+                .collect(),
+            source_hostnames: rule.source_hostname.clone(),
             network: NetworkConditions::compile(rule, path)?,
             #[cfg(feature = "rule-set")]
             rule_sets,
@@ -1141,6 +1154,8 @@ impl Conditions {
             && self.url_regex.is_empty()
             && self.query_types.is_empty()
             && self.preferred_by.is_empty()
+            && self.source_macs.is_empty()
+            && self.source_hostnames.is_empty()
             && self.response_rcode.is_none()
             && self.response_answer.is_empty()
             && self.response_ns.is_empty()
@@ -1351,6 +1366,18 @@ impl Conditions {
                     .preferred_by
                     .as_ref()
                     .is_some_and(|tags| self.preferred_by.iter().any(|t| tags.contains(t))))
+            && (self.source_macs.is_empty()
+                || facts
+                    .neighbor
+                    .as_ref()
+                    .and_then(|n| n.mac_string())
+                    .is_some_and(|mac| self.source_macs.contains(&mac)))
+            && (self.source_hostnames.is_empty()
+                || facts
+                    .neighbor
+                    .as_ref()
+                    .and_then(|n| n.hostname.as_ref())
+                    .is_some_and(|name| self.source_hostnames.contains(name)))
             && self.response_rcode.is_none_or(|c| facts.rcode == Some(c))
             && self.response_records_match(facts)
             && self
@@ -1455,6 +1482,34 @@ impl Matcher {
 }
 
 /// A record type as sing-box writes one: its name, or its number.
+/// `mac` as sing-box compares it: Go's net.ParseMAC then String(), lower
+/// case and colon-separated, for the forms `01:23:45:67:89:ab`,
+/// `01-23-45-67-89-ab` and `0123.4567.89ab`; kept as written otherwise, as
+/// sing-box keeps it, matching nothing.
+fn normalized_mac(mac: &str) -> String {
+    let hex = |s: &str| u8::from_str_radix(s, 16).ok().filter(|_| s.len() == 2);
+    let groups: Option<Vec<u8>> = if mac.contains(':') || mac.contains('-') {
+        let sep = if mac.contains(':') { ':' } else { '-' };
+        mac.split(sep).map(hex).collect()
+    } else if mac.contains('.') {
+        mac.split('.')
+            .filter(|g| g.len() == 4)
+            .flat_map(|g| [hex(&g[..2]), hex(&g[2..])])
+            .collect::<Option<Vec<u8>>>()
+            .filter(|_| mac.split('.').count() == 3 && mac.split('.').all(|g| g.len() == 4))
+    } else {
+        None
+    };
+    match groups {
+        Some(bytes) if bytes.len() == 6 => bytes
+            .iter()
+            .map(|b| format!("{:02x}", b))
+            .collect::<Vec<_>>()
+            .join(":"),
+        _ => mac.to_string(),
+    }
+}
+
 pub(crate) fn query_type(value: &serde_json::Value) -> Result<u16> {
     use std::str::FromStr;
     match value {
@@ -1662,6 +1717,53 @@ pub(crate) mod tests {
         assert_eq!(port_range("22:22").unwrap(), (22, 22));
         assert_eq!(port_range(":1024").unwrap(), (0, 1024));
         assert_eq!(port_range("8000:").unwrap(), (8000, u16::MAX));
+    }
+
+    /// `source_mac_address` and `source_hostname` match the LAN device the
+    /// session was found to come from, the MAC as Go's net.ParseMAC writes
+    /// it, whatever form the rule gives; nothing matches without one.
+    #[test]
+    fn neighbor_conditions_match_the_source_s_device() {
+        let device = |mac: Option<[u8; 6]>, hostname: Option<&str>| Session {
+            neighbor: Some(std::sync::Arc::new(crate::net::neighbor::Neighbor {
+                mac,
+                hostname: hostname.map(str::to_string),
+            })),
+            ..Default::default()
+        };
+        let nas = device(Some([0x02, 0xab, 0, 0, 0, 0x0a]), Some("nas"));
+        for written in ["02:ab:00:00:00:0a", "02-AB-00-00-00-0A", "02ab.0000.000a"] {
+            let m = json(serde_json::json!({ "source_mac_address": written }));
+            assert!(m.matches(&Facts::new(&nas, &[])), "{}", written);
+        }
+        let m = json(serde_json::json!({ "source_mac_address": ["02:ab:00:00:00:0b"] }));
+        assert!(!m.matches(&Facts::new(&nas, &[])));
+        let m = json(serde_json::json!({ "source_hostname": ["nas", "tv"] }));
+        assert!(m.matches(&Facts::new(&nas, &[])));
+        // Compared as written, as sing-box compares it.
+        let m = json(serde_json::json!({ "source_hostname": "NAS" }));
+        assert!(!m.matches(&Facts::new(&nas, &[])));
+        // No device known, or no name for it: no match.
+        let m = json(serde_json::json!({ "source_hostname": "nas" }));
+        assert!(!m.matches(&Facts::new(&Session::default(), &[])));
+        assert!(!m.matches(&Facts::new(&device(Some([2, 0, 0, 0, 0, 1]), None), &[])));
+        // Both: each must hold.
+        let m = json(serde_json::json!({
+            "source_mac_address": "02:ab:00:00:00:0a", "source_hostname": "tv" }));
+        assert!(!m.matches(&Facts::new(&nas, &[])));
+    }
+
+    /// Go's net.ParseMAC and String(), for the 6-byte forms; anything else
+    /// as written.
+    #[test]
+    fn macs_are_written_as_go_writes_them() {
+        assert_eq!(normalized_mac("02:AB:00:00:00:0A"), "02:ab:00:00:00:0a");
+        assert_eq!(normalized_mac("02-ab-00-00-00-0a"), "02:ab:00:00:00:0a");
+        assert_eq!(normalized_mac("02ab.0000.000a"), "02:ab:00:00:00:0a");
+        assert_eq!(normalized_mac("2:ab:0:0:0:a"), "2:ab:0:0:0:a");
+        assert_eq!(normalized_mac("02:ab:00:00:00"), "02:ab:00:00:00");
+        assert_eq!(normalized_mac("02ab.0000.000a.0000"), "02ab.0000.000a.0000");
+        assert_eq!(normalized_mac("not a mac"), "not a mac");
     }
 
     /// A rule written as sing-box's JSON.

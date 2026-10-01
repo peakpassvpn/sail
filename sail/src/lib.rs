@@ -489,6 +489,7 @@ impl RuntimeManager {
         let _update = self.update.lock().await;
         info!("reloading from config file: {}", config_path);
         let config = config::from_file_for(config_path, &self.env.host).map_err(Error::Config)?;
+        self.env.neighbors.start_if_needed(&config);
         let inbound_resources = self
             .inbound_manager
             .lock()
@@ -1394,6 +1395,8 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
     let dial_defaults = dial_defaults(&config, &env).map_err(Error::Config)?;
     let mut instance = app::instance::Instance::build(&config, env.clone(), dial_defaults)
         .map_err(Error::Config)?;
+    // The LAN devices, when a rule or DNS server asks for them.
+    env.neighbors.start_if_needed(&config);
     // The API server joins them, when it is compiled in.
     // Bound before anything starts: an address in use fails the start.
     #[cfg(feature = "clash-api")]

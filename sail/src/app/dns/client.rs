@@ -62,6 +62,9 @@ const LOCAL_TTL: Duration = Duration::from_secs(60);
 const FAKE_IP_TTL: u32 = 600;
 /// The TTL of a hosts server's answer: sing-box's.
 const HOSTS_TTL: u32 = 600;
+/// What a LAN device's addresses are given for: sing-box's DefaultDNSTTL,
+/// which its local server answers them with.
+const NEIGHBOR_TTL: u32 = 600;
 
 impl DnsClient {
     pub fn new(
@@ -613,12 +616,14 @@ impl DnsClient {
         let host = host.trim_end_matches('.').to_ascii_lowercase();
         let host = host.as_str();
         match &server.kind {
-            // As sing-box's local server: the names of the hosts file, and
-            // mDNS for `.local` off Apple's systems.
+            // As sing-box's local server: the names of the hosts file, those
+            // of the LAN devices under `neighbor_domain`, and mDNS for
+            // `.local` off Apple's systems.
             Kind::Local(local)
                 if local.asks_mdns(host)
                     || (matches!(ty, RecordType::A | RecordType::AAAA)
-                        && local.hosts.get(host).is_some()) =>
+                        && (local.hosts.get(host).is_some()
+                            || local.neighbor_addresses(host).is_some())) =>
             {
                 match Self::from_hosts(&local.hosts, request, host, ty) {
                     FromHosts::Reply(reply) => Ok(Answer::Message(reply)),
@@ -630,11 +635,25 @@ impl DnsClient {
                             request, &target, &ips, HOSTS_TTL,
                         )?))
                     }
-                    FromHosts::Missing => local
-                        .mdns
-                        .exchange(request, time.min(mdns::WAIT))
-                        .await
-                        .map(Answer::Message),
+                    FromHosts::Missing => match local
+                        .neighbor_addresses(host)
+                        .filter(|_| matches!(ty, RecordType::A | RecordType::AAAA))
+                    {
+                        // sing-box's FixedResponse: the addresses of the
+                        // query's family, with its default TTL.
+                        Some(ips) => {
+                            let ips: Vec<IpAddr> = ips
+                                .into_iter()
+                                .filter(|ip| ip.is_ipv4() == (ty == RecordType::A))
+                                .collect();
+                            Ok(Answer::Message(Self::reply(request, &ips, NEIGHBOR_TTL)))
+                        }
+                        None => local
+                            .mdns
+                            .exchange(request, time.min(mdns::WAIT))
+                            .await
+                            .map(Answer::Message),
+                    },
                 }
             }
             Kind::Mdns(mdns) => mdns

@@ -147,6 +147,9 @@ pub struct RuntimeEnv {
     pub listen_mark: Option<u32>,
     /// The users inbounds authenticate, by name; kept across reloads.
     pub users: crate::user::UserRegistry,
+    /// The LAN devices, by address, when a rule or DNS server needs them;
+    /// kept across reloads.
+    pub neighbors: crate::net::neighbor::Neighbors,
 }
 
 pub type SyncRuntimeEnv = Arc<RuntimeEnv>;
