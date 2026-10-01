@@ -43,8 +43,12 @@ jobs:
           toolchain: 1.98.1
           components: clippy, rustfmt
 
+      # Saved from master only: a ci/* branch restores master's cache, and
+      # per-branch saves would push master's out of the 10 GB the repo gets.
       - name: cache
         uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
 
       - name: format
         run: cargo fmt --all --check
@@ -77,6 +81,8 @@ jobs:
 
       - name: cache
         uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
 
       - name: check feature sets
         run: |
@@ -154,12 +160,11 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.sail-cross
-          key: sail-cross-${{ matrix.target }}-${{ hashFiles('scripts/install_cross_toolchain.sh') }}
+          # The four Android targets share one NDK.
+          key: sail-cross-${{ contains(matrix.target, 'android') && 'android' || matrix.target }}-${{ hashFiles('scripts/install_cross_toolchain.sh') }}
 
-      - name: cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          key: ${{ matrix.target }}
+      # No build cache here: ten targets at about 0.7 GB each would evict the
+      # test and feature caches every ci/* run depends on.
 
       - name: install cross toolchain
         run: scripts/install_cross_toolchain.sh ${{ matrix.target }} ${{ matrix.run && '--run' || '' }}
