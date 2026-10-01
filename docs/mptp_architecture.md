@@ -2,7 +2,7 @@
 
 ## System Overview
 
-MPTP (Multipath Transport Protocol) aggregates multiple reliable connections into a single logical tunnel to provide bandwidth aggregation and connection resilience.
+MPTP (Multipath Transport Protocol) carries one logical tunnel over several reliable connections for resilience. Every frame is sent on every path that has room (at most 64 KiB queued on it); the receiver keeps the first copy of each frame, drops the duplicates and puts the frames back in order. MPTP therefore keeps a tunnel going when one path fails, but it does not add bandwidth, and its traffic is multiplied by the number of paths. It has no authentication or encryption of its own. Configuration is on the [MPTP page](https://peakpassvpn.github.io/sail/mptp/).
 
 ```mermaid
 graph TD
@@ -14,8 +14,8 @@ graph TD
             SessionMgr_C["Session Manager"]
             
             subgraph "MPTP Stream (Client Side)"
-                Splitter_C["Data Splitter"]
-                Combiner_C["Data Combiner"]
+                Splitter_C["Frame Duplicator"]
+                Combiner_C["Dedup + Reorder"]
             end
         end
     end
@@ -32,8 +32,8 @@ graph TD
             SessionMgr_S["Session Manager<br/>Map<CID, Session>"]
             
             subgraph "MPTP Stream (Server Side)"
-                Combiner_S["Data Combiner"]
-                Splitter_S["Data Splitter"]
+                Combiner_S["Dedup + Reorder"]
+                Splitter_S["Frame Duplicator"]
             end
             
             TargetConn["Target Connector<br/>TCP/UDP Socket"]
@@ -59,15 +59,15 @@ graph TD
     
     %% Data Flow (Client -> Server)
     S5 -->|"Raw Data"| Splitter_C
-    Splitter_C -->|"Frame (Len+Data)"| Relay1 & Relay2 & Direct
+    Splitter_C -->|"Same frame (seq + data)"| Relay1 & Relay2 & Direct
     Relay1 & Relay2 & Direct -->|"Frame"| Combiner_S
-    Combiner_S -->|"Reassembled Data"| TargetConn
+    Combiner_S -->|"First copy, in order"| TargetConn
     
     %% Data Flow (Server -> Client)
     TargetConn -->|"Raw Data"| Splitter_S
-    Splitter_S -->|"Frame (Len+Data)"| Relay1 & Relay2 & Direct
+    Splitter_S -->|"Same frame (seq + data)"| Relay1 & Relay2 & Direct
     Relay1 & Relay2 & Direct -->|"Frame"| Combiner_C
-    Combiner_C -->|"Reassembled Data"| S5
+    Combiner_C -->|"First copy, in order"| S5
     
     %% Target Connection
     TargetConn <-->|"TCP/UDP"| Target
@@ -126,15 +126,14 @@ sequenceDiagram
     end
     Client-->>App: SOCKS5 success reply
 
-    loop Data tunneling with multipath scheduling
+    loop Data tunneling, every frame on every path
         App->>Client: TCP bytes or UDP packet
-        Client->>Client: Encapsulate and schedule across sub-connections
-        Client->>Server: Send via best available sub-connection(s)
+        Client->>Client: Frame with a sequence number
+        Client->>Server: Send the same frame on every sub-connection with room
         Server->>Target: Forward to destination
         Target->>Server: Return traffic
-        Server->>Client: Return via selected sub-connection(s)
+        Server->>Client: Return the same way; the first copy wins
         Client-->>App: Deliver to app
     end
 
-    note over App,Target: Future phases add health probes, scoring, recovery after cuts, and network migration handling.
 ```

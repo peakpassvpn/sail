@@ -5,16 +5,21 @@ description: Prepare a Sail build environment and choose the right build target.
 
 Sail is built as a Rust workspace. The same core can become a CLI executable, a native library for an app, or a platform-specific package.
 
+:::note
+There is no stable binary release yet. Build Sail from source as described below. A release pipeline for prebuilt CLI archives is being prepared.
+:::
+
 ## Prerequisites
 
 Install the following before building:
 
-- A recent stable Rust toolchain with Cargo.
+- Rust with Cargo, installed through rustup. The repository pins its toolchain in `rust-toolchain.toml`, and rustup installs that version on the first build.
 - CMake.
 - A C/C++ compiler such as Clang or GCC.
+- libclang, which bindgen loads to generate the BoringSSL bindings (on Debian and Ubuntu, `libclang-dev`).
 - Git and a standard native build environment for your platform.
 
-BoringSSL is the only TLS backend and is built from source. A working Rust installation alone is therefore not enough.
+BoringSSL is the only TLS and crypto library and is built from source through `btls`. A working Rust installation alone is therefore not enough.
 
 :::note
 The first build is substantially slower than later builds because native TLS code and Rust dependencies must be compiled.
@@ -29,7 +34,7 @@ cargo build -p sail-cli --release
 ./target/release/sail --help
 ```
 
-The release binary is self-contained apart from operating-system facilities used by features such as TUN.
+`sail-cli` is the workspace's default member, so a plain `cargo build --release` builds the same binary. BoringSSL is linked in statically; no system OpenSSL is needed. Features such as TUN still use operating-system facilities. On Windows, the TUN inbound needs Wintun's `wintun.dll` beside `sail.exe`.
 
 ## Check the workspace
 
@@ -40,7 +45,39 @@ cargo check --workspace
 cargo test --workspace
 ```
 
-Feature-gated protocols are registered at compile time. An error saying a protocol is unknown can mean either that Sail does not support it or that the selected build did not include its feature.
+Feature-gated protocols and formats are registered at compile time. An error saying a protocol is unknown, or that a format needs a feature which is not compiled in, can mean either that Sail does not support it or that the selected build did not include its feature. The default build includes the sing-box, Clash and Surge configuration formats.
+
+## Cross-compiling
+
+`scripts/install_cross_toolchain.sh <target>` installs a cross toolchain on an x86_64 Debian or Ubuntu host, and `scripts/cross.sh <target> build --release -p sail-cli` builds with it. CI builds these targets this way:
+
+| Target | Built |
+| --- | --- |
+| `x86_64-unknown-linux-musl`, `aarch64-unknown-linux-musl`, `i686-unknown-linux-musl` | CLI |
+| `armv7-unknown-linux-musleabihf`, `arm-unknown-linux-musleabi` | CLI |
+| `x86_64-pc-windows-gnu` | CLI (MinGW and NASM) |
+| `aarch64-linux-android`, `armv7-linux-androideabi`, `x86_64-linux-android`, `i686-linux-android` | `sail-ffi` libraries (Android NDK) |
+
+Apple frameworks are built on macOS with `scripts/build_apple_xcframework.sh`.
+
+## Run as a systemd service
+
+`packaging/systemd` contains a unit for Linux servers. `install.sh` installs it below an explicit root and never enables, starts or reloads anything:
+
+```sh
+packaging/systemd/install.sh --root / --allow-system-root \
+  --check-binary ./target/release/sail --service-binary /usr/bin/sail
+```
+
+It checks the configuration with `--test` first, then installs:
+
+| File | Content |
+| --- | --- |
+| `/etc/systemd/system/sail.service` | The unit, with `--service-binary` (default `/usr/bin/sail`) |
+| `/etc/sail/config.json` | The initial configuration (`--config`, default `config.example.json`); kept if present |
+| `/etc/sail/sail.env` | `SAIL_CONFIG`, `SAIL_DATA_DIR=/etc/sail`, `SAIL_CACHE_DIR=/var/cache/sail`, `SAIL_PROFILE=server`; kept if present |
+
+The unit runs as user and group `sail`, which must exist; `install.sh` does not create them. It has no capabilities and a restricted filesystem. `--mode tun` adds a drop-in that grants `CAP_NET_ADMIN`, `CAP_NET_RAW` and `/dev/net/tun`, for configurations with a TUN inbound or transparent proxy sockets. `systemctl reload sail` validates the configuration and then sends SIGHUP, which reloads it; a configuration that fails to load leaves the previous one running. On stop, SIGTERM lets open connections drain for up to 30 seconds with the `server` profile. `uninstall.sh --root DIR` removes only unchanged files `install.sh` recorded and never the configuration. Use `--dry-run` with either script to preview.
 
 ## Choose a host
 

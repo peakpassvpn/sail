@@ -25,7 +25,7 @@ flowchart LR
     linkStyle 2 stroke:#ff6759,stroke-width:3px
 ```
 
-你需要 Rust、Cargo、CMake 和 C/C++ 编译器。BoringSSL 会随项目从源码构建。平台相关说明见[安装](/sail/zh/installation/)。
+你需要 Rust、Cargo、CMake、C/C++ 编译器和 libclang。BoringSSL 会随项目从源码构建。目前还没有预编译的发布版。平台相关说明见[安装](/sail/zh/installation/)。
 
 ## 1. 构建 CLI
 
@@ -58,13 +58,15 @@ cargo build -p sail-cli --release
 
 入站接收 SOCKS5 TCP 和 UDP 流量；未命中规则的连接都会交给 `direct` 出站。
 
+这是 Sail 的原生格式 sing-box JSON。Sail 也能直接读取 Clash/Mihomo YAML（`.yaml`、`.yml`）或 Surge 配置（`.conf`），格式由扩展名决定。`config.json` 也是默认路径，因此 `-c config.json` 可以省略。
+
 ## 3. 启动前验证
 
 ```sh
 ./target/release/sail -c config.json -T
 ```
 
-解析和引用均有效时，Sail 输出 `ok` 后退出。未知字段、缺失的出站标签和无效规则会在启动前被发现。
+文件能解析，且所有入站、出站、DNS 服务器和规则都能构建时，Sail 输出 `ok` 后退出。未知字段、缺失的出站标签和无效规则会在启动前被发现。
 
 ## 4. 运行并验证
 
@@ -85,4 +87,5 @@ curl --socks5-hostname 127.0.0.1:1080 https://example.com
 - [配置模型](/sail/zh/configuration/)：顶层结构、默认值和兼容范围。
 - [路由规则](/sail/zh/routing/)：域名、IP、端口、入站和进程匹配。
 - [协议与兼容性](/sail/zh/protocols/)：入站、出站、传输层及主流配置生态。
+- [MPTP](/sail/zh/mptp/)：搭建客户端/服务端多路径隧道。
 - [CLI 参考](/sail/zh/cli/)：验证、连通性测试与运行时配置。

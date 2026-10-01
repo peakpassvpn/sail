@@ -25,7 +25,7 @@ flowchart LR
     linkStyle 2 stroke:#ff6759,stroke-width:3px
 ```
 
-You need Rust, Cargo, CMake and a C/C++ compiler. BoringSSL is compiled from source as part of the build. See [Installation](/sail/installation/) for platform notes.
+You need Rust, Cargo, CMake, a C/C++ compiler and libclang. BoringSSL is compiled from source as part of the build. There is no prebuilt release yet. See [Installation](/sail/installation/) for platform notes.
 
 ## 1. Build the CLI
 
@@ -70,13 +70,15 @@ Save this as `config.json`:
 
 The inbound accepts SOCKS5 TCP and UDP traffic. The router sends every connection that does not match a rule to `direct`.
 
+This is sing-box JSON, Sail's native format. Sail also reads a Clash/Mihomo YAML file (`.yaml`, `.yml`) or a Surge profile (`.conf`) directly; the extension selects the format. `config.json` is also the default path, so `-c config.json` may be left out.
+
 ## 3. Validate before starting
 
 ```sh
 ./target/release/sail -c config.json -T
 ```
 
-Sail prints `ok` and exits when the file parses and its references are valid. Unknown fields, missing outbound tags and invalid rule combinations fail here instead of during startup.
+Sail prints `ok` and exits when the file parses and every inbound, outbound, DNS server and rule builds. Unknown fields, missing outbound tags and invalid rule combinations fail here instead of during startup.
 
 ## 4. Run and verify
 

@@ -3,7 +3,7 @@ title: TLS 与指纹
 description: 配置 TLS、证书信任、客户端证书、SNI、ECH、REALITY 与浏览器 ClientHello 指纹。
 ---
 
-Sail 使用 BoringSSL 处理 TCP 和 QUIC 上的 TLS。出站 TLS 默认发送浏览器形态的 ClientHello，而不是 BoringSSL 原生握手形态。
+Sail 通过 `btls` 绑定使用 BoringSSL，处理 TCP 和 QUIC 上的 TLS。TCP 上的出站 TLS 默认发送浏览器形态的 ClientHello，而不是 BoringSSL 原生的 ClientHello。
 
 ## 基础 TLS 出站
 
@@ -21,46 +21,87 @@ Sail 使用 BoringSSL 处理 TCP 和 QUIC 上的 TLS。出站 TLS 默认发送�
 }
 ```
 
-`server_name` 同时影响证书校验和 SNI。省略时使用服务器地址。`insecure: true` 会关闭证书校验，只适合短时诊断，不应作为证书问题的长期解决方案。
+`server_name` 同时决定证书校验和 SNI。省略时使用服务器地址。
 
-## ClientHello 指纹
+:::caution
+`insecure: true` 会关闭证书校验。它只适合短时诊断，不能用来解决证书或主机名问题。
+:::
 
-可用浏览器配置包括 Chrome、Firefox、Safari、iOS 和 Android；省略 `utls` 时默认使用 Chrome。
+## 选择 ClientHello 指纹
+
+每个指纹对应一个实际抓取的浏览器或客户端的 ClientHello：
+
+| `fingerprint` | 发送的 ClientHello |
+| --- | --- |
+| `chrome`（默认）、`edge` | macOS 上的 Chrome 154；Android 上的 Chrome 和 Edge 发送相同的 ClientHello |
+| `firefox` | macOS 上的 Firefox 156 |
+| `safari`、`ios` | macOS 上的 Safari 26.3，与 macOS 及 iOS 26.4 上的 URLSession 相同 |
+| `android` | 基于系统 Conscrypt、使用 OkHttp 4.12 的 Android 应用 |
+| `random` | 与 sing-box 一样，从 `chrome`、`firefox`、`edge`、`safari`、`ios` 中选一个；每个进程只选一次，之后所有连接都用它 |
+
+省略 `utls`，或 `utls` 未指定 `fingerprint` 时，默认使用 Chrome。因此与 sing-box 不同，浏览器指纹默认开启，除非显式关闭。其他名称是配置错误。
 
 ```json
 {
   "tls": {
     "enabled": true,
     "server_name": "edge.example.com",
-    "utls": { "enabled": true, "fingerprint": "firefox" }
+    "utls": {
+      "enabled": true,
+      "fingerprint": "firefox"
+    }
   }
 }
 ```
 
-若要使用 BoringSSL 原生 ClientHello，显式设置 `"utls": { "enabled": false }`。指纹只改变握手形态，不会改变 TLS 内承载的应用协议。
-
-## 自定义信任、ALPN 与 ECH
-
-可使用 `certificate` 内联 PEM，也可通过 `certificate_path` 读取证书。相对路径以 `-D` 指定的数据目录为基准，默认以可执行文件目录为基准。
+若要发送 BoringSSL 自己的 ClientHello，显式关闭指纹：
 
 ```json
 {
   "tls": {
     "enabled": true,
-    "alpn": ["h2", "http/1.1"],
-    "certificate_path": "certs/private-ca.pem",
-    "ech": { "enabled": true }
+    "utls": {
+      "enabled": false
+    }
   }
 }
 ```
 
-ECH 开启且未提供 `config` 时，可通过 DNS 发现 ECHConfigList；设置 `disable_dns_lookup` 可强制使用显式配置。
+指纹只改变握手形态，不改变 TLS 内承载的应用协议。与浏览器一样，每个指纹都提供 TLS 1.2 和 1.3：开启 `utls` 时，`min_version` 与 `max_version` 会被忽略并给出警告。没有 `utls` 块时，这两个字段设置的范围会生效，并有警告说明此时的 ClientHello 已不再是浏览器的。
 
-ECH 只用于 TLS 1.3，因此开启 ECH 且 `min_version` 低于 `1.3` 属于配置错误。sing-box 会接受这样的配置，但之后每条连接都会失败（Go 的 TLS 要求开启 ECH 时最低版本为 1.3）；Sail 在读取配置时就报错。
+在 QUIC 上（Hysteria2、TUIC），ClientHello 是 BoringSSL 自己的：在那里开启 `utls`、`ech` 或 `reality` 是配置错误。
+
+## 自定义信任
+
+默认按系统根证书库校验服务器。顶层 `certificate` 块可选择其他证书库（`store`：`system`、`mozilla`、`chrome` 或 `none`），也可以加入自己的证书，与 sing-box 相同。
+
+在出站的 `tls` 中，`certificate` 会替换上述根证书：服务器必须链到所给的 PEM 证书。可以内联：
+
+```json
+{
+  "tls": {
+    "enabled": true,
+    "certificate": "-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----"
+  }
+}
+```
+
+也可以从路径读取：
+
+```json
+{
+  "tls": {
+    "enabled": true,
+    "certificate_path": "certs/private-ca.pem"
+  }
+}
+```
+
+相对证书路径以 `-D` 指定的数据目录为基准，默认以可执行文件所在目录为基准。
 
 ### 证书固定
 
-`certificate_sha256` 是 sail 的扩展字段，语义同 Mihomo 的 `fingerprint`：按整张证书（DER）的 SHA-256 接受服务器，十六进制，大小写均可，冒号可有可无，即 `openssl x509 -noout -fingerprint -sha256` 的输出。它取代 `certificate`、`certificate_path` 与 `insecure`，且不能与固定公钥的 sing-box 字段 `certificate_public_key_sha256` 同时使用。
+`certificate_sha256` 是 sail 的扩展字段，语义同 Mihomo 的 `fingerprint`：按整张证书（DER）的 SHA-256 接受服务器，十六进制，大小写均可，冒号可有可无，即 `openssl x509 -noout -fingerprint -sha256` 的输出。它取代受信任的根证书与 `insecure`，二者都不再起作用。它不能与 `certificate` 或 `certificate_path` 同时使用，也不能与固定公钥的 sing-box 字段 `certificate_public_key_sha256` 同时使用。
 
 ```json
 {
@@ -77,6 +118,26 @@ ECH 只用于 TLS 1.3，因此开启 ECH 且 `min_version` 低于 `1.3` 属于�
 - 都不匹配：握手失败，错误信息给出服务器所发证书的哈希。
 
 TCP 与 QUIC 均支持，DNS 服务器的 `tls` 也支持。REALITY 自行验证服务器，会忽略该字段并给出警告。
+
+## ALPN 与 ECH
+
+服务器要求特定应用协议时使用 `alpn`。使用浏览器指纹且未设置 `alpn` 时，ClientHello 提供浏览器的 `h2` 与 `http/1.1`。
+
+```json
+{
+  "tls": {
+    "enabled": true,
+    "alpn": ["h2", "http/1.1"],
+    "ech": {
+      "enabled": true
+    }
+  }
+}
+```
+
+开启 ECH 时，Sail 从服务器名的 HTTPS（或 SVCB）DNS 记录中查询 ECHConfigList。查询失败时使用 `config`（base64 或 PEM 格式的 ECHConfigList）；没有 `config` 则连接失败。设置 `disable_dns_lookup: true` 时只使用 `config`。
+
+ECH 只用于 TLS 1.3，因此开启 ECH 且 `min_version` 或 `max_version` 低于 `1.3` 属于配置错误。sing-box 会接受这样的配置，但之后每条连接都会失败（Go 的 TLS 要求开启 ECH 时最低版本为 1.3）；Sail 在读取配置时就报错。
 
 ## 客户端证书
 
@@ -115,6 +176,8 @@ Surge 的 `client-cert=<条目>` 读取 `[Keystore]` 中的 `p12` 条目；Mihom
 
 ## REALITY
 
+REALITY 在 TLS 块中配置：
+
 ```json
 {
   "tls": {
@@ -129,4 +192,12 @@ Surge 的 `client-cert=<条目>` 读取 `[Keystore]` 中的 `p12` 条目；Mihom
 }
 ```
 
-公钥和 short ID 必须与服务端一致。排查握手失败时，依次验证配置、单独测试出站、检查系统时间与证书链，再查看 DNS、连接和 TLS 阶段日志。
+使用服务端签发的公钥和 short ID。REALITY 的 ClientHello 总是浏览器的：与它同用时不能关闭 `utls`，且只能用于 TCP。REALITY 与普通证书 TLS 的认证前提不同；不要在未核对服务端的情况下从另一套部署复制字段。
+
+## 排查握手失败
+
+1. 运行 `sail -c config.json -T`，发现字段与组合错误。
+2. 运行 `sail -c config.json -t edge -d 10`，单独测试该出站。
+3. 确认 `server_name`、系统时间和证书链。
+4. 只有确知服务器强制要求某种指纹时，才临时切换指纹。
+5. 开启调试日志，查看失败发生在 DNS、TCP/UDP 连接还是 TLS 阶段。

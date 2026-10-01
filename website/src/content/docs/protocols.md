@@ -9,34 +9,41 @@ The tables below describe the default build. Protocols are feature-gated, so a c
 
 ## Clash, sing-box and Surge ecosystems
 
-Sail's direction is one Rust runtime for the protocols, routing rules and policy groups familiar across mainstream proxy ecosystems. Compatibility currently means aligned concepts and a practical migration path—not that every third-party configuration file can be loaded unchanged.
+Sail reads all three formats directly, through one loader, into one runtime. sing-box's JSON is Sail's own format; Clash / Mihomo YAML and Surge profiles are read as they are, not converted by hand.
 
-| Ecosystem | Current relationship | Recommended path |
+| Format | How it is recognised | Read as |
 | --- | --- | --- |
-| sing-box | Sail's JSON model uses familiar protocol names and nested transport concepts, but fields and coverage are not identical | Convert to Sail JSON, then validate with `sail -T` |
-| Surge / leaf | The legacy parser accepts familiar `.conf` sections such as `[Proxy]`, `[Proxy Group]` and `[Rule]` | Use it as a migration input, then move new work to JSON |
-| Clash / Mihomo | Protocol, policy-group and rule concepts overlap; arbitrary Clash YAML is not loaded natively today | Generate Sail JSON through a converter or host integration layer |
+| sing-box JSON (1.14) | A `.json` file, or text that is a JSON object | Native, with Sail's extensions |
+| Clash / Mihomo YAML | A `.yaml` or `.yml` file, or any other text | Lowered into the same model |
+| Surge profile | A `.conf` file, or text with a `[General]`, `[Proxy]` or `[Rule]` section | Lowered into the same model; included files are read too |
 
-This boundary lets Sail unify runtime behavior without silently misinterpreting fields that share a name but differ in semantics. See [Configuration](/sail/configuration/) for the native model.
+A field Sail does not implement is never guessed at. One whose absence changes no routing or security is dropped with a warning; one that would change where or how traffic goes is an error. Surge settings that mean nothing where Sail runs, such as its interface options, are passed over silently. The per-field support tables for each format are on the [compatibility](/sail/reference/compatibility/) page. See [Configuration](/sail/configuration/) for the native model.
 
 ## Proxy protocols
 
 | Protocol | Inbound | Outbound | Notes |
 | --- | :---: | :---: | --- |
 | HTTP | Yes | Yes | Basic authentication supported |
-| SOCKS5 | Yes | Yes | TCP and UDP; optional users on inbound |
+| SOCKS | Yes | Yes | Inbound: SOCKS4, 4a and 5, TCP and UDP. Outbound: version 5 only; 4 and 4a are errors |
 | Mixed | Yes | No | HTTP and SOCKS on one listener |
-| Shadowsocks | Yes | Yes | Classic AEAD and 2022 variants |
+| Shadowsocks | Yes | Yes | Classic AEAD and 2022 methods; outbound `obfs-local` plugin |
 | Trojan | Yes | Yes | TCP and UDP relay |
-| VMess | Yes | Yes | AEAD mode; XUDP available |
+| VMess | Yes | Yes | AEAD only (`alter_id` 0); XUDP available |
 | VLESS | Yes | Yes | Plain UDP or XUDP; Vision flow |
 | AnyTLS | Yes | Yes | Shared authenticated TLS sessions |
 | ShadowTLS | Yes | Yes | Version 3 only; carries another protocol, see below |
-| Hysteria2 | Yes | Yes | QUIC, UDP and optional port hopping |
+| Hysteria2 | Yes | Yes | QUIC, UDP, Salamander obfuscation, port hopping on the outbound, masquerade on the inbound |
 | TUIC | Yes | Yes | QUIC streams and datagrams |
-| MPTP | Yes | Yes | Multiple paths as one logical tunnel |
+| MPTP | Yes | Yes | Multiple paths as one logical tunnel; a Sail protocol, see [MPTP](/sail/mptp/) |
+| WireGuard | Endpoint | Endpoint | sing-box's `endpoints` entry: inbound and outbound under one tag, over Sail's userspace TCP/IP stack |
 
-Internal endpoints also include `direct`, `drop` and redirect-style handlers used by routing and platform integrations.
+Other outbounds are `direct`, `block`, `pass` (Mihomo's PASS, see [Routing](/sail/routing/#pass-a-rule-on-pass)) and `redirect`, which sends every connection to one fixed address. Other inbounds include `direct`, `tun` and the transparent ones below.
+
+sing-box's `hysteria`, `naive`, `snell`, `ssh`, `tor`, `cloudflared` and `tailscale` types, and the OpenVPN and OpenConnect endpoints, are configuration errors.
+
+### UDP over TCP
+
+Shadowsocks and SOCKS outbounds can carry UDP inside their TCP stream with `udp_over_tcp`, as sing-box and Mihomo do: version 2 by default, or version 1. AnyTLS always carries UDP this way. Every inbound serves a stream to either version's magic address as UDP.
 
 ### ShadowTLS
 
@@ -67,7 +74,7 @@ ShadowTLS v3 relays a real TLS handshake with a site the server imitates, and ca
 }
 ```
 
-The ClientHello carries a browser fingerprint (`tls.utls`, Chrome's by default) and the client's authentication in its session ID. The handshake server is dialled directly: its dial fields, and `detour`, are not implemented yet. Clash's `ss` proxies with `plugin: shadow-tls` and Surge's `shadow-tls-password`, `shadow-tls-sni` and `shadow-tls-version` become such a pair, the ShadowTLS outbound named `<name> (shadow-tls)`.
+The ClientHello carries a browser fingerprint (`tls.utls`, Chrome's by default) and the client's authentication in its session ID. The handshake server is dialled with its own dial fields over the instance's defaults; its `detour` is not implemented yet and is a configuration error. Clash's `ss` proxies with `plugin: shadow-tls` and Surge's `shadow-tls-password`, `shadow-tls-sni` and `shadow-tls-version` become such a pair, the ShadowTLS outbound named `<name> (shadow-tls)`.
 
 ### Streams on Hysteria2 and TUIC servers
 
@@ -83,15 +90,18 @@ Known gaps: request and response bodies are buffered (up to 1 MB and 8 MB) rathe
 
 | Layer | Inbound | Outbound | Purpose |
 | --- | :---: | :---: | --- |
-| TLS | Yes | Yes | BoringSSL-based stream security |
+| TLS | Yes | Yes | BoringSSL-based stream security; browser ClientHellos with `tls.utls` |
 | REALITY | Yes | Yes | REALITY handshake over the TLS layer |
-| WebSocket | Yes | Yes | HTTP Upgrade compatible framing |
-| HTTP Upgrade | Yes | Yes | Explicit HTTP/1.1 upgrade transport |
-| gRPC | Yes | Yes | HTTP/2 streaming transport |
-| QUIC | Yes | Yes | Reliable streams over UDP |
-| AMux | Yes | Yes | leaf-compatible multiplexing |
-| sing-mux | Yes | Yes | smux, yamux and h2mux modes |
-| Obfs | No | Yes | Simple HTTP or TLS-shaped obfuscation |
+| ECH | No | Yes | Encrypted ClientHello; TLS 1.3 only |
+| WebSocket | Yes | Yes | `transport` type `ws`, with early data |
+| HTTP Upgrade | Yes | Yes | `transport` type `httpupgrade` |
+| gRPC | Yes | Yes | `transport` type `grpc` |
+| QUIC | Yes | Yes | `transport` type `quic` |
+| sing-mux | Yes | Yes | `multiplex` with smux, yamux or h2mux (the default); padding and TCP Brutal |
+| AMux | Yes | Yes | `multiplex` with `protocol: amux`, Sail's own; to be removed |
+| Obfs | No | Yes | Shadowsocks `obfs-local` plugin: HTTP or TLS-shaped obfuscation |
+
+sing-box's HTTP/2 transport (`transport` type `http`) is refused by design: use `grpc`, `ws` or `httpupgrade`. With `tls.ech`, a `min_version` or `max_version` below TLS 1.3 is a configuration error, because sing-box fails every such handshake. Browser fingerprints are `chrome` (the default), `firefox`, `edge`, `safari`, `ios`, `android` and `random`; see [TLS and fingerprints](/sail/tls-fingerprints/).
 
 Not every endpoint accepts every layer. Sail validates shared fields against the protocol factory, so unsupported combinations fail with the tagged inbound or outbound in the error.
 
@@ -99,23 +109,26 @@ Not every endpoint accepts every layer. Sail validates shared fields against the
 
 | Type | Selection behavior |
 | --- | --- |
-| Selector | Manual member selection; kept across restarts with `experimental.cache_file` |
-| URLTest | Periodically selects the fastest healthy member |
-| Fallback | Uses the first healthy member in declared order |
-| TryAll | Attempts members until one succeeds |
-| Load balance | Consistent hashing, round-robin or sticky behavior |
-| Detour | Dials one outbound's server through another outbound |
+| `selector` | Manual member selection; kept across restarts with `experimental.cache_file` |
+| `urltest` | Periodically selects the fastest member, switching only past `tolerance` |
+| `fallback` | Uses the first member, in declared order, that passed its last URL test |
+| `load-balance` | Consistent hashing, round-robin or sticky sessions |
+| `smart` | Scores members by how real connections through them did, and keeps a site on one |
+| `network` | Picks a member by the network the host is on (Wi-Fi name, network type and so on) |
+| `tryall` | Races its members, starting each `delay_base` milliseconds after the last, and keeps the first that connects |
 
-These are regular outbounds with tags. Route rules can target them without knowing which concrete member ultimately carries the connection.
+`selector` and `urltest` are sing-box's; the others are Sail extensions. These are regular outbounds with tags. Route rules can target them without knowing which concrete member ultimately carries the connection. Groups can also take members from [outbound providers](/sail/routing/#groups-and-providers).
+
+To dial one outbound's server through another, set `detour` on it. There is no separate chain type; Clash's `relay` group is not implemented.
 
 ## Transparent and virtual networking
 
 | Mechanism | Platform | Role |
 | --- | --- | --- |
 | TUN | Linux, macOS, Windows, iOS, Android | User-space IP data plane through `sail-netstack` |
-| NF | Windows | NetFilter SDK integration |
-| Redirect | Platform dependent | Recover transparently redirected destinations |
+| Redirect | Linux | Recover destinations redirected by iptables or nftables `REDIRECT` |
 | TPROXY | Linux | Transparent listener with original destination |
+| NF | Windows | NetFilter SDK integration; not in the default build (`inbound-nf` feature) |
 
 TUN deployments need an egress interface policy to prevent routing loops. See [TUN loop prevention](/sail/routing/#tun-loop-prevention).
 

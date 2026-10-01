@@ -14,8 +14,8 @@ sail -c config.json -T
 # 2. Test the outbound itself
 sail -c config.json -t edge -d 10
 
-# 3. Start with detailed logs
-sail -c config.json --profile desktop
+# 3. Start, with "log": { "level": "debug" } in the file for detailed logs
+sail -c config.json
 
 # 4. Test through a local SOCKS inbound
 curl --socks5-hostname 127.0.0.1:1080 https://example.com
@@ -25,13 +25,15 @@ This sequence separates core configuration from the operating system's proxy or 
 
 ## Configuration does not validate
 
-Sail rejects unknown fields and reports the tag of the endpoint being built. Common causes are:
+Errors name the path of the field at fault, such as `route.rules[0].ip_accept_any: unknown field`. In sing-box JSON an unknown field is an error. A field sing-box or Mihomo accepts but Sail does not implement is an error when ignoring it would change how traffic is routed or secured, and otherwise a warning in the log. Clash and Surge keys Sail does not know are warned about, not refused. Common causes are:
 
-- A field copied from leaf, sing-box or another project with a different shape.
+- A field copied from leaf or another project with a different shape, or a feature Sail does not implement.
 - A route, group, MPTP member or detour referencing a missing tag.
 - A transport block attached to a protocol that does not support it.
-- A `route` or `reject` rule without any conditions.
-- A duration set to zero.
+- A `route` or `reject` rule without any conditions; use `route.final` instead.
+- Both `route.default_interface` and `route.auto_detect_interface` set.
+- A duration without a unit, such as `5` instead of `5s`.
+- A file extension other than `.json`, `.yaml`, `.yml` or `.conf`.
 
 Reduce the file to one inbound, one direct outbound and a final route, then restore sections one at a time.
 
@@ -50,13 +52,13 @@ Read TCP and UDP results independently. A protocol may support both while the ne
 - Authentication error: confirm password, UUID or protocol-specific user.
 - TLS error: confirm system time, `server_name`, trust chain, ALPN and REALITY parameters.
 
-Enable `debug` logs temporarily for the failing layer, then return to `info` after diagnosis.
+Set `log.level` to `debug` temporarily, then return to `info` after diagnosis.
 
 ## Domain rules do not match
 
 If the application resolved the domain locally, Sail may receive only an IP address. Prefer remote DNS through the proxy, enable DNS reverse mapping, or add an early `sniff` rule for TLS and HTTP traffic.
 
-Remember that sniffing applies to the first bytes of a TCP stream. It cannot recover a domain from every protocol and does not decrypt TLS.
+Remember that sniffing reads only the first bytes of a connection: TLS and HTTP on TCP, QUIC on UDP. It cannot recover a domain from every protocol and does not decrypt TLS.
 
 ## TUN starts but traffic stops
 
@@ -66,9 +68,9 @@ An automatic default route can capture Sail's own outbound sockets and create a 
 { "route": { "auto_detect_interface": true } }
 ```
 
-or a fixed `default_interface`, but not both. On Android, also verify that the host registered a working `VpnService.protect` callback before startup.
+or a fixed `default_interface`, but not both; setting both is a configuration error. On Android, also verify that the host gave a working `protect_socket` callback, which calls `VpnService.protect`, before startup.
 
-If only large transfers fail, inspect MTU and network-change handling. Forward the current MTU to an embedded instance when the host network changes.
+If only large transfers fail, inspect MTU and network-change handling. When the host network changes, an embedded instance should be told so with `sail_network_changed`, which also takes the new MTU.
 
 ## MPTP connects but performs poorly
 
@@ -78,7 +80,7 @@ Begin with two healthy paths, confirm the server can reach targets directly, the
 
 ## Reload does not change behavior
 
-Validate the new file separately and confirm `--auto-reload` is enabled or the host called the reload API. With `experimental.cache_file` enabled, some state, such as selector choice, the Clash mode and (with `store_fakeip`) fake IPs, is restored from the cache file; delete the file only when that persisted state is intentionally no longer wanted.
+Validate the new file separately with `-T`. A reload happens only with `--auto-reload`, on SIGHUP (as `systemctl reload` sends it), or through the runtime API (`POST /api/v1/runtime/reload`) or a host's reload call. A file that fails to load leaves the previous configuration running, and the error is logged. With `experimental.cache_file` enabled, some state, such as selector choice, the Clash mode and (with `store_fakeip`) fake IPs, is restored from the cache file; delete the file only when that persisted state is intentionally no longer wanted.
 
 ## Report a reproducible issue
 

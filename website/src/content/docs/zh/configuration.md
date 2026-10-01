@@ -1,65 +1,121 @@
 ---
 title: 配置模型
-description: 了解 Sail 的 JSON 模型、默认值、验证规则与主流配置生态迁移方式。
+description: 了解 Sail 的 JSON 模型、默认值、验证规则，以及对 Clash 与 Surge 配置的直接读取。
 ---
 
-Sail 接受 JSON 和旧版分段式 `.conf`。新部署应优先使用 JSON：它直接映射到类型化配置模型，能拒绝未知顶层字段，并清晰表达嵌套传输层设置。
+Sail 的原生配置就是 sing-box 的 JSON（sing-box 1.14），外加少量 Sail 扩展。与 sing-box 一样，允许注释和尾随逗号。Sail 也能直接读取 Clash / Mihomo 的 YAML 和 Surge 配置：由文件扩展名（`.json`、`.yaml` 或 `.yml`、`.conf`）或文本内容决定格式，三者都会转换为同一个配置模型。格式如何识别见[协议与兼容性](/sail/zh/protocols/#clashsing-box-与-surge-配置生态)。
 
-Sail 的格式已经与 leaf 分化。leaf、Surge、Clash 与 sing-box 配置适合作为迁移输入或转换来源，不应默认可以不经处理直接互换。
+Sail 不认识的字段会报错。Sail 尚未实现的 sing-box 字段，如果忽略它不影响路由和安全，就丢弃并给出警告，否则报错。启动时会逐条记录这些警告。
 
 ## 顶层结构
 
-本指南讲解如何组织和验证配置。逐字段查阅请使用自动生成的参考：[顶层与通用](/sail/zh/reference/common/)、[DNS](/sail/zh/reference/dns/)、[入站](/sail/zh/reference/inbounds/)、[出站与策略组](/sail/zh/reference/outbounds/)、[端点](/sail/zh/reference/endpoints/)、[路由](/sail/zh/reference/route/)及[共用对象](/sail/zh/reference/shared/)，并标明每个字段相对 sing-box 的状态；Clash 与 Surge 的支持表见[兼容性](/sail/zh/reference/compatibility/)。
+逐字段查阅请使用自动生成的参考：[顶层与通用](/sail/zh/reference/common/)、[DNS](/sail/zh/reference/dns/)、[入站](/sail/zh/reference/inbounds/)、[出站与策略组](/sail/zh/reference/outbounds/)、[端点](/sail/zh/reference/endpoints/)、[路由](/sail/zh/reference/route/)及[共用对象](/sail/zh/reference/shared/)，并标明每个字段相对 sing-box 的状态；Clash 与 Surge 的支持表见[兼容性](/sail/zh/reference/compatibility/)。
 
 | 字段 | 用途 | 默认值 |
 | --- | --- | --- |
 | `log` | 日志级别、格式和文件输出 | `info`、完整格式、控制台 |
-| `dns` | 解析器、静态 hosts、策略与缓存 | `1.1.1.1`、仅 IPv4 |
+| `dns` | DNS 服务器、DNS 规则、策略与缓存 | 系统解析器，`prefer_ipv4` |
 | `inbounds` | 接收流量的监听器或数据源 | 空 |
-| `outbounds` | 直连、代理、策略组或隧道 | 空 |
-| `route` | 有序规则与最终出站 | 第一个出站 |
-| `api` | 可选控制 API | 关闭 |
+| `outbounds` | 直连、代理与策略组 | 空 |
+| `endpoints` | 同一标签下既是入站也是出站（WireGuard） | 空 |
+| `route` | 有序规则、规则集与最终出站 | 第一个出站 |
+| `certificate` | 校验服务器所用的根证书 | 系统证书库 |
+| `http_clients` | 按标签定义 Sail 下载规则集和提供者的方式 | 经默认出站 |
+| `experimental` | `cache_file` 与 Clash API | 关闭 |
+| `api` | Sail 的控制 API 监听（扩展） | 关闭 |
+| `clash_api` | Clash API，也可写在 `experimental` 下（扩展） | 关闭 |
+| `outbound_providers` | 下载或集中给出、供策略组使用的出站（扩展） | 空 |
+| `user_limits` | 跨入站的按用户限制（扩展） | 空 |
 
-每个入站和出站都有 `type`，并可设置 `tag`。省略标签时默认使用协议类型；配置中有多个端点后，建议显式命名。
+sing-box 的 `ntp` 段会被丢弃并给出警告；其 `services`、`certificate_providers` 和 `network_namespaces` 大多会报错。
 
-## 入站与出站
+每个入站、出站和端点都有 `type`，并可设置 `tag`。省略标签时默认使用协议类型；配置中有多个条目后，建议显式命名。
+
+## 入站字段
+
+网络类入站共用以下字段：
 
 ```json
 {
-  "inbounds": [
-    { "type": "socks", "tag": "lan-socks", "listen": "127.0.0.1", "listen_port": 1080 }
-  ],
-  "outbounds": [
-    {
-      "type": "trojan",
-      "tag": "edge",
-      "server": "edge.example.com",
-      "server_port": 443,
-      "password": "replace-me",
-      "tls": { "enabled": true, "server_name": "edge.example.com" }
-    }
-  ]
+  "type": "socks",
+  "tag": "lan-socks",
+  "listen": "127.0.0.1",
+  "listen_port": 1080,
+  "udp_timeout": "30s"
 }
 ```
 
-流式代理协议可以组合通用模块：`tls` 控制证书、ALPN、ECH、REALITY 与浏览器 ClientHello；`transport` 表达 WebSocket、HTTP Upgrade 或 gRPC；`multiplex` 复用连接；`detour` 通过另一出站拨号。
+`listen` 默认为 `127.0.0.1`。没有 `listen_port` 的入站不会打开监听，只在被其他入站组合使用时有意义。`udp_timeout` 默认 5 分钟。协议专属字段（如 SOCKS 用户、Shadowsocks 凭据）与这些通用字段并列。
+
+## 出站字段与模块
+
+出站从协议及其连接信息开始：
+
+```json
+{
+  "type": "trojan",
+  "tag": "edge",
+  "server": "edge.example.com",
+  "server_port": 443,
+  "password": "replace-me",
+  "tls": {
+    "enabled": true,
+    "server_name": "edge.example.com"
+  }
+}
+```
+
+流式代理协议可以在协议外层组合通用模块：
+
+| 模块 | 控制内容 |
+| --- | --- |
+| `tls` | TLS、证书、ALPN、ECH、REALITY 与浏览器 ClientHello |
+| `transport` | WebSocket、HTTP Upgrade、gRPC 或 QUIC |
+| `multiplex` | 在共享连接上运行 sing-mux（smux、yamux、h2mux） |
+| `detour` | 经另一个出站连接本出站的服务器 |
+| 拨号字段 | 网卡、本地地址、Linux 标记、超时、keepalive 与域名解析 |
+
+支持哪些模块取决于协议。TUIC、Hysteria2 等原生 QUIC 协议自行管理 TLS 配置，并不接受所有流式传输模块。各层说明见[协议与兼容性](/sail/zh/protocols/#传输层与安全)。
+
+### 拨号字段
+
+```json
+{
+  "type": "socks",
+  "tag": "upstream",
+  "server": "192.0.2.10",
+  "server_port": 1080,
+  "bind_interface": "en0",
+  "connect_timeout": "5s"
+}
+```
+
+拨号字段与 sing-box 相同：`bind_interface`、`inet4_bind_address`、`inet6_bind_address`、`routing_mark`（Linux）、`reuse_addr`、`connect_timeout`、`tcp_fast_open`、TCP keepalive 相关字段、`udp_fragment`、`domain_resolver`，以及 `network_strategy` 及其 `network_type`、`fallback_network_type`、`fallback_delay`。`route.default_interface`、`route.default_mark`、`route.default_domain_resolver` 和 `route.default_network_strategy` 为没有自行设置的出站提供默认值。哪些字段在哪里受支持，见[共用对象](/sail/zh/reference/shared/)参考。
 
 ## DNS
 
 ```json
 {
   "dns": {
-    "servers": ["1.1.1.1", "8.8.8.8"],
-    "hosts": { "internal.example": ["10.0.0.8"] },
+    "servers": [
+      { "type": "local", "tag": "system" },
+      { "type": "https", "tag": "cloudflare", "server": "1.1.1.1" }
+    ],
+    "rules": [
+      { "domain_suffix": ["internal.example"], "server": "system" }
+    ],
+    "final": "cloudflare",
     "strategy": "prefer_ipv4",
-    "cache_capacity": 512,
+    "cache_capacity": 4096,
     "timeout": "4s",
     "reverse_mapping": true
   }
 }
 ```
 
-`strategy` 可取 `ipv4_only`、`ipv6_only`、`prefer_ipv4` 或 `prefer_ipv6`。反向映射让后续仅携带 IP 的连接仍有机会命中域名规则。
+服务器类型有 `local`、`hosts`、`udp`、`tcp`、`tls`、`quic`、`https`、`h3`、`fakeip` 和 `mdns`，另有 Sail 的 `race`：同时询问所有成员，采用第一个有效应答。sing-box 的 `dhcp`、`resolved`、`tailscale`、`openvpn` 和 `openconnect` 服务器会报错。没有配置服务器时由系统解析器应答。DNS 规则按顺序选择服务器，其余查询交给 `final`，未设置时交给第一个服务器。
+
+`strategy` 可取 `prefer_ipv4`（默认）、`prefer_ipv6`、`ipv4_only` 或 `ipv6_only`。缓存容量为 1024 条，`cache_capacity` 更大时以其为准；对单个服务器的一次查询最长 10 秒，可用 `timeout` 修改。反向映射记住 DNS 应答对应的域名，让后续仅携带 IP 的连接仍能命中域名规则。Sail 的 `client_strategy` 限制返回给客户端查询的地址族，不影响 Sail 自身的解析。
 
 ### 本地链路上的名字（mDNS）
 
@@ -67,17 +123,47 @@ Sail 的格式已经与 leaf 分化。leaf、Surge、Clash 与 sing-box 配置�
 
 与 sing-box 不同，sail 的查询要求单播回复（RFC 6762 的 QU 位）：Windows 只回答这种查询，所以 sing-box 解析不到 Windows 机器的 `.local` 名字，sail 可以。另外，任一网卡答到就立即返回，不必等满一秒。
 
+## 日志与控制 API
+
+```json
+{
+  "log": {
+    "level": "debug",
+    "format": "compact",
+    "output": "sail.log"
+  },
+  "api": {
+    "listen": "127.0.0.1:9090"
+  }
+}
+```
+
+日志级别有 `trace`、`debug`、`info`、`warn`（或 `warning`）和 `error`；`fatal` 与 `panic` 也接受，效果同 `error`。`disabled` 关闭全部日志，`timestamp` 在每行开头加时间。`format: compact` 是 Sail 扩展，只输出消息本身。不设置 `output` 时输出到控制台。
+
+只有设置了 `api.listen` 才会提供 API；除非宿主应用自带访问控制，否则应只监听在可信接口上。供面板使用的 Clash API 写在 `clash_api` 或 sing-box 的 `experimental.clash_api` 中，二者只能选一。
+
+## Sail 扩展
+
+以下字段是 Sail 自有的，sing-box 不接受。完整列表在[兼容性](/sail/zh/reference/compatibility/)页面所链接的 sing-box 支持表末尾。
+
+- `outbound_providers`：下载（`remote`）、从文件读取（`local`）或直接写在配置中（`inline`）的一组出站，对应 Mihomo 的 proxy-providers。下载内容或文件可以是带 `proxies` 的 Clash YAML，也可以是分享链接。`selector`、`urltest`、`fallback`、`load-balance` 和 `smart` 组通过 `providers` 使用它们，详见[路由规则](/sail/zh/routing/#策略组与提供者)。
+- `user_limits`：按用户名设置，作用于该用户所在的所有入站：`max_connections`、`quota_bytes`（上下行合计；需要 `experimental.cache_file`）、`expire_at`（RFC 3339），以及 `up_mbps` 和 `down_mbps`。未写的字段不限制；任何字段都不能为 0。
+- `api`，以及顶层的 `clash_api`。
+- 路由方面的扩展，如 `geoip`、`geosite`、`external`、`ip_asn` 和 `no_resolve`，以及 `fallback`、`load-balance`、`smart`、`network`、`tryall` 和 `pass` 出站。详见[路由规则](/sail/zh/routing/)与[协议与兼容性](/sail/zh/protocols/)。
+
 ## 重要验证规则
 
-- `route.final`、规则、策略组和 detour 引用的标签必须存在。
-- 终止性的 `route` 或 `reject` 规则至少需要一个条件；全量兜底应使用 `route.final`。
-- `sniffer`、`timeout`、`override_destination` 仅属于 `sniff` 规则。
+- `route.final`、路由规则、策略组和 detour 引用的标签必须存在；规则和解析器引用的 DNS 服务器也必须存在。
+- 对所有连接都会结束匹配的规则（`route`、`reject`，或带出站的 `bypass`）至少需要一个条件；全量兜底应使用 `route.final`。
+- 动作字段只属于对应动作：`sniffer`、`override_destination`、`skip_rule_set` 属于 `sniff`；`server`、`strategy` 属于 `resolve`；`timeout` 属于两者之一；`method` 属于 `reject`。
 - `route.auto_detect_interface` 与 `route.default_interface` 不能同时设置。
-- 自动 TUN 路由必须配置出口接口策略，避免 Sail 自身流量回到隧道。
-- DNS、UDP 等超时必须大于零。
+- `route.default_network_strategy` 需要开启 `route.auto_detect_interface`。
+- DNS、UDP、嗅探等超时必须大于零。
 
-每次修改后运行 `sail -c config.json -T`。
+开了 `auto_route` 的 TUN 入站会自动开启网卡检测，详见[防止 TUN 回环](/sail/zh/routing/#防止-tun-回环)。
 
-## 旧版 `.conf`
+每次修改后运行 `sail -c config.json -T`。连通性测试与运行时设置见 [CLI 参考](/sail/zh/cli/)。
 
-解析器支持 `[General]`、`[Proxy]`、`[Proxy Group]`、`[Rule]` 和 `[Host]` 等分段，并在验证前转换为 JSON 模型。已有部署可以继续使用；新字段与新文档建议采用 JSON，以免受隐式转换规则影响。
+## Clash 与 Surge 文件
+
+`sail -c config.yaml` 读取 Clash / Mihomo 配置，`sail -c profile.conf` 读取 Surge 配置，都转换为上面的模型。Surge 配置引用的文件从其所在目录读取，若由宿主下载，则从宿主的缓存中读取。各格式中 Sail 忽略或拒绝的设置列在[兼容性](/sail/zh/reference/compatibility/)表中。leaf 旧的 `.conf` 格式已不再支持：`.conf` 文件一律按 Surge 配置读取。

@@ -3,9 +3,9 @@ title: Configuration
 description: Understand Sail's JSON model, defaults, validation and reusable protocol blocks.
 ---
 
-Sail accepts JSON and its legacy section-based `.conf` format. New deployments should prefer JSON: it maps directly to the typed configuration model, rejects unknown top-level fields and makes nested transport settings explicit.
+Sail's native configuration is sing-box's JSON (sing-box 1.14), with a few Sail extensions. Comments and trailing commas are accepted, as in sing-box. Sail also reads Clash / Mihomo YAML and Surge profiles directly: the file extension (`.json`, `.yaml` or `.yml`, `.conf`) or the text itself picks the format, and all three become the same model. See [Protocols](/sail/protocols/#clash-sing-box-and-surge-ecosystems) for how the format is recognised.
 
-Sail's format has diverged from leaf. Treat leaf and Surge-style examples as migration input, not as interchangeable Sail configuration.
+A field Sail does not know is an error. A sing-box field Sail does not implement is dropped with a warning when ignoring it changes no routing or security, and is an error otherwise. Sail logs each warning at start.
 
 ## Top-level model
 
@@ -14,13 +14,22 @@ For individual fields, see the generated reference: [top level and common](/sail
 | Field | Purpose | Default |
 | --- | --- | --- |
 | `log` | Log level, format and optional file output | `info`, full format, console |
-| `dns` | Resolvers, static hosts, strategy and cache behavior | `1.1.1.1`, IPv4 only |
+| `dns` | DNS servers, DNS rules, strategy and cache | The system resolver, `prefer_ipv4` |
 | `inbounds` | Listeners or packet sources that accept traffic | Empty |
-| `outbounds` | Direct, proxy, group or tunnel destinations | Empty |
-| `route` | Ordered rules and the final outbound | First outbound |
-| `api` | Optional control API listener | Disabled |
+| `outbounds` | Direct, proxy and group destinations | Empty |
+| `endpoints` | Both an inbound and an outbound under one tag (WireGuard) | Empty |
+| `route` | Ordered rules, rule-sets and the final outbound | First outbound |
+| `certificate` | Root certificates servers are checked against | The system's |
+| `http_clients` | How Sail downloads rule-sets and providers, by tag | Through the default outbound |
+| `experimental` | `cache_file` and the Clash API | Disabled |
+| `api` | Sail's control API listener (extension) | Disabled |
+| `clash_api` | The Clash API, also accepted under `experimental` (extension) | Disabled |
+| `outbound_providers` | Outbounds downloaded or given together, for groups (extension) | Empty |
+| `user_limits` | Per-user limits across inbounds (extension) | Empty |
 
-Every inbound and outbound has a `type` and may have a `tag`. When `tag` is omitted it defaults to the protocol type. Explicit tags are recommended once a configuration has more than one item.
+sing-box's `ntp` section is dropped with a warning. Its `services`, `certificate_providers` and `network_namespaces` are mostly errors.
+
+Every inbound, outbound and endpoint has a `type` and may have a `tag`. When `tag` is omitted it defaults to the protocol type. Explicit tags are recommended once a configuration has more than one item.
 
 ## Inbound fields
 
@@ -36,7 +45,7 @@ These fields are shared by network inbounds:
 }
 ```
 
-`listen` defaults to `127.0.0.1`. An inbound without `listen_port` does not open a listener and is only useful when composed by another inbound. Protocol-specific fields, such as SOCKS users or Shadowsocks credentials, live beside the shared fields.
+`listen` defaults to `127.0.0.1`. An inbound without `listen_port` does not open a listener and is only useful when composed by another inbound. `udp_timeout` defaults to 5 minutes. Protocol-specific fields, such as SOCKS users or Shadowsocks credentials, live beside the shared fields.
 
 ## Outbound fields and blocks
 
@@ -61,12 +70,12 @@ Stream proxy protocols can use shared blocks around the protocol itself:
 | Block | What it controls |
 | --- | --- |
 | `tls` | TLS, certificates, ALPN, ECH, REALITY and browser ClientHello |
-| `transport` | WebSocket, HTTP Upgrade or gRPC framing |
-| `multiplex` | Multiple logical streams over a shared connection |
+| `transport` | WebSocket, HTTP Upgrade, gRPC or QUIC |
+| `multiplex` | sing-mux (smux, yamux, h2mux) over a shared connection |
 | `detour` | Dial this outbound's server through another outbound |
-| Dial fields | Interface, local address, Linux mark and connect timeout |
+| Dial fields | Interface, local address, Linux mark, timeouts, keepalive and name resolution |
 
-The supported blocks depend on the protocol. QUIC-native protocols such as TUIC and Hysteria2 own their TLS configuration and do not accept every stream transport block.
+The supported blocks depend on the protocol. QUIC-native protocols such as TUIC and Hysteria2 own their TLS configuration and do not accept every stream transport block. See [Protocols](/sail/protocols/#transports-and-security) for the layers.
 
 ### Dial fields
 
@@ -81,26 +90,32 @@ The supported blocks depend on the protocol. QUIC-native protocols such as TUIC 
 }
 ```
 
-Available shared dial fields are `bind_interface`, `inet4_bind_address`, `inet6_bind_address`, `routing_mark` on Linux, and `connect_timeout`.
+The dial fields are sing-box's: `bind_interface`, `inet4_bind_address`, `inet6_bind_address`, `routing_mark` (Linux), `reuse_addr`, `connect_timeout`, `tcp_fast_open`, the TCP keepalive fields, `udp_fragment`, `domain_resolver`, and `network_strategy` with `network_type`, `fallback_network_type` and `fallback_delay`. `route.default_interface`, `route.default_mark`, `route.default_domain_resolver` and `route.default_network_strategy` set them for every outbound that sets none of its own. The [shared objects](/sail/reference/shared/) reference lists which are supported where.
 
 ## DNS
 
 ```json
 {
   "dns": {
-    "servers": ["1.1.1.1", "8.8.8.8"],
-    "hosts": {
-      "internal.example": ["10.0.0.8"]
-    },
+    "servers": [
+      { "type": "local", "tag": "system" },
+      { "type": "https", "tag": "cloudflare", "server": "1.1.1.1" }
+    ],
+    "rules": [
+      { "domain_suffix": ["internal.example"], "server": "system" }
+    ],
+    "final": "cloudflare",
     "strategy": "prefer_ipv4",
-    "cache_capacity": 512,
+    "cache_capacity": 4096,
     "timeout": "4s",
     "reverse_mapping": true
   }
 }
 ```
 
-`strategy` is one of `ipv4_only`, `ipv6_only`, `prefer_ipv4` or `prefer_ipv6`. Reverse mapping remembers the domain associated with DNS answers so later connections to those addresses can still match domain rules.
+Server types are `local`, `hosts`, `udp`, `tcp`, `tls`, `quic`, `https`, `h3`, `fakeip` and `mdns`, plus Sail's `race`, which asks its members at once and takes the first good answer. sing-box's `dhcp`, `resolved`, `tailscale`, `openvpn` and `openconnect` servers are errors. With no servers, the system resolver answers. DNS rules pick a server in order; `final`, or else the first server, takes the rest.
+
+`strategy` is one of `prefer_ipv4` (the default), `prefer_ipv6`, `ipv4_only` or `ipv6_only`. The cache holds 1024 answers unless `cache_capacity` is larger, and one query to one server may take 10 seconds unless `timeout` says otherwise. Reverse mapping remembers the domain associated with DNS answers so later connections to those addresses can still match domain rules. Sail's `client_strategy` limits the address families in answers to clients' queries without changing Sail's own lookups.
 
 ### Names on the local link (mDNS)
 
@@ -123,19 +138,32 @@ Unlike sing-box, sail's queries ask for a unicast reply (the QU bit of RFC 6762)
 }
 ```
 
-Log levels are `trace`, `debug`, `info`, `warn`, `error` and `none`. Leave `output` unset to log to the console. The API is not served unless `api.listen` is set; keep it on a trusted interface unless a host application provides its own access controls.
+Log levels are `trace`, `debug`, `info`, `warn` (or `warning`) and `error`; `fatal` and `panic` are accepted and act as `error`. Set `disabled` to log nothing and `timestamp` to start each line with the time. `format: compact`, a Sail extension, writes the message alone. Leave `output` unset to log to the console.
+
+The API is not served unless `api.listen` is set; keep it on a trusted interface unless a host application provides its own access controls. The Clash API, which dashboards use, is configured in `clash_api` or in sing-box's `experimental.clash_api`, not both.
+
+## Sail extensions
+
+These fields are Sail's own; sing-box does not accept them. The full list closes the sing-box support table linked from the [compatibility](/sail/reference/compatibility/) page.
+
+- `outbound_providers`: outbounds downloaded (`remote`), read from a file (`local`) or written in place (`inline`), as Mihomo's proxy-providers. A download or file holds Clash YAML with `proxies`, or share links. `selector`, `urltest`, `fallback`, `load-balance` and `smart` groups take them through `providers`. See [Routing](/sail/routing/#groups-and-providers).
+- `user_limits`: by user name, across every inbound the user is in: `max_connections`, `quota_bytes` (up and down together; needs `experimental.cache_file`), `expire_at` (RFC 3339), and `up_mbps` and `down_mbps`. A field left out limits nothing; none may be 0.
+- `api`, and `clash_api` at the top level.
+- Routing additions such as `geoip`, `geosite`, `external`, `ip_asn` and `no_resolve`, and the `fallback`, `load-balance`, `smart`, `network`, `tryall` and `pass` outbounds. See [Routing](/sail/routing/) and [Protocols](/sail/protocols/).
 
 ## Validation rules worth knowing
 
-- Tags referenced by `route.final`, route rules, groups and detours must exist.
-- A terminating `route` or `reject` rule needs at least one condition; use `route.final` for the catch-all path.
-- `sniffer`, `timeout` and `override_destination` only belong to a `sniff` rule.
+- Tags referenced by `route.final`, route rules, groups and detours must exist, as must the DNS servers that rules and resolvers name.
+- A rule that ends matching for every connection (`route`, `reject`, or `bypass` with an outbound) needs at least one condition; use `route.final` for the catch-all path.
+- Action fields belong to their action: `sniffer`, `override_destination` and `skip_rule_set` to `sniff`; `server` and `strategy` to `resolve`; `timeout` to either; `method` to `reject`.
 - `route.auto_detect_interface` and `route.default_interface` are mutually exclusive.
-- An automatic TUN route needs one of those interface settings to keep Sail's own outbound traffic out of the tunnel.
-- Durations such as DNS and UDP timeouts must be greater than zero.
+- `route.default_network_strategy` needs `route.auto_detect_interface`.
+- Durations such as DNS, UDP and sniff timeouts must be greater than zero.
+
+A TUN inbound with `auto_route` turns interface detection on by itself; see [TUN loop prevention](/sail/routing/#tun-loop-prevention).
 
 Run `sail -c config.json -T` after every change. See [CLI reference](/sail/cli/) for connectivity testing and runtime settings.
 
-## Legacy `.conf` files
+## Clash and Surge files
 
-The parser still supports sections such as `[General]`, `[Proxy]`, `[Proxy Group]`, `[Rule]` and `[Host]`. It translates them into the JSON model before validation. Keep existing files if they are already deployed, but use JSON for new fields and new documentation because it exposes the final model without translation rules.
+`sail -c config.yaml` reads a Clash / Mihomo configuration and `sail -c profile.conf` a Surge profile, each into the model above. A Surge profile's included files are read from beside it, or from the host's cache when they were downloaded. What each format sets that Sail ignores or refuses is listed in the [compatibility](/sail/reference/compatibility/) tables. leaf's old `.conf` format is gone: a `.conf` file is read as a Surge profile.

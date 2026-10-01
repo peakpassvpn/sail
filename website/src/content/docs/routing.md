@@ -3,7 +3,7 @@ title: Routing
 description: Build ordered routing rules with domain, IP, port, inbound, process and user conditions.
 ---
 
-Sail evaluates route rules from top to bottom. `route` and `reject` stop evaluation. `sniff` and `resolve` enrich the connection, then matching continues with the next rule.
+Sail evaluates route rules from top to bottom. `route`, `reject` and `hijack-dns` stop evaluation. `sniff`, `resolve` and `route-options` enrich the connection, then matching continues with the next rule. A connection no rule stops goes to `route.final`.
 
 ## Matching model
 
@@ -21,7 +21,7 @@ For example, this rule matches TCP connections from `local-socks` whose destinat
 }
 ```
 
-Destination conditions—domain fields, GeoSite, IP CIDR, GeoIP and external sets—are alternatives to each other. They are still combined with every non-destination condition on the rule.
+As in sing-box, destination conditions—domain fields, GeoSite, IP CIDR, GeoIP and external sets—are alternatives to each other, as are the port conditions and the source address conditions. Each group is still combined with every other condition on the rule. `invert` negates the whole rule.
 
 ## Conditions
 
@@ -30,17 +30,41 @@ Destination conditions—domain fields, GeoSite, IP CIDR, GeoIP and external set
 | `domain` | `api.example.com` | Exact domain |
 | `domain_suffix` | `example.com` | Domain and its subdomains |
 | `domain_keyword` | `cdn` | Domain containing a string |
+| `domain_regex` | `^api\.` | Domain matching a regular expression |
 | `ip_cidr` | `10.0.0.0/8` | Destination network |
-| `geoip` | `private`, `cn` | Country or group from `geo.mmdb` |
-| `geosite` | `category-ads-all` | Site group from `site.dat` |
-| `external` | `site:custom.dat:work` | Group from another data file |
-| `port_range` | `443`, `1000-2000` | Destination port or range |
+| `ip_is_private` | `true` | Destination address is not public |
+| `geoip` | `cn` | Country from `geo.mmdb` (Sail extension) |
+| `geosite` | `category-ads-all` | Site group from `site.dat` (Sail extension) |
+| `external` | `site:custom.dat:work` | Group from another data file (Sail extension) |
+| `ip_asn` | `13335` | Autonomous system from `asn.mmdb` (Sail extension) |
+| `rule_set` | `geosite-cn` | Any rule of the named rule-sets |
+| `port`, `port_range` | `443`, `1000:2000` | Destination port, or an inclusive range; `:1024` and `8000:` are open ranges |
+| `source_ip_cidr`, `source_port` | `192.168.0.0/16` | Where the connection comes from |
 | `network` | `tcp`, `udp` | Transport protocol |
+| `protocol` | `tls`, `quic` | Protocol found by a `sniff` rule |
 | `inbound` | `tun-in` | Source inbound tag |
-| `process_name` | `curl` | Originating process when available |
 | `auth_user` | `alice` | User authenticated by the inbound |
+| `process_name`, `process_path` | `curl` | Originating process when available |
+| `package_name` | `com.example.app` | Android app, as the host reports it |
+| `wifi_ssid`, `network_type` | `Home`, `cellular` | The network the host is on |
+| `clash_mode` | `Global` | Current mode of the Clash API |
 
-GeoIP and GeoSite files are read from the data directory. Set it with `-D` or `--data-dir` when the files do not live beside the executable.
+The [route reference](/sail/reference/route/) lists every condition. GeoIP, GeoSite and ASN files are read from the data directory. Set it with `-D` or `--data-dir` when the files do not live beside the executable.
+
+## Rule actions
+
+| Action | Effect |
+| --- | --- |
+| `route` (default) | Send the connection to `outbound` and stop |
+| `reject` | Close the connection and stop; `method: drop` leaves it unanswered |
+| `hijack-dns` | Answer the DNS queries the connection carries and stop |
+| `route-options` | Set how the connection is carried, such as `override_address`, `udp_timeout` or `tls_fragment`, and continue |
+| `sniff` | Read the protocol and domain from the first bytes, and continue |
+| `resolve` | Resolve the domain so later rules can match its addresses, and continue |
+| `bypass` | Let the kernel carry the connection past Sail under Linux `auto_redirect`; elsewhere route to its `outbound`, or skip the rule without one |
+| `direct` | Accepted with a warning; it has no effect, as in sing-box 1.14.1 |
+
+A `route` rule can carry the same options as `route-options`. sing-box's `evaluate`, `respond` and `predefined` route actions, and its `ssh`, `rdp` and `ntp` sniffers, are not implemented and are errors.
 
 ## Route, reject and final
 
@@ -63,7 +87,46 @@ GeoIP and GeoSite files are read from the data directory. Set it with `-D` or `-
 }
 ```
 
-Use `final` for the catch-all path. A route or reject rule without conditions is rejected during validation because it would hide every later rule.
+Use `final` for the catch-all path; without it, the first outbound takes what no rule matches. A route or reject rule without conditions is rejected during validation because it would hide every later rule.
+
+## Logical rules
+
+A rule with `"type": "logical"` combines other rules with `"mode": "and"` or `"or"`. The rules inside carry conditions only; the logical rule carries the action:
+
+```json
+{
+  "type": "logical",
+  "mode": "and",
+  "rules": [
+    { "network": ["udp"] },
+    { "port": [443] }
+  ],
+  "action": "reject"
+}
+```
+
+## Rule-sets
+
+`route.rule_set` declares rule-sets that rules name in `rule_set`. A rule-set is `inline` (its `rules` in place), `local` (a `path`) or `remote` (a `url`, downloaded again every `update_interval`, one day by default, through `download_detour` or an `http_client`). The format is sing-box's `source` (JSON) or `binary` (`.srs`), taken from the file extension when `format` is unset.
+
+As Sail extensions, a rule-set can also be a Clash rule-provider (`mrs`, `clash-yaml` or `clash-text`) or a Surge rule or domain set (`surge-text`), each with a `behavior` of `domain`, `ipcidr` or `classical`.
+
+```json
+{
+  "route": {
+    "rule_set": [
+      {
+        "type": "remote",
+        "tag": "geosite-cn",
+        "url": "https://example.com/geosite-cn.srs"
+      }
+    ],
+    "rules": [
+      { "rule_set": ["geosite-cn"], "action": "route", "outbound": "direct" }
+    ]
+  }
+}
+```
 
 ## Pass a rule on (PASS)
 
@@ -73,18 +136,16 @@ A `pass` outbound, a Sail extension, is Mihomo's PASS: `{ "type": "pass", "tag":
 
 ## Sniff a domain before routing
 
-When an application connects to an IP address, Sail can inspect the beginning of a TCP stream for a TLS SNI or HTTP Host value:
+When an application connects to an IP address, Sail can inspect the first bytes of a connection for its protocol and domain: a TLS or QUIC server name, or an HTTP Host. It also recognises DNS, STUN, BitTorrent and DTLS.
 
 ```json
 {
   "route": {
     "rules": [
       {
-        "network": ["tcp"],
         "action": "sniff",
-        "sniffer": ["tls", "http"],
-        "timeout": "300ms",
-        "override_destination": false
+        "sniffer": ["tls", "http", "quic"],
+        "timeout": "300ms"
       },
       {
         "domain_suffix": ["example.com"],
@@ -97,7 +158,9 @@ When an application connects to an IP address, Sail can inspect the beginning of
 }
 ```
 
-Set `override_destination` only when Sail should connect to the sniffed domain instead of the original address. Sniffing learns metadata; it does not decrypt TLS.
+`sniffer` lists the protocols to look for; all of them when it is empty. `timeout` defaults to 300 ms. Sniffing learns metadata; it does not decrypt TLS.
+
+Sail adds three fields. `override_destination` connects to the sniffed domain instead of the original address. `skip_rule_set` ignores sniffed domains that the named rule-sets match, as Mihomo's `skip-domain` does. `on_demand` arms the sniff instead of running it, so it runs only when a later rule needs its result.
 
 ## Resolve before IP matching
 
@@ -110,7 +173,36 @@ A `resolve` action resolves a domain so later IP, CIDR or GeoIP rules can evalua
 }
 ```
 
-Place this before the IP-based rules that need the result. DNS strategy and cache behavior come from the top-level [`dns`](/sail/configuration/#dns) section.
+Place this before the IP-based rules that need the result. `server` and `strategy` override the DNS rules and `dns.strategy` for this lookup. As in sing-box, a domain that does not resolve fails the connection. Sail's `ignore_failure` lets matching continue with no addresses instead, and Sail's `on_demand` resolves only when a later rule needs the addresses. DNS strategy and cache behavior come from the top-level [`dns`](/sail/configuration/#dns) section.
+
+## Choosing a network (network_strategy)
+
+`network_strategy` chooses among the host's interfaces. It is a dial field of any outbound. On a `route` or `route-options` rule it applies when the connection goes out of a direct outbound.
+
+- `default`: the default interface, or every interface of `network_type`.
+- `hybrid`: every interface, or every one of `network_type`, at once.
+- `fallback`: as `default`; then, after `fallback_delay` or when those fail, the interfaces of `fallback_network_type`, or all others.
+
+Network types are `wifi`, `cellular`, `ethernet` and `other`. sing-box acts on these fields only in its Android and Apple clients. Sail also acts on them on Linux, macOS and Windows, from the interfaces it detects: a deliberate extension. There, interfaces of type `other`, such as other VPNs' tunnels and bridges, are candidates only when `network_type` or `fallback_network_type` names `other`. `route.default_network_strategy` sets the strategy for everything that sets none, and needs `route.auto_detect_interface`.
+
+## Groups and providers
+
+Group outbounds pick a member for each connection. sing-box's `selector` and `urltest` are joined by Sail's `fallback`, `load-balance`, `smart`, `network` and `tryall`; see [Protocols](/sail/protocols/#traffic-control-outbounds) for how each picks. Rules route to a group by its tag.
+
+`outbound_providers`, a Sail extension, supplies members the way Mihomo's proxy-providers do. A provider is `remote` (a subscription URL), `local` (a file) or `inline`. A subscription holds Clash YAML with `proxies`, or share links. `filter`, `exclude_filter`, `exclude_type` and `override` shape what is taken.
+
+```json
+{
+  "outbound_providers": [
+    { "type": "remote", "tag": "sub", "url": "https://example.com/sub.yaml" }
+  ],
+  "outbounds": [
+    { "type": "urltest", "tag": "auto", "providers": ["sub"] }
+  ]
+}
+```
+
+`selector`, `urltest`, `fallback`, `load-balance` and `smart` groups take `providers`, beside their own `outbounds`.
 
 ## TUN loop prevention
 
@@ -119,6 +211,8 @@ A TUN inbound with `auto_route` takes the system's traffic, and Sail's own outbo
 On Linux, `auto_route` never touches the main routing table. The TUN's routes live in table 2022 (`iproute2_table_index`), and ip rules from priority 9000 (`iproute2_rule_index`) send traffic there. The kernel removes the routes with the device, and the next start removes rules left by a crash. `route_address`, `route_exclude_address`, their rule-set forms, `include_interface`/`exclude_interface`, `include_uid`/`exclude_uid` and `strict_route` select what is taken, as in sing-box. With `route_address` or `route_exclude_address`, the listed prefixes win over the LAN's own routes, so exclude the LAN explicitly.
 
 On macOS, `auto_route` adds routes through the utun that are more specific than the default route: 1.0.0.0/8, 2.0.0.0/7 … 128.0.0.0/1, and the same halves of IPv6. With `route_address`, it adds those prefixes instead. `route_exclude_address` and the rule-set forms carve holes in these routes. The default route itself is never changed, and the routes disappear with the utun. `strict_route`, the interface lists and the uid lists do nothing on macOS, as in sing-box.
+
+On Windows, `auto_route` adds 0.0.0.0/0 and ::/0 through the wintun adapter at metric 0. They win over the default route by metric without replacing it. The adapter's DNS points at the address after the TUN's. `route_address`, `route_exclude_address` and their rule-set forms select the routes as on the other systems. `strict_route` adds firewall rules that keep DNS off every other interface.
 
 ## Bypass in the kernel (Linux `auto_redirect`)
 

@@ -3,7 +3,7 @@ title: TLS and fingerprints
 description: Configure TLS, trust, client certificates, SNI, ECH, REALITY and browser ClientHello profiles.
 ---
 
-Sail uses BoringSSL for TLS over TCP and QUIC. Outbound TLS sends a browser-shaped ClientHello by default instead of BoringSSL's native one.
+Sail uses BoringSSL, through the `btls` bindings, for TLS over TCP and QUIC. Outbound TLS over TCP sends a browser-shaped ClientHello by default instead of BoringSSL's native one.
 
 ## Basic TLS outbound
 
@@ -29,7 +29,17 @@ Sail uses BoringSSL for TLS over TCP and QUIC. Outbound TLS sends a browser-shap
 
 ## Choose a ClientHello profile
 
-The available browser profiles are Chrome, Firefox, Safari, iOS and Android. Chrome is the default when `utls` is omitted.
+Each profile matches the ClientHello of one captured browser or client:
+
+| `fingerprint` | Sends the ClientHello of |
+| --- | --- |
+| `chrome` (default), `edge` | Chrome 154 on macOS; Chrome on Android and Edge send the same |
+| `firefox` | Firefox 156 on macOS |
+| `safari`, `ios` | Safari 26.3 on macOS, the same as URLSession on macOS and iOS 26.4 |
+| `android` | An Android app on OkHttp 4.12 over the platform's Conscrypt |
+| `random` | One of `chrome`, `firefox`, `edge`, `safari` and `ios`, as in sing-box, picked once per process and kept for every connection |
+
+Chrome is the default when `utls` is omitted, and when `utls` names no `fingerprint`. Unlike sing-box, the browser profile is therefore on unless it is turned off. Any other name is a configuration error.
 
 ```json
 {
@@ -57,11 +67,15 @@ To send BoringSSL's own ClientHello instead, explicitly disable the profile:
 }
 ```
 
-The profile changes the handshake shape, not the application protocol carried inside TLS.
+The profile changes the handshake shape, not the application protocol carried inside TLS. Every profile offers TLS 1.2 and 1.3, as the browsers do: with `utls` enabled, `min_version` and `max_version` are ignored with a warning. Without a `utls` block, a range set there is applied, and a warning says the ClientHello is then no longer the browser's.
+
+Over QUIC (Hysteria2, TUIC) the ClientHello is BoringSSL's own: enabling `utls`, `ech` or `reality` there is a configuration error.
 
 ## Custom trust
 
-Trust one additional PEM certificate inline:
+By default, servers are verified against the system's root store. The top-level `certificate` block chooses another (`store`: `system`, `mozilla`, `chrome` or `none`) and can add certificates of one's own, as in sing-box.
+
+In an outbound's `tls`, `certificate` replaces those roots: the server must chain to the given PEM certificate. Give it inline:
 
 ```json
 {
@@ -87,7 +101,7 @@ Relative certificate paths are resolved against the data directory configured wi
 
 ### Pin a certificate
 
-`certificate_sha256`, a sail extension with the semantics of Mihomo's `fingerprint`, takes a server by the SHA-256 hash of a whole certificate (its DER), in hex, with or without colons, as `openssl x509 -noout -fingerprint -sha256` prints it. It replaces `certificate`, `certificate_path` and `insecure`, and cannot be combined with sing-box's `certificate_public_key_sha256`, which pins public keys instead.
+`certificate_sha256`, a sail extension with the semantics of Mihomo's `fingerprint`, takes a server by the SHA-256 hash of a whole certificate (its DER), in hex of either case, with or without colons, as `openssl x509 -noout -fingerprint -sha256` prints it. It replaces the trusted roots and `insecure`, which play no part. It cannot be combined with `certificate` or `certificate_path`, nor with sing-box's `certificate_public_key_sha256`, which pins public keys instead.
 
 ```json
 {
@@ -107,7 +121,7 @@ The field works over TCP and QUIC, and in the `tls` of DNS servers. REALITY veri
 
 ## ALPN and ECH
 
-Use `alpn` when the server requires a specific application protocol:
+Use `alpn` when the server requires a specific application protocol. With a browser profile and no `alpn`, the ClientHello offers the browser's `h2` and `http/1.1`.
 
 ```json
 {
@@ -121,9 +135,9 @@ Use `alpn` when the server requires a specific application protocol:
 }
 ```
 
-When ECH is enabled and `config` is omitted, Sail can discover the ECHConfigList through DNS. Set `disable_dns_lookup` to require an explicit base64 or PEM configuration instead.
+When ECH is enabled, Sail looks up the ECHConfigList in the server name's HTTPS (or SVCB) DNS record. `config`, an ECHConfigList in base64 or PEM, is used when that lookup fails; without it, the connection fails. With `disable_dns_lookup: true`, only `config` is used.
 
-ECH is TLS 1.3 only, so ECH with `min_version` below `1.3` is a configuration error. sing-box takes such a configuration, but every connection then fails, as Go's TLS requires a minimum of 1.3 with ECH; Sail refuses it when the configuration is read.
+ECH is TLS 1.3 only, so ECH with `min_version` or `max_version` below `1.3` is a configuration error. sing-box takes such a configuration, but every connection then fails, as Go's TLS requires a minimum of 1.3 with ECH; Sail refuses it when the configuration is read.
 
 ## Client certificates
 
@@ -178,7 +192,7 @@ REALITY is configured inside the TLS block:
 }
 ```
 
-Use the public key and short ID issued by the server. REALITY and ordinary certificate-based TLS have different authentication assumptions; do not copy fields from one deployment without matching the server.
+Use the public key and short ID issued by the server. REALITY's ClientHello is always a browser's: `utls` cannot be disabled with it, and it works over TCP only. REALITY and ordinary certificate-based TLS have different authentication assumptions; do not copy fields from one deployment without matching the server.
 
 ## Diagnose handshake failures
 
