@@ -721,12 +721,12 @@ Rust: [`InboundTransport`](https://github.com/peakpassvpn/sail/blob/dev/sail/src
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
-| `host` | listable-string | — | Error: Type http (HTTP/2) is not supported; grpc is | — |
-| `path` | string | — | Error: Type http (HTTP/2) is not supported; grpc is | — |
-| `method` | string | — | Error: Type http (HTTP/2) is not supported; grpc is | — |
-| `headers` | map | — | Error: Type http (HTTP/2) is not supported; grpc is | — |
-| `idle_timeout` | duration | — | Error: Type http (HTTP/2) is not supported; grpc is | — |
-| `ping_timeout` | duration | — | Error: Type http (HTTP/2) is not supported; grpc is | — |
+| `host` | listable-string | — | Error: Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are | — |
+| `path` | string | — | Error: Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are | — |
+| `method` | string | — | Error: Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are | — |
+| `headers` | map | — | Error: Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are | — |
+| `idle_timeout` | duration | — | Error: Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are | — |
+| `ping_timeout` | duration | — | Error: Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are | — |
 
 <a id="transport-http-outbounds"></a>
 
@@ -738,12 +738,12 @@ Rust: [`OutboundTransport`](https://github.com/peakpassvpn/sail/blob/dev/sail/sr
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
-| `host` | listable-string | — | Error: Type http (HTTP/2) is not supported; grpc is | — |
-| `path` | string | — | Error: Type http (HTTP/2) is not supported; grpc is | — |
-| `method` | string | — | Error: Type http (HTTP/2) is not supported; grpc is | — |
-| `headers` | map | — | Error: Type http (HTTP/2) is not supported; grpc is | — |
-| `idle_timeout` | duration | — | Error: Type http (HTTP/2) is not supported; grpc is | — |
-| `ping_timeout` | duration | — | Error: Type http (HTTP/2) is not supported; grpc is | — |
+| `host` | listable-string | — | Error: Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are | — |
+| `path` | string | — | Error: Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are | — |
+| `method` | string | — | Error: Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are | — |
+| `headers` | map | — | Error: Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are | — |
+| `idle_timeout` | duration | — | Error: Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are | — |
+| `ping_timeout` | duration | — | Error: Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are | — |
 
 <a id="transport-httpupgrade-inbounds"></a>
 

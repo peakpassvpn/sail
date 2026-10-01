@@ -1427,12 +1427,12 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `multiplex.brutal.down_mbps` | 支持 |  |
 | `transport` | 支持 |  |
 | `transport.type` | 支持 |  |
-| `transport[http].host` | 报错 | Type http (HTTP/2) is not supported; grpc is |
-| `transport[http].path` | 报错 | Type http (HTTP/2) is not supported; grpc is |
-| `transport[http].method` | 报错 | Type http (HTTP/2) is not supported; grpc is |
-| `transport[http].headers` | 报错 | Type http (HTTP/2) is not supported; grpc is |
-| `transport[http].idle_timeout` | 报错 | Type http (HTTP/2) is not supported; grpc is |
-| `transport[http].ping_timeout` | 报错 | Type http (HTTP/2) is not supported; grpc is |
+| `transport[http].host` | 报错 | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
+| `transport[http].path` | 报错 | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
+| `transport[http].method` | 报错 | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
+| `transport[http].headers` | 报错 | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
+| `transport[http].idle_timeout` | 报错 | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
+| `transport[http].ping_timeout` | 报错 | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
 | `transport[ws].path` | 支持 |  |
 | `transport[ws].headers` | 警告 | Response headers and keepalive of a WebSocket or gRPC server: the same streams |
 | `transport[ws].max_early_data` | 支持 |  |
@@ -1678,12 +1678,12 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `multiplex.brutal.down_mbps` | 支持 |  |
 | `transport` | 支持 |  |
 | `transport.type` | 支持 |  |
-| `transport[http].host` | 报错 | Type http (HTTP/2) is not supported; grpc is |
-| `transport[http].path` | 报错 | Type http (HTTP/2) is not supported; grpc is |
-| `transport[http].method` | 报错 | Type http (HTTP/2) is not supported; grpc is |
-| `transport[http].headers` | 报错 | Type http (HTTP/2) is not supported; grpc is |
-| `transport[http].idle_timeout` | 报错 | Type http (HTTP/2) is not supported; grpc is |
-| `transport[http].ping_timeout` | 报错 | Type http (HTTP/2) is not supported; grpc is |
+| `transport[http].host` | 报错 | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
+| `transport[http].path` | 报错 | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
+| `transport[http].method` | 报错 | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
+| `transport[http].headers` | 报错 | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
+| `transport[http].idle_timeout` | 报错 | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
+| `transport[http].ping_timeout` | 报错 | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
 | `transport[ws].path` | 支持 |  |
 | `transport[ws].headers` | 警告 | Response headers and keepalive of a WebSocket or gRPC server: the same streams |
 | `transport[ws].max_early_data` | 支持 |  |
@@ -1788,12 +1788,12 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `multiplex.brutal.down_mbps` | 支持 |  |
 | `transport` | 支持 |  |
 | `transport.type` | 支持 |  |
-| `transport[http].host` | 报错 | Type http (HTTP/2) is not supported; grpc is |
-| `transport[http].path` | 报错 | Type http (HTTP/2) is not supported; grpc is |
-| `transport[http].method` | 报错 | Type http (HTTP/2) is not supported; grpc is |
-| `transport[http].headers` | 报错 | Type http (HTTP/2) is not supported; grpc is |
-| `transport[http].idle_timeout` | 报错 | Type http (HTTP/2) is not supported; grpc is |
-| `transport[http].ping_timeout` | 报错 | Type http (HTTP/2) is not supported; grpc is |
+| `transport[http].host` | 报错 | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
+| `transport[http].path` | 报错 | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
+| `transport[http].method` | 报错 | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
+| `transport[http].headers` | 报错 | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
+| `transport[http].idle_timeout` | 报错 | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
+| `transport[http].ping_timeout` | 报错 | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
 | `transport[ws].path` | 支持 |  |
 | `transport[ws].headers` | 警告 | Response headers and keepalive of a WebSocket or gRPC server: the same streams |
 | `transport[ws].max_early_data` | 支持 |  |
@@ -2397,12 +2397,12 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `multiplex.brutal.down_mbps` | 支持 |  |
 | `transport` | 支持 |  |
 | `transport.type` | 支持 |  |
-| `transport[http].host` | 报错 | Type http (HTTP/2) is not supported; grpc is |
-| `transport[http].path` | 报错 | Type http (HTTP/2) is not supported; grpc is |
-| `transport[http].method` | 报错 | Type http (HTTP/2) is not supported; grpc is |
-| `transport[http].headers` | 报错 | Type http (HTTP/2) is not supported; grpc is |
-| `transport[http].idle_timeout` | 报错 | Type http (HTTP/2) is not supported; grpc is |
-| `transport[http].ping_timeout` | 报错 | Type http (HTTP/2) is not supported; grpc is |
+| `transport[http].host` | 报错 | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
+| `transport[http].path` | 报错 | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
+| `transport[http].method` | 报错 | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
+| `transport[http].headers` | 报错 | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
+| `transport[http].idle_timeout` | 报错 | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
+| `transport[http].ping_timeout` | 报错 | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
 | `transport[ws].path` | 支持 |  |
 | `transport[ws].headers` | 支持 |  |
 | `transport[ws].max_early_data` | 支持 |  |
@@ -2605,12 +2605,12 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `multiplex.brutal.down_mbps` | 支持 |  |
 | `transport` | 支持 |  |
 | `transport.type` | 支持 |  |
-| `transport[http].host` | 报错 | Type http (HTTP/2) is not supported; grpc is |
-| `transport[http].path` | 报错 | Type http (HTTP/2) is not supported; grpc is |
-| `transport[http].method` | 报错 | Type http (HTTP/2) is not supported; grpc is |
-| `transport[http].headers` | 报错 | Type http (HTTP/2) is not supported; grpc is |
-| `transport[http].idle_timeout` | 报错 | Type http (HTTP/2) is not supported; grpc is |
-| `transport[http].ping_timeout` | 报错 | Type http (HTTP/2) is not supported; grpc is |
+| `transport[http].host` | 报错 | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
+| `transport[http].path` | 报错 | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
+| `transport[http].method` | 报错 | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
+| `transport[http].headers` | 报错 | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
+| `transport[http].idle_timeout` | 报错 | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
+| `transport[http].ping_timeout` | 报错 | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
 | `transport[ws].path` | 支持 |  |
 | `transport[ws].headers` | 支持 |  |
 | `transport[ws].max_early_data` | 支持 |  |
@@ -2718,12 +2718,12 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `multiplex.brutal.down_mbps` | 支持 |  |
 | `transport` | 支持 |  |
 | `transport.type` | 支持 |  |
-| `transport[http].host` | 报错 | Type http (HTTP/2) is not supported; grpc is |
-| `transport[http].path` | 报错 | Type http (HTTP/2) is not supported; grpc is |
-| `transport[http].method` | 报错 | Type http (HTTP/2) is not supported; grpc is |
-| `transport[http].headers` | 报错 | Type http (HTTP/2) is not supported; grpc is |
-| `transport[http].idle_timeout` | 报错 | Type http (HTTP/2) is not supported; grpc is |
-| `transport[http].ping_timeout` | 报错 | Type http (HTTP/2) is not supported; grpc is |
+| `transport[http].host` | 报错 | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
+| `transport[http].path` | 报错 | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
+| `transport[http].method` | 报错 | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
+| `transport[http].headers` | 报错 | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
+| `transport[http].idle_timeout` | 报错 | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
+| `transport[http].ping_timeout` | 报错 | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
 | `transport[ws].path` | 支持 |  |
 | `transport[ws].headers` | 支持 |  |
 | `transport[ws].max_early_data` | 支持 |  |

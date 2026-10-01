@@ -800,7 +800,7 @@ fn layered(
 
     if let Some(OutboundTransport::Http(_)) = transport {
         return Err(anyhow!(
-            "[{}] outbound: transport: type http (HTTP/2) is not supported; grpc is",
+            "[{}] outbound: transport: type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are",
             tag
         ));
     }
@@ -1789,7 +1789,7 @@ pub fn inbound(
 
     if let Some(InboundTransport::Http(_)) = &blocks.transport {
         return Err(anyhow!(
-            "[{}] inbound: transport: type http (HTTP/2) is not supported; grpc is",
+            "[{}] inbound: transport: type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are",
             tag
         ));
     }
@@ -2656,5 +2656,38 @@ mod inbound_tls_tests {
         .unwrap();
         let env = crate::runtime::RuntimeEnv::default();
         tls_inbound("in", &tls, Vec::new(), &env, &Default::default()).unwrap();
+    }
+}
+
+#[cfg(all(test, feature = "inbound-vmess", feature = "outbound-vmess"))]
+mod http2_tests {
+    /// sing-box's HTTP/2 transport is refused both ways, by design, with
+    /// the transports that take its place.
+    #[test]
+    fn the_http2_transport_is_refused_naming_the_others() {
+        let transport = serde_json::json!({ "type": "http", "host": ["a.example"] });
+        let uuid = "1b0e0a3e-1c2d-4e5f-8a9b-0c1d2e3f4a5b";
+        for (json, wanted) in [
+            (
+                serde_json::json!({ "outbounds": [{ "type": "vmess", "tag": "v",
+                    "server": "192.0.2.1", "server_port": 1, "uuid": uuid,
+                    "transport": transport }] }),
+                "[v] outbound: transport: type http (HTTP/2) is not supported, by design; \
+                 grpc, ws and httpupgrade are",
+            ),
+            (
+                serde_json::json!({ "inbounds": [{ "type": "vmess", "tag": "v",
+                    "listen_port": 1, "users": [{ "uuid": uuid }],
+                    "transport": transport }] }),
+                "[v] inbound: transport: type http (HTTP/2) is not supported, by design; \
+                 grpc, ws and httpupgrade are",
+            ),
+        ] {
+            let err = crate::config::from_string(&json.to_string())
+                .and_then(|c| crate::check_config(&c, &Default::default()))
+                .map(|_| ())
+                .expect_err(wanted);
+            assert!(format!("{:#}", err).contains(wanted), "{:#}", err);
+        }
     }
 }

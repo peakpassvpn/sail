@@ -584,7 +584,15 @@ fn transport(f: &mut Fields, o: &mut Map<String, Value>, w: &mut Vec<String>) ->
             }
             o.insert("transport".into(), Value::Object(transport));
         }
-        "http" | "h2" | "xhttp" | "kcp" | "quic" => {
+        // sing-box's HTTP/2 transport, which sail leaves out by design.
+        "h2" => {
+            return Err(anyhow!(
+                "{}: h2 (HTTP/2) is not supported, by design; grpc and ws (with or without \
+                 v2ray-http-upgrade) are",
+                f.at("network")
+            ))
+        }
+        "http" | "xhttp" | "kcp" | "quic" => {
             return Err(anyhow!(
                 "{}: sail does not implement the {} transport yet",
                 f.at("network"),

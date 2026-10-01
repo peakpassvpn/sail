@@ -4505,7 +4505,7 @@
    "inbounds[shadowtls].handshake.netns",
    "inbounds[shadowtls].handshake.tcp_multi_path"
   ],
-  "Type http (HTTP/2) is not supported; grpc is": [
+  "Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are": [
    "inbounds[trojan].transport[http].host",
    "inbounds[trojan].transport[http].path",
    "inbounds[trojan].transport[http].method",

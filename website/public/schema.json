@@ -10920,27 +10920,27 @@
    "properties": {
     "host": {
      "not": {},
-     "description": "sail refuses this field: Type http (HTTP/2) is not supported; grpc is"
+     "description": "sail refuses this field: Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are"
     },
     "path": {
      "not": {},
-     "description": "sail refuses this field: Type http (HTTP/2) is not supported; grpc is"
+     "description": "sail refuses this field: Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are"
     },
     "method": {
      "not": {},
-     "description": "sail refuses this field: Type http (HTTP/2) is not supported; grpc is"
+     "description": "sail refuses this field: Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are"
     },
     "headers": {
      "not": {},
-     "description": "sail refuses this field: Type http (HTTP/2) is not supported; grpc is"
+     "description": "sail refuses this field: Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are"
     },
     "idle_timeout": {
      "not": {},
-     "description": "sail refuses this field: Type http (HTTP/2) is not supported; grpc is"
+     "description": "sail refuses this field: Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are"
     },
     "ping_timeout": {
      "not": {},
-     "description": "sail refuses this field: Type http (HTTP/2) is not supported; grpc is"
+     "description": "sail refuses this field: Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are"
     },
     "type": {
      "const": "http"
@@ -12665,27 +12665,27 @@
    "properties": {
     "host": {
      "not": {},
-     "description": "sail refuses this field: Type http (HTTP/2) is not supported; grpc is"
+     "description": "sail refuses this field: Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are"
     },
     "path": {
      "not": {},
-     "description": "sail refuses this field: Type http (HTTP/2) is not supported; grpc is"
+     "description": "sail refuses this field: Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are"
     },
     "method": {
      "not": {},
-     "description": "sail refuses this field: Type http (HTTP/2) is not supported; grpc is"
+     "description": "sail refuses this field: Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are"
     },
     "headers": {
      "not": {},
-     "description": "sail refuses this field: Type http (HTTP/2) is not supported; grpc is"
+     "description": "sail refuses this field: Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are"
     },
     "idle_timeout": {
      "not": {},
-     "description": "sail refuses this field: Type http (HTTP/2) is not supported; grpc is"
+     "description": "sail refuses this field: Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are"
     },
     "ping_timeout": {
      "not": {},
-     "description": "sail refuses this field: Type http (HTTP/2) is not supported; grpc is"
+     "description": "sail refuses this field: Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are"
     },
     "type": {
      "const": "http"
@@ -13394,27 +13394,27 @@
    "properties": {
     "host": {
      "not": {},
-     "description": "sail refuses this field: Type http (HTTP/2) is not supported; grpc is"
+     "description": "sail refuses this field: Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are"
     },
     "path": {
      "not": {},
-     "description": "sail refuses this field: Type http (HTTP/2) is not supported; grpc is"
+     "description": "sail refuses this field: Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are"
     },
     "method": {
      "not": {},
-     "description": "sail refuses this field: Type http (HTTP/2) is not supported; grpc is"
+     "description": "sail refuses this field: Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are"
     },
     "headers": {
      "not": {},
-     "description": "sail refuses this field: Type http (HTTP/2) is not supported; grpc is"
+     "description": "sail refuses this field: Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are"
     },
     "idle_timeout": {
      "not": {},
-     "description": "sail refuses this field: Type http (HTTP/2) is not supported; grpc is"
+     "description": "sail refuses this field: Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are"
     },
     "ping_timeout": {
      "not": {},
-     "description": "sail refuses this field: Type http (HTTP/2) is not supported; grpc is"
+     "description": "sail refuses this field: Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are"
     },
     "type": {
      "const": "http"
@@ -18893,27 +18893,27 @@
    "properties": {
     "host": {
      "not": {},
-     "description": "sail refuses this field: Type http (HTTP/2) is not supported; grpc is"
+     "description": "sail refuses this field: Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are"
     },
     "path": {
      "not": {},
-     "description": "sail refuses this field: Type http (HTTP/2) is not supported; grpc is"
+     "description": "sail refuses this field: Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are"
     },
     "method": {
      "not": {},
-     "description": "sail refuses this field: Type http (HTTP/2) is not supported; grpc is"
+     "description": "sail refuses this field: Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are"
     },
     "headers": {
      "not": {},
-     "description": "sail refuses this field: Type http (HTTP/2) is not supported; grpc is"
+     "description": "sail refuses this field: Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are"
     },
     "idle_timeout": {
      "not": {},
-     "description": "sail refuses this field: Type http (HTTP/2) is not supported; grpc is"
+     "description": "sail refuses this field: Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are"
     },
     "ping_timeout": {
      "not": {},
-     "description": "sail refuses this field: Type http (HTTP/2) is not supported; grpc is"
+     "description": "sail refuses this field: Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are"
     },
     "type": {
      "const": "http"
@@ -20360,27 +20360,27 @@
    "properties": {
     "host": {
      "not": {},
-     "description": "sail refuses this field: Type http (HTTP/2) is not supported; grpc is"
+     "description": "sail refuses this field: Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are"
     },
     "path": {
      "not": {},
-     "description": "sail refuses this field: Type http (HTTP/2) is not supported; grpc is"
+     "description": "sail refuses this field: Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are"
     },
     "method": {
      "not": {},
-     "description": "sail refuses this field: Type http (HTTP/2) is not supported; grpc is"
+     "description": "sail refuses this field: Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are"
     },
     "headers": {
      "not": {},
-     "description": "sail refuses this field: Type http (HTTP/2) is not supported; grpc is"
+     "description": "sail refuses this field: Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are"
     },
     "idle_timeout": {
      "not": {},
-     "description": "sail refuses this field: Type http (HTTP/2) is not supported; grpc is"
+     "description": "sail refuses this field: Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are"
     },
     "ping_timeout": {
      "not": {},
-     "description": "sail refuses this field: Type http (HTTP/2) is not supported; grpc is"
+     "description": "sail refuses this field: Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are"
     },
     "type": {
      "const": "http"
@@ -21146,27 +21146,27 @@
    "properties": {
     "host": {
      "not": {},
-     "description": "sail refuses this field: Type http (HTTP/2) is not supported; grpc is"
+     "description": "sail refuses this field: Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are"
     },
     "path": {
      "not": {},
-     "description": "sail refuses this field: Type http (HTTP/2) is not supported; grpc is"
+     "description": "sail refuses this field: Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are"
     },
     "method": {
      "not": {},
-     "description": "sail refuses this field: Type http (HTTP/2) is not supported; grpc is"
+     "description": "sail refuses this field: Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are"
     },
     "headers": {
      "not": {},
-     "description": "sail refuses this field: Type http (HTTP/2) is not supported; grpc is"
+     "description": "sail refuses this field: Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are"
     },
     "idle_timeout": {
      "not": {},
-     "description": "sail refuses this field: Type http (HTTP/2) is not supported; grpc is"
+     "description": "sail refuses this field: Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are"
     },
     "ping_timeout": {
      "not": {},
-     "description": "sail refuses this field: Type http (HTTP/2) is not supported; grpc is"
+     "description": "sail refuses this field: Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are"
     },
     "type": {
      "const": "http"

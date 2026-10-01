@@ -228,7 +228,7 @@ fn mistakes_name_the_field() {
         ("proxies: [{ name: DIRECT, type: direct }]", "proxies[0].name: DIRECT is Mihomo's own policy"),
         (
             "proxies: [{ name: a, type: vmess, server: s, port: 1, uuid: u, network: h2 }]",
-            "proxies[0].network: sail does not implement the h2 transport yet",
+            "proxies[0].network: h2 (HTTP/2) is not supported, by design; grpc and ws (with or without v2ray-http-upgrade) are",
         ),
         (
             "proxies: [{ name: a, type: trojan, server: s, port: 1, password: p, name-cert-verify: b }]",

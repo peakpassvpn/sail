@@ -1427,12 +1427,12 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `multiplex.brutal.down_mbps` | Supported |  |
 | `transport` | Supported |  |
 | `transport.type` | Supported |  |
-| `transport[http].host` | Error | Type http (HTTP/2) is not supported; grpc is |
-| `transport[http].path` | Error | Type http (HTTP/2) is not supported; grpc is |
-| `transport[http].method` | Error | Type http (HTTP/2) is not supported; grpc is |
-| `transport[http].headers` | Error | Type http (HTTP/2) is not supported; grpc is |
-| `transport[http].idle_timeout` | Error | Type http (HTTP/2) is not supported; grpc is |
-| `transport[http].ping_timeout` | Error | Type http (HTTP/2) is not supported; grpc is |
+| `transport[http].host` | Error | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
+| `transport[http].path` | Error | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
+| `transport[http].method` | Error | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
+| `transport[http].headers` | Error | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
+| `transport[http].idle_timeout` | Error | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
+| `transport[http].ping_timeout` | Error | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
 | `transport[ws].path` | Supported |  |
 | `transport[ws].headers` | Warned | Response headers and keepalive of a WebSocket or gRPC server: the same streams |
 | `transport[ws].max_early_data` | Supported |  |
@@ -1678,12 +1678,12 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `multiplex.brutal.down_mbps` | Supported |  |
 | `transport` | Supported |  |
 | `transport.type` | Supported |  |
-| `transport[http].host` | Error | Type http (HTTP/2) is not supported; grpc is |
-| `transport[http].path` | Error | Type http (HTTP/2) is not supported; grpc is |
-| `transport[http].method` | Error | Type http (HTTP/2) is not supported; grpc is |
-| `transport[http].headers` | Error | Type http (HTTP/2) is not supported; grpc is |
-| `transport[http].idle_timeout` | Error | Type http (HTTP/2) is not supported; grpc is |
-| `transport[http].ping_timeout` | Error | Type http (HTTP/2) is not supported; grpc is |
+| `transport[http].host` | Error | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
+| `transport[http].path` | Error | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
+| `transport[http].method` | Error | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
+| `transport[http].headers` | Error | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
+| `transport[http].idle_timeout` | Error | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
+| `transport[http].ping_timeout` | Error | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
 | `transport[ws].path` | Supported |  |
 | `transport[ws].headers` | Warned | Response headers and keepalive of a WebSocket or gRPC server: the same streams |
 | `transport[ws].max_early_data` | Supported |  |
@@ -1788,12 +1788,12 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `multiplex.brutal.down_mbps` | Supported |  |
 | `transport` | Supported |  |
 | `transport.type` | Supported |  |
-| `transport[http].host` | Error | Type http (HTTP/2) is not supported; grpc is |
-| `transport[http].path` | Error | Type http (HTTP/2) is not supported; grpc is |
-| `transport[http].method` | Error | Type http (HTTP/2) is not supported; grpc is |
-| `transport[http].headers` | Error | Type http (HTTP/2) is not supported; grpc is |
-| `transport[http].idle_timeout` | Error | Type http (HTTP/2) is not supported; grpc is |
-| `transport[http].ping_timeout` | Error | Type http (HTTP/2) is not supported; grpc is |
+| `transport[http].host` | Error | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
+| `transport[http].path` | Error | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
+| `transport[http].method` | Error | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
+| `transport[http].headers` | Error | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
+| `transport[http].idle_timeout` | Error | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
+| `transport[http].ping_timeout` | Error | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
 | `transport[ws].path` | Supported |  |
 | `transport[ws].headers` | Warned | Response headers and keepalive of a WebSocket or gRPC server: the same streams |
 | `transport[ws].max_early_data` | Supported |  |
@@ -2397,12 +2397,12 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `multiplex.brutal.down_mbps` | Supported |  |
 | `transport` | Supported |  |
 | `transport.type` | Supported |  |
-| `transport[http].host` | Error | Type http (HTTP/2) is not supported; grpc is |
-| `transport[http].path` | Error | Type http (HTTP/2) is not supported; grpc is |
-| `transport[http].method` | Error | Type http (HTTP/2) is not supported; grpc is |
-| `transport[http].headers` | Error | Type http (HTTP/2) is not supported; grpc is |
-| `transport[http].idle_timeout` | Error | Type http (HTTP/2) is not supported; grpc is |
-| `transport[http].ping_timeout` | Error | Type http (HTTP/2) is not supported; grpc is |
+| `transport[http].host` | Error | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
+| `transport[http].path` | Error | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
+| `transport[http].method` | Error | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
+| `transport[http].headers` | Error | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
+| `transport[http].idle_timeout` | Error | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
+| `transport[http].ping_timeout` | Error | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
 | `transport[ws].path` | Supported |  |
 | `transport[ws].headers` | Supported |  |
 | `transport[ws].max_early_data` | Supported |  |
@@ -2605,12 +2605,12 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `multiplex.brutal.down_mbps` | Supported |  |
 | `transport` | Supported |  |
 | `transport.type` | Supported |  |
-| `transport[http].host` | Error | Type http (HTTP/2) is not supported; grpc is |
-| `transport[http].path` | Error | Type http (HTTP/2) is not supported; grpc is |
-| `transport[http].method` | Error | Type http (HTTP/2) is not supported; grpc is |
-| `transport[http].headers` | Error | Type http (HTTP/2) is not supported; grpc is |
-| `transport[http].idle_timeout` | Error | Type http (HTTP/2) is not supported; grpc is |
-| `transport[http].ping_timeout` | Error | Type http (HTTP/2) is not supported; grpc is |
+| `transport[http].host` | Error | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
+| `transport[http].path` | Error | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
+| `transport[http].method` | Error | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
+| `transport[http].headers` | Error | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
+| `transport[http].idle_timeout` | Error | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
+| `transport[http].ping_timeout` | Error | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
 | `transport[ws].path` | Supported |  |
 | `transport[ws].headers` | Supported |  |
 | `transport[ws].max_early_data` | Supported |  |
@@ -2718,12 +2718,12 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `multiplex.brutal.down_mbps` | Supported |  |
 | `transport` | Supported |  |
 | `transport.type` | Supported |  |
-| `transport[http].host` | Error | Type http (HTTP/2) is not supported; grpc is |
-| `transport[http].path` | Error | Type http (HTTP/2) is not supported; grpc is |
-| `transport[http].method` | Error | Type http (HTTP/2) is not supported; grpc is |
-| `transport[http].headers` | Error | Type http (HTTP/2) is not supported; grpc is |
-| `transport[http].idle_timeout` | Error | Type http (HTTP/2) is not supported; grpc is |
-| `transport[http].ping_timeout` | Error | Type http (HTTP/2) is not supported; grpc is |
+| `transport[http].host` | Error | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
+| `transport[http].path` | Error | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
+| `transport[http].method` | Error | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
+| `transport[http].headers` | Error | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
+| `transport[http].idle_timeout` | Error | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
+| `transport[http].ping_timeout` | Error | Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are |
 | `transport[ws].path` | Supported |  |
 | `transport[ws].headers` | Supported |  |
 | `transport[ws].max_early_data` | Supported |  |

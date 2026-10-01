@@ -721,12 +721,12 @@ Rust 定义：[`InboundTransport`](https://github.com/peakpassvpn/sail/blob/dev/
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
-| `host` | listable-string | — | 报错：Type http (HTTP/2) is not supported; grpc is | — |
-| `path` | string | — | 报错：Type http (HTTP/2) is not supported; grpc is | — |
-| `method` | string | — | 报错：Type http (HTTP/2) is not supported; grpc is | — |
-| `headers` | map | — | 报错：Type http (HTTP/2) is not supported; grpc is | — |
-| `idle_timeout` | duration | — | 报错：Type http (HTTP/2) is not supported; grpc is | — |
-| `ping_timeout` | duration | — | 报错：Type http (HTTP/2) is not supported; grpc is | — |
+| `host` | listable-string | — | 报错：Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are | — |
+| `path` | string | — | 报错：Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are | — |
+| `method` | string | — | 报错：Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are | — |
+| `headers` | map | — | 报错：Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are | — |
+| `idle_timeout` | duration | — | 报错：Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are | — |
+| `ping_timeout` | duration | — | 报错：Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are | — |
 
 <a id="transport-http-outbounds"></a>
 
@@ -738,12 +738,12 @@ Rust 定义：[`OutboundTransport`](https://github.com/peakpassvpn/sail/blob/dev
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
-| `host` | listable-string | — | 报错：Type http (HTTP/2) is not supported; grpc is | — |
-| `path` | string | — | 报错：Type http (HTTP/2) is not supported; grpc is | — |
-| `method` | string | — | 报错：Type http (HTTP/2) is not supported; grpc is | — |
-| `headers` | map | — | 报错：Type http (HTTP/2) is not supported; grpc is | — |
-| `idle_timeout` | duration | — | 报错：Type http (HTTP/2) is not supported; grpc is | — |
-| `ping_timeout` | duration | — | 报错：Type http (HTTP/2) is not supported; grpc is | — |
+| `host` | listable-string | — | 报错：Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are | — |
+| `path` | string | — | 报错：Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are | — |
+| `method` | string | — | 报错：Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are | — |
+| `headers` | map | — | 报错：Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are | — |
+| `idle_timeout` | duration | — | 报错：Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are | — |
+| `ping_timeout` | duration | — | 报错：Type http (HTTP/2) is not supported, by design; grpc, ws and httpupgrade are | — |
 
 <a id="transport-httpupgrade-inbounds"></a>
 
