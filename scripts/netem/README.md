@@ -23,7 +23,11 @@ python3 run.py --work WORK --sail WORK/sail --netgen WORK/netgen
 python3 run.py --protocols direct --clients sail-server --only baseline --quick   # 冒烟
 ```
 
-`--protocols` 取 `direct,ss,trojan,reality,hy2,tuic,mux`（默认前三个；`reality` 是 vless+REALITY+vision，握手目标是服务端 netns 里的 `openssl s_server`；`mux` 是开了 sing-mux 的 trojan）；`--clients` 取 `sail-server,sail-mobile,sing-box`（sail 的运行档位，或 sing-box 作对照）；`--inbound tun` 让客户端改用 tun 入站（auto_route，接管客户端 netns 的全部流量），netgen 直接连目标，走的是 TUN 路径而不是 SOCKS；`--only` 只跑名字含该子串的场景；`--quick` 缩短每项负载。
+`--protocols` 取 `direct,ss,trojan,reality,hy2,tuic,mux`（默认前三个；`reality` 是 vless+REALITY+vision，握手目标是服务端 netns 里的 `openssl s_server`；`mux` 是开了 sing-mux 的 trojan）；`--clients` 取 `sail-server,sail-mobile,sing-box`（sail 的运行档位，或 sing-box 作对照）；`--inbound tun` 让客户端改用 tun 入站（auto_route，接管客户端 netns 的全部流量），netgen 直接连目标，走的是 TUN 路径而不是 SOCKS；`--only` 只跑名字含该子串的场景；`--quick` 缩短每项负载；`--client-set KEY=VALUE` 把 sail 的 `--set` 传给被测客户端（可重复）；`--only route_switch` 单独跑默认路由切换（客户端经默认路由连服务端并跟随默认网卡）。
+
+长跑：`--soak HOURS` 代替上面的场景，客户端不重启，在基线、高延迟、丢包、限速、突发丢包之间轮换，每轮跑一组轻量的带校验负载后静置 60 秒、记录客户端的静止 RSS 与描述符；每小时向该次运行目录下的 `soak.jsonl` 追加一行，结束时按“第 2 小时到最后一小时静止 RSS 增长低于 10%”判定。`--cpus LIST` 把客户端一侧（被测客户端与 netgen）绑到这些 CPU 上（`taskset -c`），`--server-cpus LIST` 把服务端一侧绑到另一组 CPU；只给 `--cpus` 时两侧都绑到同一组，用于和另一个长跑共用主机。
+
+吞吐格子要稳：共享主机上单次结果的波动可达 2 倍。`--rounds N` 让每个受限场景的负载重复 N 次，汇总给出中位数、最小与最大值；`--bulk-bytes` 加大每条流的字节数，让传输足够长（例如每条 30 秒以上）；再用 `--cpus`/`--server-cpus` 把两侧分开绑核。
 
 ## 场景
 

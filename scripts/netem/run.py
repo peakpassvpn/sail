@@ -22,6 +22,7 @@ import json
 import os
 import shutil
 import signal
+import statistics
 import subprocess
 import sys
 import threading
@@ -62,8 +63,16 @@ def sh(cmd, check=True, timeout=None):
                           text=True, timeout=timeout)
 
 
+# The CPUs the processes of each namespace are pinned to (--cpus,
+# --server-cpus): a long run shares the host with another on CPUs of its
+# own, and a throughput cell keeps the client and server from trading CPUs.
+CPUS = {}
+
+
 def in_ns(ns, cmd):
-    return f"ip netns exec {ns} {cmd}"
+    cpus = CPUS.get(ns)
+    pin = f"taskset -c {cpus} " if cpus else ""
+    return f"ip netns exec {ns} {pin}{cmd}"
 
 
 def netns(*args):
@@ -226,8 +235,9 @@ class Sampler:
     """Samples the client's RSS, CPU and descriptors and both namespaces'
     TCP states, once a second."""
 
-    def __init__(self, proc):
+    def __init__(self, proc, interval=1):
         self.proc = proc
+        self.interval = interval
         self.samples = []
         self.stop_ = threading.Event()
         self.t = threading.Thread(target=self.run, daemon=True)
@@ -256,7 +266,7 @@ class Sampler:
         return s
 
     def run(self):
-        while not self.stop_.wait(1):
+        while not self.stop_.wait(self.interval):
             self.samples.append(self.one())
 
     def mark(self):
@@ -396,8 +406,8 @@ class Run:
 
     def workloads(self, sampler, scenario):
         quick = self.args.quick
-        size = BULK_BYTES.get(scenario, 32 << 20)
-        if quick:
+        size = self.args.bulk_bytes or BULK_BYTES.get(scenario, 32 << 20)
+        if quick and not self.args.bulk_bytes:
             size //= 4
         plan = [
             ("bulk_down", ["-streams 4", f"-bytes {size}", "-dir down"]),
@@ -405,14 +415,35 @@ class Run:
             ("echo", ["-conns 8", f"-rounds {50 if quick else 150}", "-size 4096"]),
             ("setup", [f"-n {self.args.setup_n or (50 if quick else 150)}"]),
         ]
-        for workload, flags in plan:
-            idle_before = self.idle(sampler, settle=1)
-            m = sampler.mark()
-            res = self.netgen(workload.split("_")[0], *flags)
-            rec = self.record(scenario, workload, res, sampler.since(m), idle_before,
-                              self.idle(sampler, settle=2))
-            self.check(scenario, workload, res)
-            print(f"  {self.name} {scenario} {workload}: {brief(res)}", flush=True)
+        cell = {}
+        for round_ in range(self.args.rounds):
+            for workload, flags in plan:
+                idle_before = self.idle(sampler, settle=1)
+                m = sampler.mark()
+                res = self.netgen(workload.split("_")[0], *flags)
+                rec = self.record(scenario, workload, res, sampler.since(m), idle_before,
+                                  self.idle(sampler, settle=2))
+                rec["round"] = round_ + 1
+                self.check(scenario, workload, res)
+                print(f"  {self.name} {scenario} {workload}: {brief(res)}", flush=True)
+                cell.setdefault(workload, []).append(res)
+        if self.args.rounds > 1:
+            # A cell's spread beside its median: one run says little on a
+            # shared host.
+            spread = {}
+            for workload, results in cell.items():
+                for key, pick in (("mbps", lambda r: r.get("mbps")),
+                                  ("p50_ms", lambda r: (r.get("rtt") or {}).get("p50_ms")),
+                                  ("p99_ms", lambda r: (r.get("rtt") or {}).get("p99_ms"))):
+                    vals = sorted(v for v in map(pick, results) if v is not None)
+                    if vals:
+                        spread[f"{workload}.{key}"] = {
+                            "median": statistics.median(vals), "min": vals[0], "max": vals[-1],
+                            "n": len(vals)}
+            self.record(scenario, "cell", spread, [], None, None)
+            for name, v in spread.items():
+                print(f"  {self.name} {scenario} {name}: median {v['median']:.2f} "
+                      f"(min {v['min']:.2f}, max {v['max']:.2f}, n {v['n']})", flush=True)
 
     def disconnect(self, sampler, scenario, outage, how):
         """A probe runs across an outage; recovery is the time from the
@@ -522,6 +553,72 @@ class Run:
               f"{res['long_ended_after_switch_s']}s, reopened {res['long_reopened']}, "
               f"client saw {res['network_changed'] or 'no network change'}", flush=True)
 
+    def soak(self, sampler, hours):
+        """Hours of light, checked traffic under link conditions taken in
+        turn, the client never restarted; the client at rest is sampled
+        after each round. An hour's line goes to soak.jsonl as it ends, and
+        the judgement is the growth of the client's resting RSS from the
+        second hour to the last, and its descriptors back at rest."""
+        rotation = [("baseline", None),
+                    ("rtt150", "delay 75ms 7.5ms distribution normal"),
+                    ("loss2", "loss 2%"),
+                    ("rate10m", "rate 10mbit limit 420"),
+                    ("burst2", "loss gemodel 1% 30% 70% 0.1%")]
+        plan = [("bulk_down", ["-streams 2", "-bytes 16777216", "-dir down"]),
+                ("bulk_up", ["-streams 2", "-bytes 16777216", "-dir up"]),
+                ("echo", ["-conns 4", "-rounds 50", "-size 4096"]),
+                ("setup", ["-n 50"])]
+        log = os.path.join(self.dir, "soak.jsonl")
+        start = time.time()
+        end = start + hours * 3600
+        hour, rests, rounds, failed_before = 0, [], 0, 0
+        while time.time() < end:
+            scenario, spec = rotation[rounds % len(rotation)]
+            netns("shape", spec) if spec else netns("clear")
+            for workload, flags in plan:
+                res = self.netgen(workload.split("_")[0], *flags)
+                self.check(f"soak/{scenario}", workload, res)
+                if res.get("failed"):
+                    self.soak_failed = getattr(self, "soak_failed", 0) + res["failed"]
+            netns("clear")
+            rest = self.idle(sampler, settle=60)
+            rest["t"] = time.time()
+            rests.append(rest)
+            rounds += 1
+            # One line an hour, as each ends.
+            while time.time() - start >= (hour + 1) * 3600 or time.time() >= end:
+                in_hour = [r for r in rests
+                           if start + hour * 3600 <= r["t"] < start + (hour + 1) * 3600]
+                rss = sorted(r["rss_kb"] for r in in_hour if r.get("rss_kb"))
+                fds = sorted(r["fds"] for r in in_hour if r.get("fds") is not None)
+                line = {"hour": hour + 1,
+                        "rest_rss_kb_median": statistics.median(rss) if rss else None,
+                        "rest_rss_kb_max": rss[-1] if rss else None,
+                        "rest_fds_median": statistics.median(fds) if fds else None,
+                        "rounds": len(in_hour),
+                        "failed_ops": getattr(self, "soak_failed", 0) - failed_before,
+                        "failures": len(self.failures)}
+                failed_before = getattr(self, "soak_failed", 0)
+                with open(log, "a") as f:
+                    f.write(json.dumps(line) + "\n")
+                print(f"  {self.name} soak hour {line['hour']}: rest RSS "
+                      f"{line['rest_rss_kb_median']} kB, fds {line['rest_fds_median']}, "
+                      f"failed ops {line['failed_ops']}", flush=True)
+                hour += 1
+                if time.time() >= end or hour >= hours:
+                    break
+        hours_seen = [json.loads(l) for l in open(log)] if os.path.exists(log) else []
+        by_hour = {h["hour"]: h["rest_rss_kb_median"] for h in hours_seen}
+        first, last_hour = by_hour.get(2), by_hour.get(max(by_hour) if by_hour else 0)
+        growth = (last_hour - first) / first if first and last_hour else None
+        res = {"hours": hours, "rounds": rounds, "rss_hour2_kb": first,
+               "rss_last_kb": last_hour, "rss_growth": growth,
+               "failed_ops": getattr(self, "soak_failed", 0)}
+        self.record("soak", "summary", res, [], None, self.idle(sampler))
+        if growth is not None and growth >= 0.10:
+            self.fail(f"soak: resting RSS grew {growth:.1%} from hour 2 to the last")
+        print(f"  {self.name} soak: {json.dumps(res)}", flush=True)
+
     def concurrency(self, sampler):
         idle_before = self.idle(sampler, settle=2)
         m = sampler.mark()
@@ -566,32 +663,40 @@ class Run:
             print(f"  {self.name} halfclose {scenario}: {brief(res)}", flush=True)
         netns("clear")
 
+    def scenarios(self, sampler):
+        """The shaped, disconnect, concurrency and half-close scenarios."""
+        for scenario, spec in SHAPED:
+            if self.args.only and self.args.only not in scenario:
+                continue
+            netns("shape", spec) if spec else netns("clear")
+            self.workloads(sampler, scenario)
+        netns("clear")
+        if not self.args.only or "disconnect" in self.args.only:
+            self.disconnect(sampler, "blackhole5", 5, "blackhole")
+            self.disconnect(sampler, "blackhole30", 30, "blackhole")
+            self.disconnect(sampler, "linkdown10", 10, "linkdown")
+            self.disconnect(sampler, "server_restart", 0, "restart")
+        # Its own run: the client then dials a server only the default
+        # route reaches, and follows the default interface.
+        if self.args.only == "route_switch":
+            self.route_switch(sampler)
+        if not self.args.only or "concurrency" in self.args.only:
+            self.concurrency(sampler)
+        if not self.args.only or "halfclose" in self.args.only:
+            self.halfclose(sampler)
+
     def go(self):
         print(f"== {self.name}", flush=True)
         self.start_server()
         self.start_client()
-        sampler = Sampler(self.procs["client"])
+        # Hours of samples a second would be the run's own load.
+        sampler = Sampler(self.procs["client"], interval=10 if self.args.soak else 1)
         start_idle = self.idle(sampler, settle=2)
         try:
-            for scenario, spec in SHAPED:
-                if self.args.only and self.args.only not in scenario:
-                    continue
-                netns("shape", spec) if spec else netns("clear")
-                self.workloads(sampler, scenario)
-            netns("clear")
-            if not self.args.only or "disconnect" in self.args.only:
-                self.disconnect(sampler, "blackhole5", 5, "blackhole")
-                self.disconnect(sampler, "blackhole30", 30, "blackhole")
-                self.disconnect(sampler, "linkdown10", 10, "linkdown")
-                self.disconnect(sampler, "server_restart", 0, "restart")
-            # Its own run: the client then dials a server only the default
-            # route reaches, and follows the default interface.
-            if self.args.only == "route_switch":
-                self.route_switch(sampler)
-            if not self.args.only or "concurrency" in self.args.only:
-                self.concurrency(sampler)
-            if not self.args.only or "halfclose" in self.args.only:
-                self.halfclose(sampler)
+            if self.args.soak:
+                self.soak(sampler, self.args.soak)
+            else:
+                self.scenarios(sampler)
         finally:
             netns("clear")
             end_idle = self.idle(sampler, settle=10)
@@ -673,6 +778,21 @@ def main():
     ap.add_argument("--netgen", default="netem-work/netgen")
     ap.add_argument("--protocols", default="direct,ss,trojan")
     ap.add_argument("--clients", default="sail-server,sail-mobile,sing-box")
+    ap.add_argument("--soak", type=float, default=0, metavar="HOURS",
+                    help="instead of the scenarios: HOURS of light traffic under link "
+                         "conditions taken in turn, judged on the client's resting RSS")
+    ap.add_argument("--cpus", default=None, metavar="LIST",
+                    help="pin the client side (client under test and traffic tool) to "
+                         "these CPUs (taskset -c); with --server-cpus, the server side to "
+                         "those, else to these too")
+    ap.add_argument("--server-cpus", default=None, metavar="LIST",
+                    help="pin the server side (protocol server and traffic tool's "
+                         "server) to these CPUs")
+    ap.add_argument("--rounds", type=int, default=1,
+                    help="run each shaped scenario's workloads this many times; the "
+                         "summary gives the median, min and max")
+    ap.add_argument("--bulk-bytes", type=int, default=None,
+                    help="bytes per bulk stream, for transfers long enough to settle")
     ap.add_argument("--client-set", action="append", default=[], metavar="KEY=VALUE",
                     help="a runtime option for a sail client under test, as sail's --set; "
                          "repeatable")
@@ -689,6 +809,11 @@ def main():
                          "the others keep a deployment's")
     ap.add_argument("--quick", action="store_true")
     args = ap.parse_args()
+    if args.cpus:
+        CPUS[CLIENT_NS] = args.cpus
+        CPUS[SERVER_NS] = args.server_cpus or args.cpus
+    elif args.server_cpus:
+        CPUS[SERVER_NS] = args.server_cpus
 
     free = shutil.disk_usage("/").free
     if free < 2 << 30:
