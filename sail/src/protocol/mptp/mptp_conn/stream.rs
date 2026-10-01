@@ -11,11 +11,17 @@ use std::task::{Context, Poll};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::mpsc;
 
+/// The most packets ahead of the next one that the reader keeps.
+const REORDER_LIMIT: usize = 1024;
+
 struct SubConnection<S> {
     stream: S,
     read_buf: BytesMut,
     write_buf: BytesMut,
     closed: bool, // Mark if this sub-connection is dead
+    /// Its next packet is too far ahead to keep: it is left unread, and
+    /// the path is not read further, until the packets before it arrive.
+    held: bool,
 }
 
 impl<S> SubConnection<S> {
@@ -25,6 +31,7 @@ impl<S> SubConnection<S> {
             read_buf: BytesMut::with_capacity(4096),
             write_buf: BytesMut::with_capacity(4096),
             closed: false,
+            held: false,
         }
     }
 }
@@ -155,6 +162,10 @@ impl<S: AsyncRead + AsyncWrite + Unpin> AsyncRead for MptpStream<S> {
             if sub.closed {
                 continue;
             }
+            if sub.held {
+                all_eof = false;
+                continue;
+            }
 
             // Read from socket
             let mut read_buf = ReadBuf::new(&mut temp_buf);
@@ -214,6 +225,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> AsyncRead for MptpStream<S> {
             if sub.read_buf.is_empty() {
                 continue;
             }
+            let was_held = std::mem::replace(&mut sub.held, false);
 
             // Process frames
             loop {
@@ -252,6 +264,21 @@ impl<S: AsyncRead + AsyncWrite + Unpin> AsyncRead for MptpStream<S> {
                         let mut pn_reader = pn_slice;
                         let pn = pn_reader.get_u64();
 
+                        // There is no retransmission, and a packet may have
+                        // gone down this path alone when the others were
+                        // full: one too far ahead is not dropped but left
+                        // here, and the path stops being read, so it pushes
+                        // back on the sender. The packet the reader waits
+                        // for is at the head of its own path, so that path
+                        // is never held and the reader always moves on.
+                        if pn > this.expected_read_pn
+                            && this.reorder_buffer.len() >= REORDER_LIMIT
+                            && !this.reorder_buffer.contains_key(&pn)
+                        {
+                            sub.held = true;
+                            break;
+                        }
+
                         sub.read_buf.advance(DATA_HEADER_LEN);
                         let payload_len = needed - DATA_HEADER_LEN;
                         let payload = sub.read_buf.split_to(payload_len).freeze();
@@ -273,13 +300,9 @@ impl<S: AsyncRead + AsyncWrite + Unpin> AsyncRead for MptpStream<S> {
                                 this.expected_read_pn += 1;
                             }
                         } else {
-                            // Future packet, buffer it
-                            if !this.reorder_buffer.contains_key(&pn) {
-                                // Limit reorder buffer size to 1024 packets or ~4MB
-                                if this.reorder_buffer.len() < 1024 {
-                                    this.reorder_buffer.insert(pn, payload);
-                                }
-                            }
+                            // Future packet, buffer it (a copy of one
+                            // already buffered is dropped).
+                            this.reorder_buffer.entry(pn).or_insert(payload);
                         }
                     }
                     MTYP_FIN => {
@@ -303,6 +326,10 @@ impl<S: AsyncRead + AsyncWrite + Unpin> AsyncRead for MptpStream<S> {
                     }
                 }
             }
+            if was_held && !sub.held {
+                // Its path is read again from the next poll.
+                any_progress = true;
+            }
         }
 
         if !this.read_buffer.is_empty() {
@@ -313,6 +340,21 @@ impl<S: AsyncRead + AsyncWrite + Unpin> AsyncRead for MptpStream<S> {
 
         if this.finished() {
             return Poll::Ready(Ok(()));
+        }
+
+        // Every open path held: each one's next packet comes after the one
+        // the reader waits for, so that one is on no path that is left, and
+        // with no path to join it cannot come.
+        if !any_progress
+            && this.new_subs_rx.is_none()
+            && !this.subs.is_empty()
+            && this.subs.iter().all(|s| s.closed || s.held)
+        {
+            debug!("the next packet is on no open sub-connection");
+            return Poll::Ready(Err(io::Error::new(
+                io::ErrorKind::ConnectionAborted,
+                "all sub-connections closed before the data was complete",
+            )));
         }
 
         if all_eof && !this.subs.is_empty() {
@@ -706,6 +748,31 @@ mod tests {
         assert_eq!(err.kind(), io::ErrorKind::ConnectionAborted);
     }
 
+    /// Packets held back for one that no path has left are an error, not
+    /// a wait without end.
+    #[tokio::test]
+    async fn a_gap_no_open_path_can_fill_is_an_error() {
+        let (c1, mut s1) = tokio::io::duplex(64 * 1024);
+        let mut mptp = MptpStream::new(vec![c1]);
+        // Packet 1 is missing: the reader keeps 1024 packets after it and
+        // holds the path at the next.
+        for pn in 2..=(REORDER_LIMIT as u64 + 2) {
+            s1.write_all(&data_frame(pn, b"x")).await.unwrap();
+        }
+        drop(s1);
+
+        let mut received = Vec::new();
+        let err = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            mptp.read_to_end(&mut received),
+        )
+        .await
+        .expect("the reader waited for a packet no path has")
+        .unwrap_err();
+        assert!(received.is_empty());
+        assert_eq!(err.kind(), io::ErrorKind::ConnectionAborted);
+    }
+
     /// Everything written before a shutdown arrives, over paths too small
     /// to take it at once.
     #[tokio::test]
@@ -727,6 +794,123 @@ mod tests {
         let mut received = Vec::new();
         reader.read_to_end(&mut received).await.unwrap();
         send.await.unwrap();
+        assert_eq!(received.len(), expected.len());
+        assert!(received == expected);
+    }
+
+    /// A path the reader holds back until it is opened.
+    struct Gated<S> {
+        inner: S,
+        gate: std::sync::Arc<std::sync::Mutex<(bool, Option<std::task::Waker>)>>,
+    }
+
+    impl<S: AsyncRead + Unpin> AsyncRead for Gated<S> {
+        fn poll_read(
+            mut self: Pin<&mut Self>,
+            cx: &mut Context<'_>,
+            buf: &mut ReadBuf<'_>,
+        ) -> Poll<io::Result<()>> {
+            {
+                let mut gate = self.gate.lock().unwrap();
+                if !gate.0 {
+                    gate.1 = Some(cx.waker().clone());
+                    return Poll::Pending;
+                }
+            }
+            Pin::new(&mut self.inner).poll_read(cx, buf)
+        }
+    }
+
+    impl<S: AsyncWrite + Unpin> AsyncWrite for Gated<S> {
+        fn poll_write(
+            mut self: Pin<&mut Self>,
+            cx: &mut Context<'_>,
+            buf: &[u8],
+        ) -> Poll<io::Result<usize>> {
+            Pin::new(&mut self.inner).poll_write(cx, buf)
+        }
+
+        fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+            Pin::new(&mut self.inner).poll_flush(cx)
+        }
+
+        fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+            Pin::new(&mut self.inner).poll_shutdown(cx)
+        }
+    }
+
+    /// A packet that went down one path only, while the others were full,
+    /// is not dropped by the reader for being too far ahead: with no
+    /// retransmission it would be the only copy, and the stream would
+    /// stall short of it.
+    #[tokio::test]
+    async fn packets_far_ahead_on_one_path_are_not_lost() {
+        // Path A is small, so it fills first; path B is held back at the
+        // reader, so the packet the reader waits for stays on it while
+        // path A runs far ahead.
+        let (a_writer, a_reader) = tokio::io::duplex(1024);
+        let (b_writer, b_reader) = tokio::io::duplex(256 * 1024);
+        let gate = std::sync::Arc::new(std::sync::Mutex::new((false, None)));
+        let mut writer = MptpStream::new(vec![a_writer, b_writer]);
+        let mut reader = MptpStream::new(vec![
+            Gated {
+                inner: a_reader,
+                gate: std::sync::Arc::new(std::sync::Mutex::new((true, None))),
+            },
+            Gated {
+                inner: b_reader,
+                gate: gate.clone(),
+            },
+        ]);
+
+        let packets: Vec<Vec<u8>> = (0..4700u32)
+            .map(|i| (0..100u32).map(|j| ((i * 7 + j) % 251) as u8).collect())
+            .collect();
+        let expected = packets.concat();
+
+        // Nothing is read yet: path A fills and the packets after it go
+        // down path B only.
+        for packet in &packets[..700] {
+            writer.write_all(packet).await.unwrap();
+        }
+        // The reader takes what path A has, then waits for path B's next
+        // packet while path A carries the rest, until path B is full too
+        // and packets go down path A only.
+        let read = tokio::spawn(async move {
+            let mut received = Vec::new();
+            let result = reader.read_to_end(&mut received).await;
+            (received, result)
+        });
+        let mut write = tokio::spawn(async move {
+            for packet in &packets[700..] {
+                writer.write_all(packet).await.unwrap();
+            }
+            writer.shutdown().await.unwrap();
+        });
+        // Path B opens once the writer is done or the reader has pushed
+        // back on it.
+        let written = tokio::time::timeout(std::time::Duration::from_millis(500), &mut write).await;
+
+        let waker = {
+            let mut gate = gate.lock().unwrap();
+            gate.0 = true;
+            gate.1.take()
+        };
+        if let Some(waker) = waker {
+            waker.wake();
+        }
+        if written.is_err() {
+            tokio::time::timeout(std::time::Duration::from_secs(10), write)
+                .await
+                .expect("the writer stalled")
+                .unwrap();
+        }
+
+        let (received, result) = tokio::time::timeout(std::time::Duration::from_secs(10), read)
+            .await
+            .expect("the reader stalled")
+            .unwrap();
+        result.unwrap();
         assert_eq!(received.len(), expected.len());
         assert!(received == expected);
     }
