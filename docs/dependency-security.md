@@ -78,9 +78,9 @@ condition.
 
 | Fork | Why | Drop when |
 | --- | --- | --- |
-| `btls` | BoringSSL bindings with the TLS fingerprint and QUIC APIs Sail needs. | Not planned. |
-| `quinn` (`quinn-proto`) | QUIC on `btls` rather than rustls. | Not planned. |
-| `quinn-btls` | The `btls` crypto provider for `quinn`; since `e7d90ad` on `lru` 0.18 (`RUSTSEC-2026-0253`). | Not planned. |
+| `btls` | BoringSSL hooks REALITY needs (the first ClientHello before it is sent, an extra accepted signature algorithm), a fixed ECH GREASE shape, and the Apple deployment target for BoringSSL's build. | When upstream has equivalents; the REALITY and ECH GREASE hooks are likely to stay Sail's, so not planned. |
+| `quinn` (`quinn-proto`) | The client's ClientHello scattered over its first Initial packets, as Chrome and quic-go do, so a middlebox decrypting them does not find the SNI in one piece. Tracks upstream's `0.11.x`. | When upstream quinn scatters the client's first CRYPTO data itself. |
+| `quinn-btls` | The `btls` crypto provider for `quinn`, with five fixes upstream lacks: the exporter context (TUIC's token), ECH retry configs read only after a rejection, no IP literal in SNI and no panics on fallible calls, the server's session ticket sent in 1-RTT, and `lru` 0.18 (`RUSTSEC-2026-0253`). | When upstream has equivalents of all five. |
 | `netconfig-rs` | `netlink-packet-core` 0.9, without the unmaintained `paste` (`RUSTSEC-2024-0436`). Built on Linux and Windows through `tun-rs`. | `tun-rs/netconfig-rs` releases on `netlink-packet-core` 0.9 or later and `tun-rs` takes it. |
 | `route_manager` | The same netlink update. `tun-rs` uses it on macOS and the BSDs, which Sail does not build `tun-rs` for, but it is in the lockfile and so in the audit. | `tun-rs/route_manager` releases on `netlink-packet-core` 0.9 or later and `tun-rs` takes it. |
 
