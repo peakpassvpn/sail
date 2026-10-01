@@ -104,8 +104,12 @@ unsubscribing holds. `sail_cancel` stops a delay test.
 **Release.** Each `context` the host gives (the platform's, each
 subscription's) is released exactly once, after the last callback passing
 it: the platform's once the instance is freed and has stopped, a
-subscription's when it ends or its instance is freed. A call that fails
-takes nothing: its context is never released.
+subscription's when it ends or its instance is freed. A callback of the
+host's already running when the instance stops (`find_connection_owner`,
+say) is not waited for: the stop returns while it may still run, and the
+platform's `release` comes after it returns, so a host slow to answer
+delays its own release. A call that fails takes nothing: its context is
+never released.
 
 **Panics.** A panic inside sail aborts the process in release builds, as a
 Go panic in libbox does; in debug builds it is caught and returned as
