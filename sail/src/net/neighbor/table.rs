@@ -1478,7 +1478,16 @@ mod tests {
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[test]
     fn this_host_s_table_is_read() {
-        let entries = read_neighbors().unwrap();
+        let entries = match read_neighbors() {
+            Ok(entries) => entries,
+            // qemu's user-mode emulation, as CI runs the aarch64 tests,
+            // translates no neighbor messages (EOPNOTSUPP).
+            Err(e) if e.kind() == io::ErrorKind::Unsupported => {
+                eprintln!("skipped, the table is not read here: {}", e);
+                return;
+            }
+            Err(e) => panic!("{}", e),
+        };
         println!("{} neighbors", entries.len());
         for (address, _) in &entries {
             if let IpAddr::V6(v6) = address {
