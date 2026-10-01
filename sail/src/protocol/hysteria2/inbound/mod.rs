@@ -48,7 +48,8 @@ struct Hysteria2InboundOptions {
     #[serde(default)]
     ignore_client_bandwidth: bool,
     tls: InboundTls,
-    /// What anyone without a password is served.
+    /// What anyone without a password is served: an `http://` or
+    /// `https://` site behind, or a fixed response; 404 when unset.
     #[serde(default)]
     masquerade: Option<MasqueradeOptions>,
 }
@@ -102,7 +103,7 @@ fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
         .transpose()
         .map_err(|e| err(format!("obfs: {}", e)))?;
     let masquerade = match options.masquerade {
-        Some(m) => Masquerade::new(m, ctx.dial.default_dialer())
+        Some(m) => Masquerade::new(m, ctx.dial.default_dialer(), &ctx.env.tls_roots)
             .map_err(|e| err(format!("masquerade: {}", e)))?,
         None => Masquerade::NotFound,
     };

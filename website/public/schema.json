@@ -7968,7 +7968,7 @@
        "type": "object"
       }
      ],
-     "description": "What anyone without a password is served."
+     "description": "What anyone without a password is served: an `http://` or `https://` site behind, or a fixed response; 404 when unset."
     },
     "bbr_profile": {
      "type": "string",

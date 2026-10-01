@@ -607,6 +607,7 @@ mod tests {
     use crate::transport::quic::{
         alpn_protocols, client_crypto, endpoint, server_config, server_crypto,
     };
+    use crate::transport::tls::roots::TrustRoots;
     use futures::StreamExt;
 
     struct Fixture {
@@ -728,6 +729,7 @@ mod tests {
                 content: "hello".into(),
             }),
             crate::net::InstanceDial::default().default_dialer(),
+            &TrustRoots::default(),
         )
         .unwrap();
         let f = serve(masquerade).await;
@@ -761,6 +763,7 @@ mod tests {
         let masquerade = Masquerade::new(
             MasqueradeOptions::Url(format!("http://{}/base", site_addr)),
             crate::net::InstanceDial::default().default_dialer(),
+            &TrustRoots::default(),
         )
         .unwrap();
         let f = serve(masquerade).await;
@@ -774,6 +777,232 @@ mod tests {
         assert!(seen.starts_with("GET /base/ HTTP/1.0\r\n"), "{}", seen);
         // The host asked for, as rewrite_host is off.
         assert!(seen.contains("host: example.com\r\n"), "{}", seen);
+    }
+
+    /// What an HTTPS site saw of the one request it answered: the
+    /// method, path and host as HTTP/2 names them, and the headers.
+    type Seen = Vec<(String, String)>;
+
+    /// An HTTPS site on 127.0.0.1, its certificate self-signed, that
+    /// answers one request over HTTP/2 if it is `h2`, else over HTTP/1.0;
+    /// its address, its certificate, and what it saw.
+    async fn https_site(h2: bool) -> (SocketAddr, String, tokio::sync::oneshot::Receiver<Seen>) {
+        use crate::transport::tls::BoringConnection;
+        use crate::transport::tls_stream::TlsStream;
+        use btls::ssl::{AlpnError, Ssl, SslAcceptor, SslMethod};
+        let rcgen::CertifiedKey { cert, key_pair } =
+            rcgen::generate_simple_self_signed(vec!["127.0.0.1".into()]).unwrap();
+        let mut builder = SslAcceptor::mozilla_intermediate_v5(SslMethod::tls()).unwrap();
+        builder
+            .set_certificate(&btls::x509::X509::from_pem(cert.pem().as_bytes()).unwrap())
+            .unwrap();
+        builder
+            .set_private_key(
+                &btls::pkey::PKey::private_key_from_pem(key_pair.serialize_pem().as_bytes())
+                    .unwrap(),
+            )
+            .unwrap();
+        if h2 {
+            builder.set_alpn_select_callback(|_, client| {
+                btls::ssl::select_next_proto(b"\x02h2", client).ok_or(AlpnError::NOACK)
+            });
+        }
+        let acceptor = builder.build();
+        let site = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = site.local_addr().unwrap();
+        let (seen_tx, seen_rx) = tokio::sync::oneshot::channel();
+        tokio::spawn(async move {
+            let (tcp, _) = site.accept().await.unwrap();
+            let ssl = Ssl::new(acceptor.context()).unwrap();
+            let mut tls = TlsStream::new(BoringConnection::server(ssl).unwrap(), tcp, None);
+            if tls.handshake().await.is_err() {
+                return;
+            }
+            if h2 {
+                serve_h2(tls, seen_tx).await
+            } else {
+                serve_http1(tls, seen_tx).await
+            }
+        });
+        (addr, cert.pem(), seen_rx)
+    }
+
+    async fn serve_h2<S>(stream: S, seen_tx: tokio::sync::oneshot::Sender<Seen>)
+    where
+        S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+    {
+        let mut conn = ::h2::server::handshake(stream).await.unwrap();
+        let (request, mut respond) = conn.accept().await.unwrap().unwrap();
+        let mut seen: Seen = vec![
+            (":method".into(), request.method().to_string()),
+            (":path".into(), request.uri().path().to_string()),
+            (
+                ":authority".into(),
+                request.uri().authority().unwrap().to_string(),
+            ),
+        ];
+        for (name, value) in request.headers() {
+            seen.push((name.to_string(), value.to_str().unwrap().to_string()));
+        }
+        let response = http::Response::builder()
+            .status(200)
+            .header("x-up", "2")
+            .header("proxy-authenticate", "Basic")
+            .body(())
+            .unwrap();
+        respond
+            .send_response(response, false)
+            .unwrap()
+            .send_data(bytes::Bytes::from_static(b"upstream over h2"), true)
+            .unwrap();
+        let _ = seen_tx.send(seen);
+        while conn.accept().await.is_some() {}
+    }
+
+    async fn serve_http1<S>(mut stream: S, seen_tx: tokio::sync::oneshot::Sender<Seen>)
+    where
+        S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+    {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let mut request = Vec::new();
+        let mut buf = [0u8; 1024];
+        while !request.ends_with(b"\r\n\r\n") {
+            let n = stream.read(&mut buf).await.unwrap();
+            request.extend_from_slice(&buf[..n]);
+        }
+        let request = String::from_utf8(request).unwrap();
+        let mut lines = request.trim_end().split("\r\n");
+        let mut line = lines.next().unwrap().split(' ');
+        let mut seen: Seen = vec![
+            (":method".into(), line.next().unwrap().into()),
+            (":path".into(), line.next().unwrap().into()),
+        ];
+        for header in lines {
+            let (name, value) = header.split_once(": ").unwrap();
+            let name = if name == "host" { ":authority" } else { name };
+            seen.push((name.into(), value.into()));
+        }
+        stream
+            .write_all(b"HTTP/1.0 200 OK\r\nX-Up: 1\r\nConnection: close\r\n\r\nupstream over tls")
+            .await
+            .unwrap();
+        stream.shutdown().await.unwrap();
+        let _ = seen_tx.send(seen);
+    }
+
+    /// Roots that trust `pem` alone.
+    fn trusting(pem: &str) -> TrustRoots {
+        let options = crate::config::model::CertificateOptions {
+            store: crate::config::model::CertificateStore::None,
+            certificate: vec![pem.to_string()],
+            ..Default::default()
+        };
+        let roots = TrustRoots::default();
+        roots.set(
+            crate::transport::tls::roots::Roots::configured(
+                &options,
+                &crate::runtime::RuntimeEnv::default(),
+            )
+            .unwrap(),
+        );
+        roots
+    }
+
+    fn https_masquerade(url: String, rewrite_host: bool, roots: &TrustRoots) -> Masquerade {
+        Masquerade::new(
+            MasqueradeOptions::Object(MasqueradeObject::Proxy { url, rewrite_host }),
+            crate::net::InstanceDial::default().default_dialer(),
+            roots,
+        )
+        .unwrap()
+    }
+
+    fn seen<'a>(seen: &'a Seen, name: &str) -> Option<&'a str> {
+        seen.iter()
+            .find(|(n, _)| n == name)
+            .map(|(_, v)| v.as_str())
+    }
+
+    #[tokio::test]
+    async fn an_https_masquerade_asks_the_site_over_http2() {
+        let (addr, pem, seen_rx) = https_site(true).await;
+        let f = serve(https_masquerade(
+            format!("https://{}/base", addr),
+            false,
+            &trusting(&pem),
+        ))
+        .await;
+        let conn = f.connect().await;
+        let mut get = GET.to_vec();
+        get.push(("x-forwarded-for", "1.2.3.4"));
+        get.push(("accept", "text/html"));
+        let (headers, body) = request(&conn, &get).await;
+        assert_eq!(h3::field(&headers, ":status"), Some("200"));
+        assert_eq!(h3::field(&headers, "x-up"), Some("2"));
+        assert_eq!(h3::field(&headers, "proxy-authenticate"), None);
+        assert_eq!(body, b"upstream over h2");
+        let seen_ = seen_rx.await.unwrap();
+        assert_eq!(seen(&seen_, ":method"), Some("GET"));
+        assert_eq!(seen(&seen_, ":path"), Some("/base/"));
+        // The host asked for, as rewrite_host is off.
+        assert_eq!(seen(&seen_, ":authority"), Some("example.com"));
+        assert_eq!(seen(&seen_, "accept"), Some("text/html"));
+        assert_eq!(seen(&seen_, "x-forwarded-for"), None);
+    }
+
+    #[tokio::test]
+    async fn an_https_site_without_http2_is_asked_over_http1() {
+        let (addr, pem, seen_rx) = https_site(false).await;
+        let f = serve(https_masquerade(
+            format!("https://{}/", addr),
+            false,
+            &trusting(&pem),
+        ))
+        .await;
+        let conn = f.connect().await;
+        let (headers, body) = request(&conn, &GET).await;
+        assert_eq!(h3::field(&headers, ":status"), Some("200"));
+        assert_eq!(h3::field(&headers, "x-up"), Some("1"));
+        assert_eq!(h3::field(&headers, "connection"), None);
+        assert_eq!(body, b"upstream over tls");
+        let seen_ = seen_rx.await.unwrap();
+        assert_eq!(seen(&seen_, ":path"), Some("/"));
+        assert_eq!(seen(&seen_, ":authority"), Some("example.com"));
+    }
+
+    #[tokio::test]
+    async fn rewrite_host_sends_the_sites_own_host() {
+        let (addr, pem, seen_rx) = https_site(true).await;
+        let f = serve(https_masquerade(
+            format!("https://{}/", addr),
+            true,
+            &trusting(&pem),
+        ))
+        .await;
+        let conn = f.connect().await;
+        let (headers, _) = request(&conn, &GET).await;
+        assert_eq!(h3::field(&headers, ":status"), Some("200"));
+        let seen_ = seen_rx.await.unwrap();
+        assert_eq!(seen(&seen_, ":authority"), Some(addr.to_string().as_str()));
+    }
+
+    /// The site's certificate is checked, as Go's default transport checks
+    /// it: one the roots do not trust is a bad gateway.
+    #[tokio::test]
+    async fn an_https_site_not_trusted_is_a_bad_gateway() {
+        let (addr, _, _) = https_site(true).await;
+        let roots = TrustRoots::default();
+        roots.set(crate::transport::tls::tests::test_roots());
+        let f = serve(https_masquerade(
+            format!("https://{}/", addr),
+            false,
+            &roots,
+        ))
+        .await;
+        let conn = f.connect().await;
+        let (headers, body) = request(&conn, &GET).await;
+        assert_eq!(h3::field(&headers, ":status"), Some("502"));
+        assert!(body.is_empty());
     }
 
     #[tokio::test]

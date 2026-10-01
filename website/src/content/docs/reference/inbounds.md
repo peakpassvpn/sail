@@ -257,7 +257,7 @@ Rust: [`Hysteria2InboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/s
 | `max_concurrent_streams` | number | — | Warned: QUIC tuning: the same connection without it | — |
 | `initial_packet_size` | number | — | Warned: QUIC tuning: the same connection without it | — |
 | `disable_path_mtu_discovery` | bool | — | Warned: QUIC tuning: the same connection without it | — |
-| `masquerade` | string\|object | unset | Supported | What anyone without a password is served. |
+| `masquerade` | string\|object | unset | Supported | What anyone without a password is served: an `http://` or `https://` site behind, or a fixed response; 404 when unset. |
 | `bbr_profile` | string, one of `standard`, `conservative`, `aggressive` | — | Warned: Hysteria's congestion tuning and debugging, the longest hop interval, and its QUIC fingerprint: the same traffic | — |
 | `brutal_debug` | bool | — | Warned: Hysteria's congestion tuning and debugging, the longest hop interval, and its QUIC fingerprint: the same traffic | — |
 | `realm` | object → [object](#inbounds-hysteria2-realm) | — | Error: Meeting peers through a Hysteria realm: connections would be made otherwise | — |
