@@ -1516,7 +1516,7 @@ fn run(rt_id: RuntimeId, opts: StartOptions, start: &Arc<Starting>) -> Result<()
 
     let config = match opts.config {
         Config::File(p) => config::from_file_for(&p, &opts.host).map_err(Error::Config)?,
-        Config::Str(s) => config::from_string(&s).map_err(Error::Config)?,
+        Config::Str(s) => config::from_string_for(&s, &opts.host).map_err(Error::Config)?,
         Config::Internal(c) => *c,
     };
 

@@ -58,8 +58,11 @@ impl Format {
         }
     }
 
-    /// Reads a configuration written in this format.
-    pub fn parse(self, s: &str) -> Result<Config> {
+    /// Reads a configuration written in this format: a Surge profile
+    /// includes the files in `dir` and those `host` fetched. Every reading
+    /// of a configuration comes here, a file's or a host's text.
+    #[cfg_attr(not(feature = "config-surge"), allow(unused_variables))]
+    fn read(self, s: &str, dir: Option<&Path>, host: &crate::runtime::Host) -> Result<Config> {
         match self {
             Format::SingBox => singbox::parse(s),
             #[cfg(feature = "config-clash")]
@@ -69,7 +72,10 @@ impl Format {
                 "Clash configurations need the config-clash feature, which is not compiled in"
             )),
             #[cfg(feature = "config-surge")]
-            Format::Surge => surge::parse(s),
+            Format::Surge => {
+                let fetched = host.cache_dir.as_deref().map(surge::includes_dir);
+                surge::parse_with(s, dir, fetched.as_deref())
+            }
             #[cfg(not(feature = "config-surge"))]
             Format::Surge => Err(anyhow!(
                 "Surge configurations need the config-surge feature, which is not compiled in"
@@ -80,7 +86,13 @@ impl Format {
 
 /// Reads a configuration, in the format its content shows.
 pub fn from_string(s: &str) -> Result<Config> {
-    Format::of_text(s).parse(s)
+    from_string_for(s, &crate::runtime::Host::default())
+}
+
+/// Reads a configuration, as `from_string`, for `host`: as a file of it
+/// would read, a Surge profile including the URLs the host fetched.
+pub fn from_string_for(s: &str, host: &crate::runtime::Host) -> Result<Config> {
+    Format::of_text(s).read(s, None, host)
 }
 
 /// Reads a configuration file, in the format its extension names. A Surge
@@ -91,16 +103,10 @@ pub fn from_file(path: &str) -> Result<Config> {
 
 /// Reads a configuration file, as `from_file`, for `host`: a Surge
 /// profile includes the URLs the host fetched into its cache directory.
-#[cfg_attr(not(feature = "config-surge"), allow(unused_variables))]
 pub fn from_file_for(path: &str, host: &crate::runtime::Host) -> Result<Config> {
     let format = Format::of_file(path)?;
     let text = std::fs::read_to_string(path)?;
-    #[cfg(feature = "config-surge")]
-    if format == Format::Surge {
-        let fetched = host.cache_dir.as_deref().map(surge::includes_dir);
-        return surge::parse_with(&text, Path::new(path).parent(), fetched.as_deref());
-    }
-    format.parse(&text)
+    format.read(&text, Path::new(path).parent(), host)
 }
 
 /// A certificate's SHA-256 hash as a front-end writes it (colons, spaces,
@@ -121,6 +127,33 @@ mod tests {
     fn a_json_error_is_not_retried_as_another_format() {
         let err = from_string(r#"{ "outbounds": [ { "tag": "x" } ] }"#).unwrap_err();
         assert!(err.to_string().contains("outbounds[0]"), "{}", err);
+    }
+
+    /// A host's text reads as its file would: a Surge profile includes
+    /// the URLs the host fetched.
+    #[cfg(feature = "config-surge")]
+    #[test]
+    fn a_host_s_text_includes_what_it_fetched() {
+        let cache = std::env::temp_dir().join(format!("sail-config-text-{}", std::process::id()));
+        let dir = surge::includes_dir(&cache);
+        std::fs::create_dir_all(&dir).unwrap();
+        let url = "https://example.com/proxies.conf";
+        std::fs::write(surge::include_path(&dir, url), "[Proxy]\nA = direct\n").unwrap();
+        let text = format!("[Proxy]\n#!include {}\n[Rule]\nFINAL,A\n", url);
+        let host = crate::runtime::Host {
+            cache_dir: Some(cache.clone()),
+            ..Default::default()
+        };
+        let read = from_string_for(&text, &host);
+        let _ = std::fs::remove_dir_all(&cache);
+        let config = read.unwrap();
+        assert!(
+            config.outbounds.iter().any(|o| o.tag == "A"),
+            "{:?}",
+            config.outbounds
+        );
+        // Without the host, nothing was fetched.
+        assert!(from_string(&text).is_err());
     }
 
     #[test]

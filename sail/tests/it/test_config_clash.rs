@@ -274,7 +274,7 @@ async fn a_clash_dns_answers_as_mihomo_s() {
          \x20   '+.blocked.test': 'rcode://name_error'\n",
         nameserver, policy
     );
-    let config = sail::config::Format::Clash.parse(&yaml).unwrap();
+    let config = sail::config::from_string(&yaml).unwrap();
     let client =
         sail::app::dns_client::DnsClient::new(&config.dns, Default::default(), &Default::default())
             .unwrap();

@@ -148,7 +148,7 @@ pub unsafe extern "C" fn sail_test_outbounds(
         let config = unsafe { str_arg(config, "config") }?;
         let settings = unsafe { opt_str_arg(settings, "settings") }?;
         let env = start_env(settings)?;
-        let config = sail::config::from_string(config)
+        let config = sail::config::from_string_for(config, &env.host)
             .map_err(|e| Failure::new(SAIL_ERR_CONFIG, format!("{:#}", e)))?;
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()

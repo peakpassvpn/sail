@@ -433,12 +433,13 @@ impl Instance {
     }
 
     pub(crate) fn reload(&self, config: Option<String>) -> Result<(), Failure> {
+        let host = self.host.clone();
         self.run(move |manager| {
             Box::pin(async move {
                 match config {
                     Some(text) => {
-                        let config =
-                            sail::config::from_string(&text).map_err(sail::Error::Config)?;
+                        let config = sail::config::from_string_for(&text, &host)
+                            .map_err(sail::Error::Config)?;
                         manager.reload_with(config).await
                     }
                     None => manager.reload().await,
