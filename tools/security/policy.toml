@@ -22,4 +22,19 @@ rev = "6d1e2b9e29895c1707a83167fb482348a70ac65c"
 
 [[git]]
 url = "https://github.com/peakpassvpn/quinn-btls.git"
-rev = "3a577da6370dbd1b7035bac55141bb625bb4f68a"
+rev = "e7d90ad33b72fc8c814ce0a7eb56f546e8484013"
+
+# tun-rs reaches these two on every target; upstream still requires
+# netlink-packet-core 0.8, which depends on the unmaintained paste
+# (RUSTSEC-2024-0436). The forks' only change is netlink-packet-core 0.9
+# and netlink-packet-route 0.33. Drop each [patch.crates-io] entry, and
+# its line here, once the upstream crate (tun-rs/netconfig-rs,
+# tun-rs/route_manager) releases on netlink-packet-core 0.9 or later and
+# tun-rs takes that release.
+[[git]]
+url = "https://github.com/peakpassvpn/netconfig-rs.git"
+rev = "a5caf848a0e0f18bc9810c1fa854f3ac6a903443"
+
+[[git]]
+url = "https://github.com/peakpassvpn/route_manager.git"
+rev = "5703367f56a7b4fed9fd02e216f2f110b4186eda"

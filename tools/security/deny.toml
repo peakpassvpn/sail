@@ -42,4 +42,6 @@ allow-git = [
   "https://github.com/peakpassvpn/btls.git",
   "https://github.com/peakpassvpn/quinn.git",
   "https://github.com/peakpassvpn/quinn-btls.git",
+  "https://github.com/peakpassvpn/netconfig-rs.git",
+  "https://github.com/peakpassvpn/route_manager.git",
 ]

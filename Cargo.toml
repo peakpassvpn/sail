@@ -15,6 +15,10 @@ resolver = "2"
 btls = { git = "https://github.com/peakpassvpn/btls.git", rev = "4123de36dc5ac86914c8a744f958025e598aa712" }
 btls-sys = { git = "https://github.com/peakpassvpn/btls.git", rev = "4123de36dc5ac86914c8a744f958025e598aa712" }
 quinn-proto = { git = "https://github.com/peakpassvpn/quinn.git", rev = "6d1e2b9e29895c1707a83167fb482348a70ac65c" }
+# tun-rs's netlink graph without paste (RUSTSEC-2024-0436); see
+# tools/security/policy.toml for when these go.
+netconfig-rs = { git = "https://github.com/peakpassvpn/netconfig-rs.git", rev = "a5caf848a0e0f18bc9810c1fa854f3ac6a903443" }
+route_manager = { git = "https://github.com/peakpassvpn/route_manager.git", rev = "5703367f56a7b4fed9fd02e216f2f110b4186eda" }
 
 [profile.release]
 opt-level = 3
