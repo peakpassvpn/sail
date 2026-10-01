@@ -22,6 +22,7 @@ android {
     // The NDK the static libraries were built with, so that their C++
     // and the runtime linked to them are of one version.
     providers.gradleProperty("sail.ndkPath").orNull?.let { ndkPath = it }
+    providers.gradleProperty("sail.ndkVersion").orNull?.let { ndkVersion = it }
 
     defaultConfig {
         minSdk = 24

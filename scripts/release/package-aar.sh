@@ -22,8 +22,10 @@ ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 : "${SOURCE_DATE_EPOCH:?}" "${AGP_VERSION:?}" "${NDK_PATH:?}"
 ABIS="arm64-v8a armeabi-v7a x86_64 x86"
 
+# AGP checks the NDK's version against the one it would pick itself.
+ndk_version=$(sed -n 's/^Pkg\.Revision *= *//p' "$NDK_PATH/source.properties")
 gradle --no-daemon -q -p "$ROOT/bindings/kotlin/android" assembleRelease \
-	-Psail.agp="$AGP_VERSION" -Psail.ndkPath="$NDK_PATH" \
+	-Psail.agp="$AGP_VERSION" -Psail.ndkPath="$NDK_PATH" -Psail.ndkVersion="$ndk_version" \
 	-Psail.libDir="$libs" -Psail.includeDir="$ROOT/sail-ffi/include"
 built=$(ls "$ROOT"/bindings/kotlin/android/build/outputs/aar/*-release.aar)
 
