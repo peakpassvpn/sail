@@ -62,6 +62,15 @@ android {
         }
     }
 
+    // An AAR's libraries keep their debug information: the release pipeline
+    // moves it apart (scripts/release/package-aar.sh), where a crash in sail
+    // can be read with it; AGP would otherwise strip it and lose it.
+    packaging {
+        jniLibs {
+            keepDebugSymbols += "**/*.so"
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17

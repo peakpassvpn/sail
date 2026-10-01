@@ -57,6 +57,12 @@ for class in Native PlatformBridge EventSink SailException; do
 done
 cmp -s "$work/aar/proguard.txt" "$ROOT/bindings/kotlin/android/consumer-rules.pro" ||
 	{ echo "package-aar: proguard.txt is not consumer-rules.pro" >&2; fail=1; }
+for abi in $ABIS; do
+	so=$work/aar/jni/$abi/libsail_jni.so
+	[ -f "$so" ] || continue
+	"$llvm/llvm-readelf" -S "$so" | grep -q '\.debug_line' ||
+		{ echo "package-aar: $abi lost its line tables before packaging" >&2; fail=1; }
+done
 [ "$fail" = 0 ] || exit 1
 
 # The symbols apart, as for every other file of the release.
@@ -66,7 +72,7 @@ for abi in $ABIS; do
 	id=$("$ROOT/scripts/release/split-symbols.sh" "$so" "$work/symbols")
 	mv "$work/symbols/libsail_jni.so.debug" "$out/symbols/libsail_jni-$abi.so.debug"
 	ids+=("$abi:$id")
-	echo "package-aar: $abi libsail_jni.so $(wc -c <"$so") bytes"
+	echo "package-aar: $abi libsail_jni.so $(wc -c <"$so") bytes, symbols $(wc -c <"$out/symbols/libsail_jni-$abi.so.debug") bytes"
 done
 
 # Put back together with fixed order and times.
