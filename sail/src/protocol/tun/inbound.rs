@@ -397,9 +397,12 @@ struct TunInboundOptions {
     /// ...nor of these ranges.
     #[serde(default, with = "crate::config::model::listable")]
     exclude_uid_range: Vec<String>,
-    /// Android: what the host's VPN takes in, applied by the host.
+    /// Android users: not supported, as no VpnService can take them in;
+    /// `include_uid_range` takes in a user's apps.
     #[serde(default, with = "crate::config::model::listable")]
     include_android_user: Vec<u32>,
+    /// Android: the apps the host's VPN takes in or leaves out, applied by
+    /// the host.
     #[serde(default, with = "crate::config::model::listable")]
     include_package: Vec<String>,
     #[serde(default, with = "crate::config::model::listable")]
@@ -417,9 +420,7 @@ pub(crate) struct TunSettings {
     pub auto_redirect: Option<AutoRedirectSettings>,
     /// What auto_route routes, on the systems it routes on.
     pub route: RouteSelection,
-    /// Android: the users a VPN takes in, which a host's cannot (refused
-    /// with one), and the apps the host's takes in or leaves out.
-    pub include_android_user: Vec<u32>,
+    /// Android: the apps the host's VPN takes in or leaves out.
     pub include_package: Vec<String>,
     pub exclude_package: Vec<String>,
 }
@@ -580,6 +581,15 @@ pub(crate) fn options(inbound: &Inbound, host: &crate::runtime::Host) -> Result<
             return Err(error("platform: unsupported android_user option".into()));
         }
     }
+    // sing-box takes in Android's users only on a rooted device that opens
+    // its own tun, which sail does not run on.
+    if !options.include_android_user.is_empty() {
+        return Err(error(
+            "include_android_user: not supported; include_uid_range takes in an Android user's \
+             apps (user N's are uids N*100000 to N*100000+99999)"
+                .into(),
+        ));
+    }
     let (mut ipv4, mut ipv6) = (None, None);
     for address in &options.address {
         // As sing-box, the prefix is required: a bare address is no /32.
@@ -625,7 +635,6 @@ pub(crate) fn options(inbound: &Inbound, host: &crate::runtime::Host) -> Result<
         auto_route: options.auto_route,
         auto_redirect,
         route,
-        include_android_user: options.include_android_user,
         include_package: options.include_package,
         exclude_package: options.exclude_package,
     })
@@ -839,10 +848,6 @@ pub(crate) fn new(
     let settings = options(&inbound, &dispatcher.env().host)?;
     if platform.is_none() {
         if let Some(field) = [
-            (
-                "include_android_user",
-                !settings.include_android_user.is_empty(),
-            ),
             ("include_package", !settings.include_package.is_empty()),
             ("exclude_package", !settings.exclude_package.is_empty()),
         ]
@@ -1129,6 +1134,12 @@ mod tests {
             (
                 serde_json::json!({ "address": "172.19.0.1/30", "mtu": 70000 }),
                 "65535",
+            ),
+            // No VpnService can take Android users in, and sail opens no
+            // tun on a rooted device's own.
+            (
+                serde_json::json!({ "address": "172.19.0.1/30", "include_android_user": [10] }),
+                "include_android_user: not supported; include_uid_range",
             ),
         ] {
             let err = options(&tun(given)).unwrap_err().to_string();

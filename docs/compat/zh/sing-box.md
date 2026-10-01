@@ -16,19 +16,19 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 |---|--:|--:|--:|--:|
 | `$schema` | 1 | 1 | 0 | 0 |
 | `log` | 5 | 5 | 0 | 0 |
-| `dns` | 578 | 356 | 66 | 156 |
+| `dns` | 578 | 360 | 66 | 152 |
 | `ntp` | 35 | 0 | 35 | 0 |
 | `certificate` | 5 | 5 | 0 | 0 |
 | `certificate_providers` | 212 | 0 | 0 | 212 |
 | `http_clients` | 80 | 29 | 11 | 40 |
 | `network_namespaces` | 6 | 0 | 0 | 6 |
 | `endpoints` | 433 | 47 | 13 | 373 |
-| `inbounds` | 1367 | 585 | 151 | 631 |
+| `inbounds` | 1367 | 584 | 151 | 632 |
 | `outbounds` | 1228 | 668 | 76 | 484 |
-| `route` | 268 | 166 | 41 | 61 |
+| `route` | 268 | 172 | 41 | 55 |
 | `services` | 751 | 1 | 166 | 584 |
 | `experimental` | 34 | 16 | 17 | 1 |
-| **全部** | **5003** | **1879** | **576** | **2548** |
+| **全部** | **5003** | **1888** | **576** | **2539** |
 
 ## `$schema`
 
@@ -551,10 +551,10 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `[].process_name` | 支持 | 需启用 `rule-process-name` feature（默认关闭），且仅在 sail 能识别程序时（Windows 的 NetFilter 入站） |
 | `[].process_path` | 支持 | 需启用 `rule-process-name` feature（默认关闭），且仅在 sail 能识别程序时（Windows 的 NetFilter 入站） |
 | `[].process_path_regex` | 支持 | 需启用 `rule-process-name` feature（默认关闭），且仅在 sail 能识别程序时（Windows 的 NetFilter 入站） |
-| `[].package_name` | 报错 | sail cannot tell which Android package a connection comes from yet |
-| `[].package_name_regex` | 报错 | sail cannot tell which Android package a connection comes from yet |
-| `[].user` | 报错 | sail cannot tell which user a connection's program runs as yet |
-| `[].user_id` | 报错 | sail cannot tell which user a connection's program runs as yet |
+| `[].package_name` | 支持 |  |
+| `[].package_name_regex` | 支持 |  |
+| `[].user` | 支持 |  |
+| `[].user_id` | 支持 |  |
 | `[].clash_mode` | 支持 |  |
 | `[].network_type` | 支持 |  |
 | `[].network_is_expensive` | 支持 |  |
@@ -1573,7 +1573,7 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `include_uid_range` | 支持 |  |
 | `exclude_uid` | 支持 |  |
 | `exclude_uid_range` | 支持 |  |
-| `include_android_user` | 支持 |  |
+| `include_android_user` | 报错 | Not supported; include_uid_range takes in an Android user's apps (user N's are uids N*100000 to N*100000+99999) |
 | `include_package` | 支持 |  |
 | `exclude_package` | 支持 |  |
 | `include_mac_address` | 报错 | Filtering LAN clients by MAC address |
@@ -2795,10 +2795,10 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `[].process_name` | 支持 | 需启用 `rule-process-name` feature（默认关闭），且仅在 sail 能识别程序时（Windows 的 NetFilter 入站） |
 | `[].process_path` | 支持 | 需启用 `rule-process-name` feature（默认关闭），且仅在 sail 能识别程序时（Windows 的 NetFilter 入站） |
 | `[].process_path_regex` | 支持 | 需启用 `rule-process-name` feature（默认关闭），且仅在 sail 能识别程序时（Windows 的 NetFilter 入站） |
-| `[].package_name` | 报错 | sail cannot tell which Android package a connection comes from yet |
-| `[].package_name_regex` | 报错 | sail cannot tell which Android package a connection comes from yet |
-| `[].user` | 报错 | sail cannot tell which user a connection's program runs as yet |
-| `[].user_id` | 报错 | sail cannot tell which user a connection's program runs as yet |
+| `[].package_name` | 支持 |  |
+| `[].package_name_regex` | 支持 |  |
+| `[].user` | 支持 |  |
+| `[].user_id` | 支持 |  |
 | `[].clash_mode` | 支持 |  |
 | `[].network_type` | 支持 |  |
 | `[].network_is_expensive` | 支持 |  |
@@ -2958,8 +2958,8 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `rules[].process_name` | 支持 | 需启用 `rule-process-name` feature（默认关闭），且仅在 sail 能识别程序时（Windows 的 NetFilter 入站） |
 | `rules[].process_path` | 支持 | 需启用 `rule-process-name` feature（默认关闭），且仅在 sail 能识别程序时（Windows 的 NetFilter 入站） |
 | `rules[].process_path_regex` | 支持 | 需启用 `rule-process-name` feature（默认关闭），且仅在 sail 能识别程序时（Windows 的 NetFilter 入站） |
-| `rules[].package_name` | 报错 | sail cannot tell which Android package a connection comes from yet |
-| `rules[].package_name_regex` | 报错 | sail cannot tell which Android package a connection comes from yet |
+| `rules[].package_name` | 支持 |  |
+| `rules[].package_name_regex` | 支持 |  |
 | `rules[].network_type` | 支持 |  |
 | `rules[].network_is_expensive` | 支持 |  |
 | `rules[].network_is_constrained` | 支持 |  |

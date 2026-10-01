@@ -620,10 +620,10 @@ Rust: [`DnsRule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/m
 | `process_name` | listable-string | `[]` | Supported | — |
 | `process_path` | listable-string | `[]` | Supported | — |
 | `process_path_regex` | listable-string | `[]` | Supported | — |
-| `package_name` | listable-string | — | Error: sail cannot tell which Android package a connection comes from yet | — |
-| `package_name_regex` | listable-string | — | Error: sail cannot tell which Android package a connection comes from yet | — |
-| `user` | listable-string | — | Error: sail cannot tell which user a connection's program runs as yet | — |
-| `user_id` | listable-number | — | Error: sail cannot tell which user a connection's program runs as yet | — |
+| `package_name` | listable-string | `[]` | Supported | — |
+| `package_name_regex` | listable-string | `[]` | Supported | — |
+| `user` | listable-string | `[]` | Supported | — |
+| `user_id` | listable-number | `[]` | Supported | — |
 | `clash_mode` | string | unset | Supported | The mode of Clash's API, as in a routing rule. |
 | `network_type` | listable-string, one of `cellular`, `ethernet`, `other`, `wifi` | `[]` | Supported | The kind of network: `wifi`, `cellular`, `ethernet`, `other`. |
 | `network_is_expensive` | bool | `false` | Supported | The network is metered, as the system says. |

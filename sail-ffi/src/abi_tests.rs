@@ -1401,6 +1401,10 @@ mod owner {
         blocked: Mutex<u16>,
         padding: usize,
         calls: AtomicUsize,
+        /// Connections to this port the host takes its time to tell of,
+        /// as a stalled binder call would; how many it is telling of now.
+        slow: Mutex<u16>,
+        stalled: AtomicUsize,
     }
 
     extern "C" fn find(
@@ -1413,6 +1417,12 @@ mod owner {
         owners.calls.fetch_add(1, Ordering::SeqCst);
         let query: serde_json::Value =
             serde_json::from_str(unsafe { CStr::from_ptr(query) }.to_str().unwrap()).unwrap();
+        let slow = format!(":{}", *owners.slow.lock().unwrap());
+        if query["destination"].as_str().unwrap().ends_with(&slow) {
+            owners.stalled.fetch_add(1, Ordering::SeqCst);
+            std::thread::sleep(Duration::from_secs(4));
+            owners.stalled.fetch_sub(1, Ordering::SeqCst);
+        }
         let blocked = format!(":{}", *owners.blocked.lock().unwrap());
         let package = if query["destination"].as_str().unwrap().ends_with(&blocked) {
             "com.blocked"
@@ -1483,6 +1493,64 @@ mod owner {
         (s, echo_port)
     }
 
+    /// The host may take its time to tell (a binder call on Android):
+    /// meanwhile, on the instance's one thread, other connections go on.
+    #[test]
+    fn a_slow_answer_holds_up_no_other_connection() {
+        let _serial = serial();
+        within(Duration::from_secs(60), || {
+            let owners = Arc::new(Owners {
+                blocked: Mutex::new(0),
+                padding: 0,
+                calls: AtomicUsize::new(0),
+                slow: Mutex::new(0),
+                stalled: AtomicUsize::new(0),
+            });
+            let instance = new_instance(None, Some(&platform(&owners)));
+            let port = free_port();
+            start(
+                instance,
+                &config(
+                    port,
+                    serde_json::json!({ "package_name": "com.blocked", "action": "reject" }),
+                ),
+            );
+            let target = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            *owners.slow.lock().unwrap() = target.local_addr().unwrap().port();
+            let slow_port = target.local_addr().unwrap().port();
+            let slow = std::thread::spawn(move || {
+                let mut s = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+                s.write_all(&[5, 1, 0]).unwrap();
+                let mut reply = [0u8; 2];
+                s.read_exact(&mut reply).unwrap();
+                let mut request = vec![5, 1, 0, 1, 127, 0, 0, 1];
+                request.extend_from_slice(&slow_port.to_be_bytes());
+                s.write_all(&request).unwrap();
+                let mut reply = [0u8; 10];
+                let _ = s.read_exact(&mut reply);
+                drop(target);
+            });
+            eventually("the host is asked", || {
+                owners.stalled.load(Ordering::SeqCst) == 1
+            });
+            let begun = std::time::Instant::now();
+            let (_kept, _) = open_through_socks(port);
+            assert!(
+                begun.elapsed() < Duration::from_secs(2),
+                "a connection waited {:?} on the host's answer for another",
+                begun.elapsed()
+            );
+            assert_eq!(
+                owners.stalled.load(Ordering::SeqCst),
+                1,
+                "the slow answer was in"
+            );
+            slow.join().unwrap();
+            stop(instance);
+            sail_instance_free(instance);
+        });
+    }
+
     #[test]
     fn a_package_rule_routes_by_the_app_the_host_names() {
         let _serial = serial();
@@ -1491,6 +1559,8 @@ mod owner {
                 blocked: Mutex::new(0),
                 padding: 0,
                 calls: AtomicUsize::new(0),
+                slow: Mutex::new(0),
+                stalled: AtomicUsize::new(0),
             });
             let instance = new_instance(None, Some(&platform(&owners)));
             let port = free_port();
@@ -1565,6 +1635,8 @@ mod owner {
                 // About 2.5 KiB of package names: more than the first ask.
                 padding: 100,
                 calls: AtomicUsize::new(0),
+                slow: Mutex::new(0),
+                stalled: AtomicUsize::new(0),
             });
             let instance = new_instance(None, Some(&platform(&owners)));
             let port = free_port();
@@ -1628,6 +1700,8 @@ mod owner {
                 blocked: Mutex::new(0),
                 padding: 0,
                 calls: AtomicUsize::new(0),
+                slow: Mutex::new(0),
+                stalled: AtomicUsize::new(0),
             }))
         };
         let instance = new_instance(None, Some(&platform));

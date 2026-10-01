@@ -145,7 +145,8 @@ sing-box's apps; sail hands it the lists and routes by app:
 | --- | --- |
 | `include_package` / `exclude_package` of the tun inbound, in `open_tun`'s request | sail passes them |
 | `VpnService.Builder.addAllowedApplication` / `addDisallowedApplication` for them, skipping packages not installed, and the app's own package (added in include mode, left out in exclude mode) | the host |
-| `include_uid`, `exclude_uid`, their ranges, `include_android_user` | refused when the host opens the tun (`platform: unsupported uid options`, `platform: unsupported android_user option`, as libbox): a VpnService has no way to apply them |
+| `include_uid`, `exclude_uid`, their ranges, `include_android_user` | refused when the host opens the tun (`platform: unsupported uid options`, `platform: unsupported android_user option`, as libbox): a VpnService has no way to apply them. `include_android_user` is refused everywhere: sing-box applies it only on a rooted device opening its own tun |
+| Who opened a connection is asked off sail's runtime threads | sail: a slow answer holds up no other connection |
 | Who opened a connection: `ConnectivityManager.getConnectionOwnerUid` (API 29+), then `PackageManager.getPackagesForUid` | the host, in `find_connection_owner` |
 | The rules `package_name`, `package_name_regex`, `user`, `user_id`, in routing and DNS rules, against what the host said; the uid and packages in the connections list | sail |
 

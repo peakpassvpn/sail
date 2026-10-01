@@ -620,10 +620,10 @@ Rust 定义：[`DnsRule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/
 | `process_name` | listable-string | `[]` | 支持 | — |
 | `process_path` | listable-string | `[]` | 支持 | — |
 | `process_path_regex` | listable-string | `[]` | 支持 | — |
-| `package_name` | listable-string | — | 报错：sail cannot tell which Android package a connection comes from yet | — |
-| `package_name_regex` | listable-string | — | 报错：sail cannot tell which Android package a connection comes from yet | — |
-| `user` | listable-string | — | 报错：sail cannot tell which user a connection's program runs as yet | — |
-| `user_id` | listable-number | — | 报错：sail cannot tell which user a connection's program runs as yet | — |
+| `package_name` | listable-string | `[]` | 支持 | — |
+| `package_name_regex` | listable-string | `[]` | 支持 | — |
+| `user` | listable-string | `[]` | 支持 | — |
+| `user_id` | listable-number | `[]` | 支持 | — |
 | `clash_mode` | string | 未设置 | 支持 | The mode of Clash's API, as in a routing rule. |
 | `network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | `[]` | 支持 | The kind of network: `wifi`, `cellular`, `ethernet`, `other`. |
 | `network_is_expensive` | bool | `false` | 支持 | The network is metered, as the system says. |

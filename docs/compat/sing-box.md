@@ -16,19 +16,19 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 |---|--:|--:|--:|--:|
 | `$schema` | 1 | 1 | 0 | 0 |
 | `log` | 5 | 5 | 0 | 0 |
-| `dns` | 578 | 356 | 66 | 156 |
+| `dns` | 578 | 360 | 66 | 152 |
 | `ntp` | 35 | 0 | 35 | 0 |
 | `certificate` | 5 | 5 | 0 | 0 |
 | `certificate_providers` | 212 | 0 | 0 | 212 |
 | `http_clients` | 80 | 29 | 11 | 40 |
 | `network_namespaces` | 6 | 0 | 0 | 6 |
 | `endpoints` | 433 | 47 | 13 | 373 |
-| `inbounds` | 1367 | 585 | 151 | 631 |
+| `inbounds` | 1367 | 584 | 151 | 632 |
 | `outbounds` | 1228 | 668 | 76 | 484 |
-| `route` | 268 | 166 | 41 | 61 |
+| `route` | 268 | 172 | 41 | 55 |
 | `services` | 751 | 1 | 166 | 584 |
 | `experimental` | 34 | 16 | 17 | 1 |
-| **All** | **5003** | **1879** | **576** | **2548** |
+| **All** | **5003** | **1888** | **576** | **2539** |
 
 ## `$schema`
 
@@ -551,10 +551,10 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `[].process_name` | Supported | With the `rule-process-name` feature, off by default, and only where sail tells the program (the NetFilter inbound on Windows) |
 | `[].process_path` | Supported | With the `rule-process-name` feature, off by default, and only where sail tells the program (the NetFilter inbound on Windows) |
 | `[].process_path_regex` | Supported | With the `rule-process-name` feature, off by default, and only where sail tells the program (the NetFilter inbound on Windows) |
-| `[].package_name` | Error | sail cannot tell which Android package a connection comes from yet |
-| `[].package_name_regex` | Error | sail cannot tell which Android package a connection comes from yet |
-| `[].user` | Error | sail cannot tell which user a connection's program runs as yet |
-| `[].user_id` | Error | sail cannot tell which user a connection's program runs as yet |
+| `[].package_name` | Supported |  |
+| `[].package_name_regex` | Supported |  |
+| `[].user` | Supported |  |
+| `[].user_id` | Supported |  |
 | `[].clash_mode` | Supported |  |
 | `[].network_type` | Supported |  |
 | `[].network_is_expensive` | Supported |  |
@@ -1573,7 +1573,7 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `include_uid_range` | Supported |  |
 | `exclude_uid` | Supported |  |
 | `exclude_uid_range` | Supported |  |
-| `include_android_user` | Supported |  |
+| `include_android_user` | Error | Not supported; include_uid_range takes in an Android user's apps (user N's are uids N*100000 to N*100000+99999) |
 | `include_package` | Supported |  |
 | `exclude_package` | Supported |  |
 | `include_mac_address` | Error | Filtering LAN clients by MAC address |
@@ -2795,10 +2795,10 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `[].process_name` | Supported | With the `rule-process-name` feature, off by default, and only where sail tells the program (the NetFilter inbound on Windows) |
 | `[].process_path` | Supported | With the `rule-process-name` feature, off by default, and only where sail tells the program (the NetFilter inbound on Windows) |
 | `[].process_path_regex` | Supported | With the `rule-process-name` feature, off by default, and only where sail tells the program (the NetFilter inbound on Windows) |
-| `[].package_name` | Error | sail cannot tell which Android package a connection comes from yet |
-| `[].package_name_regex` | Error | sail cannot tell which Android package a connection comes from yet |
-| `[].user` | Error | sail cannot tell which user a connection's program runs as yet |
-| `[].user_id` | Error | sail cannot tell which user a connection's program runs as yet |
+| `[].package_name` | Supported |  |
+| `[].package_name_regex` | Supported |  |
+| `[].user` | Supported |  |
+| `[].user_id` | Supported |  |
 | `[].clash_mode` | Supported |  |
 | `[].network_type` | Supported |  |
 | `[].network_is_expensive` | Supported |  |
@@ -2958,8 +2958,8 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `rules[].process_name` | Supported | With the `rule-process-name` feature, off by default, and only where sail tells the program (the NetFilter inbound on Windows) |
 | `rules[].process_path` | Supported | With the `rule-process-name` feature, off by default, and only where sail tells the program (the NetFilter inbound on Windows) |
 | `rules[].process_path_regex` | Supported | With the `rule-process-name` feature, off by default, and only where sail tells the program (the NetFilter inbound on Windows) |
-| `rules[].package_name` | Error | sail cannot tell which Android package a connection comes from yet |
-| `rules[].package_name_regex` | Error | sail cannot tell which Android package a connection comes from yet |
+| `rules[].package_name` | Supported |  |
+| `rules[].package_name_regex` | Supported |  |
 | `rules[].network_type` | Supported |  |
 | `rules[].network_is_expensive` | Supported |  |
 | `rules[].network_is_constrained` | Supported |  |

@@ -1553,20 +1553,56 @@
      ]
     },
     "package_name": {
-     "not": {},
-     "description": "sail refuses this field: sail cannot tell which Android package a connection comes from yet"
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      }
+     ]
     },
     "package_name_regex": {
-     "not": {},
-     "description": "sail refuses this field: sail cannot tell which Android package a connection comes from yet"
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      }
+     ]
     },
     "user": {
-     "not": {},
-     "description": "sail refuses this field: sail cannot tell which user a connection's program runs as yet"
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      }
+     ]
     },
     "user_id": {
-     "not": {},
-     "description": "sail refuses this field: sail cannot tell which user a connection's program runs as yet"
+     "anyOf": [
+      {
+       "type": "number"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "number"
+       }
+      }
+     ]
     },
     "clash_mode": {
      "type": "string",
@@ -2194,20 +2230,56 @@
      ]
     },
     "package_name": {
-     "not": {},
-     "description": "sail refuses this field: sail cannot tell which Android package a connection comes from yet"
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      }
+     ]
     },
     "package_name_regex": {
-     "not": {},
-     "description": "sail refuses this field: sail cannot tell which Android package a connection comes from yet"
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      }
+     ]
     },
     "user": {
-     "not": {},
-     "description": "sail refuses this field: sail cannot tell which user a connection's program runs as yet"
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      }
+     ]
     },
     "user_id": {
-     "not": {},
-     "description": "sail refuses this field: sail cannot tell which user a connection's program runs as yet"
+     "anyOf": [
+      {
+       "type": "number"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "number"
+       }
+      }
+     ]
     },
     "clash_mode": {
      "type": "string",
@@ -11767,18 +11839,8 @@
      "description": "...nor of these ranges."
     },
     "include_android_user": {
-     "anyOf": [
-      {
-       "type": "number"
-      },
-      {
-       "type": "array",
-       "items": {
-        "type": "number"
-       }
-      }
-     ],
-     "description": "Android: what the host's VPN takes in, applied by the host."
+     "not": {},
+     "description": "sail refuses this field: Not supported; include_uid_range takes in an Android user's apps (user N's are uids N*100000 to N*100000+99999)"
     },
     "include_package": {
      "anyOf": [
@@ -11791,7 +11853,8 @@
         "type": "string"
        }
       }
-     ]
+     ],
+     "description": "Android: the apps the host's VPN takes in or leaves out, applied by the host."
     },
     "exclude_package": {
      "anyOf": [
@@ -21743,12 +21806,31 @@
      ]
     },
     "package_name": {
-     "not": {},
-     "description": "sail refuses this field: sail cannot tell which Android package a connection comes from yet"
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      }
+     ],
+     "description": "As a routing rule's: the app the host says opened the connection, an error without a host that tells."
     },
     "package_name_regex": {
-     "not": {},
-     "description": "sail refuses this field: sail cannot tell which Android package a connection comes from yet"
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      }
+     ]
     },
     "network_type": {
      "anyOf": [
@@ -22102,12 +22184,31 @@
      ]
     },
     "package_name": {
-     "not": {},
-     "description": "sail refuses this field: sail cannot tell which Android package a connection comes from yet"
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      }
+     ],
+     "description": "As a routing rule's: the app the host says opened the connection, an error without a host that tells."
     },
     "package_name_regex": {
-     "not": {},
-     "description": "sail refuses this field: sail cannot tell which Android package a connection comes from yet"
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      }
+     ]
     },
     "network_type": {
      "anyOf": [
@@ -23140,20 +23241,58 @@
      ]
     },
     "package_name": {
-     "not": {},
-     "description": "sail refuses this field: sail cannot tell which Android package a connection comes from yet"
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      }
+     ],
+     "description": "Android packages: the app the host says opened the connection (`find_connection_owner`); an error without a host that tells."
     },
     "package_name_regex": {
-     "not": {},
-     "description": "sail refuses this field: sail cannot tell which Android package a connection comes from yet"
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      }
+     ]
     },
     "user": {
-     "not": {},
-     "description": "sail refuses this field: sail cannot tell which user a connection's program runs as yet"
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      }
+     ],
+     "description": "The user a connection's app runs as, by name and by id, as the host tells it; an error without a host that tells."
     },
     "user_id": {
-     "not": {},
-     "description": "sail refuses this field: sail cannot tell which user a connection's program runs as yet"
+     "anyOf": [
+      {
+       "type": "number"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "number"
+       }
+      }
+     ]
     },
     "clash_mode": {
      "type": "string",
@@ -23718,20 +23857,58 @@
      ]
     },
     "package_name": {
-     "not": {},
-     "description": "sail refuses this field: sail cannot tell which Android package a connection comes from yet"
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      }
+     ],
+     "description": "Android packages: the app the host says opened the connection (`find_connection_owner`); an error without a host that tells."
     },
     "package_name_regex": {
-     "not": {},
-     "description": "sail refuses this field: sail cannot tell which Android package a connection comes from yet"
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      }
+     ]
     },
     "user": {
-     "not": {},
-     "description": "sail refuses this field: sail cannot tell which user a connection's program runs as yet"
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      }
+     ],
+     "description": "The user a connection's app runs as, by name and by id, as the host tells it; an error without a host that tells."
     },
     "user_id": {
-     "not": {},
-     "description": "sail refuses this field: sail cannot tell which user a connection's program runs as yet"
+     "anyOf": [
+      {
+       "type": "number"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "number"
+       }
+      }
+     ]
     },
     "clash_mode": {
      "type": "string",

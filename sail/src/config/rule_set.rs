@@ -292,8 +292,8 @@ pub struct HeadlessRule {
     /// expressions the program's name, its path's last part, matches.
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
     pub process_name_regex: Vec<String>,
-    /// Refused as a routing rule's is: no platform sail runs on tells
-    /// them yet.
+    /// As a routing rule's: the app the host says opened the connection,
+    /// an error without a host that tells.
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
     pub package_name: Vec<String>,
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]

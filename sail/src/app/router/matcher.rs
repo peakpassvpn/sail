@@ -1385,7 +1385,8 @@ impl Conditions {
                     || facts
                         .owner
                         .as_ref()
-                        .is_some_and(|o| self.process_user_ids.contains(&(o.uid as i32))))
+                        .and_then(|o| i32::try_from(o.uid).ok())
+                        .is_some_and(|uid| self.process_user_ids.contains(&uid)))
                 && (self.http_user_agent.is_empty()
                     || facts
                         .user_agent()

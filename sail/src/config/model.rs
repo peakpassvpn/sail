@@ -2271,13 +2271,14 @@ pub struct Rule {
     /// expressions the program's name, its path's last part, matches.
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
     pub process_name_regex: Vec<String>,
-    /// Android packages; no platform sail runs on tells them yet.
+    /// Android packages: the app the host says opened the connection
+    /// (`find_connection_owner`); an error without a host that tells.
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
     pub package_name: Vec<String>,
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
     pub package_name_regex: Vec<String>,
-    /// The user a connection's process runs as, by name and by id; no
-    /// platform sail runs on tells them yet.
+    /// The user a connection's app runs as, by name and by id, as the host
+    /// tells it; an error without a host that tells.
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
     pub user: Vec<String>,
     #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]

@@ -70,10 +70,10 @@ Rust 定义：[`Rule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/con
 | `process_name` | listable-string | `[]` | 支持 | The name of the program a connection comes from, its path's last part. |
 | `process_path` | listable-string | `[]` | 支持 | — |
 | `process_path_regex` | listable-string | `[]` | 支持 | — |
-| `package_name` | listable-string | — | 报错：sail cannot tell which Android package a connection comes from yet | Android packages; no platform sail runs on tells them yet. |
-| `package_name_regex` | listable-string | — | 报错：sail cannot tell which Android package a connection comes from yet | — |
-| `user` | listable-string | — | 报错：sail cannot tell which user a connection's program runs as yet | The user a connection's process runs as, by name and by id; no platform sail runs on tells them yet. |
-| `user_id` | listable-number | — | 报错：sail cannot tell which user a connection's program runs as yet | — |
+| `package_name` | listable-string | `[]` | 支持 | Android packages: the app the host says opened the connection (`find_connection_owner`); an error without a host that tells. |
+| `package_name_regex` | listable-string | `[]` | 支持 | — |
+| `user` | listable-string | `[]` | 支持 | The user a connection's app runs as, by name and by id, as the host tells it; an error without a host that tells. |
+| `user_id` | listable-number | `[]` | 支持 | — |
 | `clash_mode` | string | 未设置 | 支持 | The mode of Clash's API: matches while it is that, whatever the case; never without an API. |
 | `network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | `[]` | 支持 | The kind of network: `wifi`, `cellular`, `ethernet`, `other`. |
 | `network_is_expensive` | bool | `false` | 支持 | The network is metered, as the system says. |
@@ -313,8 +313,8 @@ Rust 定义：[`HeadlessRule`](https://github.com/peakpassvpn/sail/blob/dev/sail
 | `process_name` | listable-string | `[]` | 支持 | — |
 | `process_path` | listable-string | `[]` | 支持 | — |
 | `process_path_regex` | listable-string | `[]` | 支持 | — |
-| `package_name` | listable-string | — | 报错：sail cannot tell which Android package a connection comes from yet | Refused as a routing rule's is: no platform sail runs on tells them yet. |
-| `package_name_regex` | listable-string | — | 报错：sail cannot tell which Android package a connection comes from yet | — |
+| `package_name` | listable-string | `[]` | 支持 | As a routing rule's: the app the host says opened the connection, an error without a host that tells. |
+| `package_name_regex` | listable-string | `[]` | 支持 | — |
 | `network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | `[]` | 支持 | Conditions on the network the host is on, as a routing rule's: `wifi\|cellular\|ethernet\|other`. |
 | `network_is_expensive` | bool | `false` | 支持 | — |
 | `network_is_constrained` | bool | `false` | 支持 | — |

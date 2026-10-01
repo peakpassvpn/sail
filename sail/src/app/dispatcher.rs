@@ -785,7 +785,7 @@ impl Dispatcher {
             return PreMatch::Proceed;
         }
         self.find_neighbor(sess);
-        self.find_owner(sess);
+        self.find_owner(sess).await;
         self.reverse_map(sess).await;
         let outbounds = self.outbound_manager.load_full();
         self.router.load_full().pre_match(sess, &*outbounds).await
@@ -802,7 +802,11 @@ impl Dispatcher {
     /// Who opened the connection, when the host tells: asked of every
     /// connection, as sing-box's libbox asks on Android, so that the rules
     /// on it match and the connections list shows it.
-    fn find_owner(&self, sess: &mut Session) {
+    /// The host's answer may wait on the system (a binder call on
+    /// Android), so it is waited for off the runtime's threads, as sing-box
+    /// asks on the connection's own goroutine. Each session gets here
+    /// once: `pre_match` only judges a packet, on a session of its own.
+    async fn find_owner(&self, sess: &mut Session) {
         if sess.owner.is_some() {
             return;
         }
@@ -810,7 +814,7 @@ impl Dispatcher {
             .env
             .host
             .platform
-            .as_ref()
+            .clone()
             .filter(|p| p.finds_connection_owner())
         else {
             return;
@@ -820,9 +824,18 @@ impl Dispatcher {
             source: sess.source,
             destination: sess.destination.to_string(),
         };
-        match platform.find_connection_owner(&query) {
-            Ok(owner) => sess.owner = owner.map(std::sync::Arc::new),
-            Err(e) => debug!("the host did not find who opened {:?}: {}", query, e),
+        let answer = tokio::task::spawn_blocking(move || {
+            let answer = platform.find_connection_owner(&query);
+            (query, answer)
+        })
+        .await;
+        match answer {
+            Ok((_, Ok(owner))) => sess.owner = owner.map(std::sync::Arc::new),
+            Ok((query, Err(e))) => debug!("the host did not find who opened {:?}: {}", query, e),
+            Err(e) => debug!(
+                "the host's search for who opened a connection failed: {}",
+                e
+            ),
         }
     }
 
@@ -830,7 +843,7 @@ impl Dispatcher {
     /// it.
     async fn route(&self, sess: &mut Session, sniffer: &mut dyn Sniffer) -> io::Result<Routed> {
         self.find_neighbor(sess);
-        self.find_owner(sess);
+        self.find_owner(sess).await;
         let outbounds = self.outbound_manager.load_full();
         let decision = self
             .router

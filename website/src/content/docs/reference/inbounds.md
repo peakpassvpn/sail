@@ -816,8 +816,8 @@ Rust: [`TunInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/sr
 | `include_uid_range` | listable-string | `[]` | Supported | ...and from these ranges, as "1000:2000". |
 | `exclude_uid` | listable-number | `[]` | Supported | The host's traffic of these users is not taken... |
 | `exclude_uid_range` | listable-string | `[]` | Supported | ...nor of these ranges. |
-| `include_android_user` | listable-number | `[]` | Supported | Android: what the host's VPN takes in, applied by the host. |
-| `include_package` | listable-string | `[]` | Supported | — |
+| `include_android_user` | listable-number | — | Error: Not supported; include_uid_range takes in an Android user's apps (user N's are uids N*100000 to N*100000+99999) | Android users: not supported, as no VpnService can take them in; `include_uid_range` takes in a user's apps. |
+| `include_package` | listable-string | `[]` | Supported | Android: the apps the host's VPN takes in or leaves out, applied by the host. |
 | `exclude_package` | listable-string | `[]` | Supported | — |
 | `include_mac_address` | listable-string | — | Error: Filtering LAN clients by MAC address | — |
 | `exclude_mac_address` | listable-string | — | Error: Filtering LAN clients by MAC address | — |

@@ -291,6 +291,10 @@
   "dns.rules[].process_name",
   "dns.rules[].process_path",
   "dns.rules[].process_path_regex",
+  "dns.rules[].package_name",
+  "dns.rules[].package_name_regex",
+  "dns.rules[].user",
+  "dns.rules[].user_id",
   "dns.rules[].clash_mode",
   "dns.rules[].network_type",
   "dns.rules[].network_is_expensive",
@@ -881,7 +885,6 @@
   "inbounds[tun].include_uid_range",
   "inbounds[tun].exclude_uid",
   "inbounds[tun].exclude_uid_range",
-  "inbounds[tun].include_android_user",
   "inbounds[tun].include_package",
   "inbounds[tun].exclude_package",
   "inbounds[tun].udp_timeout",
@@ -1720,6 +1723,10 @@
   "route.rules[].process_name",
   "route.rules[].process_path",
   "route.rules[].process_path_regex",
+  "route.rules[].package_name",
+  "route.rules[].package_name_regex",
+  "route.rules[].user",
+  "route.rules[].user_id",
   "route.rules[].clash_mode",
   "route.rules[].network_type",
   "route.rules[].network_is_expensive",
@@ -1798,6 +1805,8 @@
   "route.rule_set[inline].rules[].process_name",
   "route.rule_set[inline].rules[].process_path",
   "route.rule_set[inline].rules[].process_path_regex",
+  "route.rule_set[inline].rules[].package_name",
+  "route.rule_set[inline].rules[].package_name_regex",
   "route.rule_set[inline].rules[].network_type",
   "route.rule_set[inline].rules[].network_is_expensive",
   "route.rule_set[inline].rules[].network_is_constrained",
@@ -2905,20 +2914,6 @@
    "route.rules[].network_interface_address",
    "route.rules[].default_interface_address",
    "route.rules[].preferred_by"
-  ],
-  "sail cannot tell which Android package a connection comes from yet": [
-   "dns.rules[].package_name",
-   "dns.rules[].package_name_regex",
-   "route.rules[].package_name",
-   "route.rules[].package_name_regex",
-   "route.rule_set[inline].rules[].package_name",
-   "route.rule_set[inline].rules[].package_name_regex"
-  ],
-  "sail cannot tell which user a connection's program runs as yet": [
-   "dns.rules[].user",
-   "dns.rules[].user_id",
-   "route.rules[].user",
-   "route.rules[].user_id"
   ],
   "Certificates from ACME and other providers: the inbounds would serve none": [
    "certificate_providers",
@@ -4551,6 +4546,9 @@
   "The TUN's own DNS handling: queries would be answered otherwise": [
    "inbounds[tun].dns_mode",
    "inbounds[tun].dns_address"
+  ],
+  "Not supported; include_uid_range takes in an Android user's apps (user N's are uids N*100000 to N*100000+99999)": [
+   "inbounds[tun].include_android_user"
   ],
   "Filtering LAN clients by MAC address": [
    "inbounds[tun].include_mac_address",
