@@ -1,316 +1,237 @@
-name: releases
+name: release
 
+# A release is started by hand on master, with its version; without
+# `publish` it is a dry run, whose files stay in the run's artifacts.
+# The 5.8 release design: each target is built by its own job with the
+# scripts ci.yml's cross job checks, symbols are kept apart, two Linux
+# targets are built twice and must match, and the release stays a draft
+# until every file is in it. Android and Apple come in later steps.
 on:
-  push:
-    tags:
-      - v*
+  workflow_dispatch:
+    inputs:
+      version:
+        description: version, as in sail-cli/Cargo.toml (no "v")
+        required: true
+      publish:
+        description: tag and publish the release (otherwise a dry run)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  # rust-toolchain.toml's; keep them in step.
+  TOOLCHAIN: 1.98.1
+  # wintun.net's zip, with the hash its download page gives.
+  WINTUN_VERSION: 0.14.1
+  WINTUN_SHA256: 07c256185d6ee3652e09fa55c0b673e2624b565e02c4b9091c79ca7d2f24ef51
+  CARGO_CYCLONEDX_VERSION: 0.5.9
 
 jobs:
-  # Built from Linux with the scripts ci.yml's cross job checks.
-  build-cli-cross:
+  check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      epoch: ${{ steps.epoch.outputs.epoch }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: version and branch
+        env:
+          VERSION: ${{ inputs.version }}
+          PUBLISH: ${{ inputs.publish }}
+        run: |
+          crate=$(sed -n 's/^version = "\(.*\)"/\1/p' sail-cli/Cargo.toml | head -1)
+          [ "$crate" = "$VERSION" ] ||
+            { echo "::error::sail-cli is $crate, not $VERSION"; exit 1; }
+          if [ "$PUBLISH" = true ] && [ "$GITHUB_REF" != refs/heads/master ]; then
+            echo "::error::a release is published from master only"; exit 1
+          fi
+
+      # Not run again here: the ci run on this commit must have passed.
+      - name: ci passed on this commit
+        if: ${{ inputs.publish }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run list --repo "$GITHUB_REPOSITORY" --workflow ci.yml --commit "$GITHUB_SHA" \
+            --json conclusion --jq '.[].conclusion' | grep -qx success ||
+            { echo "::error::no successful ci run on $GITHUB_SHA"; exit 1; }
+
+      - name: source date
+        id: epoch
+        run: echo "epoch=$(git log -1 --format=%ct)" >>"$GITHUB_OUTPUT"
+
+  cli:
+    needs: check
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         target:
           - x86_64-unknown-linux-musl
           - aarch64-unknown-linux-musl
+          - armv7-unknown-linux-musleabihf
+          - arm-unknown-linux-musleabi
+          - i686-unknown-linux-musl
           - x86_64-pc-windows-gnu
+    env:
+      SOURCE_DATE_EPOCH: ${{ needs.check.outputs.epoch }}
     steps:
-      - name: checkout
-        uses: actions/checkout@v4
-        with:
-          submodules: true
+      - uses: actions/checkout@v4
 
-      # The version is rust-toolchain.toml's; keep them in step.
-      - name: install rust toolchain
-        uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: 1.98.1
+          toolchain: ${{ env.TOOLCHAIN }}
+          components: llvm-tools
 
       - name: install cross toolchain
         run: scripts/install_cross_toolchain.sh ${{ matrix.target }}
 
       - name: build
-        run: |
-          export CFG_COMMIT_HASH=`git log --pretty=format:'%h' -n 1`
-          export CFG_COMMIT_DATE=`git log --format="%ci" -n 1`
-          scripts/cross.sh ${{ matrix.target }} build --release -p sail-cli
+        run: scripts/release/build-cli.sh ${{ matrix.target }} "${{ inputs.version }}" out
 
-      - name: rename and compress artifacts
-        if: ${{ matrix.target == 'x86_64-pc-windows-gnu' }}
-        run: |
-          mv target/${{ matrix.target }}/release/sail.exe sail-${{ matrix.target }}.exe
-
-      - name: rename and compress artifacts
-        if: ${{ matrix.target != 'x86_64-pc-windows-gnu' }}
-        run: |
-          mv target/${{ matrix.target }}/release/sail sail-${{ matrix.target }}
-
-      - name: upload assets
-        if: ${{ matrix.target == 'x86_64-pc-windows-gnu' }}
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: sail-${{ matrix.target }}.exe
-          path: sail-${{ matrix.target }}.exe
+          name: cli-${{ matrix.target }}
+          path: out/
 
-      - name: upload assets
-        if: ${{ matrix.target != 'x86_64-pc-windows-gnu' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: sail-${{ matrix.target }}
-          path: sail-${{ matrix.target }}
-
-  build-cli-macos:
-    runs-on: [macos-latest]
+  # The same commit built again on another runner must give the same bytes.
+  reproducible:
+    needs: [check, cli]
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         target:
-          - aarch64-apple-darwin
-          - x86_64-apple-darwin
-    steps:
-      - name: checkout
-        uses: actions/checkout@v4
-        with:
-          submodules: true
-
-      - name: install rust toolchain
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: 1.98.1
-
-      - name: install target
-        run: |
-          rustup target add ${{ matrix.target }}
-
-      - name: build
-        run: |
-          export CFG_COMMIT_HASH=`git log --pretty=format:'%h' -n 1`
-          export CFG_COMMIT_DATE=`git log --format="%ci" -n 1`
-          cargo build --release --target ${{ matrix.target }} -p sail-cli
-
-      - name: rename and compress artifacts
-        run: |
-          mv target/${{ matrix.target }}/release/sail sail-${{ matrix.target }}
-
-      - name: upload assets
-        uses: actions/upload-artifact@v4
-        with:
-          name: sail-${{ matrix.target }}
-          path: sail-${{ matrix.target }}
-
-  build-lib-apple:
-    runs-on: macos-latest
-    steps:
-      - name: checkout
-        uses: actions/checkout@v4
-        with:
-          submodules: true
-
-      - name: install rust
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: 1.98.1
-
-      - name: install toolchain
-        run: |
-          cargo install cbindgen
-          brew install llvm unzip protobuf
-
-      - name: build
-        run: |
-          ./scripts/build_apple_xcframework.sh
-
-      - name: zip artifacts
-        run: |
-          mv target/apple/release/sail.xcframework .
-          zip -r sail.xcframework.zip sail.xcframework
-
-      - name: upload assets
-        uses: actions/upload-artifact@v4
-        with:
-          name: sail.xcframework.zip
-          path: sail.xcframework.zip
-
-  build-lib-android:
-    runs-on: ubuntu-latest
-    steps:
-      - name: checkout
-        uses: actions/checkout@v4
-        with:
-          submodules: true
-
-      - name: install rust
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: 1.98.1
-
-      - name: install cbindgen
-        run: |
-          cargo install cbindgen
-
-      # Installs the NDK and the Rust targets itself.
-      - name: build
-        run: |
-          ./scripts/build_android.sh release
-
-      - name: zip artifacts
-        run: |
-          mv target/sail-android-libs .
-          zip -r sail-android-libs.zip sail-android-libs
-
-      - name: upload assets
-        uses: actions/upload-artifact@v4
-        with:
-          name: sail-android-libs.zip
-          path: sail-android-libs.zip
-
-  create-release:
-    needs: [build-cli-cross, build-cli-macos, build-lib-apple, build-lib-android]
-    runs-on: ubuntu-latest
-    steps:
-      - name: checkout
-        uses: actions/checkout@v4
-        with:
-          submodules: true
-
-      - name: Create Release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ github.ref }}
-          release_name: Release ${{ github.ref }}
-          draft: false
-          prerelease: false
-
-      - name: create upload url file
-        run: |
-          echo -n "${{ steps.create_release.outputs.upload_url }}" > upload_url.txt
-
-      - name: upload third-party licenses
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./THIRD_PARTY_LICENSES.md
-          asset_name: THIRD_PARTY_LICENSES.md
-          asset_content_type: text/markdown
-
-      - name: persist upload url
-        uses: actions/upload-artifact@v4
-        with:
-          name: upload_url.txt
-          path: ./upload_url.txt
-
-  release-cli:
-    needs: [create-release]
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        target:
-          - x86_64-apple-darwin
-          - aarch64-apple-darwin
           - x86_64-unknown-linux-musl
           - aarch64-unknown-linux-musl
-          - x86_64-pc-windows-gnu
+    env:
+      SOURCE_DATE_EPOCH: ${{ needs.check.outputs.epoch }}
     steps:
-      - name: download upload url
-        uses: actions/download-artifact@v4
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@master
         with:
-          name: upload_url.txt
+          toolchain: ${{ env.TOOLCHAIN }}
+          components: llvm-tools
 
-      - name: get upload url
-        run: |
-          upload_url=`cat upload_url.txt`
-          echo "uploadurl=$upload_url" >> $GITHUB_ENV
+      - name: install cross toolchain
+        run: scripts/install_cross_toolchain.sh ${{ matrix.target }}
 
-      - name: download asset
-        if: ${{ matrix.target != 'x86_64-pc-windows-gnu' }}
-        uses: actions/download-artifact@v4
+      - name: build again
+        run: scripts/release/build-cli.sh ${{ matrix.target }} "${{ inputs.version }}" again
+
+      - uses: actions/download-artifact@v4
         with:
-          name: sail-${{ matrix.target }}
+          name: cli-${{ matrix.target }}
+          path: first
 
-      - name: download asset
-        if: ${{ matrix.target == 'x86_64-pc-windows-gnu' }}
-        uses: actions/download-artifact@v4
-        with:
-          name: sail-${{ matrix.target }}.exe
-
-      - name: zip artifacts
-        if: ${{ matrix.target != 'x86_64-pc-windows-gnu' }}
-        run: |
-          gzip sail-${{ matrix.target }}
-
-      - name: zip artifacts
-        if: ${{ matrix.target == 'x86_64-pc-windows-gnu' }}
-        run: |
-          zip -9 sail-${{ matrix.target }}.zip sail-${{ matrix.target }}.exe
-
-      - name: upload asset
-        if: ${{ matrix.target != 'x86_64-pc-windows-gnu' }}
-        uses: actions/upload-release-asset@v1
+      - name: compare
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ env.uploadurl }}
-          asset_path: ./sail-${{ matrix.target }}.gz
-          asset_name: sail-${{ matrix.target }}.gz
-          asset_content_type: application/octet-stream
+          T: ${{ matrix.target }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          echo "first: $(cat "first/$T.sha256")  again: $(cat "again/$T.sha256")"
+          cmp "first/$T.sha256" "again/$T.sha256"
+          cmp "first/ship/sail-$VERSION-$T.tar.gz" "again/ship/sail-$VERSION-$T.tar.gz"
 
-      - name: upload asset
-        if: ${{ matrix.target == 'x86_64-pc-windows-gnu' }}
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ env.uploadurl }}
-          asset_path: ./sail-${{ matrix.target }}.zip
-          asset_name: sail-${{ matrix.target }}.zip
-          asset_content_type: application/octet-stream
-
-  release-mobile-libs:
-    needs: [create-release]
+  assemble:
+    needs: [check, cli, reproducible]
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    env:
+      SOURCE_DATE_EPOCH: ${{ needs.check.outputs.epoch }}
+      VERSION: ${{ inputs.version }}
     steps:
-      - name: download upload url
-        uses: actions/download-artifact@v4
-        with:
-          name: upload_url.txt
+      - uses: actions/checkout@v4
 
-      - name: get upload url
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.TOOLCHAIN }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: cli-*
+          path: built
+
+      - name: gather
         run: |
-          upload_url=`cat upload_url.txt`
-          echo "uploadurl=$upload_url" >> $GITHUB_ENV
+          mkdir -p dist symbols
+          cp built/*/ship/* dist/
+          cat built/*/ids.txt >dist/ids.txt
+          cp -R built/*/symbols/* symbols/
+          tar --sort=name --owner=0 --group=0 --numeric-owner --mtime="@$SOURCE_DATE_EPOCH" \
+            -cf - symbols | gzip -n -9 >"dist/sail-$VERSION-symbols.tar.gz"
+          cp THIRD_PARTY_LICENSES.md dist/
 
-      - name: download asset
-        uses: actions/download-artifact@v4
-        with:
-          name: sail.xcframework.zip
+      - name: software bill of materials
+        run: |
+          cargo install --locked cargo-cyclonedx --version "$CARGO_CYCLONEDX_VERSION"
+          cargo cyclonedx --manifest-path sail-cli/Cargo.toml -f json --spec-version 1.5 \
+            --override-filename sail-sbom
+          cp sail-cli/sail-sbom.json "dist/sail-$VERSION-sbom.cdx.json"
 
-      - name: download asset
-        uses: actions/download-artifact@v4
-        with:
-          name: sail-android-libs.zip
-
-      - name: upload asset
-        uses: actions/upload-release-asset@v1
+      - name: manifest
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ env.uploadurl }}
-          asset_path: ./sail.xcframework.zip
-          asset_name: sail.xcframework.zip
-          asset_content_type: application/octet-stream
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # The last release's, for the change in size; none before the first.
+          gh release download --repo "$GITHUB_REPOSITORY" --pattern manifest.json \
+            --dir last 2>/dev/null || true
+          scripts/release/manifest.py dist "$VERSION" last/manifest.json | tee grown.txt
+          rm dist/ids.txt
 
-      - name: upload asset
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/attest-build-provenance@v4
         with:
-          upload_url: ${{ env.uploadurl }}
-          asset_path: ./sail-android-libs.zip
-          asset_name: sail-android-libs.zip
-          asset_content_type: application/octet-stream
+          subject-path: dist/*
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release
+          path: |
+            dist/
+            grown.txt
+
+  # The only job that may write: it tags the commit and publishes.
+  publish:
+    if: ${{ inputs.publish }}
+    needs: assemble
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: nothing that must not be public
+        run: tools/sensitive-check.sh tree
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: release
+          path: .
+
+      - name: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag=v$VERSION
+          {
+            echo "sail $VERSION."
+            echo
+            echo "Every file's hash is in SHA256SUMS, its size and build ID in manifest.json,"
+            echo "and its build provenance can be checked with \`gh attestation verify\`."
+            if [ -s grown.txt ]; then echo; echo "Grown since the last release:"; sed 's/^/- /' grown.txt; fi
+          } >notes.md
+          # A draft until every file is in it.
+          gh release create "$tag" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "sail $VERSION" --notes-file notes.md --draft dist/*
+          gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --draft=false

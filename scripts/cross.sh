@@ -104,6 +104,13 @@ x86_64-pc-windows-gnu)
 	;;
 esac
 
+# Flags a caller adds, such as a release's path remapping, joined to the
+# ones above: RUSTFLAGS would replace them, -lgcc and -L native among them.
+if [ -n "${SAIL_RUSTFLAGS:-}" ]; then
+	flags=CARGO_TARGET_${T}_RUSTFLAGS
+	export "$flags=${!flags:-} $SAIL_RUSTFLAGS"
+fi
+
 sub=${1:?usage: $0 <target> <cargo subcommand> [args...]}
 shift
 exec cargo "$sub" --target "$target" "$@"
