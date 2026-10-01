@@ -1248,3 +1248,27 @@ fn a_pinned_server_certificate_is_certificate_sha256() {
         );
     }
 }
+
+/// WireGuard sections no policy names are told of in the profile's order,
+/// whatever order sail keeps them in: a profile reads the same each time.
+#[test]
+fn unused_wireguard_sections_are_told_of_in_order() {
+    let names = ["e", "d", "c", "b", "a"];
+    let mut text = String::from("[Proxy]\n[Rule]\nFINAL,DIRECT\n");
+    for name in names {
+        text.push_str(&format!(
+            "[WireGuard {}]\nprivate-key = yAnz5TF+lXXJte14tji3zlMNq+hd2rYUIgJBgB3fBmk=\n",
+            name
+        ));
+    }
+    let told: Vec<String> = load(&text)
+        .warnings
+        .into_iter()
+        .filter(|w| w.ends_with("no policy names it; ignored"))
+        .collect();
+    let expected: Vec<String> = names
+        .iter()
+        .map(|n| format!("[WireGuard {}]: no policy names it; ignored", n))
+        .collect();
+    assert_eq!(told, expected);
+}

@@ -132,8 +132,10 @@ pub fn lower(
 ) -> Result<Proxies> {
     let keystore = Keystore::new(profile.take("Keystore"));
     let lines = profile.take("Proxy");
-    let sections: HashMap<String, Vec<Line>> =
-        profile.take_named("WireGuard").into_iter().collect();
+    let named = profile.take_named("WireGuard");
+    // In the profile's order, for the warnings to be in it.
+    let order: Vec<String> = named.iter().map(|(name, _)| name.clone()).collect();
+    let sections: HashMap<String, Vec<Line>> = named.into_iter().collect();
     let mut proxies = Proxies {
         names: Vec::new(),
         kinds: HashMap::new(),
@@ -172,8 +174,8 @@ pub fn lower(
             tested.join(", ")
         ));
     }
-    for (name, lines) in sections {
-        if !used_sections.contains(&name) && !lines.is_empty() {
+    for name in order {
+        if !used_sections.contains(&name) && !sections[&name].is_empty() {
             warnings.push(format!("[WireGuard {}]: no policy names it; ignored", name));
         }
     }
