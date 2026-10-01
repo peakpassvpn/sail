@@ -114,8 +114,12 @@
 #define SAIL_EVENT_OUTBOUNDS 5
 
 /*
- The network the instance is on as it changes. Not yet: its
- subscription fails with SAIL_ERR_UNSUPPORTED.
+ A change of network the connections made on the one before do not
+ survive: `{"generation", "reason": "default-interface" |
+ "state" | "host" | "wake", "old", "new"}`, the networks as
+ `sail_set_network_state` takes them; while the instance runs. In the
+ tunnel process only: a command service client's subscription fails with
+ SAIL_ERR_UNSUPPORTED, as libbox's apps follow the network there.
  */
 #define SAIL_EVENT_NETWORK 6
 
@@ -350,8 +354,15 @@ int32_t sail_set_mode(SailInstance instance, const char *mode, char **err);
 
  @param state JSON: `{"type": "wifi" | "cellular" | "ethernet" |
      "other", "interface", "ssid", "bssid", "gateway", "addresses":
-     ["192.168.1.2/24"], "mcc_mnc", "expensive", "constrained"}`, every
-     field optional.
+     ["192.168.1.2/24"], "mcc_mnc", "expensive", "constrained",
+     "captive", "interfaces"}`, every field optional. `captive`: behind a
+     captive portal, as the host says; every connection then goes
+     straight out, whatever the rules say, until it clears.
+     `interfaces`: every interface sail may dial out of, the default's
+     among them, each `{"name", "type", "addresses", "expensive",
+     "constrained"}`, for a connection's choice of network
+     (`network_strategy`); the fields above describe the default network
+     and are what the rules go by.
  @return SAIL_ERR_CONFIG for a state that does not read.
  */
 int32_t sail_set_network_state(SailInstance instance, const char *state, char **err);

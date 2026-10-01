@@ -424,8 +424,15 @@ pub unsafe extern "C" fn sail_set_mode(
 ///
 /// @param state JSON: `{"type": "wifi" | "cellular" | "ethernet" |
 ///     "other", "interface", "ssid", "bssid", "gateway", "addresses":
-///     ["192.168.1.2/24"], "mcc_mnc", "expensive", "constrained"}`, every
-///     field optional.
+///     ["192.168.1.2/24"], "mcc_mnc", "expensive", "constrained",
+///     "captive", "interfaces"}`, every field optional. `captive`: behind a
+///     captive portal, as the host says; every connection then goes
+///     straight out, whatever the rules say, until it clears.
+///     `interfaces`: every interface sail may dial out of, the default's
+///     among them, each `{"name", "type", "addresses", "expensive",
+///     "constrained"}`, for a connection's choice of network
+///     (`network_strategy`); the fields above describe the default network
+///     and are what the rules go by.
 /// @return SAIL_ERR_CONFIG for a state that does not read.
 #[no_mangle]
 pub unsafe extern "C" fn sail_set_network_state(

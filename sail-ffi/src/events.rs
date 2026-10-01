@@ -47,7 +47,7 @@ pub const SAIL_EVENT_CONNECTIONS: u32 = 4;
 /// how often they are looked at.
 pub const SAIL_EVENT_OUTBOUNDS: u32 = 5;
 /// A change of network the connections made on the one before do not
-/// survive (2.12): `{"generation", "reason": "default-interface" |
+/// survive: `{"generation", "reason": "default-interface" |
 /// "state" | "host" | "wake", "old", "new"}`, the networks as
 /// `sail_set_network_state` takes them; while the instance runs. In the
 /// tunnel process only: a command service client's subscription fails with
