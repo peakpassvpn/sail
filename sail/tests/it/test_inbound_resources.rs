@@ -19,7 +19,8 @@ use btls::ssl::{SslConnector, SslMethod, SslStream, SslVerifyMode};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha224};
 
-const ID: u16 = 930;
+/// Runtime IDs of their own: another test runs at the same time under 930.
+const ID: u16 = 950;
 const UUID: &str = "90ee4432-671e-4ec8-8512-15d5fd0f8eab";
 
 struct Running(u16);
