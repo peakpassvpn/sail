@@ -150,6 +150,7 @@ fn build(ctx: &mut OutboundContext<'_>) -> Result<AnyOutboundHandler> {
         members.clone(),
         probe,
         ctx.dns_client.clone(),
+        ctx.env.network.clone(),
         interval,
         timeout,
         options.lazy.then_some(interval),
@@ -297,6 +298,13 @@ impl OutboundStreamHandler for Group {
     fn connect_addr(&self) -> OutboundConnect {
         // The member is picked, and dialled, per connection.
         OutboundConnect::Unknown
+    }
+
+    /// Tests the members again, as sing-box's urltest does on a change of
+    /// interface. Heard here only: the datagram side is the same group.
+    /// Its members hear of it themselves.
+    fn network_changed(&self, _change: &crate::net::network::NetworkChange) {
+        self.checker.network_changed();
     }
 
     async fn handle<'a>(

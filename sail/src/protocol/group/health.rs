@@ -1,8 +1,10 @@
 //! The URL tests `urltest`, `load-balance` and `fallback` check their
 //! members with: every member at once, through it, every `interval`, while
-//! the group is in use.
+//! the group is in use and the network is up, and at once when the network
+//! changes, as sing-box's urltest does.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
@@ -15,6 +17,7 @@ use tracing::debug;
 use super::members::{MemberKey, MemberLatencies, Members, Snapshot};
 use crate::app::healthcheck::HttpProbe;
 use crate::app::SyncDnsClient;
+use crate::net::network::Network;
 
 /// How long one test may take, by default, before its member counts as
 /// failed.
@@ -36,6 +39,8 @@ pub struct Checker {
     members: Arc<Members>,
     probe: HttpProbe,
     dns_client: SyncDnsClient,
+    /// Tests pause while it is down: the members are not failed for it.
+    network: Network,
     interval: Duration,
     /// How long one test may take before its member counts as failed.
     timeout: Duration,
@@ -46,6 +51,9 @@ pub struct Checker {
     latencies: MemberLatencies,
     last_used: Mutex<Instant>,
     wake: Notify,
+    /// Whether the next round runs even though the group is idle: the
+    /// network changed.
+    forced: AtomicBool,
     on_tested: OnTested,
     /// The test loop, until there is a runtime to spawn it on.
     task: Mutex<Option<BoxFuture<'static, ()>>>,
@@ -59,6 +67,7 @@ impl Checker {
         members: Arc<Members>,
         probe: HttpProbe,
         dns_client: SyncDnsClient,
+        network: Network,
         interval: Duration,
         timeout: Duration,
         idle: Option<Duration>,
@@ -69,12 +78,14 @@ impl Checker {
             members,
             probe,
             dns_client,
+            network,
             interval,
             timeout,
             idle,
             latencies: Default::default(),
             last_used: Mutex::new(Instant::now()),
             wake: Notify::new(),
+            forced: AtomicBool::new(false),
             on_tested,
             task: Mutex::new(None),
         });
@@ -139,6 +150,19 @@ impl Checker {
     /// Asks for the members to be tested again soon, after a connection
     /// through one failed.
     pub fn retest(&self) {
+        self.wake.notify_one();
+    }
+
+    /// The network changed: the members are tested again at once, idle
+    /// as the group may be, unless it is down, when the change that ends
+    /// that tests them. The latencies known are kept until then, as
+    /// sing-box keeps its history. Twice is as once.
+    pub fn network_changed(&self) {
+        if self.network.is_down() {
+            return;
+        }
+        self.start();
+        self.forced.store(true, Ordering::Relaxed);
         self.wake.notify_one();
     }
 
@@ -227,19 +251,24 @@ async fn test_loop(checker: Weak<Checker>) {
         let Some(c) = checker.upgrade() else {
             return;
         };
-        if !c.is_idle() {
+        if c.network.is_down() {
+            debug!("[{}] the network is down, tests paused", c.tag);
+        } else if c.forced.swap(false, Ordering::Relaxed) || !c.is_idle() {
             c.test_all().await;
         } else {
             debug!("[{}] not used lately, tests paused", c.tag);
         }
         let tested = Instant::now();
         let interval = c.interval;
-        // Woken early by a failure, or by use after a pause.
+        // Woken early by a failure, by use after a pause, or by a change of
+        // network.
         let woken = tokio::time::timeout(interval, c.wake.notified())
             .await
             .is_ok();
+        // A change of network is not a failure: no wait for it.
+        let forced = c.forced.load(Ordering::Relaxed);
         drop(c);
-        if woken {
+        if woken && !forced {
             tokio::time::sleep_until(tested + MIN_RETEST.min(interval)).await;
         }
     }
@@ -248,7 +277,9 @@ async fn test_loop(checker: Weak<Checker>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::net::network::{ChangeReason, NetworkState};
     use crate::protocol::group::members::tests::{member, outbounds};
+    use std::sync::atomic::AtomicUsize;
 
     #[test]
     fn a_round_keeps_the_members_tested_and_only_them() {
@@ -275,5 +306,92 @@ mod tests {
         assert!(!is_up(&latencies, &MemberKey::outbound("b")));
         // One new since the round is not tested yet.
         assert!(is_up(&latencies, &MemberKey::outbound("c")));
+    }
+
+    /// A checker of no members, which counts its rounds, on `network`.
+    fn counting(network: &Network, idle: Option<Duration>) -> (Arc<Checker>, Arc<AtomicUsize>) {
+        let dns_client = crate::app::dns::DnsClient::new(
+            &Default::default(),
+            Arc::new(crate::net::DialDefaults::default()),
+            &Default::default(),
+        )
+        .unwrap()
+        .into_shared();
+        let probe = HttpProbe::new(
+            "http://example.com/",
+            dns_client.clone(),
+            &Default::default(),
+        )
+        .unwrap();
+        let rounds = Arc::new(AtomicUsize::new(0));
+        let (checker, _) = Checker::new(
+            "t",
+            outbounds(&[]),
+            probe,
+            dns_client,
+            network.clone(),
+            DEFAULT_INTERVAL,
+            DEFAULT_TIMEOUT,
+            idle,
+            Box::new({
+                let rounds = rounds.clone();
+                move |_, _| {
+                    rounds.fetch_add(1, Ordering::Relaxed);
+                }
+            }),
+        );
+        (checker, rounds)
+    }
+
+    fn on(interface: &str) -> NetworkState {
+        NetworkState {
+            interface: Some(interface.into()),
+            ..Default::default()
+        }
+    }
+
+    async fn settle() {
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_change_of_network_tests_at_once_idle_as_the_group_is() {
+        let network = Network::default();
+        network.detected(on("en0"), ChangeReason::State);
+        let (checker, rounds) = counting(&network, Some(Duration::from_secs(1)));
+        settle().await;
+        assert_eq!(rounds.load(Ordering::Relaxed), 1);
+        tokio::time::sleep(Duration::from_secs(10)).await;
+        // Idle: the tick passes it by.
+        tokio::time::sleep(DEFAULT_INTERVAL).await;
+        assert_eq!(rounds.load(Ordering::Relaxed), 1);
+        network.detected(on("en1"), ChangeReason::State);
+        checker.network_changed();
+        // Twice, as a group that is both stream and datagram hears it.
+        checker.network_changed();
+        settle().await;
+        assert_eq!(rounds.load(Ordering::Relaxed), 2);
+        tokio::time::sleep(Duration::from_secs(10)).await;
+        assert_eq!(rounds.load(Ordering::Relaxed), 2);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn nothing_is_tested_while_the_network_is_down() {
+        let network = Network::default();
+        network.detected(on("en0"), ChangeReason::State);
+        let (checker, rounds) = counting(&network, None);
+        settle().await;
+        assert_eq!(rounds.load(Ordering::Relaxed), 1);
+        network.detected(NetworkState::default(), ChangeReason::State);
+        checker.network_changed();
+        checker.retest();
+        // Between two ticks: only the change can test before the next.
+        tokio::time::sleep(DEFAULT_INTERVAL * 3 + Duration::from_secs(30)).await;
+        assert_eq!(rounds.load(Ordering::Relaxed), 1);
+        // Back: tested at once.
+        network.detected(on("en0"), ChangeReason::State);
+        checker.network_changed();
+        settle().await;
+        assert_eq!(rounds.load(Ordering::Relaxed), 2);
     }
 }
