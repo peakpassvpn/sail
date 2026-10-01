@@ -281,6 +281,9 @@ pub struct Network {
     known: Arc<AtomicBool>,
     /// Whether the host pushes the state, which detection then leaves.
     pushed: Arc<AtomicBool>,
+    /// The interfaces sail makes itself (its TUNs'), never listed as ones
+    /// to go out of.
+    own: Arc<std::sync::RwLock<Vec<String>>>,
 }
 
 impl Default for Network {
@@ -291,6 +294,7 @@ impl Default for Network {
             generation: Arc::default(),
             known: Arc::default(),
             pushed: Arc::default(),
+            own: Arc::default(),
         }
     }
 }
@@ -364,9 +368,25 @@ impl Network {
         !self.pushed() && self.set(state, reason)
     }
 
+    /// Names the interfaces sail makes itself, its TUNs', which a state
+    /// set from now on does not list as ones a connection may go out of,
+    /// as sing-box leaves its own out of the interfaces it picks from
+    /// (MyInterfaces). The default interface stays listed whatever it is.
+    pub(crate) fn set_own_interfaces(&self, names: Vec<String>) {
+        if let Ok(mut own) = self.own.write() {
+            *own = names;
+        }
+    }
+
     /// Changes the state, telling subscribers only of a change, and of a
     /// move when the connections do not survive it; whether that was told.
-    fn set(&self, state: NetworkState, reason: ChangeReason) -> bool {
+    fn set(&self, mut state: NetworkState, reason: ChangeReason) -> bool {
+        if let Ok(own) = self.own.read() {
+            let default = state.interface.clone();
+            state
+                .interfaces
+                .retain(|i| default.as_ref() == Some(&i.name) || !own.contains(&i.name));
+        }
         let old = self.snapshot();
         let changed = self.state.send_if_modified(|now| {
             if **now == state {
@@ -563,6 +583,45 @@ mod tests {
             addresses: addresses.iter().map(|a| a.parse().unwrap()).collect(),
             ..Default::default()
         }
+    }
+
+    fn interface(name: &str, kind: NetworkType) -> NetworkInterface {
+        NetworkInterface {
+            name: name.into(),
+            index: None,
+            kind,
+            addresses: Vec::new(),
+            expensive: false,
+            constrained: false,
+        }
+    }
+
+    #[test]
+    fn sail_s_own_tun_is_not_listed_to_go_out_of() {
+        let network = Network::default();
+        network.set_own_interfaces(vec!["utun233".into()]);
+        let mut state = on("en0", &["192.168.1.2/24"]);
+        state.interfaces = vec![
+            interface("en0", NetworkType::Wifi),
+            interface("utun233", NetworkType::Other),
+            interface("utun4", NetworkType::Other),
+        ];
+        network.detected(state.clone(), ChangeReason::State);
+        let names = |network: &Network| {
+            network
+                .snapshot()
+                .interfaces
+                .iter()
+                .map(|i| i.name.clone())
+                .collect::<Vec<_>>()
+        };
+        // Another VPN's stays, typed other.
+        assert_eq!(names(&network), ["en0", "utun4"]);
+
+        // Should the default be sail's own, it is still the default.
+        state.interface = Some("utun233".into());
+        network.detected(state, ChangeReason::State);
+        assert_eq!(names(&network), ["en0", "utun233", "utun4"]);
     }
 
     #[test]

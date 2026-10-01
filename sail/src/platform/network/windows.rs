@@ -3,6 +3,8 @@
 //! interface type; a Wi-Fi network's SSID and BSSID from the WLAN service
 //! (`WlanQueryInterface`). Windows 11 24H2 answers the WLAN service only
 //! to apps the user lets see their location: the SSID is then unknown.
+//! Every adapter that is up, loopback aside, with an address beyond its
+//! link, typed the same way.
 
 use std::net::IpAddr;
 
@@ -20,7 +22,7 @@ use windows_sys::Win32::NetworkManagement::WiFi::{
 };
 use windows_sys::Win32::Networking::WinSock::{AF_UNSPEC, SOCKET_ADDRESS};
 
-use crate::net::network::{NetworkState, NetworkType};
+use crate::net::network::{NetworkInterface, NetworkState, NetworkType};
 
 /// What of an adapter is read.
 struct Adapter {
@@ -43,6 +45,19 @@ pub(super) fn detect() -> NetworkState {
             return state;
         }
     };
+    state.interfaces = adapters
+        .iter()
+        .filter(|a| a.if_type != IF_TYPE_SOFTWARE_LOOPBACK)
+        .filter(|a| a.addresses.iter().any(|i| !super::link_local(i.address())))
+        .map(|a| NetworkInterface {
+            name: a.name.clone(),
+            index: Some(a.index),
+            kind: kind(a.if_type),
+            addresses: a.addresses.clone(),
+            expensive: false,
+            constrained: false,
+        })
+        .collect();
     let Some(adapter) = default(adapters) else {
         return state;
     };

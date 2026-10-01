@@ -2,7 +2,8 @@
 //! `detect_default_interface` takes it; the interface's kind from its
 //! functional type (`SIOCGIFFUNCTIONALTYPE`, what `ifconfig -v` prints as
 //! `type:`), which tells Wi-Fi from Ethernet where the link type does not;
-//! its MTU. No SSID: CoreWLAN gives it only to an app the user lets see
+//! its MTU; every interface, typed the same way, but that a point-to-point
+//! one (a VPN's utun, whatever type it claims) is other. No SSID: CoreWLAN gives it only to an app the user lets see
 //! their location.
 
 use std::io;
@@ -12,6 +13,7 @@ use crate::net::network::{NetworkState, NetworkType};
 use crate::platform::route_socket;
 
 // sys/sockio.h: _IOWR('i', 51 and 173, struct ifreq), a 32-byte ifreq.
+const SIOCGIFFLAGS: libc::c_ulong = 0xc020_6911;
 const SIOCGIFMTU: libc::c_ulong = 0xc020_6933;
 const SIOCGIFFUNCTIONALTYPE: libc::c_ulong = 0xc020_69ad;
 
@@ -21,7 +23,21 @@ const IFRTYPE_FUNCTIONAL_WIFI_INFRA: u32 = 3;
 const IFRTYPE_FUNCTIONAL_CELLULAR: u32 = 5;
 
 pub(super) fn detect() -> NetworkState {
-    let mut state = NetworkState::default();
+    let socket = socket().ok();
+    let kind_of = |name: &str| {
+        let ask = |request| socket.as_ref().and_then(|s| ask(s, request, name).ok());
+        let point_to_point =
+            ask(SIOCGIFFLAGS).is_some_and(|flags| flags & libc::IFF_POINTOPOINT as u32 != 0);
+        if point_to_point {
+            NetworkType::Other
+        } else {
+            kind(ask(SIOCGIFFUNCTIONALTYPE).unwrap_or(0))
+        }
+    };
+    let mut state = NetworkState {
+        interfaces: super::interfaces(kind_of),
+        ..Default::default()
+    };
     let route = match route_socket::default_route() {
         Ok(route) => route,
         Err(e) => {
@@ -33,11 +49,9 @@ pub(super) fn detect() -> NetworkState {
         return state;
     };
     state.gateway = route.gateway;
-    if let Ok(socket) = socket() {
-        state.kind = Some(kind(
-            ask(&socket, SIOCGIFFUNCTIONALTYPE, &name).unwrap_or(0),
-        ));
-        state.mtu = ask(&socket, SIOCGIFMTU, &name).ok();
+    if let Some(socket) = &socket {
+        state.kind = Some(kind_of(&name));
+        state.mtu = ask(socket, SIOCGIFMTU, &name).ok();
     }
     state.index = Some(u32::from(route.index));
     state.addresses = super::addresses_of(&name);
@@ -114,6 +128,9 @@ mod tests {
         let socket = socket().unwrap();
         assert_eq!(ask(&socket, SIOCGIFFUNCTIONALTYPE, "lo0").unwrap(), 1);
         assert_eq!(ask(&socket, SIOCGIFMTU, "lo0").unwrap(), 16384);
+        let flags = ask(&socket, SIOCGIFFLAGS, "lo0").unwrap();
+        assert!(flags & libc::IFF_LOOPBACK as u32 != 0, "{:#x}", flags);
+        assert!(flags & libc::IFF_POINTOPOINT as u32 == 0, "{:#x}", flags);
         assert!(ask(&socket, SIOCGIFMTU, "nonesuch0").is_err());
     }
 }

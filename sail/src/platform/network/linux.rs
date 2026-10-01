@@ -1,6 +1,7 @@
 //! Linux: the main table's default route, IPv4's first as
 //! `detect_default_interface` takes it; the interface's kind and MTU from
-//! sysfs; a Wi-Fi network's SSID and BSSID from nl80211.
+//! sysfs; a Wi-Fi network's SSID and BSSID from nl80211. Every interface,
+//! typed from sysfs as well.
 
 use std::path::Path;
 
@@ -8,7 +9,11 @@ use crate::net::network::{NetworkState, NetworkType};
 use crate::platform::rtnetlink::{Family, Netlink};
 
 pub(super) fn detect() -> NetworkState {
-    let mut state = NetworkState::default();
+    let root = Path::new("/");
+    let mut state = NetworkState {
+        interfaces: super::interfaces(|name| super::sysfs::kind(root, name)),
+        ..Default::default()
+    };
     let netlink = match Netlink::open() {
         Ok(netlink) => netlink,
         Err(e) => {
@@ -30,7 +35,6 @@ pub(super) fn detect() -> NetworkState {
         .chain(&v6)
         .filter(|r| r.oif == index)
         .find_map(|r| r.gateway);
-    let root = Path::new("/");
     let kind = super::sysfs::kind(root, &name);
     if kind == NetworkType::Wifi {
         match super::nl80211::wifi(index) {

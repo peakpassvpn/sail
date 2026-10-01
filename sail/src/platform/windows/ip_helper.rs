@@ -393,9 +393,21 @@ unsafe extern "system" fn on_interface(
     (*(context as *const tokio::sync::Notify)).notify_one();
 }
 
+unsafe extern "system" fn on_address(
+    context: *const core::ffi::c_void,
+    _row: *const MIB_UNICASTIPADDRESS_ROW,
+    _kind: MIB_NOTIFICATION_TYPE,
+) {
+    // SAFETY: as in on_route.
+    (*(context as *const tokio::sync::Notify)).notify_one();
+}
+
 impl ChangeNotices {
     /// Notices on `notify` of any change to a route or an interface, of
-    /// either family, as sing-tun takes them (monitor_windows.go:29-46).
+    /// either family, as sing-tun takes them (monitor_windows.go:29-46),
+    /// and to an address: an adapter that is not the default one gets or
+    /// loses one without a route or interface notice, and the interfaces
+    /// listed for a connection's choice of network change with it.
     pub(crate) fn start(notify: Arc<tokio::sync::Notify>) -> io::Result<ChangeNotices> {
         let mut this = ChangeNotices {
             handles: Vec::new(),
@@ -412,6 +424,12 @@ impl ChangeNotices {
         // SAFETY: as above.
         check(unsafe {
             NotifyIpInterfaceChange(AF_UNSPEC, Some(on_interface), context, false, &mut handle)
+        })?;
+        this.handles.push(handle);
+        let mut handle: HANDLE = std::ptr::null_mut();
+        // SAFETY: as above.
+        check(unsafe {
+            NotifyUnicastIpAddressChange(AF_UNSPEC, Some(on_address), context, false, &mut handle)
         })?;
         this.handles.push(handle);
         Ok(this)

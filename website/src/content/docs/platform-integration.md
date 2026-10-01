@@ -74,7 +74,7 @@ Rules and groups that match the network the host is on (`wifi_ssid`, `wifi_bssid
 }
 ```
 
-`interfaces` lists every interface Sail may dial out of, the default among them, for choosing a network per connection: each entry has a `name` (once each), a `type` (required), and may have `addresses`, `expensive` and `constrained`. The fields outside it describe the default network, which `interface` names; when both are given, the list must hold it. Rules and changes of network go by the default network; a change to the list alone is no change of network. Sail's own detection does not list interfaces yet.
+`interfaces` lists every interface Sail may dial out of, the default among them, for choosing a network per connection: each entry has a `name` (once each), a `type` (required), and may have `addresses`, `expensive` and `constrained`. The fields outside it describe the default network, which `interface` names; when both are given, the list must hold it. Rules and changes of network go by the default network; a change to the list alone is no change of network. Where the host pushes no state, Sail's own detection on Linux, macOS and Windows lists them too: every interface that is up, loopback aside, with an address beyond its link, typed as the default is, cellular ones expensive. What is virtual (another VPN's tunnel, a bridge, a container's network, any point-to-point interface on macOS) is `other`, and Sail's own TUN is never listed. sing-box lists interfaces only in its graphical clients on Android and Apple, so its `network_strategy` works only there; Sail's works on desktops and servers as well.
 
 `type` is `wifi`, `cellular`, `ethernet` or `other`; every field may be left out, and a condition on a field that is not known does not match. Once a host pushes a state, Sail's own detection stops for the rest of the instance's life.
 
@@ -83,8 +83,8 @@ Without a push, Sail detects what the system tells without extra permissions:
 | System | Interface, gateway, addresses | Type | SSID and BSSID | Follows changes |
 | --- | --- | --- | --- | --- |
 | Linux | main table's default route (rtnetlink) | `/sys/class/net` | nl80211 | yes, on the route and address monitor |
-| macOS | IPv4 default route | the interface's functional type | no: CoreWLAN needs Location permission | yes, on the routing socket's messages |
-| Windows | adapter with a gateway and the lowest metric | the adapter's interface type | WLAN service (Windows 11 24H2 asks for Location permission) | yes, on route and interface change notices |
+| macOS | IPv4 default route | the interface's functional type; a point-to-point one is `other` | no: CoreWLAN needs Location permission | yes, on the routing socket's messages |
+| Windows | adapter with a gateway and the lowest metric | the adapter's interface type | WLAN service (Windows 11 24H2 asks for Location permission) | yes, on route, interface and address change notices |
 | Android, iOS | -- | -- | -- | the host pushes |
 
 A cellular network counts as expensive; no system above says whether a network is constrained, so only a host can. A change of state is logged at `info` with the type, interface and gateway; the SSID and BSSID only at `debug`.

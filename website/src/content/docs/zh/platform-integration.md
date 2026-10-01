@@ -61,7 +61,7 @@ Sail 将代理行为保留在 Rust 核心，把宿主特有能力注入边界。
 }
 ```
 
-`interfaces` 列出 Sail 可以从中拨出的所有接口（包括默认接口），用于按连接选择网络：每项有 `name`（不可重复）和必填的 `type`，可带 `addresses`、`expensive` 与 `constrained`。列表外的字段描述默认网络，由 `interface` 指明；两者都给出时，列表中必须包含它。规则和网络变化以默认网络为准；只有列表变化不算网络变化。Sail 自己的检测目前还不列出接口。
+`interfaces` 列出 Sail 可以从中拨出的所有接口（包括默认接口），用于按连接选择网络：每项有 `name`（不可重复）和必填的 `type`，可带 `addresses`、`expensive` 与 `constrained`。列表外的字段描述默认网络，由 `interface` 指明；两者都给出时，列表中必须包含它。规则和网络变化以默认网络为准；只有列表变化不算网络变化。宿主不推送状态时，Sail 在 Linux、macOS 与 Windows 上自己检测并列出接口：所有已启用、非回环、且有链路本地以外地址的接口，类型与默认接口的判定方式相同，蜂窝接口视为按流量计费。虚拟接口（其他 VPN 的隧道、网桥、容器网络，以及 macOS 上所有点对点接口）类型为 `other`；Sail 自己的 TUN 不会列入。sing-box 只在 Android 与 Apple 的图形客户端里列出接口，因此它的 `network_strategy` 只在那里有效；Sail 的在桌面和服务端同样有效。
 
 `type` 为 `wifi`、`cellular`、`ethernet` 或 `other`；每个字段都可省略，针对未知字段的条件不匹配。宿主推送过一次后，该实例余下的生命周期内不再使用 Sail 自己的检测。
 
@@ -70,8 +70,8 @@ Sail 将代理行为保留在 Rust 核心，把宿主特有能力注入边界。
 | 系统 | 接口、网关、地址 | 类型 | SSID 与 BSSID | 跟随变化 |
 | --- | --- | --- | --- | --- |
 | Linux | 主路由表默认路由（rtnetlink） | `/sys/class/net` | nl80211 | 是，基于路由与地址监视 |
-| macOS | IPv4 默认路由 | 接口的功能类型 | 无：CoreWLAN 需要定位权限 | 是，基于路由 socket 的消息 |
-| Windows | 有网关且跃点数最低的适配器 | 适配器接口类型 | WLAN 服务（Windows 11 24H2 需要定位权限） | 是，基于路由与接口变化通知 |
+| macOS | IPv4 默认路由 | 接口的功能类型；点对点接口为 `other` | 无：CoreWLAN 需要定位权限 | 是，基于路由 socket 的消息 |
+| Windows | 有网关且跃点数最低的适配器 | 适配器接口类型 | WLAN 服务（Windows 11 24H2 需要定位权限） | 是，基于路由、接口与地址变化通知 |
 | Android、iOS | -- | -- | -- | 由宿主推送 |
 
 蜂窝网络视为按流量计费（expensive）；上述系统都不提供低数据模式（constrained），只能由宿主推送。状态变化以 `info` 级别记录类型、接口和网关；SSID 与 BSSID 只在 `debug` 级别记录。

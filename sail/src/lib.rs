@@ -551,6 +551,9 @@ impl RuntimeManager {
     /// all that did not change; the changes lock is held.
     async fn apply(&self, config: config::Config) -> Result<(), Error> {
         self.env.neighbors.start_if_needed(&config);
+        self.env
+            .network
+            .set_own_interfaces(own_interfaces(&config, &self.env.host));
         let inbound_resources = self
             .inbound_manager
             .lock()
@@ -1094,6 +1097,25 @@ pub fn network_changed(key: RuntimeId, mtu: Option<usize>) -> Result<(), Error> 
     }
 }
 
+/// The interfaces `config` has sail make on `host`: its TUNs'.
+fn own_interfaces(config: &config::Config, host: &runtime::Host) -> Vec<String> {
+    #[cfg(feature = "inbound-tun")]
+    {
+        config
+            .inbounds
+            .iter()
+            .filter(|i| i.protocol == "tun")
+            .filter_map(|i| protocol::tun::inbound::options(i, host).ok())
+            .map(|settings| settings.name)
+            .collect()
+    }
+    #[cfg(not(feature = "inbound-tun"))]
+    {
+        let _ = (config, host);
+        Vec::new()
+    }
+}
+
 /// Looks at the default interface and the network again when interfaces,
 /// addresses or routes change, a second after the last change, as
 /// sing-box does; when the interface moved, the TUN's flows, bound to the
@@ -1560,6 +1582,8 @@ fn run(rt_id: RuntimeId, opts: StartOptions, start: &Arc<Starting>) -> Result<()
         .map_err(Error::Config)?;
     // The LAN devices, when a rule or DNS server asks for them.
     env.neighbors.start_if_needed(&config);
+    env.network
+        .set_own_interfaces(own_interfaces(&config, &env.host));
     // The API server joins them, when it is compiled in.
     // Bound before anything starts: an address in use fails the start.
     #[cfg(feature = "clash-api")]
@@ -1820,12 +1844,20 @@ fn run(rt_id: RuntimeId, opts: StartOptions, start: &Arc<Starting>) -> Result<()
 /// (judgment). A real device's DHCP and router advertisements after a
 /// switch are not measured: notices that come later make sail look again,
 /// which closes nothing unless the network differs again.
+#[cfg_attr(
+    not(any(target_os = "linux", target_os = "macos", target_os = "windows")),
+    allow(dead_code)
+)]
 const SETTLE_QUIET: std::time::Duration = std::time::Duration::from_millis(100);
 
 /// The longest sail waits for the system to be quiet: notices that have
 /// nothing to do with the change, an address's duplicate detection ending
 /// on another interface, kept a quiet window of 1 s from ending for 1.4 s
 /// (measured). Judgment: the 1 s sail used to wait at the least.
+#[cfg_attr(
+    not(any(target_os = "linux", target_os = "macos", target_os = "windows")),
+    allow(dead_code)
+)]
 const SETTLE_MAX: std::time::Duration = std::time::Duration::from_secs(1);
 
 /// Waits until `changed` gives no notice for `quiet`, or `max` has passed.
