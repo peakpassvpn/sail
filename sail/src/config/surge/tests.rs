@@ -1272,3 +1272,41 @@ fn unused_wireguard_sections_are_told_of_in_order() {
         .collect();
     assert_eq!(told, expected);
 }
+
+/// `hybrid` is sing-box's network strategy: `on` Wi-Fi and cellular at
+/// once, `off` the default interface alone, `auto` as `all-hybrid` says,
+/// which is the route's default.
+#[test]
+fn hybrid_is_a_network_strategy() {
+    let config = load(
+        "[General]\nall-hybrid = true\n\
+         [Proxy]\n\
+         On = trojan, a.example, 443, password=p, hybrid=on\n\
+         Off = direct, hybrid=false\n\
+         Auto = trojan, a.example, 443, password=p, hybrid=auto\n\
+         [Rule]\nFINAL,On\n",
+    );
+    assert_eq!(outbound(&config, "On")["network_strategy"], "hybrid");
+    assert_eq!(outbound(&config, "Off")["network_strategy"], "default");
+    assert!(outbound(&config, "Auto").get("network_strategy").is_none());
+    let route = serde_json::to_value(&config.route).unwrap();
+    assert_eq!(route["default_network_strategy"], "hybrid");
+    // Which sail's network strategy, as sing-box's, needs.
+    assert_eq!(route["auto_detect_interface"], true);
+    let one = load("[Proxy]\nA = direct, hybrid=on\n[Rule]\nFINAL,A\n");
+    assert!(one.route.auto_detect_interface);
+    assert!(
+        !load("[Proxy]\nA = direct, hybrid=off\n[Rule]\nFINAL,A\n")
+            .route
+            .auto_detect_interface
+    );
+    assert!(
+        serde_json::to_value(&load("[Rule]\nFINAL,DIRECT\n").route).unwrap()
+            ["default_network_strategy"]
+            .is_null()
+    );
+    assert!(
+        error("[Proxy]\nA = direct, hybrid=maybe\n[Rule]\nFINAL,A\n")
+            .contains("hybrid: \"maybe\" is none of auto, on and off"),
+    );
+}

@@ -6,7 +6,7 @@ Surge 手册（manual.nssurge.com of 2026-09-22）列出的全部字段，以及
 
 | 部分 | 字段 | 支持 | 静默忽略 | 警告 | 报错 |
 |---|--:|--:|--:|--:|--:|
-| `General` | 58 | 22 | 30 | 6 | 0 |
+| `General` | 58 | 23 | 29 | 6 | 0 |
 | `Keystore` | 3 | 3 | 0 | 0 | 0 |
 | `Proxy Group[fallback]` | 16 | 11 | 4 | 1 | 0 |
 | `Proxy Group[load-balance]` | 14 | 10 | 4 | 0 | 0 |
@@ -15,35 +15,35 @@ Surge 手册（manual.nssurge.com of 2026-09-22）列出的全部字段，以及
 | `Proxy Group[ssid]` | 6 | 3 | 3 | 0 | 0 |
 | `Proxy Group[subnet]` | 6 | 3 | 3 | 0 | 0 |
 | `Proxy Group[url-test]` | 17 | 11 | 4 | 2 | 0 |
-| `Proxy[anytls]` | 28 | 16 | 4 | 7 | 1 |
-| `Proxy[direct]` | 12 | 3 | 2 | 7 | 0 |
+| `Proxy[anytls]` | 28 | 17 | 3 | 7 | 1 |
+| `Proxy[direct]` | 12 | 4 | 1 | 7 | 0 |
 | `Proxy[external]` | 20 | 0 | 0 | 0 | 20 |
 | `Proxy[h2-connect]` | 32 | 0 | 0 | 0 | 32 |
-| `Proxy[http]` | 24 | 13 | 4 | 7 | 0 |
-| `Proxy[https]` | 30 | 18 | 4 | 7 | 1 |
-| `Proxy[hysteria2]` | 29 | 16 | 4 | 7 | 2 |
+| `Proxy[http]` | 24 | 14 | 3 | 7 | 0 |
+| `Proxy[https]` | 30 | 19 | 3 | 7 | 1 |
+| `Proxy[hysteria2]` | 29 | 17 | 3 | 7 | 2 |
 | `Proxy[masque]` | 27 | 0 | 0 | 0 | 27 |
 | `Proxy[reject-drop]` | 12 | 1 | 4 | 7 | 0 |
 | `Proxy[reject-no-drop]` | 12 | 1 | 4 | 7 | 0 |
 | `Proxy[reject-tinygif]` | 12 | 1 | 4 | 7 | 0 |
 | `Proxy[reject]` | 12 | 1 | 4 | 7 | 0 |
 | `Proxy[snell]` | 28 | 0 | 0 | 0 | 28 |
-| `Proxy[socks5-tls]` | 29 | 17 | 4 | 7 | 1 |
-| `Proxy[socks5]` | 23 | 12 | 4 | 7 | 0 |
-| `Proxy[ss]` | 27 | 15 | 4 | 7 | 1 |
+| `Proxy[socks5-tls]` | 29 | 18 | 3 | 7 | 1 |
+| `Proxy[socks5]` | 23 | 13 | 3 | 7 | 0 |
+| `Proxy[ss]` | 27 | 16 | 3 | 7 | 1 |
 | `Proxy[ssh]` | 25 | 0 | 0 | 0 | 25 |
 | `Proxy[tailscale]` | 5 | 0 | 0 | 0 | 5 |
-| `Proxy[trojan]` | 30 | 18 | 4 | 7 | 1 |
+| `Proxy[trojan]` | 30 | 19 | 3 | 7 | 1 |
 | `Proxy[trust-tunnel]` | 31 | 0 | 0 | 0 | 31 |
-| `Proxy[tuic-v5]` | 27 | 13 | 5 | 7 | 2 |
+| `Proxy[tuic-v5]` | 27 | 14 | 4 | 7 | 2 |
 | `Proxy[tuic]` | 26 | 0 | 0 | 0 | 26 |
-| `Proxy[vmess]` | 33 | 21 | 4 | 7 | 1 |
+| `Proxy[vmess]` | 33 | 22 | 3 | 7 | 1 |
 | `Proxy[wireguard]` | 5 | 3 | 0 | 2 | 0 |
 | `Rule` | 152 | 59 | 75 | 0 | 18 |
 | `SSID Setting` | 6 | 0 | 0 | 6 | 0 |
 | `Sections` | 17 | 3 | 3 | 11 | 0 |
 | `WireGuard` | 13 | 11 | 0 | 2 | 0 |
-| **All** | **874** | **324** | **193** | **135** | **222** |
+| **All** | **874** | **336** | **181** | **135** | **222** |
 
 
 ## `Sections`
@@ -57,7 +57,7 @@ Surge 手册（manual.nssurge.com of 2026-09-22）列出的全部字段，以及
 
 | 字段 | sail | sail 的说明 |
 |---|---|---|
-| `General.all-hybrid` | 静默忽略 |  |
+| `General.all-hybrid` | 支持 |  |
 | `General.allow-dns-svcb` | 支持 |  |
 | `General.allow-hotspot-access` | 支持 |  |
 | `General.allow-wifi-access` | 支持 |  |
@@ -274,7 +274,7 @@ Surge 手册（manual.nssurge.com of 2026-09-22）列出的全部字段，以及
 | `Proxy[anytls].client-cert` | 支持 | client-cert: no [Keystore] item is named "c" |
 | `Proxy[anytls].dns-follow-interface` | 静默忽略 |  |
 | `Proxy[anytls].ecn` | 静默忽略 |  |
-| `Proxy[anytls].hybrid` | 静默忽略 |  |
+| `Proxy[anytls].hybrid` | 支持 |  |
 | `Proxy[anytls].interface` | 支持 |  |
 | `Proxy[anytls].ip-version` | 支持 |  |
 | `Proxy[anytls].no-error-alert` | 静默忽略 |  |
@@ -304,7 +304,7 @@ Surge 手册（manual.nssurge.com of 2026-09-22）列出的全部字段，以及
 | `Proxy[direct].allow-other-interface` | 警告 | allow-other-interface: sail does not implement this parameter: without its interface, a connection fails; ignored |
 | `Proxy[direct].block-quic` | 警告 | block-quic: sail does not block QUIC; ignored, and QUIC goes through the policy |
 | `Proxy[direct].dns-follow-interface` | 静默忽略 |  |
-| `Proxy[direct].hybrid` | 静默忽略 |  |
+| `Proxy[direct].hybrid` | 支持 |  |
 | `Proxy[direct].interface` | 支持 |  |
 | `Proxy[direct].ip-version` | 支持 |  |
 | `Proxy[direct].test-timeout` | 警告 | test-url, test-timeout, test-udp of P: sail tests a group's members with [General] proxy-test-url; ignored |
@@ -336,7 +336,7 @@ Surge 手册（manual.nssurge.com of 2026-09-22）列出的全部字段，以及
 | `Proxy[http].dns-follow-interface` | 静默忽略 |  |
 | `Proxy[http].ecn` | 静默忽略 |  |
 | `Proxy[http].headers` | 支持 |  |
-| `Proxy[http].hybrid` | 静默忽略 |  |
+| `Proxy[http].hybrid` | 支持 |  |
 | `Proxy[http].interface` | 支持 |  |
 | `Proxy[http].ip-version` | 支持 |  |
 | `Proxy[http].no-error-alert` | 静默忽略 |  |
@@ -367,7 +367,7 @@ Surge 手册（manual.nssurge.com of 2026-09-22）列出的全部字段，以及
 | `Proxy[https].dns-follow-interface` | 静默忽略 |  |
 | `Proxy[https].ecn` | 静默忽略 |  |
 | `Proxy[https].headers` | 支持 |  |
-| `Proxy[https].hybrid` | 静默忽略 |  |
+| `Proxy[https].hybrid` | 支持 |  |
 | `Proxy[https].interface` | 支持 |  |
 | `Proxy[https].ip-version` | 支持 |  |
 | `Proxy[https].no-error-alert` | 静默忽略 |  |
@@ -402,7 +402,7 @@ Surge 手册（manual.nssurge.com of 2026-09-22）列出的全部字段，以及
 | `Proxy[hysteria2].download-bandwidth` | 支持 |  |
 | `Proxy[hysteria2].ecn` | 静默忽略 |  |
 | `Proxy[hysteria2].gecko-password` | 报错 | gecko-password: sail does not implement this parameter yet |
-| `Proxy[hysteria2].hybrid` | 静默忽略 |  |
+| `Proxy[hysteria2].hybrid` | 支持 |  |
 | `Proxy[hysteria2].interface` | 支持 |  |
 | `Proxy[hysteria2].ip-version` | 支持 |  |
 | `Proxy[hysteria2].no-error-alert` | 静默忽略 |  |
@@ -514,7 +514,7 @@ Surge 手册（manual.nssurge.com of 2026-09-22）列出的全部字段，以及
 | `Proxy[socks5-tls].client-cert` | 支持 | client-cert: no [Keystore] item is named "c" |
 | `Proxy[socks5-tls].dns-follow-interface` | 静默忽略 |  |
 | `Proxy[socks5-tls].ecn` | 静默忽略 |  |
-| `Proxy[socks5-tls].hybrid` | 静默忽略 |  |
+| `Proxy[socks5-tls].hybrid` | 支持 |  |
 | `Proxy[socks5-tls].interface` | 支持 |  |
 | `Proxy[socks5-tls].ip-version` | 支持 |  |
 | `Proxy[socks5-tls].no-error-alert` | 静默忽略 |  |
@@ -546,7 +546,7 @@ Surge 手册（manual.nssurge.com of 2026-09-22）列出的全部字段，以及
 | `Proxy[socks5].block-quic` | 警告 | block-quic: sail does not block QUIC; ignored, and QUIC goes through the policy |
 | `Proxy[socks5].dns-follow-interface` | 静默忽略 |  |
 | `Proxy[socks5].ecn` | 静默忽略 |  |
-| `Proxy[socks5].hybrid` | 静默忽略 |  |
+| `Proxy[socks5].hybrid` | 支持 |  |
 | `Proxy[socks5].interface` | 支持 |  |
 | `Proxy[socks5].ip-version` | 支持 |  |
 | `Proxy[socks5].no-error-alert` | 静默忽略 |  |
@@ -575,7 +575,7 @@ Surge 手册（manual.nssurge.com of 2026-09-22）列出的全部字段，以及
 | `Proxy[ss].dns-follow-interface` | 静默忽略 |  |
 | `Proxy[ss].ecn` | 静默忽略 |  |
 | `Proxy[ss].encrypt-method` | 支持 |  |
-| `Proxy[ss].hybrid` | 静默忽略 |  |
+| `Proxy[ss].hybrid` | 支持 |  |
 | `Proxy[ss].interface` | 支持 |  |
 | `Proxy[ss].ip-version` | 支持 |  |
 | `Proxy[ss].no-error-alert` | 静默忽略 |  |
@@ -620,7 +620,7 @@ Surge 手册（manual.nssurge.com of 2026-09-22）列出的全部字段，以及
 | `Proxy[trojan].client-cert` | 支持 | client-cert: no [Keystore] item is named "c" |
 | `Proxy[trojan].dns-follow-interface` | 静默忽略 |  |
 | `Proxy[trojan].ecn` | 静默忽略 |  |
-| `Proxy[trojan].hybrid` | 静默忽略 |  |
+| `Proxy[trojan].hybrid` | 支持 |  |
 | `Proxy[trojan].interface` | 支持 |  |
 | `Proxy[trojan].ip-version` | 支持 |  |
 | `Proxy[trojan].no-error-alert` | 静默忽略 |  |
@@ -661,7 +661,7 @@ Surge 手册（manual.nssurge.com of 2026-09-22）列出的全部字段，以及
 | `Proxy[tuic-v5].client-cert` | 支持 | client-cert: no [Keystore] item is named "c" |
 | `Proxy[tuic-v5].dns-follow-interface` | 静默忽略 |  |
 | `Proxy[tuic-v5].ecn` | 静默忽略 |  |
-| `Proxy[tuic-v5].hybrid` | 静默忽略 |  |
+| `Proxy[tuic-v5].hybrid` | 支持 |  |
 | `Proxy[tuic-v5].interface` | 支持 |  |
 | `Proxy[tuic-v5].ip-version` | 支持 |  |
 | `Proxy[tuic-v5].no-error-alert` | 静默忽略 |  |
@@ -700,7 +700,7 @@ Surge 手册（manual.nssurge.com of 2026-09-22）列出的全部字段，以及
 | `Proxy[vmess].dns-follow-interface` | 静默忽略 |  |
 | `Proxy[vmess].ecn` | 静默忽略 |  |
 | `Proxy[vmess].encrypt-method` | 支持 |  |
-| `Proxy[vmess].hybrid` | 静默忽略 |  |
+| `Proxy[vmess].hybrid` | 支持 |  |
 | `Proxy[vmess].interface` | 支持 |  |
 | `Proxy[vmess].ip-version` | 支持 |  |
 | `Proxy[vmess].no-error-alert` | 静默忽略 |  |

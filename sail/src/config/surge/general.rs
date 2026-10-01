@@ -46,7 +46,6 @@ const KEYS: &[(&str, Tier)] = &[
     ("enhanced-mode-by-rule", Silent),
     // The device's networks.
     ("wifi-assist", Silent),
-    ("all-hybrid", Silent),
     ("subnet-exp-wifi-always-match", Silent),
     ("use-default-policy-if-wifi-not-primary", Silent),
     ("network-framework", Silent),
@@ -176,6 +175,12 @@ pub fn lower(lines: Vec<Line>, out: &mut Lowered, warnings: &mut Vec<String>) ->
                 at, value
             )),
         }
+    }
+    // Every connection on Wi-Fi and cellular at once, as a policy's
+    // `hybrid` is when it says `auto`.
+    if p.bool("all-hybrid")? == Some(true) {
+        out.route
+            .insert("default_network_strategy".into(), json!("hybrid"));
     }
     let (rules, dns) = super::dns::lower(&mut p, out)?;
     general.rules.extend(rules);

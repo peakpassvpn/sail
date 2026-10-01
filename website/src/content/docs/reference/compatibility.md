@@ -110,7 +110,7 @@ Full table: [docs/compat/surge.md](https://github.com/peakpassvpn/sail/blob/dev/
 
 | Section | Fields | Supported | Ignored silently | Warned | Error |
 |---|--:|--:|--:|--:|--:|
-| `General` | 58 | 22 | 30 | 6 | 0 |
+| `General` | 58 | 23 | 29 | 6 | 0 |
 | `Keystore` | 3 | 3 | 0 | 0 | 0 |
 | `Proxy Group[fallback]` | 16 | 11 | 4 | 1 | 0 |
 | `Proxy Group[load-balance]` | 14 | 10 | 4 | 0 | 0 |
@@ -119,33 +119,33 @@ Full table: [docs/compat/surge.md](https://github.com/peakpassvpn/sail/blob/dev/
 | `Proxy Group[ssid]` | 6 | 3 | 3 | 0 | 0 |
 | `Proxy Group[subnet]` | 6 | 3 | 3 | 0 | 0 |
 | `Proxy Group[url-test]` | 17 | 11 | 4 | 2 | 0 |
-| `Proxy[anytls]` | 28 | 16 | 4 | 7 | 1 |
-| `Proxy[direct]` | 12 | 3 | 2 | 7 | 0 |
+| `Proxy[anytls]` | 28 | 17 | 3 | 7 | 1 |
+| `Proxy[direct]` | 12 | 4 | 1 | 7 | 0 |
 | `Proxy[external]` | 20 | 0 | 0 | 0 | 20 |
 | `Proxy[h2-connect]` | 32 | 0 | 0 | 0 | 32 |
-| `Proxy[http]` | 24 | 13 | 4 | 7 | 0 |
-| `Proxy[https]` | 30 | 18 | 4 | 7 | 1 |
-| `Proxy[hysteria2]` | 29 | 16 | 4 | 7 | 2 |
+| `Proxy[http]` | 24 | 14 | 3 | 7 | 0 |
+| `Proxy[https]` | 30 | 19 | 3 | 7 | 1 |
+| `Proxy[hysteria2]` | 29 | 17 | 3 | 7 | 2 |
 | `Proxy[masque]` | 27 | 0 | 0 | 0 | 27 |
 | `Proxy[reject-drop]` | 12 | 1 | 4 | 7 | 0 |
 | `Proxy[reject-no-drop]` | 12 | 1 | 4 | 7 | 0 |
 | `Proxy[reject-tinygif]` | 12 | 1 | 4 | 7 | 0 |
 | `Proxy[reject]` | 12 | 1 | 4 | 7 | 0 |
 | `Proxy[snell]` | 28 | 0 | 0 | 0 | 28 |
-| `Proxy[socks5-tls]` | 29 | 17 | 4 | 7 | 1 |
-| `Proxy[socks5]` | 23 | 12 | 4 | 7 | 0 |
-| `Proxy[ss]` | 27 | 15 | 4 | 7 | 1 |
+| `Proxy[socks5-tls]` | 29 | 18 | 3 | 7 | 1 |
+| `Proxy[socks5]` | 23 | 13 | 3 | 7 | 0 |
+| `Proxy[ss]` | 27 | 16 | 3 | 7 | 1 |
 | `Proxy[ssh]` | 25 | 0 | 0 | 0 | 25 |
 | `Proxy[tailscale]` | 5 | 0 | 0 | 0 | 5 |
-| `Proxy[trojan]` | 30 | 18 | 4 | 7 | 1 |
+| `Proxy[trojan]` | 30 | 19 | 3 | 7 | 1 |
 | `Proxy[trust-tunnel]` | 31 | 0 | 0 | 0 | 31 |
-| `Proxy[tuic-v5]` | 27 | 13 | 5 | 7 | 2 |
+| `Proxy[tuic-v5]` | 27 | 14 | 4 | 7 | 2 |
 | `Proxy[tuic]` | 26 | 0 | 0 | 0 | 26 |
-| `Proxy[vmess]` | 33 | 21 | 4 | 7 | 1 |
+| `Proxy[vmess]` | 33 | 22 | 3 | 7 | 1 |
 | `Proxy[wireguard]` | 5 | 3 | 0 | 2 | 0 |
 | `Rule` | 152 | 59 | 75 | 0 | 18 |
 | `SSID Setting` | 6 | 0 | 0 | 6 | 0 |
 | `Sections` | 17 | 3 | 3 | 11 | 0 |
 | `WireGuard` | 13 | 11 | 0 | 2 | 0 |
-| **All** | **874** | **324** | **193** | **135** | **222** |
+| **All** | **874** | **336** | **181** | **135** | **222** |
 

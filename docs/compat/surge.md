@@ -6,7 +6,7 @@ Every field Surge's manual (manual.nssurge.com of 2026-09-22) lists, and how sai
 
 | Section | Fields | Supported | Ignored silently | Warned | Error |
 |---|--:|--:|--:|--:|--:|
-| `General` | 58 | 22 | 30 | 6 | 0 |
+| `General` | 58 | 23 | 29 | 6 | 0 |
 | `Keystore` | 3 | 3 | 0 | 0 | 0 |
 | `Proxy Group[fallback]` | 16 | 11 | 4 | 1 | 0 |
 | `Proxy Group[load-balance]` | 14 | 10 | 4 | 0 | 0 |
@@ -15,35 +15,35 @@ Every field Surge's manual (manual.nssurge.com of 2026-09-22) lists, and how sai
 | `Proxy Group[ssid]` | 6 | 3 | 3 | 0 | 0 |
 | `Proxy Group[subnet]` | 6 | 3 | 3 | 0 | 0 |
 | `Proxy Group[url-test]` | 17 | 11 | 4 | 2 | 0 |
-| `Proxy[anytls]` | 28 | 16 | 4 | 7 | 1 |
-| `Proxy[direct]` | 12 | 3 | 2 | 7 | 0 |
+| `Proxy[anytls]` | 28 | 17 | 3 | 7 | 1 |
+| `Proxy[direct]` | 12 | 4 | 1 | 7 | 0 |
 | `Proxy[external]` | 20 | 0 | 0 | 0 | 20 |
 | `Proxy[h2-connect]` | 32 | 0 | 0 | 0 | 32 |
-| `Proxy[http]` | 24 | 13 | 4 | 7 | 0 |
-| `Proxy[https]` | 30 | 18 | 4 | 7 | 1 |
-| `Proxy[hysteria2]` | 29 | 16 | 4 | 7 | 2 |
+| `Proxy[http]` | 24 | 14 | 3 | 7 | 0 |
+| `Proxy[https]` | 30 | 19 | 3 | 7 | 1 |
+| `Proxy[hysteria2]` | 29 | 17 | 3 | 7 | 2 |
 | `Proxy[masque]` | 27 | 0 | 0 | 0 | 27 |
 | `Proxy[reject-drop]` | 12 | 1 | 4 | 7 | 0 |
 | `Proxy[reject-no-drop]` | 12 | 1 | 4 | 7 | 0 |
 | `Proxy[reject-tinygif]` | 12 | 1 | 4 | 7 | 0 |
 | `Proxy[reject]` | 12 | 1 | 4 | 7 | 0 |
 | `Proxy[snell]` | 28 | 0 | 0 | 0 | 28 |
-| `Proxy[socks5-tls]` | 29 | 17 | 4 | 7 | 1 |
-| `Proxy[socks5]` | 23 | 12 | 4 | 7 | 0 |
-| `Proxy[ss]` | 27 | 15 | 4 | 7 | 1 |
+| `Proxy[socks5-tls]` | 29 | 18 | 3 | 7 | 1 |
+| `Proxy[socks5]` | 23 | 13 | 3 | 7 | 0 |
+| `Proxy[ss]` | 27 | 16 | 3 | 7 | 1 |
 | `Proxy[ssh]` | 25 | 0 | 0 | 0 | 25 |
 | `Proxy[tailscale]` | 5 | 0 | 0 | 0 | 5 |
-| `Proxy[trojan]` | 30 | 18 | 4 | 7 | 1 |
+| `Proxy[trojan]` | 30 | 19 | 3 | 7 | 1 |
 | `Proxy[trust-tunnel]` | 31 | 0 | 0 | 0 | 31 |
-| `Proxy[tuic-v5]` | 27 | 13 | 5 | 7 | 2 |
+| `Proxy[tuic-v5]` | 27 | 14 | 4 | 7 | 2 |
 | `Proxy[tuic]` | 26 | 0 | 0 | 0 | 26 |
-| `Proxy[vmess]` | 33 | 21 | 4 | 7 | 1 |
+| `Proxy[vmess]` | 33 | 22 | 3 | 7 | 1 |
 | `Proxy[wireguard]` | 5 | 3 | 0 | 2 | 0 |
 | `Rule` | 152 | 59 | 75 | 0 | 18 |
 | `SSID Setting` | 6 | 0 | 0 | 6 | 0 |
 | `Sections` | 17 | 3 | 3 | 11 | 0 |
 | `WireGuard` | 13 | 11 | 0 | 2 | 0 |
-| **All** | **874** | **324** | **193** | **135** | **222** |
+| **All** | **874** | **336** | **181** | **135** | **222** |
 
 
 ## `Sections`
@@ -57,7 +57,7 @@ Every field Surge's manual (manual.nssurge.com of 2026-09-22) lists, and how sai
 
 | Field | sail | What sail says |
 |---|---|---|
-| `General.all-hybrid` | Ignored silently |  |
+| `General.all-hybrid` | Supported |  |
 | `General.allow-dns-svcb` | Supported |  |
 | `General.allow-hotspot-access` | Supported |  |
 | `General.allow-wifi-access` | Supported |  |
@@ -274,7 +274,7 @@ Every field Surge's manual (manual.nssurge.com of 2026-09-22) lists, and how sai
 | `Proxy[anytls].client-cert` | Supported | client-cert: no [Keystore] item is named "c" |
 | `Proxy[anytls].dns-follow-interface` | Ignored silently |  |
 | `Proxy[anytls].ecn` | Ignored silently |  |
-| `Proxy[anytls].hybrid` | Ignored silently |  |
+| `Proxy[anytls].hybrid` | Supported |  |
 | `Proxy[anytls].interface` | Supported |  |
 | `Proxy[anytls].ip-version` | Supported |  |
 | `Proxy[anytls].no-error-alert` | Ignored silently |  |
@@ -304,7 +304,7 @@ Every field Surge's manual (manual.nssurge.com of 2026-09-22) lists, and how sai
 | `Proxy[direct].allow-other-interface` | Warned | allow-other-interface: sail does not implement this parameter: without its interface, a connection fails; ignored |
 | `Proxy[direct].block-quic` | Warned | block-quic: sail does not block QUIC; ignored, and QUIC goes through the policy |
 | `Proxy[direct].dns-follow-interface` | Ignored silently |  |
-| `Proxy[direct].hybrid` | Ignored silently |  |
+| `Proxy[direct].hybrid` | Supported |  |
 | `Proxy[direct].interface` | Supported |  |
 | `Proxy[direct].ip-version` | Supported |  |
 | `Proxy[direct].test-timeout` | Warned | test-url, test-timeout, test-udp of P: sail tests a group's members with [General] proxy-test-url; ignored |
@@ -336,7 +336,7 @@ Every field Surge's manual (manual.nssurge.com of 2026-09-22) lists, and how sai
 | `Proxy[http].dns-follow-interface` | Ignored silently |  |
 | `Proxy[http].ecn` | Ignored silently |  |
 | `Proxy[http].headers` | Supported |  |
-| `Proxy[http].hybrid` | Ignored silently |  |
+| `Proxy[http].hybrid` | Supported |  |
 | `Proxy[http].interface` | Supported |  |
 | `Proxy[http].ip-version` | Supported |  |
 | `Proxy[http].no-error-alert` | Ignored silently |  |
@@ -367,7 +367,7 @@ Every field Surge's manual (manual.nssurge.com of 2026-09-22) lists, and how sai
 | `Proxy[https].dns-follow-interface` | Ignored silently |  |
 | `Proxy[https].ecn` | Ignored silently |  |
 | `Proxy[https].headers` | Supported |  |
-| `Proxy[https].hybrid` | Ignored silently |  |
+| `Proxy[https].hybrid` | Supported |  |
 | `Proxy[https].interface` | Supported |  |
 | `Proxy[https].ip-version` | Supported |  |
 | `Proxy[https].no-error-alert` | Ignored silently |  |
@@ -402,7 +402,7 @@ Every field Surge's manual (manual.nssurge.com of 2026-09-22) lists, and how sai
 | `Proxy[hysteria2].download-bandwidth` | Supported |  |
 | `Proxy[hysteria2].ecn` | Ignored silently |  |
 | `Proxy[hysteria2].gecko-password` | Error | gecko-password: sail does not implement this parameter yet |
-| `Proxy[hysteria2].hybrid` | Ignored silently |  |
+| `Proxy[hysteria2].hybrid` | Supported |  |
 | `Proxy[hysteria2].interface` | Supported |  |
 | `Proxy[hysteria2].ip-version` | Supported |  |
 | `Proxy[hysteria2].no-error-alert` | Ignored silently |  |
@@ -514,7 +514,7 @@ Every field Surge's manual (manual.nssurge.com of 2026-09-22) lists, and how sai
 | `Proxy[socks5-tls].client-cert` | Supported | client-cert: no [Keystore] item is named "c" |
 | `Proxy[socks5-tls].dns-follow-interface` | Ignored silently |  |
 | `Proxy[socks5-tls].ecn` | Ignored silently |  |
-| `Proxy[socks5-tls].hybrid` | Ignored silently |  |
+| `Proxy[socks5-tls].hybrid` | Supported |  |
 | `Proxy[socks5-tls].interface` | Supported |  |
 | `Proxy[socks5-tls].ip-version` | Supported |  |
 | `Proxy[socks5-tls].no-error-alert` | Ignored silently |  |
@@ -546,7 +546,7 @@ Every field Surge's manual (manual.nssurge.com of 2026-09-22) lists, and how sai
 | `Proxy[socks5].block-quic` | Warned | block-quic: sail does not block QUIC; ignored, and QUIC goes through the policy |
 | `Proxy[socks5].dns-follow-interface` | Ignored silently |  |
 | `Proxy[socks5].ecn` | Ignored silently |  |
-| `Proxy[socks5].hybrid` | Ignored silently |  |
+| `Proxy[socks5].hybrid` | Supported |  |
 | `Proxy[socks5].interface` | Supported |  |
 | `Proxy[socks5].ip-version` | Supported |  |
 | `Proxy[socks5].no-error-alert` | Ignored silently |  |
@@ -575,7 +575,7 @@ Every field Surge's manual (manual.nssurge.com of 2026-09-22) lists, and how sai
 | `Proxy[ss].dns-follow-interface` | Ignored silently |  |
 | `Proxy[ss].ecn` | Ignored silently |  |
 | `Proxy[ss].encrypt-method` | Supported |  |
-| `Proxy[ss].hybrid` | Ignored silently |  |
+| `Proxy[ss].hybrid` | Supported |  |
 | `Proxy[ss].interface` | Supported |  |
 | `Proxy[ss].ip-version` | Supported |  |
 | `Proxy[ss].no-error-alert` | Ignored silently |  |
@@ -620,7 +620,7 @@ Every field Surge's manual (manual.nssurge.com of 2026-09-22) lists, and how sai
 | `Proxy[trojan].client-cert` | Supported | client-cert: no [Keystore] item is named "c" |
 | `Proxy[trojan].dns-follow-interface` | Ignored silently |  |
 | `Proxy[trojan].ecn` | Ignored silently |  |
-| `Proxy[trojan].hybrid` | Ignored silently |  |
+| `Proxy[trojan].hybrid` | Supported |  |
 | `Proxy[trojan].interface` | Supported |  |
 | `Proxy[trojan].ip-version` | Supported |  |
 | `Proxy[trojan].no-error-alert` | Ignored silently |  |
@@ -661,7 +661,7 @@ Every field Surge's manual (manual.nssurge.com of 2026-09-22) lists, and how sai
 | `Proxy[tuic-v5].client-cert` | Supported | client-cert: no [Keystore] item is named "c" |
 | `Proxy[tuic-v5].dns-follow-interface` | Ignored silently |  |
 | `Proxy[tuic-v5].ecn` | Ignored silently |  |
-| `Proxy[tuic-v5].hybrid` | Ignored silently |  |
+| `Proxy[tuic-v5].hybrid` | Supported |  |
 | `Proxy[tuic-v5].interface` | Supported |  |
 | `Proxy[tuic-v5].ip-version` | Supported |  |
 | `Proxy[tuic-v5].no-error-alert` | Ignored silently |  |
@@ -700,7 +700,7 @@ Every field Surge's manual (manual.nssurge.com of 2026-09-22) lists, and how sai
 | `Proxy[vmess].dns-follow-interface` | Ignored silently |  |
 | `Proxy[vmess].ecn` | Ignored silently |  |
 | `Proxy[vmess].encrypt-method` | Supported |  |
-| `Proxy[vmess].hybrid` | Ignored silently |  |
+| `Proxy[vmess].hybrid` | Supported |  |
 | `Proxy[vmess].interface` | Supported |  |
 | `Proxy[vmess].ip-version` | Supported |  |
 | `Proxy[vmess].no-error-alert` | Ignored silently |  |

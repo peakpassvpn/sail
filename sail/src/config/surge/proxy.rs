@@ -72,7 +72,6 @@ const COMMON: &[(&str, Tier)] = &[
     ),
     ("dns-follow-interface", Silent),
     ("no-error-alert", Silent),
-    ("hybrid", Silent),
     ("ecn", Silent),
     ("tos", Ignored("")),
     ("test-url", Silent),
@@ -323,7 +322,11 @@ fn one(
             (
                 json!({ "type": "block", "tag": name }),
                 Kind::Reject(how),
-                &[("interface", Silent), ("ip-version", Silent)][..],
+                &[
+                    ("interface", Silent),
+                    ("ip-version", Silent),
+                    ("hybrid", Silent),
+                ][..],
             )
         }
         "ss" | "custom" => shadowsocks(&proxy, &kind, &mut p, proxies)?,
@@ -356,6 +359,9 @@ fn one(
                 if let Some(strategy) = ip_version(&version, &p.at("ip-version"))? {
                     endpoint.insert("domain_strategy".into(), json!(strategy));
                 }
+            }
+            if let Some(strategy) = hybrid(&mut p)? {
+                endpoint.insert("network_strategy".into(), json!(strategy));
             }
             p.take_at("interface").into_iter().for_each(|(_, at)| {
                 warnings.push(format!(
@@ -696,6 +702,9 @@ fn dial(p: &mut Params, o: &mut Map<String, Value>, proxy: bool) -> Result<()> {
             o.insert("domain_strategy".into(), json!(strategy));
         }
     }
+    if let Some(strategy) = hybrid(p)? {
+        o.insert("network_strategy".into(), json!(strategy));
+    }
     if proxy {
         if let Some(via) = p.string("underlying-proxy") {
             if via != "DIRECT" {
@@ -704,6 +713,21 @@ fn dial(p: &mut Params, o: &mut Map<String, Value>, proxy: bool) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// `hybrid`: Wi-Fi and cellular at once, the faster taken, as sing-box's
+/// `hybrid` network strategy; `off` the default interface alone; `auto`
+/// (or none) as `[General] all-hybrid` says.
+fn hybrid(p: &mut Params) -> Result<Option<&'static str>> {
+    let Some((value, at)) = p.take_at("hybrid") else {
+        return Ok(None);
+    };
+    Ok(match value.to_ascii_lowercase().as_str() {
+        "auto" => None,
+        "on" | "true" => Some("hybrid"),
+        "off" | "false" => Some("default"),
+        _ => return Err(anyhow!("{}: {:?} is none of auto, on and off", at, value)),
+    })
 }
 
 fn ip_version(version: &str, at: &str) -> Result<Option<&'static str>> {

@@ -38,7 +38,7 @@
 use std::path::Path;
 
 use anyhow::{anyhow, Result};
-use serde_json::Value;
+use serde_json::{json, Value};
 
 use super::clash::Lowered;
 use super::model::Config;
@@ -110,6 +110,16 @@ pub fn parse_with(s: &str, dir: Option<&Path>, fetched: Option<&Path>) -> Result
     }
     general.apply(&mut out);
     out.rule_sets.extend(sets.into_rule_sets());
+    // Surge, the device's VPN, always knows the interfaces a `hybrid`
+    // chooses among; sail's network strategy does with
+    // auto_detect_interface, without which sing-box's takes no effect.
+    let hybrid = |o: &Value| o["network_strategy"] == "hybrid";
+    if out.route.contains_key("default_network_strategy")
+        || out.outbounds.iter().chain(&out.endpoints).any(hybrid)
+    {
+        out.route
+            .insert("auto_detect_interface".into(), json!(true));
+    }
 
     let value: Value = out.into_json();
     let mut config: Config = serde_path_to_error::deserialize(value).map_err(|e| {
