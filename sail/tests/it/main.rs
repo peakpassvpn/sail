@@ -60,6 +60,7 @@ mod test_quic_trojan;
 mod test_reality;
 mod test_reload;
 mod test_route_actions;
+mod test_route_dns;
 mod test_route_network;
 mod test_route_on_demand;
 mod test_route_pass;
