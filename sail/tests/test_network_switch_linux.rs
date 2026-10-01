@@ -144,7 +144,11 @@ async fn a_switch_closes_the_old_link_s_connections_and_new_ones_take_the_new_li
     }
     .await;
 
-    sail::shutdown(id);
-    let _ = thread.join();
+    // Shutting down blocks, which a runtime's own thread may not.
+    let _ = std::thread::spawn(move || {
+        sail::shutdown(id);
+        let _ = thread.join();
+    })
+    .join();
     checked
 }

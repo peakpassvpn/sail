@@ -75,11 +75,19 @@ def tcp():
             conn.sendall(("peer=" + peer[0] + "\n").encode())
 
 threading.Thread(target=tcp, daemon=True).start()
-udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-udp.bind(("0.0.0.0", 9999))
-while True:
-    data, peer = udp.recvfrom(2048)
-    udp.sendto(data, peer)
+
+# One socket an address, so that a reply comes from the address it was
+# sent to rather than from the one the route back picks.
+def udp(address):
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.bind((address, 9999))
+    while True:
+        data, peer = sock.recvfrom(2048)
+        sock.sendto(data, peer)
+
+for address in ("198.51.100.10", "198.51.100.11", "198.51.100.12", "10.241.0.3"):
+    threading.Thread(target=udp, args=(address,), daemon=True).start()
+threading.Event().wait()
 ' &
 
 cd "$SAIL_DIR"

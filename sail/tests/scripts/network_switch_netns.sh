@@ -24,8 +24,12 @@ SERVER_NS=ns6
 SAIL_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 
 cleanup() {
-    ip netns del "$SAIL_NS" 2>/dev/null || true
-    ip netns del "$SERVER_NS" 2>/dev/null || true
+    # What runs in the namespaces goes with them; a namespace with a process
+    # left in it would outlive its deletion.
+    for ns in "$SAIL_NS" "$SERVER_NS"; do
+        ip netns pids "$ns" 2>/dev/null | xargs -r kill 2>/dev/null || true
+        ip netns del "$ns" 2>/dev/null || true
+    done
 }
 trap cleanup EXIT
 cleanup
@@ -75,8 +79,6 @@ while True:
     conn, peer = server.accept()
     threading.Thread(target=serve, args=(conn, peer), daemon=True).start()
 ' &
-SERVER_PID=$!
-trap 'kill $SERVER_PID 2>/dev/null || true; cleanup' EXIT
 
 cd "$SAIL_DIR"
 # Built outside the namespaces, where cargo may reach the network.
