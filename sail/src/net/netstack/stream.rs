@@ -1,4 +1,3 @@
-use std::collections::VecDeque;
 use std::future::Future;
 use std::io;
 use std::net::SocketAddr;
@@ -78,7 +77,11 @@ pub(crate) struct NativeTcpStream {
     cleanup: tokio_mpsc::Sender<TcpFlowToken>,
     cleanup_overflow: Arc<Notify>,
     cleanup_active: Arc<AtomicBool>,
-    read_buffer: VecDeque<u8>,
+    /// What the last read brought that the caller had no room for, from
+    /// `read_offset` on. Bytes go straight from it to the caller's buffer:
+    /// a queue in between copied every byte once more.
+    read_buffer: Vec<u8>,
+    read_offset: usize,
     pending_read: Option<oneshot::Receiver<io::Result<Vec<u8>>>>,
     pending_write_reservation: Option<oneshot::Receiver<io::Result<usize>>>,
     write_reservation: Option<usize>,
@@ -102,7 +105,8 @@ impl NativeTcpStream {
             cleanup,
             cleanup_overflow,
             cleanup_active,
-            read_buffer: VecDeque::new(),
+            read_buffer: Vec::new(),
+            read_offset: 0,
             pending_read: None,
             pending_write_reservation: None,
             write_reservation: None,
@@ -126,15 +130,14 @@ impl NativeTcpStream {
     }
 
     fn copy_read_buffer(&mut self, buffer: &mut ReadBuf<'_>) {
-        let amount = buffer.remaining().min(self.read_buffer.len());
-        let (first, second) = self.read_buffer.as_slices();
-        let first_len = amount.min(first.len());
-        buffer.put_slice(&first[..first_len]);
-        let second_len = amount - first_len;
-        if second_len > 0 {
-            buffer.put_slice(&second[..second_len]);
+        let rest = &self.read_buffer[self.read_offset..];
+        let amount = buffer.remaining().min(rest.len());
+        buffer.put_slice(&rest[..amount]);
+        self.read_offset += amount;
+        if self.read_offset == self.read_buffer.len() {
+            self.read_buffer = Vec::new();
+            self.read_offset = 0;
         }
-        self.read_buffer.drain(..amount);
     }
 
     fn cancelled() -> io::Error {
@@ -163,7 +166,7 @@ impl AsyncRead for NativeTcpStream {
         context: &mut Context<'_>,
         buffer: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
-        if !self.read_buffer.is_empty() {
+        if self.read_offset < self.read_buffer.len() {
             self.copy_read_buffer(buffer);
             return Poll::Ready(Ok(()));
         }
@@ -178,7 +181,8 @@ impl AsyncRead for NativeTcpStream {
                 self.eof = true;
                 return Poll::Ready(Ok(()));
             }
-            self.read_buffer.extend(bytes);
+            self.read_buffer = bytes;
+            self.read_offset = 0;
             self.copy_read_buffer(buffer);
             return Poll::Ready(Ok(()));
         }
