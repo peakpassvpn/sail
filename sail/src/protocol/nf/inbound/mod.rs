@@ -339,11 +339,7 @@ unsafe extern "C" fn tcpConnectRequest(id: EndpointId, conn_info: *mut NfTcpConn
     }
 
     let process_id = addr_of!((*conn_info).processId).read_unaligned();
-    let process_name = if let Ok(name) = get_process_name(process_id) {
-        Some(name)
-    } else {
-        None
-    };
+    let process_name = get_process_name(process_id).ok();
 
     debug!(
         "tcpConnectRequest id={} local={} remote={} process_id={} process_name={}",
@@ -449,11 +445,7 @@ unsafe extern "C" fn udpCreated(id: EndpointId, conn_info: *mut NfUdpConnInfo) {
     };
 
     let process_id = addr_of!((*conn_info).processId).read_unaligned();
-    let process_name = if let Ok(name) = get_process_name(process_id) {
-        Some(name)
-    } else {
-        None
-    };
+    let process_name = get_process_name(process_id).ok();
 
     debug!(
         "udpCreated id={} local={} process_id={} process_name={}",

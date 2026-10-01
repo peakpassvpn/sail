@@ -27,7 +27,7 @@ impl InboundStreamHandler for Handler {
             } else {
                 return Err(std::io::Error::other(format!(
                     "tcp conn not found, source={} ",
-                    &sess.source
+                    sess.source
                 )));
             };
 
@@ -42,7 +42,7 @@ impl InboundStreamHandler for Handler {
                 if remote_addr.port() != 443 && remote_addr.port() != 80 {
                     return Err(std::io::Error::other(format!(
                         "paired domain not found, addr={}",
-                        &remote_addr.ip()
+                        remote_addr.ip()
                     )));
                 }
             }

@@ -88,7 +88,7 @@ impl InboundDatagramRecvHalf for DatagramRecvHalf {
         }
 
         let (local_addr, process_name) = if let Some(info) = super::UDP_LOCAL_INFO.lock().get(&id) {
-            (info.local_address.clone(), info.process_name.clone())
+            (info.local_address, info.process_name.clone())
         } else {
             return Err(ProxyError::DatagramWarn(anyhow!(format!(
                 "local socket not found id={}",
@@ -131,7 +131,7 @@ impl InboundDatagramRecvHalf for DatagramRecvHalf {
                     } else {
                         return Err(ProxyError::DatagramWarn(anyhow!(format!(
                             "paired domain not found ip={}",
-                            &addr.ip()
+                            addr.ip()
                         ))));
                     }
                 } else {
@@ -183,24 +183,21 @@ fn udp_post_receive(
                 }
             };
             if status != super::NF_STATUS_SUCCESS {
-                Err(io::Error::new(
-                    io::ErrorKind::Other,
-                    format!("status={}", status),
-                ))
+                Err(io::Error::other(format!("status={}", status)))
             } else {
                 Ok(buf.len())
             }
         } else {
-            Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!("local socket not found, id={}", id),
-            ))
+            Err(io::Error::other(format!(
+                "local socket not found, id={}",
+                id
+            )))
         }
     } else {
-        Err(io::Error::new(
-            io::ErrorKind::Other,
-            format!("local socket not found, local_addr={}", local_addr),
-        ))
+        Err(io::Error::other(format!(
+            "local socket not found, local_addr={}",
+            local_addr
+        )))
     }
 }
 
@@ -218,12 +215,12 @@ impl InboundDatagramSendHalf for DatagramSendHalf {
         let src_addr = match src_addr {
             SocksAddr::Ip(a) => *a,
             SocksAddr::Domain(domain, port) => {
-                if let Some(ip) = self.1.query_fake_ip(&domain).await {
+                if let Some(ip) = self.1.query_fake_ip(domain).await {
                     SocketAddr::new(ip, *port)
                 } else {
                     return Err(io::Error::other(format!(
                         "paired fake ip not found, addr={}:{}",
-                        &domain, &port
+                        domain, port
                     )));
                 }
             }

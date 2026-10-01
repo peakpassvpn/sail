@@ -31,10 +31,12 @@ pub(crate) enum NeighborEvent {
 
 /// How many events wait for the reader before the watching thread waits
 /// too. A judgment call: a LAN's worth of changes at once.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 const EVENT_QUEUE: usize = 256;
 
 /// How long the watching thread waits for the kernel before it checks
 /// whether anyone still reads: sing-box's read deadline (3 s).
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 const WATCH_POLL: std::time::Duration = std::time::Duration::from_secs(3);
 
 /// The neighbor table now: address and MAC of each entry sing-box keeps.
