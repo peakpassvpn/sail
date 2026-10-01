@@ -452,6 +452,18 @@ impl Drop for ChangeNotices {
 mod tests {
     use super::*;
 
+    /// Each notice the network is followed by registers, and cancels on
+    /// drop: routes, interfaces and addresses.
+    #[test]
+    fn change_notices_register_and_cancel() {
+        let notify = Arc::new(tokio::sync::Notify::new());
+        let notices = ChangeNotices::start(notify.clone()).unwrap();
+        assert_eq!(notices.handles.len(), 3);
+        drop(notices);
+        // The context is released: the test holds the only reference.
+        assert_eq!(Arc::strong_count(&notify), 1);
+    }
+
     #[test]
     fn addresses_go_to_sockaddrs_and_back() {
         for address in ["172.18.0.1", "fdfe:dcba:9876::1"] {
