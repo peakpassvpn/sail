@@ -170,7 +170,7 @@ mod chrome {
     pub(crate) fn configure_connection(ssl: &mut SslRef, alpn: &[String], ech: bool) -> Result<()> {
         ssl.set_client_key_shares(&[KeyShare::X25519_MLKEM768, KeyShare::X25519])?;
         if alpn.iter().any(|p| p == "h2") {
-            ssl.add_application_settings(b"h2")?;
+            ssl.add_application_settings(b"h2", None)?;
             ssl.set_alps_use_new_codepoint(true);
         }
         if !ech {

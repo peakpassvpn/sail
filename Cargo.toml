@@ -9,11 +9,12 @@ members = [
 default-members = ["sail-cli"]
 resolver = "2"
 
-# btls with the patches sail needs before they are upstream: the ClientHello
-# hook REALITY uses, the Apple deployment target, SslRef::set_*_state.
+# sail's forks, each with a FORK.md on its `sail` branch: btls with the
+# REALITY and ECH GREASE hooks, the Apple deployment target and the SslRef
+# handshake-side setters; quinn-proto with the scattered ClientHello.
 [patch.crates-io]
-btls = { git = "https://github.com/peakpassvpn/btls.git", rev = "4123de36dc5ac86914c8a744f958025e598aa712" }
-btls-sys = { git = "https://github.com/peakpassvpn/btls.git", rev = "4123de36dc5ac86914c8a744f958025e598aa712" }
+btls = { git = "https://github.com/peakpassvpn/btls.git", rev = "3eb203a7ed44fd93d31056156a1ddfab5a6b9338" }
+btls-sys = { git = "https://github.com/peakpassvpn/btls.git", rev = "3eb203a7ed44fd93d31056156a1ddfab5a6b9338" }
 quinn-proto = { git = "https://github.com/peakpassvpn/quinn.git", rev = "6d1e2b9e29895c1707a83167fb482348a70ac65c" }
 # tun-rs's netlink graph without paste (RUSTSEC-2024-0436); see
 # tools/security/policy.toml for when these go.

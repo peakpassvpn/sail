@@ -8,7 +8,6 @@
 use std::io::{self, ErrorKind, Read, Write};
 
 use btls::ssl::{ErrorCode, Ssl, SslStream};
-use foreign_types::ForeignType;
 
 use crate::net::relay::{acquire_buffer, release_buffer};
 use crate::transport::tls_stream::TlsConnection;
@@ -129,20 +128,16 @@ pub struct BoringConnection {
 
 impl BoringConnection {
     /// A client connection. Its ClientHello is ready to be written.
-    pub fn client(ssl: Ssl) -> io::Result<Self> {
-        // SAFETY: `ssl` is a valid, owned SSL that has not started a handshake.
-        // btls only offers this on `SslStreamBuilder`, which cannot hand the
-        // stream over without starting the handshake.
-        unsafe { btls_sys::SSL_set_connect_state(ssl.as_ptr()) };
+    pub fn client(mut ssl: Ssl) -> io::Result<Self> {
+        ssl.set_connect_state();
         let mut conn = Self::new(ssl)?;
         conn.drive_handshake()?;
         Ok(conn)
     }
 
     /// A server connection, waiting for the ClientHello.
-    pub fn server(ssl: Ssl) -> io::Result<Self> {
-        // SAFETY: as in `client`.
-        unsafe { btls_sys::SSL_set_accept_state(ssl.as_ptr()) };
+    pub fn server(mut ssl: Ssl) -> io::Result<Self> {
+        ssl.set_accept_state();
         Self::new(ssl)
     }
 
