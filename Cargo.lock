@@ -2358,8 +2358,8 @@ dependencies = [
 
 [[package]]
 name = "quinn-proto"
-version = "0.11.18"
-source = "git+https://github.com/peakpassvpn/quinn.git?rev=6d1e2b9e29895c1707a83167fb482348a70ac65c#6d1e2b9e29895c1707a83167fb482348a70ac65c"
+version = "0.11.19"
+source = "git+https://github.com/peakpassvpn/quinn.git?rev=29761c5b2d16f3508dcd3f5b525a2dd052810bb0#29761c5b2d16f3508dcd3f5b525a2dd052810bb0"
 dependencies = [
  "bytes",
  "getrandom 0.4.3",
@@ -2378,9 +2378,9 @@ dependencies = [
 
 [[package]]
 name = "quinn-udp"
-version = "0.5.15"
+version = "0.5.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "35a133f956daabe89a61a685c2649f13d82d5aa4bd5d12d1277e1072a21c0694"
+checksum = "af66907df18639dcf4db56ca65490cabc4b27a97dbadd96f2926cca73298f016"
 dependencies = [
  "cfg_aliases",
  "libc",
