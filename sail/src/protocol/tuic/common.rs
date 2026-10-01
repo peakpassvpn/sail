@@ -47,8 +47,23 @@ pub fn transport_config(
     side: Side,
 ) -> quinn::TransportConfig {
     let mut config = crate::transport::quic::transport_config(tuning, side, congestion.factory());
-    // In `quic` relay mode every UDP packet is a stream of its own.
-    config.max_concurrent_uni_streams(quinn::VarInt::from_u32(tuning.max_concurrent_streams));
+    // In `quic` relay mode every UDP packet is a stream of its own. A
+    // client takes `max_concurrent_streams` of them at once; quinn sets
+    // aside room for every stream it allows, so not sing-box's 1<<60. A
+    // server, until the client authenticates, `STREAMS_BEFORE_AUTH` of
+    // either kind, then more as they are used (`StreamLimit`).
+    match side {
+        Side::Client => {
+            config
+                .max_concurrent_uni_streams(quinn::VarInt::from_u32(tuning.max_concurrent_streams));
+        }
+        Side::Server => {
+            let before = quinn::VarInt::from_u32(crate::transport::quic::STREAMS_BEFORE_AUTH);
+            config
+                .max_concurrent_bidi_streams(before)
+                .max_concurrent_uni_streams(before);
+        }
+    }
     // TUIC keeps a connection alive with heartbeats while it relays, and
     // lets it go idle otherwise.
     config.keep_alive_interval(None);

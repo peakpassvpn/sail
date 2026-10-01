@@ -67,6 +67,10 @@ ShadowTLS v3 中继与服务端所模仿站点之间的真实 TLS 握手，握�
 
 ClientHello 使用浏览器指纹（`tls.utls`，默认 Chrome），客户端认证放在其 session ID 中。握手服务器直接拨号，其拨号字段与 `detour` 暂未实现。Clash 中 `plugin: shadow-tls` 的 `ss` 代理，以及 Surge 的 `shadow-tls-password`、`shadow-tls-sni`、`shadow-tls-version`，都转换为这样一对出站，ShadowTLS 出站名为 `<名称> (shadow-tls)`。
 
+### Hysteria2 与 TUIC 服务端的流
+
+sing-box 的 Hysteria2 和 TUIC 服务端允许客户端在一条 QUIC 连接上同时开任意多的流（1<<60）。sail 使用的 QUIC 库 quinn 会为允许的每一条流预留空间，因此 sail 服务端在客户端认证前每种流最多同时 100 条，认证后每当用到四分之三就翻倍，最多 65536 条。在一条 QUIC 连接上复用大量连接的客户端，开多少就得到多少；超出上限的会等待其他流关闭，而不是失败。用户的流数由 `user_limits.max_connections` 限制。如果让 quinn 像 quic-go 一样在流打开时才分配空间，就不再需要这个上限；sail 目前还没有这样做。
+
 ## 传输层与安全
 
 | 层 | 入站 | 出站 | 用途 |

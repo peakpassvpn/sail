@@ -28,6 +28,12 @@ pub fn transport_config(
     congestion: &CongestionHandle,
 ) -> quinn::TransportConfig {
     let mut config = crate::transport::quic::transport_config(tuning, side, congestion.factory());
+    if side == Side::Server {
+        // Until it authenticates; then as many as it likes.
+        config.max_concurrent_bidi_streams(quinn::VarInt::from_u32(
+            crate::transport::quic::STREAMS_BEFORE_AUTH,
+        ));
+    }
     config
         .max_concurrent_uni_streams(quinn::VarInt::from_u32(MAX_UNI_STREAMS))
         .stream_receive_window(quinn::VarInt::from_u32(STREAM_RECEIVE_WINDOW))

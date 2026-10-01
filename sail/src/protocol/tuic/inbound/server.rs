@@ -183,6 +183,9 @@ struct Conn {
     auth: watch::Sender<Option<Authed>>,
     /// Closes the connection when the user is shut out, or taken out.
     carrier: std::sync::OnceLock<crate::user::Carrier>,
+    /// How many streams of each kind the client may hold open at once.
+    bidi_streams: Arc<crate::transport::quic::StreamLimit>,
+    uni_streams: Arc<crate::transport::quic::StreamLimit>,
     associations: Mutex<HashMap<u16, Association>>,
     activity: Activity,
     accepted: mpsc::Sender<AnyBaseInboundTransport>,
@@ -220,6 +223,8 @@ async fn serve(
         connecting.await?
     };
     trace!("tuic connection from {}", remote);
+    let bidi_streams = crate::transport::quic::StreamLimit::bidi(&conn);
+    let uni_streams = crate::transport::quic::StreamLimit::uni(&conn);
     let conn = Arc::new(Conn {
         conn,
         remote,
@@ -227,6 +232,8 @@ async fn serve(
         settings: settings.clone(),
         auth: watch::Sender::new(None),
         carrier: std::sync::OnceLock::new(),
+        bidi_streams,
+        uni_streams,
         associations: Mutex::new(HashMap::new()),
         activity: Activity::default(),
         accepted,
@@ -288,7 +295,9 @@ impl Conn {
                 Some(_) = streams.join_next(), if !streams.is_empty() => continue,
             };
             let conn = self.clone();
+            let counted = self.uni_streams.opened();
             streams.spawn(async move {
+                let _counted = counted;
                 if let Err(e) = conn.uni(recv).await {
                     debug!("tuic stream from {} failed: {}", conn.remote, e);
                 }
@@ -371,6 +380,9 @@ impl Conn {
                 conn.close(quinn::VarInt::from_u32(0), b"")
             }));
         }
+        // Its streams grow with its use from now on.
+        self.bidi_streams.authenticated();
+        self.uni_streams.authenticated();
         self.auth.send_replace(Some(user.name.clone()));
         Ok(())
     }
@@ -388,15 +400,21 @@ impl Conn {
                 Some(_) = streams.join_next(), if !streams.is_empty() => continue,
             };
             let conn = self.clone();
+            let counted = self.bidi_streams.opened();
             streams.spawn(async move {
-                if let Err(e) = conn.bi(send, recv).await {
+                if let Err(e) = conn.bi(send, recv, counted).await {
                     debug!("tuic stream from {} failed: {}", conn.remote, e);
                 }
             });
         }
     }
 
-    async fn bi(&self, send: quinn::SendStream, mut recv: quinn::RecvStream) -> io::Result<()> {
+    async fn bi(
+        &self,
+        send: quinn::SendStream,
+        mut recv: quinn::RecvStream,
+        counted: crate::transport::quic::StreamGuard,
+    ) -> io::Result<()> {
         // Only the header is read before authentication, as the spec says.
         let header = async {
             let cmd = read_command(&mut recv).await?;
@@ -426,6 +444,7 @@ impl Conn {
             ..Default::default()
         };
         let stream = QuicStream::guarded(send, recv, self.activity.start());
+        let stream = crate::transport::quic::Counted::new(stream, counted);
         self.hand_on(BaseInboundTransport::Stream(Box::new(stream), sess))
             .await
     }

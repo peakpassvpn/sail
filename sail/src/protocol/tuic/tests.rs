@@ -323,3 +323,31 @@ async fn a_network_change_closes_the_connection() {
         old.stable_id()
     );
 }
+
+/// An authenticated client holds as many streams open at once as it opens,
+/// past the bound a client has before it authenticates: the limit grows
+/// with them.
+#[tokio::test]
+async fn streams_past_the_bound_before_authentication() {
+    let mut f = fixture(false, false).await;
+    let sess = Session {
+        destination: SocksAddr::Domain("example.com".into(), 80),
+        ..Default::default()
+    };
+    let mut held = Vec::new();
+    for _ in 0..3 * crate::transport::quic::STREAMS_BEFORE_AUTH {
+        let mut stream = timeout(
+            Duration::from_secs(5),
+            StreamHandler(f.client.clone()).handle(&sess, None, None),
+        )
+        .await
+        .expect("a stream within 5s")
+        .unwrap();
+        stream.write_all(b"x").await.unwrap();
+        let accepted = timeout(Duration::from_secs(5), f.incoming.next())
+            .await
+            .expect("no stream within 5s")
+            .expect("server gone");
+        held.push((stream, accepted));
+    }
+}

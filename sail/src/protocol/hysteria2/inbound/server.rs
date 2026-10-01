@@ -181,6 +181,7 @@ impl Conn {
             congestion,
             user: OnceLock::new(),
             carrier: OnceLock::new(),
+            streams: crate::transport::quic::StreamLimit::bidi(&conn),
             udp_started: AtomicBool::new(false),
             start_udp: Notify::new(),
             sessions: Arc::new(UdpSessions::default()),
@@ -197,8 +198,9 @@ impl Conn {
             match accepted {
                 Ok((send, recv)) => {
                     let state = state.clone();
+                    let counted = state.streams.opened();
                     tasks.spawn(async move {
-                        if let Err(e) = state.handle_stream(send, recv).await {
+                        if let Err(e) = state.handle_stream(send, recv, counted).await {
                             debug!("hysteria2 stream: {}", e);
                         }
                     });
@@ -222,6 +224,8 @@ struct ConnState {
     user: OnceLock<Option<crate::user::UserRef>>,
     /// Closes the connection when the user is shut out, or taken out.
     carrier: OnceLock<crate::user::Carrier>,
+    /// How many streams the client may hold open at once.
+    streams: Arc<crate::transport::quic::StreamLimit>,
     udp_started: AtomicBool,
     /// Tells the connection to serve UDP, once authenticated.
     start_udp: Notify,
@@ -243,6 +247,7 @@ impl ConnState {
         self: Arc<Self>,
         mut send: quinn::SendStream,
         mut recv: quinn::RecvStream,
+        counted: crate::transport::quic::StreamGuard,
     ) -> io::Result<()> {
         let handshake = self.server.handshake_timeout;
         let ty = timeout(handshake, proto::read_varint(&mut recv))
@@ -268,7 +273,10 @@ impl ConnState {
             let mut sess = self.session(Network::Tcp);
             sess.destination = destination;
             sess.stream_id = Some(StreamId::U64(send.id().index()));
-            let stream = Box::new(QuicStream::new(send, recv));
+            let stream = Box::new(crate::transport::quic::Counted::new(
+                QuicStream::new(send, recv),
+                counted,
+            ));
             return match timeout(
                 ACCEPT_QUEUE_TIMEOUT,
                 self.tx.send(BaseInboundTransport::Stream(stream, sess)),
@@ -303,6 +311,9 @@ impl ConnState {
         mut send: quinn::SendStream,
     ) -> io::Result<()> {
         let server = &self.server;
+        // Its bidirectional streams grow with its use from now on; HTTP/3
+        // needs no more unidirectional ones than it has.
+        self.streams.authenticated();
         if let Some(user) = &user {
             let conn = self.conn.clone();
             let _ = self
@@ -813,6 +824,49 @@ mod tests {
         let (n, _, destination) = r.recv_from(&mut buf).await.ok().unwrap();
         assert_eq!(&buf[..n], b"query");
         assert_eq!(destination.to_string(), "1.2.3.4:53");
+    }
+
+    /// Before it authenticates, a client holds no more than
+    /// `STREAMS_BEFORE_AUTH` streams at once; once it has, as many as it
+    /// likes, as with sing-box's server.
+    #[tokio::test]
+    async fn streams_are_bounded_until_authentication() {
+        use crate::transport::quic::STREAMS_BEFORE_AUTH;
+        let f = serve(Masquerade::NotFound).await;
+        let open = |conn: quinn::Connection| async move {
+            tokio::time::timeout(Duration::from_millis(300), conn.open_bi())
+                .await
+                .is_ok()
+        };
+        let stranger = f.connect().await;
+        let mut held = Vec::new();
+        for _ in 0..STREAMS_BEFORE_AUTH {
+            held.push(stranger.open_bi().await.unwrap());
+        }
+        assert!(!open(stranger.clone()).await, "one past the bound");
+
+        // Authenticated, it holds as many as it opens: the limit grows
+        // with the streams it keeps open.
+        let mut f = f;
+        let user = f.connect().await;
+        let (headers, _) = request(&user, &auth("pw")).await;
+        assert_eq!(h3::field(&headers, ":status"), Some("233"));
+        let destination = SocksAddr::try_from(("example.com", 443)).unwrap();
+        let mut proxied = Vec::new();
+        for _ in 0..3 * STREAMS_BEFORE_AUTH {
+            let (mut send, mut recv) = tokio::time::timeout(Duration::from_secs(5), user.open_bi())
+                .await
+                .expect("a stream past the bound once authenticated")
+                .unwrap();
+            send.write_all(&proto::tcp_request(&destination, b""))
+                .await
+                .unwrap();
+            proto::read_tcp_response(&mut recv).await.unwrap();
+            let Some(stream) = f.incoming.next().await else {
+                panic!("no stream");
+            };
+            proxied.push((send, recv, stream));
+        }
     }
 
     /// Disconnecting the user closes its QUIC connection, which carries

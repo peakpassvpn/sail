@@ -254,6 +254,163 @@ pub fn transport_config(
     config
 }
 
+/// The streams of each kind a Hysteria2 or TUIC client may open at once
+/// before it authenticates: quinn's default, and what HTTP/3 servers
+/// commonly allow, so that a client that has not authenticated cannot
+/// hold more. More wait their turn rather than fail.
+pub const STREAMS_BEFORE_AUTH: u32 = 100;
+
+/// The most streams of one kind an authenticated client may hold open at
+/// once on one connection.
+pub const STREAMS_CEILING: u64 = 65536;
+
+/// How many streams of one kind a client of a Hysteria2 or TUIC server may
+/// hold open at once: `STREAMS_BEFORE_AUTH` until it authenticates, then
+/// twice as many each time three quarters are open, up to
+/// `STREAMS_CEILING`. sing-box's servers allow 1<<60 (sing-quic's
+/// services), but quinn sets aside room for every stream it allows, so
+/// the limit follows the streams actually open; it counts those open at
+/// once, not how many a connection has had. A client past it waits for
+/// one to close, as for any QUIC credit; `user_limits.max_connections`
+/// bounds a user. Making quinn allocate as quic-go does, lazily, would
+/// do without it.
+pub struct StreamLimit {
+    open: std::sync::atomic::AtomicU64,
+    limit: std::sync::atomic::AtomicU64,
+    grows: std::sync::atomic::AtomicBool,
+    raise: Box<dyn Fn(u64) + Send + Sync>,
+}
+
+impl StreamLimit {
+    /// A limit of `STREAMS_BEFORE_AUTH`, which `raise` raises to the value
+    /// it is given.
+    pub fn new(raise: impl Fn(u64) + Send + Sync + 'static) -> Arc<StreamLimit> {
+        Arc::new(StreamLimit {
+            open: Default::default(),
+            limit: u64::from(STREAMS_BEFORE_AUTH).into(),
+            grows: Default::default(),
+            raise: Box::new(raise),
+        })
+    }
+
+    /// The bidirectional streams of `conn`.
+    pub fn bidi(conn: &quinn::Connection) -> Arc<StreamLimit> {
+        let conn = conn.clone();
+        Self::new(move |n| {
+            conn.set_max_concurrent_bi_streams(quinn::VarInt::from_u32(
+                u32::try_from(n).unwrap_or(u32::MAX),
+            ))
+        })
+    }
+
+    /// The unidirectional streams of `conn`.
+    pub fn uni(conn: &quinn::Connection) -> Arc<StreamLimit> {
+        let conn = conn.clone();
+        Self::new(move |n| {
+            conn.set_max_concurrent_uni_streams(quinn::VarInt::from_u32(
+                u32::try_from(n).unwrap_or(u32::MAX),
+            ))
+        })
+    }
+
+    /// The client authenticated: the limit grows from now on.
+    pub fn authenticated(&self) {
+        self.grows.store(true, std::sync::atomic::Ordering::Relaxed);
+        self.grow();
+    }
+
+    /// A stream the client opened, counted until the guard is dropped.
+    pub fn opened(self: &Arc<Self>) -> StreamGuard {
+        self.open.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.grow();
+        StreamGuard(self.clone())
+    }
+
+    /// The limit now.
+    pub fn limit(&self) -> u64 {
+        self.limit.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    fn grow(&self) {
+        use std::sync::atomic::Ordering::Relaxed;
+        if !self.grows.load(Relaxed) {
+            return;
+        }
+        let open = self.open.load(Relaxed);
+        let mut limit = self.limit.load(Relaxed);
+        while open * 4 >= limit * 3 && limit < STREAMS_CEILING {
+            let next = (limit * 2).min(STREAMS_CEILING);
+            match self.limit.compare_exchange(limit, next, Relaxed, Relaxed) {
+                Ok(_) => {
+                    (self.raise)(next);
+                    limit = next;
+                }
+                Err(now) => limit = now,
+            }
+        }
+    }
+}
+
+/// A stream counted as open until dropped.
+pub struct StreamGuard(Arc<StreamLimit>);
+
+/// `S`, counted as an open stream for as long as it lives.
+pub struct Counted<S> {
+    inner: S,
+    _guard: StreamGuard,
+}
+
+impl<S> Counted<S> {
+    pub fn new(inner: S, guard: StreamGuard) -> Self {
+        Counted {
+            inner,
+            _guard: guard,
+        }
+    }
+}
+
+impl<S: tokio::io::AsyncRead + Unpin> tokio::io::AsyncRead for Counted<S> {
+    fn poll_read(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<io::Result<()>> {
+        std::pin::Pin::new(&mut self.inner).poll_read(cx, buf)
+    }
+}
+
+impl<S: tokio::io::AsyncWrite + Unpin> tokio::io::AsyncWrite for Counted<S> {
+    fn poll_write(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<io::Result<usize>> {
+        std::pin::Pin::new(&mut self.inner).poll_write(cx, buf)
+    }
+
+    fn poll_flush(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<io::Result<()>> {
+        std::pin::Pin::new(&mut self.inner).poll_flush(cx)
+    }
+
+    fn poll_shutdown(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<io::Result<()>> {
+        std::pin::Pin::new(&mut self.inner).poll_shutdown(cx)
+    }
+}
+
+impl Drop for StreamGuard {
+    fn drop(&mut self) {
+        self.0
+            .open
+            .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
 /// A UDP socket for talking to `peer`, opened by `dialer`.
 pub async fn bind(peer: IpAddr, dialer: &Dialer) -> io::Result<std::net::UdpSocket> {
     let unspecified = match peer {
@@ -651,6 +808,113 @@ mod tests {
         assert_eq!(
             err.to_string(),
             "[i] inbound: tls.reality: REALITY is TCP-only, not for QUIC"
+        );
+    }
+
+    /// The limit grows with the streams open at once after authentication,
+    /// not before, and not with how many have come and gone.
+    #[test]
+    fn the_limit_follows_the_streams_open_at_once() {
+        use std::sync::Mutex;
+        let raised = Arc::new(Mutex::new(Vec::new()));
+        let limit = {
+            let raised = raised.clone();
+            StreamLimit::new(move |n| raised.lock().unwrap().push(n))
+        };
+        // Before authentication, however many are open.
+        let held: Vec<_> = (0..STREAMS_BEFORE_AUTH).map(|_| limit.opened()).collect();
+        assert_eq!(limit.limit(), u64::from(STREAMS_BEFORE_AUTH));
+        drop(held);
+        limit.authenticated();
+        // One at a time, far more than any limit: it stays.
+        for _ in 0..10_000 {
+            drop(limit.opened());
+        }
+        assert_eq!(limit.limit(), u64::from(STREAMS_BEFORE_AUTH));
+        assert!(raised.lock().unwrap().is_empty());
+        // Many at once: it doubles as three quarters are open, to the
+        // ceiling and no further.
+        let held: Vec<_> = (0..100_000).map(|_| limit.opened()).collect();
+        assert_eq!(limit.limit(), STREAMS_CEILING);
+        assert_eq!(
+            *raised.lock().unwrap(),
+            [200, 400, 800, 1600, 3200, 6400, 12800, 25600, 51200, 65536]
+        );
+        drop(held);
+    }
+
+    /// Not a test: what one server connection costs with
+    /// `SAIL_MEASURE_STREAMS` streams of each kind allowed (100 unset),
+    /// 200 connections from clients that allow none, in RSS.
+    /// `cargo test -p sail --lib measure_connection_memory -- --ignored --nocapture`
+    #[tokio::test]
+    #[ignore]
+    async fn measure_connection_memory() {
+        const CONNECTIONS: u64 = 200;
+        let rss_kb = || {
+            let out = std::process::Command::new("ps")
+                .args(["-o", "rss=", "-p", &std::process::id().to_string()])
+                .output()
+                .unwrap();
+            String::from_utf8_lossy(&out.stdout)
+                .trim()
+                .parse::<u64>()
+                .unwrap()
+        };
+        let streams: u32 = std::env::var("SAIL_MEASURE_STREAMS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(100);
+        let cert = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
+        let mut server_config = server_config(
+            server_crypto(&cert.cert.pem(), &cert.key_pair.serialize_pem(), &[]).unwrap(),
+        )
+        .unwrap();
+        let mut transport = quinn::TransportConfig::default();
+        transport
+            .max_concurrent_bidi_streams(streams.into())
+            .max_concurrent_uni_streams(streams.into());
+        server_config.transport_config(Arc::new(transport));
+        let server = endpoint(
+            std::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap(),
+            Some(server_config),
+        )
+        .unwrap();
+        let client = endpoint(
+            std::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap(),
+            None,
+        )
+        .unwrap();
+        let roots = crate::transport::tls::tests::test_roots();
+        let mut client_config =
+            quinn::ClientConfig::new(Arc::new(client_crypto(None, true, &[], &roots).unwrap()));
+        let mut none = quinn::TransportConfig::default();
+        none.max_concurrent_bidi_streams(0u32.into())
+            .max_concurrent_uni_streams(0u32.into());
+        client_config.transport_config(Arc::new(none));
+        let before = rss_kb();
+        let mut held = Vec::new();
+        for _ in 0..CONNECTIONS {
+            let connecting = client
+                .connect_with(
+                    client_config.clone(),
+                    server.local_addr().unwrap(),
+                    "localhost",
+                )
+                .unwrap();
+            let (accepted, connected) = tokio::join!(
+                async { server.accept().await.unwrap().await.unwrap() },
+                connecting
+            );
+            held.push((accepted, connected.unwrap()));
+        }
+        let after = rss_kb();
+        println!(
+            "MEASURE streams={} rss_before={}KB rss_after={}KB per_connection={}KB",
+            streams,
+            before,
+            after,
+            (after.saturating_sub(before)) / CONNECTIONS
         );
     }
 

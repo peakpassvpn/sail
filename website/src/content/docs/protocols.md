@@ -69,6 +69,10 @@ ShadowTLS v3 relays a real TLS handshake with a site the server imitates, and ca
 
 The ClientHello carries a browser fingerprint (`tls.utls`, Chrome's by default) and the client's authentication in its session ID. The handshake server is dialled directly: its dial fields, and `detour`, are not implemented yet. Clash's `ss` proxies with `plugin: shadow-tls` and Surge's `shadow-tls-password`, `shadow-tls-sni` and `shadow-tls-version` become such a pair, the ShadowTLS outbound named `<name> (shadow-tls)`.
 
+### Streams on Hysteria2 and TUIC servers
+
+sing-box's Hysteria2 and TUIC servers let a client open as many streams at once on its QUIC connection as it likes (1<<60). sail's QUIC library, quinn, sets aside room for every stream it allows, so a sail server lets a client hold 100 streams of each kind at once until it authenticates, then twice as many each time three quarters are open, up to 65536. A client multiplexing many connections onto one QUIC connection gets them as it opens them; one past the limit waits for a stream to close rather than failing. `user_limits.max_connections` bounds a user's streams. Making quinn allocate a stream's room only when the stream opens, as quic-go does, would remove the limit; sail does not do that yet.
+
 ## Transports and security
 
 | Layer | Inbound | Outbound | Purpose |
