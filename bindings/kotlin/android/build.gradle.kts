@@ -3,10 +3,13 @@
 // static library for each ABI first and passes where they are:
 //
 //   gradle -p bindings/kotlin/android assembleRelease \
+//     -Psail.agp=9.4.1 \
+//     -Psail.ndkPath=<NDK r27d> -Psail.ndkVersion=27.3.13750724 \
 //     -Psail.libDir=<dir with <ABI>/libsail.a> -Psail.includeDir=<sail-ffi/include>
 //
-// The Android Gradle plugin's version is the pipeline's to pin
-// (-Psail.agp=…), with the NDK and SDK it installs.
+// The Android Gradle plugin's version is the pipeline's to pin, with the
+// NDK and SDK it installs: scripts/release/package-aar.sh passes them all.
+// The NDK is the one the static libraries were built with.
 
 plugins {
     id("com.android.library")
@@ -21,8 +24,14 @@ android {
     compileSdk = 36
     // The NDK the static libraries were built with, so that their C++
     // and the runtime linked to them are of one version.
-    providers.gradleProperty("sail.ndkPath").orNull?.let { ndkPath = it }
-    providers.gradleProperty("sail.ndkVersion").orNull?.let { ndkVersion = it }
+    // AGP checks the two agree, so they come together.
+    val sailNdkPath = providers.gradleProperty("sail.ndkPath").orNull
+    val sailNdkVersion = providers.gradleProperty("sail.ndkVersion").orNull
+    require((sailNdkPath == null) == (sailNdkVersion == null)) {
+        "pass -Psail.ndkPath and -Psail.ndkVersion together"
+    }
+    sailNdkPath?.let { ndkPath = it }
+    sailNdkVersion?.let { ndkVersion = it }
 
     defaultConfig {
         minSdk = 24

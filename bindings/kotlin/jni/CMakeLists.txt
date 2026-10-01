@@ -8,14 +8,18 @@
 # btls links the C++ runtime: the module passes ANDROID_STL=c++_static, so
 # the AAR carries no libc++_shared.so.
 cmake_minimum_required(VERSION 3.22)
-project(sail_jni C)
+# CXX too: libsail.a holds C++ (btls), so the library is linked by the C++
+# driver, which is what brings in ANDROID_STL's runtime.
+project(sail_jni C CXX)
 
 if(NOT SAIL_LIB_DIR OR NOT SAIL_INCLUDE_DIR)
     message(FATAL_ERROR "set SAIL_LIB_DIR and SAIL_INCLUDE_DIR")
 endif()
 
 add_library(sail STATIC IMPORTED)
-set_target_properties(sail PROPERTIES IMPORTED_LOCATION ${SAIL_LIB_DIR}/${ANDROID_ABI}/libsail.a)
+set_target_properties(sail PROPERTIES
+    IMPORTED_LOCATION ${SAIL_LIB_DIR}/${ANDROID_ABI}/libsail.a
+    IMPORTED_LINK_INTERFACE_LANGUAGES CXX)
 
 add_library(sail_jni SHARED ${CMAKE_CURRENT_SOURCE_DIR}/sail_jni.c)
 target_include_directories(sail_jni PRIVATE ${SAIL_INCLUDE_DIR})
