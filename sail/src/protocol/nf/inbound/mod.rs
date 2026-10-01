@@ -11,8 +11,9 @@ use std::os::windows::ffi::OsStringExt;
 use std::ptr::{addr_of, addr_of_mut};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::sync::LazyLock;
+use std::sync::{LazyLock, OnceLock};
 use std::thread;
+use std::time::{Duration, Instant};
 
 mod datagram;
 mod stream;
@@ -116,32 +117,72 @@ type NfGetUdpConnInfoFn = unsafe extern "C" fn(EndpointId, *mut NfUdpConnInfo) -
 type NfGetProcessNameFn = unsafe extern "C" fn(u32, *mut u8, u32) -> bool;
 type NfGetProcessNameFromKernelFn = unsafe extern "C" fn(u32, *mut u8, u32) -> bool;
 
+/// The loaded `nfapi.dll`. It stays loaded once loaded, so the function
+/// pointers in `NF` stay valid.
 static NFAPI: RwLock<Option<libloading::Library>> = RwLock::new(None);
-static mut NF_INIT: Option<NfInitFn> = None;
-static mut NF_FREE: Option<NfFreeFn> = None;
-static mut NF_ADD_RULE: Option<NfAddRuleFn> = None;
-static mut NF_TCP_POST_RECEIVE: Option<NfTcpPostReceiveFn> = None;
-static mut NF_TCP_POST_SEND: Option<NfTcpPostSendFn> = None;
-static mut NF_UDP_POST_RECEIVE: Option<NfUdpPostReceiveFn> = None;
-static mut NF_UDP_POST_SEND: Option<NfUdpPostSendFn> = None;
-static mut NF_TCP_DISABLE_FILTERING: Option<NfTcpDisableFilteringFn> = None;
-static mut NF_UDP_DISABLE_FILTERING: Option<NfUdpDisableFilteringFn> = None;
-static mut NF_ADJUST_PROCESS_PRIVILEDGES: Option<NfAdjustProcessPriviledgesFn> = None;
-static mut NF_GET_UDP_CONN_INFO: Option<NfGetUdpConnInfoFn> = None;
-static mut NF_GET_PROCESS_NAME: Option<NfGetProcessNameFn> = None;
-static mut NF_GET_PROCESS_NAME_FROM_KERNEL: Option<NfGetProcessNameFromKernelFn> = None;
+
+/// The driver's functions, resolved from `nfapi.dll`.
+struct NfFns {
+    init: NfInitFn,
+    free: NfFreeFn,
+    add_rule: NfAddRuleFn,
+    tcp_post_receive: NfTcpPostReceiveFn,
+    #[allow(dead_code)]
+    tcp_post_send: NfTcpPostSendFn,
+    udp_post_receive: NfUdpPostReceiveFn,
+    udp_post_send: NfUdpPostSendFn,
+    tcp_disable_filtering: NfTcpDisableFilteringFn,
+    udp_disable_filtering: NfUdpDisableFilteringFn,
+    adjust_process_priviledges: NfAdjustProcessPriviledgesFn,
+    get_udp_conn_info: NfGetUdpConnInfoFn,
+    get_process_name: NfGetProcessNameFn,
+    get_process_name_from_kernel: NfGetProcessNameFromKernelFn,
+}
+
+/// Set once by `init_nf_fns`, read by the driver callbacks.
+static NF: OnceLock<NfFns> = OnceLock::new();
 
 /// Why the driver's functions are set when a callback calls them: the
-/// callbacks start with `nf_init`, which runs after `init_nf_fns` set them
-/// all.
+/// callbacks start with `nf_init`, which runs after `init_nf_fns` set them.
 const NF_FN_SET: &str = "init_nf_fns sets the nf functions before nf_init";
 
-static mut TX: Option<std::sync::mpsc::Sender<bool>> = None;
+/// The driver's functions; only called once `init_nf_fns` has set them.
+fn nf() -> &'static NfFns {
+    NF.get().expect(NF_FN_SET)
+}
+
+/// The tag of the NetFilter inbound, whose listeners the driver callbacks
+/// redirect to. Set on every build.
+static NF_TAG: RwLock<Option<String>> = RwLock::new(None);
+
+/// The NetFilter inbound's tag, or "nf" when no inbound was built.
+fn nf_tag() -> String {
+    if let Some(tag) = NF_TAG.read().as_ref() {
+        return tag.clone();
+    }
+    debug!("nf inbound tag not set, using \"nf\"");
+    "nf".to_string()
+}
+
+/// Kept so the receiver in `init_nf` blocks for the life of the process.
+static TX: Mutex<Option<std::sync::mpsc::Sender<bool>>> = Mutex::new(None);
 static UDP_SEND_SOCKET: RwLock<Option<std::net::UdpSocket>> = RwLock::new(None);
+
+/// How long a `TCP_INFO` entry waits for its redirected connection. A
+/// judgment value: the redirected connection reaches sail's listener within
+/// milliseconds; an entry this old belongs to a connection that never came,
+/// and its port may be reused.
+const TCP_INFO_TTL: Duration = Duration::from_secs(60);
 
 struct ConnInfo {
     remote_addr: SocketAddr,
     process_name: Option<String>,
+    inserted: Instant,
+}
+
+/// Removes the entries older than `TCP_INFO_TTL` at `now`.
+fn prune(map: &mut HashMap<u16, ConnInfo>, now: Instant) {
+    map.retain(|_, info| now.saturating_duration_since(info.inserted) < TCP_INFO_TTL);
 }
 
 #[derive(Debug)]
@@ -313,23 +354,28 @@ unsafe extern "C" fn tcpConnectRequest(id: EndpointId, conn_info: *mut NfTcpConn
         process_name.as_deref().unwrap_or("Unknown")
     );
 
-    if TCP_INFO
-        .lock()
-        .insert(
-            local_addr.port(),
-            ConnInfo {
-                remote_addr,
-                process_name,
-            },
-        )
-        .is_some()
     {
-        warn!("duplicated local_addr.port={}", local_addr.port());
+        let now = Instant::now();
+        let mut tcp_info = TCP_INFO.lock();
+        prune(&mut tcp_info, now);
+        if tcp_info
+            .insert(
+                local_addr.port(),
+                ConnInfo {
+                    remote_addr,
+                    process_name,
+                    inserted: now,
+                },
+            )
+            .is_some()
+        {
+            warn!("duplicated local_addr.port={}", local_addr.port());
+        }
     }
 
-    let tag = "nf";
+    let tag = nf_tag();
     let network = crate::session::Network::Tcp;
-    let Some(new_remote_addr) = crate::app::inbound::get_network_listen_addr(tag, network) else {
+    let Some(new_remote_addr) = crate::app::inbound::get_network_listen_addr(&tag, network) else {
         debug!("cannot get listen address, tag={} network={}", tag, network);
         return;
     };
@@ -355,7 +401,9 @@ unsafe extern "C" fn tcpConnectRequest(id: EndpointId, conn_info: *mut NfTcpConn
         }
     }
 
-    NF_TCP_DISABLE_FILTERING.expect(NF_FN_SET)(id);
+    // SAFETY: a driver callback, so `nf_init` has run with `id` live; the
+    // function comes from the loaded `nfapi.dll`.
+    (nf().tcp_disable_filtering)(id);
 }
 
 unsafe extern "C" fn tcpConnected(id: EndpointId, _conn_info: *mut NfTcpConnInfo) {
@@ -373,7 +421,8 @@ unsafe extern "C" fn tcpReceive(id: EndpointId, buf: *const u8, len: i32) {
         id,
         len
     );
-    NF_TCP_POST_RECEIVE.expect(NF_FN_SET)(id, buf, len);
+    // SAFETY: passes on the buffer the driver gave this callback, unchanged.
+    (nf().tcp_post_receive)(id, buf, len);
 }
 
 unsafe extern "C" fn tcpSend(id: EndpointId, _buf: *const u8, len: i32) {
@@ -444,7 +493,8 @@ unsafe extern "C" fn udpReceive(
     options: *mut NfUdpOptions,
 ) {
     trace!("udpReceive id={}", id);
-    NF_UDP_POST_RECEIVE.expect(NF_FN_SET)(id, remote_address, buf, len, options);
+    // SAFETY: passes on the pointers the driver gave this callback, unchanged.
+    (nf().udp_post_receive)(id, remote_address, buf, len, options);
 }
 
 unsafe extern "C" fn udpSend(
@@ -466,7 +516,8 @@ unsafe extern "C" fn udpSend(
     // Drop IPv6
     if remote_addr.is_ipv6() {
         trace!("Pass IPv6");
-        let status = NF_UDP_POST_SEND.expect(NF_FN_SET)(id, remote_address, buf, len, options);
+        // SAFETY: passes on the pointers the driver gave this callback, unchanged.
+        let status = (nf().udp_post_send)(id, remote_address, buf, len, options);
         if status != NF_STATUS_SUCCESS {
             debug!("send to local failed, status={}", status);
         }
@@ -474,12 +525,14 @@ unsafe extern "C" fn udpSend(
     }
 
     if remote_addr.ip().is_loopback() {
-        NF_UDP_DISABLE_FILTERING.expect(NF_FN_SET)(id);
+        // SAFETY: a driver callback, so `nf_init` has run with `id` live.
+        (nf().udp_disable_filtering)(id);
         return;
     }
 
     let mut conn_info = NfUdpConnInfo::default();
-    let status = NF_GET_UDP_CONN_INFO.expect(NF_FN_SET)(id, &mut conn_info as *mut _);
+    // SAFETY: `conn_info` is a live, writable `NfUdpConnInfo` for the call.
+    let status = (nf().get_udp_conn_info)(id, &mut conn_info as *mut _);
     if status != NF_STATUS_SUCCESS {
         debug!("get udp conn info failed id={} status={}", id, status);
         return;
@@ -522,9 +575,9 @@ unsafe extern "C" fn udpSend(
     let buf = std::slice::from_raw_parts(buf, len as _);
     new_buf.put_slice(buf);
 
-    let tag = "nf";
+    let tag = nf_tag();
     let network = crate::session::Network::Udp;
-    let Some(new_remote_addr) = crate::app::inbound::get_network_listen_addr(tag, network) else {
+    let Some(new_remote_addr) = crate::app::inbound::get_network_listen_addr(&tag, network) else {
         debug!("cannot get listen address tag={} network={}", tag, network);
         return;
     };
@@ -750,71 +803,58 @@ unsafe fn sockaddr_to_socketaddr(addr: *const packed::SOCKADDR) -> Result<Socket
     }
 }
 
-#[allow(clippy::missing_transmute_annotations)]
+/// The function `name` in `lib`, copied out of its symbol.
+///
+/// # Safety
+/// `T` must be the type of the function `name`.
+unsafe fn nf_fn<T: Copy>(lib: &libloading::Library, name: &[u8]) -> Result<T> {
+    Ok(*lib.get::<T>(name)?)
+}
+
 unsafe fn init_nf_fns<P: AsRef<OsStr>>(nfapi: P) -> Result<()> {
+    if NF.get().is_some() {
+        // A second init: the library from the first stays loaded and its
+        // functions stay set.
+        return Ok(());
+    }
+
     let nfapi = libloading::Library::new(nfapi)?;
 
-    NF_INIT = Some(transmute(
-        nfapi
-            .get::<libloading::Symbol<NfInitFn>>(b"nf_init\0")?
-            .into_raw(),
-    ));
+    // SAFETY: each type alias matches the nfapi.dll export of that name.
+    let fns = NfFns {
+        init: nf_fn::<NfInitFn>(&nfapi, b"nf_init\0")?,
+        free: nf_fn::<NfFreeFn>(&nfapi, b"nf_free\0")?,
+        add_rule: nf_fn::<NfAddRuleFn>(&nfapi, b"nf_addRule\0")?,
+        tcp_post_receive: nf_fn::<NfTcpPostReceiveFn>(&nfapi, b"nf_tcpPostReceive\0")?,
+        tcp_post_send: nf_fn::<NfTcpPostSendFn>(&nfapi, b"nf_tcpPostSend\0")?,
+        udp_post_receive: nf_fn::<NfUdpPostReceiveFn>(&nfapi, b"nf_udpPostReceive\0")?,
+        udp_post_send: nf_fn::<NfUdpPostSendFn>(&nfapi, b"nf_udpPostSend\0")?,
+        tcp_disable_filtering: nf_fn::<NfTcpDisableFilteringFn>(
+            &nfapi,
+            b"nf_tcpDisableFiltering\0",
+        )?,
+        udp_disable_filtering: nf_fn::<NfUdpDisableFilteringFn>(
+            &nfapi,
+            b"nf_udpDisableFiltering\0",
+        )?,
+        adjust_process_priviledges: nf_fn::<NfAdjustProcessPriviledgesFn>(
+            &nfapi,
+            b"nf_adjustProcessPriviledges\0",
+        )?,
+        get_udp_conn_info: nf_fn::<NfGetUdpConnInfoFn>(&nfapi, b"nf_getUDPConnInfo\0")?,
+        get_process_name: nf_fn::<NfGetProcessNameFn>(&nfapi, b"nf_getProcessNameW\0")?,
+        get_process_name_from_kernel: nf_fn::<NfGetProcessNameFromKernelFn>(
+            &nfapi,
+            b"nf_getProcessNameFromKernel\0",
+        )?,
+    };
 
-    let nf_free: libloading::Symbol<NfFreeFn> = nfapi.get(b"nf_free\0")?;
-    NF_FREE = Some(transmute(nf_free.into_raw()));
-
-    let nf_add_rule: libloading::Symbol<NfAddRuleFn> = nfapi.get(b"nf_addRule\0")?;
-    NF_ADD_RULE = Some(transmute(nf_add_rule.into_raw()));
-
-    let nf_tcp_post_receive: libloading::Symbol<NfTcpPostReceiveFn> =
-        nfapi.get(b"nf_tcpPostReceive\0")?;
-    NF_TCP_POST_RECEIVE = Some(transmute(nf_tcp_post_receive.into_raw()));
-
-    let nf_tcp_post_send: libloading::Symbol<NfTcpPostSendFn> = nfapi.get(b"nf_tcpPostSend\0")?;
-    NF_TCP_POST_SEND = Some(transmute(nf_tcp_post_send.into_raw()));
-
-    let nf_udp_post_receive: libloading::Symbol<NfUdpPostReceiveFn> =
-        nfapi.get(b"nf_udpPostReceive\0")?;
-    NF_UDP_POST_RECEIVE = Some(transmute(nf_udp_post_receive.into_raw()));
-
-    let nf_udp_post_send: libloading::Symbol<NfUdpPostSendFn> = nfapi.get(b"nf_udpPostSend\0")?;
-    NF_UDP_POST_SEND = Some(transmute(nf_udp_post_send.into_raw()));
-
-    NF_TCP_DISABLE_FILTERING = Some(std::mem::transmute(
-        nfapi
-            .get::<libloading::Symbol<NfTcpDisableFilteringFn>>(b"nf_tcpDisableFiltering\0")?
-            .into_raw(),
-    ));
-
-    NF_UDP_DISABLE_FILTERING = Some(std::mem::transmute(
-        nfapi
-            .get::<libloading::Symbol<NfUdpDisableFilteringFn>>(b"nf_udpDisableFiltering\0")?
-            .into_raw(),
-    ));
-
-    let nf_adjust_process_priviledges: libloading::Symbol<NfAdjustProcessPriviledgesFn> =
-        nfapi.get(b"nf_adjustProcessPriviledges\0")?;
-    NF_ADJUST_PROCESS_PRIVILEDGES = Some(transmute(nf_adjust_process_priviledges.into_raw()));
-
-    NF_GET_UDP_CONN_INFO = Some(transmute(
-        nfapi
-            .get::<libloading::Symbol<NfGetUdpConnInfoFn>>(b"nf_getUDPConnInfo\0")?
-            .into_raw(),
-    ));
-
-    let nf_get_process_name: libloading::Symbol<NfGetProcessNameFn> =
-        nfapi.get(b"nf_getProcessNameW\0")?;
-    NF_GET_PROCESS_NAME = Some(std::mem::transmute(nf_get_process_name.into_raw()));
-
-    NF_GET_PROCESS_NAME_FROM_KERNEL = Some(transmute(
-        nfapi
-            .get::<libloading::Symbol<NfGetProcessNameFromKernelFn>>(
-                b"nf_getProcessNameFromKernel\0",
-            )?
-            .into_raw(),
-    ));
-
+    // Kept loaded for the life of the process: the pointers in `NF` point
+    // into it.
     *NFAPI.write() = Some(nfapi);
+    // Init runs on one thread at a time (IS_NF_INITIALIZED), so this set
+    // cannot lose to another.
+    let _ = NF.set(fns);
 
     Ok(())
 }
@@ -825,8 +865,10 @@ unsafe fn init_nf<P: AsRef<OsStr>>(
     res_tx: std::sync::mpsc::Sender<bool>,
 ) -> Result<()> {
     init_nf_fns(nfapi)?;
+    let fns = nf();
 
-    NF_ADJUST_PROCESS_PRIVILEDGES.expect("init_nf_fns set it")();
+    // SAFETY: takes no arguments.
+    (fns.adjust_process_priviledges)();
 
     let eh = NfEventHandler {
         threadStart,
@@ -849,10 +891,9 @@ unsafe fn init_nf<P: AsRef<OsStr>>(
 
     let driver_name =
         CString::new(driver_name).map_err(|_| anyhow!("driver_name: contains a NUL character"))?;
-    let status = NF_INIT.expect("init_nf_fns set it")(
-        driver_name.as_bytes_with_nul().as_ptr(),
-        &eh as *const _,
-    );
+    // SAFETY: `driver_name` is NUL-terminated; `eh` outlives the driver's use
+    // of it, as this thread blocks below until the process ends.
+    let status = (fns.init)(driver_name.as_bytes_with_nul().as_ptr(), &eh as *const _);
     if status != NF_STATUS_SUCCESS {
         return Err(anyhow!("nf_init failed, status={}", status));
     }
@@ -864,7 +905,8 @@ unsafe fn init_nf<P: AsRef<OsStr>>(
         filteringFlag: NfFilteringFlag::NfIndicateConnectRequests.value(),
         ..Default::default()
     };
-    let status = NF_ADD_RULE.expect("init_nf_fns set it")(&rule as *const _, 0);
+    // SAFETY: `rule` is a live `NfRule` for the call.
+    let status = (fns.add_rule)(&rule as *const _, 0);
     if status != NF_STATUS_SUCCESS {
         return Err(anyhow!("adding rule failed: {}", status));
     }
@@ -873,7 +915,8 @@ unsafe fn init_nf<P: AsRef<OsStr>>(
         filteringFlag: NfFilteringFlag::NfFilter.value(),
         ..Default::default()
     };
-    let status = NF_ADD_RULE.expect("init_nf_fns set it")(&rule as *const _, 0);
+    // SAFETY: `rule` is a live `NfRule` for the call.
+    let status = (fns.add_rule)(&rule as *const _, 0);
     if status != NF_STATUS_SUCCESS {
         return Err(anyhow!("adding rule failed: {}", status));
     }
@@ -881,7 +924,7 @@ unsafe fn init_nf<P: AsRef<OsStr>>(
     *UDP_SEND_SOCKET.write() = Some(std::net::UdpSocket::bind("0.0.0.0:0")?);
 
     let (tx, rx) = std::sync::mpsc::channel();
-    TX = Some(tx);
+    *TX.lock() = Some(tx);
 
     if let Err(e) = res_tx.send(true) {
         debug!("unable to send nf init result: {}", e);
@@ -927,18 +970,17 @@ fn init<P: AsRef<OsStr>>(driver_name: String, nfapi: P) -> Result<()> {
 
 unsafe fn uninit_nf() {
     if IS_NF_INITIALIZED.swap(false, Ordering::Relaxed) {
-        if let Some(nf_free) = NF_FREE {
-            nf_free();
-        }
-        if let Some(nfapi) = NFAPI.write().take() {
-            if let Err(e) = nfapi.close() {
-                debug!("close nf failed: {}", e);
-            }
+        // Not set when nf never initialised. The library stays loaded: the
+        // pointers in `NF` point into it, and a later init reuses them.
+        if let Some(fns) = NF.get() {
+            // SAFETY: takes no arguments; the library is still loaded.
+            (fns.free)();
         }
     }
 }
 
 pub fn uninit() {
+    // SAFETY: `uninit_nf` only calls `nf_free` from the loaded library.
     unsafe { uninit_nf() };
 }
 
@@ -946,11 +988,12 @@ pub fn uninit() {
 pub unsafe fn get_process_name(pid: u32) -> Result<String> {
     let mut process_name_buf = vec![0u16; MAX_PATH];
     let process_name_len = process_name_buf.len() as u32;
-    let (Some(from_kernel), Some(get_process_name)) =
-        (NF_GET_PROCESS_NAME_FROM_KERNEL, NF_GET_PROCESS_NAME)
-    else {
+    let Some(fns) = NF.get() else {
         return Err(anyhow!("nf is not initialized"));
     };
+    let (from_kernel, get_process_name) = (fns.get_process_name_from_kernel, fns.get_process_name);
+    // SAFETY: both write at most `process_name_len` UTF-16 units into
+    // `process_name_buf`, which holds that many.
     if !from_kernel(pid, process_name_buf.as_mut_ptr() as _, process_name_len)
         && !get_process_name(pid, process_name_buf.as_mut_ptr() as _, process_name_len)
     {
@@ -1012,6 +1055,7 @@ fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
         (FakeDnsMode::Exclude, options.fake_dns_exclude)
     };
     let fake_dns = Arc::new(FakeDns::new(mode, filters));
+    *NF_TAG.write() = Some(ctx.tag.to_owned());
     let manager = Arc::new(NfManager::new(
         options.driver_name,
         options.nfapi,
@@ -1026,4 +1070,43 @@ fn build(ctx: &InboundContext<'_>) -> Result<AnyInboundHandler> {
         Some(stream),
         Some(datagram),
     )))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn conn_info(inserted: Instant) -> ConnInfo {
+        ConnInfo {
+            remote_addr: "1.2.3.4:443".parse().unwrap(),
+            process_name: None,
+            inserted,
+        }
+    }
+
+    #[test]
+    fn prune_removes_only_entries_older_than_the_ttl() {
+        let start = Instant::now();
+        let mut map = HashMap::new();
+        map.insert(1, conn_info(start));
+        map.insert(2, conn_info(start + Duration::from_secs(30)));
+        map.insert(3, conn_info(start + TCP_INFO_TTL));
+
+        prune(&mut map, start + TCP_INFO_TTL + Duration::from_secs(1));
+
+        let mut left: Vec<u16> = map.keys().copied().collect();
+        left.sort_unstable();
+        assert_eq!(left, vec![2, 3]);
+    }
+
+    #[test]
+    fn prune_keeps_entries_inserted_after_now() {
+        let start = Instant::now();
+        let mut map = HashMap::new();
+        map.insert(1, conn_info(start + Duration::from_secs(5)));
+
+        prune(&mut map, start);
+
+        assert_eq!(map.len(), 1);
+    }
 }

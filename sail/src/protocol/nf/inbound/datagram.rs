@@ -154,12 +154,14 @@ fn udp_post_receive(
 ) -> io::Result<usize> {
     if let Some(id) = super::UDP_ENDPOINT.lock().get(local_addr) {
         if let Some(options) = super::UDP_OPTIONS.lock().get(id) {
+            // SAFETY: `addr` and `buf` live across the call, and `options`
+            // holds the udp options the driver gave for this endpoint.
             let status = unsafe {
                 match src_addr {
                     SocketAddr::V4(addr) => {
                         let addr: SOCKADDR_IN = addr.into();
                         let addr = &addr as *const SOCKADDR_IN as *const u8;
-                        super::NF_UDP_POST_RECEIVE.expect(super::NF_FN_SET)(
+                        (super::nf().udp_post_receive)(
                             *id,
                             addr,
                             buf.as_ptr(),
@@ -170,7 +172,7 @@ fn udp_post_receive(
                     SocketAddr::V6(addr) => {
                         let addr: SOCKADDR_IN6 = addr.into();
                         let addr = &addr as *const SOCKADDR_IN6 as *const u8;
-                        super::NF_UDP_POST_RECEIVE.expect(super::NF_FN_SET)(
+                        (super::nf().udp_post_receive)(
                             *id,
                             addr,
                             buf.as_ptr(),
