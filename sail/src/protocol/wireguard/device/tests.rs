@@ -182,14 +182,14 @@ fn pair(tweak_a: impl FnOnce(&mut PeerConfig), tweak_b: impl FnOnce(&mut PeerCon
     let mut to_b = PeerConfig::new(crypto::public_key(&kb));
     to_b.endpoint = Some(sa(B_ADDR));
     to_b.allowed_ips = vec![(ip("10.0.0.2"), 32)];
-    to_b.preshared_key = Some(psk);
+    to_b.preshared_key = Some(psk.into());
     tweak_a(&mut to_b);
     let pa = net.nodes[a].dev.add_peer(to_b).unwrap();
 
     let mut to_a = PeerConfig::new(crypto::public_key(&ka));
     to_a.endpoint = Some(sa(A_ADDR));
     to_a.allowed_ips = vec![(ip("10.0.0.1"), 32)];
-    to_a.preshared_key = Some(psk);
+    to_a.preshared_key = Some(psk.into());
     tweak_b(&mut to_a);
     let pb = net.nodes[b].dev.add_peer(to_a).unwrap();
     Pair { net, a, b, pa, pb }

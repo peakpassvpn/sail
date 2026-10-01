@@ -43,7 +43,7 @@ impl Handler {
     fn authorize(&self, request: &Request) -> Result<(&User, Flow), String> {
         let user = self
             .users
-            .get(&request.uuid)
+            .get(&*request.uuid)
             .filter(|user| !crate::user::shut_out(&user.name))
             .ok_or_else(|| "unknown user".to_string())?;
         let flow = Flow::parse(&request.flow)?;
@@ -145,7 +145,7 @@ impl InboundStreamHandler for Handler {
                 // boundaries until Vision settles.
                 let vision = VisionState::of(&sess);
                 vision.start();
-                Box::new(VlessStream::server(stream, request.uuid, Some(vision)))
+                Box::new(VlessStream::server(stream, *request.uuid, Some(vision)))
             }
             Flow::None => stream,
         };

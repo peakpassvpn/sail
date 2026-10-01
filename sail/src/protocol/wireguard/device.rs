@@ -64,7 +64,7 @@ impl DeviceConfig {
 #[derive(Clone, Debug)]
 pub struct PeerConfig {
     pub public_key: [u8; KEY_LEN],
-    pub preshared_key: Option<[u8; KEY_LEN]>,
+    pub preshared_key: Option<crate::common::secret::Secret<[u8; KEY_LEN]>>,
     /// Where to send; learnt from the peer's authenticated packets when
     /// absent, and updated by them when present (roaming).
     pub endpoint: Option<SocketAddr>,
@@ -622,7 +622,7 @@ impl Device {
         self.peers[slot] = Some(Peer {
             id,
             public_key: config.public_key,
-            preshared_key: config.preshared_key.unwrap_or([0; KEY_LEN]),
+            preshared_key: config.preshared_key.map_or([0; KEY_LEN], |k| *k),
             static_static,
             endpoint: config.endpoint,
             reserved: config.reserved,

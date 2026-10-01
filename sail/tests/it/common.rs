@@ -21,6 +21,11 @@ use sail::session::Session;
 
 static NEXT_RT_ID: AtomicU16 = AtomicU16::new(0);
 
+/// A runtime ID no other instance of the tests has.
+pub fn next_rt_id() -> sail::RuntimeId {
+    NEXT_RT_ID.fetch_add(1, Ordering::Relaxed)
+}
+
 // ---------------------------------------------------------------------------
 // Ports and files
 //

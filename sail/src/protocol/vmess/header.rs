@@ -31,6 +31,8 @@ use super::xudp::parse_addr_port;
 use super::xudp::write_addr_port;
 use crate::session::SocksAddr;
 
+use crate::common::secret::Secret;
+
 pub const VERSION: u8 = 1;
 
 pub const SECURITY_AES128_GCM: u8 = 3;
@@ -127,7 +129,7 @@ fn fnv1a(data: &[u8]) -> u32 {
 #[derive(Debug, Clone)]
 pub struct RequestHeader {
     pub body_iv: [u8; 16],
-    pub body_key: [u8; 16],
+    pub body_key: Secret<[u8; 16]>,
     /// Echoed by the server in its response.
     pub response_auth: u8,
     pub option: u8,
@@ -144,7 +146,7 @@ impl RequestHeader {
         let mut rng = rand::thread_rng();
         let mut header = RequestHeader {
             body_iv: [0; 16],
-            body_key: [0; 16],
+            body_key: Default::default(),
             response_auth: rng.gen(),
             option,
             security,
@@ -152,7 +154,7 @@ impl RequestHeader {
             address,
         };
         rng.fill_bytes(&mut header.body_iv);
-        rng.fill_bytes(&mut header.body_key);
+        rng.fill_bytes(&mut *header.body_key);
         header
     }
 
@@ -163,7 +165,7 @@ impl RequestHeader {
         let mut buf = BytesMut::with_capacity(64);
         buf.put_u8(VERSION);
         buf.put_slice(&self.body_iv);
-        buf.put_slice(&self.body_key);
+        buf.put_slice(&*self.body_key);
         buf.put_u8(self.response_auth);
         buf.put_u8(self.option);
         buf.put_u8(padding << 4 | self.security);
@@ -195,7 +197,7 @@ impl RequestHeader {
         }
         let mut header = RequestHeader {
             body_iv: body[1..17].try_into().map_err(|_| invalid("short"))?,
-            body_key: body[17..33].try_into().map_err(|_| invalid("short"))?,
+            body_key: Secret(body[17..33].try_into().map_err(|_| invalid("short"))?),
             response_auth: body[33],
             option: body[34],
             security: body[35] & 0x0f,
@@ -269,7 +271,7 @@ impl RequestHeader {
     /// SHA-256 of the request's.
     pub fn response_keys(&self) -> ([u8; 16], [u8; 16]) {
         use sha2::Sha256;
-        let key = Sha256::digest(self.body_key);
+        let key = Sha256::digest(*self.body_key);
         let iv = Sha256::digest(self.body_iv);
         (
             key[..16].try_into().expect("SHA-256 is 32 bytes"),
@@ -494,6 +496,18 @@ mod tests {
     use super::*;
 
     const UUID: [u8; 16] = [0x42; 16];
+
+    #[test]
+    fn the_body_key_is_not_printed() {
+        let mut header = RequestHeader::new(0, 0, 1, None);
+        header.body_key = Secret([0xab; 16]);
+        let debug = format!("{:?}", header);
+        assert!(
+            !debug.contains("171") && debug.contains("<redacted>"),
+            "{}",
+            debug
+        );
+    }
 
     fn request() -> RequestHeader {
         RequestHeader::new(

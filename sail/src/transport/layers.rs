@@ -15,6 +15,8 @@ use anyhow::{anyhow, Result};
 use futures::future::AbortHandle;
 use serde_derive::Deserialize;
 
+use crate::common::secret::Secret;
+
 use crate::adapter::{AnyInboundHandler, AnyOutboundHandler};
 use crate::app::SyncDnsClient;
 use crate::config::model::{parse_options, Options};
@@ -103,17 +105,6 @@ impl Blocks {
 pub enum Listable {
     One(String),
     Many(Vec<String>),
-}
-
-/// A secret, a private key: read as the value is, printed as none.
-#[derive(Deserialize, Clone)]
-#[serde(transparent)]
-pub struct Secret<T>(pub T);
-
-impl<T> std::fmt::Debug for Secret<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("<redacted>")
-    }
 }
 
 impl Listable {
@@ -501,7 +492,7 @@ pub struct OutboundReality {
     pub enabled: bool,
     pub public_key: String,
     #[serde(default)]
-    pub short_id: String,
+    pub short_id: Secret<String>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -1496,7 +1487,7 @@ pub struct InboundTls {
     pub certificate_path: Option<String>,
     /// An inline PEM key.
     #[serde(default)]
-    pub key: Option<Listable>,
+    pub key: Option<Secret<Listable>>,
     #[serde(default)]
     pub key_path: Option<String>,
     #[serde(default)]
@@ -1524,8 +1515,8 @@ pub struct InboundReality {
     pub enabled: bool,
     pub handshake: RealityHandshake,
     /// X25519, hex or base64url.
-    pub private_key: String,
-    pub short_id: Listable,
+    pub private_key: Secret<String>,
+    pub short_id: Secret<Listable>,
     /// How far a client's clock may be from ours, e.g. `1m`. Unset, any
     /// time is accepted, as in sing-box.
     #[serde(default, with = "crate::config::model::duration")]
@@ -1764,7 +1755,7 @@ impl InboundTls {
     /// The key of the certificate: inline, or by path.
     pub(crate) fn key(&self, tag: &str, env: &RuntimeEnv) -> Result<String> {
         match (&self.key, &self.key_path) {
-            (Some(inline), None) => Ok(inline.clone().joined()),
+            (Some(inline), None) => Ok(inline.0.clone().joined()),
             (None, Some(path)) => Ok(env.data_path(path)),
             _ => Err(anyhow!(
                 "[{}] inbound: tls: set exactly one of key and key_path",
@@ -2051,7 +2042,7 @@ fn reality_inbound(
         let handler = crate::transport::reality::inbound::Handler::new(
             server_name,
             &reality.private_key,
-            &reality.short_id.clone().into_vec(),
+            &reality.short_id.0.clone().into_vec(),
             reality.max_time_difference,
             (
                 reality.handshake.server.clone(),
@@ -2211,7 +2202,7 @@ fn amux_inbound(
 
 #[cfg(all(test, any(feature = "outbound-tls", feature = "outbound-reality")))]
 mod tests {
-    use super::OutboundTls;
+    use super::{InboundTls, OutboundReality, OutboundTls};
     use crate::transport::tls::Fingerprint;
 
     fn tls(json: &str) -> OutboundTls {
@@ -2280,6 +2271,35 @@ mod tests {
             .self_signed(&key)
             .unwrap()
             .pem()
+    }
+
+    #[test]
+    fn tls_and_reality_secrets_are_not_printed() {
+        use serde_json::json;
+        let key = "-----BEGIN PRIVATE KEY-----\nc2VjcmV0LWtleS1ib2R5\n-----END PRIVATE KEY-----";
+        let inbound: InboundTls = serde_json::from_value(json!({
+            "enabled": true,
+            "key": key,
+            "reality": {
+                "enabled": true,
+                "handshake": { "server": "www.example.com", "server_port": 443 },
+                "private_key": "ab".repeat(32),
+                "short_id": ["5ec7e7"],
+            },
+        }))
+        .unwrap();
+        let outbound: OutboundReality = serde_json::from_value(json!({
+            "enabled": true,
+            "public_key": "cd".repeat(32),
+            "short_id": "5ec7e7",
+        }))
+        .unwrap();
+        let debug = format!("{:?} {:?}", inbound, outbound);
+        for secret in ["c2VjcmV0LWtleS1ib2R5", &"ab".repeat(32), "5ec7e7"] {
+            assert!(!debug.contains(secret), "{}", debug);
+        }
+        // What is not secret still shows.
+        assert!(debug.contains("www.example.com") && debug.contains(&"cd".repeat(32)));
     }
 
     #[test]

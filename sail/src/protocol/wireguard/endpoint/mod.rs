@@ -331,7 +331,7 @@ impl Shared {
         *self.bind.lock() = Some(transport.clone());
 
         let now = tokio::time::Instant::now().into_std();
-        let mut device_config = DeviceConfig::new(self.settings.private_key);
+        let mut device_config = DeviceConfig::new(*self.settings.private_key);
         device_config.mtu = self.settings.mtu;
         let mut device = Device::new(device_config, now);
         let mut users = AllowedIps::new();

@@ -84,7 +84,7 @@ pub fn encode_request(
 /// A request as a server reads it.
 #[derive(Debug)]
 pub struct Request {
-    pub uuid: [u8; 16],
+    pub uuid: crate::common::secret::Secret<[u8; 16]>,
     /// The flow as the client sent it, not yet checked.
     pub flow: String,
     pub command: u8,
@@ -126,7 +126,7 @@ where
         other => return Err(invalid(format!("unknown command {}", other))),
     };
     Ok(Request {
-        uuid,
+        uuid: uuid.into(),
         flow,
         command,
         destination,
@@ -385,6 +385,18 @@ mod tests {
     use super::*;
 
     const UUID: [u8; 16] = [7; 16];
+
+    #[test]
+    fn the_uuid_is_not_printed() {
+        let request = Request {
+            uuid: [0xab; 16].into(),
+            flow: String::new(),
+            command: COMMAND_TCP,
+            destination: None,
+        };
+        let debug = format!("{:?}", request);
+        assert!(!debug.contains("171"), "{}", debug);
+    }
 
     #[tokio::test]
     async fn test_request_round_trip() {

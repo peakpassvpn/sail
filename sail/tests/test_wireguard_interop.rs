@@ -329,7 +329,7 @@ impl Sail {
 
 fn kernel_peer(public: [u8; 32]) -> PeerConfig {
     let mut pc = PeerConfig::new(public);
-    pc.preshared_key = std::env::var("WG_PSK").ok().map(|k| base64_key(&k));
+    pc.preshared_key = std::env::var("WG_PSK").ok().map(|k| base64_key(&k).into());
     pc.endpoint = Some(KERNEL_ENDPOINT.parse::<SocketAddr>().unwrap());
     pc.allowed_ips = vec![
         (IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0),

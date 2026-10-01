@@ -11,6 +11,8 @@ use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use serde_derive::Deserialize;
 
+use crate::common::secret::Secret;
+
 use crate::protocol::wireguard::crypto::KEY_LEN;
 use crate::protocol::wireguard::PeerConfig;
 
@@ -31,7 +33,7 @@ pub struct WireGuardOptions {
     pub mtu: Option<u32>,
     /// The endpoint's own addresses in the tunnel, as prefixes.
     pub address: Vec<String>,
-    pub private_key: String,
+    pub private_key: Secret<String>,
     #[serde(default)]
     pub listen_port: Option<u16>,
     pub peers: Vec<PeerOptions>,
@@ -52,7 +54,7 @@ pub struct PeerOptions {
     pub port: Option<u16>,
     pub public_key: String,
     #[serde(default)]
-    pub pre_shared_key: Option<String>,
+    pub pre_shared_key: Option<Secret<String>>,
     pub allowed_ips: Vec<String>,
     /// Seconds; 0 or unset is off.
     #[serde(default)]
@@ -99,7 +101,7 @@ pub struct PeerSettings {
 /// An endpoint's options, checked.
 #[derive(Clone, Debug)]
 pub struct Settings {
-    pub private_key: [u8; KEY_LEN],
+    pub private_key: Secret<[u8; KEY_LEN]>,
     pub mtu: usize,
     /// The endpoint's own addresses, with their prefix lengths.
     pub address: Vec<(IpAddr, u8)>,
@@ -195,7 +197,7 @@ impl Settings {
             }
             let mut config = PeerConfig::new(public_key);
             if let Some(psk) = &peer.pre_shared_key {
-                config.preshared_key = Some(key(&field("pre_shared_key"), psk)?);
+                config.preshared_key = Some(key(&field("pre_shared_key"), psk)?.into());
             }
             if peer.allowed_ips.is_empty() {
                 bail!(
@@ -239,7 +241,7 @@ impl Settings {
             bail!("detour: no peer has an address to send to through it");
         }
         Ok(Settings {
-            private_key,
+            private_key: private_key.into(),
             mtu: mtu as usize,
             address,
             listen_port: options.listen_port,
@@ -258,6 +260,28 @@ mod tests {
     fn parse(json: serde_json::Value) -> Result<Settings> {
         let options: WireGuardOptions = serde_json::from_value(json)?;
         Settings::parse(&options, false)
+    }
+
+    #[test]
+    fn keys_are_not_printed() {
+        // 32 bytes of 0x55.
+        const PSK: &str = "VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVU=";
+        let mut json = base();
+        json["peers"][0]["pre_shared_key"] = PSK.into();
+        let options: WireGuardOptions = serde_json::from_value(json).unwrap();
+        let settings = Settings::parse(&options, false).unwrap();
+        let debug = format!("{:?} {:?}", options, settings);
+        let bytes = |k: &str| {
+            let k = STANDARD.decode(k).unwrap();
+            format!("{:?}", k)
+                .trim_matches(|c| c == '[' || c == ']')
+                .to_string()
+        };
+        for secret in [KEY_A.to_string(), bytes(KEY_A), PSK.to_string(), bytes(PSK)] {
+            assert!(!debug.contains(&secret), "{}", debug);
+        }
+        // The peer's public key is no secret.
+        assert!(debug.contains(KEY_B), "{}", debug);
     }
 
     fn base() -> serde_json::Value {

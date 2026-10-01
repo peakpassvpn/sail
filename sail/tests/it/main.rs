@@ -61,6 +61,7 @@ mod test_provider_retire;
 mod test_quic_resources;
 mod test_quic_trojan;
 mod test_reality;
+mod test_redaction;
 mod test_reload;
 mod test_route_actions;
 mod test_route_dns;
