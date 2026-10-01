@@ -15,6 +15,7 @@ use crate::session::{DatagramSource, Network, Session, SocksAddr};
 pub mod inbound;
 pub mod outbound;
 pub mod registry;
+pub mod reply;
 
 #[derive(Error, Debug)]
 pub enum ProxyError {

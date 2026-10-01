@@ -360,6 +360,9 @@ pub struct Session {
     /// DHCP leases know it: looked up before routing, when a rule or a DNS
     /// server needs it, as sing-box does.
     pub neighbor: Option<std::sync::Arc<crate::net::neighbor::Neighbor>>,
+    /// The answer the inbound owes its client once the outbound connects,
+    /// as a SOCKS inbound gives it: shared by the session's copies.
+    pub reply: Option<std::sync::Arc<crate::adapter::reply::Reply>>,
 }
 
 /// The members groups handed a connection to, the innermost first, as
@@ -445,6 +448,7 @@ impl Clone for Session {
             matched_rule: self.matched_rule.clone(),
             chain: self.chain.clone(),
             neighbor: self.neighbor.clone(),
+            reply: self.reply.clone(),
         }
     }
 }
@@ -479,6 +483,7 @@ impl Default for Session {
             matched_rule: None,
             chain: Chain::default(),
             neighbor: None,
+            reply: None,
         }
     }
 }

@@ -9,7 +9,10 @@ use tokio::time::timeout;
 /// Whether a connection through the instance to `sess`'s destination is
 /// relayed (true) or closed (false).
 async fn relayed(port: u16, sess: &sail::session::Session) -> anyhow::Result<bool> {
-    let mut stream = common::new_socks_stream("127.0.0.1", port, sess, None, None).await?;
+    // A rejected connect is answered with a failure.
+    let Ok(mut stream) = common::new_socks_stream("127.0.0.1", port, sess, None, None).await else {
+        return Ok(false);
+    };
     stream.write_all(b"ping").await?;
     let mut buf = [0u8; 4];
     match timeout(Duration::from_secs(10), stream.read(&mut buf)).await? {

@@ -203,22 +203,17 @@ fn an_authenticated_user_is_routed_by_name() -> anyhow::Result<()> {
                 destination: sail::session::SocksAddr::from(echo_addr),
                 ..Default::default()
             };
-            let mut stream = common::new_socks_stream(
+            // Her connect is answered with a failure, as sing-box answers
+            // a rejected one.
+            let connected = common::new_socks_stream(
                 "127.0.0.1",
                 port,
                 &sess,
                 Some("alice".into()),
                 Some("secret".into()),
             )
-            .await?;
-            stream.write_all(b"ping").await?;
-            let mut buf = [0u8; 4];
-            let read = timeout(Duration::from_secs(10), stream.read(&mut buf)).await?;
-            anyhow::ensure!(
-                matches!(read, Ok(0) | Err(_)),
-                "alice's connection should be rejected, read {:?}",
-                read
-            );
+            .await;
+            anyhow::ensure!(connected.is_err(), "alice's connection should be rejected");
             anyhow::Ok(())
         });
         for id in ids {

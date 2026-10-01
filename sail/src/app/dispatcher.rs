@@ -413,6 +413,9 @@ impl Dispatcher {
             Routed::Drop => {
                 // Read and thrown away, and never answered, until the
                 // client gives up.
+                if let Some(reply) = &sess.reply {
+                    reply.withheld();
+                }
                 let _ = tokio::time::timeout(
                     DROP_HOLD,
                     tokio::io::copy(&mut lhs, &mut tokio::io::sink()),
@@ -424,6 +427,7 @@ impl Dispatcher {
 
         let Some(h) = self.outbound_manager.load().handler(outbound.as_deref()) else {
             warn!("handler not found");
+            refuse(&sess, &mut lhs, &io::Error::other("no outbound")).await;
             return;
         };
         sess.outbound_tag = h.tag().clone();
@@ -443,6 +447,7 @@ impl Dispatcher {
                         e
                     );
                     log_request(&sess, h.tag(), None);
+                    refuse(&sess, &mut lhs, &e).await;
                     return;
                 }
             };
@@ -459,11 +464,17 @@ impl Dispatcher {
             Ok(th) => th,
             Err(e) => {
                 debug!("get stream handler, err={}", e);
+                refuse(&sess, &mut lhs, &e).await;
                 return;
             }
         };
         match th.handle(&sess, Some(&mut lhs), stream).await {
             Ok(mut rhs) => {
+                // Connected: the inbound's client is told so before the
+                // first bytes either way.
+                if let Some(reply) = &sess.reply {
+                    reply.succeeded();
+                }
                 if let Some(how) = sess.route.tls_fragment {
                     rhs = Box::new(super::router::fragment::FragmentStream::new(rhs, how));
                 }
@@ -504,6 +515,7 @@ impl Dispatcher {
             Err(e) => {
                 debug!("outbound handle err={}", e);
                 log_request(&sess, h.tag(), None);
+                refuse(&sess, &mut lhs, &e).await;
             }
         }
     }
@@ -716,6 +728,7 @@ impl Dispatcher {
                     "route src={} dst={}: {}",
                     &sess.source, &sess.destination, e
                 );
+                refuse(&sess, &mut sniffer.into_stream(), &e).await;
                 None
             }
         }
@@ -812,9 +825,11 @@ impl Dispatcher {
                 tag
             }
             Decision::Direct => return Ok(Routed::Outbound(None)),
+            // A reset, as sing-box's reject is (ErrReset): a SOCKS client
+            // is answered a general failure.
             Decision::Reject { drop: false } => {
                 return Err(io::Error::new(
-                    io::ErrorKind::ConnectionRefused,
+                    io::ErrorKind::ConnectionReset,
                     "rejected by a rule",
                 ))
             }
@@ -855,6 +870,15 @@ fn admitted(sess: &Session) -> bool {
             false
         }
         _ => true,
+    }
+}
+
+/// Tells the client the outbound failed, where its inbound answers it once
+/// connected (a SOCKS inbound), before the connection ends.
+async fn refuse<T: AsyncWrite + Unpin>(sess: &Session, lhs: &mut T, e: &io::Error) {
+    if let Some(reply) = &sess.reply {
+        reply.failed(e);
+        let _ = lhs.shutdown().await;
     }
 }
 

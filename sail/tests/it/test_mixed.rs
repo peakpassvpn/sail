@@ -327,11 +327,14 @@ fn test_socks_second_user() -> anyhow::Result<()> {
                     "a wrong password got in"
                 );
 
-                // alice authenticates, and routing blocks her by name.
-                let mut stream = socks_stream(port, echo, Some(("alice", "alice-pass"))).await?;
+                // alice authenticates, and routing blocks her by name: her
+                // connect is answered with a failure, once the outbound
+                // refuses it.
                 anyhow::ensure!(
-                    expect_echo(&mut stream).await.is_err(),
-                    "alice was routed through"
+                    socks_stream(port, echo, Some(("alice", "alice-pass")))
+                        .await
+                        .is_err(),
+                    "alice was answered success"
                 );
                 Ok(())
             },

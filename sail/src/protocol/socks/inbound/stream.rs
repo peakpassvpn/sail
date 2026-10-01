@@ -28,6 +28,41 @@ const fn socks5_reply(code: u8) -> [u8; 10] {
     [0x05, code, 0x00, 0x01, 0, 0, 0, 0, 0, 0]
 }
 
+/// The SOCKS5 reply to a connect that failed with `e`, as sing-box's
+/// `ReplyCodeForError` (sing's protocol/socks/socks5/protocol.go) maps it:
+/// network unreachable, host unreachable, refused, not allowed, or a
+/// general failure.
+fn socks5_failure(e: &io::Error) -> Vec<u8> {
+    let code = match e.kind() {
+        io::ErrorKind::NetworkUnreachable => 0x03,
+        io::ErrorKind::HostUnreachable => 0x04,
+        io::ErrorKind::ConnectionRefused => 0x05,
+        io::ErrorKind::PermissionDenied => 0x02,
+        _ => REP_GENERAL_FAILURE,
+    };
+    socks5_reply(code).to_vec()
+}
+
+/// The SOCKS4 reply to a connect that failed: rejected or failed (91), as
+/// sing-box gives it whatever the error.
+fn socks4_failure(_: &io::Error) -> Vec<u8> {
+    vec![0, 91, 0, 0, 0, 0, 0, 0]
+}
+
+/// A connect, answered once the outbound connects or fails, as sing-box
+/// answers it, rather than before.
+fn answered_once_connected(
+    mut sess: Session,
+    stream: AnyStream,
+    success: Vec<u8>,
+    failure: crate::adapter::reply::FailureReply,
+) -> AnyInboundTransport {
+    let reply = crate::adapter::reply::Reply::new(success, failure);
+    sess.reply = Some(reply.clone());
+    let stream = crate::adapter::reply::ReplyStream::new(stream, reply);
+    InboundTransport::Stream(Box::new(stream), sess)
+}
+
 /// Reads a SOCKS4 field up to its NUL, without the NUL.
 async fn read_nul_terminated(stream: &mut AnyStream) -> io::Result<Vec<u8>> {
     let mut field = Vec::new();
@@ -138,16 +173,19 @@ impl Handler {
             )))
         };
 
-        // Reply: VN=0, CD=90(Granted), DSTPORT, DSTIP
-        let mut reply = BytesMut::new();
-        reply.put_u8(0);
-        reply.put_u8(90);
-        reply.put_u16(port);
-        reply.put_slice(&ip_bytes);
-        stream.write_all(&reply).await?;
-
+        // Reply: VN=0, CD=90(Granted), DSTPORT, DSTIP; once connected.
+        let mut granted = BytesMut::new();
+        granted.put_u8(0);
+        granted.put_u8(90);
+        granted.put_u16(port);
+        granted.put_slice(&ip_bytes);
         sess.destination = destination;
-        Ok(InboundTransport::Stream(stream, sess))
+        Ok(answered_once_connected(
+            sess,
+            stream,
+            granted.to_vec(),
+            socks4_failure,
+        ))
     }
 
     async fn handle_socks5(
@@ -255,16 +293,19 @@ impl Handler {
 
         match cmd {
             0x01 => {
-                // handle response
+                // Succeeded, once connected; no address is told.
                 buf.clear();
-                buf.put_u8(0x05); // version 5
-                buf.put_u8(0x0); // succeeded
-                buf.put_u8(0x0); // rsv
-                let resp_addr = SocksAddr::any();
-                resp_addr.write_buf(&mut buf, SocksAddrWireType::PortLast);
-                stream.write_all(&buf[..]).await?;
+                buf.put_u8(0x05);
+                buf.put_u8(0x00);
+                buf.put_u8(0x00);
+                SocksAddr::any().write_buf(&mut buf, SocksAddrWireType::PortLast);
                 sess.destination = destination;
-                Ok(InboundTransport::Stream(stream, sess))
+                Ok(answered_once_connected(
+                    sess,
+                    stream,
+                    buf.to_vec(),
+                    socks5_failure,
+                ))
             }
             0x03 => {
                 const FAILURE: [u8; 10] = socks5_reply(REP_GENERAL_FAILURE);
@@ -433,12 +474,26 @@ mod tests {
         assert!(result.is_err());
         assert_eq!(answer[1], 91);
 
-        let (result, answer) = run(
-            Handler::new(Default::default(), Default::default(), None),
-            &request,
+        // Granted, once the outbound connects; nothing before.
+        let (client, server) = tokio::io::duplex(4096);
+        let (mut client_r, mut client_w) = tokio::io::split(client);
+        client_w.write_all(&request).await.unwrap();
+        let handler = Handler::new(Default::default(), Default::default(), None);
+        let Ok(InboundTransport::Stream(mut stream, sess)) =
+            handler.handle(Session::default(), Box::new(server)).await
+        else {
+            panic!("no stream");
+        };
+        let mut answer = [0u8; 8];
+        assert!(tokio::time::timeout(
+            std::time::Duration::from_millis(50),
+            client_r.read_exact(&mut answer)
         )
-        .await;
-        assert!(result.unwrap().is_some());
+        .await
+        .is_err());
+        sess.reply.expect("answered once connected").succeeded();
+        stream.flush().await.unwrap();
+        client_r.read_exact(&mut answer).await.unwrap();
         assert_eq!(answer[1], 90);
     }
 
