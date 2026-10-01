@@ -22,7 +22,7 @@ pub mod http;
 pub mod hysteria2;
 #[cfg(feature = "inbound-mixed")]
 pub mod mixed;
-#[cfg(feature = "outbound-mptp")]
+#[cfg(any(feature = "inbound-mptp", feature = "outbound-mptp"))]
 pub mod mptp;
 #[cfg(all(feature = "inbound-nf", windows))]
 pub mod nf;

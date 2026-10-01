@@ -428,7 +428,7 @@ Rust 定义：[`MixedUser`](https://github.com/peakpassvpn/sail/blob/dev/sail/sr
 
 ## `inbounds[mptp]`
 
-Rust 定义：[`MptpInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/mptp/inbound/mod.rs) · 构建条件：`feature = "outbound-mptp"` 且 `feature = "inbound-mptp"` · **sail 扩展**
+Rust 定义：[`MptpInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/mptp/inbound/mod.rs) · 构建条件：`feature = "inbound-mptp"` · **sail 扩展**
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |

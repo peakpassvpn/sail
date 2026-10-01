@@ -89,6 +89,8 @@ jobs:
             inbound-vless,inbound-tls,inbound-reality,outbound-vless,outbound-tls,outbound-reality \
             inbound-hysteria2,outbound-hysteria2 \
             inbound-tuic,outbound-tuic \
+            inbound-mptp,outbound-direct \
+            outbound-mptp,inbound-socks \
             inbound-tun,outbound-direct \
             rule-set,inbound-socks,outbound-direct \
             outbound-load-balance,outbound-redirect \

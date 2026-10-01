@@ -428,7 +428,7 @@ Rust: [`MixedUser`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protoc
 
 ## `inbounds[mptp]`
 
-Rust: [`MptpInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/mptp/inbound/mod.rs) · Build: `feature = "outbound-mptp"` and `feature = "inbound-mptp"` · **sail extension**
+Rust: [`MptpInboundOptions`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/protocol/mptp/inbound/mod.rs) · Build: `feature = "inbound-mptp"` · **sail extension**
 
 | Field | Type | Default | Status | Description |
 | --- | --- | --- | --- | --- |
