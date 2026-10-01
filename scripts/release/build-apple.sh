@@ -55,8 +55,10 @@ mv "$dwarf.universal" "$dwarf"
 DSYM=$dsym "$ROOT/scripts/release/package-cli.sh" macos-universal "$version" "$work/sail" "$out"
 
 # sail-ffi's static library, a slice for each platform.
+# Each prints the system libraries it needs, which the module map links.
 for target in $MACOS $IOS $SIMULATOR; do
-	cargo build --locked --profile dist -p sail-ffi --target "$target"
+	RUSTFLAGS="$RUSTFLAGS --print native-static-libs" \
+		cargo build --locked --profile dist -p sail-ffi --target "$target"
 done
 # Each thin library keeps its symbols but not its debug information (the
 # app that links it makes the dSYM); the full one goes with the symbols.
@@ -77,7 +79,10 @@ lipo -create "$work"/aarch64-apple-ios-sim/libsail.a "$work"/x86_64-apple-ios/li
 headers=$work/headers
 mkdir -p "$headers"
 cp sail-ffi/include/sail.h "$headers/"
+# SwiftPM links the XCFramework's libsail.a itself: a `link "sail"` of the
+# module would look for it again, where the linker does not.
 sed -e 's|header "shim.h"|header "sail.h"|' -e 's|module SailC \[system\]|module SailC|' \
+	-e '/link "sail"/d' \
 	bindings/swift/Sources/SailC/module.modulemap >"$headers/module.modulemap"
 grep -q 'header "sail.h"' "$headers/module.modulemap" ||
 	{ echo "build-apple: SailC's module map changed shape" >&2; exit 1; }
