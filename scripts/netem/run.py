@@ -33,7 +33,8 @@ CLIENT_NS, SERVER_NS = "nc5", "ns5"
 SERVER_ADDR = "10.95.0.2"
 TARGET = SERVER_ADDR + ":9000"
 # The same server off the link (netns.sh), for a TUN to take the traffic.
-FAR_TARGET = "10.96.0.1:9000"
+FAR_ADDR = "10.96.0.1"
+FAR_TARGET = FAR_ADDR + ":9000"
 LISTEN = "0.0.0.0:9000"
 SOCKS = "127.0.0.1:1081"
 SS_METHOD = "2022-blake3-aes-128-gcm"
@@ -138,7 +139,7 @@ def server_config(proto, work):
     tls = {"enabled": True, "certificate_path": f"{work}/cert.pem",
            "key_path": f"{work}/key.pem"}
     if proto == "reality":
-        inbound = {"type": "vless", "listen": SERVER_ADDR, "listen_port": 8443,
+        inbound = {"type": "vless", "listen": "0.0.0.0", "listen_port": 8443,
                    "users": [{"uuid": UUID, "flow": "xtls-rprx-vision"}],
                    "tls": {"enabled": True, "server_name": "localhost",
                            "reality": {"enabled": True,
@@ -147,23 +148,23 @@ def server_config(proto, work):
                                        "private_key": REALITY_PRIVATE,
                                        "short_id": [REALITY_SHORT_ID]}}}
     elif proto == "hy2":
-        inbound = {"type": "hysteria2", "listen": SERVER_ADDR, "listen_port": 8443,
+        inbound = {"type": "hysteria2", "listen": "0.0.0.0", "listen_port": 8443,
                    "users": [{"password": PASSWORD}], "tls": tls}
     elif proto == "tuic":
-        inbound = {"type": "tuic", "listen": SERVER_ADDR, "listen_port": 8443,
+        inbound = {"type": "tuic", "listen": "0.0.0.0", "listen_port": 8443,
                    "users": [{"uuid": UUID, "password": PASSWORD}],
                    "congestion_control": "bbr", "tls": dict(tls, alpn=["h3"])}
     elif proto == "mux":
-        inbound = {"type": "trojan", "listen": SERVER_ADDR, "listen_port": 8443,
+        inbound = {"type": "trojan", "listen": "0.0.0.0", "listen_port": 8443,
                    "users": [{"password": PASSWORD}], "tls": tls,
                    "multiplex": {"enabled": True}}
         return {"log": {"level": "warn"}, "inbounds": [inbound],
                 "outbounds": [{"type": "direct"}]}
     elif proto == "ss":
-        inbound = {"type": "shadowsocks", "listen": SERVER_ADDR, "listen_port": 8388,
+        inbound = {"type": "shadowsocks", "listen": "0.0.0.0", "listen_port": 8388,
                    "method": SS_METHOD, "password": SS_KEY}
     elif proto == "trojan":
-        inbound = {"type": "trojan", "listen": SERVER_ADDR, "listen_port": 8443,
+        inbound = {"type": "trojan", "listen": "0.0.0.0", "listen_port": 8443,
                    "users": [{"password": PASSWORD}],
                    "tls": {"enabled": True, "certificate_path": f"{work}/cert.pem",
                            "key_path": f"{work}/key.pem"}}
@@ -173,31 +174,31 @@ def server_config(proto, work):
             "outbounds": [{"type": "direct"}]}
 
 
-def client_config(proto, inbound="socks"):
+def client_config(proto, inbound="socks", server=SERVER_ADDR, auto_detect=False):
     insecure = {"enabled": True, "server_name": "localhost", "insecure": True}
     if proto == "reality":
-        out = {"type": "vless", "server": SERVER_ADDR, "server_port": 8443, "uuid": UUID,
+        out = {"type": "vless", "server": server, "server_port": 8443, "uuid": UUID,
                "flow": "xtls-rprx-vision",
                "tls": {"enabled": True, "server_name": "localhost",
                        "utls": {"enabled": True, "fingerprint": "chrome"},
                        "reality": {"enabled": True, "public_key": REALITY_PUBLIC,
                                    "short_id": REALITY_SHORT_ID}}}
     elif proto == "hy2":
-        out = {"type": "hysteria2", "server": SERVER_ADDR, "server_port": 8443,
+        out = {"type": "hysteria2", "server": server, "server_port": 8443,
                "password": PASSWORD, "tls": insecure}
     elif proto == "tuic":
-        out = {"type": "tuic", "server": SERVER_ADDR, "server_port": 8443, "uuid": UUID,
+        out = {"type": "tuic", "server": server, "server_port": 8443, "uuid": UUID,
                "password": PASSWORD, "congestion_control": "bbr",
                "tls": dict(insecure, alpn=["h3"])}
     elif proto == "mux":
-        out = {"type": "trojan", "server": SERVER_ADDR, "server_port": 8443,
+        out = {"type": "trojan", "server": server, "server_port": 8443,
                "password": PASSWORD, "tls": insecure,
                "multiplex": {"enabled": True, "max_connections": 4}}
     elif proto == "ss":
-        out = {"type": "shadowsocks", "server": SERVER_ADDR, "server_port": 8388,
+        out = {"type": "shadowsocks", "server": server, "server_port": 8388,
                "method": SS_METHOD, "password": SS_KEY}
     elif proto == "trojan":
-        out = {"type": "trojan", "server": SERVER_ADDR, "server_port": 8443,
+        out = {"type": "trojan", "server": server, "server_port": 8443,
                "password": PASSWORD,
                "tls": {"enabled": True, "server_name": "localhost", "insecure": True}}
     else:
@@ -207,6 +208,9 @@ def client_config(proto, inbound="socks"):
     cfg = {"log": {"level": "info", "timestamp": True},
            "inbounds": [{"type": "socks", "listen": "127.0.0.1", "listen_port": 1081}],
            "outbounds": [out]}
+    if auto_detect:
+        # Outbound sockets follow the default interface, as on a phone.
+        cfg["route"] = {"auto_detect_interface": True}
     if inbound == "tun":
         # The whole namespace's traffic into the TUN; the proxy's own
         # connections leave by the veth they are bound to.
@@ -294,7 +298,8 @@ class Run:
 
     def netgen(self, mode, *flags, timeout=600):
         proxy = f"-proxy {SOCKS} " if self.args.inbound == "socks" else ""
-        target = TARGET if self.args.inbound == "socks" else FAR_TARGET
+        target = (TARGET if self.args.inbound == "socks" and self.args.only != "route_switch"
+                  else FAR_TARGET)
         cmd = in_ns(CLIENT_NS, f"{self.args.netgen} {mode} {proxy}-target {target} "
                     + " ".join(flags))
         t0 = time.time()
@@ -332,7 +337,12 @@ class Run:
 
     def start_client(self):
         path = os.path.join(self.dir, "client.json")
-        json.dump(client_config(self.proto, self.args.inbound), open(path, "w"))
+        # Switching the default route needs a server only it reaches.
+        switching = self.args.only == "route_switch"
+        cfg = client_config(self.proto, self.args.inbound,
+                            server=FAR_ADDR if switching else SERVER_ADDR,
+                            auto_detect=switching)
+        json.dump(cfg, open(path, "w"))
         log = os.path.join(self.dir, "client.log")
         if self.client.startswith("sail"):
             profile = self.client.split("-", 1)[1]
@@ -441,6 +451,7 @@ class Run:
             0.0 if not failed_any else None)
         long_fail = next((e for e in events if e["what"] == "long_fail"), None)
         res["recovery_s"] = recovery
+        res["first_ok_s"] = first_ok_after(res, restored)
         res["long_ended_after_cut_s"] = (
             round(long_fail["at_ms"] / 1000 - cut, 2) if long_fail else None)
         res["long_reopened"] = any(e["what"] == "long_reopened" and e["at_ms"] >= restored_ms
@@ -454,8 +465,62 @@ class Run:
             print(f"  NOTE {self.name} {scenario}: recovery {recovery:.1f}s > "
                   f"{RECOVERY_TARGET_S}s", flush=True)
         self.check(scenario, "probe", res)
-        print(f"  {self.name} {scenario}: recovery {recovery}s, long-lived ended after "
+        print(f"  {self.name} {scenario}: recovery {recovery}s (first new connection after "
+              f"it: {res['first_ok_s']}s), long-lived ended after "
               f"{res['long_ended_after_cut_s']}s, reopened {res['long_reopened']}", flush=True)
+
+    def route_switch(self, sampler):
+        """The default route moves to a second interface and the first goes
+        down, as a phone leaving Wi-Fi. Recovery is the time from the move
+        to the first new connection that works; the client's own account
+        of it (2.12's "network changed" line) is kept beside it."""
+        pre, post = 5, 20
+        m = sampler.mark()
+        log = os.path.join(self.dir, "client.log")
+        log_before = os.path.getsize(log) if os.path.exists(log) else 0
+        probe = threading.Thread(target=lambda: setattr(
+            self, "_probe", self.netgen("probe", f"-duration {pre + post}s",
+                                        "-interval 100ms", "-timeout 5s",
+                                        timeout=pre + post + 60)))
+        probe.start()
+        time.sleep(pre)
+        switched = time.time()
+        netns("switch")
+        probe.join()
+        netns("unswitch")
+        res = getattr(self, "_probe", {})
+        events = res.get("events", [])
+        switched_ms = switched * 1000
+        first_ok = next((e["at_ms"] for e in events
+                         if e["what"] == "new_ok" and e["at_ms"] >= switched_ms), None)
+        failed_any = any(e["what"] == "new_fail" and e["at_ms"] >= switched_ms
+                         for e in events)
+        recovery = (first_ok - switched_ms) / 1000 if first_ok else (
+            0.0 if not failed_any else None)
+        long_fail = next((e for e in events if e["what"] == "long_fail"), None)
+        res["recovery_s"] = recovery
+        res["first_ok_s"] = first_ok_after(res, switched)
+        res["long_ended_after_switch_s"] = (
+            round(long_fail["at_ms"] / 1000 - switched, 2) if long_fail else None)
+        res["long_reopened"] = any(e["what"] == "long_reopened" and e["at_ms"] >= switched_ms
+                                   for e in events)
+        with open(log, errors="replace") as f:
+            f.seek(log_before)
+            # sail's summary line; a warning that also starts "network
+            # changed:" is not one.
+            changes = [line.strip() for line in f if "network changed: generation" in line]
+        res["network_changed"] = [parse_network_changed(line) for line in changes]
+        self.record("route_switch", "probe", res, sampler.since(m), None, self.idle(sampler))
+        if recovery is None:
+            self.fail("route_switch: no new connection worked after the switch")
+        elif recovery > RECOVERY_TARGET_S:
+            print(f"  NOTE {self.name} route_switch: recovery {recovery:.1f}s > "
+                  f"{RECOVERY_TARGET_S}s", flush=True)
+        self.check("route_switch", "probe", res)
+        print(f"  {self.name} route_switch: recovery {recovery}s (first new connection after "
+              f"it: {res['first_ok_s']}s), long-lived ended after "
+              f"{res['long_ended_after_switch_s']}s, reopened {res['long_reopened']}, "
+              f"client saw {res['network_changed'] or 'no network change'}", flush=True)
 
     def concurrency(self, sampler):
         idle_before = self.idle(sampler, settle=2)
@@ -519,6 +584,10 @@ class Run:
                 self.disconnect(sampler, "blackhole30", 30, "blackhole")
                 self.disconnect(sampler, "linkdown10", 10, "linkdown")
                 self.disconnect(sampler, "server_restart", 0, "restart")
+            # Its own run: the client then dials a server only the default
+            # route reaches, and follows the default interface.
+            if self.args.only == "route_switch":
+                self.route_switch(sampler)
             if not self.args.only or "concurrency" in self.args.only:
                 self.concurrency(sampler)
             if not self.args.only or "halfclose" in self.args.only:
@@ -556,6 +625,37 @@ def compact(rec):
     res.pop("events", None)
     r["result"] = res
     return r
+
+
+def first_ok_after(res, reference_s):
+    """Seconds from `reference_s` to the end of the first new connection
+    started at or after it that worked: what a user who tried right then
+    waited. The outcome changes in the events follow completion order, so
+    a connection started before the cut that failed slowly can push their
+    "new_ok" later than any connection started after it."""
+    reference_ms = reference_s * 1000
+    ends = [c["end_ms"] for c in res.get("conns", [])
+            if c["ok"] and c["start_ms"] >= reference_ms]
+    return round((min(ends) - reference_ms) / 1000, 3) if ends else None
+
+
+def parse_network_changed(line):
+    """The fields of sail's "network changed: generation N, reason=R,
+    interface=A→B, closed=K, dns_flushed=…, took=Mms" line."""
+    fields = {}
+    text = line.split("network changed:", 1)[1]
+    for part in text.split(","):
+        part = part.strip()
+        if part.startswith("generation "):
+            fields["generation"] = part.split()[1]
+        elif "=" in part:
+            key, value = part.split("=", 1)
+            fields[key] = value
+    if "took" in fields:
+        fields["took_ms"] = float(fields.pop("took").rstrip("ms") or 0)
+    if "closed" in fields:
+        fields["closed"] = int(fields["closed"]) if fields["closed"].isdigit() else fields["closed"]
+    return fields
 
 
 def write_summary(out, summaries):

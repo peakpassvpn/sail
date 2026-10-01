@@ -787,6 +787,16 @@ type event struct {
 type probeResult struct {
 	New    counts  `json:"new"`
 	Events []event `json:"events"`
+	// Every new connection, when it started and ended: the outcome
+	// changes in Events follow completion order, so one that started before
+	// a cut and failed slowly can follow a later one that worked.
+	Conns []probeConn `json:"conns"`
+}
+
+type probeConn struct {
+	StartMs int64 `json:"start_ms"`
+	EndMs   int64 `json:"end_ms"`
+	Ok      bool  `json:"ok"`
 }
 
 // runProbe tries a new connection every `interval` and keeps one
@@ -837,9 +847,11 @@ func runProbe(d dialer, duration, interval time.Duration) any {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			start := time.Now().UnixMilli()
 			err := echoOnce(d, 16)
 			r.New.add(err)
 			mu.Lock()
+			r.Conns = append(r.Conns, probeConn{StartMs: start, EndMs: time.Now().UnixMilli(), Ok: err == nil})
 			changed := (err == nil) != ok
 			ok = err == nil
 			mu.Unlock()

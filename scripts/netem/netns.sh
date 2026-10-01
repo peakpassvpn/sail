@@ -14,6 +14,9 @@
 #   netns.sh clear              no shaping
 #   netns.sh blackhole          drop everything, both ways (the link stays up)
 #   netns.sh linkdown|linkup    the veth pair down or up
+#   netns.sh switch|unswitch    move the client's default route to a second
+#                               veth pair and take the first down, as a
+#                               phone leaving Wi-Fi for cellular; and back
 #   netns.sh down               delete both namespaces
 set -eu
 C=nc5
@@ -24,6 +27,9 @@ SA=10.95.0.2
 # the client's default route: a TUN with auto_route takes traffic that uses
 # the default route, never a destination the link reaches directly.
 FAR=10.96.0.1
+# A second path between the two, for the default route to move to.
+CA2=10.97.0.1
+SA2=10.97.0.2
 
 case "$1" in
 up)
@@ -33,8 +39,8 @@ up)
       exit 1
     fi
   done
-  if ip -br addr | grep -qE "10\.9[56]\.0\."; then
-    echo "10.95.0.0/24 or 10.96.0.0/24 is in use on the host" >&2
+  if ip -br addr | grep -qE "10\.9[567]\.0\."; then
+    echo "10.95.0.0/24, 10.96.0.0/24 or 10.97.0.0/24 is in use on the host" >&2
     exit 1
   fi
   ip netns add $C
@@ -51,6 +57,13 @@ up)
   ip -n $S link set ns5v0 up
   ip -n $S addr add $FAR/32 dev lo
   ip -n $C route add default via $SA
+  ip link add nc5v1 type veth peer name ns5v1
+  ip link set nc5v1 netns $C
+  ip link set ns5v1 netns $S
+  ip -n $C addr add $CA2/24 dev nc5v1
+  ip -n $S addr add $SA2/24 dev ns5v1
+  ip -n $C link set nc5v1 up
+  ip -n $S link set ns5v1 up
   # netem shapes packets as the stack hands them over: no segmentation
   # offload, so a "packet" is one on the wire.
   ip netns exec $C ethtool -K nc5v0 tso off gso off gro off >/dev/null 2>&1 || true
@@ -84,12 +97,20 @@ linkup)
   # Taking the link down took the default route with it.
   ip -n $C route replace default via $SA
   ;;
+switch)
+  ip -n $C route replace default via $SA2 dev nc5v1
+  ip -n $C link set nc5v0 down
+  ;;
+unswitch)
+  ip -n $C link set nc5v0 up
+  ip -n $C route replace default via $SA dev nc5v0
+  ;;
 down)
   ip netns del $C 2>/dev/null || true
   ip netns del $S 2>/dev/null || true
   ;;
 *)
-  echo "usage: netns.sh up|shape SPEC...|clear|blackhole|linkdown|linkup|down" >&2
+  echo "usage: netns.sh up|shape SPEC...|clear|blackhole|linkdown|linkup|switch|unswitch|down" >&2
   exit 2
   ;;
 esac
