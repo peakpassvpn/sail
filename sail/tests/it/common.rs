@@ -617,18 +617,18 @@ pub fn test_tcp_half_close_on_configs(
             .await
             .map_err(|e| anyhow::anyhow!("read world after shutdown failed: {}", e))?;
         assert_eq!(String::from_utf8_lossy(&buf[..n]), "world");
+        // The downlink's idle time runs from here.
+        let downlink_active = tokio::time::Instant::now();
         let mut buf = Vec::new();
         let n = timeout(Duration::from_secs(2), server_stream.read_buf(&mut buf))
             .await
             .map_err(|e| anyhow::anyhow!("timeout read failed: {}", e))?
             .map_err(|e| anyhow::anyhow!("read failed: {}", e))?;
         assert_eq!(n, 0);
-        tokio::time::sleep(
-            runtime_options()
-                .relay
-                .downlink_idle_timeout
-                .checked_sub(Duration::from_secs(1))
-                .ok_or_else(|| anyhow::anyhow!("duration sub failed"))?,
+        // Well within the downlink's idle time, counted from its last bytes,
+        // as on the uplink below.
+        tokio::time::sleep_until(
+            downlink_active + runtime_options().relay.downlink_idle_timeout / 2,
         )
         .await;
         server_stream
@@ -700,6 +700,8 @@ pub fn test_tcp_half_close_on_configs(
             .await
             .map_err(|e| anyhow::anyhow!("read hello 3 failed: {}", e))?;
         assert_eq!(String::from_utf8_lossy(&buf[..n]), "hello");
+        // The uplink's idle time runs from here.
+        let uplink_active = tokio::time::Instant::now();
         let res = server_stream
             .write_all(b"world")
             .await
@@ -711,14 +713,11 @@ pub fn test_tcp_half_close_on_configs(
             .map_err(|e| anyhow::anyhow!("timeout read 3 failed: {}", e))?
             .map_err(|e| anyhow::anyhow!("read 3 failed: {}", e))?;
         assert_eq!(n, 0);
-        tokio::time::sleep(
-            runtime_options()
-                .relay
-                .uplink_idle_timeout
-                .checked_sub(Duration::from_millis(500))
-                .ok_or_else(|| anyhow::anyhow!("duration sub failed"))?,
-        )
-        .await;
+        // Well within the uplink's idle time, counted from its last bytes,
+        // the half-closed connection still carries the client's: half of it,
+        // so that a slow host's delays in the steps above leave room.
+        tokio::time::sleep_until(uplink_active + runtime_options().relay.uplink_idle_timeout / 2)
+            .await;
         client_stream
             .write_all(b"world")
             .await
