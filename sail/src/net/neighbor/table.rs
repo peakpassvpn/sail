@@ -1471,15 +1471,16 @@ mod tests {
 
     // ---- this host ----
 
-    /// Reading this host's table changes nothing: it reads, no address is
-    /// unspecified, and no link-local one keeps an embedded scope.
+    /// This host's table reads, and no link-local address keeps an
+    /// embedded scope. Linux's holds NOARP entries too (0.0.0.0, multicast,
+    /// ::1, with zero MACs), which sing-box keeps as well: no address is
+    /// ruled out.
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[test]
     fn this_host_s_table_is_read() {
         let entries = read_neighbors().unwrap();
         println!("{} neighbors", entries.len());
         for (address, _) in &entries {
-            assert!(!address.is_unspecified(), "{:?}", entries);
             if let IpAddr::V6(v6) = address {
                 if v6.segments()[0] & 0xffc0 == 0xfe80 {
                     assert_eq!(v6.segments()[1], 0, "{}", v6);
