@@ -1,6 +1,7 @@
 #!/bin/sh
 # Builds sail-ffi's static library and runs the Swift package's tests
-# against it, on macOS.
+# against it, on macOS. The package's manifest is the repository's root
+# Package.swift.
 #   bindings/swift/test.sh [extra swift test arguments]
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
@@ -12,7 +13,7 @@ target=$(cargo metadata --format-version 1 --no-deps --manifest-path "$root/Carg
 lib=$(mktemp -d)
 trap 'rm -rf "$lib"' EXIT
 cp "$target/debug/libsail.a" "$lib/"
-cd "$here"
+cd "$root"
 # A test that hangs fails the run, after 10 minutes, rather than holding
 # the machine.
 perl -e 'alarm shift; exec @ARGV' 600 swift test -Xlinker -L"$lib" "$@"

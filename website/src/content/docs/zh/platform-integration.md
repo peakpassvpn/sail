@@ -165,7 +165,7 @@ UI 与隧道运行在不同进程的应用（iOS 或 macOS 的 Network Extension
 
 ## Swift 与 Kotlin
 
-`bindings/swift` 是 SwiftPM 包 `Sail`，支持 iOS 15 与 macOS 13。`bindings/kotlin` 是带 JNI 胶水层 `jni/sail_jni.c` 的 Kotlin 库。两者都把 C ABI 封装为一个类 `Sail`，可表示实例或命令服务客户端。调用失败时抛出 `SAIL_*` 错误码与信息，返回值解码为数据类型，事件以流的形式提供（`AsyncThrowingStream`、`Flow`）；结束流即结束其订阅。
+`bindings/swift` 是 SwiftPM 包 `Sail`，支持 iOS 15 与 macOS 13。它的 manifest 是仓库根目录的 `Package.swift`，应用用 URL 引用：`.package(url: "https://github.com/peakpassvpn/sail", from: "<版本>")`，再加 `.product(name: "Sail", package: "sail")`；发布版的 tag 链接该版本发布的 XCFramework。`bindings/kotlin` 是带 JNI 胶水层 `jni/sail_jni.c` 的 Kotlin 库。两者都把 C ABI 封装为一个类 `Sail`，可表示实例或命令服务客户端。调用失败时抛出 `SAIL_*` 错误码与信息，返回值解码为数据类型，事件以流的形式提供（`AsyncThrowingStream`、`Flow`）；结束流即结束其订阅。
 
 ## 桌面端与服务端
 

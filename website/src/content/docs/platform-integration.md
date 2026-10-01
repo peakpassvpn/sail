@@ -165,7 +165,7 @@ The protocol is gRPC with libbox's calls and their meaning, under Sail's own pac
 
 ## Swift and Kotlin
 
-`bindings/swift` is a SwiftPM package, `Sail`, for iOS 15 and macOS 13. `bindings/kotlin` is a Kotlin library with its JNI glue, `jni/sail_jni.c`. Both wrap the C ABI in one class, `Sail`, for an instance or a command service client. Calls throw the `SAIL_*` code and message, answers are decoded into data types, and events are streams (`AsyncThrowingStream`, `Flow`); ending a stream ends its subscription.
+`bindings/swift` is a SwiftPM package, `Sail`, for iOS 15 and macOS 13. Its manifest is the repository's root `Package.swift`, so an app adds it by URL: `.package(url: "https://github.com/peakpassvpn/sail", from: "<version>")`, then `.product(name: "Sail", package: "sail")`; a release's tag links the XCFramework that release publishes. `bindings/kotlin` is a Kotlin library with its JNI glue, `jni/sail_jni.c`. Both wrap the C ABI in one class, `Sail`, for an instance or a command service client. Calls throw the `SAIL_*` code and message, answers are decoded into data types, and events are streams (`AsyncThrowingStream`, `Flow`); ending a stream ends its subscription.
 
 ## Desktop and server
 

@@ -215,7 +215,11 @@ sail_subscribe(client, SAIL_EVENT_STATUS, NULL, on_event, ctx, release, &sub, &e
 ## Swift and Kotlin
 
 [`bindings/swift`](../bindings/swift) is a SwiftPM package (`Sail`, iOS 15
-and macOS 13, as sing-box's apps) and
+and macOS 13, as sing-box's apps), whose manifest is the repository's root
+`Package.swift`, so that an app adds it by URL:
+`.package(url: "https://github.com/peakpassvpn/sail", from: "<version>")`
+and `.product(name: "Sail", package: "sail")`; a release's tag links the
+XCFramework the release publishes. And
 [`bindings/kotlin`](../bindings/kotlin) a Kotlin library with its JNI glue,
 `jni/sail_jni.c` (Android minSdk 24, as SFA). Both give one class for an
 instance or a client, `Sail`, whose calls throw the SAIL code and message,
