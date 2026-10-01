@@ -133,6 +133,11 @@ pub struct DialSpec {
     /// Which of the host's interfaces its connections go out of, where it
     /// chooses: with no bind of its own or of `route.default_interface`.
     pub networks: Option<Networks>,
+    /// Where it may choose among the host's interfaces, binding nothing
+    /// itself: how long the first interfaces go before the fallback ones,
+    /// its `fallback_delay`, else the route's, else 300ms. What a rule's
+    /// `network_strategy` takes, see `Dialer::routed`.
+    pub network_fallback_delay: Option<Duration>,
 }
 
 impl Default for DialSpec {
@@ -205,6 +210,14 @@ impl DialSpec {
                 value
             }
         }
+        // Zero is unset, as in sing-box.
+        let set = |d: Option<Duration>| d.filter(|d| !d.is_zero());
+        let network_fallback_delay =
+            (!binds_itself && defaults.bind_interface.is_none()).then(|| {
+                set(fields.fallback_delay)
+                    .or(set(defaults.fallback_delay))
+                    .unwrap_or(DEFAULT_FALLBACK_DELAY)
+            });
         DialSpec {
             bind_interface: fields
                 .bind_interface
@@ -229,14 +242,9 @@ impl DialSpec {
             reuse_addr: fields.reuse_addr,
             udp_fragment: fields.udp_fragment.unwrap_or(fields.udp_fragment_default),
             tcp_fast_open: fields.tcp_fast_open,
-            // Zero is unset, as in sing-box.
-            fallback_delay: fields
-                .fallback_delay
-                .filter(|d| !d.is_zero())
-                .unwrap_or(DEFAULT_FALLBACK_DELAY),
-            networks: (!binds_itself && defaults.bind_interface.is_none())
-                .then(|| networks(fields, defaults))
-                .flatten(),
+            fallback_delay: set(fields.fallback_delay).unwrap_or(DEFAULT_FALLBACK_DELAY),
+            networks: network_fallback_delay.and_then(|delay| networks(fields, defaults, delay)),
+            network_fallback_delay,
         }
     }
 
@@ -271,8 +279,9 @@ impl DialSpec {
 /// The interfaces `fields` choose among, over `defaults`, as sing-box
 /// merges them (common/dialer/default.go:107-122): the place's strategy and
 /// types where it sets any, else the route's; the strategy `default` where
-/// only types are given; the place's delay, else the route's, else 300ms.
-fn networks(fields: &DialFields, defaults: &RouteDefaults) -> Option<Networks> {
+/// only types are given; the place's delay, else the route's, else 300ms,
+/// which `delay` is.
+fn networks(fields: &DialFields, defaults: &RouteDefaults, delay: Duration) -> Option<Networks> {
     let own = fields.network_strategy.is_some()
         || !fields.network_type.is_empty()
         || !fields.fallback_network_type.is_empty();
@@ -293,16 +302,12 @@ fn networks(fields: &DialFields, defaults: &RouteDefaults) -> Option<Networks> {
     if strategy.is_none() && network_type.is_empty() && fallback_network_type.is_empty() {
         return None;
     }
-    // Zero is unset, as in sing-box.
-    let set = |d: Option<Duration>| d.filter(|d| !d.is_zero());
     Some(Networks {
         strategy: strategy.unwrap_or(NetworkStrategy::Default),
         implicit: strategy.is_none(),
         network_type: network_type.clone(),
         fallback_network_type: fallback_network_type.clone(),
-        fallback_delay: set(fields.fallback_delay)
-            .or(set(defaults.fallback_delay))
-            .unwrap_or(DEFAULT_FALLBACK_DELAY),
+        fallback_delay: delay,
     })
 }
 

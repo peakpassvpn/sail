@@ -21,7 +21,7 @@ Rust 定义：[`Route`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/co
 
 | 字段 | 类型 | 默认 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
-| `rules` | array → [[]](#route-rules), [[action=bypass]](#route-rules-action-bypass), [[action=direct]](#route-rules-missing), [[action=reject]](#route-rules-action-reject), [[action=resolve]](#route-rules-action-resolve), [[action=route]](#route-rules-action-route), [[action=route-options]](#route-rules-action-route-options), [[action=sniff]](#route-rules-action-sniff), [[logical]](#route-rules-logical) | `[]` | 支持 | — |
+| `rules` | array → [[]](#route-rules), [[action=bypass]](#route-rules-action-bypass), [[action=direct]](#route-rules-action-direct), [[action=reject]](#route-rules-action-reject), [[action=resolve]](#route-rules-action-resolve), [[action=route]](#route-rules-action-route), [[action=route-options]](#route-rules-action-route-options), [[action=sniff]](#route-rules-action-sniff), [[logical]](#route-rules-logical) | `[]` | 支持 | — |
 | `rule_set` | array → [[]](#route-rule-set), [[inline]](#route-rule-set-inline), [[local]](#route-rule-set-local), [[remote]](#route-rule-set-remote) | `[]` | 支持 | The rule-sets rules name, by tag. |
 | `final` | string | 未设置 | 支持 | The outbound for connections no rule matches; defaults to the first outbound. |
 | `find_process` | bool | — | 警告：sail looks processes up when a rule asks for them | — |
@@ -114,8 +114,8 @@ Rust 定义：[`Rule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/con
 | `outbound` | string | 未设置 | 支持 | `route`: where a matching connection goes. |
 | `override_address` | string | 未设置 | 支持 | `route`, `route-options`: connects to this address, an IP or a domain, instead of the one asked for, on the same port. |
 | `override_port` | number | 未设置 | 支持 | `route`, `route-options`: connects to this port instead. |
-| `network_strategy` | string, 取值 `default`, `fallback`, `hybrid` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say | — |
-| `fallback_delay` | number | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say | — |
+| `network_strategy` | string, 取值 `default`, `fallback`, `hybrid` | 未设置 | 支持 | `route`, `route-options`: how a direct outbound the connection goes out of chooses among the host's interfaces, instead of as its own says; not where it binds its sockets itself. A later rule's goes before. As in sing-box, only where the destination is an address (for UDP, a connected one) or a `resolve` rule resolved it; other outbounds, a group whose pick is a direct one among them, take no notice of it. `direct`: checked only. |
+| `fallback_delay` | number | 未设置 | 支持 | `route`, `route-options`: how long a direct outbound the connection goes out of tries one family's addresses, and its first interfaces, before the others race them, instead of its own `fallback_delay`, where `network_strategy` would apply. A later rule's goes before. A duration string, as sing-box's documentation writes it, or a number of nanoseconds, as sing-box 1.14.1 reads it here. `direct`: checked only. |
 | `udp_disable_domain_unmapping` | bool | `false` | 支持 | `route`, `route-options`: answers to UDP sent to a domain come back from the address it resolved to, not from the domain. |
 | `udp_connect` | bool | `false` | 支持 | `route`, `route-options`: a direct outbound sends UDP from a connected socket. |
 | `udp_timeout` | duration | 未设置 | 支持 | `route`, `route-options`: how long a UDP session lasts idle, instead of its inbound's `udp_timeout`. |
@@ -124,6 +124,52 @@ Rust 定义：[`Rule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/con
 | `tls_record_fragment` | bool | `false` | 支持 | `route`, `route-options`: sends the TLS ClientHello as several TLS records, cut in the server name. |
 | `tls_spoof` | string | — | 报错：Fragmenting or spoofing the TLS handshake against censorship | — |
 | `tls_spoof_method` | string, 取值 `wrong-sequence`, `wrong-checksum`, `wrong-ack`, `wrong-md5`, `wrong-timestamp` | — | 报错：Fragmenting or spoofing the TLS handshake against censorship | — |
+
+<a id="route-rules-action-direct"></a>
+
+## `route.rules[action=direct]`
+
+Rust 定义：[`Rule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `bind_interface` | string | — | 警告：Accepted, no effect (as sing-box) | `direct`: the interface to send through, by name. |
+| `inet4_bind_address` | string | 未设置 | 支持 | `direct`: the local address for IPv4 destinations. |
+| `inet6_bind_address` | string | 未设置 | 支持 | `direct`: the local address for IPv6 destinations. |
+| `bind_address_no_port` | bool | — | 警告：Accepted, no effect (as sing-box) | `direct`: `IP_BIND_ADDRESS_NO_PORT` on TCP sockets bound to an address: Linux only. |
+| `protect_path` | string | — | 报错：Android's socket protection and Linux network namespaces: sockets would leave another way | — |
+| `routing_mark` | number\|string | — | 警告：Accepted, no effect (as sing-box) | `direct`: `SO_MARK`, Linux only. |
+| `reuse_addr` | bool | — | 警告：Accepted, no effect (as sing-box) | `direct`: `SO_REUSEADDR`, and `SO_REUSEPORT` on Unix, on UDP sockets. |
+| `netns` | string | — | 报错：Android's socket protection and Linux network namespaces: sockets would leave another way | — |
+| `connect_timeout` | duration | — | 警告：Accepted, no effect (as sing-box) | `direct`: how long a TCP connect to one address may take; 5s when unset. |
+| `tcp_fast_open` | bool | — | 警告：Accepted, no effect (as sing-box) | `direct`: TCP Fast Open. |
+| `tcp_multi_path` | bool | — | 警告：Socket tuning: connections go the same way without it | — |
+| `disable_tcp_keep_alive` | bool | — | 警告：Accepted, no effect (as sing-box) | `direct`: no TCP keepalive at all. |
+| `tcp_keep_alive` | duration | — | 警告：Accepted, no effect (as sing-box) | `direct`: how long a TCP connection is idle before keepalive probes it; 5m when unset. |
+| `tcp_keep_alive_interval` | duration | — | 警告：Accepted, no effect (as sing-box) | `direct`: between keepalive probes; 75s when unset. |
+| `udp_fragment` | bool | — | 警告：Accepted, no effect (as sing-box) | `direct`: whether UDP datagrams may be fragmented on the way; not when unset, as sing-box's direct action has it. |
+| `domain_resolver` | string\|object → [对象](#route-rules-action-direct-domain-resolver) | — | 警告：Accepted, no effect (as sing-box) | `direct`: the DNS server that resolves the names it dials. |
+| `network_strategy` | string, 取值 `default`, `fallback`, `hybrid` | — | 警告：Accepted, no effect (as sing-box) | `route`, `route-options`: how a direct outbound the connection goes out of chooses among the host's interfaces, instead of as its own says; not where it binds its sockets itself. A later rule's goes before. As in sing-box, only where the destination is an address (for UDP, a connected one) or a `resolve` rule resolved it; other outbounds, a group whose pick is a direct one among them, take no notice of it. `direct`: checked only. |
+| `network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 警告：Accepted, no effect (as sing-box) | The kind of network: `wifi`, `cellular`, `ethernet`, `other`. |
+| `fallback_network_type` | listable-string, 取值 `cellular`, `ethernet`, `other`, `wifi` | — | 警告：Accepted, no effect (as sing-box) | `direct`: the types of interface its `fallback` strategy falls back to. Its `network_type` is not one: a rule's `network_type` is its condition, as in sing-box. |
+| `fallback_delay` | duration | — | 警告：Accepted, no effect (as sing-box) | `route`, `route-options`: how long a direct outbound the connection goes out of tries one family's addresses, and its first interfaces, before the others race them, instead of its own `fallback_delay`, where `network_strategy` would apply. A later rule's goes before. A duration string, as sing-box's documentation writes it, or a number of nanoseconds, as sing-box 1.14.1 reads it here. `direct`: checked only. |
+| `domain_strategy` | string | 未设置 | 支持 (sing-box 已弃用) | `direct`: sing-box's deprecated field for the families names resolve to. |
+
+<a id="route-rules-action-direct-domain-resolver"></a>
+
+### `route.rules[action=direct].domain_resolver`
+
+Rust 定义：[`DomainResolver`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/config/model.rs)
+
+| 字段 | 类型 | 默认 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `server` | string | 必填 | 警告：Accepted, no effect (as sing-box) | — |
+| `timeout` | duration | — | 警告：Accepted, no effect (as sing-box) | — |
+| `strategy` | string, 取值 `as_is`, `prefer_ipv4`, `prefer_ipv6`, `ipv4_only`, `ipv6_only` | 未设置 | 支持 | — |
+| `disable_cache` | bool | — | 警告：Accepted, no effect (as sing-box) | — |
+| `disable_optimistic_cache` | bool | — | 警告：Accepted, no effect (as sing-box) | — |
+| `rewrite_ttl` | number | — | 警告：Accepted, no effect (as sing-box) | — |
+| `client_subnet` | string | 未设置 | 支持 | — |
 
 <a id="route-rules-action-reject"></a>
 
@@ -165,8 +211,8 @@ Rust 定义：[`Rule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/con
 | `outbound` | string | 未设置 | 支持 | `route`: where a matching connection goes. |
 | `override_address` | string | 未设置 | 支持 | `route`, `route-options`: connects to this address, an IP or a domain, instead of the one asked for, on the same port. |
 | `override_port` | number | 未设置 | 支持 | `route`, `route-options`: connects to this port instead. |
-| `network_strategy` | string, 取值 `default`, `fallback`, `hybrid` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say | — |
-| `fallback_delay` | number | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say | — |
+| `network_strategy` | string, 取值 `default`, `fallback`, `hybrid` | 未设置 | 支持 | `route`, `route-options`: how a direct outbound the connection goes out of chooses among the host's interfaces, instead of as its own says; not where it binds its sockets itself. A later rule's goes before. As in sing-box, only where the destination is an address (for UDP, a connected one) or a `resolve` rule resolved it; other outbounds, a group whose pick is a direct one among them, take no notice of it. `direct`: checked only. |
+| `fallback_delay` | number | 未设置 | 支持 | `route`, `route-options`: how long a direct outbound the connection goes out of tries one family's addresses, and its first interfaces, before the others race them, instead of its own `fallback_delay`, where `network_strategy` would apply. A later rule's goes before. A duration string, as sing-box's documentation writes it, or a number of nanoseconds, as sing-box 1.14.1 reads it here. `direct`: checked only. |
 | `udp_disable_domain_unmapping` | bool | `false` | 支持 | `route`, `route-options`: answers to UDP sent to a domain come back from the address it resolved to, not from the domain. |
 | `udp_connect` | bool | `false` | 支持 | `route`, `route-options`: a direct outbound sends UDP from a connected socket. |
 | `udp_timeout` | duration | 未设置 | 支持 | `route`, `route-options`: how long a UDP session lasts idle, instead of its inbound's `udp_timeout`. |
@@ -186,8 +232,8 @@ Rust 定义：[`Rule`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/con
 | --- | --- | --- | --- | --- |
 | `override_address` | string | 未设置 | 支持 | `route`, `route-options`: connects to this address, an IP or a domain, instead of the one asked for, on the same port. |
 | `override_port` | number | 未设置 | 支持 | `route`, `route-options`: connects to this port instead. |
-| `network_strategy` | string, 取值 `default`, `fallback`, `hybrid` | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say | — |
-| `fallback_delay` | number | — | 报错：Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say | — |
+| `network_strategy` | string, 取值 `default`, `fallback`, `hybrid` | 未设置 | 支持 | `route`, `route-options`: how a direct outbound the connection goes out of chooses among the host's interfaces, instead of as its own says; not where it binds its sockets itself. A later rule's goes before. As in sing-box, only where the destination is an address (for UDP, a connected one) or a `resolve` rule resolved it; other outbounds, a group whose pick is a direct one among them, take no notice of it. `direct`: checked only. |
+| `fallback_delay` | number | 未设置 | 支持 | `route`, `route-options`: how long a direct outbound the connection goes out of tries one family's addresses, and its first interfaces, before the others race them, instead of its own `fallback_delay`, where `network_strategy` would apply. A later rule's goes before. A duration string, as sing-box's documentation writes it, or a number of nanoseconds, as sing-box 1.14.1 reads it here. `direct`: checked only. |
 | `udp_disable_domain_unmapping` | bool | `false` | 支持 | `route`, `route-options`: answers to UDP sent to a domain come back from the address it resolved to, not from the domain. |
 | `udp_connect` | bool | `false` | 支持 | `route`, `route-options`: a direct outbound sends UDP from a connected socket. |
 | `udp_timeout` | duration | 未设置 | 支持 | `route`, `route-options`: how long a UDP session lasts idle, instead of its inbound's `udp_timeout`. |
@@ -364,12 +410,4 @@ Rust 定义：[`RuleSet`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/
 | `initial_packet_size` | number | — | 警告：HTTP/2 and HTTP/3 tuning: a download over HTTP/1.1 is the same download | — |
 | `disable_path_mtu_discovery` | bool | — | 警告：HTTP/2 and HTTP/3 tuning: a download over HTTP/1.1 is the same download | — |
 | `domain_strategy` | string | — | 支持 (sing-box 已弃用) | — |
-
-<a id="route-rules-missing"></a>
-
-## sail 未实现的类型：`route.rules`
-
-| 类型 | 状态 | 字段数 |
-| --- | --- | --: |
-| `route.rules[action=direct]` | 报错：A type or value sail does not implement: it would route otherwise | 28 |
 

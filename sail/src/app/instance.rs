@@ -112,6 +112,7 @@ impl Instance {
             dns_client.clone(),
             &env,
             &rule_sets,
+            &dial_defaults,
         )?));
         let stat_manager = Arc::new(StatManager::new(
             env.options.stats.max_recent_connections,

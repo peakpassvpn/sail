@@ -335,11 +335,6 @@ pub const GROUPS: &[Group] = &[
         ],
     ),
     g(
-        NETWORKS,
-        Unsupported,
-        &["route.rules.*.network_strategy", "route.rules.*.fallback_delay"],
-    ),
-    g(
         TLS_FRAGMENT,
         Unsupported,
         &["route.rules.*.tls_spoof", "route.rules.*.tls_spoof_method"],
@@ -375,13 +370,19 @@ pub const GROUPS: &[Group] = &[
     g(
         PROTECT,
         Unsupported,
-        &["outbounds.*.protect_path", "outbounds.*.netns"],
+        &[
+            "outbounds.*.protect_path",
+            "outbounds.*.netns",
+            "route.rules.*.protect_path",
+            "route.rules.*.netns",
+        ],
     ),
     g(
         SOCKET,
         Ignored,
         &[
             "outbounds.*.tcp_multi_path",
+            "route.rules.*.tcp_multi_path",
         ],
     ),
     t(
@@ -673,6 +674,19 @@ pub const IMPLEMENTED_FOR: &[(&str, &[&str])] = &[
     ("inbounds.*.detour", &["shadowtls"]),
 ];
 
+/// Values sing-box accepts and acts on nowhere, which sail reads as it does,
+/// warning of each: where, the value, and the warning. sing-box 1.14.1
+/// builds a `direct` rule's dialer, so that its fields are checked, but its
+/// router never acts on the rule, nor stops at it (route/route.go:690-697).
+pub const NO_EFFECT: &[(&str, &str, &str)] = &[(
+    "route.rules.*.action",
+    "direct",
+    "the direct action has no effect, as in sing-box 1.14.1",
+)];
+
+/// Why values of `NO_EFFECT` are warned of, as the support tables say.
+pub const NO_EFFECT_WHY: &str = "Accepted, no effect (as sing-box)";
+
 /// Why values of `VALUES` are errors.
 pub const VALUES_WHY: &str = "A type or value sail does not implement: it would route otherwise";
 
@@ -685,7 +699,7 @@ pub const VALUES: &[(&str, &[&str])] = &[
     ),
     (
         "route.rules.*.action",
-        &["evaluate", "respond", "direct", "predefined"],
+        &["evaluate", "respond", "predefined"],
     ),
     ("route.rules.*.sniffer", &["ssh", "rdp", "ntp"]),
     // A SOCKS outbound's, sail speaking SOCKS 5 only.

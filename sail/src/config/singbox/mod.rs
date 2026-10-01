@@ -85,6 +85,13 @@ fn sort_out(value: &mut Value, zero_unset: bool) -> Result<Vec<String>> {
         }
     }
     let mut warnings = services(value)?;
+    for (path, no_effect, says) in upstream::NO_EFFECT {
+        for (at, found) in find(value, path) {
+            if found.as_str() == Some(no_effect) {
+                warnings.push(format!("{}: {}", at, says));
+            }
+        }
+    }
     for group in upstream::GROUPS {
         for path in group.paths {
             for (at, found) in find(value, path) {
@@ -397,6 +404,26 @@ mod tests {
         assert_eq!(
             err.to_string(),
             "inbounds[0].detour: sail does not implement this field yet"
+        );
+    }
+
+    /// A `direct` rule is read, with a warning: it has no effect, as in
+    /// sing-box 1.14.1.
+    #[test]
+    fn a_direct_rule_is_warned_of() {
+        let config = parse(
+            r#"{ "outbounds": [{ "type": "direct", "tag": "d" }],
+                 "route": { "rules": [{ "port": 1, "outbound": "d" },
+                   { "port": 2, "action": "direct", "connect_timeout": "2s" }] } }"#,
+        )
+        .unwrap();
+        assert_eq!(
+            config.warnings,
+            ["route.rules[1].action: the direct action has no effect, as in sing-box 1.14.1"]
+        );
+        assert_eq!(
+            config.route.rules[1].action(),
+            crate::config::model::RuleAction::Direct
         );
     }
 

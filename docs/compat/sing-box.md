@@ -25,10 +25,10 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `endpoints` | 433 | 56 | 13 | 364 |
 | `inbounds` | 1367 | 585 | 151 | 631 |
 | `outbounds` | 1228 | 678 | 76 | 474 |
-| `route` | 268 | 160 | 15 | 93 |
+| `route` | 268 | 171 | 36 | 61 |
 | `services` | 751 | 1 | 166 | 584 |
 | `experimental` | 34 | 16 | 17 | 1 |
-| **All** | **5003** | **1892** | **550** | **2561** |
+| **All** | **5003** | **1903** | **571** | **2529** |
 
 ## `$schema`
 
@@ -2739,12 +2739,6 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 
 ## `route`
 
-### Types sail does not implement
-
-| Type | Tier | Note | Fields |
-|---|---|---|--:|
-| `route.rules[action=direct]` | Error | A type or value sail does not implement: it would route otherwise | 28 |
-
 ### `route`
 
 | Field | Tier | Note |
@@ -2829,8 +2823,8 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `outbound` | Supported |  |
 | `override_address` | Supported |  |
 | `override_port` | Supported |  |
-| `network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
-| `fallback_delay` | Error | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
+| `network_strategy` | Supported |  |
+| `fallback_delay` | Supported |  |
 | `udp_disable_domain_unmapping` | Supported |  |
 | `udp_connect` | Supported |  |
 | `udp_timeout` | Supported |  |
@@ -2846,8 +2840,8 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 |---|---|---|
 | `override_address` | Supported |  |
 | `override_port` | Supported |  |
-| `network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
-| `fallback_delay` | Error | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
+| `network_strategy` | Supported |  |
+| `fallback_delay` | Supported |  |
 | `udp_disable_domain_unmapping` | Supported |  |
 | `udp_connect` | Supported |  |
 | `udp_timeout` | Supported |  |
@@ -2857,6 +2851,32 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `tls_spoof` | Error | Fragmenting or spoofing the TLS handshake against censorship |
 | `tls_spoof_method` | Error | Fragmenting or spoofing the TLS handshake against censorship |
 
+### `route.rules[action=direct]`
+
+| Field | Tier | Note |
+|---|---|---|
+| `bind_interface` | Warned | Accepted, no effect (as sing-box) |
+| `inet4_bind_address` | Supported |  |
+| `inet6_bind_address` | Supported |  |
+| `bind_address_no_port` | Warned | Accepted, no effect (as sing-box) |
+| `protect_path` | Error | Android's socket protection and Linux network namespaces: sockets would leave another way |
+| `routing_mark` | Warned | Accepted, no effect (as sing-box) |
+| `reuse_addr` | Warned | Accepted, no effect (as sing-box) |
+| `netns` | Error | Android's socket protection and Linux network namespaces: sockets would leave another way |
+| `connect_timeout` | Warned | Accepted, no effect (as sing-box) |
+| `tcp_fast_open` | Warned | Accepted, no effect (as sing-box) |
+| `tcp_multi_path` | Warned | Socket tuning: connections go the same way without it |
+| `disable_tcp_keep_alive` | Warned | Accepted, no effect (as sing-box) |
+| `tcp_keep_alive` | Warned | Accepted, no effect (as sing-box) |
+| `tcp_keep_alive_interval` | Warned | Accepted, no effect (as sing-box) |
+| `udp_fragment` | Warned | Accepted, no effect (as sing-box) |
+| `domain_resolver` | Warned | Accepted, no effect (as sing-box) (and the 7 fields in it) |
+| `network_strategy` | Warned | Accepted, no effect (as sing-box) |
+| `network_type` | Warned | Accepted, no effect (as sing-box) |
+| `fallback_network_type` | Warned | Accepted, no effect (as sing-box) |
+| `fallback_delay` | Warned | Accepted, no effect (as sing-box) |
+| `domain_strategy` (deprecated) | Supported |  |
+
 ### `route.rules[action=bypass]`
 
 | Field | Tier | Note |
@@ -2864,8 +2884,8 @@ Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail giv
 | `outbound` | Supported |  |
 | `override_address` | Supported |  |
 | `override_port` | Supported |  |
-| `network_strategy` | Error | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
-| `fallback_delay` | Error | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
+| `network_strategy` | Supported |  |
+| `fallback_delay` | Supported |  |
 | `udp_disable_domain_unmapping` | Supported |  |
 | `udp_connect` | Supported |  |
 | `udp_timeout` | Supported |  |

@@ -872,6 +872,12 @@ fn why(registry: &Registry, path: &str, measurement: &Measurement) -> String {
         }
     }
     let message = &measurement.message;
+    if upstream::NO_EFFECT
+        .iter()
+        .any(|(_, _, says)| message.contains(says))
+    {
+        return upstream::NO_EFFECT_WHY.to_string();
+    }
     if message.contains("unknown protocol") {
         return "A protocol sail does not implement".to_string();
     }

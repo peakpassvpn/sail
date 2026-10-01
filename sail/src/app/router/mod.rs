@@ -99,6 +99,7 @@ use tracing::debug;
 
 use crate::app::SyncDnsClient;
 use crate::config::model::{self, RejectMethod, RuleAction};
+use crate::net::DialDefaults;
 use crate::runtime::RuntimeEnv;
 use crate::session::{Session, SocksAddr, TlsFragment};
 
@@ -226,6 +227,8 @@ struct Options {
     udp_connect: bool,
     udp_timeout: Option<Duration>,
     tls_fragment: Option<TlsFragment>,
+    network_strategy: Option<crate::net::dial::NetworkStrategy>,
+    fallback_delay: Option<Duration>,
 }
 
 /// How long apart the pieces of a fragmented ClientHello go when the rule
@@ -269,6 +272,9 @@ impl Options {
             udp_connect: rule.udp_connect,
             udp_timeout: rule.udp_timeout,
             tls_fragment,
+            network_strategy: rule.network_strategy,
+            // Zero is unset, as in sing-box (route/route.go:646).
+            fallback_delay: rule.fallback_delay.filter(|d| !d.is_zero()),
         })
     }
 
@@ -279,6 +285,10 @@ impl Options {
         if self.override_address.is_some() || self.override_port.is_some() {
             if sess.route.original_destination.is_none() {
                 sess.route.original_destination = Some(sess.destination.clone());
+            }
+            // What was resolved is of the destination before (route/route.go:633-635).
+            if self.override_address.is_some() {
+                sess.route.resolved = false;
             }
             let port = self.override_port.unwrap_or(sess.destination.port());
             sess.destination = match self.override_address.as_ref().unwrap_or(&sess.destination) {
@@ -294,6 +304,13 @@ impl Options {
         }
         if self.tls_fragment.is_some() {
             route.tls_fragment = self.tls_fragment;
+        }
+        // A later rule's go before, as in sing-box (route/route.go:637-648).
+        if self.network_strategy.is_some() {
+            route.network_strategy = self.network_strategy;
+        }
+        if self.fallback_delay.is_some() {
+            route.fallback_delay = self.fallback_delay;
         }
     }
 }
@@ -348,6 +365,8 @@ enum Action {
     ArmSniff(SniffAction),
     /// `on_demand` resolve, likewise.
     ArmResolve(Resolve),
+    /// sing-box 1.14.1's `direct`, which does nothing.
+    Direct,
 }
 
 /// How a `resolve` rule resolves.
@@ -392,6 +411,7 @@ impl Rule {
         path: &str,
         env: &RuntimeEnv,
         rule_sets: &rule_set::RuleSets,
+        dial: &DialDefaults,
     ) -> Result<Self> {
         let action = match rule.action() {
             RuleAction::Route => Action::Route(
@@ -420,6 +440,10 @@ impl Rule {
                 })
             }
             RuleAction::HijackDns => Action::HijackDns,
+            RuleAction::Direct => {
+                check_direct(rule, path, dial)?;
+                Action::Direct
+            }
             RuleAction::Resolve => Action::Resolve(Resolve {
                 server: rule.server.clone(),
                 strategy: rule.strategy,
@@ -471,6 +495,25 @@ impl Rule {
     }
 }
 
+/// Checks the `direct` rule `rule`, at `path`: builds the dialer of its
+/// dial fields over the route's defaults, as an outbound's, as sing-box
+/// builds it with the rule (route/rule/rule_action.go:76-98), only for its
+/// mistakes, the rule having no effect.
+fn check_direct(rule: &model::Rule, path: &str, dial: &DialDefaults) -> Result<()> {
+    if !cfg!(feature = "outbound-direct") {
+        return Err(anyhow!(
+            "{}.action: direct, which sail is built without",
+            path
+        ));
+    }
+    let fields = rule.direct_fields();
+    fields
+        .check(crate::net::dial::fields::IMPLEMENTED)
+        .and_then(|()| dial.dialer(&fields, None))
+        .map(drop)
+        .map_err(|e| anyhow!("{}.{}", path, e))
+}
+
 pub struct Router {
     rules: Vec<Rule>,
     /// The rule-sets its rules name, for the Clash API to list.
@@ -488,27 +531,37 @@ impl Router {
         route: &model::Route,
         env: &RuntimeEnv,
         rule_sets: &rule_set::RuleSets,
+        dial: &DialDefaults,
     ) -> Result<Vec<Rule>> {
         route
             .rules
             .iter()
             .enumerate()
-            .map(|(i, rule)| Rule::new(rule, &format!("route.rules[{}]", i), env, rule_sets))
+            .map(|(i, rule)| Rule::new(rule, &format!("route.rules[{}]", i), env, rule_sets, dial))
             .collect()
     }
 
+    /// A router whose `direct` rules dial over no defaults: for tests.
     pub fn new(route: &model::Route, dns_client: SyncDnsClient, env: &RuntimeEnv) -> Result<Self> {
-        Self::with_rule_sets(route, dns_client, env, &Default::default())
+        Self::with_rule_sets(
+            route,
+            dns_client,
+            env,
+            &Default::default(),
+            &Default::default(),
+        )
     }
 
-    /// A router whose rules can name the rule-sets of `rule_sets`.
+    /// A router whose rules can name the rule-sets of `rule_sets`, and
+    /// whose `direct` rules dial over `dial`.
     pub(crate) fn with_rule_sets(
         route: &model::Route,
         dns_client: SyncDnsClient,
         env: &RuntimeEnv,
         rule_sets: &rule_set::RuleSets,
+        dial: &DialDefaults,
     ) -> Result<Self> {
-        let rules = Self::load_rules(route, env, rule_sets)?;
+        let rules = Self::load_rules(route, env, rule_sets, dial)?;
         let network = rules
             .iter()
             .any(|rule| rule.matcher.may_need_network())
@@ -614,6 +667,7 @@ impl Router {
     ) -> Result<Stop> {
         let pre_match = sniffer.is_none();
         sess.matched_rule = None;
+        sess.route.resolved = false;
         // The network as it is when the connection is matched, for every
         // rule alike.
         let network = self.network.as_ref().map(|n| n.snapshot());
@@ -656,6 +710,7 @@ impl Router {
                             resolved = self
                                 .resolve_as(how, &domain, sess, network.as_ref())
                                 .await?;
+                            sess.route.resolved = !resolved.is_empty();
                             facts = facts_of(sess, &resolved);
                         }
                     }
@@ -714,6 +769,9 @@ impl Router {
                     sess.matched_rule = Some(rule.about.matched.clone());
                     return Ok(Stop::HijackDns);
                 }
+                // As in sing-box 1.14.1, whose router acts on a direct rule
+                // nowhere, nor stops at it (route/route.go:690-697).
+                Action::Direct => debug!("rule {} is direct, which does nothing", i),
                 Action::Sniff(action) => match sniffer.as_mut() {
                     Some(sniffer) => sniffer
                         .sniff(sess, action)
@@ -727,6 +785,10 @@ impl Router {
                             resolved = self
                                 .resolve_as(how, &domain, sess, network.as_ref())
                                 .await?;
+                            // As sing-box's, only of a domain to go to
+                            // (route/route.go:898-920).
+                            sess.route.resolved =
+                                !resolved.is_empty() && sess.destination.domain().is_some();
                         }
                     }
                 }
@@ -1268,7 +1330,8 @@ mod tests {
         let dns = DnsClient::new(&config.dns, Default::default(), &env)
             .unwrap()
             .into_shared();
-        let router = Router::with_rule_sets(&config.route, dns, &env, &sets).unwrap();
+        let router =
+            Router::with_rule_sets(&config.route, dns, &env, &sets, &Default::default()).unwrap();
         let mut sess = to("www.video.test:443");
         assert_eq!(
             pick(&router, &mut sess).await,
@@ -1561,6 +1624,157 @@ mod tests {
         }
     }
 
+    /// `network_strategy` and `fallback_delay` are set as other route
+    /// options are, a later rule's going before (route/route.go:637-648);
+    /// `fallback_delay` a duration or, as sing-box reads it, nanoseconds.
+    #[tokio::test]
+    async fn a_later_rule_s_network_goes_before() {
+        use crate::net::dial::NetworkStrategy;
+        let router = router(serde_json::json!([
+            { "port": 443, "action": "route-options",
+              "network_strategy": "hybrid", "fallback_delay": "1s" },
+            { "port": 443, "action": "route-options", "network_strategy": "fallback" },
+            // Zero is unset.
+            { "port": 443, "action": "route-options", "fallback_delay": 0 },
+            { "domain": "a.test", "outbound": "a", "fallback_delay": 40000000 },
+            { "domain": "b.test", "outbound": "a" },
+        ]));
+        let mut sess = to("a.test:443");
+        pick(&router, &mut sess).await;
+        assert_eq!(sess.route.network_strategy, Some(NetworkStrategy::Fallback));
+        assert_eq!(sess.route.fallback_delay, Some(Duration::from_millis(40)));
+        let mut sess = to("b.test:443");
+        pick(&router, &mut sess).await;
+        assert_eq!(sess.route.network_strategy, Some(NetworkStrategy::Fallback));
+        assert_eq!(sess.route.fallback_delay, Some(Duration::from_secs(1)));
+        // Rules that do not match set nothing.
+        let mut sess = to("b.test:80");
+        pick(&router, &mut sess).await;
+        assert_eq!(sess.route.network_strategy, None);
+        assert_eq!(sess.route.fallback_delay, None);
+    }
+
+    /// A `direct` rule does nothing and matching goes on past it, as in
+    /// sing-box 1.14.1, whose router acts on it nowhere
+    /// (route/route.go:690-697).
+    #[tokio::test]
+    async fn a_direct_rule_does_not_stop_the_matching() {
+        let router = router(serde_json::json!([
+            { "domain": "x.test", "action": "direct", "connect_timeout": "2s" },
+            { "domain": "x.test", "outbound": "a" },
+        ]));
+        let mut sess = to("x.test:443");
+        assert_eq!(
+            pick(&router, &mut sess).await,
+            Decision::Route(Some("a".into()))
+        );
+        assert_eq!(&*sess.matched_rule.unwrap(), "domain=x.test => route(a)");
+        let mut sess = to("y.test:443");
+        assert_eq!(
+            pick(&router, &mut sess).await,
+            Decision::Route(Some("b".into()))
+        );
+    }
+
+    /// The rules' `network_strategy` applies to a domain once a `resolve`
+    /// rule resolved it, and not to one the direct outbound resolves
+    /// itself, as sing-box hands it over only with the addresses known
+    /// (route/conn.go:101-105).
+    #[tokio::test]
+    async fn the_rules_network_waits_for_a_resolved_domain() {
+        use crate::adapter::OutboundConnect;
+        use crate::net::dial::NetworkStrategy;
+        let router = router(serde_json::json!([
+            { "action": "route-options", "network_strategy": "hybrid" },
+            { "domain": "test.sail", "action": "resolve" },
+            { "port": 443, "outbound": "a" },
+        ]));
+        let direct = crate::adapter::outbound::HandlerBuilder::default()
+            .is_direct(true)
+            .build();
+        let strategy = |sess: &Session| {
+            let connect = OutboundConnect::Direct(crate::net::Dialer::system());
+            match crate::net::routed(sess, &direct, connect, false) {
+                OutboundConnect::Direct(dialer) => {
+                    dialer.spec().networks.as_ref().map(|n| n.strategy)
+                }
+                _ => unreachable!(),
+            }
+        };
+        let mut unresolved = to("other.test:443");
+        pick(&router, &mut unresolved).await;
+        assert_eq!(
+            unresolved.route.network_strategy,
+            Some(NetworkStrategy::Hybrid)
+        );
+        assert!(!unresolved.route.resolved);
+        assert_eq!(strategy(&unresolved), None);
+        let mut resolved = to("test.sail:443");
+        pick(&router, &mut resolved).await;
+        assert!(resolved.route.resolved);
+        assert_eq!(strategy(&resolved), Some(NetworkStrategy::Hybrid));
+
+        // An override after puts another destination in place, its
+        // addresses unknown.
+        let router = self::router(serde_json::json!([
+            { "domain": "test.sail", "action": "resolve" },
+            { "port": 443, "action": "route-options", "override_address": "other.test" },
+            { "port": 443, "outbound": "a" },
+        ]));
+        let mut sess = to("test.sail:443");
+        pick(&router, &mut sess).await;
+        assert!(!sess.route.resolved);
+    }
+
+    /// A `direct` rule's dial fields are checked when the router is built,
+    /// each mistake named by where it is.
+    #[test]
+    fn a_direct_rule_s_mistakes_name_their_place() {
+        let build = |rule: serde_json::Value| {
+            let config = crate::config::Config::from_json(
+                &serde_json::json!({
+                    "outbounds": [{ "type": "direct", "tag": "a" }],
+                    "route": { "rules": [{ "port": 1, "outbound": "a" }, rule] },
+                })
+                .to_string(),
+            )?;
+            let dns = DnsClient::new(&config.dns, Default::default(), &Default::default())
+                .unwrap()
+                .into_shared();
+            Router::new(&config.route, dns, &RuntimeEnv::default()).map(|_| ())
+        };
+        let err = |rule| build(rule).unwrap_err().to_string();
+        if cfg!(feature = "outbound-direct") {
+            assert_eq!(
+                err(serde_json::json!({ "port": 2, "action": "direct",
+                    "network_strategy": "hybrid", "inet4_bind_address": "127.0.0.1" })),
+                "route.rules[1].network_strategy: not with inet4_bind_address, \
+                 which binds the socket itself"
+            );
+            if crate::net::dial::interface_exists("no-such-if0") == Some(false) {
+                assert_eq!(
+                    err(serde_json::json!({ "port": 2, "action": "direct",
+                        "bind_interface": "no-such-if0" })),
+                    "route.rules[1].bind_interface: there is no interface \"no-such-if0\""
+                );
+            }
+            let marked = build(serde_json::json!({ "port": 2, "action": "direct",
+                "routing_mark": 1 }));
+            match marked {
+                Ok(()) => assert!(crate::net::dial::supports_routing_mark()),
+                Err(e) => assert_eq!(
+                    e.to_string(),
+                    "route.rules[1].routing_mark: only supported on Linux"
+                ),
+            }
+        }
+        // A dial field on another action.
+        assert_eq!(
+            err(serde_json::json!({ "port": 2, "outbound": "a", "bind_interface": "lo" })),
+            "route.rules[1].bind_interface: not for a route rule"
+        );
+    }
+
     #[tokio::test]
     async fn the_sniffed_protocol_is_a_condition_of_the_rules_after() {
         let router = router(serde_json::json!([
@@ -1613,7 +1827,8 @@ mod tests {
         let dns = DnsClient::new(&config.dns, Default::default(), &env)
             .unwrap()
             .into_shared();
-        let router = Router::with_rule_sets(&config.route, dns, &env, &sets).unwrap();
+        let router =
+            Router::with_rule_sets(&config.route, dns, &env, &sets, &Default::default()).unwrap();
         (router, sets)
     }
 

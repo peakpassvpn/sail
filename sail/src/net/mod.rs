@@ -198,7 +198,65 @@ pub async fn connect_stream_outbound(
     dns_client: SyncDnsClient,
     handler: &AnyOutboundHandler,
 ) -> io::Result<Option<AnyStream>> {
-    match handler.stream()?.connect_addr() {
+    connect_stream(sess, dns_client, handler.stream()?.connect_addr()).await
+}
+
+/// `connect_stream_outbound`, for `handler`, the outbound the rules routed
+/// `sess` to: see [`routed`].
+pub async fn connect_stream_routed(
+    sess: &Session,
+    dns_client: SyncDnsClient,
+    handler: &AnyOutboundHandler,
+) -> io::Result<Option<AnyStream>> {
+    let connect = routed(sess, handler, handler.stream()?.connect_addr(), false);
+    connect_stream(sess, dns_client, connect).await
+}
+
+/// `connect_datagram_outbound`, for `handler`, the outbound the rules
+/// routed `sess` to: see [`routed`].
+pub async fn connect_datagram_routed(
+    sess: &Session,
+    dns_client: SyncDnsClient,
+    handler: &AnyOutboundHandler,
+) -> io::Result<Option<AnyOutboundTransport>> {
+    let connect = routed(sess, handler, handler.datagram()?.connect_addr(), true);
+    connect_datagram(sess, dns_client, connect).await
+}
+
+/// What `handler`, the outbound the rules routed `sess` to, has dialled:
+/// what it asks for, `connect`, for datagrams if `datagram`, with the
+/// `network_strategy` and `fallback_delay` the rules set where it is a
+/// direct outbound (`Dialer::routed`). Only a direct outbound the rules
+/// route to takes them, as only sing-box's direct outbound takes the
+/// router's (protocol/direct/outbound.go:33, 232-262): neither a group
+/// whose pick is one, nor an outbound dialing its server. And only where
+/// the destination's addresses are known before it is dialled, as sing-box
+/// hands them over only then (route/conn.go:101-105, 162-175, 203-205): a
+/// `resolve` rule resolved its domain, or it is an address, but for UDP
+/// that is not connected. A domain the direct outbound resolves itself it
+/// dials as its own fields say.
+pub(crate) fn routed(
+    sess: &Session,
+    handler: &AnyOutboundHandler,
+    connect: OutboundConnect,
+    datagram: bool,
+) -> OutboundConnect {
+    let known = sess.route.resolved
+        || (sess.destination.ip().is_some() && (!datagram || sess.route.udp_connect));
+    match connect {
+        OutboundConnect::Direct(dialer) if handler.is_direct() && known => OutboundConnect::Direct(
+            dialer.routed(sess.route.network_strategy, sess.route.fallback_delay),
+        ),
+        connect => connect,
+    }
+}
+
+async fn connect_stream(
+    sess: &Session,
+    dns_client: SyncDnsClient,
+    connect: OutboundConnect,
+) -> io::Result<Option<AnyStream>> {
+    match connect {
         OutboundConnect::Proxy(Network::Tcp, addr, port, dialer) => {
             trace!("connect stream proxy outbound addr={} port={}", &addr, port);
             let to = SocksAddr::try_from((addr, port))?;
@@ -226,7 +284,15 @@ pub async fn connect_datagram_outbound(
     dns_client: SyncDnsClient,
     handler: &AnyOutboundHandler,
 ) -> io::Result<Option<AnyOutboundTransport>> {
-    match handler.datagram()?.connect_addr() {
+    connect_datagram(sess, dns_client, handler.datagram()?.connect_addr()).await
+}
+
+async fn connect_datagram(
+    sess: &Session,
+    dns_client: SyncDnsClient,
+    connect: OutboundConnect,
+) -> io::Result<Option<AnyOutboundTransport>> {
+    match connect {
         OutboundConnect::Proxy(network, addr, port, dialer) => {
             let to = SocksAddr::try_from((addr, port))?;
             match network {
@@ -573,6 +639,69 @@ mod tests {
                 .is_none()
         );
         accepting.abort();
+    }
+
+    /// Only a direct outbound the rules route to dials with what they set:
+    /// neither an outbound that dials its server, nor a group passing on a
+    /// direct pick's request, which says it is no direct outbound, as only
+    /// sing-box's direct outbound takes the router's `network_strategy`.
+    /// And only to addresses known before it dials: an address, but not
+    /// for UDP that is not connected, or a domain a `resolve` rule
+    /// resolved (route/conn.go:101-105, 162-175, 203-205).
+    #[test]
+    fn only_a_routed_direct_outbound_to_known_addresses_takes_the_rules_network() {
+        use crate::adapter::outbound::HandlerBuilder;
+        use crate::net::dial::NetworkStrategy;
+
+        let handler = |direct: bool| HandlerBuilder::default().is_direct(direct).build();
+        let at = |destination: &str| {
+            let mut sess = Session {
+                destination: match destination.parse::<SocketAddr>() {
+                    Ok(addr) => SocksAddr::Ip(addr),
+                    Err(_) => SocksAddr::Domain(destination.into(), 443),
+                },
+                ..Default::default()
+            };
+            sess.route.network_strategy = Some(NetworkStrategy::Hybrid);
+            sess.route.fallback_delay = Some(Duration::from_millis(40));
+            sess
+        };
+        let own = Dialer::system();
+        let taken = (Some(NetworkStrategy::Hybrid), Duration::from_millis(40));
+        let not = (None, dial::DEFAULT_FALLBACK_DELAY);
+        let strategy =
+            |sess: &Session, direct: bool, connect: OutboundConnect, datagram| match routed(
+                sess,
+                &handler(direct),
+                connect,
+                datagram,
+            ) {
+                OutboundConnect::Direct(dialer) | OutboundConnect::Proxy(.., dialer) => (
+                    dialer.spec().networks.as_ref().map(|n| n.strategy),
+                    dialer.spec().fallback_delay,
+                ),
+                _ => unreachable!(),
+            };
+        let direct = || OutboundConnect::Direct(own.clone());
+
+        let addr = at("192.0.2.1:443");
+        assert_eq!(strategy(&addr, true, direct(), false), taken);
+        assert_eq!(strategy(&addr, false, direct(), false), not);
+        let proxy = OutboundConnect::Proxy(Network::Tcp, "192.0.2.1".into(), 443, own.clone());
+        assert_eq!(strategy(&addr, true, proxy, false), not);
+        // UDP to an address, connected only.
+        assert_eq!(strategy(&addr, true, direct(), true), not);
+        let mut connected = at("192.0.2.1:443");
+        connected.route.udp_connect = true;
+        assert_eq!(strategy(&connected, true, direct(), true), taken);
+
+        // A domain, once a resolve rule resolved it.
+        let mut domain = at("x.test");
+        assert_eq!(strategy(&domain, true, direct(), false), not);
+        assert_eq!(strategy(&domain, true, direct(), true), not);
+        domain.route.resolved = true;
+        assert_eq!(strategy(&domain, true, direct(), false), taken);
+        assert_eq!(strategy(&domain, true, direct(), true), taken);
     }
 
     /// Every outbound built asks to be dialled by its own dialer, built

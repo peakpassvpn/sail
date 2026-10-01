@@ -436,7 +436,7 @@ impl Dispatcher {
 
         let handshake_start = tokio::time::Instant::now();
         let stream =
-            match crate::net::connect_stream_outbound(&sess, self.dns_client.clone(), &h).await {
+            match crate::net::connect_stream_routed(&sess, self.dns_client.clone(), &h).await {
                 Ok(s) => s,
                 Err(e) => {
                     debug!(
@@ -568,8 +568,7 @@ impl Dispatcher {
         })?;
         sess.outbound_tag = h.tag().clone();
         sess.chain = Default::default();
-        let stream =
-            crate::net::connect_stream_outbound(&sess, self.dns_client.clone(), &h).await?;
+        let stream = crate::net::connect_stream_routed(&sess, self.dns_client.clone(), &h).await?;
         h.stream()?.handle(&sess, None, stream).await
     }
 
@@ -657,7 +656,7 @@ impl Dispatcher {
 
         debug!("connect datagram outbound={}", h.tag());
         let transport =
-            crate::net::connect_datagram_outbound(&sess, self.dns_client.clone(), &h).await?;
+            crate::net::connect_datagram_routed(&sess, self.dns_client.clone(), &h).await?;
 
         match h.datagram()?.handle(&sess, transport).await {
             Ok(mut d) => {

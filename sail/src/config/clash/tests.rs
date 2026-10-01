@@ -1325,7 +1325,14 @@ fn router_takes(config: &Config) {
     let dns = crate::app::dns_client::DnsClient::new(&config.dns, Default::default(), &env)
         .unwrap()
         .into_shared();
-    crate::app::router::Router::with_rule_sets(&config.route, dns, &env, &sets).unwrap();
+    crate::app::router::Router::with_rule_sets(
+        &config.route,
+        dns,
+        &env,
+        &sets,
+        &Default::default(),
+    )
+    .unwrap();
 }
 
 #[test]

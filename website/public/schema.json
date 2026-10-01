@@ -23867,7 +23867,8 @@
       "hijack-dns",
       "sniff",
       "resolve",
-      "bypass"
+      "bypass",
+      "direct"
      ],
      "description": "`route` when unset."
     },
@@ -24042,12 +24043,17 @@
      "description": "`route`, `route-options`: connects to this port instead."
     },
     "network_strategy": {
-     "not": {},
-     "description": "sail refuses this field: Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say"
+     "type": "string",
+     "enum": [
+      "default",
+      "hybrid",
+      "fallback"
+     ],
+     "description": "`route`, `route-options`: how a direct outbound the connection goes out of chooses among the host's interfaces, instead of as its own says; not where it binds its sockets itself. A later rule's goes before. As in sing-box, only where the destination is an address (for UDP, a connected one) or a `resolve` rule resolved it; other outbounds, a group whose pick is a direct one among them, take no notice of it. `direct`: checked only."
     },
     "fallback_delay": {
-     "not": {},
-     "description": "sail refuses this field: Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say"
+     "type": "number",
+     "description": "`route`, `route-options`: how long a direct outbound the connection goes out of tries one family's addresses, and its first interfaces, before the others race them, instead of its own `fallback_delay`, where `network_strategy` would apply. A later rule's goes before. A duration string, as sing-box's documentation writes it, or a number of nanoseconds, as sing-box 1.14.1 reads it here. `direct`: checked only."
     },
     "udp_disable_domain_unmapping": {
      "type": "boolean",
@@ -24080,6 +24086,134 @@
     "tls_spoof_method": {
      "not": {},
      "description": "sail refuses this field: Fragmenting or spoofing the TLS handshake against censorship"
+    },
+    "bind_interface": {
+     "type": "string",
+     "deprecated": true,
+     "description": "sail ignores this field, with a warning: Accepted, no effect (as sing-box). `direct`: the interface to send through, by name."
+    },
+    "inet4_bind_address": {
+     "type": "string",
+     "description": "`direct`: the local address for IPv4 destinations."
+    },
+    "inet6_bind_address": {
+     "type": "string",
+     "description": "`direct`: the local address for IPv6 destinations."
+    },
+    "bind_address_no_port": {
+     "type": "boolean",
+     "deprecated": true,
+     "description": "sail ignores this field, with a warning: Accepted, no effect (as sing-box). `direct`: `IP_BIND_ADDRESS_NO_PORT` on TCP sockets bound to an address: Linux only."
+    },
+    "protect_path": {
+     "not": {},
+     "description": "sail refuses this field: Android's socket protection and Linux network namespaces: sockets would leave another way"
+    },
+    "routing_mark": {
+     "anyOf": [
+      {
+       "type": "number"
+      },
+      {
+       "type": "string"
+      }
+     ],
+     "deprecated": true,
+     "description": "sail ignores this field, with a warning: Accepted, no effect (as sing-box). `direct`: `SO_MARK`, Linux only."
+    },
+    "reuse_addr": {
+     "type": "boolean",
+     "deprecated": true,
+     "description": "sail ignores this field, with a warning: Accepted, no effect (as sing-box). `direct`: `SO_REUSEADDR`, and `SO_REUSEPORT` on Unix, on UDP sockets."
+    },
+    "netns": {
+     "not": {},
+     "description": "sail refuses this field: Android's socket protection and Linux network namespaces: sockets would leave another way"
+    },
+    "connect_timeout": {
+     "type": "string",
+     "deprecated": true,
+     "description": "sail ignores this field, with a warning: Accepted, no effect (as sing-box). `direct`: how long a TCP connect to one address may take; 5s when unset."
+    },
+    "tcp_fast_open": {
+     "type": "boolean",
+     "deprecated": true,
+     "description": "sail ignores this field, with a warning: Accepted, no effect (as sing-box). `direct`: TCP Fast Open."
+    },
+    "tcp_multi_path": {
+     "type": "boolean",
+     "deprecated": true,
+     "description": "sail ignores this field, with a warning: Socket tuning: connections go the same way without it"
+    },
+    "disable_tcp_keep_alive": {
+     "type": "boolean",
+     "deprecated": true,
+     "description": "sail ignores this field, with a warning: Accepted, no effect (as sing-box). `direct`: no TCP keepalive at all."
+    },
+    "tcp_keep_alive": {
+     "type": "string",
+     "deprecated": true,
+     "description": "sail ignores this field, with a warning: Accepted, no effect (as sing-box). `direct`: how long a TCP connection is idle before keepalive probes it; 5m when unset."
+    },
+    "tcp_keep_alive_interval": {
+     "type": "string",
+     "deprecated": true,
+     "description": "sail ignores this field, with a warning: Accepted, no effect (as sing-box). `direct`: between keepalive probes; 75s when unset."
+    },
+    "udp_fragment": {
+     "type": "boolean",
+     "deprecated": true,
+     "description": "sail ignores this field, with a warning: Accepted, no effect (as sing-box). `direct`: whether UDP datagrams may be fragmented on the way; not when unset, as sing-box's direct action has it."
+    },
+    "domain_resolver": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "$ref": "#/$defs/route.rules%5Baction%3Ddirect%5D.domain_resolver"
+      }
+     ],
+     "deprecated": true,
+     "description": "sail ignores this field, with a warning: Accepted, no effect (as sing-box). `direct`: the DNS server that resolves the names it dials."
+    },
+    "fallback_network_type": {
+     "anyOf": [
+      {
+       "type": "string",
+       "enum": [
+        "wifi",
+        "cellular",
+        "ethernet",
+        "other"
+       ]
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string",
+        "enum": [
+         "wifi",
+         "cellular",
+         "ethernet",
+         "other"
+        ]
+       }
+      }
+     ],
+     "deprecated": true,
+     "description": "sail ignores this field, with a warning: Accepted, no effect (as sing-box). `direct`: the types of interface its `fallback` strategy falls back to. Its `network_type` is not one: a rule's `network_type` is its condition, as in sing-box."
+    },
+    "domain_strategy": {
+     "type": "string",
+     "enum": [
+      "prefer_ipv4",
+      "prefer_ipv6",
+      "ipv4_only",
+      "ipv6_only"
+     ],
+     "description": "`direct`: sing-box's deprecated field for the families names resolve to.",
+     "deprecated": true
     },
     "method": {
      "type": "string",
@@ -24189,6 +24323,49 @@
    },
    "additionalProperties": false
   },
+  "route.rules[action=direct].domain_resolver": {
+   "type": "object",
+   "properties": {
+    "server": {
+     "type": "string",
+     "deprecated": true,
+     "description": "sail ignores this field, with a warning: Accepted, no effect (as sing-box)"
+    },
+    "timeout": {
+     "type": "string",
+     "deprecated": true,
+     "description": "sail ignores this field, with a warning: Accepted, no effect (as sing-box)"
+    },
+    "strategy": {
+     "type": "string",
+     "enum": [
+      "prefer_ipv4",
+      "prefer_ipv6",
+      "ipv4_only",
+      "ipv6_only"
+     ]
+    },
+    "disable_cache": {
+     "type": "boolean",
+     "deprecated": true,
+     "description": "sail ignores this field, with a warning: Accepted, no effect (as sing-box)"
+    },
+    "disable_optimistic_cache": {
+     "type": "boolean",
+     "deprecated": true,
+     "description": "sail ignores this field, with a warning: Accepted, no effect (as sing-box)"
+    },
+    "rewrite_ttl": {
+     "type": "number",
+     "deprecated": true,
+     "description": "sail ignores this field, with a warning: Accepted, no effect (as sing-box)"
+    },
+    "client_subnet": {
+     "type": "string"
+    }
+   },
+   "additionalProperties": false
+  },
   "route.rules[logical][nested]": {
    "type": "object",
    "properties": {
@@ -24250,7 +24427,8 @@
       "hijack-dns",
       "sniff",
       "resolve",
-      "bypass"
+      "bypass",
+      "direct"
      ],
      "description": "`route` when unset."
     },
@@ -24267,12 +24445,17 @@
      "description": "`route`, `route-options`: connects to this port instead."
     },
     "network_strategy": {
-     "not": {},
-     "description": "sail refuses this field: Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say"
+     "type": "string",
+     "enum": [
+      "default",
+      "hybrid",
+      "fallback"
+     ],
+     "description": "`route`, `route-options`: how a direct outbound the connection goes out of chooses among the host's interfaces, instead of as its own says; not where it binds its sockets itself. A later rule's goes before. As in sing-box, only where the destination is an address (for UDP, a connected one) or a `resolve` rule resolved it; other outbounds, a group whose pick is a direct one among them, take no notice of it. `direct`: checked only."
     },
     "fallback_delay": {
-     "not": {},
-     "description": "sail refuses this field: Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say"
+     "type": "number",
+     "description": "`route`, `route-options`: how long a direct outbound the connection goes out of tries one family's addresses, and its first interfaces, before the others race them, instead of its own `fallback_delay`, where `network_strategy` would apply. A later rule's goes before. A duration string, as sing-box's documentation writes it, or a number of nanoseconds, as sing-box 1.14.1 reads it here. `direct`: checked only."
     },
     "udp_disable_domain_unmapping": {
      "type": "boolean",
@@ -24305,6 +24488,155 @@
     "tls_spoof_method": {
      "not": {},
      "description": "sail refuses this field: Fragmenting or spoofing the TLS handshake against censorship"
+    },
+    "bind_interface": {
+     "type": "string",
+     "deprecated": true,
+     "description": "sail ignores this field, with a warning: Accepted, no effect (as sing-box). `direct`: the interface to send through, by name."
+    },
+    "inet4_bind_address": {
+     "type": "string",
+     "description": "`direct`: the local address for IPv4 destinations."
+    },
+    "inet6_bind_address": {
+     "type": "string",
+     "description": "`direct`: the local address for IPv6 destinations."
+    },
+    "bind_address_no_port": {
+     "type": "boolean",
+     "deprecated": true,
+     "description": "sail ignores this field, with a warning: Accepted, no effect (as sing-box). `direct`: `IP_BIND_ADDRESS_NO_PORT` on TCP sockets bound to an address: Linux only."
+    },
+    "protect_path": {
+     "not": {},
+     "description": "sail refuses this field: Android's socket protection and Linux network namespaces: sockets would leave another way"
+    },
+    "routing_mark": {
+     "anyOf": [
+      {
+       "type": "number"
+      },
+      {
+       "type": "string"
+      }
+     ],
+     "deprecated": true,
+     "description": "sail ignores this field, with a warning: Accepted, no effect (as sing-box). `direct`: `SO_MARK`, Linux only."
+    },
+    "reuse_addr": {
+     "type": "boolean",
+     "deprecated": true,
+     "description": "sail ignores this field, with a warning: Accepted, no effect (as sing-box). `direct`: `SO_REUSEADDR`, and `SO_REUSEPORT` on Unix, on UDP sockets."
+    },
+    "netns": {
+     "not": {},
+     "description": "sail refuses this field: Android's socket protection and Linux network namespaces: sockets would leave another way"
+    },
+    "connect_timeout": {
+     "type": "string",
+     "deprecated": true,
+     "description": "sail ignores this field, with a warning: Accepted, no effect (as sing-box). `direct`: how long a TCP connect to one address may take; 5s when unset."
+    },
+    "tcp_fast_open": {
+     "type": "boolean",
+     "deprecated": true,
+     "description": "sail ignores this field, with a warning: Accepted, no effect (as sing-box). `direct`: TCP Fast Open."
+    },
+    "tcp_multi_path": {
+     "type": "boolean",
+     "deprecated": true,
+     "description": "sail ignores this field, with a warning: Socket tuning: connections go the same way without it"
+    },
+    "disable_tcp_keep_alive": {
+     "type": "boolean",
+     "deprecated": true,
+     "description": "sail ignores this field, with a warning: Accepted, no effect (as sing-box). `direct`: no TCP keepalive at all."
+    },
+    "tcp_keep_alive": {
+     "type": "string",
+     "deprecated": true,
+     "description": "sail ignores this field, with a warning: Accepted, no effect (as sing-box). `direct`: how long a TCP connection is idle before keepalive probes it; 5m when unset."
+    },
+    "tcp_keep_alive_interval": {
+     "type": "string",
+     "deprecated": true,
+     "description": "sail ignores this field, with a warning: Accepted, no effect (as sing-box). `direct`: between keepalive probes; 75s when unset."
+    },
+    "udp_fragment": {
+     "type": "boolean",
+     "deprecated": true,
+     "description": "sail ignores this field, with a warning: Accepted, no effect (as sing-box). `direct`: whether UDP datagrams may be fragmented on the way; not when unset, as sing-box's direct action has it."
+    },
+    "domain_resolver": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "$ref": "#/$defs/route.rules%5Baction%3Ddirect%5D.domain_resolver"
+      }
+     ],
+     "deprecated": true,
+     "description": "sail ignores this field, with a warning: Accepted, no effect (as sing-box). `direct`: the DNS server that resolves the names it dials."
+    },
+    "network_type": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      }
+     ],
+     "examples": [
+      "cellular",
+      "ethernet",
+      "other",
+      "wifi"
+     ],
+     "deprecated": true,
+     "description": "sail ignores this field, with a warning: Accepted, no effect (as sing-box). The kind of network: `wifi`, `cellular`, `ethernet`, `other`."
+    },
+    "fallback_network_type": {
+     "anyOf": [
+      {
+       "type": "string",
+       "enum": [
+        "wifi",
+        "cellular",
+        "ethernet",
+        "other"
+       ]
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string",
+        "enum": [
+         "wifi",
+         "cellular",
+         "ethernet",
+         "other"
+        ]
+       }
+      }
+     ],
+     "deprecated": true,
+     "description": "sail ignores this field, with a warning: Accepted, no effect (as sing-box). `direct`: the types of interface its `fallback` strategy falls back to. Its `network_type` is not one: a rule's `network_type` is its condition, as in sing-box."
+    },
+    "domain_strategy": {
+     "type": "string",
+     "enum": [
+      "prefer_ipv4",
+      "prefer_ipv6",
+      "ipv4_only",
+      "ipv6_only"
+     ],
+     "description": "`direct`: sing-box's deprecated field for the families names resolve to.",
+     "deprecated": true
     },
     "method": {
      "type": "string",

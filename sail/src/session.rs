@@ -410,6 +410,16 @@ pub struct RouteOptions {
     pub udp_timeout: Option<std::time::Duration>,
     /// Sends the TLS ClientHello in pieces.
     pub tls_fragment: Option<TlsFragment>,
+    /// How a direct outbound chooses among the host's interfaces for it,
+    /// instead of as its own `network_strategy` says.
+    pub network_strategy: Option<crate::net::dial::NetworkStrategy>,
+    /// How long a direct outbound tries one family's addresses, and its
+    /// first interfaces, before the others race them, instead of its own
+    /// `fallback_delay`.
+    pub fallback_delay: Option<std::time::Duration>,
+    /// Whether a `resolve` rule resolved its domain, so that its addresses
+    /// are known before it is dialled: sing-box's `DestinationAddresses`.
+    pub resolved: bool,
 }
 
 /// How a TLS ClientHello is cut, in its server name.

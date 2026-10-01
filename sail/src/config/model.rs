@@ -2378,6 +2378,86 @@ pub struct Rule {
     /// records, cut in the server name.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub tls_record_fragment: bool,
+    /// `route`, `route-options`: how a direct outbound the connection goes
+    /// out of chooses among the host's interfaces, instead of as its own
+    /// says; not where it binds its sockets itself. A later rule's goes
+    /// before. As in sing-box, only where the destination is an address
+    /// (for UDP, a connected one) or a `resolve` rule resolved it; other
+    /// outbounds, a group whose pick is a direct one among them, take no
+    /// notice of it. `direct`: checked only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub network_strategy: Option<crate::net::dial::NetworkStrategy>,
+    /// `route`, `route-options`: how long a direct outbound the connection
+    /// goes out of tries one family's addresses, and its first interfaces,
+    /// before the others race them, instead of its own `fallback_delay`,
+    /// where `network_strategy` would apply. A later rule's goes before. A
+    /// duration string, as sing-box's documentation writes it, or a number
+    /// of nanoseconds, as sing-box 1.14.1 reads it here. `direct`: checked
+    /// only.
+    #[serde(
+        default,
+        with = "duration_or_nanos",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub fallback_delay: Option<std::time::Duration>,
+    /// `direct`: the interface to send through, by name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bind_interface: Option<String>,
+    /// `direct`: the local address for IPv4 destinations.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inet4_bind_address: Option<std::net::Ipv4Addr>,
+    /// `direct`: the local address for IPv6 destinations.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inet6_bind_address: Option<std::net::Ipv6Addr>,
+    /// `direct`: `IP_BIND_ADDRESS_NO_PORT` on TCP sockets bound to an
+    /// address: Linux only.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub bind_address_no_port: bool,
+    /// `direct`: `SO_MARK`, Linux only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub routing_mark: Option<u32>,
+    /// `direct`: `SO_REUSEADDR`, and `SO_REUSEPORT` on Unix, on UDP
+    /// sockets.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub reuse_addr: bool,
+    /// `direct`: how long a TCP connect to one address may take; 5s when
+    /// unset.
+    #[serde(default, with = "duration", skip_serializing_if = "Option::is_none")]
+    pub connect_timeout: Option<std::time::Duration>,
+    /// `direct`: TCP Fast Open.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub tcp_fast_open: bool,
+    /// `direct`: no TCP keepalive at all.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub disable_tcp_keep_alive: bool,
+    /// `direct`: how long a TCP connection is idle before keepalive probes
+    /// it; 5m when unset.
+    #[serde(default, with = "duration", skip_serializing_if = "Option::is_none")]
+    pub tcp_keep_alive: Option<std::time::Duration>,
+    /// `direct`: between keepalive probes; 75s when unset.
+    #[serde(default, with = "duration", skip_serializing_if = "Option::is_none")]
+    pub tcp_keep_alive_interval: Option<std::time::Duration>,
+    /// `direct`: whether UDP datagrams may be fragmented on the way; not
+    /// when unset, as sing-box's direct action has it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub udp_fragment: Option<bool>,
+    /// `direct`: the DNS server that resolves the names it dials.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub domain_resolver: Option<DomainResolver>,
+    /// `direct`, a sail extension: without a `domain_resolver` of its own,
+    /// the names it dials resolve as the DNS rules say, not as
+    /// `route.default_domain_resolver` does.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub skip_default_domain_resolver: bool,
+    /// `direct`: sing-box's deprecated field for the families names
+    /// resolve to.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub domain_strategy: Option<DnsStrategy>,
+    /// `direct`: the types of interface its `fallback` strategy falls back
+    /// to. Its `network_type` is not one: a rule's `network_type` is its
+    /// condition, as in sing-box.
+    #[serde(default, with = "listable", skip_serializing_if = "Vec::is_empty")]
+    pub fallback_network_type: Vec<crate::net::network::NetworkType>,
     /// `reject`: how.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub method: Option<RejectMethod>,
@@ -2494,6 +2574,9 @@ pub enum RuleAction {
     /// Elsewhere it routes to `outbound` like `route`, and without one the
     /// rule is skipped.
     Bypass,
+    /// As in sing-box 1.14.1, nothing: its dial fields are checked as an
+    /// outbound's are, and matching goes on past it, with a warning.
+    Direct,
 }
 
 /// How a `reject` rule closes a connection.
@@ -2629,6 +2712,56 @@ impl Rule {
                 ROUTE,
             ),
             ("tls_record_fragment", self.tls_record_fragment, ROUTE),
+            (
+                "network_strategy",
+                self.network_strategy.is_some(),
+                &[Route, RouteOptions, Bypass, Direct],
+            ),
+            (
+                "fallback_delay",
+                self.fallback_delay.is_some(),
+                &[Route, RouteOptions, Bypass, Direct],
+            ),
+            ("bind_interface", self.bind_interface.is_some(), &[Direct]),
+            (
+                "inet4_bind_address",
+                self.inet4_bind_address.is_some(),
+                &[Direct],
+            ),
+            (
+                "inet6_bind_address",
+                self.inet6_bind_address.is_some(),
+                &[Direct],
+            ),
+            ("bind_address_no_port", self.bind_address_no_port, &[Direct]),
+            ("routing_mark", self.routing_mark.is_some(), &[Direct]),
+            ("reuse_addr", self.reuse_addr, &[Direct]),
+            ("connect_timeout", self.connect_timeout.is_some(), &[Direct]),
+            ("tcp_fast_open", self.tcp_fast_open, &[Direct]),
+            (
+                "disable_tcp_keep_alive",
+                self.disable_tcp_keep_alive,
+                &[Direct],
+            ),
+            ("tcp_keep_alive", self.tcp_keep_alive.is_some(), &[Direct]),
+            (
+                "tcp_keep_alive_interval",
+                self.tcp_keep_alive_interval.is_some(),
+                &[Direct],
+            ),
+            ("udp_fragment", self.udp_fragment.is_some(), &[Direct]),
+            ("domain_resolver", self.domain_resolver.is_some(), &[Direct]),
+            (
+                "skip_default_domain_resolver",
+                self.skip_default_domain_resolver,
+                &[Direct],
+            ),
+            ("domain_strategy", self.domain_strategy.is_some(), &[Direct]),
+            (
+                "fallback_network_type",
+                !self.fallback_network_type.is_empty(),
+                &[Direct],
+            ),
             ("method", self.method.is_some(), &[Reject]),
             ("no_drop", self.no_drop, &[Reject]),
             ("server", self.server.is_some(), &[Resolve]),
@@ -2706,7 +2839,10 @@ impl Rule {
                     }
                 }
             }
-            RuleAction::HijackDns | RuleAction::Sniff | RuleAction::Resolve => {}
+            RuleAction::HijackDns
+            | RuleAction::Sniff
+            | RuleAction::Resolve
+            | RuleAction::Direct => {}
         }
         if self.tls_fragment && self.tls_record_fragment {
             return Err(anyhow!(
@@ -2748,6 +2884,35 @@ impl Rule {
             ));
         }
         Ok(())
+    }
+
+    /// The dial fields of a `direct` rule: sing-box's
+    /// `DirectActionOptions`, all its `AbstractDialerOptions`
+    /// (option/rule_action.go:248-250), so no `detour`; nor a
+    /// `network_type`, which is the rule's condition
+    /// (option/rule.go:198-203 reads the conditions first).
+    pub fn direct_fields(&self) -> crate::net::dial::DialFields {
+        crate::net::dial::DialFields {
+            bind_interface: self.bind_interface.clone(),
+            inet4_bind_address: self.inet4_bind_address,
+            inet6_bind_address: self.inet6_bind_address,
+            bind_address_no_port: self.bind_address_no_port,
+            routing_mark: self.routing_mark,
+            reuse_addr: self.reuse_addr,
+            connect_timeout: self.connect_timeout,
+            tcp_fast_open: self.tcp_fast_open,
+            disable_tcp_keep_alive: self.disable_tcp_keep_alive,
+            tcp_keep_alive: self.tcp_keep_alive,
+            tcp_keep_alive_interval: self.tcp_keep_alive_interval,
+            udp_fragment: self.udp_fragment,
+            domain_resolver: self.domain_resolver.clone(),
+            skip_default_domain_resolver: self.skip_default_domain_resolver,
+            domain_strategy: self.domain_strategy,
+            network_strategy: self.network_strategy,
+            fallback_network_type: self.fallback_network_type.clone(),
+            fallback_delay: self.fallback_delay,
+            ..Default::default()
+        }
     }
 
     /// The mistakes of a rule's conditions, and of the rules nested in it,
@@ -2865,6 +3030,7 @@ impl RuleAction {
             RuleAction::Sniff => "sniff",
             RuleAction::Resolve => "resolve",
             RuleAction::Bypass => "bypass",
+            RuleAction::Direct => "direct",
         }
     }
 }
@@ -3489,6 +3655,42 @@ pub mod duration {
         super::parse_duration(&s)
             .map(Some)
             .map_err(serde::de::Error::custom)
+    }
+}
+
+/// `duration`, or a number of nanoseconds up to `u32::MAX`: a route
+/// rule's `fallback_delay`, which sing-box reads as a `uint32` of
+/// nanoseconds (option/rule_action.go:182) though its documentation writes
+/// it a duration.
+pub mod duration_or_nanos {
+    use serde::de::{self, Deserializer};
+
+    pub use super::duration::serialize;
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        de: D,
+    ) -> Result<Option<std::time::Duration>, D::Error> {
+        struct Visitor;
+
+        impl de::Visitor<'_> for Visitor {
+            type Value = Option<std::time::Duration>;
+
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("a duration, e.g. 300ms, or a number of nanoseconds")
+            }
+
+            fn visit_u64<E: de::Error>(self, v: u64) -> Result<Self::Value, E> {
+                u32::try_from(v)
+                    .map(|v| Some(std::time::Duration::from_nanos(v.into())))
+                    .map_err(|_| E::custom("a number of nanoseconds is at most 4294967295"))
+            }
+
+            fn visit_str<E: de::Error>(self, v: &str) -> Result<Self::Value, E> {
+                super::parse_duration(v).map(Some).map_err(E::custom)
+            }
+        }
+
+        de.deserialize_any(Visitor)
     }
 }
 

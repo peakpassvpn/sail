@@ -27,7 +27,9 @@ use {
 
 use super::detour::{DetourDialer, Outbounds, Target};
 use super::happy::Order;
-use super::networks::{self, BoundInterface, Egress, FallbackState, Networks, Via};
+use super::networks::{
+    self, BoundInterface, Egress, FallbackState, NetworkStrategy, Networks, Via,
+};
 use super::{DialFields, DialSpec, ResolveSpec, RouteDefaults, SocketProtect};
 use crate::adapter::{AnyOutboundDatagram, AnyOutboundHandler, AnyStream};
 use crate::app::SyncDnsClient;
@@ -281,14 +283,14 @@ struct Racing {
     fallback: FallbackState,
     /// Turned off for good by `EPERM`, the strategy being implicit
     /// (default.go:328-335).
-    off: AtomicBool,
+    off: Arc<AtomicBool>,
     /// Whether it was told that the host lists no interfaces.
-    told: AtomicBool,
+    told: Arc<AtomicBool>,
 }
 
-impl Dialer {
-    pub fn new(spec: DialSpec, resolve: ResolveSpec, env: DialEnv) -> Dialer {
-        let racing = spec.networks.clone().map(|networks| Racing {
+impl Racing {
+    fn new(networks: Networks, spec: &DialSpec) -> Racing {
+        Racing {
             networks,
             spec: DialSpec {
                 bind_interface: None,
@@ -299,13 +301,90 @@ impl Dialer {
                 ..spec.clone()
             },
             fallback: FallbackState::default(),
-            off: AtomicBool::new(false),
-            told: AtomicBool::new(false),
-        });
+            off: Default::default(),
+            told: Default::default(),
+        }
+    }
+}
+
+impl Dialer {
+    pub fn new(spec: DialSpec, resolve: ResolveSpec, env: DialEnv) -> Dialer {
+        let racing = spec
+            .networks
+            .clone()
+            .map(|networks| Racing::new(networks, &spec));
         Dialer(Arc::new(Kind::Socket(SocketDialer {
             spec,
             resolve,
             env,
+            racing,
+        })))
+    }
+
+    /// What it dials one connection with whose rules set a
+    /// `network_strategy` or a `fallback_delay` (`route`, `route-options`),
+    /// as sing-box's direct outbound dials with what its router set
+    /// (route/route.go:637-648, route/conn.go:102,
+    /// protocol/direct/outbound.go:232-247): the rules' strategy over its
+    /// own, with its own types (common/dialer/default.go:295-310); their
+    /// delay over its own, for the families as for the interfaces
+    /// (default_parallel_network.go:56-58). A strategy does not apply where
+    /// its sockets are bound already, as sing-box's documentation has it
+    /// (route/rule_action.md, `network_strategy`). What it learns, the fast
+    /// fallback and that the host lists no interfaces, it shares with
+    /// itself; an `EPERM` that turned its implicit strategy off holds only
+    /// where the rules set none. Itself where they set neither, or with a
+    /// detour.
+    pub fn routed(&self, strategy: Option<NetworkStrategy>, delay: Option<Duration>) -> Dialer {
+        // Zero is unset, as in sing-box (route/route.go:646).
+        let delay = delay.filter(|d| !d.is_zero());
+        let Kind::Socket(socket) = &*self.0 else {
+            return self.clone();
+        };
+        if strategy.is_none() && delay.is_none() {
+            return self.clone();
+        }
+        let mut spec = socket.spec.clone();
+        if let Some(delay) = delay {
+            spec.fallback_delay = delay;
+        }
+        if let Some(own) = spec.network_fallback_delay {
+            let delay = delay.unwrap_or(own);
+            spec.network_fallback_delay = Some(delay);
+            spec.networks = match (strategy, spec.networks.take()) {
+                (Some(strategy), own) => {
+                    let (network_type, fallback_network_type) = own
+                        .map(|own| (own.network_type, own.fallback_network_type))
+                        .unwrap_or_default();
+                    Some(Networks {
+                        strategy,
+                        implicit: false,
+                        network_type,
+                        fallback_network_type,
+                        fallback_delay: delay,
+                    })
+                }
+                (None, own) => own.map(|own| Networks {
+                    fallback_delay: delay,
+                    ..own
+                }),
+            };
+        }
+        let racing = spec.networks.clone().map(|networks| {
+            let mut racing = Racing::new(networks, &spec);
+            if let Some(own) = &socket.racing {
+                racing.fallback = own.fallback.clone();
+                racing.told = own.told.clone();
+                if strategy.is_none() {
+                    racing.off = own.off.clone();
+                }
+            }
+            racing
+        });
+        Dialer(Arc::new(Kind::Socket(SocketDialer {
+            spec,
+            resolve: socket.resolve.clone(),
+            env: socket.env.clone(),
             racing,
         })))
     }
@@ -1124,6 +1203,86 @@ mod tests {
             .unwrap()
             .permission_refused(other)
             .is_err());
+    }
+
+    /// The rules' `network_strategy` goes before its own, its own types
+    /// kept; their `fallback_delay` before its own, for the families as
+    /// for the interfaces; a strategy applies only where nothing binds its
+    /// sockets (default.go:295-310).
+    #[test]
+    fn the_rules_network_goes_before_its_own() {
+        use crate::net::network::NetworkType;
+        let dialer = |json| {
+            DialDefaults::default()
+                .dialer(&serde_json::from_value(json).unwrap(), None)
+                .unwrap()
+        };
+        let delay = Duration::from_millis(40);
+        let own = dialer(serde_json::json!({
+            "network_strategy": "default", "network_type": "wifi", "fallback_delay": "1s",
+        }));
+        let routed = own.routed(Some(NetworkStrategy::Fallback), None);
+        let networks = routed.spec().networks.clone().unwrap();
+        assert_eq!(networks.strategy, NetworkStrategy::Fallback);
+        assert!(!networks.implicit);
+        assert_eq!(networks.network_type, vec![NetworkType::Wifi]);
+        assert_eq!(networks.fallback_delay, Duration::from_secs(1));
+        assert_eq!(routed.spec().fallback_delay, Duration::from_secs(1));
+        let routed = own.routed(None, Some(delay));
+        let networks = routed.spec().networks.clone().unwrap();
+        assert_eq!(networks.strategy, NetworkStrategy::Default);
+        assert_eq!(networks.fallback_delay, delay);
+        assert_eq!(routed.spec().fallback_delay, delay);
+
+        // One of no strategy takes the rules'.
+        let plain = dialer(serde_json::json!({}));
+        let routed = plain.routed(Some(NetworkStrategy::Hybrid), None);
+        let networks = routed.spec().networks.clone().unwrap();
+        assert_eq!(networks.strategy, NetworkStrategy::Hybrid);
+        assert!(networks.network_type.is_empty());
+        assert_eq!(
+            networks.fallback_delay,
+            super::super::DEFAULT_FALLBACK_DELAY
+        );
+
+        // One bound already takes the delay only.
+        let bound = dialer(serde_json::json!({ "inet4_bind_address": "127.0.0.1" }));
+        let routed = bound.routed(Some(NetworkStrategy::Hybrid), Some(delay));
+        assert_eq!(routed.spec().networks, None);
+        assert_eq!(routed.spec().fallback_delay, delay);
+
+        // Neither set, or zero, it is itself.
+        assert!(Arc::ptr_eq(&own.routed(None, None).0, &own.0));
+        assert!(Arc::ptr_eq(
+            &own.routed(None, Some(Duration::ZERO)).0,
+            &own.0
+        ));
+    }
+
+    /// A dialer the rules derive keeps what its own learnt: the fast
+    /// fallback, and an implicit strategy turned off, unless they set
+    /// another.
+    #[test]
+    fn a_routed_dialer_shares_what_its_own_learnt() {
+        let own = racing(
+            serde_json::json!({ "network_type": "wifi" }),
+            Default::default(),
+        );
+        let racing_of = |dialer: &Dialer| {
+            let Kind::Socket(socket) = &*dialer.0 else {
+                unreachable!()
+            };
+            let racing = socket.racing.as_ref().unwrap();
+            (racing.off.clone(), racing.told.clone())
+        };
+        let (off, told) = racing_of(&own);
+        off.store(true, Ordering::Relaxed);
+        let delayed = own.routed(None, Some(Duration::from_millis(40)));
+        assert!(Arc::ptr_eq(&racing_of(&delayed).0, &off));
+        assert!(Arc::ptr_eq(&racing_of(&delayed).1, &told));
+        let other = own.routed(Some(NetworkStrategy::Hybrid), None);
+        assert!(!racing_of(&other).0.load(Ordering::Relaxed));
+        assert!(Arc::ptr_eq(&racing_of(&other).1, &told));
     }
 
     /// A connect to one address that is never answered gives up after 5s,

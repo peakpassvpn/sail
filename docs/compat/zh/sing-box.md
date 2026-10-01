@@ -25,10 +25,10 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `endpoints` | 433 | 56 | 13 | 364 |
 | `inbounds` | 1367 | 585 | 151 | 631 |
 | `outbounds` | 1228 | 678 | 76 | 474 |
-| `route` | 268 | 160 | 15 | 93 |
+| `route` | 268 | 171 | 36 | 61 |
 | `services` | 751 | 1 | 166 | 584 |
 | `experimental` | 34 | 16 | 17 | 1 |
-| **全部** | **5003** | **1892** | **550** | **2561** |
+| **全部** | **5003** | **1903** | **571** | **2529** |
 
 ## `$schema`
 
@@ -2739,12 +2739,6 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 
 ## `route`
 
-### sail 未实现的类型
-
-| 类型 | 处理 | 说明 | 字段数 |
-|---|---|---|--:|
-| `route.rules[action=direct]` | 报错 | A type or value sail does not implement: it would route otherwise | 28 |
-
 ### `route`
 
 | 字段 | 处理 | 说明 |
@@ -2829,8 +2823,8 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `outbound` | 支持 |  |
 | `override_address` | 支持 |  |
 | `override_port` | 支持 |  |
-| `network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
-| `fallback_delay` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
+| `network_strategy` | 支持 |  |
+| `fallback_delay` | 支持 |  |
 | `udp_disable_domain_unmapping` | 支持 |  |
 | `udp_connect` | 支持 |  |
 | `udp_timeout` | 支持 |  |
@@ -2846,8 +2840,8 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 |---|---|---|
 | `override_address` | 支持 |  |
 | `override_port` | 支持 |  |
-| `network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
-| `fallback_delay` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
+| `network_strategy` | 支持 |  |
+| `fallback_delay` | 支持 |  |
 | `udp_disable_domain_unmapping` | 支持 |  |
 | `udp_connect` | 支持 |  |
 | `udp_timeout` | 支持 |  |
@@ -2857,6 +2851,32 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `tls_spoof` | 报错 | Fragmenting or spoofing the TLS handshake against censorship |
 | `tls_spoof_method` | 报错 | Fragmenting or spoofing the TLS handshake against censorship |
 
+### `route.rules[action=direct]`
+
+| 字段 | 处理 | 说明 |
+|---|---|---|
+| `bind_interface` | 警告 | Accepted, no effect (as sing-box) |
+| `inet4_bind_address` | 支持 |  |
+| `inet6_bind_address` | 支持 |  |
+| `bind_address_no_port` | 警告 | Accepted, no effect (as sing-box) |
+| `protect_path` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
+| `routing_mark` | 警告 | Accepted, no effect (as sing-box) |
+| `reuse_addr` | 警告 | Accepted, no effect (as sing-box) |
+| `netns` | 报错 | Android's socket protection and Linux network namespaces: sockets would leave another way |
+| `connect_timeout` | 警告 | Accepted, no effect (as sing-box) |
+| `tcp_fast_open` | 警告 | Accepted, no effect (as sing-box) |
+| `tcp_multi_path` | 警告 | Socket tuning: connections go the same way without it |
+| `disable_tcp_keep_alive` | 警告 | Accepted, no effect (as sing-box) |
+| `tcp_keep_alive` | 警告 | Accepted, no effect (as sing-box) |
+| `tcp_keep_alive_interval` | 警告 | Accepted, no effect (as sing-box) |
+| `udp_fragment` | 警告 | Accepted, no effect (as sing-box) |
+| `domain_resolver` | 警告 | Accepted, no effect (as sing-box) (含其下 7 个字段) |
+| `network_strategy` | 警告 | Accepted, no effect (as sing-box) |
+| `network_type` | 警告 | Accepted, no effect (as sing-box) |
+| `fallback_network_type` | 警告 | Accepted, no effect (as sing-box) |
+| `fallback_delay` | 警告 | Accepted, no effect (as sing-box) |
+| `domain_strategy` (已弃用) | 支持 |  |
+
 ### `route.rules[action=bypass]`
 
 | 字段 | 处理 | 说明 |
@@ -2864,8 +2884,8 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 | `outbound` | 支持 |  |
 | `override_address` | 支持 |  |
 | `override_port` | 支持 |  |
-| `network_strategy` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
-| `fallback_delay` | 报错 | Choosing among the host's networks (Wi-Fi, cellular) here: it would go out as the route's defaults say |
+| `network_strategy` | 支持 |  |
+| `fallback_delay` | 支持 |  |
 | `udp_disable_domain_unmapping` | 支持 |  |
 | `udp_connect` | 支持 |  |
 | `udp_timeout` | 支持 |  |

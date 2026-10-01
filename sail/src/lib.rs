@@ -615,6 +615,7 @@ impl RuntimeManager {
             self.dns_client.clone(),
             &self.env,
             &rule_sets,
+            &dial_defaults,
         )
         .map_err(Error::Config)?;
         app::logger::setup_logger(&config.log, &self.env.host)?;
