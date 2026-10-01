@@ -342,45 +342,53 @@ impl Provider {
             let state = self.state();
             state.loaded.then(|| state.meta.etag.clone()).flatten()
         };
-        let changed =
-            match http::get(dispatcher, &via, &client.headers, url, etag.as_deref()).await? {
-                http::Response::NotModified => {
-                    debug!("outbound provider [{}]: unchanged", self.tag);
-                    self.state().meta.updated = Some(SystemTime::now());
-                    false
+        let changed = match http::get(
+            dispatcher,
+            &via,
+            &client.headers,
+            url,
+            etag.as_deref(),
+            self.config.size_limit,
+        )
+        .await?
+        {
+            http::Response::NotModified => {
+                debug!("outbound provider [{}]: unchanged", self.tag);
+                self.state().meta.updated = Some(SystemTime::now());
+                false
+            }
+            http::Response::Body {
+                data,
+                etag,
+                userinfo,
+            } => {
+                let proxies = self.read(&data)?;
+                {
+                    let mut state = self.state();
+                    state.proxies = Arc::new(proxies);
+                    state.loaded = true;
+                    // A server that says nothing of it this time keeps
+                    // what it said before, as in Mihomo.
+                    let userinfo = userinfo.or(state.meta.userinfo.take());
+                    state.meta = Meta {
+                        etag,
+                        updated: Some(SystemTime::now()),
+                        userinfo,
+                    };
                 }
-                http::Response::Body {
-                    data,
-                    etag,
-                    userinfo,
-                } => {
-                    let proxies = self.read(&data)?;
-                    {
-                        let mut state = self.state();
-                        state.proxies = Arc::new(proxies);
-                        state.loaded = true;
-                        // A server that says nothing of it this time keeps
-                        // what it said before, as in Mihomo.
-                        let userinfo = userinfo.or(state.meta.userinfo.take());
-                        state.meta = Meta {
-                            etag,
-                            updated: Some(SystemTime::now()),
-                            userinfo,
-                        };
+                info!(
+                    "outbound provider [{}]: downloaded, {} bytes",
+                    self.tag,
+                    data.len()
+                );
+                if let Some(cache) = cache {
+                    if let Err(e) = write_atomically(cache, &data) {
+                        warn!("outbound provider [{}]: not cached: {}", self.tag, e);
                     }
-                    info!(
-                        "outbound provider [{}]: downloaded, {} bytes",
-                        self.tag,
-                        data.len()
-                    );
-                    if let Some(cache) = cache {
-                        if let Err(e) = write_atomically(cache, &data) {
-                            warn!("outbound provider [{}]: not cached: {}", self.tag, e);
-                        }
-                    }
-                    true
                 }
-            };
+                true
+            }
+        };
         if let Some(cache) = cache {
             let meta = serde_json::to_vec(&self.state().meta)?;
             if let Err(e) = write_atomically(&meta_path(cache), &meta) {

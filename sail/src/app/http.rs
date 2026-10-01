@@ -21,11 +21,17 @@ use crate::net::{DialDefaults, Dialer};
 use crate::runtime::RuntimeEnv;
 use crate::session::{Network, Session, SocksAddr};
 
-/// The most a download may be: well past the largest published rule-sets.
+/// The most a download may be, as written to the cache (sail asks for no
+/// encoding, so as it came): judged, well past the largest published
+/// rule-sets and subscriptions; Mihomo has no cap but a provider's
+/// `size-limit`, sing-box none.
 pub(crate) const MAX_BODY: usize = 64 << 20;
+/// The most a response's head may be: judged.
 const MAX_HEAD: usize = 64 << 10;
+/// Judged; Go's client, and so Mihomo's and sing-box's, follows 10.
 const MAX_REDIRECTS: usize = 5;
-/// How long a download may take, redirects and all.
+/// How long a download may take, redirects and all: judged, as one may
+/// go through a proxy; Mihomo gives 20s, sing-box no limit.
 pub(crate) const TIMEOUT: Duration = Duration::from_secs(60);
 
 /// What a download is made with: an HTTP client, or `download_detour`.
@@ -74,29 +80,42 @@ pub(crate) struct Conn<'a> {
 pub(crate) struct Limits {
     pub timeout: Duration,
     pub max_body: usize,
+    /// What `max_body` is, for the error that tells it was passed.
+    pub max_body_is: &'static str,
 }
 
 /// A rule-set's.
 const LIMITS: Limits = Limits {
     timeout: TIMEOUT,
     max_body: MAX_BODY,
+    max_body_is: "the most a download may be",
 };
 
 /// GETs `url` `via` an outbound or directly, following redirects; with
-/// `etag`, asks for it only if changed.
+/// `etag`, asks for it only if changed; no larger than `size_limit`, the
+/// download's own (Mihomo's `size-limit`), within the cap of all.
 pub(crate) async fn get(
     dispatcher: &Dispatcher,
     via: &Via,
     headers: &[(String, String)],
     url: &str,
     etag: Option<&str>,
+    size_limit: Option<u64>,
 ) -> Result<Response> {
     let conn = Conn {
         dispatcher: Some(dispatcher),
         dns: dispatcher.dns_client(),
         env: dispatcher.env(),
     };
-    get_with(&conn, via, headers, url, etag, LIMITS).await
+    let limits = match size_limit {
+        Some(limit) if (limit as usize) < MAX_BODY => Limits {
+            max_body: limit as usize,
+            max_body_is: "its size_limit",
+            ..LIMITS
+        },
+        _ => LIMITS,
+    };
+    get_with(&conn, via, headers, url, etag, limits).await
 }
 
 /// `get`, with `conn` and within `limits`.
@@ -110,7 +129,7 @@ pub(crate) async fn get_with(
 ) -> Result<Response> {
     tokio::time::timeout(
         limits.timeout,
-        get_following(conn, via, headers, url, etag, limits.max_body),
+        get_following(conn, via, headers, url, etag, limits),
     )
     .await
     .map_err(|_| anyhow!("timed out after {:?}", limits.timeout))?
@@ -122,22 +141,45 @@ async fn get_following(
     headers: &[(String, String)],
     url: &str,
     etag: Option<&str>,
-    max_body: usize,
+    limits: Limits,
 ) -> Result<Response> {
     let mut url = url::Url::parse(url).map_err(|e| anyhow!("url: {}", e))?;
     for _ in 0..=MAX_REDIRECTS {
-        match get_once(conn, via, headers, &url, etag, max_body).await? {
+        match get_once(conn, via, headers, &url, etag, limits).await? {
             Step::Done(response) => return Ok(response),
             Step::Redirect(location) => {
                 // Neither the location nor the URL is named: either may carry
                 // a secret path (a Sub-Store backend's).
-                url = url
+                let next = url
                     .join(&location)
                     .map_err(|e| anyhow!("redirect: bad Location: {}", e))?;
+                redirect_allowed(&url, &next)?;
+                url = next;
             }
         }
     }
     Err(anyhow!("more than {} redirects", MAX_REDIRECTS))
+}
+
+/// Whether a redirect from `from` to `to` is followed: to http or https
+/// alone, and never from https down to http, which Go's client, and so
+/// Mihomo's and sing-box's, does: what the request carries (a
+/// subscription's token, in its path or headers) would go in the clear.
+fn redirect_allowed(from: &url::Url, to: &url::Url) -> Result<()> {
+    match (from.scheme(), to.scheme()) {
+        ("https", "http") => Err(anyhow!("redirect from https to http refused")),
+        (_, "http" | "https") => Ok(()),
+        (_, scheme) => Err(anyhow!("redirect to a {}: URL refused", scheme)),
+    }
+}
+
+/// That a body passed `limits.max_body`: what that is, and its bytes.
+fn too_large(limits: Limits) -> anyhow::Error {
+    anyhow!(
+        "larger than {}, {} bytes",
+        limits.max_body_is,
+        limits.max_body
+    )
 }
 
 enum Step {
@@ -151,8 +193,9 @@ async fn get_once(
     headers: &[(String, String)],
     url: &url::Url,
     etag: Option<&str>,
-    max_body: usize,
+    limits: Limits,
 ) -> Result<Step> {
+    let max_body = limits.max_body;
     let tls = match url.scheme() {
         "https" => true,
         "http" => false,
@@ -260,12 +303,12 @@ async fn get_once(
         })
         .transpose()?;
     if length.is_some_and(|l| l > max_body) {
-        return Err(anyhow!("larger than {} bytes", max_body));
+        return Err(too_large(limits));
     }
     let data = if chunked {
-        read_chunked(&mut stream, rest, max_body).await?
+        read_chunked(&mut stream, rest, limits).await?
     } else {
-        read_rest(&mut stream, &mut rest, max_body).await?;
+        read_rest(&mut stream, &mut rest, limits).await?;
         if let Some(length) = length {
             if rest.len() < length {
                 return Err(anyhow!(
@@ -338,11 +381,12 @@ async fn read_head(stream: &mut AnyStream) -> Result<(Vec<u8>, Vec<u8>)> {
 }
 
 /// Reads to the end, which `Connection: close` puts at the body's.
-async fn read_rest(stream: &mut AnyStream, buf: &mut Vec<u8>, max_body: usize) -> Result<()> {
+async fn read_rest(stream: &mut AnyStream, buf: &mut Vec<u8>, limits: Limits) -> Result<()> {
+    let max_body = limits.max_body;
     let mut chunk = [0u8; 16384];
     loop {
         if buf.len() > max_body {
-            return Err(anyhow!("larger than {} bytes", max_body));
+            return Err(too_large(limits));
         }
         let n = stream.read(&mut chunk).await?;
         if n == 0 {
@@ -356,11 +400,8 @@ async fn read_rest(stream: &mut AnyStream, buf: &mut Vec<u8>, max_body: usize) -
 const MAX_CHUNK_LINE: usize = 4096;
 
 /// A chunked body (RFC 9112 §7.1), `buf` holding what was read already.
-async fn read_chunked(
-    stream: &mut AnyStream,
-    mut buf: Vec<u8>,
-    max_body: usize,
-) -> Result<Vec<u8>> {
+async fn read_chunked(stream: &mut AnyStream, mut buf: Vec<u8>, limits: Limits) -> Result<Vec<u8>> {
+    let max_body = limits.max_body;
     let mut body = Vec::new();
     let mut at = 0;
     loop {
@@ -390,7 +431,7 @@ async fn read_chunked(
             return Ok(body);
         }
         if body.len().checked_add(size).is_none_or(|n| n > max_body) {
-            return Err(anyhow!("larger than {} bytes", max_body));
+            return Err(too_large(limits));
         }
         while buf.len() < at + size + 2 {
             more(stream, &mut buf).await?;
@@ -506,5 +547,26 @@ impl HttpClients {
             via: Some(via),
             headers: client.header_lines(),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A redirect stays on http or https, and never goes from https down
+    /// to http, which Go's client, and so Mihomo's and sing-box's, follows.
+    #[test]
+    fn a_redirect_keeps_its_security() {
+        let url = |s: &str| url::Url::parse(s).unwrap();
+        let ok = |from: &str, to: &str| redirect_allowed(&url(from), &url(to)).is_ok();
+        assert!(ok("http://a.example/x", "https://b.example/y"));
+        assert!(ok("https://a.example/x", "https://b.example/y"));
+        assert!(ok("http://a.example/x", "http://b.example/y"));
+        let err = redirect_allowed(&url("https://a.example/x"), &url("http://b.example/y"))
+            .unwrap_err()
+            .to_string();
+        assert_eq!(err, "redirect from https to http refused");
+        assert!(!ok("https://a.example/x", "file:///etc/passwd"));
     }
 }

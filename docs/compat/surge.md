@@ -4,6 +4,8 @@
 
 Every field Surge's manual (manual.nssurge.com of 2026-09-22) lists, and how sail reads it: measured by reading a profile of that field alone. Supported: read (or refused for its value). Ignored silently: it means nothing where sail runs (Surge's interface, its platforms), and sail passes it over. Warned: dropped with a warning. Error: refused as not implemented.
 
+A deliberate difference: a `#!include`'s download is not redirected from https to http, nor to another scheme: what the request carries, a token in its URL, would go in the clear.
+
 | Section | Fields | Supported | Ignored silently | Warned | Error |
 |---|--:|--:|--:|--:|--:|
 | `General` | 58 | 23 | 29 | 6 | 0 |

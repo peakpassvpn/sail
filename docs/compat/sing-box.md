@@ -10,6 +10,8 @@ sail reads sing-box configurations as they are. Below is every field sing-box v1
 
 Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail gives.
 
+A deliberate difference: a remote rule-set's or outbound provider's download is not redirected from https to http, nor to another scheme, which sing-box's client follows: what the request carries, a subscription's token, would go in the clear.
+
 ## Summary
 
 | Section | Fields | Supported | Warned | Error |
@@ -3126,6 +3128,7 @@ Fields and types sail accepts that sing-box does not.
 | `route.rules[action=resolve].ignore_failure` | A domain that does not resolve has no addresses, and matching goes on |
 | `route.rules[action=resolve].on_demand` | Resolves, or sniffs, only when a later rule needs it (Surge and Mihomo) |
 | `route.rule_set[remote].behavior` | What each line of a Clash rule-provider is |
+| `route.rule_set[remote].size_limit` | The most a download of it may be, in bytes (Mihomo's size-limit); past it the download fails and the rules in use are kept |
 | `route.rule_set[inline].rules[].ip_asn` | As a routing rule's |
 | `route.rule_set[inline].rules[].http_user_agent` | As a routing rule's |
 | `route.rule_set[inline].rules[].process_name_regex` | As a routing rule's |

@@ -47,9 +47,7 @@ fn redacted_json<T: serde::Serialize>(
 
 /// The host of `url`, and no more of it.
 fn url_host(url: &str) -> String {
-    let rest = url.split_once("://").map_or(url, |(_, rest)| rest);
-    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
-    authority.rsplit('@').next().unwrap_or_default().to_string()
+    crate::common::redact::host(url).to_string()
 }
 
 impl std::fmt::Debug for HeaderValues {
@@ -1733,6 +1731,11 @@ pub struct OutboundProvider {
     /// rule-set's.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub http_client: Option<HttpClientRef>,
+    /// `remote`, a sail extension (Mihomo's `size-limit`): the most a
+    /// download of it may be, in bytes; past it the download fails and the
+    /// outbounds in use are kept. Unset, the download client's own cap.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size_limit: Option<u64>,
     /// `remote`, `local`: regular expressions, as Mihomo's `filter`; only
     /// the outbounds whose names match one are taken, those of the first
     /// first.
@@ -1805,12 +1808,18 @@ impl OutboundProvider {
             Remote => {
                 let url = self.url.as_deref().ok_or_else(|| anyhow!("url: missing"))?;
                 if !url.starts_with("https://") && !url.starts_with("http://") {
-                    return Err(anyhow!("url: \"{}\" is not an http(s) URL", url));
+                    return Err(anyhow!(
+                        "url: {} is not an http(s) URL",
+                        crate::common::redact::url(url)
+                    ));
                 }
                 if self.http_client.is_some() && self.download_detour.is_some() {
                     return Err(anyhow!(
                         "http_client: not with download_detour, which it replaces"
                     ));
+                }
+                if self.size_limit == Some(0) {
+                    return Err(anyhow!("size_limit: must be more than 0"));
                 }
             }
             Local => {
@@ -1866,6 +1875,7 @@ impl OutboundProvider {
             only(self.url.is_some(), "url", "remote")?;
             only(self.download_detour.is_some(), "download_detour", "remote")?;
             only(self.http_client.is_some(), "http_client", "remote")?;
+            only(self.size_limit.is_some(), "size_limit", "remote")?;
         }
         if self.kind != Local {
             only(self.path.is_some(), "path", "local")?;
@@ -4496,9 +4506,27 @@ mod tests {
                 r#"{ "type": "direct", "tag": "g" }"#,
                 "detour: outbound [x] does not exist",
             ),
+            (
+                r#"{ "type": "remote", "tag": "p", "url": "https://a", "size_limit": 0 }"#,
+                r#"{ "type": "direct", "tag": "g" }"#,
+                "size_limit: must be more than 0",
+            ),
+            (
+                r#"{ "type": "local", "tag": "p", "path": "a", "size_limit": 10 }"#,
+                r#"{ "type": "direct", "tag": "g" }"#,
+                "size_limit: only a remote provider takes one",
+            ),
+            // A URL in an error keeps its host alone: its path and query
+            // carry a subscription's token.
+            (
+                r#"{ "type": "remote", "tag": "p", "url": "ftp://h.example/sub/s3cret?token=t0ken" }"#,
+                r#"{ "type": "direct", "tag": "g" }"#,
+                "url: ftp://h.example/… is not an http(s) URL",
+            ),
         ] {
             let err = with_providers(providers, group).unwrap_err();
             assert!(err.to_string().contains(error), "{}: {}", error, err);
+            assert!(!err.to_string().contains("s3cret"), "{}", err);
         }
     }
 

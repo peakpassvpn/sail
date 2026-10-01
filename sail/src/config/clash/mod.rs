@@ -38,11 +38,20 @@ use fields::Fields;
 
 /// Reads a Clash / Mihomo configuration.
 pub fn parse(s: &str) -> Result<Config> {
+    parse_in(s, None)
+}
+
+/// Reads a Mihomo profile whose providers' paths stay in `home`, the data
+/// directory, as Mihomo keeps them in its own.
+pub fn parse_in(s: &str, home: Option<&std::path::Path>) -> Result<Config> {
     let root = node::parse(s)?;
     let holders = node::anchor_holders(s);
     let mut doc = Fields::typed(root, "")?;
     let mut warnings = Vec::new();
-    let mut out = Lowered::default();
+    let mut out = Lowered {
+        home: home.map(std::path::Path::to_path_buf),
+        ..Default::default()
+    };
     let fake_ip = tun::fake_ip_address(&mut doc);
     general::lower(&mut doc, &mut out, &mut warnings)?;
     let proxies = proxy::lower(&mut doc, &mut out, &mut warnings)?;
@@ -100,6 +109,9 @@ pub(crate) fn payload(s: &str) -> Result<Vec<String>> {
 /// The configuration being built, in sing-box's shape.
 #[derive(Default)]
 pub struct Lowered {
+    /// Where a provider's `path` must stay: the data directory, Mihomo's
+    /// home; none when not read for a host, which keeps paths relative.
+    pub home: Option<std::path::PathBuf>,
     pub log: Map<String, Value>,
     pub dns: Map<String, Value>,
     pub inbounds: Vec<Value>,

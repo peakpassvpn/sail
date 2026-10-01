@@ -452,14 +452,22 @@ fn fetch_includes(config: &str, cache_dir: Option<&str>) -> Result<(), String> {
             Ok(body) => {
                 sail::fetch::write_atomically(&path, &body)
                     .map_err(|e| format!("{}: {}", path.display(), e))?;
-                println!("fetched {}: {} bytes", url, body.len());
+                println!(
+                    "fetched {}: {} bytes",
+                    sail::common::redact::url(&url),
+                    body.len()
+                );
                 body
             }
             Err(e) if path.is_file() => {
-                println!("{}: {:#}; the copy kept is read", url, e);
+                println!(
+                    "{}: {:#}; the copy kept is read",
+                    sail::common::redact::url(&url),
+                    e
+                );
                 std::fs::read(&path).map_err(|e| format!("{}: {}", path.display(), e))?
             }
-            Err(e) => return Err(format!("{}: {:#}", url, e)),
+            Err(e) => return Err(format!("{}: {:#}", sail::common::redact::url(&url), e)),
         };
         queue.extend(remote_includes(&String::from_utf8_lossy(&body)));
     }
@@ -682,6 +690,38 @@ mod tests {
         );
         // Never lowered, should it be higher already.
         assert!(limit.rlim_cur >= file_limit_target(limit.rlim_max));
+    }
+
+    /// An include that cannot be fetched is told of by its host alone: a
+    /// subscription's path and query carry its token.
+    #[test]
+    fn an_include_not_fetched_names_no_path() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            use std::io::{Read, Write};
+            if let Ok((mut s, _)) = listener.accept() {
+                let mut buf = [0u8; 1024];
+                let _ = s.read(&mut buf);
+                let _ = s.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n");
+            }
+        });
+        let dir = std::env::temp_dir().join(format!("sail-cli-include-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let profile = dir.join("a.conf");
+        std::fs::write(
+            &profile,
+            format!(
+                "[Proxy]\n#!include http://127.0.0.1:{}/sub/s3cret?token=t0ken\n[Rule]\nFINAL,DIRECT\n",
+                port
+            ),
+        )
+        .unwrap();
+        let err =
+            fetch_includes(profile.to_str().unwrap(), Some(dir.to_str().unwrap())).unwrap_err();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(err.contains("127.0.0.1") && err.contains("404"), "{}", err);
+        assert!(!err.contains("s3cret") && !err.contains("t0ken"), "{}", err);
     }
 
     #[test]

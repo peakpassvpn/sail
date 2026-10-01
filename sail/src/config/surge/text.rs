@@ -347,7 +347,11 @@ impl Reader<'_> {
     /// The copy of the URL `url` a host fetched.
     fn fetched(&self, url: &str, loc: &Loc) -> Result<PathBuf> {
         if !url.starts_with("http://") && !url.starts_with("https://") {
-            return Err(anyhow!("{}: #!include {}: not an http(s) URL", loc, url));
+            return Err(anyhow!(
+                "{}: #!include {}: not an http(s) URL",
+                loc,
+                crate::common::redact::url(url)
+            ));
         }
         let path = self.fetched.map(|dir| include_path(dir, url));
         match path {

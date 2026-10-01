@@ -354,13 +354,29 @@ fn instance_cache_dir(rt_id: sail::RuntimeId) -> std::path::PathBuf {
 }
 
 pub fn run_sail_instances(
+    rt: &tokio::runtime::Runtime,
+    configs: Vec<String>,
+) -> anyhow::Result<Vec<sail::RuntimeId>> {
+    run_sail_instances_in(rt, configs, None)
+}
+
+/// `run_sail_instances`, with `data_dir` the instances' data directory.
+pub fn run_sail_instances_in(
     _rt: &tokio::runtime::Runtime,
     configs: Vec<String>,
+    data_dir: Option<&std::path::Path>,
 ) -> anyhow::Result<Vec<sail::RuntimeId>> {
     let mut sail_rt_ids = Vec::new();
     for config in configs {
         let rt_id = NEXT_RT_ID.fetch_add(1, Ordering::Relaxed);
-        let config = sail::config::from_string(&config)
+        // A cache of its own: instances running at once would wait on one
+        // another's cache file.
+        let host = sail::runtime::Host {
+            cache_dir: Some(instance_cache_dir(rt_id)),
+            data_dir: data_dir.map(std::path::Path::to_path_buf),
+            ..Default::default()
+        };
+        let config = sail::config::from_string_for(&config, &host)
             .map_err(|e| anyhow::anyhow!("parse config failed: {}", e))?;
         let opts = sail::StartOptions {
             config: sail::Config::Internal(Box::new(config)),
@@ -368,12 +384,7 @@ pub fn run_sail_instances(
             auto_reload: false,
             runtime_opt: sail::RuntimeOption::SingleThread,
             runtime: runtime_options(),
-            // A cache of its own: instances running at once would wait on
-            // one another's cache file.
-            host: sail::runtime::Host {
-                cache_dir: Some(instance_cache_dir(rt_id)),
-                ..Default::default()
-            },
+            host,
         };
         // A thread of its own, not `rt`'s blocking pool: dropping `rt`,
         // as a test that panics does, would wait for the instance to stop.
@@ -1224,6 +1235,27 @@ pub fn test_configs_with_auth(
     username: Option<String>,
     password: Option<String>,
 ) -> anyhow::Result<()> {
+    test_configs_full(configs, socks_addr, socks_port, username, password, None)
+}
+
+/// `test_configs`, with `data_dir` the instances' data directory.
+pub fn test_configs_in(
+    configs: Vec<String>,
+    socks_addr: &str,
+    socks_port: u16,
+    data_dir: &std::path::Path,
+) -> anyhow::Result<()> {
+    test_configs_full(configs, socks_addr, socks_port, None, None, Some(data_dir))
+}
+
+fn test_configs_full(
+    configs: Vec<String>,
+    socks_addr: &str,
+    socks_port: u16,
+    username: Option<String>,
+    password: Option<String>,
+    data_dir: Option<&std::path::Path>,
+) -> anyhow::Result<()> {
     info!("testing configs");
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -1240,7 +1272,7 @@ pub fn test_configs_with_auth(
     bg_tasks.push(Box::pin(udp_fut));
     let (bg_task, bg_task_handle) = abortable(futures::future::try_join_all(bg_tasks));
 
-    let sail_rt_ids = run_sail_instances(&rt, configs)?;
+    let sail_rt_ids = run_sail_instances_in(&rt, configs, data_dir)?;
 
     // Simulates an application request.
     let socks_addr = socks_addr.to_string();

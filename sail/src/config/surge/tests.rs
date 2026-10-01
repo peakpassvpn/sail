@@ -1323,3 +1323,14 @@ fn socks5_tls_is_refused() {
     );
     load("[Proxy]\nS = socks5, a.example, 1080\n[Rule]\nFINAL,S\n");
 }
+
+/// An include that is no http(s) URL is told of by its host alone.
+#[test]
+fn an_include_s_url_is_told_by_its_host() {
+    let err = error("[Proxy]\n#!include ftp://h.example/sub/s3cret\n[Rule]\nFINAL,DIRECT\n");
+    assert!(
+        err.contains("ftp://h.example/…") && !err.contains("s3cret"),
+        "{}",
+        err
+    );
+}

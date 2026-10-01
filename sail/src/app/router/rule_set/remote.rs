@@ -26,6 +26,8 @@ pub(crate) struct Remote {
     url: String,
     format: RuleSetFormat,
     behavior: Option<crate::config::rule_set::ClashBehavior>,
+    /// The most a download of it may be, its `size_limit`.
+    size_limit: Option<u64>,
     interval: Duration,
     client: http::Client,
     /// Where the downloaded copy is kept; none when there is nowhere to.
@@ -85,6 +87,7 @@ impl Remote {
                 .map_err(|e| anyhow!("url: {}", e))?,
             format,
             behavior: config.behavior,
+            size_limit: config.size_limit,
             interval: config.update_interval.unwrap_or(DEFAULT_INTERVAL),
             client,
             cache: cache.clone(),
@@ -185,6 +188,7 @@ impl Remote {
             &self.client.headers,
             &self.url,
             etag.as_deref(),
+            self.size_limit,
         )
         .await?
         {

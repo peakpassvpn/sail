@@ -87,6 +87,7 @@ fn content_type(file: &FsPath) -> &'static str {
 const DOWNLOAD: crate::app::http::Limits = crate::app::http::Limits {
     timeout: std::time::Duration::from_secs(120),
     max_body: 64 << 20,
+    max_body_is: "the most a dashboard may be",
 };
 
 /// Whether `root` has nothing to serve: missing, or empty.

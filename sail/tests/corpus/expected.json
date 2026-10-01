@@ -43,14 +43,14 @@
   "clash/0010.yaml": {
     "check": "ok",
     "ok": true,
-    "warnings": 9,
     "on": {
       "macos": {
         "check": "[DEFAULT-REDIR] inbound: redirect: only supported on Linux",
         "ok": true,
         "warnings": 9
       }
-    }
+    },
+    "warnings": 9
   },
   "clash/0011.yaml": {
     "check": "route.rules[4].process_name: not supported, rule-process-name is not compiled in",
@@ -63,14 +63,14 @@
   "clash/0013.yaml": {
     "check": "ok",
     "ok": true,
-    "warnings": 12,
     "on": {
       "macos": {
         "check": "[DEFAULT-REDIR] inbound: redirect: only supported on Linux",
         "ok": true,
         "warnings": 12
       }
-    }
+    },
+    "warnings": 12
   },
   "clash/0014.yaml": {
     "check": "[Proxy 9] outbound: transport: path: must start with /",
@@ -119,7 +119,7 @@
     "error": "proxies[2].client-fingerprint: sail has no fingerprint \"qq\", only chrome, firefox, safari, ios, android, edge and random"
   },
   "clash/0026.yaml": {
-    "error": "outbound_providers[0]: url: \"str2\" is not an http(s) URL"
+    "error": "outbound_providers[0]: url: (a URL not shown) is not an http(s) URL"
   },
   "clash/0027.yaml": {
     "error": "proxies[0].client-fingerprint: sail has no fingerprint \"qq\", only chrome, firefox, safari, ios, android, edge and random"
@@ -144,7 +144,7 @@
     "error": "rules[26]: no policy to send what it matches to"
   },
   "clash/0033.yaml": {
-    "error": "outbound_providers[0]: url: \"\" is not an http(s) URL"
+    "error": "outbound_providers[0]: url: (a URL not shown) is not an http(s) URL"
   },
   "clash/0034.yaml": {
     "check": "ok",
@@ -175,7 +175,7 @@
     "warnings": 4
   },
   "clash/0040.yaml": {
-    "error": "outbound_providers[0]: url: \"str1\" is not an http(s) URL"
+    "error": "outbound_providers[0]: url: (a URL not shown) is not an http(s) URL"
   },
   "clash/0041.yaml": {
     "check": "ok",
@@ -200,14 +200,14 @@
   "clash/0045.yaml": {
     "check": "ok",
     "ok": true,
-    "warnings": 10,
     "on": {
       "macos": {
         "check": "[DEFAULT-REDIR] inbound: redirect: only supported on Linux",
         "ok": true,
         "warnings": 10
       }
-    }
+    },
+    "warnings": 10
   },
   "clash/0046.yaml": {
     "check": "ok",
@@ -220,14 +220,14 @@
   "clash/0048.yaml": {
     "check": "ok",
     "ok": true,
-    "warnings": 10,
     "on": {
       "macos": {
         "check": "[DEFAULT-REDIR] inbound: redirect: only supported on Linux",
         "ok": true,
         "warnings": 10
       }
-    }
+    },
+    "warnings": 10
   },
   "clash/0049.yaml": {
     "check": "ok",
@@ -328,7 +328,7 @@
     "error": "tun.route-exclude-address-set[0]: no rule-provider is named \"str5\"",
     "on": {
       "macos": {
-        "error": "outbound_providers[0]: url: \"str1\" is not an http(s) URL"
+        "error": "outbound_providers[0]: url: (a URL not shown) is not an http(s) URL"
       }
     }
   },
@@ -341,7 +341,7 @@
     "warnings": 0
   },
   "clash/0073.yaml": {
-    "error": "outbound_providers[2]: url: \"\" is not an http(s) URL"
+    "error": "outbound_providers[2]: url: (a URL not shown) is not an http(s) URL"
   },
   "clash/0074.yaml": {
     "check": "[Proxy 6] outbound: alter_id: only 0 is supported, legacy VMess is not",
@@ -364,7 +364,7 @@
     "warnings": 0
   },
   "clash/0078.yaml": {
-    "error": "outbound_providers[0]: url: \"str1\" is not an http(s) URL"
+    "error": "outbound_providers[0]: url: (a URL not shown) is not an http(s) URL"
   },
   "clash/0079.yaml": {
     "check": "ok",
@@ -387,13 +387,13 @@
     "warnings": 0
   },
   "clash/0083.yaml": {
-    "error": "outbound_providers[0]: url: \"str1\" is not an http(s) URL"
+    "error": "outbound_providers[0]: url: (a URL not shown) is not an http(s) URL"
   },
   "clash/0084.yaml": {
     "error": "proxy-groups[0].proxies[2]: no proxy or group is named \"Proxy 1\""
   },
   "clash/0085.yaml": {
-    "error": "outbound_providers[0]: url: \"str1\" is not an http(s) URL"
+    "error": "outbound_providers[0]: url: (a URL not shown) is not an http(s) URL"
   },
   "clash/0086.yaml": {
     "check": "[Proxy 5] outbound: alter_id: only 0 is supported, legacy VMess is not",
@@ -404,7 +404,7 @@
     "error": "tun.route-exclude-address-set[0]: no rule-provider is named \"str3\"",
     "on": {
       "macos": {
-        "error": "outbound_providers[0]: url: \"str1\" is not an http(s) URL"
+        "error": "outbound_providers[0]: url: (a URL not shown) is not an http(s) URL"
       }
     }
   },
@@ -414,7 +414,7 @@
     "warnings": 0
   },
   "clash/0089.yaml": {
-    "error": "outbound_providers[0]: url: \"str1\" is not an http(s) URL"
+    "error": "outbound_providers[0]: url: (a URL not shown) is not an http(s) URL"
   },
   "clash/0090.yaml": {
     "check": "ok",
@@ -476,14 +476,14 @@
   "clash/0103.yaml": {
     "check": "ok",
     "ok": true,
-    "warnings": 8,
     "on": {
       "macos": {
         "check": "[DEFAULT-REDIR] inbound: redirect: only supported on Linux",
         "ok": true,
         "warnings": 8
       }
-    }
+    },
+    "warnings": 8
   },
   "clash/0104.yaml": {
     "check": "ok",
@@ -514,7 +514,7 @@
     "error": "proxy-groups[30].proxies[0]: a string, not a map"
   },
   "clash/0110.yaml": {
-    "error": "outbound_providers[0]: url: \"str1\" is not an http(s) URL"
+    "error": "outbound_providers[0]: url: (a URL not shown) is not an http(s) URL"
   },
   "clash/0111.yaml": {
     "check": "route.default_interface: there is no interface \"if1\"",
@@ -532,14 +532,14 @@
   "clash/0114.yaml": {
     "check": "ok",
     "ok": true,
-    "warnings": 18,
     "on": {
       "macos": {
         "check": "[DEFAULT-REDIR] inbound: redirect: only supported on Linux",
         "ok": true,
         "warnings": 18
       }
-    }
+    },
+    "warnings": 18
   },
   "clash/0115.yaml": {
     "check": "ok",
@@ -561,10 +561,10 @@
     "error": "dns.proxy-server-nameserver[4]: a string, not a map"
   },
   "clash/0120.yaml": {
-    "error": "outbound_providers[0]: url: \"str1\" is not an http(s) URL"
+    "error": "outbound_providers[0]: url: (a URL not shown) is not an http(s) URL"
   },
   "clash/0121.yaml": {
-    "error": "outbound_providers[0]: url: \"str1\" is not an http(s) URL"
+    "error": "outbound_providers[0]: url: (a URL not shown) is not an http(s) URL"
   },
   "clash/0122.yaml": {
     "error": "[Proxy 6] outbound: tls.reality.public_key: neither hex nor base64url"
@@ -599,14 +599,14 @@
   "clash/0130.yaml": {
     "check": "ok",
     "ok": true,
-    "warnings": 2,
     "on": {
       "macos": {
         "check": "[DEFAULT-REDIR] inbound: redirect: only supported on Linux",
         "ok": true,
         "warnings": 2
       }
-    }
+    },
+    "warnings": 2
   },
   "clash/0131.yaml": {
     "error": "dns.proxy-server-nameserver[0]: dns.default-nameserver[3]: \"str1\" is not an address, as Mihomo requires"
@@ -653,7 +653,7 @@
     "warnings": 10
   },
   "clash/0143.yaml": {
-    "error": "outbound_providers[0]: url: \"str1\" is not an http(s) URL"
+    "error": "outbound_providers[0]: url: (a URL not shown) is not an http(s) URL"
   },
   "clash/0144.yaml": {
     "error": "proxy-groups[0].proxies: a group of no proxies and no providers"
@@ -686,7 +686,7 @@
     "error": "proxies[0].server: missing"
   },
   "clash/0152.yaml": {
-    "error": "outbound_providers[0]: url: \"str1\" is not an http(s) URL"
+    "error": "outbound_providers[0]: url: (a URL not shown) is not an http(s) URL"
   },
   "clash/0153.yaml": {
     "error": "rules[6]: SUB-RULE: its condition is written (TYPE,payload)"
@@ -702,14 +702,14 @@
   "clash/0156.yaml": {
     "check": "ok",
     "ok": true,
-    "warnings": 14,
     "on": {
       "macos": {
         "check": "[DEFAULT-REDIR] inbound: redirect: only supported on Linux",
         "ok": true,
         "warnings": 14
       }
-    }
+    },
+    "warnings": 14
   },
   "clash/0157.yaml": {
     "error": "rules[16]: no policy to send what it matches to"
@@ -717,17 +717,17 @@
   "clash/0158.yaml": {
     "check": "ok",
     "ok": true,
-    "warnings": 3,
     "on": {
       "macos": {
         "check": "[DEFAULT-REDIR] inbound: redirect: only supported on Linux",
         "ok": true,
         "warnings": 3
       }
-    }
+    },
+    "warnings": 3
   },
   "clash/0159.yaml": {
-    "error": "outbound_providers[0]: url: \"str1\" is not an http(s) URL"
+    "error": "outbound_providers[0]: url: (a URL not shown) is not an http(s) URL"
   },
   "clash/0160.yaml": {
     "error": "[Proxy 130] outbound: tls.reality.public_key: neither hex nor base64url"
@@ -735,14 +735,14 @@
   "clash/0161.yaml": {
     "check": "ok",
     "ok": true,
-    "warnings": 6,
     "on": {
       "macos": {
         "check": "[DEFAULT-REDIR] inbound: redirect: only supported on Linux",
         "ok": true,
         "warnings": 6
       }
-    }
+    },
+    "warnings": 6
   },
   "clash/0162.yaml": {
     "check": "[Proxy 14] outbound: transport: path: must start with /",
@@ -780,14 +780,14 @@
   "clash/0169.yaml": {
     "check": "ok",
     "ok": true,
-    "warnings": 9,
     "on": {
       "macos": {
         "check": "[DEFAULT-REDIR] inbound: redirect: only supported on Linux",
         "ok": true,
         "warnings": 9
       }
-    }
+    },
+    "warnings": 9
   },
   "clash/0170.yaml": {
     "check": "ok",
@@ -820,7 +820,7 @@
     "warnings": 1
   },
   "clash/0178.yaml": {
-    "error": "outbound_providers[0]: url: \"str1\" is not an http(s) URL"
+    "error": "outbound_providers[0]: url: (a URL not shown) is not an http(s) URL"
   },
   "clash/0179.yaml": {
     "check": "ok",
@@ -864,14 +864,14 @@
   "clash/0188.yaml": {
     "check": "ok",
     "ok": true,
-    "warnings": 8,
     "on": {
       "macos": {
         "check": "[DEFAULT-REDIR] inbound: redirect: only supported on Linux",
         "ok": true,
         "warnings": 8
       }
-    }
+    },
+    "warnings": 8
   },
   "clash/0189.yaml": {
     "error": "rules[0]: no proxy or group is named \"Proxy 1\""
@@ -2201,14 +2201,14 @@
   "surge/0135.conf": {
     "check": "route.rules[9].rules[0].rules[0].process_name: not supported, rule-process-name is not compiled in",
     "ok": true,
-    "warnings": 1,
     "on": {
       "macos": {
         "check": "route.rules[11].rules[0].rules[0].process_name: not supported, rule-process-name is not compiled in",
         "ok": true,
         "warnings": 1
       }
-    }
+    },
+    "warnings": 1
   },
   "surge/0136.conf": {
     "error": "[Proxy] line 28: Proxy 3: \"password1\" is not a port"
@@ -2646,14 +2646,14 @@
   "surge/0239.conf": {
     "check": "route.rules[9].rules[0].rules[0].process_name: not supported, rule-process-name is not compiled in",
     "ok": true,
-    "warnings": 1,
     "on": {
       "macos": {
         "check": "route.rules[11].rules[0].rules[0].process_name: not supported, rule-process-name is not compiled in",
         "ok": true,
         "warnings": 1
       }
-    }
+    },
+    "warnings": 1
   },
   "surge/0240.conf": {
     "check": "outbound_providers[0]: [Group 3]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",
@@ -2703,14 +2703,14 @@
   "surge/0251.conf": {
     "check": "route.rules[12].rules[0].rules[0].process_name: not supported, rule-process-name is not compiled in",
     "ok": true,
-    "warnings": 1,
     "on": {
       "macos": {
         "check": "route.rules[13].rules[0].rules[0].process_name: not supported, rule-process-name is not compiled in",
         "ok": true,
         "warnings": 1
       }
-    }
+    },
+    "warnings": 1
   },
   "surge/0252.conf": {
     "check": "outbound_providers[0]: [Group 9]: path: <corpus>/surge/./path-1: No such file or directory (os error 2)",

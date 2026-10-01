@@ -13826,6 +13826,10 @@
      ],
      "description": "`remote`: the HTTP client it is downloaded with, as a remote rule-set's."
     },
+    "size_limit": {
+     "type": "number",
+     "description": "`remote`, a sail extension (Mihomo's `size-limit`): the most a download of it may be, in bytes; past it the download fails and the outbounds in use are kept. Unset, the download client's own cap."
+    },
     "filter": {
      "anyOf": [
       {
@@ -22542,6 +22546,10 @@
       "classical"
      ],
      "description": "A sail extension, for the Clash formats: what each line is, `domain`, `ipcidr` or `classical` (a Clash rule without its target)."
+    },
+    "size_limit": {
+     "type": "number",
+     "description": "`remote`, a sail extension (Mihomo's `size-limit`): the most a download of it may be, in bytes; past it the download fails and the copy in use is kept. Unset, the download client's own cap."
     },
     "type": {
      "const": "remote"

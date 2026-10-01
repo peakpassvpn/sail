@@ -55,6 +55,11 @@ pub struct RuleSet {
     /// else the default outbound.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub http_client: Option<super::model::HttpClientRef>,
+    /// `remote`, a sail extension (Mihomo's `size-limit`): the most a
+    /// download of it may be, in bytes; past it the download fails and
+    /// the copy in use is kept. Unset, the download client's own cap.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size_limit: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -167,10 +172,16 @@ impl RuleSet {
             RuleSetKind::Remote => {
                 let url = self.url.as_deref().ok_or_else(|| anyhow!("url: missing"))?;
                 if !url.starts_with("https://") && !url.starts_with("http://") {
-                    return Err(anyhow!("url: \"{}\" is not an http(s) URL", url));
+                    return Err(anyhow!(
+                        "url: {} is not an http(s) URL",
+                        crate::common::redact::url(url)
+                    ));
                 }
                 if several && !url.contains(TAG_PLACEHOLDER) {
                     return Err(anyhow!("url: several tags need {} in it", TAG_PLACEHOLDER));
+                }
+                if self.size_limit == Some(0) {
+                    return Err(anyhow!("size_limit: must be more than 0"));
                 }
                 if let Some(path) = &self.initial_path {
                     if several && !path.contains(TAG_PLACEHOLDER) {
@@ -200,6 +211,7 @@ impl RuleSet {
             only(self.update_interval.is_some(), "update_interval", "remote")?;
             only(self.download_detour.is_some(), "download_detour", "remote")?;
             only(self.http_client.is_some(), "http_client", "remote")?;
+            only(self.size_limit.is_some(), "size_limit", "remote")?;
         }
         match (self.format().filter(|f| f.is_clash()), self.behavior) {
             (Some(_), None) => {
@@ -412,8 +424,18 @@ mod tests {
                 "path: several tags need {tag}",
             ),
             (
-                serde_json::json!({ "type": "remote", "tag": "x", "url": "ftp://a/x.srs" }),
-                "is not an http(s) URL",
+                serde_json::json!({ "type": "remote", "tag": "x", "url": "ftp://a/s3cret.srs" }),
+                "url: ftp://a/… is not an http(s) URL",
+            ),
+            (
+                serde_json::json!({ "type": "remote", "tag": "x", "url": "https://a/x.srs",
+                                    "size_limit": 0 }),
+                "size_limit: must be more than 0",
+            ),
+            (
+                serde_json::json!({ "type": "local", "tag": "x", "path": "x.srs",
+                                    "size_limit": 10 }),
+                "size_limit: only a remote rule-set takes one",
             ),
             (
                 serde_json::json!({ "tag": "x", "rules": [], "path": "x.srs" }),
@@ -426,6 +448,7 @@ mod tests {
         ] {
             let err = rule_set(json.clone()).unwrap_err().to_string();
             assert!(err.contains(message), "{}: {}", json, err);
+            assert!(!err.contains("s3cret"), "{}", err);
         }
     }
 }

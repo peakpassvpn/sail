@@ -482,7 +482,7 @@ fn a_dashboard_sees_the_providers_through_the_clash_api() -> anyhow::Result<()> 
                             body.len(),
                             body
                         )
-                    } else if request.starts_with("GET /broken ") {
+                    } else if request.starts_with("GET /broken") {
                         "HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
                             .to_string()
                     } else {
@@ -513,7 +513,11 @@ fn a_dashboard_sees_the_providers_through_the_clash_api() -> anyhow::Result<()> 
                 "url": format!("http://127.0.0.1:{}/sub", web), "download_detour": "direct"
             }, {
                 "type": "remote", "tag": "broken",
-                "url": format!("http://127.0.0.1:{}/broken", web), "download_detour": "direct"
+                "url": format!("http://127.0.0.1:{}/broken?token=s3cret", web),
+                "download_detour": "direct"
+            }, {
+                "type": "remote", "tag": "small", "size_limit": 10,
+                "url": format!("http://127.0.0.1:{}/sub", web), "download_detour": "direct"
             }],
             "route": {
                 "rule_set": [{
@@ -582,7 +586,16 @@ fn a_dashboard_sees_the_providers_through_the_clash_api() -> anyhow::Result<()> 
             let (status, _, body) =
                 call(port, "PUT", "/providers/proxies/broken", s, &[], "").await?;
             assert_eq!(status, 503, "{}", body);
-            assert!(body.contains("503"), "{}", body);
+            assert!(body.contains("503") && !body.contains("s3cret"), "{}", body);
+            // Past its size_limit, which the error tells, with no URL.
+            let (status, _, body) =
+                call(port, "PUT", "/providers/proxies/small", s, &[], "").await?;
+            assert_eq!(status, 503, "{}", body);
+            assert!(
+                body.contains("larger than its size_limit, 10 bytes") && !body.contains("/sub"),
+                "{}",
+                body
+            );
             let (status, ..) = call(port, "PUT", "/providers/proxies/nope", s, &[], "").await?;
             assert_eq!(status, 404);
 

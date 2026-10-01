@@ -296,6 +296,7 @@ Rust 定义：[`OutboundProvider`](https://github.com/peakpassvpn/sail/blob/dev/
 | `update_interval` | duration | 未设置 | sail 扩展 | `remote`: how often it is downloaded again, 1d when unset. `local`: how often the file is read again, never when unset. |
 | `download_detour` | string | 未设置 | sail 扩展 | `remote`: the outbound it is downloaded through, as a remote rule-set's. |
 | `http_client` | string 或 对象 | 未设置 | sail 扩展 | `remote`: the HTTP client it is downloaded with, as a remote rule-set's. |
+| `size_limit` | number | 未设置 | sail 扩展 | `remote`, a sail extension (Mihomo's `size-limit`): the most a download of it may be, in bytes; past it the download fails and the outbounds in use are kept. Unset, the download client's own cap. |
 | `filter` | string 或 数组，元素为 string | `[]` | sail 扩展 | `remote`, `local`: regular expressions, as Mihomo's `filter`; only the outbounds whose names match one are taken, those of the first first. |
 | `exclude_filter` | string 或 数组，元素为 string | `[]` | sail 扩展 | `remote`, `local`: regular expressions no name taken may match. |
 | `exclude_type` | string 或 数组，元素为 string | `[]` | sail 扩展 | `remote`, `local`: the Clash types (`ss`, `vmess`, ...) not taken, without case. |

@@ -3,3 +3,4 @@ pub mod crypto;
 /// bring.
 #[cfg(any(feature = "config-clash", feature = "outbound-smart"))]
 pub mod name_filter;
+pub mod redact;

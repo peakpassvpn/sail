@@ -94,13 +94,13 @@ Full table: [docs/compat/clash.md](https://github.com/peakpassvpn/sail/blob/dev/
 | `proxies[wireguard]` | 64 | 0 | 0 | 64 |
 | `proxies[zerotier]` | 30 | 0 | 0 | 30 |
 | `proxy-groups` | 23 | 18 | 5 | 0 |
-| `proxy-providers` | 39 | 27 | 9 | 3 |
-| `rule-providers` | 11 | 8 | 3 | 0 |
+| `proxy-providers` | 39 | 28 | 8 | 3 |
+| `rule-providers` | 11 | 9 | 2 | 0 |
 | `sniffer` | 12 | 12 | 0 | 0 |
 | `tls` | 7 | 0 | 7 | 0 |
 | `tuic-server` | 13 | 0 | 0 | 13 |
 | `tun` | 50 | 33 | 10 | 7 |
-| **All** | **2077** | **458** | **139** | **1480** |
+| **All** | **2077** | **460** | **137** | **1480** |
 
 ## Surge
 

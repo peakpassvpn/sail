@@ -170,24 +170,15 @@ fn rule_providers_route() -> anyhow::Result<()> {
     let fixtures = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/rule_set");
     for (provider, rejected) in [
         (
-            format!(
-                "{{ type: file, behavior: ipcidr, format: mrs, path: '{}/loopback.mrs' }}",
-                fixtures
-            ),
+            "{ type: file, behavior: ipcidr, format: mrs, path: loopback.mrs }".to_string(),
             true,
         ),
         (
-            format!(
-                "{{ type: file, behavior: ipcidr, format: text, path: '{}/loopback.list' }}",
-                fixtures
-            ),
+            "{ type: file, behavior: ipcidr, format: text, path: ./loopback.list }".to_string(),
             true,
         ),
         (
-            format!(
-                "{{ type: file, behavior: ipcidr, format: mrs, path: '{}/geoip-telegram.mrs' }}",
-                fixtures
-            ),
+            "{ type: file, behavior: ipcidr, format: mrs, path: geoip-telegram.mrs }".to_string(),
             false,
         ),
         (
@@ -204,7 +195,14 @@ fn rule_providers_route() -> anyhow::Result<()> {
                  rules:\n  - RULE-SET,lo,REJECT,no-resolve\n  - MATCH,DIRECT\n",
                 port, provider
             );
-            common::test_configs(vec![yaml], "127.0.0.1", port)
+            // The fixtures are the data directory, which a provider's
+            // path stays in, as in Mihomo.
+            common::test_configs_in(
+                vec![yaml],
+                "127.0.0.1",
+                port,
+                std::path::Path::new(fixtures),
+            )
         });
         assert_eq!(result.is_err(), rejected, "{}: {:?}", provider, result);
     }

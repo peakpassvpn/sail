@@ -4,6 +4,11 @@
 
 Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只含该字段的配置实测。支持：读取（或仅因取值被拒）。警告：丢弃并警告。报错：未实现，拒绝。
 
+## 有意的差异
+
+- `size-limit`：下载超过它即失败，保留原有内容；Mihomo 会在上限处截断并读取截断后的内容。
+- 下载不跟随从 https 到 http 或到其他协议的重定向（Mihomo 的客户端会跟随）：请求携带的内容（如订阅令牌）会以明文传出。
+
 | 部分 | 字段 | 支持 | 警告 | 报错 |
 |---|--:|--:|--:|--:|
 | `clash-for-android` | 3 | 0 | 3 | 0 |
@@ -63,13 +68,13 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `proxies[wireguard]` | 64 | 0 | 0 | 64 |
 | `proxies[zerotier]` | 30 | 0 | 0 | 30 |
 | `proxy-groups` | 23 | 18 | 5 | 0 |
-| `proxy-providers` | 39 | 27 | 9 | 3 |
-| `rule-providers` | 11 | 8 | 3 | 0 |
+| `proxy-providers` | 39 | 28 | 8 | 3 |
+| `rule-providers` | 11 | 9 | 2 | 0 |
 | `sniffer` | 12 | 12 | 0 | 0 |
 | `tls` | 7 | 0 | 7 | 0 |
 | `tuic-server` | 13 | 0 | 0 | 13 |
 | `tun` | 50 | 33 | 10 | 7 |
-| **All** | **2077** | **458** | **139** | **1480** |
+| **All** | **2077** | **460** | **137** | **1480** |
 
 
 ## `general`
@@ -1364,12 +1369,12 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `proxy-providers[*].override.udp` | 支持 |  |
 | `proxy-providers[*].override.udp-over-tcp` | 支持 |  |
 | `proxy-providers[*].override.up` | 支持 |  |
-| `proxy-providers[*].path` | 支持 |  |
+| `proxy-providers[*].path` | 支持 | 须在数据目录内，与 Mihomo 限制在其主目录内相同。 |
 | `proxy-providers[*].payload` | 警告 | proxy-providers.p.payload: sail does not implement this field; ignored |
 | `proxy-providers[*].proxy` | 支持 | outbound_providers[0]: download_detour: outbound [x] does not exist |
-| `proxy-providers[*].size-limit` | 警告 | proxy-providers.p.size-limit: sail does not implement this field; ignored |
+| `proxy-providers[*].size-limit` | 支持 | 下载超过它即失败，保留正在使用的内容。 |
 | `proxy-providers[*].type` | 支持 | proxy-providers.p.type: "x" is none of http, file and inline |
-| `proxy-providers[*].url` | 支持 | outbound_providers[0]: url: "x" is not an http(s) URL |
+| `proxy-providers[*].url` | 支持 | outbound_providers[0]: url: (a URL not shown) is not an http(s) URL |
 
 ## `general`
 
@@ -1386,13 +1391,13 @@ Mihomo v1.19.31 接受的全部字段，以及 sail 如何读取：逐个以只�
 | `rule-providers[*].format` | 支持 | rule-providers.r.format: "x" is none of yaml, text and mrs |
 | `rule-providers[*].header` | 支持 |  |
 | `rule-providers[*].interval` | 支持 |  |
-| `rule-providers[*].path` | 支持 |  |
+| `rule-providers[*].path` | 支持 | 须在数据目录内，与 Mihomo 限制在其主目录内相同。 |
 | `rule-providers[*].path-in-bundle` | 警告 | rule-providers.r.path-in-bundle: sail does not implement this field; ignored |
 | `rule-providers[*].payload` | 警告 | rule-providers.r.payload: sail does not implement this field; ignored |
 | `rule-providers[*].proxy` | 支持 | rule-providers.r.proxy: no proxy or group is named "x" |
-| `rule-providers[*].size-limit` | 警告 | rule-providers.r.size-limit: sail does not implement this field; ignored |
+| `rule-providers[*].size-limit` | 支持 | 下载超过它即失败，保留正在使用的内容。 |
 | `rule-providers[*].type` | 支持 | rule-providers.r.type: "x" is none of http, file and inline |
-| `rule-providers[*].url` | 支持 | route.rule_set[0]: url: "x" is not an http(s) URL |
+| `rule-providers[*].url` | 支持 | route.rule_set[0]: url: (a URL not shown) is not an http(s) URL |
 
 ## `general`
 

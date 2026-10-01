@@ -81,6 +81,7 @@ async fn get(conn: &Conn<'_>, via: &Via, url: &str, options: &Options) -> Result
     let limits = Limits {
         timeout: options.timeout,
         max_body: options.max_size,
+        max_body_is: "the size allowed",
     };
     match http::get_with(conn, via, &options.headers, url, None, limits).await? {
         Response::Body { data, .. } => Ok(data),
@@ -123,7 +124,11 @@ mod tests {
             ..Default::default()
         };
         let err = fetch(&url, &small).await.unwrap_err().to_string();
-        assert!(err.contains("larger than 4 bytes"), "{}", err);
+        assert!(
+            err.contains("larger than the size allowed, 4 bytes"),
+            "{}",
+            err
+        );
 
         let url = serve(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n").await;
         let err = fetch(&url, &Options::default())
@@ -173,6 +178,23 @@ mod tests {
             .to_string();
         assert!(
             err.contains("bad Location") && !err.contains("s3cret"),
+            "{}",
+            err
+        );
+    }
+
+    #[tokio::test]
+    async fn a_redirect_out_of_http_is_refused_and_names_no_path() {
+        let url = serve(
+            b"HTTP/1.1 302 Found\r\nLocation: ftp://files.example/s3cret\r\nContent-Length: 0\r\n\r\n",
+        )
+        .await;
+        let err = fetch(&url, &Options::default())
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("redirect to a ftp: URL refused") && !err.contains("s3cret"),
             "{}",
             err
         );

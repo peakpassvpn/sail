@@ -66,7 +66,7 @@ impl Format {
         match self {
             Format::SingBox => singbox::parse(s),
             #[cfg(feature = "config-clash")]
-            Format::Clash => clash::parse(s),
+            Format::Clash => clash::parse_in(s, Some(&host.data_dir())),
             #[cfg(not(feature = "config-clash"))]
             Format::Clash => Err(anyhow!(
                 "Clash configurations need the config-clash feature, which is not compiled in"

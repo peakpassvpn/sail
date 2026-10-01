@@ -4,6 +4,11 @@
 
 Every field Mihomo v1.19.31 takes, and how sail reads it: measured by reading a configuration of that field alone. Supported: read (or refused for its value). Warned: dropped with a warning. Error: refused as not implemented.
 
+## Deliberate differences
+
+- `size-limit`: a download past it fails, and what was held before is kept; Mihomo cuts the body at the limit and reads what is left of it.
+- A download is not redirected from https to http, nor to another scheme, which Mihomo's client follows: what the request carries, a subscription's token, would go in the clear.
+
 | Section | Fields | Supported | Warned | Error |
 |---|--:|--:|--:|--:|
 | `clash-for-android` | 3 | 0 | 3 | 0 |
@@ -63,13 +68,13 @@ Every field Mihomo v1.19.31 takes, and how sail reads it: measured by reading a 
 | `proxies[wireguard]` | 64 | 0 | 0 | 64 |
 | `proxies[zerotier]` | 30 | 0 | 0 | 30 |
 | `proxy-groups` | 23 | 18 | 5 | 0 |
-| `proxy-providers` | 39 | 27 | 9 | 3 |
-| `rule-providers` | 11 | 8 | 3 | 0 |
+| `proxy-providers` | 39 | 28 | 8 | 3 |
+| `rule-providers` | 11 | 9 | 2 | 0 |
 | `sniffer` | 12 | 12 | 0 | 0 |
 | `tls` | 7 | 0 | 7 | 0 |
 | `tuic-server` | 13 | 0 | 0 | 13 |
 | `tun` | 50 | 33 | 10 | 7 |
-| **All** | **2077** | **458** | **139** | **1480** |
+| **All** | **2077** | **460** | **137** | **1480** |
 
 
 ## `general`
@@ -1364,12 +1369,12 @@ Every field Mihomo v1.19.31 takes, and how sail reads it: measured by reading a 
 | `proxy-providers[*].override.udp` | Supported |  |
 | `proxy-providers[*].override.udp-over-tcp` | Supported |  |
 | `proxy-providers[*].override.up` | Supported |  |
-| `proxy-providers[*].path` | Supported |  |
+| `proxy-providers[*].path` | Supported | In the data directory, as Mihomo keeps it in its home. |
 | `proxy-providers[*].payload` | Warned | proxy-providers.p.payload: sail does not implement this field; ignored |
 | `proxy-providers[*].proxy` | Supported | outbound_providers[0]: download_detour: outbound [x] does not exist |
-| `proxy-providers[*].size-limit` | Warned | proxy-providers.p.size-limit: sail does not implement this field; ignored |
+| `proxy-providers[*].size-limit` | Supported | Past it the download fails, and the copy in use is kept. |
 | `proxy-providers[*].type` | Supported | proxy-providers.p.type: "x" is none of http, file and inline |
-| `proxy-providers[*].url` | Supported | outbound_providers[0]: url: "x" is not an http(s) URL |
+| `proxy-providers[*].url` | Supported | outbound_providers[0]: url: (a URL not shown) is not an http(s) URL |
 
 ## `general`
 
@@ -1386,13 +1391,13 @@ Every field Mihomo v1.19.31 takes, and how sail reads it: measured by reading a 
 | `rule-providers[*].format` | Supported | rule-providers.r.format: "x" is none of yaml, text and mrs |
 | `rule-providers[*].header` | Supported |  |
 | `rule-providers[*].interval` | Supported |  |
-| `rule-providers[*].path` | Supported |  |
+| `rule-providers[*].path` | Supported | In the data directory, as Mihomo keeps it in its home. |
 | `rule-providers[*].path-in-bundle` | Warned | rule-providers.r.path-in-bundle: sail does not implement this field; ignored |
 | `rule-providers[*].payload` | Warned | rule-providers.r.payload: sail does not implement this field; ignored |
 | `rule-providers[*].proxy` | Supported | rule-providers.r.proxy: no proxy or group is named "x" |
-| `rule-providers[*].size-limit` | Warned | rule-providers.r.size-limit: sail does not implement this field; ignored |
+| `rule-providers[*].size-limit` | Supported | Past it the download fails, and the copy in use is kept. |
 | `rule-providers[*].type` | Supported | rule-providers.r.type: "x" is none of http, file and inline |
-| `rule-providers[*].url` | Supported | route.rule_set[0]: url: "x" is not an http(s) URL |
+| `rule-providers[*].url` | Supported | route.rule_set[0]: url: (a URL not shown) is not an http(s) URL |
 
 ## `general`
 

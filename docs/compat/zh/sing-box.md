@@ -10,6 +10,8 @@ sail 原样读取 sing-box 配置。下表列出 sing-box v1.14.2 接受的全�
 
 说明列取自 `sail/src/config/singbox/upstream.rs`，否则为 sail 给出的错误，均保留英文原文。
 
+有意的差异：远程规则集与出站订阅的下载不跟随从 https 到 http 或到其他协议的重定向（sing-box 的客户端会跟随），否则请求携带的内容（如订阅令牌）会以明文传出。
+
 ## 汇总
 
 | 部分 | 字段数 | 支持 | 警告 | 报错 |
@@ -3126,6 +3128,7 @@ sail 接受而 sing-box 没有的字段和类型。
 | `route.rules[action=resolve].ignore_failure` | A domain that does not resolve has no addresses, and matching goes on |
 | `route.rules[action=resolve].on_demand` | Resolves, or sniffs, only when a later rule needs it (Surge and Mihomo) |
 | `route.rule_set[remote].behavior` | What each line of a Clash rule-provider is |
+| `route.rule_set[remote].size_limit` | The most a download of it may be, in bytes (Mihomo's size-limit); past it the download fails and the rules in use are kept |
 | `route.rule_set[inline].rules[].ip_asn` | As a routing rule's |
 | `route.rule_set[inline].rules[].http_user_agent` | As a routing rule's |
 | `route.rule_set[inline].rules[].process_name_regex` | As a routing rule's |

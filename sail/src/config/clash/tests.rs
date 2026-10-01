@@ -526,10 +526,9 @@ fn rule_providers_are_rule_sets() {
         .iter()
         .find(|r| r["rule_set"] == serde_json::json!(["geoip:private"]));
     assert!(geoip.unwrap().get("no_resolve").is_none());
-    assert_eq!(
-        config.warnings,
-        ["rule-providers.ips.size-limit: sail does not implement this field; ignored"]
-    );
+    // Mihomo's size-limit is the rule-set's own.
+    assert_eq!(set("ips")["size_limit"], 1000);
+    assert!(config.warnings.is_empty(), "{:?}", config.warnings);
 }
 
 #[test]
@@ -2207,4 +2206,61 @@ fn socks5_over_tls_is_refused() {
         err
     );
     load("proxies: [{ name: S, type: socks5, server: a.example, port: 1080, tls: false }]\n");
+}
+
+/// Mihomo's `size-limit` bounds a download, none at 0 as in Mihomo; a
+/// provider's `path` stays in the data directory, as Mihomo's IsSafePath
+/// keeps it in its home.
+#[test]
+fn a_provider_s_size_limit_and_path() {
+    let config = load(
+        "proxy-providers:\n\
+         \x20 a: { type: http, url: https://p.example/a.yaml, path: ./a.yaml, size-limit: 1000 }\n\
+         \x20 b: { type: http, url: https://p.example/b.yaml, size-limit: 0 }\n\
+         \x20 c: { type: file, path: ./sub/c.yaml, size-limit: 1000 }\n\
+         rule-providers:\n\
+         \x20 r: { type: http, behavior: domain, url: https://p.example/r.yaml, size-limit: 2000 }\n\
+         proxy-groups: [{ name: G, type: select, use: [a, b, c] }]\n\
+         rules:\n  - RULE-SET,r,DIRECT\n  - MATCH,G\n",
+    );
+    let providers = serde_json::to_value(&config.outbound_providers).unwrap();
+    assert_eq!(providers[0]["size_limit"], 1000);
+    assert!(providers[1].get("size_limit").is_none(), "{}", providers[1]);
+    assert!(providers[2].get("size_limit").is_none(), "{}", providers[2]);
+    assert_eq!(providers[2]["path"], "./sub/c.yaml");
+    let sets = serde_json::to_value(&config.route.rule_set).unwrap();
+    assert_eq!(sets[0]["size_limit"], 2000);
+    assert!(
+        config.warnings.iter().all(|w| !w.contains("size-limit")),
+        "{:?}",
+        config.warnings
+    );
+
+    for (yaml, message) in [
+        (
+            "proxy-providers: { a: { type: file, path: ../../etc/passwd } }\n",
+            "proxy-providers.a.path: \"../../etc/passwd\" is not in the data directory",
+        ),
+        (
+            "proxy-providers: { a: { type: file, path: /etc/passwd } }\n",
+            "proxy-providers.a.path: \"/etc/passwd\" is not in the data directory",
+        ),
+        (
+            "rule-providers: { r: { type: http, behavior: domain, url: https://p.example/r, path: x/../../y } }\n",
+            "rule-providers.r.path: \"x/../../y\" is not in the data directory",
+        ),
+    ] {
+        let err = error(yaml);
+        assert!(err.contains(message), "{}", err);
+    }
+    // An absolute path in the data directory is taken, as Mihomo takes one
+    // in its home.
+    let yaml = "proxy-providers: { a: { type: file, path: /srv/sail/data/a.yaml } }\n\
+                proxy-groups: [{ name: G, type: select, use: [a] }]\n";
+    let config = super::parse_in(yaml, Some(std::path::Path::new("/srv/sail/data"))).unwrap();
+    assert_eq!(
+        config.outbound_providers[0].path.as_deref(),
+        Some("/srv/sail/data/a.yaml")
+    );
+    assert!(super::parse_in(yaml, Some(std::path::Path::new("/srv/sail/other"))).is_err());
 }

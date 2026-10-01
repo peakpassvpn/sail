@@ -59,7 +59,6 @@ const PROVIDER: &[(&str, Tier)] = &[
     ("payload", Ignored),
     // Groups test their members themselves.
     ("health-check", Ignored),
-    ("size-limit", Ignored),
     // Its contents would not read.
     ("age-secret-key", Unsupported),
 ];
@@ -77,7 +76,7 @@ pub fn lower(doc: &mut Fields, out: &mut Lowered, warnings: &mut Vec<String>) ->
         if let Some(url) = health_url(&mut f)? {
             providers.health_urls.insert(name.clone(), url);
         }
-        let provider = provider(&name, &mut f, warnings)?;
+        let provider = provider(&name, &mut f, warnings, out.home.as_deref())?;
         f.finish(PROVIDER, |_| false, warnings)?;
         out.outbound_providers.push(provider);
         providers.names.push(name);
@@ -100,7 +99,12 @@ fn health_url(f: &mut Fields) -> Result<Option<String>> {
     Ok(url.filter(|u| !u.is_empty()))
 }
 
-fn provider(name: &str, f: &mut Fields, warnings: &mut Vec<String>) -> Result<Value> {
+fn provider(
+    name: &str,
+    f: &mut Fields,
+    warnings: &mut Vec<String>,
+    home: Option<&std::path::Path>,
+) -> Result<Value> {
     let mut p = Map::new();
     p.insert("tag".into(), json!(name));
     let kind = f
@@ -133,8 +137,12 @@ fn provider(name: &str, f: &mut Fields, warnings: &mut Vec<String>) -> Result<Va
                 .ok_or_else(|| anyhow!("{}: missing", f.at("url")))?;
             p.insert("type".into(), json!("remote"));
             p.insert("url".into(), json!(url));
-            // Where Mihomo keeps its copy; sail keeps its own.
-            f.take("path");
+            // Where Mihomo keeps its copy; sail keeps its own, but takes
+            // no path Mihomo would refuse.
+            super::provider::home_path(f, "path", home)?;
+            if let Some(limit) = super::provider::size_limit(f)? {
+                p.insert("size_limit".into(), json!(limit));
+            }
             if let Some(seconds) = interval {
                 p.insert("update_interval".into(), json!(format!("{}s", seconds)));
             }
@@ -157,9 +165,10 @@ fn provider(name: &str, f: &mut Fields, warnings: &mut Vec<String>) -> Result<Va
             }
         }
         "file" => {
-            let path = f
-                .string("path")?
+            let path = super::provider::home_path(f, "path", home)?
                 .ok_or_else(|| anyhow!("{}: missing", f.at("path")))?;
+            // A file's is never downloaded, as in Mihomo.
+            f.take("size-limit");
             p.insert("type".into(), json!("local"));
             p.insert("path".into(), json!(path));
             if let Some(seconds) = interval {

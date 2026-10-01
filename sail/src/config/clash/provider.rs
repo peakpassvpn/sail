@@ -161,7 +161,6 @@ impl Sets {
 /// `path-in-bundle` names where Mihomo finds the copy to start with, in a
 /// bundle of its own, where sail downloads it.
 const PROVIDER: &[(&str, Tier)] = &[
-    ("size-limit", Ignored),
     ("path-in-bundle", Ignored),
     // Read by inline ones alone, and passed over by the others, as Mihomo.
     ("payload", Ignored),
@@ -182,7 +181,7 @@ pub fn lower(
         let mut f = providers
             .map(&name)?
             .ok_or_else(|| anyhow!("{}: a map, not nothing", at))?;
-        let set = provider(&name, &mut f, policies)?;
+        let set = provider(&name, &mut f, policies, out.home.as_deref())?;
         f.finish(PROVIDER, |_| false, warnings)?;
         sets.providers.insert(name, set.1);
         out.rule_sets.push(set.0);
@@ -190,7 +189,12 @@ pub fn lower(
     Ok(sets)
 }
 
-fn provider(name: &str, f: &mut Fields, policies: &Policies) -> Result<(Value, ClashBehavior)> {
+fn provider(
+    name: &str,
+    f: &mut Fields,
+    policies: &Policies,
+    home: Option<&std::path::Path>,
+) -> Result<(Value, ClashBehavior)> {
     let behavior = match f.string("behavior")?.as_deref() {
         Some("domain") => ClashBehavior::Domain,
         Some("ipcidr") => ClashBehavior::Ipcidr,
@@ -238,8 +242,12 @@ fn provider(name: &str, f: &mut Fields, policies: &Policies) -> Result<(Value, C
             set.insert("url".into(), json!(url));
             set.insert("format".into(), json!(format));
             set.insert("behavior".into(), json!(behavior));
-            // Where Mihomo keeps its copy; sail keeps its own.
-            f.take("path");
+            // Where Mihomo keeps its copy; sail keeps its own, but takes
+            // no path Mihomo would refuse.
+            home_path(f, "path", home)?;
+            if let Some(limit) = size_limit(f)? {
+                set.insert("size_limit".into(), json!(limit));
+            }
             if let Some(seconds) = f.int::<u64>("interval")?.filter(|s| *s > 0) {
                 set.insert("update_interval".into(), json!(format!("{}s", seconds)));
             }
@@ -269,9 +277,10 @@ fn provider(name: &str, f: &mut Fields, policies: &Policies) -> Result<(Value, C
             }
         }
         "file" => {
-            let path = f
-                .string("path")?
-                .ok_or_else(|| anyhow!("{}: missing", f.at("path")))?;
+            let path =
+                home_path(f, "path", home)?.ok_or_else(|| anyhow!("{}: missing", f.at("path")))?;
+            // A file's is never downloaded, as in Mihomo.
+            f.take("size-limit");
             set.insert("type".into(), json!("local"));
             set.insert("path".into(), json!(path));
             set.insert("format".into(), json!(format));
@@ -368,6 +377,52 @@ pub fn domain_conditions(patterns: Vec<String>, tags: Vec<String>) -> Vec<Map<St
         conditions.push(rule);
     }
     conditions
+}
+
+/// A provider's or rule-provider's `path`, kept where Mihomo keeps it: in
+/// `home`, the data directory (Mihomo's home), as its `IsSafePath` has it.
+/// A relative path may not climb out of it; an absolute one must be in it,
+/// and without a home to tell, one is refused.
+pub(super) fn home_path(
+    f: &mut Fields,
+    key: &str,
+    home: Option<&std::path::Path>,
+) -> Result<Option<String>> {
+    use std::path::{Component, Path, PathBuf};
+    let Some(path) = f.string(key)? else {
+        return Ok(None);
+    };
+    // The path made plain, `.` and `..` taken away, as Go's Clean.
+    let mut plain = PathBuf::new();
+    let mut climbed = false;
+    for part in Path::new(&path).components() {
+        match part {
+            Component::ParentDir => climbed |= !plain.pop() || plain.as_os_str().is_empty(),
+            Component::CurDir => {}
+            other => plain.push(other.as_os_str()),
+        }
+    }
+    let inside = if Path::new(&path).is_absolute() {
+        home.is_some_and(|home| plain.starts_with(home) && plain != home)
+    } else {
+        !climbed && !plain.as_os_str().is_empty()
+    };
+    if !inside {
+        return Err(anyhow!(
+            "{}: {:?} is not in the data directory, which a provider's path stays in, \
+             as in Mihomo",
+            f.at(key),
+            path
+        ));
+    }
+    Ok(Some(path))
+}
+
+/// Mihomo's `size-limit`: the bytes a download may be, none at 0 or less.
+pub(super) fn size_limit(f: &mut Fields) -> Result<Option<u64>> {
+    Ok(f.int::<i64>("size-limit")?
+        .filter(|n| *n > 0)
+        .map(|n| n as u64))
 }
 
 fn regex_escape(s: &str) -> String {

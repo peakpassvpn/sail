@@ -211,9 +211,7 @@ fn download_options() -> crate::fetch::Options {
 /// The host of `url` alone, for errors: a URL may carry a secret.
 #[cfg(feature = "http-client")]
 fn host_of(url: &str) -> &str {
-    let rest = url.split_once("://").map_or(url, |(_, rest)| rest);
-    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
-    authority.rsplit('@').next().unwrap_or_default()
+    crate::common::redact::host(url)
 }
 
 /// Downloads `url` directly into the place of `asset` (see [`install`]);

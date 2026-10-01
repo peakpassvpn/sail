@@ -369,6 +369,7 @@ Rust 定义：[`RuleSet`](https://github.com/peakpassvpn/sail/blob/dev/sail/src/
 | `update_interval` | duration | 未设置 | 支持 | `remote`: how often it is downloaded again; 1d when unset. |
 | `download_detour` | string | 未设置 | 支持 (sing-box 已弃用) | `remote`: the outbound it is downloaded through; deprecated in sing-box for `http_client`. |
 | `behavior` | string, 取值 `domain`, `ipcidr`, `classical` | 未设置 | sail 扩展 | A sail extension, for the Clash formats: what each line is, `domain`, `ipcidr` or `classical` (a Clash rule without its target). |
+| `size_limit` | number | 未设置 | sail 扩展 | `remote`, a sail extension (Mihomo's `size-limit`): the most a download of it may be, in bytes; past it the download fails and the copy in use is kept. Unset, the download client's own cap. |
 
 <a id="route-rule-set-remote-http-client"></a>
 

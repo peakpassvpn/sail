@@ -81,6 +81,17 @@ impl std::fmt::Debug for SubStore {
 const SUB_STORE: &str = "sub.store";
 
 impl Host {
+    /// The directory data files are looked up in: `data_dir`, or the
+    /// executable's.
+    pub fn data_dir(&self) -> PathBuf {
+        self.data_dir.clone().unwrap_or_else(|| {
+            std::env::current_exe()
+                .ok()
+                .and_then(|exe| exe.parent().map(Path::to_path_buf))
+                .unwrap_or_default()
+        })
+    }
+
     /// `url` as it is downloaded (outbound providers, remote rule-sets): one
     /// whose host is `sub.store` from `sub_store`, its path and query
     /// kept; any other as it is. Without `sub_store`, one of `sub.store`
@@ -169,12 +180,7 @@ pub type SyncRuntimeEnv = Arc<RuntimeEnv>;
 impl RuntimeEnv {
     /// The directory data files are looked up in.
     pub fn data_dir(&self) -> PathBuf {
-        self.host.data_dir.clone().unwrap_or_else(|| {
-            std::env::current_exe()
-                .ok()
-                .and_then(|exe| exe.parent().map(Path::to_path_buf))
-                .unwrap_or_default()
-        })
+        self.host.data_dir()
     }
 
     /// `path` in the data directory, unless it is absolute.

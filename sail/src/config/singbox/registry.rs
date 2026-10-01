@@ -1174,6 +1174,11 @@ const EXTENSIONS: &[(&str, &str, &str)] = &[
         "What each line of a Clash rule-provider is",
     ),
     (
+        "route.rule_set[remote].size_limit",
+        "1048576",
+        "The most a download of it may be, in bytes (Mihomo's size-limit); past it the download fails and the rules in use are kept",
+    ),
+    (
         "route.rule_set[inline].rules[].ip_asn",
         "[13335]",
         "As a routing rule's",
@@ -1391,7 +1396,11 @@ with how sail treats it, measured by reading and building a configuration that s
 - **Warned**: dropped with a warning: ignoring it changes no routing or security.
 - **Error**: the configuration is refused: ignoring it would.
 
-Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail gives.",
+Notes are from `sail/src/config/singbox/upstream.rs`, or else the error sail gives.
+
+A deliberate difference: a remote rule-set's or outbound provider's download is not redirected \
+from https to http, nor to another scheme, which sing-box's client follows: what the request \
+carries, a subscription's token, would go in the clear.",
     summary: "## Summary",
     area: "Section",
     total: "Fields",
@@ -1422,7 +1431,9 @@ const ZH: Words = Words {
 - **警告**：忽略并给出警告：忽略它不改变路由或安全。
 - **报错**：拒绝该配置：忽略它会改变路由或安全。
 
-说明列取自 `sail/src/config/singbox/upstream.rs`，否则为 sail 给出的错误，均保留英文原文。",
+说明列取自 `sail/src/config/singbox/upstream.rs`，否则为 sail 给出的错误，均保留英文原文。
+
+有意的差异：远程规则集与出站订阅的下载不跟随从 https 到 http 或到其他协议的重定向（sing-box 的客户端会跟随），否则请求携带的内容（如订阅令牌）会以明文传出。",
     summary: "## 汇总",
     area: "部分",
     total: "字段数",
