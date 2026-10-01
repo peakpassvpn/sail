@@ -1373,6 +1373,16 @@ fn quic_outbound(
     dialer: &Dialer,
     env: &RuntimeEnv,
 ) -> Result<AnyOutboundHandler> {
+    // As with Hysteria2 and TUIC: the QUIC handshake is quinn-btls's own,
+    // with no uTLS ClientHello, ECH or REALITY.
+    #[cfg(feature = "outbound-quic")]
+    if let Some(field) = crate::transport::quic::unsupported(tls) {
+        return Err(anyhow!(
+            "[{}] outbound: tls.{}: not supported over the quic transport",
+            tag,
+            field
+        ));
+    }
     #[cfg(feature = "outbound-quic")]
     return Ok(crate::adapter::outbound::HandlerBuilder::default()
         .tag(format!("{}/quic", tag))

@@ -184,6 +184,13 @@ pub fn inbound_crypto(
             tag
         ));
     }
+    // Only REALITY uses `server_name`; as over TCP, it is ignored aloud.
+    if tls.server_name.is_some() {
+        tracing::warn!(
+            "[{}] inbound: tls.server_name: a server does not use it; ignored, as sing-box",
+            tag
+        );
+    }
     tls.versions(tag)?
         .require_tls13("QUIC")
         .map_err(|e| anyhow!("[{}] inbound: tls.{}", tag, e))?;

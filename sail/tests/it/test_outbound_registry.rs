@@ -272,6 +272,53 @@ fn block_errors_name_their_path() {
     );
 }
 
+/// The quic transport's handshake takes no uTLS ClientHello, ECH or
+/// REALITY: each is refused, as Hysteria2 and TUIC refuse them, rather than
+/// dropped.
+#[test]
+fn the_quic_transport_refuses_what_its_handshake_cannot_do() {
+    let trojan = |tls: serde_json::Value| {
+        let mut tls_block = json!({ "enabled": true, "server_name": "example.com" });
+        tls_block
+            .as_object_mut()
+            .unwrap()
+            .extend(tls.as_object().unwrap().clone());
+        outbound(
+            "t",
+            "trojan",
+            json!({ "server": "1.2.3.4", "server_port": 443, "password": "p",
+                "tls": tls_block, "transport": { "type": "quic" } }),
+        )
+    };
+    for (field, tls) in [
+        (
+            "utls",
+            json!({ "utls": { "enabled": true, "fingerprint": "firefox" } }),
+        ),
+        (
+            "ech",
+            json!({ "ech": { "enabled": true, "config": "AAT+DQBB" } }),
+        ),
+        (
+            "reality",
+            json!({ "reality": { "enabled": true,
+                "public_key": "jNXHt1yRo0vDuchQlIP6Z0ZvjT3KtzVI-T4E7RoLJS0" } }),
+        ),
+    ] {
+        let err = manager(&[trojan(tls)]).err().expect(field);
+        assert_eq!(
+            err.to_string(),
+            format!(
+                "[t] outbound: tls.{}: not supported over the quic transport",
+                field
+            )
+        );
+    }
+    // Disabled, or left out, they are no obstacle.
+    manager(&[trojan(json!({}))]).unwrap();
+    manager(&[trojan(json!({ "utls": { "enabled": false } }))]).unwrap();
+}
+
 #[test]
 fn shadowsocks_takes_the_obfs_plugin_and_nothing_else() {
     manager(&[ss(
